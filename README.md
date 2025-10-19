@@ -1,4 +1,4 @@
-# Write Documentation
+# Mochi AI
 
 ## Setup
 
