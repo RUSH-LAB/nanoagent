@@ -11,8 +11,8 @@ import {themes as prismThemes} from 'prism-react-renderer';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'Mochi AI',
-  tagline: 'Intelligent AI Solutions',
+  title: 'Mochi Lab',
+  tagline: 'Innovative Research & Development',
   favicon: 'img/mochi.jpg',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
@@ -21,15 +21,15 @@ const config = {
   },
 
   // Set the production url of your site here
-  url: 'https://mochi-ai.com',
+  url: 'https://mochi-lab.com',
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
   baseUrl: '/',
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'mochiai', // Usually your GitHub org/user name.
-  projectName: 'mochi-ai', // Usually your repo name.
+  organizationName: 'zeyuyang8', // Usually your GitHub org/user name.
+  projectName: 'mochi-lab', // Usually your repo name.
 
   onBrokenLinks: 'throw',
   markdown: {
@@ -56,7 +56,7 @@ const config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/zeyuyang8/mochi-ai/tree/main/mochi-ai/',
+            'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
           // Add math support to docs with KaTeX
           remarkPlugins: [
             [require('remark-math'), { strict: false }]
@@ -107,7 +107,7 @@ const config = {
         id: 'math',
         path: 'math',
         routeBasePath: 'math',
-        editUrl: 'https://github.com/zeyuyang8/mochi-ai/tree/main/mochi-ai/',
+        editUrl: 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
         remarkPlugins: [
           [require('remark-math'), { strict: false }]
         ],
@@ -137,7 +137,7 @@ const config = {
           type: ['rss', 'atom'],
           xslt: true,
         },
-        editUrl: 'https://github.com/zeyuyang8/mochi-ai/tree/main/mochi-ai/',
+        editUrl: 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
         onInlineTags: 'warn',
         onInlineAuthors: 'warn',
         onUntruncatedBlogPosts: 'warn',
@@ -171,7 +171,7 @@ const config = {
           type: ['rss', 'atom'],
           xslt: true,
         },
-        editUrl: 'https://github.com/zeyuyang8/mochi-ai/tree/main/mochi-ai/',
+        editUrl: 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
         remarkPlugins: [require('remark-math')],
         rehypePlugins: [
           [require('rehype-katex'), { 
@@ -202,9 +202,9 @@ const config = {
       // Replace with your project's social card
       image: 'img/mochi.jpg',
       navbar: {
-        title: 'Mochi AI',
+        title: 'Mochi Lab',
         logo: {
-          alt: 'Mochi AI Logo',
+          alt: 'Mochi Lab Logo',
           src: 'img/mochi.jpg',
         },
         items: [
@@ -221,7 +221,7 @@ const config = {
             label: 'Math',
           },
           {
-            href: 'https://github.com/zeyuyang8/mochi-ai',
+            href: 'https://github.com/zeyuyang8/mochi-lab',
             label: 'GitHub',
             position: 'right',
           },
@@ -230,7 +230,7 @@ const config = {
       },
       footer: {
         style: 'dark',
-        copyright: `Copyright © ${new Date().getFullYear()} Mochi AI. Built with Docusaurus.`,
+        copyright: `Copyright © ${new Date().getFullYear()} Mochi Lab. Built with Docusaurus.`,
       },
       prism: {
         theme: prismThemes.github,

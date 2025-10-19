@@ -53,8 +53,8 @@ function HomepageHeader() {
 export default function Home() {
   return (
     <Layout
-      title="Rush Lab Archive"
-      description="A collection of research and projects from Rush Lab">
+      title="Mochi Lab"
+      description="A collection of research and projects from Mochi Lab">
       <HomepageHeader />
       <main>
         <HomepageFeatures />
