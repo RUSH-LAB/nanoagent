@@ -32,6 +32,7 @@ const config = {
   projectName: 'mochi-lab', // Usually your repo name.
 
   onBrokenLinks: 'throw',
+  onBrokenAnchors: 'ignore',
   markdown: {
     hooks: {
       onBrokenMarkdownLinks: 'warn',
