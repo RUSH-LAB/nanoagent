@@ -24,8 +24,21 @@ url={https://openreview.net/forum?id=wWK7yXkULyh}
 
 <!-- truncate -->
 
-<div id="eq:pythagorean-theorem">
-**Theorem** (*Pythagoras*). $a^2 + b^2 = c^2$ where $a$ and $b$ are the legs of a right triangle and $c$ is the hypotenuse.
-</div>
+import Theorem, { Equation } from '@site/src/components/Math';
 
-The [Pythagorean theorem](#eq:pythagorean-theorem) relates the sides of a right triangle.
+<Theorem id="thm:pythagorean_theorem" name="Pythagorean Theorem">
+$a^2 + b^2 = c^2$ where $a$ and $b$ are the legs of a right triangle and $c$ is the hypotenuse. Pythagorean Theorem is a fundamental theorem in geometry. It is used to calculate the length of the hypotenuse of a right triangle.
+</Theorem>
+
+The [Pythagorean theorem](#thm:pythagorean_theorem) relates the sides of a right triangle.
+
+<Equation id="eq:quadratic_formula">
+$$
+\begin{aligned}
+x &= \frac{-b \pm \sqrt{b^2 - 4ac}}{2a} \\
+  &= \alpha \pm \beta
+\end{aligned}
+$$
+</Equation>
+
+Equation [](#eq:quadratic_formula) gives the solutions to a quadratic equation.

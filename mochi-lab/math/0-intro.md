@@ -5,10 +5,6 @@ Welcome to the coding journey! This site contains tutorials and guides for vario
 ## What You'll Learn
 
 - **[Introduction to Computing](./intro-to-comp/)** - Basic concepts of computer architecture and programming languages
-- **[Deep Learning with PyTorch](./torch/)** - PyTorch tutorials and guides for deep learning
-- **[CUDA and GPU](./cuda-and-gpu/)** - GPU programming with CUDA
-- **[Programming in Assembly](./assembly/)** - Low-level programming concepts with Assembly
-- **[Supplementary Materials](./supplement/)** - Additional resources and materials
 
 ## Getting Started
 

@@ -31,7 +31,7 @@ function HomepageHeader() {
           </Link>
           <Link
             className="button button--secondary button--lg margin-right--md"
-            to="/math">
+            to="/math/intro">
             <Translate>Math</Translate>
           </Link>
           <Link
