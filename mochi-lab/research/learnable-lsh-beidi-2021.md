@@ -30,7 +30,7 @@ import Theorem, { Equation } from '@site/src/components/Math';
 $a^2 + b^2 = c^2$ where $a$ and $b$ are the legs of a right triangle and $c$ is the hypotenuse. Pythagorean Theorem is a fundamental theorem in geometry. It is used to calculate the length of the hypotenuse of a right triangle.
 </Theorem>
 
-The [Pythagorean theorem](#thm:pythagorean_theorem) relates the sides of a right triangle.
+[](#thm:pythagorean_theorem) relates the sides of a right triangle.
 
 <Equation id="eq:quadratic_formula">
 $$
@@ -41,4 +41,4 @@ x &= \frac{-b \pm \sqrt{b^2 - 4ac}}{2a} \\
 $$
 </Equation>
 
-Equation [](#eq:quadratic_formula) gives the solutions to a quadratic equation.
+[](#eq:quadratic_formula) gives the solutions to a quadratic equation.

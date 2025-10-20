@@ -24,7 +24,14 @@ export function Theorem({ id, name, children }) {
       }
     });
 
-    setNumber(parseInt(ref.current.dataset.number || '0'));
+    const newNumber = parseInt(ref.current.dataset.number || '0');
+    setNumber(newNumber);
+
+    // Update all links pointing to this theorem
+    const links = document.querySelectorAll(`a[href="#${id}"]`);
+    links.forEach(link => {
+      link.textContent = `Theorem ${newNumber}`;
+    });
 
     return () => {
       theoremRegistry.delete(id);
@@ -37,14 +44,14 @@ export function Theorem({ id, name, children }) {
       id={id}
       style={{
         margin: '1em 0',
-        fontFamily: '"Times New Roman", serif',
+        fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
         fontSize: '1.0rem',
         backgroundColor: '#f9f9f9',
         border: '1px solid #ddd',
         borderRadius: '8px',
         padding: '0.5em 0.75em 0.1em 0.75em',
         boxShadow: '0 2px 5px rgba(0,0,0,0.05)',
-        lineHeight: '1.2',
+        lineHeight: '1.6',
         width: '100%',
         boxSizing: 'border-box',
       }}
@@ -83,7 +90,7 @@ export function Equation({ id, children }) {
     // Update all links pointing to this equation
     const links = document.querySelectorAll(`a[href="#${id}"]`);
     links.forEach(link => {
-      link.textContent = `(${newNumber})`;
+      link.textContent = `Equation ${newNumber}`;
     });
 
     return () => {
