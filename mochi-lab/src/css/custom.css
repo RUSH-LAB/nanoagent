@@ -60,3 +60,18 @@ html {
     background-color: rgba(var(--ifm-color-primary-rgb), 0.1);
   }
 }
+
+/* Replace "Footnotes" heading with "References" */
+.footnotes h2 {
+  visibility: hidden;
+  position: relative;
+}
+
+.footnotes h2::before {
+  content: "References";
+  visibility: visible;
+  position: absolute;
+  left: 0;
+  font-size: 2rem; /* Adjust this value to match your h2 size */
+  font-weight: var(--ifm-heading-font-weight);
+}
