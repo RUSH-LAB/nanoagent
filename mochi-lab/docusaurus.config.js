@@ -89,7 +89,8 @@ const config = {
         indexBlog: true,
         indexDocs: true,
         indexPages: false,
-        docsRouteBasePath: ['/docs', '/blog', '/research', '/math'],
+        docsRouteBasePath: ['/docs', '/math'],
+        blogRouteBasePath: ['/blog', '/research'],
         // Enable search in development
         searchBarShortcut: true,
         searchBarShortcutHint: true,
