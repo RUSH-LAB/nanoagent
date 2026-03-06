@@ -34,6 +34,18 @@
   max-width: 2000px; /* Adjust this value as needed */
 }
 
+/* Widen blog content area (both Blog and Research pages) */
+html.blog-post-page .col--9.col--offset-1,
+html.blog-list-page .col--9.col--offset-1 {
+  --ifm-col-width: calc(9 / 12 * 100%);
+  margin-left: calc(0.5 / 12 * 100%);
+}
+
+html.blog-post-page .col.col--2,
+html.blog-list-page .col.col--2 {
+  --ifm-col-width: calc(2.5 / 12 * 100%);
+}
+
 /* Center equations when navigating to them via anchor links */
 /* Add scroll margin to equation containers */
 div,
