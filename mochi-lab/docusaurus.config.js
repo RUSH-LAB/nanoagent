@@ -53,6 +53,8 @@ const config = {
       /** @type {import('@docusaurus/preset-classic').Options} */
       ({
         docs: {
+          path: 'programming',
+          routeBasePath: 'programming',
           sidebarPath: './sidebars.js',
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
@@ -89,7 +91,7 @@ const config = {
         indexBlog: true,
         indexDocs: true,
         indexPages: false,
-        docsRouteBasePath: ['/docs', '/math'],
+        docsRouteBasePath: ['/programming', '/math', '/build-with-ai', '/survey'],
         blogRouteBasePath: ['/blog', '/research'],
         // Enable search in development
         searchBarShortcut: true,
@@ -100,6 +102,26 @@ const config = {
         // but note it might be slower to build
         searchResultContextMaxLength: 50,
         searchResultLimits: 10,
+      },
+    ],
+    // Survey docs plugin
+    [
+      '@docusaurus/plugin-content-docs',
+      {
+        id: 'survey',
+        path: 'survey',
+        routeBasePath: 'survey',
+        editUrl: 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
+      },
+    ],
+    // Build with AI docs plugin
+    [
+      '@docusaurus/plugin-content-docs',
+      {
+        id: 'build-with-ai',
+        path: 'build-with-ai',
+        routeBasePath: 'build-with-ai',
+        editUrl: 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
       },
     ],
     // Math docs plugin
@@ -211,6 +233,13 @@ const config = {
         },
         items: [
           {to: '/research', label: 'Research'},
+          {to: '/blog', label: 'Blog'},
+          {
+            type: 'doc',
+            docId: 'intro',
+            docsPluginId: 'survey',
+            label: 'Survey',
+          },
           {
             type: 'docSidebar',
             sidebarId: 'tutorialSidebar',
@@ -223,11 +252,16 @@ const config = {
             label: 'Math',
           },
           {
+            type: 'doc',
+            docId: 'intro',
+            docsPluginId: 'build-with-ai',
+            label: 'Build with AI',
+          },
+          {
             href: 'https://github.com/zeyuyang8/mochi-lab',
             label: 'GitHub',
             position: 'right',
           },
-          {to: '/blog', label: 'Blog'},
         ],
       },
       footer: {
