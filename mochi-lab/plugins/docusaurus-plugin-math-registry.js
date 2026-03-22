@@ -4,13 +4,16 @@
  * manifest via setGlobalData().
  *
  * Numbering scheme:
- *   - Top-level items (files and folders) get chapter numbers (1, 2, ...)
- *   - Files inside folders get section numbers (2.1, 2.2, ...)
+ *   - The directory tree is walked recursively to arbitrary depth.
+ *   - Each folder/file at depth N gets a positional number appended to its
+ *     parent's prefix (e.g., top-level "2", child "2.1", grandchild "2.1.3").
+ *   - index.md in a folder gets the folder's own prefix (not a sub-section
+ *     number) and is scanned for math blocks.
  *   - Math blocks get counters at two granularities:
  *       - Per-chapter (chapter.N): Theorem-like environments (Theorem, Lemma,
  *         Proposition, Corollary, Definition, Remark, Example) share one counter,
  *         Figure, Table, Code, Algorithm each have their own counter
- *       - Per-file (chapter.section.N): Equation only — dense, needs section precision
+ *       - Per-file (prefix.N): Equation only — dense, needs section precision
  *
  * Chapter/section order is determined by:
  *   1. _category_.json "position" for folders
@@ -101,26 +104,29 @@ function getFolderPosition(folderPath) {
 }
 
 /**
- * Build a flat list of files with their hierarchical prefix and chapter number.
- * Returns: [{ filePath, prefix: "2.1", chapter: 2, page }]
+ * Read a directory and return sorted items (files and subdirectories).
+ * index.md is excluded — it's returned separately as the folder's own page.
+ * Skips hidden files, _-prefixed entries, and 'assets' directories.
  */
-function buildHierarchy(contentDir, routeBase) {
-  const topItems = []; // { name, type: 'file'|'dir', position, path }
+function readSortedItems(dir) {
+  const items = []; // { name, type: 'file'|'dir', position, path }
 
-  for (const entry of fs.readdirSync(contentDir, { withFileTypes: true })) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
     if (entry.name === 'assets') continue;
 
-    const fullPath = path.join(contentDir, entry.name);
+    const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      topItems.push({
+      items.push({
         name: entry.name,
         type: 'dir',
         position: getFolderPosition(fullPath),
         path: fullPath,
       });
     } else if (/\.(mdx?|md)$/.test(entry.name)) {
-      topItems.push({
+      // Skip index files — they represent the folder itself, not a numbered child
+      if (/^index\.(mdx?|md)$/.test(entry.name)) continue;
+      items.push({
         name: entry.name,
         type: 'file',
         position: getFilePosition(fullPath),
@@ -129,43 +135,60 @@ function buildHierarchy(contentDir, routeBase) {
     }
   }
 
-  // Sort top-level items by position
-  topItems.sort((a, b) => a.position - b.position);
+  items.sort((a, b) => a.position - b.position);
+  return items;
+}
 
+/**
+ * Find index.md/index.mdx in a directory, or null if none exists.
+ */
+function findIndexFile(dir) {
+  for (const ext of ['md', 'mdx']) {
+    const p = path.join(dir, `index.${ext}`);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+/**
+ * Build a flat list of files with their hierarchical prefix and chapter number.
+ * Recurses to arbitrary depth. index.md in a folder gets the folder's own prefix.
+ * Returns: [{ filePath, prefix: "2.1", chapter: 1, page }]
+ *
+ * "chapter" is always the top-level number (depth-1), used for per-chapter counters.
+ */
+function buildHierarchy(contentDir, routeBase) {
   const result = [];
-  let chapterNum = 0;
 
-  for (const item of topItems) {
-    chapterNum++;
+  function walk(dir, parentPrefix, chapter) {
+    const items = readSortedItems(dir);
+    let counter = 0;
 
-    if (item.type === 'file') {
-      const relPath = path.relative(contentDir, item.path);
-      const page = toRoutePath(relPath, routeBase);
-      result.push({ filePath: item.path, prefix: `${chapterNum}`, chapter: chapterNum, page });
-    } else {
-      // Scan files inside the directory
-      const subFiles = [];
-      for (const sub of fs.readdirSync(item.path, { withFileTypes: true })) {
-        if (!sub.isFile() || !/\.(mdx?|md)$/.test(sub.name)) continue;
-        const subPath = path.join(item.path, sub.name);
-        subFiles.push({
-          name: sub.name,
-          position: getFilePosition(subPath),
-          path: subPath,
-        });
-      }
-      subFiles.sort((a, b) => a.position - b.position);
+    for (const item of items) {
+      counter++;
+      const prefix = parentPrefix ? `${parentPrefix}.${counter}` : `${counter}`;
+      // Chapter is the top-level number; once set at depth 1, it carries through
+      const chap = chapter ?? counter;
 
-      let sectionNum = 0;
-      for (const sub of subFiles) {
-        sectionNum++;
-        const relPath = path.relative(contentDir, sub.path);
+      if (item.type === 'file') {
+        const relPath = path.relative(contentDir, item.path);
         const page = toRoutePath(relPath, routeBase);
-        result.push({ filePath: sub.path, prefix: `${chapterNum}.${sectionNum}`, chapter: chapterNum, page });
+        result.push({ filePath: item.path, prefix, chapter: chap, page });
+      } else {
+        // Folder: first register its index.md (if any) with the folder's prefix
+        const indexFile = findIndexFile(item.path);
+        if (indexFile) {
+          const relPath = path.relative(contentDir, indexFile);
+          const page = toRoutePath(relPath, routeBase);
+          result.push({ filePath: indexFile, prefix, chapter: chap, page });
+        }
+        // Then recurse into children
+        walk(item.path, prefix, chap);
       }
     }
   }
 
+  walk(contentDir, '', null);
   return result;
 }
 
