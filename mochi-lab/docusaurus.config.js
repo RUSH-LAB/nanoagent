@@ -36,6 +36,7 @@ const config = {
   onBrokenLinks: 'throw',
   onBrokenAnchors: 'ignore',
   markdown: {
+    format: 'detect',
     hooks: {
       onBrokenMarkdownLinks: 'warn',
     },
