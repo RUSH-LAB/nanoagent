@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ClerkProvider, SignedIn, SignedOut, SignIn } from '@clerk/clerk-react';
 
 const PUBLISHABLE_KEY = 'pk_test_dW5pcXVlLXJheS0yOS5jbGVyay5hY2NvdW50cy5kZXYk';
@@ -71,6 +71,8 @@ const clerkAppearance = {
 };
 
 function AuthGate({ children }) {
+  const [isMobile, setIsMobile] = useState(false);
+
   // Ensure viewport meta tag exists for mobile scaling.
   // Docusaurus adds this normally, but the auth gate renders before Docusaurus loads.
   useEffect(() => {
@@ -80,7 +82,19 @@ function AuthGate({ children }) {
       meta.content = 'width=device-width, initial-scale=1';
       document.head.appendChild(meta);
     }
+    const mq = window.matchMedia('(max-width: 767px)');
+    setIsMobile(mq.matches);
+    const handler = (e) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
   }, []);
+
+  const appearance = {
+    ...clerkAppearance,
+    ...(isMobile && {
+      variables: { fontSize: '0.8rem' },
+    }),
+  };
 
   return (
     <>
@@ -141,7 +155,7 @@ function AuthGate({ children }) {
             Invite-only. Contact the admin to request access.
           </p>
           <div className="auth-widget">
-            <SignIn appearance={clerkAppearance} />
+            <SignIn appearance={appearance} />
           </div>
         </div>
       </SignedOut>
