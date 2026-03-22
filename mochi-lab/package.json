@@ -2,6 +2,7 @@
   "name": "rush-lab-archive",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "docusaurus": "docusaurus",
     "start": "docusaurus start",
@@ -26,8 +27,7 @@
     "react-dom": "^19.0.0",
     "rehype-katex": "^7.0.1",
     "remark-math": "^6.0.0",
-    "@clerk/clerk-react": "^5.0.0",
-    "@clerk/backend": "^1.0.0"
+    "@clerk/clerk-react": "^5.0.0"
   },
   "devDependencies": {
     "@docusaurus/module-type-aliases": "3.9.2",
@@ -49,6 +49,6 @@
     "serialize-javascript": ">=7.0.3"
   },
   "engines": {
-    "node": ">=20.0"
+    "node": "22.x"
   }
 }

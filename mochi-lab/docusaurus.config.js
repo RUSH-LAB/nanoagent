@@ -6,6 +6,8 @@
  */
 
 import {themes as prismThemes} from 'prism-react-renderer';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
@@ -92,6 +94,7 @@ const config = {
         indexDocs: true,
         indexPages: false,
         docsRouteBasePath: ['/programming', '/math', '/build-with-ai', '/survey'],
+        docsDir: ['programming', 'math', 'build-with-ai', 'survey'],
         blogRouteBasePath: ['/blog', '/research'],
         // Enable search in development
         searchBarShortcut: true,
