@@ -10,6 +10,8 @@ Modern CPUs follow the **Von Neumann model**: a processing unit, control unit, m
 
 The memory hierarchy trades capacity for speed:
 
+<Table id="tab-memory-hierarchy" caption="Memory hierarchy latencies and bandwidths for modern hardware.">
+
 | Level | Latency | Size | Bandwidth |
 |-------|---------|------|-----------|
 | Registers | ~0.3 ns | ~KB | ~TB/s |
@@ -19,11 +21,19 @@ The memory hierarchy trades capacity for speed:
 | DRAM | ~100 ns | ~64 GB | ~50 GB/s |
 | GPU HBM | ~300 ns | ~80 GB | ~3 TB/s |
 
-**Key insight:** Algorithm design for ML must respect the memory hierarchy. Operations that reuse cached data (high arithmetic intensity) are fast; those that stream through memory (low arithmetic intensity) are bottlenecked by bandwidth.
+</Table>
+
+<Remark id="rmk-memory-hierarchy">
+Algorithm design for ML must respect the memory hierarchy. Operations that reuse cached data (high arithmetic intensity) are fast; those that stream through memory (low arithmetic intensity) are bottlenecked by bandwidth.
+</Remark>
 
 ## Floating Point Representation
 
+<Definition id="def-ieee754" name="IEEE 754 Floating Point">
 Real numbers are represented in **IEEE 754** format as $(-1)^s \times 1.m \times 2^{e - \text{bias}}$, where $s$ is the sign bit, $m$ is the mantissa (significand), and $e$ is the exponent.
+</Definition>
+
+<Table id="tab-float-formats" caption="Common floating point formats used in ML.">
 
 | Format | Bits | Exponent | Mantissa | Range | Precision |
 |--------|------|----------|----------|-------|-----------|
@@ -32,17 +42,25 @@ Real numbers are represented in **IEEE 754** format as $(-1)^s \times 1.m \times
 | BF16 | 16 | 8 | 7 | $\sim 10^{\pm 38}$ | $\sim 2$ digits |
 | FP8 (E4M3) | 8 | 4 | 3 | $\sim 10^{\pm 2}$ | $\sim 1$ digit |
 
-**Key insight:** BF16 keeps the same exponent range as FP32 (so it rarely overflows) at the cost of precision. This is why BF16 is preferred over FP16 for training -- gradient magnitudes vary widely, and overflow is more dangerous than rounding errors.
+</Table>
+
+<Remark id="rmk-bf16">
+BF16 keeps the same exponent range as FP32 (so it rarely overflows) at the cost of precision. This is why BF16 is preferred over FP16 for training -- gradient magnitudes vary widely, and overflow is more dangerous than rounding errors.
+</Remark>
 
 ## Machine Epsilon and Numerical Stability
 
+<Definition id="def-machine-epsilon" name="Machine Epsilon">
 **Machine epsilon** $\epsilon_{\text{mach}}$ is the smallest $\epsilon$ such that $1 + \epsilon \neq 1$ in floating point:
 
-$$
-\epsilon_{\text{mach}} = 2^{-(p-1)}
-$$
+<Equation id="eq-machine-epsilon">
+
+$$\epsilon_{\text{mach}} = 2^{-(p-1)}$$
+
+</Equation>
 
 where $p$ is the number of mantissa bits (including the implicit leading 1). For FP32, $\epsilon_{\text{mach}} \approx 1.19 \times 10^{-7}$.
+</Definition>
 
 Common numerical pitfalls in ML:
 
@@ -54,6 +72,8 @@ Common numerical pitfalls in ML:
 
 A CPU has a few powerful cores optimized for sequential tasks. A GPU has thousands of simple cores optimized for parallel throughput:
 
+<Table id="tab-cpu-vs-gpu" caption="CPU vs GPU characteristics for ML workloads.">
+
 | Property | CPU | GPU |
 |----------|-----|-----|
 | Cores | 8-128 | 5,000-20,000 |
@@ -62,11 +82,17 @@ A CPU has a few powerful cores optimized for sequential tasks. A GPU has thousan
 | Peak FP16 FLOPS | ~4 TFLOPS | ~300 TFLOPS |
 | Memory bandwidth | ~50 GB/s | ~3 TB/s |
 
+</Table>
+
 Matrix multiplication $C = AB$ where $A \in \mathbb{R}^{m \times k}$, $B \in \mathbb{R}^{k \times n}$ requires $2mkn$ FLOPs but only $mk + kn + mn$ memory accesses. The **arithmetic intensity** (FLOPs per byte) grows with matrix size, making it ideal for GPU parallelism.
 
-**Key insight:** The arithmetic intensity of matrix multiplication is $O(n)$ for $n \times n$ matrices, meaning larger matrices use the GPU more efficiently. This is one reason why larger batch sizes and wider layers train faster per element.
+<Remark id="rmk-arithmetic-intensity">
+The arithmetic intensity of matrix multiplication is $O(n)$ for $n \times n$ matrices, meaning larger matrices use the GPU more efficiently. This is one reason why larger batch sizes and wider layers train faster per element.
+</Remark>
 
 ## Notation Summary
+
+<Table id="tab-notation-hardware" caption="Notation used in numerical computing hardware.">
 
 | Symbol | Meaning |
 |--------|---------|
@@ -76,3 +102,5 @@ Matrix multiplication $C = AB$ where $A \in \mathbb{R}^{m \times k}$, $B \in \ma
 | FLOPS | Floating point operations per second |
 | HBM | High bandwidth memory (GPU) |
 | BF16 | Brain floating point (8-bit exponent, 7-bit mantissa) |
+
+</Table>
