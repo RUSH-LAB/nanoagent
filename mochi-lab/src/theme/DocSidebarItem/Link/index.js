@@ -4,9 +4,9 @@ import { useSidebarNumbers } from '../../SidebarNumberContext';
 
 export default function LinkWrapper(props) {
   const numberMap = useSidebarNumbers();
-  const chapter = numberMap.get(props.item?.href);
+  const entry = numberMap.get(props.item?.href);
 
-  if (!chapter) {
+  if (!entry) {
     return <Link {...props} />;
   }
 
@@ -18,7 +18,7 @@ export default function LinkWrapper(props) {
   };
 
   return (
-    <span style={{ '--chapter-num': `"${chapter}"` }}>
+    <span style={{ '--chapter-num': `"${entry.number}"` }}>
       <Link {...props} item={modifiedItem} />
     </span>
   );

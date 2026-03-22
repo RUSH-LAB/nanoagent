@@ -4,14 +4,14 @@ import { useSidebarNumbers } from '../../SidebarNumberContext';
 
 export default function CategoryWrapper(props) {
   const numberMap = useSidebarNumbers();
-  const chapter = numberMap.get(`category:${props.item?.label}`);
+  const entry = numberMap.get(`category:${props.item?.label}`);
 
-  if (!chapter) {
+  if (!entry) {
     return <Category {...props} />;
   }
 
   return (
-    <span style={{ '--chapter-num': `"${chapter}"` }} className="sidebar-numbered-category">
+    <span style={{ '--chapter-num': `"${entry.number}"` }} className="sidebar-numbered-category">
       <Category {...props} />
     </span>
   );

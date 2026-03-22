@@ -16,13 +16,14 @@ export function computeNumbers(items, prefix = '') {
   for (const item of items) {
     counter++;
     const num = prefix ? `${prefix}.${counter}` : `${counter}`;
+    const entry = { number: num, label: item.label || '' };
 
     if (item.type === 'link') {
-      if (item.href) map.set(item.href, num);
+      if (item.href) map.set(item.href, entry);
     } else if (item.type === 'category') {
       // Key categories by label (they may or may not have href)
-      map.set(`category:${item.label}`, num);
-      if (item.href) map.set(item.href, num);
+      map.set(`category:${item.label}`, entry);
+      if (item.href) map.set(item.href, entry);
       // Recurse into children
       const childMap = computeNumbers(item.items || [], num);
       for (const [k, v] of childMap) map.set(k, v);

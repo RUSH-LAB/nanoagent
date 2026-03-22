@@ -3,7 +3,7 @@ import {
   Theorem, Lemma, Proposition, Corollary,
   Definition, Remark, Example, Proof,
   Equation, Figure, Table, Code, Algorithm,
-  Section, Ref,
+  Section, Ref, PageRef,
 } from '@site/src/components/Math';
 
 export default {
@@ -11,5 +11,5 @@ export default {
   Theorem, Lemma, Proposition, Corollary,
   Definition, Remark, Example, Proof,
   Equation, Figure, Table, Code, Algorithm,
-  Section, Ref,
+  Section, Ref, PageRef,
 };

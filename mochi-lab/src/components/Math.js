@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, createContext, useContext } from 'react';
+import { useEffect, useState, useRef, createContext, useContext, useMemo } from 'react';
 import { usePluginData } from '@docusaurus/useGlobalData';
 
 // ── Helper: read math-registry manifest from Docusaurus global data ─────────
@@ -422,4 +422,96 @@ export function Ref({ id }) {
     return <a href={`#${id}`}>{id}</a>;
   }
   return <a href={`${entry.page}#${id}`}>{entry.type} {entry.number}</a>;
+}
+
+// ── PageRef: auto-numbered page reference ────────────────────────────────────
+// Usage: <PageRef path="./components-of-textbooks/figure-and-table" label="Figure and Table" />
+// Renders: "2.1 Figure and Table" as a link, with the number auto-computed from sidebar.
+// Also works for categories: <PageRef category="Components of Textbooks" />
+import { useDocsSidebar } from '@docusaurus/plugin-content-docs/client';
+import { computeNumbers } from '@site/src/theme/SidebarNumberContext';
+import Link from '@docusaurus/Link';
+
+function useSidebarNumberMap() {
+  const sidebar = useDocsSidebar();
+  return useMemo(() => {
+    if (!sidebar?.items) return new Map();
+    return computeNumbers(sidebar.items);
+  }, [sidebar]);
+}
+
+// Normalize a path for comparison: strip leading ./ and /, trailing /
+function normalizePath(p) {
+  return p.replace(/^\.?\//, '').replace(/\/$/, '');
+}
+
+// Check if two paths refer to the same page
+function pathsMatch(a, b) {
+  if (a === b) return true;
+  if (a.endsWith(b) || b.endsWith(a)) return true;
+  // Handle index pages: "foo/index" matches "foo"
+  const stripIndex = s => s.replace(/\/index$/, '').replace(/^index$/, '');
+  const a2 = stripIndex(a);
+  const b2 = stripIndex(b);
+  if (a2 === b2) return true;
+  if (a2 && b2 && (a2.endsWith(b2) || b2.endsWith(a2))) return true;
+  return false;
+}
+
+export function PageRef({ path, label, category }) {
+  const numberMap = useSidebarNumberMap();
+
+  if (category) {
+    const entry = numberMap.get(`category:${category}`);
+    const prefix = entry ? `Chapter ${entry.number}` : category;
+    const displayLabel = label === true ? (entry?.label || category) : (typeof label === 'string' ? label : null);
+    return <span>{prefix}{displayLabel ? `\u00a0\u00a0${displayLabel}` : ''}</span>;
+  }
+
+  // Normalize input path and match against sidebar hrefs
+  const normalizedInput = normalizePath(path || '');
+  let entry = null;
+  let resolvedPath = path;
+
+  // Search href entries (includes category hrefs)
+  for (const [href, e] of numberMap) {
+    if (href.startsWith('category:')) continue;
+    const normalizedHref = normalizePath(href);
+    if (pathsMatch(normalizedHref, normalizedInput)) {
+      entry = e;
+      resolvedPath = href;
+      break;
+    }
+  }
+
+  // If no href match found, try matching against category labels
+  // (for index pages that serve as category landing pages)
+  if (!entry) {
+    for (const [key, e] of numberMap) {
+      if (!key.startsWith('category:')) continue;
+      const catLabel = key.replace('category:', '').toLowerCase().replace(/\s+/g, '-');
+      if (normalizedInput === 'index'
+        || normalizedInput.includes(catLabel)
+        || catLabel.includes(normalizedInput)) {
+        entry = e;
+        // Find the matching href for this category to use as link target
+        for (const [href2, e2] of numberMap) {
+          if (!href2.startsWith('category:') && e2.number === e.number) {
+            resolvedPath = href2;
+            break;
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  const num = entry?.number;
+  const isChapter = num && !num.includes('.');
+  const prefix = num ? `${isChapter ? 'Chapter' : 'Section'} ${num}` : '';
+  const sidebarLabel = entry?.label;
+  // label={true} shows sidebar label, label={false} or omitted hides it
+  const displayLabel = label === true ? sidebarLabel : (typeof label === 'string' ? label : null);
+  const content = displayLabel ? `${prefix}\u00a0\u00a0${displayLabel}` : prefix || path;
+  return <Link to={resolvedPath}>{content}</Link>;
 }
