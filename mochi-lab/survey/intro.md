@@ -1,3 +1,8 @@
+---
+sidebar_position: 0
+title: "Frontiers of AI: A Comprehensive Survey"
+---
+
 # Frontiers of AI: A Comprehensive Survey
 
 **A survey of five frontier research areas in artificial intelligence, covering continual learning, world models, efficient architecture design, agentic search, and the intersection of randomized algorithms with deep learning.**
@@ -6,23 +11,23 @@
 
 ## Table of Contents
 
-### [Chapter 1: Continual Learning of AI](ch1-continual-learning.md)
+### [Continual Learning of AI](ch1-continual-learning/)
 
 How can neural networks learn continuously from non-stationary data streams without catastrophically forgetting previously acquired knowledge? This chapter surveys the four major families of continual learning methods -- regularization-based (EWC, SI, LwF), replay-based (experience replay, GEM, generative replay), architecture-based (progressive networks, PackNet, SupSup), and meta-learning-based (OML, ANML, La-MAML) -- along with the emerging challenge of continual learning in large language models. We cover 49 key papers spanning three decades of research.
 
-### [Chapter 2: World Models](ch2-world-models.md)
+### [World Models](ch2-world-models/)
 
 World models endow AI agents with the ability to simulate their environment internally, enabling planning, imagination, and sample-efficient learning. This chapter traces the evolution from Ha and Schmidhuber's foundational work through the Dreamer series, modern video prediction models, and foundation-scale world models like Genie and GameNGen. We cover applications in robotics (TD-MPC), reasoning (Dynalang, LLM-as-world-model), and reinforcement learning (MuZero, EfficientZero), surveying 41 key papers.
 
-### [Chapter 3: Efficient Architecture Design of AI](ch3-efficient-architecture.md)
+### [Efficient Architecture Design of AI](ch3-efficient-architecture/)
 
 As the computational cost of training and deploying AI models grows unsustainably, efficiency has become a first-class design objective. This chapter provides a comprehensive survey of efficient attention mechanisms (FlashAttention, sparse attention, GQA), Mixture-of-Experts models (Switch Transformer, Mixtral, DeepSeek-MoE), neural architecture search, model compression (GPTQ, AWQ, distillation, pruning), training efficiency (ZeRO, FSDP, mixed precision), inference optimization (speculative decoding, KV-cache compression), and the rapidly evolving family of state space models (S4, Mamba, Jamba, Griffin). Covers 61 key papers.
 
-### [Chapter 4: Agentic Search](ch4-agentic-search.md)
+### [Agentic Search](ch4-agentic-search/)
 
 Agentic search represents a paradigm shift from static retrieval to autonomous, multi-step information seeking driven by LLM-based agents. This chapter surveys tool-augmented retrieval (WebGPT, ReAct, Toolformer), retrieval-augmented generation (RAG, RETRO, Self-RAG), multi-hop reasoning search (IRCoT, FLARE), autonomous web agents (WebArena, BrowserGym), search with planning (Tree-of-Thought, LATS, AlphaProof), and self-improving search systems (STORM). Covers 50 key papers.
 
-### [Chapter 5: Randomized Algorithms, Data Structures & Signal Processing Perspectives of AI](ch5-randomized-signal.md)
+### [Randomized Algorithms, Data Structures & Signal Processing Perspectives of AI](ch5-randomized-signal/)
 
 Many of deep learning's most effective techniques are rooted in classical randomized algorithms and signal processing theory. This chapter bridges these fields, covering random projections (Johnson-Lindenstrauss, random features), hashing for ML (LSH, SLIDE), sketching and streaming (CountSketch for gradient compression), Fourier and spectral perspectives (Fourier features, FNet, spectral bias), wavelet and multi-resolution analysis (scattering networks, WaveMix), the signal processing view of Transformers (attention as filtering, positional encoding as frequency), and randomized linear algebra (randomized SVD, Nystrom approximation). Covers 62 key papers.
 
