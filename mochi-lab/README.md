@@ -1,41 +1,33 @@
-# Website
+# Mochi Lab
 
-This website is built using [Docusaurus](https://docusaurus.io/), a modern static website generator.
+A research and knowledge-sharing site built with [Docusaurus](https://docusaurus.io/) and deployed on [Vercel](https://vercel.com/). Authentication is handled by [Clerk](https://clerk.com/).
 
-## Installation
-
-```bash
-yarn
-```
-
-## Local Development
+## Setup
 
 ```bash
-yarn start
+npm install
 ```
 
-This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
+## Development
+
+```bash
+npm start
+```
+
+Starts a local dev server at `http://localhost:3000`. Changes are reflected live.
 
 ## Build
 
 ```bash
-yarn build
+npm run build
 ```
 
-This command generates static content into the `build` directory and can be served using any static contents hosting service.
+Generates static content into the `build` directory.
 
 ## Deployment
 
-Using SSH:
+Deployed automatically via Vercel on push. Make sure your Vercel project has the Clerk environment variables configured and your domain is added in the Clerk Dashboard.
 
-```bash
-USE_SSH=true yarn deploy
-```
+## Authentication
 
-Not using SSH:
-
-```bash
-GIT_USER=<Your GitHub username> yarn deploy
-```
-
-If you are using GitHub pages for hosting, this command is a convenient way to build the website and push to the `gh-pages` branch.
+Clerk handles client-side authentication. Unauthenticated users see a sign-in widget; authenticated users see the site content. Configuration is in `src/theme/Root.js`.
