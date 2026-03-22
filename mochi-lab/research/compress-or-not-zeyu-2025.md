@@ -16,7 +16,7 @@ date: 2025-10-03
 
 ## Overview
 
-The scaling of Generative AI (GenAI) models into the hundreds of billions of parameters makes low-precision computation indispensable for efficient deployment. This work develops low-precision floating-point formats that provide numerical stability and memory savings without dequantization overhead. We identify a key statistical phenomenon — **exponent concentration** — where exponents of model weights consistently exhibit low entropy across different architectures and modalities.
+The scaling of Generative AI (GenAI) models into the hundreds of billions of parameters makes low-precision computation indispensable for efficient deployment. Concurrent work DFloat11 [@zhang2025dfloat11] also explores lossless compression via dynamic-length floating-point encoding. This work develops low-precision floating-point formats that provide numerical stability and memory savings without dequantization overhead. We identify a key statistical phenomenon — **exponent concentration** — where exponents of model weights consistently exhibit low entropy across different architectures and modalities.
 
 ## Key Contributions
 

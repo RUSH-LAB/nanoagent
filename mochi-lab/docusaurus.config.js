@@ -9,6 +9,8 @@ import {themes as prismThemes} from 'prism-react-renderer';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
+const remarkCite = require('./plugins/remark-cite');
+
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'Mochi Lab',
@@ -62,10 +64,11 @@ const config = {
             'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
           // Add math support to docs with KaTeX
           remarkPlugins: [
-            [require('remark-math'), { strict: false }]
+            [require('remark-math'), { strict: false }],
+            remarkCite,
           ],
           rehypePlugins: [
-            [require('rehype-katex'), { 
+            [require('rehype-katex'), {
               strict: false,
               trust: true,
               fleqn: false,
@@ -113,6 +116,7 @@ const config = {
         path: 'survey',
         routeBasePath: 'survey',
         editUrl: 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
+        remarkPlugins: [remarkCite],
       },
     ],
     // Build with AI docs plugin
@@ -123,6 +127,17 @@ const config = {
         path: 'build-with-ai',
         routeBasePath: 'build-with-ai',
         editUrl: 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
+        remarkPlugins: [
+          [require('remark-math'), { strict: false }],
+          remarkCite,
+        ],
+        rehypePlugins: [
+          [require('rehype-katex'), {
+            strict: false,
+            trust: true,
+            fleqn: false,
+          }]
+        ],
       },
     ],
     // Math docs plugin
@@ -134,10 +149,11 @@ const config = {
         routeBasePath: 'math',
         editUrl: 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
         remarkPlugins: [
-          [require('remark-math'), { strict: false }]
+          [require('remark-math'), { strict: false }],
+          remarkCite,
         ],
         rehypePlugins: [
-          [require('rehype-katex'), { 
+          [require('rehype-katex'), {
             strict: false,
             trust: true,
             fleqn: false,
@@ -166,9 +182,9 @@ const config = {
         onInlineTags: 'warn',
         onInlineAuthors: 'warn',
         onUntruncatedBlogPosts: 'warn',
-        remarkPlugins: [require('remark-math')],
+        remarkPlugins: [require('remark-math'), remarkCite],
         rehypePlugins: [
-          [require('rehype-katex'), { 
+          [require('rehype-katex'), {
             strict: false,
             trust: true,
             fleqn: false,
@@ -197,9 +213,9 @@ const config = {
           xslt: true,
         },
         editUrl: 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
-        remarkPlugins: [require('remark-math')],
+        remarkPlugins: [require('remark-math'), remarkCite],
         rehypePlugins: [
-          [require('rehype-katex'), { 
+          [require('rehype-katex'), {
             strict: false,
             trust: true,
             fleqn: false,
@@ -207,6 +223,18 @@ const config = {
               "\\eqref": "\\href{###1}{(\\text{#1})}"
             }
           }]
+        ],
+      },
+    ],
+    // Bibliography data plugin
+    require('./plugins/docusaurus-plugin-bibliography'),
+    // Math cross-page registry plugin — scans multiple content dirs for <Ref> support
+    [
+      require('./plugins/docusaurus-plugin-math-registry'),
+      {
+        contentDirs: [
+          { dir: 'math', routeBase: 'math' },
+          { dir: 'build-with-ai', routeBase: 'build-with-ai' },
         ],
       },
     ],
@@ -261,6 +289,11 @@ const config = {
           {
             href: 'https://github.com/zeyuyang8/mochi-lab',
             label: 'GitHub',
+            position: 'right',
+          },
+          {
+            to: '/bibliography',
+            label: 'Bibliography',
             position: 'right',
           },
         ],

@@ -1,0 +1,136 @@
+# Central bibliography database for Mochi Lab
+# Usage: cite as [@key] in any markdown/MDX file
+# Schema: key -> {type, title, author[], year, venue, url, doi?, volume?, pages?}
+
+zhang2025dfloat11:
+  type: article
+  title: "70% Size, 100% Accuracy: Lossless LLM Compression for Efficient GPU Inference via Dynamic-Length Float (DFloat11)"
+  author:
+    - "Tianyi Zhang"
+    - "Mohsen Hariri"
+    - "Shaochen Zhong"
+    - "Vipin Chaudhary"
+    - "Yang Sui"
+    - "Xia Hu"
+    - "Anshumali Shrivastava"
+  year: 2025
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2504.11651"
+
+vaswani2017attention:
+  type: article
+  title: "Attention Is All You Need"
+  author:
+    - "Ashish Vaswani"
+    - "Noam Shazeer"
+    - "Niki Parmar"
+    - "Jakob Uszkoreit"
+    - "Llion Jones"
+    - "Aidan N. Gomez"
+    - "Lukasz Kaiser"
+    - "Illia Polosukhin"
+  year: 2017
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1706.03762"
+
+devlin2019bert:
+  type: article
+  title: "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding"
+  author:
+    - "Jacob Devlin"
+    - "Ming-Wei Chang"
+    - "Kenton Lee"
+    - "Kristina Toutanova"
+  year: 2019
+  venue: "NAACL"
+  url: "https://arxiv.org/abs/1810.04805"
+
+brown2020gpt3:
+  type: article
+  title: "Language Models are Few-Shot Learners"
+  author:
+    - "Tom Brown"
+    - "Benjamin Mann"
+    - "Nick Ryder"
+    - "Melanie Subbiah"
+    - "Jared D. Kaplan"
+    - "Prafulla Dhariwal"
+    - "Arvind Neelakantan"
+    - "Pranav Shyam"
+    - "Girish Sastry"
+    - "Amanda Askell"
+  year: 2020
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2005.14165"
+
+radford2019language:
+  type: article
+  title: "Language Models are Unsupervised Multitask Learners"
+  author:
+    - "Alec Radford"
+    - "Jeffrey Wu"
+    - "Rewon Child"
+    - "David Luan"
+    - "Dario Amodei"
+    - "Ilya Sutskever"
+  year: 2019
+  venue: "OpenAI Blog"
+  url: "https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf"
+
+he2016deep:
+  type: inproceedings
+  title: "Deep Residual Learning for Image Recognition"
+  author:
+    - "Kaiming He"
+    - "Xiangyu Zhang"
+    - "Shaoqing Ren"
+    - "Jian Sun"
+  year: 2016
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/1512.03385"
+
+goodfellow2014generative:
+  type: article
+  title: "Generative Adversarial Nets"
+  author:
+    - "Ian Goodfellow"
+    - "Jean Pouget-Abadie"
+    - "Mehdi Mirza"
+    - "Bing Xu"
+    - "David Warde-Farley"
+    - "Sherjil Ozair"
+    - "Aaron Courville"
+    - "Yoshua Bengio"
+  year: 2014
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1406.2661"
+
+kingma2014adam:
+  type: article
+  title: "Adam: A Method for Stochastic Optimization"
+  author:
+    - "Diederik P. Kingma"
+    - "Jimmy Ba"
+  year: 2014
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1412.6980"
+
+dosovitskiy2021image:
+  type: article
+  title: "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale"
+  author:
+    - "Alexey Dosovitskiy"
+    - "Lucas Beyer"
+    - "Alexander Kolesnikov"
+    - "Dirk Weissenborn"
+    - "Xiaohua Zhai"
+    - "Thomas Unterthiner"
+    - "Mostafa Dehghani"
+    - "Matthias Minderer"
+    - "Georg Heigold"
+    - "Sylvain Gelly"
+    - "Jakob Uszkoreit"
+    - "Neil Houlsby"
+  year: 2021
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2010.11929"

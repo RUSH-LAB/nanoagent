@@ -87,3 +87,150 @@ html {
   font-size: 2rem; /* Adjust this value to match your h2 size */
   font-weight: var(--ifm-heading-font-weight);
 }
+
+/* ── Math block dark mode ──────────────────────────────────────────────────── */
+[data-theme='dark'] .math-block--theorem,
+[data-theme='dark'] .math-block--lemma,
+[data-theme='dark'] .math-block--proposition,
+[data-theme='dark'] .math-block--corollary {
+  background-color: #1e2a3a !important;
+  border-color: #3a4a5c !important;
+}
+
+[data-theme='dark'] .math-block--definition {
+  background-color: #1a2e1a !important;
+  border-color: #2e4a2e !important;
+}
+
+[data-theme='dark'] .math-block--remark {
+  background-color: #2e2a1a !important;
+  border-color: #4a4428 !important;
+}
+
+[data-theme='dark'] .math-block--example {
+  background-color: #261e30 !important;
+  border-color: #3e3050 !important;
+}
+
+[data-theme='dark'] .math-block--proof {
+  border-left-color: #555 !important;
+}
+
+/* Algorithm dark mode */
+[data-theme='dark'] .numbered-algorithm {
+  border-color: #3a4a5c !important;
+}
+
+[data-theme='dark'] .numbered-algorithm > div:first-child {
+  border-bottom-color: #3a4a5c !important;
+}
+
+/* ── Citation system styles ──────────────────────────────────────────────── */
+.citation-link {
+  text-decoration: none;
+  color: #15803d;
+  cursor: pointer;
+}
+
+.citation-link:hover {
+  text-decoration: underline;
+}
+
+.citation-unknown {
+  color: #e53e3e;
+  font-weight: 600;
+  background-color: rgba(229, 62, 62, 0.1);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+.reference-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.reference-item {
+  padding-left: 2em;
+  text-indent: -2em;
+  margin-bottom: 0.75em;
+  scroll-margin-top: 30vh;
+}
+
+.reference-item:target {
+  animation: highlight-equation 1s ease-in-out;
+}
+
+/* ── Tables: left-aligned site-wide ──────────────────────────────────────── */
+table {
+  display: table !important;
+}
+
+/* Remove paragraph margin inside figures so caption sits close to content */
+.numbered-figure p {
+  margin-bottom: 0 !important;
+}
+
+/* Additional numbered-table overrides (column alignment) */
+
+/* Column alignment overrides */
+.numbered-table--cols-center th,
+.numbered-table--cols-center td {
+  text-align: center !important;
+}
+
+.numbered-table--cols-left th,
+.numbered-table--cols-left td {
+  text-align: left !important;
+}
+
+.numbered-table--cols-right th,
+.numbered-table--cols-right td {
+  text-align: right !important;
+}
+
+/* ── Figure & Table caption dark mode ────────────────────────────────────── */
+[data-theme='dark'] .numbered-figure figcaption,
+[data-theme='dark'] .numbered-table > div:first-child {
+  color: #aaa !important;
+}
+
+/* ── Sidebar chapter numbers (inline superscript) ────────────────────────── */
+
+/* Link items: superscript number above the label */
+.sidebar-numbered-link .menu__link {
+  position: relative;
+  padding-top: 0.7rem;
+}
+
+.sidebar-numbered-link .menu__link::before {
+  content: var(--chapter-num);
+  position: absolute;
+  top: 2px;
+  left: 0.3rem;
+  font-size: 0.75rem;
+  color: #15803d;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* Category items: superscript number above the category label */
+.sidebar-numbered-category > .menu__list-item > .menu__list-item-collapsible > .menu__link {
+  position: relative;
+  padding-top: 0.7rem;
+}
+
+.sidebar-numbered-category > .menu__list-item > .menu__list-item-collapsible > .menu__link::before {
+  content: var(--chapter-num);
+  position: absolute;
+  top: 2px;
+  left: 0.3rem;
+  font-size: 0.75rem;
+  color: #15803d;
+  font-weight: 500;
+  line-height: 1;
+}
+
+[data-theme='dark'] .sidebar-numbered-link .menu__link::before,
+[data-theme='dark'] .sidebar-numbered-category > .menu__list-item > .menu__list-item-collapsible > .menu__link::before {
+  color: #4ade80;
+}
