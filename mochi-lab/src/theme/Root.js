@@ -1,7 +1,53 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ClerkProvider, SignedIn, SignedOut, SignIn } from '@clerk/clerk-react';
 
 const PUBLISHABLE_KEY = 'pk_test_dW5pcXVlLXJheS0yOS5jbGVyay5hY2NvdW50cy5kZXYk';
+
+const mobileStyles = `
+/* Use viewport-relative units so everything scales fluidly with device width */
+
+/* Small phones (up to 390px, e.g. iPhone SE, iPhone 13 mini) */
+@media (max-width: 390px) {
+  .auth-page {
+    padding: 1.5rem !important;
+    justify-content: flex-start !important;
+    padding-top: 2rem !important;
+  }
+  .auth-logo { width: 16vw !important; height: 16vw !important; }
+  .auth-title { font-size: 7vw !important; }
+  .auth-tagline { font-size: 3.8vw !important; }
+  .auth-notice { font-size: 3.5vw !important; margin-bottom: 1rem !important; }
+}
+
+/* Large phones (391px–767px, e.g. iPhone 14/15, Pixel, Galaxy S) */
+@media (min-width: 391px) and (max-width: 767px) {
+  .auth-page {
+    padding: 1.5rem !important;
+    justify-content: flex-start !important;
+    padding-top: 2.5rem !important;
+  }
+  .auth-logo { width: 14vw !important; height: 14vw !important; }
+  .auth-title { font-size: 6vw !important; }
+  .auth-tagline { font-size: 3.2vw !important; }
+  .auth-notice { font-size: 3vw !important; margin-bottom: 1.5rem !important; }
+}
+
+/* Tablets (768px–1023px, e.g. iPad) */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .auth-logo { width: 100px !important; height: 100px !important; }
+  .auth-title { font-size: 2.5rem !important; }
+  .auth-tagline { font-size: 1.2rem !important; }
+  .auth-notice { font-size: 1.1rem !important; }
+}
+
+/* Large tablets (1024px–1366px, e.g. iPad Pro) */
+@media (min-width: 1024px) and (max-width: 1366px) {
+  .auth-logo { width: 110px !important; height: 110px !important; }
+  .auth-title { font-size: 2.8rem !important; }
+  .auth-tagline { font-size: 1.3rem !important; }
+  .auth-notice { font-size: 1.1rem !important; }
+}
+`;
 
 const clerkAppearance = {
   elements: {
@@ -25,11 +71,23 @@ const clerkAppearance = {
 };
 
 function AuthGate({ children }) {
+  // Ensure viewport meta tag exists for mobile scaling.
+  // Docusaurus adds this normally, but the auth gate renders before Docusaurus loads.
+  useEffect(() => {
+    if (!document.querySelector('meta[name="viewport"]')) {
+      const meta = document.createElement('meta');
+      meta.name = 'viewport';
+      meta.content = 'width=device-width, initial-scale=1';
+      document.head.appendChild(meta);
+    }
+  }, []);
+
   return (
     <>
       <SignedIn>{children}</SignedIn>
       <SignedOut>
-        <div style={{
+        <style dangerouslySetInnerHTML={{ __html: mobileStyles }} />
+        <div className="auth-page" style={{
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'center',
@@ -38,7 +96,7 @@ function AuthGate({ children }) {
           padding: '1rem',
           background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
         }}>
-          <div style={{
+          <div className="auth-branding" style={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -47,6 +105,7 @@ function AuthGate({ children }) {
             <img
               src="/img/mochi.jpg"
               alt="Mochi Lab"
+              className="auth-logo"
               style={{
                 width: '80px',
                 height: '80px',
@@ -55,7 +114,7 @@ function AuthGate({ children }) {
                 boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)',
               }}
             />
-            <h1 style={{
+            <h1 className="auth-title" style={{
               color: '#ffffff',
               fontSize: '2rem',
               fontWeight: 700,
@@ -64,7 +123,7 @@ function AuthGate({ children }) {
             }}>
               Mochi Lab
             </h1>
-            <p style={{
+            <p className="auth-tagline" style={{
               color: '#94a3b8',
               fontSize: '1rem',
               margin: '0.5rem 0 0 0',
@@ -72,7 +131,7 @@ function AuthGate({ children }) {
               Innovative Research &amp; Development
             </p>
           </div>
-          <p style={{
+          <p className="auth-notice" style={{
             color: '#cbd5e1',
             fontSize: '0.9rem',
             marginBottom: '1rem',
@@ -81,7 +140,9 @@ function AuthGate({ children }) {
           }}>
             Invite-only. Contact the admin to request access.
           </p>
-          <SignIn appearance={clerkAppearance} />
+          <div className="auth-widget">
+            <SignIn appearance={clerkAppearance} />
+          </div>
         </div>
       </SignedOut>
     </>
