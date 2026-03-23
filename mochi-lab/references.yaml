@@ -5893,3 +5893,96 @@ wu2024pre:
   year: 2024
   venue: "NeurIPS"
   url: "https://arxiv.org/abs/2305.18499"
+
+pathak2017curiosity:
+  type: article
+  title: "Curiosity-driven Exploration by Self-Supervised Prediction"
+  author:
+    - "Deepak Pathak"
+    - "Pulkit Agrawal"
+    - "Alexei A. Efros"
+    - "Trevor Darrell"
+  year: 2017
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1705.05363"
+
+ha2018recurrent:
+  type: article
+  title: "Recurrent World Models Facilitate Policy Evolution"
+  author:
+    - "David Ha"
+    - "Jurgen Schmidhuber"
+  year: 2018
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1809.01999"
+
+todorov2012mujoco:
+  type: article
+  title: "MuJoCo: A physics engine for model-based control"
+  author:
+    - "Emanuel Todorov"
+    - "Tom Erez"
+    - "Yuval Tassa"
+  year: 2012
+  venue: "IROS"
+  url: "https://ieeexplore.ieee.org/document/6386109"
+
+kingma2014auto:
+  type: article
+  title: "Auto-Encoding Variational Bayes"
+  author:
+    - "Diederik P. Kingma"
+    - "Max Welling"
+  year: 2014
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1312.6114"
+
+cho2014learning:
+  type: article
+  title: "Learning Phrase Representations using RNN Encoder-Decoder for Statistical Machine Translation"
+  author:
+    - "Kyunghyun Cho"
+    - "Bart van Merrienboer"
+    - "Caglar Gulcehre"
+    - "Dzmitry Bahdanau"
+    - "Fethi Bougares"
+    - "Holger Schwenk"
+    - "Yoshua Bengio"
+  year: 2014
+  venue: "EMNLP"
+  url: "https://arxiv.org/abs/1406.1078"
+
+rombach2022high:
+  type: article
+  title: "High-Resolution Image Synthesis with Latent Diffusion Models"
+  author:
+    - "Robin Rombach"
+    - "Andreas Blattmann"
+    - "Dominik Lorenz"
+    - "Patrick Esser"
+    - "Bjorn Ommer"
+  year: 2022
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/2112.10752"
+
+razavi2019generating:
+  type: article
+  title: "Generating Diverse High-Fidelity Images with VQ-VAE-2"
+  author:
+    - "Ali Razavi"
+    - "Aaron van den Oord"
+    - "Oriol Vinyals"
+  year: 2019
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1906.00446"
+
+van2017neural:
+  type: article
+  title: "Neural Discrete Representation Learning"
+  author:
+    - "Aaron van den Oord"
+    - "Oriol Vinyals"
+    - "Koray Kavukcuoglu"
+  year: 2017
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1711.00937"

@@ -19,6 +19,10 @@ However, the LLM-as-world-model hypothesis faces important critiques. LLMs' "wor
 
 **WorldGPT** (Ge et al., 2024) [@ge2024worldgpt] explicitly frames LLMs as multimodal world models, integrating visual and textual information for environment simulation. By conditioning a large multimodal model on both visual observations and text descriptions, WorldGPT can predict the visual consequences of described actions, bridging the gap between language-based and vision-based world modeling.
 
+**Pre-Trained LMs for Decision-Making** (Li et al., 2023) [@li2023language] demonstrated that pre-trained language models can be directly used as interactive decision-making agents by representing states, actions, and goals as text. The language model's pre-trained knowledge of world dynamics (encoded in its weights from training on text describing physical and social interactions) provides a surprisingly effective prior for RL in text-based environments, supporting the view that LLMs encode implicit world models.
+
+**Language Models Meet World Models** (Xiang et al., 2024) [@xiang2024language] proposed enhancing language models with embodied experiences -- training them not just on text but on interaction data from physical environments. The resulting models show improved reasoning about physical dynamics, spatial relationships, and action consequences, suggesting that grounding in embodied experience is necessary for truly robust world knowledge.
+
 ### Dynalang: Language-Grounded Dynamics
 
 Lin et al. (2024) [@lin2024learning] proposed Dynalang, which learns to model the world with language. By integrating language annotations into a Dreamer-style world model (adding language as an additional observation modality), Dynalang can ground language understanding in environment dynamics. The model learns to use language for predicting future states and for planning, creating a tighter loop between language comprehension and world understanding.

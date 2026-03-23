@@ -27,7 +27,7 @@ Current systems typically learn perception (encoders), prediction (dynamics mode
 
 ### World Models for Scientific Discovery
 
-Beyond game playing and robotics, world models could serve as learned simulators for scientific domains where physics-based simulators are expensive or incomplete. Applications include weather prediction (where GraphCast and FourCastNet have already shown the value of learned simulators), molecular dynamics, protein folding, materials science, and climate modeling. The key question is whether foundation world models trained on video data encode sufficient physical understanding to be useful for scientific simulation, or whether domain-specific training data (from physics simulators) is required.
+Beyond game playing and robotics, world models could serve as learned simulators for scientific domains where physics-based simulators are expensive or incomplete. Applications include weather prediction (where GraphCast [@lam2023graphcast] and FourCastNet [@pathak2022fourcastnet] have already shown the value of learned simulators, achieving competitive or superior accuracy compared to traditional numerical weather prediction at a fraction of the computational cost), molecular dynamics, protein folding, materials science, and climate modeling. The key question is whether foundation world models trained on video data encode sufficient physical understanding to be useful for scientific simulation, or whether domain-specific training data (from physics simulators) is required.
 
 ### The World Model vs. Video Generator Debate
 
