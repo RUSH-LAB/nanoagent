@@ -30,7 +30,9 @@ ZeRO partitions this state across data-parallel workers in three stages:
 - **ZeRO-2:** Partitions optimizer states + gradients (reduces memory by ~8x)
 - **ZeRO-3:** Partitions optimizer states + gradients + parameters (reduces memory by proportional to the number of workers, enabling models larger than any single GPU's memory)
 
-**PyTorch FSDP (Fully Sharded Data Parallel)** [@zhao2023pytorch] implements ZeRO-3-style sharding in the PyTorch ecosystem, becoming the standard tool for large-scale training in the research community. FSDP dynamically gathers parameters before each forward/backward operation and reshards them immediately after, overlapping communication with computation.
+ZeRO is implemented in the **DeepSpeed** library (Microsoft) [@rajbhandari2020zero], which has become one of the two dominant frameworks (alongside PyTorch FSDP) for large-scale model training. DeepSpeed also provides ZeRO-Offload (offloading optimizer states to CPU memory), ZeRO-Infinity (extending offloading to NVMe storage), and sparse attention kernels for efficient long-context training.
+
+**PyTorch FSDP (Fully Sharded Data Parallel)** [@zhao2023pytorch] implements ZeRO-3-style sharding in the PyTorch ecosystem, becoming the standard tool for large-scale training in the research community. FSDP dynamically gathers parameters before each forward/backward operation and reshards them immediately after, overlapping communication with computation. The choice between DeepSpeed and FSDP is largely one of ecosystem preference, as both implement similar sharding strategies with comparable performance.
 
 ### Tensor Parallelism
 
