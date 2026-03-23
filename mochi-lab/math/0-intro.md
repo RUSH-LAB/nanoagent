@@ -4,12 +4,12 @@ This textbook covers the four mathematical pillars that underpin modern machine 
 
 ## Chapters
 
-- **[Introduction to Computing](./1-intro-to-comp/)** -- Computational foundations: Turing machines, floating point arithmetic, GPU architecture, and high-performance computing
-- **[Basics of Machine Learning](./2-ml-basics/)** -- Core ML concepts: loss functions, RL algorithms, gradient descent, backpropagation, and regularization
-- **[Linear Algebra](./3-linear-algebra/)** -- The language of ML: vectors, matrices, eigendecomposition, SVD, PCA, and matrix calculus
-- **[Calculus and Optimization](./4-calculus-and-optimization/)** -- Finding optimal parameters: multivariable calculus, convex and non-convex optimization, and constrained optimization
-- **[Probability and Statistics](./5-probability-and-statistics/)** -- The other foundational language: distributions, Bayesian inference, information theory, and statistical learning theory
-- **[Advanced ML Math](./6-advanced-ml-math/)** -- Mathematical foundations of modern architectures: transformers, diffusion models, GNNs, and optimal transport
+- **[Introduction to Computing](intro-to-comp)** -- Computational foundations: Turing machines, floating point arithmetic, GPU architecture, and high-performance computing
+- **[Basics of Machine Learning](ml-basics)** -- Core ML concepts: loss functions, RL algorithms, gradient descent, backpropagation, and regularization
+- **[Linear Algebra](linear-algebra)** -- The language of ML: vectors, matrices, eigendecomposition, SVD, PCA, and matrix calculus
+- **[Calculus and Optimization](calculus-and-optimization)** -- Finding optimal parameters: multivariable calculus, convex and non-convex optimization, and constrained optimization
+- **[Probability and Statistics](probability-and-statistics)** -- The other foundational language: distributions, Bayesian inference, information theory, and statistical learning theory
+- **[Advanced ML Math](advanced-ml-math)** -- Mathematical foundations of modern architectures: transformers, diffusion models, GNNs, and optimal transport
 
 ## Prerequisites
 

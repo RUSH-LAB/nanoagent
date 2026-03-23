@@ -72,10 +72,12 @@ const clerkAppearance = {
 
 function AuthGate({ children }) {
   const [isMobile, setIsMobile] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
 
   // Ensure viewport meta tag exists for mobile scaling.
   // Docusaurus adds this normally, but the auth gate renders before Docusaurus loads.
   useEffect(() => {
+    setAuthReady(true);
     if (!document.querySelector('meta[name="viewport"]')) {
       const meta = document.createElement('meta');
       meta.name = 'viewport';
@@ -95,6 +97,13 @@ function AuthGate({ children }) {
       variables: { fontSize: '0.8rem' },
     }),
   };
+
+  // Before auth is ready (SSR + initial client render), render children directly.
+  // This ensures: (1) search indexer sees content, (2) no hydration mismatch.
+  // Once auth loads on the client, switch to the gated view.
+  if (!authReady) {
+    return <>{children}</>;
+  }
 
   return (
     <>
