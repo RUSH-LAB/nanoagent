@@ -2728,3 +2728,375 @@ raposo2024mixture:
   year: 2024
   venue: "arXiv"
   url: "https://arxiv.org/abs/2404.02258"
+
+# ── Citations added for Math & Programming textbook revisions ──
+
+turing1936computable:
+  type: article
+  title: "On Computable Numbers, with an Application to the Entscheidungsproblem"
+  author:
+    - "Alan M. Turing"
+  year: 1936
+  venue: "Proceedings of the London Mathematical Society"
+  url: "https://doi.org/10.1112/plms/s2-42.1.230"
+
+cybenko1989approximation:
+  type: article
+  title: "Approximation by Superpositions of a Sigmoidal Function"
+  author:
+    - "George Cybenko"
+  year: 1989
+  venue: "Mathematics of Control, Signals and Systems"
+  url: "https://doi.org/10.1007/BF02551274"
+
+hornik1991approximation:
+  type: article
+  title: "Approximation Capabilities of Multilayer Feedforward Networks"
+  author:
+    - "Kurt Hornik"
+  year: 1991
+  venue: "Neural Networks"
+  url: "https://doi.org/10.1016/0893-6080(91)90009-T"
+
+kolmogorov1933foundations:
+  type: book
+  title: "Foundations of the Theory of Probability"
+  author:
+    - "Andrey N. Kolmogorov"
+  year: 1933
+  venue: "Julius Springer"
+  url: "https://link.springer.com/book/10.1007/978-3-662-57816-6"
+
+kullback1951information:
+  type: article
+  title: "On Information and Sufficiency"
+  author:
+    - "Solomon Kullback"
+    - "Richard A. Leibler"
+  year: 1951
+  venue: "Annals of Mathematical Statistics"
+  url: "https://doi.org/10.1214/aoms/1177729694"
+
+valiant1984pac:
+  type: article
+  title: "A Theory of the Learnable"
+  author:
+    - "Leslie G. Valiant"
+  year: 1984
+  venue: "Communications of the ACM"
+  url: "https://doi.org/10.1145/1968.1972"
+
+vapnik1971uniform:
+  type: article
+  title: "On the Uniform Convergence of Relative Frequencies of Events to Their Probabilities"
+  author:
+    - "Vladimir N. Vapnik"
+    - "Alexey Ya. Chervonenkis"
+  year: 1971
+  venue: "Theory of Probability and Its Applications"
+  url: "https://doi.org/10.1137/1116025"
+
+glorot2010init:
+  type: article
+  title: "Understanding the Difficulty of Training Deep Feedforward Neural Networks"
+  author:
+    - "Xavier Glorot"
+    - "Yoshua Bengio"
+  year: 2010
+  venue: "AISTATS"
+  url: "http://proceedings.mlr.press/v9/glorot10a.html"
+
+kingma2014vae:
+  type: article
+  title: "Auto-Encoding Variational Bayes"
+  author:
+    - "Diederik P. Kingma"
+    - "Max Welling"
+  year: 2014
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1312.6114"
+
+srivastava2014dropout:
+  type: article
+  title: "Dropout: A Simple Way to Prevent Neural Networks from Overfitting"
+  author:
+    - "Nitish Srivastava"
+    - "Geoffrey Hinton"
+    - "Alex Krizhevsky"
+    - "Ilya Sutskever"
+    - "Ruslan Salakhutdinov"
+  year: 2014
+  venue: "JMLR"
+  url: "https://jmlr.org/papers/v15/srivastava14a.html"
+
+he2015init:
+  type: article
+  title: "Delving Deep into Rectifiers: Surpassing Human-Level Performance on ImageNet Classification"
+  author:
+    - "Kaiming He"
+    - "Xiangyu Zhang"
+    - "Shaoqing Ren"
+    - "Jian Sun"
+  year: 2015
+  venue: "ICCV"
+  url: "https://arxiv.org/abs/1502.01852"
+
+ioffe2015batchnorm:
+  type: article
+  title: "Batch Normalization: Accelerating Deep Network Training by Reducing Internal Covariate Shift"
+  author:
+    - "Sergey Ioffe"
+    - "Christian Szegedy"
+  year: 2015
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1502.03167"
+
+kingma2015adam:
+  type: article
+  title: "Adam: A Method for Stochastic Optimization"
+  author:
+    - "Diederik P. Kingma"
+    - "Jimmy Ba"
+  year: 2015
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1412.6980"
+
+he2016resnet:
+  type: article
+  title: "Deep Residual Learning for Image Recognition"
+  author:
+    - "Kaiming He"
+    - "Xiangyu Zhang"
+    - "Shaoqing Ren"
+    - "Jian Sun"
+  year: 2016
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/1512.03385"
+
+schulman2017ppo:
+  type: article
+  title: "Proximal Policy Optimization Algorithms"
+  author:
+    - "John Schulman"
+    - "Filip Wolski"
+    - "Prafulla Dhariwal"
+    - "Alec Radford"
+    - "Oleg Klimov"
+  year: 2017
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/1707.06347"
+
+arjovsky2017wgan:
+  type: article
+  title: "Wasserstein Generative Adversarial Networks"
+  author:
+    - "Martin Arjovsky"
+    - "Soumith Chintala"
+    - "Leon Bottou"
+  year: 2017
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1701.07875"
+
+finn2017maml:
+  type: article
+  title: "Model-Agnostic Meta-Learning for Fast Adaptation of Deep Networks"
+  author:
+    - "Chelsea Finn"
+    - "Pieter Abbeel"
+    - "Sergey Levine"
+  year: 2017
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1703.03400"
+
+kipf2017gcn:
+  type: article
+  title: "Semi-Supervised Classification with Graph Convolutional Networks"
+  author:
+    - "Thomas N. Kipf"
+    - "Max Welling"
+  year: 2017
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1609.02907"
+
+velickovic2018gat:
+  type: article
+  title: "Graph Attention Networks"
+  author:
+    - "Petar Velickovic"
+    - "Guillem Cucurull"
+    - "Arantxa Casanova"
+    - "Adriana Romero"
+    - "Pietro Lio"
+    - "Yoshua Bengio"
+  year: 2018
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1710.10903"
+
+jacot2018ntk:
+  type: article
+  title: "Neural Tangent Kernel: Convergence and Generalization in Neural Networks"
+  author:
+    - "Arthur Jacot"
+    - "Franck Gabriel"
+    - "Clement Hongler"
+  year: 2018
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1806.07572"
+
+oord2018infonce:
+  type: article
+  title: "Representation Learning with Contrastive Predictive Coding"
+  author:
+    - "Aaron van den Oord"
+    - "Yazhe Li"
+    - "Oriol Vinyals"
+  year: 2018
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/1807.03748"
+
+loshchilov2019adamw:
+  type: article
+  title: "Decoupled Weight Decay Regularization"
+  author:
+    - "Ilya Loshchilov"
+    - "Frank Hutter"
+  year: 2019
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1711.05101"
+
+song2019score:
+  type: article
+  title: "Generative Modeling by Estimating Gradients of the Data Distribution"
+  author:
+    - "Yang Song"
+    - "Stefano Ermon"
+  year: 2019
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1907.05600"
+
+ho2020ddpm:
+  type: article
+  title: "Denoising Diffusion Probabilistic Models"
+  author:
+    - "Jonathan Ho"
+    - "Ajay Jain"
+    - "Pieter Abbeel"
+  year: 2020
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2006.11239"
+
+nakkiran2021deep:
+  type: article
+  title: "Deep Double Descent: Where Bigger Models and More Data Can Hurt"
+  author:
+    - "Preetum Nakkiran"
+    - "Gal Kaplun"
+    - "Yamini Bansal"
+    - "Tristan Yang"
+    - "Boaz Barak"
+    - "Ilya Sutskever"
+  year: 2021
+  venue: "JMLR"
+  url: "https://arxiv.org/abs/1912.02292"
+
+hu2022lora:
+  type: article
+  title: "LoRA: Low-Rank Adaptation of Large Language Models"
+  author:
+    - "Edward J. Hu"
+    - "Yelong Shen"
+    - "Phillip Wallis"
+    - "Zeyuan Allen-Zhu"
+    - "Yuanzhi Li"
+    - "Shean Wang"
+    - "Lu Wang"
+    - "Weizhu Chen"
+  year: 2022
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2106.09685"
+
+ho2022cfg:
+  type: article
+  title: "Classifier-Free Diffusion Guidance"
+  author:
+    - "Jonathan Ho"
+    - "Tim Salimans"
+  year: 2022
+  venue: "NeurIPS Workshop"
+  url: "https://arxiv.org/abs/2207.12598"
+
+ouyang2022training:
+  type: article
+  title: "Training Language Models to Follow Instructions with Human Feedback"
+  author:
+    - "Long Ouyang"
+    - "Jeff Wu"
+    - "Xu Jiang"
+    - "Diogo Almeida"
+    - "Carroll L. Wainwright"
+    - "Pamela Mishkin"
+    - "Chong Zhang"
+    - "Sandhini Agarwal"
+    - "Katarina Slama"
+    - "Alex Ray"
+  year: 2022
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2203.02155"
+
+rafailov2023dpo:
+  type: article
+  title: "Direct Preference Optimization: Your Language Model is Secretly a Reward Model"
+  author:
+    - "Rafael Rafailov"
+    - "Archit Sharma"
+    - "Eric Mitchell"
+    - "Stefano Ermon"
+    - "Christopher D. Manning"
+    - "Chelsea Finn"
+  year: 2023
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2305.18290"
+
+su2024rope:
+  type: article
+  title: "RoFormer: Enhanced Transformer with Rotary Position Embedding"
+  author:
+    - "Jianlin Su"
+    - "Murtadha Ahmed"
+    - "Yu Lu"
+    - "Shengfeng Pan"
+    - "Wen Bo"
+    - "Yunfeng Liu"
+  year: 2024
+  venue: "Neurocomputing"
+  url: "https://arxiv.org/abs/2104.09864"
+
+ahmadian2024rloo:
+  type: article
+  title: "Back to Basics: Revisiting REINFORCE Style Optimization for Learning from Human Feedback in LLMs"
+  author:
+    - "Arash Ahmadian"
+    - "Chris Cremer"
+    - "Matthias Gallee"
+    - "Marzieh Fadaee"
+    - "Julia Kreutzer"
+    - "Olivier Pietquin"
+    - "Ahmet Ustun"
+    - "Sara Hooker"
+  year: 2024
+  venue: "ACL"
+  url: "https://arxiv.org/abs/2402.14740"
+
+shao2024deepseekmath:
+  type: article
+  title: "DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models"
+  author:
+    - "Zhihong Shao"
+    - "Peiyi Wang"
+    - "Qihao Zhu"
+    - "Runxin Xu"
+    - "Junxiao Song"
+    - "Mingchuan Zhang"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2402.03300"

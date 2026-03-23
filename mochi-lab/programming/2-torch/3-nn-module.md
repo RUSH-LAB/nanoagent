@@ -8,6 +8,8 @@ sidebar_position: 3
 
 Every PyTorch model inherits from `nn.Module`. The two methods you must implement:
 
+<Code id="code-nn-module-1" caption="Every PyTorch model inherits from `nn.">
+
 ```python
 import torch
 import torch.nn as nn
@@ -30,11 +32,17 @@ output = model(torch.randn(32, 784))  # Calls forward()
 print(output.shape)  # torch.Size([32, 10])
 ```
 
+</Code>
+
+<Remark id="rmk-nn-module-1">
 **Tip:** Never call `model.forward(x)` directly. Always use `model(x)`, which calls `forward()` through `__call__` and runs registered hooks.
+</Remark>
 
 ## Parameter Registration
 
 Parameters are automatically registered when assigned as attributes:
+
+<Code id="code-nn-module-2" caption="Parameters are automatically registered when assigned as attributes.">
 
 ```python
 class MyModel(nn.Module):
@@ -58,9 +66,15 @@ for name, param in model.named_parameters():
 # fc2.bias: torch.Size([10])
 ```
 
+</Code>
+
+<Remark id="rmk-nn-module-2">
 **Tip:** Use `register_buffer` for tensors that should be saved with the model but not trained (e.g., running statistics, positional encodings). Buffers move with `.to(device)` and are included in `state_dict`.
+</Remark>
 
 ## nn.Sequential vs Custom Modules
+
+<Code id="code-nn-module-3" caption="Code example.">
 
 ```python
 # Simple sequential model
@@ -86,7 +100,11 @@ class ResBlock(nn.Module):
         return x + residual  # Skip connection
 ```
 
+</Code>
+
 ## Saving and Loading
+
+<Code id="code-nn-module-4" caption="Code example.">
 
 ```python
 # Save model state
@@ -110,9 +128,15 @@ checkpoint = {
 torch.save(checkpoint, 'checkpoint.pt')
 ```
 
+</Code>
+
+<Remark id="rmk-nn-module-3">
 **Warning:** Always use `weights_only=True` when loading from untrusted sources. Without it, `torch.load` uses pickle, which can execute arbitrary code.
+</Remark>
 
 ## Useful Module Methods
+
+<Code id="code-nn-module-5" caption="Code example.">
 
 ```python
 model.parameters()         # Iterator over all parameters
@@ -126,9 +150,15 @@ model.half()               # Convert all parameters to float16
 model.zero_grad()          # Zero all parameter gradients
 ```
 
+</Code>
+
+<Code id="code-nn-module-6" caption="```.">
+
 ```python
 # Count parameters
 total = sum(p.numel() for p in model.parameters())
 trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
 print(f"Total: {total:,}, Trainable: {trainable:,}")
 ```
+
+</Code>

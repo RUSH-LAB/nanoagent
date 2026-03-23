@@ -15,6 +15,8 @@ Every CPU runs the same fundamental loop:
 
 Modern CPUs pipeline these stages so multiple instructions are in-flight simultaneously. A 20-stage pipeline can have 20 instructions at different stages of completion.
 
+<Code id="code-pipeline" caption="CPU instruction pipeline showing overlap of fetch, decode, and execute stages.">
+
 ```
 Time -->  1    2    3    4    5    6    7
 Inst 1:  [F]  [D]  [E]
@@ -23,11 +25,17 @@ Inst 3:            [F]  [D]  [E]
 Inst 4:                 [F]  [D]  [E]
 ```
 
-**Tip:** Branch mispredictions flush the pipeline, wasting all in-flight work. This is why branchless code (e.g., using conditional moves) can be faster for tight loops.
+</Code>
+
+<Remark id="rmk-branch-misprediction">
+Branch mispredictions flush the pipeline, wasting all in-flight work. This is why branchless code (e.g., using conditional moves) can be faster for tight loops.
+</Remark>
 
 ## Registers and Memory
 
 Registers are the fastest storage, sitting inside the CPU core itself:
+
+<Code id="code-x86-registers" caption="x86-64 general purpose and SIMD registers.">
 
 ```
 x86-64 General Purpose Registers:
@@ -40,9 +48,13 @@ x86-64 General Purpose Registers:
   YMM0-YMM15             -- 256-bit SIMD registers (AVX)
 ```
 
+</Code>
+
 ## The Memory Hierarchy
 
 Data moves through a hierarchy of increasingly large but slower storage:
+
+<Table id="tab-memory-hierarchy-prog" caption="Memory hierarchy with latencies and size analogies.">
 
 | Level | Typical Size | Latency | Analogy |
 |-------|-------------|---------|---------|
@@ -54,7 +66,11 @@ Data moves through a hierarchy of increasingly large but slower storage:
 | SSD | 1-8 TB | ~100 us | Warehouse |
 | HDD | 1-20 TB | ~10 ms | Another city |
 
+</Table>
+
 ## Latency Numbers Every Programmer Should Know
+
+<Code id="code-latency-numbers" caption="Key latency numbers for system design decisions.">
 
 ```
 L1 cache reference                            1 ns
@@ -66,11 +82,17 @@ HDD seek                             10,000,000 ns  (10 ms)
 Send packet SF -> NYC -> SF           40,000,000 ns  (40 ms)
 ```
 
-**Tip:** The 100x gap between L1 and DRAM is why cache-friendly data access patterns (sequential, predictable) dramatically outperform random access. In ML, this means contiguous tensor layouts and sequential memory access matter.
+</Code>
+
+<Remark id="rmk-cache-friendly">
+The 100x gap between L1 and DRAM is why cache-friendly data access patterns (sequential, predictable) dramatically outperform random access. In ML, this means contiguous tensor layouts and sequential memory access matter.
+</Remark>
 
 ## Cache Lines and Spatial Locality
 
 Caches operate on **cache lines** (typically 64 bytes). When you access one byte, the entire 64-byte line is fetched. This means:
+
+<Code id="code-cache-access" caption="Sequential vs strided memory access patterns and their cache behavior.">
 
 ```python
 # Fast: sequential access (one cache miss per 16 floats)
@@ -82,7 +104,11 @@ for i in range(0, N, stride):
     total += array[i]
 ```
 
-**Tip:** When iterating over 2D arrays, always iterate over the last dimension in the inner loop (row-major order in C/NumPy). This is why PyTorch tensors default to contiguous row-major layout.
+</Code>
+
+<Remark id="rmk-row-major">
+When iterating over 2D arrays, always iterate over the last dimension in the inner loop (row-major order in C/NumPy). This is why PyTorch tensors default to contiguous row-major layout.
+</Remark>
 
 ## How This Relates to ML
 

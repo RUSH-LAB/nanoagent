@@ -8,6 +8,8 @@ sidebar_position: 5
 
 Create a custom op in C++ that integrates with PyTorch's autograd:
 
+<Code id="code-custom-ops-1" caption="Create a custom op in C++ that integrates with PyTorch's autograd.">
+
 ```cpp
 // my_ops.cpp
 #include <torch/extension.h>
@@ -21,6 +23,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("my_relu", &my_relu, "Custom ReLU");
 }
 ```
+
+</Code>
+
+<Code id="code-custom-ops-2" caption="```.">
 
 ```python
 # Build and use
@@ -36,9 +42,13 @@ x = torch.randn(10, requires_grad=True)
 y = my_ops.my_relu(x)
 ```
 
+</Code>
+
 ## CUDA Extension
 
 Add a CUDA kernel to your C++ extension:
+
+<Code id="code-custom-ops-3" caption="Add a CUDA kernel to your C++ extension.">
 
 ```cuda
 // my_kernel.cu
@@ -73,6 +83,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 }
 ```
 
+</Code>
+
+<Code id="code-custom-ops-4" caption="```.">
+
 ```python
 from torch.utils.cpp_extension import load
 
@@ -86,9 +100,13 @@ x = torch.randn(1024, device='cuda')
 y = my_cuda_ops.silu_cuda(x)
 ```
 
+</Code>
+
 ## torch.library (PyTorch 2.1+)
 
 The modern way to define custom ops that work with `torch.compile`:
+
+<Code id="code-custom-ops-5" caption="The modern way to define custom ops that work with `torch.compile`.">
 
 ```python
 import torch
@@ -109,9 +127,13 @@ def f(x, y):
     return torch.ops.mylib.my_add(x, y)
 ```
 
+</Code>
+
 ## Autograd Integration
 
 Register backward for custom ops:
+
+<Code id="code-custom-ops-6" caption="Register backward for custom ops.">
 
 ```python
 class SiLU(torch.autograd.Function):
@@ -141,4 +163,8 @@ class FastSiLU(torch.autograd.Function):
         return grad_output * (sigmoid_x * (1 + x * (1 - sigmoid_x)))
 ```
 
+</Code>
+
+<Remark id="rmk-custom-ops-1">
 **Tip:** Use C++/CUDA for performance-critical forward passes and rely on PyTorch's autograd for backward passes unless the backward is also a bottleneck. This gives you 80% of the performance benefit with 20% of the implementation effort.
+</Remark>

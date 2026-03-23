@@ -6,6 +6,8 @@ sidebar_position: 2
 
 ## Number Formats
 
+<Table id="tab-mixed-precision-1" caption="## Number Formats.">
+
 | Format | Bits | Exponent | Mantissa | Range | Use case |
 |--------|------|----------|----------|-------|----------|
 | FP32 | 32 | 8 | 23 | $10^{\pm38}$ | Default precision |
@@ -14,9 +16,15 @@ sidebar_position: 2
 | FP8 E4M3 | 8 | 4 | 3 | $\pm240$ | Forward pass (Hopper+) |
 | FP8 E5M2 | 8 | 5 | 2 | $\pm57344$ | Backward pass (Hopper+) |
 
+</Table>
+
+<Remark id="rmk-mixed-precision-1">
 **Tip:** BF16 is preferred over FP16 for training because it has the same exponent range as FP32. FP16 requires loss scaling to avoid gradient underflow; BF16 does not.
+</Remark>
 
 ## torch.amp (Automatic Mixed Precision)
+
+<Code id="code-mixed-precision-1" caption="Code example.">
 
 ```python
 from torch.amp import autocast, GradScaler
@@ -44,6 +52,8 @@ for data, target in loader:
     scaler.update()
 ```
 
+</Code>
+
 ## Loss Scaling (FP16 Only)
 
 FP16 has limited range. Small gradients ($<6 \times 10^{-8}$) underflow to zero. **Loss scaling** multiplies the loss by a large factor before backward, then divides the gradients after:
@@ -62,12 +72,18 @@ The `GradScaler` automatically adjusts the scale factor:
 
 ## What Runs in Which Precision
 
+<Code id="code-mixed-precision-2" caption="Code example.">
+
 ```python
 # autocast automatically selects precision per operation:
 # FP16/BF16: matmul, conv, linear, attention (compute-bound)
 # FP32: softmax, layer norm, loss functions (precision-sensitive)
 # FP32: optimizer state and weight updates (accumulation)
 ```
+
+</Code>
+
+<Table id="tab-mixed-precision-2" caption="# FP32: optimizer state and weight updates (accumulation).">
 
 | Operation | Precision | Why |
 |-----------|-----------|-----|
@@ -79,7 +95,11 @@ The `GradScaler` automatically adjusts the scale factor:
 | Optimizer state | FP32 | Accumulation precision |
 | Master weights | FP32 | Small updates would be lost in FP16 |
 
+</Table>
+
 ## Performance Impact
+
+<Code id="code-mixed-precision-3" caption="Code example.">
 
 ```python
 # Speedup depends on operation type:
@@ -95,4 +115,8 @@ The `GradScaler` automatically adjusts the scale factor:
 # Net: ~1.5x less total GPU memory
 ```
 
+</Code>
+
+<Remark id="rmk-mixed-precision-2">
 **Tip:** Mixed precision training should be the default for any GPU training. It gives 1.5-2x speedup with virtually no accuracy loss. Use BF16 when available (Ampere+), FP16 with GradScaler on older hardware.
+</Remark>

@@ -13,6 +13,8 @@ A CPU core is designed to execute a single thread of instructions as fast as pos
 - **Large caches** -- L1/L2/L3 hierarchy to minimize memory latency
 - **Few cores** -- 8-128 powerful cores, each running 1-2 threads
 
+<Code id="code-cpu-layout" caption="Schematic layout of a CPU core.">
+
 ```
 CPU Core Layout:
 +------------------+
@@ -25,6 +27,8 @@ CPU Core Layout:
       x 8-128 cores
 ```
 
+</Code>
+
 ## GPU: Optimized for Throughput
 
 A GPU trades single-thread performance for massive parallelism:
@@ -33,6 +37,8 @@ A GPU trades single-thread performance for massive parallelism:
 - **Thousands of threads** -- hide memory latency by switching between threads
 - **Wide SIMT execution** -- 32 threads (a warp) execute the same instruction
 - **High bandwidth memory** -- HBM provides 3+ TB/s vs ~50 GB/s for CPU DRAM
+
+<Code id="code-gpu-sm-layout" caption="Schematic layout of a GPU Streaming Multiprocessor (SM).">
 
 ```
 GPU Streaming Multiprocessor (SM):
@@ -46,9 +52,13 @@ GPU Streaming Multiprocessor (SM):
       x 80-144 SMs per GPU
 ```
 
+</Code>
+
 ## Thread Hierarchy
 
 CUDA organizes computation in a hierarchy:
+
+<Code id="code-thread-hierarchy" caption="CUDA thread hierarchy: grid, blocks, warps, and threads.">
 
 ```
 Grid (entire kernel launch)
@@ -62,6 +72,10 @@ Grid (entire kernel launch)
        ...                 ...
 ```
 
+</Code>
+
+<Table id="tab-thread-levels" caption="CUDA thread hierarchy levels and their shared resources.">
+
 | Level | Size | Shared Resources |
 |-------|------|-----------------|
 | Thread | 1 | Registers (~255 per thread) |
@@ -69,9 +83,15 @@ Grid (entire kernel launch)
 | Block | Up to 1024 threads | Shared memory, synchronization |
 | Grid | Up to 2^31 blocks | Global memory |
 
-**Tip:** Always make your block size a multiple of 32 (the warp size). Non-multiple sizes waste execution slots.
+</Table>
+
+<Remark id="rmk-warp-size">
+Always make your block size a multiple of 32 (the warp size). Non-multiple sizes waste execution slots.
+</Remark>
 
 ## Memory Types
+
+<Code id="code-gpu-memory" caption="GPU memory hierarchy showing global, shared, and register memory.">
 
 ```
 +--------------------------------------------------+
@@ -88,6 +108,10 @@ Grid (entire kernel launch)
 +----------+  +----------+  +----------+
 ```
 
+</Code>
+
+<Table id="tab-gpu-memory-types" caption="GPU memory types, scopes, and latencies.">
+
 | Memory | Scope | Latency | Size | Cached |
 |--------|-------|---------|------|--------|
 | Registers | Thread | ~1 cycle | 256 KB/SM | N/A |
@@ -96,9 +120,19 @@ Grid (entire kernel launch)
 | Global (HBM) | Device | ~300 cycles | 80 GB | Via L2 |
 | Constant | Device | ~5 cycles (cached) | 64 KB | Yes |
 
+</Table>
+
 ## Bandwidth vs Compute: The Roofline Model
 
-An operation is either **compute-bound** or **memory-bound**:
+<Definition id="def-roofline" name="Roofline Model">
+An operation is either **compute-bound** or **memory-bound**, determined by its **arithmetic intensity** (FLOPs per byte transferred):
+
+- **Matrix multiply (GEMM):** ~100 FLOPS/byte (compute-bound)
+- **Element-wise ops (ReLU):** ~0.25 FLOPS/byte (memory-bound)
+- **Reduction (sum):** ~0.25 FLOPS/byte (memory-bound)
+</Definition>
+
+<Code id="code-roofline" caption="The roofline model showing the compute-bound and memory-bound regimes.">
 
 ```
 Performance (FLOPS)
@@ -115,10 +149,8 @@ Performance (FLOPS)
          Point
 ```
 
-**Arithmetic intensity** = FLOPs / bytes transferred
+</Code>
 
-- **Matrix multiply (GEMM):** ~100 FLOPS/byte (compute-bound)
-- **Element-wise ops (ReLU):** ~0.25 FLOPS/byte (memory-bound)
-- **Reduction (sum):** ~0.25 FLOPS/byte (memory-bound)
-
-**Tip:** If your operation is memory-bound, making it faster requires reducing memory traffic (fusion, quantization), not adding more compute.
+<Remark id="rmk-memory-bound-fix">
+If your operation is memory-bound, making it faster requires reducing memory traffic (fusion, quantization), not adding more compute.
+</Remark>

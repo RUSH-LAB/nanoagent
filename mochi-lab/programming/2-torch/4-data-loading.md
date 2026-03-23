@@ -8,6 +8,8 @@ sidebar_position: 4
 
 A `Dataset` maps an index to a sample:
 
+<Code id="code-data-loading-1" caption="A `Dataset` maps an index to a sample.">
+
 ```python
 from torch.utils.data import Dataset, DataLoader
 
@@ -36,9 +38,13 @@ class TextDataset(Dataset):
         }
 ```
 
+</Code>
+
 ## DataLoader
 
 `DataLoader` handles batching, shuffling, and parallel loading:
+
+<Code id="code-data-loading-2" caption="`DataLoader` handles batching, shuffling, and parallel loading.">
 
 ```python
 loader = DataLoader(
@@ -57,11 +63,17 @@ for batch in loader:
     output = model(input_ids)
 ```
 
+</Code>
+
+<Remark id="rmk-data-loading-1">
 **Tip:** Use `pin_memory=True` with `.cuda(non_blocking=True)` to overlap data transfer with computation. This can give a 10-20% speedup.
+</Remark>
 
 ## IterableDataset
 
 For streaming data that does not fit in memory:
+
+<Code id="code-data-loading-3" caption="For streaming data that does not fit in memory.">
 
 ```python
 class StreamingDataset(torch.utils.data.IterableDataset):
@@ -84,11 +96,17 @@ class StreamingDataset(torch.utils.data.IterableDataset):
                     yield process_line(line)
 ```
 
+</Code>
+
+<Remark id="rmk-data-loading-2">
 **Warning:** With `IterableDataset` and `num_workers > 0`, each worker gets a copy of the dataset. Without manual sharding (as shown above), data is duplicated.
+</Remark>
 
 ## Custom collate_fn
 
 Control how samples are batched:
+
+<Code id="code-data-loading-4" caption="Control how samples are batched.">
 
 ```python
 def collate_fn(batch):
@@ -111,7 +129,11 @@ def collate_fn(batch):
 loader = DataLoader(dataset, batch_size=32, collate_fn=collate_fn)
 ```
 
+</Code>
+
 ## Distributed Data Loading
+
+<Code id="code-data-loading-5" caption="Code example.">
 
 ```python
 from torch.utils.data.distributed import DistributedSampler
@@ -138,4 +160,8 @@ for epoch in range(num_epochs):
         ...
 ```
 
+</Code>
+
+<Remark id="rmk-data-loading-3">
 **Tip:** When using `DistributedSampler`, do not set `shuffle=True` in the DataLoader. The sampler handles shuffling and ensures each GPU sees a different subset of the data.
+</Remark>

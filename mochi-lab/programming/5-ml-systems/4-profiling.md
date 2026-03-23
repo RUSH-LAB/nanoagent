@@ -8,6 +8,8 @@ sidebar_position: 4
 
 PyTorch's built-in profiler traces CPU and GPU operations:
 
+<Code id="code-profiling-1" caption="PyTorch's built-in profiler traces CPU and GPU operations.">
+
 ```python
 import torch
 from torch.profiler import profile, record_function, ProfilerActivity
@@ -33,7 +35,11 @@ prof.export_chrome_trace("trace.json")
 prof.export_stacks("profiler_stacks.txt", "self_cuda_time_total")
 ```
 
+</Code>
+
 ## Training Loop Profiling
+
+<Code id="code-profiling-2" caption="Code example.">
 
 ```python
 from torch.profiler import schedule
@@ -59,9 +65,13 @@ with profile(
         prof.step()  # Signal end of step
 ```
 
+</Code>
+
 ## NVIDIA Nsight Systems (nsys)
 
 System-level profiling -- see the full timeline of CPU, GPU, and communication:
+
+<Code id="code-profiling-3" caption="System-level profiling -- see the full timeline of CPU, GPU, and communication.">
 
 ```bash
 # Profile a training script
@@ -80,9 +90,13 @@ nsys stats report.nsys-rep
 # 4. Memory copy time (H2D, D2H)
 ```
 
+</Code>
+
 ## NVIDIA Nsight Compute (ncu)
 
 Kernel-level profiling -- deep dive into a single CUDA kernel:
+
+<Code id="code-profiling-4" caption="Kernel-level profiling -- deep dive into a single CUDA kernel.">
 
 ```bash
 # Profile specific kernels
@@ -97,6 +111,8 @@ ncu --set full \
 # Achieved Occupancy         -> Are we hiding latency?
 # Warp Stall Reasons         -> Why are warps waiting?
 ```
+
+</Code>
 
 ## The Roofline Model
 
@@ -113,6 +129,8 @@ If AI > machine_balance_point:
 A100 balance point: ~200 FLOPS/byte (FP16 with Tensor Cores)
 ```
 
+<Table id="tab-profiling-1" caption="A100 balance point: ~200 FLOPS/byte (FP16 with Tensor Cores).">
+
 | Operation | Arithmetic Intensity | Bound |
 |-----------|---------------------|-------|
 | Element-wise (ReLU) | 0.25 FLOP/byte | Memory |
@@ -121,7 +139,11 @@ A100 balance point: ~200 FLOPS/byte (FP16 with Tensor Cores)
 | GEMM (4096x4096) | ~2048 FLOP/byte | Compute |
 | Attention (seq=2048) | ~512 FLOP/byte | Compute |
 
+</Table>
+
 ## Common Bottlenecks and Fixes
+
+<Table id="tab-profiling-2" caption="## Common Bottlenecks and Fixes.">
 
 | Symptom | Diagnosis | Fix |
 |---------|-----------|-----|
@@ -130,6 +152,10 @@ A100 balance point: ~200 FLOPS/byte (FP16 with Tensor Cores)
 | High NCCL time | Communication bound | Overlap compute/comm, gradient compression |
 | Low memory bandwidth util | Poor access pattern | Coalesce memory, fuse kernels |
 | High memory usage | Large activations | Gradient checkpointing, reduce batch |
+
+</Table>
+
+<Code id="code-profiling-5" caption="Code example.">
 
 ```python
 # Quick GPU utilization check
@@ -142,4 +168,8 @@ result = subprocess.run(
 print(f"GPU utilization: {result.stdout.strip()}%")
 ```
 
+</Code>
+
+<Remark id="rmk-profiling-1">
 **Tip:** Profile first, optimize second. Most training bottlenecks are in data loading, communication, or kernel launch overhead -- not in the model computation itself.
+</Remark>

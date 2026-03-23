@@ -8,6 +8,8 @@ sidebar_position: 1
 
 A **kernel** is a function that runs on the GPU, executed by thousands of threads in parallel. The `__global__` keyword marks a function as a kernel.
 
+<Code id="code-first-kernel-1" caption="A kernel is a function that runs on the GPU, executed by thousands of thr.">
+
 ```cuda
 // hello.cu
 #include <stdio.h>
@@ -26,6 +28,8 @@ int main() {
 }
 ```
 
+</Code>
+
 ```bash
 # Compile and run
 nvcc hello.cu -o hello
@@ -35,6 +39,8 @@ nvcc hello.cu -o hello
 ## Thread Indexing
 
 Every thread knows its position in the grid:
+
+<Code id="code-first-kernel-2" caption="Every thread knows its position in the grid.">
 
 ```cuda
 // 1D indexing (most common)
@@ -52,9 +58,13 @@ int idx = row * width + col;
 // gridDim.x/y/z    -- number of blocks in grid
 ```
 
+</Code>
+
 ## Vector Addition
 
 The "hello world" of GPU programming:
+
+<Code id="code-first-kernel-3" caption="The "hello world" of GPU programming.">
 
 ```cuda
 __global__ void vec_add(float* a, float* b, float* c, int n) {
@@ -104,9 +114,15 @@ int main() {
 }
 ```
 
+</Code>
+
+<Remark id="rmk-first-kernel-1">
 **Tip:** The grid size calculation `(n + block_size - 1) / block_size` ensures we launch enough threads even when `n` is not a multiple of `block_size`. The bounds check `if (tid < n)` handles the excess threads.
+</Remark>
 
 ## Common Patterns
+
+<Code id="code-first-kernel-4" caption="Code example.">
 
 ```cuda
 // Pattern: stride loop (handle more data than threads)
@@ -124,7 +140,11 @@ dim3 grid((width + 15) / 16, (height + 15) / 16);
 matrix_kernel<<<grid, block>>>(data, width, height);
 ```
 
+</Code>
+
 ## Error Checking
+
+<Code id="code-first-kernel-5" caption="Code example.">
 
 ```cuda
 // Always check CUDA calls for errors
@@ -142,4 +162,8 @@ CUDA_CHECK(cudaMalloc(&d_a, bytes));
 CUDA_CHECK(cudaMemcpy(d_a, h_a, bytes, cudaMemcpyHostToDevice));
 ```
 
+</Code>
+
+<Remark id="rmk-first-kernel-2">
 **Warning:** Kernel launches are asynchronous and do not return errors directly. To catch kernel errors, call `cudaGetLastError()` after the launch and `cudaDeviceSynchronize()` to wait for completion.
+</Remark>

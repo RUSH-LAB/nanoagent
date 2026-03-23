@@ -6,6 +6,8 @@ sidebar_position: 1
 
 ## Creating Tensors
 
+<Code id="code-create-tensors" caption="Creating tensors from data and factory functions.">
+
 ```python
 import torch
 
@@ -25,7 +27,11 @@ x_like = torch.zeros_like(X)
 x_new = X.new_zeros(5, 5)
 ```
 
+</Code>
+
 ## Dtypes
+
+<Table id="tab-torch-dtypes" caption="PyTorch data types, precision, and typical use cases.">
 
 | Dtype | Bits | Range | Use case |
 |-------|------|-------|----------|
@@ -36,6 +42,10 @@ x_new = X.new_zeros(5, 5)
 | `torch.int64` | 64 | $\pm 9.2 \times 10^{18}$ | Indices, labels |
 | `torch.bool` | 8 | True/False | Masks |
 
+</Table>
+
+<Code id="code-dtype-conversion" caption="Converting between data types.">
+
 ```python
 # Convert dtype
 x = torch.randn(3, 3)
@@ -44,9 +54,15 @@ x_bf16 = x.bfloat16()    # float32 -> bfloat16
 x_back = x_half.float()  # float16 -> float32
 ```
 
-**Tip:** Always use `.bfloat16()` over `.half()` for training. BF16 has the same exponent range as FP32, so it rarely overflows.
+</Code>
+
+<Remark id="rmk-bf16-training">
+Always use `.bfloat16()` over `.half()` for training. BF16 has the same exponent range as FP32, so it rarely overflows.
+</Remark>
 
 ## Device Placement
+
+<Code id="code-device-placement" caption="Moving tensors between CPU and GPU devices.">
 
 ```python
 # Move to GPU
@@ -65,11 +81,17 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 x = torch.randn(3, 3, device=device)
 ```
 
-**Warning:** All tensors in an operation must be on the same device. `cpu_tensor + cuda_tensor` raises a RuntimeError.
+</Code>
+
+<Remark id="rmk-device-mismatch">
+All tensors in an operation must be on the same device. `cpu_tensor + cuda_tensor` raises a RuntimeError.
+</Remark>
 
 ## Views vs Copies
 
 A **view** shares memory with the original tensor. A **copy** allocates new memory:
+
+<Code id="code-views-copies" caption="View operations (shared memory) vs copy operations (new memory).">
 
 ```python
 x = torch.randn(4, 4)
@@ -86,6 +108,10 @@ y = x.clone()           # Explicit copy
 y = x.contiguous()      # Copy only if non-contiguous
 ```
 
+</Code>
+
+<Example id="ex-view-shared-memory">
+
 ```python
 # Check if tensors share memory
 x = torch.randn(4, 4)
@@ -93,12 +119,17 @@ y = x.view(2, 8)
 y[0, 0] = 999
 print(x[0, 0])  # 999 -- y is a view!
 ```
+</Example>
 
-**Tip:** Use `.view()` when you know the tensor is contiguous. Use `.reshape()` when you are not sure -- it returns a view when possible and a copy otherwise.
+<Remark id="rmk-view-vs-reshape">
+Use `.view()` when you know the tensor is contiguous. Use `.reshape()` when you are not sure -- it returns a view when possible and a copy otherwise.
+</Remark>
 
 ## Broadcasting
 
 PyTorch automatically expands dimensions to make shapes compatible:
+
+<Code id="code-broadcasting" caption="Broadcasting rules and common patterns.">
 
 ```python
 # Rules: align from the right, dimensions must be equal or one of them is 1
@@ -110,11 +141,7 @@ z = x + y                # Shape: (3, 4)
 W = torch.randn(10, 5)   # Weight matrix
 b = torch.randn(5)       # Bias vector, shape (5,) -> (1, 5) -> (10, 5)
 out = W + b              # Shape: (10, 5)
-```
 
-Common broadcasting patterns:
-
-```python
 # Batch matrix operations
 batch = torch.randn(32, 10, 5)    # (B, M, N)
 vector = torch.randn(5)           # (N,) -> (1, 1, N)
@@ -126,8 +153,8 @@ b = torch.randn(1, 4)
 outer = a * b                      # (3, 4)
 ```
 
-**Warning:** Broadcasting can silently create incorrect results when shapes are accidentally compatible. Always verify shapes with assertions:
+</Code>
 
-```python
-assert x.shape == (batch_size, seq_len, d_model), f"Expected shape {(batch_size, seq_len, d_model)}, got {x.shape}"
-```
+<Remark id="rmk-broadcasting-safety">
+Broadcasting can silently create incorrect results when shapes are accidentally compatible. Always verify shapes with assertions: `assert x.shape == (batch_size, seq_len, d_model)`.
+</Remark>

@@ -6,6 +6,8 @@ sidebar_position: 5
 
 ## Complete Training Loop
 
+<Code id="code-training-loop-1" caption="Code example.">
+
 ```python
 import torch
 import torch.nn as nn
@@ -65,7 +67,11 @@ def train(model, train_loader, val_loader, epochs, lr=3e-4):
     return model
 ```
 
+</Code>
+
 ## Evaluation
+
+<Code id="code-training-loop-2" caption="Code example.">
 
 ```python
 @torch.no_grad()
@@ -90,7 +96,11 @@ def evaluate(model, loader, criterion, device):
     return total_loss / len(loader)
 ```
 
+</Code>
+
 ## Mixed Precision Training
+
+<Code id="code-training-loop-3" caption="Code example.">
 
 ```python
 # The key components:
@@ -106,9 +116,15 @@ loss.backward()    # No scaler needed with bfloat16
 optimizer.step()
 ```
 
+</Code>
+
+<Remark id="rmk-training-loop-1">
 **Tip:** On Ampere GPUs (A100, RTX 3090) and newer, use `dtype=torch.bfloat16` without GradScaler. BF16 does not require loss scaling because its exponent range matches FP32.
+</Remark>
 
 ## Checkpointing
+
+<Code id="code-training-loop-4" caption="Code example.">
 
 ```python
 def save_checkpoint(model, optimizer, scheduler, epoch, path):
@@ -127,7 +143,11 @@ def load_checkpoint(model, optimizer, scheduler, path):
     return checkpoint['epoch']
 ```
 
+</Code>
+
 ## Gradient Clipping
+
+<Code id="code-training-loop-5" caption="Code example.">
 
 ```python
 # Clip by norm (most common for transformers)
@@ -142,4 +162,8 @@ if total_norm > 1.0:
     print(f"Gradient norm: {total_norm:.2f} (clipped)")
 ```
 
+</Code>
+
+<Remark id="rmk-training-loop-2">
 **Tip:** Always clip gradients when training transformers. A common configuration is `max_norm=1.0`. Log the gradient norm to detect training instability early.
+</Remark>

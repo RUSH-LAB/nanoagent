@@ -8,6 +8,8 @@ sidebar_position: 3
 
 All 32 threads in a warp execute the same instruction. When threads take different branches, both paths are executed with threads masked:
 
+<Code id="code-optimization-1" caption="All 32 threads in a warp execute the same instruction.">
+
 ```cuda
 // Divergent: threads in the same warp take different branches
 if (threadIdx.x % 2 == 0) {
@@ -26,9 +28,13 @@ if (threadIdx.x < 16) {
 }
 ```
 
+</Code>
+
 ## Tiling for Matrix Multiplication
 
 Naive matrix multiply has poor data reuse. **Tiling** loads sub-matrices into shared memory:
+
+<Code id="code-optimization-2" caption="Naive matrix multiply has poor data reuse.">
 
 ```cuda
 #define TILE 16
@@ -58,11 +64,15 @@ __global__ void matmul_tiled(float* A, float* B, float* C, int N) {
 }
 ```
 
+</Code>
+
 The tiled version reads each element from global memory once per tile instead of once per output element, reducing global memory accesses by a factor of `TILE`.
 
 ## Parallel Reduction
 
 Summing an array in parallel:
+
+<Code id="code-optimization-3" caption="Summing an array in parallel.">
 
 ```cuda
 __global__ void reduce_sum(float* input, float* output, int n) {
@@ -86,7 +96,13 @@ __global__ void reduce_sum(float* input, float* output, int n) {
 }
 ```
 
+</Code>
+
+<Remark id="rmk-optimization-1">
 **Tip:** For the final warp (32 threads), you can skip `__syncthreads()` and use `__shfl_down_sync` for faster warp-level reduction:
+</Remark>
+
+<Code id="code-optimization-4" caption="Tip: For the final warp (32 threads), you can skip `__syncthreads()` and.">
 
 ```cuda
 // Warp-level reduction (no shared memory needed)
@@ -97,9 +113,13 @@ for (int offset = 16; offset > 0; offset >>= 1) {
 // Thread 0 of each warp now has the sum
 ```
 
+</Code>
+
 ## CUDA Streams
 
 Streams enable concurrent execution of kernels and memory copies:
+
+<Code id="code-optimization-5" caption="Streams enable concurrent execution of kernels and memory copies.">
 
 ```cuda
 cudaStream_t stream1, stream2;
@@ -117,7 +137,11 @@ cudaStreamSynchronize(stream1);
 cudaStreamSynchronize(stream2);
 ```
 
+</Code>
+
 ## Profiling
+
+<Code id="code-optimization-6" caption="Code example.">
 
 ```bash
 # NVIDIA Nsight Compute (kernel-level profiling)
@@ -134,9 +158,15 @@ nsys profile -o timeline ./my_program
 nsys stats timeline.nsys-rep
 ```
 
+</Code>
+
+<Table id="tab-optimization-1" caption="nsys stats timeline.nsys-rep.">
+
 | Metric | What it tells you | Good value |
 |--------|------------------|------------|
 | SM % | GPU compute utilization | > 80% |
 | Memory BW % | Memory bandwidth utilization | > 60% |
 | Occupancy | Warps hiding latency | > 50% |
 | L2 hit rate | Cache effectiveness | > 50% |
+
+</Table>

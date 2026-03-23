@@ -8,6 +8,8 @@ sidebar_position: 4
 
 CUDA gives maximum control but requires managing threads, shared memory, and synchronization manually. **Triton** (by OpenAI) provides a higher-level abstraction: you write kernels at the **block level** instead of the thread level.
 
+<Code id="code-triton-1" caption="CUDA gives maximum control but requires managing threads, shared memory, and.">
+
 ```python
 import triton
 import triton.language as tl
@@ -35,7 +37,11 @@ grid = (triton.cdiv(n, 256),)  # Ceiling division
 add_kernel[grid](x, y, out, n, BLOCK_SIZE=256)
 ```
 
+</Code>
+
 ## Key Concepts
+
+<Table id="tab-triton-1" caption="## Key Concepts.">
 
 | CUDA | Triton | Description |
 |------|--------|-------------|
@@ -45,11 +51,17 @@ add_kernel[grid](x, y, out, n, BLOCK_SIZE=256)
 | Shared memory | (automatic) | Triton manages shared memory for you |
 | `__syncthreads()` | (automatic) | Synchronization is implicit |
 
+</Table>
+
+<Remark id="rmk-triton-1">
 **Tip:** In Triton, you think in terms of blocks of data, not individual threads. Triton's compiler handles the mapping to threads, shared memory, and synchronization.
+</Remark>
 
 ## Fused Softmax
 
 A practical example that demonstrates the power of fusion:
+
+<Code id="code-triton-2" caption="A practical example that demonstrates the power of fusion.">
 
 ```python
 @triton.jit
@@ -82,11 +94,15 @@ def fused_softmax(x):
     return out
 ```
 
+</Code>
+
 This fused kernel performs max, subtract, exp, sum, and divide in a single pass over the data, compared to 5 separate PyTorch kernel launches.
 
 ## Auto-tuning
 
 Triton supports automatic tuning of kernel parameters:
+
+<Code id="code-triton-3" caption="Triton supports automatic tuning of kernel parameters.">
 
 ```python
 @triton.autotune(
@@ -104,9 +120,15 @@ def matmul_kernel(a_ptr, b_ptr, c_ptr, M, N, K,
     ...
 ```
 
+</Code>
+
+<Remark id="rmk-triton-2">
 **Tip:** Start with a working kernel, then add `@triton.autotune` to find the best block sizes. Triton will benchmark each configuration and cache the winner.
+</Remark>
 
 ## When to Use Triton vs CUDA
+
+<Table id="tab-triton-2" caption="## When to Use Triton vs CUDA.">
 
 | Scenario | Recommendation |
 |----------|---------------|
@@ -116,3 +138,5 @@ def matmul_kernel(a_ptr, b_ptr, c_ptr, M, N, K,
 | Need inline PTX assembly | CUDA |
 | Rapid prototyping | Triton |
 | Maximum performance on known problem | CUDA |
+
+</Table>

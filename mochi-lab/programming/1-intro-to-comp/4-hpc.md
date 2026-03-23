@@ -8,6 +8,8 @@ sidebar_position: 4
 
 MPI is the standard for distributed computing. Each process (rank) has its own memory and communicates via messages:
 
+<Code id="code-mpi-example" caption="Basic MPI point-to-point communication in Python.">
+
 ```python
 from mpi4py import MPI
 
@@ -22,9 +24,13 @@ elif rank == 1:
     data = comm.recv(source=0, tag=0)
 ```
 
+</Code>
+
 ## NCCL: GPU Collective Communication
 
 NCCL (NVIDIA Collective Communications Library) is optimized for GPU-to-GPU communication:
+
+<Code id="code-nccl-allreduce" caption="NCCL all-reduce for gradient synchronization in PyTorch.">
 
 ```python
 import torch
@@ -39,7 +45,11 @@ dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
 tensor /= dist.get_world_size()  # Average
 ```
 
+</Code>
+
 ## Collective Operations
+
+<Code id="code-collectives" caption="Visual representation of distributed collective operations.">
 
 ```
 Broadcast (root -> all):
@@ -68,18 +78,13 @@ ReduceScatter (reduce + scatter):
   Rank 2: [3 4 5]       -->  Rank 2: [12]
 ```
 
+</Code>
+
 ## Ring AllReduce
 
 The bandwidth-optimal algorithm for AllReduce uses a ring topology:
 
-```
-Step 1: Each rank sends a shard to the next rank
-  Rank 0 --> Rank 1 --> Rank 2 --> Rank 0
-
-Step 2: Repeat N-1 times (reduce-scatter phase)
-Step 3: Repeat N-1 times (all-gather phase)
-Total: 2(N-1) steps, each transferring M/N data
-```
+<Code id="code-ring-allreduce" caption="Ring AllReduce with DistributedDataParallel.">
 
 ```python
 # PyTorch handles this automatically with DistributedDataParallel
@@ -90,9 +95,15 @@ model = torch.nn.parallel.DistributedDataParallel(
 # Gradients are all-reduced automatically during backward()
 ```
 
-**Tip:** Ring AllReduce transfers `2 * (N-1)/N * M` total bytes, which approaches `2M` regardless of the number of nodes. This is bandwidth-optimal.
+</Code>
+
+<Remark id="rmk-ring-allreduce-cost">
+Ring AllReduce transfers `2 * (N-1)/N * M` total bytes, which approaches `2M` regardless of the number of nodes. This is bandwidth-optimal.
+</Remark>
 
 ## Distributed Training Topologies
+
+<Table id="tab-dist-topologies" caption="Distributed training communication topologies.">
 
 | Topology | Use Case | Communication |
 |----------|----------|--------------|
@@ -101,7 +112,11 @@ model = torch.nn.parallel.DistributedDataParallel(
 | Parameter Server | Async SGD | Centralized but scalable |
 | Hierarchical | Multi-node GPU | Ring within node, tree across nodes |
 
+</Table>
+
 ## Profiling with nsys
+
+<Code id="code-nsys-profiling" caption="Using nsys to profile CUDA training workloads.">
 
 ```bash
 # Profile a training script
@@ -117,15 +132,21 @@ nsys stats report.nsys-rep
 # - Kernel launch gaps (pipeline bubbles)
 ```
 
+</Code>
+
 Common bottlenecks:
 
-```
-Problem              | Symptom                  | Fix
----------------------|--------------------------|---------------------------
-Low GPU utilization  | Long CPU gaps            | Async data loading, prefetch
-Communication bound  | NCCL > 30% of step time  | Gradient compression, overlap
-Memory bound         | Small kernels, high BW   | Operator fusion, larger batch
-Kernel launch bound  | Many tiny kernels        | torch.compile, CUDA graphs
-```
+<Table id="tab-profiling-bottlenecks" caption="Common training bottlenecks and their fixes.">
 
-**Tip:** Run `nvidia-smi dmon -s u` during training to monitor GPU utilization in real time. If SM utilization is below 80%, you likely have a bottleneck outside of GPU compute.
+| Problem | Symptom | Fix |
+|---------|---------|-----|
+| Low GPU utilization | Long CPU gaps | Async data loading, prefetch |
+| Communication bound | NCCL > 30% of step time | Gradient compression, overlap |
+| Memory bound | Small kernels, high BW | Operator fusion, larger batch |
+| Kernel launch bound | Many tiny kernels | torch.compile, CUDA graphs |
+
+</Table>
+
+<Remark id="rmk-nvidia-smi">
+Run `nvidia-smi dmon -s u` during training to monitor GPU utilization in real time. If SM utilization is below 80%, you likely have a bottleneck outside of GPU compute.
+</Remark>

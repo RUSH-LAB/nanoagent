@@ -6,6 +6,8 @@ sidebar_position: 3
 
 ## Branching for Experiments
 
+<Code id="code-git-for-ml-1" caption="Code example.">
+
 ```bash
 # One branch per experiment
 git checkout -b exp/lr-sweep
@@ -18,11 +20,17 @@ git diff exp/baseline..exp/lr-sweep -- config.yaml
 git log --oneline --graph exp/baseline exp/lr-sweep
 ```
 
+</Code>
+
+<Remark id="rmk-git-for-ml-1">
 **Tip:** Use a consistent naming convention for experiment branches: `exp/<description>`. Include key results in the commit message so `git log` serves as an experiment log.
+</Remark>
 
 ## Tracking Large Files
 
 ML projects have large binary files (models, datasets) that should not go in regular Git:
+
+<Code id="code-git-for-ml-2" caption="ML projects have large binary files (models, datasets) that should not go in.">
 
 ```bash
 # Git LFS (Large File Storage)
@@ -39,6 +47,8 @@ git commit -m "Add trained model"
 git push
 ```
 
+</Code>
+
 ```bash
 # Check what LFS is tracking
 git lfs ls-files
@@ -48,6 +58,8 @@ git lfs status
 ## DVC (Data Version Control)
 
 DVC tracks data and models outside of Git while keeping metadata in Git:
+
+<Code id="code-git-for-ml-3" caption="DVC tracks data and models outside of Git while keeping metadata in Git.">
 
 ```bash
 pip install dvc dvc-s3
@@ -67,6 +79,10 @@ dvc push
 # Reproduce a pipeline
 dvc repro                      # Re-run changed stages
 ```
+
+</Code>
+
+<Code id="code-git-for-ml-4" caption="```.">
 
 ```yaml
 # dvc.yaml -- define a reproducible pipeline
@@ -92,7 +108,11 @@ stages:
           cache: false
 ```
 
+</Code>
+
 ## .gitignore for ML Projects
+
+<Code id="code-git-for-ml-5" caption="Code example.">
 
 ```gitignore
 # Data
@@ -126,7 +146,11 @@ __pycache__/
 *.swp
 ```
 
+</Code>
+
 ## Useful Git Workflows
+
+<Code id="code-git-for-ml-6" caption="Code example.">
 
 ```bash
 # Stash changes before switching branches
@@ -148,4 +172,8 @@ git bisect good v1.0            # This tag was working
 # Repeat until the breaking commit is found
 ```
 
+</Code>
+
+<Remark id="rmk-git-for-ml-2">
 **Tip:** Commit early and often during experiments. Disk is cheap; lost work is expensive. Use `git stash` liberally when switching between tasks.
+</Remark>

@@ -8,6 +8,8 @@ sidebar_position: 3
 
 During autoregressive generation, each new token only needs attention with all previous tokens. The **KV-cache** stores computed key and value vectors to avoid recomputation:
 
+<Code id="code-inference-optimization-1" caption="During autoregressive generation, each new token only needs attention with al.">
+
 ```python
 # Without KV-cache: recompute all K,V at each step
 # Step 1: compute K,V for tokens [1]             -> 1 token
@@ -22,6 +24,8 @@ During autoregressive generation, each new token only needs attention with all p
 # Total: O(n) computation (but O(n) memory for cache)
 ```
 
+</Code>
+
 KV-cache memory for a transformer:
 
 ```
@@ -33,6 +37,8 @@ For Llama 70B (80 layers, 64 heads, 128 dim, 4096 seq, BF16):
 ## Quantization
 
 Reduce model size and increase throughput by using lower precision for inference:
+
+<Code id="code-inference-optimization-2" caption="Reduce model size and increase throughput by using lower precision for inference.">
 
 ```python
 # Post-training quantization (PTQ)
@@ -51,6 +57,10 @@ from auto_gptq import AutoGPTQForCausalLM
 model = AutoGPTQForCausalLM.from_quantized("model-gptq", device="cuda:0")
 ```
 
+</Code>
+
+<Table id="tab-inference-optimization-1" caption="model = AutoGPTQForCausalLM.from_quantized("model-gptq", device="cuda:0").">
+
 | Method | Bits | Speed | Quality | When to use |
 |--------|------|-------|---------|-------------|
 | FP16/BF16 | 16 | 1x | Baseline | Default inference |
@@ -58,6 +68,8 @@ model = AutoGPTQForCausalLM.from_quantized("model-gptq", device="cuda:0")
 | INT4 (W4A16) | 4 | 2-3x | Slight loss | Memory-constrained |
 | GPTQ | 4 | 2-3x | Good | LLM deployment |
 | AWQ | 4 | 2-3x | Good | LLM deployment |
+
+</Table>
 
 ## Speculative Decoding
 
@@ -70,6 +82,8 @@ Accept/reject:          accept first m matching tokens, resample from m+1
 
 Expected speedup: ~2-3x for k=5, depending on draft-target agreement
 ```
+
+<Code id="code-inference-optimization-3" caption="```.">
 
 ```python
 # Conceptual implementation
@@ -90,11 +104,17 @@ def speculative_decode(draft_model, target_model, prompt, k=5):
             break
 ```
 
+</Code>
+
+<Remark id="rmk-inference-optimization-1">
 **Tip:** Speculative decoding gives free speedup -- it produces exactly the same distribution as the target model. The speedup depends on how well the draft model matches the target.
+</Remark>
 
 ## vLLM
 
 vLLM is an optimized inference engine with key innovations:
+
+<Code id="code-inference-optimization-4" caption="vLLM is an optimized inference engine with key innovations.">
 
 ```python
 from vllm import LLM, SamplingParams
@@ -108,9 +128,13 @@ outputs = llm.generate(
 )
 ```
 
+</Code>
+
 Key techniques:
 - **PagedAttention:** Manages KV-cache in pages (like OS virtual memory), eliminates fragmentation
 - **Continuous batching:** New requests join the batch without waiting for others to finish
 - **Prefix caching:** Share KV-cache across requests with common prefixes
 
+<Remark id="rmk-inference-optimization-2">
 **Tip:** For production LLM serving, always use an optimized inference engine (vLLM, TensorRT-LLM, or SGLang) rather than raw PyTorch. The speedup from KV-cache management alone is typically 2-4x.
+</Remark>

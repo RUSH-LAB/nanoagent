@@ -14,6 +14,8 @@ AVX:  256-bit registers (YMM0-YMM15) -> 8 floats or 4 doubles
 AVX-512: 512-bit registers (ZMM0-ZMM31) -> 16 floats or 8 doubles
 ```
 
+<Code id="code-simd-1" caption="```.">
+
 ```c
 // Scalar: process 1 element per instruction
 for (int i = 0; i < n; i++) {
@@ -29,7 +31,11 @@ for (int i = 0; i < n; i += 8) {
 }
 ```
 
+</Code>
+
 ## Common AVX Intrinsics
+
+<Code id="code-simd-2" caption="Code example.">
 
 ```c
 #include <immintrin.h>
@@ -51,9 +57,13 @@ __m256 max = _mm256_max_ps(a, b);    // Element-wise max
 __m256 v = _mm256_set1_ps(3.14f);    // All 8 elements = 3.14
 ```
 
+</Code>
+
 ## Auto-Vectorization
 
 Modern compilers can automatically generate SIMD code:
+
+<Code id="code-simd-3" caption="Modern compilers can automatically generate SIMD code.">
 
 ```c
 // The compiler will vectorize this with -O2 -mavx2
@@ -65,7 +75,11 @@ void add_arrays(float* restrict a, float* restrict b,
 }
 ```
 
+</Code>
+
 Check if vectorization happened:
+
+<Code id="code-simd-4" caption="Check if vectorization happened.">
 
 ```bash
 # GCC: show vectorization report
@@ -75,7 +89,11 @@ gcc -O2 -mavx2 -ftree-vectorize -fopt-info-vec source.c
 clang -O2 -mavx2 -Rpass=loop-vectorize source.c
 ```
 
+</Code>
+
 Things that prevent auto-vectorization:
+
+<Table id="tab-simd-1" caption="Things that prevent auto-vectorization.">
 
 | Blocker | Example | Fix |
 |---------|---------|-----|
@@ -84,9 +102,13 @@ Things that prevent auto-vectorization:
 | Function calls | `a[i] = sin(b[i])` | Use vectorized math library |
 | Complex control flow | `if (b[i] > 0)` in loop | Use branchless/mask operations |
 
+</Table>
+
 ## Connection to GPU SIMT
 
 SIMD and SIMT are related but different:
+
+<Table id="tab-simd-2" caption="SIMD and SIMT are related but different.">
 
 | Property | CPU SIMD (AVX) | GPU SIMT (CUDA) |
 |----------|---------------|-----------------|
@@ -96,7 +118,11 @@ SIMD and SIMT are related but different:
 | Memory | Uniform load/store | Coalesced access patterns |
 | Programming | Intrinsics or auto-vectorization | Write per-thread code |
 
+</Table>
+
+<Remark id="rmk-simd-1">
 **Tip:** The conceptual model is the same: process multiple data elements simultaneously. On CPUs, you think in terms of vector registers; on GPUs, you think in terms of warps. Both require aligned, contiguous memory access for peak performance.
+</Remark>
 
 ## SIMD in ML Libraries
 
@@ -108,4 +134,6 @@ PyTorch  -> MKL/cuBLAS      -> AVX (CPU) / CUDA cores (GPU)
 ONNX RT  -> CPU EP          -> AVX-512 for inference
 ```
 
+<Remark id="rmk-simd-2">
 **Tip:** You rarely need to write SIMD intrinsics for ML work. But understanding SIMD explains why (1) aligned memory is faster, (2) operations on contiguous arrays are faster than random access, and (3) CPU inference benefits from quantization to INT8 (more elements per SIMD register).
+</Remark>

@@ -8,6 +8,8 @@ sidebar_position: 6
 
 PyTorch can track where NaN/Inf values originate:
 
+<Code id="code-debugging-1" caption="PyTorch can track where NaN/Inf values originate.">
+
 ```python
 # Enable anomaly detection (slow, use only for debugging)
 torch.autograd.set_detect_anomaly(True)
@@ -19,11 +21,17 @@ with torch.autograd.detect_anomaly():
     loss.backward()  # Will show the EXACT operation that produced NaN
 ```
 
+</Code>
+
+<Remark id="rmk-debugging-1">
 **Warning:** Anomaly detection adds significant overhead (2-3x slower). Only enable it when debugging.
+</Remark>
 
 ## Shape Debugging
 
 The most common bugs in deep learning are shape mismatches:
+
+<Code id="code-debugging-2" caption="The most common bugs in deep learning are shape mismatches.">
 
 ```python
 # Add shape assertions throughout your model
@@ -44,6 +52,10 @@ class MyModel(nn.Module):
         return attn
 ```
 
+</Code>
+
+<Code id="code-debugging-3" caption="```.">
+
 ```python
 # Quick shape debugging with named print
 def debug_shape(name, tensor):
@@ -51,7 +63,11 @@ def debug_shape(name, tensor):
           f"device={tensor.device}, range=[{tensor.min():.3f}, {tensor.max():.3f}]")
 ```
 
+</Code>
+
 ## NaN Detection
+
+<Code id="code-debugging-4" caption="Code example.">
 
 ```python
 def check_for_nan(model, loss, step):
@@ -72,7 +88,11 @@ for step, (data, target) in enumerate(loader):
     loss.backward()
 ```
 
+</Code>
+
 Common causes of NaN:
+
+<Table id="tab-debugging-1" caption="Common causes of NaN.">
 
 | Cause | Symptom | Fix |
 |-------|---------|-----|
@@ -81,7 +101,11 @@ Common causes of NaN:
 | Log of zero | NaN in loss | Clamp: `torch.log(x.clamp(min=1e-8))` |
 | Overflow in FP16 | NaN with mixed precision | Use BF16 or increase loss scale |
 
+</Table>
+
 ## Memory Profiling
+
+<Code id="code-debugging-5" caption="Code example.">
 
 ```python
 # Check GPU memory usage
@@ -101,6 +125,10 @@ torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")
 # Visualize at: https://pytorch.org/memory_viz
 ```
 
+</Code>
+
+<Code id="code-debugging-6" caption="```.">
+
 ```python
 # Common memory issues and fixes:
 
@@ -117,4 +145,8 @@ output = model.decoder(x)
 # Fix: del x; torch.cuda.empty_cache()  # Only if needed
 ```
 
+</Code>
+
+<Remark id="rmk-debugging-2">
 **Tip:** The biggest memory consumers are usually (1) activations saved for backward, (2) optimizer states (Adam uses 2x model size), and (3) gradients. Use `torch.utils.checkpoint` (gradient checkpointing) to trade compute for memory.
+</Remark>

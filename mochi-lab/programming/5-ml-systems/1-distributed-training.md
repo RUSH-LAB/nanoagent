@@ -8,6 +8,8 @@ sidebar_position: 1
 
 DDP is the standard approach for multi-GPU training. Each GPU runs a full copy of the model on a shard of the data:
 
+<Code id="code-distributed-training-1" caption="DDP is the standard approach for multi-GPU training.">
+
 ```python
 import torch
 import torch.distributed as dist
@@ -42,11 +44,17 @@ def train(rank, world_size):
 # torchrun --nproc_per_node=4 train.py
 ```
 
+</Code>
+
+<Remark id="rmk-distributed-training-1">
 **Tip:** DDP hooks into the backward pass to overlap gradient all-reduce with backward computation. Gradients are bucketed and communicated in order, so the first gradients computed are communicated while later gradients are still being computed.
+</Remark>
 
 ## Model Parallelism
 
 When a model does not fit in one GPU's memory:
+
+<Code id="code-distributed-training-2" caption="When a model does not fit in one GPU's memory.">
 
 ```python
 # Tensor parallelism: split weight matrices across GPUs
@@ -66,6 +74,10 @@ pipe = pipeline(
 )
 ```
 
+</Code>
+
+<Table id="tab-distributed-training-1" caption=").">
+
 | Strategy | What is split | Communication | Memory savings |
 |----------|--------------|---------------|---------------|
 | Data parallel (DDP) | Data batches | AllReduce gradients | None (full model copy) |
@@ -73,9 +85,13 @@ pipe = pipeline(
 | Pipeline parallel | Model layers | Point-to-point activations | Linear in PP degree |
 | Sequence parallel | Sequence dimension | AllGather/ReduceScatter | Linear in SP degree |
 
+</Table>
+
 ## FSDP (Fully Sharded Data Parallel)
 
 FSDP shards model parameters, gradients, and optimizer states across GPUs:
+
+<Code id="code-distributed-training-3" caption="FSDP shards model parameters, gradients, and optimizer states across GPUs.">
 
 ```python
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -94,22 +110,34 @@ model = FSDP(
 )
 ```
 
+</Code>
+
 Memory comparison for a 7B parameter model:
+
+<Table id="tab-distributed-training-2" caption="Memory comparison for a 7B parameter model.">
 
 | Strategy | Parameters | Gradients | Optimizer | Total |
 |----------|-----------|-----------|-----------|-------|
 | DDP (1 GPU) | 14 GB | 14 GB | 28 GB | 56 GB |
 | FSDP (4 GPUs) | 3.5 GB | 3.5 GB | 7 GB | 14 GB/GPU |
 
+</Table>
+
 ## DeepSpeed ZeRO
 
 Similar to FSDP with three stages of sharding:
+
+<Table id="tab-distributed-training-3" caption="Similar to FSDP with three stages of sharding.">
 
 | Stage | What is sharded | Memory reduction |
 |-------|----------------|-----------------|
 | ZeRO-1 | Optimizer states | ~4x |
 | ZeRO-2 | + Gradients | ~8x |
 | ZeRO-3 | + Parameters | ~Nx (N = num GPUs) |
+
+</Table>
+
+<Code id="code-distributed-training-4" caption="Code example.">
 
 ```python
 # DeepSpeed configuration (ds_config.json)
@@ -124,4 +152,8 @@ Similar to FSDP with three stages of sharding:
 }
 ```
 
+</Code>
+
+<Remark id="rmk-distributed-training-2">
 **Tip:** For models up to ~13B parameters on 8 GPUs, FSDP is usually sufficient. For larger models (70B+), combine FSDP/DeepSpeed with tensor parallelism and pipeline parallelism (3D parallelism).
+</Remark>

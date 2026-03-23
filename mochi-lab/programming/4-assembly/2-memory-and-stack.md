@@ -24,6 +24,8 @@ High addresses
 Low addresses
 ```
 
+<Code id="code-memory-and-stack-1" caption="```.">
+
 ```asm
 ; Function prologue
 push rbp           ; Save caller's base pointer
@@ -39,9 +41,15 @@ pop rbp            ; Restore caller's base pointer
 ret                ; Return to caller
 ```
 
+</Code>
+
+<Remark id="rmk-memory-and-stack-1">
 **Tip:** When debugging segfaults in C/C++ extensions, `gdb`'s `backtrace` command walks the stack frames to show you the call chain that led to the crash.
+</Remark>
 
 ## Heap Allocation
+
+<Code id="code-memory-and-stack-2" caption="Code example.">
 
 ```c
 // Stack allocation: fast, automatic, limited size (~8 MB default)
@@ -55,12 +63,18 @@ free(array);                  // Must free manually
 // torch::empty({1000}) -> calls cudaMalloc or malloc internally
 ```
 
+</Code>
+
+<Table id="tab-memory-and-stack-1" caption="// torch::empty({1000}) -> calls cudaMalloc or malloc internally.">
+
 | Property | Stack | Heap |
 |----------|-------|------|
 | Speed | ~1 ns (just move RSP) | ~100 ns (allocator overhead) |
 | Size | ~8 MB (thread stack) | Unlimited (up to RAM) |
 | Lifetime | Function scope | Until explicitly freed |
 | Fragmentation | None | Yes |
+
+</Table>
 
 ## Virtual Memory
 
@@ -77,19 +91,27 @@ Every process sees a flat 64-bit address space, mapped to physical memory by the
                     +-----------------+
                     | Heap            |
                     |   grows down    |
+<Table id="tab-memory-and-stack-2" caption="|   grows down    |.">
+
                     |       v         |
                     |                 |
                     |       ^         |
                     |   grows up      |
                     | Stack           |
+
+</Table>
 0x00007FFFFFFFFFFF  +-----------------+
 ```
 
+<Remark id="rmk-memory-and-stack-2">
 **Tip:** When you see `cudaMalloc`, it allocates in the GPU's virtual address space, which is separate from the CPU's. `cudaMemcpy` copies between these two address spaces via PCIe or NVLink.
+</Remark>
 
 ## Cache Lines and Alignment
 
 Memory is fetched in **cache lines** of 64 bytes. Alignment matters:
+
+<Code id="code-memory-and-stack-3" caption="Memory is fetched in cache lines of 64 bytes. Alignment matters.">
 
 ```c
 // Aligned access: one cache line fetch
@@ -111,6 +133,10 @@ struct Good {
 };  // Total: 16 bytes
 ```
 
+</Code>
+
+<Code id="code-memory-and-stack-4" caption="```.">
+
 ```c
 // Force alignment (useful for SIMD)
 float data[256] __attribute__((aligned(32)));  // 32-byte aligned for AVX
@@ -121,4 +147,8 @@ a = np.empty(256, dtype=np.float32)
 print(a.ctypes.data % 32 == 0)  # Check 32-byte alignment
 ```
 
+</Code>
+
+<Remark id="rmk-memory-and-stack-3">
 **Tip:** PyTorch tensors are typically 64-byte aligned, which is optimal for cache lines and SIMD. When writing custom C++ extensions, use `torch::empty` instead of `malloc` to get properly aligned memory.
+</Remark>

@@ -8,6 +8,8 @@ sidebar_position: 1
 
 Generators produce values lazily, avoiding loading everything into memory:
 
+<Code id="code-python-tips-1" caption="Generators produce values lazily, avoiding loading everything into memory.">
+
 ```python
 # Bad: loads entire file into memory
 def read_data(path):
@@ -26,9 +28,13 @@ first_100 = itertools.islice(read_data("huge_file.jsonl"), 100)
 batched = itertools.batched(read_data("data.jsonl"), 32)  # Python 3.12+
 ```
 
+</Code>
+
 ## Context Managers
 
 Ensure cleanup happens even when exceptions occur:
+
+<Code id="code-python-tips-2" caption="Ensure cleanup happens even when exceptions occur.">
 
 ```python
 import contextlib
@@ -53,9 +59,13 @@ def cuda_memory_tracking():
     print(f"Peak GPU memory: {peak:.2f} GB")
 ```
 
+</Code>
+
 ## Dataclasses
 
 Replace ad-hoc dictionaries and NamedTuples with structured configuration:
+
+<Code id="code-python-tips-3" caption="Replace ad-hoc dictionaries and NamedTuples with structured configuration.">
 
 ```python
 from dataclasses import dataclass, field
@@ -79,11 +89,17 @@ config = TrainConfig(lr=1e-4, epochs=20)
 print(config)  # Readable repr for free
 ```
 
+</Code>
+
+<Remark id="rmk-python-tips-1">
 **Tip:** Use `@dataclass(frozen=True)` for immutable configs that can be used as dictionary keys or set elements.
+</Remark>
 
 ## Type Hints
 
 Type hints catch bugs before runtime and improve IDE support:
+
+<Code id="code-python-tips-4" caption="Type hints catch bugs before runtime and improve IDE support.">
 
 ```python
 from typing import Optional
@@ -105,6 +121,8 @@ def train_step(
     return loss.item()
 ```
 
+</Code>
+
 ```bash
 # Type check with mypy
 pip install mypy
@@ -112,6 +130,8 @@ mypy train.py --ignore-missing-imports
 ```
 
 ## Performance Tips
+
+<Code id="code-python-tips-5" caption="Code example.">
 
 ```python
 # 1. Use dict/set for lookups (O(1) vs O(n) for lists)
@@ -143,3 +163,5 @@ class Point:
         self.y = y
 # Uses ~40% less memory than a regular class
 ```
+
+</Code>

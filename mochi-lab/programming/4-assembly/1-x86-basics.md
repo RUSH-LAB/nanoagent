@@ -28,6 +28,8 @@ Each register has sub-registers: `RAX` (64-bit), `EAX` (lower 32), `AX` (lower 1
 
 ## Common Instructions
 
+<Code id="code-x86-basics-1" caption="Code example.">
+
 ```asm
 ; Arithmetic
 add rax, rbx       ; rax += rbx
@@ -50,9 +52,13 @@ call function      ; push return addr, jump to function
 ret                ; pop return addr, jump back
 ```
 
+</Code>
+
 ## Reading Compiler Output
 
 Use Compiler Explorer (godbolt.org) or `objdump` to see what the compiler generates:
+
+<Code id="code-x86-basics-2" caption="Use Compiler Explorer (godbolt.">
 
 ```bash
 # Compile with debug symbols and no optimization
@@ -65,12 +71,20 @@ gcc -S -O2 -o output.s source.c
 objdump -d -M intel program | less
 ```
 
+</Code>
+
+<Code id="code-x86-basics-3" caption="```.">
+
 ```c
 // C code
 int add(int a, int b) {
     return a + b;
 }
 ```
+
+</Code>
+
+<Code id="code-x86-basics-4" caption="```.">
 
 ```asm
 ; Generated assembly (-O2)
@@ -79,7 +93,11 @@ add:
     ret
 ```
 
+</Code>
+
+<Remark id="rmk-x86-basics-1">
 **Tip:** The compiler is very good at optimization. Before writing assembly, check if `-O2` or `-O3` already produces optimal code. Focus on writing C/C++ that the compiler can optimize (avoid aliasing, use `restrict`, mark functions `inline`).
+</Remark>
 
 ## Calling Convention (System V AMD64)
 
@@ -92,6 +110,8 @@ Callee-saved: RBX, RBP, R12-R15
 Stack:      16-byte aligned before CALL instruction
 ```
 
+<Code id="code-x86-basics-5" caption="```.">
+
 ```c
 // This function call:
 result = foo(1, 2, 3, 4, 5, 6, 7);
@@ -103,4 +123,8 @@ result = foo(1, 2, 3, 4, 5, 6, 7);
 // Result in RAX
 ```
 
+</Code>
+
+<Remark id="rmk-x86-basics-2">
 **Tip:** Understanding calling conventions helps you read stack traces, debug segfaults, and understand ABI compatibility issues between C and Python extensions.
+</Remark>

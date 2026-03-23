@@ -6,6 +6,8 @@ sidebar_position: 2
 
 ## Essential Commands
 
+<Code id="code-linux-and-shell-1" caption="Code example.">
+
 ```bash
 # File operations
 ls -lah                        # List files with human-readable sizes
@@ -28,7 +30,11 @@ cat file.jsonl | jq .          # Pretty-print JSON
 sort -t',' -k2 -n results.csv  # Sort CSV by 2nd column numerically
 ```
 
+</Code>
+
 ## Environment Management
+
+<Code id="code-linux-and-shell-2" caption="Code example.">
 
 ```bash
 # Conda (recommended for ML)
@@ -49,9 +55,15 @@ source .venv/bin/activate
 uv pip install torch
 ```
 
+</Code>
+
+<Remark id="rmk-linux-and-shell-1">
 **Tip:** Pin exact versions in `requirements.txt` for reproducibility. Use `pip install -e .` for editable installs during development.
+</Remark>
 
 ## SSH and Remote Work
+
+<Code id="code-linux-and-shell-3" caption="Code example.">
 
 ```bash
 # SSH config (~/.ssh/config)
@@ -73,7 +85,11 @@ tmux attach -t train           # Reattach to session
 # Ctrl+B, [ to scroll
 ```
 
+</Code>
+
 ## GPU Management
+
+<Code id="code-linux-and-shell-4" caption="Code example.">
 
 ```bash
 # Check GPU status
@@ -89,7 +105,11 @@ CUDA_VISIBLE_DEVICES=2 python train.py  # Single-command override
 watch -n 1 nvidia-smi          # Update every second
 ```
 
+</Code>
+
 ## SLURM (Cluster Job Scheduling)
+
+<Code id="code-linux-and-shell-5" caption="Code example.">
 
 ```bash
 #!/bin/bash
@@ -114,6 +134,10 @@ srun torchrun \
     train.py
 ```
 
+</Code>
+
+<Code id="code-linux-and-shell-6" caption="```.">
+
 ```bash
 # SLURM commands
 sbatch train.sh                # Submit job
@@ -123,4 +147,8 @@ sacct -j JOB_ID --format=Elapsed,MaxRSS,MaxVMSize  # Job stats
 sinfo -p gpu                   # Check partition availability
 ```
 
+</Code>
+
+<Remark id="rmk-linux-and-shell-2">
 **Tip:** Always write SLURM scripts that are idempotent -- they should handle restarts gracefully with checkpoint loading. Use `--signal=SIGUSR1@120` to get a 2-minute warning before timeout.
+</Remark>
