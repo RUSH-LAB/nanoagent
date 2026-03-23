@@ -98,16 +98,20 @@ function AuthGate({ children }) {
     }),
   };
 
-  // Before auth is ready (SSR + initial client render), render children directly.
-  // This ensures: (1) search indexer sees content, (2) no hydration mismatch.
-  // Once auth loads on the client, switch to the gated view.
-  if (!authReady) {
-    return <>{children}</>;
-  }
-
+  // Children are always in the DOM so the search indexer can see them during SSR.
+  // Before Clerk resolves auth, children are hidden (visibility: hidden) to prevent
+  // a flash of content to unauthorized users. Once auth is ready, SignedIn/SignedOut
+  // controls visibility properly.
   return (
     <>
-      <SignedIn>{children}</SignedIn>
+      {!authReady ? (
+        <div style={{ visibility: 'hidden', position: 'absolute', width: 0, height: 0, overflow: 'hidden' }}>
+          {children}
+        </div>
+      ) : (
+        <SignedIn>{children}</SignedIn>
+      )}
+      {authReady && (
       <SignedOut>
         <style dangerouslySetInnerHTML={{ __html: mobileStyles }} />
         <div className="auth-page" style={{
@@ -168,6 +172,7 @@ function AuthGate({ children }) {
           </div>
         </div>
       </SignedOut>
+      )}
     </>
   );
 }
