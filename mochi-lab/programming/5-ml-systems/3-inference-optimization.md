@@ -245,6 +245,26 @@ outputs = llm.generate(
 Always benchmark on your specific workload -- optimal throughput depends on request length distribution, batch size, and hardware.
 </Remark>
 
+<Remark id="rmk-continuous-batching">
+**Continuous batching vs static batching.** Static batching waits until a fixed batch of requests is assembled, processes them all to completion, and then starts the next batch. If one request in the batch generates 500 tokens and another generates 10, the GPU sits idle after the short request finishes. Continuous batching (also called iteration-level batching) solves this:
+
+```
+Static batching:
+  Batch 1: [req A (500 tok), req B (10 tok)] → GPU idle after B finishes at step 10
+            Steps 11-500: only req A is running, GPU underutilized
+
+Continuous batching:
+  Step 1-10:   [req A, req B] both running
+  Step 11:     req B finishes → req C joins immediately
+  Step 11-100: [req A, req C] both running
+  Step 101:    req C finishes → req D joins
+  ...
+  GPU always has a full batch; no idle slots
+```
+
+The result: 2-5x higher throughput under real-world request distributions where output lengths vary significantly. All modern serving engines (vLLM, TRT-LLM, SGLang) implement continuous batching.
+</Remark>
+
 ## Inference Optimization Checklist
 
 <Table id="tab-inference-checklist" caption="Inference optimization techniques in priority order.">

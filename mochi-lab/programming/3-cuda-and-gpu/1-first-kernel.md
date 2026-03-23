@@ -143,6 +143,20 @@ int main() {
 Total threads launched = `grid.x * grid.y * grid.z * block.x * block.y * block.z`.
 </Remark>
 
+<Remark id="rmk-hardware-limits">
+**Hardware limits on launch configuration.** The CUDA runtime enforces strict limits on kernel launch parameters:
+
+| Parameter | Maximum Value | Notes |
+|-----------|-------------|-------|
+| Threads per block | 1024 | `block.x * block.y * block.z <= 1024` |
+| Block dimension x | 1024 | |
+| Block dimension y/z | 1024 / 64 | |
+| Grid dimension x | $2^{31} - 1$ | Over 2 billion blocks |
+| Grid dimension y/z | 65535 | |
+
+Exceeding these limits causes a silent launch failure -- the kernel does not execute and `cudaGetLastError()` returns `cudaErrorInvalidConfiguration`. This is one of the most common beginner mistakes: using a block size of 2048 or a 2D block of `(64, 64)` (which is 4096 threads). Always check `cudaGetLastError()` after every kernel launch.
+</Remark>
+
 ## Common Patterns
 
 <Code id="code-first-kernel-4" caption="Essential CUDA kernel patterns.">
@@ -189,7 +203,7 @@ __global__ void boundary_kernel(float* data, int rows, int cols) {
 
 ## Error Checking
 
-<Code id="code-first-kernel-5" caption="Code example.">
+<Code id="code-first-kernel-5" caption="CUDA error checking macro -- always wrap every CUDA API call.">
 
 ```cuda
 // Always check CUDA calls for errors

@@ -23,11 +23,16 @@ if (threadIdx.x % 2 == 0) {
 }
 // Total time: cost of BOTH branches (not one)
 
-// Better: group work by warp boundaries
-if (threadIdx.x < 16) {
-    // First half-warp: different warps, no divergence within a warp
-    ...
+// Better: group work by warp boundaries (32 threads per warp)
+if (threadIdx.x / 32 == 0) {
+    // Entire first warp takes this path (no divergence)
+    a[tid] = expensive_function(a[tid]);
+} else {
+    // Entire second warp takes this path (no divergence)
+    a[tid] = other_function(a[tid]);
 }
+// Total time: max(cost of branch A, cost of branch B)
+// Each warp executes only ONE branch
 ```
 
 </Code>

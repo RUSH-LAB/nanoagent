@@ -70,6 +70,37 @@ def train(rank, world_size):
 **The linear scaling rule.** With DDP, each GPU processes `batch_size` samples, so the effective global batch size is `batch_size * world_size`. To maintain the same training dynamics, scale the learning rate proportionally: `lr = base_lr * world_size`. Always combine this with a warmup period (typically 1-5% of training) to stabilize early training with the larger learning rate.
 </Remark>
 
+<Code id="code-gradient-accumulation" caption="Gradient accumulation: simulate larger batch sizes without more memory.">
+
+```python
+# Gradient accumulation is essential when GPU memory limits batch size.
+# Effective batch = batch_size_per_gpu * accumulation_steps * world_size
+accumulation_steps = 8
+
+for step, (data, target) in enumerate(loader):
+    data, target = data.to(rank), target.to(rank)
+
+    # DDP syncs gradients on every backward() by default.
+    # Skip sync for intermediate accumulation steps (saves communication).
+    context = model.no_sync() if (step + 1) % accumulation_steps != 0 else nullcontext()
+
+    with context:
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            loss = model(data, target) / accumulation_steps  # Scale loss
+        loss.backward()  # Gradients accumulate (not zeroed yet)
+
+    if (step + 1) % accumulation_steps == 0:
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        optimizer.step()
+        optimizer.zero_grad()  # Zero only after accumulation is complete
+```
+
+</Code>
+
+<Remark id="rmk-grad-accum-no-sync">
+**Why `model.no_sync()` matters.** Without it, DDP all-reduces gradients on every `backward()` call -- even during intermediate accumulation steps where the gradients will be added to, not used. With 8 accumulation steps, this wastes 7 all-reduce operations per optimizer step. `model.no_sync()` disables the gradient hook for intermediate steps, performing a single all-reduce when the final accumulated gradient is ready. This can reduce communication overhead by up to $(\text{accumulation\_steps} - 1) / \text{accumulation\_steps}$ (87.5% for 8 steps).
+</Remark>
+
 ## Model Parallelism
 
 When a model does not fit in a single GPU's memory, you must split the model itself across GPUs. There are three complementary strategies:
