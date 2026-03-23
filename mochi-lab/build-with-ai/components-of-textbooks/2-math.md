@@ -27,7 +27,7 @@ See the full list of supported functions at [KaTeX docs](https://katex.org/docs/
 
 The `<Equation>` component renders a centered, numbered equation:
 
-<Equation id="eq-cross-entropy">
+<Equation id="eq-cross-entropy-example">
 
 $$L(\theta) = -\sum_{i=1}^{N} y_i \log \hat{y}_i$$
 
@@ -39,7 +39,7 @@ $$\text{softmax}(z_i) = \frac{e^{z_i}}{\sum_{j} e^{z_j}}$$
 
 </Equation>
 
-Reference them inline: the cross-entropy loss [](#eq-cross-entropy) uses the softmax [](#eq-softmax).
+Reference them inline: the cross-entropy loss [](#eq-cross-entropy-example) uses the softmax [](#eq-softmax).
 
 ---
 

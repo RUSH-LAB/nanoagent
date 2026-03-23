@@ -134,11 +134,11 @@ int main() {
 </Table>
 
 <Remark id="rmk-kernel-launch-syntax">
-**The triple chevron syntax `<<<grid, block>>>`.** The kernel launch configuration specifies:
+**The triple chevron syntax.** The `&lt;&lt;&lt;grid, block&gt;&gt;&gt;` kernel launch configuration specifies:
 - **grid**: number of blocks (can be 1D, 2D, or 3D using `dim3`)
 - **block**: threads per block (can be 1D, 2D, or 3D using `dim3`)
-- Optional 3rd argument: shared memory bytes (e.g., `<<<grid, block, shmem_bytes>>>`)
-- Optional 4th argument: CUDA stream (e.g., `<<<grid, block, 0, stream>>>`)
+- Optional 3rd argument: shared memory bytes (e.g., `&lt;&lt;&lt;grid, block, shmem_bytes&gt;&gt;&gt;`)
+- Optional 4th argument: CUDA stream (e.g., `&lt;&lt;&lt;grid, block, 0, stream&gt;&gt;&gt;`)
 
 Total threads launched = `grid.x * grid.y * grid.z * block.x * block.y * block.z`.
 </Remark>

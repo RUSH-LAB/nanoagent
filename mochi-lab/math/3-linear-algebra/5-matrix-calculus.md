@@ -196,10 +196,10 @@ This trace-based approach systematically handles most gradient derivations encou
 
 ## Directional Derivative and Differential
 
-<Definition id="def-directional-derivative" name="Directional Derivative">
+<Definition id="def-directional-derivative-matrix" name="Directional Derivative">
 The **directional derivative** of $f$ at $x$ in direction $v$ is:
 
-<Equation id="eq-directional-derivative">
+<Equation id="eq-directional-derivative-matrix">
 
 $$D_v f(x) = \lim_{t \to 0} \frac{f(x + tv) - f(x)}{t} = \nabla f(x)^\top v$$
 

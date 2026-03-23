@@ -226,7 +226,7 @@ $$\mathbb{E}_{h \sim Q}[R(h)] \leq \mathbb{E}_{h \sim Q}[\hat{R}(h)] + \sqrt{\fr
 
 ## Bias-Variance Decomposition
 
-<Theorem id="thm-bias-variance" name="Bias-Variance Decomposition">
+<Theorem id="thm-bias-variance-decomposition" name="Bias-Variance Decomposition">
 For squared loss, the expected prediction error (over random training sets $\mathcal{D}$) at a point $x$ decomposes:
 
 <Equation id="eq-bias-variance-slt">
@@ -261,7 +261,7 @@ $$= \mathbb{E}[(\hat{f} - \bar{f})^2] + (\bar{f} - f)^2 + \mathbb{E}[(f - y)^2] 
 
 ## Why Overparameterized Models Generalize
 
-<Remark id="rmk-double-descent">
+<Remark id="rmk-double-descent-phenomenon">
 **Double descent and the failure of classical theory.** Classical learning theory predicts a U-shaped test error curve: error decreases as complexity grows (reducing bias), hits a minimum, then increases (as variance dominates). Modern neural networks exhibit **double descent** [@nakkiran2021deep; @belkin2019reconciling]:
 
 1. **Classical regime** ($P < N$): U-shaped curve, minimum at the "sweet spot."

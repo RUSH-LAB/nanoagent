@@ -19,7 +19,7 @@ A **probability space** $(\Omega, \mathcal{F}, P)$ consists of:
 <Example id="ex-prob-spaces-ml">
 **Probability spaces in ML:**
 - **Classification:** $\Omega = \{1, 2, \ldots, K\}$ (class labels), $P$ given by the softmax output
-- **Language modeling:** $\Omega = \mathcal{V}^T$ (all sequences of length $T$ over vocabulary $\mathcal{V}$), $P(x_1, \ldots, x_T) = \prod_t P(x_t | x_{<t})$
+- **Language modeling:** $\Omega = \mathcal{V}^T$ (all sequences of length $T$ over vocabulary $\mathcal{V}$), $P(x_1, \ldots, x_T) = \prod_t P(x_t \mid x_{\lt t})$
 - **Bayesian inference:** $\Omega = \Theta$ (parameter space), $P$ is the posterior distribution
 </Example>
 

@@ -11,7 +11,7 @@ Information theory, founded by Shannon (1948), provides the mathematical framewo
 <Definition id="def-entropy-it" name="Entropy">
 The **entropy** of a discrete distribution $p$ measures the expected information content (or uncertainty):
 
-<Equation id="eq-entropy">
+<Equation id="eq-shannon-entropy">
 
 $$H(p) = -\sum_x p(x) \log p(x) = \mathbb{E}_{p}[-\log p(X)]$$
 
@@ -102,7 +102,7 @@ For continuous distributions: $D_{\text{KL}}(p \| q) = \int p(x) \log \frac{p(x)
 - **Invariant under reparameterization:** KL divergence is unchanged by invertible transformations of the sample space.
 - **Can be infinite:** $D_{\text{KL}}(p\|q) = \infty$ if there exists $x$ with $p(x) > 0$ and $q(x) = 0$ (support mismatch).
 
-<Table id="tab-kl-directions" caption="Forward vs reverse KL divergence behavior.">
+<Table id="tab-kl-directions-detailed" caption="Forward vs reverse KL divergence behavior.">
 
 | Direction | Minimizer Behavior | Name | Used In |
 |-----------|-------------------|------|---------|
