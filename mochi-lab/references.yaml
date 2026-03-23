@@ -6951,3 +6951,73 @@ pearl2009causality:
   year: 2009
   venue: "Cambridge University Press"
   url: "https://doi.org/10.1017/CBO9780511803161"
+
+hendrycks2021apps:
+  type: article
+  title: "Measuring Coding Challenge Competence With APPS"
+  author:
+    - "Dan Hendrycks"
+    - "Steven Basart"
+    - "Saurav Kadavath"
+    - "Mantas Mazeika"
+    - "Akul Arora"
+    - "Ethan Guo"
+    - "Collin Burns"
+    - "Samir Puranik"
+    - "Horace He"
+    - "Dawn Song"
+    - "Jacob Steinhardt"
+  year: 2021
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2105.09938"
+
+zelikman2022star:
+  type: article
+  title: "STaR: Bootstrapping Reasoning With Reasoning"
+  author:
+    - "Eric Zelikman"
+    - "Yuhuai Wu"
+    - "Jesse Mu"
+    - "Noah D. Goodman"
+  year: 2022
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2203.14465"
+
+zelikman2024quietstar:
+  type: article
+  title: "Quiet-STaR: Language Models Can Teach Themselves to Think Before Speaking"
+  author:
+    - "Eric Zelikman"
+    - "Georges Harik"
+    - "Yijia Shao"
+    - "Varuna Jayasiri"
+    - "Nick Haber"
+    - "Noah D. Goodman"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2403.09629"
+
+xie2024osworld:
+  type: article
+  title: "OSWorld: Benchmarking Multimodal Agents for Open-Ended Tasks in Real Computer Environments"
+  author:
+    - "Tianbao Xie"
+    - "Danyang Zhang"
+    - "Jixuan Chen"
+    - "Xiaochuan Li"
+    - "Siheng Zhao"
+    - "Ruisheng Cao"
+    - "Toh Jing Hua"
+    - "Zhoujun Cheng"
+    - "Dongchan Shin"
+    - "Fangyu Lei"
+    - "Yitao Liu"
+    - "Yiheng Xu"
+    - "Shuyan Zhou"
+    - "Silvio Savarese"
+    - "Caiming Xiong"
+    - "Victor Zhong"
+    - "Tao Yu"
+  year: 2024
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2404.07972"
