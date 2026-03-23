@@ -4670,3 +4670,366 @@ peng2021rfa:
   year: 2021
   venue: "ICLR"
   url: "https://arxiv.org/abs/2103.02143"
+
+epoch2023trends:
+  type: article
+  title: "Trends in Machine Learning Hardware"
+  author:
+    - "Epoch AI"
+  year: 2023
+  venue: "Epoch AI Research"
+  url: "https://epochai.org/trends"
+
+sevilla2022compute:
+  type: article
+  title: "Compute Trends Across Three Eras of Machine Learning"
+  author:
+    - "Jaime Sevilla"
+    - "Lennart Heim"
+    - "Anson Ho"
+    - "Tamay Besiroglu"
+    - "Marius Hobbhahn"
+    - "Pablo Villalobos"
+  year: 2022
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2202.05924"
+
+kitaev2020reformer:
+  type: article
+  title: "Reformer: The Efficient Transformer"
+  author:
+    - "Nikita Kitaev"
+    - "Lukasz Kaiser"
+    - "Anselm Levskaya"
+  year: 2020
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2001.04451"
+
+gomez2017reversible:
+  type: article
+  title: "The Reversible Residual Network: Backpropagation Without Storing Activations"
+  author:
+    - "Aidan N. Gomez"
+    - "Mengye Ren"
+    - "Raquel Urtasun"
+    - "Roger B. Grosse"
+  year: 2017
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1707.04585"
+
+peng2021random_feature_attention:
+  type: article
+  title: "Random Feature Attention"
+  author:
+    - "Hao Peng"
+    - "Nikolaos Pappas"
+    - "Dani Yogatama"
+    - "Roy Schwartz"
+    - "Noah A. Smith"
+    - "Lingpeng Kong"
+  year: 2021
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2103.02143"
+
+deepseek2024deepseekv2:
+  type: article
+  title: "DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language Model"
+  author:
+    - "DeepSeek-AI"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2405.04434"
+
+yuan2025native_sparse_attention:
+  type: article
+  title: "Native Sparse Attention: Hardware-Aligned and Natively Trainable Sparse Attention"
+  author:
+    - "Jingyang Yuan"
+    - "Huazuo Gao"
+    - "Damai Dai"
+    - "Junyu Luo"
+    - "Liang Zhao"
+    - "Zhengyan Zhang"
+    - "Zhenda Xie"
+    - "Y.X. Wei"
+    - "Lean Wang"
+    - "Zhiping Xiao"
+    - "Yuqing Wang"
+    - "Chong Ruan"
+    - "Ming Zhang"
+    - "Wenfeng Liang"
+    - "Wangding Zeng"
+  year: 2025
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2502.11089"
+
+jacobs1991adaptive:
+  type: article
+  title: "Adaptive Mixtures of Local Experts"
+  author:
+    - "Robert A. Jacobs"
+    - "Michael I. Jordan"
+    - "Steven J. Nowlan"
+    - "Geoffrey E. Hinton"
+  year: 1991
+  venue: "Neural Computation"
+  url: "https://doi.org/10.1162/neco.1991.3.1.79"
+
+jordan1994hierarchical:
+  type: article
+  title: "Hierarchical Mixtures of Experts and the EM Algorithm"
+  author:
+    - "Michael I. Jordan"
+    - "Robert A. Jacobs"
+  year: 1994
+  venue: "Neural Computation"
+  url: "https://doi.org/10.1162/neco.1994.6.2.181"
+
+zhou2022expert_choice:
+  type: article
+  title: "Mixture-of-Experts with Expert Choice Routing"
+  author:
+    - "Yanqi Zhou"
+    - "Tao Lei"
+    - "Hanxiao Liu"
+    - "Nan Du"
+    - "Yanping Huang"
+    - "Vincent Zhao"
+    - "Andrew Dai"
+    - "Zhifeng Chen"
+    - "Quoc Le"
+    - "James Laudon"
+  year: 2022
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2202.09368"
+
+zoph2017neural:
+  type: article
+  title: "Neural Architecture Search with Reinforcement Learning"
+  author:
+    - "Barret Zoph"
+    - "Quoc V. Le"
+  year: 2017
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1611.01578"
+
+tan2019mnasnet:
+  type: article
+  title: "MnasNet: Platform-Aware Neural Architecture Search for Mobile"
+  author:
+    - "Mingxing Tan"
+    - "Bo Chen"
+    - "Ruoming Pang"
+    - "Vijay Vasudevan"
+    - "Mark Sandler"
+    - "Andrew Howard"
+    - "Quoc V. Le"
+  year: 2019
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/1807.11626"
+
+howard2019searching:
+  type: article
+  title: "Searching for MobileNetV3"
+  author:
+    - "Andrew Howard"
+    - "Mark Sandler"
+    - "Grace Chu"
+    - "Liang-Chieh Chen"
+    - "Bo Chen"
+    - "Mingxing Tan"
+    - "Weijun Wang"
+    - "Yukun Zhu"
+    - "Ruoming Pang"
+    - "Vijay Vasudevan"
+    - "Quoc V. Le"
+    - "Hartwig Adam"
+  year: 2019
+  venue: "ICCV"
+  url: "https://arxiv.org/abs/1905.02244"
+
+micikevicius2022fp8:
+  type: article
+  title: "FP8 Formats for Deep Learning"
+  author:
+    - "Paulius Micikevicius"
+    - "Dusan Stosic"
+    - "Neil Burgess"
+    - "Marius Cornea"
+    - "Pradeep Dubey"
+    - "Richard Grisenthwaite"
+    - "Sangwon Ha"
+    - "Alexander Heinecke"
+    - "Patrick Judd"
+    - "John Kamalu"
+    - "Naveen Mellempudi"
+    - "Stuart Oberman"
+    - "Mohammad Shoeybi"
+    - "Michael Siu"
+    - "Hao Wu"
+  year: 2022
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2209.05433"
+
+shoeybi2020megatronlm:
+  type: article
+  title: "Megatron-LM: Training Multi-Billion Parameter Language Models Using Model Parallelism"
+  author:
+    - "Mohammad Shoeybi"
+    - "Mostofa Patwary"
+    - "Raul Puri"
+    - "Patrick LeGresley"
+    - "Jared Casper"
+    - "Bryan Catanzaro"
+  year: 2020
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/1909.08053"
+
+narayanan2019pipedream:
+  type: article
+  title: "PipeDream: Generalized Pipeline Parallelism for DNN Training"
+  author:
+    - "Deepak Narayanan"
+    - "Aaron Harlap"
+    - "Amar Phanishayee"
+    - "Vivek Seshadri"
+    - "Nikhil R. Devanur"
+    - "Gregory R. Ganger"
+    - "Phillip B. Gibbons"
+    - "Matei Zaharia"
+  year: 2019
+  venue: "SOSP"
+  url: "https://arxiv.org/abs/1806.03377"
+
+bengio2009curriculum:
+  type: article
+  title: "Curriculum Learning"
+  author:
+    - "Yoshua Bengio"
+    - "Jerome Louradour"
+    - "Ronan Collobert"
+    - "Jason Weston"
+  year: 2009
+  venue: "ICML"
+  url: "https://doi.org/10.1145/1553374.1553380"
+
+abbas2023semdedup:
+  type: article
+  title: "SemDeDup: Data-efficient Learning at Web-scale through Semantic Deduplication"
+  author:
+    - "Amro Abbas"
+    - "Kushal Tirumala"
+    - "Daniel Simig"
+    - "Surya Ganguli"
+    - "Ari S. Morcos"
+  year: 2023
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2303.09540"
+
+tirumala2024d4:
+  type: article
+  title: "D4: Improving LLM Pretraining via Document De-Duplication and Diversification"
+  author:
+    - "Kushal Tirumala"
+    - "Daniel Simig"
+    - "Armen Aghajanyan"
+    - "Ari S. Morcos"
+  year: 2024
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2308.12284"
+
+cai2024medusa:
+  type: article
+  title: "Medusa: Simple LLM Inference Acceleration Framework with Multiple Decoding Heads"
+  author:
+    - "Tianle Cai"
+    - "Yuhong Li"
+    - "Zhengyang Geng"
+    - "Hongwu Peng"
+    - "Jason D. Lee"
+    - "Deming Chen"
+    - "Tri Dao"
+  year: 2024
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2401.10774"
+
+liu2024scissorhands:
+  type: article
+  title: "Scissorhands: Exploiting the Persistence of Importance Hypothesis for LLM KV Cache Compression at Test Time"
+  author:
+    - "Zichang Liu"
+    - "Aditya Desai"
+    - "Fangshuo Liao"
+    - "Weitao Wang"
+    - "Victor Xie"
+    - "Zhaozhuo Xu"
+    - "Anastasios Kyrillidis"
+    - "Anshumali Shrivastava"
+  year: 2024
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2305.17118"
+
+li2024snapkv:
+  type: article
+  title: "SnapKV: LLM Knows What You are Looking for Before Generation"
+  author:
+    - "Yuhong Li"
+    - "Yingbing Huang"
+    - "Bowen Yang"
+    - "Bharat Vemuri"
+    - "Yonghui Wu"
+    - "Felix Wu"
+    - "Ethan Perez"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2404.14469"
+
+patel2024splitwise:
+  type: article
+  title: "Splitwise: Efficient Generative LLM Inference Using Phase Splitting"
+  author:
+    - "Pratyush Patel"
+    - "Esha Choukse"
+    - "Chaojie Zhang"
+    - "Aashaka Shah"
+    - "Iñigo Goiri"
+    - "Saeed Maleki"
+    - "Ricardo Bianchini"
+  year: 2024
+  venue: "ISCA"
+  url: "https://arxiv.org/abs/2311.18677"
+
+zheng2024sglang:
+  type: article
+  title: "SGLang: Efficient Execution of Structured Language Model Programs"
+  author:
+    - "Lianmin Zheng"
+    - "Liangsheng Yin"
+    - "Zhiqiang Xie"
+    - "Chuyue Sun"
+    - "Jeff Huang"
+    - "Cody Hao Yu"
+    - "Shiyi Cao"
+    - "Christos Kozyrakis"
+    - "Ion Stoica"
+    - "Joseph E. Gonzalez"
+    - "Clark Barrett"
+    - "Ying Sheng"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2312.07104"
+
+hsieh2024ruler:
+  type: article
+  title: "RULER: What's the Real Context Size of Your Long-Context Language Models?"
+  author:
+    - "Cheng-Ping Hsieh"
+    - "Simeng Sun"
+    - "Samuel Kriman"
+    - "Shantanu Acharya"
+    - "Dima Rekesh"
+    - "Fei Jia"
+    - "Boris Ginsburg"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2404.06654"

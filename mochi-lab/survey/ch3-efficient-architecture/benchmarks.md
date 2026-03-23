@@ -7,11 +7,30 @@ title: "Benchmarks & Evaluation"
 
 ### Standard Benchmarks
 
-- **MLPerf** [@mattson2020mlperf]: Industry-standard benchmarks for training and inference performance across hardware and software stacks. MLPerf measures wall-clock time to train to a target quality or inference throughput at target latency.
-- **HELM** (Liang et al., 2023) [@liang2023holistic]: The Holistic Evaluation of Language Models includes efficiency metrics alongside accuracy, evaluating models on a broad set of tasks with controlled compute budgets.
-- **LMSys Chatbot Arena**: While primarily a quality benchmark, the serving infrastructure behind Chatbot Arena (using vLLM) has driven practical innovations in inference efficiency.
-- **Long Range Arena** (Tay et al., 2021) [@tay2021long]: Specifically designed to evaluate efficient sequence models on tasks requiring long-range dependencies (up to 16k tokens).
+Evaluating efficient architectures requires benchmarks that measure both quality and efficiency, ideally on realistic tasks at meaningful scale.
+
+**MLPerf** [@mattson2020mlperf] provides the industry-standard benchmarks for training and inference performance, measuring wall-clock time to train to a target quality or inference throughput at target latency across different hardware and software stacks. MLPerf's strength is its emphasis on reproducibility and fair comparison across systems, though the benchmark tasks (image classification, object detection, language modeling) may not capture the full diversity of practical workloads.
+
+**HELM (Holistic Evaluation of Language Models)** (Liang et al., 2023) [@liang2023holistic] evaluates language models across a broad set of tasks (42 scenarios covering knowledge, reasoning, summarization, etc.) with controlled compute budgets, providing the most comprehensive quality benchmark for LLMs. While HELM primarily measures quality rather than efficiency, the combination of HELM scores with efficiency metrics enables meaningful comparisons of quality-per-FLOP across architectures.
+
+**Long Range Arena (LRA)** (Tay et al., 2021) [@tay2021long] was specifically designed to evaluate efficient sequence models on tasks requiring long-range dependencies. LRA includes six tasks with sequence lengths up to 16K tokens (ListOps, text classification, document retrieval, image classification from pixel sequences, pathfinder, and PathX). S4 and Mamba achieved breakthrough results on LRA, particularly on PathX (length 16K), where standard Transformers achieve random chance. However, LRA has been criticized for not correlating well with performance on practical tasks like language modeling.
+
+**RULER** (Hsieh et al., 2024) [@hsieh2024ruler] provides a synthetic benchmark for evaluating long-context capabilities, testing retrieval, multi-hop reasoning, and aggregation over configurable context lengths. RULER enables controlled evaluation of how well different architectures maintain quality as context length increases -- a critical metric for efficient long-context architectures.
+
+**LMSys Chatbot Arena** provides real-world quality evaluation through human preference ratings, and the serving infrastructure behind it (using vLLM) has driven practical innovations in inference efficiency. While not a formal efficiency benchmark, the economic pressure of serving millions of arena conversations has motivated significant optimization work.
+
+**MTEB (Massive Text Embedding Benchmark)** evaluates embedding models across diverse tasks and is relevant for evaluating efficient architectures for retrieval and embedding applications, where inference throughput (embeddings per second) is a key metric.
 
 ### Evaluation Challenges
 
-Efficiency evaluation is complicated by hardware dependence (an architecture efficient on one GPU may not be on another), the distinction between theoretical complexity and practical speed (constant factors matter enormously), and the tradeoff between throughput and latency (high-throughput batched inference vs. low-latency single-query inference).
+Efficiency evaluation is complicated by several factors:
+
+**Hardware dependence:** An architecture efficient on one GPU may not be on another. Sparse attention patterns that are efficient on GPUs with hardware sparse matrix support may be slower than dense attention on GPUs without it. MoE models that excel on multi-GPU systems with high-bandwidth interconnects may be impractical on single GPUs. Any efficiency claim must be qualified by the target hardware.
+
+**Theoretical vs. practical complexity:** Two algorithms with the same asymptotic complexity can differ by orders of magnitude in practice. FlashAttention has the same O(n^2) theoretical complexity as standard attention but is 2-4x faster due to IO-aware design. Constant factors, memory access patterns, and hardware utilization dominate at practical scales.
+
+**Throughput vs. latency:** High-throughput batched inference (maximizing tokens/second across all requests) and low-latency single-query inference (minimizing time-to-first-token for a single request) often require different optimizations. Speculative decoding improves latency but not throughput; larger batch sizes improve throughput but increase latency. Benchmarks should specify which metric they optimize.
+
+**Apples-to-apples comparison:** Comparing architectures requires controlling for confounding factors: model size, training data, training compute, implementation quality, and hardware. A model that appears more efficient may simply be better implemented. The most reliable comparisons train multiple architectures from scratch on the same data with the same compute budget, but this is expensive and rarely done comprehensively.
+
+**Quality-efficiency Pareto frontier:** No single number captures efficiency. The meaningful comparison is between quality-efficiency Pareto frontiers -- the set of architectures that are not dominated by any other architecture in the quality-efficiency space. A model is truly more efficient only if it shifts the Pareto frontier.
