@@ -33,4 +33,16 @@ Arani et al. (2022) [@arani2022learning] proposed CLS-ER, which implements a dua
 
 ### Limitations and Open Questions
 
-Meta-continual learning methods face several challenges: (1) the meta-training phase is computationally expensive, requiring training on many simulated task sequences; (2) the generalization of meta-learned strategies to task distributions different from those seen during meta-training is not guaranteed; (3) most methods require task boundaries during meta-training, even if the goal is task-free continual learning; and (4) scaling these methods to large models and long task sequences remains challenging. Nevertheless, the principle of learning the learning algorithm itself -- rather than designing it by hand -- is a promising direction for fundamentally solving the continual learning problem.
+Meta-continual learning methods face several challenges:
+
+1. **Computational cost:** The meta-training phase is computationally expensive, requiring training on many simulated task sequences. OML and ANML both require thousands of meta-training episodes, each involving an inner loop (sequential task learning) and outer loop (meta-gradient computation). For large models, this cost can exceed that of standard continual learning by an order of magnitude.
+
+2. **Generalization gap:** The generalization of meta-learned strategies to task distributions different from those seen during meta-training is not guaranteed. If meta-training uses 5-way classification tasks from Omniglot but deployment involves 100-way classification on ImageNet classes, the learned update rules may not transfer. Bridging this domain gap between meta-training and meta-testing distributions is an open challenge [@hospedales2021metalearning].
+
+3. **Task boundary requirement:** Most methods require explicit task boundaries during meta-training, even if the goal is task-free continual learning at deployment. Developing meta-learning approaches for task-free settings -- where the meta-learner must also discover when tasks change -- remains largely unexplored.
+
+4. **Scaling:** Scaling these methods to large models and long task sequences remains challenging. The memory requirements of second-order meta-gradients (needed by MAML-based approaches) grow with model size, though first-order approximations like La-MAML [@gupta2020lamaml] and Reptile [@nichol2018first] partially address this.
+
+5. **Relationship to pre-training:** With the success of large pre-trained models, the role of meta-continual learning is evolving. Pre-trained models already provide a representation that is broadly useful across tasks -- arguably achieving the same goal as OML's meta-learned representation but through a different mechanism (massive supervised pre-training rather than meta-learning). Whether meta-learning can add value on top of pre-training, for instance by learning task-adaptive prompting strategies, is an active area of investigation.
+
+Nevertheless, the principle of learning the learning algorithm itself -- rather than designing it by hand -- is a promising direction for fundamentally solving the continual learning problem. The success of meta-learning in few-shot learning [@finn2017model] suggests that analogous breakthroughs may be possible for continual learning when the right meta-objective and training procedure are identified.

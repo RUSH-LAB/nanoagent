@@ -6610,3 +6610,72 @@ matousek2008variants:
   year: 2008
   venue: "Random Structures and Algorithms"
   url: ""
+
+lee2021continual:
+  type: article
+  title: "Continual Learning in the Teacher-Student Setup: Impact of Task Similarity"
+  author:
+    - "Sebastian Lee"
+    - "Sebastian Goldt"
+    - "Andrew Saxe"
+  year: 2021
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2107.04384"
+
+nichol2018first:
+  type: article
+  title: "On First-Order Meta-Learning Algorithms"
+  author:
+    - "Alex Nichol"
+    - "Joshua Achiam"
+    - "John Schulman"
+  year: 2018
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/1803.02999"
+
+sutton1991dyna:
+  type: article
+  title: "Dyna, an Integrated Architecture for Learning, Planning, and Reacting"
+  author:
+    - "Richard S. Sutton"
+  year: 1991
+  venue: "ACM SIGART Bulletin"
+  url: ""
+
+sun2023retentive:
+  type: article
+  title: "Retentive Network: A Successor to Transformer for Large Language Models"
+  author:
+    - "Yutao Sun"
+    - "Li Dong"
+    - "Shaohan Huang"
+    - "Shuming Ma"
+    - "Yuqing Xia"
+    - "Jilong Xue"
+    - "Jianyong Wang"
+    - "Furu Wei"
+  year: 2023
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2307.08621"
+
+touvron2023llama:
+  type: article
+  title: "LLaMA: Open and Efficient Foundation Language Models"
+  author:
+    - "Hugo Touvron"
+    - "Thibaut Lavril"
+    - "Gautier Izacard"
+    - "Xavier Martinet"
+    - "Marie-Anne Lachaux"
+    - "Timothee Lacroix"
+    - "Baptiste Roziere"
+    - "Naman Goyal"
+    - "Eric Hambro"
+    - "Faisal Azhar"
+    - "Aurelien Rodriguez"
+    - "Armand Joulin"
+    - "Edouard Grave"
+    - "Guillaume Lample"
+  year: 2023
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2302.13971"
