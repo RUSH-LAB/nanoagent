@@ -4,9 +4,11 @@ sidebar_position: 1
 
 # Your First Kernel
 
+Writing a CUDA kernel is the fundamental skill of GPU programming. Once you understand how to launch a kernel, how threads are indexed, and how to move data between CPU and GPU, you can write any parallel computation. This chapter walks through the complete process: from a "hello world" kernel to a full vector addition with memory management and error checking.
+
 ## What Is a CUDA Kernel?
 
-A **kernel** is a function that runs on the GPU, executed by thousands of threads in parallel. The `__global__` keyword marks a function as a kernel.
+A **kernel** is a function that runs on the GPU, executed by thousands of threads in parallel. The `__global__` keyword marks a function as callable from CPU code but running on the GPU. Each thread executes the same code but on different data -- this is the **SIMT** (Single Instruction, Multiple Threads) model.
 
 <Code id="code-first-kernel-1" caption="A kernel is a function that runs on the GPU, executed by thousands of thr.">
 
@@ -117,30 +119,73 @@ int main() {
 </Code>
 
 <Remark id="rmk-first-kernel-1">
-**Tip:** The grid size calculation `(n + block_size - 1) / block_size` ensures we launch enough threads even when `n` is not a multiple of `block_size`. The bounds check `if (tid < n)` handles the excess threads.
+**The grid size formula and bounds check pattern.** `(n + block_size - 1) / block_size` is integer ceiling division -- it ensures we launch enough threads even when `n` is not a multiple of `block_size`. The bounds check `if (tid < n)` in the kernel handles the excess threads (threads with `tid >= n` do nothing). This two-part pattern appears in essentially every CUDA kernel.
+</Remark>
+
+<Table id="tab-cuda-function-qualifiers" caption="CUDA function qualifiers and where they can be called from.">
+
+| Qualifier | Runs On | Callable From | Notes |
+|-----------|---------|---------------|-------|
+| `__global__` | GPU | CPU (or GPU with dynamic parallelism) | Kernel entry point; must return `void` |
+| `__device__` | GPU | GPU only | Helper function called from kernels |
+| `__host__` | CPU | CPU only | Normal CPU function (default) |
+| `__host__ __device__` | Both | Both | Compiled for both architectures |
+
+</Table>
+
+<Remark id="rmk-kernel-launch-syntax">
+**The triple chevron syntax `<<<grid, block>>>`.** The kernel launch configuration specifies:
+- **grid**: number of blocks (can be 1D, 2D, or 3D using `dim3`)
+- **block**: threads per block (can be 1D, 2D, or 3D using `dim3`)
+- Optional 3rd argument: shared memory bytes (e.g., `<<<grid, block, shmem_bytes>>>`)
+- Optional 4th argument: CUDA stream (e.g., `<<<grid, block, 0, stream>>>`)
+
+Total threads launched = `grid.x * grid.y * grid.z * block.x * block.y * block.z`.
 </Remark>
 
 ## Common Patterns
 
-<Code id="code-first-kernel-4" caption="Code example.">
+<Code id="code-first-kernel-4" caption="Essential CUDA kernel patterns.">
 
 ```cuda
-// Pattern: stride loop (handle more data than threads)
+// Pattern 1: stride loop (handle more data than threads)
+// When data size >> grid size, each thread processes multiple elements
 __global__ void stride_kernel(float* data, int n) {
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    int stride = blockDim.x * gridDim.x;
+    int stride = blockDim.x * gridDim.x;  // Total number of threads
     for (int i = tid; i < n; i += stride) {
         data[i] = data[i] * 2.0f;
     }
 }
+// Launch with a fixed grid size (e.g., 256 blocks * 256 threads = 65K threads)
+// Each thread processes n/65K elements -- works for any n
 
-// Pattern: 2D grid for matrix operations
-dim3 block(16, 16);  // 256 threads per block
+// Pattern 2: 2D grid for matrix operations
+dim3 block(16, 16);  // 256 threads per block arranged in 16x16
 dim3 grid((width + 15) / 16, (height + 15) / 16);
 matrix_kernel<<<grid, block>>>(data, width, height);
+
+// Pattern 3: Conditional execution based on thread position
+__global__ void boundary_kernel(float* data, int rows, int cols) {
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (row < rows && col < cols) {  // 2D bounds check
+        int idx = row * cols + col;
+        data[idx] = process(data[idx]);
+    }
+}
 ```
 
 </Code>
+
+<Remark id="rmk-stride-pattern">
+**Why use stride loops?** In production kernels, the stride loop pattern is preferred over launching one thread per element because:
+1. **Fixed launch overhead:** Launching a fixed number of blocks avoids the overhead of computing the grid size for every different input.
+2. **Better register usage:** Fewer blocks per SM can mean more registers per thread.
+3. **Coalesced access:** When `stride = gridDim.x * blockDim.x`, consecutive threads still access consecutive memory in each iteration.
+4. **Works for any input size:** No need to recompute grid configuration.
+</Remark>
 
 ## Error Checking
 
@@ -165,5 +210,58 @@ CUDA_CHECK(cudaMemcpy(d_a, h_a, bytes, cudaMemcpyHostToDevice));
 </Code>
 
 <Remark id="rmk-first-kernel-2">
-**Warning:** Kernel launches are asynchronous and do not return errors directly. To catch kernel errors, call `cudaGetLastError()` after the launch and `cudaDeviceSynchronize()` to wait for completion.
+**Kernel launches are asynchronous.** The CPU does not wait for the kernel to finish -- it continues executing the next line immediately. This is by design: it allows the CPU to queue up work (data transfers, more kernels) while the GPU computes. But it means errors are not reported at the launch site:
+
+```cuda
+my_kernel<<<grid, block>>>(args);  // This returns immediately
+cudaError_t err = cudaGetLastError();  // Check for launch configuration errors
+if (err != cudaSuccess) { /* handle */ }
+
+cudaDeviceSynchronize();  // Wait for kernel to finish
+err = cudaGetLastError();  // Check for runtime errors (out-of-bounds, etc.)
+if (err != cudaSuccess) { /* handle */ }
+```
+
+In production code, use the `CUDA_CHECK` macro on every CUDA API call.
 </Remark>
+
+## Memory Management Patterns
+
+<Code id="code-memory-patterns" caption="Common memory management patterns in CUDA.">
+
+```cuda
+// Pattern 1: Manual allocation and deallocation
+float *d_ptr;
+CUDA_CHECK(cudaMalloc(&d_ptr, n * sizeof(float)));
+// ... use d_ptr ...
+CUDA_CHECK(cudaFree(d_ptr));
+
+// Pattern 2: Unified memory (automatic CPU-GPU migration)
+float *u_ptr;
+CUDA_CHECK(cudaMallocManaged(&u_ptr, n * sizeof(float)));
+// Can be accessed from BOTH CPU and GPU
+// Data migrates on demand (page faults)
+for (int i = 0; i < n; i++) u_ptr[i] = 1.0f;  // CPU access
+my_kernel<<<grid, block>>>(u_ptr);                // GPU access (data migrates)
+CUDA_CHECK(cudaFree(u_ptr));
+
+// Pattern 3: Pinned host memory (faster CPU-GPU transfers)
+float *h_pinned;
+CUDA_CHECK(cudaMallocHost(&h_pinned, n * sizeof(float)));
+// cudaMemcpyAsync works with pinned memory
+CUDA_CHECK(cudaMemcpyAsync(d_ptr, h_pinned, n * sizeof(float),
+                           cudaMemcpyHostToDevice, stream));
+CUDA_CHECK(cudaFreeHost(h_pinned));
+```
+
+</Code>
+
+<Table id="tab-memory-allocation" caption="CUDA memory allocation methods.">
+
+| Function | Location | Access From | Transfer | Use Case |
+|----------|----------|-------------|----------|----------|
+| `cudaMalloc` | GPU | GPU only | Explicit (cudaMemcpy) | Standard GPU allocation |
+| `cudaMallocHost` | CPU (pinned) | CPU | Async-capable | Fast CPU-GPU transfers |
+| `cudaMallocManaged` | Unified | CPU + GPU | Automatic (page fault) | Prototyping, sparse access |
+
+</Table>

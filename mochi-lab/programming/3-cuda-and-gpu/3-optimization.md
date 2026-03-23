@@ -4,6 +4,8 @@ sidebar_position: 3
 
 # Optimization
 
+The difference between a naive CUDA kernel and an optimized one can be 10-100x. This chapter covers the key optimization techniques: eliminating warp divergence, tiling for data reuse, parallel reduction, asynchronous execution with streams, and profiling with NVIDIA tools. Each technique addresses a specific performance bottleneck.
+
 ## Warp Divergence
 
 All 32 threads in a warp execute the same instruction. When threads take different branches, both paths are executed with threads masked:
@@ -67,6 +69,19 @@ __global__ void matmul_tiled(float* A, float* B, float* C, int N) {
 </Code>
 
 The tiled version reads each element from global memory once per tile instead of once per output element, reducing global memory accesses by a factor of `TILE`.
+
+<Remark id="rmk-tiling-analysis">
+**Tiling analysis for matrix multiplication.**
+
+| Version | Global Memory Reads per Output | FLOPS per Read | Arithmetic Intensity |
+|---------|-------------------------------|----------------|---------------------|
+| Naive ($N \times N$) | $2N$ reads per output element | 1 FLOP per read | 0.25 FLOPS/byte |
+| Tiled ($T \times T$ tiles) | $2N/T$ reads per output element | $T$ FLOPS per read | $T/8$ FLOPS/byte |
+| Tiled ($T=16$) | $N/8$ reads | 16 FLOPS per read | 2 FLOPS/byte |
+| Tiled ($T=32$) | $N/16$ reads | 32 FLOPS per read | 4 FLOPS/byte |
+
+For a 1024x1024 matrix with $T=16$: global memory reads decrease by 16x compared to naive. On H100, the ridge point (where compute meets bandwidth) for FP32 is ~20 FLOPS/byte, so even tiled FP32 GEMM is memory-bound. Using Tensor Cores (FP16) shifts the ridge point, making tiled GEMM compute-bound.
+</Remark>
 
 ## Parallel Reduction
 
@@ -160,13 +175,34 @@ nsys stats timeline.nsys-rep
 
 </Code>
 
-<Table id="tab-optimization-1" caption="nsys stats timeline.nsys-rep.">
+<Table id="tab-optimization-1" caption="Key profiling metrics and their target values.">
 
-| Metric | What it tells you | Good value |
-|--------|------------------|------------|
-| SM % | GPU compute utilization | > 80% |
-| Memory BW % | Memory bandwidth utilization | > 60% |
-| Occupancy | Warps hiding latency | > 50% |
-| L2 hit rate | Cache effectiveness | > 50% |
+| Metric | What It Tells You | Good Value | Poor Value |
+|--------|------------------|------------|-----------|
+| SM Utilization (%) | How busy the SMs are | > 80% | < 50% (low occupancy or idle GPU) |
+| Memory Bandwidth (%) | Fraction of peak HBM bandwidth used | > 60% (memory-bound) | < 20% (not enough data flow) |
+| Achieved Occupancy | Active warps / max warps per SM | > 50% | < 25% (too many registers or shared memory) |
+| L2 Hit Rate | Cache effectiveness | > 50% | < 20% (poor data reuse) |
+| Warp Stall: Memory | Stalled waiting for memory | < 30% | > 50% (memory-bound; need fusion or tiling) |
+| Warp Stall: Sync | Stalled at `__syncthreads` | < 10% | > 20% (load imbalance in shared memory) |
+| Inst Executed per Cycle | Instructions throughput | > 1.0 | < 0.5 (underutilized execution units) |
+
+</Table>
+
+## Optimization Checklist
+
+<Table id="tab-optimization-checklist" caption="GPU kernel optimization checklist in priority order.">
+
+| Priority | Optimization | Bottleneck Addressed | Expected Speedup |
+|----------|-------------|---------------------|-----------------|
+| 1 | Coalesced memory access | Memory bandwidth waste | 2-10x |
+| 2 | Use shared memory for data reuse | Global memory latency | 2-5x |
+| 3 | Eliminate warp divergence | Execution efficiency | 1.5-2x |
+| 4 | Avoid bank conflicts | Shared memory throughput | 1.2-2x |
+| 5 | Use warp-level primitives (`__shfl`) | Reduction/communication overhead | 1.2-1.5x |
+| 6 | Tune occupancy (registers vs threads) | Latency hiding | 1.1-1.5x |
+| 7 | Use Tensor Cores (for GEMM) | Compute throughput | 8-16x |
+| 8 | Async memory copy (streams) | Pipeline utilization | 1.5-2x |
+| 9 | Launch configuration tuning | SM utilization | 1.1-1.3x |
 
 </Table>
