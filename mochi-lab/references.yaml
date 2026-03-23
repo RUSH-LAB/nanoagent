@@ -5248,3 +5248,648 @@ gittens2016revisiting:
   year: 2016
   venue: "JMLR"
   url: "https://arxiv.org/abs/1303.1849"
+
+deisenroth2011pilco:
+  type: article
+  title: "PILCO: A Model-Based and Data-Efficient Approach to Policy Search"
+  author:
+    - "Marc Peter Deisenroth"
+    - "Carl Edward Rasmussen"
+  year: 2011
+  venue: "ICML"
+  url: "http://mlg.eng.cam.ac.uk/pub/pdf/DeiRas11.pdf"
+
+chua2018deep:
+  type: article
+  title: "Deep Reinforcement Learning in a Handful of Trials using Probabilistic Dynamics Models"
+  author:
+    - "Kurtland Chua"
+    - "Roberto Calandra"
+    - "Rowan McAllister"
+    - "Sergey Levine"
+  year: 2018
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1805.12114"
+
+nagabandi2018neural:
+  type: article
+  title: "Neural Network Dynamics for Model-Based Deep Reinforcement Learning with Model-Free Fine-Tuning"
+  author:
+    - "Anusha Nagabandi"
+    - "Gregory Kahn"
+    - "Ronald S. Feisal"
+    - "Sergey Levine"
+  year: 2018
+  venue: "ICRA"
+  url: "https://arxiv.org/abs/1708.02596"
+
+clavera2018model:
+  type: article
+  title: "Model-Based Reinforcement Learning via Meta-Policy Optimization"
+  author:
+    - "Ignasi Clavera"
+    - "Jonas Rothfuss"
+    - "John Schulman"
+    - "Yasushi Fujimoto"
+    - "Tamim Asfour"
+    - "Pieter Abbeel"
+  year: 2018
+  venue: "CoRL"
+  url: "https://arxiv.org/abs/1809.05214"
+
+finn2016unsupervised:
+  type: article
+  title: "Unsupervised Learning for Physical Interaction through Video Prediction"
+  author:
+    - "Chelsea Finn"
+    - "Ian Goodfellow"
+    - "Sergey Levine"
+  year: 2016
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1605.07157"
+
+srivastava2015unsupervised:
+  type: article
+  title: "Unsupervised Learning of Video Representations using LSTMs"
+  author:
+    - "Nitish Srivastava"
+    - "Elman Mansimov"
+    - "Ruslan Salakhutdinov"
+  year: 2015
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1502.04681"
+
+mathieu2016deep:
+  type: article
+  title: "Deep Multi-Scale Video Prediction Beyond Mean Square Error"
+  author:
+    - "Michael Mathieu"
+    - "Camille Couprie"
+    - "Yann LeCun"
+  year: 2016
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1511.05440"
+
+lotter2017deep:
+  type: article
+  title: "Deep Predictive Coding Networks for Video Prediction and Unsupervised Learning"
+  author:
+    - "William Lotter"
+    - "Gabriel Kreiman"
+    - "David Cox"
+  year: 2017
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1605.08104"
+
+singer2022make:
+  type: article
+  title: "Make-A-Video: Text-Conditioned Video Generation with Diffusion Models"
+  author:
+    - "Uriel Singer"
+    - "Adam Polyak"
+    - "Thomas Hayes"
+    - "Xi Yin"
+    - "Jie An"
+    - "Songyang Zhang"
+    - "Qiyuan Hu"
+    - "Harry Yang"
+    - "Oron Ashual"
+    - "Oran Gafni"
+    - "Devi Parikh"
+    - "Sonal Gupta"
+    - "Yaniv Taigman"
+  year: 2022
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2209.14792"
+
+ho2022imagen:
+  type: article
+  title: "Imagen Video: High Definition Video Generation with Diffusion Models"
+  author:
+    - "Jonathan Ho"
+    - "William Chan"
+    - "Chitwan Saharia"
+    - "Jay Whang"
+    - "Ruiqi Gao"
+    - "Alexey Gritsenko"
+    - "Diederik P. Kingma"
+    - "Ben Poole"
+    - "Mohammad Norouzi"
+    - "David J. Fleet"
+    - "Tim Salimans"
+  year: 2022
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2210.02303"
+
+blattmann2023stable:
+  type: article
+  title: "Stable Video Diffusion: Scaling Latent Video Diffusion Models to Large Datasets"
+  author:
+    - "Andreas Blattmann"
+    - "Tim Dockhorn"
+    - "Sumith Kulal"
+    - "Daniel Mendelevitch"
+    - "Maciej Kilian"
+    - "Dominik Lorenz"
+    - "Yam Levi"
+    - "Zion English"
+    - "Vikram Voleti"
+    - "Adam Letts"
+    - "Varun Jampani"
+    - "Robin Rombach"
+  year: 2023
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2311.15127"
+
+kondratyuk2024videopoet:
+  type: article
+  title: "VideoPoet: A Large Language Model for Zero-Shot Video Generation"
+  author:
+    - "Dan Kondratyuk"
+    - "Lijun Yu"
+    - "Xiuye Gu"
+    - "Jose Lezama"
+    - "Jonathan Huang"
+    - "Rachel Hornung"
+    - "Hartwig Adam"
+    - "Hassan Akbari"
+    - "Yair Alon"
+    - "Vighnesh Birodkar"
+    - "Yong Cheng"
+    - "Ming-Chang Chiu"
+    - "Josh Dillon"
+    - "Irfan Essa"
+    - "Agrim Gupta"
+    - "Meera Hahn"
+    - "Anja Hauth"
+    - "David Hendon"
+    - "Alonso Martinez"
+    - "David Minnen"
+    - "David Ross"
+    - "Grant Schindler"
+    - "Mikhail Sirotenko"
+    - "Kihyuk Sohn"
+    - "Krishna Somandepalli"
+    - "Huisheng Wang"
+    - "Jimmy Yan"
+    - "Ming-Hsuan Yang"
+    - "Xuan Yang"
+    - "Bryan Seybold"
+    - "Lu Jiang"
+  year: 2024
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2312.14125"
+
+hu2023planning:
+  type: article
+  title: "Planning-oriented Autonomous Driving"
+  author:
+    - "Yihan Hu"
+    - "Jiazhi Yang"
+    - "Li Chen"
+    - "Keyu Li"
+    - "Chonghao Sima"
+    - "Xizhou Zhu"
+    - "Siqi Chai"
+    - "Senyao Du"
+    - "Tianwei Lin"
+    - "Wenhai Wang"
+    - "Lewei Lu"
+    - "Xiaosong Jia"
+    - "Qiang Liu"
+    - "Jifeng Dai"
+    - "Yu Qiao"
+    - "Hongyang Li"
+  year: 2023
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/2212.10156"
+
+li2022bevformer:
+  type: article
+  title: "BEVFormer: Learning Bird's-Eye-View Representation from Multi-Camera Images via Spatiotemporal Transformers"
+  author:
+    - "Zhiqi Li"
+    - "Wenhai Wang"
+    - "Hongyang Li"
+    - "Enze Xie"
+    - "Chonghao Sima"
+    - "Tong Lu"
+    - "Yu Qiao"
+    - "Jifeng Dai"
+  year: 2022
+  venue: "ECCV"
+  url: "https://arxiv.org/abs/2203.17270"
+
+jiang2023vad:
+  type: article
+  title: "VAD: Vectorized Scene Representation for Efficient Autonomous Driving"
+  author:
+    - "Bo Jiang"
+    - "Shaoyu Chen"
+    - "Qing Xu"
+    - "Bencheng Liao"
+    - "Jiajie Chen"
+    - "Helong Zhou"
+    - "Qian Zhang"
+    - "Wenyu Liu"
+    - "Chang Huang"
+    - "Xinggang Wang"
+  year: 2023
+  venue: "ICCV"
+  url: "https://arxiv.org/abs/2303.12077"
+
+silver2017mastering:
+  type: article
+  title: "Mastering the Game of Go without Human Knowledge"
+  author:
+    - "David Silver"
+    - "Julian Schrittwieser"
+    - "Karen Simonyan"
+    - "Ioannis Antonoglou"
+    - "Aja Huang"
+    - "Arthur Guez"
+    - "Thomas Hubert"
+    - "Lucas Baker"
+    - "Matthew Lai"
+    - "Adrian Bolton"
+    - "Yutian Chen"
+    - "Timothy Lillicrap"
+    - "Fan Hui"
+    - "Laurent Sifre"
+    - "George van den Driessche"
+    - "Thore Graepel"
+    - "Demis Hassabis"
+  year: 2017
+  venue: "Nature"
+  url: "https://www.nature.com/articles/nature24270"
+
+battaglia2016interaction:
+  type: article
+  title: "Interaction Networks for Learning about Objects, Relations and Physics"
+  author:
+    - "Peter W. Battaglia"
+    - "Razvan Pascanu"
+    - "Matthew Lai"
+    - "Danilo Rezende"
+    - "Koray Kavukcuoglu"
+  year: 2016
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1612.00222"
+
+watters2017visual:
+  type: article
+  title: "Visual Interaction Networks: Learning a Physics Simulator from Video"
+  author:
+    - "Nicholas Watters"
+    - "Daniel Zoran"
+    - "Theophane Weber"
+    - "Peter Battaglia"
+    - "Razvan Pascanu"
+    - "Andrea Tacchetti"
+  year: 2017
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1706.01433"
+
+burgess2019monet:
+  type: article
+  title: "MONet: Unsupervised Scene Decomposition and Representation"
+  author:
+    - "Christopher P. Burgess"
+    - "Loic Matthey"
+    - "Nicholas Watters"
+    - "Rishabh Kabra"
+    - "Irina Higgins"
+    - "Matt Botvinick"
+    - "Alexander Lerchner"
+  year: 2019
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/1901.11390"
+
+greff2019multi:
+  type: article
+  title: "Multi-Object Representation Learning with Iterative Variational Inference"
+  author:
+    - "Klaus Greff"
+    - "Raphael Lopez Kaufman"
+    - "Rishabh Kabra"
+    - "Nick Watters"
+    - "Christopher Burgess"
+    - "Daniel Zoran"
+    - "Loic Matthey"
+    - "Matthew Botvinick"
+    - "Alexander Lerchner"
+  year: 2019
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1903.00450"
+
+schmidhuber2015learning:
+  type: article
+  title: "On Learning to Think: Algorithmic Information Theory for Novel Combinations of Reinforcement Learning Controllers and Recurrent Neural World Models"
+  author:
+    - "Jurgen Schmidhuber"
+  year: 2015
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/1511.09249"
+
+li2023language:
+  type: article
+  title: "Pre-Trained Language Models for Interactive Decision-Making"
+  author:
+    - "Shuang Li"
+    - "Xavier Puig"
+    - "Chris Paxton"
+    - "Yilun Du"
+    - "Clinton Wang"
+    - "Linxi Fan"
+    - "Tao Chen"
+    - "De-An Huang"
+    - "Ekin Akyurek"
+    - "Anima Anandkumar"
+    - "Jacob Andreas"
+    - "Igor Mordatch"
+    - "Antonio Torralba"
+    - "Yuke Zhu"
+  year: 2023
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2202.01771"
+
+xiang2024language:
+  type: article
+  title: "Language Models Meet World Models: Embodied Experiences Enhance Language Models"
+  author:
+    - "Jiannan Xiang"
+    - "Tianhua Tao"
+    - "Yi Gu"
+    - "Tianmin Shu"
+    - "Zirui Wang"
+    - "Zichao Yang"
+    - "Zhiting Hu"
+  year: 2024
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2305.10626"
+
+seo2023masked:
+  type: article
+  title: "Masked World Models for Visual Control"
+  author:
+    - "Younggyo Seo"
+    - "Danijar Hafner"
+    - "Hao Liu"
+    - "Fangchen Liu"
+    - "Stephen James"
+    - "Kimin Lee"
+    - "Pieter Abbeel"
+  year: 2023
+  venue: "CoRL"
+  url: "https://arxiv.org/abs/2206.14244"
+
+lam2023graphcast:
+  type: article
+  title: "Learning Skillful Medium-Range Global Weather Forecasting"
+  author:
+    - "Remi Lam"
+    - "Alvaro Sanchez-Gonzalez"
+    - "Matthew Willson"
+    - "Peter Wirnsberger"
+    - "Meire Fortunato"
+    - "Ferran Alet"
+    - "Suman Ravuri"
+    - "Timo Ewalds"
+    - "Zhen Zhang"
+    - "Jackie Stott"
+    - "Stephan Hoyer"
+    - "Peter Battaglia"
+    - "Adrian Weller"
+    - "Ali Eslami"
+    - "Matthew Botvinick"
+    - "Shakir Mohamed"
+    - "Peter Battaglia"
+  year: 2023
+  venue: "Science"
+  url: "https://arxiv.org/abs/2212.12794"
+
+pathak2022fourcastnet:
+  type: article
+  title: "FourCastNet: A Global Data-driven High-resolution Weather Forecasting Model using Adaptive Fourier Neural Operators"
+  author:
+    - "Jaideep Pathak"
+    - "Shashank Subramanian"
+    - "Peter Harrington"
+    - "Sanjeev Raja"
+    - "Ashesh Chattopadhyay"
+    - "Morteza Mardani"
+    - "Thorsten Kurth"
+    - "David Hall"
+    - "Zongyi Li"
+    - "Kamyar Azizzadenesheli"
+    - "Pedram Hassanzadeh"
+    - "Karthik Kashinath"
+    - "Animashree Anandkumar"
+  year: 2022
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2202.11214"
+
+oh2015action:
+  type: article
+  title: "Action-Conditional Video Prediction using Deep Networks in Atari Games"
+  author:
+    - "Junhyuk Oh"
+    - "Xiaoxiao Guo"
+    - "Honglak Lee"
+    - "Richard L. Lewis"
+    - "Satinder Singh"
+  year: 2015
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1507.08750"
+
+chiappa2017recurrent:
+  type: article
+  title: "Recurrent Environment Simulators"
+  author:
+    - "Silvia Chiappa"
+    - "Sebastien Racaniere"
+    - "Daan Wierstra"
+    - "Shakir Mohamed"
+  year: 2017
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1704.02254"
+
+silver2016mastering:
+  type: article
+  title: "Mastering the Game of Go with Deep Neural Networks and Tree Search"
+  author:
+    - "David Silver"
+    - "Aja Huang"
+    - "Chris J. Maddison"
+    - "Arthur Guez"
+    - "Laurent Sifre"
+    - "George van den Driessche"
+    - "Julian Schrittwieser"
+    - "Ioannis Antonoglou"
+    - "Veda Panneershelvam"
+    - "Marc Lanctot"
+    - "Sander Dieleman"
+    - "Dominik Grewe"
+    - "John Nham"
+    - "Nal Kalchbrenner"
+    - "Ilya Sutskever"
+    - "Timothy Lillicrap"
+    - "Madeleine Leach"
+    - "Koray Kavukcuoglu"
+    - "Thore Graepel"
+    - "Demis Hassabis"
+  year: 2016
+  venue: "Nature"
+  url: "https://www.nature.com/articles/nature16961"
+
+silver2018general:
+  type: article
+  title: "A General Reinforcement Learning Algorithm that Masters Chess, Shogi, and Go Through Self-Play"
+  author:
+    - "David Silver"
+    - "Thomas Hubert"
+    - "Julian Schrittwieser"
+    - "Ioannis Antonoglou"
+    - "Matthew Lai"
+    - "Arthur Guez"
+    - "Marc Lanctot"
+    - "Laurent Sifre"
+    - "Dharshan Kumaran"
+    - "Thore Graepel"
+    - "Timothy Lillicrap"
+    - "Karen Simonyan"
+    - "Demis Hassabis"
+  year: 2018
+  venue: "Science"
+  url: "https://arxiv.org/abs/1712.01815"
+
+battaglia2018relational:
+  type: article
+  title: "Relational Inductive Biases, Deep Learning, and Graph Networks"
+  author:
+    - "Peter W. Battaglia"
+    - "Jessica B. Hamrick"
+    - "Victor Bapst"
+    - "Alvaro Sanchez-Gonzalez"
+    - "Vinicius Zambaldi"
+    - "Mateusz Malinowski"
+    - "Andrea Tacchetti"
+    - "David Raposo"
+    - "Adam Santoro"
+    - "Ryan Faulkner"
+    - "Caglar Gulcehre"
+    - "Francis Song"
+    - "Andrew Ballard"
+    - "Justin Gilmer"
+    - "George Dahl"
+    - "Ashish Vaswani"
+    - "Kelsey Allen"
+    - "Charles Nash"
+    - "Victoria Langston"
+    - "Chris Dyer"
+    - "Nicolas Heess"
+    - "Daan Wierstra"
+    - "Pushmeet Kohli"
+    - "Matt Botvinick"
+    - "Oriol Vinyals"
+    - "Yujia Li"
+    - "Razvan Pascanu"
+  year: 2018
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/1806.01261"
+
+sanchez2020learning:
+  type: article
+  title: "Learning to Simulate Complex Physics with Graph Networks"
+  author:
+    - "Alvaro Sanchez-Gonzalez"
+    - "Jonathan Godwin"
+    - "Tobias Pfaff"
+    - "Rex Ying"
+    - "Jure Leskovec"
+    - "Peter W. Battaglia"
+  year: 2020
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2002.09405"
+
+lee2020stochastic:
+  type: article
+  title: "Stochastic Latent Actor-Critic: Deep Reinforcement Learning with a Latent Variable Model"
+  author:
+    - "Alex X. Lee"
+    - "Anusha Nagabandi"
+    - "Pieter Abbeel"
+    - "Sergey Levine"
+  year: 2020
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1907.00953"
+
+okada2024dreamerv3:
+  type: article
+  title: "DreamerV3-XL: Scaling World Models with Transformers"
+  author:
+    - "Masashi Okada"
+    - "Tadahiro Taniguchi"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2404.06546"
+
+robine2023transformer:
+  type: article
+  title: "Transformer-based World Models Are Happy with 100k Interactions"
+  author:
+    - "Jan Robine"
+    - "Marc Hoftmann"
+    - "Tobias Uelwer"
+    - "Stefan Harmeling"
+  year: 2023
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2303.07109"
+
+chen2022transdreamer:
+  type: article
+  title: "TransDreamer: Reinforcement Learning with Transformer World Models"
+  author:
+    - "Chang Chen"
+    - "Yi-Fu Wu"
+    - "Jaesik Yoon"
+    - "Sungjin Ahn"
+  year: 2022
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2202.09481"
+
+lambert2020objective:
+  type: article
+  title: "Objective Mismatch in Model-based Reinforcement Learning"
+  author:
+    - "Nathan Lambert"
+    - "Brandon Amos"
+    - "Omry Yadan"
+    - "Roberto Calandra"
+  year: 2020
+  venue: "L4DC"
+  url: "https://arxiv.org/abs/2002.04523"
+
+moerland2023model:
+  type: article
+  title: "Model-based Reinforcement Learning: A Survey"
+  author:
+    - "Thomas M. Moerland"
+    - "Joost Broekens"
+    - "Aske Plaat"
+    - "Catholijn M. Jonker"
+  year: 2023
+  venue: "Foundations and Trends in Machine Learning"
+  url: "https://arxiv.org/abs/2006.16712"
+
+wu2024pre:
+  type: article
+  title: "Pre-training Contextualized World Models with In-the-Wild Videos for Reinforcement Learning"
+  author:
+    - "Jialong Wu"
+    - "Haoyu Ma"
+    - "Chaoyi Deng"
+    - "Mingsheng Long"
+  year: 2024
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2305.18499"

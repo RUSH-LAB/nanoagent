@@ -5,7 +5,11 @@ title: "Classic World Models"
 
 # Classic World Models
 
-This section traces the evolution of latent-space world models from their modern inception to the current state of the art. The trajectory from Ha and Schmidhuber's initial work through the Dreamer series represents one of the most coherent and successful research programs in deep RL, with each iteration building directly on the insights and limitations of its predecessor.
+This section traces the evolution of latent-space world models from their modern inception to the current state of the art. The trajectory from Ha and Schmidhuber's initial work through the Dreamer series represents one of the most coherent and successful research programs in deep RL, with each iteration building directly on the insights and limitations of its predecessor. For a broader historical perspective on model-based RL, see Moerland et al. (2023) [@moerland2023model].
+
+### Pre-Deep-Learning Foundations
+
+Before the deep learning era, model-based RL already demonstrated the power of learned dynamics models. PILCO (Deisenroth and Rasmussen, 2011) [@deisenroth2011pilco] used Gaussian processes to learn dynamics models with calibrated uncertainty, achieving remarkably data-efficient control (learning cart-pole swing-up in under 30 seconds of interaction). PETS (Chua et al., 2018) [@chua2018deep] scaled model-based approaches to deeper networks using probabilistic ensembles, demonstrating that ensembles of neural networks could capture epistemic uncertainty sufficiently well for planning. Nagabandi et al. (2018) [@nagabandi2018neural] showed that neural network dynamics models could be combined with model-predictive control and then fine-tuned with model-free RL, establishing the model-based initialization, model-free refinement paradigm. These works established that the fundamental bottleneck in model-based RL is the quality and uncertainty calibration of the learned dynamics model -- a theme that continues through all subsequent work.
 
 ### World Models (Ha & Schmidhuber, 2018)
 
@@ -62,3 +66,19 @@ Sekar et al. (2020) [@sekar2020planning] proposed Plan2Explore, which uses the w
 ### Director: Hierarchical World Models
 
 Hafner et al. (2022) [@hafner2022director] proposed Director, which extends Dreamer with hierarchical goal-conditioned planning. Rather than predicting a flat sequence of actions, Director learns a high-level "manager" that sets subgoals in latent space and a low-level "worker" that achieves these subgoals. This hierarchical decomposition enables planning at multiple temporal scales, with the manager operating over longer horizons and the worker handling short-term control. Director achieved improved performance on long-horizon tasks where flat planning degrades due to compounding prediction errors.
+
+### Masked World Models (MWM)
+
+Seo et al. (2023) [@seo2023masked] proposed Masked World Models, which improve the representation learning component of Dreamer-style world models by incorporating masked autoencoder pre-training. By masking random patches of observations and training the encoder to reconstruct them, MWM learns richer visual representations that improve downstream dynamics modeling and policy learning. MWM achieved state-of-the-art results on the DeepMind Control Suite, particularly on tasks with complex visual observations. This work highlighted that the quality of the encoder -- not just the dynamics model -- is a critical bottleneck in world model performance.
+
+### TransDreamer and Transformer-Based World Models
+
+Chen et al. (2022) [@chen2022transdreamer] proposed TransDreamer, which replaces the RNN backbone in the RSSM with a transformer, enabling parallel training and better long-range dependency modeling. Robine et al. (2023) [@robine2023transformer] further demonstrated that transformer-based world models can achieve competitive performance on the Atari 100k benchmark with only 100k interactions, suggesting that the transformer architecture's ability to capture long-range temporal dependencies directly benefits dynamics prediction. The shift from RNN to transformer backbones mirrors the broader trend in deep learning and enables world models to leverage the scaling properties of transformers.
+
+### Stochastic Latent Actor-Critic (SLAC)
+
+Lee et al. (2020) [@lee2020stochastic] proposed SLAC, which combines a sequential latent variable model with model-free actor-critic training. Unlike Dreamer, which trains the policy entirely in imagination, SLAC uses the latent variable model primarily for representation learning -- providing a compact, informative state representation to the actor-critic. SLAC demonstrated that even when the world model is not used for planning or imagined rollouts, learning a good dynamics model still provides substantial benefits through improved representations. This work helped clarify the dual role of world models: as simulators for planning and as representation learners for model-free RL.
+
+### The Objective Mismatch Problem
+
+Lambert et al. (2020) [@lambert2020objective] identified a fundamental challenge in model-based RL: the **objective mismatch** between how world models are trained (minimizing prediction error) and how they are used (maximizing task reward). A world model that is globally accurate may allocate capacity to predicting task-irrelevant details while poorly predicting task-critical dynamics. Conversely, MuZero-style models trained with task-relevant objectives (reward and value prediction) can be highly effective for planning despite having no observation reconstruction capability. This insight motivates value-equivalent and decision-aware approaches to world model training.
