@@ -4639,19 +4639,6 @@ snell2024scaling_testtime:
 
 # === Chapter 5: Randomized Signal - Additional References ===
 
-srivastava2014dropout:
-  type: article
-  title: "Dropout: A Simple Way to Prevent Neural Networks from Overfitting"
-  author:
-    - "Nitish Srivastava"
-    - "Geoffrey Hinton"
-    - "Alex Krizhevsky"
-    - "Ilya Sutskever"
-    - "Ruslan Salakhutdinov"
-  year: 2014
-  venue: "JMLR"
-  url: "https://jmlr.org/papers/v15/srivastava14a.html"
-
 gal2016dropout:
   type: article
   title: "Dropout as a Bayesian Approximation: Representing Model Uncertainty in Deep Learning"
@@ -4841,17 +4828,6 @@ sevilla2022compute:
   year: 2022
   venue: "arXiv"
   url: "https://arxiv.org/abs/2202.05924"
-
-kitaev2020reformer:
-  type: article
-  title: "Reformer: The Efficient Transformer"
-  author:
-    - "Nikita Kitaev"
-    - "Lukasz Kaiser"
-    - "Anselm Levskaya"
-  year: 2020
-  venue: "ICLR"
-  url: "https://arxiv.org/abs/2001.04451"
 
 gomez2017reversible:
   type: article
@@ -6610,17 +6586,6 @@ robbins1951stochastic:
   venue: "Annals of Mathematical Statistics"
   url: "https://projecteuclid.org/journals/annals-of-mathematical-statistics/volume-22/issue-3/A-Stochastic-Approximation-Method/10.1214/aoms/1177729586.full"
 
-"https://doi.org/10.1016/0041-5553(83)90177-3"
-
-kingma2015adam:
-  type: article
-  title: "Adam: A Method for Stochastic Optimization"
-  author:
-    - "Diederik P. Kingma"
-    - "Jimmy Ba"
-  year: 2015
-  venue: "ICLR"
-  url: "https://arxiv.org/abs/1412.6980"
 
 recht2011simpler:
   type: article
@@ -6641,9 +6606,7 @@ clarkson2017low:
   venue: "JACM"
   url: "https://arxiv.org/abs/1207.6365"
 
-"https://doi.org/10.1137/1.9781611970104"
 
-"https://doi.org/10.1002/cpa.3160450502"
 
 bloom1970space:
   type: article
@@ -6683,18 +6646,6 @@ chen2020generative:
   venue: "ICML"
   url: "https://arxiv.org/abs/2011.10566"
 
-katharopoulos2020transformers:
-  type: article
-  title: "Transformers are RNNs: Fast Autoregressive Transformers with Linear Attention"
-  author:
-    - "Angelos Katharopoulos"
-    - "Apoorv Vyas"
-    - "Nikolaos Pitas"
-    - "Francois Fleuret"
-  year: 2020
-  venue: "ICML"
-  url: "https://arxiv.org/abs/2006.16236"
-
 martinsson2020randomized:
   type: article
   title: "Randomized Numerical Linear Algebra: Foundations and Algorithms"
@@ -6727,7 +6678,6 @@ chung2021rethinking:
   venue: "arXiv"
   url: "https://arxiv.org/abs/1508.01211"
 
-"https://doi.org/10.1002/rsa.20218"
 
 lee2021continual:
   type: article
@@ -6751,7 +6701,6 @@ nichol2018first:
   venue: "arXiv"
   url: "https://arxiv.org/abs/1803.02999"
 
-"https://doi.org/10.1145/122344.122377"
 
 sun2023retentive:
   type: article
