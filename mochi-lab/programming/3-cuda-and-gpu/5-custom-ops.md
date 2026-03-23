@@ -42,7 +42,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
 </Code>
 
-<Code id="code-custom-ops-2" caption="```.">
+<Code id="code-custom-ops-2" caption="JIT-compiling and loading a C++ extension from Python.">
 
 ```python
 # Build and use
@@ -101,7 +101,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
 </Code>
 
-<Code id="code-custom-ops-4" caption="```.">
+<Code id="code-custom-ops-4" caption="Loading and using a CUDA extension from Python.">
 
 ```python
 from torch.utils.cpp_extension import load

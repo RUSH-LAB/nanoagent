@@ -161,7 +161,7 @@ cudaStreamSynchronize(stream2);
 
 ## Profiling
 
-<Code id="code-optimization-6" caption="Code example.">
+<Code id="code-optimization-6" caption="Profiling CUDA programs with NVIDIA Nsight Compute and Nsight Systems.">
 
 ```bash
 # NVIDIA Nsight Compute (kernel-level profiling)
