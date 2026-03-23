@@ -7301,3 +7301,26 @@ zela2020understanding:
   year: 2020
   venue: "ICLR"
   url: "https://arxiv.org/abs/1909.09656"
+
+robertson2009probabilistic:
+  type: article
+  title: "The Probabilistic Relevance Framework: BM25 and Beyond"
+  author:
+    - "Stephen Robertson"
+    - "Hugo Zaragoza"
+  year: 2009
+  venue: "Foundations and Trends in Information Retrieval"
+  url: "https://doi.org/10.1561/1500000019"
+
+robertson1995okapi:
+  type: article
+  title: "Okapi at TREC-3"
+  author:
+    - "Stephen E. Robertson"
+    - "Steve Walker"
+    - "Susan Jones"
+    - "Micheline Hancock-Beaulieu"
+    - "Mike Gatford"
+  year: 1995
+  venue: "TREC"
+  url: "https://trec.nist.gov/pubs/trec3/papers/city.ps.gz"
