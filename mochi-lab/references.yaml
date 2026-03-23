@@ -5210,3 +5210,41 @@ hendrycks2021mmlu:
   year: 2021
   venue: "ICLR"
   url: "https://arxiv.org/abs/2009.03300"
+
+tropp2015introduction:
+  type: article
+  title: "An Introduction to Matrix Concentration Inequalities"
+  author:
+    - "Joel A. Tropp"
+  year: 2015
+  venue: "Foundations and Trends in Machine Learning"
+  url: "https://arxiv.org/abs/1501.01571"
+
+larsen2017optimality:
+  type: article
+  title: "Optimality of the Johnson-Lindenstrauss Lemma"
+  author:
+    - "Kasper Green Larsen"
+    - "Jelani Nelson"
+  year: 2017
+  venue: "FOCS"
+  url: "https://arxiv.org/abs/1609.02094"
+
+bach2017equivalence:
+  type: article
+  title: "On the Equivalence between Kernel Quadrature Rules and Random Feature Expansions"
+  author:
+    - "Francis Bach"
+  year: 2017
+  venue: "JMLR"
+  url: "https://arxiv.org/abs/1502.06800"
+
+gittens2016revisiting:
+  type: article
+  title: "Revisiting the Nystrom Method for Improved Recommendations"
+  author:
+    - "Alex Gittens"
+    - "Michael W. Mahoney"
+  year: 2016
+  venue: "JMLR"
+  url: "https://arxiv.org/abs/1303.1849"
