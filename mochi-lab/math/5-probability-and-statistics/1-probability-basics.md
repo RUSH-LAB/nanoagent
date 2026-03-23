@@ -74,6 +74,14 @@ Bayes' theorem is the engine of Bayesian machine learning:
 MAP estimation maximizes $P(\theta|\mathcal{D})$, which equals MLE + regularization. Full Bayesian inference integrates over $P(\theta|\mathcal{D})$, giving calibrated uncertainty.
 </Remark>
 
+<Example id="ex-bayes-spam">
+**Spam classification with Bayes' theorem.** Suppose 20% of emails are spam ($P(S) = 0.2$). The word "free" appears in 80% of spam and 10% of non-spam emails: $P(\text{free}|S) = 0.8$, $P(\text{free}|\bar{S}) = 0.1$. Given an email containing "free," what is the probability it is spam?
+
+$$P(S|\text{free}) = \frac{P(\text{free}|S) \cdot P(S)}{P(\text{free})} = \frac{0.8 \times 0.2}{0.8 \times 0.2 + 0.1 \times 0.8} = \frac{0.16}{0.24} = \frac{2}{3} \approx 0.67$$
+
+The prior probability of spam (20%) is updated to 67% after observing "free." This is the foundation of Naive Bayes classifiers, which assume features are conditionally independent given the class: $P(x_1, \ldots, x_n | y) = \prod_i P(x_i | y)$.
+</Example>
+
 <Theorem id="thm-total-probability" name="Law of Total Probability">
 For a partition $\{B_1, B_2, \ldots, B_n\}$ of $\Omega$:
 

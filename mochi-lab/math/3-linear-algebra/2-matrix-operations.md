@@ -4,6 +4,8 @@ sidebar_position: 2
 
 # Matrix Operations
 
+Matrices are not just arrays of numbers -- they are representations of linear transformations. Every operation on a matrix (multiplication, inversion, transposition, decomposition) has both an algebraic definition and a geometric interpretation. Understanding both is essential: the algebra tells you how to compute, and the geometry tells you what the computation means. This chapter covers the core operations on matrices that underlie all of computational linear algebra and, by extension, all of deep learning.
+
 ## Matrix Multiplication
 
 <Definition id="def-matmul" name="Matrix Multiplication">
@@ -17,6 +19,10 @@ $$C_{ij} = \sum_{l=1}^{k} A_{il} B_{lj}$$
 
 This requires $2mkn$ FLOPs ($mkn$ multiplications and $mkn$ additions). Matrix multiplication is **not commutative** ($AB \neq BA$ in general) but is **associative** ($(AB)C = A(BC)$) and **distributive** ($A(B+C) = AB + AC$).
 </Definition>
+
+<Remark id="rmk-matmul-complexity">
+**Computational complexity of matrix multiplication.** The naive algorithm computes $C = AB$ in $O(mkn)$ time. Strassen's algorithm reduces this to $O(n^{2.807})$ for square matrices, though its constant factor and numerical stability make it impractical for most ML workloads. On modern hardware, the practical bottleneck is memory bandwidth, not FLOPs: the matrices must be loaded from HBM to SRAM, and the ratio of computation to data movement (arithmetic intensity) determines whether the operation is compute-bound or memory-bound. For large matrices (the common case in ML), matrix multiplication is compute-bound and achieves near-peak throughput on GPUs with Tensor Cores.
+</Remark>
 
 ### Three Views of Matrix Multiplication
 
@@ -176,6 +182,15 @@ Computing $\log\det(\Sigma)$ directly is numerically unstable (the determinant c
 $$\log\det(\Sigma) = \log\det(LL^\top) = 2\log\det(L) = 2\sum_{i=1}^n \log L_{ii}$$
 
 This is both numerically stable and efficient ($O(n^3/3)$ for the Cholesky factorization plus $O(n)$ for the sum).
+</Remark>
+
+<Remark id="rmk-matrix-multiplication-order">
+**Matrix multiplication order matters for efficiency.** Because matrix multiplication is associative, $(AB)C = A(BC)$, but the computational cost depends on the order. For $A \in \mathbb{R}^{m \times k}$, $B \in \mathbb{R}^{k \times n}$, $C \in \mathbb{R}^{n \times p}$:
+
+- $(AB)C$ costs $2mkn + 2mnp$ FLOPs
+- $A(BC)$ costs $2knp + 2mkp$ FLOPs
+
+For $m = 1000$, $k = 10$, $n = 1000$, $p = 1$: $(AB)C$ costs $2 \times 10^7 + 2 \times 10^3 \approx 2 \times 10^7$, while $A(BC)$ costs $2 \times 10^4 + 2 \times 10^4 = 4 \times 10^4$ -- a 500x difference. In ML, this arises when computing $X W v$ for a data matrix $X$, weight matrix $W$, and a vector $v$ (e.g., in Hessian-vector products): always compute $(Wv)$ first, then $X(Wv)$.
 </Remark>
 
 ## Special Matrix Types

@@ -4,6 +4,8 @@ sidebar_position: 4
 
 # SVD and PCA
 
+The Singular Value Decomposition (SVD) is arguably the most important factorization in all of applied mathematics. It generalizes eigendecomposition to rectangular matrices, provides the optimal low-rank approximation to any matrix, and is the mathematical engine behind PCA, latent semantic analysis, recommender systems, and LoRA. Every data scientist who has reduced dimensionality, every engineer who has compressed a model, and every researcher who has analyzed a weight matrix has used the SVD -- whether they knew it or not.
+
 ## Singular Value Decomposition
 
 <Theorem id="thm-svd" name="Singular Value Decomposition">
@@ -126,6 +128,19 @@ A common heuristic is to choose $k$ such that $\text{EVR}(k) \geq 0.95$ (95% of 
 
 <Example id="ex-pca-mnist">
 **PCA on MNIST.** The MNIST dataset has 784 pixel features per image ($28 \times 28$). PCA reveals that $\sim 95\%$ of the variance is captured by the first $\sim 150$ components, meaning the data lives in a roughly 150-dimensional subspace of $\mathbb{R}^{784}$. The first two principal components often separate different digits visually, though the separation is imperfect (nonlinear methods like t-SNE or UMAP do better for visualization).
+</Example>
+
+<Example id="ex-pca-computation">
+**PCA computation step by step.** Given data matrix $X \in \mathbb{R}^{4 \times 3}$ (4 samples, 3 features):
+
+1. **Center:** $\bar{x} = \frac{1}{4}\sum_i x_i$, then $\tilde{X} = X - \mathbf{1}\bar{x}^\top$
+2. **Covariance:** $C = \frac{1}{3}\tilde{X}^\top \tilde{X} \in \mathbb{R}^{3 \times 3}$
+3. **Eigendecompose:** $C = V \Lambda V^\top$ with $\lambda_1 \geq \lambda_2 \geq \lambda_3 \geq 0$
+4. **Project to $k=2$:** $Z = \tilde{X} V_{:,1:2} \in \mathbb{R}^{4 \times 2}$
+5. **Reconstruct:** $\hat{X} = Z V_{:,1:2}^\top + \mathbf{1}\bar{x}^\top$
+6. **Error:** $\|\tilde{X} - Z V_{:,1:2}^\top\|_F^2 = \lambda_3$ (the discarded variance)
+
+In practice, use `torch.pca_lowrank(X, q=k)` or `sklearn.decomposition.PCA(n_components=k)`, which compute the truncated SVD directly without forming the covariance matrix (more numerically stable and efficient for $n \gg d$).
 </Example>
 
 ### PCA Limitations and Extensions

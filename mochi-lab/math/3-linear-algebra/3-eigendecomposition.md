@@ -4,6 +4,8 @@ sidebar_position: 3
 
 # Eigendecomposition
 
+Eigendecomposition reveals the intrinsic structure of a linear transformation by finding the directions along which the transformation acts as pure scaling. These directions (eigenvectors) and scaling factors (eigenvalues) appear everywhere in ML: the principal components of PCA are eigenvectors of the covariance matrix, the convergence rate of gradient descent depends on eigenvalues of the Hessian, and the connectivity of a graph is encoded in eigenvalues of its Laplacian. This chapter develops eigendecomposition from first principles, proves the spectral theorem for symmetric matrices, and connects these ideas to optimization and learning.
+
 ## Eigenvalues and Eigenvectors
 
 <Definition id="def-eigenpair" name="Eigenvalue and Eigenvector">
@@ -189,6 +191,20 @@ $$\lambda_{\max} = \max_{x \neq 0} R(x), \qquad \lambda_{\min} = \min_{x \neq 0}
 
 <Remark id="rmk-rayleigh-pca">
 PCA can be formulated as maximizing the Rayleigh quotient: the first principal component is $v_1 = \arg\max_{\|v\|=1} v^\top \Sigma v = \arg\max_{\|v\|=1} R_\Sigma(v)$, which is the eigenvector of $\Sigma$ with the largest eigenvalue (direction of maximum variance).
+</Remark>
+
+## Gershgorin Circle Theorem
+
+<Theorem id="thm-gershgorin" name="Gershgorin Circle Theorem">
+Every eigenvalue of a matrix $A \in \mathbb{R}^{n \times n}$ lies within at least one **Gershgorin disc**:
+
+$$\lambda \in \bigcup_{i=1}^{n} D(A_{ii}, R_i) \quad \text{where} \quad R_i = \sum_{j \neq i} |A_{ij}|$$
+
+Each disc $D(A_{ii}, R_i)$ is centered at the diagonal entry $A_{ii}$ with radius equal to the sum of absolute values of the off-diagonal entries in row $i$.
+</Theorem>
+
+<Remark id="rmk-gershgorin-ml">
+**Gershgorin in ML.** This theorem provides cheap eigenvalue bounds without computing the eigendecomposition. For a diagonally dominant matrix (where $|A_{ii}| > R_i$ for all $i$), Gershgorin guarantees all eigenvalues have the same sign as the diagonal entries -- hence the matrix is positive definite if all diagonal entries are positive and the matrix is diagonally dominant. This is useful for verifying that a kernel matrix or regularized Hessian is PD without computing eigenvalues.
 </Remark>
 
 ## Notation Summary

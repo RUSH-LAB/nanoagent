@@ -4,6 +4,8 @@ sidebar_position: 1
 
 # Vectors and Matrices
 
+Linear algebra is the mathematical foundation of machine learning. Every operation in a neural network -- matrix multiplications in linear layers, dot products in attention, projections in dimensionality reduction -- is a linear algebra operation. The objects are vectors (representing data points, embeddings, gradients) and matrices (representing transformations, weight matrices, covariance structures). This chapter introduces these objects, the operations defined on them, and the geometric intuitions that make them powerful tools for ML.
+
 ## Vector Spaces
 
 <Definition id="def-vector-space" name="Vector Space">
