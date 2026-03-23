@@ -7021,3 +7021,91 @@ xie2024osworld:
   year: 2024
   venue: "NeurIPS"
   url: "https://arxiv.org/abs/2404.07972"
+
+broder1997resemblance:
+  type: article
+  title: "On the Resemblance and Containment of Documents"
+  author:
+    - "Andrei Z. Broder"
+  year: 1997
+  venue: "SEQUENCES"
+  url: "https://doi.org/10.1109/SEQUEN.1997.666900"
+
+chaudhry2019tiny:
+  type: article
+  title: "On Tiny Episodic Memories in Continual Learning"
+  author:
+    - "Arslan Chaudhry"
+    - "Marcus Rohrbach"
+    - "Mohamed Elhoseiny"
+    - "Thalaiyasingam Ajanthan"
+    - "Puneet K. Dokania"
+    - "Philip H. S. Torr"
+    - "Marc'Aurelio Ranzato"
+  year: 2019
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/1902.10486"
+
+efraimidis2006weighted:
+  type: article
+  title: "Weighted Random Sampling with a Reservoir"
+  author:
+    - "Pavlos S. Efraimidis"
+    - "Paul G. Spirakis"
+  year: 2006
+  venue: "Information Processing Letters"
+  url: "https://doi.org/10.1016/j.ipl.2005.11.003"
+
+charikar2002similarity:
+  type: article
+  title: "Similarity Estimation Techniques from Rounding Algorithms"
+  author:
+    - "Moses S. Charikar"
+  year: 2002
+  venue: "STOC"
+  url: "https://doi.org/10.1145/509907.509965"
+
+andoni2015optimal:
+  type: article
+  title: "Optimal Data-Dependent Hashing for Approximate Near Neighbors"
+  author:
+    - "Alexandr Andoni"
+    - "Ilya Razenshteyn"
+  year: 2015
+  venue: "STOC"
+  url: "https://arxiv.org/abs/1501.01062"
+
+cao2017hashnet:
+  type: article
+  title: "HashNet: Deep Learning to Hash by Continuation"
+  author:
+    - "Zhangjie Cao"
+    - "Mingsheng Long"
+    - "Jianmin Wang"
+    - "Philip S. Yu"
+  year: 2017
+  venue: "ICCV"
+  url: "https://arxiv.org/abs/1702.00758"
+
+liu2016deep:
+  type: article
+  title: "Deep Supervised Hashing for Fast Image Retrieval"
+  author:
+    - "Haomiao Liu"
+    - "Ruiping Wang"
+    - "Shiguang Shan"
+    - "Xilin Chen"
+  year: 2016
+  venue: "CVPR"
+  url: "https://doi.org/10.1109/CVPR.2016.227"
+
+jacot2018neural:
+  type: article
+  title: "Neural Tangent Kernel: Convergence and Generalization in Neural Networks"
+  author:
+    - "Arthur Jacot"
+    - "Franck Gabriel"
+    - "Clément Hongler"
+  year: 2018
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1806.07572"
