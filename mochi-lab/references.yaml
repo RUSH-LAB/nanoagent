@@ -6679,3 +6679,25 @@ touvron2023llama:
   year: 2023
   venue: "arXiv"
   url: "https://arxiv.org/abs/2302.13971"
+
+fan2014cuckoo:
+  type: article
+  title: "Cuckoo Filter: Practically Better Than Bloom"
+  author:
+    - "Bin Fan"
+    - "Dave G. Andersen"
+    - "Michael Kaminsky"
+    - "Michael D. Mitzenmacher"
+  year: 2014
+  venue: "CoNEXT"
+  url: "https://www.cs.cmu.edu/~dga/papers/cuckoo-conext2014.pdf"
+
+gal2016dropout:
+  type: article
+  title: "Dropout as a Bayesian Approximation: Representing Model Uncertainty in Deep Learning"
+  author:
+    - "Yarin Gal"
+    - "Zoubin Ghahramani"
+  year: 2016
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1506.02142"
