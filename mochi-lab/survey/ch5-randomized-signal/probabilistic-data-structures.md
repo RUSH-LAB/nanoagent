@@ -7,7 +7,7 @@ title: "Probabilistic Data Structures in Systems for AI"
 
 ### HyperLogLog for Deduplication
 
-HyperLogLog [@flajolet2007hyperloglog] estimates the cardinality (number of distinct elements) of a multiset using O(log log n) space per counter. In AI data pipelines, HyperLogLog is used to estimate dataset diversity, detect near-duplicate documents in pre-training corpora, and monitor vocabulary coverage during tokenizer training. The MinHash variant enables efficient estimation of Jaccard similarity between document sets, powering deduplication pipelines that process trillions of tokens [@lee2022deduplicating].
+HyperLogLog [@flajolet2007hyperloglog] estimates the cardinality (number of distinct elements) of a multiset using O(log log n) space per counter. In AI data pipelines, HyperLogLog is used to estimate dataset diversity, detect near-duplicate documents in pre-training corpora, and monitor vocabulary coverage during tokenizer training. The MinHash variant enables efficient estimation of Jaccard similarity between document sets, powering deduplication pipelines that process trillions of tokens [@lee2022deduplicating]. These probabilistic data structures are essential building blocks for the data curation pipelines that underpin modern LLM training, as discussed in Chapter 3 [@mitzenmacher2017probability].
 
 ### Reservoir Sampling for Data Selection
 

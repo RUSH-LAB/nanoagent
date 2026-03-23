@@ -39,8 +39,8 @@ Random matrix theory (RMT) provides some of the most powerful tools for understa
 As foundation models grow to hundreds of billions or trillions of parameters, randomized algorithms become increasingly critical for their training, serving, and adaptation. Key challenges include:
 
 - **End-to-end guarantees:** When multiple randomized approximations are composed (randomized attention + gradient sketching + quantized weights + approximate KV-cache), how do the errors compound? Developing end-to-end quality guarantees for systems with multiple layers of approximation is a systems-level challenge that current theory does not adequately address.
-- **Randomized algorithms for training dynamics:** Understanding how randomized training procedures (mini-batch SGD, dropout, data augmentation) interact with model scale. Do the benefits of these techniques change qualitatively at the scale of frontier models?
-- **Randomized methods for inference optimization:** Sketching and hashing techniques for efficient KV-cache management, attention computation, and expert routing in MoE models at serving time. The latency requirements of interactive serving create new constraints on randomized methods (the variance of approximation affects tail latency, not just average quality).
+- **Randomized algorithms for training dynamics:** Understanding how randomized training procedures (mini-batch SGD [@robbins1951stochastic], dropout [@srivastava2014dropout], data augmentation) interact with model scale. Do the benefits of these techniques change qualitatively at the scale of frontier models?
+- **Randomized methods for inference optimization:** Sketching and hashing techniques for efficient KV-cache management, attention computation, and expert routing in MoE models at serving time [@tropp2015introduction]. The latency requirements of interactive serving create new constraints on randomized methods (the variance of approximation affects tail latency, not just average quality).
 
 ### Spectral Theory of Large Language Models
 

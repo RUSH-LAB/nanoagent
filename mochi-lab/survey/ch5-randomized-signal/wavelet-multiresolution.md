@@ -13,7 +13,7 @@ Scattering networks have proven effective as feature extractors, especially in l
 
 ### Multi-Scale Representations
 
-Multi-resolution analysis -- processing signals at multiple scales simultaneously -- is fundamental to both wavelets and modern neural networks. U-Net architectures, feature pyramid networks, and multi-scale attention all implement forms of multi-resolution analysis. The wavelet perspective provides theoretical tools (e.g., approximation theory, Besov spaces) for understanding when and why multi-scale representations are beneficial [@mallat2008wavelet].
+Multi-resolution analysis -- processing signals at multiple scales simultaneously -- is fundamental to both wavelets and modern neural networks [@daubechies1992ten]. U-Net architectures, feature pyramid networks, and multi-scale attention all implement forms of multi-resolution analysis. The wavelet perspective provides theoretical tools (e.g., approximation theory, Besov spaces) for understanding when and why multi-scale representations are beneficial [@mallat2008wavelet].
 
 ### WaveMix
 

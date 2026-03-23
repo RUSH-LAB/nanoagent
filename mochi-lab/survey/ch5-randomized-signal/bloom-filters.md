@@ -5,6 +5,8 @@ title: "Bloom Filters & Learned Indices"
 
 # Bloom Filters & Learned Indices
 
+The Bloom filter [@bloom1970space] is one of the most elegant probabilistic data structures: it uses k hash functions to map elements into a bit array, supporting set membership queries with zero false negatives and controllable false positive rates. Bloom filters are foundational in systems for AI, used in deduplication pipelines, caching, and distributed systems. The learning-augmented variant replaces some of the randomized structure with learned predictions.
+
 ### Learned Bloom Filters
 
 Kriss et al. (2018) [@kriss2018adaptive] proposed replacing traditional Bloom filters with learned models that predict set membership. A learned Bloom filter trains a small neural network to predict whether an element is in the set, backed by a smaller traditional Bloom filter to handle false negatives. The learned model can exploit distributional properties of the data (e.g., URLs that look like spam) that traditional Bloom filters ignore, achieving lower false-positive rates at the same memory budget.

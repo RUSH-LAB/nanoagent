@@ -7,7 +7,7 @@ title: "Fourier & Spectral Perspectives"
 
 ### Fourier Features for Neural Networks
 
-Tancik et al. (2020) [@tancik2020fourier] demonstrated that standard neural networks fail to learn high-frequency functions from low-dimensional inputs due to a spectral bias toward low frequencies (the "frequency bias" or "spectral bias") [@rahaman2019spectral]. Their solution -- mapping inputs through random Fourier features before feeding them to the network -- enables learning of high-frequency content. This was transformative for Neural Radiance Fields (NeRF) and other coordinate-based neural representations, where fine geometric and appearance details require high-frequency function approximation.
+Tancik et al. (2020) [@tancik2020fourier] demonstrated that standard neural networks fail to learn high-frequency functions from low-dimensional inputs due to a spectral bias toward low frequencies (the "frequency bias" or "spectral bias") [@rahaman2019spectral]. Their solution -- mapping inputs through random Fourier features before feeding them to the network -- enables learning of high-frequency content. This was transformative for Neural Radiance Fields (NeRF) [@mildenhall2020nerf] and other coordinate-based neural representations, where fine geometric and appearance details require high-frequency function approximation.
 
 The connection to random features (Section 5.4.2) is direct: Fourier feature mappings are instances of random feature maps for the RBF kernel, and the frequency distribution of the random features controls the bandwidth of learnable functions [@tancik2020fourier].
 

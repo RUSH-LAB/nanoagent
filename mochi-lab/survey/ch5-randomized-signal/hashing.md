@@ -11,7 +11,7 @@ Locality-Sensitive Hashing [@indyk1998approximate] is a family of randomized has
 
 h(x) = sign(r^T x)
 
-where r is a random vector. By using multiple independent hash functions and hash tables, LSH enables sub-linear (approximately O(n^rho) where rho < 1) approximate nearest neighbor search [@andoni2006near].
+where r is a random vector. By using multiple independent hash functions and hash tables, LSH enables sub-linear (approximately O(n^rho) where rho < 1) approximate nearest neighbor search [@andoni2006near]. HNSW (Hierarchical Navigable Small World) graphs [@malkov2020hnsw] provide an alternative graph-based approach that often outperforms LSH in practice, using randomized graph construction for efficient approximate nearest neighbor search. FAISS [@johnson2021faiss] provides GPU-accelerated implementations of both approaches for billion-scale vector search.
 
 ### SLIDE: Sub-Linear Deep Learning
 

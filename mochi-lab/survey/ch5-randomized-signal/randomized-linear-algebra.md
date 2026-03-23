@@ -5,6 +5,8 @@ title: "Randomized Linear Algebra for AI"
 
 # Randomized Linear Algebra for AI
 
+Randomized numerical linear algebra (RandNLA) has emerged as a powerful paradigm for computing approximate matrix decompositions at scale [@martinsson2020randomized, @woodruff2014sketching]. The core strategy is to use random projections to reduce the problem dimension, compute exact decompositions on the smaller problem, and lift the result back to the original space. This approach provides strong theoretical guarantees (additive or multiplicative error bounds) with computational savings that can be exponential.
+
 ### Randomized SVD
 
 Computing the exact Singular Value Decomposition of large matrices is O(min(mn^2, m^2n)) -- prohibitive for the massive matrices encountered in AI. Halko et al. (2011) [@halko2011finding] developed the randomized SVD, which computes an approximate rank-k SVD in O(mn * log(k)) time by projecting the matrix onto a random subspace of dimension k + p (where p is a small oversampling parameter). The randomized SVD is now standard in scientific computing and is widely used in AI for:
@@ -25,9 +27,13 @@ The Nystrom method [@williams2001nystrom] approximates a large kernel matrix by 
 
 Xiong et al. (2021) [@xiong2021nystromformer] proposed Nystromformer, which applies the Nystrom method to approximate the softmax attention matrix. By sampling a subset of "landmark" tokens and computing attention only with respect to these landmarks, Nystromformer achieves linear complexity while maintaining competitive performance.
 
+### Matrix Completion
+
+Candes and Recht (2009) [@candes2009exact] showed that low-rank matrices can be exactly recovered from a small number of randomly observed entries, provided the matrix satisfies certain incoherence conditions. This result, known as exact matrix completion, has profound implications for recommendation systems (recovering a user-item rating matrix from sparse observations) and other collaborative filtering problems. Recht (2011) [@recht2011simpler] provided a simpler proof and practical algorithms. The connection to randomized algorithms is fundamental: the observed entries must be randomly (not adversarially) selected, and the recovery algorithms use nuclear norm minimization or iterative SVD -- both connected to the randomized linear algebra tools described above.
+
 ### CUR Decomposition
 
-CUR decomposition factorizes a matrix M as M approximately equals C * U * R, where C consists of actual columns of M, R consists of actual rows of M, and U is a small linking matrix [@mahoney2009cur]. Unlike SVD, CUR preserves the sparsity and interpretability of the original matrix. In AI, CUR decomposition has been applied to:
+CUR decomposition factorizes a matrix M as M approximately equals C * U * R, where C consists of actual columns of M, R consists of actual rows of M, and U is a small linking matrix [@mahoney2009cur]. Unlike SVD, CUR preserves the sparsity and interpretability of the original matrix. Clarkson and Woodruff (2017) [@clarkson2017low] showed that CUR decomposition can be computed in input-sparsity time (linear in the number of nonzeros), making it particularly efficient for sparse matrices common in recommendation systems and NLP. In AI, CUR decomposition has been applied to:
 
 - Interpretable dimensionality reduction (selected features are actual data points)
 - Model compression (selecting actual neurons/filters to keep)

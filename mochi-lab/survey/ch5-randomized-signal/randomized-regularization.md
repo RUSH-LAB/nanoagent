@@ -28,6 +28,12 @@ The connection between stochastic depth and ensemble methods is direct: training
 
 **DropBlock** (Ghiasi et al., 2018) [@ghiasi2018dropblock] extends dropout to spatially structured data (images) by dropping contiguous regions of feature maps rather than individual elements. Standard dropout is relatively ineffective for convolutional networks because spatial correlation means that neighboring neurons carry redundant information -- dropping individual neurons does not remove the information. DropBlock addresses this by dropping entire spatial blocks, forcing the network to learn more distributed representations.
 
+### Stochastic Gradient Descent
+
+Perhaps the most impactful randomized algorithm in all of machine learning is **stochastic gradient descent (SGD)**. The idea of approximating gradients with random samples traces back to Robbins and Monro (1951) [@robbins1951stochastic], but its modern impact on deep learning is immense. By computing gradients on random mini-batches rather than the full dataset, SGD reduces the cost of each optimization step from O(n) to O(b) (where b is the batch size), enabling training on datasets of billions of examples. The noise in stochastic gradients also provides implicit regularization: SGD tends to find flatter minima than full-batch gradient descent, which often generalize better [@bottou2008tradeoffs].
+
+Modern optimizers like Adam [@kingma2015adam] combine stochastic gradient estimates with adaptive learning rates (using running statistics of gradient moments), further improving convergence on the highly non-convex loss landscapes of deep neural networks. The convergence theory for SGD on non-convex problems, including over-parameterized neural networks, has been the subject of intense theoretical investigation [@allen2019convergence].
+
 ### Random Data Augmentation
 
 Data augmentation -- applying random transformations to training data -- is a form of randomized regularization that has proven essential for training modern vision models. Techniques range from classical (random crops, flips, color jitter) to learned augmentation policies:

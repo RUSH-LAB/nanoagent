@@ -32,7 +32,7 @@ title: "Connections to Other Chapters"
 
 **Agentic Search (Chapter 4):** The computational backbone of agentic search relies heavily on randomized algorithms:
 
-- *Approximate nearest neighbor search:* Dense retrieval in RAG systems queries billion-scale vector databases using approximate nearest neighbor algorithms built on LSH, random projections, HNSW (which uses randomized graph construction), and product quantization. The retrieval quality-speed tradeoff is directly determined by the approximation parameters of these randomized data structures.
+- *Approximate nearest neighbor search:* Dense retrieval in RAG systems [@karpukhin2020dpr, @khattab2020colbert] queries billion-scale vector databases using approximate nearest neighbor algorithms built on LSH, random projections, HNSW [@malkov2020hnsw] (which uses randomized graph construction), and product quantization. The retrieval quality-speed tradeoff is directly determined by the approximation parameters of these randomized data structures.
 - *Bloom filters for deduplication:* Agentic search systems that retrieve from large corpora use Bloom filters to efficiently track which documents have already been retrieved, avoiding redundant processing.
 - *Hashing for efficient embedding lookup:* Feature hashing and learned hash functions enable efficient lookup of embedding vectors in large-scale retrieval systems.
 - *Random sampling for search diversification:* Search diversification strategies (ensuring retrieved documents cover diverse aspects of a query) use random sampling and randomized rounding algorithms to solve the underlying combinatorial optimization problem approximately.

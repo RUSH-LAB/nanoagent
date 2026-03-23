@@ -7,9 +7,13 @@ title: "Random Projections & Dimensionality Reduction"
 
 ### The Johnson-Lindenstrauss Lemma
 
-The Johnson-Lindenstrauss (JL) lemma [@johnson1984extensions] is one of the most powerful tools in high-dimensional geometry. It states that any set of n points in high-dimensional space can be projected into O(log(n) / epsilon^2) dimensions while preserving all pairwise distances within a factor of (1 +/- epsilon). The projection can be performed by a random matrix, making it computationally cheap.
+The Johnson-Lindenstrauss (JL) lemma [@johnson1984extensions] is one of the most powerful tools in high-dimensional geometry. It states that any set of n points in high-dimensional space can be projected into O(log(n) / epsilon^2) dimensions while preserving all pairwise distances within a factor of (1 +/- epsilon). The projection can be performed by a random matrix, making it computationally cheap. The tightness of the dimension bound was established by later work [@matousek2008variants, @larsen2017optimality], showing that O(log(n) / epsilon^2) is essentially optimal for general point sets.
 
 In machine learning, JL projections are used for: dimensionality reduction of embeddings, compressed sensing of sparse signals, privacy-preserving data release, and fast approximate nearest neighbor search. The practical impact is enormous: a dataset of 1 million 768-dimensional BERT embeddings can be projected to 256 dimensions with less than 5% distance distortion [@dasgupta2003elementary].
+
+### Compressed Sensing
+
+Compressed sensing [@donoho2006compressed, @candes2006robust] demonstrates that sparse signals can be exactly recovered from far fewer measurements than the Nyquist rate requires, provided the measurement matrix satisfies the Restricted Isometry Property (RIP). Random matrices (Gaussian, Bernoulli, or structured random matrices) satisfy RIP with high probability, directly connecting compressed sensing to random projections. The implications for AI are significant: compressed sensing enables efficient data acquisition (useful for sensor networks and medical imaging), and the same principles underlie sparse representation learning and feature selection in machine learning.
 
 ### Random Features for Kernel Approximation
 

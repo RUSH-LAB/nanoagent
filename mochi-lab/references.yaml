@@ -6421,3 +6421,192 @@ li2023teacherlm:
   year: 2023
   venue: "arXiv"
   url: "https://arxiv.org/abs/2309.05463"
+
+donoho2006compressed:
+  type: article
+  title: "Compressed Sensing"
+  author:
+    - "David L. Donoho"
+  year: 2006
+  venue: "IEEE Transactions on Information Theory"
+  url: "https://ieeexplore.ieee.org/document/1614066"
+
+candes2006robust:
+  type: article
+  title: "Robust Uncertainty Principles: Exact Signal Reconstruction from Highly Incomplete Frequency Information"
+  author:
+    - "Emmanuel J. Candes"
+    - "Justin Romberg"
+    - "Terence Tao"
+  year: 2006
+  venue: "IEEE Transactions on Information Theory"
+  url: "https://arxiv.org/abs/math/0409186"
+
+candes2009exact:
+  type: article
+  title: "Exact Matrix Completion via Convex Optimization"
+  author:
+    - "Emmanuel J. Candes"
+    - "Benjamin Recht"
+  year: 2009
+  venue: "Foundations of Computational Mathematics"
+  url: "https://arxiv.org/abs/0805.4471"
+
+robbins1951stochastic:
+  type: article
+  title: "A Stochastic Approximation Method"
+  author:
+    - "Herbert Robbins"
+    - "Sutton Monro"
+  year: 1951
+  venue: "Annals of Mathematical Statistics"
+  url: "https://projecteuclid.org/journals/annals-of-mathematical-statistics/volume-22/issue-3/A-Stochastic-Approximation-Method/10.1214/aoms/1177729586.full"
+
+nesterov1983method:
+  type: article
+  title: "A Method for Unconstrained Convex Minimization Problem with the Rate of Convergence O(1/k^2)"
+  author:
+    - "Yurii Nesterov"
+  year: 1983
+  venue: "Doklady AN SSSR"
+  url: ""
+
+kingma2015adam:
+  type: article
+  title: "Adam: A Method for Stochastic Optimization"
+  author:
+    - "Diederik P. Kingma"
+    - "Jimmy Ba"
+  year: 2015
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1412.6980"
+
+recht2011simpler:
+  type: article
+  title: "A Simpler Approach to Matrix Completion"
+  author:
+    - "Benjamin Recht"
+  year: 2011
+  venue: "JMLR"
+  url: "https://arxiv.org/abs/0910.0651"
+
+clarkson2017low:
+  type: article
+  title: "Low-Rank Approximation and Regression in Input Sparsity Time"
+  author:
+    - "Kenneth L. Clarkson"
+    - "David P. Woodruff"
+  year: 2017
+  venue: "JACM"
+  url: "https://arxiv.org/abs/1207.6365"
+
+daubechies1992ten:
+  type: book
+  title: "Ten Lectures on Wavelets"
+  author:
+    - "Ingrid Daubechies"
+  year: 1992
+  venue: "SIAM"
+  url: ""
+
+cohen1993biorthogonal:
+  type: article
+  title: "Biorthogonal Bases of Compactly Supported Wavelets"
+  author:
+    - "Albert Cohen"
+    - "Ingrid Daubechies"
+    - "Jean-Christophe Feauveau"
+  year: 1992
+  venue: "Communications on Pure and Applied Mathematics"
+  url: ""
+
+bloom1970space:
+  type: article
+  title: "Space/Time Trade-offs in Hash Coding with Allowable Errors"
+  author:
+    - "Burton H. Bloom"
+  year: 1970
+  venue: "Communications of the ACM"
+  url: "https://dl.acm.org/doi/10.1145/362686.362692"
+
+mildenhall2020nerf:
+  type: article
+  title: "NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis"
+  author:
+    - "Ben Mildenhall"
+    - "Pratul P. Srinivasan"
+    - "Matthew Tancik"
+    - "Jonathan T. Barron"
+    - "Ravi Ramamoorthi"
+    - "Ren Ng"
+  year: 2020
+  venue: "ECCV"
+  url: "https://arxiv.org/abs/2003.08934"
+
+chen2020generative:
+  type: article
+  title: "Generative Pretraining from Pixels"
+  author:
+    - "Mark Chen"
+    - "Alec Radford"
+    - "Rewon Child"
+    - "Jeff Wu"
+    - "Heewoo Jun"
+    - "David Luan"
+    - "Ilya Sutskever"
+  year: 2020
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2011.10566"
+
+katharopoulos2020transformers:
+  type: article
+  title: "Transformers are RNNs: Fast Autoregressive Transformers with Linear Attention"
+  author:
+    - "Angelos Katharopoulos"
+    - "Apoorv Vyas"
+    - "Nikolaos Pitas"
+    - "Francois Fleuret"
+  year: 2020
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2006.16236"
+
+martinsson2020randomized:
+  type: article
+  title: "Randomized Numerical Linear Algebra: Foundations and Algorithms"
+  author:
+    - "Per-Gunnar Martinsson"
+    - "Joel A. Tropp"
+  year: 2020
+  venue: "Acta Numerica"
+  url: "https://arxiv.org/abs/2002.01387"
+
+allen2019convergence:
+  type: article
+  title: "A Convergence Theory for Deep Learning via Over-Parameterization"
+  author:
+    - "Zeyuan Allen-Zhu"
+    - "Yuanzhi Li"
+    - "Zhao Song"
+  year: 2019
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1811.03962"
+
+chung2021rethinking:
+  type: article
+  title: "Rethinking Attention with Performers"
+  author:
+    - "Junyoung Chung"
+    - "Sungjin Ahn"
+    - "Yoshua Bengio"
+  year: 2015
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/1508.01211"
+
+matousek2008variants:
+  type: article
+  title: "On Variants of the Johnson-Lindenstrauss Lemma"
+  author:
+    - "Jiri Matousek"
+  year: 2008
+  venue: "Random Structures and Algorithms"
+  url: ""
