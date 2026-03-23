@@ -6927,22 +6927,6 @@ brohan2023rt:
   venue: "arXiv"
   url: "https://arxiv.org/abs/2307.15818"
 
-rahaman2019spectral:
-  type: article
-  title: "On the Spectral Bias of Neural Networks"
-  author:
-    - "Nasim Rahaman"
-    - "Aristide Baratin"
-    - "Devansh Arpit"
-    - "Felix Draxler"
-    - "Min Lin"
-    - "Fred Hamprecht"
-    - "Yoshua Bengio"
-    - "Aaron Courville"
-  year: 2019
-  venue: "ICML"
-  url: "https://arxiv.org/abs/1806.08734"
-
 pearl2009causality:
   type: book
   title: "Causality: Models, Reasoning, and Inference"
@@ -7031,21 +7015,6 @@ broder1997resemblance:
   venue: "SEQUENCES"
   url: "https://doi.org/10.1109/SEQUEN.1997.666900"
 
-chaudhry2019tiny:
-  type: article
-  title: "On Tiny Episodic Memories in Continual Learning"
-  author:
-    - "Arslan Chaudhry"
-    - "Marcus Rohrbach"
-    - "Mohamed Elhoseiny"
-    - "Thalaiyasingam Ajanthan"
-    - "Puneet K. Dokania"
-    - "Philip H. S. Torr"
-    - "Marc'Aurelio Ranzato"
-  year: 2019
-  venue: "arXiv"
-  url: "https://arxiv.org/abs/1902.10486"
-
 efraimidis2006weighted:
   type: article
   title: "Weighted Random Sampling with a Reservoir"
@@ -7109,3 +7078,226 @@ jacot2018neural:
   year: 2018
   venue: "NeurIPS"
   url: "https://arxiv.org/abs/1806.07572"
+
+arora2024based:
+  type: article
+  title: "Simple linear attention language models balance the recall-throughput tradeoff"
+  author:
+    - "Simran Arora"
+    - "Sabri Eyuboglu"
+    - "Michael Zhang"
+    - "Aman Timalsina"
+    - "Silas Alberti"
+    - "Dylan Zinsley"
+    - "James Zou"
+    - "Atri Rudra"
+    - "Christopher Ré"
+  year: 2024
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2402.18668"
+
+cai2020once:
+  type: article
+  title: "Once-for-All: Train One Network and Specialize it for Efficient Deployment"
+  author:
+    - "Han Cai"
+    - "Chuang Gan"
+    - "Tianzhe Wang"
+    - "Zhekai Zhang"
+    - "Song Han"
+  year: 2020
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1908.09791"
+
+dao2023flashattention2:
+  type: article
+  title: "FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning"
+  author:
+    - "Tri Dao"
+  year: 2023
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2307.08691"
+
+dao2024mamba2:
+  type: article
+  title: "Transformers are SSMs: Generalized Models and Efficient Algorithms Through Structured State Space Duality"
+  author:
+    - "Tri Dao"
+    - "Albert Gu"
+  year: 2024
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2405.21060"
+
+daubechies1992ten:
+  type: book
+  title: "Ten Lectures on Wavelets"
+  author:
+    - "Ingrid Daubechies"
+  year: 1992
+  venue: "SIAM"
+  url: "https://doi.org/10.1137/1.9781611970104"
+
+guibas2022afno:
+  type: article
+  title: "Adaptive Fourier Neural Operators: Efficient Token Mixers for Transformers"
+  author:
+    - "John Guibas"
+    - "Morteza Mardani"
+    - "Zongyi Li"
+    - "Andrew Tao"
+    - "Anima Anandkumar"
+    - "Bryan Catanzaro"
+  year: 2022
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2111.13587"
+
+hafner2023dreamerv3:
+  type: article
+  title: "Mastering Diverse Domains through World Models"
+  author:
+    - "Danijar Hafner"
+    - "Jurgis Pasukonis"
+    - "Jimmy Ba"
+    - "Timothy Lillicrap"
+  year: 2023
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2301.04104"
+
+huang2016deep:
+  type: article
+  title: "Deep Networks with Stochastic Depth"
+  author:
+    - "Gao Huang"
+    - "Yu Sun"
+    - "Zhuang Liu"
+    - "Daniel Sedra"
+    - "Kilian Q. Weinberger"
+  year: 2016
+  venue: "ECCV"
+  url: "https://arxiv.org/abs/1603.09382"
+
+li2021fourier:
+  type: article
+  title: "Fourier Neural Operator for Parametric Partial Differential Equations"
+  author:
+    - "Zongyi Li"
+    - "Nikola Kovachki"
+    - "Kamyar Azizzadenesheli"
+    - "Burigede Liu"
+    - "Kaushik Bhattacharya"
+    - "Andrew Stuart"
+    - "Anima Anandkumar"
+  year: 2021
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2010.08895"
+
+matousek2008variants:
+  type: article
+  title: "On Variants of the Johnson-Lindenstrauss Lemma"
+  author:
+    - "Jiří Matoušek"
+  year: 2008
+  venue: "Random Structures & Algorithms"
+  url: "https://doi.org/10.1002/rsa.20218"
+
+wang2020linformer:
+  type: article
+  title: "Linformer: Self-Attention with Linear Complexity"
+  author:
+    - "Sinong Wang"
+    - "Belinda Z. Li"
+    - "Madian Khabsa"
+    - "Han Fang"
+    - "Hao Ma"
+  year: 2020
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2006.04768"
+
+ye2024differential:
+  type: article
+  title: "Differential Transformer"
+  author:
+    - "Tianzhu Ye"
+    - "Li Dong"
+    - "Yuqing Xia"
+    - "Yutao Sun"
+    - "Yi Zhu"
+    - "Gao Huang"
+    - "Furu Wei"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2410.05258"
+
+zaheer2020big:
+  type: article
+  title: "Big Bird: Transformers for Longer Sequences"
+  author:
+    - "Manzil Zaheer"
+    - "Guru Guruganesh"
+    - "Kumar Avinava Dubey"
+    - "Joshua Ainslie"
+    - "Chris Alberti"
+    - "Santiago Ontanon"
+    - "Philip Pham"
+    - "Anirudh Ravula"
+    - "Qifan Wang"
+    - "Li Yang"
+    - "Amr Ahmed"
+  year: 2020
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2007.14062"
+
+zheng2024sglangradixtree:
+  type: article
+  title: "SGLang: Efficient Execution of Structured Language Model Programs"
+  author:
+    - "Lianmin Zheng"
+    - "Liangsheng Yin"
+    - "Zhiqiang Xie"
+    - "Chuyue Sun"
+    - "Jeff Huang"
+    - "Cody Hao Yu"
+    - "Siyuan Zhuang"
+    - "Ying Sheng"
+    - "Ion Stoica"
+  year: 2024
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2312.07104"
+
+chen2019progressive_darts:
+  type: article
+  title: "Progressive DARTS: Bridging the Optimization Gap for NAS in the Wild"
+  author:
+    - "Xin Chen"
+    - "Lingxi Xie"
+    - "Jun Wu"
+    - "Qi Tian"
+  year: 2019
+  venue: "IJCV"
+  url: "https://arxiv.org/abs/1912.10952"
+
+chen2022autoformer_nas:
+  type: article
+  title: "AutoFormer: Searching Transformers for Visual Recognition"
+  author:
+    - "Minghao Chen"
+    - "Houwen Peng"
+    - "Jianlong Fu"
+    - "Haibin Ling"
+  year: 2021
+  venue: "ICCV"
+  url: "https://arxiv.org/abs/2107.00651"
+
+zela2020understanding:
+  type: article
+  title: "Understanding and Robustifying Differentiable Architecture Search"
+  author:
+    - "Arber Zela"
+    - "Thomas Elsken"
+    - "Tonmoy Saikia"
+    - "Yassine Marrakchi"
+    - "Thomas Brox"
+    - "Frank Hutter"
+  year: 2020
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1909.09656"
