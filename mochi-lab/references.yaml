@@ -7324,3 +7324,39 @@ robertson1995okapi:
   year: 1995
   venue: "TREC"
   url: "https://trec.nist.gov/pubs/trec3/papers/city.ps.gz"
+
+wu2023autogen:
+  type: article
+  title: "AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation"
+  author:
+    - "Qingyun Wu"
+    - "Gagan Bansal"
+    - "Jieyu Zhang"
+    - "Yiran Wu"
+    - "Beibin Li"
+    - "Erkang Zhu"
+    - "Li Jiang"
+    - "Xiaoyun Zhang"
+    - "Shaokun Zhang"
+    - "Jiale Liu"
+    - "Ahmed Hassan Awadallah"
+    - "Ryen W. White"
+    - "Doug Burger"
+    - "Chi Wang"
+  year: 2023
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2308.08155"
+
+greshake2023more:
+  type: article
+  title: "Not What You've Signed Up For: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection"
+  author:
+    - "Kai Greshake"
+    - "Sahar Abdelnabi"
+    - "Shailesh Mishra"
+    - "Christoph Endres"
+    - "Thorsten Holz"
+    - "Mario Fritz"
+  year: 2023
+  venue: "AISec"
+  url: "https://arxiv.org/abs/2302.12173"

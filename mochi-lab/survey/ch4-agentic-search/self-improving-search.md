@@ -33,6 +33,8 @@ The emergence of autonomous agent frameworks has catalyzed research and developm
 
 **Voyager** (Wang et al., 2023) [@voyager2023] demonstrated an open-ended embodied agent in Minecraft that uses LLMs for task decomposition, code generation for skills, and a skill library for lifelong learning. Voyager's approach -- decomposing goals, generating executable skills, and storing successful skills for reuse -- provides a template for self-improving agentic systems that accumulate capabilities over time. The skill library acts as a form of procedural memory that grows with experience, enabling the agent to tackle increasingly complex tasks.
 
+**LangChain** and **LlamaIndex** have emerged as the dominant open-source frameworks for building RAG and agentic search applications. LangChain provides composable abstractions for chains (sequential LLM calls), agents (LLMs with tool access), and retrieval pipelines, enabling rapid prototyping of agentic systems. LlamaIndex focuses specifically on data indexing and retrieval, providing specialized abstractions for ingesting, structuring, and querying diverse data sources. These frameworks have been instrumental in the widespread adoption of agentic search techniques in production applications, though they primarily serve as engineering tools rather than research contributions. **CrewAI** and **AutoGen** (Wu et al., 2023) [@wu2023autogen] extend the single-agent paradigm to multi-agent collaboration, where multiple specialized agents coordinate to solve complex research tasks.
+
 ### AI-Powered Search Engines
 
 The agentic search paradigm has given rise to a new category of consumer products: AI-powered search engines that combine traditional web search with LLM-based synthesis.

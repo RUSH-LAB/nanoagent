@@ -47,7 +47,9 @@ Adapting search strategies to individual user preferences, expertise levels, and
 
 ### Trust, Safety, and Adversarial Robustness
 
-As agentic search systems are deployed at scale, they become targets for adversarial manipulation. Web content can be crafted to mislead search agents (SEO spam, adversarial pages designed to inject false information into AI-generated answers). **Prompt injection attacks** can be embedded in web pages, causing the search agent to follow attacker instructions rather than the user's intent. Building robust agentic search systems that can resist these attacks while maintaining access to the open web is a critical safety challenge.
+As agentic search systems are deployed at scale, they become targets for adversarial manipulation. Web content can be crafted to mislead search agents (SEO spam, adversarial pages designed to inject false information into AI-generated answers). **Prompt injection attacks** can be embedded in web pages, causing the search agent to follow attacker instructions rather than the user's intent [@greshake2023more]. Building robust agentic search systems that can resist these attacks while maintaining access to the open web is a critical safety challenge.
+
+**Content poisoning** represents a related threat: adversarial actors can create or modify web content specifically to be retrieved by AI search systems, inserting misinformation that will be synthesized into authoritative-sounding answers. Unlike traditional SEO manipulation (which targets ranking), content poisoning targets the content extraction and synthesis pipeline. Defenses require both retrieval-side filtering (detecting adversarial content before it enters the synthesis pipeline) and generation-side verification (cross-referencing claims against multiple independent sources before presenting them as facts).
 
 ### From Search to Research
 
