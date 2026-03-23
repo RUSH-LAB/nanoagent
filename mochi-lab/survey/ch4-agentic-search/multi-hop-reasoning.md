@@ -29,6 +29,10 @@ Khattab et al. (2023) [@khattab2023dsp] proposed DSP (Demonstrate-Search-Predict
 
 Shao et al. (2023) [@shao2023enhancing] proposed ITER-RETGEN, which implements an iterative loop of retrieval and generation: the model generates an initial answer, uses this answer to formulate new retrieval queries (which are more focused than the original question), retrieves additional evidence, and regenerates the answer incorporating the new evidence. This process repeats for a fixed number of iterations. ITER-RETGEN demonstrated that even simple iterative retrieval (without sophisticated reasoning or planning) substantially improves answer quality on multi-hop questions.
 
+### In-Context Retrieval-Augmented LMs
+
+Ram et al. (2023) [@ram2023incontext] demonstrated that simply prepending retrieved passages to the LLM's input (in-context RAG) can be surprisingly effective for knowledge-intensive tasks when the retrieval is high-quality and the LLM has sufficient context length. This "retrieve and read" paradigm serves as a strong baseline that more complex multi-hop approaches must beat, and highlights that much of the value of RAG comes from retrieval quality rather than architectural complexity.
+
 ### Adaptive Retrieval Strategies
 
 More recent work has explored **learned policies** for deciding when, what, and how to retrieve:
@@ -39,4 +43,4 @@ More recent work has explored **learned policies** for deciding when, what, and 
 
 ### The Multi-Hop Reasoning Gap
 
-Despite significant progress, there remains a substantial gap between current multi-hop retrieval systems and human-level multi-hop reasoning. Current systems struggle with: (1) questions requiring more than 3-4 hops, where error accumulates across reasoning steps; (2) questions requiring numerical reasoning or comparison across retrieved evidence; (3) questions where the relevant evidence is spread across many documents with varying quality; and (4) questions requiring common-sense reasoning to bridge gaps between retrieved facts. Closing this gap likely requires advances in both retrieval (finding the right evidence) and reasoning (combining evidence correctly).
+Despite significant progress, there remains a substantial gap between current multi-hop retrieval systems and human-level multi-hop reasoning. Press et al. (2023) [@press2023measuring] formally measured this "compositionality gap" -- the fraction of multi-hop questions that a model answers incorrectly despite answering all constituent sub-questions correctly -- and found it to be substantial even in frontier models. StrategyQA (Geva et al., 2021) [@geva2023strategyqa] demonstrated that questions requiring implicit multi-step reasoning strategies (where the decomposition is not obvious from the question text) are particularly challenging. Current systems struggle with: (1) questions requiring more than 3-4 hops, where error accumulates across reasoning steps; (2) questions requiring numerical reasoning or comparison across retrieved evidence; (3) questions where the relevant evidence is spread across many documents with varying quality; and (4) questions requiring common-sense reasoning to bridge gaps between retrieved facts. Closing this gap likely requires advances in both retrieval (finding the right evidence) and reasoning (combining evidence correctly).

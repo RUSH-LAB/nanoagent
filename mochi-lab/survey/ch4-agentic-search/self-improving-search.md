@@ -27,6 +27,12 @@ Several research systems implement iterative search loops where the model altern
 - **Evidence verification:** Cross-checking claims against multiple sources before including them.
 - **Confidence-based stopping:** Terminating search when the model's confidence in its answer exceeds a threshold.
 
+### Autonomous Agent Frameworks
+
+The emergence of autonomous agent frameworks has catalyzed research and development in agentic search. **Auto-GPT** (2023) [@significant2023autogpt] popularized the concept of autonomous LLM agents that can break down goals into sub-tasks, execute them through tool use, and self-improve through reflection. While Auto-GPT's initial performance was limited, it catalyzed intense research interest in autonomous agents.
+
+**Voyager** (Wang et al., 2023) [@voyager2023] demonstrated an open-ended embodied agent in Minecraft that uses LLMs for task decomposition, code generation for skills, and a skill library for lifelong learning. Voyager's approach -- decomposing goals, generating executable skills, and storing successful skills for reuse -- provides a template for self-improving agentic systems that accumulate capabilities over time. The skill library acts as a form of procedural memory that grows with experience, enabling the agent to tackle increasingly complex tasks.
+
 ### AI-Powered Search Engines
 
 The agentic search paradigm has given rise to a new category of consumer products: AI-powered search engines that combine traditional web search with LLM-based synthesis.
@@ -35,4 +41,4 @@ The agentic search paradigm has given rise to a new category of consumer product
 
 **SearchGPT / ChatGPT Search** (OpenAI) integrates web search directly into ChatGPT, allowing the model to search the web when its parametric knowledge is insufficient and cite the sources it uses. This represents the convergence of conversational AI with information retrieval.
 
-These products demonstrate that agentic search has crossed from research into deployment, with millions of users relying on LLM-mediated search daily. Key challenges include: accuracy of citations (the cited source must actually support the claim), handling of conflicting information across sources, freshness of information, and the economic model for compensating original content creators whose work is synthesized.
+These products demonstrate that agentic search has crossed from research into deployment, with millions of users relying on LLM-mediated search daily. Key challenges include: accuracy of citations (the cited source must actually support the claim), handling of conflicting information across sources, freshness of information, and the economic model for compensating original content creators whose work is synthesized. The development of long-context RAG techniques [@jiang2024longrag] that can process entire documents rather than short chunks may further improve the quality of AI-powered search by reducing fragmentation of evidence.

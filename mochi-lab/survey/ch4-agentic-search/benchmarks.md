@@ -28,8 +28,9 @@ Evaluating agentic search systems is challenging because they operate at the int
 - **VisualWebArena** [@koh2024visualwebarena]: Extension of WebArena requiring visual understanding of web pages (interpreting images, charts, visual layouts).
 - **Mind2Web** [@deng2024mind2web]: Real-world web task completion across 137 diverse websites, with human action traces for training.
 - **GAIA** (Mialon et al., 2024) [@mialon2024gaia]: General AI assistant benchmark requiring multi-step tool use and reasoning, designed to be easy for humans but hard for AI.
-- **SWE-bench** (Jimenez et al., 2024) [@jimenez2024swebench]: Software engineering tasks requiring agents to find and fix real GitHub issues by navigating codebases, understanding code, and producing correct patches.
+- **SWE-bench** (Jimenez et al., 2024) [@jimenez2024swebench]: Software engineering tasks requiring agents to find and fix real GitHub issues by navigating codebases, understanding code, and producing correct patches. SWE-Agent [@yang2024sweagent] and OpenHands [@wang2024openhands] are leading agent frameworks for this benchmark.
 - **SWE-bench Verified** (OpenAI, 2024): A curated subset of SWE-bench where each task has been human-verified to be solvable and have correct test cases, providing more reliable evaluation than the original benchmark.
+- **HumanEval** (Chen et al., 2021) [@chen2021humaneval]: Function-level code generation benchmark measuring pass@k accuracy, where k controls the search budget. The gap between pass@1 and pass@100 directly measures the value of search in code generation.
 - **AgentBench** (Liu et al., 2024) [@liu2024agentbench]: A multi-dimensional benchmark evaluating LLM agents across 8 distinct environments including web shopping, database operations, and interactive coding.
 
 ### Evaluation Challenges

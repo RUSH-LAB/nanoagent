@@ -5986,3 +5986,438 @@ van2017neural:
   year: 2017
   venue: "NeurIPS"
   url: "https://arxiv.org/abs/1711.00937"
+
+izacard2021fid:
+  type: article
+  title: "Leveraging Passage Retrieval with Generative Models for Open Domain Question Answering"
+  author:
+    - "Gautier Izacard"
+    - "Edouard Grave"
+  year: 2021
+  venue: "EACL"
+  url: "https://arxiv.org/abs/2007.01282"
+
+wang2023selfconsistency:
+  type: article
+  title: "Self-Consistency Improves Chain of Thought Reasoning in Language Models"
+  author:
+    - "Xuezhi Wang"
+    - "Jason Wei"
+    - "Dale Schuurmans"
+    - "Quoc V. Le"
+    - "Ed H. Chi"
+    - "Sharan Narang"
+    - "Aakanksha Chowdhery"
+    - "Denny Zhou"
+  year: 2023
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2203.11171"
+
+shinn2023reflexion:
+  type: article
+  title: "Reflexion: Language Agents with Verbal Reinforcement Learning"
+  author:
+    - "Noah Shinn"
+    - "Federico Cassano"
+    - "Ashwin Gopinath"
+    - "Karthik Narasimhan"
+    - "Shunyu Yao"
+  year: 2023
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2303.11366"
+
+yao2022webshop:
+  type: article
+  title: "WebShop: Towards Scalable Real-World Web Interaction with Grounded Language Agents"
+  author:
+    - "Shunyu Yao"
+    - "Howard Chen"
+    - "John Yang"
+    - "Karthik Narasimhan"
+  year: 2022
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2207.01206"
+
+chen2021humaneval:
+  type: article
+  title: "Evaluating Large Language Models Trained on Code"
+  author:
+    - "Mark Chen"
+    - "Jerry Tworek"
+    - "Heewoo Jun"
+    - "Qiming Yuan"
+    - "Henrique Ponde de Oliveira Pinto"
+    - "Jared Kaplan"
+    - "Harri Edwards"
+    - "Yuri Burda"
+    - "Nicholas Joseph"
+    - "Greg Brockman"
+    - "Alex Ray"
+    - "Raul Puri"
+    - "Gretchen Krueger"
+    - "Michael Petrov"
+    - "Heidy Khlaaf"
+    - "Girish Sastry"
+    - "Pamela Mishkin"
+    - "Brooke Chan"
+    - "Scott Gray"
+    - "Nick Ryder"
+    - "Mikhail Pavlov"
+    - "Alethea Power"
+    - "Lukasz Kaiser"
+    - "Mohammad Bavarian"
+    - "Clemens Winter"
+    - "Philippe Tillet"
+    - "Felipe Petroski Such"
+    - "Dave Cummings"
+    - "Matthias Plappert"
+    - "Fotios Chantzis"
+    - "Elizabeth Barnes"
+    - "Ariel Herbert-Voss"
+    - "William Hebgen Guss"
+    - "Alex Nichol"
+    - "Alex Paino"
+    - "Nikolas Tezak"
+    - "Jie Tang"
+    - "Igor Babuschkin"
+    - "Suchir Balaji"
+    - "Shantanu Jain"
+    - "William Saunders"
+    - "Christopher Hesse"
+    - "Andrew N. Carr"
+    - "Jan Leike"
+    - "Josh Achiam"
+    - "Vedant Misra"
+    - "Evan Morikawa"
+    - "Alec Radford"
+    - "Matthew Knight"
+    - "Miles Brundage"
+    - "Mira Murati"
+    - "Katie Mayer"
+    - "Peter Welinder"
+    - "Bob McGrew"
+    - "Dario Amodei"
+    - "Sam McCandlish"
+    - "Ilya Sutskever"
+    - "Wojciech Zaremba"
+  year: 2021
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2107.03374"
+
+press2023measuring:
+  type: article
+  title: "Measuring and Narrowing the Compositionality Gap in Language Models"
+  author:
+    - "Ofir Press"
+    - "Muru Zhang"
+    - "Sewon Min"
+    - "Ludwig Schmidt"
+    - "Noah A. Smith"
+    - "Mike Lewis"
+  year: 2023
+  venue: "EMNLP Findings"
+  url: "https://arxiv.org/abs/2210.03350"
+
+zhang2024raft:
+  type: article
+  title: "RAFT: Adapting Language Model to Domain Specific RAG"
+  author:
+    - "Tianjun Zhang"
+    - "Shishir G. Patil"
+    - "Naman Jain"
+    - "Sheng Shen"
+    - "Matei Zaharia"
+    - "Ion Stoica"
+    - "Joseph E. Gonzalez"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2403.10131"
+
+malkov2020hnsw:
+  type: article
+  title: "Efficient and Robust Approximate Nearest Neighbor Search Using Hierarchical Navigable Small World Graphs"
+  author:
+    - "Yu A. Malkov"
+    - "Dmitry A. Yashunin"
+  year: 2020
+  venue: "IEEE TPAMI"
+  url: "https://arxiv.org/abs/1603.09320"
+
+johnson2021faiss:
+  type: article
+  title: "Billion-scale Similarity Search with GPUs"
+  author:
+    - "Jeff Johnson"
+    - "Matthijs Douze"
+    - "Herve Jegou"
+  year: 2021
+  venue: "IEEE TBD"
+  url: "https://arxiv.org/abs/1702.08734"
+
+kojima2022large:
+  type: article
+  title: "Large Language Models are Zero-Shot Reasoners"
+  author:
+    - "Takeshi Kojima"
+    - "Shixiang Shane Gu"
+    - "Machel Reid"
+    - "Yutaka Matsuo"
+    - "Yusuke Iwasawa"
+  year: 2022
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2205.11916"
+
+zhou2023leasttomost:
+  type: article
+  title: "Least-to-Most Prompting Enables Complex Reasoning in Large Language Models"
+  author:
+    - "Denny Zhou"
+    - "Nathanael Scharli"
+    - "Le Hou"
+    - "Jason Wei"
+    - "Nathan Scales"
+    - "Xuezhi Wang"
+    - "Dale Schuurmans"
+    - "Claire Cui"
+    - "Olivier Bousquet"
+    - "Quoc V. Le"
+    - "Ed H. Chi"
+  year: 2023
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2205.10625"
+
+gao2023hyde:
+  type: article
+  title: "Precise Zero-Shot Dense Retrieval without Relevance Labels"
+  author:
+    - "Luyu Gao"
+    - "Xueguang Ma"
+    - "Jimmy Lin"
+    - "Jamie Callan"
+  year: 2023
+  venue: "ACL"
+  url: "https://arxiv.org/abs/2212.10496"
+
+sun2024rankgpt:
+  type: article
+  title: "Is ChatGPT Good at Search? Investigating Large Language Models as Re-Ranking Agents"
+  author:
+    - "Weiwei Sun"
+    - "Lingyong Yan"
+    - "Xinyu Ma"
+    - "Shuaiqiang Wang"
+    - "Pengjie Ren"
+    - "Zhumin Chen"
+    - "Dawei Yin"
+    - "Zhaochun Ren"
+  year: 2024
+  venue: "EMNLP"
+  url: "https://arxiv.org/abs/2304.09542"
+
+gao2024alce:
+  type: article
+  title: "Enabling Large Language Models to Generate Text with Citations"
+  author:
+    - "Tianyu Gao"
+    - "Howard Yen"
+    - "Jiatong Yu"
+    - "Danqi Chen"
+  year: 2024
+  venue: "EMNLP"
+  url: "https://arxiv.org/abs/2305.14627"
+
+izacard2022contriever:
+  type: article
+  title: "Unsupervised Dense Information Retrieval with Contrastive Learning"
+  author:
+    - "Gautier Izacard"
+    - "Mathilde Caron"
+    - "Lucas Hosseini"
+    - "Sebastian Riedel"
+    - "Piotr Bojanowski"
+    - "Armand Joulin"
+    - "Edouard Grave"
+  year: 2022
+  venue: "TMLR"
+  url: "https://arxiv.org/abs/2112.09118"
+
+geva2023strategyqa:
+  type: article
+  title: "Did Aristotle Use a Laptop? A Question Answering Benchmark with Implicit Reasoning Strategies"
+  author:
+    - "Mor Geva"
+    - "Daniel Khashabi"
+    - "Elad Segal"
+    - "Tushar Khot"
+    - "Dan Roth"
+    - "Jonathan Berant"
+  year: 2021
+  venue: "TACL"
+  url: "https://arxiv.org/abs/2101.02235"
+
+voyager2023:
+  type: article
+  title: "Voyager: An Open-Ended Embodied Agent with Large Language Models"
+  author:
+    - "Guanzhi Wang"
+    - "Yuqi Xie"
+    - "Yunfan Jiang"
+    - "Ajay Mandlekar"
+    - "Chaowei Xiao"
+    - "Yuke Zhu"
+    - "Linxi Fan"
+    - "Anima Anandkumar"
+  year: 2023
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2305.16291"
+
+significant2023autogpt:
+  type: article
+  title: "Auto-GPT: An Autonomous GPT-4 Experiment"
+  author:
+    - "Significant Gravitas"
+  year: 2023
+  venue: "GitHub"
+  url: "https://github.com/Significant-Gravitas/Auto-GPT"
+
+madaan2023selfrefine:
+  type: article
+  title: "Self-Refine: Iterative Refinement with Self-Feedback"
+  author:
+    - "Aman Madaan"
+    - "Niket Tandon"
+    - "Prakhar Gupta"
+    - "Skyler Hallinan"
+    - "Luyu Gao"
+    - "Sarah Wiegreffe"
+    - "Uri Alon"
+    - "Nouha Dziri"
+    - "Shrimai Prabhumoye"
+    - "Yiming Yang"
+    - "Shashank Gupta"
+    - "Bodhisattwa Prasad Majumder"
+    - "Katherine Hermann"
+    - "Sean Welleck"
+    - "Amir Yazdanbakhsh"
+    - "Peter Clark"
+  year: 2023
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2303.17651"
+
+zhu2024deepseekmathrl:
+  type: article
+  title: "DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models"
+  author:
+    - "Zhihong Shao"
+    - "Peiyi Wang"
+    - "Qihao Zhu"
+    - "Runxin Xu"
+    - "Junxiao Song"
+    - "Mingchuan Zhang"
+    - "Y.K. Li"
+    - "Y. Wu"
+    - "Daya Guo"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2402.03300"
+
+chen2024cot_decoding:
+  type: article
+  title: "Chain-of-Thought Reasoning Without Prompting"
+  author:
+    - "Xuezhi Wang"
+    - "Denny Zhou"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2402.10200"
+
+ram2023incontext:
+  type: article
+  title: "In-Context Retrieval-Augmented Language Models"
+  author:
+    - "Ori Ram"
+    - "Yoav Levine"
+    - "Itay Dalmedigos"
+    - "Dor Muhlgay"
+    - "Amnon Shashua"
+    - "Kevin Leyton-Brown"
+    - "Yoav Shoham"
+  year: 2023
+  venue: "TACL"
+  url: "https://arxiv.org/abs/2302.00083"
+
+jiang2024longrag:
+  type: article
+  title: "LongRAG: Enhancing Retrieval-Augmented Generation with Long-context LLMs"
+  author:
+    - "Ziyan Jiang"
+    - "Xueguang Ma"
+    - "Wenhu Chen"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2406.15319"
+
+anthropic2024claude_computer:
+  type: article
+  title: "Introducing Computer Use"
+  author:
+    - "Anthropic"
+  year: 2024
+  venue: "Anthropic Blog"
+  url: "https://www.anthropic.com/news/3-5-models-and-computer-use"
+
+openai2024o1:
+  type: article
+  title: "Learning to Reason with LLMs"
+  author:
+    - "OpenAI"
+  year: 2024
+  venue: "OpenAI Blog"
+  url: "https://openai.com/index/learning-to-reason-with-llms/"
+
+min2023factscore:
+  type: article
+  title: "FActScore: Fine-grained Atomic Evaluation of Factual Precision in Long Form Text Generation"
+  author:
+    - "Sewon Min"
+    - "Kalpesh Krishna"
+    - "Xinxi Lyu"
+    - "Mike Lewis"
+    - "Wen-tau Yih"
+    - "Pang Wei Koh"
+    - "Mohit Iyyer"
+    - "Luke Zettlemoyer"
+    - "Hannaneh Hajishirzi"
+  year: 2023
+  venue: "EMNLP"
+  url: "https://arxiv.org/abs/2305.14251"
+
+shi2023replug:
+  type: article
+  title: "REPLUG: Retrieval-Augmented Black-Box Language Models"
+  author:
+    - "Weijia Shi"
+    - "Sewon Min"
+    - "Michihiro Yasunaga"
+    - "Minjoon Seo"
+    - "Richard James"
+    - "Mike Lewis"
+    - "Luke Zettlemoyer"
+    - "Wen-tau Yih"
+  year: 2023
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2301.12652"
+
+li2023teacherlm:
+  type: article
+  title: "Textbooks Are All You Need II: phi-1.5 Technical Report"
+  author:
+    - "Yuanzhi Li"
+    - "Sebastien Bubeck"
+    - "Ronen Eldan"
+    - "Allie Del Giorno"
+    - "Suriya Gunasekar"
+    - "Yin Tat Lee"
+  year: 2023
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2309.05463"

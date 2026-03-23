@@ -7,7 +7,7 @@ title: "Problem Formulation"
 
 ### Search as Sequential Decision-Making
 
-Agentic search can be formalized as a sequential decision-making problem [@sutton2018reinforcement]. At each step t, the agent observes a state s_t (comprising the current query, retrieved information, reasoning context, and history of actions), selects an action a_t from an action space (search query, tool call, reasoning step, or answer generation), and receives an observation o_{t+1} (search results, tool outputs, or verification feedback). The process continues until a termination condition is met (answer found, confidence threshold reached, or budget exhausted).
+Agentic search can be formalized as a sequential decision-making problem [@sutton2018reinforcement]. At each step t, the agent observes a state s_t (comprising the current query, retrieved information, reasoning context, and history of actions), selects an action a_t from an action space (search query, tool call, reasoning step, or answer generation), and receives an observation o_{t+1} (search results, tool outputs, or verification feedback). The process continues until a termination condition is met (answer found, confidence threshold reached, or budget exhausted). This formalization connects to the POMDP framework in world models (Chapter 2) and the tree search methods in MCTS-based reasoning (Section 4.6).
 
 The objective is to maximize the quality of the final answer while minimizing search cost:
 
