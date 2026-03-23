@@ -147,6 +147,7 @@ metzler2021rethinking:
     - "Marc Najork"
   year: 2021
   venue: "SIGIR Forum"
+  url: "https://arxiv.org/abs/2105.02274"
 
 nakano2021webgpt:
   type: article
@@ -175,6 +176,7 @@ wang2024survey:
     - "Xueyang Feng"
   year: 2024
   venue: "Frontiers of Computer Science"
+  url: "https://arxiv.org/abs/2308.11432"
 
 qin2023tool:
   type: article
@@ -196,6 +198,7 @@ schick2023toolformer:
     - "Roberto Dessi"
   year: 2023
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2302.04761"
 
 sutton2018reinforcement:
   type: book
@@ -205,6 +208,7 @@ sutton2018reinforcement:
     - "Andrew G. Barto"
   year: 2018
   venue: "MIT Press"
+  url: "http://incompleteideas.net/book/the-book-2nd.html"
 
 gao2023enabling:
   type: article
@@ -216,6 +220,7 @@ gao2023enabling:
     - "Danqi Chen"
   year: 2023
   venue: "EMNLP"
+  url: "https://arxiv.org/abs/2305.14627"
 
 liu2023evaluating:
   type: article
@@ -226,6 +231,7 @@ liu2023evaluating:
     - "Percy Liang"
   year: 2023
   venue: "EMNLP Findings"
+  url: "https://arxiv.org/abs/2304.09848"
 
 yao2023react:
   type: article
@@ -236,6 +242,7 @@ yao2023react:
     - "Dian Yu"
   year: 2023
   venue: "ICLR"
+  url: "https://arxiv.org/abs/2210.03629"
 
 parisi2022talm:
   type: article
@@ -259,6 +266,7 @@ guu2020realm:
     - "Ming-Wei Chang"
   year: 2020
   venue: "ICML"
+  url: "https://arxiv.org/abs/2002.08909"
 
 lewis2020rag:
   type: article
@@ -269,6 +277,7 @@ lewis2020rag:
     - "Aleksandra Piktus"
   year: 2020
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2005.11401"
 
 borgeaud2022retro:
   type: article
@@ -279,6 +288,7 @@ borgeaud2022retro:
     - "Jordan Hoffmann"
   year: 2022
   venue: "ICML"
+  url: "https://arxiv.org/abs/2112.04426"
 
 izacard2023atlas:
   type: article
@@ -289,6 +299,7 @@ izacard2023atlas:
     - "Maria Lomeli"
   year: 2023
   venue: "JMLR"
+  url: "https://arxiv.org/abs/2208.03299"
 
 asai2024selfrag:
   type: article
@@ -301,6 +312,7 @@ asai2024selfrag:
     - "Hannaneh Hajishirzi"
   year: 2024
   venue: "ICLR"
+  url: "https://arxiv.org/abs/2310.11511"
 
 trivedi2023ircot:
   type: article
@@ -323,6 +335,7 @@ jiang2023flare:
     - "Luyu Gao"
   year: 2023
   venue: "EMNLP"
+  url: "https://arxiv.org/abs/2305.06983"
 
 shao2023enhancing:
   type: article
@@ -333,6 +346,7 @@ shao2023enhancing:
     - "Yelong Shen"
   year: 2023
   venue: "EMNLP Findings"
+  url: "https://arxiv.org/abs/2305.15294"
 
 feng2024retrieval:
   type: article
@@ -345,6 +359,7 @@ feng2024retrieval:
     - "Bing Qin"
   year: 2024
   venue: "EMNLP Findings"
+  url: "https://arxiv.org/abs/2310.05149"
 
 zhou2024webarena:
   type: article
@@ -355,6 +370,7 @@ zhou2024webarena:
     - "Hao Zhu"
   year: 2024
   venue: "ICLR"
+  url: "https://arxiv.org/abs/2307.13854"
 
 drouin2024browsergym:
   type: article
@@ -374,6 +390,7 @@ deng2024mind2web:
     - "Boyuan Zheng"
   year: 2024
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2306.06070"
 
 zheng2023judging:
   type: article
@@ -384,6 +401,7 @@ zheng2023judging:
     - "Ying Sheng"
   year: 2023
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2306.05685"
 
 he2024webvoyager:
   type: article
@@ -392,6 +410,7 @@ he2024webvoyager:
     - "Hongliang He"
   year: 2024
   venue: "ACL"
+  url: "https://arxiv.org/abs/2401.13919"
 
 yao2023tree:
   type: article
@@ -402,6 +421,7 @@ yao2023tree:
     - "Jeffrey Zhao"
   year: 2023
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2305.10601"
 
 hao2023reasoning:
   type: article
@@ -412,6 +432,7 @@ hao2023reasoning:
     - "Haodi Ma"
   year: 2023
   venue: "EMNLP"
+  url: "https://arxiv.org/abs/2305.14992"
 
 zhou2024lats:
   type: article
@@ -442,6 +463,7 @@ shao2024storm:
     - "Theodore A. Kanell"
   year: 2024
   venue: "NAACL"
+  url: "https://arxiv.org/abs/2402.14207"
 
 xu2024search:
   type: article
@@ -454,6 +476,7 @@ xu2024search:
     - "Tat-Seng Chua"
   year: 2024
   venue: "WWW"
+  url: "https://arxiv.org/abs/2304.14732"
 
 kim2023tree:
   type: article
@@ -466,6 +489,7 @@ kim2023tree:
     - "Jaewoo Kang"
   year: 2023
   venue: "EMNLP"
+  url: "https://arxiv.org/abs/2310.14696"
 
 ma2023query:
   type: article
@@ -474,6 +498,7 @@ ma2023query:
     - "Xinbei Ma"
   year: 2023
   venue: "EMNLP"
+  url: "https://arxiv.org/abs/2305.14283"
 
 li2022alphacode:
   type: article
@@ -484,6 +509,7 @@ li2022alphacode:
     - "Junyoung Chung"
   year: 2022
   venue: "Science"
+  url: "https://arxiv.org/abs/2203.07814"
 
 husain2019codesearchnet:
   type: article
@@ -505,6 +531,7 @@ wang2024legoprover:
     - "Haiming Wang"
   year: 2024
   venue: "ICLR"
+  url: "https://arxiv.org/abs/2310.00656"
 
 yang2023leandojo:
   type: article
@@ -513,6 +540,7 @@ yang2023leandojo:
     - "Kaiyu Yang"
   year: 2023
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2306.15626"
 
 xin2024deepseekprover:
   type: article
@@ -532,6 +560,7 @@ petroni2021kilt:
     - "Angela Fan"
   year: 2021
   venue: "NAACL"
+  url: "https://arxiv.org/abs/2009.02252"
 
 thakur2021beir:
   type: article
@@ -544,6 +573,7 @@ thakur2021beir:
     - "Iryna Gurevych"
   year: 2021
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2104.08663"
 
 yang2018hotpotqa:
   type: article
@@ -554,6 +584,7 @@ yang2018hotpotqa:
     - "Saizheng Zhang"
   year: 2018
   venue: "EMNLP"
+  url: "https://arxiv.org/abs/1809.09600"
 
 thorne2018fever:
   type: article
@@ -565,6 +596,7 @@ thorne2018fever:
     - "Arpit Mittal"
   year: 2018
   venue: "NAACL"
+  url: "https://arxiv.org/abs/1803.05355"
 
 kwiatkowski2019natural:
   type: article
@@ -575,6 +607,7 @@ kwiatkowski2019natural:
     - "Olivia Redfield"
   year: 2019
   venue: "TACL"
+  url: "https://aclanthology.org/Q19-1026/"
 
 mialon2024gaia:
   type: article
@@ -583,6 +616,7 @@ mialon2024gaia:
     - "Gregoire Mialon"
   year: 2024
   venue: "ICLR"
+  url: "https://arxiv.org/abs/2311.12983"
 
 jimenez2024swebench:
   type: article
@@ -593,6 +627,7 @@ jimenez2024swebench:
     - "Alexander Wettig"
   year: 2024
   venue: "ICLR"
+  url: "https://arxiv.org/abs/2310.06770"
 
 shi2024trusting:
   type: article
@@ -603,6 +638,7 @@ shi2024trusting:
     - "Mike Lewis"
   year: 2024
   venue: "NAACL Findings"
+  url: "https://arxiv.org/abs/2305.14739"
 
 ferguson2006optimal:
   type: book
@@ -611,6 +647,7 @@ ferguson2006optimal:
     - "Thomas S. Ferguson"
   year: 2006
   venue: "Mathematics Department, UCLA"
+  url: "https://www.math.ucla.edu/~tom/Stopping/Contents.html"
 
 rashkin2023measuring:
   type: article
@@ -623,6 +660,7 @@ rashkin2023measuring:
   venue: "CL"
 
 # ── Chapter 1: Continual Learning ──
+  url: "https://arxiv.org/abs/2112.12870"
 
 mccloskey1989catastrophic:
   type: article
@@ -632,6 +670,7 @@ mccloskey1989catastrophic:
     - "Neal J. Cohen"
   year: 1989
   venue: "Psychology of Learning and Motivation"
+  url: "https://doi.org/10.1016/S0079-7421(08)60536-8"
 
 ratcliff1990connectionist:
   type: article
@@ -640,6 +679,7 @@ ratcliff1990connectionist:
     - "Roger Ratcliff"
   year: 1990
   venue: "Psychological Review"
+  url: "https://doi.org/10.1037/0033-295X.97.2.285"
 
 french1999catastrophic:
   type: article
@@ -648,6 +688,7 @@ french1999catastrophic:
     - "Robert M. French"
   year: 1999
   venue: "Trends in Cognitive Sciences"
+  url: "https://doi.org/10.1016/S1364-6613(99)01294-2"
 
 parisi2019continual:
   type: article
@@ -660,6 +701,7 @@ parisi2019continual:
     - "Stefan Wermter"
   year: 2019
   venue: "Neural Networks"
+  url: "https://arxiv.org/abs/1802.07569"
 
 delange2021continual:
   type: article
@@ -681,6 +723,7 @@ kumaran2016what:
     - "James L. McClelland"
   year: 2016
   venue: "Trends in Cognitive Sciences"
+  url: "https://doi.org/10.1016/j.tics.2016.05.004"
 
 zenke2017continual:
   type: article
@@ -691,6 +734,7 @@ zenke2017continual:
     - "Surya Ganguli"
   year: 2017
   venue: "ICML"
+  url: "https://arxiv.org/abs/1703.04200"
 
 vandeven2019three:
   type: article
@@ -712,6 +756,7 @@ diaz2018dont:
     - "Davide Maltoni"
   year: 2018
   venue: "NeurIPS Workshop"
+  url: "https://arxiv.org/abs/1810.13166"
 
 masana2023class:
   type: article
@@ -722,6 +767,7 @@ masana2023class:
     - "Bartlomiej Twardowski"
   year: 2023
   venue: "IEEE TPAMI"
+  url: "https://arxiv.org/abs/2010.15277"
 
 kirkpatrick2017overcoming:
   type: article
@@ -732,6 +778,7 @@ kirkpatrick2017overcoming:
     - "Neil Rabinowitz"
   year: 2017
   venue: "PNAS"
+  url: "https://arxiv.org/abs/1612.00796"
 
 schwarz2018progress:
   type: article
@@ -742,6 +789,7 @@ schwarz2018progress:
     - "Jelena Luketina"
   year: 2018
   venue: "ICML"
+  url: "https://arxiv.org/abs/1805.06370"
 
 li2017learning:
   type: article
@@ -762,6 +810,7 @@ hinton2015distilling:
     - "Jeff Dean"
   year: 2015
   venue: "NeurIPS Workshop"
+  url: "https://arxiv.org/abs/1503.02531"
 
 aljundi2018memory:
   type: article
@@ -774,6 +823,7 @@ aljundi2018memory:
     - "Tinne Tuytelaars"
   year: 2018
   venue: "ECCV"
+  url: "https://arxiv.org/abs/1711.09601"
 
 hsu2018reevaluating:
   type: article
@@ -785,6 +835,7 @@ hsu2018reevaluating:
     - "Zsolt Kira"
   year: 2018
   venue: "NeurIPS CL Workshop"
+  url: "https://arxiv.org/abs/1810.12488"
 
 riemer2019learning:
   type: article
@@ -795,6 +846,7 @@ riemer2019learning:
     - "Robert Ajemian"
   year: 2019
   venue: "ICLR"
+  url: "https://arxiv.org/abs/1810.11910"
 
 chaudhry2019tiny:
   type: article
@@ -829,6 +881,7 @@ chaudhry2019efficient:
     - "Mohamed Elhoseiny"
   year: 2019
   venue: "ICLR"
+  url: "https://arxiv.org/abs/1812.00420"
 
 buzzega2020dark:
   type: article
@@ -841,6 +894,7 @@ buzzega2020dark:
     - "Simone Calderara"
   year: 2020
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2004.07211"
 
 shin2017continual:
   type: article
@@ -852,6 +906,7 @@ shin2017continual:
     - "Jiwon Kim"
   year: 2017
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1705.08690"
 
 gao2023ddgr:
   type: article
@@ -869,6 +924,7 @@ kim2024sddgr:
     - "Junsu Kim"
   year: 2024
   venue: "CVPR"
+  url: "https://arxiv.org/abs/2402.17323"
 
 galashov2023continually:
   type: article
@@ -900,6 +956,7 @@ yoon2018lifelong:
     - "Sung Ju Hwang"
   year: 2018
   venue: "ICLR"
+  url: "https://arxiv.org/abs/1708.01547"
 
 mallya2018packnet:
   type: article
@@ -909,6 +966,7 @@ mallya2018packnet:
     - "Svetlana Lazebnik"
   year: 2018
   venue: "CVPR"
+  url: "https://arxiv.org/abs/1711.05769"
 
 serra2018overcoming:
   type: article
@@ -920,6 +978,7 @@ serra2018overcoming:
     - "Alexandros Karatzoglou"
   year: 2018
   venue: "ICML"
+  url: "https://arxiv.org/abs/1801.01423"
 
 wortsman2020supermasks:
   type: article
@@ -941,6 +1000,7 @@ aljundi2017expert:
     - "Tinne Tuytelaars"
   year: 2017
   venue: "CVPR"
+  url: "https://arxiv.org/abs/1611.06194"
 
 javed2019meta:
   type: article
@@ -950,6 +1010,7 @@ javed2019meta:
     - "Martha White"
   year: 2019
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1905.12588"
 
 beaulieu2020learning:
   type: article
@@ -960,6 +1021,7 @@ beaulieu2020learning:
     - "Thomas Miconi"
   year: 2020
   venue: "ECAI"
+  url: "https://arxiv.org/abs/2002.09571"
 
 gupta2020lamaml:
   type: article
@@ -981,6 +1043,7 @@ arani2022learning:
     - "Bahram Zonooz"
   year: 2022
   venue: "ICLR"
+  url: "https://arxiv.org/abs/2106.08941"
 
 jang2022towards:
   type: article
@@ -991,6 +1054,7 @@ jang2022towards:
     - "Sungdong Yang"
   year: 2022
   venue: "ICLR"
+  url: "https://arxiv.org/abs/2110.03215"
 
 scialom2025continual:
   type: article
@@ -1010,6 +1074,7 @@ gupta2023continual:
     - "Yi Tay"
   year: 2023
   venue: "ICML Workshop"
+  url: "https://arxiv.org/abs/2308.04014"
 
 ibrahim2024investigating:
   type: article
@@ -1045,6 +1110,7 @@ wang2023orthogonal:
     - "Zhilin Wang"
   year: 2023
   venue: "EMNLP Findings"
+  url: "https://arxiv.org/abs/2310.14152"
 
 huang2024loramoe:
   type: article
@@ -1053,6 +1119,7 @@ huang2024loramoe:
     - "Cheng Huang"
   year: 2024
   venue: "ACL"
+  url: "https://arxiv.org/abs/2312.09979"
 
 veniat2021efficient:
   type: article
@@ -1063,6 +1130,7 @@ veniat2021efficient:
     - "Marc'Aurelio Ranzato"
   year: 2021
   venue: "ICLR"
+  url: "https://arxiv.org/abs/2012.12631"
 
 lomonaco2021avalanche:
   type: article
@@ -1073,6 +1141,7 @@ lomonaco2021avalanche:
     - "Andrea Cossu"
   year: 2021
   venue: "CLVision Workshop at CVPR"
+  url: "https://arxiv.org/abs/2104.00405"
 
 farquhar2019towards:
   type: article
@@ -1082,6 +1151,7 @@ farquhar2019towards:
     - "Yarin Gal"
   year: 2019
   venue: "Privacy in Machine Learning Workshop at NeurIPS"
+  url: "https://arxiv.org/abs/1805.09733"
 
 aljundi2019taskfree:
   type: article
@@ -1092,6 +1162,7 @@ aljundi2019taskfree:
     - "Tinne Tuytelaars"
   year: 2019
   venue: "CVPR"
+  url: "https://arxiv.org/abs/1812.03596"
 
 evron2022catastrophic:
   type: article
@@ -1106,6 +1177,7 @@ evron2022catastrophic:
   venue: "COLT"
 
 # ── Chapter 2: World Models ──
+  url: "https://arxiv.org/abs/2205.09588"
 
 craik1943nature:
   type: book
@@ -1114,6 +1186,7 @@ craik1943nature:
     - "Kenneth J. W. Craik"
   year: 1943
   venue: "Cambridge University Press"
+  url: "https://doi.org/10.1017/CBO9780511612794"
 
 johnsonlaird1983mental:
   type: book
@@ -1122,6 +1195,7 @@ johnsonlaird1983mental:
     - "Philip N. Johnson-Laird"
   year: 1983
   venue: "Harvard University Press"
+  url: "https://doi.org/10.4135/9781446247204.n31"
 
 ha2018world:
   type: article
@@ -1142,6 +1216,7 @@ hafner2019learning:
     - "Ian Fischer"
   year: 2019
   venue: "ICML"
+  url: "https://arxiv.org/abs/1811.04551"
 
 hafner2020dream:
   type: article
@@ -1153,6 +1228,7 @@ hafner2020dream:
     - "Mohammad Norouzi"
   year: 2020
   venue: "ICLR"
+  url: "https://arxiv.org/abs/1912.01603"
 
 lecun2022path:
   type: article
@@ -1161,6 +1237,7 @@ lecun2022path:
     - "Yann Lecun"
   year: 2022
   venue: "openreview.net"
+  url: "https://openreview.net/pdf?id=BZ5a1r-kVsf"
 
 sutton1990integrated:
   type: article
@@ -1169,6 +1246,7 @@ sutton1990integrated:
     - "Richard S. Sutton"
   year: 1990
   venue: "ICML"
+  url: "https://doi.org/10.1016/B978-1-55860-141-3.50030-4"
 
 hafner2021mastering:
   type: article
@@ -1180,6 +1258,7 @@ hafner2021mastering:
     - "Jimmy Ba"
   year: 2021
   venue: "ICLR"
+  url: "https://arxiv.org/abs/2010.02193"
 
 hafner2023mastering:
   type: article
@@ -1201,6 +1280,7 @@ denton2018stochastic:
     - "Rob Fergus"
   year: 2018
   venue: "ICML"
+  url: "https://arxiv.org/abs/1802.07687"
 
 babaeizadeh2021fitvid:
   type: article
@@ -1243,6 +1323,7 @@ ho2022video:
     - "Alexey Gritsenko"
   year: 2022
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2204.03458"
 
 voleti2022mcvd:
   type: article
@@ -1253,6 +1334,7 @@ voleti2022mcvd:
     - "Christopher Pal"
   year: 2022
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2205.09853"
 
 bruce2024genie:
   type: article
@@ -1295,6 +1377,7 @@ alonso2024diffusion:
     - "Tim Shersten"
   year: 2024
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2405.12399"
 
 valevski2024diffusion:
   type: article
@@ -1317,6 +1400,7 @@ hansen2022temporal:
     - "Xiaolong Wang"
   year: 2022
   venue: "ICML"
+  url: "https://arxiv.org/abs/2203.04955"
 
 hansen2024tdmpc2:
   type: article
@@ -1327,6 +1411,7 @@ hansen2024tdmpc2:
     - "Xiaolong Wang"
   year: 2024
   venue: "ICLR"
+  url: "https://arxiv.org/abs/2310.16828"
 
 du2024video:
   type: article
@@ -1338,6 +1423,7 @@ du2024video:
     - "Fei Xia"
   year: 2024
   venue: "ICLR"
+  url: "https://arxiv.org/abs/2310.10625"
 
 zhou2024robodreamer:
   type: article
@@ -1358,6 +1444,7 @@ guan2023leveraging:
     - "Subbarao Kambhampati"
   year: 2023
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2305.14909"
 
 ge2024worldgpt:
   type: article
@@ -1399,6 +1486,7 @@ schrittwieser2020mastering:
     - "Thomas Hubert"
   year: 2020
   venue: "Nature"
+  url: "https://arxiv.org/abs/1911.08265"
 
 ye2021mastering:
   type: article
@@ -1411,6 +1499,7 @@ ye2021mastering:
     - "Yang Gao"
   year: 2021
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2111.00210"
 
 micheli2023transformers:
   type: article
@@ -1421,6 +1510,7 @@ micheli2023transformers:
     - "Francois Fleuret"
   year: 2023
   venue: "ICLR"
+  url: "https://arxiv.org/abs/2209.00588"
 
 janner2019when:
   type: article
@@ -1432,6 +1522,7 @@ janner2019when:
     - "Sergey Levine"
   year: 2019
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1906.08253"
 
 tassa2018deepmind:
   type: article
@@ -1453,6 +1544,7 @@ kaiser2020model:
     - "Piotr Milos"
   year: 2020
   venue: "ICLR"
+  url: "https://arxiv.org/abs/1903.00374"
 
 savva2019habitat:
   type: article
@@ -1463,6 +1555,7 @@ savva2019habitat:
     - "Oleksandr Maksymets"
   year: 2019
   venue: "ICCV"
+  url: "https://arxiv.org/abs/1904.01201"
 
 dosovitskiy2017carla:
   type: article
@@ -1475,6 +1568,7 @@ dosovitskiy2017carla:
     - "Vladlen Koltun"
   year: 2017
   venue: "CoRL"
+  url: "https://arxiv.org/abs/1711.03938"
 
 ke2019modeling:
   type: article
@@ -1485,6 +1579,7 @@ ke2019modeling:
     - "Ahmed Touati"
   year: 2019
   venue: "ICLR"
+  url: "https://arxiv.org/abs/1903.09064"
 
 kipf2020contrastive:
   type: article
@@ -1495,6 +1590,7 @@ kipf2020contrastive:
     - "Max Welling"
   year: 2020
   venue: "ICLR"
+  url: "https://arxiv.org/abs/1911.12247"
 
 zhao2020sim:
   type: article
@@ -1505,6 +1601,7 @@ zhao2020sim:
     - "Tomi Westerlund"
   year: 2020
   venue: "IEEE Symposium Series on Computational Intelligence"
+  url: "https://arxiv.org/abs/2009.13303"
 
 kaplan2020scaling:
   type: article
@@ -1527,6 +1624,7 @@ mitzenmacher2017probability:
     - "Eli Upfal"
   year: 2017
   venue: "Cambridge University Press"
+  url: "https://doi.org/10.1017/CBO9780511813603"
 
 vershynin2018high:
   type: book
@@ -1535,6 +1633,7 @@ vershynin2018high:
     - "Roman Vershynin"
   year: 2018
   venue: "Cambridge University Press"
+  url: "https://doi.org/10.1017/9781108231596"
 
 woodruff2014sketching:
   type: article
@@ -1543,6 +1642,7 @@ woodruff2014sketching:
     - "David P. Woodruff"
   year: 2014
   venue: "Foundations and Trends in Theoretical Computer Science"
+  url: "https://arxiv.org/abs/1411.4357"
 
 achlioptas2003database:
   type: article
@@ -1551,6 +1651,7 @@ achlioptas2003database:
     - "Dimitris Achlioptas"
   year: 2003
   venue: "Journal of Computer and System Sciences"
+  url: "https://doi.org/10.1016/S0022-0000(03)00025-4"
 
 liu2022random:
   type: article
@@ -1571,6 +1672,7 @@ mallat2016understanding:
     - "Stephane Mallat"
   year: 2016
   venue: "Phil. Trans. R. Soc. A"
+  url: "https://arxiv.org/abs/1601.04920"
 
 dong2021attention:
   type: article
@@ -1581,6 +1683,7 @@ dong2021attention:
     - "Andreas Loukas"
   year: 2021
   venue: "ICML"
+  url: "https://arxiv.org/abs/2103.03404"
 
 tancik2020fourier:
   type: article
@@ -1601,6 +1704,7 @@ motwani1995randomized:
     - "Prabhakar Raghavan"
   year: 1995
   venue: "Cambridge University Press"
+  url: "https://doi.org/10.1017/CBO9780511814075"
 
 pennington2017nonlinear:
   type: article
@@ -1610,6 +1714,7 @@ pennington2017nonlinear:
     - "Pratik Worah"
   year: 2017
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1710.10121"
 
 louart2018random:
   type: article
@@ -1620,6 +1725,7 @@ louart2018random:
     - "Romain Couillet"
   year: 2018
   venue: "Annals of Applied Probability"
+  url: "https://arxiv.org/abs/1702.05419"
 
 bottou2008tradeoffs:
   type: article
@@ -1629,6 +1735,7 @@ bottou2008tradeoffs:
     - "Olivier Bousquet"
   year: 2008
   venue: "NeurIPS"
+  url: "https://papers.nips.cc/paper/2007/hash/0d3180d672e08b4c5312dcdafdf6ef36-Abstract.html"
 
 johnson1984extensions:
   type: article
@@ -1638,6 +1745,7 @@ johnson1984extensions:
     - "Joram Lindenstrauss"
   year: 1984
   venue: "Contemporary Mathematics"
+  url: "https://doi.org/10.1090/conm/026/737400"
 
 dasgupta2003elementary:
   type: article
@@ -1647,6 +1755,7 @@ dasgupta2003elementary:
     - "Anupam Gupta"
   year: 2003
   venue: "Random Structures & Algorithms"
+  url: "https://doi.org/10.1007/BF02564389"
 
 rahimi2007random:
   type: article
@@ -1656,6 +1765,7 @@ rahimi2007random:
     - "Benjamin Recht"
   year: 2007
   venue: "NeurIPS"
+  url: "https://papers.nips.cc/paper/2007/hash/013a006f03dbc5392effeb8f18fda755-Abstract.html"
 
 rahimi2009weighted:
   type: article
@@ -1665,6 +1775,7 @@ rahimi2009weighted:
     - "Benjamin Recht"
   year: 2009
   venue: "NeurIPS"
+  url: "https://papers.nips.cc/paper/2008/hash/0efe32849d230d7f53049ddc4a4b0c60-Abstract.html"
 
 ailon2006fast:
   type: article
@@ -1674,6 +1785,7 @@ ailon2006fast:
     - "Bernard Chazelle"
   year: 2006
   venue: "STOC"
+  url: "https://doi.org/10.1145/1132516.1132597"
 
 le2013fastfood:
   type: article
@@ -1684,6 +1796,7 @@ le2013fastfood:
     - "Alexander Smola"
   year: 2013
   venue: "ICML"
+  url: "https://arxiv.org/abs/1408.3060"
 
 yu2016orthogonal:
   type: article
@@ -1696,6 +1809,7 @@ yu2016orthogonal:
     - "Sanjiv Kumar"
   year: 2016
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1610.09072"
 
 choromanski2021rethinking:
   type: article
@@ -1706,6 +1820,7 @@ choromanski2021rethinking:
     - "David Dohan"
   year: 2021
   venue: "ICLR"
+  url: "https://arxiv.org/abs/2009.14794"
 
 indyk1998approximate:
   type: article
@@ -1715,6 +1830,7 @@ indyk1998approximate:
     - "Rajeev Motwani"
   year: 1998
   venue: "STOC"
+  url: "https://doi.org/10.1145/276698.276876"
 
 andoni2006near:
   type: article
@@ -1724,6 +1840,7 @@ andoni2006near:
     - "Piotr Indyk"
   year: 2006
   venue: "FOCS"
+  url: "https://doi.org/10.1109/FOCS.2006.49"
 
 chen2020slide:
   type: article
@@ -1737,6 +1854,7 @@ chen2020slide:
     - "Christopher Re"
   year: 2020
   venue: "MLSys"
+  url: "https://arxiv.org/abs/1903.03129"
 
 chen2022gslide:
   type: article
@@ -1758,6 +1876,7 @@ wang2018survey:
     - "Heng Tao Shen"
   year: 2018
   venue: "IEEE TPAMI"
+  url: "https://arxiv.org/abs/1606.00185"
 
 andoni2015practical:
   type: article
@@ -1770,6 +1889,7 @@ andoni2015practical:
     - "Ludwig Schmidt"
   year: 2015
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1509.02897"
 
 cormode2005improved:
   type: article
@@ -1779,6 +1899,7 @@ cormode2005improved:
     - "S. Muthukrishnan"
   year: 2005
   venue: "Journal of Algorithms"
+  url: "https://doi.org/10.1007/s00453-006-0125-9"
 
 charikar2004finding:
   type: article
@@ -1789,6 +1910,7 @@ charikar2004finding:
     - "Martin Farach-Colton"
   year: 2004
   venue: "Theoretical Computer Science"
+  url: "https://doi.org/10.1016/j.tcs.2003.11.001"
 
 ivkin2019communication:
   type: article
@@ -1799,6 +1921,7 @@ ivkin2019communication:
     - "Enayat Ullah"
   year: 2019
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1903.04488"
 
 weinberger2009feature:
   type: article
@@ -1811,6 +1934,7 @@ weinberger2009feature:
     - "Josh Attenberg"
   year: 2009
   venue: "ICML"
+  url: "https://arxiv.org/abs/0902.2206"
 
 spring2019compressing:
   type: article
@@ -1829,6 +1953,7 @@ oja1982simplified:
     - "Erkki Oja"
   year: 1982
   venue: "Journal of Mathematical Biology"
+  url: "https://doi.org/10.1016/0025-5564(82)90020-0"
 
 liberty2013simple:
   type: article
@@ -1837,6 +1962,7 @@ liberty2013simple:
     - "Edo Liberty"
   year: 2013
   venue: "KDD"
+  url: "https://arxiv.org/abs/1206.0594"
 
 vitter1985random:
   type: article
@@ -1845,6 +1971,7 @@ vitter1985random:
     - "Jeffrey S. Vitter"
   year: 1985
   venue: "ACM Transactions on Mathematical Software"
+  url: "https://doi.org/10.1145/3147.3165"
 
 kriss2018adaptive:
   type: article
@@ -1855,6 +1982,7 @@ kriss2018adaptive:
     - "Sergei Vassilvitskii"
   year: 2018
   venue: "ALENEX"
+  url: "https://arxiv.org/abs/1704.06818"
 
 kraska2018case:
   type: article
@@ -1877,6 +2005,7 @@ ferragina2020pgm:
     - "Giorgio Vinciguerra"
   year: 2020
   venue: "VLDB"
+  url: "https://doi.org/10.14778/3389133.3389135"
 
 rahaman2019spectral:
   type: article
@@ -1887,6 +2016,7 @@ rahaman2019spectral:
     - "Devansh Arpit"
   year: 2019
   venue: "ICML"
+  url: "https://arxiv.org/abs/1806.08734"
 
 bhojanapalli2020low:
   type: article
@@ -1899,6 +2029,7 @@ bhojanapalli2020low:
     - "Sanjiv Kumar"
   year: 2020
   venue: "ICML"
+  url: "https://arxiv.org/abs/2002.07028"
 
 tsai2019transformer:
   type: article
@@ -1911,6 +2042,7 @@ tsai2019transformer:
     - "Ruslan Salakhutdinov"
   year: 2019
   venue: "EMNLP"
+  url: "https://arxiv.org/abs/1908.11775"
 
 leethorp2022fnet:
   type: article
@@ -1922,6 +2054,7 @@ leethorp2022fnet:
     - "Santiago Ontanon"
   year: 2022
   venue: "NAACL"
+  url: "https://arxiv.org/abs/2105.03824"
 
 guibas2022adaptive:
   type: article
@@ -1941,6 +2074,7 @@ mallat2012group:
     - "Stephane Mallat"
   year: 2012
   venue: "Communications on Pure and Applied Mathematics"
+  url: "https://arxiv.org/abs/1101.2286"
 
 bruna2013invariant:
   type: article
@@ -1950,6 +2084,7 @@ bruna2013invariant:
     - "Stephane Mallat"
   year: 2013
   venue: "IEEE TPAMI"
+  url: "https://arxiv.org/abs/1203.1513"
 
 mallat2008wavelet:
   type: book
@@ -1958,6 +2093,7 @@ mallat2008wavelet:
     - "Stephane Mallat"
   year: 2008
   venue: "Academic Press"
+  url: "https://doi.org/10.1016/B978-012374370-1.50001-7"
 
 jeevan2022wavemix:
   type: article
@@ -1987,6 +2123,7 @@ cordonnier2020relationship:
     - "Martin Jaggi"
   year: 2020
   venue: "ICLR"
+  url: "https://arxiv.org/abs/1911.03584"
 
 haykin2002adaptive:
   type: book
@@ -1995,6 +2132,7 @@ haykin2002adaptive:
     - "Simon Haykin"
   year: 2002
   venue: "Prentice Hall"
+  url: "https://doi.org/10.1002/0471461288"
 
 su2024roformer:
   type: article
@@ -2008,6 +2146,7 @@ su2024roformer:
     - "Yunfeng Liu"
   year: 2024
   venue: "Neurocomputing"
+  url: "https://arxiv.org/abs/2104.09864"
 
 liu2021pay:
   type: article
@@ -2019,6 +2158,7 @@ liu2021pay:
     - "Quoc V. Le"
   year: 2021
   venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2105.08050"
 
 halko2011finding:
   type: article
@@ -2029,6 +2169,7 @@ halko2011finding:
     - "Joel A. Tropp"
   year: 2011
   venue: "SIAM Review"
+  url: "https://arxiv.org/abs/0909.4061"
 
 williams2001nystrom:
   type: article
@@ -2038,6 +2179,7 @@ williams2001nystrom:
     - "Matthias Seeger"
   year: 2001
   venue: "NeurIPS"
+  url: "https://papers.nips.cc/paper/2000/hash/19de10adbaa1b2ee13571e0d1f09b6d6-Abstract.html"
 
 xiong2021nystromformer:
   type: article
@@ -2048,6 +2190,7 @@ xiong2021nystromformer:
     - "Rudrasis Chakraborty"
   year: 2021
   venue: "AAAI"
+  url: "https://arxiv.org/abs/2102.03902"
 
 mahoney2009cur:
   type: article
@@ -2057,6 +2200,7 @@ mahoney2009cur:
     - "Petros Drineas"
   year: 2009
   venue: "PNAS"
+  url: "https://doi.org/10.1073/pnas.0803205106"
 
 flajolet2007hyperloglog:
   type: article
@@ -2068,6 +2212,7 @@ flajolet2007hyperloglog:
     - "Frederic Meunier"
   year: 2007
   venue: "DMTCS Proceedings"
+  url: "http://algo.inria.fr/flajolet/Publications/FlFuGaMe07.pdf"
 
 lee2022deduplicating:
   type: article
@@ -2076,6 +2221,7 @@ lee2022deduplicating:
     - "Katherine Lee"
   year: 2022
   venue: "ACL"
+  url: "https://arxiv.org/abs/2107.06499"
 
 karger1997consistent:
   type: article
@@ -2088,6 +2234,7 @@ karger1997consistent:
   venue: "STOC"
 
 # ── Chapter 3: Efficient Architecture Design ──
+  url: "https://doi.org/10.1145/258533.258660"
 
 hoffmann2022training:
   type: article
@@ -2565,6 +2712,7 @@ specache2025speculative:
     - "SpeCache"
   year: 2025
   venue: "ICML"
+  url: "https://arxiv.org/abs/2503.01848"
 
 yu2022orca:
   type: article
@@ -6462,14 +6610,7 @@ robbins1951stochastic:
   venue: "Annals of Mathematical Statistics"
   url: "https://projecteuclid.org/journals/annals-of-mathematical-statistics/volume-22/issue-3/A-Stochastic-Approximation-Method/10.1214/aoms/1177729586.full"
 
-nesterov1983method:
-  type: article
-  title: "A Method for Unconstrained Convex Minimization Problem with the Rate of Convergence O(1/k^2)"
-  author:
-    - "Yurii Nesterov"
-  year: 1983
-  venue: "Doklady AN SSSR"
-  url: ""
+"https://doi.org/10.1016/0041-5553(83)90177-3"
 
 kingma2015adam:
   type: article
@@ -6500,25 +6641,9 @@ clarkson2017low:
   venue: "JACM"
   url: "https://arxiv.org/abs/1207.6365"
 
-daubechies1992ten:
-  type: book
-  title: "Ten Lectures on Wavelets"
-  author:
-    - "Ingrid Daubechies"
-  year: 1992
-  venue: "SIAM"
-  url: ""
+"https://doi.org/10.1137/1.9781611970104"
 
-cohen1993biorthogonal:
-  type: article
-  title: "Biorthogonal Bases of Compactly Supported Wavelets"
-  author:
-    - "Albert Cohen"
-    - "Ingrid Daubechies"
-    - "Jean-Christophe Feauveau"
-  year: 1992
-  venue: "Communications on Pure and Applied Mathematics"
-  url: ""
+"https://doi.org/10.1002/cpa.3160450502"
 
 bloom1970space:
   type: article
@@ -6602,14 +6727,7 @@ chung2021rethinking:
   venue: "arXiv"
   url: "https://arxiv.org/abs/1508.01211"
 
-matousek2008variants:
-  type: article
-  title: "On Variants of the Johnson-Lindenstrauss Lemma"
-  author:
-    - "Jiri Matousek"
-  year: 2008
-  venue: "Random Structures and Algorithms"
-  url: ""
+"https://doi.org/10.1002/rsa.20218"
 
 lee2021continual:
   type: article
@@ -6633,14 +6751,7 @@ nichol2018first:
   venue: "arXiv"
   url: "https://arxiv.org/abs/1803.02999"
 
-sutton1991dyna:
-  type: article
-  title: "Dyna, an Integrated Architecture for Learning, Planning, and Reacting"
-  author:
-    - "Richard S. Sutton"
-  year: 1991
-  venue: "ACM SIGART Bulletin"
-  url: ""
+"https://doi.org/10.1145/122344.122377"
 
 sun2023retentive:
   type: article
@@ -6692,12 +6803,14 @@ fan2014cuckoo:
   venue: "CoNEXT"
   url: "https://www.cs.cmu.edu/~dga/papers/cuckoo-conext2014.pdf"
 
-gal2016dropout:
+janner2019trust:
   type: article
-  title: "Dropout as a Bayesian Approximation: Representing Model Uncertainty in Deep Learning"
+  title: "When to Trust Your Model: Model-Based Policy Optimization"
   author:
-    - "Yarin Gal"
-    - "Zoubin Ghahramani"
-  year: 2016
-  venue: "ICML"
-  url: "https://arxiv.org/abs/1506.02142"
+    - "Michael Janner"
+    - "Justin Fu"
+    - "Marvin Zhang"
+    - "Sergey Levine"
+  year: 2019
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1906.08253"
