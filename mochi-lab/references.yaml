@@ -2,6 +2,175 @@
 # Usage: cite as [@key] in any markdown/MDX file
 # Schema: key -> {type, title, author[], year, venue, url, doi?, volume?, pages?}
 
+alon2016probabilistic:
+  type: book
+  title: "The Probabilistic Method"
+  author:
+    - "Noga Alon"
+    - "Joel H. Spencer"
+  year: 2016
+  venue: "Wiley"
+  url: "https://onlinelibrary.wiley.com/doi/book/10.1002/9780470277331"
+
+anden2014deep:
+  type: article
+  title: "Deep Scattering Spectrum"
+  author:
+    - "Joakim Anden"
+    - "Stephane Mallat"
+  year: 2014
+  venue: "IEEE Transactions on Signal Processing"
+  url: "https://arxiv.org/abs/1304.6763"
+
+es2024ragas:
+  type: article
+  title: "RAGAS: Automated Evaluation of Retrieval Augmented Generation"
+  author:
+    - "Shahul Es"
+    - "Jithin James"
+    - "Luis Espinosa-Anke"
+    - "Steven Schockaert"
+  year: 2024
+  venue: "EACL"
+  url: "https://arxiv.org/abs/2309.15217"
+
+lin2017fpn:
+  type: article
+  title: "Feature Pyramid Networks for Object Detection"
+  author:
+    - "Tsung-Yi Lin"
+    - "Piotr Dollar"
+    - "Ross Girshick"
+    - "Kaiming He"
+    - "Bharath Hariharan"
+    - "Serge Belongie"
+  year: 2017
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/1612.03144"
+
+lin2023train:
+  type: article
+  title: "How to Train Your DRAGON: Diverse Augmentation Towards Generalizable Dense Retrieval"
+  author:
+    - "Sheng-Chieh Lin"
+    - "Akari Asai"
+    - "Minghan Li"
+    - "Barlas Oguz"
+    - "Jimmy Lin"
+    - "Yashar Mehdad"
+    - "Wen-tau Yih"
+    - "Xilun Chen"
+  year: 2023
+  venue: "EMNLP Findings"
+  url: "https://arxiv.org/abs/2302.07452"
+
+liu2021swin:
+  type: article
+  title: "Swin Transformer: Hierarchical Vision Transformer using Shifted Windows"
+  author:
+    - "Ze Liu"
+    - "Yutong Lin"
+    - "Yue Cao"
+    - "Han Hu"
+    - "Yixuan Wei"
+    - "Zheng Zhang"
+    - "Stephen Lin"
+    - "Baining Guo"
+  year: 2021
+  venue: "ICCV"
+  url: "https://arxiv.org/abs/2103.14030"
+
+mallat1989theory:
+  type: article
+  title: "A Theory for Multiresolution Signal Decomposition: The Wavelet Representation"
+  author:
+    - "Stephane Mallat"
+  year: 1989
+  venue: "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+  url: "https://doi.org/10.1109/34.192463"
+
+oyallon2017scaling:
+  type: article
+  title: "Scaling the Scattering Transform: Deep Hybrid Networks"
+  author:
+    - "Edouard Oyallon"
+    - "Eugene Belilovsky"
+    - "Sergey Zagoruyko"
+  year: 2017
+  venue: "ICCV"
+  url: "https://arxiv.org/abs/1703.08961"
+
+ronneberger2015unet:
+  type: article
+  title: "U-Net: Convolutional Networks for Biomedical Image Segmentation"
+  author:
+    - "Olaf Ronneberger"
+    - "Philipp Fischer"
+    - "Thomas Brox"
+  year: 2015
+  venue: "MICCAI"
+  url: "https://arxiv.org/abs/1505.04597"
+
+su2023embedder:
+  type: article
+  title: "One Embedder, Any Task: Instruction-Finetuned Text Embeddings"
+  author:
+    - "Hongjin Su"
+    - "Weijia Shi"
+    - "Jungo Kasai"
+    - "Yizhong Wang"
+    - "Yushi Hu"
+    - "Mari Ostendorf"
+    - "Wen-tau Yih"
+    - "Noah A. Smith"
+    - "Luke Zettlemoyer"
+    - "Tao Yu"
+  year: 2023
+  venue: "ACL Findings"
+  url: "https://arxiv.org/abs/2212.09741"
+
+voita2019analyzing:
+  type: article
+  title: "Analyzing Multi-Head Self-Attention: Specialized Heads Do the Heavy Lifting, the Rest Can Be Pruned"
+  author:
+    - "Elena Voita"
+    - "David Talbot"
+    - "Fedor Moiseev"
+    - "Rico Sennrich"
+    - "Ivan Titov"
+  year: 2019
+  venue: "ACL"
+  url: "https://arxiv.org/abs/1905.09418"
+
+yang2024crag:
+  type: article
+  title: "CRAG -- Comprehensive RAG Benchmark"
+  author:
+    - "Xiao Yang"
+    - "Kai Sun"
+    - "Hao Xin"
+    - "Yushi Sun"
+    - "Nikita Bhalla"
+    - "Xiangsen Chen"
+    - "Sajal Choudhary"
+    - "Ber Dornfeld"
+    - "Chenxi Huang"
+    - "Lester Kim"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2406.04744"
+
+hardt2016train:
+  type: article
+  title: "Train faster, generalize better: Stability of stochastic gradient descent"
+  author:
+    - "Moritz Hardt"
+    - "Ben Recht"
+    - "Yoram Singer"
+  year: 2016
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1509.01240"
+
 zhang2025dfloat11:
   type: article
   title: "70% Size, 100% Accuracy: Lossless LLM Compression for Efficient GPU Inference via Dynamic-Length Float (DFloat11)"

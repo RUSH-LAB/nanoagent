@@ -9,11 +9,12 @@ title: "Signal Processing View of Transformers"
 
 Self-attention can be viewed as a form of adaptive filtering: given input tokens, attention computes data-dependent filter coefficients (attention weights) that determine how information from different positions is combined [@dong2021attention, @cordonnier2020relationship]. From this perspective:
 
-- **Query-key dot products** compute similarity, analogous to matched filtering
-- **Softmax normalization** creates a probability distribution over positions, analogous to a normalized filter response
-- **Value aggregation** is a weighted sum, analogous to applying the computed filter
+- **Query-key dot products** compute similarity, analogous to matched filtering -- the query acts as a template that is correlated against all keys to find the best matches, exactly as in radar signal processing where a transmitted pulse is correlated against the received signal to detect targets.
+- **Softmax normalization** creates a probability distribution over positions, analogous to a normalized filter response. The temperature scaling (division by sqrt(d_k)) controls the sharpness of this distribution, analogous to the bandwidth of a bandpass filter: smaller temperature produces sharper, more selective attention (narrow-band filtering), while larger temperature produces smoother, more distributed attention (wide-band filtering).
+- **Value aggregation** is a weighted sum, analogous to applying the computed filter -- the output is a linear combination of value vectors weighted by the attention pattern, identical to the output of an FIR filter with data-dependent coefficients.
+- **Multi-head attention** computes multiple independent attention patterns, analogous to a filter bank that decomposes the input into multiple frequency bands. Each head can specialize in different "frequency" ranges -- empirically, different heads in trained Transformers attend to different distance ranges, with some heads focusing on local patterns (high-frequency, fine-grained) and others on global patterns (low-frequency, coarse-grained) [@voita2019analyzing].
 
-This interpretation connects attention to a rich literature on adaptive signal processing, including Wiener filters, Kalman filters, and beamforming [@haykin2002adaptive].
+This interpretation connects attention to a rich literature on adaptive signal processing, including Wiener filters (optimal linear filters for stationary signals), Kalman filters (optimal recursive filters for non-stationary signals), and beamforming (spatial filtering for array signal processing) [@haykin2002adaptive]. The key distinction is that attention is a non-causal, global adaptive filter -- it can attend to future positions (in encoder self-attention) and has no fixed filter structure, making it more flexible but also more expensive than classical adaptive filters.
 
 ### Positional Encoding as Frequency Representation
 
@@ -23,11 +24,12 @@ Sinusoidal positional encodings [@vaswani2017attention] represent position as a 
 
 Many efficient Transformer alternatives replace attention with fixed or learned convolution-like operations. From a signal processing perspective, these methods trade the adaptivity of attention (data-dependent filters) for the efficiency of convolution (shared, shift-invariant filters) [@leethorp2022fnet, @gu2024mamba]:
 
-- **FNet** [@leethorp2022fnet]: Uses the DFT, a specific linear convolution in the frequency domain
-- **gMLP** [@liu2021pay]: Uses spatial gating units, a form of element-wise multiplication in a projected space
-- **Hyena** [@poli2023hyena]: Uses data-controlled long convolutions, bridging adaptive attention and fixed convolution
+- **FNet** [@leethorp2022fnet]: Uses the DFT, a specific linear convolution in the frequency domain. By replacing attention with a 2D FFT (along both the sequence and hidden dimensions), FNet achieves 92% of BERT's accuracy on GLUE while training 80% faster. The DFT is a maximally efficient global mixing operation -- it has O(n log n) complexity and mixes all positions equally (flat frequency response).
+- **gMLP** [@liu2021pay]: Uses spatial gating units, a form of element-wise multiplication in a projected space. The gating mechanism can be viewed as a learned, channel-dependent filter that is applied across the spatial dimension, providing a middle ground between the fixed DFT of FNet and the fully adaptive attention of Transformers.
+- **Hyena** [@poli2023hyena]: Uses data-controlled long convolutions, bridging adaptive attention and fixed convolution. Hyena parameterizes implicit convolution kernels using a small neural network, enabling filters that are data-dependent (like attention) but structured as convolutions (like classical filters). On language modeling, Hyena matches the quality of attention-based Transformers at sequence lengths up to 8K while being significantly faster at longer sequences due to its O(n log n) FFT-based implementation.
+- **State Space Models (S4, Mamba):** The S4 architecture [@gu2022efficiently] and its successor Mamba [@gu2024mamba] can be viewed through a signal processing lens as implementing a bank of IIR (infinite impulse response) filters. The continuous-time state space model dx/dt = Ax + Bu, y = Cx + Du is a classical linear time-invariant (LTI) system, and S4's key contribution is the HiPPO initialization of the A matrix, which produces filters that approximate optimal polynomial projections of the input history. After discretization, the resulting filters have long-range memory with polynomial decay (unlike the exponential decay of vanilla RNNs), enabling S4 to capture dependencies over thousands of time steps. Mamba makes the system parameters input-dependent (A, B, C become functions of the input), transforming the LTI system into a linear time-varying (LTV) system -- the state space analog of moving from fixed convolution to adaptive attention.
 
-This progression from fixed convolution to data-dependent filtering exactly mirrors the classical signal processing hierarchy from FIR filters to adaptive filters.
+This progression from fixed convolution to data-dependent filtering exactly mirrors the classical signal processing hierarchy from FIR filters to adaptive filters. The tradeoff is fundamental: fixed filters are efficient (O(n log n) via FFT) and well-understood theoretically, while adaptive filters are more expressive but more expensive (O(n^2) for full attention). The research trajectory from FNet through Hyena to Mamba represents a systematic exploration of this tradeoff, seeking architectures that are as expressive as attention but as efficient as convolution.
 
 ### Randomized Attention Approximations
 

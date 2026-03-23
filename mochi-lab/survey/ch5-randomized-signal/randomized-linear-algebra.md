@@ -9,12 +9,14 @@ Randomized numerical linear algebra (RandNLA) has emerged as a powerful paradigm
 
 ### Randomized SVD
 
-Computing the exact Singular Value Decomposition of large matrices is O(min(mn^2, m^2n)) -- prohibitive for the massive matrices encountered in AI. Halko et al. (2011) [@halko2011finding] developed the randomized SVD, which computes an approximate rank-k SVD in O(mn * log(k)) time by projecting the matrix onto a random subspace of dimension k + p (where p is a small oversampling parameter). The randomized SVD is now standard in scientific computing and is widely used in AI for:
+Computing the exact Singular Value Decomposition of large matrices is O(min(mn^2, m^2n)) -- prohibitive for the massive matrices encountered in AI. Halko et al. (2011) [@halko2011finding] developed the randomized SVD, which computes an approximate rank-k SVD in O(mn * log(k)) time by projecting the matrix onto a random subspace of dimension k + p (where p is a small oversampling parameter, typically 5-10). The algorithm proceeds in three steps: (1) form a random matrix Omega of size n x (k+p), (2) compute the sketch Y = A * Omega and find an orthonormal basis Q for range(Y), and (3) compute the SVD of the small matrix B = Q^T * A and recover the approximate SVD of A. The oversampling parameter p provides robustness: with p = 5, the approximation error is within a factor (1 + 11*sqrt(k+p)*sqrt(min(m,n))) of optimal, and in practice the error is typically within 1% of the best rank-k approximation.
 
-- Low-rank adaptation (LoRA initialization)
-- Model compression via low-rank factorization
-- Analyzing learned representations
-- Data preprocessing (PCA on large datasets)
+The randomized SVD is now the default algorithm for large-scale matrix factorization in scientific computing (it is the algorithm behind scikit-learn's TruncatedSVD and Facebook's PCA implementation for billion-scale embeddings). In AI, it is widely used for:
+
+- **Low-rank adaptation (LoRA initialization):** LoRA's low-rank weight updates A*B are conceptually related to the randomized SVD's low-rank factorization. Initializing LoRA with the top-k SVD components of the pretrained weight matrix can provide a warm start.
+- **Model compression via low-rank factorization:** Replacing a weight matrix W with its rank-k approximation U_k * Sigma_k * V_k^T reduces parameters from m*n to (m+n)*k, enabling compression ratios of 2-5x with minimal quality loss when the weight matrix has rapid singular value decay.
+- **Analyzing learned representations:** PCA of hidden activations reveals the effective dimensionality and structure of learned representations. The randomized SVD enables this analysis on activations with millions of dimensions.
+- **Data preprocessing (PCA on large datasets):** Computing PCA on datasets with millions of samples and thousands of features requires the randomized SVD -- exact SVD is infeasible at this scale.
 
 ### Nystrom Approximation
 
