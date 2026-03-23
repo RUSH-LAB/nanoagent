@@ -5,20 +5,44 @@ title: "Foundation World Models"
 
 # Foundation World Models
 
-A transformative recent trend is the development of large-scale, general-purpose world models trained on broad data.
+A transformative recent trend is the development of large-scale, general-purpose world models trained on broad data. Unlike the domain-specific world models of the Dreamer line (trained per-environment), foundation world models aim to learn general physics, visual dynamics, and interaction patterns from massive datasets, then transfer to specific environments with minimal adaptation. This parallels the foundation model paradigm in NLP (GPT, LLaMA) and vision (ViT, CLIP), where broad pre-training enables efficient specialization.
 
 ### Genie (Google DeepMind)
 
-Genie (Bruce et al., 2024) [@bruce2024genie] introduced the concept of generative interactive environments. Trained on internet videos of 2D platformer games, Genie learns a latent action space from unlabeled video, enabling controllable generation of interactive environments from a single image. Genie introduced the Spatiotemporal Transformer (ST-Transformer) architecture for efficient video tokenization and dynamics modeling. The Genie family has since expanded to Genie 2 and Genie 3, which generate photorealistic 3D interactive worlds from text or image prompts [@deepmind2025genie3].
+Genie (Bruce et al., 2024) [@bruce2024genie] introduced the concept of **generative interactive environments**. Trained on 200,000 hours of internet videos of 2D platformer games (without any action labels), Genie learns three components: (1) a video tokenizer (VQ-VAE) that compresses video frames into discrete tokens, (2) a latent action model that infers a discrete action space from unlabeled video (learning what actions correspond to the observed state transitions), and (3) a dynamics model (ST-Transformer) that predicts the next frame given the current frame and a latent action.
+
+The remarkable aspect of Genie is that it learns controllable world simulation from passive video -- no action labels, no reward signals, no environment interaction. Given a single image (hand-drawn sketch, photograph, or generated image), Genie can generate a playable interactive environment. This opens the possibility of creating infinite training environments for RL agents from the vast corpus of internet video. The Genie family has since expanded: Genie 2 generates 3D interactive worlds with consistent geometry, and Genie 3 produces photorealistic interactive environments from text or image prompts [@deepmind2025genie3], representing a rapid scaling of the foundation world model paradigm.
+
+### Cosmos (NVIDIA)
+
+NVIDIA's Cosmos [@nvidia2024cosmos] is a family of world foundation models designed to generate physically plausible visual simulations. Cosmos includes multiple model sizes and architectures (diffusion-based and autoregressive), trained on large-scale video datasets with a focus on physical realism. The key application is autonomous driving simulation: Cosmos can generate diverse, realistic driving scenarios for training and testing self-driving systems, replacing expensive real-world data collection. Cosmos represents the industrial deployment of foundation world models, where the economic value of synthetic simulation data justifies the massive training investment.
 
 ### UniSim
 
-Yang et al. (2023) [@yang2023learning] proposed UniSim, a universal simulator that learns to simulate diverse real-world interactions from video data. UniSim can generate plausible video predictions conditioned on various action types (robotic actions, human actions, text descriptions), positioning it as a step toward universal world models that support multiple downstream applications.
+Yang et al. (2023) [@yang2023learning] proposed UniSim, a universal simulator that learns to simulate diverse real-world interactions from video data. UniSim can generate plausible video predictions conditioned on various action types (robotic actions, human actions, text descriptions), positioning it as a step toward universal world models that support multiple downstream applications. UniSim's flexibility in conditioning -- accepting actions in different formats (end-effector positions, language instructions, joystick inputs) -- demonstrates that a single foundation world model can serve as the basis for diverse applications.
 
 ### DIAMOND
 
-Alonso et al. (2024) [@alonso2024diffusion] introduced DIAMOND (DIffusion As a Model Of eNvironment Dreams), which uses diffusion models as world models for reinforcement learning. By generating high-fidelity environment simulations through iterative denoising, DIAMOND achieves state-of-the-art performance on the Atari 100k benchmark among world model approaches, surpassing Dreamer v3 on several games. DIAMOND demonstrates that the sample quality of diffusion models translates into better downstream RL performance.
+Alonso et al. (2024) [@alonso2024diffusion] introduced DIAMOND (DIffusion As a Model Of eNvironment Dreams), which uses diffusion models as world models for reinforcement learning. Instead of the VAE-based encoding used in Dreamer, DIAMOND generates complete pixel-space observations through iterative denoising, conditioned on the action and a history of previous frames. By generating high-fidelity environment simulations, DIAMOND achieves state-of-the-art performance on the Atari 100k benchmark among world model approaches, surpassing Dreamer v3 on several games (achieving a human-normalized mean score of 1.46 vs. Dreamer v3's 1.19).
 
-### GameNGen
+DIAMOND demonstrates that the sample quality of diffusion models -- their ability to generate sharp, diverse, and coherent images -- directly translates into better downstream RL performance. The higher-fidelity "dreams" provide more accurate training signal for the policy, reducing the sim-to-imagination gap. However, the computational cost of diffusion-based world models (requiring multiple denoising steps per prediction) remains significantly higher than latent-space models.
 
-Valevski et al. (2024) [@valevski2024diffusion] introduced GameNGen, which uses a fine-tuned diffusion model to simulate the game DOOM in real-time. GameNGen generates each frame conditioned on the previous frames and player actions, achieving playable quality at 20+ FPS. This work demonstrated that diffusion models can serve as neural game engines, potentially replacing traditional game rendering pipelines.
+### GameNGen and Neural Game Engines
+
+Valevski et al. (2024) [@valevski2024diffusion] introduced GameNGen, which uses a fine-tuned Stable Diffusion model to simulate the game DOOM in real-time. GameNGen generates each frame conditioned on the previous frames and player actions, achieving playable quality at 20+ FPS on a TPU. A human evaluator study found that clips generated by GameNGen were indistinguishable from actual gameplay 58% of the time (near random chance). This work demonstrated that diffusion models can serve as **neural game engines**, potentially replacing traditional rendering pipelines.
+
+The GameNGen paradigm suggests a future where games and simulations are not programmed with explicit rules but learned from demonstrations. This has profound implications: any environment that can be recorded as video can potentially be converted into a playable, interactive world model.
+
+### Sora and Video Generation as World Modeling
+
+OpenAI's Sora (2024) [@openai2024sora], while primarily a video generation model, has been discussed extensively through the lens of world modeling. Sora generates temporally coherent videos with consistent 3D geometry, object permanence, and plausible physics -- properties that suggest it has learned an implicit world model from internet video data. However, Sora exhibits systematic failures (objects passing through each other, incorrect physics in edge cases) that reveal the limitations of learning world models purely from video prediction without explicit physics grounding.
+
+The debate around whether video generation models like Sora are "true" world models -- capable of supporting planning and counterfactual reasoning -- or merely sophisticated pattern matchers remains active [@lecun2024sora_critique]. This question has deep implications for the foundation world model approach: if video prediction alone is insufficient, what additional training signals (actions, rewards, physics simulators) are needed to learn genuine world models?
+
+### JEPA: Joint Embedding Predictive Architecture
+
+LeCun (2022) [@lecun2022path] proposed the Joint Embedding Predictive Architecture (JEPA) as a theoretical framework for world models that predict in abstract representation space rather than pixel space. The key argument is that pixel-level prediction is wasteful -- it forces the model to predict irrelevant details (exact texture patterns, lighting variations) that are uninformative for planning. Instead, JEPA predicts in a learned latent space where irrelevant details are abstracted away.
+
+V-JEPA (Bardes et al., 2024) [@bardes2024vjepa] implemented this vision for video understanding, training a model to predict masked spatiotemporal regions in a learned representation space (without pixel-level reconstruction). V-JEPA achieves strong performance on video understanding benchmarks while being more computationally efficient than pixel-prediction models. V-JEPA 2 extended this to larger scales, demonstrating that the JEPA paradigm can scale effectively and learn representations that transfer to both understanding and generation tasks.
+
+The JEPA perspective directly connects to the MuZero insight (Section 2.9): world models do not need to predict observations accurately -- they only need to predict quantities relevant to downstream tasks (values, rewards, policies, or abstract features).

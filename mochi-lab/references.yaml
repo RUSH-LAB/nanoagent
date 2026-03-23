@@ -3100,3 +3100,1573 @@ shao2024deepseekmath:
   year: 2024
   venue: "arXiv"
   url: "https://arxiv.org/abs/2402.03300"
+
+# === Chapter 1: Continual Learning - Additional References ===
+
+wang2024comprehensive:
+  type: article
+  title: "A Comprehensive Survey of Continual Learning: Theory, Method and Application"
+  author:
+    - "Liyuan Wang"
+    - "Xingxing Zhang"
+    - "Hang Su"
+    - "Jun Zhu"
+  year: 2024
+  venue: "IEEE TPAMI"
+  url: "https://arxiv.org/abs/2302.00487"
+
+wu2024continual_llm_survey:
+  type: article
+  title: "Continual Learning of Large Language Models: A Comprehensive Survey"
+  author:
+    - "Haizhou Shi"
+    - "Zihao Xu"
+    - "Hengyi Wang"
+    - "Weiyi Qin"
+    - "Wenyuan Wang"
+    - "Yibin Wang"
+    - "Hao Wang"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2404.16789"
+
+grossberg1980how:
+  type: article
+  title: "How Does a Brain Build a Cognitive Code?"
+  author:
+    - "Stephen Grossberg"
+  year: 1980
+  venue: "Psychological Review"
+  url: "https://doi.org/10.1037/0033-295X.87.1.1"
+
+mcclelland1995there:
+  type: article
+  title: "Why There Are Complementary Learning Systems in the Hippocampus and Neocortex"
+  author:
+    - "James L. McClelland"
+    - "Bruce L. McNaughton"
+    - "Randall C. O'Reilly"
+  year: 1995
+  venue: "Psychological Review"
+  url: "https://doi.org/10.1037/0033-295X.102.3.419"
+
+ji2007coordinated:
+  type: article
+  title: "Coordinated Memory Replay in the Visual Cortex and Hippocampus During Sleep"
+  author:
+    - "Daoyun Ji"
+    - "Matthew A. Wilson"
+  year: 2007
+  venue: "Nature Neuroscience"
+  url: "https://doi.org/10.1038/nn1825"
+
+abraham2008metaplasticity:
+  type: article
+  title: "Metaplasticity: Tuning Synapses and Networks for Plasticity"
+  author:
+    - "Wickliffe C. Abraham"
+  year: 2008
+  venue: "Nature Reviews Neuroscience"
+  url: "https://doi.org/10.1038/nrn2356"
+
+wang2022learning_l2p:
+  type: article
+  title: "Learning to Prompt for Continual Learning"
+  author:
+    - "Zifeng Wang"
+    - "Zizhao Zhang"
+    - "Chen-Yu Lee"
+    - "Han Zhang"
+    - "Ruoxi Sun"
+    - "Xiaoqi Ren"
+    - "Guolong Su"
+    - "Vincent Perot"
+    - "Jennifer Dy"
+    - "Tomas Pfister"
+  year: 2022
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/2112.08654"
+
+wang2022dualprompt:
+  type: article
+  title: "DualPrompt: Complementary Prompting for Rehearsal-Free Continual Learning"
+  author:
+    - "Zifeng Wang"
+    - "Zizhao Zhang"
+    - "Sayna Ebrahimi"
+    - "Ruoxi Sun"
+    - "Han Zhang"
+    - "Chen-Yu Lee"
+    - "Xiaoqi Ren"
+    - "Guolong Su"
+    - "Vincent Perot"
+    - "Jennifer Dy"
+    - "Tomas Pfister"
+  year: 2022
+  venue: "ECCV"
+  url: "https://arxiv.org/abs/2204.04799"
+
+wang2022sprompts:
+  type: article
+  title: "S-Prompts Learning with Pre-trained Transformers: An Occam's Razor for Domain Incremental Learning"
+  author:
+    - "Yabin Wang"
+    - "Zhiwu Huang"
+    - "Xiaopeng Hong"
+  year: 2022
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2207.12819"
+
+smith2023codaprompt:
+  type: article
+  title: "CODA-Prompt: COntinual Decomposed Attention-based Prompting for Rehearsal-Free Continual Learning"
+  author:
+    - "James Seale Smith"
+    - "Leonid Karlinsky"
+    - "Vyshnavi Gutta"
+    - "Paola Cascante-Bonilla"
+    - "Donghyun Kim"
+    - "Assaf Arbelle"
+    - "Rameswar Panda"
+    - "Rogerio Feris"
+    - "Zsolt Kira"
+  year: 2023
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/2211.13218"
+
+mehta2023empirical:
+  type: article
+  title: "An Empirical Investigation of the Role of Pre-training in Lifelong Learning"
+  author:
+    - "Sanket Vaibhav Mehta"
+    - "Darshan Patil"
+    - "Sarath Chandar"
+    - "Emma Strubell"
+  year: 2023
+  venue: "JMLR"
+  url: "https://arxiv.org/abs/2112.09153"
+
+kim2023achieving:
+  type: article
+  title: "Achieving a Better Stability-Plasticity Trade-off via Auxiliary Networks in Continual Learning"
+  author:
+    - "Sanghwan Kim"
+    - "Lorenzo Noci"
+    - "Antonio Orvieto"
+    - "Thomas Hofmann"
+  year: 2023
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/2303.09483"
+
+boschini2022class:
+  type: article
+  title: "Class-Incremental Continual Learning into the eXtended DER-verse"
+  author:
+    - "Matteo Boschini"
+    - "Lorenzo Bonicelli"
+    - "Pietro Buzzega"
+    - "Angelo Porrello"
+    - "Simone Calderara"
+  year: 2022
+  venue: "IEEE TPAMI"
+  url: "https://arxiv.org/abs/2201.00766"
+
+chaudhry2018riemannian:
+  type: article
+  title: "Riemannian Walk for Incremental Learning: Understanding Forgetting and Intransigence"
+  author:
+    - "Arslan Chaudhry"
+    - "Puneet K. Dokania"
+    - "Thalaiyasingam Ajanthan"
+    - "Philip H.S. Torr"
+  year: 2018
+  venue: "ECCV"
+  url: "https://arxiv.org/abs/1801.10112"
+
+aljundi2019online:
+  type: article
+  title: "Online Continual Learning with Maximal Interfered Retrieval"
+  author:
+    - "Rahaf Aljundi"
+    - "Eugene Belilovsky"
+    - "Tinne Tuytelaars"
+    - "Laurent Charlin"
+    - "Massimo Caccia"
+    - "Min Lin"
+    - "Lucas Page-Caccia"
+  year: 2019
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1908.04742"
+
+caccia2022new:
+  type: article
+  title: "New Insights on Reducing Abrupt Representation Change in Online Continual Learning"
+  author:
+    - "Lucas Caccia"
+    - "Rahaf Aljundi"
+    - "Nader Asadi"
+    - "Tinne Tuytelaars"
+    - "Joelle Pineau"
+    - "Eugene Belilovsky"
+  year: 2022
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2104.05025"
+
+lee2020neural_cl:
+  type: article
+  title: "A Neural Dirichlet Process Mixture Model for Task-Free Continual Learning"
+  author:
+    - "Soochan Lee"
+    - "Junsoo Ha"
+    - "Dongsu Zhang"
+    - "Gunhee Kim"
+  year: 2020
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2001.00689"
+
+vandeven2022three_types:
+  type: article
+  title: "Three Types of Incremental Learning"
+  author:
+    - "Gido M. van de Ven"
+    - "Hava T. Siegelmann"
+    - "Andreas S. Tolias"
+  year: 2022
+  venue: "Nature Machine Intelligence"
+  url: "https://arxiv.org/abs/2211.13264"
+
+mermillod2013stability:
+  type: article
+  title: "The Stability-Plasticity Dilemma: Investigating the Continuum from Catastrophic Forgetting to Age-Limited Learning Effects"
+  author:
+    - "Martial Mermillod"
+    - "Aurélia Bugaiska"
+    - "Patrick Bonin"
+  year: 2013
+  venue: "Frontiers in Psychology"
+  url: "https://doi.org/10.3389/fpsyg.2013.00504"
+
+hou2019learning:
+  type: article
+  title: "Learning a Unified Classifier Incrementally via Rebalancing"
+  author:
+    - "Saihui Hou"
+    - "Xinyu Pan"
+    - "Chen Change Loy"
+    - "Zilei Wang"
+    - "Dahua Lin"
+  year: 2019
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/1905.13260"
+
+douillard2020podnet:
+  type: article
+  title: "PODNet: Pooled Outputs Distillation for Small-Tasks Incremental Learning"
+  author:
+    - "Arthur Douillard"
+    - "Matthieu Cord"
+    - "Charles Ollion"
+    - "Thomas Robert"
+    - "Eduardo Valle"
+  year: 2020
+  venue: "ECCV"
+  url: "https://arxiv.org/abs/2004.13513"
+
+wu2019large_bic:
+  type: article
+  title: "Large Scale Incremental Learning"
+  author:
+    - "Yue Wu"
+    - "Yinpeng Chen"
+    - "Lijuan Wang"
+    - "Yuancheng Ye"
+    - "Zicheng Liu"
+    - "Yandong Guo"
+    - "Yun Fu"
+  year: 2019
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/1905.13260"
+
+zhao2020maintaining_wa:
+  type: article
+  title: "Maintaining Discrimination and Fairness in Class Incremental Learning"
+  author:
+    - "Bowen Zhao"
+    - "Xi Xiao"
+    - "Guojun Gan"
+    - "Bin Zhang"
+    - "Shu-Tao Xia"
+  year: 2020
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/1911.07053"
+
+jung2016less:
+  type: article
+  title: "Less-Forgetting Learning in Deep Neural Networks"
+  author:
+    - "Heechul Jung"
+    - "Jeongwoo Ju"
+    - "Minju Jung"
+    - "Junmo Kim"
+  year: 2016
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/1607.00122"
+
+rebuffi2017icarl:
+  type: article
+  title: "iCaRL: Incremental Classifier and Representation Learning"
+  author:
+    - "Sylvestre-Alvise Rebuffi"
+    - "Alexander Kolesnikov"
+    - "Georg Sperl"
+    - "Christoph H. Lampert"
+  year: 2017
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/1611.07725"
+
+aljundi2019gradient:
+  type: article
+  title: "Gradient Based Sample Selection for Online Continual Learning"
+  author:
+    - "Rahaf Aljundi"
+    - "Min Lin"
+    - "Baptiste Goujaud"
+    - "Yoshua Bengio"
+  year: 2019
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1903.08671"
+
+chrysakis2020online:
+  type: article
+  title: "Online Continual Learning from Imbalanced Data"
+  author:
+    - "Aristotelis Chrysakis"
+    - "Marie-Francine Moens"
+  year: 2020
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2003.10123"
+
+saha2021gradient:
+  type: article
+  title: "Gradient Projection Memory for Continual Learning"
+  author:
+    - "Gobinda Saha"
+    - "Isha Garg"
+    - "Kaushik Roy"
+  year: 2021
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2103.09762"
+
+wang2021orthogonal_adamn:
+  type: article
+  title: "Training Networks in Null Space of Feature Covariance for Continual Learning"
+  author:
+    - "Shipeng Wang"
+    - "Xiaorong Li"
+    - "Jian Sun"
+    - "Zongben Xu"
+  year: 2021
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/2104.08595"
+
+ahn2021ssil:
+  type: article
+  title: "SS-IL: Separated Softmax for Incremental Learning"
+  author:
+    - "Hongjoon Ahn"
+    - "Jihwan Kwak"
+    - "Subin Lim"
+    - "Hyeonsu Bang"
+    - "Hyojun Kim"
+    - "Taesup Moon"
+  year: 2021
+  venue: "ICCV"
+  url: "https://arxiv.org/abs/2003.13947"
+
+wang2022foster:
+  type: article
+  title: "FOSTER: Feature Boosting and Compression for Class-Incremental Learning"
+  author:
+    - "Fu-Yun Wang"
+    - "Da-Wei Zhou"
+    - "Han-Jia Ye"
+    - "De-Chuan Zhan"
+  year: 2022
+  venue: "ECCV"
+  url: "https://arxiv.org/abs/2204.04662"
+
+cha2021co2l:
+  type: article
+  title: "Co2L: Contrastive Continual Learning"
+  author:
+    - "Hyuntak Cha"
+    - "Jaeho Lee"
+    - "Jinwoo Shin"
+  year: 2021
+  venue: "ICCV"
+  url: "https://arxiv.org/abs/2106.14413"
+
+khosla2020supervised:
+  type: article
+  title: "Supervised Contrastive Learning"
+  author:
+    - "Prannay Khosla"
+    - "Piotr Teterwak"
+    - "Chen Wang"
+    - "Aaron Sarna"
+    - "Yonglong Tian"
+    - "Phillip Isola"
+    - "Aaron Maschinot"
+    - "Ce Liu"
+    - "Dilip Krishnan"
+  year: 2020
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2004.11362"
+
+yan2021der_cl:
+  type: article
+  title: "DER: Dynamically Expandable Representation for Class Incremental Learning"
+  author:
+    - "Shipeng Yan"
+    - "Jiangwei Xie"
+    - "Xuming He"
+  year: 2021
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/2103.16788"
+
+zhou2022memo:
+  type: article
+  title: "A Model or 603 Exemplars: Towards Memory-Efficient Class-Incremental Learning"
+  author:
+    - "Da-Wei Zhou"
+    - "Qi-Wei Wang"
+    - "Han-Jia Ye"
+    - "De-Chuan Zhan"
+  year: 2022
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2205.13218"
+
+yu2024boosting_moe_cl:
+  type: article
+  title: "Boosting Continual Learning of Vision-Language Models via Mixture-of-Experts Adapters"
+  author:
+    - "Jiazuo Yu"
+    - "Yunzhi Zhuge"
+    - "Lu Zhang"
+    - "Ping Lu"
+    - "Liang Wang"
+    - "Huchuan Lu"
+  year: 2024
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/2403.11549"
+
+mendez2022modular_cl:
+  type: article
+  title: "Lifelong Learning with Modular and Compositional Knowledge"
+  author:
+    - "Jorge A. Mendez"
+    - "Eric Eaton"
+  year: 2022
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2207.00680"
+
+wang2024hierarchical_hide:
+  type: article
+  title: "Hierarchical Decomposition of Prompt-Based Continual Learning: Rethinking Obscured Sub-optimality"
+  author:
+    - "Liyuan Wang"
+    - "Jingyi Xie"
+    - "Xingxing Zhang"
+    - "Mingyi Huang"
+    - "Hang Su"
+    - "Jun Zhu"
+  year: 2024
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2310.07234"
+
+finn2017model:
+  type: article
+  title: "Model-Agnostic Meta-Learning for Fast Adaptation of Deep Networks"
+  author:
+    - "Chelsea Finn"
+    - "Pieter Abbeel"
+    - "Sergey Levine"
+  year: 2017
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1703.03400"
+
+hospedales2021metalearning:
+  type: article
+  title: "Meta-Learning in Neural Networks: A Survey"
+  author:
+    - "Timothy Hospedales"
+    - "Antreas Antoniou"
+    - "Paul Micaelli"
+    - "Amos Storkey"
+  year: 2021
+  venue: "IEEE TPAMI"
+  url: "https://arxiv.org/abs/2004.05439"
+
+yao2023editing:
+  type: article
+  title: "Editing Large Language Models: Problems, Methods, and Opportunities"
+  author:
+    - "Yunzhi Yao"
+    - "Peng Wang"
+    - "Bozhong Tian"
+    - "Siyuan Cheng"
+    - "Zhoubo Li"
+    - "Shumin Deng"
+    - "Huajun Chen"
+    - "Ningyu Zhang"
+  year: 2023
+  venue: "EMNLP"
+  url: "https://arxiv.org/abs/2305.13172"
+
+meng2022locating:
+  type: article
+  title: "Locating and Editing Factual Associations in GPT"
+  author:
+    - "Kevin Meng"
+    - "David Bau"
+    - "Alex Andonian"
+    - "Yonatan Belinkov"
+  year: 2022
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2202.05262"
+
+meng2023mass:
+  type: article
+  title: "Mass-Editing Memory in a Transformer"
+  author:
+    - "Kevin Meng"
+    - "Arnab Sen Sharma"
+    - "Alex Andonian"
+    - "Yonatan Belinkov"
+    - "David Bau"
+  year: 2023
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2210.07229"
+
+mitchell2022fast:
+  type: article
+  title: "Fast Model Editing at Scale"
+  author:
+    - "Eric Mitchell"
+    - "Charles Lin"
+    - "Antoine Bosselut"
+    - "Chelsea Finn"
+    - "Christopher D. Manning"
+  year: 2022
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2104.08164"
+
+hoelscher2023detecting:
+  type: article
+  title: "Detecting Edit Failures In Large Language Models: An Improved Specificity Benchmark"
+  author:
+    - "Jason Hoelscher-Obermaier"
+    - "Julia Perber"
+    - "Fazl Barez"
+    - "Francis Rhys Ward"
+    - "Cas Sherborne"
+    - "Owain Evans"
+  year: 2023
+  venue: "ACL Findings"
+  url: "https://arxiv.org/abs/2305.17553"
+
+houlsby2019parameter:
+  type: article
+  title: "Parameter-Efficient Transfer Learning for NLP"
+  author:
+    - "Neil Houlsby"
+    - "Andrei Giurgiu"
+    - "Stanislaw Jastrzebski"
+    - "Bruna Morrone"
+    - "Quentin de Laroussilhe"
+    - "Andrea Gesmundo"
+    - "Mona Attariyan"
+    - "Sylvain Gelly"
+  year: 2019
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1902.00751"
+
+madotto2021continual:
+  type: article
+  title: "Continual Learning in Task-Oriented Dialogue Systems"
+  author:
+    - "Andrea Madotto"
+    - "Zhaojiang Lin"
+    - "Zhenpeng Zhou"
+    - "Seungwhan Moon"
+    - "Paul Crook"
+    - "Bing Liu"
+    - "Zhiguang Wang"
+    - "Liang Qiu"
+    - "Yue Zhang"
+    - "Pascale Fung"
+  year: 2021
+  venue: "EMNLP"
+  url: "https://arxiv.org/abs/2012.15504"
+
+ilharco2023editing:
+  type: article
+  title: "Editing Models with Task Arithmetic"
+  author:
+    - "Gabriel Ilharco"
+    - "Marco Tulio Ribeiro"
+    - "Mitchell Wortsman"
+    - "Ludwig Schmidt"
+    - "Hannaneh Hajishirzi"
+    - "Ali Farhadi"
+  year: 2023
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2212.04089"
+
+yadav2024ties:
+  type: article
+  title: "TIES-Merging: Resolving Interference When Merging Models"
+  author:
+    - "Prateek Yadav"
+    - "Derek Tam"
+    - "Leshem Choshen"
+    - "Colin Raffel"
+    - "Mohit Bansal"
+  year: 2024
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2306.01708"
+
+yu2024language_dare:
+  type: article
+  title: "Language Models are Super Mario: Absorbing Abilities from Homologous Models as a Free Lunch"
+  author:
+    - "Le Yu"
+    - "Bowen Yu"
+    - "Haiyang Yu"
+    - "Fei Huang"
+    - "Yongbin Li"
+  year: 2024
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2311.03099"
+
+wortsman2022model_soups:
+  type: article
+  title: "Model Soups: Averaging Weights of Multiple Fine-tuned Models Improves Accuracy without Increasing Inference Time"
+  author:
+    - "Mitchell Wortsman"
+    - "Gabriel Ilharco"
+    - "Samir Yitzhak Gadre"
+    - "Rebecca Roelofs"
+    - "Raphael Gontijo-Lopes"
+    - "Ari S. Morcos"
+    - "Hongseok Namkoong"
+    - "Ali Farhadi"
+    - "Yair Carmon"
+    - "Simon Kornblith"
+    - "Ludwig Schmidt"
+  year: 2022
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2203.05482"
+
+rafailov2023direct:
+  type: article
+  title: "Direct Preference Optimization: Your Language Model is Secretly a Reward Model"
+  author:
+    - "Rafael Rafailov"
+    - "Archit Sharma"
+    - "Eric Mitchell"
+    - "Christopher D. Manning"
+    - "Stefano Ermon"
+    - "Chelsea Finn"
+  year: 2023
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2305.18290"
+
+gururangan2020dont:
+  type: article
+  title: "Don't Stop Pretraining: Adapt Language Models to Domains and Tasks"
+  author:
+    - "Suchin Gururangan"
+    - "Ana Marasovic"
+    - "Swabha Swayamdipta"
+    - "Kyle Lo"
+    - "Iz Beltagy"
+    - "Doug Downey"
+    - "Noah A. Smith"
+  year: 2020
+  venue: "ACL"
+  url: "https://arxiv.org/abs/2004.10964"
+
+lomonaco2017core50:
+  type: article
+  title: "CORe50: a New Dataset and Benchmark for Continuous Object Recognition"
+  author:
+    - "Vincenzo Lomonaco"
+    - "Davide Maltoni"
+  year: 2017
+  venue: "CoRL"
+  url: "https://arxiv.org/abs/1705.03550"
+
+normandin2022sequoia:
+  type: article
+  title: "Sequoia: A Software Framework to Unify Continual Learning Research"
+  author:
+    - "Fabrice Normandin"
+    - "Florian Golemo"
+    - "Oleksiy Ostapenko"
+    - "Pau Rodriguez"
+    - "Matthew D. Riemer"
+    - "Julie Beaulac"
+    - "Luca Franceschini"
+    - "Massimo Caccia"
+    - "Hae Beom Lee"
+    - "Lucas Caccia"
+    - "Sarath Chandar"
+  year: 2022
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2108.01005"
+
+yoon2021federated:
+  type: article
+  title: "Federated Continual Learning with Weighted Inter-client Transfer"
+  author:
+    - "Jaehong Yoon"
+    - "Wonyong Jeong"
+    - "Giwoong Lee"
+    - "Eunho Yang"
+    - "Sung Ju Hwang"
+  year: 2021
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2003.03196"
+
+hayes2020remind:
+  type: article
+  title: "REMIND Your Neural Network to Prevent Catastrophic Forgetting"
+  author:
+    - "Tyler L. Hayes"
+    - "Kushal Kafle"
+    - "Robik Shrestha"
+    - "Manoj Acharya"
+    - "Christopher Kanan"
+  year: 2020
+  venue: "ECCV"
+  url: "https://arxiv.org/abs/1910.02509"
+
+# === Chapter 2: World Models - Additional References ===
+
+nvidia2024cosmos:
+  type: article
+  title: "Cosmos World Foundation Model Platform for Physical AI"
+  author:
+    - "NVIDIA"
+  year: 2024
+  venue: "NVIDIA Technical Report"
+  url: "https://arxiv.org/abs/2501.03575"
+
+hu2023gaia1:
+  type: article
+  title: "GAIA-1: A Generative World Model for Autonomous Driving"
+  author:
+    - "Anthony Hu"
+    - "Lloyd Russell"
+    - "Hudson Yeo"
+    - "Zak Murez"
+    - "George Fedoseev"
+    - "Alex Kendall"
+  year: 2023
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2309.17080"
+
+wang2024driving_world_survey:
+  type: article
+  title: "A Survey of World Models for Autonomous Driving"
+  author:
+    - "Tuo Wang"
+    - "Guangming Wang"
+    - "Yanfeng Wang"
+    - "Yu Wang"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2501.11260"
+
+openai2024sora:
+  type: article
+  title: "Video Generation Models as World Simulators"
+  author:
+    - "OpenAI"
+  year: 2024
+  venue: "OpenAI Technical Report"
+  url: "https://openai.com/research/video-generation-models-as-world-simulators"
+
+lecun2024sora_critique:
+  type: article
+  title: "A Path Towards Autonomous Machine Intelligence"
+  author:
+    - "Yann LeCun"
+  year: 2022
+  venue: "OpenReview"
+  url: "https://openreview.net/pdf?id=BZ5a1r-kVsf"
+
+bardes2024vjepa:
+  type: article
+  title: "V-JEPA: Latent Video Prediction for Visual Representation Learning"
+  author:
+    - "Adrien Bardes"
+    - "Quentin Garrido"
+    - "Jean Ponce"
+    - "Xinlei Chen"
+    - "Michael Rabbat"
+    - "Yann LeCun"
+    - "Mido Assran"
+    - "Nicolas Ballas"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2404.16767"
+
+deng2022dreamerpro:
+  type: article
+  title: "DreamerPro: Reconstruction-Free Model-Based Reinforcement Learning with Prototypical Representations"
+  author:
+    - "Fei Deng"
+    - "Ingook Jang"
+    - "Sungjin Ahn"
+  year: 2022
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2110.14565"
+
+sekar2020planning:
+  type: article
+  title: "Planning to Explore via Self-Supervised World Models"
+  author:
+    - "Ramanan Sekar"
+    - "Oleh Rybkin"
+    - "Kostas Daniilidis"
+    - "Pieter Abbeel"
+    - "Danijar Hafner"
+    - "Deepak Pathak"
+  year: 2020
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2005.05960"
+
+hafner2022director:
+  type: article
+  title: "Deep Hierarchical Planning from Pixels"
+  author:
+    - "Danijar Hafner"
+    - "Kuang-Huei Lee"
+    - "Ian Fischer"
+    - "Pieter Abbeel"
+  year: 2022
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2206.04114"
+
+wu2023daydreamer:
+  type: article
+  title: "DayDreamer: World Models for Physical Robot Learning"
+  author:
+    - "Philipp Wu"
+    - "Alejandro Escontrela"
+    - "Danijar Hafner"
+    - "Pieter Abbeel"
+    - "Ken Goldberg"
+  year: 2023
+  venue: "CoRL"
+  url: "https://arxiv.org/abs/2206.14176"
+
+hu2022mile:
+  type: article
+  title: "Model-Based Imitation Learning for Urban Driving"
+  author:
+    - "Anthony Hu"
+    - "Gianluca Corrado"
+    - "Nicolas Griffiths"
+    - "Zak Murez"
+    - "Corina Gurau"
+    - "Hudson Yeo"
+    - "Alex Kendall"
+    - "Roberto Cipolla"
+    - "Jamie Sherrah"
+  year: 2022
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2210.07729"
+
+zheng2024occworld:
+  type: article
+  title: "OccWorld: Learning a 3D Occupancy World Model for Autonomous Driving"
+  author:
+    - "Wenzhao Zheng"
+    - "Weiliang Chen"
+    - "Yuanhui Huang"
+    - "Borui Zhang"
+    - "Jie Zhou"
+    - "Jiwen Lu"
+  year: 2024
+  venue: "ECCV"
+  url: "https://arxiv.org/abs/2311.16038"
+
+zhang2025storm_wm:
+  type: article
+  title: "STORM: Efficient Stochastic Transformer based World Models for Reinforcement Learning"
+  author:
+    - "Weipu Zhang"
+    - "Gang Wang"
+    - "Jian Sun"
+    - "Yetian Yuan"
+    - "Gao Huang"
+  year: 2025
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2310.09615"
+
+wu2023slotformer:
+  type: article
+  title: "SlotFormer: Unsupervised Visual Dynamics Simulation with Object-Centric Models"
+  author:
+    - "Ziyi Wu"
+    - "Nikita Dvornik"
+    - "Klaus Greff"
+    - "Thomas Kipf"
+    - "Animesh Garg"
+  year: 2023
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2210.05861"
+
+locatello2020object:
+  type: article
+  title: "Object-Centric Learning with Slot Attention"
+  author:
+    - "Francesco Locatello"
+    - "Dirk Weissenborn"
+    - "Thomas Unterthiner"
+    - "Aravindh Mahendran"
+    - "Georg Heigold"
+    - "Jakob Uszkoreit"
+    - "Alexey Dosovitskiy"
+    - "Thomas Kipf"
+  year: 2020
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2006.15055"
+
+mitchell2023debate:
+  type: article
+  title: "The Debate Over Understanding in AI's Large Language Models"
+  author:
+    - "Melanie Mitchell"
+    - "David C. Krakauer"
+  year: 2023
+  venue: "PNAS"
+  url: "https://doi.org/10.1073/pnas.2215907120"
+
+# === Chapter 3: Efficient Architecture - Additional References ===
+
+gu2020hippo:
+  type: article
+  title: "HiPPO: Recurrent Memory with Optimal Polynomial Projections"
+  author:
+    - "Albert Gu"
+    - "Tri Dao"
+    - "Stefano Ermon"
+    - "Atri Rudra"
+    - "Christopher Re"
+  year: 2020
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2008.07669"
+
+glorioso2024zamba:
+  type: article
+  title: "Zamba: A Compact 7B SSM Hybrid Model"
+  author:
+    - "Paolo Glorioso"
+    - "Quentin Anthony"
+    - "Yury Tokpanov"
+    - "James Whittington"
+    - "Jonathan Pilault"
+    - "Beren Millidge"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2405.16712"
+
+frantar2023sparsegpt:
+  type: article
+  title: "SparseGPT: Massive Language Models Can Be Accurately Pruned in One-Shot"
+  author:
+    - "Elias Frantar"
+    - "Dan Alistarh"
+  year: 2023
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2301.00774"
+
+sun2024wanda:
+  type: article
+  title: "A Simple and Effective Pruning Approach for Large Language Models"
+  author:
+    - "Mingjie Sun"
+    - "Zhuang Liu"
+    - "Anna Bair"
+    - "J. Zico Kolter"
+  year: 2024
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2306.11695"
+
+wang2023bitnet:
+  type: article
+  title: "BitNet: Scaling 1-Bit Transformers for Large Language Models"
+  author:
+    - "Hongyu Wang"
+    - "Shuming Ma"
+    - "Li Dong"
+    - "Shaohan Huang"
+    - "Huaijie Wang"
+    - "Lingxiao Ma"
+    - "Fan Yang"
+    - "Ruiping Wang"
+    - "Yi Wu"
+    - "Furu Wei"
+  year: 2023
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2310.11453"
+
+ma2024bitnet158:
+  type: article
+  title: "The Era of 1-bit LLMs: All Large Language Models are in 1.58 Bits"
+  author:
+    - "Shuming Ma"
+    - "Hongyu Wang"
+    - "Lingxiao Ma"
+    - "Lei Wang"
+    - "Wenhui Wang"
+    - "Shaohan Huang"
+    - "Li Dong"
+    - "Ruiping Wang"
+    - "Jilong Xue"
+    - "Furu Wei"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2402.17764"
+
+dettmers2023qlora:
+  type: article
+  title: "QLoRA: Efficient Finetuning of Quantized LLMs"
+  author:
+    - "Tim Dettmers"
+    - "Artidoro Pagnoni"
+    - "Ari Holtzman"
+    - "Luke Zettlemoyer"
+  year: 2023
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2305.14314"
+
+liu2024dora:
+  type: article
+  title: "DoRA: Weight-Decomposed Low-Rank Adaptation"
+  author:
+    - "Shih-Yang Liu"
+    - "Chien-Yi Wang"
+    - "Hongxu Yin"
+    - "Pavlo Molchanov"
+    - "Yu-Chiang Frank Wang"
+    - "Kwang-Ting Cheng"
+    - "Min-Hung Chen"
+  year: 2024
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2402.09353"
+
+zhao2024galore:
+  type: article
+  title: "GaLore: Memory-Efficient LLM Training by Gradient Low-Rank Projection"
+  author:
+    - "Jiawei Zhao"
+    - "Zhenyu Zhang"
+    - "Beidi Chen"
+    - "Zhangyang Wang"
+    - "Anima Anandkumar"
+    - "Yuandong Tian"
+  year: 2024
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2403.03507"
+
+lester2021prompt_tuning:
+  type: article
+  title: "The Power of Scale for Parameter-Efficient Prompt Tuning"
+  author:
+    - "Brian Lester"
+    - "Rami Al-Rfou"
+    - "Noah Constant"
+  year: 2021
+  venue: "EMNLP"
+  url: "https://arxiv.org/abs/2104.08691"
+
+li2021prefix:
+  type: article
+  title: "Prefix-Tuning: Optimizing Continuous Prompts for Generation"
+  author:
+    - "Xiang Lisa Li"
+    - "Percy Liang"
+  year: 2021
+  venue: "ACL"
+  url: "https://arxiv.org/abs/2101.00190"
+
+sheng2024slora:
+  type: article
+  title: "S-LoRA: Serving Thousands of Concurrent LoRA Adapters"
+  author:
+    - "Ying Sheng"
+    - "Shiyi Cao"
+    - "Dacheng Li"
+    - "Coleman Hooper"
+    - "Nicholas Lee"
+    - "Shuo Yang"
+    - "Christopher Chou"
+    - "Banghua Zhu"
+    - "Lianmin Zheng"
+    - "Kurt Keutzer"
+    - "Joseph E. Gonzalez"
+    - "Ion Stoica"
+  year: 2024
+  venue: "MLSys"
+  url: "https://arxiv.org/abs/2311.03285"
+
+liu2024ringattention:
+  type: article
+  title: "Ring Attention with Blockwise Transformers for Near-Infinite Context"
+  author:
+    - "Hao Liu"
+    - "Matei Zaharia"
+    - "Pieter Abbeel"
+  year: 2024
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2310.01889"
+
+ye2024diff_transformer:
+  type: article
+  title: "Differential Transformer"
+  author:
+    - "Tianzhu Ye"
+    - "Li Dong"
+    - "Yuqing Xia"
+    - "Yutao Sun"
+    - "Yi Zhu"
+    - "Gao Huang"
+    - "Furu Wei"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2410.05258"
+
+# === Chapter 4: Agentic Search - Additional References ===
+
+karpukhin2020dpr:
+  type: article
+  title: "Dense Passage Retrieval for Open-Domain Question Answering"
+  author:
+    - "Vladimir Karpukhin"
+    - "Barlas Oguz"
+    - "Sewon Min"
+    - "Patrick Lewis"
+    - "Ledell Wu"
+    - "Sergey Edunov"
+    - "Danqi Chen"
+    - "Wen-tau Yih"
+  year: 2020
+  venue: "EMNLP"
+  url: "https://arxiv.org/abs/2004.04906"
+
+khattab2020colbert:
+  type: article
+  title: "ColBERT: Efficient and Effective Passage Search via Contextualized Late Interaction over BERT"
+  author:
+    - "Omar Khattab"
+    - "Matei Zaharia"
+  year: 2020
+  venue: "SIGIR"
+  url: "https://arxiv.org/abs/2004.12832"
+
+santhanam2022colbertv2:
+  type: article
+  title: "ColBERTv2: Effective and Efficient Retrieval via Lightweight Late Interaction"
+  author:
+    - "Keshav Santhanam"
+    - "Omar Khattab"
+    - "Jon Saad-Falcon"
+    - "Christopher Potts"
+    - "Matei Zaharia"
+  year: 2022
+  venue: "NAACL"
+  url: "https://arxiv.org/abs/2112.01488"
+
+wang2024e5:
+  type: article
+  title: "Improving Text Embeddings with Large Language Models"
+  author:
+    - "Liang Wang"
+    - "Nan Yang"
+    - "Xiaolong Huang"
+    - "Linjun Yang"
+    - "Rangan Majumder"
+    - "Furu Wei"
+  year: 2024
+  venue: "ACL"
+  url: "https://arxiv.org/abs/2401.00368"
+
+li2023gte:
+  type: article
+  title: "Towards General Text Embeddings with Multi-stage Contrastive Learning"
+  author:
+    - "Zehan Li"
+    - "Xin Zhang"
+    - "Yanzhao Zhang"
+    - "Dingkun Long"
+    - "Pengjun Xie"
+    - "Meishan Zhang"
+  year: 2023
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2308.03281"
+
+xiao2024bge:
+  type: article
+  title: "C-Pack: Packaged Resources To Advance General Chinese Embedding"
+  author:
+    - "Shitao Xiao"
+    - "Zheng Liu"
+    - "Peitian Zhang"
+    - "Niklas Muennighoff"
+  year: 2024
+  venue: "SIGIR"
+  url: "https://arxiv.org/abs/2309.07597"
+
+lee2024gecko:
+  type: article
+  title: "Gecko: Versatile Text Embeddings Distilled from Large Language Models"
+  author:
+    - "Jinhyuk Lee"
+    - "Zhuyun Dai"
+    - "Xiaoqi Ren"
+    - "Blair Chen"
+    - "Daniel Cer"
+    - "Jeremy R. Cole"
+    - "Kai Hui"
+    - "Michael Boratko"
+    - "Rajvi Kapadia"
+    - "Wen Ding"
+    - "Yi Luan"
+    - "Sai Meher Karthik Duddu"
+    - "Gustavo Hernandez Abrego"
+    - "Weiqiang Shi"
+    - "Nithi Gupta"
+    - "Aditya Kusupati"
+    - "Prateek Jain"
+    - "Siddhartha Reddy Jonnalagadda"
+    - "Ming-Wei Chang"
+    - "Iftekhar Naim"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2403.20327"
+
+edge2024graphrag:
+  type: article
+  title: "From Local to Global: A Graph RAG Approach to Query-Focused Summarization"
+  author:
+    - "Darren Edge"
+    - "Ha Trinh"
+    - "Newman Cheng"
+    - "Joshua Bradley"
+    - "Alex Chao"
+    - "Apurva Mody"
+    - "Steven Truitt"
+    - "Jonathan Larson"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2404.16130"
+
+yan2024crag:
+  type: article
+  title: "Corrective Retrieval Augmented Generation"
+  author:
+    - "Shi-Qi Yan"
+    - "Jia-Chen Gu"
+    - "Yun Zhu"
+    - "Zhen-Hua Ling"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2401.15884"
+
+gao2024modular_rag:
+  type: article
+  title: "Modular RAG: Transforming RAG Systems into LEGO-like Reconfigurable Frameworks"
+  author:
+    - "Yunfan Gao"
+    - "Yun Xiong"
+    - "Xinyu Gao"
+    - "Kangxiang Jia"
+    - "Jinliu Pan"
+    - "Yuxi Bi"
+    - "Yi Dai"
+    - "Jiawei Sun"
+    - "Meng Wang"
+    - "Haofen Wang"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2407.21059"
+
+alphacode2_2023:
+  type: article
+  title: "AlphaCode 2 Technical Report"
+  author:
+    - "Google DeepMind"
+  year: 2023
+  venue: "Google DeepMind"
+  url: "https://storage.googleapis.com/deepmind-media/AlphaCode2/AlphaCode2_Tech_Report.pdf"
+
+yang2024sweagent:
+  type: article
+  title: "SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering"
+  author:
+    - "John Yang"
+    - "Carlos E. Jimenez"
+    - "Alexander Wettig"
+    - "Kilian Lieret"
+    - "Shunyu Yao"
+    - "Karthik Narasimhan"
+    - "Ofir Press"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2405.15793"
+
+wang2024openhands:
+  type: article
+  title: "OpenHands: An Open Platform for AI Software Developers as Generalist Agents"
+  author:
+    - "Xingyao Wang"
+    - "Boxuan Li"
+    - "Yufan Song"
+    - "Frank F. Xu"
+    - "Xiangru Tang"
+    - "Mingchen Zhuge"
+    - "Jiayi Pan"
+    - "Yueqi Song"
+    - "Bowen Li"
+    - "Jaskirat Singh"
+    - "Hoang H. Tran"
+    - "Fuqiang Li"
+    - "Ren Ma"
+    - "Mingzhang Zheng"
+    - "Bill Qian"
+    - "Yanjun Shao"
+    - "Niklas Muennighoff"
+    - "Zilong Wang"
+    - "Likun Liu"
+    - "Junyang Lin"
+    - "Graham Neubig"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2407.16741"
+
+lightman2023prm:
+  type: article
+  title: "Let's Verify Step by Step"
+  author:
+    - "Hunter Lightman"
+    - "Vineet Kosaraju"
+    - "Yura Burda"
+    - "Harri Edwards"
+    - "Bowen Baker"
+    - "Teddy Lee"
+    - "Jan Leike"
+    - "John Schulman"
+    - "Ilya Sutskever"
+    - "Karl Cobbe"
+  year: 2023
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2305.20050"
+
+snell2024scaling_testtime:
+  type: article
+  title: "Scaling LLM Test-Time Compute Optimally can be More Effective than Scaling Model Parameters"
+  author:
+    - "Charlie Snell"
+    - "Jaehoon Lee"
+    - "Kelvin Xu"
+    - "Aviral Kumar"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2408.03314"
+
+# === Chapter 5: Randomized Signal - Additional References ===
+
+srivastava2014dropout:
+  type: article
+  title: "Dropout: A Simple Way to Prevent Neural Networks from Overfitting"
+  author:
+    - "Nitish Srivastava"
+    - "Geoffrey Hinton"
+    - "Alex Krizhevsky"
+    - "Ilya Sutskever"
+    - "Ruslan Salakhutdinov"
+  year: 2014
+  venue: "JMLR"
+  url: "https://jmlr.org/papers/v15/srivastava14a.html"
+
+gal2016dropout:
+  type: article
+  title: "Dropout as a Bayesian Approximation: Representing Model Uncertainty in Deep Learning"
+  author:
+    - "Yarin Gal"
+    - "Zoubin Ghahramani"
+  year: 2016
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1506.02142"
+
+wager2013dropout:
+  type: article
+  title: "Dropout Training as Adaptive Regularization"
+  author:
+    - "Stefan Wager"
+    - "Sida Wang"
+    - "Percy Liang"
+  year: 2013
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1307.1493"
+
+huang2016stochastic_depth:
+  type: article
+  title: "Deep Networks with Stochastic Depth"
+  author:
+    - "Gao Huang"
+    - "Yu Sun"
+    - "Zhuang Liu"
+    - "Daniel Sedra"
+    - "Kilian Q. Weinberger"
+  year: 2016
+  venue: "ECCV"
+  url: "https://arxiv.org/abs/1603.09382"
+
+wan2013dropconnect:
+  type: article
+  title: "Regularization of Neural Networks using DropConnect"
+  author:
+    - "Li Wan"
+    - "Matthew Zeiler"
+    - "Sixin Zhang"
+    - "Yann LeCun"
+    - "Rob Fergus"
+  year: 2013
+  venue: "ICML"
+  url: "http://proceedings.mlr.press/v28/wan13.html"
+
+ghiasi2018dropblock:
+  type: article
+  title: "DropBlock: A Regularization Technique for Convolutional Networks"
+  author:
+    - "Golnaz Ghiasi"
+    - "Tsung-Yi Lin"
+    - "Quoc V. Le"
+  year: 2018
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1810.12890"
+
+cubuk2020randaugment:
+  type: article
+  title: "Randaugment: Practical Automated Data Augmentation with a Reduced Search Space"
+  author:
+    - "Ekin D. Cubuk"
+    - "Barret Zoph"
+    - "Jonathon Shlens"
+    - "Quoc V. Le"
+  year: 2020
+  venue: "CVPR Workshops"
+  url: "https://arxiv.org/abs/1909.13719"
+
+zhang2018mixup:
+  type: article
+  title: "mixup: Beyond Empirical Risk Minimization"
+  author:
+    - "Hongyi Zhang"
+    - "Moustapha Cisse"
+    - "Yann N. Dauphin"
+    - "David Lopez-Paz"
+  year: 2018
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1710.09412"
+
+yun2019cutmix:
+  type: article
+  title: "CutMix: Regularization Strategy to Train Strong Classifiers with Localizable Features"
+  author:
+    - "Sangdoo Yun"
+    - "Dongyoon Han"
+    - "Seong Joon Oh"
+    - "Sanghyuk Chun"
+    - "Junsuk Choe"
+    - "Youngjoon Yoo"
+  year: 2019
+  venue: "ICCV"
+  url: "https://arxiv.org/abs/1905.04899"
+
+glorot2010understanding:
+  type: article
+  title: "Understanding the Difficulty of Training Deep Feedforward Neural Networks"
+  author:
+    - "Xavier Glorot"
+    - "Yoshua Bengio"
+  year: 2010
+  venue: "AISTATS"
+  url: "http://proceedings.mlr.press/v9/glorot10a.html"
+
+he2015delving:
+  type: article
+  title: "Delving Deep into Rectifiers: Surpassing Human-Level Performance on ImageNet Classification"
+  author:
+    - "Kaiming He"
+    - "Xiangyu Zhang"
+    - "Shaoqing Ren"
+    - "Jian Sun"
+  year: 2015
+  venue: "ICCV"
+  url: "https://arxiv.org/abs/1502.01852"
+
+saxe2014exact:
+  type: article
+  title: "Exact Solutions to the Nonlinear Dynamics of Learning in Deep Linear Neural Networks"
+  author:
+    - "Andrew M. Saxe"
+    - "James L. McClelland"
+    - "Surya Ganguli"
+  year: 2014
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1312.6120"
+
+poole2016exponential:
+  type: article
+  title: "Exponential Expressivity in Deep Neural Networks through Transient Chaos"
+  author:
+    - "Ben Poole"
+    - "Subhaneil Lahiri"
+    - "Maithra Raghu"
+    - "Jascha Sohl-Dickstein"
+    - "Surya Ganguli"
+  year: 2016
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1606.05340"
+
+kitaev2020reformer:
+  type: article
+  title: "Reformer: The Efficient Transformer"
+  author:
+    - "Nikita Kitaev"
+    - "Lukasz Kaiser"
+    - "Anselm Levskaya"
+  year: 2020
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2001.04451"
+
+peng2021rfa:
+  type: article
+  title: "Random Feature Attention"
+  author:
+    - "Hao Peng"
+    - "Nikolaos Pappas"
+    - "Dani Yogatama"
+    - "Roy Schwartz"
+    - "Noah A. Smith"
+    - "Lingpeng Kong"
+  year: 2021
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2103.02143"

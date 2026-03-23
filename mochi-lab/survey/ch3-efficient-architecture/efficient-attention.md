@@ -23,4 +23,12 @@ FlashAttention has become the de facto standard for attention computation, demon
 
 ### Multi-Query and Grouped-Query Attention
 
-Shazeer (2019) [@shazeer2019fast] proposed Multi-Query Attention (MQA), where all attention heads share a single set of key-value projections while maintaining separate query projections. This dramatically reduces the KV-cache size during inference (important for high-throughput serving) with minimal quality loss. Ainslie et al. (2023) [@ainslie2023gqa] proposed Grouped-Query Attention (GQA) as an interpolation between multi-head and multi-query attention, grouping heads to share KV projections. GQA is used in Llama 2 and many subsequent models as a practical balance between quality and inference efficiency.
+Shazeer (2019) [@shazeer2019fast] proposed Multi-Query Attention (MQA), where all attention heads share a single set of key-value projections while maintaining separate query projections. This dramatically reduces the KV-cache size during inference (by a factor equal to the number of heads, e.g., 32x for a 32-head model) with minimal quality loss. Ainslie et al. (2023) [@ainslie2023gqa] proposed Grouped-Query Attention (GQA) as an interpolation between multi-head and multi-query attention, grouping heads to share KV projections (e.g., 8 groups for 32 heads gives 4x cache reduction). GQA is used in Llama 2, Llama 3, Mistral, and many subsequent models as a practical balance between quality and inference efficiency.
+
+### Ring Attention and Distributed Context
+
+Liu et al. (2024) [@liu2024ringattention] proposed Ring Attention, which distributes the attention computation across multiple devices by arranging them in a ring and passing key-value blocks between devices. This enables near-linear scaling of context length with the number of devices, achieving context windows of millions of tokens. Ring Attention is particularly important for applications requiring very long contexts (entire books, codebases, long videos), where even FlashAttention cannot fit the computation on a single device.
+
+### Differential Attention
+
+Ye et al. (2024) [@ye2024diff_transformer] proposed the Differential Transformer (Diff Transformer), which computes attention as the difference between two softmax attention maps, effectively canceling out noise and attending more precisely to relevant tokens. Diff Transformer achieves better performance than standard Transformers on language modeling and downstream tasks, with particularly strong improvements on tasks requiring precise information retrieval from long contexts. The differential mechanism can be viewed as a form of learned noise cancellation, analogous to differential amplifiers in electronics.
