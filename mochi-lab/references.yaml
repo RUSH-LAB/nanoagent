@@ -6763,3 +6763,191 @@ janner2019trust:
   year: 2019
   venue: "NeurIPS"
   url: "https://arxiv.org/abs/1906.08253"
+
+li2023emergent_othello:
+  type: article
+  title: "Emergent World Representations: Exploring a Sequence Model Trained on a Synthetic Task"
+  author:
+    - "Kenneth Li"
+    - "Aspen K. Hopkins"
+    - "David Bau"
+    - "Fernanda Viégas"
+    - "Hanspeter Pfister"
+    - "Martin Wattenberg"
+  year: 2023
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2210.13382"
+
+nanda2023emergent:
+  type: article
+  title: "Othello-GPT: How Does an LLM Learn the Rules of a Board Game?"
+  author:
+    - "Neel Nanda"
+    - "Andrew Lee"
+    - "Martin Wattenberg"
+  year: 2023
+  venue: "NeurIPS ATTRIB Workshop"
+  url: "https://arxiv.org/abs/2309.03390"
+
+gurnee2024language:
+  type: article
+  title: "Language Models Represent Space and Time"
+  author:
+    - "Wes Gurnee"
+    - "Max Tegmark"
+  year: 2024
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2310.02207"
+
+ahn2023sayplan:
+  type: article
+  title: "SayPlan: Grounding Large Language Models using 3D Scene Graphs for Scalable Robot Task Planning"
+  author:
+    - "Krishan Rana"
+    - "Jesse Haviland"
+    - "Sourav Garg"
+    - "Jad Abou-Chakra"
+    - "Ian Reid"
+    - "Niko Sünderhauf"
+  year: 2023
+  venue: "CoRL"
+  url: "https://arxiv.org/abs/2307.06135"
+
+huang2023inner:
+  type: article
+  title: "Inner Monologue: Embodied Reasoning through Planning with Language Models"
+  author:
+    - "Wenlong Huang"
+    - "Fei Xia"
+    - "Ted Xiao"
+    - "Harris Chan"
+    - "Jacky Liang"
+    - "Pete Florence"
+    - "Andy Zeng"
+    - "Jonathan Tompson"
+    - "Igor Mordatch"
+    - "Yevgen Chebotar"
+    - "Pierre Sermanet"
+    - "Noah Brown"
+    - "Tomas Jackson"
+    - "Linda Luu"
+    - "Sergey Levine"
+    - "Karol Hausman"
+    - "Brian Ichter"
+  year: 2023
+  venue: "CoRL"
+  url: "https://arxiv.org/abs/2207.05608"
+
+ahmed2020causalworld:
+  type: article
+  title: "CausalWorld: A Robotic Manipulation Benchmark for Causal Structure and Transfer Learning"
+  author:
+    - "Ossama Ahmed"
+    - "Frederik Träuble"
+    - "Anirudh Goyal"
+    - "Alexander Neitz"
+    - "Manuel Wüthrich"
+    - "Bernhard Schölkopf"
+    - "Stefan Bauer"
+    - "Max Welling"
+  year: 2020
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2010.04296"
+
+yu2020metaworld:
+  type: article
+  title: "Meta-World: A Benchmark and Evaluation for Multi-Task and Meta Reinforcement Learning"
+  author:
+    - "Tianhe Yu"
+    - "Deirdre Quillen"
+    - "Zhanpeng He"
+    - "Ryan Julian"
+    - "Karol Hausman"
+    - "Chelsea Finn"
+    - "Sergey Levine"
+  year: 2020
+  venue: "CoRL"
+  url: "https://arxiv.org/abs/1910.10897"
+
+james2020rlbench:
+  type: article
+  title: "RLBench: The Robot Learning Benchmark & Learning Environment"
+  author:
+    - "Stephen James"
+    - "Zicong Ma"
+    - "David Rovick Arrojo"
+    - "Andrew J. Davison"
+  year: 2020
+  venue: "IEEE Robotics and Automation Letters"
+  url: "https://arxiv.org/abs/1909.12271"
+
+srivastava2022behavior:
+  type: article
+  title: "BEHAVIOR-1K: A Benchmark for Embodied AI with 1,000 Everyday Activities and Realistic Simulation"
+  author:
+    - "Sanjana Srivastava"
+    - "Chengshu Li"
+    - "Michael Lingelbach"
+    - "Roberto Martín-Martín"
+    - "Fei Xia"
+    - "Kent Vainio"
+    - "Zheng Lian"
+    - "Cem Gokmen"
+    - "Shyamal Buch"
+    - "Karen Liu"
+    - "Silvio Savarese"
+    - "Hyowon Gweon"
+    - "Jiajun Wu"
+    - "Li Fei-Fei"
+  year: 2022
+  venue: "CoRL"
+  url: "https://arxiv.org/abs/2403.09227"
+
+brohan2023rt:
+  type: article
+  title: "RT-2: Vision-Language-Action Models Transfer Web Knowledge to Robotic Control"
+  author:
+    - "Anthony Brohan"
+    - "Noah Brown"
+    - "Justice Carbajal"
+    - "Yevgen Chebotar"
+    - "Xi Chen"
+    - "Krzysztof Choromanski"
+    - "Tianli Ding"
+    - "Danny Driess"
+    - "Avinava Dubey"
+    - "Chelsea Finn"
+    - "Pete Florence"
+    - "Chuyuan Fu"
+    - "Montse Gonzalez Arenas"
+    - "Keerthana Gopalakrishnan"
+    - "Kehang Han"
+    - "Karol Hausman"
+  year: 2023
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2307.15818"
+
+rahaman2019spectral:
+  type: article
+  title: "On the Spectral Bias of Neural Networks"
+  author:
+    - "Nasim Rahaman"
+    - "Aristide Baratin"
+    - "Devansh Arpit"
+    - "Felix Draxler"
+    - "Min Lin"
+    - "Fred Hamprecht"
+    - "Yoshua Bengio"
+    - "Aaron Courville"
+  year: 2019
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1806.08734"
+
+pearl2009causality:
+  type: book
+  title: "Causality: Models, Reasoning, and Inference"
+  author:
+    - "Judea Pearl"
+  year: 2009
+  venue: "Cambridge University Press"
+  url: "https://doi.org/10.1017/CBO9780511803161"

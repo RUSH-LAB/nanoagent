@@ -17,12 +17,13 @@ title: "Benchmarks & Evaluation"
 
 ### Robotics Benchmarks
 
-- **Meta-World:** A suite of 50 robotic manipulation tasks for multi-task and meta-learning evaluation, ranging from simple reaching to complex assembly. Used to evaluate whether world models can generalize across manipulation skills.
-- **CALVIN:** A benchmark for long-horizon, language-conditioned robotic manipulation, requiring execution of multi-step instructions in a simulated kitchen environment.
-- **Habitat:** An embodied AI platform for navigation and interaction in photorealistic 3D environments [@savva2019habitat]. Used to evaluate world models for visual navigation and household tasks.
-- **CARLA:** An autonomous driving simulator used to evaluate world models for driving tasks, including scenario generation, planning, and control [@dosovitskiy2017carla].
-- **RLBench:** A suite of 100 robot manipulation tasks with varying difficulty, from simple pick-and-place to complex multi-step assembly.
-- **Real-World Robot Benchmarks:** DayDreamer-style evaluations on physical robots (quadruped walking, robotic arm manipulation, RC car driving) provide the most practically relevant but least standardized evaluation.
+- **Meta-World:** A suite of 50 robotic manipulation tasks for multi-task and meta-learning evaluation [@yu2020metaworld], ranging from simple reaching to complex assembly. Used to evaluate whether world models can generalize across manipulation skills. TD-MPC2 demonstrated that a single world model can handle 50 Meta-World tasks with a single set of hyperparameters.
+- **CALVIN:** A benchmark for long-horizon, language-conditioned robotic manipulation, requiring execution of multi-step instructions in a simulated kitchen environment. CALVIN tests the ability to chain 5+ sub-tasks from language descriptions, requiring both world prediction and language grounding.
+- **Habitat:** An embodied AI platform for navigation and interaction in photorealistic 3D environments [@savva2019habitat]. Used to evaluate world models for visual navigation and household tasks. Habitat 2.0 extended to interactive tasks (rearrangement, social navigation) requiring prediction of object and agent dynamics.
+- **CARLA:** An autonomous driving simulator used to evaluate world models for driving tasks, including scenario generation, planning, and control [@dosovitskiy2017carla]. CARLA provides diverse weather, lighting, and traffic conditions, and is the standard testbed for end-to-end driving approaches.
+- **RLBench:** A suite of 100 robot manipulation tasks with varying difficulty [@james2020rlbench], from simple pick-and-place to complex multi-step assembly. RLBench provides both state-based and vision-based evaluation, enabling analysis of how much visual prediction contributes to task performance.
+- **BEHAVIOR-1K:** Srivastava et al. (2022) [@srivastava2022behavior] proposed a benchmark of 1,000 everyday activities in realistic simulated environments, requiring world models to predict the outcomes of complex, multi-step household tasks. BEHAVIOR-1K tests long-horizon prediction and compositional generalization in realistic settings.
+- **Real-World Robot Benchmarks:** DayDreamer-style evaluations on physical robots (quadruped walking, robotic arm manipulation, RC car driving) provide the most practically relevant but least standardized evaluation. The RT-2 benchmark suite [@brohan2023rt] evaluates vision-language-action models on real robotic manipulation, providing a testbed for evaluating whether world models transfer from simulation to real hardware.
 
 ### Video Prediction and Generation Benchmarks
 
