@@ -5033,3 +5033,180 @@ hsieh2024ruler:
   year: 2024
   venue: "arXiv"
   url: "https://arxiv.org/abs/2404.06654"
+
+wei2022chain:
+  type: article
+  title: "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models"
+  author:
+    - "Jason Wei"
+    - "Xuezhi Wang"
+    - "Dale Schuurmans"
+    - "Maarten Bosma"
+    - "Brian Ichter"
+    - "Fei Xia"
+    - "Ed Chi"
+    - "Quoc Le"
+    - "Denny Zhou"
+  year: 2022
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2201.11903"
+
+khattab2023dsp:
+  type: article
+  title: "Demonstrate-Search-Predict: Composing Retrieval and Language Models for Knowledge-Intensive NLP"
+  author:
+    - "Omar Khattab"
+    - "Keshav Santhanam"
+    - "Xiang Lisa Li"
+    - "David Hall"
+    - "Percy Liang"
+    - "Christopher Potts"
+    - "Matei Zaharia"
+  year: 2023
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2212.14024"
+
+khattab2024dspy:
+  type: article
+  title: "DSPy: Compiling Declarative Language Model Calls into Self-Improving Pipelines"
+  author:
+    - "Omar Khattab"
+    - "Arnav Singhvi"
+    - "Paridhi Maheshwari"
+    - "Zhiyuan Zhang"
+    - "Keshav Santhanam"
+    - "Sri Vardhamanan"
+    - "Saiful Haq"
+    - "Ashutosh Sharma"
+    - "Thomas T. Joshi"
+    - "Hanna Moazam"
+    - "Heather Miller"
+    - "Matei Zaharia"
+    - "Christopher Potts"
+  year: 2024
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2310.03714"
+
+jeong2024adaptive:
+  type: article
+  title: "Adaptive-RAG: Learning to Adapt Retrieval-Augmented Large Language Models through Question Complexity"
+  author:
+    - "Soyeong Jeong"
+    - "Jinheon Baek"
+    - "Sukmin Cho"
+    - "Sung Ju Hwang"
+    - "Jong C. Park"
+  year: 2024
+  venue: "NAACL"
+  url: "https://arxiv.org/abs/2403.14403"
+
+patil2023gorilla:
+  type: article
+  title: "Gorilla: Large Language Model Connected with Massive APIs"
+  author:
+    - "Shishir G. Patil"
+    - "Tianjun Zhang"
+    - "Xin Wang"
+    - "Joseph E. Gonzalez"
+  year: 2023
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2305.15334"
+
+koh2024visualwebarena:
+  type: article
+  title: "VisualWebArena: Evaluating Multimodal Agents on Realistic Visual Web Tasks"
+  author:
+    - "Jing Yu Koh"
+    - "Robert Lo"
+    - "Lawrence Jang"
+    - "Vikram Duvvur"
+    - "Ming Chong Lim"
+    - "Po-Yu Huang"
+    - "Graham Neubig"
+    - "Shuyan Zhou"
+    - "Ruslan Salakhutdinov"
+    - "Daniel Fried"
+  year: 2024
+  venue: "ACL"
+  url: "https://arxiv.org/abs/2401.13649"
+
+liu2024agentbench:
+  type: article
+  title: "AgentBench: Evaluating LLMs as Agents"
+  author:
+    - "Xiao Liu"
+    - "Hao Yu"
+    - "Hanchen Zhang"
+    - "Yifan Xu"
+    - "Xuanyu Lei"
+    - "Hanyu Lai"
+    - "Yu Gu"
+    - "Hangliang Ding"
+    - "Kaiwen Men"
+    - "Kejuan Yang"
+    - "Shudan Zhang"
+    - "Xiang Deng"
+    - "Aohan Zeng"
+    - "Zhengxiao Du"
+    - "Chenhui Zhang"
+    - "Sheng Shen"
+    - "Tianjun Zhang"
+    - "Yu Su"
+    - "Huan Sun"
+    - "Minlie Huang"
+    - "Yuxiao Dong"
+    - "Jie Tang"
+  year: 2024
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2308.03688"
+
+muennighoff2023mteb:
+  type: article
+  title: "MTEB: Massive Text Embedding Benchmark"
+  author:
+    - "Niklas Muennighoff"
+    - "Nouamane Tazi"
+    - "Loic Magne"
+    - "Nils Reimers"
+  year: 2023
+  venue: "EACL"
+  url: "https://arxiv.org/abs/2210.07316"
+
+joshi2017triviaqa:
+  type: article
+  title: "TriviaQA: A Large Scale Distantly Supervised Challenge Dataset for Reading Comprehension"
+  author:
+    - "Mandar Joshi"
+    - "Eunsol Choi"
+    - "Daniel S. Weld"
+    - "Luke Zettlemoyer"
+  year: 2017
+  venue: "ACL"
+  url: "https://arxiv.org/abs/1705.03551"
+
+trivedi2022musique:
+  type: article
+  title: "MuSiQue: Multihop Questions via Single Hop Question Composition"
+  author:
+    - "Harsh Trivedi"
+    - "Niranjan Balasubramanian"
+    - "Tushar Khot"
+    - "Ashish Sabharwal"
+  year: 2022
+  venue: "TACL"
+  url: "https://arxiv.org/abs/2108.00573"
+
+hendrycks2021mmlu:
+  type: article
+  title: "Measuring Massive Multitask Language Understanding"
+  author:
+    - "Dan Hendrycks"
+    - "Collin Burns"
+    - "Steven Basart"
+    - "Andy Zou"
+    - "Mantas Mazeika"
+    - "Dawn Song"
+    - "Jacob Steinhardt"
+  year: 2021
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2009.03300"
