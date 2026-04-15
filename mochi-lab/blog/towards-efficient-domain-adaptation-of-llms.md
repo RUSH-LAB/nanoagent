@@ -13,11 +13,3 @@ Large language models are trained on broad, general-purpose corpora — but real
 
 - Nested Learning: The Illusion of Deep Learning Architecture
 - Continual Learning via Sparse Memory Finetuning
-
-## Ideas
-
-- LSH-Bucketed Adaptive Prompting — Self-Improving LLM Serving via Query-Clustered Memory
-    - GEPA: Reflective Prompt Evolution Can Outperform Reinforcement Learning
-- Continual Reinforcement Learning for Efficient Domain Adaptation of LLMs
-    - Self-Play Only Evolves When Self-Synthetic Pipeline Ensures Learnable Information Gain
-    - Continual Learning via Sparse Memory Finetuning
