@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ClerkProvider, SignedIn, SignedOut, SignIn } from '@clerk/clerk-react';
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 
 const PUBLISHABLE_KEY = 'pk_test_dW5pcXVlLXJheS0yOS5jbGVyay5hY2NvdW50cy5kZXYk';
 
@@ -178,6 +179,13 @@ function AuthGate({ children }) {
 }
 
 export default function Root({ children }) {
+  const { siteConfig } = useDocusaurusContext();
+  const authEnabled = siteConfig.customFields?.authEnabled;
+
+  if (!authEnabled) {
+    return <>{children}</>;
+  }
+
   return (
     <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
       <AuthGate>{children}</AuthGate>
