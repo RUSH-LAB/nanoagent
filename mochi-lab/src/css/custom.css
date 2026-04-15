@@ -6,15 +6,52 @@
 
 /* You can override the default Infima variables here. */
 :root {
-  --ifm-color-primary: #2568c2;
-  --ifm-color-primary-dark: #215eaf;
-  --ifm-color-primary-darker: #1f58a5;
-  --ifm-color-primary-darkest: #1a4888;
-  --ifm-color-primary-light: #2e7ad5;
-  --ifm-color-primary-lighter: #3280d8;
-  --ifm-color-primary-lightest: #4f8fdd;
+  --ifm-font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
+  --ifm-heading-font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  --ifm-color-primary: #3b5998;
+  --ifm-color-primary-dark: #344e85;
+  --ifm-color-primary-darker: #31497d;
+  --ifm-color-primary-darkest: #283c67;
+  --ifm-color-primary-light: #4b69a6;
+  --ifm-color-primary-lighter: #5070ab;
+  --ifm-color-primary-lightest: #6b87bb;
   --ifm-code-font-size: 95%;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+/* ── Global heading color & title size override ───────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  color: #2d3748 !important;
+}
+
+h1,
+h2[class*="title_"] {
+  font-size: 2.5rem !important;
+}
+
+/* Blog/research list title links use primary color */
+h2[class*="title_"] a {
+  color: var(--ifm-color-primary) !important;
+  text-decoration: none;
+}
+
+h2[class*="title_"] a:hover {
+  color: var(--ifm-color-primary-dark) !important;
+  text-decoration: underline;
+}
+
+[data-theme='dark'] h1,
+[data-theme='dark'] h2,
+[data-theme='dark'] h3,
+[data-theme='dark'] h4,
+[data-theme='dark'] h5,
+[data-theme='dark'] h6,
+[data-theme='dark'] h2[class*="title_"] a {
+  color: #cbd5e1 !important;
+}
+
+[data-theme='dark'] h2[class*="title_"] a:hover {
+  color: #e2e8f0 !important;
 }
 
 /* For readability concerns, you should choose a lighter palette in dark mode. */
