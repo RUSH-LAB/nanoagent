@@ -4,29 +4,32 @@ import styles from './styles.module.css';
 
 const FeatureList = [
   {
-    title: 'CUDA',
-    Svg: require('@site/static/img/cuda-svgrepo-com.svg').default,
+    title: 'Research',
+    Svg: require('@site/static/img/research-svgrepo-com.svg').default,
     description: (
       <>
-        CUDA is a parallel computing platform and API developed by NVIDIA, which allows developers to use GPUs for general-purpose computing.
+        Original research papers and in-depth surveys spanning continual learning,
+        world models, diffusion methods, and more.
       </>
     ),
   },
   {
-    title: 'PyTorch',
-    Svg: require('@site/static/img/pytorch-svgrepo-com.svg').default,
+    title: 'Systems & Programming',
+    Svg: require('@site/static/img/programming-svgrepo-com.svg').default,
     description: (
       <>
-        PyTorch is an open-source machine learning framework, primarily used for developing and training deep neural networks.
+        Hands-on guides to GPU programming with CUDA and Triton, PyTorch internals,
+        x86 assembly, distributed training, and ML infrastructure.
       </>
     ),
   },
   {
-    title: 'Assembly',
-    Svg: require('@site/static/img/assembly-svgrepo-com.svg').default,
+    title: 'Math & Theory',
+    Svg: require('@site/static/img/math-svgrepo-com.svg').default,
     description: (
       <>
-        Assembly is a low-level programming language that provides a human-readable representation of machine code. 
+        Mathematical foundations for machine learning — linear algebra, optimization,
+        probability, information theory, and the math behind transformers and diffusion models.
       </>
     ),
   },
