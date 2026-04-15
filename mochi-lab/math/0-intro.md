@@ -1,3 +1,5 @@
+NOTE: This is entirely written by Claude. This is now a tentative writeup.
+
 # Mathematics for Machine Learning
 
 Modern machine learning rests on four mathematical pillars: **linear algebra** (the language of data and transformations), **calculus and optimization** (the engine that finds optimal parameters), **probability and statistics** (the framework for reasoning under uncertainty), and **information theory** (the measure of what models learn). This textbook develops each pillar from first principles, with every concept motivated by and connected to its role in machine learning.

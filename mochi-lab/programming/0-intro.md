@@ -1,3 +1,5 @@
+NOTE: This is entirely written by Claude. This is now a tentative writeup.
+
 # Welcome
 
 Welcome to the programming journey. This textbook covers everything an ML engineer needs to build and ship models, from computing fundamentals to distributed training systems. The goal is not merely to teach you to *use* frameworks, but to understand what happens beneath the surface -- so that when something breaks, or when performance matters, you can reason from first principles.

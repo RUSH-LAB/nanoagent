@@ -3,6 +3,8 @@ sidebar_position: 0
 title: "Frontiers of AI: A Comprehensive Survey"
 ---
 
+NOTE: This is entirely written by Claude. This is now a tentative writeup.
+
 # Frontiers of AI: A Comprehensive Survey
 
 **A survey of five frontier research areas in artificial intelligence, covering continual learning, world models, efficient architecture design, agentic search, and the intersection of randomized algorithms with deep learning.**
