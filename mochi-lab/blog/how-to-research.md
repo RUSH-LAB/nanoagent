@@ -1,6 +1,6 @@
 ---
 slug: how-to-research
-title: "How to Do Research"
+title: "What Is Research Taste?"
 authors: [zeyu]
 tags: [research]
 ---
