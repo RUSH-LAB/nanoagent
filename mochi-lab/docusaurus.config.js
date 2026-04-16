@@ -6,6 +6,8 @@ const remarkCite = require('./plugins/remark-cite');
 
 // ── Shared plugin configs ──────────────────────────────────────────────────
 const EDIT_URL = 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/';
+const BOOKS_DIR = 'content/books';
+const POSTS_DIR = 'content/posts';
 
 const defaultRemarkPlugins = [
   [require('remark-math'), { strict: false }],
@@ -31,13 +33,13 @@ const defaultRehypePluginsWithEqref = [
   }],
 ];
 
-function makeDocsPlugin(id, path) {
+function makeDocsPlugin(id, name) {
   return [
     '@docusaurus/plugin-content-docs',
     {
       id,
-      path,
-      routeBasePath: path,
+      path: `${BOOKS_DIR}/${name}`,
+      routeBasePath: name,
       editUrl: EDIT_URL,
       remarkPlugins: defaultRemarkPlugins,
       rehypePlugins: defaultRehypePlugins,
@@ -45,19 +47,19 @@ function makeDocsPlugin(id, path) {
   ];
 }
 
-function makeBlogPlugin(id, path, {title, description, sidebarTitle, showReadingTime = false}) {
+function makeBlogPlugin(id, name, {title, description, sidebarTitle, showReadingTime = false}) {
   return [
     '@docusaurus/plugin-content-blog',
     {
       id,
-      path,
-      routeBasePath: path,
+      path: `${POSTS_DIR}/${name}`,
+      routeBasePath: name,
       showReadingTime,
       blogTitle: title,
       blogDescription: description,
       blogSidebarTitle: sidebarTitle,
       blogSidebarCount: 0,
-      authorsMapPath: '../authors.yml',
+      authorsMapPath: '../../../authors.yml',
       feedOptions: { type: ['rss', 'atom'], xslt: true },
       editUrl: EDIT_URL,
       onInlineTags: 'warn',
@@ -110,7 +112,7 @@ const config = {
       /** @type {import('@docusaurus/preset-classic').Options} */
       ({
         docs: {
-          path: 'programming',
+          path: `${BOOKS_DIR}/programming`,
           routeBasePath: 'programming',
           sidebarPath: './sidebars.js',
           editUrl: EDIT_URL,
@@ -135,7 +137,8 @@ const config = {
         indexDocs: true,
         indexPages: false,
         docsRouteBasePath: ['/programming', '/math', '/build-with-ai', '/survey'],
-        docsDir: ['programming', 'math', 'build-with-ai', 'survey'],
+        docsDir: [`${BOOKS_DIR}/programming`, `${BOOKS_DIR}/math`, `${BOOKS_DIR}/build-with-ai`, `${BOOKS_DIR}/survey`],
+        blogDir: [`${POSTS_DIR}/blog`, `${POSTS_DIR}/research`],
         blogRouteBasePath: ['/blog', '/research'],
         searchBarShortcut: true,
         searchBarShortcutHint: true,
@@ -170,8 +173,8 @@ const config = {
       require('./plugins/docusaurus-plugin-math-registry'),
       {
         contentDirs: [
-          { dir: 'math', routeBase: 'math' },
-          { dir: 'build-with-ai', routeBase: 'build-with-ai' },
+          { dir: `${BOOKS_DIR}/math`, routeBase: 'math' },
+          { dir: `${BOOKS_DIR}/build-with-ai`, routeBase: 'build-with-ai' },
         ],
       },
     ],
