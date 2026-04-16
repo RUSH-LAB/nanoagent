@@ -6,6 +6,8 @@
 
 /* You can override the default Infima variables here. */
 :root {
+  --ifm-container-width: 2000px;
+  --ifm-container-width-xl: 2000px;
   --ifm-font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
   --ifm-heading-font-family: 'Inter', system-ui, -apple-system, sans-serif;
   --ifm-color-primary: #3b5998;
@@ -64,23 +66,6 @@ h2[class*="title_"] a:hover {
   --ifm-color-primary-lighter: #ffffff;
   --ifm-color-primary-lightest: #ffffff;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
-}
-
-/* Optional: Make the main container wider as well */
-.container {
-  max-width: 2000px; /* Adjust this value as needed */
-}
-
-/* Widen blog content area (both Blog and Research pages) */
-[class*="blog"] .col[class*="col--9"] {
-  flex: 0 0 75% !important;
-  max-width: 75% !important;
-  margin-left: 4% !important;
-}
-
-[class*="blog"] .col[class*="col--2"] {
-  flex: 0 0 21% !important;
-  max-width: 21% !important;
 }
 
 /* Center equations when navigating to them via anchor links */

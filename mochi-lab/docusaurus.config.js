@@ -1,16 +1,75 @@
-/**
- * Copyright (c) Facebook, Inc. and its affiliates.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
 import {themes as prismThemes} from 'prism-react-renderer';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 const remarkCite = require('./plugins/remark-cite');
 
+// ── Shared plugin configs ──────────────────────────────────────────────────
+const EDIT_URL = 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/';
+
+const defaultRemarkPlugins = [
+  [require('remark-math'), { strict: false }],
+  remarkCite,
+];
+
+const defaultRehypePlugins = [
+  [require('rehype-katex'), {
+    strict: false,
+    trust: true,
+    fleqn: false,
+  }],
+];
+
+const defaultRehypePluginsWithEqref = [
+  [require('rehype-katex'), {
+    strict: false,
+    trust: true,
+    fleqn: false,
+    macros: {
+      "\\eqref": "\\href{###1}{(\\text{#1})}"
+    },
+  }],
+];
+
+function makeDocsPlugin(id, path) {
+  return [
+    '@docusaurus/plugin-content-docs',
+    {
+      id,
+      path,
+      routeBasePath: path,
+      editUrl: EDIT_URL,
+      remarkPlugins: defaultRemarkPlugins,
+      rehypePlugins: defaultRehypePlugins,
+    },
+  ];
+}
+
+function makeBlogPlugin(id, path, {title, description, sidebarTitle, showReadingTime = false}) {
+  return [
+    '@docusaurus/plugin-content-blog',
+    {
+      id,
+      path,
+      routeBasePath: path,
+      showReadingTime,
+      blogTitle: title,
+      blogDescription: description,
+      blogSidebarTitle: sidebarTitle,
+      blogSidebarCount: 0,
+      authorsMapPath: '../authors.yml',
+      feedOptions: { type: ['rss', 'atom'], xslt: true },
+      editUrl: EDIT_URL,
+      onInlineTags: 'warn',
+      onInlineAuthors: 'warn',
+      onUntruncatedBlogPosts: 'warn',
+      remarkPlugins: defaultRemarkPlugins,
+      rehypePlugins: defaultRehypePluginsWithEqref,
+    },
+  ];
+}
+
+// ── Main config ────────────────────────────────────────────────────────────
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'Mochi Lab',
@@ -21,21 +80,15 @@ const config = {
     authEnabled: false,
   },
 
-  // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
-    v4: true, // Improve compatibility with the upcoming Docusaurus v4
+    v4: true,
   },
 
-  // Set the production url of your site here
   url: 'https://mochi-lab.vercel.app',
-  // Set the /<baseUrl>/ pathname under which your site is served
-  // For GitHub pages deployment, it is often '/<projectName>/'
   baseUrl: '/',
 
-  // GitHub pages deployment config.
-  // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'zeyuyang8', // Usually your GitHub org/user name.
-  projectName: 'mochi-lab', // Usually your repo name.
+  organizationName: 'zeyuyang8',
+  projectName: 'mochi-lab',
 
   onBrokenLinks: 'throw',
   onBrokenAnchors: 'ignore',
@@ -46,9 +99,6 @@ const config = {
     },
   },
 
-  // Even if you don't use internationalization, you can use this field to set
-  // useful metadata like html lang. For example, if your site is Chinese, you
-  // may want to replace "en" with "zh-Hans".
   i18n: {
     defaultLocale: 'en',
     locales: ['en'],
@@ -63,35 +113,20 @@ const config = {
           path: 'programming',
           routeBasePath: 'programming',
           sidebarPath: './sidebars.js',
-          // Please change this to your repo.
-          // Remove this to remove the "edit this page" links.
-          editUrl:
-            'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
-          // Add math support to docs with KaTeX
-          remarkPlugins: [
-            [require('remark-math'), { strict: false }],
-            remarkCite,
-          ],
-          rehypePlugins: [
-            [require('rehype-katex'), {
-              strict: false,
-              trust: true,
-              fleqn: false,
-              // Remove the eqref macro - it doesn't work properly
-            }]
-          ],
+          editUrl: EDIT_URL,
+          remarkPlugins: defaultRemarkPlugins,
+          rehypePlugins: defaultRehypePlugins,
         },
-        blog: false, // Disable default blog, we'll use a plugin instead
-        // Main blog configuration remains here
+        blog: false,
         theme: {
           customCss: './src/css/custom.css',
         },
       }),
     ],
   ],
-  // Add this plugins section
+
   plugins: [
-    // Local search plugin
+    // Local search
     [
       '@easyops-cn/docusaurus-search-local',
       {
@@ -102,138 +137,35 @@ const config = {
         docsRouteBasePath: ['/programming', '/math', '/build-with-ai', '/survey'],
         docsDir: ['programming', 'math', 'build-with-ai', 'survey'],
         blogRouteBasePath: ['/blog', '/research'],
-        // Enable search in development
         searchBarShortcut: true,
         searchBarShortcutHint: true,
         highlightSearchTermsOnTargetPage: true,
         explicitSearchResultPath: true,
-        // This will make search work in development
-        // but note it might be slower to build
         searchResultContextMaxLength: 50,
         searchResultLimits: 10,
       },
     ],
-    // Survey docs plugin
-    [
-      '@docusaurus/plugin-content-docs',
-      {
-        id: 'survey',
-        path: 'survey',
-        routeBasePath: 'survey',
-        editUrl: 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
-        remarkPlugins: [remarkCite],
-      },
-    ],
-    // Build with AI docs plugin
-    [
-      '@docusaurus/plugin-content-docs',
-      {
-        id: 'build-with-ai',
-        path: 'build-with-ai',
-        routeBasePath: 'build-with-ai',
-        editUrl: 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
-        remarkPlugins: [
-          [require('remark-math'), { strict: false }],
-          remarkCite,
-        ],
-        rehypePlugins: [
-          [require('rehype-katex'), {
-            strict: false,
-            trust: true,
-            fleqn: false,
-          }]
-        ],
-      },
-    ],
-    // Math docs plugin
-    [
-      '@docusaurus/plugin-content-docs',
-      {
-        id: 'math',
-        path: 'math',
-        routeBasePath: 'math',
-        editUrl: 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
-        remarkPlugins: [
-          [require('remark-math'), { strict: false }],
-          remarkCite,
-        ],
-        rehypePlugins: [
-          [require('rehype-katex'), {
-            strict: false,
-            trust: true,
-            fleqn: false,
-          }]
-        ],
-      },
-    ],
-    // Blog plugin
-    [
-      '@docusaurus/plugin-content-blog',
-      {
-        id: 'blog',
-        path: 'blog',
-        routeBasePath: 'blog',
-        showReadingTime: false,
-        blogTitle: 'Blog',
-        blogDescription: 'Blog posts',
-        blogSidebarTitle: 'All Posts',
-        blogSidebarCount: 0,
-        authorsMapPath: '../authors.yml',
-        feedOptions: {
-          type: ['rss', 'atom'],
-          xslt: true,
-        },
-        editUrl: 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
-        onInlineTags: 'warn',
-        onInlineAuthors: 'warn',
-        onUntruncatedBlogPosts: 'warn',
-        remarkPlugins: [require('remark-math'), remarkCite],
-        rehypePlugins: [
-          [require('rehype-katex'), {
-            strict: false,
-            trust: true,
-            fleqn: false,
-            macros: {
-              "\\eqref": "\\href{###1}{(\\text{#1})}"
-            }
-          }]
-        ],
-      },
-    ],
-    // Research blog plugin
-    [
-      '@docusaurus/plugin-content-blog',
-      {
-        id: 'research',
-        path: 'research',
-        routeBasePath: 'research',
-        showReadingTime: true,
-        blogTitle: 'Research Papers',
-        blogDescription: 'Collection of research paper summaries and discussions',
-        blogSidebarTitle: 'Recent Papers',
-        blogSidebarCount: 0,
-        authorsMapPath: '../authors.yml',
-        feedOptions: {
-          type: ['rss', 'atom'],
-          xslt: true,
-        },
-        editUrl: 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/',
-        remarkPlugins: [require('remark-math'), remarkCite],
-        rehypePlugins: [
-          [require('rehype-katex'), {
-            strict: false,
-            trust: true,
-            fleqn: false,
-            macros: {
-              "\\eqref": "\\href{###1}{(\\text{#1})}"
-            }
-          }]
-        ],
-      },
-    ],
-    // Bibliography data plugin
+
+    // Docs plugins
+    makeDocsPlugin('survey', 'survey'),
+    makeDocsPlugin('build-with-ai', 'build-with-ai'),
+    makeDocsPlugin('math', 'math'),
+
+    // Blog plugins
+    makeBlogPlugin('blog', 'blog', {
+      title: 'Blog',
+      description: 'Blog posts',
+      sidebarTitle: 'All Posts',
+    }),
+    makeBlogPlugin('research', 'research', {
+      title: 'Research Papers',
+      description: 'Collection of research paper summaries and discussions',
+      sidebarTitle: 'Recent Papers',
+      showReadingTime: true,
+    }),
+
+    // Custom plugins
     require('./plugins/docusaurus-plugin-bibliography'),
-    // Math cross-page registry plugin — scans multiple content dirs for <Ref> support
     [
       require('./plugins/docusaurus-plugin-math-registry'),
       {
@@ -244,7 +176,7 @@ const config = {
       },
     ],
   ],
-  // Add KaTeX CSS with auto-render extension
+
   stylesheets: [
     {
       href: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css',
@@ -261,7 +193,6 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
-      // Replace with your project's social card
       image: 'img/mochi.jpg',
       navbar: {
         title: 'Mochi Lab',
