@@ -1,0 +1,16 @@
+/* Blog layout: left padding + fixed TOC width matching docs */
+@media (min-width: 997px) {
+  .blogContainer {
+    padding-left: 3rem;
+  }
+
+  .blogContentCol {
+    flex: 1 1 0% !important;
+    max-width: none !important;
+  }
+
+  .blogTocCol {
+    flex: 0 0 calc(25% - 75px) !important;
+    max-width: calc(25% - 75px) !important;
+  }
+}
