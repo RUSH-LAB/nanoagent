@@ -72,15 +72,15 @@ h2[class*="title_"] a:hover {
 }
 
 /* Widen blog content area (both Blog and Research pages) */
-html.blog-post-page .col--9.col--offset-1,
-html.blog-list-page .col--9.col--offset-1 {
-  --ifm-col-width: calc(9 / 12 * 100%) !important;
-  margin-left: calc(0.5 / 12 * 100%) !important;
+[class*="blog"] .col[class*="col--9"] {
+  flex: 0 0 75% !important;
+  max-width: 75% !important;
+  margin-left: 4% !important;
 }
 
-html.blog-post-page .col.col--2,
-html.blog-list-page .col.col--2 {
-  --ifm-col-width: calc(2.5 / 12 * 100%) !important;
+[class*="blog"] .col[class*="col--2"] {
+  flex: 0 0 21% !important;
+  max-width: 21% !important;
 }
 
 /* Center equations when navigating to them via anchor links */
