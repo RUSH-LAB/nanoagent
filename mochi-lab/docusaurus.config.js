@@ -79,7 +79,7 @@ const config = {
   favicon: 'img/mochi.jpg',
 
   customFields: {
-    authEnabled: false,
+    authEnabled: true,
   },
 
   future: {
