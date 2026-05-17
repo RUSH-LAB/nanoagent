@@ -12,11 +12,6 @@ date: 2025-10-03
 
 [[arXiv]](https://arxiv.org/abs/2510.02676) [[OpenReview]](https://openreview.net/forum?id=XI1CeufywD) [[Code]](https://github.com/zeyuyang8/ecf8)
 
-import ECF8Demo from './ECF8Demo';
-import './ecf8-demo.css';
-
-<ECF8Demo />
-
 Modern GenAI models are enormous. DeepSeek-R1 alone has 671 billion parameters. Even after converting to FP8, serving these models eats up massive amounts of GPU memory and bandwidth. The standard response is lossy quantization: throw away some precision and hope the outputs don't degrade too much. But what if you didn't have to lose anything at all?
 
 In this work, we show that you can losslessly compress FP8 model weights by exploiting a simple observation about how neural networks store information. The result is **ECF8**, a format that saves up to **26.9% memory** and speeds up inference by up to **177.1%**, while producing outputs that are **bit for bit identical** to the original model.
