@@ -160,7 +160,7 @@ A modern NVIDIA GPU (e.g., H100) is organized as:
 - **Warp**: 32 threads that execute in lockstep (SIMT model)
 </Definition>
 
-<Table id="tab-cpu-vs-gpu" caption="CPU vs GPU characteristics for ML workloads (2024 high-end).">
+<Table id="tab-cpu-vs-gpu-math" caption="CPU vs GPU characteristics for ML workloads (2024 high-end).">
 
 | Property | CPU (AMD EPYC 9654) | GPU (NVIDIA H100 SXM) |
 |----------|-----|-----|

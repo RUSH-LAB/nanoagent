@@ -164,7 +164,7 @@ $$T_{\text{total}} = T_{\text{compute}} + T_{\text{comm}} - T_{\text{overlap}} \
 Perfect overlap is achieved when $T_{\text{compute}} \geq T_{\text{comm}}$, i.e., when the computation for each chunk takes longer than the communication for the previous chunk.
 </Definition>
 
-<Remark id="rmk-scaling-efficiency">
+<Remark id="rmk-scaling-efficiency-math">
 **Scaling efficiency** is defined as $\eta = S(N) / N$ where $S(N)$ is the actual speedup with $N$ devices. State-of-the-art distributed training achieves $\eta > 0.9$ for hundreds of GPUs by:
 
 1. Using fast interconnects (NVLink within a node, InfiniBand across nodes)

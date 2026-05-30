@@ -225,7 +225,7 @@ AdamW is the standard optimizer for transformer training. Typical hyperparameter
 
 ## Other Optimizers
 
-<Table id="tab-optimizers" caption="Overview of optimizers used in modern ML.">
+<Table id="tab-optimizers-math" caption="Overview of optimizers used in modern ML.">
 
 | Optimizer | Update Rule (Simplified) | Memory | Key Property |
 |-----------|-------------------------|--------|-------------|

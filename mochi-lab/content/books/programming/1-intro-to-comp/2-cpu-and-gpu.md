@@ -262,7 +262,7 @@ $$\text{Performance} = \min(\text{Peak FLOPS}, \; \text{AI} \times \text{Memory 
 Operations with low AI are **memory-bound** (limited by how fast data can be loaded). Operations with high AI are **compute-bound** (limited by how fast the hardware can compute).
 </Definition>
 
-<Code id="code-roofline" caption="The roofline model showing the compute-bound and memory-bound regimes.">
+<Code id="code-roofline-arch" caption="The roofline model showing the compute-bound and memory-bound regimes.">
 
 ```
 Performance (TFLOPS)
@@ -287,7 +287,7 @@ Performance (TFLOPS)
 
 </Code>
 
-<Table id="tab-arithmetic-intensity" caption="Arithmetic intensity of common ML operations on H100.">
+<Table id="tab-arithmetic-intensity-arch" caption="Arithmetic intensity of common ML operations on H100.">
 
 | Operation | AI (FLOPS/byte) | Bound | Why |
 |-----------|----------------|-------|-----|

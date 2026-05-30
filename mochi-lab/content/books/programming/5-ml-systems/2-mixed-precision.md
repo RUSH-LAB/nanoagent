@@ -23,7 +23,7 @@ The precision of a floating-point number is determined by its bit allocation bet
 
 </Table>
 
-<Remark id="rmk-bf16-vs-fp16">
+<Remark id="rmk-bf16-vs-fp16-mp">
 **BF16 vs FP16: why BF16 is preferred for training.** BF16 has the same 8-bit exponent as FP32, giving it the same dynamic range ($10^{\pm 38}$). This means gradients that are representable in FP32 are almost always representable in BF16 (with less precision, but without underflow). FP16 has only a 5-bit exponent, so gradients smaller than $6 \times 10^{-8}$ underflow to zero, which is common in deep networks with many layers. FP16 requires loss scaling to work around this; BF16 does not.
 
 ```
