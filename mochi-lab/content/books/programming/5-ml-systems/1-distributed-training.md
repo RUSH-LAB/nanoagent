@@ -4,7 +4,7 @@ sidebar_position: 1
 
 # Distributed Training
 
-Training large models on a single GPU is either too slow (days instead of hours) or impossible (the model does not fit in memory). Distributed training solves both problems by splitting work across multiple GPUs. The challenge is doing this efficiently -- naively partitioning work introduces communication overhead that can negate the benefit of extra GPUs. This chapter covers the four main strategies (data parallelism, tensor parallelism, pipeline parallelism, and fully sharded data parallelism), the communication patterns they use, and the practical considerations that determine which approach to use.
+Training large models on a single GPU is either too slow (days instead of hours) or impossible (the model does not fit in memory). Distributed training solves both problems by splitting work across multiple GPUs. The challenge is doing this efficiently: naively partitioning work introduces communication overhead that can negate the benefit of extra GPUs. This section covers the four main strategies (data parallelism, tensor parallelism, pipeline parallelism, and fully sharded data parallelism), the communication patterns they use, and the practical considerations that determine which approach to use.
 
 ## Data Parallelism (DDP)
 
@@ -50,7 +50,7 @@ def train(rank, world_size):
 </Code>
 
 <Remark id="rmk-ddp-internals">
-**How DDP overlaps communication with computation.** DDP does not wait until all gradients are computed before communicating. It groups parameters into **buckets** (default 25 MB) and begins all-reducing each bucket as soon as all gradients in that bucket are computed during backward. Because backward computes gradients in reverse order (last layer first), the first bucket communicated contains the last layer's gradients -- which are typically computed first. By the time the optimizer runs, all all-reduce operations are complete.
+**How DDP overlaps communication with computation.** DDP does not wait until all gradients are computed before communicating. It groups parameters into **buckets** (default 25 MB) and begins all-reducing each bucket as soon as all gradients in that bucket are computed during backward. Because backward computes gradients in reverse order (last layer first), the first bucket communicated contains the last layer's gradients, which are typically computed first. By the time the optimizer runs, all all-reduce operations are complete.
 </Remark>
 
 <Table id="tab-ddp-pitfalls" caption="Common DDP mistakes and their solutions.">
@@ -98,7 +98,7 @@ for step, (data, target) in enumerate(loader):
 </Code>
 
 <Remark id="rmk-grad-accum-no-sync">
-**Why `model.no_sync()` matters.** Without it, DDP all-reduces gradients on every `backward()` call -- even during intermediate accumulation steps where the gradients will be added to, not used. With 8 accumulation steps, this wastes 7 all-reduce operations per optimizer step. `model.no_sync()` disables the gradient hook for intermediate steps, performing a single all-reduce when the final accumulated gradient is ready. This can reduce communication overhead by up to $(\text{accumulation\_steps} - 1) / \text{accumulation\_steps}$ (87.5% for 8 steps).
+**Why `model.no_sync()` matters.** Without it, DDP all-reduces gradients on every `backward()` call, even during intermediate accumulation steps where the gradients will be added to, not used. With 8 accumulation steps, this wastes 7 all-reduce operations per optimizer step. `model.no_sync()` disables the gradient hook for intermediate steps, performing a single all-reduce when the final accumulated gradient is ready. This can reduce communication overhead by up to $(\text{accumulation\_steps} - 1) / \text{accumulation\_steps}$ (87.5% for 8 steps).
 </Remark>
 
 ## Model Parallelism
@@ -110,11 +110,15 @@ When a model does not fit in a single GPU's memory, you must split the model its
 | Strategy | What Is Split | Communication Pattern | Memory Savings | Compute Efficiency | When to Use |
 |----------|--------------|----------------------|---------------|-------------------|-------------|
 | Data parallel (DDP) | Data batches | AllReduce gradients | None (full copy) | Near-linear scaling | Model fits in 1 GPU |
-| Tensor parallel (TP) | Weight matrices (columns/rows) | AllReduce or AllGather activations | ~N$\times$ (N = TP degree) | High (if interconnect is fast) | Large layers, NVLink nodes |
+| Tensor parallel (TP) | Weight matrices (columns/rows) | AllReduce or AllGather activations | ~N$\times$ for params/optimizer (N = TP degree) | High (if interconnect is fast) | Large layers, NVLink nodes |
 | Pipeline parallel (PP) | Model layers | Point-to-point activations | ~N$\times$ (N = PP stages) | Lower (pipeline bubbles) | Many layers, across nodes |
 | Sequence parallel (SP) | Sequence dimension | AllGather/ReduceScatter | Activation memory reduction | High | Long sequences, with TP |
 
 </Table>
+
+<Remark id="rmk-tp-activation-memory">
+**What the TP memory savings cover.** The "~N$\times$" reduction for tensor parallelism (and pipeline parallelism) applies to parameter, gradient, and optimizer-state memory, not to activation memory. Plain TP still replicates the activations entering and leaving each split layer across all N GPUs, so activation memory does not shrink with the TP degree. Sequence parallelism (the SP row) is the technique that shards those replicated activations along the sequence dimension, which is why it is usually layered on top of TP for long-context training.
+</Remark>
 
 <Code id="code-tensor-parallel" caption="Tensor parallelism: splitting a linear layer's weight matrix across GPUs.">
 
@@ -188,6 +192,15 @@ model = FSDP(
 
 </Code>
 
+<Example id="ex-fsdp-memory">
+**Deriving the FSDP memory budget for a 7B model.** Consider a 7B parameter model trained in FP32 with the AdamW optimizer. Counting the memory each component requires:
+- **Parameters:** $7 \times 10^9 \text{ params} \times 4 \text{ bytes} = 28$ GB.
+- **Gradients:** one value per parameter, so another $7 \times 10^9 \times 4 = 28$ GB.
+- **Optimizer states (AdamW):** AdamW keeps two values per parameter (the first moment $m$ and second moment $v$), giving $2 \times 7 \times 10^9 \times 4 = 56$ GB.
+
+The total replicated state is $28 + 28 + 56 = 112$ GB, which is the DDP cost on a single GPU. FSDP shards this state evenly across GPUs, so on 8 GPUs each GPU holds $112 / 8 = 14$ GB. On 4 GPUs the per-GPU cost is $112 / 4 = 28$ GB. The table below summarizes these figures (activation memory is excluded).
+</Example>
+
 <Table id="tab-fsdp-memory" caption="Memory per GPU for a 7B parameter model (FP32 parameters, AdamW optimizer).">
 
 | Component | DDP (1 GPU) | FSDP (4 GPUs) | FSDP (8 GPUs) |
@@ -201,12 +214,12 @@ model = FSDP(
 </Table>
 
 <Remark id="rmk-fsdp-vs-ddp">
-**When to use FSDP vs DDP.** Use DDP when the model fits comfortably in one GPU's memory (including optimizer states and activations). Switch to FSDP when you run out of memory. FSDP introduces additional AllGather communication (parameters must be gathered before each forward and backward), so it is slower than DDP for models that fit in memory. The communication overhead is typically 5-15% compared to DDP.
+**When to use FSDP vs DDP.** Use DDP when the model fits comfortably in one GPU's memory (including optimizer states and activations). Switch to FSDP when you run out of memory. FSDP introduces additional AllGather communication (parameters must be gathered before each forward and backward), so it is slower than DDP for models that fit in memory. The size of this slowdown is highly hardware-dependent: on fast intra-node interconnects (NVLink) the extra AllGather can be largely hidden behind computation, while on slower inter-node links (Ethernet) it becomes the dominant cost. Reported overheads are typically modest (often in the single-digit to low-double-digit percent range) but you should measure on your own interconnect rather than assume a fixed figure.
 </Remark>
 
 ## DeepSpeed ZeRO
 
-DeepSpeed's ZeRO (Zero Redundancy Optimizer) provides three progressive stages of memory optimization, equivalent to FSDP but with a different API and additional features:
+If FSDP is PyTorch's native answer to memory-bound training, DeepSpeed ZeRO is the alternative that pioneered the same idea and still offers a richer feature set (CPU/NVMe offloading, compression). Where FSDP exposes a single FULL_SHARD mode, ZeRO (Zero Redundancy Optimizer) breaks the same memory savings into three progressive stages, letting you shard only as much as you need:
 
 <Table id="tab-deepspeed-zero" caption="DeepSpeed ZeRO stages and their memory reduction.">
 

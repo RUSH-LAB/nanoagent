@@ -51,7 +51,7 @@ For a convex function, **every local minimum is a global minimum**. Moreover, th
 **Proof.** Suppose $x^*$ is a local minimum but not global: there exists $y$ with $f(y) < f(x^*)$. By convexity, for any $\lambda \in (0,1)$: $f(\lambda y + (1-\lambda)x^*) \leq \lambda f(y) + (1-\lambda)f(x^*) < f(x^*)$. But $\lambda y + (1-\lambda)x^*$ can be made arbitrarily close to $x^*$ by taking $\lambda \to 0$, contradicting local optimality. $\square$
 
 <Remark id="rmk-convex-global-min">
-This theorem is why convex optimization has clean convergence guarantees: gradient descent cannot get stuck in bad local minima. For non-convex problems (neural networks), this guarantee fails -- but empirically, the local minima found by SGD on overparameterized networks have loss values very close to the global minimum.
+This theorem is why convex optimization has clean convergence guarantees: gradient descent cannot get stuck in bad local minima. For non-convex problems (neural networks), this guarantee fails, but empirically the local minima found by SGD on overparameterized networks have loss values very close to the global minimum.
 </Remark>
 
 <Table id="tab-convex-functions" caption="Common convex and non-convex functions in ML.">
@@ -130,6 +130,16 @@ $$f(x_t) - f(x^*) \leq \frac{L \|x_0 - x^*\|^2}{2t}$$
 </Equation>
 </Theorem>
 
+<Example id="ex-gd-iteration-count">
+**How many iterations to reach a target accuracy?** Suppose $f$ is convex and $L$-smooth with $L = 10$, the initial distance to the optimum is $\|x_0 - x^*\| = 2$, and we want $f(x_t) - f(x^*) \leq \epsilon$ with $\epsilon = 10^{-3}$.
+
+The bound guarantees $f(x_t) - f(x^*) \leq \dfrac{L\|x_0 - x^*\|^2}{2t}$. Setting the right-hand side equal to $\epsilon$ and solving for $t$:
+
+$$t \geq \frac{L\|x_0 - x^*\|^2}{2\epsilon} = \frac{10 \cdot 2^2}{2 \cdot 10^{-3}} = \frac{40}{0.002} = 20{,}000.$$
+
+So $20{,}000$ gradient steps suffice. Notice the dependence on $1/\epsilon$: tightening the target from $10^{-3}$ to $10^{-6}$ multiplies the iteration count by $1000$, to $2 \times 10^7$. This slow $O(1/\epsilon)$ scaling is exactly what Nesterov acceleration improves to $O(1/\sqrt{\epsilon})$, and what strong convexity improves to the much faster $O(\kappa \log(1/\epsilon))$.
+</Example>
+
 <Theorem id="thm-strongly-convex-convergence" name="GD Convergence for Strongly Convex Functions">
 For a $\mu$-strongly convex, $L$-smooth function, gradient descent with $\eta = 1/L$ converges exponentially:
 
@@ -153,7 +163,7 @@ where $\kappa = L/\mu$ is the **condition number**.
 </Table>
 
 <Remark id="rmk-acceleration">
-**Nesterov acceleration.** For smooth convex problems, Nesterov's accelerated gradient method achieves the rate $O(L/t^2)$ -- a quadratic improvement over gradient descent's $O(L/t)$ -- by evaluating the gradient at a "lookahead" point. For strongly convex problems, the improvement is from $O((1-1/\kappa)^t)$ to $O((1-1/\sqrt{\kappa})^t)$. These rates are provably optimal: no first-order method can converge faster [@nesterov1983method].
+**Nesterov acceleration.** For smooth convex problems, Nesterov's accelerated gradient method achieves the rate $O(L/t^2)$ (a quadratic improvement over gradient descent's $O(L/t)$) by evaluating the gradient at a "lookahead" point. For strongly convex problems, the improvement is from $O((1-1/\kappa)^t)$ to $O((1-1/\sqrt{\kappa})^t)$. These rates are provably optimal: no first-order method can converge faster [@nesterov1983method].
 </Remark>
 
 ## Proximal Methods
@@ -176,6 +186,15 @@ The proximal operator generalizes the gradient step to non-smooth functions. For
 $$\text{prox}_{\eta \lambda \|\cdot\|_1}(\theta)_i = \text{sign}(\theta_i) \max(|\theta_i| - \eta\lambda, 0)$$
 
 This is the basis of ISTA (Iterative Shrinkage-Thresholding Algorithm) for sparse optimization.
+
+**Numeric computation.** Take $\theta = (3,\, -0.4,\, 0.5,\, -2)$ with threshold $\eta\lambda = 0.5$. Applying the formula coordinate by coordinate:
+
+- $\theta_1 = 3$: $\text{sign}(3)\max(3 - 0.5, 0) = +1 \cdot 2.5 = 2.5$
+- $\theta_2 = -0.4$: $\text{sign}(-0.4)\max(0.4 - 0.5, 0) = -1 \cdot 0 = 0$
+- $\theta_3 = 0.5$: $\text{sign}(0.5)\max(0.5 - 0.5, 0) = +1 \cdot 0 = 0$
+- $\theta_4 = -2$: $\text{sign}(-2)\max(2 - 0.5, 0) = -1 \cdot 1.5 = -1.5$
+
+So $\text{prox}_{0.5\|\cdot\|_1}(\theta) = (2.5,\, 0,\, 0,\, -1.5)$. Coordinates with magnitude below the threshold $0.5$ are set exactly to zero; the survivors are shrunk toward zero by $0.5$. This is exactly how L1 regularization induces sparsity.
 </Example>
 
 ## Duality
@@ -194,7 +213,7 @@ Key properties: $f^{**} = f$ for convex $f$ (biconjugate is the original functio
 
 <Remark id="rmk-conjugate-ml">
 Convex conjugates appear in ML in several places:
-- **Variational representation of KL divergence:** $D_{\text{KL}}(p \| q) = \sup_T \{\mathbb{E}_p[T] - \log \mathbb{E}_q[e^T]\}$ (Donsker--Varadhan)
+- **Variational representation of KL divergence:** $D_{\text{KL}}(p \| q) = \sup_T \{\mathbb{E}_p[T] - \log \mathbb{E}_q[e^T]\}$ (Donsker-Varadhan)
 - **f-GAN losses:** Use the conjugate of $f$-divergences to derive trainable discriminator objectives
 - **Legendre transform:** Converts between natural and expectation parameterizations of exponential families
 </Remark>
@@ -228,7 +247,7 @@ Convex conjugates appear in ML in several places:
 | $\kappa = L/\mu$ | Condition number |
 | $H \succeq 0$ | $H$ is positive semi-definite |
 | $x^*$ | Global minimizer |
-| $f^*$ | Optimal value: $f(x^*)$ |
+| $f(x^*)$ | Optimal value (the minimum of $f$) |
 | $\text{prox}_g$ | Proximal operator of $g$ |
 | $f^*(\cdot)$ | Convex conjugate of $f$ |
 | $O(1/t)$ | Sublinear convergence rate |

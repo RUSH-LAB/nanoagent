@@ -9,7 +9,7 @@ sidebar_position: 2
 Reinforcement learning from human feedback (RLHF) fine-tunes a pretrained language model $\pi_\theta$ to align with human preferences, using a reward signal derived from human judgments [@ouyang2022training]. The standard pipeline has three stages:
 
 1. **Supervised fine-tuning (SFT):** Train on high-quality demonstration data to obtain a reference policy $\pi_{\text{ref}}$.
-2. **Reward modeling:** Train a scalar reward model $r_\phi(x, y)$ on human preference pairs $(y_w \succ y_l | x)$ using the Bradley--Terry model.
+2. **Reward modeling:** Train a scalar reward model $r_\phi(x, y)$ on human preference pairs $(y_w \succ y_l | x)$ using the Bradley-Terry model.
 3. **RL optimization:** Maximize the expected reward while constraining the policy to stay close to $\pi_{\text{ref}}$.
 
 The general objective is:
@@ -21,11 +21,11 @@ $$\max_{\theta} \; \mathbb{E}_{x \sim \mathcal{D},\, y \sim \pi_\theta(\cdot|x)}
 </Equation>
 
 <Remark id="rmk-kl-penalty-purpose">
-The KL penalty serves two purposes: (1) it prevents **reward hacking** -- the policy finding degenerate outputs that score high on the (imperfect) reward model but are actually low-quality; (2) it prevents **catastrophic forgetting** of capabilities learned during pretraining. The coefficient $\beta$ controls this tradeoff: larger $\beta$ keeps the policy closer to $\pi_{\text{ref}}$ at the cost of lower reward.
+The KL penalty serves two purposes: (1) it prevents **reward hacking**, the policy finding degenerate outputs that score high on the (imperfect) reward model but are actually low-quality; (2) it prevents **catastrophic forgetting** of capabilities learned during pretraining. The coefficient $\beta$ controls this tradeoff: larger $\beta$ keeps the policy closer to $\pi_{\text{ref}}$ at the cost of lower reward.
 </Remark>
 
-<Definition id="def-bradley-terry" name="Bradley--Terry Preference Model">
-The **Bradley--Terry model** assigns a probability that response $y_w$ is preferred over $y_l$ given prompt $x$:
+<Definition id="def-bradley-terry" name="Bradley-Terry Preference Model">
+The **Bradley-Terry model** assigns a probability that response $y_w$ is preferred over $y_l$ given prompt $x$:
 
 <Equation id="eq-bradley-terry">
 
@@ -50,6 +50,7 @@ $$\nabla_\theta J(\theta) = \mathbb{E}_{y \sim \pi_\theta(\cdot|x)} \left[ \nabl
 
 </Equation>
 
+In the RLHF context, $R(x, y)$ is typically a learned reward model $r_\phi(x, y)$ minus the KL penalty. (This is why the comparison table later lists REINFORCE as requiring a reward model: the reward signal is generic in principle, but in the RLHF setting it is supplied by $r_\phi$.)
 </Definition>
 
 **Derivation.** We want $\nabla_\theta \mathbb{E}_{y \sim \pi_\theta}[R(y)]$. Since $\nabla_\theta \pi_\theta(y|x) = \pi_\theta(y|x) \nabla_\theta \log \pi_\theta(y|x)$:
@@ -81,7 +82,7 @@ $$\mathcal{L}^{\text{CLIP}}(\theta) = \mathbb{E}_t \left[ \min\!\left( r_t(\thet
 
 </Equation>
 
-where $\hat{A}_t$ is the advantage estimate (typically computed via GAE -- Generalized Advantage Estimation) and $\epsilon$ (typically $0.1$--$0.2$) defines the trust region.
+where $\hat{A}_t$ is the advantage estimate (typically computed via GAE, Generalized Advantage Estimation) and $\epsilon$ (typically $0.1$ to $0.2$) defines the trust region.
 </Definition>
 
 <Remark id="rmk-ppo-clip-intuition">
@@ -107,10 +108,10 @@ $\lambda = 0$ gives the one-step TD advantage (low variance, high bias); $\lambd
 
 <Remark id="rmk-ppo-cost">
 **In RLHF:** PPO requires maintaining four models in memory simultaneously:
-1. **Policy** $\pi_\theta$ -- the model being trained
-2. **Reference** $\pi_{\text{ref}}$ -- frozen SFT model for KL computation
-3. **Reward model** $r_\phi$ -- evaluates response quality
-4. **Value function** $V_\psi$ -- estimates expected return for advantage computation
+1. **Policy** $\pi_\theta$: the model being trained
+2. **Reference** $\pi_{\text{ref}}$: frozen SFT model for KL computation
+3. **Reward model** $r_\phi$: evaluates response quality
+4. **Value function** $V_\psi$: estimates expected return for advantage computation
 
 For a 7B parameter model, this means ~28B parameters in memory, requiring at least 4 GPUs with 80GB each just for model weights in FP16. This memory overhead motivates methods like DPO, GRPO, and RLOO that eliminate one or more of these components.
 </Remark>
@@ -133,7 +134,7 @@ $$r(x, y) = \beta \log \frac{\pi^*(y|x)}{\pi_{\text{ref}}(y|x)} + \beta \log Z(x
 
 </Equation>
 
-Substituting this into the Bradley--Terry preference model $P(y_w \succ y_l) = \sigma(r(x,y_w) - r(x,y_l))$ and noting that $Z(x)$ cancels:
+Substituting this into the Bradley-Terry preference model $P(y_w \succ y_l) = \sigma(r(x,y_w) - r(x,y_l))$ and noting that $Z(x)$ cancels:
 
 <Equation id="eq-dpo-loss">
 
@@ -143,10 +144,10 @@ $$\mathcal{L}_{\text{DPO}}(\theta) = -\mathbb{E}_{(x, y_w, y_l)} \left[ \log \si
 
 <Remark id="rmk-dpo-insight">
 DPO reparameterizes the reward as the log-ratio between policy and reference, turning RL into a supervised classification problem on preference pairs. Key advantages:
-- **No reward model** -- eliminates $r_\phi$ from memory
-- **No value function** -- eliminates $V_\psi$ from memory
-- **No sampling during training** -- uses pre-collected preference data (off-policy)
-- **Simpler implementation** -- just a modified cross-entropy loss
+- **No reward model**: eliminates $r_\phi$ from memory
+- **No value function**: eliminates $V_\psi$ from memory
+- **No sampling during training**: uses pre-collected preference data (off-policy)
+- **Simpler implementation**: just a modified cross-entropy loss
 
 Key limitation: because it is off-policy, DPO can suffer from distributional shift if the preference data was collected under a very different policy than $\pi_\theta$.
 </Remark>
@@ -172,6 +173,20 @@ $$\hat{A}_i = \frac{r_i - \text{mean}(\{r_1, \dots, r_G\})}{\text{std}(\{r_1, \d
 
 </Definition>
 
+<Example id="ex-grpo-advantage">
+**Group-normalized advantage with $G = 4$.** Suppose for one prompt we sample four responses and a verifier assigns binary correctness rewards $\{r_1, r_2, r_3, r_4\} = \{1, 0, 1, 0\}$.
+
+The group mean is $\text{mean} = \frac{1 + 0 + 1 + 0}{4} = 0.5$. The (population) standard deviation is
+
+$$\text{std} = \sqrt{\frac{(1-0.5)^2 + (0-0.5)^2 + (1-0.5)^2 + (0-0.5)^2}{4}} = \sqrt{\frac{0.25 \cdot 4}{4}} = 0.5.$$
+
+Taking $\epsilon \to 0$ for clarity, the normalized advantages are
+
+$$\hat{A}_1 = \hat{A}_3 = \frac{1 - 0.5}{0.5} = +1, \qquad \hat{A}_2 = \hat{A}_4 = \frac{0 - 0.5}{0.5} = -1.$$
+
+So correct responses get advantage $+1$ and incorrect ones $-1$. Notice that with no value network at all, the group itself supplies the baseline: the policy is pushed up on the responses that beat the group average and down on those that fall below it.
+</Example>
+
 The objective uses PPO-style clipping at the **token level**, averaging over all tokens in each response:
 
 <Equation id="eq-grpo-loss">
@@ -189,9 +204,9 @@ where $r_{i,t}(\theta) = \frac{\pi_\theta(y_{i,t} | x, y_{i,<t})}{\pi_{\theta_{\
 <Remark id="rmk-grpo-kl">
 GRPO typically computes the KL penalty at the token level using an approximation:
 
-$$D_{\text{KL}}(\pi_\theta \| \pi_{\text{ref}}) \approx \frac{1}{|y|} \sum_{t=1}^{|y|} \left[\frac{\pi_\theta(y_t | x, y_{<t})}{\pi_{\text{ref}}(y_t | x, y_{<t})} - \log \frac{\pi_\theta(y_t | x, y_{<t})}{\pi_{\text{ref}}(y_t | x, y_{<t})} - 1\right]$$
+$$D_{\text{KL}}(\pi_\theta \| \pi_{\text{ref}}) \approx \frac{1}{|y|} \sum_{t=1}^{|y|} \left[\frac{\pi_{\text{ref}}(y_t | x, y_{<t})}{\pi_\theta(y_t | x, y_{<t})} - \log \frac{\pi_{\text{ref}}(y_t | x, y_{<t})}{\pi_\theta(y_t | x, y_{<t})} - 1\right]$$
 
-This uses the identity $D_{\text{KL}}(p \| q) = \mathbb{E}_p[p/q - \log(p/q) - 1]$ for a non-negative, unbiased KL estimate.
+This uses the identity $D_{\text{KL}}(p \| q) = \mathbb{E}_p[q/p - \log(q/p) - 1]$ for a non-negative, unbiased KL estimate. Note that "unbiased" refers to the estimator's expected value matching the true KL; the gradient of this estimator with respect to $\theta$ is biased relative to the true KL gradient, a known GRPO subtlety.
 </Remark>
 
 ## RLOO (REINFORCE Leave-One-Out)
@@ -213,13 +228,25 @@ $$\nabla_\theta J = \frac{1}{K} \sum_{i=1}^{K} \nabla_\theta \log \pi_\theta(y_i
 
 </Definition>
 
+<Example id="ex-rloo-baseline">
+**Leave-one-out baseline with $K = 4$.** Take the same prompt with rewards $\{r_1, r_2, r_3, r_4\} = \{1, 0, 1, 0\}$ and $K = 4$. Each baseline averages the *other three* rewards:
+
+$$b_1 = \frac{r_2 + r_3 + r_4}{3} = \frac{0 + 1 + 0}{3} = \tfrac{1}{3}, \qquad b_2 = \frac{r_1 + r_3 + r_4}{3} = \frac{1 + 1 + 0}{3} = \tfrac{2}{3},$$
+
+and by symmetry $b_3 = \tfrac{1}{3}$ (like $b_1$) and $b_4 = \tfrac{2}{3}$ (like $b_2$). The advantages $r_i - b_i$ are
+
+$$r_1 - b_1 = 1 - \tfrac{1}{3} = +\tfrac{2}{3}, \qquad r_2 - b_2 = 0 - \tfrac{2}{3} = -\tfrac{2}{3},$$
+
+and again $r_3 - b_3 = +\tfrac{2}{3}$, $r_4 - b_4 = -\tfrac{2}{3}$. Compared with GRPO's $\pm 1$, RLOO produces the same sign pattern (reward the correct, penalize the incorrect) but does not divide by the group standard deviation, so the magnitudes differ. The key property is that $b_i$ never uses $r_i$, which keeps the estimator unbiased.
+</Example>
+
 <Remark id="rmk-rloo-properties">
 RLOO has several desirable properties:
 
 1. **Unbiased:** Each leave-one-out baseline $b_i$ is independent of $y_i$, so the gradient estimator is unbiased.
 2. **Lower variance than REINFORCE:** The per-sample baseline captures the difficulty of the prompt, reducing variance from prompt-to-prompt reward differences.
 3. **No learned value function:** Like GRPO, avoids the memory cost of a separate value network.
-4. **Simple implementation:** Compared to GRPO, RLOO does not clip probability ratios or normalize by standard deviation -- it is closer to vanilla REINFORCE with a smart baseline.
+4. **Simple implementation:** Compared to GRPO, RLOO does not clip probability ratios or normalize by standard deviation: it is closer to vanilla REINFORCE with a smart baseline.
 </Remark>
 
 ## Comparison

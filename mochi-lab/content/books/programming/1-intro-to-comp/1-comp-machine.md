@@ -4,19 +4,19 @@ sidebar_position: 1
 
 # How Programs Execute
 
-Every program you write -- from a single-line Python script to a distributed training job spanning 256 GPUs -- ultimately reduces to the same primitive operation: a processor fetching instructions from memory and executing them one at a time. Understanding this execution model is the foundation for everything in this book: why GPUs are fast for matrix math, why memory layout matters, and why your training loop has the performance characteristics it does.
+Every program you write, from a single-line Python script to a distributed training job spanning 256 GPUs, ultimately reduces to the same primitive operation: a processor fetching instructions from memory and executing them one at a time. Understanding this execution model is the foundation for everything in this book: why GPUs are fast for matrix math, why memory layout matters, and why your training loop has the performance characteristics it does.
 
 ## The Fetch-Decode-Execute Cycle
 
 Every CPU runs the same fundamental loop, repeated billions of times per second:
 
-1. **Fetch** -- read the next instruction from memory at the address in the program counter (PC)
-2. **Decode** -- interpret the instruction (opcode + operands), and read any required register values
-3. **Execute** -- perform the operation (arithmetic, memory access, branch)
-4. **Write back** -- store the result to a register or memory
-5. **Update PC** -- advance to the next instruction (or jump to a branch target)
+1. **Fetch**: read the next instruction from memory at the address in the program counter (PC)
+2. **Decode**: interpret the instruction (opcode + operands), and read any required register values
+3. **Execute**: perform the operation (arithmetic, memory access, branch)
+4. **Write back**: store the result to a register or memory
+5. **Update PC**: advance to the next instruction (or jump to a branch target)
 
-This cycle runs at the **clock frequency** of the processor. A 4 GHz CPU completes 4 billion cycles per second. But not every cycle completes an instruction -- some instructions take multiple cycles (division, memory loads), and pipeline stalls waste cycles entirely.
+This cycle runs at the **clock frequency** of the processor. A 4 GHz CPU completes 4 billion cycles per second. But not every cycle completes an instruction: some instructions take multiple cycles (division, memory loads), and pipeline stalls waste cycles entirely.
 
 <Code id="code-pipeline" caption="CPU instruction pipeline showing overlap of fetch, decode, and execute stages.">
 
@@ -36,7 +36,7 @@ Latency per instruction: 4 cycles
 Modern CPUs pipeline these stages so multiple instructions are in-flight simultaneously. A 20-stage pipeline (typical for Intel/AMD) can have 20 instructions at different stages of completion, achieving a throughput of up to one instruction per cycle despite each instruction taking 20 cycles from start to finish.
 
 <Remark id="rmk-branch-misprediction">
-**Branch mispredictions flush the pipeline.** When the CPU encounters a conditional branch (`if/else`), it *predicts* which direction the branch will take and speculatively fetches instructions along the predicted path. If the prediction is wrong, all speculatively executed work is discarded and the pipeline is flushed -- wasting 10-20 cycles. Modern branch predictors are extremely accurate (>95%), but in tight loops with unpredictable branches, mispredictions can dominate execution time.
+**Branch mispredictions flush the pipeline.** When the CPU encounters a conditional branch (`if/else`), it *predicts* which direction the branch will take and speculatively fetches instructions along the predicted path. If the prediction is wrong, all speculatively executed work is discarded and the pipeline is flushed, wasting 10-20 cycles (the penalty scales with pipeline depth: a typical 20-stage pipeline incurs roughly 20 cycles, which at 4 GHz is the ~5 ns figure in the latency table below). Modern branch predictors are extremely accurate (>95%), but in tight loops with unpredictable branches, mispredictions can dominate execution time.
 
 This is why branchless code (using conditional moves, `cmov`, or arithmetic tricks) can be 2-5x faster for data-dependent operations. In ML, this shows up in custom kernels where data-dependent control flow should be minimized.
 </Remark>
@@ -56,29 +56,29 @@ For ML workloads, ILP is mostly relevant on CPUs. GPUs use a fundamentally diffe
 
 ## Registers and Memory
 
-Registers are the fastest storage, sitting inside the CPU core itself. They are the only storage that the ALU (arithmetic logic unit) can operate on directly -- all data must be loaded into registers before it can be processed.
+Registers are the fastest storage, sitting inside the CPU core itself. They are the only storage that the ALU (arithmetic logic unit) can operate on directly: all data must be loaded into registers before it can be processed.
 
 <Code id="code-x86-registers" caption="x86-64 general purpose and SIMD registers.">
 
 ```
 x86-64 General Purpose Registers (64-bit):
-  RAX              -- accumulator, function return values
-  RBX              -- callee-saved general purpose
-  RCX              -- loop counter, 4th function argument
-  RDX              -- 3rd function argument, I/O
-  RSI, RDI         -- 2nd and 1st function arguments (System V ABI)
-  RSP              -- stack pointer (top of stack)
-  RBP              -- base pointer (frame pointer)
-  R8-R15           -- additional general purpose (R8-R9 = 5th-6th args)
+  RAX              : accumulator, function return values
+  RBX              : callee-saved general purpose
+  RCX              : loop counter, 4th function argument
+  RDX              : 3rd function argument, I/O
+  RSI, RDI         : 2nd and 1st function arguments (System V ABI)
+  RSP              : stack pointer (top of stack)
+  RBP              : base pointer (frame pointer)
+  R8-R15           : additional general purpose (R8-R9 = 5th-6th args)
 
 SIMD Registers:
-  XMM0-XMM15       -- 128-bit (SSE: 4 floats or 2 doubles)
-  YMM0-YMM15       -- 256-bit (AVX: 8 floats or 4 doubles)
-  ZMM0-ZMM31       -- 512-bit (AVX-512: 16 floats or 8 doubles)
+  XMM0-XMM15       : 128-bit (SSE: 4 floats or 2 doubles)
+  YMM0-YMM15       : 256-bit (AVX: 8 floats or 4 doubles)
+  ZMM0-ZMM31       : 512-bit (AVX-512: 16 floats or 8 doubles)
 
 Special Registers:
-  RIP              -- instruction pointer (program counter)
-  RFLAGS           -- condition flags (zero, carry, overflow)
+  RIP              : instruction pointer (program counter)
+  RFLAGS           : condition flags (zero, carry, overflow)
 ```
 
 </Code>
@@ -99,7 +99,7 @@ Data moves through a hierarchy of increasingly large but slower storage. The key
 | L1 cache | 32-64 KB per core | ~1 ns (4 cycles) | ~1 TB/s | Your desk |
 | L2 cache | 256 KB-2 MB per core | ~4 ns (12 cycles) | ~500 GB/s | Filing cabinet |
 | L3 cache (shared) | 16-64 MB per chip | ~12 ns (36 cycles) | ~300 GB/s | Office library |
-| DRAM (main memory) | 64-512 GB | ~80-100 ns (300 cycles) | 50-100 GB/s | City library |
+| DRAM (main memory) | 64-512 GB | ~80-100 ns (300 cycles) | ~50 GB/s per socket (CPU) | City library |
 | SSD (NVMe) | 1-8 TB | ~100 us (300K cycles) | 3-7 GB/s | Warehouse |
 | HDD | 1-20 TB | ~10 ms (30M cycles) | 100-200 MB/s | Another city |
 | Network (same datacenter) | Unlimited | ~0.5 ms | 25-400 Gb/s | Mail system |
@@ -107,7 +107,7 @@ Data moves through a hierarchy of increasingly large but slower storage. The key
 </Table>
 
 <Remark id="rmk-hierarchy-implication">
-**The 100x latency gap between L1 cache and DRAM is the single most important performance fact in computing.** Accessing data in L1 takes 1 ns; accessing DRAM takes 100 ns. This means that a cache miss is not "slightly slower" -- it is catastrophically slower. An algorithm that fits in cache can be 100x faster than one that constantly accesses main memory, even if the cache-friendly version does more total work.
+**The 100x latency gap between L1 cache and DRAM is the single most important performance fact in computing.** Accessing data in L1 takes 1 ns; accessing DRAM takes 100 ns. This means that a cache miss is not "slightly slower"; it is catastrophically slower. An algorithm that fits in cache can be 100x faster than one that constantly accesses main memory, even if the cache-friendly version does more total work.
 
 In ML, this explains why:
 - **Operator fusion** is so important (keep intermediate results in registers/cache instead of writing to global memory)
@@ -130,7 +130,7 @@ Mutex lock/unlock                            25 ns
 Main memory reference                       100 ns
 Compress 1KB with Snappy                  3,000 ns    (3 us)
 SSD random read                         100,000 ns    (100 us)
-Read 1 MB sequentially from SSD       1,000,000 ns    (1 ms)
+Read 1 MB sequentially from SSD (NVMe)    200,000 ns    (200 us)
 GPU kernel launch overhead                  5,000 ns    (5 us)
 Read 1 MB sequentially from DRAM          12,000 ns    (12 us)
 NCCL AllReduce 1 MB (8 GPUs, NVLink)     10,000 ns    (10 us)
@@ -151,7 +151,7 @@ Send packet SF -> NYC -> SF          40,000,000 ns    (40 ms)
 
 ## Cache Lines and Spatial Locality
 
-Caches do not operate on individual bytes -- they operate on **cache lines**, typically 64 bytes. When you access one byte, the entire 64-byte line is fetched from the next level. This has profound implications for performance:
+Caches do not operate on individual bytes; they operate on **cache lines**, typically 64 bytes. When you access one byte, the entire 64-byte line is fetched from the next level. This has profound implications for performance:
 
 <Code id="code-cache-access" caption="Sequential vs strided memory access patterns and their cache behavior.">
 
@@ -179,6 +179,60 @@ def strided_sum(arr, stride=64):
 
 </Code>
 
+<Example id="ex-cache-miss-count">
+
+**Counting cache misses for a sequential sum.** Consider summing `N = 1,048,576` (1M) `float32` values, where each value occupies 4 bytes and a cache line holds `64 / 4 = 16` floats. We will derive how many cache misses each access pattern incurs.
+
+*Step 1: sequential access.* Reading the array in order, the first access to a cache line misses, but the next 15 accesses hit the line already in cache. So the miss count is
+
+$$\text{misses}_{\text{seq}} = \frac{N}{16} = \frac{1{,}048{,}576}{16} = 65{,}536.$$
+
+*Step 2: strided access (one element per cache line).* If the stride is at least 16 floats, every access lands on a fresh cache line, so
+
+$$\text{misses}_{\text{strided}} = \boxed{\quad?\quad}$$
+
+*Step 3: the ratio.* Dividing the two miss counts gives the relative number of DRAM round-trips, which is what bounds a memory-bound loop:
+
+$$\frac{\text{misses}_{\text{strided}}}{\text{misses}_{\text{seq}}} = \boxed{\quad?\quad}$$
+
+The fully strided pattern issues up to 16x more cache-line fetches for the same number of summed elements. Hardware prefetching and per-iteration Python overhead shave this down in practice, which is why the observed speedup is closer to the ~10x quoted in the code above rather than the full 16x.
+
+<details>
+<summary>Solution</summary>
+
+Step 2: one miss per accessed element, so `misses_strided = N = 1,048,576`.
+
+Step 3: `1,048,576 / 65,536 = 16`. The strided pattern wastes 15 of every 16 bytes it pulls into cache.
+
+</details>
+
+</Example>
+
+<Example id="ex-effective-bandwidth">
+
+**Effective bandwidth of a strided read (harder).** Suppose the strided loop above runs on a CPU whose DRAM delivers `50 GB/s` of bandwidth (the DRAM figure from the memory-hierarchy table). For each summed `float32` (4 useful bytes), the hardware still transfers a full 64-byte cache line. Compute the *effective* bandwidth, that is, the rate of useful bytes consumed.
+
+*Step 1: useful fraction.* Only 4 of every 64 transferred bytes are used:
+
+$$\text{useful fraction} = \frac{4}{64} = \frac{1}{16}.$$
+
+*Step 2: effective bandwidth.* Multiply the hardware bandwidth by the useful fraction:
+
+$$\text{effective BW} = 50 \;\text{GB/s} \times \frac{1}{16} = \boxed{\quad?\quad}$$
+
+*Step 3: compare to sequential.* A sequential sum uses all 64 bytes of each line, so its effective bandwidth equals the full hardware bandwidth. What is the ratio of the two effective bandwidths?
+
+<details>
+<summary>Solution</summary>
+
+Step 2: `50 / 16 = 3.125 GB/s` of useful throughput for the fully strided read.
+
+Step 3: `50 / 3.125 = 16`. The strided loop wastes 15/16 of memory bandwidth, the same 16x ceiling seen in the cache-miss count, again softened to ~10x in practice by prefetching and loop overhead.
+
+</details>
+
+</Example>
+
 <Remark id="rmk-row-major">
 **Row-major vs column-major ordering.** When iterating over 2D arrays, always iterate over the **last dimension** in the inner loop. This accesses memory sequentially (row-major order in C/NumPy/PyTorch):
 
@@ -194,7 +248,7 @@ for j in range(cols):
         process(matrix[i, j])
 ```
 
-PyTorch tensors default to contiguous row-major (C-order) layout. Transposing a tensor does not move data -- it only changes the stride metadata. This is why `tensor.t().contiguous()` triggers a copy: it rearranges memory to make the transposed view contiguous.
+PyTorch tensors default to contiguous row-major (C-order) layout. Transposing a tensor does not move data; it only changes the stride metadata. This is why `tensor.t().contiguous()` triggers a copy: it rearranges memory to make the transposed view contiguous.
 </Remark>
 
 <Remark id="rmk-temporal-locality">
@@ -231,7 +285,7 @@ Process A virtual space:    Process B virtual space:    Physical Memory:
 **Virtual memory and ML.** Virtual memory matters for ML in several ways:
 
 - **Page faults during data loading:** When a memory-mapped file (`mmap`) is accessed for the first time, a page fault triggers I/O to load the page. This is why memory-mapped datasets have high latency on the first epoch.
-- **CUDA unified memory:** `torch.cuda.memory_map` and CUDA managed memory use virtual memory to provide a unified address space across CPU and GPU. Data is paged between CPU and GPU memory on demand.
+- **CUDA unified memory:** CUDA managed memory, allocated through `cudaMallocManaged`, uses virtual memory to provide a unified address space across CPU and GPU. Data is paged between CPU and GPU memory on demand. PyTorch does not allocate managed memory by default; you reach it today by wiring up a custom allocator via `torch.cuda.CUDAPluggableAllocator`.
 - **Large allocations:** PyTorch's caching allocator reserves large blocks of GPU memory to avoid the overhead of repeated `cudaMalloc` calls. Understanding this explains why `torch.cuda.memory_allocated()` and `nvidia-smi` show different numbers.
 - **NUMA (Non-Uniform Memory Access):** On multi-socket servers, memory attached to a remote CPU socket has ~2x higher latency. Pinning processes to the correct NUMA node matters for data loading performance.
 </Remark>

@@ -4,7 +4,7 @@ sidebar_position: 1
 
 # Computing Machinery and Intelligence
 
-This chapter addresses a foundational question: *what can be computed, and what are the fundamental limits?* These limits are not academic curiosities -- they directly constrain what machine learning can and cannot do.
+This chapter addresses a foundational question: *what can be computed, and what are the fundamental limits?* These limits are not academic curiosities; they directly constrain what machine learning can and cannot do.
 
 ## Turing Machines
 
@@ -21,17 +21,17 @@ A computation begins with the input written on the tape, the head at the leftmos
 </Definition>
 
 <Example id="ex-turing-palindrome">
-**Palindrome checker.** A Turing machine can decide whether a binary string is a palindrome by repeatedly: (1) reading and erasing the leftmost symbol, (2) sweeping right to find the rightmost symbol, (3) checking they match, (4) erasing the rightmost symbol, and (5) sweeping back left. This requires $O(n^2)$ steps for a string of length $n$ -- illustrating that even simple problems can be expensive on this model.
+**Palindrome checker.** A Turing machine can decide whether a binary string is a palindrome by repeatedly: (1) reading and erasing the leftmost symbol, (2) sweeping right to find the rightmost symbol, (3) checking they match, (4) erasing the rightmost symbol, and (5) sweeping back left. This requires $O(n^2)$ steps for a string of length $n$, illustrating that even simple problems can be expensive on this model.
 </Example>
 
-Despite its simplicity, a Turing machine can compute anything that any physical computer can compute. This is the content of the **Church--Turing thesis** [@turing1936computable]:
+Despite its simplicity, a Turing machine can compute anything that any physical computer can compute. This is the content of the **Church-Turing thesis** [@turing1936computable]:
 
-<Definition id="def-church-turing" name="Church--Turing Thesis">
+<Definition id="def-church-turing" name="Church-Turing Thesis">
 Every function that is "effectively computable" by any physical process is computable by a Turing machine. This is a thesis (not a theorem) because "effectively computable" cannot be formally defined independently of the models it is meant to characterize.
 </Definition>
 
 <Remark id="rmk-church-turing">
-There is no known physical process -- classical, quantum, or otherwise -- that computes something a Turing machine cannot compute (though quantum computers can solve certain problems *faster*). This means the theoretical limits of computability are independent of hardware technology. Every laptop, GPU cluster, and quantum computer computes the same class of functions; they differ only in *efficiency*.
+There is no known physical process (classical, quantum, or otherwise) that computes something a Turing machine cannot compute (though quantum computers can solve certain problems *faster*). This means the theoretical limits of computability are independent of hardware technology. Every laptop, GPU cluster, and quantum computer computes the same class of functions; they differ only in *efficiency*.
 </Remark>
 
 ## Computability and Decidability
@@ -50,11 +50,11 @@ $$H(P, x) = \begin{cases} 1 & \text{if } P \text{ halts on } x \\ 0 & \text{if }
 
 </Equation>
 
-Construct a new program $D$ that takes a program $P$ as input:
+Construct a new program $D$ that takes a program $P$ as input and runs $H(P, P)$, feeding $P$ its own source as the input so that the self-application $D(D)$ is well defined:
 - If $H(P, P) = 1$, then $D$ loops forever
 - If $H(P, P) = 0$, then $D$ halts
 
-Now consider $D(D)$: if $D$ halts on $D$, then $H(D,D)=1$, so $D$ loops -- contradiction. If $D$ loops on $D$, then $H(D,D)=0$, so $D$ halts -- contradiction. Therefore $H$ cannot exist. $\square$
+Now consider $D(D)$: if $D$ halts on $D$, then $H(D,D)=1$, so $D$ loops, a contradiction. If $D$ loops on $D$, then $H(D,D)=0$, so $D$ halts, a contradiction. Therefore $H$ cannot exist. $\square$
 
 <Remark id="rmk-undecidability-ml">
 Undecidability has concrete implications for machine learning:
@@ -63,7 +63,7 @@ Undecidability has concrete implications for machine learning:
 - **Verification:** We cannot build a general-purpose verifier that proves a neural network satisfies a given specification on all inputs (though restricted verifiers exist for specific architectures and properties [@katz2017reluplex]).
 - **Architecture search:** There is no algorithm that, given a dataset, finds the provably optimal architecture in finite time.
 
-These are not engineering limitations to be overcome -- they are mathematical impossibilities.
+These are not engineering limitations to be overcome; they are mathematical impossibilities.
 </Remark>
 
 ## Complexity Classes
@@ -89,11 +89,11 @@ We say $f(n) = O(g(n))$ if there exist constants $c > 0$ and $n_0$ such that $f(
 </Table>
 
 <Remark id="rmk-np-hard-training">
-Training a neural network to global optimality is $NP$-hard in general [@blum1989training]. The remarkable fact that SGD works well in practice is an empirical observation about the loss landscape geometry of overparameterized networks -- not a theoretical guarantee. Understanding *why* gradient descent finds good solutions despite non-convexity is one of the central open problems in deep learning theory.
+Training a neural network to global optimality is $NP$-hard in general [@blum1989training]. The remarkable fact that SGD works well in practice is an empirical observation about the loss landscape geometry of overparameterized networks, not a theoretical guarantee. Understanding *why* gradient descent finds good solutions despite non-convexity is one of the central open problems in deep learning theory.
 </Remark>
 
 <Remark id="rmk-complexity-practical">
-Complexity matters in practice. Matrix multiplication is $O(n^3)$ naively, $O(n^{2.37})$ theoretically [@alman2021refined], and effectively $O(n^{2.8})$ using Strassen's algorithm in libraries like cuBLAS. For attention in transformers, the naive $O(n^2 d)$ cost has driven research into sub-quadratic alternatives like FlashAttention [@dao2022flashattention], which reduces *memory* from $O(n^2)$ to $O(n)$ while keeping the same FLOP count.
+Complexity matters in practice. The classical GEMM algorithm shipped in libraries like cuBLAS is $O(n^3)$. Strassen's algorithm achieves $O(n^{2.81})$ but is rarely used in production because of its numerical error and memory overhead, and the galactic $O(n^{2.37})$ bound [@alman2021refined] is theoretical only. For attention in transformers, the naive $O(n^2 d)$ cost has driven research into sub-quadratic alternatives like FlashAttention [@dao2022flashattention], which reduces *memory* from $O(n^2)$ to $O(n)$ while keeping the same FLOP count.
 </Remark>
 
 ## Universal Function Approximation
@@ -117,12 +117,20 @@ The theorem has been extended in several important directions:
 
 1. **Unbounded activations.** Hornik (1991) showed the result holds for any non-polynomial activation, including ReLU [@hornik1991approximation].
 2. **Width vs. depth.** A single hidden layer of width $N$ suffices, but $N$ may need to be exponentially large. Deep networks can approximate the same functions with polynomially many parameters [@telgarsky2016benefits; @eldan2016power].
-3. **Approximation rate.** For Lipschitz functions on $[0,1]^n$, a ReLU network with $W$ parameters achieves error $O(W^{-2/n})$ -- exhibiting the **curse of dimensionality** [@yarotsky2017error]. Compositional structure in the target function can break this curse.
+3. **Approximation rate.** For Lipschitz functions on $[0,1]^n$, a ReLU network with $W$ parameters achieves error $O(W^{-2/n})$, exhibiting the **curse of dimensionality** [@yarotsky2017error]. Compositional structure in the target function can break this curse.
 4. **Practical caveat.** The theorem is existential: it guarantees *some* network exists, but says nothing about whether gradient descent can *find* it, how much data is needed, or whether the required width is feasible.
 </Remark>
 
 <Example id="ex-relu-piecewise">
-**ReLU networks as piecewise linear functions.** A single-hidden-layer ReLU network with $N$ neurons computes a piecewise linear function with at most $N+1$ linear pieces in one dimension. Each additional hidden layer can exponentially increase the number of linear regions: a depth-$L$, width-$N$ ReLU network can produce $O(N^L)$ linear regions [@montufar2014number]. This is a concrete illustration of the "depth efficiency" phenomenon.
+**ReLU networks as piecewise linear functions.** A single-hidden-layer ReLU network with $N$ neurons computes a piecewise linear function with at most $N+1$ linear pieces in one dimension. To see this concretely, take a 2-neuron network on a scalar input $x$:
+
+<Equation id="eq-relu-example">
+
+$$g(x) = \text{ReLU}(x - 1) - \text{ReLU}(x - 3)$$
+
+</Equation>
+
+Each ReLU contributes one breakpoint, at $x = 1$ and $x = 3$, splitting the line into three linear pieces. Evaluating directly: for $x \leq 1$ both arguments are negative, so $g(x) = 0$; for $1 \leq x \leq 3$ only the first ReLU is active, so $g(x) = x - 1$ (a slope-1 ramp); for $x \geq 3$ both are active, so $g(x) = (x - 1) - (x - 3) = 2$ (a constant plateau). The two neurons thus produce the three promised linear pieces. Each additional hidden layer can exponentially increase the number of linear regions: a depth-$L$, width-$N$ ReLU network can produce $O(N^L)$ linear regions [@montufar2014number]. This is a concrete illustration of the "depth efficiency" phenomenon.
 </Example>
 
 ## Computational Complexity of Common ML Operations
@@ -146,7 +154,7 @@ The theorem has been extended in several important directions:
 A recurring theme in ML is the gap between worst-case theory and average-case practice:
 
 - **Optimization:** Training is $NP$-hard in the worst case, yet SGD finds good solutions reliably on real data.
-- **Generalization:** Classical learning theory (VC dimension, Rademacher complexity) predicts overparameterized models should overfit catastrophically, yet they generalize well -- the "double descent" phenomenon [@belkin2019reconciling].
+- **Generalization:** Classical learning theory (VC dimension, Rademacher complexity) predicts overparameterized models should overfit catastrophically, yet they generalize well: the "double descent" phenomenon [@belkin2019reconciling].
 - **Approximation:** The universal approximation theorem requires exponential width in general, yet practical networks with modest width solve hard problems.
 
 Understanding these gaps is an active area of research. The takeaway for practitioners: theoretical limits inform algorithm design but should not be mistaken for practical limits.
@@ -163,7 +171,10 @@ Understanding these gaps is an active area of research. The takeaway for practit
 | $\delta$ | Transition function |
 | $q_0, q_{\text{accept}}, q_{\text{reject}}$ | Start, accept, and reject states |
 | $O(\cdot), \Omega(\cdot), \Theta(\cdot)$ | Asymptotic upper, lower, and tight bounds |
-| $P, NP, NP\text{-hard}$ | Complexity classes |
+| $P, NP, NP\text{-hard}$ | Complexity classes (polynomial time, nondeterministic polynomial time, at least as hard as $NP$) |
+| $\#P$ | Counting the number of solutions to an $NP$ problem |
+| $PSPACE$ | Problems decidable with polynomial space |
+| $BPP$ | Problems decidable in polynomial time with bounded error probability |
 | $\sigma$ | Activation function |
 | $K$ | Compact subset of $\mathbb{R}^n$ |
 | $\epsilon$ | Approximation tolerance |

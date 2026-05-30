@@ -4,12 +4,12 @@ sidebar_position: 1
 
 # Vectors and Matrices
 
-Linear algebra is the mathematical foundation of machine learning. Every operation in a neural network -- matrix multiplications in linear layers, dot products in attention, projections in dimensionality reduction -- is a linear algebra operation. The objects are vectors (representing data points, embeddings, gradients) and matrices (representing transformations, weight matrices, covariance structures). This chapter introduces these objects, the operations defined on them, and the geometric intuitions that make them powerful tools for ML.
+Linear algebra is the mathematical foundation of machine learning. Every operation in a neural network (matrix multiplications in linear layers, dot products in attention, projections in dimensionality reduction) is a linear algebra operation. The objects are vectors (representing data points, embeddings, gradients) and matrices (representing transformations, weight matrices, covariance structures). This chapter introduces these objects, the operations defined on them, and the geometric intuitions that make them powerful tools for ML.
 
 ## Vector Spaces
 
 <Definition id="def-vector-space" name="Vector Space">
-A **vector space** $V$ over $\mathbb{R}$ is a set equipped with two operations -- vector addition and scalar multiplication -- satisfying the following axioms:
+A **vector space** $V$ over $\mathbb{R}$ is a set equipped with two operations, vector addition and scalar multiplication, satisfying the following axioms:
 
 1. **Closure:** $u + v \in V$ and $\alpha v \in V$ for all $u, v \in V$, $\alpha \in \mathbb{R}$
 2. **Associativity:** $(u + v) + w = u + (v + w)$
@@ -21,7 +21,7 @@ A **vector space** $V$ over $\mathbb{R}$ is a set equipped with two operations -
 8. **Scalar associativity:** $\alpha(\beta v) = (\alpha\beta) v$
 9. **Scalar identity:** $1 \cdot v = v$
 
-The standard example is $\mathbb{R}^n$ -- the space of $n$-tuples of real numbers.
+The standard example is $\mathbb{R}^n$, the space of $n$-tuples of real numbers.
 </Definition>
 
 In machine learning, a data point is a vector $x \in \mathbb{R}^n$ where $n$ is the number of features. A dataset of $m$ points is a matrix $X \in \mathbb{R}^{m \times n}$ where each row is a data point.
@@ -45,10 +45,10 @@ $$x \cdot y = x^\top y = \sum_{i=1}^{n} x_i y_i = \|x\| \|y\| \cos \theta$$
 
 </Equation>
 
-where $\theta$ is the angle between them. More generally, an **inner product** $\langle \cdot, \cdot \rangle$ is any function $V \times V \to \mathbb{R}$ that is:
+where $\theta$ is the angle between them (elsewhere in this section, $\theta$ also denotes regression parameters; context disambiguates). More generally, an **inner product** $\langle \cdot, \cdot \rangle$ is any function $V \times V \to \mathbb{R}$ that is:
 - **Bilinear:** linear in each argument
 - **Symmetric:** $\langle x, y \rangle = \langle y, x \rangle$
-- **Positive definite:** $\langle x, x \rangle > 0$ for $x \neq 0$
+- **Positive definite:** $\langle x, x \rangle \geq 0$ for all $x$, with equality iff $x = 0$
 </Definition>
 
 <Remark id="rmk-dot-product-ml">
@@ -59,6 +59,12 @@ The dot product is the most fundamental operation in ML:
 - **Kernel methods:** Replace $x^\top y$ with a kernel function $k(x,y)$ that implicitly computes the dot product in a higher-dimensional feature space.
 - **Linear layers:** $y = Wx + b$ computes $n$ dot products (one per output dimension) between the weight rows and the input.
 </Remark>
+
+:::info[Interactive: Vector Dot Product]
+Drag the tips of vectors **a** (blue) and **b** (red) to explore how the dot product, magnitudes, and angle between them change. The green segment shows the projection of **b** onto **a**.
+:::
+
+<VectorPlayground />
 
 <Definition id="def-mahalanobis" name="Mahalanobis Inner Product">
 For a positive definite matrix $M$, the **Mahalanobis inner product** is $\langle x, y \rangle_M = x^\top M y$, and the induced norm is $\|x\|_M = \sqrt{x^\top M x}$. When $M = \Sigma^{-1}$ (inverse covariance), the Mahalanobis distance $\|x - \mu\|_{\Sigma^{-1}}$ measures how many "standard deviations" $x$ is from $\mu$, accounting for correlations between features.
@@ -84,8 +90,8 @@ The **$L_p$ norm** is $\|x\|_p = \left(\sum_i |x_i|^p\right)^{1/p}$ for $p \geq 
 | $L_1$ (Manhattan) | $\sum_i |x_i|$ | Diamond (cross-polytope) | Lasso/L1 regularization, promotes sparsity |
 | $L_2$ (Euclidean) | $\sqrt{\sum_i x_i^2}$ | Circle (sphere) | Ridge/L2 regularization, distances |
 | $L_\infty$ (max) | $\max_i |x_i|$ | Cube (hypercube) | Adversarial robustness ($\ell_\infty$ attacks) |
-| Frobenius | $\sqrt{\sum_{i,j} a_{ij}^2}$ | -- | Matrix regularization, $\|A\|_F^2 = \text{tr}(A^\top A)$ |
-| Spectral | $\sigma_{\max}(A)$ | -- | Spectral normalization, Lipschitz bounds |
+| Frobenius | $\sqrt{\sum_{i,j} a_{ij}^2}$ | n/a | Matrix regularization, $\|A\|_F^2 = \text{tr}(A^\top A)$ |
+| Spectral | $\sigma_{\max}(A)$ | n/a | Spectral normalization, Lipschitz bounds |
 
 </Table>
 
@@ -121,13 +127,31 @@ The matrix $P = A(A^\top A)^{-1}A^\top$ is the **projection matrix**. It satisfi
 </Theorem>
 
 <Remark id="rmk-normal-equation">
-**Linear regression as projection.** The normal equation $\hat{\theta} = (X^\top X)^{-1} X^\top y$ computes the parameters such that $\hat{y} = X\hat{\theta}$ is the orthogonal projection of $y$ onto the column space of $X$. The residual $y - \hat{y}$ is orthogonal to every column of $X$, meaning $X^\top(y - X\hat{\theta}) = 0$. This is the *least-squares* solution -- it minimizes $\|y - X\theta\|^2$.
+**Linear regression as projection.** The normal equation $\hat{\theta} = (X^\top X)^{-1} X^\top y$ computes the parameters such that $\hat{y} = X\hat{\theta}$ is the orthogonal projection of $y$ onto the column space of $X$. The residual $y - \hat{y}$ is orthogonal to every column of $X$, meaning $X^\top(y - X\hat{\theta}) = 0$. This is the *least-squares* solution: it minimizes $\|y - X\theta\|^2$.
 </Remark>
 
+<Example id="ex-projection-numeric">
+**Projecting one concrete vector onto another.** Let $a = \begin{bmatrix} 3 \\ 4 \end{bmatrix}$ and $b = \begin{bmatrix} 5 \\ 0 \end{bmatrix}$. We project $b$ onto $a$ using $\text{proj}_a(b) = \frac{a^\top b}{a^\top a}\, a$.
+
+First the inner products: $a^\top b = 3 \cdot 5 + 4 \cdot 0 = 15$ and $a^\top a = 3^2 + 4^2 = 25$. The scalar coefficient is $\frac{15}{25} = \frac{3}{5}$, so
+
+$$\text{proj}_a(b) = \frac{3}{5}\begin{bmatrix} 3 \\ 4 \end{bmatrix} = \begin{bmatrix} 9/5 \\ 12/5 \end{bmatrix}.$$
+
+Check the defining property: the residual $b - \text{proj}_a(b) = \begin{bmatrix} 5 - 9/5 \\ 0 - 12/5 \end{bmatrix} = \begin{bmatrix} 16/5 \\ -12/5 \end{bmatrix}$ should be orthogonal to $a$. Indeed $a^\top(b - \text{proj}_a(b)) = 3 \cdot \frac{16}{5} + 4 \cdot \left(-\frac{12}{5}\right) = \frac{48}{5} - \frac{48}{5} = 0$, confirming the result.
+</Example>
+
 <Example id="ex-gram-schmidt">
-**Gram--Schmidt process.** Given linearly independent vectors $\{a_1, \ldots, a_k\}$, Gram--Schmidt produces orthonormal vectors $\{q_1, \ldots, q_k\}$ by iteratively subtracting projections:
+**Gram-Schmidt process.** Given linearly independent vectors $\{a_1, \ldots, a_k\}$, Gram-Schmidt produces orthonormal vectors $\{q_1, \ldots, q_k\}$ by iteratively subtracting projections:
 
 $$\tilde{q}_j = a_j - \sum_{i=1}^{j-1} (q_i^\top a_j) q_i, \qquad q_j = \frac{\tilde{q}_j}{\|\tilde{q}_j\|}$$
+
+**Worked run on two vectors.** Take $a_1 = \begin{bmatrix} 1 \\ 1 \\ 0 \end{bmatrix}$ and $a_2 = \begin{bmatrix} 1 \\ 0 \\ 1 \end{bmatrix}$. Normalize the first: $\|a_1\| = \sqrt{2}$, so $q_1 = \frac{1}{\sqrt{2}}\begin{bmatrix} 1 \\ 1 \\ 0 \end{bmatrix}$.
+
+Now subtract the projection of $a_2$ onto $q_1$. The coefficient is $q_1^\top a_2 = \frac{1}{\sqrt{2}}(1 + 0 + 0) = \frac{1}{\sqrt{2}}$, giving
+
+$$\tilde{q}_2 = a_2 - (q_1^\top a_2)\, q_1 = \begin{bmatrix} 1 \\ 0 \\ 1 \end{bmatrix} - \frac{1}{\sqrt{2}}\cdot\frac{1}{\sqrt{2}}\begin{bmatrix} 1 \\ 1 \\ 0 \end{bmatrix} = \begin{bmatrix} 1 \\ 0 \\ 1 \end{bmatrix} - \frac{1}{2}\begin{bmatrix} 1 \\ 1 \\ 0 \end{bmatrix} = \begin{bmatrix} 1/2 \\ -1/2 \\ 1 \end{bmatrix}.$$
+
+Its norm is $\|\tilde{q}_2\| = \sqrt{\frac14 + \frac14 + 1} = \sqrt{3/2}$, so $q_2 = \sqrt{\tfrac{2}{3}}\begin{bmatrix} 1/2 \\ -1/2 \\ 1 \end{bmatrix}$. Check orthogonality: $q_1^\top \tilde{q}_2 = \frac{1}{\sqrt{2}}\left(\frac12 - \frac12 + 0\right) = 0$, as required.
 
 This is the foundation of QR decomposition ($A = QR$), which is used for solving linear systems, eigenvalue computation, and orthogonalizing weight matrices.
 </Example>
@@ -163,7 +187,7 @@ For $A \in \mathbb{R}^{m \times n}$ with rank $r$:
 3. **Null space** $\ker(A) \subseteq \mathbb{R}^n$: dimension $n - r$. Solutions to $Ax = 0$
 4. **Left null space** $\ker(A^\top) \subseteq \mathbb{R}^m$: dimension $m - r$
 
-These subspaces satisfy: $\text{col}(A) \perp \ker(A^\top)$ and $\text{row}(A) \perp \ker(A)$. Together they partition $\mathbb{R}^m$ and $\mathbb{R}^n$ into orthogonal complements.
+These subspaces satisfy: $\text{col}(A) \perp \ker(A^\top)$ and $\text{row}(A) \perp \ker(A)$. Together they form orthogonal direct-sum decompositions: $\text{col}(A) \oplus \ker(A^\top) = \mathbb{R}^m$ and $\text{row}(A) \oplus \ker(A) = \mathbb{R}^n$.
 </Definition>
 
 <Remark id="rmk-four-subspaces-ml">
@@ -184,12 +208,19 @@ In ML, these subspaces appear naturally:
 | $\langle x, y \rangle$ | General inner product |
 | $\|x\|_p$ | $L_p$ norm |
 | $\|A\|_F$ | Frobenius norm |
+| $\sigma_{\max}(A)$ | Spectral norm (largest singular value) |
+| $\theta$ | Angle between vectors, or regression parameters |
 | $\delta_{ij}$ | Kronecker delta: $1$ if $i=j$, $0$ otherwise |
+| $\langle x, y \rangle_M$ | Mahalanobis inner product $x^\top M y$ |
+| $\Sigma, \mu$ | Covariance matrix and mean vector |
 | $\text{proj}_a(b)$ | Projection of $b$ onto $a$ |
 | $P$ | Projection matrix (idempotent: $P^2 = P$) |
 | $\text{col}(A)$ | Column space of $A$ |
 | $\ker(A)$ | Null space (kernel) of $A$ |
 | $\text{rank}(A)$ | Rank of $A$ |
+| $\text{nullity}(A)$ | Dimension of null space |
 | $\dim(V)$ | Dimension of vector space $V$ |
+| $\text{tr}(A)$ | Trace (sum of diagonal entries) |
+| $\det(A)$ | Determinant |
 
 </Table>

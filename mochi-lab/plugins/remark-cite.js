@@ -180,6 +180,14 @@ function buildReferencesSection(citedKeys, bibliography) {
       children.push({ type: 'text', value: refText });
     }
 
+    children.push({ type: 'text', value: ' ' });
+    children.push({
+      type: 'link',
+      url: `/bibliography/${key}`,
+      data: { hProperties: { className: ['bib-detail-link'] } },
+      children: [{ type: 'text', value: '↗' }],
+    });
+
     return {
       type: 'listItem',
       data: {

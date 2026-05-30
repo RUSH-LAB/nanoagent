@@ -34,7 +34,7 @@ Equivalently: $x_t = \sqrt{\bar{\alpha}_t} \, x_0 + \sqrt{1 - \bar{\alpha}_t} \,
 **Proof.** By induction. At step 1: $x_1 = \sqrt{\alpha_1}x_0 + \sqrt{\beta_1}\epsilon_1$. Assume $x_{t-1} = \sqrt{\bar{\alpha}_{t-1}}x_0 + \sqrt{1 - \bar{\alpha}_{t-1}}\bar{\epsilon}$. Then $x_t = \sqrt{\alpha_t}x_{t-1} + \sqrt{\beta_t}\epsilon_t = \sqrt{\alpha_t \bar{\alpha}_{t-1}}x_0 + \sqrt{\alpha_t(1 - \bar{\alpha}_{t-1})}\bar{\epsilon} + \sqrt{\beta_t}\epsilon_t$. Since $\bar{\epsilon}$ and $\epsilon_t$ are independent Gaussians, their sum has variance $\alpha_t(1 - \bar{\alpha}_{t-1}) + \beta_t = 1 - \alpha_t\bar{\alpha}_{t-1} = 1 - \bar{\alpha}_t$. $\square$
 </Remark>
 
-As $t \to T$ (with appropriate schedule), $\bar{\alpha}_T \approx 0$, so $x_T \approx \mathcal{N}(0, I)$ -- the data signal is completely destroyed.
+As $t \to T$ (with appropriate schedule), $\bar{\alpha}_T \approx 0$, so $x_T \approx \mathcal{N}(0, I)$: the data signal is completely destroyed.
 
 <Remark id="rmk-noise-schedules">
 **Noise schedules.** The choice of $\beta_t$ (or equivalently $\bar{\alpha}_t$) significantly affects generation quality:
@@ -43,7 +43,7 @@ As $t \to T$ (with appropriate schedule), $\bar{\alpha}_T \approx 0$, so $x_T \a
 |----------|----------|------------|
 | Linear [@ho2020ddpm] | $\beta_t = \beta_1 + \frac{t-1}{T-1}(\beta_T - \beta_1)$ | Simple, but wastes steps in near-noise regime |
 | Cosine [@nichol2021improved] | $\bar{\alpha}_t = \cos^2(\frac{t/T + s}{1+s} \cdot \frac{\pi}{2})$ | Smoother SNR decay, better for small images |
-| Squared cosine | $\bar{\alpha}_t$ quadratic | Used in Stable Diffusion |
+| Scaled linear [@rombach2022high] | $\beta_t$ linear in $\sqrt{\beta_t}$ (i.e. $\sqrt{\beta_t}$ interpolated linearly) | Used in Stable Diffusion 1.x and 2.x; gentler than plain linear |
 | Log-SNR linear | $\log(\bar{\alpha}_t / (1 - \bar{\alpha}_t))$ linear in $t$ | Uniform in log-SNR space; theoretically motivated |
 
 The **signal-to-noise ratio (SNR)** at step $t$ is $\text{SNR}(t) = \bar{\alpha}_t / (1 - \bar{\alpha}_t)$, which monotonically decreases from $\infty$ to $0$. The schedule should distribute steps evenly across the useful SNR range.
@@ -76,13 +76,13 @@ where $\mu_\theta$ is predicted by a neural network. The variance $\sigma_t^2$ c
 | **Data prediction** ($x_0$-pred) | $\hat{x}_\theta(x_t, t) \approx x_0$ | $\mu_\theta = \frac{\sqrt{\bar{\alpha}_{t-1}}\beta_t}{1-\bar{\alpha}_t}\hat{x}_\theta + \frac{\sqrt{\alpha_t}(1-\bar{\alpha}_{t-1})}{1-\bar{\alpha}_t}x_t$ | Emphasizes low-noise steps |
 | **Velocity prediction** ($v$-pred) | $v_\theta \approx \sqrt{\bar{\alpha}_t}\epsilon - \sqrt{1-\bar{\alpha}_t}x_0$ | Derived from $v_\theta$ | Balanced; better for high resolution |
 
-All three are mathematically equivalent -- they differ only in the implicit weighting of the loss across noise levels. $\epsilon$-prediction is the default in DDPM; $v$-prediction is preferred in progressive distillation and high-resolution models.
+All three are mathematically equivalent; they differ only in the implicit weighting of the loss across noise levels. $\epsilon$-prediction is the default in DDPM; $v$-prediction is preferred in progressive distillation and high-resolution models.
 </Remark>
 
 ## The Forward Posterior
 
 <Theorem id="thm-forward-posterior" name="Forward Process Posterior">
-The forward process posterior $q(x_{t-1} | x_t, x_0)$ -- the distribution of the previous step given both the current noisy version and the original data -- is tractable:
+The forward process posterior $q(x_{t-1} | x_t, x_0)$ (the distribution of the previous step given both the current noisy version and the original data) is tractable:
 
 <Equation id="eq-forward-posterior">
 
@@ -92,13 +92,17 @@ $$q(x_{t-1} | x_t, x_0) = \mathcal{N}(x_{t-1}; \tilde{\mu}_t(x_t, x_0), \tilde{\
 
 where:
 
+<Equation id="eq-forward-posterior-mean">
+
 $$\tilde{\mu}_t = \frac{\sqrt{\bar{\alpha}_{t-1}} \beta_t}{1 - \bar{\alpha}_t} x_0 + \frac{\sqrt{\alpha_t}(1 - \bar{\alpha}_{t-1})}{1 - \bar{\alpha}_t} x_t, \qquad \tilde{\beta}_t = \frac{1 - \bar{\alpha}_{t-1}}{1 - \bar{\alpha}_t} \beta_t$$
+
+</Equation>
 
 This is derived by applying Bayes' rule: $q(x_{t-1}|x_t, x_0) \propto q(x_t|x_{t-1}) \cdot q(x_{t-1}|x_0)$, and completing the square in the Gaussian exponent.
 </Theorem>
 
 <Remark id="rmk-posterior-key-insight">
-**The key insight of DDPM.** The forward posterior $q(x_{t-1}|x_t, x_0)$ is the "ideal" reverse step -- if we knew $x_0$, we could denoise perfectly. Since we do not know $x_0$, we train a neural network to estimate it (or equivalently, to estimate the noise $\epsilon$ that was added). Substituting the estimate $\hat{x}_0 = (x_t - \sqrt{1-\bar{\alpha}_t}\epsilon_\theta) / \sqrt{\bar{\alpha}_t}$ into $\tilde{\mu}_t$ gives the learned reverse mean.
+**The key insight of DDPM.** The forward posterior $q(x_{t-1}|x_t, x_0)$ is the "ideal" reverse step: if we knew $x_0$, we could denoise perfectly. Since we do not know $x_0$, we train a neural network to estimate it (or equivalently, to estimate the noise $\epsilon$ that was added). Substituting the estimate $\hat{x}_0 = (x_t - \sqrt{1-\bar{\alpha}_t}\epsilon_\theta) / \sqrt{\bar{\alpha}_t}$ into $\tilde{\mu}_t$ gives the learned reverse mean.
 </Remark>
 
 ## DDPM Loss
@@ -106,7 +110,11 @@ This is derived by applying Bayes' rule: $q(x_{t-1}|x_t, x_0) \propto q(x_t|x_{t
 <Theorem id="thm-ddpm-loss" name="DDPM Training Objective">
 The variational lower bound (VLB) on $-\log p_\theta(x_0)$ decomposes into a sum of KL divergences:
 
+<Equation id="eq-ddpm-vlb">
+
 $$-\log p_\theta(x_0) \leq \underbrace{D_{\text{KL}}(q(x_T|x_0) \| p(x_T))}_{L_T \text{ (prior matching)}} + \sum_{t=2}^T \underbrace{D_{\text{KL}}(q(x_{t-1}|x_t, x_0) \| p_\theta(x_{t-1}|x_t))}_{L_{t-1} \text{ (denoising matching)}} - \underbrace{\log p_\theta(x_0|x_1)}_{L_0 \text{ (reconstruction)}}$$
+
+</Equation>
 
 Since both $q(x_{t-1}|x_t, x_0)$ and $p_\theta(x_{t-1}|x_t)$ are Gaussian, each KL term has a closed form that reduces to an MSE between means.
 
@@ -210,7 +218,11 @@ where $c$ is the conditioning signal (e.g., text prompt), $\varnothing$ is the n
 <Remark id="rmk-cfg-mechanism">
 **CFG as implicit classifier guidance.** Rewriting the guided prediction in terms of scores:
 
+<Equation id="eq-cfg-score">
+
 $$\tilde{s}(x_t, t, c) = s(x_t, t) + (1+w) \cdot [s(x_t, t, c) - s(x_t, t)] = s(x_t, t) + (1+w) \nabla_{x_t} \log p(c|x_t)$$
+
+</Equation>
 
 This shows that CFG amplifies the implicit classifier gradient $\nabla \log p(c|x_t)$ by a factor of $(1+w)$, pushing samples toward higher conditional likelihood. The effect:
 
@@ -227,22 +239,58 @@ Guidance is now standard in essentially all conditional diffusion models (Stable
 ## Latent Diffusion and Practical Architecture
 
 <Remark id="rmk-latent-diffusion">
-**Latent Diffusion Models (LDM)** [@rombach2022ldm] apply the diffusion process in a learned latent space rather than pixel space:
+**Latent Diffusion Models (LDM)** [@rombach2022high] apply the diffusion process in a learned latent space rather than pixel space:
 
 1. **Encode:** $z_0 = \mathcal{E}(x_0)$ using a pretrained VAE encoder ($256 \times 256 \times 3 \to 32 \times 32 \times 4$, typical $8\times$ compression).
 2. **Diffuse:** Run forward/reverse process on $z_t$ instead of $x_t$.
 3. **Decode:** $\hat{x}_0 = \mathcal{D}(\hat{z}_0)$ using the VAE decoder.
 
-This reduces the dimensionality by $\sim 64\times$ (from $256^2 \times 3 = 196K$ to $32^2 \times 4 = 4K$), making the diffusion process dramatically cheaper while preserving perceptual quality. The denoising network is typically a **U-Net** with cross-attention layers for text conditioning, or more recently a **Diffusion Transformer (DiT)** [@peebles2023dit] that uses a standard Transformer architecture on patchified latents.
+The spatial resolution drops by $8\times$ per side ($64\times$ in pixel count), and counting the change in channel depth (3 to 4) the total element count falls by $\sim 48\times$ (from $256^2 \times 3 = 196{,}608$ to $32^2 \times 4 = 4{,}096$), making the diffusion process dramatically cheaper while preserving perceptual quality. The denoising network is typically a **U-Net** with cross-attention layers for text conditioning, or more recently a **Diffusion Transformer (DiT)** [@peebles2023dit] that uses a standard Transformer architecture on patchified latents.
 </Remark>
 
 <Remark id="rmk-flow-matching">
 **Flow matching** [@lipman2023flow] is a related framework that learns a velocity field $v_\theta(x_t, t)$ defining an ODE from noise to data: $dx/dt = v_\theta(x_t, t)$. Instead of the diffusion forward process, flow matching interpolates linearly: $x_t = (1-t)x_0 + t\epsilon$. The training loss is:
 
+<Equation id="eq-flow-matching-loss">
+
 $$\mathcal{L} = \mathbb{E}_{t, x_0, \epsilon}\left[\|v_\theta(x_t, t) - (\epsilon - x_0)\|^2\right]$$
+
+</Equation>
 
 Flow matching produces straighter trajectories than diffusion, enabling fewer sampling steps. It has become the basis for several modern generative models (e.g., Stable Diffusion 3).
 </Remark>
+
+## Worked Examples
+
+<Example id="ex-forward-noising" name="Noising a sample under a linear schedule">
+Take a tiny linear schedule with $T = 3$ steps and $\beta = (0.1, 0.2, 0.3)$. We compute the cumulative coefficients and then noise a one-dimensional sample $x_0 = 2$ using a fixed draw $\epsilon = 1$.
+
+**Step 1: Signal-retention factors.** With $\alpha_t = 1 - \beta_t$ we get $\alpha = (0.9, 0.8, 0.7)$.
+
+**Step 2: Cumulative products.** Using $\bar{\alpha}_t = \prod_{s=1}^t \alpha_s$:
+
+$$\bar{\alpha}_1 = 0.9, \qquad \bar{\alpha}_2 = 0.9 \cdot 0.8 = 0.72, \qquad \bar{\alpha}_3 = 0.72 \cdot 0.7 = 0.504.$$
+
+**Step 3: Signal-to-noise ratio at $t = 3$.** $\text{SNR}(3) = \bar{\alpha}_3 / (1 - \bar{\alpha}_3) = 0.504 / 0.496 \approx 1.016$, so by the final step the signal and noise have roughly equal power.
+
+**Step 4: Apply the closed-form forward map.** From the remark on closed-form sampling, $x_3 = \sqrt{\bar{\alpha}_3}\, x_0 + \sqrt{1 - \bar{\alpha}_3}\, \epsilon$. With $\sqrt{0.504} \approx 0.7099$ and $\sqrt{0.496} \approx 0.7043$:
+
+$$x_3 \approx 0.7099 \cdot 2 + 0.7043 \cdot 1 \approx 1.4199 + 0.7043 \approx 2.124.$$
+
+Notice that no intermediate $x_1, x_2$ were needed: the closed form jumps straight to $x_3$.
+</Example>
+
+<Example id="ex-cfg-mixing" name="Classifier-free guidance mixing (harder)">
+Suppose at some step the conditional and unconditional networks output the two-dimensional noise predictions $\epsilon_\theta(x_t, t, c) = (0.40, -0.20)$ and $\epsilon_\theta(x_t, t, \varnothing) = (0.10, 0.05)$. Compute the guided prediction $\tilde{\epsilon}_\theta$ for guidance scale $w = 2$, then decide whether $w = 5$ moves the result further from the unconditional prediction. Try writing out the per-component formula yourself before reading on, using the CFG equation above.
+
+**Apply the mixing rule.** The CFG equation gives $\tilde{\epsilon}_\theta = (1 + w)\,\epsilon_\theta(\cdot, c) - w\,\epsilon_\theta(\cdot, \varnothing)$. With $w = 2$ the scalar weights are $1 + w = 3$ and $w = 2$, applied component-wise:
+
+$$\tilde{\epsilon}_0 = 3 \cdot 0.40 - 2 \cdot 0.10 = 1.20 - 0.20 = 1.00, \qquad \tilde{\epsilon}_1 = 3 \cdot (-0.20) - 2 \cdot 0.05 = -0.60 - 0.10 = -0.70.$$
+
+So $\tilde{\epsilon}_\theta = (1.00, -0.70)$.
+
+**Interpret the scale.** Rewriting as $\tilde{\epsilon}_\theta = \epsilon_\theta(\cdot, \varnothing) + (1 + w)\,[\epsilon_\theta(\cdot, c) - \epsilon_\theta(\cdot, \varnothing)]$, the conditional-minus-unconditional difference is $(0.30, -0.25)$. Larger $w$ scales this difference by $(1 + w)$, so $w = 5$ multiplies it by $6$ instead of $3$, pushing the prediction twice as far from the unconditional output along the same direction. This is the diversity-versus-fidelity knob: bigger $w$ sharpens adherence to the condition at the cost of sample diversity.
+</Example>
 
 ## Notation Summary
 

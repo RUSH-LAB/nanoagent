@@ -42,6 +42,18 @@ For $\lambda_1 = 3$: $(A - 3I)v = 0 \implies v_1 = \begin{pmatrix} 1 \\ 0 \end{p
 - $\prod_i \lambda_i = \det(A)$ = volume scaling factor
 </Remark>
 
+:::info[Interactive: Linear Transformation]
+Adjust the matrix entries to see how a $2 \times 2$ matrix transforms the unit square. The blue and red vectors show where the standard basis vectors $e_1, e_2$ get mapped. Light blue grid lines reveal how the entire plane deforms.
+:::
+
+<LinearTransformDemo />
+
+:::info[Interactive: Eigenvectors]
+The dashed circle shows the unit circle; the blue ellipse shows its image under $A$. Eigenvectors (red, green) are the directions where $A$ acts as pure scaling. Adjust the matrix to see how eigenvectors and eigenvalues change. When the discriminant is negative, the eigenvalues become complex and the transformation involves rotation.
+:::
+
+<EigenDemo />
+
 ## Eigendecomposition
 
 <Theorem id="thm-eigendecomp" name="Eigendecomposition (Diagonalization)">
@@ -64,11 +76,19 @@ where $V = [v_1 | v_2 | \cdots | v_n]$ is the matrix of eigenvectors (columns) a
 4. **Stability analysis:** A linear dynamical system $x_{t+1} = Ax_t$ converges iff all $|\lambda_i| < 1$
 
 <Example id="ex-power-method">
-**Power iteration.** The dominant eigenvector (corresponding to the largest $|\lambda|$) can be found by repeatedly multiplying by $A$ and normalizing:
+**Power iteration (worked numerically).** The dominant eigenvector (corresponding to the largest $|\lambda|$) can be found by repeatedly multiplying by $A$ and normalizing:
 
-$$v^{(t+1)} = \frac{A v^{(t)}}{\|A v^{(t)}\|}$$
+$$v^{(t+1)} = \frac{A v^{(t)}}{\|A v^{(t)}\|}, \qquad \hat{\lambda}^{(t)} = (v^{(t)})^\top A \, v^{(t)} \;\; (\text{Rayleigh estimate})$$
 
-This converges at rate $|\lambda_2 / \lambda_1|$ (the ratio of the two largest eigenvalue magnitudes). Power iteration is the basis of PageRank and is used internally in many SVD algorithms.
+Take $A = \begin{pmatrix} 2 & 1 \\ 1 & 2 \end{pmatrix}$, whose true eigenpairs are $\lambda_1 = 3$ with $q_1 = \tfrac{1}{\sqrt 2}(1, 1)$ and $\lambda_2 = 1$ with $q_2 = \tfrac{1}{\sqrt 2}(1, -1)$. Starting from $v^{(0)} = (1, 0)$:
+
+**Step 1 (full guidance).** $A v^{(0)} = (2, 1)$, with $\|A v^{(0)}\| = \sqrt{5} \approx 2.236$, so $v^{(1)} = (0.894, 0.447)$ and $\hat{\lambda}^{(1)} = (v^{(1)})^\top A v^{(1)} \approx 2.976$.
+
+**Step 2 (faded).** Now apply $A$ to $v^{(1)}$, take the norm, and renormalize: $A v^{(1)} = (2.236, 1.789)$, $\|A v^{(1)}\| \approx 2.864$, giving $v^{(2)} = (0.781, 0.625)$ and $\hat{\lambda}^{(2)} \approx 2.997$.
+
+**Step 3 (your turn).** Repeating once more yields $v^{(3)} = (0.733, 0.680)$ and $\hat{\lambda}^{(3)} \approx 2.9997$. The iterate is already converging to $q_1 \approx (0.707, 0.707)$ and the Rayleigh estimate to $\lambda_1 = 3$.
+
+The error contracts at rate $|\lambda_2 / \lambda_1| = 1/3$ per step (the ratio of the two largest eigenvalue magnitudes), which is why three iterations suffice here. Power iteration is the basis of PageRank and is used internally in many SVD algorithms.
 </Example>
 
 ## Spectral Theorem
@@ -95,9 +115,9 @@ where $Q = [q_1 | \cdots | q_n]$ is orthogonal ($Q^\top Q = I$) and $\Lambda = \
 The spectral theorem is foundational for ML because the key matrices are symmetric:
 
 - **Covariance matrices** $\Sigma$: eigenvalues are variances along principal directions; eigenvectors are the principal components (PCA)
-- **Hessians** $\nabla^2 \mathcal{L}$: eigenvalues give curvature along each eigenvector direction; the largest eigenvalue is the Lipschitz constant $L$ of the gradient
+- **Hessians** $\nabla^2 \mathcal{L}$: eigenvalues give curvature along each eigenvector direction; the largest eigenvalue is the Lipschitz constant $\beta$ of the gradient (the smoothness constant)
 - **Kernel matrices** $K$: eigenvalues determine the kernel's effective dimensionality; Mercer's theorem guarantees PSD kernels have non-negative eigenvalues
-- **Graph Laplacians** $L = D - A$: eigenvalues encode graph connectivity; the second-smallest eigenvalue (Fiedler value) measures algebraic connectivity
+- **Graph Laplacians** $L_{\text{graph}} = D - W$ (where $W$ is the adjacency matrix): eigenvalues encode graph connectivity; the second-smallest eigenvalue (Fiedler value) measures algebraic connectivity. (Here $L$ and $A$ already denote the Cholesky factor and the generic input matrix, so we write $L_{\text{graph}}$ and $W$; the [Graph Neural Networks](../6-advanced-ml-math/3-graph-neural-networks.md) chapter, where no such clash arises, uses the standard $L = D - A$.)
 </Remark>
 
 ## Positive Definite Matrices
@@ -122,6 +142,8 @@ A symmetric matrix $A \in \mathbb{R}^{n \times n}$ is:
 
 </Table>
 
+The minors test is asymmetric between the two columns. For PD, Sylvester's criterion needs only the $n$ **leading** principal minors to be positive. For PSD, this is not enough: **all** principal minors (every diagonal submatrix, not just the leading ones) must be nonnegative. For example, $\begin{pmatrix} 0 & 0 \\ 0 & -1 \end{pmatrix}$ has both leading minors equal to $0$ yet is not PSD.
+
 <Remark id="rmk-psd-ml">
 **PSD matrices in ML:**
 - **Covariance matrices** are always PSD (and PD if data spans the full space)
@@ -141,7 +163,7 @@ A symmetric matrix $A \in \mathbb{R}^{n \times n}$ is:
 | Mixed signs | Saddle point |
 | Some $\lambda_i = 0$ | Degenerate (need higher-order analysis) |
 
-In high-dimensional loss landscapes (e.g., $P = 10^9$ parameters), the probability that a random critical point is a local minimum (all $P$ eigenvalues positive) is astronomically small. Most critical points are saddle points, which helps explain why gradient descent does not get stuck in local minima -- it slides off saddle points along the directions of negative curvature [@dauphin2014identifying].
+In high-dimensional loss landscapes (e.g., $P = 10^9$ parameters), the probability that a random critical point is a local minimum (all $P$ eigenvalues positive) is astronomically small. Most critical points are saddle points, which helps explain why gradient descent does not get stuck in local minima: it slides off saddle points along the directions of negative curvature [@dauphin2014identifying].
 </Remark>
 
 ## Condition Number
@@ -162,14 +184,14 @@ A perturbation $\delta b$ in the right-hand side causes a relative error bounded
 
 | Condition | $\kappa(A)$ | GD Convergence | Numerical Effect |
 |-----------|-------------|----------------|------------------|
-| Well-conditioned | $\sim 1$--$10$ | Fast, direct path to minimum | Results accurate to $\sim \epsilon_{\text{mach}}$ |
-| Moderately ill-conditioned | $10^3$--$10^6$ | Oscillation, slow progress | Lose 3--6 digits of accuracy |
+| Well-conditioned | $\sim 1$ to $10$ | Fast, direct path to minimum | Results accurate to $\sim \epsilon_{\text{mach}}$ |
+| Moderately ill-conditioned | $10^3$ to $10^6$ | Oscillation, slow progress | Lose 3 to 6 digits of accuracy |
 | Severely ill-conditioned | $> 10^{16}$ | Effectively stuck | Results may be meaningless in FP64 |
 
 </Table>
 
 <Remark id="rmk-preconditioning">
-**Preconditioning.** The convergence rate of gradient descent on a quadratic $f(x) = \frac{1}{2}x^\top Ax - b^\top x$ depends on the condition number $\kappa$ of $A$: GD converges as $\left(\frac{\kappa - 1}{\kappa + 1}\right)^t$. A **preconditioner** $M \approx A^{-1}$ transforms the system to $MAx = Mb$, reducing the effective condition number to $\kappa(MA) \approx 1$. Adam's per-parameter learning rates act as a diagonal preconditioner: dividing by $\sqrt{\hat{v}_t}$ approximates the inverse diagonal of the Hessian, reducing the effective condition number.
+**Preconditioning.** The convergence rate of gradient descent on a quadratic $f(x) = \frac{1}{2}x^\top Ax - b^\top x$ depends on the condition number $\kappa$ of $A$: with the optimal fixed step size $\eta = \frac{2}{\lambda_{\max} + \lambda_{\min}}$, the $A$-norm error contracts per iteration as $\left(\frac{\kappa - 1}{\kappa + 1}\right)^t$ (this rate is specific to that step size; a poorly chosen step size can be far slower or diverge). A **preconditioner** $M \approx A^{-1}$ transforms the system to $MAx = Mb$, reducing the effective condition number to $\kappa(MA) \approx 1$. Adam's per-parameter learning rates act as a diagonal preconditioner: dividing by $\sqrt{\hat{v}_t}$ approximates the inverse diagonal of the Hessian, reducing the effective condition number.
 </Remark>
 
 ## Rayleigh Quotient
@@ -204,7 +226,7 @@ Each disc $D(A_{ii}, R_i)$ is centered at the diagonal entry $A_{ii}$ with radiu
 </Theorem>
 
 <Remark id="rmk-gershgorin-ml">
-**Gershgorin in ML.** This theorem provides cheap eigenvalue bounds without computing the eigendecomposition. For a diagonally dominant matrix (where $|A_{ii}| > R_i$ for all $i$), Gershgorin guarantees all eigenvalues have the same sign as the diagonal entries -- hence the matrix is positive definite if all diagonal entries are positive and the matrix is diagonally dominant. This is useful for verifying that a kernel matrix or regularized Hessian is PD without computing eigenvalues.
+**Gershgorin in ML.** This theorem provides cheap eigenvalue bounds without computing the eigendecomposition. For a diagonally dominant matrix (where $|A_{ii}| > R_i$ for all $i$), Gershgorin guarantees all eigenvalues have the same sign as the diagonal entries, hence the matrix is positive definite if all diagonal entries are positive and the matrix is diagonally dominant. This is useful for verifying that a kernel matrix or regularized Hessian is PD without computing eigenvalues.
 </Remark>
 
 ## Notation Summary
@@ -224,6 +246,8 @@ Each disc $D(A_{ii}, R_i)$ is centered at the diagonal entry $A_{ii}$ with radiu
 | $A \succ 0$ | $A$ is positive definite |
 | $A \succeq 0$ | $A$ is positive semi-definite |
 | $H$ | Hessian matrix |
+| $\beta$ | Gradient Lipschitz (smoothness) constant |
 | $L$ | Cholesky factor ($A = LL^\top$) |
+| $L_{\text{graph}} = D - W$ | Graph Laplacian ($W$ adjacency, $D$ degree matrix) |
 
 </Table>

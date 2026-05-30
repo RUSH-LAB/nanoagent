@@ -67,7 +67,7 @@ prof.export_stacks("profiler_stacks.txt", "self_cuda_time_total")
 - **# Calls**: Number of times the operation was invoked
 - **CPU Mem / CUDA Mem**: Memory allocated/freed by this operation
 
-Look for operations with high `Self CUDA time` -- these are the actual compute bottlenecks. High `CPU time total` with low `CUDA time` suggests CPU-side overhead.
+Look for operations with high `Self CUDA time`: these are the actual compute bottlenecks. High `CPU time total` with low `CUDA time` suggests CPU-side overhead.
 </Remark>
 
 ## Training Loop Profiling
@@ -184,7 +184,7 @@ with torch.cuda.nvtx.range("backward_pass"):
 
 ## NVIDIA Nsight Compute (ncu)
 
-`ncu` profiles individual CUDA kernels at maximum detail -- SM utilization, memory throughput, occupancy, warp stall reasons, instruction mix. Use it when nsys identifies a specific slow kernel:
+`ncu` profiles individual CUDA kernels at maximum detail: SM utilization, memory throughput, occupancy, warp stall reasons, instruction mix. Use it when nsys identifies a specific slow kernel:
 
 <Code id="code-profiling-4" caption="Using ncu to profile specific CUDA kernels.">
 
@@ -259,14 +259,27 @@ Example balance points (FP16 Tensor Cores):
 | Reduction (sum, mean) | 1 per element | 4 (read only) | 0.25 FLOP/byte | Memory-bound |
 | Layer norm | ~10 per element | 8 | ~1.25 FLOP/byte | Memory-bound |
 | Softmax | ~5 per element | 8 | ~0.6 FLOP/byte | Memory-bound |
-| Attention (seq=2K, d=128) | $O(s^2 d)$ | $O(s \cdot d)$ read | ~512 FLOP/byte | Compute-bound |
-| GEMM (M=N=K=4096, FP16) | $2 \times 4096^3$ | $3 \times 4096^2 \times 2$ | ~2730 FLOP/byte | Compute-bound |
+| Attention (seq=2K, d=128) | $O(s^2 d)$ | $O(s \cdot d)$ for inputs/outputs | scales as $O(s)$, so large; see note below | Compute-bound |
+| GEMM (M=N=K=4096, FP16) | $2 \times 4096^3$ | $3 \times 4096^2 \times 2$ | ~1365 FLOP/byte | Compute-bound |
 | Conv2d (large channels) | $2 \times C_{in} \times C_{out} \times K^2 \times H \times W$ | Depends | Usually compute-bound | Compute-bound |
 
 </Table>
 
+<Remark id="rmk-attention-accounting">
+**Why attention's arithmetic intensity scales with sequence length.** The two batched matmuls in attention ($QK^\top$ and the $AV$ product) each perform $\sim 2 s^2 d$ FLOPs, while the inputs ($Q$, $K$, $V$) and output are $\sim 4 s d$ elements. With arithmetic intensity proportional to $s^2 d / (s d) = s$, longer sequences push attention further into the compute-bound regime. The exact FLOP/byte value depends on what you count as memory traffic: a naive implementation that materializes the full $s \times s$ score matrix reads and writes $O(s^2)$ bytes, which lowers the effective intensity, whereas a fused FlashAttention-style kernel keeps the scores in on-chip SRAM and only moves the $O(s d)$ inputs and outputs to and from HBM [@dao2022flashattention]. The compute-bound verdict holds in both cases for the shapes typical in training.
+</Remark>
+
+<Example id="ex-roofline-layernorm">
+**Worked roofline: layer norm on an A100.** Consider a layer norm over an activation tensor of $N = 2^{20}$ FP16 elements (about one million values).
+
+1. *FLOPs.* Layer norm computes a mean, a variance, a normalization, and an affine scale-and-shift, roughly $10$ FLOPs per element, so $\text{FLOPs} \approx 10 N = 1.05 \times 10^7$.
+2. *Bytes.* It reads the input and writes the output once each, $2$ bytes per FP16 value, so $\text{Bytes} \approx 2 \times 2 N = 4N = 4.19 \times 10^6$ (the scale and bias parameters are negligible by comparison).
+3. *Arithmetic intensity.* $\text{AI} = \text{FLOPs} / \text{Bytes} = 10N / 4N = 2.5$ FLOP/byte.
+4. *Verdict.* The A100 balance point is $\approx 153$ FLOP/byte. Since $2.5 \ll 153$, layer norm is firmly **memory-bound**: it runs at HBM bandwidth, and Tensor Cores sit idle. The fix is fusion, folding the layer norm into the adjacent matmul or activation so the data is read once.
+</Example>
+
 <Remark id="rmk-roofline-implications">
-**The roofline model tells you what to optimize.** For memory-bound operations (most elementwise and normalization ops), increasing compute throughput (e.g., Tensor Cores) provides no benefit -- you need to reduce memory movement through **kernel fusion** (combine multiple elementwise ops into one kernel that reads/writes memory once). For compute-bound operations (matmul, convolution), increasing compute throughput (reduced precision, Tensor Cores) directly improves performance. `torch.compile` primarily helps by fusing memory-bound operations.
+**The roofline model tells you what to optimize.** For memory-bound operations (most elementwise and normalization ops), increasing compute throughput (e.g., Tensor Cores) provides no benefit: you need to reduce memory movement through **kernel fusion** (combine multiple elementwise ops into one kernel that reads/writes memory once). For compute-bound operations (matmul, convolution), increasing compute throughput (reduced precision, Tensor Cores) directly improves performance. `torch.compile` primarily helps by fusing memory-bound operations.
 </Remark>
 
 ## Micro-Benchmarking with CUDA Events
@@ -338,5 +351,5 @@ print(result)
 3. **nsys**: Where are the gaps in the GPU timeline? Is communication overlapping with compute?
 4. **ncu**: For the specific slow kernel identified in steps 2-3, what limits it (compute, memory, occupancy)?
 
-Most training bottlenecks (>60%) are in data loading, communication, or launch overhead -- not in the model computation itself. Profile before optimizing.
+Most training bottlenecks are commonly in data loading, communication, or launch overhead, not in the model computation itself. Profile before optimizing.
 </Remark>

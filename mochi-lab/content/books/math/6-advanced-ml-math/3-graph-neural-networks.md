@@ -36,7 +36,7 @@ The **adjacency matrix** $A \in \{0,1\}^{n \times n}$ has $A_{ij} = 1$ if $(i,j)
 The **unnormalized Laplacian** is $L = D - A$. Key properties:
 
 - **Symmetric** and **positive semi-definite** ($L \succeq 0$)
-- **Null space:** $L \mathbf{1} = 0$ -- the constant vector is an eigenvector with eigenvalue $0$
+- **Null space:** $L \mathbf{1} = 0$, so the constant vector is an eigenvector with eigenvalue $0$
 - **Connected components:** The number of zero eigenvalues equals the number of connected components of $G$
 - **Quadratic form:** $x^\top L x = \frac{1}{2}\sum_{(i,j) \in E} w_{ij}(x_i - x_j)^2$
 
@@ -45,8 +45,24 @@ The **symmetric normalized Laplacian** is $\hat{L} = I - D^{-1/2} A D^{-1/2}$, w
 The **random walk Laplacian** is $L_{\text{rw}} = I - D^{-1}A$, whose eigenvectors are related to the stationary distribution of a random walk on $G$.
 </Definition>
 
+<Example id="ex-triangle-laplacian">
+**Laplacian of a triangle graph.** Take the complete graph on three nodes $K_3$ (every pair connected). The adjacency, degree, and Laplacian matrices are
+
+$$
+A = \begin{pmatrix} 0 & 1 & 1 \\ 1 & 0 & 1 \\ 1 & 1 & 0 \end{pmatrix}, \quad
+D = \begin{pmatrix} 2 & 0 & 0 \\ 0 & 2 & 0 \\ 0 & 0 & 2 \end{pmatrix}, \quad
+L = D - A = \begin{pmatrix} 2 & -1 & -1 \\ -1 & 2 & -1 \\ -1 & -1 & 2 \end{pmatrix}.
+$$
+
+To get the eigenvalues, note that $A = J - I$ where $J$ is the all-ones matrix, so $L = 2I - (J - I) = 3I - J$. The matrix $J$ has eigenvalues $\{3, 0, 0\}$ (eigenvalue $3$ for $\mathbf{1}$, eigenvalue $0$ for the two-dimensional orthogonal complement). Therefore $L = 3I - J$ has eigenvalues
+
+$$\lambda_0 = 3 - 3 = 0, \qquad \lambda_1 = \lambda_2 = 3 - 0 = 3.$$
+
+The single zero eigenvalue (with eigenvector $\mathbf{1}$) confirms one connected component, matching the properties above. Checking the Dirichlet energy on $x = (1, 0, 0)^\top$: $x^\top L x = 2$, which equals $\frac{1}{2}\sum_{(i,j)\in E}(x_i - x_j)^2 = \frac{1}{2}\big[(1-0)^2 + (1-0)^2 + (0-0)^2\big] \cdot 2 = 2$ (each of the two edges touching node $1$ contributes $1$, counted in both directions). The symmetric normalized operator is $D^{-1/2}AD^{-1/2} = \frac{1}{2}A$, with eigenvalues $\{1, -\tfrac12, -\tfrac12\}$, so the normalized Laplacian $\hat{L} = I - \frac{1}{2}A$ has eigenvalues $\{0, \tfrac32, \tfrac32\} \subset [0, 2]$, as guaranteed.
+</Example>
+
 <Remark id="rmk-laplacian-smoothness">
-**The Laplacian measures signal smoothness.** The quadratic form $x^\top L x = \frac{1}{2}\sum_{(i,j)} (x_i - x_j)^2$ is the **Dirichlet energy** -- it is small when neighboring nodes have similar values and large when they differ. This is the graph analogue of $\int |\nabla f|^2 dx$ for continuous functions.
+**The Laplacian measures signal smoothness.** The quadratic form $x^\top L x = \frac{1}{2}\sum_{(i,j)} (x_i - x_j)^2$ is the **Dirichlet energy**: it is small when neighboring nodes have similar values and large when they differ. This is the graph analogue of $\int |\nabla f|^2 dx$ for continuous functions.
 
 This connects directly to GNNs: message passing averages neighboring features, which is equivalent to applying a low-pass filter on the graph. The eigenvectors of $L$ with small eigenvalues correspond to "smooth" signals (low-frequency components), while large eigenvalues correspond to "oscillating" signals (high-frequency).
 </Remark>
@@ -129,7 +145,7 @@ Xu et al. [@xu2019how] proved that sum aggregation is maximally expressive among
 
 $$H^{(l+1)} = \sigma(\hat{A} H^{(l)} W^{(l)})$$
 
-where $\hat{A} = \tilde{D}^{-1/2}\tilde{A}\tilde{D}^{-1/2}$ is the normalized adjacency with self-loops. This is a sparse matrix multiplication followed by a dense linear transform and nonlinearity -- exactly the form that GPUs handle efficiently. The sparsity of $A$ (most real graphs are sparse: $|E| = O(n)$) means the computation per layer is $O(|E| \cdot d + n \cdot d^2)$ rather than $O(n^2 d)$.
+where $\hat{A} = \tilde{D}^{-1/2}\tilde{A}\tilde{D}^{-1/2}$ is the normalized adjacency with self-loops. This is a sparse matrix multiplication followed by a dense linear transform and nonlinearity, exactly the form that GPUs handle efficiently. The sparsity of $A$ (most real graphs are sparse: $|E| = O(n)$) means the computation per layer is $O(|E| \cdot d + n \cdot d^2)$ rather than $O(n^2 d)$.
 </Remark>
 
 ## GCN and GAT
@@ -187,6 +203,23 @@ The **1-dimensional Weisfeiler-Leman (1-WL)** graph isomorphism test iteratively
 The 1-WL test is a necessary (but not sufficient) condition for graph isomorphism.
 </Definition>
 
+<Example id="ex-wl-path">
+**One round of 1-WL on a path graph.** Consider the path $P_4$ with nodes $1\!-\!2\!-\!3\!-\!4$ and no node features, so all nodes start with the same color $c^{(0)} = a$. The neighborhoods are $\mathcal{N}(1) = \{2\}$, $\mathcal{N}(2) = \{1,3\}$, $\mathcal{N}(3) = \{2,4\}$, $\mathcal{N}(4) = \{3\}$.
+
+**Round 1.** Each node hashes its own color together with the multiset of neighbor colors:
+
+| Node | $(c^{(0)}, \{\!\{\text{neighbors}\}\!\})$ | New color |
+|------|------------------------------------------|-----------|
+| 1 | $(a, \{\!\{a\}\!\})$ | $b$ |
+| 2 | $(a, \{\!\{a, a\}\!\})$ | $c$ |
+| 3 | $(a, \{\!\{a, a\}\!\})$ | $c$ |
+| 4 | $(a, \{\!\{a\}\!\})$ | $b$ |
+
+The degree-$1$ endpoints $\{1, 4\}$ split off from the degree-$2$ interior $\{2, 3\}$: after one round the colors already encode node degree.
+
+**Round 2 (faded guidance).** Now feed the colors $c^{(1)} = (b, c, c, b)$ back in. Work out each node's signature $(c^{(1)}_i, \{\!\{c^{(1)}_j : j \in \mathcal{N}(i)\}\!\})$ yourself; you should find that nodes $1$ and $4$ both get $(b, \{\!\{c\}\!\})$ and nodes $2$ and $3$ both get $(c, \{\!\{b, c\}\!\})$. The induced partition $\{\{1,4\}, \{2,3\}\}$ is identical to round 1, so the coloring has **stabilized**: no further round can refine it. The test cannot tell node $2$ from node $3$, which reflects the genuine automorphism of $P_4$ that swaps the two ends, and is exactly the kind of symmetric pair that no message passing GNN can separate either.
+</Example>
+
 <Theorem id="thm-gnn-wl" name="GNN Expressiveness Bound">
 **Message passing GNNs are at most as powerful as the 1-WL test** [@xu2019how; @morris2019weisfeiler]. Specifically:
 
@@ -213,11 +246,11 @@ The **Graph Isomorphism Network (GIN)** achieves the 1-WL upper bound by using s
 
 <Equation id="eq-over-smoothing">
 
-$$\lim_{L \to \infty} (\tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2})^L H = \mathbf{1} \pi^\top H$$
+$$\lim_{L \to \infty} (\tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2})^L H = \frac{(\tilde{D}^{1/2}\mathbf{1})(\tilde{D}^{1/2}\mathbf{1})^\top}{\|\tilde{D}^{1/2}\mathbf{1}\|^2} H$$
 
 </Equation>
 
-where $\pi$ is the stationary distribution of the random walk on $G$. All node representations converge to the same weighted average of the input features.
+The dominant eigenvector of the symmetric operator $\tilde{D}^{-1/2}\tilde{A}\tilde{D}^{-1/2}$ (eigenvalue $1$) is $u \propto \tilde{D}^{1/2}\mathbf{1}$, so the limit is the rank-one orthogonal projector onto $u$. All node representations collapse onto this single direction (a degree-weighted average of the input features), losing the information that distinguished them. The equivalent statement for the random walk operator $\tilde{D}^{-1}\tilde{A}$ is $\mathbf{1}\pi^\top H$, where $\pi$ is the stationary distribution of the random walk on $G$.
 </Definition>
 
 <Remark id="rmk-over-smoothing-analysis">

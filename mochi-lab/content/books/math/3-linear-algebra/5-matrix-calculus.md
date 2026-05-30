@@ -86,7 +86,7 @@ $$f(x + \delta) \approx f(x) + J \delta + O(\|\delta\|^2)$$
 </Table>
 
 <Remark id="rmk-softmax-jacobian">
-**The softmax Jacobian** $J_{ij} = s_i(\delta_{ij} - s_j)$ is dense and $n \times n$. For a vocabulary of $V = 100{,}000$ tokens, materializing it would require $V^2 = 10^{10}$ entries. This is why backpropagation uses VJPs (vector-Jacobian products $v^\top J$) rather than full Jacobians -- the VJP through softmax costs $O(V)$, not $O(V^2)$.
+**The softmax Jacobian** $J_{ij} = s_i(\delta_{ij} - s_j)$ is dense and $n \times n$. For a vocabulary of $V = 100{,}000$ tokens, materializing it would require $V^2 = 10^{10}$ entries. This is why backpropagation uses VJPs (vector-Jacobian products $v^\top J$) rather than full Jacobians: the VJP through softmax costs $O(V)$, not $O(V^2)$.
 </Remark>
 
 ## Hessian
@@ -127,7 +127,7 @@ $$f(x_0 + \delta) \approx f(x_0) + \nabla f(x_0)^\top \delta + \frac{1}{2} \delt
 </Table>
 
 <Remark id="rmk-newton-method">
-**Newton's method** sets the Taylor approximation's gradient to zero: $\nabla f + H\delta = 0 \implies \delta^* = -H^{-1} \nabla f$. This converges quadratically near a minimum ($\|x_{t+1} - x^*\| \leq c\|x_t - x^*\|^2$) but costs $O(n^2)$ memory (for storing $H$) and $O(n^3)$ computation (for solving $H\delta = -\nabla f$). For a neural network with $n = 10^9$ parameters, $H$ would require $10^{18}$ bytes -- hence the use of first-order methods (SGD, Adam) and Hessian-free methods (which compute $Hv$ products in $O(n)$ time without forming $H$).
+**Newton's method** sets the Taylor approximation's gradient to zero: $\nabla f + H\delta = 0 \implies \delta^* = -H^{-1} \nabla f$. This converges quadratically near a minimum ($\|x_{t+1} - x^*\| \leq c\|x_t - x^*\|^2$) but costs $O(n^2)$ memory (for storing $H$) and $O(n^3)$ computation (for solving $H\delta = -\nabla f$). For a neural network with $n = 10^9$ parameters, $H$ would require about $10^{18}$ entries (several exabytes in memory), hence the use of first-order methods (SGD, Adam) and Hessian-free methods (which compute $Hv$ products in $O(n)$ time without forming $H$).
 </Remark>
 
 ## Chain Rule for Matrices
@@ -175,7 +175,7 @@ $$\left(\frac{\partial f}{\partial A}\right)_{ij} = \frac{\partial f}{\partial A
 | $\text{tr}(AB)$ | $B^\top$ | Analogue of $d(ax)/dx = a$ |
 | $\text{tr}(A^\top B)$ | $B$ | Frobenius inner product |
 | $\text{tr}(ABA^\top)$ | $A(B + B^\top)$ | Appears in Gaussian log-likelihood |
-| $\text{tr}(A^{-1}B)$ | $-A^{-\top}BA^{-\top}$ | |
+| $\text{tr}(A^{-1}B)$ | $-A^{-\top}B^\top A^{-\top}$ | |
 | $\log \det(A)$ | $A^{-\top}$ | Key for Gaussian log-likelihood |
 | $\det(A)$ | $\det(A) \cdot A^{-\top}$ | Jacobi's formula |
 | $a^\top A^{-1}b$ | $-A^{-\top}ab^\top A^{-\top}$ | |

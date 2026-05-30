@@ -4,7 +4,7 @@ sidebar_position: 1
 
 # Attention and Transformers
 
-The Transformer architecture [@vaswani2017attention] has become the dominant neural network design for language modeling, vision, and increasingly all of machine learning. Its core innovation -- the attention mechanism -- replaces sequential processing (RNNs) with parallel global interactions, enabling efficient training on modern hardware. This chapter covers the mathematical foundations of attention, the full Transformer architecture, and the computational considerations that dominate modern LLM systems.
+The Transformer architecture [@vaswani2017attention] has become the dominant neural network design for language modeling, vision, and increasingly all of machine learning. Its core innovation, the attention mechanism, replaces sequential processing (RNNs) with parallel global interactions, enabling efficient training on modern hardware. This chapter covers the mathematical foundations of attention, the full Transformer architecture, and the computational considerations that dominate modern LLM systems.
 
 ## Scaled Dot-Product Attention
 
@@ -23,7 +23,7 @@ where $d_k$ is the dimension of the keys. The output is a weighted sum of value 
 <Remark id="rmk-attention-scaling">
 **Why $\sqrt{d_k}$ scaling?** If query and key entries are i.i.d. with mean 0 and variance 1, then $q^\top k = \sum_{i=1}^{d_k} q_i k_i$ has mean 0 and variance $d_k$ (sum of $d_k$ products of unit-variance terms). For large $d_k$, the dot products can be very large in magnitude, pushing the softmax into regions where the gradient is near zero. Dividing by $\sqrt{d_k}$ normalizes the variance to 1, keeping the softmax in its sensitive regime.
 
-Without scaling, with $d_k = 128$, the dot products would have standard deviation $\approx 11$, and softmax$(11, -11) \approx (1, 0)$ -- almost all attention weight on one key. With scaling, std $\approx 1$, and the attention distribution remains informative.
+Without scaling, with $d_k = 128$, the dot products would have standard deviation $\approx 11$, and softmax$(11, -11) \approx (1, 0)$, almost all attention weight on one key. With scaling, std $\approx 1$, and the attention distribution remains informative.
 </Remark>
 
 <Remark id="rmk-attention-as-retrieval">
@@ -55,9 +55,13 @@ $$\text{MultiHead}(Q, K, V) = \text{Concat}(\text{head}_1, \dots, \text{head}_h)
 
 </Equation>
 
+<Equation id="eq-multihead-head">
+
 $$
 \text{head}_i = \text{Attention}(Q W_i^Q, K W_i^K, V W_i^V)
 $$
+
+</Equation>
 
 where $W_i^Q \in \mathbb{R}^{d \times d_k}$, $W_i^K \in \mathbb{R}^{d \times d_k}$, $W_i^V \in \mathbb{R}^{d \times d_v}$, and $W^O \in \mathbb{R}^{hd_v \times d}$.
 </Definition>
@@ -68,7 +72,7 @@ Typically $d_k = d_v = d / h$, so the total computation is the same as single-he
 **Why multiple heads?** Each head can attend to different aspects of the input:
 
 - **Head specialization:** Empirically, different heads learn to focus on syntactic structure, semantic similarity, positional proximity, or specific linguistic patterns (e.g., subject-verb agreement, coreference).
-- **Rank argument:** Single-head attention with softmax output is approximately rank-1 (each query produces a peaked distribution over keys). Multi-head attention can attend to multiple positions simultaneously, achieving higher effective rank. With $h$ heads, the combined attention matrix has rank up to $h$.
+- **Rank argument:** Single-head attention with softmax output is approximately rank-1 (each query produces a peaked distribution over keys). Multi-head attention can attend to multiple positions simultaneously, achieving higher effective rank. With $h$ heads, the combined attention matrix has effective rank up to roughly $h$, though in practice only a subset of heads carry most of the useful signal [@voita2019analyzing].
 - **Information routing:** The output projection $W^O$ learns to combine head outputs, effectively routing different types of information through different subspaces.
 
 Grouped-Query Attention (GQA) [@ainslie2023gqa] uses fewer key-value heads than query heads (e.g., 8 KV heads for 32 query heads), reducing KV-cache memory while maintaining most of the quality.
@@ -168,7 +172,7 @@ For LLaMA-70B ($L = 80$, $h_{kv} = 8$, $d_k = 128$) at $n = 4096$, $B = 1$, in F
 
 $$2 \times 1 \times 80 \times 4096 \times 8 \times 128 \times 2 = 1.34 \text{ GB}$$
 
-At $n = 128K$, this grows to $\sim 42$ GB -- often exceeding the model weights themselves. This is why KV-cache compression (quantization, eviction, paged attention) is critical for long-context inference.
+At $n = 128K$, this grows to $\sim 42$ GB, often exceeding the model weights themselves. This is why KV-cache compression (quantization, eviction, paged attention) is critical for long-context inference.
 </Remark>
 
 ## FlashAttention
@@ -178,13 +182,13 @@ At $n = 128K$, this grows to $\sim 42$ GB -- often exceeding the model weights t
 
 1. **Tiling:** Divide $Q$, $K$, $V$ into blocks of size $B_r \times d$ and $B_c \times d$ that fit in SRAM (on-chip shared memory, typically 192KB per SM on H100).
 2. **Online softmax:** For each $Q$ block, iterate over $K$, $V$ blocks, maintaining running softmax statistics (max and sum of exponentials) using the online softmax trick: $m_{\text{new}} = \max(m_{\text{old}}, m_{\text{block}})$, then rescale partial sums.
-3. **No materialization:** The $n \times n$ attention matrix is never stored in HBM -- each block is computed in SRAM, used immediately, and discarded.
+3. **No materialization:** The $n \times n$ attention matrix is never stored in HBM; each block is computed in SRAM, used immediately, and discarded.
 
 The IO complexity drops from $O(n^2)$ HBM reads/writes (standard attention) to $O(n^2 d^2 / M)$ where $M$ is SRAM size.
 </Definition>
 
 <Remark id="rmk-flash-attention-implications">
-**FlashAttention does not change the math** -- it computes the exact same result as standard attention. The speedup (2-4x on A100, more on H100) comes entirely from reducing HBM memory traffic. Key implications:
+**FlashAttention does not change the math**: it computes the exact same result as standard attention. The speedup (2-4x on A100, more on H100) comes entirely from reducing HBM memory traffic. Key implications:
 
 - **Enables long contexts:** Without FlashAttention, $n = 128K$ requires $128K^2 \times 2 = 32$ GB just for the attention matrix in FP16. FlashAttention needs only $O(n)$ extra memory.
 - **Backward pass:** FlashAttention recomputes the attention matrix during the backward pass rather than storing it, trading computation for memory. This is a form of gradient checkpointing applied specifically to attention.
@@ -233,6 +237,22 @@ The IO complexity drops from $O(n^2)$ HBM reads/writes (standard attention) to $
 
 For LLaMA-7B ($L=32, d=4096, d_{\text{ff}}=11008, V=32000$): $\approx 6.7B$ parameters. The dominant cost is the FFN (with SwiGLU), followed by attention projections.
 </Remark>
+
+<Example id="ex-kv-cache-budget" name="Sizing a KV-cache for a serving budget">
+**Problem.** You serve LLaMA-7B ($L = 32$, $h = 32$, $d_k = 128$, MHA so $h_{kv} = h$) in FP16 and want to know how many tokens of total context fit in a 16 GB KV-cache budget at batch size $B = 8$. How long a sequence can each request hold?
+
+**Step 1: per-token, per-request cost.** Each token stores both a key and a value across every layer and head, at 2 bytes per FP16 element:
+
+$$2 \times L \times h_{kv} \times d_k \times \text{bytes} = 2 \times 32 \times 32 \times 128 \times 2 = 524{,}288 \text{ bytes} \approx 0.5 \text{ MB per token}.$$
+
+**Step 2: scale by batch.** With $B = 8$ concurrent requests, the per-token cost across the batch is $8 \times 0.5 \text{ MB} = 4 \text{ MB}$.
+
+**Step 3: divide the budget.** The shared budget is $16 \text{ GB} = 16{,}384 \text{ MB}$, so the total token capacity is
+
+$$n_{\text{total}} = \frac{16{,}384 \text{ MB}}{4 \text{ MB/token}} \approx 4096 \text{ tokens per request}.$$
+
+**Takeaway.** Even at a modest batch size, a 7B model in FP16 is limited to a few thousand tokens of context per request under a 16 GB cache. Switching to GQA with $h_{kv} = 8$ would cut the per-token cost by $4\times$, and FP8 KV would halve it again, which is why both appear together in modern long-context serving stacks.
+</Example>
 
 ## Notation Summary
 

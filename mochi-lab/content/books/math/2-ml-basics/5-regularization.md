@@ -11,7 +11,7 @@ Regularization is the set of techniques that constrain a model to prefer simpler
 A model with sufficient capacity can achieve zero training loss ($\mathcal{L}_{\text{train}} \approx 0$) by memorizing every training example, including noise. However, such a model performs poorly on unseen data ($\mathcal{L}_{\text{test}} \gg 0$) because it has learned patterns specific to the training set rather than the underlying data-generating process. The **generalization gap** $\mathcal{L}_{\text{test}} - \mathcal{L}_{\text{train}}$ measures the severity of overfitting.
 
 <Remark id="rmk-overfit-capacity">
-A remarkable fact: a neural network with $P$ parameters can memorize a dataset of $N \leq P$ random label assignments -- where the labels bear no relation to the inputs [@zhang2021understanding]. This proves that the model class alone does not determine generalization; the training procedure and data structure also matter.
+A remarkable fact: a neural network with $P$ parameters can memorize a dataset of $N \leq P$ random label assignments, where the labels bear no relation to the inputs [@zhang2021understanding]. This proves that the model class alone does not determine generalization; the training procedure and data structure also matter.
 </Remark>
 
 ## L2 Regularization (Ridge / Weight Decay)
@@ -43,7 +43,7 @@ The multiplicative factor $(1 - \eta\lambda)$ shrinks every weight toward zero e
 
 $$\theta_{\text{MAP}} = \arg\max_\theta \; p(\mathcal{D}|\theta) \cdot p(\theta) = \arg\min_\theta \; \underbrace{-\log p(\mathcal{D}|\theta)}_{\mathcal{L}(\theta)} + \underbrace{\frac{\lambda}{2}\|\theta\|^2}_{-\log p(\theta) + \text{const}}$$
 
-Larger $\lambda$ corresponds to a tighter prior -- a stronger belief that parameters should be small.
+Larger $\lambda$ corresponds to a tighter prior, a stronger belief that parameters should be small.
 </Remark>
 
 <Remark id="rmk-weight-decay-adamw">
@@ -73,8 +73,16 @@ $$\mathcal{L}_{\text{reg}}(\theta) = \mathcal{L}(\theta) + \lambda \|\theta\|_1 
 <Remark id="rmk-l1-sparsity">
 **Why L1 produces sparsity.** The subgradient of $|\theta_i|$ is $\text{sign}(\theta_i)$, which applies constant pressure of magnitude $\lambda$ regardless of how small $\theta_i$ is. Once $|\theta_i|$ is small enough that this pressure dominates the data gradient, $\theta_i$ is driven exactly to zero. In contrast, L2's gradient $\lambda \theta_i$ diminishes as $\theta_i \to 0$, never reaching zero.
 
-**Geometric interpretation:** The L1 constraint set $\|\theta\|_1 \leq c$ is a diamond (cross-polytope) with corners on the coordinate axes. The loss function's level curves are more likely to first touch a corner of the diamond than a smooth point -- and corners correspond to sparse solutions (some coordinates exactly zero).
+**Geometric interpretation:** The L1 constraint set $\|\theta\|_1 \leq c$ is a diamond (cross-polytope) with corners on the coordinate axes. The loss function's level curves are more likely to first touch a corner of the diamond than a smooth point, and corners correspond to sparse solutions (some coordinates exactly zero).
 </Remark>
+
+<Example id="ex-l1-soft-threshold">
+**Soft-thresholding drives a coordinate to zero.** Consider a single parameter $\theta_i$ with a quadratic data term, so the objective is $g(\theta_i) = \frac{1}{2}(\theta_i - z)^2 + \lambda|\theta_i|$, where $z$ is the unregularized least-squares value. Minimizing over $\theta_i$ gives the **soft-thresholding** operator:
+
+$$\theta_i^* = \text{sign}(z)\,\max(|z| - \lambda, 0)$$
+
+For example, with $z = 0.3$ and $\lambda = 0.5$, we get $\theta_i^* = \text{sign}(0.3)\max(0.3 - 0.5, 0) = 0$: the coordinate is set exactly to zero. With $z = 1.2$ and the same $\lambda$, we get $\theta_i^* = 1.2 - 0.5 = 0.7$, a shrunken but nonzero value. Any coordinate whose least-squares value falls within $[-\lambda, \lambda]$ is eliminated entirely, which is the mechanism behind L1 sparsity.
+</Example>
 
 <Table id="tab-l1-vs-l2" caption="Comparison of L1 and L2 regularization.">
 
@@ -127,7 +135,7 @@ This way, no modification is needed at test time.
 ## Batch Normalization and Layer Normalization
 
 <Definition id="def-batch-norm" name="Batch Normalization">
-**Batch normalization** [@ioffe2015batch] normalizes activations across the batch dimension, then applies a learned affine transformation:
+**Batch normalization** [@ioffe2015batchnorm] normalizes activations across the batch dimension, then applies a learned affine transformation:
 
 <Equation id="eq-batch-norm">
 
@@ -186,9 +194,9 @@ In practice, use **patience** $k$: stop if validation loss has not improved for 
 **Mixup** [@zhang2018mixup] creates virtual training examples by linearly interpolating both inputs and labels: $\tilde{x} = \lambda x_i + (1-\lambda) x_j$, $\tilde{y} = \lambda y_i + (1-\lambda) y_j$ where $\lambda \sim \text{Beta}(\alpha, \alpha)$.
 </Remark>
 
-## Bias--Variance Tradeoff
+## Bias-Variance Tradeoff
 
-<Theorem id="thm-bias-variance" name="Bias--Variance Decomposition">
+<Theorem id="thm-bias-variance" name="Bias-Variance Decomposition">
 For a model $\hat{f}$ trained on dataset $\mathcal{D}$ drawn from $P(X,Y)$ with $Y = f(X) + \epsilon$, $\epsilon \sim (0, \sigma^2)$, the expected prediction error at a point $x$ decomposes as:
 
 <Equation id="eq-bias-variance">
@@ -214,7 +222,7 @@ $$= \mathbb{E}[\epsilon^2] + (f - \bar{f})^2 + \mathbb{E}[(\hat{f} - \bar{f})^2]
 |--------|------|----------|----------------|-----|
 | **Underfitting** | High | Low | Model too simple; misses patterns | Increase capacity, reduce regularization |
 | **Overfitting** | Low | High | Model memorizes noise | Increase regularization, more data |
-| **Sweet spot** | Balanced | Balanced | Best generalization | -- |
+| **Sweet spot** | Balanced | Balanced | Best generalization | None needed |
 | **Double descent** | Low | Low (surprisingly) | Very overparameterized | Let model grow past interpolation threshold |
 
 </Table>
@@ -224,7 +232,17 @@ $$= \mathbb{E}[\epsilon^2] + (f - \bar{f})^2 + \mathbb{E}[(\hat{f} - \bar{f})^2]
 
 1. **Implicit regularization** from SGD, which finds minimum-norm solutions in the overparameterized regime
 2. **Inductive biases** of neural network architectures (locality, weight sharing)
-3. **Benign overfitting** -- the model interpolates training data but does so smoothly, with low test error
+3. **Benign overfitting**: the model interpolates training data but does so smoothly, with low test error
+</Remark>
+
+## Additional Regularization Techniques
+
+<Remark id="rmk-label-smoothing-reg">
+**Label smoothing** replaces hard one-hot targets $y$ with soft targets $\tilde{y} = (1 - \alpha)y + \alpha/K$, where $\alpha$ is a small constant (e.g., 0.1) and $K$ is the number of classes. This prevents the model from becoming overconfident on the training set, improving calibration and generalization.
+</Remark>
+
+<Remark id="rmk-gradient-clipping">
+**Gradient clipping** bounds the gradient norm during training to prevent exploding gradients: if $\|\nabla \mathcal{L}\| > c$, rescale to $\nabla \mathcal{L} \leftarrow c \cdot \nabla \mathcal{L} / \|\nabla \mathcal{L}\|$. This is standard practice for training transformers and recurrent networks, where gradient norms can grow exponentially through many layers or timesteps.
 </Remark>
 
 ## Summary of Regularization Techniques
@@ -247,7 +265,7 @@ $$= \mathbb{E}[\epsilon^2] + (f - \bar{f})^2 + \mathbb{E}[(\hat{f} - \bar{f})^2]
 
 ## Notation Summary
 
-<Table id="tab-notation-reg" caption="Notation used in this chapter.">
+<Table id="tab-notation-reg" caption="Notation used in this section.">
 
 | Symbol | Meaning |
 |--------|---------|

@@ -40,11 +40,11 @@ This is a weighted average of predictions from all plausible parameter values, w
 </Remark>
 
 <Remark id="rmk-bayesian-update">
-**Sequential Bayesian updating.** Bayesian inference is inherently sequential: the posterior from one batch of data becomes the prior for the next. For data $\mathcal{D} = \mathcal{D}_1 \cup \mathcal{D}_2$:
+**Sequential Bayesian updating.** Bayesian inference is inherently sequential: the posterior from one batch of data becomes the prior for the next. The factorization below relies on the likelihood splitting as $p(\mathcal{D}_1, \mathcal{D}_2 | \theta) = p(\mathcal{D}_1 | \theta) \, p(\mathcal{D}_2 | \theta)$, which holds when $\mathcal{D}_1$ and $\mathcal{D}_2$ are conditionally independent given $\theta$ (the standard i.i.d. assumption). Under that assumption, for data $\mathcal{D} = \mathcal{D}_1 \cup \mathcal{D}_2$:
 
 $$p(\theta | \mathcal{D}_1, \mathcal{D}_2) \propto p(\mathcal{D}_2 | \theta) \cdot \underbrace{p(\theta | \mathcal{D}_1)}_{\text{new prior}}$$
 
-This means the final posterior is independent of the order in which data arrives -- only the total data matters (for i.i.d. data). Online learning algorithms that update parameters incrementally can be seen as approximations to sequential Bayesian updating.
+This means the final posterior is independent of the order in which data arrives: only the total data matters. Online learning algorithms that update parameters incrementally can be seen as approximations to sequential Bayesian updating.
 </Remark>
 
 ## MLE vs MAP vs Full Bayesian
@@ -58,7 +58,7 @@ $$\theta_{\text{MLE}} = \arg\max_\theta p(\mathcal{D} | \theta) = \arg\max_\thet
 
 </Equation>
 
-MLE is consistent (converges to the true parameter as $n \to \infty$) and asymptotically efficient (achieves the Cramer-Rao lower bound). However, it can overfit with finite data and provides no uncertainty estimates.
+MLE is consistent (converges to the true parameter as $n \to \infty$) and asymptotically efficient (achieves the Cramér-Rao lower bound). However, it can overfit with finite data and provides no uncertainty estimates.
 </Definition>
 
 <Definition id="def-map" name="Maximum A Posteriori Estimation">
@@ -121,9 +121,35 @@ A prior $p(\theta)$ is **conjugate** to a likelihood $p(\mathcal{D}|\theta)$ if 
 **Interpreting conjugate prior parameters.** The prior hyperparameters can be interpreted as "pseudo-observations":
 
 - **Beta$(\alpha, \beta)$ prior for Bernoulli:** Acts like having already seen $\alpha - 1$ successes and $\beta - 1$ failures. The prior strength is $\alpha + \beta$ (total pseudo-count).
-- **Dirichlet$(\alpha)$ prior for Categorical:** Acts like having seen $\alpha_k - 1$ examples of class $k$. Uniform prior: $\alpha_k = 1$. Laplace smoothing: $\alpha_k = 1$ (adds 1 to each count).
+- **Dirichlet$(\alpha)$ prior for Categorical:** Acts like having seen $\alpha_k - 1$ examples of class $k$. Uniform prior: $\alpha_k = 1$. Laplace smoothing: $\alpha_k = 2$ (adds 1 to each count).
 - **Gaussian prior for Gaussian mean:** The posterior mean is a precision-weighted average of the prior mean and sample mean: $\mu_n = \frac{\sigma_0^{-2} \mu_0 + (n/\sigma^2)\bar{x}}{\sigma_0^{-2} + n/\sigma^2}$. As $n \to \infty$, the posterior concentrates on $\bar{x}$ (data overwhelms the prior).
 </Remark>
+
+<Example id="ex-beta-bernoulli">
+**Beta-Bernoulli posterior update (worked step by step).** Suppose we model whether a coin lands heads with probability $p$, and we place a prior $\text{Beta}(\alpha, \beta) = \text{Beta}(2, 2)$ (a weak belief that $p$ is near $0.5$, equivalent to having already seen one head and one tail). We then flip the coin $n = 10$ times and observe $\sum_i x_i = 8$ heads.
+
+**Step 1: Apply the conjugate update rule.** From the Bernoulli-Beta row of the table, $\alpha' = \alpha + \sum_i x_i$ and $\beta' = \beta + n - \sum_i x_i$:
+
+$$\alpha' = 2 + 8 = 10, \qquad \beta' = 2 + (10 - 8) = 4.$$
+
+So the posterior is $\text{Beta}(10, 4)$.
+
+**Step 2: Summarize the posterior.** The mean of a $\text{Beta}(\alpha', \beta')$ distribution is $\frac{\alpha'}{\alpha' + \beta'}$:
+
+$$\mathbb{E}[p \mid \mathcal{D}] = \frac{10}{10 + 4} = \frac{10}{14} \approx 0.714.$$
+
+Note this is pulled below the raw maximum-likelihood estimate $\frac{8}{10} = 0.8$: the prior, acting like two extra pseudo-observations split evenly, shrinks the estimate toward $0.5$. As we collect more data, the pseudo-counts become negligible and the posterior mean approaches the empirical frequency.
+</Example>
+
+<Example id="ex-gaussian-mean">
+**Gaussian-mean precision-weighted update (faded guidance).** Now estimate the unknown mean $\mu$ of a Gaussian with known variance $\sigma^2 = 4$. Place the prior $\mathcal{N}(\mu_0, \sigma_0^2) = \mathcal{N}(0, 1)$, then observe $n = 10$ points with sample mean $\bar{x} = 3$.
+
+First combine precisions, $\sigma_n^{-2} = \sigma_0^{-2} + n/\sigma^2 = 1 + 10/4 = 3.5$, so the posterior variance is $\sigma_n^2 = 1/3.5 \approx 0.286$. Then form the precision-weighted mean:
+
+$$\mu_n = \frac{\sigma_0^{-2}\mu_0 + (n/\sigma^2)\bar{x}}{\sigma_0^{-2} + n/\sigma^2} = \frac{(1)(0) + (10/4)(3)}{3.5} = \frac{7.5}{3.5} \approx 2.143.$$
+
+The posterior $\mathcal{N}(2.143, 0.286)$ sits between the prior mean $0$ and the sample mean $3$, weighted toward the data because the data precision $10/4 = 2.5$ exceeds the prior precision $1$.
+</Example>
 
 ## The Evidence Lower Bound (ELBO)
 
@@ -173,7 +199,7 @@ This is the Bayesian analogue of the bias-variance tradeoff: the reconstruction 
 
 1. **Metropolis-Hastings:** Propose $\theta' \sim q(\theta'|\theta_t)$, accept with probability $\min(1, \frac{p(\theta'|\mathcal{D})q(\theta_t|\theta')}{p(\theta_t|\mathcal{D})q(\theta'|\theta_t)})$.
 2. **Hamiltonian Monte Carlo (HMC):** Use gradient information to make proposals that follow the posterior geometry, achieving much higher acceptance rates in high dimensions.
-3. **Stochastic Gradient MCMC (SG-MCMC):** Replace full-data gradients with mini-batch gradients, enabling MCMC at scale. SGD with appropriately decaying learning rate is approximately SG-Langevin dynamics.
+3. **Stochastic Gradient MCMC (SG-MCMC):** Replace full-data gradients with mini-batch gradients, enabling MCMC at scale. Stochastic Gradient Langevin Dynamics (SGLD) adds explicitly injected Gaussian noise to mini-batch gradients so that, as the step size decays, the iterates sample from the posterior [@welling2011bayesian]. Vanilla SGD without injected noise approximates a different stationary distribution that depends on the gradient-noise covariance, and only matches the posterior under restrictive conditions [@mandt2017stochastic].
 
 MCMC is asymptotically exact (converges to the true posterior) but slow for high-dimensional problems. VI is faster but introduces approximation error from the variational family.
 </Definition>
@@ -196,7 +222,7 @@ MCMC is asymptotically exact (converges to the true posterior) but slow for high
 
 $$p(\theta|\mathcal{D}) \approx \mathcal{N}(\theta_{\text{MAP}}, H^{-1})$$
 
-where $H = -\nabla^2 \log p(\theta|\mathcal{D})\big|_{\theta_{\text{MAP}}}$ is the Hessian of the negative log-posterior at the MAP point. This is the second-order Taylor expansion of $\log p(\theta|\mathcal{D})$ around its mode. The Laplace approximation is fast (just requires the MAP point plus the Hessian) but assumes the posterior is approximately Gaussian -- it misses multimodality, skewness, and heavy tails.
+where $H = -\nabla^2 \log p(\theta|\mathcal{D})\big|_{\theta_{\text{MAP}}}$ is the Hessian of the negative log-posterior at the MAP point. This is the second-order Taylor expansion of $\log p(\theta|\mathcal{D})$ around its mode. The Laplace approximation is fast (just requires the MAP point plus the Hessian) but assumes the posterior is approximately Gaussian, missing multimodality, skewness, and heavy tails.
 
 For neural networks, the full Hessian is $O(P^2)$ in memory. Practical approaches use diagonal, Kronecker-factored (KFAC), or low-rank Hessian approximations [@ritter2018scalable].
 </Remark>
@@ -216,7 +242,7 @@ Comparing models: $\frac{p(\mathcal{M}_1|\mathcal{D})}{p(\mathcal{M}_2|\mathcal{
 </Definition>
 
 <Remark id="rmk-occam-razor">
-**Bayesian Occam's razor.** The evidence automatically penalizes complexity. A complex model spreads its prior probability over many possible datasets, so $p(\mathcal{D}|\mathcal{M})$ is small for any particular $\mathcal{D}$. A simple model concentrates its prior on fewer datasets -- if $\mathcal{D}$ is one of them, the evidence is high. The evidence balances fit and complexity without an explicit regularization term.
+**Bayesian Occam's razor.** The evidence automatically penalizes complexity. A complex model spreads its prior probability over many possible datasets, so $p(\mathcal{D}|\mathcal{M})$ is small for any particular $\mathcal{D}$. A simple model concentrates its prior on fewer datasets, so if $\mathcal{D}$ is one of them, the evidence is high. The evidence balances fit and complexity without an explicit regularization term.
 
 This is why the ELBO is a lower bound on $\log p(\mathcal{D})$: maximizing the ELBO over model architectures favors models that are complex enough to explain the data but no more.
 </Remark>

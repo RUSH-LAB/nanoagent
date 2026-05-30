@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # Numerical Computing Hardware
 
-Every ML algorithm ultimately runs on physical hardware that represents real numbers with finite precision and moves data through a memory hierarchy. Understanding these constraints is not optional -- they determine which algorithms are fast, which are numerically stable, and why certain design choices (batch size, precision, operator fusion) matter.
+Every ML algorithm ultimately runs on physical hardware that represents real numbers with finite precision and moves data through a memory hierarchy. Understanding these constraints is not optional: they determine which algorithms are fast, which are numerically stable, and why certain design choices (batch size, precision, operator fusion) matter.
 
 ## Von Neumann Architecture
 
@@ -12,7 +12,7 @@ Every ML algorithm ultimately runs on physical hardware that represents real num
 Modern CPUs follow the **Von Neumann model**: a single shared memory stores both instructions and data, connected to a processing unit (ALU), a control unit, and I/O devices via buses. The processor fetches instructions from memory, decodes them, and executes them sequentially (with pipelining and out-of-order execution to hide latency).
 </Definition>
 
-The key performance bottleneck is the **memory wall** -- processor speed has improved roughly $1000\times$ faster than memory latency over the past four decades. As a result, modern computation is almost always limited by *data movement*, not arithmetic.
+The key performance bottleneck is the **memory wall**: processor speed has improved roughly $1000\times$ faster than memory latency over the past four decades. As a result, modern computation is almost always limited by *data movement*, not arithmetic.
 
 ## Memory Hierarchy
 
@@ -22,20 +22,20 @@ To mitigate the memory wall, hardware uses a hierarchy of progressively larger b
 
 | Level | Latency | Typical Size | Bandwidth | Cost/GB |
 |-------|---------|-------------|-----------|---------|
-| Registers | ~0.3 ns | ~KB | ~TB/s | -- |
-| L1 cache | ~1 ns | ~64 KB/core | ~1 TB/s | -- |
-| L2 cache | ~4 ns | ~256 KB--1 MB/core | ~500 GB/s | -- |
-| L3 cache | ~12 ns | ~30--50 MB (shared) | ~200 GB/s | -- |
-| CPU DRAM | ~100 ns | ~64--512 GB | ~50--100 GB/s | ~$3/GB |
+| Registers | ~0.3 ns | ~KB | ~TB/s | n/a |
+| L1 cache | ~1 ns | ~64 KB/core | ~1 TB/s | n/a |
+| L2 cache | ~4 ns | ~256 KB to 1 MB/core | ~500 GB/s | n/a |
+| L3 cache | ~12 ns | ~30 to 50 MB (shared) | ~200 GB/s | n/a |
+| CPU DRAM | ~100 ns | ~64 to 512 GB | ~50 to 100 GB/s | ~$3/GB |
 | GPU HBM3 | ~300 ns | ~80 GB (H100) | ~3.35 TB/s | ~$15/GB |
 | NVMe SSD | ~10 $\mu$s | ~TB | ~7 GB/s | ~$0.1/GB |
-| Network (NVLink) | ~1 $\mu$s | -- | ~900 GB/s | -- |
-| Network (InfiniBand) | ~1 $\mu$s | -- | ~400 GB/s | -- |
+| Network (NVLink) | ~1 $\mu$s | n/a | ~900 GB/s | n/a |
+| Network (InfiniBand) | ~1 $\mu$s | n/a | ~400 GB/s | n/a |
 
 </Table>
 
 <Remark id="rmk-memory-hierarchy">
-Algorithm design for ML must respect the memory hierarchy. The key metric is **arithmetic intensity** -- the ratio of FLOPs performed to bytes moved. Operations with high arithmetic intensity (like large matrix multiplications) are *compute-bound* and use the GPU efficiently. Operations with low arithmetic intensity (like element-wise operations, reductions, or small matrix multiplies) are *memory-bound* and limited by bandwidth.
+Algorithm design for ML must respect the memory hierarchy. The key metric is **arithmetic intensity**, the ratio of FLOPs performed to bytes moved. Operations with high arithmetic intensity (like large matrix multiplications) are *compute-bound* and use the GPU efficiently. Operations with low arithmetic intensity (like element-wise operations, reductions, or small matrix multiplies) are *memory-bound* and limited by bandwidth.
 </Remark>
 
 <Definition id="def-arithmetic-intensity" name="Arithmetic Intensity">
@@ -47,7 +47,7 @@ $$I = \frac{\text{FLOPs}}{\text{Bytes accessed from memory}}$$
 
 </Equation>
 
-An operation is **compute-bound** if $I > I^*$ (the hardware's FLOP/byte ratio) and **memory-bound** if $I < I^*$. For an NVIDIA H100, $I^* \approx 80\text{ TFLOPS} / 3.35\text{ TB/s} \approx 24$ FLOPs/byte for FP32.
+An operation is **compute-bound** if $I > I^*$ (the hardware's FLOP/byte ratio) and **memory-bound** if $I < I^*$. For an NVIDIA H100, using its non-Tensor-Core FP32 peak, $I^* \approx 67\text{ TFLOPS} / 3.35\text{ TB/s} \approx 20$ FLOPs/byte for FP32.
 </Definition>
 
 <Example id="ex-roofline">
@@ -56,7 +56,7 @@ An operation is **compute-bound** if $I > I^*$ (the hardware's FLOP/byte ratio) 
 - Bytes (if reading each matrix once): $3 \times 4n^2 = 12n^2$ bytes (FP32)
 - Arithmetic intensity: $I = 2n^3 / 12n^2 = n/6$
 
-For $n = 4096$: $I \approx 683$, which far exceeds $I^* \approx 24$, so the operation is compute-bound. For $n = 32$: $I \approx 5.3 < I^*$, so the operation is memory-bound. This is why batching small operations together improves GPU utilization.
+For $n = 4096$: $I \approx 683$, which far exceeds $I^* \approx 20$, so the operation is compute-bound. For $n = 32$: $I \approx 5.3 < I^*$, so the operation is memory-bound. This is why batching small operations together improves GPU utilization. (Note: Tensor Cores have a much higher ridge point, roughly 295 FLOPs/byte for BF16, so even the $n=4096$ case remains comfortably compute-bound on that path.)
 </Example>
 
 ## Floating-Point Representation
@@ -81,13 +81,15 @@ Special values: $e = 0$ with $f = 0$ represents $\pm 0$; $e = 2^w - 1$ with $f =
 |--------|-----------|---------------|---------------|-------|-----------|--------|
 | FP64 | 64 | 11 | 52 | $\sim 10^{\pm 308}$ | ~15 digits | Numerical verification |
 | FP32 | 32 | 8 | 23 | $\sim 10^{\pm 38}$ | ~7 digits | Default training, master weights |
-| TF32 | 19 | 8 | 10 | $\sim 10^{\pm 38}$ | ~3 digits | Tensor Core matmuls (A100+) |
+| TF32 | 19* | 8 | 10 | $\sim 10^{\pm 38}$ | ~3 digits | Tensor Core matmuls (A100+) |
 | FP16 | 16 | 5 | 10 | $\sim 6.5 \times 10^{4}$ | ~3 digits | Mixed-precision training |
 | BF16 | 16 | 8 | 7 | $\sim 10^{\pm 38}$ | ~2 digits | Preferred for LLM training |
 | FP8 (E4M3) | 8 | 4 | 3 | $\pm 448$ | ~1 digit | Inference, forward pass |
 | FP8 (E5M2) | 8 | 5 | 2 | $\sim 10^{\pm 4}$ | < 1 digit | Gradients in FP8 training |
-| INT8 | 8 | -- | -- | $-128$ to $127$ | Exact | Post-training quantization |
-| INT4 | 4 | -- | -- | $-8$ to $7$ | Exact | Aggressive quantization (GPTQ, AWQ) |
+| INT8 | 8 | n/a | n/a | $-128$ to $127$ | Exact | Post-training quantization |
+| INT4 | 4 | n/a | n/a | $-8$ to $7$ | Exact | Aggressive quantization (GPTQ, AWQ) |
+
+*TF32 uses only 19 significant bits but is stored in a 32-bit register.
 
 </Table>
 
@@ -98,7 +100,7 @@ BF16 keeps the same 8-bit exponent as FP32, so it can represent the same range o
 ## Machine Epsilon and Numerical Stability
 
 <Definition id="def-machine-epsilon" name="Machine Epsilon">
-**Machine epsilon** $\epsilon_{\text{mach}}$ is the smallest positive floating-point number $\epsilon$ such that $\text{fl}(1 + \epsilon) \neq 1$, where $\text{fl}(\cdot)$ denotes rounding to the nearest representable float:
+**Machine epsilon** $\epsilon_{\text{mach}}$ is the **unit roundoff**, defined as:
 
 <Equation id="eq-machine-epsilon">
 
@@ -135,7 +137,7 @@ An algorithm is **numerically stable** if small perturbations in its inputs (suc
 | **Underflow in log-probs** | $\log(e^{-1000})$ underflows to $\log(0) = -\infty$ | Use log-space: $\text{logsumexp}(x) = \max(x) + \log \sum_j e^{x_j - \max(x)}$ |
 | **Variance accumulation** | Naive variance formula $\frac{1}{n}\sum x_i^2 - \bar{x}^2$ is unstable | Use Welford's online algorithm |
 | **Gradient explosion** | Gradients overflow in deep networks | Gradient clipping, careful initialization, normalization layers |
-| **Loss of orthogonality** | Gram--Schmidt loses orthogonality in finite precision | Use modified Gram--Schmidt or Householder reflections |
+| **Loss of orthogonality** | Gram-Schmidt loses orthogonality in finite precision | Use modified Gram-Schmidt or Householder reflections |
 
 </Table>
 
@@ -154,7 +156,7 @@ A modern NVIDIA GPU (e.g., H100) is organized as:
 - **Streaming Multiprocessors (SMs)**: 132 SMs, each containing CUDA cores, Tensor Cores, shared memory, and an L1 cache
 - **Tensor Cores**: Specialized units that compute small matrix multiplies (e.g., $4 \times 4$ FP16 matmul) in a single clock cycle
 - **Global memory (HBM3)**: 80 GB at 3.35 TB/s bandwidth, shared across all SMs
-- **Shared memory / L1**: ~228 KB per SM, programmer-managed scratchpad
+- **Shared memory / L1**: 256 KB combined per SM (up to 228 KB usable as shared scratchpad)
 - **Warp**: 32 threads that execute in lockstep (SIMT model)
 </Definition>
 
@@ -178,10 +180,10 @@ A modern NVIDIA GPU (e.g., H100) is organized as:
 </Remark>
 
 <Remark id="rmk-gpu-matmul">
-Matrix multiplication $C = AB$ where $A \in \mathbb{R}^{m \times k}$, $B \in \mathbb{R}^{k \times n}$ requires $2mkn$ FLOPs but only reads/writes $mk + kn + mn$ elements. The arithmetic intensity $I = \frac{2mkn}{4(mk + kn + mn)}$ (for FP32) grows with matrix dimensions, making it ideal for GPU parallelism. This is one reason why larger batch sizes and wider layers train faster per element -- they produce larger, more compute-bound matrix multiplications.
+Matrix multiplication $C = AB$ where $A \in \mathbb{R}^{m \times k}$, $B \in \mathbb{R}^{k \times n}$ requires $2mkn$ FLOPs but only reads/writes $mk + kn + mn$ elements. The arithmetic intensity $I = \frac{2mkn}{4(mk + kn + mn)}$ (for FP32) grows with matrix dimensions, making it ideal for GPU parallelism. This is one reason why larger batch sizes and wider layers train faster per element: they produce larger, more compute-bound matrix multiplications.
 </Remark>
 
-## The Compute--Memory Tradeoff in ML
+## The Compute-Memory Tradeoff in ML
 
 <Remark id="rmk-compute-memory-tradeoff">
 Many ML design decisions are fundamentally about trading compute for memory or vice versa:

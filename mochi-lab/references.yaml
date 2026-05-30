@@ -1632,7 +1632,7 @@ lin2024learning:
     - "Yilun Du"
     - "Olivia Watkins"
   year: 2024
-  venue: "ICLR"
+  venue: "ICML"
   url: "https://dynalang.github.io/"
 
 wong2023word:
@@ -2660,19 +2660,6 @@ tan2019efficientnet:
   venue: "ICML"
   url: "https://arxiv.org/abs/1905.11946"
 
-cai2020onceforall:
-  type: article
-  title: "Once-for-All: Train One Network and Specialize it for Efficient Deployment"
-  author:
-    - "Han Cai"
-    - "Chuang Gan"
-    - "Tianzhe Wang"
-    - "Zhekai Zhang"
-    - "Song Han"
-  year: 2020
-  venue: "ICLR"
-  url: "https://arxiv.org/abs/1908.09791"
-
 benmeziane2021comprehensive:
   type: article
   title: "A Comprehensive Survey on Hardware-Aware Neural Architecture Search"
@@ -2870,7 +2857,7 @@ zhang2024h2o:
     - "Zhenyu Zhang"
     - "Ying Sheng"
     - "Tianyi Zhou"
-  year: 2024
+  year: 2023
   venue: "NeurIPS"
   url: "https://arxiv.org/abs/2306.14048"
 
@@ -4330,7 +4317,7 @@ zhang2025storm_wm:
     - "Jian Sun"
     - "Yetian Yuan"
     - "Gao Huang"
-  year: 2025
+  year: 2023
   venue: "NeurIPS"
   url: "https://arxiv.org/abs/2310.09615"
 
@@ -6921,18 +6908,6 @@ fan2014cuckoo:
   venue: "CoNEXT"
   url: "https://www.cs.cmu.edu/~dga/papers/cuckoo-conext2014.pdf"
 
-janner2019trust:
-  type: article
-  title: "When to Trust Your Model: Model-Based Policy Optimization"
-  author:
-    - "Michael Janner"
-    - "Justin Fu"
-    - "Marvin Zhang"
-    - "Sergey Levine"
-  year: 2019
-  venue: "NeurIPS"
-  url: "https://arxiv.org/abs/1906.08253"
-
 li2023emergent_othello:
   type: article
   title: "Emergent World Representations: Exploring a Sequence Model Trained on a Synthetic Task"
@@ -7529,3 +7504,1940 @@ greshake2023more:
   year: 2023
   venue: "AISec"
   url: "https://arxiv.org/abs/2302.12173"
+
+aghajanyan2020intrinsic:
+  type: inproceedings
+  title: "Intrinsic Dimensionality Explains the Effectiveness of Language Model Fine-Tuning"
+  author:
+    - "Armen Aghajanyan"
+    - "Luke Zettlemoyer"
+    - "Sonal Gupta"
+  year: 2021
+  venue: "ACL"
+  url: "https://arxiv.org/abs/2012.13255"
+
+alman2021refined:
+  type: inproceedings
+  title: "A Refined Laser Method and Faster Matrix Multiplication"
+  author:
+    - "Josh Alman"
+    - "Virginia Vassilevska Williams"
+  year: 2021
+  venue: "ACM-SIAM Symposium on Discrete Algorithms (SODA)"
+  url: "https://arxiv.org/abs/2010.05846"
+
+ansel2024pytorch2:
+  type: inproceedings
+  title: "PyTorch 2: Faster Machine Learning Through Dynamic Python Bytecode Transformation and Graph Compilation"
+  author:
+    - "Jason Ansel"
+    - "Edward Yang"
+    - "Horace He"
+    - "Natalia Gimelshein"
+    - "Animesh Jain"
+    - "Michael Voznesensky"
+    - "Bin Bao"
+    - "Peter Bell"
+    - "David Berard"
+    - "Evgeni Burovski"
+    - "Geeta Chauhan"
+    - "Anjali Chourdia"
+    - "Will Constable"
+    - "Alban Desmaison"
+    - "Zachary DeVito"
+    - "Elias Ellison"
+    - "Will Feng"
+    - "Jiong Gong"
+    - "Michael Gschwind"
+    - "Brian Hirsh"
+    - "Sherlock Huang"
+    - "Kshiteej Kalambarkar"
+    - "Laurent Kirsch"
+    - "Michael Lazos"
+    - "Mario Lezcano"
+    - "Yanbo Liang"
+    - "Jason Liang"
+    - "Yinghai Lu"
+    - "C. K. Luk"
+    - "Bert Maher"
+    - "Yunjie Pan"
+    - "Christian Puhrsch"
+    - "Matthias Reso"
+    - "Mark Saroufim"
+    - "Marcos Yukio Siraichi"
+    - "Helen Suk"
+    - "Michael Suo"
+    - "Phil Tillet"
+    - "Eikan Wang"
+    - "Xiaodong Wang"
+    - "William Wen"
+    - "Shunting Zhang"
+    - "Xu Zhao"
+    - "Keren Zhou"
+    - "Richard Zou"
+    - "Ajit Mathews"
+    - "Gregory Chanan"
+    - "Peng Wu"
+    - "Soumith Chintala"
+  year: 2024
+  venue: "ASPLOS '24: Proceedings of the 29th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 2"
+  url: "https://doi.org/10.1145/3620665.3640366"
+  doi: "10.1145/3620665.3640366"
+
+assran2025vjepa2:
+  type: article
+  title: "V-JEPA 2: Self-Supervised Video Models Enable Understanding, Prediction and Planning"
+  author:
+    - "Mido Assran"
+    - "Adrien Bardes"
+    - "David Fan"
+    - "Quentin Garrido"
+    - "Russell Howes"
+    - "Matthew Muckley"
+    - "Ammar Rizvi"
+    - "Claire Roberts"
+    - "Koustuv Sinha"
+    - "Artem Zholus"
+    - "Sergio Arnaud"
+    - "Abha Gejji"
+    - "Ada Martin"
+    - "Francois Robert Hogan"
+    - "Daniel Dugas"
+    - "Piotr Bojanowski"
+    - "Vasil Khalidov"
+    - "Patrick Labatut"
+    - "Francisco Massa"
+    - "Marc Szafraniec"
+    - "Kapil Krishnakumar"
+    - "Yong Li"
+    - "Xiaodong Ma"
+    - "Sarath Chandar"
+    - "Franziska Meier"
+    - "Yann LeCun"
+    - "Michael Rabbat"
+    - "Nicolas Ballas"
+  year: 2025
+  venue: "arXiv preprint arXiv:2506.09985"
+  url: "https://arxiv.org/abs/2506.09985"
+
+belkin2019reconciling:
+  type: article
+  title: "Reconciling Modern Machine-Learning Practice and the Classical Bias-Variance Trade-off"
+  author:
+    - "Mikhail Belkin"
+    - "Daniel Hsu"
+    - "Siyuan Ma"
+    - "Soumik Mandal"
+  year: 2019
+  venue: "Proceedings of the National Academy of Sciences (PNAS)"
+  url: "https://arxiv.org/abs/1812.11118"
+  doi: "10.1073/pnas.1903070116"
+
+bellemare2013arcade:
+  type: article
+  title: "The Arcade Learning Environment: An Evaluation Platform for General Agents"
+  author:
+    - "Marc G. Bellemare"
+    - "Yavar Naddaf"
+    - "Joel Veness"
+    - "Michael Bowling"
+  year: 2013
+  venue: "Journal of Artificial Intelligence Research (JAIR)"
+  url: "https://arxiv.org/abs/1207.4708"
+  doi: "10.1613/jair.3912"
+
+besiroglu2024chinchilla:
+  type: article
+  title: "Chinchilla Scaling: A replication attempt"
+  author:
+    - "Tamay Besiroglu"
+    - "Ege Erdil"
+    - "Matthew Barnett"
+    - "Josh You"
+  year: 2024
+  venue: "arXiv"
+  url: "https://arxiv.org/abs/2404.10102"
+
+bi2023accurate:
+  type: article
+  title: "Accurate medium-range global weather forecasting with 3D neural networks"
+  author:
+    - "Kaifeng Bi"
+    - "Lingxi Xie"
+    - "Hengheng Zhang"
+    - "Xin Chen"
+    - "Xiaotao Gu"
+    - "Qi Tian"
+  year: 2023
+  venue: "Nature"
+  url: "https://www.nature.com/articles/s41586-023-06185-3"
+  doi: "10.1038/s41586-023-06185-3"
+
+bishop2006pattern:
+  type: book
+  title: "Pattern Recognition and Machine Learning"
+  author:
+    - "Christopher M. Bishop"
+  year: 2006
+  venue: "Springer"
+  url: "https://link.springer.com/book/9780387310732"
+
+blum1989training:
+  type: inproceedings
+  title: "Training a 3-Node Neural Network is NP-Complete"
+  author:
+    - "Avrim L. Blum"
+    - "Ronald L. Rivest"
+  year: 1988
+  venue: "Advances in Neural Information Processing Systems (NIPS)"
+  url: "https://proceedings.neurips.cc/paper/1988/file/3def184ad8f4755ff269862ea77393dd-Paper.pdf"
+
+bonev2023spherical:
+  type: inproceedings
+  title: "Spherical Fourier Neural Operators: Learning Stable Dynamics on the Sphere"
+  author:
+    - "Boris Bonev"
+    - "Thorsten Kurth"
+    - "Christian Hundt"
+    - "Jaideep Pathak"
+    - "Maximilian Baust"
+    - "Karthik Kashinath"
+    - "Anima Anandkumar"
+  year: 2023
+  venue: "International Conference on Machine Learning (ICML)"
+  url: "https://arxiv.org/abs/2306.03838"
+
+bonifacio2022inpars:
+  type: inproceedings
+  title: "InPars: Data Augmentation for Information Retrieval using Large Language Models"
+  author:
+    - "Luiz Bonifacio"
+    - "Hugo Abonizio"
+    - "Marzieh Fadaee"
+    - "Rodrigo Nogueira"
+  year: 2022
+  venue: "SIGIR"
+  url: "https://arxiv.org/abs/2202.05144"
+
+boyd2004convex:
+  type: book
+  title: "Convex Optimization"
+  author:
+    - "Stephen Boyd"
+    - "Lieven Vandenberghe"
+  year: 2004
+  venue: "Cambridge University Press"
+  url: "https://web.stanford.edu/~boyd/cvxbook/"
+
+chen2020simclr:
+  type: inproceedings
+  title: "A Simple Framework for Contrastive Learning of Visual Representations"
+  author:
+    - "Ting Chen"
+    - "Simon Kornblith"
+    - "Mohammad Norouzi"
+    - "Geoffrey Hinton"
+  year: 2020
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2002.05709"
+
+chow2025physbench:
+  type: inproceedings
+  title: "PhysBench: Benchmarking and Enhancing Vision-Language Models for Physical World Understanding"
+  author:
+    - "Wei Chow"
+    - "Jiageng Mao"
+    - "Boyi Li"
+    - "Daniel Seita"
+    - "Vitor Guizilini"
+    - "Yue Wang"
+  year: 2025
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2501.16411"
+
+cooley1965algorithm:
+  type: article
+  title: "An Algorithm for the Machine Calculation of Complex Fourier Series"
+  author:
+    - "James W. Cooley"
+    - "John W. Tukey"
+  year: 1965
+  venue: "Mathematics of Computation, vol. 19, no. 90, pp. 297-301"
+  url: "https://doi.org/10.1090/S0025-5718-1965-0178586-1"
+  doi: "10.1090/S0025-5718-1965-0178586-1"
+
+cover2006elements:
+  type: book
+  title: "Elements of Information Theory"
+  author:
+    - "Thomas M. Cover"
+    - "Joy A. Thomas"
+  year: 2006
+  venue: "Wiley-Interscience"
+  url: "https://www.wiley.com/en-us/Elements+of+Information+Theory,+2nd+Edition-p-9780471241959"
+
+cubuk2019autoaugment:
+  type: inproceedings
+  title: "AutoAugment: Learning Augmentation Strategies From Data"
+  author:
+    - "Ekin D. Cubuk"
+    - "Barret Zoph"
+    - "Dandelion Mane"
+    - "Vijay Vasudevan"
+    - "Quoc V. Le"
+  year: 2019
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/1805.09501"
+
+dalton2020cast:
+  type: article
+  title: "TREC CAsT 2019: The Conversational Assistance Track Overview"
+  author:
+    - "Jeffrey Dalton"
+    - "Chenyan Xiong"
+    - "Jamie Callan"
+  year: 2020
+  venue: "arXiv preprint arXiv:2003.13624"
+  url: "https://arxiv.org/abs/2003.13624"
+
+dasari2019robonet:
+  type: inproceedings
+  title: "RoboNet: Large-Scale Multi-Robot Learning"
+  author:
+    - "Sudeep Dasari"
+    - "Frederik Ebert"
+    - "Stephen Tian"
+    - "Suraj Nair"
+    - "Bernadette Bucher"
+    - "Karl Schmeckpeper"
+    - "Siddharth Singh"
+    - "Sergey Levine"
+    - "Chelsea Finn"
+  year: 2019
+  venue: "CoRL"
+  url: "https://arxiv.org/abs/1910.11215"
+
+databricks2024dbrx:
+  type: misc
+  title: "Introducing DBRX: A New State-of-the-Art Open LLM"
+  author:
+    - "Mosaic AI Research"
+  year: 2024
+  venue: "Databricks Blog"
+  url: "https://www.databricks.com/blog/introducing-dbrx-new-state-art-open-llm"
+
+dauphin2014identifying:
+  type: inproceedings
+  title: "Identifying and attacking the saddle point problem in high-dimensional non-convex optimization"
+  author:
+    - "Yann N. Dauphin"
+    - "Razvan Pascanu"
+    - "Caglar Gulcehre"
+    - "Kyunghyun Cho"
+    - "Surya Ganguli"
+    - "Yoshua Bengio"
+  year: 2014
+  venue: "Advances in Neural Information Processing Systems (NeurIPS)"
+  url: "https://arxiv.org/abs/1406.2572"
+
+ding2020alex:
+  type: inproceedings
+  title: "ALEX: An Updatable Adaptive Learned Index"
+  author:
+    - "Jialin Ding"
+    - "Umar Farooq Minhas"
+    - "Jia Yu"
+    - "Chi Wang"
+    - "Jaeyoung Do"
+    - "Yinan Li"
+    - "Hantian Zhang"
+    - "Badrish Chandramouli"
+    - "Johannes Gehrke"
+    - "Donald Kossmann"
+    - "David Lomet"
+    - "Tim Kraska"
+  year: 2020
+  venue: "SIGMOD"
+  url: "https://doi.org/10.1145/3318464.3389711"
+
+duchi2008simplex:
+  type: inproceedings
+  title: "Efficient Projections onto the l1-Ball for Learning in High Dimensions"
+  author:
+    - "John Duchi"
+    - "Shai Shalev-Shwartz"
+    - "Yoram Singer"
+    - "Tushar Chandra"
+  year: 2008
+  venue: "ICML"
+  url: "https://dl.acm.org/doi/10.1145/1390156.1390191"
+  doi: "10.1145/1390156.1390191"
+
+eldan2016power:
+  type: inproceedings
+  title: "The Power of Depth for Feedforward Neural Networks"
+  author:
+    - "Ronen Eldan"
+    - "Ohad Shamir"
+  year: 2016
+  venue: "Conference on Learning Theory (COLT)"
+  url: "https://arxiv.org/abs/1512.03965"
+
+epochaimodels:
+  type: misc
+  title: "Data on AI Models"
+  author:
+    - "Epoch AI"
+  year: 2024
+  venue: "Epoch AI"
+  url: "https://epoch.ai/data/ai-models"
+
+field1987relations:
+  type: article
+  title: "Relations between the statistics of natural images and the response properties of cortical cells"
+  author:
+    - "David J. Field"
+  year: 1987
+  venue: "Journal of the Optical Society of America A (JOSA A)"
+  url: "https://doi.org/10.1364/JOSAA.4.002379"
+  doi: "10.1364/JOSAA.4.002379"
+
+goodfellow2016deep:
+  type: book
+  title: "Deep Learning"
+  author:
+    - "Ian Goodfellow"
+    - "Yoshua Bengio"
+    - "Aaron Courville"
+  year: 2016
+  venue: "MIT Press"
+  url: "https://www.deeplearningbook.org/"
+
+google2025geminideepresearch:
+  type: misc
+  title: "Try Deep Research and our new experimental model in Gemini"
+  author:
+    - "Google"
+  year: 2025
+  venue: "Google Blog (The Keyword)"
+  url: "https://blog.google/products/gemini/google-gemini-deep-research/"
+
+goyal2017accurate:
+  type: article
+  title: "Accurate, Large Minibatch SGD: Training ImageNet in 1 Hour"
+  author:
+    - "Priya Goyal"
+    - "Piotr Dollár"
+    - "Ross Girshick"
+    - "Pieter Noordhuis"
+    - "Lukasz Wesolowski"
+    - "Aapo Kyrola"
+    - "Andrew Tulloch"
+    - "Yangqing Jia"
+    - "Kaiming He"
+  year: 2017
+  venue: "arXiv preprint arXiv:1706.02677"
+  url: "https://arxiv.org/abs/1706.02677"
+
+goyal2017something:
+  type: inproceedings
+  title: "The \"Something Something\" Video Database for Learning and Evaluating Visual Common Sense"
+  author:
+    - "Raghav Goyal"
+    - "Samira Ebrahimi Kahou"
+    - "Vincent Michalski"
+    - "Joanna Materzynska"
+    - "Susanne Westphal"
+    - "Heuna Kim"
+    - "Valentin Haenel"
+    - "Ingo Fruend"
+    - "Peter Yianilos"
+    - "Moritz Mueller-Freitag"
+    - "Florian Hoppe"
+    - "Christian Thurau"
+    - "Ingo Bax"
+    - "Roland Memisevic"
+  year: 2017
+  venue: "ICCV"
+  url: "https://arxiv.org/abs/1706.04261"
+
+gupta2015deep:
+  type: inproceedings
+  title: "Deep Learning with Limited Numerical Precision"
+  author:
+    - "Suyog Gupta"
+    - "Ankur Agrawal"
+    - "Kailash Gopalakrishnan"
+    - "Pritish Narayanan"
+  year: 2015
+  venue: "ICML (PMLR v37)"
+  url: "https://arxiv.org/abs/1502.02551"
+
+gurbuzbalaban2021heavy:
+  type: inproceedings
+  title: "The Heavy-Tail Phenomenon in SGD"
+  author:
+    - "Mert Gurbuzbalaban"
+    - "Umut Simsekli"
+    - "Lingjiong Zhu"
+  year: 2021
+  venue: "Proceedings of the 38th International Conference on Machine Learning (ICML), PMLR v139"
+  url: "https://proceedings.mlr.press/v139/gurbuzbalaban21a.html"
+
+hu2024minicpm:
+  type: article
+  title: "MiniCPM: Unveiling the Potential of Small Language Models with Scalable Training Strategies"
+  author:
+    - "Shengding Hu"
+    - "Yuge Tu"
+    - "Xu Han"
+    - "Chaoqun He"
+    - "Ganqu Cui"
+    - "Xiang Long"
+    - "Zhi Zheng"
+    - "Yewei Fang"
+    - "Yuxiang Huang"
+    - "Weilin Zhao"
+    - "Xinrong Zhang"
+    - "Zheng Leng Thai"
+    - "Kaihuo Zhang"
+    - "Chongyi Wang"
+    - "Yuan Yao"
+    - "Chenyang Zhao"
+    - "Jie Zhou"
+    - "Jie Cai"
+    - "Zhongwu Zhai"
+    - "Ning Ding"
+    - "Chao Jia"
+    - "Guoyang Zeng"
+    - "Dahai Li"
+    - "Zhiyuan Liu"
+    - "Maosong Sun"
+  year: 2024
+  venue: "arXiv preprint arXiv:2404.06395"
+  url: "https://arxiv.org/abs/2404.06395"
+
+hyvarinen2005estimation:
+  type: article
+  title: "Estimation of Non-Normalized Statistical Models by Score Matching"
+  author:
+    - "Aapo Hyvärinen"
+  year: 2005
+  venue: "Journal of Machine Learning Research"
+  url: "https://jmlr.org/papers/volume6/hyvarinen05a/hyvarinen05a.pdf"
+
+jin2025searchr1:
+  type: article
+  title: "Search-R1: Training LLMs to Reason and Leverage Search Engines with Reinforcement Learning"
+  author:
+    - "Bowen Jin"
+    - "Hansi Zeng"
+    - "Zhenrui Yue"
+    - "Jinsung Yoon"
+    - "Sercan Arik"
+    - "Dong Wang"
+    - "Hamed Zamani"
+    - "Jiawei Han"
+  year: 2025
+  venue: "arXiv preprint arXiv:2503.09516"
+  url: "https://arxiv.org/abs/2503.09516"
+
+katz2017reluplex:
+  type: inproceedings
+  title: "Reluplex: An Efficient SMT Solver for Verifying Deep Neural Networks"
+  author:
+    - "Guy Katz"
+    - "Clark Barrett"
+    - "David L. Dill"
+    - "Kyle Julian"
+    - "Mykel J. Kochenderfer"
+  year: 2017
+  venue: "International Conference on Computer Aided Verification (CAV)"
+  url: "https://arxiv.org/abs/1702.01135"
+  doi: "10.1007/978-3-319-63387-9_5"
+
+kay2017kinetics:
+  type: article
+  title: "The Kinetics Human Action Video Dataset"
+  author:
+    - "Will Kay"
+    - "Joao Carreira"
+    - "Karen Simonyan"
+    - "Brian Zhang"
+    - "Chloe Hillier"
+    - "Sudheendra Vijayanarasimhan"
+    - "Fabio Viola"
+    - "Tim Green"
+    - "Trevor Back"
+    - "Paul Natsev"
+    - "Mustafa Suleyman"
+    - "Andrew Zisserman"
+  year: 2017
+  venue: "arXiv preprint"
+  url: "https://arxiv.org/abs/1705.06950"
+
+lu2022dpm:
+  type: inproceedings
+  title: "DPM-Solver: A Fast ODE Solver for Diffusion Probabilistic Model Sampling in Around 10 Steps"
+  author:
+    - "Cheng Lu"
+    - "Yuhao Zhou"
+    - "Fan Bao"
+    - "Jianfei Chen"
+    - "Chongxuan Li"
+    - "Jun Zhu"
+  year: 2022
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2206.00927"
+
+lu2023maximizing:
+  type: inproceedings
+  title: "Maximizing Communication Efficiency for Large-scale Training via 0/1 Adam"
+  author:
+    - "Yucheng Lu"
+    - "Conglong Li"
+    - "Minjia Zhang"
+    - "Christopher De Sa"
+    - "Yuxiong He"
+  year: 2023
+  venue: "International Conference on Learning Representations (ICLR)"
+  url: "https://arxiv.org/abs/2202.06009"
+
+lustig2007sparse:
+  type: article
+  title: "Sparse MRI: The application of compressed sensing for rapid MR imaging"
+  author:
+    - "Michael Lustig"
+    - "David Donoho"
+    - "John M. Pauly"
+  year: 2007
+  venue: "Magnetic Resonance in Medicine"
+  url: "https://onlinelibrary.wiley.com/doi/10.1002/mrm.21391"
+  doi: "10.1002/mrm.21391"
+
+mandt2017stochastic:
+  type: article
+  title: "Stochastic Gradient Descent as Approximate Bayesian Inference"
+  author:
+    - "Stephan Mandt"
+    - "Matthew D. Hoffman"
+    - "David M. Blei"
+  year: 2017
+  venue: "Journal of Machine Learning Research (JMLR), Vol. 18"
+  url: "https://jmlr.org/papers/v18/17-214.html"
+  doi: "10.5555/3122009.3208015"
+
+marreed2025cuga:
+  type: article
+  title: "Towards Enterprise-Ready Computer Using Generalist Agent"
+  author:
+    - "Sami Marreed"
+    - "Alon Oved"
+    - "Avi Yaeli"
+    - "Segev Shlomov"
+    - "Ido Levy"
+    - "Offer Akrabi"
+    - "Aviad Sela"
+    - "Asaf Adi"
+    - "Nir Mashkif"
+  year: 2025
+  venue: "arXiv preprint arXiv:2503.01861"
+  url: "https://arxiv.org/abs/2503.01861"
+
+mees2022calvin:
+  type: article
+  title: "CALVIN: A Benchmark for Language-Conditioned Policy Learning for Long-Horizon Robot Manipulation Tasks"
+  author:
+    - "Oier Mees"
+    - "Lukas Hermann"
+    - "Erick Rosete-Beas"
+    - "Wolfram Burgard"
+  year: 2022
+  venue: "IEEE Robotics and Automation Letters (RA-L)"
+  url: "https://arxiv.org/abs/2112.03227"
+
+meng2024pissa:
+  type: inproceedings
+  title: "PiSSA: Principal Singular Values and Singular Vectors Adaptation of Large Language Models"
+  author:
+    - "Fanxu Meng"
+    - "Zhaohui Wang"
+    - "Muhan Zhang"
+  year: 2024
+  venue: "Advances in Neural Information Processing Systems (NeurIPS) 38"
+  url: "https://arxiv.org/abs/2404.02948"
+
+meyer1992wavelets:
+  type: book
+  title: "Wavelets and Operators"
+  author:
+    - "Yves Meyer"
+  year: 1992
+  venue: "Cambridge University Press (Cambridge Studies in Advanced Mathematics 37)"
+  url: "https://www.cambridge.org/core/books/wavelets-and-operators/1E2A0A9CE47CB41603C9B6080E5FFFEA"
+
+mitzenmacher2018model:
+  type: inproceedings
+  title: "A Model for Learned Bloom Filters, and Optimizing by Sandwiching"
+  author:
+    - "Michael Mitzenmacher"
+  year: 2018
+  venue: "Advances in Neural Information Processing Systems (NeurIPS)"
+  url: "https://arxiv.org/abs/1901.00902"
+
+montufar2014number:
+  type: inproceedings
+  title: "On the Number of Linear Regions of Deep Neural Networks"
+  author:
+    - "Guido Montufar"
+    - "Razvan Pascanu"
+    - "Kyunghyun Cho"
+    - "Yoshua Bengio"
+  year: 2014
+  venue: "Advances in Neural Information Processing Systems (NeurIPS)"
+  url: "https://arxiv.org/abs/1402.1869"
+
+nichol2021improved:
+  type: inproceedings
+  title: "Improved Denoising Diffusion Probabilistic Models"
+  author:
+    - "Alexander Quinn Nichol"
+    - "Prafulla Dhariwal"
+  year: 2021
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2102.09672"
+
+nogueira2019doc2query:
+  type: misc
+  title: "From doc2query to docTTTTTquery"
+  author:
+    - "Rodrigo Nogueira"
+    - "Jimmy Lin"
+  year: 2019
+  venue: "Technical report, University of Waterloo"
+  url: "https://cs.uwaterloo.ca/~jimmylin/publications/Nogueira_Lin_2019_docTTTTTquery-v2.pdf"
+
+nogueira2019document:
+  type: article
+  title: "Document Expansion by Query Prediction"
+  author:
+    - "Rodrigo Nogueira"
+    - "Wei Yang"
+    - "Jimmy Lin"
+    - "Kyunghyun Cho"
+  year: 2019
+  venue: "arXiv preprint"
+  url: "https://arxiv.org/abs/1904.08375"
+
+openai2024chatgptsearch:
+  type: misc
+  title: "Introducing ChatGPT search"
+  author:
+    - "OpenAI"
+  year: 2024
+  venue: "OpenAI Blog"
+  url: "https://openai.com/index/introducing-chatgpt-search/"
+
+openai2025deepresearch:
+  type: misc
+  title: "Introducing deep research"
+  author:
+    - "OpenAI"
+  year: 2025
+  venue: "OpenAI Blog"
+  url: "https://openai.com/index/introducing-deep-research/"
+
+oyallon2015deep:
+  type: inproceedings
+  title: "Deep Roto-Translation Scattering for Object Classification"
+  author:
+    - "Edouard Oyallon"
+    - "Stephane Mallat"
+  year: 2015
+  venue: "IEEE Conference on Computer Vision and Pattern Recognition (CVPR)"
+  url: "https://arxiv.org/abs/1412.8659"
+
+peebles2023dit:
+  type: inproceedings
+  title: "Scalable Diffusion Models with Transformers"
+  author:
+    - "William Peebles"
+    - "Saining Xie"
+  year: 2023
+  venue: "ICCV"
+  url: "https://arxiv.org/abs/2212.09748"
+
+peng2024eagle:
+  type: article
+  title: "Eagle and Finch: RWKV with Matrix-Valued States and Dynamic Recurrence"
+  author:
+    - "Bo Peng"
+    - "Daniel Goldstein"
+    - "Quentin Anthony"
+    - "Alon Albalak"
+    - "Eric Alcaide"
+    - "Stella Biderman"
+    - "Eugene Cheah"
+    - "Xingjian Du"
+    - "Teddy Ferdinan"
+    - "Haowen Hou"
+    - "Przemyslaw Kazienko"
+    - "Kranthi Kiran GV"
+    - "Jan Kocon"
+    - "Bartlomiej Koptyra"
+    - "Satyapriya Krishna"
+    - "Ronald McClelland Jr."
+    - "Jiaju Lin"
+    - "Niklas Muennighoff"
+    - "Fares Obeid"
+    - "Atsushi Saito"
+    - "Guangyu Song"
+    - "Haoqin Tu"
+    - "Cahya Wirawan"
+    - "Stanislaw Wozniak"
+    - "Ruichong Zhang"
+    - "Bingchen Zhao"
+    - "Qihang Zhao"
+    - "Peng Zhou"
+    - "Jian Zhu"
+    - "Rui-Jie Zhu"
+  year: 2024
+  venue: "arXiv preprint arXiv:2404.05892"
+  url: "https://arxiv.org/abs/2404.05892"
+
+perplexity2024getstarted:
+  type: misc
+  title: "Getting started with Perplexity"
+  author:
+    - "Perplexity AI"
+  year: 2024
+  venue: "Perplexity Blog"
+  url: "https://www.perplexity.ai/hub/blog/getting-started-with-perplexity"
+
+qi2024mutual:
+  type: article
+  title: "Mutual Reasoning Makes Smaller LLMs Stronger Problem-Solvers"
+  author:
+    - "Zhenting Qi"
+    - "Mingyuan Ma"
+    - "Jiahang Xu"
+    - "Li Lyna Zhang"
+    - "Fan Yang"
+    - "Mao Yang"
+  year: 2024
+  venue: "arXiv preprint arXiv:2408.06195"
+  url: "https://arxiv.org/abs/2408.06195"
+
+radford2021clip:
+  type: inproceedings
+  title: "Learning Transferable Visual Models From Natural Language Supervision"
+  author:
+    - "Alec Radford"
+    - "Jong Wook Kim"
+    - "Chris Hallacy"
+    - "Aditya Ramesh"
+    - "Gabriel Goh"
+    - "Sandhini Agarwal"
+    - "Girish Sastry"
+    - "Amanda Askell"
+    - "Pamela Mishkin"
+    - "Jack Clark"
+    - "Gretchen Krueger"
+    - "Ilya Sutskever"
+  year: 2021
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2103.00020"
+
+ruderman1994statistics:
+  type: article
+  title: "The statistics of natural images"
+  author:
+    - "Daniel L. Ruderman"
+  year: 1994
+  venue: "Network: Computation in Neural Systems"
+  url: "https://doi.org/10.1088/0954-898X_5_4_006"
+  doi: "10.1088/0954-898X_5_4_006"
+
+saxe2018information:
+  type: inproceedings
+  title: "On the Information Bottleneck Theory of Deep Learning"
+  author:
+    - "Andrew M. Saxe"
+    - "Yamini Bansal"
+    - "Joel Dapello"
+    - "Madhu Advani"
+    - "Artemy Kolchinsky"
+    - "Brendan D. Tracey"
+    - "David D. Cox"
+  year: 2018
+  venue: "ICLR"
+  url: "https://openreview.net/forum?id=ry_WPG-A-"
+
+shumailov2023curse:
+  type: article
+  title: "The Curse of Recursion: Training on Generated Data Makes Models Forget"
+  author:
+    - "Ilia Shumailov"
+    - "Zakhar Shumaylov"
+    - "Yiren Zhao"
+    - "Yarin Gal"
+    - "Nicolas Papernot"
+    - "Ross Anderson"
+  year: 2023
+  venue: "arXiv preprint"
+  url: "https://arxiv.org/abs/2305.17493"
+
+simsekli2019tail:
+  type: inproceedings
+  title: "A Tail-Index Analysis of Stochastic Gradient Noise in Deep Neural Networks"
+  author:
+    - "Umut Simsekli"
+    - "Levent Sagun"
+    - "Mert Gurbuzbalaban"
+  year: 2019
+  venue: "Proceedings of the 36th International Conference on Machine Learning (ICML), PMLR v97"
+  url: "https://arxiv.org/abs/1901.06053"
+
+smith2018bayesian:
+  type: inproceedings
+  title: "A Bayesian Perspective on Generalization and Stochastic Gradient Descent"
+  author:
+    - "Samuel L. Smith"
+    - "Quoc V. Le"
+  year: 2018
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1710.06451"
+
+song2021denoising:
+  type: inproceedings
+  title: "Denoising Diffusion Implicit Models"
+  author:
+    - "Jiaming Song"
+    - "Chenlin Meng"
+    - "Stefano Ermon"
+  year: 2021
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2010.02502"
+
+song2021score:
+  type: inproceedings
+  title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+  author:
+    - "Yang Song"
+    - "Jascha Sohl-Dickstein"
+    - "Diederik P. Kingma"
+    - "Abhishek Kumar"
+    - "Stefano Ermon"
+    - "Ben Poole"
+  year: 2021
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2011.13456"
+
+song2023consistency:
+  type: inproceedings
+  title: "Consistency Models"
+  author:
+    - "Yang Song"
+    - "Prafulla Dhariwal"
+    - "Mark Chen"
+    - "Ilya Sutskever"
+  year: 2023
+  venue: "ICML"
+  url: "https://arxiv.org/abs/2303.01469"
+
+song2025r1searcher:
+  type: article
+  title: "R1-Searcher: Incentivizing the Search Capability in LLMs via Reinforcement Learning"
+  author:
+    - "Huatong Song"
+    - "Jinhao Jiang"
+    - "Yingqian Min"
+    - "Jie Chen"
+    - "Zhipeng Chen"
+    - "Wayne Xin Zhao"
+    - "Lei Fang"
+    - "Ji-Rong Wen"
+  year: 2025
+  venue: "arXiv preprint arXiv:2503.05592"
+  url: "https://arxiv.org/abs/2503.05592"
+
+strang2006linear:
+  type: book
+  title: "Linear Algebra and Its Applications"
+  author:
+    - "Gilbert Strang"
+  year: 2006
+  venue: "Thomson Brooks/Cole"
+  url: "https://math.mit.edu/~gs/books/books.html"
+
+sutherland2015error:
+  type: inproceedings
+  title: "On the Error of Random Fourier Features"
+  author:
+    - "Danica J. Sutherland"
+    - "Jeff Schneider"
+  year: 2015
+  venue: "Proceedings of the Thirty-First Conference on Uncertainty in Artificial Intelligence (UAI)"
+  url: "https://arxiv.org/abs/1506.02785"
+
+szegedy2016rethinking:
+  type: inproceedings
+  title: "Rethinking the Inception Architecture for Computer Vision"
+  author:
+    - "Christian Szegedy"
+    - "Vincent Vanhoucke"
+    - "Sergey Ioffe"
+    - "Jon Shlens"
+    - "Zbigniew Wojna"
+  year: 2016
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/1512.00567"
+
+tang2021onebit:
+  type: inproceedings
+  title: "1-bit Adam: Communication Efficient Large-Scale Training with Adam's Convergence Speed"
+  author:
+    - "Hanlin Tang"
+    - "Shaoduo Gan"
+    - "Ammar Ahmad Awan"
+    - "Samyam Rajbhandari"
+    - "Conglong Li"
+    - "Xiangru Lian"
+    - "Ji Liu"
+    - "Ce Zhang"
+    - "Yuxiong He"
+  year: 2021
+  venue: "International Conference on Machine Learning (ICML)"
+  url: "https://arxiv.org/abs/2102.02888"
+
+telgarsky2016benefits:
+  type: inproceedings
+  title: "Benefits of Depth in Neural Networks"
+  author:
+    - "Matus Telgarsky"
+  year: 2016
+  venue: "Conference on Learning Theory (COLT)"
+  url: "https://arxiv.org/abs/1602.04485"
+
+tillet2019triton:
+  type: inproceedings
+  title: "Triton: an intermediate language and compiler for tiled neural network computations"
+  author:
+    - "Philippe Tillet"
+    - "H. T. Kung"
+    - "David Cox"
+  year: 2019
+  venue: "Proceedings of the 3rd ACM SIGPLAN International Workshop on Machine Learning and Programming Languages (MAPL)"
+  url: "https://doi.org/10.1145/3315508.3329973"
+  doi: "10.1145/3315508.3329973"
+
+unterthiner2018towards:
+  type: article
+  title: "Towards Accurate Generative Models of Video: A New Metric & Challenges"
+  author:
+    - "Thomas Unterthiner"
+    - "Sjoerd van Steenkiste"
+    - "Karol Kurach"
+    - "Raphael Marinier"
+    - "Marcin Michalski"
+    - "Sylvain Gelly"
+  year: 2018
+  venue: "arXiv preprint"
+  url: "https://arxiv.org/abs/1812.01717"
+
+villalobos2024data:
+  type: inproceedings
+  title: "Position: Will We Run Out of Data? Limits of LLM Scaling Based on Human-Generated Data"
+  author:
+    - "Pablo Villalobos"
+    - "Anson Ho"
+    - "Jaime Sevilla"
+    - "Tamay Besiroglu"
+    - "Lennart Heim"
+    - "Marius Hobbhahn"
+  year: 2024
+  venue: "International Conference on Machine Learning (ICML)"
+  url: "https://arxiv.org/abs/2211.04325"
+
+wang2004image:
+  type: article
+  title: "Image Quality Assessment: From Error Visibility to Structural Similarity"
+  author:
+    - "Zhou Wang"
+    - "Alan C. Bovik"
+    - "Hamid R. Sheikh"
+    - "Eero P. Simoncelli"
+  year: 2004
+  venue: "IEEE Transactions on Image Processing"
+  url: "https://www.cns.nyu.edu/pub/eero/wang03-reprint.pdf"
+  doi: "10.1109/TIP.2003.819861"
+
+wang2024drama:
+  type: inproceedings
+  title: "Drama: Mamba-Enabled Model-Based Reinforcement Learning Is Sample and Parameter Efficient"
+  author:
+    - "Wenlong Wang"
+    - "Ivana Dusparic"
+    - "Yucheng Shi"
+    - "Ke Zhang"
+    - "Vinny Cahill"
+  year: 2024
+  venue: "International Conference on Learning Representations (ICLR) 2025"
+  url: "https://arxiv.org/abs/2410.08893"
+
+wei2025browsecomp:
+  type: article
+  title: "BrowseComp: A Simple Yet Challenging Benchmark for Browsing Agents"
+  author:
+    - "Jason Wei"
+    - "Zhiqing Sun"
+    - "Spencer Papay"
+    - "Scott McKinney"
+    - "Jeffrey Han"
+    - "Isa Fulford"
+    - "Hyung Won Chung"
+    - "Alex Tachard Passos"
+    - "William Fedus"
+    - "Amelia Glaese"
+  year: 2025
+  venue: "arXiv preprint arXiv:2504.12516"
+  url: "https://arxiv.org/abs/2504.12516"
+
+welling2011bayesian:
+  type: inproceedings
+  title: "Bayesian Learning via Stochastic Gradient Langevin Dynamics"
+  author:
+    - "Max Welling"
+    - "Yee Whye Teh"
+  year: 2011
+  venue: "Proceedings of the 28th International Conference on Machine Learning (ICML)"
+  url: "https://www.stats.ox.ac.uk/~teh/research/compstats/WelTeh2011a.pdf"
+
+yang2024qwen2:
+  type: article
+  title: "Qwen2 Technical Report"
+  author:
+    - "An Yang"
+    - "Baosong Yang"
+    - "Binyuan Hui"
+    - "Bo Zheng"
+    - "Bowen Yu"
+    - "et al."
+  year: 2024
+  venue: "arXiv preprint arXiv:2407.10671"
+  url: "https://arxiv.org/abs/2407.10671"
+
+yarotsky2017error:
+  type: article
+  title: "Error Bounds for Approximations with Deep ReLU Networks"
+  author:
+    - "Dmitry Yarotsky"
+  year: 2017
+  venue: "Neural Networks"
+  url: "https://arxiv.org/abs/1610.01145"
+  doi: "10.1016/j.neunet.2017.07.002"
+
+zhang2018unreasonable:
+  type: inproceedings
+  title: "The Unreasonable Effectiveness of Deep Features as a Perceptual Metric"
+  author:
+    - "Richard Zhang"
+    - "Phillip Isola"
+    - "Alexei A. Efros"
+    - "Eli Shechtman"
+    - "Oliver Wang"
+  year: 2018
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/1801.03924"
+
+zhang2024restmcts:
+  type: inproceedings
+  title: "ReST-MCTS*: LLM Self-Training via Process Reward Guided Tree Search"
+  author:
+    - "Dan Zhang"
+    - "Sining Zhoubian"
+    - "Ziniu Hu"
+    - "Yisong Yue"
+    - "Yuxiao Dong"
+    - "Jie Tang"
+  year: 2024
+  venue: "Advances in Neural Information Processing Systems (NeurIPS) 2024"
+  url: "https://arxiv.org/abs/2406.03816"
+
+zou2024poisonedrag:
+  type: article
+  title: "PoisonedRAG: Knowledge Corruption Attacks to Retrieval-Augmented Generation of Large Language Models"
+  author:
+    - "Wei Zou"
+    - "Runpeng Geng"
+    - "Binghui Wang"
+    - "Jinyuan Jia"
+  year: 2024
+  venue: "USENIX Security Symposium"
+  url: "https://arxiv.org/abs/2402.07867"
+
+shazeer2020glu:
+  type: article
+  title: "GLU Variants Improve Transformer"
+  author:
+    - "Noam Shazeer"
+  year: 2020
+  venue: "arXiv preprint arXiv:2002.05202"
+  url: "https://arxiv.org/abs/2002.05202"
+
+peng2023yarn:
+  type: inproceedings
+  title: "YaRN: Efficient Context Window Extension of Large Language Models"
+  author:
+    - "Bowen Peng"
+    - "Jeffrey Quesnelle"
+    - "Honglu Fan"
+    - "Enrico Shippole"
+  year: 2024
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2309.00071"
+
+liu2023ring:
+  type: inproceedings
+  title: "Ring Attention with Blockwise Transformers for Near-Infinite Context"
+  author:
+    - "Hao Liu"
+    - "Matei Zaharia"
+    - "Pieter Abbeel"
+  year: 2024
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2310.01889"
+
+press2022train:
+  type: inproceedings
+  title: "Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation"
+  author:
+    - "Ofir Press"
+    - "Noah A. Smith"
+    - "Mike Lewis"
+  year: 2022
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2108.12409"
+
+amos2017optnet:
+  type: inproceedings
+  title: "OptNet: Differentiable Optimization as a Layer in Neural Networks"
+  author:
+    - "Brandon Amos"
+    - "J. Zico Kolter"
+  year: 2017
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1703.00443"
+
+aumuller2020annbenchmarks:
+  type: article
+  title: "ANN-Benchmarks: A benchmarking tool for approximate nearest neighbor algorithms"
+  author:
+    - "Martin Aumuller"
+    - "Erik Bernhardsson"
+    - "Alexander Faithfull"
+  year: 2020
+  venue: "Information Systems"
+  url: "https://doi.org/10.1016/j.is.2019.02.006"
+  doi: "10.1016/j.is.2019.02.006"
+
+ba2016layer:
+  type: article
+  title: "Layer Normalization"
+  author:
+    - "Jimmy Lei Ba"
+    - "Jamie Ryan Kiros"
+    - "Geoffrey E. Hinton"
+  year: 2016
+  venue: "arXiv preprint arXiv:1607.06450"
+  url: "https://arxiv.org/abs/1607.06450"
+
+bai2019deep:
+  type: inproceedings
+  title: "Deep Equilibrium Models"
+  author:
+    - "Shaojie Bai"
+    - "J. Zico Kolter"
+    - "Vladlen Koltun"
+  year: 2019
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1909.01377"
+
+bartlett2017spectrally:
+  type: inproceedings
+  title: "Spectrally-normalized margin bounds for neural networks"
+  author:
+    - "Peter L. Bartlett"
+    - "Dylan J. Foster"
+    - "Matus Telgarsky"
+  year: 2017
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1706.08498"
+
+bartlett2019nearly:
+  type: article
+  title: "Nearly-tight VC-dimension and Pseudodimension Bounds for Piecewise Linear Neural Networks"
+  author:
+    - "Peter L. Bartlett"
+    - "Nick Harvey"
+    - "Christopher Liaw"
+    - "Abbas Mehrabian"
+  year: 2019
+  venue: "JMLR"
+  url: "https://jmlr.org/papers/volume20/17-612/17-612.pdf"
+
+bartlett2020benign:
+  type: article
+  title: "Benign Overfitting in Linear Regression"
+  author:
+    - "Peter L. Bartlett"
+    - "Philip M. Long"
+    - "Gabor Lugosi"
+    - "Alexander Tsigler"
+  year: 2020
+  venue: "PNAS"
+  url: "https://arxiv.org/abs/1906.11300"
+  doi: "10.1073/pnas.1907378117"
+
+belghazi2018mine:
+  type: inproceedings
+  title: "Mutual Information Neural Estimation"
+  author:
+    - "Mohamed Ishmael Belghazi"
+    - "Aristide Baratin"
+    - "Sai Rajeswar"
+    - "Sherjil Ozair"
+    - "Yoshua Bengio"
+    - "Aaron Courville"
+    - "Devon Hjelm"
+  year: 2018
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1801.04062"
+
+brody2022how:
+  type: inproceedings
+  title: "How Attentive are Graph Attention Networks?"
+  author:
+    - "Shaked Brody"
+    - "Uri Alon"
+    - "Eran Yahav"
+  year: 2022
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2105.14491"
+
+chen2018neural:
+  type: inproceedings
+  title: "Neural Ordinary Differential Equations"
+  author:
+    - "Ricky T. Q. Chen"
+    - "Yulia Rubanova"
+    - "Jesse Bettencourt"
+    - "David Duvenaud"
+  year: 2018
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1806.07366"
+
+chen2024rgb:
+  type: inproceedings
+  title: "Benchmarking Large Language Models in Retrieval-Augmented Generation"
+  author:
+    - "Jiawei Chen"
+    - "Hongyu Lin"
+    - "Xianpei Han"
+    - "Le Sun"
+  year: 2024
+  venue: "AAAI"
+  url: "https://arxiv.org/abs/2309.01431"
+  doi: "10.1609/aaai.v38i16.29728"
+
+choromanska2015loss:
+  type: inproceedings
+  title: "The Loss Surfaces of Multilayer Networks"
+  author:
+    - "Anna Choromanska"
+    - "Mikael Henaff"
+    - "Michael Mathieu"
+    - "Gérard Ben Arous"
+    - "Yann LeCun"
+  year: 2015
+  venue: "AISTATS"
+  url: "https://proceedings.mlr.press/v38/choromanska15.html"
+
+cohen2021gradient:
+  type: inproceedings
+  title: "Gradient Descent on Neural Networks Typically Occurs at the Edge of Stability"
+  author:
+    - "Jeremy M. Cohen"
+    - "Simran Kaur"
+    - "Yuanzhi Li"
+    - "J. Zico Kolter"
+    - "Ameet Talwalkar"
+  year: 2021
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2103.00065"
+
+deepseek2024deepseekv3:
+  type: article
+  title: "DeepSeek-V3 Technical Report"
+  author:
+    - "DeepSeek-AI"
+  year: 2024
+  venue: "arXiv preprint arXiv:2412.19437"
+  url: "https://arxiv.org/abs/2412.19437"
+  doi: "10.48550/arXiv.2412.19437"
+
+deepseekai2025r1:
+  type: article
+  title: "DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning"
+  author:
+    - "DeepSeek-AI"
+  year: 2025
+  venue: "arXiv preprint arXiv:2501.12948"
+  url: "https://arxiv.org/abs/2501.12948"
+  doi: "10.48550/arXiv.2501.12948"
+
+defferrard2016convolutional:
+  type: inproceedings
+  title: "Convolutional Neural Networks on Graphs with Fast Localized Spectral Filtering"
+  author:
+    - "Michaël Defferrard"
+    - "Xavier Bresson"
+    - "Pierre Vandergheynst"
+  year: 2016
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1606.09375"
+
+draxler2018essentially:
+  type: inproceedings
+  title: "Essentially No Barriers in Neural Network Energy Landscape"
+  author:
+    - "Felix Draxler"
+    - "Kambis Veschgini"
+    - "Manfred Salmhofer"
+    - "Fred Hamprecht"
+  year: 2018
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1803.00885"
+
+du2019gradient:
+  type: inproceedings
+  title: "Gradient Descent Provably Optimizes Over-parameterized Neural Networks"
+  author:
+    - "Simon S. Du"
+    - "Xiyu Zhai"
+    - "Barnabas Poczos"
+    - "Aarti Singh"
+  year: 2019
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1810.02054"
+
+dziugaite2017computing:
+  type: inproceedings
+  title: "Computing Nonvacuous Generalization Bounds for Deep (Stochastic) Neural Networks with Many More Parameters than Training Data"
+  author:
+    - "Gintare Karolina Dziugaite"
+    - "Daniel M. Roy"
+  year: 2017
+  venue: "UAI"
+  url: "https://arxiv.org/abs/1703.11008"
+
+foret2021sam:
+  type: inproceedings
+  title: "Sharpness-Aware Minimization for Efficiently Improving Generalization"
+  author:
+    - "Pierre Foret"
+    - "Ariel Kleiner"
+    - "Hossein Mobahi"
+    - "Behnam Neyshabur"
+  year: 2021
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2010.01412"
+
+frankle2020linear:
+  type: inproceedings
+  title: "Linear Mode Connectivity and the Lottery Ticket Hypothesis"
+  author:
+    - "Jonathan Frankle"
+    - "Gintare Karolina Dziugaite"
+    - "Daniel M. Roy"
+    - "Michael Carbin"
+  year: 2020
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1912.05671"
+
+gal2021swagan:
+  type: article
+  title: "SWAGAN: A Style-based Wavelet-driven Generative Model"
+  author:
+    - "Rinon Gal"
+    - "Dana Cohen"
+    - "Amit Bermano"
+    - "Daniel Cohen-Or"
+  year: 2021
+  venue: "ACM Transactions on Graphics (SIGGRAPH)"
+  url: "https://arxiv.org/abs/2102.06108"
+  doi: "10.1145/3450626.3459836"
+
+gilmer2017neural:
+  type: inproceedings
+  title: "Neural Message Passing for Quantum Chemistry"
+  author:
+    - "Justin Gilmer"
+    - "Samuel S. Schoenholz"
+    - "Patrick F. Riley"
+    - "Oriol Vinyals"
+    - "George E. Dahl"
+  year: 2017
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1704.01212"
+
+gu2022parameterization:
+  type: inproceedings
+  title: "On the Parameterization and Initialization of Diagonal State Space Models"
+  author:
+    - "Albert Gu"
+    - "Ankit Gupta"
+    - "Karan Goel"
+    - "Christopher Ré"
+  year: 2022
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2206.11893"
+
+gulrajani2017improved:
+  type: inproceedings
+  title: "Improved Training of Wasserstein GANs"
+  author:
+    - "Ishaan Gulrajani"
+    - "Faruk Ahmed"
+    - "Martin Arjovsky"
+    - "Vincent Dumoulin"
+    - "Aaron Courville"
+  year: 2017
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1704.00028"
+
+gunasekar2018characterizing:
+  type: inproceedings
+  title: "Characterizing Implicit Bias in Terms of Optimization Geometry"
+  author:
+    - "Suriya Gunasekar"
+    - "Jason D. Lee"
+    - "Daniel Soudry"
+    - "Nathan Srebro"
+  year: 2018
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1802.08246"
+
+guo2017dwsr:
+  type: inproceedings
+  title: "Deep Wavelet Prediction for Image Super-Resolution"
+  author:
+    - "Tiantong Guo"
+    - "Hojjat Seyed Mousavi"
+    - "Tiep Huu Vu"
+    - "Vishal Monga"
+  year: 2017
+  venue: "CVPR Workshops"
+  url: "https://openaccess.thecvf.com/content_cvpr_2017_workshops/w12/html/Guo_Deep_Wavelet_Prediction_CVPR_2017_paper.html"
+  doi: "10.1109/CVPRW.2017.148"
+
+guo2024direct:
+  type: article
+  title: "Direct Language Model Alignment from Online AI Feedback"
+  author:
+    - "Shangmin Guo"
+    - "Biao Zhang"
+    - "Tianlin Liu"
+    - "Tianqi Liu"
+    - "Misha Khalman"
+    - "Felipe Llinares"
+    - "Alexandre Rame"
+    - "Thomas Mesnard"
+    - "Yao Zhao"
+    - "Bilal Piot"
+    - "Johan Ferret"
+    - "Mathieu Blondel"
+  year: 2024
+  venue: "arXiv preprint arXiv:2402.04792"
+  url: "https://arxiv.org/abs/2402.04792"
+
+huang2017waveletsrnet:
+  type: inproceedings
+  title: "Wavelet-SRNet: A Wavelet-Based CNN for Multi-Scale Face Super Resolution"
+  author:
+    - "Huaibo Huang"
+    - "Ran He"
+    - "Zhenan Sun"
+    - "Tieniu Tan"
+  year: 2017
+  venue: "ICCV"
+  url: "https://openaccess.thecvf.com/content_iccv_2017/html/Huang_Wavelet-SRNet_A_Wavelet-Based_ICCV_2017_paper.html"
+  doi: "10.1109/ICCV.2017.187"
+
+jastrzebski2020break:
+  type: inproceedings
+  title: "The Break-Even Point on Optimization Trajectories of Deep Neural Networks"
+  author:
+    - "Stanislaw Jastrzebski"
+    - "Maciej Szymczak"
+    - "Stanislav Fort"
+    - "Devansh Arpit"
+    - "Jacek Tabor"
+    - "Kyunghyun Cho"
+    - "Krzysztof Geras"
+  year: 2020
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2002.09572"
+
+jin2017escape:
+  type: inproceedings
+  title: "How to Escape Saddle Points Efficiently"
+  author:
+    - "Chi Jin"
+    - "Rong Ge"
+    - "Praneeth Netrapalli"
+    - "Sham M. Kakade"
+    - "Michael I. Jordan"
+  year: 2017
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1703.00887"
+
+keskar2017large:
+  type: inproceedings
+  title: "On Large-Batch Training for Deep Learning: Generalization Gap and Sharp Minima"
+  author:
+    - "Nitish Shirish Keskar"
+    - "Dheevatsa Mudigere"
+    - "Jorge Nocedal"
+    - "Mikhail Smelyanskiy"
+    - "Ping Tak Peter Tang"
+  year: 2017
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1609.04836"
+
+lecun2012efficient:
+  type: incollection
+  title: "Efficient BackProp"
+  author:
+    - "Yann A. LeCun"
+    - "Léon Bottou"
+    - "Genevieve B. Orr"
+    - "Klaus-Robert Müller"
+  year: 2012
+  venue: "Neural Networks: Tricks of the Trade (2nd ed.), LNCS 7700, Springer"
+  url: "https://doi.org/10.1007/978-3-642-35289-8_3"
+  doi: "10.1007/978-3-642-35289-8_3"
+
+lee2023pretrained:
+  type: inproceedings
+  title: "Do Pre-trained Models Benefit Equally in Continual Learning?"
+  author:
+    - "Kuan-Ying Lee"
+    - "Yuanyi Zhong"
+    - "Yu-Xiong Wang"
+  year: 2023
+  venue: "WACV"
+  url: "https://arxiv.org/abs/2210.15701"
+  doi: "10.1109/WACV56688.2023.00642"
+
+li2018visualizing:
+  type: inproceedings
+  title: "Visualizing the Loss Landscape of Neural Nets"
+  author:
+    - "Hao Li"
+    - "Zheng Xu"
+    - "Gavin Taylor"
+    - "Christoph Studer"
+    - "Tom Goldstein"
+  year: 2018
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1712.09913"
+
+lipman2023flow:
+  type: inproceedings
+  title: "Flow Matching for Generative Modeling"
+  author:
+    - "Yaron Lipman"
+    - "Ricky T. Q. Chen"
+    - "Heli Ben-Hamu"
+    - "Maximilian Nickel"
+    - "Matthew Le"
+  year: 2023
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2210.02747"
+
+liu2023flow:
+  type: inproceedings
+  title: "Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow"
+  author:
+    - "Xingchao Liu"
+    - "Chengyue Gong"
+    - "Qiang Liu"
+  year: 2023
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2209.03003"
+
+loshchilov2017sgdr:
+  type: inproceedings
+  title: "SGDR: Stochastic Gradient Descent with Warm Restarts"
+  author:
+    - "Ilya Loshchilov"
+    - "Frank Hutter"
+  year: 2017
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1608.03983"
+
+mcallester1999pac:
+  type: inproceedings
+  title: "PAC-Bayesian Model Averaging"
+  author:
+    - "David A. McAllester"
+  year: 1999
+  venue: "COLT"
+  url: "https://dl.acm.org/doi/10.1145/307400.307435"
+  doi: "10.1145/307400.307435"
+
+miyato2018spectral:
+  type: inproceedings
+  title: "Spectral Normalization for Generative Adversarial Networks"
+  author:
+    - "Takeru Miyato"
+    - "Toshiki Kataoka"
+    - "Masanori Koyama"
+    - "Yuichi Yoshida"
+  year: 2018
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1802.05957"
+
+nesterov1983method:
+  type: article
+  title: "A method for solving the convex programming problem with convergence rate O(1/k^2)"
+  author:
+    - "Yurii Nesterov"
+  year: 1983
+  venue: "Doklady Akademii Nauk SSSR (Soviet Mathematics Doklady)"
+  url: "https://www.scienceopen.com/document?vid=0b744eb4-6b55-4d6d-9883-52dac6329900"
+
+nowozin2016fgan:
+  type: inproceedings
+  title: "f-GAN: Training Generative Neural Samplers using Variational Divergence Minimization"
+  author:
+    - "Sebastian Nowozin"
+    - "Botond Cseke"
+    - "Ryota Tomioka"
+  year: 2016
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/1606.00709"
+
+openai2024swebenchverified:
+  type: misc
+  title: "Introducing SWE-bench Verified"
+  author:
+    - "Neil Chowdhury"
+    - "James Aung"
+    - "Chan Jun Shern"
+    - "Oliver Jaffe"
+    - "Dane Sherburn"
+    - "Giulio Starace"
+    - "Evan Mays"
+    - "Rachel Dias"
+    - "Marwan Aljubeh"
+    - "Mia Glaese"
+    - "Carlos E. Jimenez"
+    - "John Yang"
+    - "Kevin Liu"
+    - "Aleksander Madry"
+  year: 2024
+  venue: "OpenAI Blog"
+  url: "https://openai.com/index/introducing-swe-bench-verified/"
+
+phung2023wavediff:
+  type: inproceedings
+  title: "Wavelet Diffusion Models are Fast and Scalable Image Generators"
+  author:
+    - "Hao Phung"
+    - "Quan Dao"
+    - "Anh Tran"
+  year: 2023
+  venue: "CVPR"
+  url: "https://arxiv.org/abs/2211.16152"
+
+qin2023toolllm:
+  type: inproceedings
+  title: "ToolLLM: Facilitating Large Language Models to Master 16000+ Real-world APIs"
+  author:
+    - "Yujia Qin"
+    - "Shihao Liang"
+    - "Yining Ye"
+    - "Kunlun Zhu"
+    - "Lan Yan"
+    - "Yaxi Lu"
+    - "Yankai Lin"
+    - "Xin Cong"
+    - "Xiangru Tang"
+    - "Bill Qian"
+    - "Sihan Zhao"
+    - "Lauren Hong"
+    - "Runchu Tian"
+    - "Ruobing Xie"
+    - "Jie Zhou"
+    - "Mark Gerstein"
+    - "Dahai Li"
+    - "Zhiyuan Liu"
+    - "Maosong Sun"
+  year: 2024
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2307.16789"
+
+rezende2015variational:
+  type: inproceedings
+  title: "Variational Inference with Normalizing Flows"
+  author:
+    - "Danilo Jimenez Rezende"
+    - "Shakir Mohamed"
+  year: 2015
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1505.05770"
+
+ritter2018scalable:
+  type: inproceedings
+  title: "A Scalable Laplace Approximation for Neural Networks"
+  author:
+    - "Hippolyt Ritter"
+    - "Aleksandar Botev"
+    - "David Barber"
+  year: 2018
+  venue: "ICLR"
+  url: "https://openreview.net/forum?id=Skdvd2xAZ"
+
+schulman2016gae:
+  type: inproceedings
+  title: "High-Dimensional Continuous Control Using Generalized Advantage Estimation"
+  author:
+    - "John Schulman"
+    - "Philipp Moritz"
+    - "Sergey Levine"
+    - "Michael Jordan"
+    - "Pieter Abbeel"
+  year: 2016
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1506.02438"
+
+tishby2000information:
+  type: inproceedings
+  title: "The Information Bottleneck Method"
+  author:
+    - "Naftali Tishby"
+    - "Fernando C. Pereira"
+    - "William Bialek"
+  year: 1999
+  venue: "Proceedings of the 37th Annual Allerton Conference on Communication, Control and Computing"
+  url: "https://arxiv.org/abs/physics/0004057"
+
+tishby2015deep:
+  type: inproceedings
+  title: "Deep Learning and the Information Bottleneck Principle"
+  author:
+    - "Naftali Tishby"
+    - "Noga Zaslavsky"
+  year: 2015
+  venue: "IEEE Information Theory Workshop (ITW)"
+  url: "https://arxiv.org/abs/1503.02406"
+  doi: "10.1109/ITW.2015.7133169"
+
+wei2024longform:
+  type: inproceedings
+  title: "Long-form factuality in large language models"
+  author:
+    - "Jerry Wei"
+    - "Chengrun Yang"
+    - "Xinying Song"
+    - "Yifeng Lu"
+    - "Nathan Hu"
+    - "Jie Huang"
+    - "Dustin Tran"
+    - "Daiyi Peng"
+    - "Ruibo Liu"
+    - "Da Huang"
+    - "Cosmo Du"
+    - "Quoc V. Le"
+  year: 2024
+  venue: "NeurIPS"
+  url: "https://arxiv.org/abs/2403.18802"
+
+xin2024deepseekproverv15:
+  type: inproceedings
+  title: "DeepSeek-Prover-V1.5: Harnessing Proof Assistant Feedback for Reinforcement Learning and Monte-Carlo Tree Search"
+  author:
+    - "Huajian Xin"
+    - "Z.Z. Ren"
+    - "Junxiao Song"
+    - "Zhihong Shao"
+    - "Wanjia Zhao"
+    - "Haocheng Wang"
+    - "Bo Liu"
+    - "Liyue Zhang"
+    - "Xuan Lu"
+    - "Qiushi Du"
+    - "Wenjun Gao"
+    - "Qihao Zhu"
+    - "Dejian Yang"
+    - "Zhibin Gou"
+    - "Z.F. Wu"
+    - "Fuli Luo"
+    - "Chong Ruan"
+  year: 2025
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2408.08152"
+
+xu2018representation:
+  type: inproceedings
+  title: "Representation Learning on Graphs with Jumping Knowledge Networks"
+  author:
+    - "Keyulu Xu"
+    - "Chengtao Li"
+    - "Yonglong Tian"
+    - "Tomohiro Sonobe"
+    - "Ken-ichi Kawarabayashi"
+    - "Stefanie Jegelka"
+  year: 2018
+  venue: "ICML"
+  url: "https://arxiv.org/abs/1806.03536"
+
+xu2019how:
+  type: inproceedings
+  title: "How Powerful are Graph Neural Networks?"
+  author:
+    - "Keyulu Xu"
+    - "Weihua Hu"
+    - "Jure Leskovec"
+    - "Stefanie Jegelka"
+  year: 2019
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1810.00826"
+
+yao2024taubench:
+  type: inproceedings
+  title: "τ-bench: A Benchmark for Tool-Agent-User Interaction in Real-World Domains"
+  author:
+    - "Shunyu Yao"
+    - "Noah Shinn"
+    - "Pedram Razavi"
+    - "Karthik Narasimhan"
+  year: 2025
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/2406.12045"
+
+zhang2021understanding:
+  type: inproceedings
+  title: "Understanding deep learning requires rethinking generalization"
+  author:
+    - "Chiyuan Zhang"
+    - "Samy Bengio"
+    - "Moritz Hardt"
+    - "Benjamin Recht"
+    - "Oriol Vinyals"
+  year: 2017
+  venue: "ICLR"
+  url: "https://arxiv.org/abs/1611.03530"
+  doi: "10.1145/3446776"

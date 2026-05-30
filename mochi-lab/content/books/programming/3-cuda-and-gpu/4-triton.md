@@ -4,11 +4,11 @@ sidebar_position: 4
 
 # Triton
 
-Triton is a GPU programming language and compiler (developed at OpenAI, now part of the PyTorch ecosystem) that bridges the gap between high-level Python and low-level CUDA. Where CUDA requires you to think about individual threads, shared memory allocation, and synchronization, Triton lets you write kernels at the **block level** -- you operate on tiles of data, and the compiler handles thread mapping, shared memory management, and coalescing automatically.
+Triton is a GPU programming language and compiler [@tillet2019triton] (developed at OpenAI, now part of the PyTorch ecosystem) that bridges the gap between high-level Python and low-level CUDA. Where CUDA requires you to think about individual threads, shared memory allocation, and synchronization, Triton lets you write kernels at the **block level**: you operate on tiles of data, and the compiler handles thread mapping, shared memory management, and coalescing automatically.
 
 ## Why Triton?
 
-CUDA gives maximum control but requires managing threads, shared memory, and synchronization manually. Triton provides a higher-level abstraction that generates kernels with 80-95% of the performance of hand-written CUDA, with 5-10x less code.
+CUDA gives maximum control but requires managing threads, shared memory, and synchronization manually. Triton provides a higher-level abstraction that generates kernels approaching the performance of hand-written CUDA, with roughly 5-10x less code. The achievable fraction of hand-tuned performance varies by kernel type (see rmk-triton-performance below for representative regimes).
 
 <Code id="code-triton-1" caption="Triton vector addition: block-level programming with automatic thread management.">
 
@@ -35,8 +35,9 @@ x = torch.randn(n, device='cuda')
 y = torch.randn(n, device='cuda')
 out = torch.empty(n, device='cuda')
 
-grid = (triton.cdiv(n, 256),)  # Ceiling division
-add_kernel[grid](x, y, out, n, BLOCK_SIZE=256)
+BLOCK_SIZE = 256
+grid = (triton.cdiv(n, BLOCK_SIZE),)  # Ceiling division
+add_kernel[grid](x, y, out, n, BLOCK_SIZE=BLOCK_SIZE)
 ```
 
 </Code>
@@ -90,6 +91,8 @@ def softmax_kernel(input_ptr, output_ptr, n_cols,
 
 def fused_softmax(x):
     n_rows, n_cols = x.shape
+    # Assumes each row fits in a single block (one program per row).
+    # For very wide rows, a streaming/online softmax is needed.
     BLOCK_SIZE = triton.next_power_of_2(n_cols)
     out = torch.empty_like(x)
     softmax_kernel[(n_rows,)](x, out, n_cols, BLOCK_SIZE=BLOCK_SIZE)
@@ -102,7 +105,7 @@ This fused kernel performs max, subtract, exp, sum, and divide in a single pass 
 
 ## Matrix Multiplication
 
-Matrix multiplication is the most important GPU kernel -- it dominates the compute in every neural network. A complete Triton matmul kernel demonstrates tiling, accumulation, and how Triton maps to Tensor Cores via `tl.dot`:
+Matrix multiplication is the most important GPU kernel, since it dominates the compute in every neural network. A complete Triton matmul kernel demonstrates tiling, accumulation, and how Triton maps to Tensor Cores via `tl.dot`:
 
 <Code id="code-triton-matmul" caption="Complete Triton matrix multiplication kernel with tiling and Tensor Core support.">
 
@@ -139,9 +142,11 @@ def matmul_kernel(
 
     # Tiled loop over K dimension
     for k_start in range(0, K, BLOCK_K):
-        # Load tiles with boundary masking
-        a_tile = tl.load(a_ptrs, mask=offs_k[None, :] + k_start < K, other=0.0)
-        b_tile = tl.load(b_ptrs, mask=offs_k[:, None] + k_start < K, other=0.0)
+        # Load tiles with boundary masking on all dimensions (M, N, and K)
+        # so partial tiles at the matrix edges never read out of bounds
+        k_mask = offs_k + k_start < K
+        a_tile = tl.load(a_ptrs, mask=(offs_m[:, None] < M) & k_mask[None, :], other=0.0)
+        b_tile = tl.load(b_ptrs, mask=k_mask[:, None] & (offs_n[None, :] < N), other=0.0)
 
         # tl.dot compiles to Tensor Core instructions (HMMA) for FP16/BF16 inputs
         acc += tl.dot(a_tile, b_tile)
@@ -198,7 +203,7 @@ Triton supports automatic tuning of kernel parameters. Adding `@triton.autotune`
 )
 @triton.jit
 def matmul_kernel(a_ptr, b_ptr, c_ptr, M, N, K, ...):
-    # Same kernel body as above -- only the tile sizes change
+    # Same kernel body as above (only the tile sizes change)
     ...
 ```
 
@@ -227,7 +232,7 @@ def matmul_kernel(a_ptr, b_ptr, c_ptr, M, N, K, ...):
 </Table>
 
 <Remark id="rmk-triton-performance">
-**Triton performance compared to CUDA.**
+**Triton performance compared to CUDA.** The figures below are representative ranges reported in practice; exact numbers depend on GPU architecture, problem size, and Triton version.
 
 | Kernel Type | Triton vs cuBLAS/CUTLASS | Triton vs Naive CUDA | Development Time |
 |-------------|------------------------|---------------------|-----------------|

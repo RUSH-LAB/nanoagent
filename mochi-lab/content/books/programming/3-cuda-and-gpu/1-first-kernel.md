@@ -8,9 +8,9 @@ Writing a CUDA kernel is the fundamental skill of GPU programming. Once you unde
 
 ## What Is a CUDA Kernel?
 
-A **kernel** is a function that runs on the GPU, executed by thousands of threads in parallel. The `__global__` keyword marks a function as callable from CPU code but running on the GPU. Each thread executes the same code but on different data -- this is the **SIMT** (Single Instruction, Multiple Threads) model.
+A **kernel** is a function that runs on the GPU, executed by thousands of threads in parallel. The `__global__` keyword marks a function as callable from CPU code but running on the GPU. Each thread executes the same code but on different data: this is the **SIMT** (Single Instruction, Multiple Threads) model.
 
-<Code id="code-first-kernel-1" caption="A kernel is a function that runs on the GPU, executed by thousands of thr.">
+<Code id="code-first-kernel-1" caption="A minimal CUDA kernel: a __global__ function launched across multiple blocks and threads.">
 
 ```cuda
 // hello.cu
@@ -54,10 +54,10 @@ int col = threadIdx.x + blockIdx.x * blockDim.x;
 int idx = row * width + col;
 
 // Built-in variables:
-// threadIdx.x/y/z  -- thread position within block
-// blockIdx.x/y/z   -- block position within grid
-// blockDim.x/y/z   -- number of threads per block
-// gridDim.x/y/z    -- number of blocks in grid
+// threadIdx.x/y/z  : thread position within block
+// blockIdx.x/y/z   : block position within grid
+// blockDim.x/y/z   : number of threads per block
+// gridDim.x/y/z    : number of blocks in grid
 ```
 
 </Code>
@@ -119,8 +119,22 @@ int main() {
 </Code>
 
 <Remark id="rmk-first-kernel-1">
-**The grid size formula and bounds check pattern.** `(n + block_size - 1) / block_size` is integer ceiling division -- it ensures we launch enough threads even when `n` is not a multiple of `block_size`. The bounds check `if (tid < n)` in the kernel handles the excess threads (threads with `tid >= n` do nothing). This two-part pattern appears in essentially every CUDA kernel.
+**The grid size formula and bounds check pattern.** `(n + block_size - 1) / block_size` is integer ceiling division: it ensures we launch enough threads even when `n` is not a multiple of `block_size`. The bounds check `if (tid < n)` in the kernel handles the excess threads (threads with `tid >= n` do nothing). This two-part pattern appears in essentially every CUDA kernel.
 </Remark>
+
+<Example id="ex-vec-add-trace" name="Tracing the index math for a small launch">
+Suppose `n = 10` and we pick `block_size = 4`. The grid size is `(10 + 4 - 1) / 4 = 13 / 4 = 3` blocks, so we launch `3 * 4 = 12` threads for 10 elements.
+
+Each thread computes `tid = threadIdx.x + blockIdx.x * blockDim.x`:
+
+| Block | `threadIdx.x` | `tid` | Action |
+|-------|---------------|-------|--------|
+| 0 | 0, 1, 2, 3 | 0, 1, 2, 3 | `c[tid] = a[tid] + b[tid]` |
+| 1 | 0, 1, 2, 3 | 4, 5, 6, 7 | `c[tid] = a[tid] + b[tid]` |
+| 2 | 0, 1, 2, 3 | 8, 9, 10, 11 | `tid` 8 and 9 compute; `tid` 10 and 11 fail `tid < n` and exit |
+
+With `a[i] = 1.0` and `b[i] = 2.0`, every valid thread writes `c[tid] = 3.0`, and the two out-of-range threads in block 2 do nothing. This is exactly why the ceiling-division launch and the `if (tid < n)` guard must always travel together.
+</Example>
 
 <Table id="tab-cuda-function-qualifiers" caption="CUDA function qualifiers and where they can be called from.">
 
@@ -134,11 +148,11 @@ int main() {
 </Table>
 
 <Remark id="rmk-kernel-launch-syntax">
-**The triple chevron syntax.** The `&lt;&lt;&lt;grid, block&gt;&gt;&gt;` kernel launch configuration specifies:
+**The triple chevron syntax.** The `<<<grid, block>>>` kernel launch configuration specifies:
 - **grid**: number of blocks (can be 1D, 2D, or 3D using `dim3`)
 - **block**: threads per block (can be 1D, 2D, or 3D using `dim3`)
-- Optional 3rd argument: shared memory bytes (e.g., `&lt;&lt;&lt;grid, block, shmem_bytes&gt;&gt;&gt;`)
-- Optional 4th argument: CUDA stream (e.g., `&lt;&lt;&lt;grid, block, 0, stream&gt;&gt;&gt;`)
+- Optional 3rd argument: shared memory bytes (e.g., `<<<grid, block, shmem_bytes>>>`)
+- Optional 4th argument: CUDA stream (e.g., `<<<grid, block, 0, stream>>>`)
 
 Total threads launched = `grid.x * grid.y * grid.z * block.x * block.y * block.z`.
 </Remark>
@@ -154,7 +168,7 @@ Total threads launched = `grid.x * grid.y * grid.z * block.x * block.y * block.z
 | Grid dimension x | $2^{31} - 1$ | Over 2 billion blocks |
 | Grid dimension y/z | 65535 | |
 
-Exceeding these limits causes a silent launch failure -- the kernel does not execute and `cudaGetLastError()` returns `cudaErrorInvalidConfiguration`. This is one of the most common beginner mistakes: using a block size of 2048 or a 2D block of `(64, 64)` (which is 4096 threads). Always check `cudaGetLastError()` after every kernel launch.
+Exceeding these limits causes a silent launch failure: the kernel does not execute and `cudaGetLastError()` returns `cudaErrorInvalidConfiguration`. This is one of the most common beginner mistakes: using a block size of 2048 or a 2D block of `(64, 64)` (which is 4096 threads). Always check `cudaGetLastError()` after every kernel launch.
 </Remark>
 
 ## Common Patterns
@@ -172,7 +186,7 @@ __global__ void stride_kernel(float* data, int n) {
     }
 }
 // Launch with a fixed grid size (e.g., 256 blocks * 256 threads = 65K threads)
-// Each thread processes n/65K elements -- works for any n
+// Each thread processes n/65K elements : works for any n
 
 // Pattern 2: 2D grid for matrix operations
 dim3 block(16, 16);  // 256 threads per block arranged in 16x16
@@ -203,7 +217,7 @@ __global__ void boundary_kernel(float* data, int rows, int cols) {
 
 ## Error Checking
 
-<Code id="code-first-kernel-5" caption="CUDA error checking macro -- always wrap every CUDA API call.">
+<Code id="code-first-kernel-5" caption="CUDA error checking macro: always wrap every CUDA API call.">
 
 ```cuda
 // Always check CUDA calls for errors
@@ -224,7 +238,7 @@ CUDA_CHECK(cudaMemcpy(d_a, h_a, bytes, cudaMemcpyHostToDevice));
 </Code>
 
 <Remark id="rmk-first-kernel-2">
-**Kernel launches are asynchronous.** The CPU does not wait for the kernel to finish -- it continues executing the next line immediately. This is by design: it allows the CPU to queue up work (data transfers, more kernels) while the GPU computes. But it means errors are not reported at the launch site:
+**Kernel launches are asynchronous.** The CPU does not wait for the kernel to finish: it continues executing the next line immediately. This is by design: it allows the CPU to queue up work (data transfers, more kernels) while the GPU computes. But it means errors are not reported at the launch site:
 
 ```cuda
 my_kernel<<<grid, block>>>(args);  // This returns immediately

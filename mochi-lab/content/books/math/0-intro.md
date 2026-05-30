@@ -1,4 +1,7 @@
-NOTE: This is entirely written by Claude. This is now a tentative writeup.
+---
+title: Mathematics for Machine Learning
+sidebar_position: 0
+---
 
 # Mathematics for Machine Learning
 
@@ -6,16 +9,16 @@ Modern machine learning rests on four mathematical pillars: **linear algebra** (
 
 ## How This Textbook Is Organized
 
-We begin with computational foundations -- what can be computed, and how hardware computes it -- because understanding the machine constrains and informs every algorithmic choice. We then introduce the core abstractions of machine learning (loss functions, gradient descent, backpropagation) before building the mathematical machinery in depth.
+We begin with computational foundations (what can be computed, and how hardware computes it) because understanding the machine constrains and informs every algorithmic choice. We then introduce the core abstractions of machine learning (loss functions, gradient descent, backpropagation) before building the mathematical machinery in depth.
 
 ## Chapters
 
-- **[Introduction to Computing](intro-to-comp)** -- Computational foundations: Turing machines, computability, floating-point arithmetic, GPU architecture, and high-performance computing. Why computational constraints shape every algorithm we design.
-- **[Basics of Machine Learning](ml-basics)** -- Core ML concepts: loss functions, reinforcement learning, gradient descent, backpropagation, and regularization. The conceptual scaffold on which all subsequent mathematics hangs.
-- **[Linear Algebra](linear-algebra)** -- The language of ML: vector spaces, linear maps, eigendecomposition, SVD, PCA, and matrix calculus. How data, transformations, and geometry interrelate.
-- **[Calculus and Optimization](calculus-and-optimization)** -- Finding optimal parameters: multivariable calculus, convex and non-convex optimization, constrained optimization, and convergence theory.
-- **[Probability and Statistics](probability-and-statistics)** -- Reasoning under uncertainty: probability spaces, distributions, Bayesian inference, information theory, and statistical learning theory.
-- **[Advanced ML Math](advanced-ml-math)** -- Mathematical foundations of modern architectures: transformers and attention, diffusion models, graph neural networks, and optimal transport.
+- **[Introduction to Computing](intro-to-comp)**: Computational foundations: Turing machines, computability, floating-point arithmetic, GPU architecture, and high-performance computing. Why computational constraints shape every algorithm we design.
+- **[Basics of Machine Learning](ml-basics)**: Core ML concepts: loss functions, reinforcement learning, gradient descent, backpropagation, and regularization. The conceptual scaffold on which all subsequent mathematics hangs.
+- **[Linear Algebra](linear-algebra)**: The language of ML: vector spaces, linear maps, eigendecomposition, SVD, PCA, and matrix calculus. How data, transformations, and geometry interrelate.
+- **[Calculus and Optimization](calculus-and-optimization)**: Finding optimal parameters: multivariable calculus, convex and non-convex optimization, constrained optimization, and convergence theory.
+- **[Probability and Statistics](probability-and-statistics)**: Reasoning under uncertainty: probability spaces, distributions, Bayesian inference, information theory, and statistical learning theory.
+- **[Advanced ML Math](advanced-ml-math)**: Mathematical foundations of modern architectures: transformers and attention, diffusion models, graph neural networks, and optimal transport.
 
 ## Prerequisites
 
@@ -26,12 +29,12 @@ Comfort with single-variable calculus (derivatives, integrals, chain rule), basi
 We use the following conventions throughout the textbook:
 
 - **Scalars** are lowercase italic: $a, b, \lambda$
-- **Vectors** are lowercase bold or plain with context: $x, v, w$
+- **Vectors** are lowercase bold: $\mathbf{x}, \mathbf{v}, \mathbf{w}$
 - **Matrices** are uppercase: $A, W, X$
 - **Sets** are calligraphic or blackboard bold: $\mathcal{D}, \mathbb{R}^n$
 - **Random variables** are uppercase: $X, Y$ (distinguished from matrices by context)
 - **Probability** uses $P(\cdot)$ for discrete and $p(\cdot)$ for density functions
-- **Norms** use double bars: $\|x\|$, $\|A\|_F$
+- **Norms** use double bars: $\|\mathbf{x}\|$, $\|A\|_F$
 - **Transpose** is superscript $\top$: $A^\top$
 - **Expectation, variance** use $\mathbb{E}[\cdot]$, $\text{Var}[\cdot]$
 

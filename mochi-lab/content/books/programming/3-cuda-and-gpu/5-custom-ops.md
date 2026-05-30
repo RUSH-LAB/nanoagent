@@ -4,7 +4,7 @@ sidebar_position: 5
 
 # Custom PyTorch Ops
 
-When PyTorch's built-in operations are not sufficient -- because you need a fused kernel, a novel algorithm, or integration with an external library -- you can write custom operations in C++, CUDA, or Triton and register them as first-class PyTorch operators. This chapter covers the three main approaches: C++ extensions, CUDA extensions, and the modern `torch.library` API that integrates with `torch.compile`.
+When PyTorch's built-in operations are not sufficient (because you need a fused kernel, a novel algorithm, or integration with an external library), you can write custom operations in C++, CUDA, or Triton and register them as first-class PyTorch operators. This chapter covers the three main approaches: C++ extensions, CUDA extensions, and the modern `torch.library` API that integrates with `torch.compile`.
 
 ## Choosing Your Approach
 
@@ -118,7 +118,7 @@ y = my_cuda_ops.silu_cuda(x)
 
 </Code>
 
-## torch.library (PyTorch 2.1+)
+## torch.library (PyTorch 2.4+)
 
 The modern way to define custom ops that work with `torch.compile`:
 
@@ -182,7 +182,7 @@ class FastSiLU(torch.autograd.Function):
 </Code>
 
 <Remark id="rmk-custom-ops-1">
-**The 80/20 rule for custom ops.** Use C++/CUDA for the performance-critical forward pass and rely on PyTorch's autograd for the backward pass unless the backward is also a bottleneck. This gives you 80% of the performance benefit with 20% of the implementation effort.
+**The 80/20 rule for custom ops.** Use C++/CUDA for the performance-critical forward pass and rely on PyTorch's autograd for the backward pass unless the backward is also a bottleneck. This typically gives you most of the performance benefit for a fraction of the implementation effort.
 
 **When you need a custom backward:**
 - The standard autograd backward is numerically unstable (e.g., custom softmax with log-sum-exp trick)
@@ -192,8 +192,11 @@ class FastSiLU(torch.autograd.Function):
 **Testing custom ops:** Always verify numerical correctness with `torch.autograd.gradcheck`:
 ```python
 from torch.autograd import gradcheck
+# Note: gradcheck requires float64, but the CUDA kernel shown above only
+# supports float32. For production, either test the pure-PyTorch SiLU class
+# or extend your kernel to handle multiple dtypes with AT_DISPATCH macros.
 x = torch.randn(5, dtype=torch.float64, requires_grad=True, device='cuda')
-assert gradcheck(FastSiLU.apply, (x,), eps=1e-6, atol=1e-4)
+assert gradcheck(SiLU.apply, (x,), eps=1e-6, atol=1e-4)
 ```
 </Remark>
 
@@ -202,7 +205,7 @@ assert gradcheck(FastSiLU.apply, (x,), eps=1e-6, atol=1e-4)
 <Code id="code-custom-ops-build" caption="Building custom ops with setup.py for distribution.">
 
 ```python
-# setup.py -- for distributing as an installable package
+# setup.py (for distributing as an installable package)
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
@@ -237,7 +240,7 @@ setup(
 
 1. **Start with `load()` for development,** switch to `setup.py` for distribution. JIT compilation with `load()` recompiles on every Python process start (~10-30 seconds).
 
-2. **Handle multiple dtypes.** Real models use FP32, FP16, and BF16. Use `AT_DISPATCH_FLOATING_TYPES_AND_HALF` to generate kernels for all types:
+2. **Handle multiple dtypes.** Real models use FP32, FP16, and BF16. Use `AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16, ...)` to generate kernels for all of these types (the plain `AT_DISPATCH_FLOATING_TYPES_AND_HALF` macro omits BFloat16):
    ```cpp
    AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16,
        input.scalar_type(), "my_kernel", [&] {

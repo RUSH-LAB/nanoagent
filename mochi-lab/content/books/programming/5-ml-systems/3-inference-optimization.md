@@ -4,7 +4,7 @@ sidebar_position: 3
 
 # Inference Optimization
 
-Training a model is compute-bound -- you process a fixed dataset for a fixed number of epochs, and faster GPUs directly translate to shorter training time. Inference is different. LLM inference in particular is **memory-bandwidth-bound** during autoregressive generation: each token requires reading the entire model's weights from GPU memory, but performs very few FLOPs per weight. This means inference optimization is fundamentally about reducing memory movement, not increasing compute. This chapter covers the key techniques: KV-caching, quantization, speculative decoding, and optimized serving systems.
+Training a model is compute-bound: you process a fixed dataset for a fixed number of epochs, and faster GPUs directly translate to shorter training time. Inference is different. LLM inference in particular is **memory-bandwidth-bound** during autoregressive generation: each token requires reading the entire model's weights from GPU memory, but performs very few FLOPs per weight. This means inference optimization is fundamentally about reducing memory movement, not increasing compute. This chapter covers the key techniques: KV-caching, quantization, speculative decoding, and optimized serving systems.
 
 ## KV-Cache
 
@@ -38,7 +38,7 @@ During autoregressive generation, each new token attends to all previous tokens.
 | Model | Layers | KV Heads | Head Dim | Max Seq Len | KV-Cache per Seq | KV-Cache at Full Batch |
 |-------|--------|----------|----------|-------------|-----------------|----------------------|
 | Llama 2 7B | 32 | 32 | 128 | 4,096 | 2 GB | 2 GB $\times$ batch |
-| Llama 2 70B | 80 | 8 (GQA) | 128 | 4,096 | 2.5 GB | 2.5 GB $\times$ batch |
+| Llama 2 70B | 80 | 8 (GQA) | 128 | 4,096 | 1.3 GB | 1.3 GB $\times$ batch |
 | Llama 3 8B | 32 | 8 (GQA) | 128 | 128,000 | 16 GB | Dominates memory |
 | GPT-4 (est.) | 120 | ? (MQA/GQA) | 128 | 128,000 | 10+ GB | Enormous |
 
@@ -75,12 +75,12 @@ LLM inference has two distinct phases with very different compute characteristic
 </Table>
 
 <Remark id="rmk-decode-bottleneck">
-**Why decode is memory-bound.** During decode, each token generation reads the entire model's weight matrices but performs only a matrix-vector multiply (batch size 1). For a 7B parameter model in BF16: reading 14 GB of weights at H100 bandwidth (3.35 TB/s) takes ~4.2 ms, but the actual computation (14B FLOPs at 990 TFLOPS) takes only ~0.014 ms. The GPU spends 99.7% of its time waiting for memory. This is why **batching** multiple sequences together is crucial -- it amortizes the weight-reading cost across multiple sequences.
+**Why decode is memory-bound.** During decode, each token generation reads the entire model's weight matrices but performs only a matrix-vector multiply (batch size 1). For a 7B parameter model in BF16: reading 14 GB of weights at H100 bandwidth (3.35 TB/s) takes ~4.2 ms, but the actual computation (14B FLOPs at 990 TFLOPS) takes only ~0.014 ms. The GPU spends 99.7% of its time waiting for memory. This is why **batching** multiple sequences together is crucial: it amortizes the weight-reading cost across multiple sequences.
 </Remark>
 
 ## Quantization
 
-Quantization reduces model size and memory bandwidth requirements by representing weights (and sometimes activations) in lower precision:
+Quantization reduces model size and memory bandwidth requirements by representing weights (and sometimes activations) in lower precision. The methods below range from 8-bit post-training schemes to extreme 1.58-bit quantization-aware training (BitNet b1.58 [@ma2024bitnet158]):
 
 <Table id="tab-quantization-methods" caption="Quantization methods for LLM inference, from least to most aggressive.">
 
@@ -134,12 +134,12 @@ model = torch.ao.quantization.quantize_dynamic(
 </Code>
 
 <Remark id="rmk-quantization-quality">
-**How quantization affects quality.** Weight-only quantization (W4A16, W8A16) has minimal quality impact because activations remain in full precision. The key insight from GPTQ and AWQ is that not all weights are equally important -- a small fraction of weights (tied to large activation magnitudes) contribute disproportionately to output quality. Both methods identify and preserve these important weights, quantizing the rest more aggressively. At 4-bit, typical perplexity degradation is 0.1-0.5 points on language modeling benchmarks.
+**How quantization affects quality.** Weight-only quantization (W4A16, W8A16) has minimal quality impact because activations remain in full precision. The key insight from GPTQ [@frantar2023gptq] and AWQ [@lin2024awq] is that not all weights are equally important: a small fraction of weights (tied to large activation magnitudes) contribute disproportionately to output quality. Both methods identify and preserve these important weights, quantizing the rest more aggressively. At 4-bit, typical perplexity degradation is 0.1-0.5 points on language modeling benchmarks.
 </Remark>
 
 ## Speculative Decoding
 
-Speculative decoding uses a small, fast **draft model** to generate candidate tokens, then verifies them in parallel with the large **target model**. When the draft model's predictions agree with the target model, multiple tokens are accepted per forward pass of the target model:
+Speculative decoding [@leviathan2023fast; @chen2023accelerating] uses a small, fast **draft model** to generate candidate tokens, then verifies them in parallel with the large **target model**. When the draft model's predictions agree with the target model, multiple tokens are accepted per forward pass of the target model:
 
 <Code id="code-speculative-decoding" caption="Speculative decoding: generate candidates fast, verify in parallel.">
 
@@ -160,11 +160,14 @@ def speculative_decode(draft_model, target_model, tokens, k=5):
             draft_tokens.append(t)
             draft_probs.append(p)
 
-        # 2. Target model scores ALL k+1 positions in ONE forward pass
+        # 2. Target model scores all k draft positions in ONE forward pass.
+        #    Feeding tokens + draft_tokens also yields the distribution at the
+        #    final position, used to sample a free bonus token if all k accept.
         all_tokens = tokens + draft_tokens
-        target_probs = target_model(all_tokens)  # Batch of k+1 positions
+        target_probs = target_model(all_tokens)  # k draft dists + 1 bonus dist
 
         # 3. Accept/reject each draft token
+        accepted_all = True
         for i in range(k):
             # Accept with probability min(1, target_prob / draft_prob)
             r = random.random()
@@ -174,7 +177,13 @@ def speculative_decode(draft_model, target_model, tokens, k=5):
             else:
                 # Reject: sample from adjusted distribution
                 tokens.append(sample(adjusted_distribution))
+                accepted_all = False
                 break  # Stop accepting, start new draft round
+
+        # 4. If all k drafts accepted, sample the free bonus token from the
+        #    target distribution at the final position (the source of speedup).
+        if accepted_all:
+            tokens.append(sample(target_probs[k]))
 
     return tokens
 ```
@@ -193,12 +202,12 @@ def speculative_decode(draft_model, target_model, tokens, k=5):
 </Table>
 
 <Remark id="rmk-spec-decode-exact">
-**Speculative decoding is exact.** The acceptance/rejection scheme is designed so that the marginal distribution of each generated token is exactly the same as sampling from the target model alone. This is not an approximation -- it is a mathematically guaranteed property. The speedup is "free" in terms of output quality.
+**Speculative decoding is exact.** The acceptance/rejection scheme is designed so that the marginal distribution of each generated token is exactly the same as sampling from the target model alone. This is not an approximation: it is a mathematically guaranteed property [@leviathan2023fast; @chen2023accelerating]. The speedup is "free" in terms of output quality.
 </Remark>
 
 ## Optimized Serving Systems
 
-For production LLM serving, specialized inference engines provide 3-10x higher throughput than raw PyTorch:
+For production LLM serving, specialized inference engines provide 3-10x higher throughput than raw PyTorch. Two techniques are foundational: PagedAttention [@kwon2023efficient], which manages the KV-cache like OS virtual memory, and FlashAttention [@dao2022flashattention], a fused, IO-aware attention kernel.
 
 <Code id="code-vllm" caption="vLLM: high-throughput LLM serving with PagedAttention.">
 
@@ -242,7 +251,7 @@ outputs = llm.generate(
 - **SGLang**: Best for structured generation (JSON, regex constraints), RadixAttention for shared prefixes.
 - **llama.cpp**: Best for CPU inference and edge deployment, quantization-focused.
 
-Always benchmark on your specific workload -- optimal throughput depends on request length distribution, batch size, and hardware.
+Always benchmark on your specific workload: optimal throughput depends on request length distribution, batch size, and hardware.
 </Remark>
 
 <Remark id="rmk-continuous-batching">

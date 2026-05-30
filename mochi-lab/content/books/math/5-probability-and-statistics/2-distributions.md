@@ -9,7 +9,7 @@ Probability distributions are the building blocks of statistical modeling. Every
 ## Discrete Distributions
 
 <Definition id="def-bernoulli" name="Bernoulli Distribution">
-**Bernoulli** -- single binary trial with success probability $p$:
+**Bernoulli**: a single binary trial with success probability $p$:
 
 <Equation id="eq-bernoulli">
 
@@ -21,7 +21,7 @@ $\mathbb{E}[X] = p$, $\text{Var}(X) = p(1-p)$. The Bernoulli is an exponential f
 </Definition>
 
 <Definition id="def-categorical" name="Categorical Distribution">
-**Categorical** -- generalization to $K$ classes with probabilities $\pi = (\pi_1, \dots, \pi_K)$:
+**Categorical**: the generalization to $K$ classes with probabilities $\pi = (\pi_1, \dots, \pi_K)$:
 
 $$
 P(X = k) = \pi_k, \quad \sum_{k=1}^K \pi_k = 1
@@ -31,7 +31,7 @@ $\mathbb{E}[\mathbf{1}_{X=k}] = \pi_k$, $\text{Var}(\mathbf{1}_{X=k}) = \pi_k(1 
 </Definition>
 
 <Definition id="def-binomial" name="Binomial Distribution">
-**Binomial** -- number of successes in $n$ independent Bernoulli$(p)$ trials:
+**Binomial**: the number of successes in $n$ independent Bernoulli$(p)$ trials:
 
 <Equation id="eq-binomial">
 
@@ -43,7 +43,7 @@ $\mathbb{E}[X] = np$, $\text{Var}(X) = np(1-p)$. As $n \to \infty$ with $np$ fix
 </Definition>
 
 <Definition id="def-poisson" name="Poisson Distribution">
-**Poisson** -- models the number of events in a fixed interval when events occur independently at a constant rate $\lambda$:
+**Poisson**: models the number of events in a fixed interval when events occur independently at a constant rate $\lambda$:
 
 <Equation id="eq-poisson">
 
@@ -51,7 +51,7 @@ $$P(X = k) = \frac{\lambda^k e^{-\lambda}}{k!}, \quad k = 0, 1, 2, \ldots$$
 
 </Equation>
 
-$\mathbb{E}[X] = \text{Var}(X) = \lambda$. The Poisson distribution is its own conjugate family for the rate parameter. It appears in count data modeling (event frequency, word counts in bag-of-words models).
+$\mathbb{E}[X] = \text{Var}(X) = \lambda$. The conjugate prior for the Poisson rate $\lambda$ is the Gamma distribution. It appears in count data modeling (event frequency, word counts in bag-of-words models).
 </Definition>
 
 <Remark id="rmk-categorical-softmax">
@@ -103,7 +103,7 @@ The exponent $(x - \mu)^\top \Sigma^{-1}(x - \mu)$ is the **Mahalanobis distance
 </Table>
 
 <Remark id="rmk-gaussian-conditional">
-**Gaussian conditioning and Bayesian linear regression.** The conditional formula $\mu_{A|B} = \mu_A + \Sigma_{AB}\Sigma_{BB}^{-1}(x_B - \mu_B)$ is a linear function of $x_B$ -- this is why Bayesian linear regression (Gaussian prior + Gaussian likelihood) yields a Gaussian posterior in closed form. The posterior mean is the regularized least-squares solution, and the posterior covariance quantifies parameter uncertainty.
+**Gaussian conditioning and Bayesian linear regression.** The conditional formula $\mu_{A|B} = \mu_A + \Sigma_{AB}\Sigma_{BB}^{-1}(x_B - \mu_B)$ is a linear function of $x_B$, which is why Bayesian linear regression (Gaussian prior + Gaussian likelihood) yields a Gaussian posterior in closed form. The posterior mean is the regularized least-squares solution, and the posterior covariance quantifies parameter uncertainty.
 </Remark>
 
 <Remark id="rmk-gaussian-central">
@@ -117,6 +117,43 @@ The Gaussian distribution is central to ML for several deep reasons:
 
 <Example id="ex-gaussian-precision">
 **Precision matrix and conditional independence.** The **precision matrix** $\Lambda = \Sigma^{-1}$ encodes conditional independence: $\Lambda_{ij} = 0$ iff $X_i \perp X_j \mid X_{\setminus\{i,j\}}$. This makes the precision matrix the natural parameterization for Gaussian graphical models (also called Gaussian Markov Random Fields). In a graph where edges represent non-zero precision entries, inference is efficient when the graph is sparse.
+</Example>
+
+<Example id="ex-gaussian-density" name="Evaluating a bivariate Gaussian density">
+Let $x = (1, 0)^\top$, $\mu = (0, 0)^\top$, and $\Sigma = \begin{pmatrix} 2 & 0 \\ 0 & 1 \end{pmatrix}$. We evaluate $p(x)$ for the multivariate Gaussian.
+
+**Step 1: Determinant and inverse.** Because $\Sigma$ is diagonal, $|\Sigma| = 2 \cdot 1 = 2$ and $\Sigma^{-1} = \begin{pmatrix} 1/2 & 0 \\ 0 & 1 \end{pmatrix}$.
+
+**Step 2: Mahalanobis distance.** With $x - \mu = (1, 0)^\top$,
+
+$$(x - \mu)^\top \Sigma^{-1}(x - \mu) = \tfrac{1}{2}(1)^2 + 1 \cdot (0)^2 = \tfrac{1}{2}.$$
+
+**Step 3: Normalizing constant.** For $n = 2$, $(2\pi)^{n/2}|\Sigma|^{1/2} = 2\pi \cdot \sqrt{2}$.
+
+**Step 4: Assemble.**
+
+$$p(x) = \frac{1}{2\pi\sqrt{2}} \exp\left(-\tfrac{1}{2} \cdot \tfrac{1}{2}\right) = \frac{e^{-1/4}}{2\pi\sqrt{2}} \approx \frac{0.7788}{8.886} \approx 0.0877.$$
+</Example>
+
+<Example id="ex-em-iteration" name="One EM iteration on a tiny dataset (harder)">
+Consider a one-dimensional two-component GMM and the dataset $x = \{0, 1, 4, 5\}$. Suppose the current parameters are $\mu_1 = 0$, $\mu_2 = 5$, equal variances $\sigma_1^2 = \sigma_2^2 = 1$, and equal weights $\pi_1 = \pi_2 = 0.5$. Run one EM iteration. Try the E-step yourself before reading on, using the responsibility formula from the EM remark below.
+
+**E-step.** The unnormalized weights for component $k$ are $\pi_k\,\mathcal{N}(x_i \mid \mu_k, 1)$, and $r_{ik}$ normalizes them across $k$. Because the two components are symmetric here, the responsibility $r_{i1}$ for component 1 depends only on the squared-distance gap $d_i = \tfrac{1}{2}\big[(x_i - \mu_2)^2 - (x_i - \mu_1)^2\big]$, giving $r_{i1} = \sigma(d_i)$ with $\sigma$ the logistic function:
+
+- $x = 0$: $d = \tfrac{1}{2}(25 - 0) = 12.5$, so $r_{11} = \sigma(12.5) \approx 1.000$.
+- $x = 1$: $d = \tfrac{1}{2}(16 - 1) = 7.5$, so $r_{21} \approx 0.9994$.
+- $x = 4$: $d = \tfrac{1}{2}(1 - 16) = -7.5$, so $r_{31} \approx 0.0006$.
+- $x = 5$: $d = \tfrac{1}{2}(0 - 25) = -12.5$, so $r_{41} \approx 0.000$.
+
+**M-step (means).** Using $\mu_k^{(t+1)} = \frac{\sum_i r_{ik} x_i}{\sum_i r_{ik}}$:
+
+$$\mu_1^{(t+1)} = \frac{1.000\cdot 0 + 0.9994\cdot 1 + 0.0006\cdot 4 + 0\cdot 5}{1.000 + 0.9994 + 0.0006 + 0} \approx \frac{1.0018}{2.000} \approx 0.501.$$
+
+By the symmetry $r_{i2} = 1 - r_{i1}$, the mirror computation gives $\mu_2^{(t+1)} \approx 4.499$.
+
+**M-step (weights).** $\pi_1^{(t+1)} = \tfrac{1}{4}\sum_i r_{i1} = \tfrac{1}{4}(2.000) = 0.500$, and $\pi_2^{(t+1)} = 0.500$.
+
+After one iteration the means have moved toward the cluster centroids ($0.5$ and $4.5$), illustrating how EM tightens the fit. Iterating further leaves them essentially fixed at this symmetric optimum.
 </Example>
 
 ## Exponential Family
@@ -148,7 +185,7 @@ where $\eta$ is the **natural parameter**, $T(x)$ is the **sufficient statistic*
 <Remark id="rmk-exponential-family-ml">
 **Why the exponential family matters for ML:**
 
-1. **Sufficient statistics:** $T(x)$ captures all information about $\eta$ from the data. For $n$ i.i.d. samples, $\sum_i T(x_i)$ is sufficient -- you never need to store raw data.
+1. **Sufficient statistics:** $T(x)$ captures all information about $\eta$ from the data. For $n$ i.i.d. samples, $\sum_i T(x_i)$ is sufficient, so you never need to store raw data.
 2. **Log-partition function properties:** $\nabla_\eta A(\eta) = \mathbb{E}[T(X)]$ and $\nabla^2_\eta A(\eta) = \text{Cov}[T(X)]$. Since covariance matrices are PSD, $A(\eta)$ is convex, making MLE a convex problem.
 3. **Conjugate priors** always exist and have a known form.
 4. **GLMs (Generalized Linear Models):** Each exponential family member defines a GLM. Logistic regression uses Bernoulli, Poisson regression uses Poisson, linear regression uses Gaussian. The link function is $g(\mu) = \eta = w^\top x$.
@@ -244,7 +281,7 @@ $\mathbb{E}[X] = \alpha/\beta$, $\text{Var}(X) = \alpha/\beta^2$. Special cases:
 | Gamma $\Gamma(\alpha, \beta)$ | $\mathbb{R}^+$ | Conjugate to Poisson/Gaussian precision | Prior on positive parameters |
 | Student-$t$ | $\mathbb{R}$ | Heavy tails (robust) | Robust regression, outlier modeling |
 | Laplace | $\mathbb{R}$ | $p(x) \propto e^{-|x|/b}$ | L1 regularization prior |
-| Log-normal | $\mathbb{R}^+$ | $\log X \sim \mathcal{N}$ | Attention scores, gradient norms |
+| Log-normal | $\mathbb{R}^+$ | $\log X \sim \mathcal{N}$ | Multiplicative positive quantities (scales, durations) |
 
 </Table>
 
@@ -259,7 +296,7 @@ $$p(x) = \sum_{k=1}^K \pi_k \, \mathcal{N}(x | \mu_k, \Sigma_k)$$
 
 </Equation>
 
-where $\pi_k$ are mixing weights ($\sum_k \pi_k = 1$, $\pi_k \geq 0$). GMMs can approximate any continuous density with compact support to arbitrary accuracy (universal approximation for densities), given enough components.
+where $\pi_k$ are mixing weights ($\sum_k \pi_k = 1$, $\pi_k \geq 0$). Given enough components, GMMs are universal approximators for densities: they can approximate a broad class of smooth densities to arbitrary accuracy, which makes them a flexible default for modeling multimodal data.
 </Definition>
 
 <Remark id="rmk-em-algorithm">
@@ -312,7 +349,7 @@ The CLT tells us the rate: $\bar{X}_n$ is approximately $\mathcal{N}(\mu, \sigma
 <Remark id="rmk-clt-ml">
 **CLT in ML:**
 
-- **Mini-batch gradients:** The average gradient over a mini-batch of size $B$ has variance $\sigma^2/B$, approximately Gaussian for moderate $B$ by the CLT. This justifies the learning rate linear scaling rule: if you increase $B$ by $k$, increase $\eta$ by $k$ to maintain the same noise-to-signal ratio.
+- **Mini-batch gradients:** The average gradient over a mini-batch of size $B$ has variance $\sigma^2/B$, approximately Gaussian for moderate $B$ by the CLT. This motivates the empirical learning rate linear scaling rule [@goyal2017accurate]: increasing $B$ by $k$ and increasing $\eta$ by $k$ keeps the noise-to-signal ratio roughly constant. The rule is a heuristic that works well up to moderate batch sizes and is known to break down in the very large batch regime.
 - **Confidence intervals:** For any estimator computed as an average (accuracy, loss, BLEU score), the CLT gives approximate confidence intervals: $\hat{\mu} \pm z_{\alpha/2} \cdot \hat{\sigma}/\sqrt{n}$.
 - **Batch normalization:** The sample mean and variance computed over a mini-batch converge to population statistics by the LLN, with CLT-governed fluctuations.
 </Remark>
@@ -336,7 +373,7 @@ The Jacobian determinant accounts for the stretching or compression of volume by
 
 - **Normalizing flows** [@rezende2015variational]: Compose simple bijections $g_1 \circ g_2 \circ \cdots \circ g_L$ to transform a simple base distribution (e.g., Gaussian) into a complex target. The log-density of the transformed variable is $\log p_X(x) - \sum_l \log|\det J_l|$.
 - **Reparameterization trick** [@kingma2014vae]: Sample $z = \mu + \sigma \odot \epsilon$ where $\epsilon \sim \mathcal{N}(0, I)$. This moves the stochasticity out of the distribution parameters, enabling backpropagation through the sampling step.
-- **Probability integral transform:** If $X \sim F$, then $F(X) \sim U(0,1)$. This is used for calibration assessment and copula models.
+- **Probability integral transform:** If $X \sim F$ with $F$ continuous, then $F(X) \sim U(0,1)$. (The result requires continuity of $F$; it fails for discrete or mixed distributions.) This is used for calibration assessment and copula models.
 </Remark>
 
 ## Notation Summary

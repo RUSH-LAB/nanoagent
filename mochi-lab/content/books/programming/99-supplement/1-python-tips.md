@@ -8,7 +8,7 @@ Python is the lingua franca of machine learning, but it was not designed for hig
 
 ## Generators and Memory Efficiency
 
-Generators produce values lazily -- they compute one item at a time and discard it before computing the next. For ML workloads that process large datasets, this is the difference between loading everything into memory and processing with constant memory:
+Generators produce values lazily: they compute one item at a time and discard it before computing the next. For ML workloads that process large datasets, this is the difference between loading everything into memory and processing with constant memory:
 
 <Code id="code-python-tips-1" caption="Generators provide O(1) memory for streaming data processing.">
 
@@ -47,7 +47,7 @@ total = sum(len(line) for line in open("data.txt"))  # No list created
 
 | Pattern | Memory | Speed | When to Use |
 |---------|--------|-------|-------------|
-| List comprehension `[x for x in data]` | O(n) | Slightly faster (C loop) | Small data, need random access or length |
+| List comprehension `[x for x in data]` | O(n) | Slightly faster (optimized bytecode) | Small data, need random access or length |
 | Generator expression `(x for x in data)` | O(1) | Slightly slower | Large data, single pass |
 | `map(func, data)` | O(1) | Fast (C-level iterator) | Simple transformations |
 | `itertools.chain(a, b)` | O(1) | Fast | Concatenate without copying |
@@ -69,10 +69,12 @@ import torch
 # ── Timer context manager ──
 @contextlib.contextmanager
 def timer(name=""):
-    torch.cuda.synchronize()  # Ensure GPU ops are complete before timing
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()  # Ensure GPU ops are complete before timing
     start = time.perf_counter()
     yield
-    torch.cuda.synchronize()  # Ensure GPU ops complete before stopping timer
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()  # Ensure GPU ops complete before stopping timer
     elapsed = time.perf_counter() - start
     print(f"{name}: {elapsed:.3f}s")
 
@@ -82,6 +84,9 @@ with timer("training epoch"):
 # ── GPU memory tracking ──
 @contextlib.contextmanager
 def track_gpu_memory(label=""):
+    if not torch.cuda.is_available():
+        yield  # No CUDA device: skip GPU memory tracking
+        return
     torch.cuda.reset_peak_memory_stats()
     torch.cuda.synchronize()
     mem_before = torch.cuda.memory_allocated()
@@ -184,6 +189,7 @@ Type hints catch bugs before runtime, improve IDE autocompletion, and serve as d
 <Code id="code-python-tips-4" caption="Type hints for PyTorch training code.">
 
 ```python
+from collections.abc import Callable
 from typing import Optional
 import torch
 from torch import Tensor, nn
@@ -216,12 +222,12 @@ def train_step(
 
 # Type aliases for readability
 BatchType = dict[str, Tensor]
-LossFunction = callable[[Tensor, Tensor], Tensor]
+LossFunction = Callable[[Tensor, Tensor], Tensor]
 ```
 
 </Code>
 
-<Code id="code-type-checking" caption="Running type checkers on ML code.">
+<Code id="code-python-tips-6" caption="Running type checkers on ML code.">
 
 ```bash
 # mypy: strictest, catches the most bugs
@@ -260,7 +266,7 @@ result = []
 for x in data:
     result.append(x ** 2)
 
-# Fast (C-level loop, no attribute lookup per iteration)
+# Fast (optimized bytecode: LIST_APPEND opcode, no per-iteration attribute lookup)
 result = [x ** 2 for x in data]
 
 # ── 3. Cache attribute lookups in hot loops ──
@@ -279,7 +285,7 @@ class Point:
     def __init__(self, x: float, y: float):
         self.x = x
         self.y = y
-# ~40% less memory than a regular class (no __dict__ per instance)
+# Can use substantially less memory than a regular class (no __dict__ per instance)
 
 # ── 5. String formatting: f-strings are fastest ──
 name, lr = "exp1", 3e-4
@@ -313,7 +319,7 @@ data.sort()
 
 ## Debugging Python ML Code
 
-<Code id="code-python-debugging" caption="Essential debugging tools for ML Python code.">
+<Code id="code-python-tips-7" caption="Essential debugging tools for ML Python code.">
 
 ```python
 # ── breakpoint() (Python 3.7+, built-in debugger) ──

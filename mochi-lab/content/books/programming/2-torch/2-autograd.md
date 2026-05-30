@@ -62,7 +62,7 @@ x = torch.tensor([1.0, 2.0, 3.0], requires_grad=True)
 y = (x ** 2).sum()   # y = x1^2 + x2^2 + x3^2
 
 y.backward()          # Compute dy/dx using the chain rule
-print(x.grad)         # tensor([2., 4., 6.])  -- dy/dxi = 2*xi
+print(x.grad)         # tensor([2., 4., 6.])  (dy/dxi = 2*xi)
 
 # For non-scalar outputs, you must provide a gradient argument
 x = torch.tensor([1.0, 2.0, 3.0], requires_grad=True)
@@ -105,7 +105,7 @@ print(x.grad)  # tensor([2.])
 
 y = (x ** 2).sum()
 y.backward()
-print(x.grad)  # tensor([4.])  -- ACCUMULATED! Not [2.]
+print(x.grad)  # tensor([4.])  (ACCUMULATED! Not [2.])
 ```
 
 **Why this design?** Accumulation enables gradient accumulation across mini-batches (see below) and is needed for models where a parameter is used multiple times in the forward pass (e.g., weight tying).
@@ -127,9 +127,9 @@ for data, target in dataloader:
     loss.backward()
     optimizer.step()
 
-# EVEN BETTER: set_to_none=True (default in PyTorch 2.0+)
+# EVEN BETTER: set_to_none=True (the default in modern PyTorch 2.x)
 optimizer.zero_grad(set_to_none=True)
-# Sets .grad to None instead of zero tensor -- saves memory and is slightly faster
+# Sets .grad to None instead of zero tensor (saves memory and is slightly faster)
 ```
 
 </Code>
@@ -256,13 +256,13 @@ loss_2.backward()                    # Now graph is freed
 |---------|------|---------|
 | Stop gradient | `target = model(x).detach()` | Prevent gradient flow (EMA targets, contrastive learning) |
 | Logging scalars | `losses.append(loss.detach().item())` | Avoid keeping computation graph in memory |
-| Straight-through estimator | `y_hard = y_soft.detach() + (quantize(y_soft) - y_soft).detach()` | Discrete forward, continuous backward |
+| Straight-through estimator | `y_hard = y_soft + (quantize(y_soft) - y_soft).detach()` | Discrete forward, continuous backward |
 | Gradient penalty | `x_interp = (a*real + (1-a)*fake).detach().requires_grad_(True)` | Compute gradients w.r.t. interpolated input |
 </Remark>
 
 ## Custom Autograd Functions
 
-When you need to define custom forward and backward behavior -- for non-standard operations, memory-efficient backward passes, or interfacing with non-PyTorch code:
+When you need to define custom forward and backward behavior (for non-standard operations, memory-efficient backward passes, or interfacing with non-PyTorch code):
 
 <Code id="code-custom-autograd" caption="Defining a custom autograd function with forward and backward.">
 
@@ -301,7 +301,7 @@ assert gradcheck(MySiLU.apply, (x,), eps=1e-6)
 <Remark id="rmk-custom-autograd-tips">
 **Tips for custom autograd functions:**
 
-1. **Use `ctx.save_for_backward()`** -- not `ctx.x = x`. PyTorch manages memory efficiently for saved tensors, including releasing them after backward and supporting gradient checkpointing.
+1. **Use `ctx.save_for_backward()`**, not `ctx.x = x`. PyTorch manages memory efficiently for saved tensors, including releasing them after backward and supporting gradient checkpointing.
 
 2. **Match the number of returns to forward inputs.** `backward()` must return one gradient for each input to `forward()`. Use `return None` for inputs that do not need gradients (e.g., integer arguments).
 
@@ -354,8 +354,8 @@ class DeepModel(nn.Module):
         return x
 
 # Memory savings:
-# Without checkpointing: O(L * activation_size) -- linear in depth
-# With checkpointing:    O(sqrt(L) * activation_size) -- if checkpointed every sqrt(L) layers
+# Without checkpointing: O(L * activation_size), linear in depth
+# With checkpointing:    O(sqrt(L) * activation_size), if checkpointed every sqrt(L) layers
 # Compute cost:          ~30% more (one extra forward pass per checkpointed segment)
 ```
 
@@ -365,7 +365,7 @@ class DeepModel(nn.Module):
 **When to use gradient checkpointing:**
 - Your model is too deep to fit in GPU memory (e.g., 100+ layer Transformers)
 - You want to increase batch size but are memory-limited
-- The extra 30% compute cost is acceptable (usually is -- memory is the bottleneck)
+- The extra 30% compute cost is acceptable (usually is, since memory is the bottleneck)
 
 Most large model training (GPT, LLaMA, etc.) uses gradient checkpointing. It is essentially free in wall-clock time because the memory savings allow larger batches, which improve GPU utilization.
 </Remark>

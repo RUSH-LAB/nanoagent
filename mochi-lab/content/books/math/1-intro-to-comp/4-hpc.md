@@ -52,7 +52,7 @@ This shows why scaling beyond a certain point yields diminishing returns. The 5%
 </Example>
 
 <Example id="ex-amdahl-pipeline-bubble">
-**Pipeline parallelism bubble.** In pipeline parallelism with $p$ stages and $m$ micro-batches, the pipeline "bubble" (time where some stages are idle) takes a fraction $\frac{p-1}{m + p - 1}$ of total time. For $p = 8$ stages and $m = 32$ micro-batches, the bubble is $7/39 \approx 18\%$, limiting pipeline speedup to roughly $8 \times 0.82 = 6.6\times$.
+**Pipeline parallelism bubble.** In pipeline parallelism with $P_{\text{stages}}$ stages and $m$ micro-batches, the pipeline "bubble" (time where some stages are idle) takes a fraction $\frac{P_{\text{stages}}-1}{m + P_{\text{stages}} - 1}$ of total time. For $P_{\text{stages}} = 8$ stages and $m = 32$ micro-batches, the bubble is $7/39 \approx 18\%$, limiting pipeline speedup to roughly $8 \times 0.82 = 6.6\times$.
 </Example>
 
 ## Gustafson's Law: Scaling the Problem
@@ -70,7 +70,7 @@ This gives a *scaled speedup* that grows linearly with $n$ when $p$ is close to 
 </Theorem>
 
 <Remark id="rmk-gustafson-ml">
-Gustafson's law is the more relevant model for ML. With more GPUs, we do not just train the same model faster -- we train *larger models* or on *more data*. A model trained on 1024 GPUs is not the same workload as on 1 GPU scaled up; it is a fundamentally larger problem. This is why large-scale training achieves near-linear scaling: the serial fraction shrinks as the problem grows.
+Gustafson's law is the more relevant model for ML. With more GPUs, we do not just train the same model faster; we train *larger models* or on *more data*. A model trained on 1024 GPUs is not the same workload as on 1 GPU scaled up; it is a fundamentally larger problem. This is why large-scale training achieves near-linear scaling: the serial fraction shrinks as the problem grows.
 </Remark>
 
 ## Distributed Linear Algebra
@@ -90,7 +90,7 @@ The effective batch size scales as $N \times B_{\text{local}}$, where $B_{\text{
 </Definition>
 
 <Remark id="rmk-data-parallel-memory">
-Data parallelism does not reduce per-device memory for model parameters and optimizer states -- each device holds a full copy. For a model with $P$ parameters in FP32 with Adam optimizer, per-device memory is $\approx 16P$ bytes ($4P$ parameters + $4P$ gradients + $4P$ first moments + $4P$ second moments). **ZeRO** [@rajbhandari2020zero] shards these across devices, reducing per-device memory to $\approx 16P/N$ bytes.
+Data parallelism does not reduce per-device memory for model parameters and optimizer states, since each device holds a full copy. For a model with $P$ parameters in FP32 with Adam optimizer, per-device memory is $\approx 16P$ bytes ($4P$ parameters + $4P$ gradients + $4P$ first moments + $4P$ second moments). **ZeRO** [@rajbhandari2020zero] shards these across devices, reducing per-device memory to $\approx 16P/N$ bytes.
 </Remark>
 
 <Definition id="def-tensor-parallelism" name="Tensor Parallelism">
@@ -102,11 +102,11 @@ A single weight matrix $W \in \mathbb{R}^{m \times n}$ is partitioned across $k$
 </Definition>
 
 <Remark id="rmk-megatron-tp">
-Megatron-LM [@shoeybi2019megatron] pairs column-parallel in the first linear layer of a transformer FFN with row-parallel in the second, so only one allreduce per FFN block is needed (instead of two allgather + reduce-scatter pairs). This is a key insight that reduces communication by 50%.
+Megatron-LM [@shoeybi2020megatronlm] pairs column-parallel in the first linear layer of a transformer FFN with row-parallel in the second, so only one allreduce per pass (forward or backward) is needed for the FFN block (instead of two allgather + reduce-scatter pairs). This significantly reduces communication overhead.
 </Remark>
 
 <Definition id="def-pipeline-parallelism" name="Pipeline Parallelism">
-The model's $L$ layers are partitioned into $p$ contiguous stages across $p$ devices. Device $i$ owns layers $\ell_{i-1}+1$ through $\ell_i$ and processes activations sequentially:
+The model's $L$ layers are partitioned into $P_{\text{stages}}$ contiguous stages across $P_{\text{stages}}$ devices. Device $i$ owns layers $\ell_{i-1}+1$ through $\ell_i$ and processes activations sequentially:
 
 <Equation id="eq-pipeline">
 
@@ -140,17 +140,17 @@ The **ring allreduce** algorithm arranges $N$ devices in a logical ring. It proc
 1. **Reduce-scatter phase:** In $N-1$ steps, each device sends one chunk ($m/N$ bytes) to its neighbor and accumulates the received chunk. After this phase, each device holds the fully reduced version of one chunk.
 2. **Allgather phase:** In $N-1$ steps, each device propagates its fully reduced chunk around the ring.
 
-Total bandwidth per device: $2 \cdot \frac{N-1}{N} \cdot m$ bytes. This is bandwidth-optimal -- it matches the information-theoretic lower bound.
+Total bandwidth per device: $2 \cdot \frac{N-1}{N} \cdot m$ bytes. This is bandwidth-optimal: it matches the information-theoretic lower bound.
 </Definition>
 
 <Example id="ex-allreduce-cost">
-**Allreduce cost for gradient sync.** A 70B parameter model with FP16 gradients has $m = 70 \times 10^9 \times 2 = 140$ GB of gradient data. With 8 GPUs on NVLink (900 GB/s bidirectional per link):
-- Ring allreduce bandwidth per device: $2 \times \frac{7}{8} \times 140 = 245$ GB
-- Time: $245 / 450 \approx 0.54$ seconds (using half-duplex bandwidth per direction)
+**Allreduce cost for gradient sync.** A 70B parameter model with FP16 gradients has $m = 70 \times 10^9 \times 2 = 140$ GB of gradient data. With 8 A100 GPUs on NVLink (600 GB/s bidirectional per GPU, so $\approx 300$ GB/s per direction):
+- Ring allreduce bandwidth per device: $2 \times \frac{7}{8} \times 140 = 245$ GB (the per-device traffic of the bandwidth-optimal ring)
+- Time: $245 / 300 \approx 0.82$ seconds (using the per-direction bandwidth, since each device sends and receives concurrently)
 - This is why gradient accumulation (computing multiple forward/backward passes before synchronizing) is used to amortize communication cost.
 </Example>
 
-## Communication--Computation Overlap
+## Overlapping Communication and Computation
 
 <Definition id="def-overlap" name="Communication-Computation Overlap">
 Modern distributed training frameworks overlap communication with computation by splitting the backward pass into chunks. As gradients for layer $\ell$ are computed, allreduce for layer $\ell+1$ (already completed) proceeds concurrently:
@@ -172,7 +172,7 @@ Perfect overlap is achieved when $T_{\text{compute}} \geq T_{\text{comm}}$, i.e.
 3. Using large batch sizes to increase the compute-to-communication ratio
 4. Combining data, tensor, and pipeline parallelism (3D parallelism) to minimize total communication
 
-For example, training LLaMA-65B on 2048 A100 GPUs achieved ~50% MFU (Model FLOP Utilization), meaning half the theoretical peak compute was utilized -- the rest was lost to communication, pipeline bubbles, and memory-bound operations [@touvron2023llama].
+For example, the LLaMA-65B model was trained on 2048 A100 GPUs at a reported throughput of roughly 380 tokens/sec/GPU, completing its 1.4-trillion-token corpus in about 21 days [@touvron2023llama]. A useful efficiency metric here is **Model FLOP Utilization (MFU)**, the ratio of achieved compute to theoretical peak. Large-scale transformer training typically lands around 50% MFU, with the remainder lost to communication, pipeline bubbles, and memory-bound operations [@narayanan2021efficient].
 </Remark>
 
 ## Notation Summary
@@ -181,7 +181,8 @@ For example, training LLaMA-65B on 2048 A100 GPUs achieved ~50% MFU (Model FLOP 
 
 | Symbol | Meaning |
 |--------|---------|
-| $p$ | Parallel fraction (Amdahl) or number of pipeline stages |
+| $p$ | Parallel fraction (Amdahl's law) |
+| $P_{\text{stages}}$ | Number of pipeline stages |
 | $N$ | Number of processors/devices |
 | $S(N)$ | Speedup with $N$ processors |
 | $\eta$ | Scaling efficiency: $S(N)/N$ |

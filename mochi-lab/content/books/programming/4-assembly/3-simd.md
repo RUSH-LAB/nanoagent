@@ -4,7 +4,7 @@ sidebar_position: 3
 
 # SIMD
 
-Before GPUs dominated machine learning, CPUs ran all the math. What made CPUs fast enough for linear algebra was not clock speed -- it was **SIMD** (Single Instruction, Multiple Data), the ability to process multiple data elements with a single instruction. Understanding SIMD explains why aligned memory is faster, why contiguous arrays outperform random access, why quantization to INT8 speeds up CPU inference, and how CPU BLAS libraries achieve near-peak throughput. SIMD is also the CPU analog of GPU SIMT -- the same fundamental idea (data parallelism) expressed at a different scale.
+Before GPUs dominated machine learning, CPUs ran all the math. What made CPUs fast enough for linear algebra was not clock speed: it was **SIMD** (Single Instruction, Multiple Data), the ability to process multiple data elements with a single instruction. Understanding SIMD explains why aligned memory is faster, why contiguous arrays outperform random access, why quantization to INT8 speeds up CPU inference, and how CPU BLAS libraries achieve near-peak throughput. SIMD is also the CPU analog of GPU SIMT, the same fundamental idea (data parallelism) expressed at a different scale.
 
 ## What Is SIMD?
 
@@ -49,7 +49,7 @@ for (int i = 0; i < n; i += 8) {
 </Code>
 
 <Remark id="rmk-simd-throughput">
-**Theoretical throughput.** A modern CPU core with AVX-512 can execute 2 FMA (fused multiply-add) instructions per cycle, each operating on 16 FP32 values. That is $2 \times 16 \times 2 = 64$ FP32 FLOPS per cycle (FMA counts as 2 FLOPS). At 3 GHz, one core delivers 192 GFLOPS -- comparable to a low-end GPU. But unlike a GPU, a CPU has only 8-64 cores, so aggregate throughput is much lower.
+**Theoretical throughput.** A modern CPU core with AVX-512 can execute 2 FMA (fused multiply-add) instructions per cycle, each operating on 16 FP32 values. That is $2 \times 16 \times 2 = 64$ FP32 FLOPS per cycle (FMA counts as 2 FLOPS). At 3 GHz, one core delivers 192 GFLOPS, comparable to a low-end GPU. But unlike a GPU, a CPU has only 8-64 cores, so aggregate throughput is much lower.
 </Remark>
 
 ## Common AVX Intrinsics
@@ -73,7 +73,7 @@ Intrinsics are C functions that map 1:1 to SIMD instructions. The naming convent
 
 // ── Load and store ──
 __m256 v = _mm256_load_ps(ptr);          // Load 8 floats (ptr must be 32-byte aligned)
-__m256 v = _mm256_loadu_ps(ptr);         // Load 8 floats (unaligned, ~5% slower)
+__m256 v = _mm256_loadu_ps(ptr);         // Load 8 floats (unaligned, may be slower on cache-line crossing)
 _mm256_store_ps(ptr, v);                 // Store 8 floats (aligned)
 _mm256_storeu_ps(ptr, v);               // Store 8 floats (unaligned)
 
@@ -139,9 +139,31 @@ float simd_dot(const float* a, const float* b, int n) {
 **Why use multiple accumulators?** FMA has a latency of 4-5 cycles but a throughput of 2 per cycle. A single accumulator creates a dependency chain: each FMA must wait for the previous one to finish. Using 2-4 independent accumulators lets the CPU pipeline execute multiple FMAs in flight, achieving near-peak throughput.
 </Remark>
 
+<Example id="ex-simd-horizontal-sum" caption="Deriving the horizontal sum (tree reduction) used in the dot product.">
+The dot product above ends with a **horizontal sum**: collapsing the 8 partial sums in one `__m256` into a single scalar. There is no single instruction for this, so we reduce in a tree. Work it out step by step.
+
+**Step 1: fold 256 bits down to 128.** Split the vector into its high and low 128-bit halves and add them, turning 8 lanes into 4 partial sums. The two extract/cast intrinsics give you those halves:
+
+```c
+__m128 hi = _mm256_extractf128_ps(sum0, 1);  // lanes 4..7
+__m128 lo = _mm256_castps256_ps128(sum0);    // lanes 0..3
+__m128 s  = _mm_add_ps(lo, hi);              // 4 partial sums
+```
+
+**Step 2: fold 4 lanes down to 2.** Now add adjacent pairs. `_mm_hadd_ps(s, s)` adds neighboring elements, so the low half of the result holds two partial sums. _Fill in the call:_
+
+```c
+s = _mm_hadd_ps(s, s);   // 4 floats -> 2 meaningful partial sums
+```
+
+**Step 3: fold 2 lanes down to 1, then extract.** Repeat the same horizontal add once more so lane 0 holds the total, then read it out. _You write this step:_ apply `_mm_hadd_ps` again, then call `_mm_cvtss_f32` to move lane 0 into a `float`.
+
+The pattern generalizes: a width-$w$ vector needs $\log_2 w$ reduction steps, which is why horizontal sums are cheap relative to the loop body but should still be kept out of the inner loop.
+</Example>
+
 ## Auto-Vectorization
 
-Modern compilers can automatically generate SIMD code from scalar loops. This is the preferred approach -- let the compiler handle the intrinsics:
+Modern compilers can automatically generate SIMD code from scalar loops. This is the preferred approach: let the compiler handle the intrinsics.
 
 <Code id="code-simd-3" caption="Writing C code that the compiler can auto-vectorize.">
 
@@ -201,7 +223,7 @@ gcc -O3 -march=native source.c
 3. **Prefer simple counted loops** (`for (int i = 0; i < n; i++)`) over complex iteration patterns.
 4. **Avoid early exits** (`break`, `return`) inside loops.
 5. **Use `-march=native`** to enable the widest SIMD available on your CPU.
-6. **Check the vectorization report** before writing manual intrinsics -- the compiler may already be doing what you want.
+6. **Check the vectorization report** before writing manual intrinsics. The compiler may already be doing what you want.
 </Remark>
 
 ## SIMD and SIMT: CPU vs GPU Parallelism
@@ -213,8 +235,8 @@ SIMD (CPU) and SIMT (GPU) both exploit data parallelism, but at different scales
 | Property | CPU SIMD (AVX-512) | GPU SIMT (CUDA) |
 |----------|-------------------|-----------------|
 | Width | 8-16 elements per instruction | 32 threads per warp |
-| Parallelism model | One instruction stream, wide operands | 32 program counters, lockstep execution |
-| Divergence | Not possible (same instruction for all lanes) | Possible but expensive (serialized branches) |
+| Parallelism model | One instruction stream, wide operands | One instruction per warp-scheduler issue (pre-Volta lockstep; Volta+ has independent per-thread PCs) |
+| Divergence | Handled by predication/masking: every lane executes, inactive lanes are masked off | Possible but expensive (divergent paths within a warp are serialized; Volta+ allows reconvergence) |
 | Memory access | Uniform load/store, hardware prefetch | Coalesced access required for efficiency |
 | Programming | Intrinsics, auto-vectorization, or compiler | Write per-thread scalar code |
 | Latency hiding | Out-of-order execution, prefetch | Massive thread count (warp switching) |
@@ -224,7 +246,7 @@ SIMD (CPU) and SIMT (GPU) both exploit data parallelism, but at different scales
 </Table>
 
 <Remark id="rmk-simd-simt-mental-model">
-**The unifying mental model.** Both SIMD and SIMT express the same idea: take a computation that applies independently to many data elements, and execute it on all elements simultaneously using wide hardware. On a CPU, you pack 8-16 values into a vector register and operate on them with one instruction. On a GPU, you launch thousands of threads that each operate on one element, and the hardware groups them into warps of 32 that execute in lockstep. The key constraint is the same: **divergence** (different elements needing different operations) kills performance on both architectures.
+**The unifying mental model.** Both SIMD and SIMT express the same idea: take a computation that applies independently to many data elements, and execute it on all elements simultaneously using wide hardware. On a CPU, you pack 8-16 values into a vector register and operate on them with one instruction. On a GPU, you launch thousands of threads that each operate on one element, and the hardware groups them into warps of 32 that share a scheduler (executing together when their control flow agrees; on Volta and later, threads carry independent program counters so divergent paths can reconverge). The key constraint is the same: **divergence** (different elements needing different operations) hurts performance on both architectures.
 </Remark>
 
 ## SIMD in ML Libraries
@@ -252,7 +274,7 @@ FP64          8       8                               1x
 FP32          4       16                              2x
 FP16/BF16     2       32                              4x
 INT8          1       64                              8x
-INT4          0.5     128                             16x (with packing)
+INT4          0.5     128                             16x bandwidth (requires unpacking to INT8 for compute)
 ```
 
 </Code>
@@ -260,8 +282,8 @@ INT4          0.5     128                             16x (with packing)
 <Remark id="rmk-simd-why-matters">
 **Why understanding SIMD matters even if you never write intrinsics.** SIMD explains four things that every ML engineer encounters:
 
-1. **Aligned memory is faster** -- SIMD loads from aligned addresses avoid crossing cache line boundaries and use faster instructions (`vmovaps` vs `vmovups`).
-2. **Contiguous arrays beat random access** -- SIMD instructions operate on consecutive elements; scatter/gather from random addresses is 5-10x slower.
-3. **CPU quantization works** -- INT8 inference fits 4x more elements per SIMD register than FP32, providing roughly 4x speedup for memory-bound operations (and the actual VNNI instruction computes INT8 dot products directly).
-4. **Power-of-2 sizes are faster** -- SIMD widths are powers of 2, so arrays with lengths that are multiples of 16 (AVX-512) or 8 (AVX2) avoid the scalar cleanup loop that handles remaining elements.
+1. **Aligned memory is faster.** SIMD loads from aligned addresses avoid crossing cache line boundaries and use faster instructions (`vmovaps` vs `vmovups`).
+2. **Contiguous arrays beat random access.** SIMD instructions operate on consecutive elements; scatter/gather from random addresses is typically much slower than sequential access.
+3. **CPU quantization works.** INT8 inference fits 4x more elements per SIMD register than FP32, providing roughly 4x speedup for memory-bound operations (and the actual VNNI instruction computes INT8 dot products directly).
+4. **Power-of-2 sizes are faster.** SIMD widths are powers of 2, so arrays with lengths that are multiples of 16 (AVX-512) or 8 (AVX2) avoid the scalar cleanup loop that handles remaining elements.
 </Remark>

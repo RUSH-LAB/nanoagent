@@ -60,6 +60,51 @@ find . -name "*.pyc" -delete       # Remove compiled Python files
 
 </Table>
 
+<Example id="ex-recover-stuck-gpu" name="Recovering a stuck GPU after a crashed training run">
+A training script died, but `nvidia-smi` still shows GPU 0 at 40 GB used and 0% utilization: a zombie process is holding the memory. Chain the process tools to reclaim it.
+
+```bash
+# 1. Confirm the GPU is occupied but idle
+nvidia-smi                                # GPU 0: 40 GB used, 0% util
+
+# 2. Find which processes hold the GPU device files
+fuser -v /dev/nvidia*                     # prints PIDs touching the GPU
+
+# 3. Confirm they are the dead run, not someone else's job
+ps aux | grep python                      # match PID, user, and command
+
+# 4. Stop them gracefully first, then forcefully if needed
+kill -SIGTERM 48213                       # ask the process to clean up
+kill -SIGKILL 48213                       # only if it ignores SIGTERM
+
+# 5. Verify the memory is freed
+nvidia-smi                                # GPU 0 should now read 0 MB used
+```
+
+If memory is still held after the process is gone (a rare driver-level hang), reset the single device with `nvidia-smi --gpu-reset -i 0`. Note that the reset requires root and fails unless the GPU is idle, so confirm no one else is running on it first.
+</Example>
+
+<Example id="ex-find-disk-hog" name="Freeing disk space before a checkpoint write fails">
+Your training job crashes with `No space left on device` mid-checkpoint. The goal is to locate the largest offenders, confirm they are safe to delete, then reclaim space without touching live data. Each step below builds on the one before it, with less guidance as you go.
+
+```bash
+# 1. Which filesystem is full?
+df -h                                     # find the partition at ~100%
+
+# 2. Within your project, which directories dominate? (top 20 by size)
+du -sh * | sort -rh | head -20
+
+# 3. Old checkpoints are usually the culprit. List large model files,
+#    confirm before deleting:
+find . -name "*.pt" -size +1G
+
+# 4. Reclaim cheap, regenerable space first:
+find . -name "__pycache__" -type d -exec rm -rf {} +
+```
+
+Delete stale checkpoints last and only after confirming a newer one exists, since they are the one artifact you cannot regenerate cheaply.
+</Example>
+
 ## Environment Management
 
 Reproducible environments are essential for ML. A model trained in one environment should produce the same results in another:
@@ -111,7 +156,7 @@ uv pip sync requirements.txt                 # Install exactly what's locked
 <Remark id="rmk-env-tips">
 **Environment tips:**
 - **Pin exact versions** in `requirements.txt` for reproducibility: `torch==2.2.0`, not `torch>=2.0`.
-- **Use `pip install -e .`** for editable installs during development -- changes to your code take effect immediately without reinstalling.
+- **Use `pip install -e .`** for editable installs during development: changes to your code take effect immediately without reinstalling.
 - **Keep CUDA versions consistent**: `nvidia-smi` shows the driver's max supported CUDA, but `nvcc --version` shows the toolkit version. PyTorch must match the toolkit version.
 - **Export minimal specs**: `conda env export --from-history` or a hand-curated `requirements.txt` with only direct dependencies.
 </Remark>
@@ -197,7 +242,7 @@ nvcc --version                                # Shows installed toolkit version
 python -c "import torch; print(torch.cuda.is_available(), torch.version.cuda)"
 
 # ── Reset GPU (if stuck) ──
-nvidia-smi --gpu-reset -i 0                   # Reset GPU 0 (kills all processes)
+nvidia-smi --gpu-reset -i 0                   # Reset GPU 0 (needs root; fails if GPU is busy)
 fuser -v /dev/nvidia*                         # Find processes using GPUs
 ```
 
@@ -243,7 +288,7 @@ export MASTER_ADDR=$(scontrol show hostname $SLURM_NODELIST | head -1)
 export MASTER_PORT=29500
 
 # Handle preemption/timeout: save checkpoint on SIGUSR1
-trap 'echo "Received SIGUSR1, saving checkpoint..."; kill -SIGUSR1 $PID' SIGUSR1
+trap '[ -n "$PID" ] && echo "Received SIGUSR1, saving checkpoint..." && kill -SIGUSR1 $PID' SIGUSR1
 
 # Launch distributed training
 srun torchrun \

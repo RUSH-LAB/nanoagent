@@ -4,17 +4,17 @@ sidebar_position: 2
 
 # CPU and GPU Architecture
 
-CPUs and GPUs solve fundamentally different problems. A CPU is optimized to execute a single thread of instructions as fast as possible -- minimizing the latency of each operation. A GPU is optimized to execute millions of threads simultaneously -- maximizing the throughput of parallel operations. Understanding this distinction is essential for writing efficient ML code, because it determines which operations are fast, which are slow, and why.
+CPUs and GPUs solve fundamentally different problems. A CPU is optimized to execute a single thread of instructions as fast as possible, minimizing the latency of each operation. A GPU is optimized to execute millions of threads simultaneously, maximizing the throughput of parallel operations. Understanding this distinction is essential for writing efficient ML code, because it determines which operations are fast, which are slow, and why.
 
 ## CPU: Optimized for Latency
 
 A CPU core is a marvel of complexity engineering, designed to make *one* thread run as fast as possible:
 
-- **Out-of-order execution** -- reorders instructions to keep all execution units busy, even when some instructions are waiting for data
-- **Branch prediction** -- guesses which way branches go to avoid pipeline stalls (>95% accuracy on typical code)
-- **Speculative execution** -- executes instructions past predicted branches before the branch is resolved
-- **Large caches** -- L1/L2/L3 hierarchy absorbs most memory accesses, reducing effective latency
-- **Few powerful cores** -- 8-128 cores, each running 1-2 hardware threads (hyperthreading)
+- **Out-of-order execution:** reorders instructions to keep all execution units busy, even when some instructions are waiting for data
+- **Branch prediction:** guesses which way branches go to avoid pipeline stalls (>95% accuracy on typical code)
+- **Speculative execution:** executes instructions past predicted branches before the branch is resolved
+- **Large caches:** L1/L2/L3 hierarchy absorbs most memory accesses, reducing effective latency
+- **Few powerful cores:** 8-128 cores, each running 1-2 hardware threads (hyperthreading)
 
 <Code id="code-cpu-layout" caption="Schematic layout of a modern CPU (e.g., AMD EPYC or Intel Xeon).">
 
@@ -50,11 +50,11 @@ On a GPU, these proportions are inverted: most of the die is computation (CUDA c
 
 A GPU trades single-thread performance for massive parallelism. The key design principle is **latency hiding through parallelism**: instead of making each thread fast (CPU approach), the GPU runs so many threads that it always has work to do while some threads are waiting for memory.
 
-- **Simple cores** -- no branch prediction, no out-of-order execution, minimal caches
-- **Massive parallelism** -- thousands of threads executing simultaneously, with tens of thousands more ready to be scheduled
-- **Wide SIMT execution** -- 32 threads (a **warp**) execute the same instruction in lockstep
-- **High bandwidth memory** -- HBM provides 2-3+ TB/s vs ~50 GB/s for CPU DRAM (a 40-60x advantage)
-- **Hardware thread scheduling** -- the GPU switches between warps every cycle at zero cost (no context switch overhead)
+- **Simple cores:** no branch prediction, no out-of-order execution, minimal caches
+- **Massive parallelism:** thousands of threads executing simultaneously, with tens of thousands more ready to be scheduled
+- **Wide SIMT execution:** 32 threads (a **warp**) execute the same instruction in lockstep
+- **High bandwidth memory:** HBM provides 2-3+ TB/s vs ~50 GB/s for CPU DRAM (a 40-60x advantage)
+- **Hardware thread scheduling:** the GPU switches between warps every cycle at zero cost (no context switch overhead)
 
 <Code id="code-gpu-sm-layout" caption="Schematic layout of a GPU Streaming Multiprocessor (SM) on NVIDIA H100.">
 
@@ -76,7 +76,7 @@ GPU Streaming Multiprocessor (SM):
 +------------------------------------------------------+
               x 132 SMs on H100 SXM
               = 16896 FP32 cores total
-              ~1000 TFLOPS FP8, ~990 TFLOPS FP16 (with sparsity)
+              ~990 TFLOPS FP16, ~1979 TFLOPS FP8 (dense)
 ```
 
 </Code>
@@ -84,7 +84,7 @@ GPU Streaming Multiprocessor (SM):
 <Remark id="rmk-gpu-latency-hiding">
 **How GPUs hide memory latency without caches.** When a warp issues a memory load (300+ cycles to global memory), the CPU approach would be to wait, stalling the pipeline. The GPU approach: switch to another warp that is ready to execute. With 48-64 active warps per SM (1536-2048 threads), there is almost always a warp ready to run. By the time the GPU cycles through all ready warps, the original memory load has completed.
 
-This means GPU performance depends critically on **occupancy** -- the ratio of active warps to maximum warps per SM. Low occupancy (too few threads, too many registers per thread) means the GPU cannot hide memory latency, and performance drops.
+This means GPU performance depends critically on **occupancy**, the ratio of active warps to maximum warps per SM. Low occupancy (too few threads, too many registers per thread) means the GPU cannot hide memory latency, and performance drops.
 </Remark>
 
 ## CPU vs GPU: A Quantitative Comparison
@@ -101,7 +101,7 @@ This means GPU performance depends critically on **occupancy** -- the ratio of a
 | Memory capacity | 768 GB (max) | 80 GB | 0.1x |
 | Memory latency | ~80 ns | ~300 ns (but hidden) | 3.75x |
 | Power | 360W | 700W | 2x |
-| FLOPS/watt (FP16) | ~26 TFLOPS/W | ~1414 TFLOPS/W | 54x |
+| FLOPS/watt (FP16) | ~26 GFLOPS/W | ~1414 GFLOPS/W | 54x |
 
 </Table>
 
@@ -251,7 +251,7 @@ The shared memory vs. L1 cache split is configurable on most GPUs (e.g., `cudaFu
 ## The Roofline Model
 
 <Definition id="def-roofline" name="Roofline Model">
-The **roofline model** predicts the maximum achievable performance of an operation based on its **arithmetic intensity** (AI) -- the ratio of FLOPs to bytes transferred from memory:
+The **roofline model** predicts the maximum achievable performance of an operation based on its **arithmetic intensity** (AI), the ratio of FLOPs to bytes transferred from memory:
 
 $$\text{AI} = \frac{\text{FLOPs}}{\text{Bytes transferred}}$$
 
@@ -302,6 +302,30 @@ Performance (TFLOPS)
 
 </Table>
 
+<Example id="ex-roofline-h100" name="Reading the roofline for an H100">
+Using the H100 figures from this page, peak FP16 compute is 990 TFLOPS and HBM3 bandwidth is 3350 GB/s. The **ridge point** is the arithmetic intensity at which the two limits meet:
+
+$$\text{AI}_{\text{ridge}} = \frac{\text{Peak FLOPS}}{\text{Memory Bandwidth}} = \frac{990 \times 10^{12} \text{ FLOPS}}{3350 \times 10^{9} \text{ bytes/s}} \approx 295 \text{ FLOPS/byte}$$
+
+An operation needs at least ~295 FLOPS per byte loaded to be compute-bound on this GPU.
+
+**Element-wise op (memory-bound).** A ReLU has AI = 0.25 FLOPS/byte. Since $0.25 \ll 295$, it is memory-bound, and the roofline predicts:
+
+$$\text{Performance} = \text{AI} \times \text{Memory Bandwidth} = 0.25 \times 3350 \text{ GB/s} \approx 838 \text{ GFLOPS} = 0.84 \text{ TFLOPS}$$
+
+That is less than 0.1% of peak compute, so adding more compute would not help; only reducing memory traffic (e.g., fusion) would.
+
+**Square GEMM (compute-bound).** Take a multiply of two $4096 \times 4096$ FP16 matrices ($M = K = N = 4096$, 2 bytes/element). Using the GEMM AI formula from the table above:
+
+$$\text{AI} = \frac{2MKN}{4(MK + KN + MN)} \cdot \frac{4 \text{ bytes}}{2 \text{ bytes}}$$
+
+The table's denominator assumes 4 bytes/element (FP32), so for FP16 we substitute 2 bytes. With $M = K = N = 4096$:
+
+$$\text{AI} = \frac{2 \cdot 4096^3}{2 \cdot 3 \cdot 4096^2} = \frac{2 \cdot 4096}{2 \cdot 3} = \frac{4096}{3} \approx 1365 \text{ FLOPS/byte}$$
+
+Since $1365 > 295$, this GEMM is well into the compute-bound regime and can approach the 990 TFLOPS peak. This is why large matrix multiplies are the workload Tensor Cores are built for, while element-wise ops are bottlenecked on bandwidth.
+</Example>
+
 <Remark id="rmk-memory-bound-fix">
 **If your operation is memory-bound, adding more compute does not help.** The fixes are:
 1. **Operator fusion:** Combine multiple memory-bound operations into one kernel, eliminating intermediate global memory reads/writes.
@@ -309,7 +333,7 @@ Performance (TFLOPS)
 3. **FP8/INT8:** Further reduces memory traffic by 4x compared to FP32.
 4. **Increase batch size:** Amortizes weight loading over more data, increasing arithmetic intensity.
 
-If your operation is compute-bound (GEMM), the fix is to use Tensor Cores (FP16/BF16) for a 16x speedup, or FP8 for 32x.
+If your operation is compute-bound (GEMM), the fix is to use Tensor Cores (FP16/BF16) for a ~15x speedup, or FP8 for ~30x.
 </Remark>
 
 ## Tensor Cores
@@ -317,12 +341,12 @@ If your operation is compute-bound (GEMM), the fix is to use Tensor Cores (FP16/
 <Definition id="def-tensor-core" name="Tensor Core">
 **Tensor Cores** are specialized matrix multiply-accumulate (MMA) units that compute $D = A \times B + C$ on small matrix tiles in a single operation:
 
-| Generation | GPU | Tile Size | Precisions | Peak TFLOPS |
-|-----------|-----|-----------|-----------|------------|
-| 1st gen | V100 | 4x4x4 | FP16 | 125 |
-| 2nd gen | A100 | 8x4x8 | FP16, BF16, TF32, INT8, FP64 | 312 (FP16) |
-| 3rd gen | H100 (Hopper) | 16x8x16 | FP16, BF16, TF32, FP8, INT8 | 990 (FP16), 1979 (FP8) |
-| 4th gen | B200 (Blackwell) | 16x16x16 | FP16, BF16, TF32, FP8, FP4 | 2250 (FP16), 4500 (FP4) |
+| Generation | GPU | Precisions | Peak TFLOPS |
+|-----------|-----|-----------|------------|
+| 1st gen | V100 (Volta) | FP16 | 125 |
+| 3rd gen | A100 (Ampere) | FP16, BF16, TF32, INT8, FP64 | 312 (FP16) |
+| 4th gen | H100 (Hopper) | FP16, BF16, TF32, FP8, INT8 | 990 (FP16), 1979 (FP8) |
+| 5th gen | B200 (Blackwell) | FP16, BF16, TF32, FP8, FP4 | 2250 (FP16), 4500 (FP4) |
 
 </Definition>
 

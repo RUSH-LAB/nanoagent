@@ -5,11 +5,11 @@ title: "Continual Learning in Large Language Models"
 
 # Continual Learning in Large Language Models
 
-The advent of large language models (LLMs) has created both new urgency and fundamentally new challenges for continual learning [@jang2022towards, @scialom2025continual, @wu2024continual_llm_survey]. LLMs encode vast world knowledge in their parameters, and this knowledge must be updated as the world changes -- new facts emerge, old facts become outdated, and new capabilities are required. Yet the cost of full retraining (tens of millions of dollars for frontier models) makes incremental updates essential. This section surveys the intersection of continual learning with LLMs, organized by the stage of the LLM lifecycle where continual learning is applied.
+The advent of large language models (LLMs) has created both new urgency and fundamentally new challenges for continual learning [@jang2022towards, @scialom2025continual, @wu2024continual_llm_survey]. LLMs encode vast world knowledge in their parameters, and this knowledge must be updated as the world changes: new facts emerge, old facts become outdated, and new capabilities are required. Yet the cost of full retraining (tens of millions of dollars for frontier models) makes incremental updates essential. This section surveys the intersection of continual learning with LLMs, organized by the stage of the LLM lifecycle where continual learning is applied.
 
 ## Continual Pre-Training
 
-LLMs are typically pre-trained on massive corpora and then adapted to downstream tasks. Continual pre-training -- updating the model on new data without full retraining -- is essential for keeping models current with evolving world knowledge, new languages, and domain-specific content.
+LLMs are typically pre-trained on massive corpora and then adapted to downstream tasks. Continual pre-training (updating the model on new data without full retraining) is essential for keeping models current with evolving world knowledge, new languages, and domain-specific content.
 
 ### Data Mixing and Replay
 
@@ -17,27 +17,27 @@ Gupta et al. (2023) [@gupta2023continual] conducted a systematic study of contin
 
 ### Learning Rate Schedules
 
-Ibrahim et al. (2024) [@ibrahim2024investigating] investigated continual pre-training at scale, demonstrating that the learning rate schedule is one of the most critical design choices. Specifically, they showed that **learning rate re-warming** -- resetting the learning rate to a moderate value at the start of each new pre-training stage, rather than continuing from the decayed rate -- combined with careful data mixing strategies enables effective knowledge accumulation across multiple pre-training stages. Their experiments on the Llama model family showed that thoughtful continual pre-training can match or exceed the performance of training from scratch on the combined dataset, while using a fraction of the compute.
+Gupta et al. (2023) [@gupta2023continual] showed that the learning rate schedule is one of the most critical design choices, introducing **learning rate re-warming**: resetting the learning rate to a moderate value at the start of each new pre-training stage, rather than continuing from the decayed rate. Building on this, Ibrahim et al. (2024) [@ibrahim2024investigating] investigated continual pre-training at scale and demonstrated that combining re-warming with re-decaying of the learning rate and a small fraction of replay enables effective knowledge accumulation across multiple pre-training stages. Their experiments (on models of 405M and 10B parameters) showed that this recipe can match the performance of training from scratch on the combined dataset, while using a fraction of the compute.
 
 ### Domain-Adaptive Pre-Training
 
-A common application of continual pre-training is adapting a general-purpose LLM to a specific domain (e.g., biomedicine, law, finance). Gururangan et al. (2020) [@gururangan2020dont] showed that domain-adaptive pre-training (DAPT) on domain-specific corpora significantly improves downstream task performance, and that this adaptation can be done continually as new domain data becomes available. The challenge is maintaining general capabilities while acquiring domain expertise -- a classic stability-plasticity tradeoff applied to LLMs.
+A common application of continual pre-training is adapting a general-purpose LLM to a specific domain (e.g., biomedicine, law, finance). Gururangan et al. (2020) [@gururangan2020dont] showed that domain-adaptive pre-training (DAPT) on domain-specific corpora significantly improves downstream task performance, and that this adaptation can be done continually as new domain data becomes available. The challenge is maintaining general capabilities while acquiring domain expertise, a classic stability-plasticity tradeoff applied to LLMs.
 
 ## Continual Instruction Tuning
 
 ### Sequential Instruction Learning
 
-Wu et al. (2024) [@wu2024mitigating] addressed continual instruction tuning, where an LLM must learn to follow new types of instructions without forgetting how to handle previously learned instruction types. They proposed Self-Distillation for continual instruction tuning, using the model's own outputs as soft targets to preserve previous capabilities while learning new instruction-following abilities. The self-distillation approach is practical because it does not require storing previous task data -- the model itself serves as the "memory" of its previous capabilities.
+Wu et al. (2024) [@wu2024mitigating] addressed continual instruction tuning, where an LLM must learn to follow new types of instructions without forgetting how to handle previously learned instruction types. They proposed Self-Distillation for continual instruction tuning, using the model's own outputs as soft targets to preserve previous capabilities while learning new instruction-following abilities. The self-distillation approach is practical because it does not require storing previous task data; the model itself serves as the "memory" of its previous capabilities.
 
 ### Continual Alignment
 
-Reinforcement Learning from Human Feedback (RLHF) and related alignment methods can themselves induce forgetting of pre-training knowledge. The **alignment tax** -- degradation of general capabilities during alignment training -- is a form of catastrophic forgetting that has been observed across model families [@luo2023empirical]. Methods like PPO with KL penalties partially address this by constraining the fine-tuned model to stay close to the base model in distribution space, but more principled continual learning approaches are needed. DPO (Direct Preference Optimization) [@rafailov2023direct] implicitly constrains the updated model through the KL term in its objective, providing a form of regularization against forgetting.
+Reinforcement Learning from Human Feedback (RLHF) and related alignment methods can themselves induce forgetting of pre-training knowledge. The **alignment tax** (degradation of general capabilities during alignment training) is a form of catastrophic forgetting that has been observed across model families [@luo2023empirical]. Methods like PPO with KL penalties partially address this by constraining the fine-tuned model to stay close to the base model in distribution space, but more principled continual learning approaches are needed. DPO (Direct Preference Optimization) [@rafailov2023direct] implicitly constrains the updated model through the KL term in its objective, providing a form of regularization against forgetting.
 
-As models are continually updated with new human feedback -- incorporating new safety guidelines, correcting biases, or adapting to new use cases -- the challenge of maintaining existing alignment properties while adding new ones becomes a continual learning problem. Methods from the CL literature (replay of previous preference data, regularization to preserve alignment properties) are increasingly applied to this setting.
+As models are continually updated with new human feedback (incorporating new safety guidelines, correcting biases, or adapting to new use cases), the challenge of maintaining existing alignment properties while adding new ones becomes a continual learning problem. Methods from the CL literature (replay of previous preference data, regularization to preserve alignment properties) are increasingly applied to this setting.
 
 ## Knowledge Editing
 
-A closely related problem is **knowledge editing** -- updating specific facts in an LLM (e.g., changing the president of a country) without affecting other knowledge [@yao2023editing]. While not traditionally framed as continual learning, knowledge editing faces identical challenges: modifying the model's knowledge about one fact risks corrupting knowledge about related facts.
+A closely related problem is **knowledge editing**: updating specific facts in an LLM (e.g., changing the president of a country) without affecting other knowledge [@yao2023editing]. While not traditionally framed as continual learning, knowledge editing faces identical challenges: modifying the model's knowledge about one fact risks corrupting knowledge about related facts.
 
 ### Model Editor Networks
 
@@ -59,7 +59,7 @@ Adapter modules [@houlsby2019parameter] provide another PEFT mechanism suitable 
 
 ## Model Merging
 
-An emerging approach to continual learning for LLMs is **model merging** -- combining the parameters of models that have been independently fine-tuned on different tasks into a single model that performs well on all tasks.
+An emerging approach to continual learning for LLMs is **model merging**: combining the parameters of models that have been independently fine-tuned on different tasks into a single model that performs well on all tasks.
 
 ### Task Arithmetic
 

@@ -16,17 +16,17 @@ A network with $P$ parameters defines a loss surface $\mathcal{L}: \mathbb{R}^P 
 A critical point $\theta^*$ (where $\nabla \mathcal{L}(\theta^*) = 0$) is a **saddle point** if the Hessian $H = \nabla^2 \mathcal{L}(\theta^*)$ has both positive and negative eigenvalues. The number of negative eigenvalues is called the **index** of the saddle point.
 </Definition>
 
-<Theorem id="thm-saddle-dominance" name="Saddle Point Dominance in High Dimensions">
-For a random critical point in $P$ dimensions (under mild assumptions), the probability of being a local minimum is:
+<Remark id="rmk-saddle-dominance">
+**Saddle points dominate in high dimensions.** Being a local minimum requires *every* Hessian eigenvalue to be positive. For the Hessian of a high-dimensional random landscape, the eigenvalues are strongly correlated (their joint distribution resembles a random-matrix ensemble, not independent coin flips), so this is a rare large-deviation event. The probability that all $P$ eigenvalues are positive decays like
 
 <Equation id="eq-saddle-probability">
 
-$$P(\text{local minimum}) \approx 2^{-P}$$
+$$P(\text{local minimum}) \sim e^{-c P^2}$$
 
 </Equation>
 
-since each Hessian eigenvalue must be positive independently. For $P = 10^8$ (a 100M parameter model), this probability is less than $10^{-30000000}$.
-</Theorem>
+for a positive constant $c$: the exponent grows with $P^2$, not $P$. The practical takeaway is the same and is supported empirically in deep networks: the overwhelming majority of high-loss critical points are saddle points rather than local minima, and minima become exponentially rarer as dimension grows [@dauphin2014identifying].
+</Remark>
 
 <Remark id="rmk-saddle-not-minima">
 The practical implication: **the main obstacle to optimization is not bad local minima but saddle points and plateaus.** SGD's stochastic noise naturally helps escape saddle points because the noise has a component along the negative curvature directions, pushing the iterate away from the saddle. Formal results show that perturbed gradient descent escapes strict saddle points in polynomial time [@jin2017escape].
@@ -53,6 +53,18 @@ Empirical and theoretical studies have revealed rich structure in neural network
 **Edge of stability.** Classical optimization theory says GD converges only if $\eta < 2/\lambda_{\max}(H)$. Cohen et al. (2021) showed that in practice, GD first increases $\lambda_{\max}$ until it reaches $\approx 2/\eta$, then oscillates at this boundary while still decreasing the loss monotonically (in a time-averaged sense). This "edge of stability" phenomenon is not predicted by any existing convergence theory and suggests that neural network training dynamics are qualitatively different from classical optimization.
 </Remark>
 
+<Example id="ex-edge-of-stability-threshold">
+**Computing the edge-of-stability threshold.** Suppose we train with a fixed learning rate $\eta = 0.01$. Classical theory guarantees descent only while $\eta < 2/\lambda_{\max}(H)$, equivalently while
+
+$$\lambda_{\max}(H) < \frac{2}{\eta} = \frac{2}{0.01} = 200.$$
+
+Step 1: At initialization the sharpness is small, say $\lambda_{\max}(H) = 50$. Then $\eta \lambda_{\max} = 0.01 \times 50 = 0.5 < 2$, so we are comfortably inside the stable regime and the loss decreases monotonically.
+
+Step 2: Over training, progressive sharpening drives $\lambda_{\max}$ upward. It does not blow up past $200$; instead it climbs *toward* the threshold $2/\eta = 200$ and then hovers there. At $\lambda_{\max} = 200$ we have $\eta \lambda_{\max} = 2$, exactly the stability boundary.
+
+Step 3: At the boundary the loss no longer decreases at every step. It oscillates from step to step yet still trends down when averaged over a window. If we now *halved* the learning rate to $\eta = 0.005$, the new threshold would be $2/\eta = 400$, so the same $\lambda_{\max} = 200$ would again satisfy $\eta \lambda_{\max} = 1 < 2$, returning us to the stable regime until sharpening catches up to the new boundary.
+</Example>
+
 <Remark id="rmk-flat-minima">
 **Why flat minima generalize.** A minimum is "flat" if the loss surface curves gently around it: small perturbations to $\theta$ cause small changes in $\mathcal{L}$. Formally, if $\theta^*$ is in a flat minimum, then for a random perturbation $\delta$ with $\|\delta\| = \epsilon$:
 
@@ -72,7 +84,7 @@ Several factors explain the empirical success:
 | **Overparameterization** | $P \gg N$ creates many global minima; gradient descent reaches one [@du2019gradient] | Networks with more parameters are *easier* to train |
 | **SGD noise** | Stochastic gradients escape saddle points and sharp minima | Small-batch training generalizes better [@keskar2017large] |
 | **Skip connections** | Residual connections create smooth loss surfaces | ResNets train where plain networks fail [@he2016resnet] |
-| **Normalization** | BatchNorm/LayerNorm smooth the loss landscape | Enables much larger learning rates [@ioffe2015batch; @santurkar2018does] |
+| **Normalization** | BatchNorm/LayerNorm smooth the loss landscape | Enables much larger learning rates [@ioffe2015batchnorm; @santurkar2018does] |
 | **Initialization** | He/Xavier initialization places $\theta_0$ in a well-behaved region | Bad initialization causes vanishing/exploding gradients |
 | **Implicit regularization** | SGD's trajectory has an inductive bias toward simple solutions | Minimum-norm solutions in linear models [@gunasekar2018characterizing] |
 | **Progressive learning** | Warmup + LR decay matches training phases to landscape geometry | Standard in all large-scale training |
@@ -119,6 +131,26 @@ $$\eta_t = \eta_{\min} + \frac{1}{2}(\eta_{\max} - \eta_{\min})\left(1 + \cos\le
 
 </Equation>
 
+<Example id="ex-warmup-cosine-schedule">
+**Evaluating a warmup + cosine schedule.** Take $\eta_{\max} = 10^{-3}$, $\eta_{\min} = 10^{-5}$, warmup $w = 2000$ steps, and total $T = 100{,}000$ steps. We compute $\eta_t$ at three checkpoints.
+
+Step 1 (inside warmup, $t = 1000 \leq w$): use the warmup rule $\eta_t = \eta_{\max}\cdot\min(t/w, 1)$. Here $t/w = 1000/2000 = 0.5$, so
+
+$$\eta_{1000} = 10^{-3} \times 0.5 = 5\times 10^{-4}.$$
+
+Step 2 (start of decay, $t = w = 2000$): the cosine argument is $\frac{\pi(t-w)}{T-w} = \frac{\pi \cdot 0}{98{,}000} = 0$, and $\cos(0) = 1$, so
+
+$$\eta_{2000} = 10^{-5} + \tfrac{1}{2}(10^{-3} - 10^{-5})(1 + 1) = 10^{-5} + (10^{-3} - 10^{-5}) = 10^{-3}.$$
+
+The schedule is continuous: the cosine branch starts exactly at $\eta_{\max}$ where warmup ended.
+
+Step 3 (midpoint of decay, $t = 51{,}000$): now $t - w = 49{,}000$ and $T - w = 98{,}000$, so the argument is $\frac{\pi \cdot 49{,}000}{98{,}000} = \frac{\pi}{2}$, and $\cos(\pi/2) = 0$. Thus
+
+$$\eta_{51{,}000} = 10^{-5} + \tfrac{1}{2}(10^{-3} - 10^{-5})(1 + 0) = 10^{-5} + \tfrac{1}{2}(9.9\times 10^{-4}) \approx 5.05\times 10^{-4}.$$
+
+At the halfway point of the decay phase the learning rate sits roughly halfway (on a linear scale) between $\eta_{\max}$ and $\eta_{\min}$, as the cosine shape dictates. At the very end ($t = T$) the argument reaches $\pi$, $\cos(\pi) = -1$, and $\eta_T = \eta_{\min} = 10^{-5}$.
+</Example>
+
 <Remark id="rmk-schedule-phases">
 **Three phases of training:**
 
@@ -126,7 +158,7 @@ $$\eta_t = \eta_{\min} + \frac{1}{2}(\eta_{\max} - \eta_{\min})\left(1 + \cos\le
 2. **Stable phase** ($w < t < T_{\text{decay}}$): LR is near $\eta_{\max}$. The model explores the loss landscape, learning features and escaping shallow minima. Most learning happens here.
 3. **Decay phase** ($t > T_{\text{decay}}$): LR decreases toward $\eta_{\min}$. The optimizer refines its solution, settling into a flat minimum. The loss decreases slowly but generalization improves.
 
-The **WSD (Warmup-Stable-Decay)** schedule makes this explicit: warmup for 5% of training, constant LR for ~75%, then cosine decay for the final ~20%. This is increasingly popular because it does not require knowing the total training length in advance.
+The **WSD (Warmup-Stable-Decay)** schedule makes this explicit [@hu2024minicpm]: a short warmup, a long stable phase at roughly constant LR, then a final decay phase (typically the last 10% to 20% of training) that anneals the LR down. As rough illustrative splits, the warmup might take a few percent of training, the stable phase the bulk of it, and the decay the final stretch. This is increasingly popular because the stable phase can be extended indefinitely, so it does not require knowing the total training length in advance.
 </Remark>
 
 <Table id="tab-lr-schedules-opt" caption="Learning rate schedules and their typical use cases.">
@@ -156,7 +188,6 @@ The **WSD (Warmup-Stable-Decay)** schedule makes this explicit: warmup for 5% of
 | $T$ | Total training steps |
 | $\eta_{\min}, \eta_{\max}$ | Minimum and maximum learning rate |
 | $\gamma$ | Decay factor for step schedule |
-| $\kappa$ | Condition number |
 | SAM | Sharpness-Aware Minimization |
 | SWA | Stochastic Weight Averaging |
 | EMA | Exponential Moving Average |

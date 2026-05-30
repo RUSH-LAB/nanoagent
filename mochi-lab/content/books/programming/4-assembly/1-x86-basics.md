@@ -4,7 +4,7 @@ sidebar_position: 1
 
 # x86 Basics
 
-Understanding x86-64 assembly is not about writing kernels in assembly -- it is about reading what the compiler produces. When a PyTorch operator is slow, when a C++ extension crashes with a segfault, or when you want to verify that the compiler vectorized your inner loop, the ability to read assembly transforms you from someone who guesses to someone who knows. This chapter covers the x86-64 register set, the most common instructions, calling conventions, and how to read compiler output.
+Understanding x86-64 assembly is not about writing kernels in assembly; it is about reading what the compiler produces. When a PyTorch operator is slow, when a C++ extension crashes with a segfault, or when you want to verify that the compiler vectorized your inner loop, the ability to read assembly transforms you from someone who guesses to someone who knows. This chapter covers the x86-64 register set, the most common instructions, calling conventions, and how to read compiler output.
 
 ## Registers
 
@@ -45,7 +45,7 @@ AL   [7..0]    lower 8 bits
 </Code>
 
 <Remark id="rmk-x86-zero-extend">
-**The 32-bit write zero-extension rule.** Writing to a 32-bit register (e.g., `mov eax, 42`) automatically zero-extends the result into the full 64-bit register. This is why compilers often use `mov eax, 0` instead of `mov rax, 0` -- it is one byte shorter in the encoding. Writing to 16-bit or 8-bit sub-registers does **not** zero-extend, which can cause subtle bugs with stale upper bits.
+**The 32-bit write zero-extension rule.** Writing to a 32-bit register (e.g., `mov eax, 42`) automatically zero-extends the result into the full 64-bit register. This is why compilers often use `mov eax, 0` instead of `mov rax, 0`: it is one byte shorter in the encoding. Writing to 16-bit or 8-bit sub-registers does **not** zero-extend, which can cause subtle bugs with stale upper bits.
 </Remark>
 
 ## Common Instructions
@@ -59,7 +59,7 @@ mov rax, [rbx]          ; rax = *(rbx) (load from memory)
 mov [rbx], rax          ; *(rbx) = rax (store to memory)
 mov rax, [rbx+rcx*8+16] ; rax = *(rbx + rcx*8 + 16) (scaled index)
 movzx eax, byte [rsi]  ; zero-extend byte to 32 bits
-movsx rax, dword [rsi]  ; sign-extend 32-bit to 64 bits
+movsxd rax, dword [rsi] ; sign-extend 32-bit to 64 bits
 
 ; ── Address calculation ──
 lea rax, [rbx+rcx*4+8] ; rax = rbx + rcx*4 + 8 (NO memory access)
@@ -178,8 +178,9 @@ float dot(const float* restrict a, const float* restrict b, int n) {
 ```
 
 ```asm
-; Key portion of gcc -O3 -mavx2 output (simplified):
-; The compiler auto-vectorizes with AVX, processing 8 floats per iteration
+; Key portion of gcc -O3 -march=native -ffast-math output (simplified):
+; With reassociation enabled, the compiler auto-vectorizes with AVX,
+; processing 8 floats per iteration (-ffast-math also licenses vfmadd)
 .L3:
     vmovups  ymm1, [rdi+rax]       ; load 8 floats from a
     vfmadd231ps ymm0, ymm1, [rsi+rax]  ; ymm0 += a[i:i+8] * b[i:i+8]
@@ -249,10 +250,10 @@ result = foo(1, 2, 3, 4, 5, 6, 7, 8.0);
 
 <Remark id="rmk-x86-calling-conv-ml">
 **Why calling conventions matter for ML engineers.** Understanding calling conventions helps you:
-1. **Debug segfaults** in C++/CUDA extensions -- `gdb` backtraces show register state at each frame
-2. **Read profiler output** -- `perf record` annotates assembly with the calling convention
-3. **Understand ABI compatibility** -- mixing C and C++ in PyTorch extensions requires matching calling conventions
-4. **Debug Python-C boundary crashes** -- `pybind11` translates Python calls to the C ABI; mismatches cause subtle corruption
+1. **Debug segfaults** in C++/CUDA extensions: `gdb` backtraces show register state at each frame
+2. **Read profiler output**: `perf record` annotates assembly with the calling convention
+3. **Understand ABI compatibility**: mixing C and C++ in PyTorch extensions requires matching calling conventions
+4. **Debug Python-C boundary crashes**: `pybind11` translates Python calls to the C ABI; mismatches cause subtle corruption
 </Remark>
 
 ## FLAGS Register

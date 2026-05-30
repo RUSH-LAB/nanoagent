@@ -24,12 +24,12 @@ For continuous distributions, the **differential entropy** is $h(p) = -\int p(x)
 
 - **Non-negativity:** $H(p) \geq 0$ for discrete distributions (with equality iff $p$ is a point mass). Note: differential entropy can be negative.
 - **Maximum entropy:** For $K$ outcomes: $H(p) \leq \log K$ with equality iff $p$ is uniform.
-- **Concavity:** $H(\lambda p + (1-\lambda)q) \geq \lambda H(p) + (1-\lambda)H(q)$ -- mixing distributions increases uncertainty.
-- **Chain rule:** $H(X, Y) = H(X) + H(Y|X)$ -- joint entropy = marginal + conditional.
+- **Concavity:** $H(\lambda p + (1-\lambda)q) \geq \lambda H(p) + (1-\lambda)H(q)$: mixing distributions increases uncertainty.
+- **Chain rule:** $H(X, Y) = H(X) + H(Y|X)$ (joint entropy = marginal + conditional).
 - **Conditioning reduces entropy:** $H(X|Y) \leq H(X)$ with equality iff $X \perp Y$.
 
 <Remark id="rmk-entropy-meaning">
-**Operational interpretation.** Entropy is the expected number of bits (if $\log_2$) or nats (if $\ln$) needed to optimally encode samples from $p$. Shannon's source coding theorem states that the optimal lossless compression rate for i.i.d. samples from $p$ is exactly $H(p)$ bits per sample. No encoding can do better on average.
+**Operational interpretation.** Throughout this chapter $\log$ denotes the natural logarithm (nats) unless a base is stated explicitly, in which case $\log_2$ gives bits. Entropy is the expected number of bits (if $\log_2$) or nats (if $\ln$) needed to optimally encode samples from $p$. Shannon's source coding theorem states that the optimal lossless compression rate for i.i.d. samples from $p$ is exactly $H(p)$ bits per sample. No encoding can do better on average.
 
 **Maximum entropy distributions.** Given constraints, the maximum entropy distribution makes the fewest assumptions:
 - Given mean and variance $\to$ Gaussian
@@ -45,7 +45,11 @@ This principle justifies common distributional assumptions in ML.
 
 $$H(p) = -p\log p - (1-p)\log(1-p)$$
 
-This is maximized at $p = 1/2$ ($H = \log 2 = 1$ bit) and zero at $p \in \{0, 1\}$. The binary entropy function appears in the cross-entropy loss for binary classification, where it measures the cost per sample of using model probabilities $q$ when the true label distribution is $p$.
+This is maximized at $p = 1/2$ ($H = \log_2 2 = 1$ bit) and zero at $p \in \{0, 1\}$. At an intermediate point such as $p = 1/4$ (using $\log_2$ for bits):
+
+$$H(1/4) = -\tfrac{1}{4}\log_2 \tfrac{1}{4} - \tfrac{3}{4}\log_2 \tfrac{3}{4} = \tfrac{1}{4}(2) + \tfrac{3}{4}(0.415) \approx 0.811 \text{ bits}.$$
+
+The binary entropy function appears in the cross-entropy loss for binary classification, where it measures the cost per sample of using model probabilities $q$ when the true label distribution is $p$.
 </Example>
 
 ## Cross-Entropy
@@ -77,7 +81,7 @@ In all cases, minimizing cross-entropy = maximizing log-likelihood = minimizing 
 
 $$\text{PPL} = \exp\left(-\frac{1}{T}\sum_{t=1}^T \log p(x_t | x_{<t})\right) = \exp(H_{\text{cross-entropy}})$$
 
-Perplexity measures how many equally likely next tokens the model considers on average. Lower perplexity = better model. A perplexity of $K$ means the model is as uncertain as a uniform distribution over $K$ tokens. For English text, good language models achieve perplexity $\sim 15$-$25$ (circa 2024).
+Perplexity measures how many equally likely next tokens the model considers on average. Lower perplexity = better model. A perplexity of $K$ means the model is as uncertain as a uniform distribution over $K$ tokens. For English text, strong language models are typically reported to reach word-level perplexity in roughly the $10$-$30$ range on standard benchmarks, with the exact figure depending heavily on tokenization and dataset.
 </Remark>
 
 ## KL Divergence
@@ -114,8 +118,8 @@ For continuous distributions: $D_{\text{KL}}(p \| q) = \int p(x) \log \frac{p(x)
 <Remark id="rmk-kl-direction-ml">
 **KL direction matters profoundly in practice.**
 
-- **MLE minimizes forward KL** $D_{\text{KL}}(p_{\text{data}} \| p_\theta)$: the model must assign non-zero probability everywhere the data has support, or pay infinite cost. This makes MLE-trained models "mode-covering" -- they produce diverse but sometimes low-quality samples.
-- **VI minimizes reverse KL** $D_{\text{KL}}(q_\phi \| p(\theta|\mathcal{D}))$: the approximation $q$ can safely ignore modes of $p$ it cannot fit. This makes VI "mode-seeking" -- the approximation is tight around one mode but may miss others.
+- **MLE minimizes forward KL** $D_{\text{KL}}(p_{\text{data}} \| p_\theta)$: the model must assign non-zero probability everywhere the data has support, or pay infinite cost. This makes MLE-trained models "mode-covering": they produce diverse but sometimes low-quality samples.
+- **VI minimizes reverse KL** $D_{\text{KL}}(q_\phi \| p(\theta|\mathcal{D}))$: the approximation $q$ can safely ignore modes of $p$ it cannot fit. This makes VI "mode-seeking": the approximation is tight around one mode but may miss others.
 - **RLHF uses forward KL as a constraint:** $D_{\text{KL}}(\pi \| \pi_{\text{ref}}) \leq \epsilon$ prevents the policy from deviating too far from the reference model, maintaining generation quality.
 - **GANs approximate** various $f$-divergences (including KL) depending on the discriminator architecture.
 </Remark>
@@ -129,7 +133,7 @@ For the special case $p = \mathcal{N}(\mu, \text{diag}(\sigma^2))$ and $q = \mat
 
 $$D_{\text{KL}}(p \| q) = \frac{1}{2}\sum_{j=1}^d \left[\sigma_j^2 + \mu_j^2 - 1 - \log \sigma_j^2\right]$$
 
-This closed-form KL is why VAEs use Gaussian encoder and prior -- it makes the ELBO tractable.
+This closed-form KL is why VAEs use Gaussian encoder and prior: it makes the ELBO tractable.
 </Example>
 
 ## f-Divergences
@@ -168,7 +172,7 @@ where $f^*$ is the convex conjugate of $f$. This is the basis of $f$-GANs [@nowo
 - JS divergence: Original GAN
 - $f(t) = (t-1)^2$: Least-squares GAN
 
-The Wasserstein distance (used in WGAN) is *not* an $f$-divergence -- it is an optimal transport distance that metrizes weak convergence, avoiding the mode collapse issues of $f$-divergences.
+The Wasserstein distance (used in WGAN) is *not* an $f$-divergence: it is an optimal transport distance that metrizes weak convergence, avoiding the mode collapse issues of $f$-divergences.
 </Remark>
 
 ## Mutual Information
@@ -196,16 +200,20 @@ Equivalently: $I(X;Y) = H(X) + H(Y) - H(X,Y)$.
 <Remark id="rmk-mutual-info-ml">
 **Mutual information in ML:**
 
+<Table id="tab-mutual-info-ml" caption="Applications of mutual information in machine learning.">
+
 | Application | How MI Is Used |
 |-------------|---------------|
 | **Feature selection** | Select features $X_i$ that maximize $I(X_i; Y)$ with the target |
 | **InfoNCE loss** [@oord2018infonce] | Lower bound on $I(X; Z)$ using contrastive learning: $I(X;Z) \geq \log N - \mathcal{L}_{\text{NCE}}$ |
 | **Information bottleneck** [@tishby2000information] | Find representation $Z$ that maximizes $I(Z; Y)$ while minimizing $I(X; Z)$ |
 | **Representation quality** | Good representations have high $I(Z; Y)$ (predictive) and low $I(Z; X|Y)$ (compressed) |
-| **Independence testing** | $I(X; Y) = 0 \iff X \perp Y$ -- stronger than correlation (captures nonlinear dependence) |
+| **Independence testing** | $I(X; Y) = 0 \iff X \perp Y$ (stronger than correlation, captures nonlinear dependence) |
 | **Variational bounds** | Used in MINE [@belghazi2018mine], InfoNCE, and other contrastive objectives |
 
-MI captures *all* statistical dependencies (not just linear), making it the "gold standard" measure of association. However, MI is notoriously hard to estimate in high dimensions -- practical estimators use variational bounds.
+</Table>
+
+MI captures *all* statistical dependencies (not just linear), making it the "gold standard" measure of association. However, MI is notoriously hard to estimate in high dimensions: practical estimators use variational bounds.
 </Remark>
 
 ## Conditional Entropy and Chain Rules
@@ -221,7 +229,7 @@ $$H(X|Y) = -\sum_{x,y} p(x,y) \log p(x|y) = H(X,Y) - H(Y)$$
 </Definition>
 
 <Remark id="rmk-information-diagram">
-**The information diagram.** The relationships between entropy, conditional entropy, mutual information, and joint entropy can be visualized as a Venn diagram:
+**The information diagram.** The relationships between entropy, conditional entropy, mutual information, and joint entropy follow a set-like algebra (entropies behave like set sizes, with $I(X;Y)$ playing the role of an intersection):
 
 - $H(X,Y) = H(X) + H(Y|X) = H(Y) + H(X|Y)$ (chain rule)
 - $I(X;Y) = H(X) - H(X|Y) = H(Y) - H(Y|X)$ (mutual information as overlap)
@@ -251,7 +259,7 @@ $$I(X; \hat{Y}) \leq I(X; h_L) \leq \cdots \leq I(X; h_1) \leq I(X; X) = H(X)$$
 
 **Implications:**
 - Later layers cannot recover information lost by earlier layers. This motivates careful design of early layers and residual/skip connections (which break the Markov chain).
-- **Information bottleneck theory** [@tishby2015deep] conjectures that training has two phases: (1) fitting -- $I(h; Y)$ increases; (2) compression -- $I(X; h)$ decreases, keeping only task-relevant information.
+- **Information bottleneck theory** [@tishby2015deep] conjectures that training has two phases: (1) fitting, where $I(h; Y)$ increases; (2) compression, where $I(X; h)$ decreases, keeping only task-relevant information. This two-phase picture is empirically contested: [@saxe2018information] report that the compression phase depends on the activation nonlinearity and largely disappears for ReLU networks, so it should be read as a phenomenon observed in specific settings rather than a universal law.
 - **Sufficient statistics:** If a layer $h_l$ is a sufficient statistic for $Y$ given $X$ (i.e., $I(h_l; Y) = I(X; Y)$), then no information about $Y$ has been lost. This is the ideal case.
 
 Skip connections in ResNets violate the strict Markov chain structure, allowing $I(X; h_L)$ to remain close to $I(X; X)$ even in very deep networks.

@@ -4,7 +4,7 @@ sidebar_position: 1
 
 # Tensors
 
-Tensors are the fundamental data structure of PyTorch and deep learning. A tensor is a multi-dimensional array -- a generalization of scalars (0D), vectors (1D), matrices (2D), and higher-dimensional arrays (3D+). Every operation in a neural network -- from storing weights to computing gradients -- operates on tensors. Understanding tensor creation, memory layout, dtypes, and broadcasting is essential for writing correct and efficient PyTorch code.
+Tensors are the fundamental data structure of PyTorch and deep learning. A tensor is a multi-dimensional array, a generalization of scalars (0D), vectors (1D), matrices (2D), and higher-dimensional arrays (3D+). Every operation in a neural network, from storing weights to computing gradients, operates on tensors. Understanding tensor creation, memory layout, dtypes, and broadcasting is essential for writing correct and efficient PyTorch code.
 
 ## Creating Tensors
 
@@ -32,7 +32,7 @@ x_like = torch.zeros_like(X)             # Same shape, dtype, device as X
 x_new = X.new_zeros(5, 5)                # Same dtype and device, different shape
 x_rand = torch.randn_like(X)             # Same shape, random values
 
-# From NumPy (shares memory -- zero-copy!)
+# From NumPy (shares memory, zero-copy)
 import numpy as np
 np_array = np.array([1.0, 2.0, 3.0])
 t = torch.from_numpy(np_array)           # Shares memory with np_array
@@ -52,7 +52,7 @@ np_back = t.numpy()                       # Back to NumPy (only works on CPU ten
 | `nn.init.xavier_normal_(w)` | $\mathcal{N}(0, \sqrt{2/(\text{fan\_in} + \text{fan\_out})})$ | Sigmoid/Tanh layers |
 | `torch.zeros(...)` | Constant 0 | Biases, residual branch output |
 
-Using `torch.empty()` is fastest (no initialization), but the tensor contains whatever was previously in that memory -- always initialize before use.
+Using `torch.empty()` is fastest (no initialization), but the tensor contains whatever was previously in that memory, so always initialize before use.
 </Remark>
 
 ## Data Types (dtypes)
@@ -62,15 +62,15 @@ Using `torch.empty()` is fastest (no initialization), but the tensor contains wh
 | Dtype | Bits | Significand | Exponent | Range | Use Case |
 |-------|------|-------------|----------|-------|----------|
 | `torch.float32` (float) | 32 | 23 bits (~7 digits) | 8 bits | $\pm 3.4 \times 10^{38}$ | Default for training; master weights |
-| `torch.float16` (half) | 16 | 10 bits (~3 digits) | 5 bits | $\pm 6.5 \times 10^{4}$ | Mixed precision (requires loss scaling) |
-| `torch.bfloat16` | 16 | 7 bits (~2 digits) | 8 bits | $\pm 3.4 \times 10^{38}$ | Preferred for LLM training (no scaling needed) |
+| `torch.float16` (half) | 16 | 10 bits (~3.3 digits) | 5 bits | $\pm 6.5 \times 10^{4}$ | Mixed precision (requires loss scaling) |
+| `torch.bfloat16` | 16 | 7 bits (~2.4 digits) | 8 bits | $\pm 3.4 \times 10^{38}$ | Preferred for LLM training (no scaling needed) |
 | `torch.float64` (double) | 64 | 52 bits (~15 digits) | 11 bits | $\pm 1.8 \times 10^{308}$ | Numerical testing, scientific computing |
 | `torch.float8_e4m3fn` | 8 | 3 bits | 4 bits | $\pm 448$ | H100 inference/training (FP8) |
 | `torch.float8_e5m2` | 8 | 2 bits | 5 bits | $\pm 57344$ | FP8 gradients (wider range) |
-| `torch.int64` (long) | 64 | -- | -- | $\pm 9.2 \times 10^{18}$ | Indices, token IDs, labels |
-| `torch.int32` (int) | 32 | -- | -- | $\pm 2.1 \times 10^{9}$ | Indices (when int64 is wasteful) |
-| `torch.int8` | 8 | -- | -- | $-128$ to $127$ | Quantized inference |
-| `torch.bool` | 8 | -- | -- | True/False | Attention masks, conditions |
+| `torch.int64` (long) | 64 | n/a | n/a | $\pm 9.2 \times 10^{18}$ | Indices, token IDs, labels |
+| `torch.int32` (int) | 32 | n/a | n/a | $\pm 2.1 \times 10^{9}$ | Indices (when int64 is wasteful) |
+| `torch.int8` | 8 | n/a | n/a | $-128$ to $127$ | Quantized inference |
+| `torch.bool` | 8 | n/a | n/a | True/False | Attention masks, conditions |
 
 </Table>
 
@@ -116,7 +116,7 @@ BF16 trades precision for range. Since training gradients can span many orders o
 <Code id="code-device-placement" caption="Moving tensors between CPU and GPU devices.">
 
 ```python
-# Create directly on GPU (preferred -- avoids CPU -> GPU copy)
+# Create directly on GPU (preferred: avoids CPU -> GPU copy)
 x = torch.randn(3, 3, device='cuda')          # Default GPU (cuda:0)
 x = torch.randn(3, 3, device='cuda:1')        # Specific GPU
 
@@ -157,7 +157,7 @@ When debugging device errors, check `.device` on all tensors involved in the ope
 </Remark>
 
 <Remark id="rmk-pinned-memory">
-**Pinned (page-locked) memory for faster CPU-to-GPU transfers.** Normal CPU memory can be paged out to disk by the OS. GPU DMA engines cannot access paged-out memory, so CUDA must first copy data to a pinned (non-pageable) staging buffer, then DMA to the GPU -- a double copy.
+**Pinned (page-locked) memory for faster CPU-to-GPU transfers.** Normal CPU memory can be paged out to disk by the OS. GPU DMA engines cannot access paged-out memory, so CUDA must first copy data to a pinned (non-pageable) staging buffer, then DMA to the GPU, a double copy.
 
 ```python
 # Allocate pinned memory (stays in physical RAM, faster GPU transfers)
@@ -184,7 +184,7 @@ x = torch.tensor([[1, 2, 3],
                    [4, 5, 6]])
 
 print(x.shape)           # torch.Size([2, 3])
-print(x.stride())        # (3, 1) -- row 0 to row 1: jump 3 elements; col to col: jump 1
+print(x.stride())        # (3, 1): row 0 to row 1 jumps 3 elements; col to col jumps 1
 print(x.storage_offset()) # 0
 print(x.is_contiguous())  # True
 
@@ -196,23 +196,23 @@ print(x.is_contiguous())  # True
 # Transpose changes strides, NOT data
 y = x.T
 print(y.shape)           # torch.Size([3, 2])
-print(y.stride())        # (1, 3) -- strides are swapped!
+print(y.stride())        # (1, 3): strides are swapped
 print(y.is_contiguous())  # False (stride[0] < stride[1])
 # y still points to the SAME storage: [1, 2, 3, 4, 5, 6]
 # But y[0] = [1, 4] (stride 3), y[1] = [2, 5] (stride 3)
 
 # Slicing creates a view with offset and modified strides
 z = x[:, 1:]             # Columns 1 and 2
-print(z.stride())        # (3, 1) -- same strides
-print(z.storage_offset()) # 1 -- starts at element 1 in storage
-print(z.is_contiguous())  # True (strides are still decreasing)
+print(z.stride())        # (3, 1): inherited from x, not the (2, 1) a fresh (2, 2) tensor would have
+print(z.storage_offset()) # 1: starts at element 1 in storage
+print(z.is_contiguous())  # False (contiguous (2, 2) needs stride (2, 1); stride[i] must equal the product of sizes after dim i)
 ```
 
 </Code>
 
 ## Views vs Copies
 
-A **view** shares memory with the original tensor -- modifying one modifies the other. A **copy** allocates new memory.
+A **view** shares memory with the original tensor: modifying one modifies the other. A **copy** allocates new memory.
 
 <Code id="code-views-copies" caption="View operations (shared memory) vs copy operations (new memory).">
 
@@ -229,12 +229,14 @@ y = x.squeeze()           # Remove size-1 dimensions
 y = x.expand(3, 4, 4)     # Broadcast to larger size (no copy)
 y = x.permute(1, 0)       # Reorder dimensions
 
-# COPY operations (new memory allocated)
+# COPY operations (allocate new memory)
 y = x.clone()             # Explicit copy (preserves grad_fn)
 y = x.detach().clone()    # Copy without autograd history
-y = x.contiguous()        # Copy only if non-contiguous; no-op if already contiguous
 y = x.to(torch.float16)   # Dtype conversion always copies
 y = x.to('cuda')          # Device transfer always copies
+
+# MAY-COPY operation (copies only when needed)
+y = x.contiguous()        # Copies if non-contiguous; no-op (returns self) if already contiguous
 ```
 
 </Code>
@@ -246,7 +248,7 @@ y = x.to('cuda')          # Device transfer always copies
 x = torch.randn(4, 4)
 y = x.view(2, 8)
 y[0, 0] = 999.0
-print(x[0, 0])  # 999.0 -- y is a view, modifying y modifies x!
+print(x[0, 0])  # 999.0: y is a view, so modifying y modifies x
 
 # This is a feature, not a bug: views are essential for memory efficiency.
 # But it can cause subtle bugs if you modify a view unexpectedly.
@@ -254,16 +256,47 @@ print(x[0, 0])  # 999.0 -- y is a view, modifying y modifies x!
 # Safe pattern: clone if you need independence
 y = x.view(2, 8).clone()
 y[0, 0] = 999.0
-print(x[0, 0])  # Not 999 -- y is an independent copy
+print(x[0, 0])  # Not 999: y is an independent copy
+```
+
+</Example>
+
+<Example id="ex-stride-index-walkthrough">
+
+This example traces how shape, stride, and offset map a logical index to a physical storage location. The address formula is `offset + sum(index[i] * stride[i])`. The first lookup is fully worked; fill in the reasoning for the rest.
+
+```python
+x = torch.arange(6).reshape(2, 3)
+# Storage: [0, 1, 2, 3, 4, 5], shape (2, 3), stride (3, 1), offset 0
+
+# Worked: x[1, 2] lives at offset + 1*stride[0] + 2*stride[1]
+#       = 0 + 1*3 + 2*1 = 5  -> storage[5] = 5
+print(x[1, 2])            # 5
+
+y = x.T
+# y has shape (3, 2), stride (1, 3), offset 0 (same storage)
+# Your turn: y[2, 0] lives at 0 + 2*stride[0] + 0*stride[1]
+#          = 0 + 2*1 + 0*3 = 2  -> storage[2] = 2
+print(y[2, 0])            # 2
+
+z = x[:, 1:]
+# z has shape (2, 2), stride (3, 1), offset 1
+# Your turn: z[1, 1] lives at 1 + 1*stride[0] + 1*stride[1]
+#          = 1 + 1*3 + 1*1 = 5  -> storage[5] = 5
+print(z[1, 1])            # 5
+
+# Why z is non-contiguous: a fresh contiguous (2, 2) needs stride (2, 1),
+# but z inherited stride (3, 1) from x, so its rows skip a storage slot.
+print(z.is_contiguous())  # False
 ```
 
 </Example>
 
 <Remark id="rmk-view-vs-reshape">
 **`view()` vs `reshape()` vs `contiguous().view()`.** Use this decision tree:
-- **`view()`** -- when you know the tensor is contiguous. Fails with a RuntimeError if not.
-- **`reshape()`** -- when you are not sure about contiguity. Returns a view if possible, a copy otherwise. Safer but hides potential copies.
-- **`contiguous().view()`** -- when you want to be explicit: "make it contiguous first (copy if needed), then view." Clearest intent.
+- **`view()`**: when you know the tensor is contiguous. Fails with a RuntimeError if not.
+- **`reshape()`**: when you are not sure about contiguity. Returns a view if possible, a copy otherwise. Safer but hides potential copies.
+- **`contiguous().view()`**: when you want to be explicit, that is, "make it contiguous first (copy if needed), then view." Clearest intent.
 
 In practice, `reshape()` is the safest default. Use `view()` when you want the error if the tensor is unexpectedly non-contiguous (a sign of a bug).
 </Remark>
@@ -281,20 +314,20 @@ Broadcasting automatically expands tensor dimensions to make shapes compatible f
 # 3. Size-1 dimensions are "stretched" to match the other tensor
 
 # Example: adding a bias vector to a batch of features
-features = torch.randn(32, 10)   # Shape: (32, 10) -- 32 samples, 10 features
+features = torch.randn(32, 10)   # Shape: (32, 10), 32 samples, 10 features
 bias = torch.randn(10)           # Shape: (10,) -> broadcasted to (1, 10) -> (32, 10)
-result = features + bias          # Shape: (32, 10) -- bias added to each sample
+result = features + bias          # Shape: (32, 10), bias added to each sample
 
 # Example: batch outer product
 a = torch.randn(32, 5, 1)       # (32, 5, 1)
 b = torch.randn(32, 1, 7)       # (32, 1, 7)
-outer = a * b                    # (32, 5, 7) -- outer product per batch element
+outer = a * b                    # (32, 5, 7): outer product per batch element
 
 # Example: attention mask broadcasting
 # Q*K^T:   (B, H, T, T)         B=batch, H=heads, T=sequence length
 # Mask:    (B, 1, 1, T)         broadcasts across H and query positions
 scores = torch.randn(4, 8, 64, 64)   # (B, H, T, T)
-mask = torch.ones(4, 1, 1, 64)       # (B, 1, 1, T) -- broadcasts
+mask = torch.ones(4, 1, 1, 64)       # (B, 1, 1, T): broadcasts
 masked_scores = scores + mask          # (4, 8, 64, 64)
 
 # Common broadcasting shapes in ML:
@@ -309,13 +342,14 @@ masked_scores = scores + mask          # (4, 8, 64, 64)
 **Broadcasting can silently produce wrong results.** This is one of the most insidious bugs in ML code:
 
 ```python
-# Intended: add prediction (B, C) and target (B, C) element-wise
-pred = torch.randn(32, 10)    # (32, 10)
-target = torch.randn(32)      # (32,) -- WRONG: should be (32, 10)
+# Intended: subtract a per-sample target from a per-sample prediction, element-wise
+pred = torch.randn(32, 1)     # (32, 1): one prediction per sample, kept as a column
+target = torch.randn(32)      # (32,): one target per sample
 
-# This does NOT error! Broadcasting expands (32,) to (32, 1) then to (32, 10)
-loss = (pred - target.unsqueeze(1)) ** 2  # Correct: explicit unsqueeze
-loss = (pred - target) ** 2               # WRONG: broadcasts to (32, 32)!
+# This does NOT error! Right-aligned, (32, 1) and (32,) align as (32, 1) vs (1, 32),
+# so broadcasting silently expands both to (32, 32) instead of (32, 1).
+loss = (pred - target.unsqueeze(1)) ** 2  # Correct: target -> (32, 1), result is (32, 1)
+loss = (pred - target) ** 2               # WRONG: silently broadcasts to (32, 32)!
 ```
 
 **Defense:** Always assert shapes at module boundaries:

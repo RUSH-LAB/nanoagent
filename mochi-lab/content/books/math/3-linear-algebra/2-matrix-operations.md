@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # Matrix Operations
 
-Matrices are not just arrays of numbers -- they are representations of linear transformations. Every operation on a matrix (multiplication, inversion, transposition, decomposition) has both an algebraic definition and a geometric interpretation. Understanding both is essential: the algebra tells you how to compute, and the geometry tells you what the computation means. This chapter covers the core operations on matrices that underlie all of computational linear algebra and, by extension, all of deep learning.
+Matrices are not just arrays of numbers; they are representations of linear transformations. Every operation on a matrix (multiplication, inversion, transposition, decomposition) has both an algebraic definition and a geometric interpretation. Understanding both is essential: the algebra tells you how to compute, and the geometry tells you what the computation means. This section covers the core operations on matrices that underlie all of computational linear algebra and, by extension, all of deep learning.
 
 ## Matrix Multiplication
 
@@ -37,6 +37,23 @@ Understanding matrix multiplication from multiple perspectives is essential for 
 | **Outer product** | $C$ is a sum of rank-1 matrices | $C = \sum_{l=1}^{k} A_{:,l} B_{l,:}^\top$ |
 
 </Table>
+
+<Example id="ex-matmul-numeric">
+**A worked product, step by step.** Let
+
+$$
+A = \begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix}, \qquad B = \begin{pmatrix} 5 & 6 \\ 7 & 8 \end{pmatrix}.
+$$
+
+Using the entry-wise view, each $C_{ij}$ is the dot product of row $i$ of $A$ with column $j$ of $B$:
+
+- $C_{11} = (1)(5) + (2)(7) = 5 + 14 = 19$
+- $C_{12} = (1)(6) + (2)(8) = 6 + 16 = 22$
+- $C_{21} = (3)(5) + (4)(7) = 15 + 28 = 43$
+- $C_{22} = (3)(6) + (4)(8) = 18 + 32 = 50$
+
+So $C = AB = \begin{pmatrix} 19 & 22 \\ 43 & 50 \end{pmatrix}$. Computing $BA$ instead gives $\begin{pmatrix} 23 & 34 \\ 31 & 46 \end{pmatrix} \neq AB$, a concrete reminder that matrix multiplication is not commutative.
+</Example>
 
 <Example id="ex-matmul-attention">
 **Attention as matrix multiplication.** Self-attention computes $\text{Attention}(Q, K, V) = \text{softmax}(QK^\top / \sqrt{d}) \cdot V$.
@@ -82,6 +99,16 @@ The **inverse** $A^{-1}$ of a square matrix $A \in \mathbb{R}^{n \times n}$ sati
 Key properties: $(AB)^{-1} = B^{-1} A^{-1}$, $(A^\top)^{-1} = (A^{-1})^\top$, $\det(A^{-1}) = 1/\det(A)$.
 </Definition>
 
+<Example id="ex-inverse-2x2">
+**A worked $2 \times 2$ inverse.** For $A = \begin{pmatrix} a & b \\ c & d \end{pmatrix}$ with $\det(A) = ad - bc \neq 0$, the inverse has the closed form $A^{-1} = \frac{1}{ad - bc}\begin{pmatrix} d & -b \\ -c & a \end{pmatrix}$. Apply this to $A = \begin{pmatrix} 4 & 3 \\ 6 & 3 \end{pmatrix}$:
+
+1. Compute the determinant: $\det(A) = (4)(3) - (3)(6) = 12 - 18 = -6$ (nonzero, so the inverse exists).
+2. Swap the diagonal entries, negate the off-diagonal entries: $\begin{pmatrix} 3 & -3 \\ -6 & 4 \end{pmatrix}$.
+3. Divide by the determinant: $A^{-1} = -\frac{1}{6}\begin{pmatrix} 3 & -3 \\ -6 & 4 \end{pmatrix} = \begin{pmatrix} -\tfrac{1}{2} & \tfrac{1}{2} \\ 1 & -\tfrac{2}{3} \end{pmatrix}$.
+
+As a check, $A A^{-1} = \begin{pmatrix} 4 & 3 \\ 6 & 3 \end{pmatrix}\begin{pmatrix} -\tfrac{1}{2} & \tfrac{1}{2} \\ 1 & -\tfrac{2}{3} \end{pmatrix} = \begin{pmatrix} 1 & 0 \\ 0 & 1 \end{pmatrix} = I$, confirming the result. For $n > 2$ no such tidy formula is practical; use the factorizations in the next remark instead.
+</Example>
+
 <Remark id="rmk-no-explicit-inverse">
 **Never compute $A^{-1}$ explicitly.** To solve $Ax = b$:
 
@@ -95,7 +122,7 @@ Key properties: $(AB)^{-1} = B^{-1} A^{-1}$, $(A^\top)^{-1} = (A^{-1})^\top$, $\
 Cholesky is $2\times$ faster than LU and numerically more stable for SPD matrices. Always prefer factorization over inversion.
 </Remark>
 
-<Definition id="def-pseudo-inverse" name="Moore--Penrose Pseudoinverse">
+<Definition id="def-pseudo-inverse" name="Moore-Penrose Pseudoinverse">
 For any matrix $A \in \mathbb{R}^{m \times n}$ (not necessarily square or invertible), the **pseudoinverse** $A^+ \in \mathbb{R}^{n \times m}$ is the unique matrix satisfying:
 
 1. $AA^+A = A$
@@ -190,7 +217,7 @@ This is both numerically stable and efficient ($O(n^3/3)$ for the Cholesky facto
 - $(AB)C$ costs $2mkn + 2mnp$ FLOPs
 - $A(BC)$ costs $2knp + 2mkp$ FLOPs
 
-For $m = 1000$, $k = 10$, $n = 1000$, $p = 1$: $(AB)C$ costs $2 \times 10^7 + 2 \times 10^3 \approx 2 \times 10^7$, while $A(BC)$ costs $2 \times 10^4 + 2 \times 10^4 = 4 \times 10^4$ -- a 500x difference. In ML, this arises when computing $X W v$ for a data matrix $X$, weight matrix $W$, and a vector $v$ (e.g., in Hessian-vector products): always compute $(Wv)$ first, then $X(Wv)$.
+For $m = 1000$, $k = 10$, $n = 1000$, $p = 1$: $(AB)C$ costs $2 \times 10^7 + 2 \times 10^6 \approx 2 \times 10^7$, while $A(BC)$ costs $2 \times 10^4 + 2 \times 10^4 = 4 \times 10^4$ (a 500x difference). In ML, this arises when computing $X W v$ for a data matrix $X$, weight matrix $W$, and a vector $v$ (e.g., in Hessian-vector products): always compute $(Wv)$ first, then $X(Wv)$.
 </Remark>
 
 ## Special Matrix Types
@@ -211,13 +238,13 @@ For $m = 1000$, $k = 10$, $n = 1000$, $p = 1$: $(AB)C$ costs $2 \times 10^7 + 2 
 
 ## Notation Summary
 
-<Table id="tab-notation-matops" caption="Notation used in this chapter.">
+<Table id="tab-notation-matops" caption="Notation used in this section.">
 
 | Symbol | Meaning |
 |--------|---------|
 | $A^\top$ | Transpose of $A$ |
 | $A^{-1}$ | Inverse of $A$ |
-| $A^+$ | Moore--Penrose pseudoinverse |
+| $A^+$ | Moore-Penrose pseudoinverse |
 | $I$ or $I_n$ | $n \times n$ identity matrix |
 | $\text{rank}(A)$ | Rank (dimension of column space) |
 | $\text{tr}(A)$ | Trace (sum of diagonal elements) |

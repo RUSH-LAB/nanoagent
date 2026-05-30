@@ -4,7 +4,7 @@ sidebar_position: 4
 
 # Data Loading
 
-Data loading is the most underestimated component of ML training. A poorly designed data pipeline can make your GPU sit idle while waiting for the next batch, wasting expensive compute. This chapter covers the PyTorch data loading system -- `Dataset`, `DataLoader`, and their many configuration options -- with emphasis on the performance implications of each choice.
+Data loading is the most underestimated component of ML training. A poorly designed data pipeline can make your GPU sit idle while waiting for the next batch, wasting expensive compute. This section covers the PyTorch data loading system (`Dataset`, `DataLoader`, and their many configuration options) with emphasis on the performance implications of each choice.
 
 ## Dataset
 
@@ -27,7 +27,7 @@ class TextDataset(Dataset):
         return len(self.texts)
 
     def __getitem__(self, idx):
-        # Called once per sample -- this is where preprocessing happens
+        # Called once per sample: this is where preprocessing happens
         tokens = self.tokenizer(
             self.texts[idx],
             max_length=self.max_len,
@@ -96,14 +96,14 @@ loader = DataLoader(
     num_workers=4,           # Number of parallel data loading processes
     pin_memory=True,         # Use page-locked memory for faster GPU transfer
     drop_last=True,          # Drop last incomplete batch (important for DDP)
-    prefetch_factor=2,       # Each worker prefetches this many batches
+    prefetch_factor=2,       # Each worker prefetches this many batches (only valid when num_workers > 0)
     persistent_workers=True, # Keep workers alive between epochs (avoids fork overhead)
     collate_fn=None,         # Custom function to merge samples into a batch
 )
 
 # Training loop
 for batch in loader:
-    # batch is on CPU -- move to GPU with non_blocking for async transfer
+    # batch is on CPU: move to GPU with non_blocking for async transfer
     input_ids = batch['input_ids'].cuda(non_blocking=True)
     labels = batch['label'].cuda(non_blocking=True)
     output = model(input_ids)
@@ -117,8 +117,8 @@ for batch in loader:
 |-----------|---------|---------------|--------|
 | `batch_size` | 1 | Task-dependent (8-256 typical) | Larger = better GPU utilization, but more memory |
 | `num_workers` | 0 | 4-8 per GPU | More = faster loading, but more CPU/RAM |
-| `pin_memory` | False | **True** (always for GPU training) | 10-30% faster CPU-to-GPU transfer |
-| `prefetch_factor` | 2 | 2-4 | Higher = smoother pipeline, but more memory |
+| `pin_memory` | False | **True** (always for GPU training) | Often 10-30% faster CPU-to-GPU transfer depending on batch size and transfer pattern |
+| `prefetch_factor` | `None` (effective 2 when num_workers > 0) | 2-4 | Higher = smoother pipeline, but more memory. Setting it with num_workers=0 raises an error |
 | `persistent_workers` | False | **True** (if num_workers > 0) | Avoids worker restart overhead between epochs |
 | `shuffle` | False | **True** for training, **False** for eval | Randomization for SGD; deterministic for eval |
 | `drop_last` | False | **True** for DDP training | Ensures all ranks get same-sized batches |
@@ -159,7 +159,7 @@ Without pin_memory:  Regular RAM → Pinned staging buffer → GPU HBM  (2 copie
 With pin_memory:     Pinned RAM → GPU HBM                           (1 copy)
 ```
 
-The extra copy adds ~30% overhead. Always use `pin_memory=True` when training on GPU.
+The extra copy can add significant overhead (often 10-30% depending on workload). Always use `pin_memory=True` when training on GPU.
 
 `non_blocking=True` on `.cuda()` makes the transfer asynchronous: the CPU starts the DMA transfer and immediately continues to the next operation, overlapping data transfer with GPU computation.
 </Remark>
@@ -171,6 +171,8 @@ For streaming data that does not fit in memory, or data that arrives sequentiall
 <Code id="code-iterable-dataset" caption="IterableDataset for streaming and large-scale data.">
 
 ```python
+import glob
+import json
 import torch
 from torch.utils.data import IterableDataset, DataLoader
 
@@ -187,6 +189,8 @@ class StreamingDataset(IterableDataset):
             files = self.file_paths
         else:
             # Multi-process: each worker processes a subset of files
+            # Note: if len(file_paths) < num_workers, use round-robin instead:
+            # files = self.file_paths[worker_info.id::worker_info.num_workers]
             per_worker = len(self.file_paths) // worker_info.num_workers
             worker_id = worker_info.id
             start = worker_id * per_worker
@@ -197,7 +201,7 @@ class StreamingDataset(IterableDataset):
         for path in files:
             with open(path, 'r') as f:
                 for line in f:
-                    yield process_line(line)  # Yield one sample at a time
+                    yield json.loads(line)  # Yield one parsed sample at a time
 
 # Usage
 dataset = StreamingDataset(glob.glob('/data/train/*.jsonl'))
@@ -290,14 +294,41 @@ class BucketSampler(Sampler):
         if self.shuffle:
             random.shuffle(batches)  # Shuffle batch ORDER, not within-batch order
         for batch in batches:
+            # Note: 'yield from' produces flat indices; DataLoader re-batches them.
+            # Bucket boundaries only hold when len(dataset) divides evenly by batch_size.
+            # For guaranteed bucket-aligned batches, implement as a batch_sampler instead.
             yield from batch
 
     def __len__(self):
         return len(self.sorted_indices)
 ```
 
-This reduces wasted padding by 30-50% for NLP workloads with variable-length inputs.
+This can cut wasted padding substantially for NLP workloads with variable-length inputs, typically by roughly a third to a half, though the exact figure depends entirely on the length distribution. The example below works through one such distribution.
 </Remark>
+
+<Example id="ex-padding-savings">
+
+**Counting padded tokens under three padding strategies.** Take six sequences with token lengths `10, 40, 60, 90, 480, 500` (total real content `10 + 40 + 60 + 90 + 480 + 500 = 1180` tokens), batched two at a time, with a fixed maximum length of `512`. The compute cost of a transformer batch scales with the total number of *padded* tokens, so we count those for each strategy.
+
+*Step 1: fixed-max padding.* Every sequence is padded to `512`, regardless of its content:
+
+$$T_{\text{fixed}} = 6 \times 512 = 3072 \text{ tokens}.$$
+
+*Step 2: dynamic padding with random batching.* Each batch is padded to the longest sequence *in that batch*. With a random pairing such as `(10, 500)`, `(40, 480)`, `(60, 90)`, the per-batch maxima are `500, 480, 90`:
+
+$$T_{\text{dynamic}} = 2(500) + 2(480) + 2(90) = 1000 + 960 + 180 = 2140 \text{ tokens}.$$
+
+*Step 3: bucketed padding.* Sort by length first (`10, 40, 60, 90, 480, 500`), then batch adjacent sequences: `(10, 40)`, `(60, 90)`, `(480, 500)`, giving maxima `40, 90, 500`:
+
+$$T_{\text{bucket}} = 2(40) + 2(90) + 2(500) = 80 + 180 + 1000 = 1260 \text{ tokens}.$$
+
+*Step 4: the savings.* Bucketing cuts the padded-token count relative to dynamic random batching by
+
+$$\frac{T_{\text{dynamic}} - T_{\text{bucket}}}{T_{\text{dynamic}}} = \frac{2140 - 1260}{2140} \approx 0.41,$$
+
+a 41% reduction, which lands squarely in the typical third-to-half range quoted above. Relative to fixed-max padding the saving is even larger (`(3072 - 1260) / 3072 ≈ 59%`), but fixed-max is rarely the realistic baseline once dynamic padding is in place.
+
+</Example>
 
 ## Distributed Data Loading
 

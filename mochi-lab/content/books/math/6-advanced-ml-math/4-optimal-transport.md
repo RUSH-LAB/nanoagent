@@ -15,7 +15,7 @@ Given two probability distributions $\mu$ (source) and $\nu$ (target) over a spa
 
 $$\inf_{T: T_\# \mu = \nu} \int c(x, T(x)) \, d\mu(x)$$
 
-**Kantorovich formulation** (1942): Relax to a transport *plan* $\gamma \in \Pi(\mu, \nu)$ -- a joint distribution with marginals $\mu$ and $\nu$ -- that allows mass splitting:
+**Kantorovich formulation** (1942): Relax to a transport *plan* $\gamma \in \Pi(\mu, \nu)$ (a joint distribution with marginals $\mu$ and $\nu$) that allows mass splitting:
 
 <Equation id="eq-ot-problem">
 
@@ -27,7 +27,7 @@ where $c(x, y)$ is the cost of moving a unit of mass from $x$ to $y$, and $\Pi(\
 </Definition>
 
 <Remark id="rmk-monge-vs-kantorovich">
-**Monge vs. Kantorovich.** Monge's formulation requires a deterministic map (each source point goes to exactly one destination), which may not exist (e.g., transporting a point mass to two point masses). Kantorovich's relaxation always has a solution and is a linear program. When the cost is $c(x,y) = \|x-y\|^2$ and $\mu$ is absolutely continuous, the Monge and Kantorovich solutions coincide: the optimal plan is supported on the graph of a map $T^*(x) = x - \nabla \phi(x)$ where $\phi$ is a convex function (Brenier's theorem).
+**Monge vs. Kantorovich.** Monge's formulation requires a deterministic map (each source point goes to exactly one destination), which may not exist (e.g., transporting a point mass to two point masses). Kantorovich's relaxation always has a solution and is a linear program. When the cost is $c(x,y) = \|x-y\|^2$ and $\mu$ is absolutely continuous, the Monge and Kantorovich solutions coincide: the optimal plan is supported on the graph of a map $T^*(x) = \nabla \psi(x)$ where $\psi$ is a convex function (Brenier's theorem). Writing $T^*(x) = x - \nabla \phi(x)$, the convex Brenier potential is $\psi(x) = \tfrac{1}{2}\|x\|^2 - \phi(x)$, not $\phi$ itself.
 </Remark>
 
 ## Wasserstein Distance
@@ -75,7 +75,7 @@ $$W_2^2(\mu, \nu) = \|m_1 - m_2\|^2 + \text{tr}\left(\Sigma_1 + \Sigma_2 - 2\lef
 
 </Equation>
 
-For diagonal covariances: $W_2^2 = \|m_1 - m_2\|^2 + \sum_i (\sigma_{1,i} - \sigma_{2,i})^2$. This is used in the FID (Frechet Inception Distance) metric for evaluating generative models, where the Inception features of real and generated images are modeled as Gaussians.
+For diagonal covariances: $W_2^2 = \|m_1 - m_2\|^2 + \sum_i (\sqrt{\Sigma_{1,i}} - \sqrt{\Sigma_{2,i}})^2$ (where $\Sigma_{k,i}$ denotes the $i$-th diagonal variance of $\Sigma_k$). This is used in the FID (Frechet Inception Distance) metric for evaluating generative models, where the Inception features of real and generated images are modeled as Gaussians.
 </Example>
 
 ## Kantorovich Duality
@@ -143,7 +143,7 @@ The entropy term $\epsilon H(\gamma)$ encourages the transport plan to spread ou
 **Sinkhorn algorithm properties:**
 
 - **Convergence:** Linear rate $O((1-\delta)^\ell)$ where $\delta$ depends on $\epsilon$ and the cost matrix. Smaller $\epsilon$ means slower convergence but more accurate OT.
-- **GPU-friendly:** Each iteration is a matrix-vector multiply $Kv$ and elementwise operations -- perfectly suited for GPU parallelism. For $n$ points, each iteration is $O(n^2)$.
+- **GPU-friendly:** Each iteration is a matrix-vector multiply $Kv$ and elementwise operations, perfectly suited for GPU parallelism. For $n$ points, each iteration is $O(n^2)$.
 - **Differentiable:** Both the forward and backward passes are differentiable, enabling end-to-end learning with OT losses. Automatic differentiation through the Sinkhorn iterations is straightforward.
 - **Log-domain stability:** For small $\epsilon$, the kernel $K$ has entries close to 0 or very large. Computing in log-domain: $\log u, \log v, \log K$ avoids numerical underflow/overflow.
 - **Minibatch Sinkhorn:** For large-scale problems, compute Sinkhorn on random minibatches of source and target points. This gives a biased but useful estimator.

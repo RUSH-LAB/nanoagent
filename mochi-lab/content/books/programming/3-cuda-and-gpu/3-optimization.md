@@ -10,7 +10,7 @@ The difference between a naive CUDA kernel and an optimized one can be 10-100x. 
 
 All 32 threads in a warp execute the same instruction. When threads take different branches, both paths are executed with threads masked:
 
-<Code id="code-optimization-1" caption="All 32 threads in a warp execute the same instruction.">
+<Code id="code-optimization-1" caption="Avoiding warp divergence: branching on thread index vs branching on warp boundaries.">
 
 ```cuda
 // Divergent: threads in the same warp take different branches
@@ -41,7 +41,7 @@ if (threadIdx.x / 32 == 0) {
 
 Naive matrix multiply has poor data reuse. **Tiling** loads sub-matrices into shared memory:
 
-<Code id="code-optimization-2" caption="Naive matrix multiply has poor data reuse.">
+<Code id="code-optimization-2" caption="Shared-memory tiling: staging sub-matrices to reuse each loaded element across a tile.">
 
 ```cuda
 #define TILE 16
@@ -73,7 +73,7 @@ __global__ void matmul_tiled(float* A, float* B, float* C, int N) {
 
 </Code>
 
-The tiled version reads each element from global memory once per tile instead of once per output element, reducing global memory accesses by a factor of `TILE`.
+The tiled version reads each element from global memory once per tile instead of once per output element, reducing global memory accesses by a factor of `TILE`. Note: This kernel assumes N is an exact multiple of TILE; production code requires boundary guards for arbitrary N.
 
 <Remark id="rmk-tiling-analysis">
 **Tiling analysis for matrix multiplication.**
@@ -81,18 +81,18 @@ The tiled version reads each element from global memory once per tile instead of
 | Version | Global Memory Reads per Output | FLOPS per Read | Arithmetic Intensity |
 |---------|-------------------------------|----------------|---------------------|
 | Naive ($N \times N$) | $2N$ reads per output element | 1 FLOP per read | 0.25 FLOPS/byte |
-| Tiled ($T \times T$ tiles) | $2N/T$ reads per output element | $T$ FLOPS per read | $T/8$ FLOPS/byte |
-| Tiled ($T=16$) | $N/8$ reads | 16 FLOPS per read | 2 FLOPS/byte |
-| Tiled ($T=32$) | $N/16$ reads | 32 FLOPS per read | 4 FLOPS/byte |
+| Tiled ($T \times T$ tiles) | $2N/T$ reads per output element | $T$ FLOPS per read | $T/4$ FLOPS/byte |
+| Tiled ($T=16$) | $N/8$ reads | 16 FLOPS per read | 4 FLOPS/byte |
+| Tiled ($T=32$) | $N/16$ reads | 32 FLOPS per read | 8 FLOPS/byte |
 
 For a 1024x1024 matrix with $T=16$: global memory reads decrease by 16x compared to naive. On H100, the ridge point (where compute meets bandwidth) for FP32 is ~20 FLOPS/byte, so even tiled FP32 GEMM is memory-bound. Using Tensor Cores (FP16) shifts the ridge point, making tiled GEMM compute-bound.
 </Remark>
 
 ## Parallel Reduction
 
-Summing an array in parallel:
+A parallel tree reduction sums an array in logarithmic depth (log₂ N steps) instead of linear sequential time, trading per-thread work for massive parallelism. Each step halves the active threads:
 
-<Code id="code-optimization-3" caption="Summing an array in parallel.">
+<Code id="code-optimization-3" caption="Log-depth tree reduction: halving the active threads each step to sum in shared memory.">
 
 ```cuda
 __global__ void reduce_sum(float* input, float* output, int n) {
@@ -122,7 +122,7 @@ __global__ void reduce_sum(float* input, float* output, int n) {
 **Tip:** For the final warp (32 threads), you can skip `__syncthreads()` and use `__shfl_down_sync` for faster warp-level reduction:
 </Remark>
 
-<Code id="code-optimization-4" caption="Tip: For the final warp (32 threads), you can skip `__syncthreads()` and.">
+<Code id="code-optimization-4" caption="Warp-level reduction using `__shfl_down_sync`, avoiding `__syncthreads` for the final 32 threads.">
 
 ```cuda
 // Warp-level reduction (no shared memory needed)
@@ -139,7 +139,7 @@ for (int offset = 16; offset > 0; offset >>= 1) {
 
 Streams enable concurrent execution of kernels and memory copies:
 
-<Code id="code-optimization-5" caption="Streams enable concurrent execution of kernels and memory copies.">
+<Code id="code-optimization-5" caption="Overlapping with streams: independent copy-then-kernel pipelines run concurrently on separate streams.">
 
 ```cuda
 cudaStream_t stream1, stream2;

@@ -4,7 +4,7 @@ sidebar_position: 6
 
 # Debugging
 
-Debugging deep learning code is uniquely challenging. Unlike traditional software bugs that produce immediate errors, ML bugs often manifest as *silently wrong results* -- the model trains, produces numbers, but those numbers are incorrect. Training might converge to a suboptimal loss, or the model might fail to generalize. This chapter covers the most common bugs, systematic debugging strategies, and the tools PyTorch provides for diagnosing issues.
+Debugging deep learning code is uniquely challenging. Unlike traditional software bugs that produce immediate errors, ML bugs often manifest as *silently wrong results*: the model trains, produces numbers, but those numbers are incorrect. Training might converge to a suboptimal loss, or the model might fail to generalize. This chapter covers the most common bugs, systematic debugging strategies, and the tools PyTorch provides for diagnosing issues.
 
 ## The Debugging Hierarchy
 
@@ -31,7 +31,7 @@ PyTorch can track where NaN/Inf values originate by recording the operation that
 <Code id="code-anomaly-detection" caption="PyTorch anomaly detection pinpoints the exact operation that produces NaN.">
 
 ```python
-# Enable anomaly detection (adds significant overhead -- debug only)
+# Enable anomaly detection (adds significant overhead, debug only)
 torch.autograd.set_detect_anomaly(True)
 
 # As a context manager (scoped to specific code)
@@ -199,7 +199,7 @@ for step, (data, target) in enumerate(loader):
 | Log of zero/negative | `log(prob)` where `prob <= 0` | NaN in loss | Clamp: `torch.log(x.clamp(min=1e-8))` |
 | Exp overflow | `exp(x)` where `x > 88` (FP32) | Inf then NaN | Use log-space: `log_softmax` instead of `softmax + log` |
 | FP16 overflow | Gradients > 65504 | NaN with mixed precision | Use BF16, or increase GradScaler initial scale |
-| FP16 underflow | Gradients < $6 \times 10^{-8}$ | Gradients become 0, loss plateaus | Use BF16, or GradScaler |
+| FP16 underflow | Gradients below the smallest normal ($\approx 6 \times 10^{-5}$) lose precision in the subnormal range; full flush-to-zero near $6 \times 10^{-8}$ | Gradients become 0, loss plateaus | Use BF16, or GradScaler |
 | Unstable normalization | LayerNorm/BatchNorm with zero variance | NaN after norm layer | Increase epsilon in norm layers |
 | Attention score overflow | $QK^T/\sqrt{d}$ produces large values | NaN after softmax | Use scaled dot-product attention, or clamp scores |
 | Incorrect loss function | Using loss that expects different input | Persistent NaN | Verify loss function API (log-probs vs logits) |
@@ -238,6 +238,47 @@ normalized = F.normalize(x, dim=-1)  # Handles zero-norm internally
 ```
 </Remark>
 
+<Example id="ex-nan-end-to-end" name="Tracing a NaN from symptom to fix">
+
+**Symptom.** A transformer trains fine for a few hundred steps, then the loss prints `nan` and never recovers. There is no Python exception: the model keeps running, but every subsequent loss is `nan`.
+
+*Step 1: localize the operation.* Wrap one step in anomaly detection so PyTorch reports the exact backward op and the line where the offending tensor was created:
+
+```python
+with torch.autograd.detect_anomaly():
+    output = model(input)
+    loss = criterion(output, target)
+    loss.backward()
+```
+
+The error points at `LogBackward0` created inside a custom loss that computes `-torch.log(probs)`.
+
+<details>
+<summary>Step 2: what is the underlying cause?</summary>
+
+The custom loss takes `log` of a probability that can reach exactly `0` (for example, after an aggressive softmax saturates one logit). `log(0)` is `-inf`, and `-inf` propagated through the backward pass becomes `nan` in the gradients, which then corrupts the weights so that *every* later step produces `nan`. The forward loss looked finite at first only because the probability had not yet collapsed to zero.
+
+</details>
+
+<details>
+<summary>Step 3: what is the fix?</summary>
+
+Replace the manual `log` of a probability with a numerically stable formulation. Either clamp the argument, or better, fuse the log into the softmax with `log_softmax` / `cross_entropy`:
+
+```python
+# Before: -torch.log(probs)  can hit log(0) = -inf
+# After:  let PyTorch fuse log and softmax for stability
+loss = F.cross_entropy(logits, targets)
+```
+
+After the change, rerun the overfit-one-batch test (below) to confirm the loss now descends smoothly instead of diverging to `nan`.
+
+</details>
+
+This is the canonical loop: anomaly detection turns a silent `nan` into a named operation and source line (the *diagnosis*), the NaN-causes table maps that operation to a root cause, and the defensive-coding patterns supply the *fix*.
+
+</Example>
+
 ## Memory Debugging
 
 <Code id="code-memory-debugging" caption="GPU memory debugging: tracking allocation, finding leaks.">
@@ -257,7 +298,7 @@ torch.cuda.reset_peak_memory_stats()
 peak = torch.cuda.max_memory_allocated() / 1e9
 print(f"Peak memory: {peak:.2f} GB")
 
-# Memory snapshot (PyTorch 2.1+) -- visualize memory over time
+# Memory snapshot (PyTorch 2.1+) to visualize memory over time
 torch.cuda.memory._record_memory_history(max_entries=100000)
 # ... run training steps ...
 torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")
@@ -271,13 +312,17 @@ torch.cuda.memory._record_memory_history(enabled=None)  # Stop recording
 
 | Component | Memory | Formula | Typical for 7B Model |
 |-----------|--------|---------|---------------------|
-| Model parameters | $4P$ bytes (FP32) or $2P$ (BF16) | - | 14 GB (FP32) |
-| Gradients | $4P$ bytes (FP32) or $2P$ (BF16) | Same as params | 14 GB (FP32) |
+| Model parameters | $4P$ bytes (FP32) or $2P$ (BF16) | (see formula) | 14 GB (BF16) |
+| Gradients | $4P$ bytes (FP32) or $2P$ (BF16) | Same as params | 14 GB (BF16) |
 | Optimizer state (Adam) | $8P$ bytes (m + v, FP32) | 2x parameters | 56 GB |
 | Activations (for backward) | Depends on batch size and model | $O(B \times L \times D^2)$ | 10-50 GB |
-| **Total** | - | ~$16P$ + activations | **94+ GB** |
+| **Total** | (sum of rows) | ~$16P$ + activations | **94+ GB** |
 
 </Table>
+
+<Remark id="rmk-memory-budget-assumptions">
+**Assumptions behind the budget.** The table above assumes a pure-FP32 setup, where parameters and gradients are stored in FP32 ($4P$ each) and Adam keeps two FP32 moments ($8P$). In a mixed-precision setup the layout shifts: parameters and gradients are held in BF16 ($2P$ each), but the optimizer keeps an FP32 master copy of the weights ($4P$) alongside the two FP32 moments ($8P$). The BF16 rows in the last column reflect this mixed-precision layout, so a complete mixed-precision budget adds the master copy: for a 7B model that is roughly $4P \approx 28$ GB on top of the 14 + 14 + 56 GB already listed. Either way the per-parameter cost lands near $16P$ to $20P$ before activations.
+</Remark>
 
 <Remark id="rmk-memory-leaks">
 **Common memory leaks and their fixes:**

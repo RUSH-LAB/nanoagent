@@ -4,7 +4,7 @@ sidebar_position: 5
 
 # Training Loop
 
-The training loop is where everything comes together: data loading, forward pass, loss computation, backward pass, and optimizer step. This chapter presents a production-quality training loop with mixed precision, gradient clipping, learning rate scheduling, and checkpointing -- and explains *why* each component is there.
+The training loop is where everything comes together: data loading, forward pass, loss computation, backward pass, and optimizer step. This chapter presents a production-quality training loop with mixed precision, gradient clipping, learning rate scheduling, and checkpointing, and explains *why* each component is there.
 
 ## Complete Training Loop
 
@@ -28,7 +28,11 @@ def train(model, train_loader, val_loader, epochs, lr=3e-4):
         eps=1e-8,                # Numerical stability
     )
 
-    # Learning rate schedule: warmup + cosine decay
+    # Learning rate schedule: OneCycle (cosine warmup + cosine decay).
+    # OneCycleLR ignores the optimizer's lr: it starts at max_lr/div_factor
+    # (default max_lr/25), ramps UP to max_lr with a cosine curve, then anneals
+    # down to max_lr/(div_factor*final_div_factor). The start/end LRs are set by
+    # div_factor and final_div_factor, not by the optimizer's lr.
     total_steps = len(train_loader) * epochs
     warmup_steps = int(0.1 * total_steps)    # 10% warmup
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
@@ -180,7 +184,7 @@ Mixed precision uses lower-precision floating point (FP16 or BF16) for most oper
 
 ```python
 # ===== Option 1: BF16 (preferred on Ampere+ GPUs) =====
-# No GradScaler needed -- BF16 has same exponent range as FP32
+# No GradScaler needed (BF16 has same exponent range as FP32)
 with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
     output = model(data)
     loss = criterion(output, target)
@@ -219,7 +223,7 @@ scaler.update()                  # Adjust scale factor
 | Batch norm | FP32 | Running stats need precision |
 | Layer norm | Depends | Some implementations use FP32 internally |
 
-Autocast handles this automatically -- you do not need to manually cast tensors. It inserts casts at operation boundaries.
+Autocast handles this automatically, so you do not need to manually cast tensors. It inserts casts at operation boundaries.
 </Remark>
 
 <Table id="tab-mixed-precision-savings" caption="Memory and speed savings from mixed precision.">
@@ -260,7 +264,7 @@ Autocast handles this automatically -- you do not need to manually cast tensors.
 | SGD + momentum | Momentum buffer | $4P$ bytes |
 | Adam/AdamW | 1st moment ($m$) + 2nd moment ($v$) | $8P$ bytes |
 | Adam + FP32 master weights | Master weights + $m$ + $v$ | $12P$ bytes |
-| Adafactor | Row + column factors (no full 2nd moment) | ~$4\sqrt{P}$ bytes |
+| Adafactor | Row + column factors (no full 2nd moment) | $O(n+m)$ per $n \times m$ matrix (sublinear), summed over all matrices |
 
 For a 7B parameter model in FP32: Adam requires 7B * 8 = 56 GB just for optimizer states. This is why large model training uses optimizer state sharding (ZeRO/FSDP) and lower-precision optimizers.
 </Remark>
@@ -283,6 +287,7 @@ scheduler = torch.optim.lr_scheduler.OneCycleLR(
 )
 
 # 3. Linear warmup + cosine decay (LLM standard)
+import math
 from torch.optim.lr_scheduler import LambdaLR
 
 def lr_lambda(step):
@@ -311,6 +316,30 @@ scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
 
 **Common warmup lengths:** 1-10% of total training steps. LLM training typically uses 1-2% warmup with thousands of total steps.
 </Remark>
+
+<Example id="ex-lr-and-memory-trace">
+
+Two short computations tie the schedule and optimizer-memory tables to concrete numbers. The first is fully worked; fill in the reasoning for the rest.
+
+**Part A: trace the learning rate.** Take the linear-warmup + cosine-decay schedule (option 3) with `total_steps = 10000`, `warmup_steps = 1000`, and a peak learning rate of `3e-4`. The multiplier is `lr_lambda(step)` and the actual LR is `peak_lr * lr_lambda(step)`.
+
+- Worked, step 500 (inside warmup): `lr_lambda = step / warmup_steps = 500 / 1000 = 0.5`, so `LR = 3e-4 * 0.5 = 1.5e-4`.
+- Your turn, step 1000 (end of warmup): `lr_lambda = 1000 / 1000 = 1.0`, so `LR = 3e-4 * 1.0 = 3e-4` (the peak).
+- Your turn, step 5500 (midway through decay): `progress = (5500 - 1000) / (10000 - 1000) = 4500 / 9000 = 0.5`, so `lr_lambda = 0.5 * (1 + cos(pi * 0.5)) = 0.5 * (1 + 0) = 0.5`, giving `LR = 3e-4 * 0.5 = 1.5e-4`.
+
+The LR rises linearly to the peak at the end of warmup, then follows a cosine curve back down.
+
+**Part B: optimizer-state memory.** Using the optimizer-memory table, compute the Adam state for a `1.5B` parameter model stored in FP32. Adam keeps a first moment and a second moment per parameter, each 4 bytes, so 8 bytes per parameter:
+
+```python
+P = 1.5e9
+adam_state_bytes = P * 8          # 1.5e9 * 8 = 1.2e10 bytes
+adam_state_gb = adam_state_bytes / 1e9   # 12 GB
+```
+
+That is 12 GB for the moment buffers alone, before counting the FP32 master weights ($4P = 6$ GB) or the gradients. The same logic at `7B` gives `7e9 * 8 = 56 GB`, which is why large-model training shards optimizer state across devices (ZeRO/FSDP).
+
+</Example>
 
 ## Checkpointing
 
@@ -377,7 +406,7 @@ grad_norm = torch.nn.utils.clip_grad_norm_(
     model.parameters(),
     max_norm=1.0,
 )
-# Returns the total norm BEFORE clipping -- log this!
+# Returns the total norm BEFORE clipping (log this!)
 
 # Method 2: Clip by value (less common)
 # Clamps each gradient element independently

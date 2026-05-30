@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "docusaurus": "docusaurus",
-    "start": "docusaurus start",
+    "start": "DISABLE_AUTH=true DOCUSAURUS_NO_PERSISTENT_CACHE=true docusaurus start",
+    "start:auth": "DOCUSAURUS_NO_PERSISTENT_CACHE=true docusaurus start",
     "build": "docusaurus build",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",

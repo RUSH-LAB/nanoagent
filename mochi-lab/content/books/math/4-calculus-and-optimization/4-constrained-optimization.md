@@ -4,7 +4,7 @@ sidebar_position: 4
 
 # Constrained Optimization
 
-Many ML problems involve optimizing subject to constraints -- from SVMs with margin constraints to RLHF with KL penalties to fairness constraints in responsible AI. The Lagrangian framework transforms these constrained problems into unconstrained ones, enabling gradient-based solutions.
+Many ML problems involve optimizing subject to constraints, from SVMs with margin constraints to RLHF with KL penalties to fairness constraints in responsible AI. The Lagrangian framework transforms these constrained problems into unconstrained ones, enabling gradient-based solutions.
 
 ## The Constrained Problem
 
@@ -45,11 +45,11 @@ $$\nabla_x \mathcal{L} = \nabla f(x^*) + \sum_j \nu_j^* \nabla h_j(x^*) = 0 \qqu
 </Definition>
 
 <Remark id="rmk-lagrange-geometry">
-**Geometric interpretation.** At a constrained optimum $x^*$, the gradient of $f$ must be a linear combination of the constraint gradients. If $\nabla f$ had a component tangent to the constraint surface $h(x) = 0$, we could move along that surface and decrease $f$ -- contradicting optimality. Therefore $\nabla f = -\sum_j \nu_j \nabla h_j$, meaning $\nabla f$ is normal to the constraint surface.
+**Geometric interpretation.** At a constrained optimum $x^*$, the gradient of $f$ must be a linear combination of the constraint gradients. If $\nabla f$ had a component tangent to the constraint surface $h(x) = 0$, we could move along that surface and decrease $f$, contradicting optimality. Therefore $\nabla f = -\sum_j \nu_j \nabla h_j$, meaning $\nabla f$ is normal to the constraint surface.
 </Remark>
 
 <Remark id="rmk-multiplier-sensitivity">
-**Sensitivity interpretation.** The Lagrange multiplier $\nu_j^*$ measures the sensitivity of the optimal objective value to the constraint. If we relax the constraint from $h_j(x) = 0$ to $h_j(x) = \epsilon_j$, the optimal cost changes by approximately $\nu_j^* \epsilon_j$. A large $|\nu_j^*|$ means the constraint is "expensive" -- relaxing it would significantly improve the objective.
+**Sensitivity interpretation.** The Lagrange multiplier $\nu_j^*$ measures the sensitivity of the optimal objective value to the constraint. If we relax the constraint from $h_j(x) = 0$ to $h_j(x) = \epsilon_j$, the optimal cost changes by approximately $\nu_j^* \epsilon_j$. A large $|\nu_j^*|$ means the constraint is "expensive": relaxing it would significantly improve the objective.
 </Remark>
 
 <Example id="ex-lagrange-pca">
@@ -62,8 +62,8 @@ Lagrangian: $\mathcal{L}(v, \lambda) = v^\top \Sigma v - \lambda(v^\top v - 1)$.
 
 ## KKT Conditions (Inequality Constraints)
 
-<Theorem id="thm-kkt" name="Karush--Kuhn--Tucker (KKT) Conditions">
-For the general constrained problem, the **KKT conditions** are necessary for optimality (and sufficient when the problem is convex). At an optimal point $x^*$ with multipliers $\lambda^* \in \mathbb{R}^m$ (inequality) and $\nu^* \in \mathbb{R}^p$ (equality):
+<Theorem id="thm-kkt" name="Karush-Kuhn-Tucker (KKT) Conditions">
+For the general constrained problem, the **KKT conditions** are necessary for optimality when a **constraint qualification** holds (such as Slater's condition for convex problems, or LICQ, the linear independence of active constraint gradients), and they are also sufficient when the problem is convex. At an optimal point $x^*$ with multipliers $\lambda^* \in \mathbb{R}^m$ (inequality) and $\nu^* \in \mathbb{R}^p$ (equality):
 
 1. **Stationarity:** $\nabla_x f(x^*) + \sum_{i=1}^m \lambda_i^* \nabla g_i(x^*) + \sum_{j=1}^p \nu_j^* \nabla h_j(x^*) = 0$
 2. **Primal feasibility:** $g_i(x^*) \leq 0$ for all $i$; $h_j(x^*) = 0$ for all $j$
@@ -73,10 +73,10 @@ For the general constrained problem, the **KKT conditions** are necessary for op
 
 <Remark id="rmk-complementary-slackness">
 **Complementary slackness** is the key structural insight: for each inequality constraint, either:
-- The constraint is **active** ($g_i(x^*) = 0$): the constraint is tight and its multiplier $\lambda_i^*$ can be positive -- the constraint is "pushing"
-- The constraint is **inactive** ($g_i(x^*) < 0$): the constraint is slack and $\lambda_i^* = 0$ -- the constraint is irrelevant at the optimum
+- The constraint is **active** ($g_i(x^*) = 0$): the constraint is tight and its multiplier $\lambda_i^*$ can be positive, meaning the constraint is "pushing"
+- The constraint is **inactive** ($g_i(x^*) < 0$): the constraint is slack and $\lambda_i^* = 0$, so the constraint is irrelevant at the optimum
 
-In SVMs, the data points with active constraints ($y_i(w^\top x_i + b) = 1$) are the **support vectors** -- they determine the decision boundary. All other points have $\lambda_i = 0$ and do not affect the solution.
+In SVMs, the data points with active constraints ($y_i(w^\top x_i + b) = 1$) are the **support vectors**: they determine the decision boundary. All other points have $\lambda_i = 0$ and do not affect the solution.
 </Remark>
 
 <Remark id="rmk-kkt-sufficient">
@@ -102,7 +102,7 @@ $$d(\lambda, \nu) = \inf_x \mathcal{L}(x, \lambda, \nu)$$
 
 </Equation>
 
-The **dual problem** maximizes the dual function: $\max_{\lambda \geq 0, \nu} d(\lambda, \nu)$.
+Here $d(\lambda, \nu)$ may equal $-\infty$ for some $(\lambda, \nu)$ when the Lagrangian is unbounded below in $x$; the dual domain is the set where $d$ is finite. The **dual problem** maximizes the dual function: $\max_{\lambda \geq 0, \nu} d(\lambda, \nu)$.
 </Definition>
 
 <Theorem id="thm-weak-duality" name="Weak and Strong Duality">
@@ -127,7 +127,11 @@ The **dual problem** maximizes the dual function: $\max_{\lambda \geq 0, \nu} d(
 
 $$\min_{w, b, \xi} \frac{1}{2}\|w\|^2 + C\sum_i \xi_i \quad \text{s.t.} \quad y_i(w^\top x_i + b) \geq 1 - \xi_i, \; \xi_i \geq 0$$
 
-The Lagrangian introduces multipliers $\alpha_i \geq 0$ for the margin constraints. Taking the infimum over $w, b, \xi$ and substituting back yields the dual:
+The Lagrangian introduces multipliers $\alpha_i \geq 0$ for the margin constraints and $\mu_i \geq 0$ for the $\xi_i \geq 0$ constraints. Setting the stationarity conditions to zero gives:
+
+$$\frac{\partial \mathcal{L}}{\partial w} = 0 \Rightarrow w = \sum_i \alpha_i y_i x_i, \qquad \frac{\partial \mathcal{L}}{\partial b} = 0 \Rightarrow \sum_i \alpha_i y_i = 0, \qquad \frac{\partial \mathcal{L}}{\partial \xi_i} = 0 \Rightarrow \alpha_i + \mu_i = C$$
+
+The last condition with $\mu_i \geq 0$ forces $\alpha_i \leq C$, which combined with $\alpha_i \geq 0$ produces the box constraint $0 \leq \alpha_i \leq C$. Substituting these back yields the dual:
 
 <Equation id="eq-svm-dual">
 
@@ -207,6 +211,6 @@ $$x_{t+1} = \Pi_C(x_t - \eta \nabla f(x_t)) \quad \text{where} \quad \Pi_C(z) = 
 | $d(\lambda, \nu)$ | Dual function |
 | $d^*, f^*$ | Optimal dual and primal values |
 | $\Pi_C$ | Projection operator onto convex set $C$ |
-| KKT | Karush--Kuhn--Tucker conditions |
+| KKT | Karush-Kuhn-Tucker conditions |
 
 </Table>

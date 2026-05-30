@@ -9,15 +9,15 @@ Neural Architecture Search (NAS) automates the design of neural network architec
 
 ### The NAS Problem
 
-NAS formulates architecture design as an optimization problem: given a search space S of possible architectures, a performance metric P (e.g., accuracy on a validation set), and a cost constraint C (e.g., maximum FLOPs or latency), find the architecture A* = argmax_{A in S} P(A) subject to Cost(A) <= C. The challenge lies in the vast size of the search space (typically 10^{10} to 10^{30} possible architectures) and the expense of evaluating each candidate (training to convergence can take hours to days).
+NAS formulates architecture design as an optimization problem: given a search space S of possible architectures, a performance metric P (e.g., accuracy on a validation set), and a cost constraint C (e.g., maximum FLOPs or latency), find the architecture A* = argmax_{A in S} P(A) subject to Cost(A) <= C. The challenge lies in the vast size of the search space (informal estimates commonly cited in NAS surveys place it on the order of 10^{10} to 10^{30} possible architectures, depending on how the space is parameterized [@elsken2019neural]) and the expense of evaluating each candidate (training to convergence can take hours to days).
 
-Early NAS methods used reinforcement learning to search: Zoph and Le (2017) [@zoph2017neural] trained an RNN controller to generate architecture descriptions, with the validation accuracy of the generated architecture serving as the reward signal. While effective, this approach required 800+ GPU-days -- training and evaluating thousands of candidate architectures. The prohibitive cost motivated the development of more efficient search strategies.
+Early NAS methods used reinforcement learning to search: Zoph and Le (2017) [@zoph2017neural] trained an RNN controller to generate architecture descriptions, with the validation accuracy of the generated architecture serving as the reward signal. While effective, this approach required 800 GPUs running for nearly a month (on the order of 20,000 GPU-days), training and evaluating thousands of candidate architectures. The prohibitive cost motivated the development of more efficient search strategies.
 
 ### DARTS: Differentiable Architecture Search
 
 **DARTS** (Liu et al., 2019) [@liu2019darts] fundamentally changed NAS by relaxing the discrete architecture search space to be continuous, enabling gradient-based optimization. DARTS represents the architecture as a mixture of all possible operations (convolutions, pooling, skip connections) at each position, with continuous mixing weights (architecture parameters) that determine the contribution of each operation. The architecture parameters and model weights are jointly optimized using bilevel optimization: the weights are optimized on the training set (inner loop) and the architecture parameters are optimized on the validation set (outer loop).
 
-After search, the final architecture is obtained by discretizing the continuous weights -- selecting the operation with the highest weight at each position. DARTS reduced the NAS cost from thousands of GPU-days to a single GPU-day, democratizing NAS research. However, DARTS suffers from instability and a tendency to collapse to skip connections, issues that subsequent work has addressed through regularization and improved search spaces [@chen2019progressive_darts, @zela2020understanding].
+After search, the final architecture is obtained by discretizing the continuous weights, selecting the operation with the highest weight at each position. DARTS reduced the NAS cost from thousands of GPU-days to a single GPU-day, democratizing NAS research. However, DARTS suffers from instability and a tendency to collapse to skip connections, issues that subsequent work has addressed through regularization and improved search spaces [@chen2019progressive_darts, @zela2020understanding].
 
 ### EfficientNet and Compound Scaling
 
@@ -29,7 +29,7 @@ where alpha, beta, gamma are determined by a small grid search and phi controls 
 
 ### Once-for-All (OFA) Networks
 
-**Once-for-All** (Cai et al., 2020) [@cai2020onceforall] addressed a critical limitation of standard NAS: each search targets a single hardware platform, and searching for a new platform requires a new search. OFA trains a single large "supernet" that supports many sub-networks of different sizes (varying depth, width, kernel size, and resolution). The supernet is trained using progressive shrinking, which gradually enables smaller sub-networks during training. At deployment time, a sub-network appropriate for the target hardware constraints is selected without retraining, using an evolutionary search over the sub-network space with hardware-specific latency as a constraint.
+**Once-for-All** (Cai et al., 2020) [@cai2020once] addressed a critical limitation of standard NAS: each search targets a single hardware platform, and searching for a new platform requires a new search. OFA trains a single large "supernet" that supports many sub-networks of different sizes (varying depth, width, kernel size, and resolution). The supernet is trained using progressive shrinking, which gradually enables smaller sub-networks during training. At deployment time, a sub-network appropriate for the target hardware constraints is selected without retraining, using an evolutionary search over the sub-network space with hardware-specific latency as a constraint.
 
 OFA amortizes the training cost across all deployment targets: a single training run (which is expensive but done only once) produces models optimized for dozens of different hardware platforms, from high-end GPUs to mobile phones. This is particularly valuable for deploying AI across diverse edge devices.
 
@@ -39,15 +39,15 @@ Modern NAS increasingly incorporates hardware constraints directly into the sear
 
 **MnasNet** (Tan et al., 2019) [@tan2019mnasnet] pioneered hardware-aware NAS by using real on-device latency as a search objective, rather than proxy metrics like FLOPs. This is important because the relationship between FLOPs and latency is non-trivial: operations with the same FLOP count can have very different latencies depending on memory access patterns, parallelizability, and hardware-specific optimizations. MnasNet's direct latency optimization produced architectures specifically tailored for mobile deployment.
 
-**MobileNet v3** (Howard et al., 2019) [@howard2019searching] combined hardware-aware NAS with manual architecture refinements, using NAS to optimize the core building blocks and human expertise to design the overall architecture structure. The resulting models set new efficiency benchmarks for mobile computer vision.
+**MobileNet v3** (Howard et al., 2019) [@howard2019searching] combined hardware-aware NAS with manual architecture refinements, using NAS to optimize the core building blocks and human expertise to design the overall architecture structure. The resulting MobileNetV3-Large reported roughly 3.2% higher ImageNet top-1 accuracy than MobileNetV2 while cutting latency by about 20%, illustrating the gains from combining hardware-aware search with hand-tuned structure.
 
 ### NAS for Transformers and LLMs
 
 As Transformers have become the dominant architecture, NAS has been applied to optimize their design:
 
-**AutoFormer** (Chen et al., 2022) [@chen2022autoformer_nas] searches over Transformer-specific dimensions (embedding size, number of heads, FFN ratio, depth) using a one-shot supernet approach. By searching within the Transformer design space rather than over arbitrary operations, AutoFormer can efficiently discover Transformer variants optimized for different compute budgets.
+**AutoFormer** (Chen et al., 2021) [@chen2022autoformer_nas] searches over Transformer-specific dimensions (embedding size, number of heads, FFN ratio, depth) using a one-shot supernet approach. By searching within the Transformer design space rather than over arbitrary operations, AutoFormer can efficiently discover Transformer variants optimized for different compute budgets.
 
-The LLM era has shifted NAS from discovering new architectures to **optimizing hyperparameters within established architectures** -- finding the optimal depth, width, number of heads, FFN ratio, and attention pattern for a given compute budget. This "architecture engineering" approach uses scaling laws and grid search rather than classical NAS algorithms, but addresses the same fundamental question: what is the most efficient architecture for a given constraint?
+The LLM era has shifted NAS from discovering new architectures to **optimizing hyperparameters within established architectures**, finding the optimal depth, width, number of heads, FFN ratio, and attention pattern for a given compute budget. This "architecture engineering" approach typically uses scaling laws [@kaplan2020scaling, @hoffmann2022training] and grid search rather than classical NAS algorithms, but addresses the same fundamental question: what is the most efficient architecture for a given constraint?
 
 ### Limitations of NAS
 

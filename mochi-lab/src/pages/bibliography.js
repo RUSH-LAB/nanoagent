@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import Layout from '@theme/Layout';
+import Link from '@docusaurus/Link';
 import { usePluginData } from '@docusaurus/useGlobalData';
 
 /**
@@ -31,9 +32,11 @@ function ReferenceEntry({ citationKey, entry }) {
       paddingLeft: '16px',
     }}>
       <div style={{ marginBottom: '4px' }}>
-        <code style={{ fontSize: '0.85em', color: 'var(--ifm-color-primary)' }}>
-          @{citationKey}
-        </code>
+        <Link to={`/bibliography/${citationKey}`} style={{ textDecoration: 'none' }}>
+          <code style={{ fontSize: '0.85em', color: 'var(--ifm-color-primary)' }}>
+            @{citationKey}
+          </code>
+        </Link>
         <span style={{
           marginLeft: '8px',
           fontSize: '0.8em',

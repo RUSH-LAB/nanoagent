@@ -30,7 +30,7 @@ $$H(p, q) = -\sum_{x} p(x) \log q(x) = H(p) + D_{\text{KL}}(p \| q)$$
 </Equation>
 </Definition>
 
-The decomposition $H(p,q) = H(p) + D_{\text{KL}}(p \| q)$ is key. $H(p)$ depends only on the true data distribution, which is fixed during training. Since we optimize over the model (which defines $q$), only the $D_{\text{KL}}$ term varies with model parameters. Therefore **minimizing cross entropy is equivalent to minimizing KL divergence** from $q$ to $p$.
+The decomposition $H(p,q) = H(p) + D_{\text{KL}}(p \| q)$ is key. $H(p)$ depends only on the true data distribution, which is fixed during training. Since we optimize over the model (which defines $q$), only the $D_{\text{KL}}$ term varies with model parameters. Therefore **minimizing cross entropy is equivalent to minimizing the KL divergence** $D_{\text{KL}}(p \| q)$ (the divergence from the true distribution $p$ to the model distribution $q$).
 
 <Example id="ex-cross-entropy-classification">
 **One-hot classification.** For a classification problem with $K$ classes, the true label for sample $i$ is a one-hot vector $p = e_c$ (all zeros except position $c$). The cross entropy reduces to:
@@ -62,8 +62,8 @@ This is simply the predicted probability minus the one-hot target. No derivative
 
 ## KL Divergence
 
-<Definition id="def-kl-divergence" name="Kullback--Leibler Divergence">
-The **Kullback--Leibler divergence** measures how much one distribution $p$ differs from another $q$:
+<Definition id="def-kl-divergence" name="Kullback-Leibler Divergence">
+The **Kullback-Leibler divergence** measures how much one distribution $p$ differs from another $q$:
 
 <Equation id="eq-kl-divergence">
 
@@ -116,7 +116,7 @@ For multivariate Gaussians $p = \mathcal{N}(\mu_1, \Sigma_1)$ and $q = \mathcal{
 
 $$D_{\text{KL}}(p \| q) = \frac{1}{2}\left[\log\frac{|\Sigma_2|}{|\Sigma_1|} - d + \text{tr}(\Sigma_2^{-1}\Sigma_1) + (\mu_2 - \mu_1)^\top \Sigma_2^{-1}(\mu_2 - \mu_1)\right]$$
 
-where $d$ is the dimensionality. This is used in the VAE loss, where $p$ is the encoder posterior and $q = \mathcal{N}(0, I)$ is the prior.
+where $d$ is the dimensionality. This is used in the VAE loss, where we measure $D_{\text{KL}}(p \| q)$ with $p$ being the encoder posterior and $q = \mathcal{N}(0, I)$ being the prior (note the role swap: here $p$ is the approximate posterior, inverting the notation convention from the chapter summary).
 </Example>
 
 **When it is used:** VAE regularization (matching the encoder posterior to a prior) [@kingma2014vae], knowledge distillation (matching a student network's output distribution to a teacher's) [@hinton2015distilling], reinforcement learning (PPO's clipped objective constrains policy updates; RLHF penalizes drift from a reference policy) [@schulman2017ppo; @ouyang2022training].
@@ -175,7 +175,7 @@ where $x^+$ is the positive pair, $\{x_j\}$ includes the positive and $K-1$ nega
 </Definition>
 
 <Remark id="rmk-infonce-mi">
-InfoNCE is a lower bound on mutual information: $\mathcal{L}_{\text{InfoNCE}} \geq -I(X; X^+) + \log K$ [@oord2018representation]. More negatives ($K$) give a tighter bound but require more computation.
+InfoNCE is a lower bound on mutual information: $\mathcal{L}_{\text{InfoNCE}} \geq -I(X; X^+) + \log K$ [@oord2018infonce]. More negatives ($K$) give a tighter bound but require more computation.
 </Remark>
 
 ## Loss Functions in Practice
@@ -209,7 +209,7 @@ InfoNCE is a lower bound on mutual information: $\mathcal{L}_{\text{InfoNCE}} \g
 | $q$ | Model (predicted) distribution |
 | $H(p)$ | Entropy of $p$ |
 | $H(p, q)$ | Cross entropy between $p$ and $q$ |
-| $D_{\text{KL}}(p \| q)$ | KL divergence from $q$ to $p$ |
+| $D_{\text{KL}}(p \| q)$ | KL divergence from $p$ to $q$ (first argument $p$ is the reference distribution; measures how much $p$ differs from $q$) |
 | $\hat{y}_c$ | Predicted probability for true class $c$ |
 | $y_i$ | Ground-truth label for sample $i$ |
 | $N$ | Number of samples |

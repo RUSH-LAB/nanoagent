@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # Memory and Stack
 
-Every running program uses memory organized into distinct regions with different lifetimes, access speeds, and purposes. Understanding this layout -- the stack for function calls, the heap for dynamic allocations, virtual memory for isolation, and cache lines for performance -- is essential for debugging crashes in C++/CUDA extensions, understanding why PyTorch allocators exist, and writing code that cooperates with the memory hierarchy rather than fighting it.
+Every running program uses memory organized into distinct regions with different lifetimes, access speeds, and purposes. Understanding this layout (the stack for function calls, the heap for dynamic allocations, virtual memory for isolation, and cache lines for performance) is essential for debugging crashes in C++/CUDA extensions, understanding why PyTorch allocators exist, and writing code that cooperates with the memory hierarchy rather than fighting it.
 
 ## Process Memory Layout
 
@@ -45,12 +45,12 @@ Low addresses (0x0000000000000000)
 </Code>
 
 <Remark id="rmk-memory-layout-ml">
-**Where ML data lives.** PyTorch CPU tensors are allocated on the heap via `malloc`/`jemalloc`. GPU tensors live in GPU virtual memory (a separate address space), allocated via `cudaMalloc`. Pinned host memory (`torch.cuda.pinned_memory`) uses `cudaMallocHost`, which allocates page-locked memory on the CPU heap that the GPU can access directly via DMA, enabling asynchronous transfers.
+**Where ML data lives.** PyTorch CPU tensors are allocated on the heap by `c10::DefaultCPUAllocator`, which calls `posix_memalign` for 64-byte alignment, drawing from the linked libc `malloc`. Replacing the underlying allocator with jemalloc or tcmalloc is opt-in via `LD_PRELOAD`. GPU tensors live in GPU virtual memory (a separate address space), allocated via `cudaMalloc`. Pinned host memory (`torch.cuda.pinned_memory`) uses `cudaMallocHost`, which allocates page-locked memory on the CPU heap that the GPU can access directly via DMA, enabling asynchronous transfers.
 </Remark>
 
 ## Stack Frames
 
-Each function call creates a **stack frame** -- a region of the stack that holds the function's local variables, saved registers, and the return address. The stack grows **downward** (toward lower addresses):
+Each function call creates a **stack frame**, a region of the stack that holds the function's local variables, saved registers, and the return address. The stack grows **downward** (toward lower addresses). The following examples use x86-64 registers (RSP, RBP, RIP, RBX, R12-R15) introduced in the prior section, [x86 Basics](./1-x86-basics.md):
 
 <Code id="code-stack-frame-diagram" caption="Anatomy of a stack frame in x86-64.">
 
@@ -96,6 +96,57 @@ ret                 ; Pop return address into RIP, jump back
 
 </Code>
 
+<Example id="ex-prologue-rsp-rbp">
+
+**Tracing RSP and RBP through a prologue.** Suppose `code-memory-and-stack-1` is entered with `RSP = 0x7FFFFFFFE000` immediately after the `CALL` instruction has pushed the 8-byte return address. We will trace the two pointers instruction by instruction through the prologue. Recall that the stack grows downward, so a push or an allocation *subtracts* from RSP.
+
+*Step 0: on entry.* The `CALL` already decremented RSP by 8 to store the return address. The caller's RBP still holds whatever value the caller set up:
+
+$$\text{RSP} = \texttt{0x7FFFFFFFE000}, \qquad \text{RBP} = \text{caller's frame pointer.}$$
+
+*Step 1: `push rbp`.* This pushes the caller's RBP, so RSP drops by 8:
+
+$$\text{RSP} = \texttt{0x7FFFFFFFE000} - 8 = \texttt{0x7FFFFFFFDFF8}.$$
+
+The value of RBP is unchanged at this instruction; the old RBP is now stored at `[0x7FFFFFFFDFF8]`.
+
+*Step 2: `mov rbp, rsp`.* The new frame pointer is set to the current top of stack:
+
+$$\text{RBP} = \text{RSP} = \texttt{0x7FFFFFFFDFF8}.$$
+
+*Step 3: `sub rsp, 32`.* The function reserves 32 bytes for locals:
+
+$$\text{RSP} = \texttt{0x7FFFFFFFDFF8} - 32 = \texttt{0x7FFFFFFFDFD8}.$$
+
+After the prologue, locals are addressed relative to the stable RBP: the first argument stored by `mov [rbp-8], rdi` lands at `0x7FFFFFFFDFF8 - 8 = 0x7FFFFFFFDFF0`, and the second at `0x7FFFFFFFDFF8 - 16 = 0x7FFFFFFFDFE8`. Both sit inside the 32-byte region between RSP and RBP.
+
+</Example>
+
+<Example id="ex-epilogue-rsp-rbp">
+
+**Tearing the frame back down (harder).** Continuing from the previous example, the epilogue must restore the stack to exactly the state the `RET` instruction expects. At the start of the epilogue we have `RSP = 0x7FFFFFFFDFD8` and `RBP = 0x7FFFFFFFDFF8`. Trace the pointers through `mov rsp, rbp`, `pop rbp`, and `ret`.
+
+*Step 1: `mov rsp, rbp`.* This discards the 32 bytes of locals in a single move by snapping RSP back up to the frame pointer:
+
+$$\text{RSP} = \text{RBP} = \boxed{\quad?\quad}$$
+
+*Step 2: `pop rbp`.* Popping reads the saved caller's RBP from `[RSP]` into RBP and then *adds* 8 to RSP (the stack shrinks upward). What is RSP now, and what does RBP hold?
+
+*Step 3: `ret`.* `RET` pops the 8-byte return address into RIP, adding 8 more to RSP. Show that RSP returns to its value from Step 0 of the previous example, confirming the frame was balanced.
+
+<details>
+<summary>Solution</summary>
+
+Step 1: `RSP = RBP = 0x7FFFFFFFDFF8`.
+
+Step 2: `pop rbp` loads `[0x7FFFFFFFDFF8]` (the saved caller frame pointer) into RBP, restoring the caller's RBP, then sets `RSP = 0x7FFFFFFFDFF8 + 8 = 0x7FFFFFFFE000`.
+
+Step 3: `ret` pops the return address and sets `RSP = 0x7FFFFFFFE000 + 8 = 0x7FFFFFFFE008`. This is exactly the RSP the caller held before issuing `CALL` (which had subtracted 8 to push the return address), so the stack is perfectly balanced.
+
+</details>
+
+</Example>
+
 <Remark id="rmk-frame-pointer-omission">
 **Frame pointer omission.** With `-fomit-frame-pointer` (default at `-O2`), the compiler does not save/restore RBP, freeing it as a general-purpose register. Instead, it accesses locals relative to RSP. This makes stack frames smaller and frees a register, but makes debugging harder because `gdb` cannot always walk the stack. Use `-fno-omit-frame-pointer` when profiling with `perf` or debugging crashes.
 </Remark>
@@ -133,7 +184,7 @@ std::vector<int> vec(1000);        // Heap-allocated, freed when vec goes out of
 
 // PyTorch tensors: heap allocation via custom allocator
 // torch::empty({1000}) calls c10::Allocator::raw_allocate()
-//   -> CPU: posix_memalign (64-byte aligned) or jemalloc
+//   -> CPU: posix_memalign (64-byte aligned)
 //   -> CUDA: cudaMalloc (via caching allocator to amortize allocation cost)
 ```
 
@@ -153,7 +204,7 @@ std::vector<int> vec(1000);        // Heap-allocated, freed when vec goes out of
 </Table>
 
 <Remark id="rmk-pytorch-allocator">
-**PyTorch's caching allocator.** Raw `cudaMalloc`/`cudaFree` calls take 1-10 ms because they synchronize the GPU. PyTorch's CUDA caching allocator calls `cudaMalloc` once for a large block, then sub-allocates from it without GPU synchronization. This is why `torch.cuda.memory_allocated()` and `torch.cuda.memory_reserved()` show different values -- "reserved" is what was obtained from `cudaMalloc`, "allocated" is what tensors are actually using.
+**PyTorch's caching allocator.** Raw `cudaMalloc`/`cudaFree` calls take 1-10 ms because they synchronize the GPU. PyTorch's CUDA caching allocator calls `cudaMalloc` once for a large block, then sub-allocates from it without GPU synchronization. This is why `torch.cuda.memory_allocated()` and `torch.cuda.memory_reserved()` show different values: "reserved" is what was obtained from `cudaMalloc`, "allocated" is what tensors are actually using.
 </Remark>
 
 ## Virtual Memory
@@ -174,7 +225,7 @@ Virtual memory provides three critical properties: **isolation** (each process g
 </Table>
 
 <Remark id="rmk-cuda-virtual-memory">
-**CPU vs GPU virtual memory.** The CPU and GPU have separate virtual address spaces. `cudaMemcpy` copies data between them via PCIe or NVLink. CUDA Unified Memory (`cudaMallocManaged`) creates pages that can be accessed by both CPU and GPU -- the CUDA runtime migrates pages on demand via page faults, which simplifies programming but adds latency from fault handling and migration.
+**CPU vs GPU virtual memory.** The CPU and GPU have separate virtual address spaces. `cudaMemcpy` copies data between them via PCIe or NVLink. CUDA Unified Memory (`cudaMallocManaged`) creates pages that can be accessed by both CPU and GPU: the CUDA runtime migrates pages on demand via page faults, which simplifies programming but adds latency from fault handling and migration.
 </Remark>
 
 ## Cache Lines and Alignment
@@ -185,7 +236,7 @@ The CPU does not read individual bytes from memory. It reads **cache lines** of 
 
 ```c
 // ── Aligned access: one cache line fetch ──
-float array[16];             // 16 * 4 = 64 bytes = exactly one cache line
+float array[16];             // 16 * 4 = 64 bytes = one cache line (when 64-byte aligned)
 float val = array[0];        // Brings all 16 floats into cache
 
 // ── Misaligned struct: wastes cache bandwidth ──

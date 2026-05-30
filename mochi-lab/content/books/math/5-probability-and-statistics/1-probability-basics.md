@@ -4,7 +4,7 @@ sidebar_position: 1
 
 # Probability Basics
 
-Probability theory provides the mathematical framework for reasoning under uncertainty -- the other foundational language of machine learning alongside linear algebra. Every ML model makes probabilistic assumptions (implicitly or explicitly), and understanding probability is essential for designing, training, and interpreting models.
+Probability theory provides the mathematical framework for reasoning under uncertainty, the other foundational language of machine learning alongside linear algebra. Every ML model makes probabilistic assumptions (implicitly or explicitly), and understanding probability is essential for designing, training, and interpreting models.
 
 ## Sample Space and Events
 
@@ -12,7 +12,7 @@ Probability theory provides the mathematical framework for reasoning under uncer
 A **probability space** $(\Omega, \mathcal{F}, P)$ consists of:
 
 - **Sample space** $\Omega$: the set of all possible outcomes of an experiment
-- **Event algebra** $\mathcal{F}$: a $\sigma$-algebra -- a collection of subsets of $\Omega$ closed under complement and countable union
+- **Event algebra** $\mathcal{F}$: a $\sigma$-algebra, a collection of subsets of $\Omega$ closed under complement and countable union
 - **Probability measure** $P: \mathcal{F} \to [0, 1]$: a function assigning probabilities to events
 </Definition>
 
@@ -71,7 +71,7 @@ Bayes' theorem is the engine of Bayesian machine learning:
 | $P(\theta|\mathcal{D})$ (posterior) | Updated belief after incorporating data; used for prediction and uncertainty |
 | $P(\mathcal{D})$ (evidence) | Model quality score for model comparison; intractable for neural networks |
 
-MAP estimation maximizes $P(\theta|\mathcal{D})$, which equals MLE + regularization. Full Bayesian inference integrates over $P(\theta|\mathcal{D})$, giving calibrated uncertainty.
+MAP estimation maximizes $P(\theta|\mathcal{D})$, which reduces to maximizing the log-likelihood plus a log-prior penalty (a regularizer). Full Bayesian inference integrates over $P(\theta|\mathcal{D})$, giving calibrated uncertainty.
 </Remark>
 
 <Example id="ex-bayes-spam">
@@ -89,6 +89,24 @@ $$P(A) = \sum_{i=1}^n P(A | B_i) P(B_i)$$
 
 This is the "denominator" in Bayes' theorem and is used in marginalization: $P(x) = \sum_z P(x|z)P(z)$.
 </Theorem>
+
+<Example id="ex-total-probability-defect">
+**Marginalizing over a hidden cause.** A factory runs two machines. Machine $B_1$ produces 70% of items with a 2% defect rate; machine $B_2$ produces the remaining 30% with a 5% defect rate. What fraction of items are defective?
+
+Apply the law of total probability over the partition $\{B_1, B_2\}$, with $A$ the event "item is defective":
+
+$$P(A) = P(A | B_1)P(B_1) + P(A | B_2)P(B_2)$$
+
+The conditional defect rates and machine shares are given, so substitute directly:
+
+$$P(A) = 0.02 \times 0.70 + 0.05 \times 0.30 = 0.014 + 0.015 = 0.029$$
+
+So 2.9% of items are defective. To go the other way and ask which machine most likely produced a defective item, plug this denominator into Bayes' theorem:
+
+$$P(B_2 | A) = \frac{P(A | B_2)P(B_2)}{P(A)} = \frac{0.015}{0.029} \approx 0.52$$
+
+Even though $B_2$ makes only 30% of items, its higher defect rate means it accounts for just over half of all defects.
+</Example>
 
 ## Independence
 
@@ -120,7 +138,7 @@ $$\mathbb{E}[X] = \sum_x x \, p(x) \quad \text{(discrete)}, \qquad \mathbb{E}[X]
 
 </Equation>
 
-For a function $g(X)$: $\mathbb{E}[g(X)] = \sum_x g(x) p(x)$ (LOTUS -- Law of the Unconscious Statistician).
+For a function $g(X)$: $\mathbb{E}[g(X)] = \sum_x g(x) p(x)$ (LOTUS: Law of the Unconscious Statistician).
 </Definition>
 
 **Key properties:**
@@ -185,7 +203,7 @@ These bound the probability that a random variable deviates from its mean:
 
 | Inequality | Statement | Conditions |
 |-----------|-----------|-----------|
-| **Markov** | $P(X \geq a) \leq \mathbb{E}[X]/a$ | $X \geq 0$ |
+| **Markov** | $P(X \geq a) \leq \mathbb{E}[X]/a$ | $X \geq 0$, $a > 0$ |
 | **Chebyshev** | $P(|X - \mu| \geq k\sigma) \leq 1/k^2$ | Finite variance |
 | **Hoeffding** | $P(|\bar{X}_n - \mu| \geq t) \leq 2e^{-2nt^2/(b-a)^2}$ | $X_i \in [a,b]$, independent |
 | **Bernstein** | $P(|\bar{X}_n - \mu| \geq t) \leq 2\exp(-\frac{nt^2/2}{\sigma^2 + bt/3})$ | $|X_i - \mu| \leq b$, independent |
@@ -204,21 +222,21 @@ Setting the RHS $= \delta$ and solving for $t$: the generalization gap is at mos
 
 ## Notation Summary
 
-<Table id="tab-notation-prob" caption="Notation used in this chapter.">
+<Table id="tab-notation-prob" caption="Notation used in this section.">
 
 | Symbol | Meaning |
 |--------|---------|
 | $\Omega$ | Sample space |
 | $\mathcal{F}$ | $\sigma$-algebra (event space) |
 | $P(A)$ | Probability of event $A$ |
-| $P(A|B)$ | Conditional probability of $A$ given $B$ |
+| $P(A \mid B)$ | Conditional probability of $A$ given $B$ |
 | $\mathbb{E}[X]$ | Expectation of $X$ |
 | $\text{Var}(X)$ | Variance of $X$ |
 | $\text{Cov}(X,Y)$ | Covariance of $X$ and $Y$ |
 | $\Sigma$ | Covariance matrix |
 | $\rho$ | Correlation coefficient |
 | $X \perp Y$ | $X$ and $Y$ are independent |
-| $X \perp Y | Z$ | Conditional independence given $Z$ |
+| $X \perp Y \mid Z$ | Conditional independence given $Z$ |
 | i.i.d. | Independent and identically distributed |
 
 </Table>

@@ -4,7 +4,7 @@ sidebar_position: 4
 
 # Backpropagation
 
-Backpropagation is the algorithm that makes training neural networks tractable. It computes the gradient of the loss with respect to every parameter in $O(L \cdot C_{\text{fwd}})$ time and $O(L \cdot A)$ memory, where $L$ is the number of layers, $C_{\text{fwd}}$ is the forward-pass cost, and $A$ is the per-layer activation size. Without it, computing gradients would require $O(P)$ forward passes (one per parameter), making training of billion-parameter models impossible.
+Backpropagation is the algorithm that makes training neural networks tractable. It computes the gradient of the loss with respect to every parameter in approximately the same time as one forward pass through the entire network and $O(L \cdot A)$ memory, where $L$ is the number of layers and $A$ is the per-layer activation size. Without it, computing gradients would require $O(P)$ forward passes (one per parameter), making training of billion-parameter models impossible. This chapter explains the chain rule and computational graphs, works through concrete examples, and connects backpropagation to the broader framework of automatic differentiation. It then turns to three practical concerns that follow directly from the algorithm: the gradient flow problems that arise in deep networks and their solutions (residual connections), the weight initialization schemes that keep gradients well-scaled from the start, and the memory cost of caching activations for the backward pass.
 
 ## The Chain Rule
 
@@ -21,7 +21,7 @@ where $h_l = f_l(h_{l-1}; \theta_l)$ is the output of layer $l$, with $h_0 = x$ 
 </Theorem>
 
 <Remark id="rmk-backprop-efficiency">
-**Why compute right-to-left?** The key insight is that $\partial \mathcal{L} / \partial h_l$ appears in the gradient for *every* layer $l' \leq l$. By computing the chain from right to left (from loss to input), we reuse the intermediate quantity $\partial \mathcal{L} / \partial h_l$ (called the "upstream gradient" or "delta") for all parameters in layers $l' \leq l$. Computing left-to-right (forward mode) would require a separate pass for each parameter.
+**Why compute right-to-left?** The key insight is that $\partial \mathcal{L} / \partial h_l$ appears in the gradient for *every* layer $l' \leq l$. By computing the chain from right to left (from loss to input), we reuse the intermediate quantity $\partial \mathcal{L} / \partial h_l$ (the "upstream gradient" at node $h_l$) for all parameters in layers $l' \leq l$. Throughout this chapter we write a subscripted $\delta$ for whichever node's gradient is upstream at that point, for example $\delta_{h_l} = \partial \mathcal{L}/\partial h_l$ and $\delta_{z_l} = \partial \mathcal{L}/\partial z_l$; the bare symbol $\delta_l = \partial \mathcal{L}/\partial z_l$ in the Notation Summary refers specifically to the pre-activation gradient. Computing left-to-right (forward mode) would require a separate pass for each parameter.
 </Remark>
 
 ## Computational Graphs
@@ -34,7 +34,7 @@ A neural network defines a **directed acyclic graph** (DAG) where:
 - **Forward pass:** evaluates nodes in topological order from inputs to loss, caching all intermediate activations
 - **Backward pass:** traverses the graph in reverse topological order, computing gradients using the cached activations
 
-Each node stores its **local Jacobian** -- how its output changes with respect to its inputs. The backward pass chains these local Jacobians via vector-Jacobian products (VJPs).
+Each node stores its **local Jacobian**: how its output changes with respect to its inputs. The backward pass chains these local Jacobians via vector-Jacobian products (VJPs).
 </Definition>
 
 <Remark id="rmk-dag-branching">
@@ -148,7 +148,7 @@ $$\frac{\partial h_l}{\partial h_{l-1}} = \frac{\partial f_l}{\partial h_{l-1}} 
 
 </Equation>
 
-The additive identity $I$ provides a "gradient highway" -- even if $\partial f_l / \partial h_{l-1}$ is small, the gradient passes through the skip connection unattenuated. For a network with $L$ residual blocks:
+The additive identity $I$ provides a "gradient highway": even if $\partial f_l / \partial h_{l-1}$ is small, the gradient passes through the skip connection unattenuated. For a network with $L$ residual blocks:
 
 $$\frac{\partial \mathcal{L}}{\partial h_0} = \frac{\partial \mathcal{L}}{\partial h_L} \cdot \prod_{l=1}^{L}\left(\frac{\partial f_l}{\partial h_{l-1}} + I\right)$$
 

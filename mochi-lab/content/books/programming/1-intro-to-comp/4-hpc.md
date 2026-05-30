@@ -4,11 +4,11 @@ sidebar_position: 4
 
 # High-Performance Computing
 
-Training large models requires distributing computation across multiple GPUs and nodes. This chapter covers the communication primitives, network topologies, and profiling techniques that underpin distributed ML systems. Understanding these fundamentals is essential for scaling training beyond a single GPU -- which, at the frontier of ML research, means everything from 8-GPU nodes to 10,000+ GPU clusters.
+Training large models requires distributing computation across multiple GPUs and nodes. This chapter covers the communication primitives, network topologies, and profiling techniques that underpin distributed ML systems. Understanding these fundamentals is essential for scaling training beyond a single GPU, which, at the frontier of ML research, means everything from 8-GPU nodes to 10,000+ GPU clusters.
 
 ## MPI: Message Passing Interface
 
-MPI is the standard for distributed computing, developed in the 1990s and still the backbone of HPC. Each process (**rank**) has its own memory and communicates via explicit messages. There is no shared memory between ranks -- all data sharing is intentional and visible in the code.
+MPI is the standard for distributed computing, developed in the 1990s and still the backbone of HPC. Each process (**rank**) has its own memory and communicates via explicit messages. There is no shared memory between ranks: all data sharing is intentional and visible in the code.
 
 <Code id="code-mpi-example" caption="Basic MPI point-to-point and collective communication in Python.">
 
@@ -72,6 +72,8 @@ NCCL is purpose-built for GPU-to-GPU communication, automatically selecting the 
 | RoCE v2 | 100-400 Gb/s | ~2 us | Ethernet-based RDMA | Inter-node (cheaper) |
 
 </Table>
+
+All bandwidths in this table are **per direction** (unidirectional). NVLink is most commonly quoted as a bidirectional total, which is twice the per-GPU figure shown here: A100 at 600 GB/s, H100 at 900 GB/s, and B200 at 1.8 TB/s bidirectional. Watch for this convention when comparing against vendor specs, since the H100 bidirectional headline (900 GB/s) collides numerically with the B200 unidirectional figure listed above.
 
 <Code id="code-nccl-allreduce" caption="NCCL-backed all-reduce for gradient synchronization in PyTorch.">
 
@@ -239,6 +241,26 @@ where $\alpha$ is the per-message latency and $\beta$ is the per-link bandwidth.
 **When ring AllReduce does not scale:** For small messages (small gradients), the latency term $2(N-1) \cdot \alpha$ dominates. Tree algorithms reduce this to $2 \log N \cdot \alpha$ at the cost of suboptimal bandwidth. NCCL automatically selects the best algorithm based on message size and topology.
 </Remark>
 
+<Example id="ex-allreduce-nvlink">
+**AllReduce on a single NVLink node.** Consider data-parallel training on $N = 8$ H100 GPUs in one node, synchronizing a gradient of $M = 1\ \text{GB} = 10^9$ bytes per step. From [](#tab-gpu-interconnects), NVLink 4.0 gives $\beta = 450\ \text{GB/s} = 4.5 \times 10^{11}$ bytes/s per direction, and we take a per-message latency of $\alpha = 1\ \mu\text{s} = 10^{-6}\ \text{s}$.
+
+Plug into the cost model $T_{\text{AllReduce}} = 2(N-1)\alpha + 2 \cdot \frac{N-1}{N} \cdot \frac{M}{\beta}$:
+
+- **Latency term:** $2(N-1)\alpha = 2 \cdot 7 \cdot 10^{-6} = 1.4 \times 10^{-5}\ \text{s} = 0.014\ \text{ms}$.
+- **Bandwidth term:** $2 \cdot \frac{7}{8} \cdot \frac{10^9}{4.5 \times 10^{11}} = 1.75 \cdot 2.22 \times 10^{-3} = 3.89 \times 10^{-3}\ \text{s} = 3.89\ \text{ms}$.
+- **Total:** $T_{\text{AllReduce}} \approx 3.90\ \text{ms}$, dominated entirely by bandwidth (the latency term is under $0.4\%$).
+
+Now suppose each step does $T_{\text{compute}} = 100\ \text{ms}$ of backward work per GPU (an illustrative figure). With no communication-computation overlap, the per-step time is $T_N \approx 100 + 3.90 = 103.90\ \text{ms}$, giving a scaling efficiency of $\frac{T_{\text{compute}}}{T_{\text{compute}} + T_{\text{AllReduce}}} = \frac{100}{103.90} \approx 96.2\%$. Overlapping the AllReduce with the backward pass (see [](#rmk-overlap-tuning)) pushes this even closer to $100\%$.
+</Example>
+
+<Example id="ex-allreduce-infiniband">
+**Faded example: the same AllReduce across nodes.** Now move the eight GPUs to eight separate nodes connected by InfiniBand NDR. From [](#tab-gpu-interconnects), $\beta = 50\ \text{GB/s} = 5 \times 10^{10}$ bytes/s per direction; keep $N = 8$, $M = 10^9$ bytes, and take $\alpha = 1\ \mu\text{s}$ to match the InfiniBand NDR row of [](#tab-gpu-interconnects). The latency term is again negligible ($2 \cdot 7 \cdot 1 \times 10^{-6} = 0.014\ \text{ms}$), so the bandwidth term sets the cost:
+
+$$T_{\text{AllReduce}} = 2 \cdot \frac{N-1}{N} \cdot \frac{M}{\beta} + (\text{latency term}) = 2 \cdot \frac{7}{8} \cdot \frac{10^9}{5 \times 10^{10}} + 0.014\ \text{ms} = \underline{\phantom{35.0}}\ \text{ms}.$$
+
+Filling in the blank gives $1.75 \cdot 0.02\ \text{s} = 35.0\ \text{ms}$ (about $9\times$ the NVLink result, matching the $6\text{-}9\times$ interconnect gap noted later in [](#rmk-scaling-efficiency)). With the same $100\ \text{ms}$ of compute and no overlap, the scaling efficiency drops to $\frac{100}{100 + 35.0} \approx 74\%$, which is why cross-node data parallelism leans so heavily on overlap, gradient bucketing, and faster interconnects.
+</Example>
+
 ## Distributed Training Topologies
 
 <Table id="tab-dist-topologies" caption="Distributed training communication topologies and their properties.">
@@ -286,7 +308,7 @@ Rail-optimized topology:
   GPU 7 in each node → Switch 7
 ```
 
-The key performance question: **bisection bandwidth** -- the total bandwidth across the narrowest point that cuts the network in half. Insufficient bisection bandwidth causes congestion during AllReduce, which shows up as variable step times and degraded scaling efficiency.
+The key performance question: **bisection bandwidth**, the total bandwidth across the narrowest point that cuts the network in half. Insufficient bisection bandwidth causes congestion during AllReduce, which shows up as variable step times and degraded scaling efficiency.
 </Remark>
 
 ## Communication-Computation Overlap
@@ -303,7 +325,7 @@ Layer N-1:  [Backward compute]  [AllReduce bucket 2 ←→ Compute overlap]
 Layer N-2:  [Backward compute]  [AllReduce bucket 1 ←→ ]
 Layer 1:    [Backward compute]  [AllReduce bucket 0]
 
-DDP groups gradients into buckets (default: 25 MB each).
+DDP groups gradients into buckets (default: 25 MiB each).
 When a bucket is full, its AllReduce begins immediately,
 overlapping with backward computation of earlier layers.
 ```
@@ -315,7 +337,7 @@ overlapping with backward computation of earlier layers.
 - **Larger buckets (50-100 MB):** Better bandwidth efficiency (each AllReduce moves more data), but less overlap opportunity (more compute finishes before the AllReduce starts).
 - **Smaller buckets (5-10 MB):** More overlap opportunity (AllReduce starts sooner), but higher latency overhead (more AllReduce operations).
 
-For most workloads, the default (25 MB) works well. Increase it for very large models with many small parameters; decrease it for small models where you want maximum overlap.
+For most workloads, the default (25 MiB) works well. Increase it for very large models with many small parameters; decrease it for small models where you want maximum overlap.
 </Remark>
 
 ## Profiling Distributed Training
@@ -419,10 +441,10 @@ where $T_1$ is the time per step with 1 GPU and $T_N$ is the time per step with 
 nvidia-smi dmon -s u -d 1
 
 # Key columns:
-# sm   -- SM utilization (target: > 80%)
-# mem  -- Memory controller utilization
-# enc  -- Encoder utilization (not relevant for ML)
-# dec  -- Decoder utilization (not relevant for ML)
+# sm   : SM utilization (target: > 80%)
+# mem  : Memory controller utilization
+# enc  : Encoder utilization (not relevant for ML)
+# dec  : Decoder utilization (not relevant for ML)
 
 # Memory usage
 nvidia-smi --query-gpu=memory.used,memory.total --format=csv

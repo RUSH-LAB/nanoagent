@@ -8,9 +8,11 @@ date: 2025-10-03
 
 **Zeyu Yang**, Tianyi Zhang, Jianwen Xie, Chuan Li, Zhaozhuo Xu, Anshumali Shrivastava
 
-*International Conference on Learning Representations (ICLR), 2026*
+*Accepted at the International Conference on Learning Representations (ICLR), 2026*
 
 [[arXiv]](https://arxiv.org/abs/2510.02676) [[OpenReview]](https://openreview.net/forum?id=XI1CeufywD) [[Code]](https://github.com/zeyuyang8/ecf8)
+
+*Disclosure: this post describes my own work, so treat the framing as that of an author rather than a neutral third party.*
 
 Modern GenAI models are enormous. DeepSeek-R1 alone has 671 billion parameters. Even after converting to FP8, serving these models eats up massive amounts of GPU memory and bandwidth. The standard response is lossy quantization: throw away some precision and hope the outputs don't degrade too much. But what if you didn't have to lose anything at all?
 
@@ -30,7 +32,7 @@ The pattern is strikingly consistent: no matter the architecture, the model size
 
 ## Why Does This Happen?
 
-This isn't just an empirical curiosity. There's a solid explanation for it. The weights of neural networks trained with SGD are known to follow heavy tailed, $\alpha$-stable distributions. We prove that when weights come from such distributions, the entropy of the exponent field is tightly bounded. For the Gaussian case ($\alpha = 2$), the bounds fall between **1.6 and 2.67 bits**.
+This isn't just an empirical curiosity. There's a solid explanation for it. The weights of neural networks trained with SGD are known to follow heavy tailed, $\alpha$-stable distributions [@simsekli2019tail; @gurbuzbalaban2021heavy]. We prove that when weights come from such distributions, the entropy of the exponent field is tightly bounded. In our analysis, the Gaussian case ($\alpha = 2$) yields exponent-entropy bounds that fall between approximately **1.6 and 2.67 bits**.
 
 This analysis also gives us a theoretical compression floor: the minimum number of bits needed for a full floating point representation works out to roughly **FP4.67**. In other words, there's still significant room beyond FP8 for lossless compression, and exponent concentration is the key to unlocking it.
 
@@ -66,7 +68,7 @@ We tested ECF8 across 9 models spanning LLMs and diffusion transformers, up to 6
 | Wan2.2-T2V-A14B | 30B | **26.9%** | 108.3% |
 | Qwen-Image | 20B | 21.0% | 126.6% |
 
-The diffusion models benefit the most because their exponent distributions are even more concentrated, enabling higher compression ratios. FLUX.1-dev sees a nearly **3x throughput improvement**.
+The diffusion models benefit the most because their exponent distributions are even more concentrated, enabling higher compression ratios. FLUX.1-dev sees a nearly **3x throughput improvement** at the weight level. Note that this figure is a weight-level microbenchmark, not a full-pipeline number; the end-to-end speedups (reported in the diffusion table below) are smaller because they also include compute that ECF8 does not touch.
 
 ### LLM Inference: Latency and Batch Size
 
@@ -102,9 +104,9 @@ This is worth emphasizing: ECF8 is not "approximately lossless" or "nearly lossl
 
 ## How This Compares to Other Approaches
 
-**Compared to lossy quantization (GPTQ, AWQ, SqueezeLLM):** These methods trade output quality for compression. ECF8 gives you compression for free: no calibration data, no quality loss, no retraining. You can use it as a direct replacement.
+**Compared to lossy quantization (GPTQ, AWQ, SqueezeLLM):** These methods trade output quality for compression. ECF8 gives you compression with no calibration data, no quality loss, and no retraining, so you can use it as a direct replacement. The one cost is on-the-fly decompression, which adds a small overhead per weight access. As with the closely related DFloat11 [@zhang2025dfloat11], this means net throughput gains depend on operating in the memory-bandwidth-bound regime (large models or large batch sizes), where the saved bandwidth outweighs the decode cost. This is consistent with our own observation that the bottleneck for large models is memory bandwidth.
 
-**Compared to DFloat11:** DFloat11 targets BF16 weights and achieves ~30% compression. ECF8 targets the increasingly standard FP8 format and provides a theoretical framework explaining *why* compression works, rather than treating it as a purely empirical observation.
+**Compared to DFloat11:** DFloat11 [@zhang2025dfloat11] targets BF16 weights and achieves ~30% compression by Huffman coding the low-entropy exponent field, also motivated by its Shannon entropy. ECF8 shares closely related encoding and decoding machinery (Huffman codes on exponent bits, hierarchical GPU lookup tables, and a GPU decode kernel), so the pipelines are similar by design. Our contribution is scoped to two things: (a) targeting the increasingly standard FP8 format, and (b) a theoretical framework, built on the $\alpha$-stable weight distribution, that bounds exponent entropy and gives a compression floor, explaining *why* this compression is possible rather than leaving it as an empirical observation alone.
 
 ## Takeaway
 

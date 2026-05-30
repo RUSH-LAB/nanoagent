@@ -34,6 +34,12 @@ where $\eta > 0$ is the **learning rate** (step size).
 **Geometric interpretation.** At each point $\theta_t$, the gradient $\nabla \mathcal{L}(\theta_t)$ is a vector pointing in the direction of steepest *increase* of $\mathcal{L}$. Moving in the direction $-\nabla \mathcal{L}$ is the locally optimal descent direction. However, "locally optimal" can be misleading: the gradient only gives a good direction for infinitesimally small steps. For finite step sizes, the curvature of $\mathcal{L}$ matters.
 </Remark>
 
+:::info[Interactive: Gradient Descent]
+Drag the blue point to set a starting position on the curve, adjust the learning rate $\eta$, and click **Run GD** to watch gradient descent converge. The dashed orange line shows the tangent (gradient direction) at the starting point. Try a large learning rate to see oscillation or divergence.
+:::
+
+<GradientDescentDemo />
+
 ### Convergence Analysis
 
 <Definition id="def-lipschitz-gradient" name="L-Smoothness">
@@ -101,6 +107,17 @@ $$\frac{1}{T}\sum_{t=0}^{T-1} \mathbb{E}\|\nabla \mathcal{L}(\theta_t)\|^2 \leq 
 
 This is an $O(1/\sqrt{T})$ rate to a stationary point (where $\nabla \mathcal{L} \approx 0$). Note: for non-convex functions, a stationary point may be a saddle point or local minimum, not necessarily a global minimum.
 </Theorem>
+
+<Example id="ex-gd-conditioning">
+**Gradient descent on an ill-conditioned quadratic.** Consider the 2D loss $\mathcal{L}(\theta) = \tfrac{1}{2}\left(10\,\theta_1^2 + \theta_2^2\right)$, whose gradient is $\nabla \mathcal{L}(\theta) = (10\,\theta_1, \; \theta_2)$. The Hessian is diagonal with eigenvalues $L = 10$ and $\mu = 1$, so the condition number is $\kappa = L/\mu = 10$. The minimum is at the origin.
+
+Run full-batch GD with $\eta = 0.18$ from $\theta_0 = (1, 1)$. Because the loss is separable, each coordinate updates independently by the scalar rule $\theta_{t+1} = (1 - \eta\,h)\,\theta_t$, where $h$ is that coordinate's curvature:
+
+- **Steep direction** ($h = 10$): the multiplier is $1 - 0.18 \cdot 10 = -0.8$, so $\theta_{1}$ follows $1 \to -0.8 \to 0.64 \to -0.512$. The sign flips every step: this is the oscillation across the narrow axis, shrinking only by a factor of $0.8$ per step.
+- **Shallow direction** ($h = 1$): the multiplier is $1 - 0.18 \cdot 1 = 0.82$, so $\theta_{2}$ follows $1 \to 0.82 \to 0.672 \to 0.551$, decreasing monotonically but slowly.
+
+The first two iterates are therefore $\theta_1 = (-0.8, 0.82)$ and $\theta_2 = (0.64, 0.672)$. The step size is constrained by the steep direction (any $\eta > 2/L = 0.2$ diverges there), yet the shallow direction barely moves with that same $\eta$. This tension is exactly what the condition number $\kappa$ measures, and it is the gap that momentum and adaptive methods are designed to close.
+</Example>
 
 <Remark id="rmk-sgd-noise">
 **SGD noise as implicit regularization.** The stochastic noise in mini-batch gradients serves as implicit regularization. Empirical and theoretical evidence suggests:
@@ -178,13 +195,28 @@ Default hyperparameters: $\beta_1 = 0.9$, $\beta_2 = 0.999$, $\epsilon = 10^{-8}
 <Remark id="rmk-adam-insight">
 **Why Adam works.** The effective learning rate for parameter $\theta_i$ at step $t$ is $\eta / (\sqrt{\hat{v}_{t,i}} + \epsilon)$:
 
-- Parameters with **large gradient variance** (noisy signal) have large $\hat{v}_{t,i}$, so their effective learning rate is *smaller* -- Adam is cautious where the signal is noisy.
-- Parameters with **small gradient variance** (consistent signal) have small $\hat{v}_{t,i}$, so their effective learning rate is *larger* -- Adam makes confident updates.
+- Parameters with **large gradient magnitude** (large RMS, since $\hat{v}_{t,i}$ is the uncentered second moment, i.e. the mean of squared gradients) have large $\hat{v}_{t,i}$, so their effective learning rate is *smaller*. Adam normalizes by RMS magnitude, not by variance, so a large but consistent gradient is also damped.
+- Parameters with **small gradient magnitude** (small RMS) have small $\hat{v}_{t,i}$, so their effective learning rate is *larger*, letting Adam make confident updates where the signal is small but steady.
 - The bias correction is essential in the first few steps: without it, $m_t$ and $v_t$ are biased toward zero because they are initialized at zero and the exponential average has not converged.
 </Remark>
 
+<Example id="ex-adam-first-step">
+**One Adam step with bias correction.** Take a single parameter with the default hyperparameters $\beta_1 = 0.9$, $\beta_2 = 0.999$, $\eta = 10^{-3}$, $\epsilon = 10^{-8}$, and initial moments $m_0 = v_0 = 0$. Suppose the first gradient is $g_1 = 0.1$.
+
+The raw moment updates are
+$$m_1 = 0.9 \cdot 0 + 0.1 \cdot 0.1 = 0.01, \qquad v_1 = 0.999 \cdot 0 + 0.001 \cdot (0.1)^2 = 10^{-5}.$$
+
+Both are heavily shrunk toward zero by the initialization. The bias correction divides out exactly this shrinkage. At $t = 1$ the denominators are $1 - \beta_1^1 = 0.1$ and $1 - \beta_2^1 = 0.001$, so
+$$\hat{m}_1 = \frac{0.01}{0.1} = 0.1, \qquad \hat{v}_1 = \frac{10^{-5}}{0.001} = 0.01.$$
+
+Notice that after correction $\hat{m}_1 = g_1$ and $\hat{v}_1 = g_1^2$ exactly, recovering the true first-step statistics rather than the zero-biased ones. The parameter update is
+$$\Delta\theta = -\,\eta\,\frac{\hat{m}_1}{\sqrt{\hat{v}_1} + \epsilon} = -\,10^{-3}\cdot\frac{0.1}{\sqrt{0.01} + 10^{-8}} \approx -\,10^{-3}\cdot\frac{0.1}{0.1} = -\,10^{-3}.$$
+
+So the first step has magnitude $\approx \eta$, independent of the gradient scale: with $\hat{m}_1/\sqrt{\hat{v}_1} = g_1/|g_1| = \operatorname{sign}(g_1)$, Adam takes a step of size $\eta$ in the descent direction. Without bias correction, the same step would instead be $\eta\, m_1/\sqrt{v_1} = 10^{-3}\cdot 0.01/\sqrt{10^{-5}} \approx 3.2\times 10^{-3}$, more than triple the size, which is the wild early update that warmup exists to suppress.
+</Example>
+
 <Remark id="rmk-adamw">
-**AdamW (decoupled weight decay)** [@loshchilov2019adamw]. In standard Adam, L2 regularization adds $\lambda \theta$ to the gradient, which then gets divided by $\sqrt{\hat{v}_t}$. This means the effective regularization strength varies per parameter -- defeating the purpose of uniform weight decay. AdamW fixes this by applying weight decay *directly* to the parameters, outside the adaptive learning rate:
+**AdamW (decoupled weight decay)** [@loshchilov2019adamw]. In standard Adam, L2 regularization adds $\lambda \theta$ to the gradient, which then gets divided by $\sqrt{\hat{v}_t}$. This means the effective regularization strength varies per parameter, defeating the purpose of uniform weight decay. AdamW fixes this by applying weight decay *directly* to the parameters, outside the adaptive learning rate:
 
 $$\theta_{t+1} = (1 - \eta \lambda) \theta_t - \eta \frac{\hat{m}_t}{\sqrt{\hat{v}_t} + \epsilon}$$
 
@@ -226,7 +258,7 @@ The learning rate $\eta_t$ is rarely constant. A schedule adapts it over trainin
 </Table>
 
 <Remark id="rmk-warmup">
-**Why warmup?** In the first few steps, Adam's second-moment estimates $\hat{v}_t$ are based on very few samples and are unreliable. Large learning rates during this phase cause wild updates. Linear warmup (ramping $\eta$ from 0 to $\eta_0$ over $w$ steps) gives the adaptive estimates time to stabilize. Empirically, $w$ = 1--5% of total training steps works well.
+**Why warmup?** In the first few steps, Adam's second-moment estimates $\hat{v}_t$ are based on very few samples and are unreliable. Large learning rates during this phase cause wild updates. Linear warmup (ramping $\eta$ from 0 to $\eta_0$ over $w$ steps) gives the adaptive estimates time to stabilize. Empirically, $w$ = 1 to 5% of total training steps works well.
 </Remark>
 
 ## Gradient Clipping

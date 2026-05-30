@@ -15,11 +15,11 @@ where s_t is the state at time t, a_t is the action, and f_theta is a parameteri
 
 When the environment is partially observable (the agent cannot see the full state), the world model must maintain a belief over possible states. This leads to the formulation as a Partially Observable Markov Decision Process (POMDP), where the world model learns:
 
-- **Observation model:** p(o_t | s_t) -- the relationship between hidden states and observations
-- **Transition model:** p(s_{t+1} | s_t, a_t) -- how the hidden state evolves
-- **Reward model:** p(r_t | s_t, a_t) -- what rewards are expected
+- **Observation model:** p(o_t | s_t), the relationship between hidden states and observations
+- **Transition model:** p(s_{t+1} | s_t, a_t), how the hidden state evolves
+- **Reward model:** p(r_t | s_t, a_t), what rewards are expected
 
-The Dreamer family addresses partial observability through the RSSM (Recurrent State-Space Model), which maintains a belief state combining deterministic memory (RNN hidden state) with a stochastic component.
+The Dreamer family addresses partial observability through the RSSM (Recurrent State-Space Model), introduced in PlaNet [@hafner2019learning], which maintains a belief state combining deterministic memory (RNN hidden state) with a stochastic component.
 
 ### Key Components
 
@@ -29,7 +29,7 @@ A complete world model system typically consists of [@hafner2019learning, @hafne
 
 2. **Transition model (prior):** Predicts latent state transitions without seeing the observation: p(s_t | h_t), where h_t = f(h_{t-1}, s_{t-1}, a_{t-1}). This is the component used during imagination (planning), as future observations are unavailable. The difference between the prior and posterior is measured by the KL divergence and drives the model to learn predictive representations.
 
-3. **Observation model (decoder):** Reconstructs observations from latent states o_t = dec(s_t, h_t). The decoder provides the learning signal that ensures the latent space captures visually relevant information. However, as MuZero demonstrated, the decoder is not strictly necessary -- world models can learn useful representations without observation reconstruction.
+3. **Observation model (decoder):** Reconstructs observations from latent states o_t = dec(s_t, h_t). The decoder provides the learning signal that ensures the latent space captures visually relevant information. However, as MuZero demonstrated [@schrittwieser2020mastering], the decoder is not strictly necessary: world models can learn useful representations without observation reconstruction.
 
 4. **Reward model:** Predicts rewards r_t = rew(s_t, h_t, a_t) for reinforcement learning applications. In combination with the transition model, the reward model enables evaluating the expected return of imagined trajectories.
 
@@ -39,11 +39,13 @@ A complete world model system typically consists of [@hafner2019learning, @hafne
 
 A central design choice is whether to predict future states in observation space (pixel-space models) or in a learned latent space (latent-space models) [@lecun2022path]. This choice has profound implications:
 
-**Pixel-space models** (SimPLe, DIAMOND, GameNGen) predict full observations at each step. Advantages include: easy evaluation (compare predicted and actual frames), no information loss (the model captures everything visible), and compatibility with powerful generative architectures (diffusion, autoregressive). Disadvantages include: computational expense (generating high-resolution frames at each planning step), wasted capacity on task-irrelevant details (exact textures, lighting variations), and difficulty with multi-step planning (errors in pixel prediction compound rapidly).
+**Pixel-space models** (SimPLe [@kaiser2020model], DIAMOND [@alonso2024diffusion], GameNGen [@valevski2024diffusion]) predict full observations at each step. Advantages include: easy evaluation (compare predicted and actual frames), no information loss (the model captures everything visible), and compatibility with powerful generative architectures (diffusion, autoregressive). Disadvantages include: computational expense (generating high-resolution frames at each planning step), wasted capacity on task-irrelevant details (exact textures, lighting variations), and difficulty with multi-step planning (errors in pixel prediction compound rapidly).
 
-**Latent-space models** (Dreamer, MuZero, TD-MPC) learn compressed representations that retain task-relevant information while discarding irrelevant details. Advantages include: computational efficiency (planning in a compact space), natural handling of partial observability (the latent state can integrate information over time), and the ability to learn abstract, task-relevant representations. Disadvantages include: the risk of discarding task-relevant information during encoding, difficulty in evaluating prediction quality (latent predictions are not directly interpretable), and the challenge of ensuring the latent space has good geometric properties for planning.
+**Latent-space models** (Dreamer [@hafner2020dream], MuZero [@schrittwieser2020mastering], TD-MPC [@hansen2022temporal]) learn compressed representations that retain task-relevant information while discarding irrelevant details. Advantages include: computational efficiency (planning in a compact space), natural handling of partial observability (the latent state can integrate information over time), and the ability to learn abstract, task-relevant representations. Disadvantages include: the risk of discarding task-relevant information during encoding, difficulty in evaluating prediction quality (latent predictions are not directly interpretable), and the challenge of ensuring the latent space has good geometric properties for planning.
 
-The JEPA perspective [@lecun2022path] argues strongly for latent-space prediction, proposing that world models should predict in an abstract representation space where irrelevant details are explicitly removed. V-JEPA [@bardes2024vjepa] implements this vision, demonstrating that predicting in representation space (without pixel reconstruction) produces efficient and effective world models for video understanding.
+The JEPA perspective [@lecun2022path] argues strongly for latent-space prediction, proposing that world models should predict in an abstract representation space where irrelevant details are explicitly removed. V-JEPA [@bardes2024vjepa] implements this vision, demonstrating that predicting in representation space (without pixel reconstruction) produces efficient and effective world models for video understanding. Its successor, V-JEPA 2 [@assran2025vjepa2], scales this approach and extends it from understanding to action-conditioned prediction and planning.
+
+Throughout this section we refer to flagship systems by their original publications (Dreamer [@hafner2020dream], TD-MPC [@hansen2022temporal], V-JEPA [@bardes2024vjepa]) because these papers introduce the design choices being contrasted. Each has since seen a successor generation that scales the same recipe: DreamerV3 [@hafner2023mastering], TD-MPC2 [@hansen2024tdmpc2], and V-JEPA 2 [@assran2025vjepa2].
 
 ### Planning with World Models
 
@@ -64,4 +66,4 @@ The choice of planning method involves a fundamental tradeoff between planning q
 
 ### The Fidelity-Utility Tradeoff
 
-A fundamental tension in world model design is between **model fidelity** (how accurately the model reproduces the true dynamics) and **model utility** (how useful the model is for downstream tasks). These are not the same: a model that perfectly predicts every pixel but runs too slowly for planning is less useful than a fast, approximate model that captures task-relevant dynamics. MuZero crystallized this insight: its world model predicts rewards and values but not observations, achieving superhuman performance without visual fidelity. This suggests that the right objective for a world model depends on its intended use: reconstruction-based training for open-ended simulation, value-based training for decision-making, and feature-based training for representation learning.
+A fundamental tension in world model design is between **model fidelity** (how accurately the model reproduces the true dynamics) and **model utility** (how useful the model is for downstream tasks). These are not the same: a model that perfectly predicts every pixel but runs too slowly for planning is less useful than a fast, approximate model that captures task-relevant dynamics. The payoff of model-based learning is measured in sample efficiency: SimPLe targets the Atari 100K benchmark [@kaiser2020model], learning from roughly 100,000 environment interactions (about two hours of gameplay), where strong model-free baselines typically consume tens of millions of frames to reach comparable scores. A detailed cross-method comparison of these efficiency and planning-budget numbers is deferred to the benchmarks section. MuZero crystallized this insight: its world model predicts rewards and values but not observations, achieving superhuman performance without visual fidelity. This suggests that the right objective for a world model depends on its intended use: reconstruction-based training for open-ended simulation, value-based training for decision-making, and feature-based training for representation learning.

@@ -18,13 +18,13 @@ The precision of a floating-point number is determined by its bit allocation bet
 | TF32 | 19 | 8 | 10 | $\pm 3.4 \times 10^{38}$ | ~3.3 | Automatic on Ampere+ for matmul |
 | FP16 | 16 | 5 | 10 | $\pm 6.5 \times 10^{4}$ | ~3.3 | Mixed precision (older GPUs) |
 | BF16 | 16 | 8 | 7 | $\pm 3.4 \times 10^{38}$ | ~2.4 | Mixed precision (Ampere+) |
-| FP8 E4M3 | 8 | 4 | 3 | $\pm 240$ | ~1.0 | Forward pass (Hopper+) |
-| FP8 E5M2 | 8 | 5 | 2 | $\pm 57344$ | ~0.6 | Backward pass (Hopper+) |
+| FP8 E4M3 | 8 | 4 | 3 | $\pm 448$ | ~1.2 | Forward pass (Hopper+) |
+| FP8 E5M2 | 8 | 5 | 2 | $\pm 57344$ | ~0.9 | Backward pass (Hopper+) |
 
 </Table>
 
 <Remark id="rmk-bf16-vs-fp16">
-**BF16 vs FP16: why BF16 is preferred for training.** BF16 has the same 8-bit exponent as FP32, giving it the same dynamic range ($10^{\pm 38}$). This means gradients that are representable in FP32 are almost always representable in BF16 (with less precision, but without underflow). FP16 has only a 5-bit exponent, so gradients smaller than $6 \times 10^{-8}$ underflow to zero -- this is common in deep networks with many layers. FP16 requires loss scaling to work around this; BF16 does not.
+**BF16 vs FP16: why BF16 is preferred for training.** BF16 has the same 8-bit exponent as FP32, giving it the same dynamic range ($10^{\pm 38}$). This means gradients that are representable in FP32 are almost always representable in BF16 (with less precision, but without underflow). FP16 has only a 5-bit exponent, so gradients smaller than $6 \times 10^{-8}$ underflow to zero, which is common in deep networks with many layers. FP16 requires loss scaling to work around this; BF16 does not.
 
 ```
 FP32:   S EEEEEEEE MMMMMMMMMMMMMMMMMMMMMMM   (1 + 8 + 23 = 32 bits)
@@ -107,12 +107,20 @@ Unscale and update:
 
 </Code>
 
+<Example id="ex-loss-scaling-underflow" caption="A gradient that underflows in FP16 survives after loss scaling.">
+
+Consider a single gradient component with true value $g = 2^{-27} \approx 7.45 \times 10^{-9}$. The smallest positive value FP16 can represent (a subnormal) is $2^{-24} \approx 5.96 \times 10^{-8}$, so $g$ rounds to $0$ when stored in FP16. The contribution is lost and the parameter never updates.
+
+Now apply a loss scale of $s = 65536 = 2^{16}$. The backward pass computes the scaled gradient $s \cdot g = 2^{-27} \cdot 2^{16} = 2^{-11} \approx 4.88 \times 10^{-4}$, which is comfortably inside FP16's normal range and stored without loss. After the backward pass, the scaler divides the gradient by $s$ in FP32 before the optimizer step: $4.88 \times 10^{-4} / 65536 = 2^{-27}$, recovering the original value at full FP32 precision. The same scale factor lifts the entire gradient tensor into range, so small gradients that would have vanished now drive real weight updates.
+
+</Example>
+
 <Remark id="rmk-grad-scaler-dynamics">
 **GradScaler dynamics.** The scaler starts with a large scale factor (default 65536) and adjusts dynamically:
 - Every N steps without overflow: multiply scale by 2 (more aggressive, better precision preservation)
 - On any step with overflow/NaN: divide scale by 2 and skip the weight update
 
-This means the first few steps may have skipped updates while the scaler finds the right range. Monitor `scaler.get_scale()` -- if it keeps decreasing, the model has numerical stability issues independent of precision.
+This means the first few steps may have skipped updates while the scaler finds the right range. Monitor `scaler.get_scale()`: if it keeps decreasing, the model has numerical stability issues independent of precision.
 </Remark>
 
 ## What Runs in Which Precision
@@ -138,7 +146,7 @@ This means the first few steps may have skipped updates while the scaler finds t
 </Table>
 
 <Remark id="rmk-tf32">
-**TF32: the invisible mixed precision.** On Ampere+ GPUs, cuBLAS and cuDNN automatically use TF32 for FP32 matmul and convolution operations. TF32 uses FP32 range (8-bit exponent) but only 10-bit mantissa, giving 8x throughput on Tensor Cores compared to full FP32. This happens by default -- you do not need `autocast`. To disable it (for debugging): `torch.backends.cuda.matmul.allow_tf32 = False`.
+**TF32: the invisible mixed precision.** On Ampere+ GPUs, cuBLAS and cuDNN automatically use TF32 for FP32 matmul and convolution operations. TF32 uses FP32 range (8-bit exponent) but only 10-bit mantissa, giving 8x throughput on Tensor Cores compared to full FP32. This happens by default, so you do not need `autocast`. To disable it (for debugging): `torch.backends.cuda.matmul.allow_tf32 = False`.
 </Remark>
 
 ## Performance and Memory Impact
@@ -149,7 +157,7 @@ This means the first few steps may have skipped updates while the scaler finds t
 |--------|--------------|----------------------|-------------|
 | **Compute-bound ops** (matmul, conv) | 1x | 2-8x (Tensor Cores) | Depends on GPU generation |
 | **Memory-bound ops** (activation, elementwise) | 1x | ~2x (half the bytes transferred) | Memory bandwidth limited |
-| **Parameter memory** | 4 bytes/param | 2 bytes/param (+ 4 bytes master) | ~1.3x reduction |
+| **Parameter memory** | 4 bytes/param | 6 bytes/param (2-byte working copy + 4-byte FP32 master) | ~1.5x increase |
 | **Activation memory** | 4 bytes/element | 2 bytes/element | 2x reduction |
 | **Gradient memory** | 4 bytes/param | 2 bytes/param | 2x reduction |
 | **Optimizer state** (AdamW) | 8 bytes/param (m + v) | 8 bytes/param (still FP32) | No change |
@@ -158,7 +166,7 @@ This means the first few steps may have skipped updates while the scaler finds t
 
 </Table>
 
-<Table id="tab-tensor-core-throughput" caption="Tensor Core throughput by GPU generation and precision.">
+<Table id="tab-tensor-core-throughput" caption="Tensor Core throughput by GPU generation and precision (dense, no sparsity).">
 
 | GPU | FP32 (TFLOPS) | TF32 (TFLOPS) | FP16/BF16 (TFLOPS) | FP8 (TFLOPS) | INT8 (TOPS) |
 |-----|--------------|---------------|-------------------|-------------|-------------|
@@ -170,7 +178,7 @@ This means the first few steps may have skipped updates while the scaler finds t
 
 <Remark id="rmk-mixed-precision-default">
 **Mixed precision should be the default.** There is almost no reason to train in pure FP32 on modern GPUs. The only exceptions are:
-1. **Debugging numerical issues** -- temporarily disable to isolate precision-related bugs
+1. **Debugging numerical issues**: temporarily disable to isolate precision-related bugs
 2. **Very small models** where Tensor Core overhead dominates the small matrix multiplications
 3. **Specific operations** that are known to be numerically sensitive (usually handled by autocast's FP32 fallback list)
 
@@ -201,9 +209,9 @@ optimizer.step()
 
 # FP8 uses per-tensor scaling factors (not loss scaling):
 # E4M3 (4-bit exponent, 3-bit mantissa): forward activations and weights
-#   -> Higher precision (8 values), smaller range (+-240)
+#   Higher precision (3 mantissa bits = 8 steps per binade), smaller range (+-448)
 # E5M2 (5-bit exponent, 2-bit mantissa): gradients in backward
-#   -> Lower precision (4 values), larger range (+-57344)
+#   Lower precision (2 mantissa bits = 4 steps per binade), larger range (+-57344)
 ```
 
 </Code>

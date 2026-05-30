@@ -4,7 +4,7 @@ sidebar_position: 1
 
 # Multivariable Calculus
 
-Multivariable calculus provides the mathematical machinery for optimizing functions of many variables -- the central computational task in machine learning. Every gradient computation, every optimizer step, and every loss landscape analysis uses the tools developed here.
+Multivariable calculus provides the mathematical machinery for optimizing functions of many variables, the central computational task in machine learning. Every gradient computation, every optimizer step, and every loss landscape analysis uses the tools developed here.
 
 ## Partial Derivatives
 
@@ -49,7 +49,7 @@ where $\theta$ is the angle between $\nabla f$ and $u$. This is maximized ($= \|
 
 $$u^* = \arg\min_{\|u\| = 1} D_u f = \arg\min_{\|u\| = 1} \nabla f^\top u = -\frac{\nabla f}{\|\nabla f\|}$$
 
-The step $x_{t+1} = x_t - \eta \nabla f$ moves in this direction with step size $\eta \|\nabla f\|$. Note that this is only the best direction for infinitesimally small steps -- for finite $\eta$, curvature matters.
+The step $x_{t+1} = x_t - \eta \nabla f$ moves in this direction with step size $\eta \|\nabla f\|$. Note that this is only the best direction for infinitesimally small steps: for finite $\eta$, curvature matters.
 </Example>
 
 ## Taylor Expansion
@@ -76,12 +76,36 @@ where $H(x_0) = \nabla^2 f(x_0)$ is the Hessian matrix with $H_{ij} = \frac{\par
 
 | Method | Uses | Approximation | Step | Cost per step | Convergence |
 |--------|------|---------------|------|---------------|-------------|
-| Gradient descent | $\nabla f$ only | Linear | $-\eta \nabla f$ | $O(n)$ | Linear ($O(e^{-t/\kappa})$) |
+| Gradient descent | $\nabla f$ only | Linear | $-\eta \nabla f$ | $O(n)$ | Linear ($O((1 - 1/\kappa)^t)$ per step) |
 | Newton's method | $\nabla f$ and $H$ | Quadratic | $-H^{-1} \nabla f$ | $O(n^3)$ | Quadratic (near optimum) |
 | L-BFGS | $\nabla f$ + approximate $H^{-1}$ | Quasi-quadratic | $-\tilde{H}^{-1} \nabla f$ | $O(mn)$, $m \ll n$ | Superlinear |
 
-Newton's method finds the exact minimum of the quadratic approximation in one step. It converges quadratically near a minimum ($\|x_{t+1} - x^*\| \leq c\|x_t - x^*\|^2$) but is impractical for neural networks ($n > 10^6$) because forming and inverting the Hessian costs $O(n^2)$ memory and $O(n^3)$ computation.
+For a strictly quadratic objective, Newton's method finds the exact minimum in one step (the quadratic approximation is exact). For a general smooth $f$, it instead converges quadratically near a minimum ($\|x_{t+1} - x^*\| \leq c\|x_t - x^*\|^2$). Either way it is impractical for neural networks ($n > 10^6$) because forming and inverting the Hessian costs $O(n^2)$ memory and $O(n^3)$ computation.
 </Remark>
+
+<Example id="ex-newton-vs-gd">
+**Gradient descent vs. Newton on a quadratic.** Take the anisotropic quadratic
+
+$$f(x_1, x_2) = \tfrac{1}{2}\left(x_1^2 + 10\,x_2^2\right), \qquad x_0 = \begin{bmatrix} 1 \\ 1 \end{bmatrix}.$$
+
+The gradient and Hessian are
+
+$$\nabla f(x) = \begin{bmatrix} x_1 \\ 10\,x_2 \end{bmatrix}, \qquad H = \begin{bmatrix} 1 & 0 \\ 0 & 10 \end{bmatrix},$$
+
+so $\nabla f(x_0) = (1, 10)^\top$. The minimum is at $x^* = (0, 0)$ and the condition number is $\kappa = 10$.
+
+*Gradient descent.* With step size $\eta = 0.1$, one step gives
+
+$$x_1 = x_0 - \eta\,\nabla f(x_0) = \begin{bmatrix} 1 \\ 1 \end{bmatrix} - 0.1\begin{bmatrix} 1 \\ 10 \end{bmatrix} = \begin{bmatrix} 0.9 \\ 0 \end{bmatrix}.$$
+
+The well-conditioned coordinate $x_2$ snaps to its optimum, but $x_1$ barely moves; subsequent steps shrink $x_1$ by a factor of $0.9$ each iteration, the linear $O((1 - 1/\kappa)^t)$ rate.
+
+*Newton's method.* Because $f$ is exactly quadratic, one Newton step reaches the minimum:
+
+$$x_1 = x_0 - H^{-1}\nabla f(x_0) = \begin{bmatrix} 1 \\ 1 \end{bmatrix} - \begin{bmatrix} 1 & 0 \\ 0 & 0.1 \end{bmatrix}\begin{bmatrix} 1 \\ 10 \end{bmatrix} = \begin{bmatrix} 0 \\ 0 \end{bmatrix} = x^*.$$
+
+Newton rescales each direction by its curvature, which is exactly what gradient descent fails to do on ill-conditioned problems.
+</Example>
 
 ## Implicit Function Theorem and Implicit Differentiation
 
@@ -129,7 +153,7 @@ The loss function $\mathcal{L}(\theta)$ defines a surface in the $P$-dimensional
 
 <Table id="tab-critical-points" caption="Types of critical points in loss landscapes.">
 
-| Feature | Definition | Hessian Condition | Frequency in High-$d$ |
+| Feature | Definition | Hessian Condition (sufficient) | Frequency in High-$d$ |
 |---------|------------|-------------------|----------------------|
 | **Local minimum** | $\mathcal{L}(\theta^*) \leq \mathcal{L}(\theta)$ in a neighborhood | $H \succ 0$ (all eigenvalues $> 0$) | Rare: $\sim 2^{-P}$ of critical points |
 | **Local maximum** | $\mathcal{L}(\theta^*) \geq \mathcal{L}(\theta)$ in a neighborhood | $H \prec 0$ (all eigenvalues $< 0$) | Rare |
@@ -142,8 +166,8 @@ The loss function $\mathcal{L}(\theta)$ defines a surface in the $P$-dimensional
 <Remark id="rmk-high-dim-landscape">
 In high dimensions ($P \gg 1$), the character of the loss landscape changes qualitatively:
 
-1. **Saddle points dominate.** For a random critical point, each Hessian eigenvalue is independently positive or negative with roughly equal probability. The probability that all $P$ eigenvalues are positive (a minimum) is $\sim 2^{-P}$, which is astronomically small for $P = 10^9$.
-2. **Local minima are near-global.** Empirically, the loss values at different local minima of overparameterized networks are clustered near the global minimum -- there are no "bad" local minima that trap optimization [@choromanska2015loss].
+1. **Saddle points dominate.** Heuristically, if we model each Hessian eigenvalue at a random critical point as independently positive or negative with roughly equal probability [@dauphin2014identifying], the probability that all $P$ eigenvalues are positive (a minimum) is approximately $2^{-P}$, which is astronomically small for $P = 10^9$. (This independence assumption is a simplification; in practice, eigenvalue signs correlate with loss level.)
+2. **Local minima are near-global.** Empirically, the loss values at different local minima of overparameterized networks are clustered near the global minimum, so there are no "bad" local minima that trap optimization [@choromanska2015loss].
 3. **Mode connectivity.** Good local minima found by different training runs are connected by low-loss paths through parameter space [@draxler2018essentially]. This suggests the loss landscape has a connected valley structure rather than isolated basins.
 </Remark>
 

@@ -4,7 +4,7 @@ sidebar_position: 3
 
 # From Silicon to PyTorch
 
-Every call to `torch.matmul(A, B)` triggers a chain of events spanning multiple layers of abstraction -- from Python down to transistors. Understanding this stack explains *why* certain operations are fast, why operator fusion matters, and how to reason about performance.
+Every call to `torch.matmul(A, B)` triggers a chain of events spanning multiple layers of abstraction, from Python down to transistors. Understanding this stack explains *why* certain operations are fast, why operator fusion matters, and how to reason about performance.
 
 ## The Abstraction Stack
 
@@ -22,16 +22,16 @@ Every call to `torch.matmul(A, B)` triggers a chain of events spanning multiple 
 </Table>
 
 <Remark id="rmk-abstraction-tradeoff">
-Each layer trades generality for performance. The user writes generic Python; the system compiles it down to hardware-specific instructions that exploit the exact memory layout, data type, and compute units available. Performance bugs usually live at one specific layer -- understanding the stack tells you where to look.
+Each layer trades generality for performance. The user writes generic Python; the system compiles it down to hardware-specific instructions that exploit the exact memory layout, data type, and compute units available. Performance bugs usually live at one specific layer, and understanding the stack tells you where to look.
 </Remark>
 
 <Example id="ex-dispatch-path">
 **Tracing a matmul call.** When you call `torch.matmul(A, B)` where both tensors are `float16` on `cuda:0`:
 
 1. **Python:** `torch.matmul` is a Python function that calls into C++ via `torch._C`
-2. **Dispatcher:** The ATen dispatcher checks: dtype is `float16`, device is `cuda`, `requires_grad=True` on one input -- routes to the autograd-wrapped CUDA kernel
+2. **Dispatcher:** The ATen dispatcher checks: dtype is `float16`, device is `cuda`, `requires_grad=True` on one input, routes to the autograd-wrapped CUDA kernel
 3. **cuBLAS:** For matrices of shape $(m, k) \times (k, n)$, cuBLAS selects a tile size and algorithm (e.g., `CUBLAS_GEMM_DEFAULT_TENSOR_OP`) that maps to Tensor Cores
-4. **Tensor Cores:** Execute $4 \times 4 \times 4$ (or $16 \times 16 \times 16$) matrix multiply-accumulate operations in a single clock cycle
+4. **Tensor Cores:** Execute $4 \times 4 \times 4$ matrix multiply-accumulate operations in a single clock cycle (warp-level $16 \times 16 \times 16$ WMMA instructions aggregate multiple Tensor Core operations across several cycles)
 5. **Result:** Written back through the memory hierarchy to HBM, wrapped in a new PyTorch tensor with a backward function registered for autograd
 </Example>
 
@@ -99,7 +99,7 @@ Almost every neural network computation reduces to BLAS calls, which is why opti
 </Table>
 
 <Remark id="rmk-gemm-dominance">
-In a standard transformer training step, GEMM operations (linear projections, attention scores, attention output, FFN) account for roughly 60-70% of total FLOPs. The remaining 30-40% (layer norm, softmax, dropout, activation functions) are element-wise and memory-bound. This is why Tensor Cores, which accelerate GEMM by 8-16x, produce only 2-3x end-to-end speedup -- the memory-bound operations become the bottleneck.
+In a standard transformer training step, GEMM operations (linear projections, attention scores, attention output, FFN) account for roughly 60-70% of total FLOPs. The remaining 30-40% (layer norm, softmax, dropout, activation functions) are element-wise and memory-bound. This is why Tensor Cores, which can accelerate GEMM by approximately 8-16x, typically produce only around 2-3x end-to-end speedup, because the memory-bound operations become the bottleneck. (These figures are illustrative and vary by model architecture and hardware generation.)
 </Remark>
 
 ## Operator Fusion
@@ -138,7 +138,7 @@ Total memory traffic: $2 \times n$ (read inputs, write outputs). This is a $3\ti
 Result: memory usage drops from $O(T^2)$ to $O(T)$, and wall-clock time improves 2-4x for long sequences despite performing *more* FLOPs (due to recomputation in the backward pass). This is a striking example of trading compute for memory bandwidth.
 </Example>
 
-<Table id="tab-fusion-examples" caption="Common operator fusions in ML frameworks.">
+<Table id="tab-fusion-examples" caption="Common operator fusions in ML frameworks (speedups are approximate and vary by workload and hardware).">
 
 | Fused Operation | Separate Ops | Speedup | Framework Support |
 |----------------|-------------|---------|-------------------|

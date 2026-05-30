@@ -79,7 +79,8 @@ const config = {
   favicon: 'img/mochi.jpg',
 
   customFields: {
-    authEnabled: true,
+    // Set DISABLE_AUTH=true to skip the Clerk auth gate (used by `npm start`).
+    authEnabled: process.env.DISABLE_AUTH !== 'true',
   },
 
   future: {
@@ -105,6 +106,8 @@ const config = {
     defaultLocale: 'en',
     locales: ['en'],
   },
+
+  clientModules: [require.resolve('./src/prism-lean4.js')],
 
   presets: [
     [
@@ -136,8 +139,8 @@ const config = {
         indexBlog: true,
         indexDocs: true,
         indexPages: false,
-        docsRouteBasePath: ['/programming', '/math', '/build-with-ai', '/survey'],
-        docsDir: [`${BOOKS_DIR}/programming`, `${BOOKS_DIR}/math`, `${BOOKS_DIR}/build-with-ai`, `${BOOKS_DIR}/survey`],
+        docsRouteBasePath: ['/programming', '/math', '/builder', '/survey'],
+        docsDir: [`${BOOKS_DIR}/programming`, `${BOOKS_DIR}/math`, `${BOOKS_DIR}/builder`, `${BOOKS_DIR}/survey`],
         blogDir: [`${POSTS_DIR}/blog`, `${POSTS_DIR}/research`],
         blogRouteBasePath: ['/blog', '/research'],
         searchBarShortcut: true,
@@ -151,7 +154,7 @@ const config = {
 
     // Docs plugins
     makeDocsPlugin('survey', 'survey'),
-    makeDocsPlugin('build-with-ai', 'build-with-ai'),
+    makeDocsPlugin('builder', 'builder'),
     makeDocsPlugin('math', 'math'),
 
     // Blog plugins
@@ -174,7 +177,7 @@ const config = {
       {
         contentDirs: [
           { dir: `${BOOKS_DIR}/math`, routeBase: 'math' },
-          { dir: `${BOOKS_DIR}/build-with-ai`, routeBase: 'build-with-ai' },
+          { dir: `${BOOKS_DIR}/builder`, routeBase: 'builder' },
         ],
       },
     ],
@@ -226,8 +229,8 @@ const config = {
           {
             type: 'doc',
             docId: 'intro',
-            docsPluginId: 'build-with-ai',
-            label: 'Build with AI',
+            docsPluginId: 'builder',
+            label: 'Builder',
           },
           {
             href: 'https://github.com/zeyuyang8/mochi-lab',

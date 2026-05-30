@@ -87,6 +87,14 @@ $$R(h_{\text{ERM}}) \leq \hat{R}(h_{\text{ERM}}) + \sqrt{\frac{\log(2|\mathcal{H
 This bound is only useful for finite $\mathcal{H}$. For continuous hypothesis classes (neural networks, kernel methods), we need VC dimension or Rademacher complexity.
 </Remark>
 
+<Example id="ex-finite-pac-numeric">
+**Computing a finite-class PAC bound.** Consider a class of $20$-bit programs, so $|\mathcal{H}| = 2^{20} \approx 10^6$. With confidence $1 - \delta = 0.95$ ($\delta = 0.05$) and $n = 10{,}000$ training samples, the finite-class PAC bound gives
+
+$$R(h_{\text{ERM}}) - \hat{R}(h_{\text{ERM}}) \leq \sqrt{\frac{\log(2|\mathcal{H}|/\delta)}{2n}} = \sqrt{\frac{\log(2 \cdot 2^{20} / 0.05)}{2 \cdot 10^4}} \approx \sqrt{\frac{17.55}{20{,}000}} \approx 0.030.$$
+
+So with $10{,}000$ samples the true risk exceeds the training risk by at most about $3\%$ (with $95\%$ confidence), even though the class contains over a million hypotheses. To halve this gap to $1.5\%$, the quadratic dependence on $1/\epsilon$ requires roughly $4\times$ the data ($n \approx 40{,}000$).
+</Example>
+
 ## VC Dimension
 
 <Definition id="def-shattering" name="Shattering">
@@ -192,15 +200,15 @@ For linear models with bounded norm $\|w\| \leq B$ and data with $\|x\| \leq C$:
 
 $$\mathfrak{R}_n(\mathcal{H}) \leq \frac{BC}{\sqrt{n}}$$
 
-This bound depends on the *norm* of the weights, not the number of parameters -- explaining why overparameterized models with small weights can still generalize.
+This bound depends on the *norm* of the weights, not the number of parameters, which explains why overparameterized models with small weights can still generalize.
 </Remark>
 
 <Remark id="rmk-rademacher-neural">
-**Rademacher complexity of neural networks.** For a $L$-layer ReLU network with weight matrices $W_1, \ldots, W_L$ and spectral norms $\|W_l\|_2 \leq s_l$:
+**Rademacher complexity of neural networks.** For a $L$-layer ReLU network with weight matrices $W_1, \ldots, W_L$ and spectral norms $\|W_l\|_2 \leq s_l$, the spectral-complexity bound of [@bartlett2017spectrally] controls the (margin-normalized) complexity by
 
-$$\mathfrak{R}_n(\mathcal{H}) \leq \frac{B_x \prod_{l=1}^L s_l \cdot \sqrt{2L \log 2}}{\sqrt{n}} \cdot \left(\sum_{l=1}^L \frac{\|W_l\|_F^2}{s_l^2}\right)^{1/2}$$
+$$\mathfrak{R}_n(\mathcal{H}) \leq \tilde{O}\!\left(\frac{B_x \prod_{l=1}^L s_l}{\sqrt{n}} \cdot \left(\sum_{l=1}^L \frac{\|W_l\|_F^2}{s_l^2}\right)^{1/2}\right)$$
 
-This bound depends on the product of spectral norms (path norm) and Frobenius-to-spectral norm ratios, not the parameter count. It helps explain why networks with billions of parameters can generalize: what matters is the effective complexity (norm-based), not the raw capacity (parameter count).
+where $\tilde{O}$ hides constants and logarithmic factors. The original result is a covering-number bound on the margin-normalized loss rather than a clean Rademacher inequality, but the governing quantity is the spectral complexity above. This bound depends on the product of spectral norms (path norm) and Frobenius-to-spectral norm ratios, not the parameter count. It helps explain why networks with billions of parameters can generalize: what matters is the effective complexity (norm-based), not the raw capacity (parameter count).
 </Remark>
 
 ## PAC-Bayesian Bounds
@@ -264,9 +272,9 @@ $$= \mathbb{E}[(\hat{f} - \bar{f})^2] + (\bar{f} - f)^2 + \mathbb{E}[(f - y)^2] 
 <Remark id="rmk-double-descent-phenomenon">
 **Double descent and the failure of classical theory.** Classical learning theory predicts a U-shaped test error curve: error decreases as complexity grows (reducing bias), hits a minimum, then increases (as variance dominates). Modern neural networks exhibit **double descent** [@nakkiran2021deep; @belkin2019reconciling]:
 
-1. **Classical regime** ($P < N$): U-shaped curve, minimum at the "sweet spot."
-2. **Interpolation threshold** ($P \approx N$): Test error peaks -- the model has just enough parameters to memorize the training data, but in a brittle way.
-3. **Modern regime** ($P \gg N$): Test error *decreases again* as the model grows -- more parameters lead to better generalization.
+1. **Classical regime** ($p < n$): U-shaped curve, minimum at the "sweet spot."
+2. **Interpolation threshold** ($p \approx n$): Test error peaks, since the model has just enough parameters to memorize the training data, but in a brittle way.
+3. **Modern regime** ($p \gg n$): Test error *decreases again* as the model grows, since more parameters lead to better generalization.
 
 The interpolation threshold is the point where the model can perfectly fit the training data ($\hat{R} = 0$). Beyond this point, there are many interpolating solutions, and the optimizer's implicit bias selects one with good generalization properties.
 </Remark>
@@ -281,8 +289,8 @@ Classical theory predicts that models with more parameters than data points shou
 | **Flat minima** | Solutions found by SGD have low curvature | PAC-Bayesian bounds are tighter for flat minima [@dziugaite2017computing] |
 | **Norm-based bounds** | Generalization depends on weight norms, not parameter count | Rademacher bound $\propto \prod_l \|W_l\|_2 / \sqrt{n}$ |
 | **NTK regime** | Infinite-width networks behave like kernel regression | Convergence + generalization guarantees [@jacot2018ntk] |
-| **Benign overfitting** | Noise is memorized in "unimportant" directions | Requires effective dimensionality $\ll P$ [@bartlett2020benign] |
-| **Feature learning** | Networks learn useful representations | Beyond NTK -- finite-width networks learn features that kernels cannot |
+| **Benign overfitting** | Noise is memorized in "unimportant" directions | Requires effective dimensionality $\ll p$ [@bartlett2020benign] |
+| **Feature learning** | Networks learn useful representations | Beyond NTK: finite-width networks learn features that kernels cannot |
 
 </Table>
 
@@ -291,7 +299,7 @@ Classical theory predicts that models with more parameters than data points shou
 
 - **Effective number of parameters:** Parameters constrained by regularization or implicit bias contribute less than free parameters. For weight decay $\lambda$, the effective degrees of freedom are $\text{tr}(H(H + \lambda I)^{-1})$.
 - **Description length:** The number of bits needed to describe the model up to a given precision. Compression experiments show neural networks can be compressed dramatically without losing accuracy.
-- **Flat minima volume:** The volume of parameter space around $\theta^*$ with low loss -- PAC-Bayesian bounds formalize this as a generalization measure.
+- **Flat minima volume:** The volume of parameter space around $\theta^*$ with low loss, which PAC-Bayesian bounds formalize as a generalization measure.
 
 Generalization bounds based on parameter count are vacuously loose (predicting error $> 1$ for any realistic network). Bounds based on norms, margins, compression, or PAC-Bayes are more informative, though still not fully tight.
 </Remark>
@@ -331,7 +339,8 @@ Key relationships:
 | $\epsilon, \delta$ | PAC parameters (accuracy, confidence) |
 | $\sigma_i$ | Rademacher random variable ($\pm 1$) |
 | $n$ | Number of training samples |
-| $P$ | Number of model parameters |
+| $p$ | Number of model parameters |
+| $P$ | Data distribution / PAC-Bayes prior |
 | ERM | Empirical risk minimization |
 | PAC | Probably approximately correct |
 
