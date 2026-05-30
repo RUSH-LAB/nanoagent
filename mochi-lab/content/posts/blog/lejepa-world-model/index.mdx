@@ -7,7 +7,7 @@ tags: [paper-reading, self-supervised-learning, identifiability, world-models, j
 
 **The claim:** train a representation to pull positive pairs together while forcing its embeddings to be an isotropic Gaussian, and (in a Gaussian world with Ornstein-Uhlenbeck transitions) the only way to win is to recover the true latent variables up to a rotation. The paper proves this is an *if and only if*: the Gaussian latent distribution is the **unique** choice for which LeJEPA is *linearly identifiable*. **My verdict:** the forward theorem is clean, correct, and genuinely illuminating; the converse and the "Lean-verified" framing are weaker than they sound, because the load-bearing analysis facts are assumed rather than proven, and the central Gaussian-world assumption is exactly the one their own robotics experiment violates.
 
-<!-- truncate -->
+{/* truncate */}
 
 ![LeJEPA recovers the world's latent variables up to rotation](./teaser.jpg)
 

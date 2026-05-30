@@ -7,7 +7,7 @@ tags: [paper-reading, world-models, benchmarks, planning]
 
 **`stable-worldmodel` (swm) argues that the bottleneck in world-model research is no longer ideas but plumbing: every lab re-implements the same encoder, predictor, CEM planner, and data loader, and the inconsistencies between those copies make published comparisons untrustworthy.** The paper's fix is a single PyTorch and Gymnasium platform built on three abstractions (`World`, `Policy`, `Solver`), a Lance-based data layer that loads multimodal trajectories 3 to 4 times faster than HDF5 or MP4, and a factors-of-variation system that turns any environment into a controlled out-of-distribution (OOD) test. The infrastructure claims are concrete and well-supported. The scientific headline, that current world models are brittle under mild distribution shift, is real but rests almost entirely on a single environment (Push-T). This is a close read of [the paper](https://arxiv.org/abs/2605.21800v1) from the data layer to the last solver.
 
-<!-- truncate -->
+{/* truncate */}
 
 ![Overview of stable-worldmodel: data is collected from a world, used to train world models via provided baselines, then leveraged by solvers for control.](./swm.png)
 
