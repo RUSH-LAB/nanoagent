@@ -211,7 +211,7 @@ function CopyCiteButton({ citationKey }) {
   );
 }
 
-function ReferenceEntry({ citationKey, entry }) {
+const ReferenceEntry = React.memo(function ReferenceEntry({ citationKey, entry }) {
   const authors = formatAuthors(entry.author);
   const venue = entry.venue || '';
   const vol = entry.volume ? `, vol. ${entry.volume}` : '';
@@ -293,7 +293,7 @@ function ReferenceEntry({ citationKey, entry }) {
       </BrowserOnly>
     </div>
   );
-}
+});
 
 function TrackAllPreprints({ references }) {
   const [tracking, setTracking] = useState(false);
@@ -962,12 +962,33 @@ function ImportBibtex() {
   );
 }
 
+const ITEMS_PER_PAGE = 50;
+
 export default function BibliographyPage() {
   const { references } = usePluginData('bibliography');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [yearFilter, setYearFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'graph'
+  const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
+  const searchTimerRef = useRef(null);
+
+  // Debounce the search input by 250ms
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 250);
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, [search]);
+
+  // Reset visible count when filters change
+  useEffect(() => {
+    setVisibleCount(ITEMS_PER_PAGE);
+  }, [debouncedSearch, yearFilter, typeFilter]);
 
   const { years, types } = useMemo(() => {
     const ys = new Set();
@@ -1009,7 +1030,7 @@ export default function BibliographyPage() {
 
   const filtered = useMemo(() => {
     const entries = Object.entries(references || {});
-    const searchLower = search.toLowerCase();
+    const searchLower = debouncedSearch.toLowerCase();
 
     return entries
       .filter(([key, entry]) => {
@@ -1031,7 +1052,7 @@ export default function BibliographyPage() {
         const authorB = (b.author || [''])[0];
         return authorA.localeCompare(authorB);
       });
-  }, [references, search, yearFilter, typeFilter]);
+  }, [references, debouncedSearch, yearFilter, typeFilter]);
 
   // Group filtered results by year for nav + section headers
   const yearGroups = useMemo(() => {
@@ -1051,6 +1072,25 @@ export default function BibliographyPage() {
       })
       .map((label) => ({ label, entries: groups[label] }));
   }, [filtered]);
+
+  // Truncate year groups to visibleCount items total for progressive rendering
+  const truncatedYearGroups = useMemo(() => {
+    let remaining = visibleCount;
+    const result = [];
+    for (const group of yearGroups) {
+      if (remaining <= 0) break;
+      if (group.entries.length <= remaining) {
+        result.push(group);
+        remaining -= group.entries.length;
+      } else {
+        result.push({ label: group.label, entries: group.entries.slice(0, remaining) });
+        remaining = 0;
+      }
+    }
+    return result;
+  }, [yearGroups, visibleCount]);
+
+  const hasMore = filtered.length > visibleCount;
 
   const { activeYear, showBackToTop } = useActiveYearOnScroll(yearGroups);
 
@@ -1248,14 +1288,17 @@ export default function BibliographyPage() {
             </BrowserOnly>
 
             <p style={{ fontSize: '0.9em', color: 'var(--ifm-color-emphasis-600)', marginBottom: '16px' }}>
-              Showing {filtered.length} of {Object.keys(references || {}).length} references
+              Showing {Math.min(visibleCount, filtered.length)} of {filtered.length} matching references
+              {filtered.length !== Object.keys(references || {}).length && (
+                <span> (filtered from {Object.keys(references || {}).length} total)</span>
+              )}
             </p>
 
             {yearGroups.length > 1 && (
               <YearNavBar yearGroups={yearGroups} activeYear={activeYear} />
             )}
 
-            {yearGroups.map(({ label, entries }) => (
+            {truncatedYearGroups.map(({ label, entries }) => (
               <div key={label}>
                 <YearSectionHeader label={label} count={entries.length} />
                 {entries.map(([key, entry]) => (
@@ -1263,6 +1306,36 @@ export default function BibliographyPage() {
                 ))}
               </div>
             ))}
+
+            {hasMore && (
+              <div style={{ textAlign: 'center', margin: '24px 0' }}>
+                <button
+                  onClick={() => setVisibleCount((c) => c + ITEMS_PER_PAGE)}
+                  style={{
+                    padding: '10px 28px',
+                    border: '1px solid var(--ifm-color-primary)',
+                    borderRadius: '6px',
+                    background: 'transparent',
+                    color: 'var(--ifm-color-primary)',
+                    cursor: 'pointer',
+                    fontSize: '0.9em',
+                    fontWeight: 600,
+                    fontFamily: 'inherit',
+                    transition: 'background 0.15s, color 0.15s',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'var(--ifm-color-primary)';
+                    e.currentTarget.style.color = '#fff';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.color = 'var(--ifm-color-primary)';
+                  }}
+                >
+                  Load More ({filtered.length - visibleCount} remaining)
+                </button>
+              </div>
+            )}
 
             {filtered.length === 0 && (
               <p style={{ textAlign: 'center', color: 'var(--ifm-color-emphasis-500)', padding: '2rem' }}>

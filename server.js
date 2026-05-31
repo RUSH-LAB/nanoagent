@@ -1,3 +1,8 @@
+/**
+ * Mochi Lab API server. Exposes a REST API on port 3001 (or EDITOR_PORT) for
+ * file CRUD, references, analytics, discussions, snapshots, and more.
+ * All routes live under /api/* and return JSON with CORS headers.
+ */
 const _startupTime = process.hrtime.bigint();
 const http = require('http');
 const fs = require('fs');
@@ -459,7 +464,7 @@ const server = http.createServer(async (req, res) => {
       invalidateCache('search');
       return json(res, 200, {success: true});
     } catch {
-      return json(res, 400, {error: 'Invalid request'});
+      return json(res, 400, {error: 'Failed to update file: request body must be JSON with "path" (string) and "content" (string) fields'});
     }
   }
 
@@ -479,7 +484,7 @@ const server = http.createServer(async (req, res) => {
       invalidateCache('stats');
       return json(res, 200, {success: true, path: filePath});
     } catch {
-      return json(res, 400, {error: 'Invalid request'});
+      return json(res, 400, {error: 'Failed to create file: request body must be JSON with "path" (string) and "content" (string) fields'});
     }
   }
 
@@ -501,7 +506,7 @@ const server = http.createServer(async (req, res) => {
       fs.renameSync(fullPath, trashFullPath);
       return json(res, 200, {success: true, trashPath: path.relative(PROJECT_ROOT, trashFullPath)});
     } catch {
-      return json(res, 500, {error: 'Delete failed'});
+      return json(res, 500, {error: 'Failed to move file to trash: the file may be locked or the trash directory is not writable'});
     }
   }
 
@@ -520,7 +525,7 @@ const server = http.createServer(async (req, res) => {
       fs.renameSync(fullOld, fullNew);
       return json(res, 200, {success: true, path: newPath});
     } catch {
-      return json(res, 400, {error: 'Invalid request'});
+      return json(res, 400, {error: 'Failed to rename file: request body must be JSON with "oldPath" (string) and "newPath" (string) fields'});
     }
   }
 
@@ -599,7 +604,24 @@ const server = http.createServer(async (req, res) => {
         try { refCount = Object.keys(yaml.load(fs.readFileSync(bibPath, 'utf8')) || {}).length; } catch {}
         return {totalFiles, totalWords, references: refCount, byDirectory: byDir};
       });
-      return json(res, 200, stats);
+      const body = JSON.stringify(stats);
+      const etag = '"' + crypto.createHash('md5').update(body).digest('hex').slice(0, 16) + '"';
+      const hdrs = {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': CORS_ORIGIN,
+        'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, PATCH, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'X-API-Version': '1.0',
+        'X-Powered-By': 'Mochi Lab',
+        'ETag': etag,
+        'Cache-Control': 'public, max-age=30',
+      };
+      if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304, hdrs);
+        return res.end();
+      }
+      res.writeHead(200, hdrs);
+      return res.end(body);
     } catch {
       return json(res, 500, {error: 'Stats failed'});
     }
@@ -659,7 +681,7 @@ const server = http.createServer(async (req, res) => {
     const filePath = url.searchParams.get('path');
     const hash = url.searchParams.get('hash');
     if (!isValidFilePath(filePath) || !hash || !/^[a-f0-9]{4,40}$/i.test(hash)) {
-      return json(res, 400, {error: 'Invalid params'});
+      return json(res, 400, {error: 'Missing or invalid query parameters: "path" must be a valid file path and "hash" must be a 4-40 character hex string'});
     }
     try {
       const diff = execFileSync('git', [
@@ -709,7 +731,7 @@ const server = http.createServer(async (req, res) => {
       saveJSON(COMMENTS_FILE, comments);
       return json(res, 200, {comment});
     } catch {
-      return json(res, 400, {error: 'Invalid request'});
+      return json(res, 400, {error: 'Failed to create comment: request body must be JSON with "page" (string) and "text" (string) fields'});
     }
   }
 
@@ -761,7 +783,7 @@ const server = http.createServer(async (req, res) => {
       saveJSON(NOTES_FILE, notes);
       return json(res, 200, {success: true});
     } catch {
-      return json(res, 400, {error: 'Invalid request'});
+      return json(res, 400, {error: 'Failed to save note: request body must be JSON with "key" (string) and "content" (string) fields'});
     }
   }
 
@@ -778,7 +800,7 @@ const server = http.createServer(async (req, res) => {
       saveJSON(NOTES_FILE, notes);
       return json(res, 200, {success: true});
     } catch {
-      return json(res, 400, {error: 'Invalid request'});
+      return json(res, 400, {error: 'Failed to delete note: request body must be JSON with "key" (string) identifying the note to delete'});
     }
   }
 
@@ -933,6 +955,7 @@ ${recent.map(item => {
       res.writeHead(200, {
         'Content-Type': 'application/rss+xml; charset=utf-8',
         'Access-Control-Allow-Origin': CORS_ORIGIN,
+        'Cache-Control': 'public, max-age=300',
       });
       return res.end(rss);
     } catch {
@@ -1111,6 +1134,7 @@ ${recent.map(item => `<entry>
       res.writeHead(200, {
         'Content-Type': 'application/atom+xml; charset=utf-8',
         'Access-Control-Allow-Origin': CORS_ORIGIN,
+        'Cache-Control': 'public, max-age=300',
       });
       return res.end(atom);
     } catch {
@@ -1266,7 +1290,7 @@ ${recent.map(item => `<entry>
         .sort((a, b) => b.count - a.count);
       return json(res, 200, {venues, totalVenues: venues.length});
     } catch {
-      return json(res, 500, {error: 'Failed'});
+      return json(res, 500, {error: 'Failed to group references by venue: references.yaml may be missing or contain invalid YAML syntax'});
     }
   }
 
@@ -1288,7 +1312,7 @@ ${recent.map(item => `<entry>
       const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 200);
       return json(res, 200, {authors: authors.slice(0, limit), totalAuthors: authors.length});
     } catch {
-      return json(res, 500, {error: 'Failed'});
+      return json(res, 500, {error: 'Failed to group references by author: references.yaml may be missing or contain invalid YAML syntax'});
     }
   }
 
@@ -2441,7 +2465,24 @@ ${recent.map(item => `<entry>
         {id: 'math', name: 'Math Chapter', content: '---\ntitle: "{{title}}"\n---\n\nimport {Theorem, Definition, Proof, Remark} from \'@site/src/components/Math\';\n\n# {{title}}\n\n<Definition id="def-1" name="Definition Name">\nDefinition content.\n</Definition>\n\n<Theorem id="thm-1" name="Theorem Name">\nTheorem statement.\n</Theorem>\n\n<Proof>\nProof content.\n</Proof>\n'},
         {id: 'tutorial', name: 'Tutorial', content: '---\ntitle: "{{title}}"\nsidebar_position: 1\n---\n\n# {{title}}\n\n## Prerequisites\n\n## Step 1\n\n## Step 2\n\n## Step 3\n\n## Summary\n'},
       ];
-      return json(res, 200, {templates});
+      const body = JSON.stringify({templates});
+      const etag = '"' + crypto.createHash('md5').update(body).digest('hex').slice(0, 16) + '"';
+      const hdrs = {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': CORS_ORIGIN,
+        'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, PATCH, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'X-API-Version': '1.0',
+        'X-Powered-By': 'Mochi Lab',
+        'ETag': etag,
+        'Cache-Control': 'public, max-age=3600',
+      };
+      if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304, hdrs);
+        return res.end();
+      }
+      res.writeHead(200, hdrs);
+      return res.end(body);
     } catch {
       return json(res, 500, {error: 'Failed to load templates'});
     }
@@ -2603,6 +2644,7 @@ ${recent.map(item => `<entry>
         'Content-Type': 'text/plain; charset=utf-8',
         'Content-Disposition': 'attachment; filename="references.bib"',
         'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-cache',
       });
       return res.end(bibtex);
     } catch (err) {

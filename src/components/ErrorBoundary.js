@@ -65,6 +65,7 @@ const buttonStyle = {
   transition: 'opacity 0.2s',
 };
 
+/** React error boundary that catches render errors and shows a retry UI. Wrap any subtree to prevent full-page crashes. */
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
