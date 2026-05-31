@@ -1432,6 +1432,50 @@
   background: rgba(59, 130, 246, 0.1);
 }
 
+/* ── External modification banner ──────────────────────────── */
+.externalModifiedBanner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  background: #fef3c7;
+  color: #92400e;
+  border-bottom: 1px solid #fbbf24;
+}
+.externalModifiedReloadBtn {
+  padding: 2px 10px;
+  border: 1px solid #f59e0b;
+  border-radius: 4px;
+  background: #f59e0b;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.externalModifiedReloadBtn:hover {
+  background: #d97706;
+}
+.externalModifiedReloadBtn:focus-visible,
+.externalModifiedDismissBtn:focus-visible {
+  outline: 2px solid #f59e0b;
+  outline-offset: 2px;
+}
+.externalModifiedDismissBtn {
+  padding: 2px 10px;
+  border: 1px solid #fbbf24;
+  border-radius: 4px;
+  background: transparent;
+  color: #92400e;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.externalModifiedDismissBtn:hover {
+  background: rgba(245, 158, 11, 0.1);
+}
+
 /* ── Dark mode overrides ──────────────────────────────────── */
 
 /* Upload overlay */
@@ -1645,6 +1689,20 @@
 [data-theme='dark'] .localChangesBtnDiscard {
   border-color: rgba(147, 197, 253, 0.3);
   color: #93c5fd;
+}
+[data-theme='dark'] .externalModifiedBanner {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border-bottom-color: rgba(245, 158, 11, 0.3);
+}
+[data-theme='dark'] .externalModifiedReloadBtn {
+  background: #d97706;
+  border-color: #d97706;
+  color: #fff;
+}
+[data-theme='dark'] .externalModifiedDismissBtn {
+  border-color: rgba(251, 191, 36, 0.3);
+  color: #fbbf24;
 }
 
 /* Error state */
@@ -2341,4 +2399,85 @@
   .splitPreview {
     padding: 16px;
   }
+}
+
+/* ── Focus Mode ──────────────────────────────────────────── */
+.focusModeActive {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  background: var(--ifm-background-color);
+  height: 100vh;
+}
+
+.focusModeHeader {
+  opacity: 0.15;
+  transition: opacity 0.3s ease;
+  border-bottom-color: transparent;
+  background: transparent;
+}
+
+.focusModeHeader:hover {
+  opacity: 0.7;
+}
+
+.focusModeScroll {
+  padding: 48px 24px 160px;
+  background: var(--ifm-background-color);
+}
+
+.focusModeScroll .proseMirror {
+  max-width: 640px;
+  font-size: 19px;
+  line-height: 1.9;
+}
+
+.focusModeExit {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  z-index: 10000;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 8px;
+  background: var(--ifm-background-surface-color);
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.78rem;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.3s ease, border-color 0.15s, color 0.15s;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.focusModeExit:hover {
+  opacity: 1;
+  border-color: var(--ifm-color-emphasis-400);
+  color: var(--ifm-color-emphasis-700);
+}
+
+.focusModeActive:hover .focusModeExit {
+  opacity: 0.5;
+}
+
+.focusModeActive:hover .focusModeExit:hover {
+  opacity: 1;
+}
+
+.focusModeExit:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+}
+
+/* Focus mode dark overrides */
+[data-theme='dark'] .focusModeExit {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }

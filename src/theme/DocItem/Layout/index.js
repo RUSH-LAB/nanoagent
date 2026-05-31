@@ -6,6 +6,7 @@ import Comments from '@site/src/components/Comments';
 import Annotations from '@site/src/components/Annotations';
 import Backlinks from '@site/src/components/Backlinks';
 import BookmarkButton from '@site/src/components/BookmarkButton';
+import ShareButton from '@site/src/components/ShareButton';
 
 export default function DocItemLayoutWrapper(props) {
   const {metadata} = useDoc();
@@ -15,6 +16,7 @@ export default function DocItemLayoutWrapper(props) {
   return (
     <EditablePageWrapper source={source}>
       <div style={{display: 'flex', alignItems: 'center', justifyContent: 'flex-end'}}>
+        <ShareButton pageTitle={metadata.title} pagePath={pageId} />
         <BookmarkButton pagePath={pageId} pageTitle={metadata.title} />
       </div>
       <Layout {...props} />

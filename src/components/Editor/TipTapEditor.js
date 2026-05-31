@@ -1243,10 +1243,13 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
   const [presenceUsers, setPresenceUsers] = useState([]);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [mathPreviewOpen, setMathPreviewOpen] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const [autoSaveStatus, setAutoSaveStatus] = useState(null); // null | 'saving' | 'saved HH:MM'
   const [exportOpen, setExportOpen] = useState(false);
   const [hasLocalChanges, setHasLocalChanges] = useState(false);
+  const [externalModified, setExternalModified] = useState(false);
+  const knownMtimeRef = useRef(null);
   const fileInputRef = useRef(null);
   const autoSaveTimerRef = useRef(null);
   const exportRef = useRef(null);
@@ -1431,6 +1434,8 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     setError(null);
     setDirty(false);
     setHasLocalChanges(false);
+    setExternalModified(false);
+    knownMtimeRef.current = null;
 
     fetch(`${API_BASE}/api/file?path=${encodeURIComponent(filePath)}`, {signal: controller.signal})
       .then(res => {
@@ -1456,6 +1461,15 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         } catch {
           // localStorage unavailable, ignore
         }
+        // Fetch initial mtime for external modification detection
+        fetch(`${API_BASE}/api/file/info?path=${encodeURIComponent(filePath)}`, {signal: controller.signal})
+          .then(r => r.ok ? r.json() : null)
+          .then(info => {
+            if (!cancelled && info && info.mtime) {
+              knownMtimeRef.current = info.mtime;
+            }
+          })
+          .catch(() => {});
       })
       .catch((err) => {
         if (cancelled || err.name === 'AbortError') return;
@@ -1485,6 +1499,84 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
       controller.abort();
     };
   }, [filePath, editor]);
+
+  // ── External modification detection: poll /api/file/info every 30s ──
+  const dirtyForMtimeRef = useRef(dirty);
+  dirtyForMtimeRef.current = dirty;
+
+  useEffect(() => {
+    if (!filePath) return;
+    let mounted = true;
+
+    const pollMtime = () => {
+      if (!knownMtimeRef.current) return; // not yet initialized
+      fetch(`${API_BASE}/api/file/info?path=${encodeURIComponent(filePath)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(info => {
+          if (!mounted || !info || !info.mtime) return;
+          if (knownMtimeRef.current && info.mtime !== knownMtimeRef.current) {
+            // File changed on disk — only warn if the user has unsaved edits
+            if (dirtyForMtimeRef.current) {
+              setExternalModified(true);
+            } else {
+              // No local edits, silently update the known mtime
+              knownMtimeRef.current = info.mtime;
+            }
+          }
+        })
+        .catch(() => {});
+    };
+
+    const intervalId = setInterval(pollMtime, 30000);
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+    };
+  }, [filePath]);
+
+  // Reset external-modified flag when the file path changes
+  useEffect(() => {
+    setExternalModified(false);
+  }, [filePath]);
+
+  // Handler: reload file after external modification
+  const handleExternalReload = useCallback(() => {
+    if (!filePath || !editor) return;
+    setExternalModified(false);
+    setLoading(true);
+    fetch(`${API_BASE}/api/file?path=${encodeURIComponent(filePath)}`)
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to reload');
+        return res.json();
+      })
+      .then(data => {
+        const {frontmatter: fm, body} = parseFrontmatter(data.content);
+        setFrontmatter(fm);
+        setDraft(isDraft(fm));
+        setTags(parseTags(fm));
+        setRawContent(data.content);
+        editor.commands.setContent(body);
+        setDirty(false);
+        setLoading(false);
+        // Refresh the known mtime
+        return fetch(`${API_BASE}/api/file/info?path=${encodeURIComponent(filePath)}`);
+      })
+      .then(r => r.ok ? r.json() : null)
+      .then(info => {
+        if (info && info.mtime) {
+          knownMtimeRef.current = info.mtime;
+        }
+      })
+      .catch(() => {
+        setError('Failed to reload file');
+        setLoading(false);
+      });
+  }, [filePath, editor]);
+
+  // Handler: dismiss external modification warning
+  const handleExternalDismiss = useCallback(() => {
+    setExternalModified(false);
+  }, []);
 
   // Sync editable state when readOnly prop changes
   useEffect(() => {
@@ -1518,6 +1610,12 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
       // Successful save — clear any offline backup
       try { localStorage.removeItem(offlineKey(filePath)); } catch {}
       setHasLocalChanges(false);
+      setExternalModified(false);
+      // Refresh known mtime after save so poll doesn't false-alarm
+      fetch(`${API_BASE}/api/file/info?path=${encodeURIComponent(filePath)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(info => { if (info && info.mtime) knownMtimeRef.current = info.mtime; })
+        .catch(() => {});
 
       // Update writing streak with current word count
       try {
@@ -1590,6 +1688,12 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         e.preventDefault();
         setShortcutsOpen(prev => !prev);
       }
+      if (e.key === 'Escape') {
+        setFocusMode(prev => {
+          if (prev) { e.preventDefault(); return false; }
+          return prev;
+        });
+      }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
@@ -1640,6 +1744,12 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         // Successful auto-save — clear any offline backup
         try { localStorage.removeItem(offlineKey(filePath)); } catch {}
         setHasLocalChanges(false);
+        setExternalModified(false);
+        // Refresh known mtime after auto-save
+        fetch(`${API_BASE}/api/file/info?path=${encodeURIComponent(filePath)}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(info => { if (info && info.mtime) knownMtimeRef.current = info.mtime; })
+          .catch(() => {});
         // Clear the "Auto-saved" indicator after 5 seconds
         setTimeout(() => {
           if (!cancelled) {
@@ -2073,8 +2183,8 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
   }
 
   return (
-    <div className={styles.editorContainer}>
-      <div className={styles.editorHeader}>
+    <div className={`${styles.editorContainer} ${focusMode ? styles.focusModeActive : ''}`}>
+      <div className={`${styles.editorHeader} ${focusMode ? styles.focusModeHeader : ''}`}>
         <span className={styles.filePath}>
           <span className={styles.breadcrumb}>
             {filePath.split('/').map((segment, i, arr) => {
@@ -2271,6 +2381,19 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
             )}
           </div>
           <button
+            className={`${styles.modeToggle} ${focusMode ? styles.modeToggleActive : ''}`}
+            onClick={() => setFocusMode(prev => !prev)}
+            title="Focus mode (distraction-free writing)"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+              strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <circle cx="12" cy="12" r="6" />
+              <circle cx="12" cy="12" r="2" />
+            </svg>
+            Focus
+          </button>
+          <button
             className={shortcutStyles.helpBtn}
             onClick={() => setShortcutsOpen(true)}
             title="Keyboard shortcuts (Cmd+/)"
@@ -2298,6 +2421,20 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         </div>
       )}
 
+      {externalModified && (
+        <div className={styles.externalModifiedBanner} role="alert">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round" style={{flexShrink: 0}}>
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          <span>This file was modified externally. Reload to see changes?</span>
+          <button className={styles.externalModifiedReloadBtn} onClick={handleExternalReload}>Reload</button>
+          <button className={styles.externalModifiedDismissBtn} onClick={handleExternalDismiss}>Dismiss</button>
+        </div>
+      )}
+
       <div style={{flex: 1, display: 'flex', minHeight: 0, position: 'relative'}}>
         {loading ? (
           <div className={styles.loading}>Loading...</div>
@@ -2319,8 +2456,22 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
           />
         ) : (
           <div className={styles.editorWrap}>
-            {!readOnly && <Toolbar editor={editor} onImageUpload={handleImageUpload} onToggleAI={handleToggleAI} aiOpen={aiOpen} />}
-            <div className={`${styles.editorScroll} ${editorFocused ? styles.editorScrollFocused : ''}`}>
+            {!readOnly && !focusMode && <Toolbar editor={editor} onImageUpload={handleImageUpload} onToggleAI={handleToggleAI} aiOpen={aiOpen} />}
+            <div className={`${styles.editorScroll} ${editorFocused ? styles.editorScrollFocused : ''} ${focusMode ? styles.focusModeScroll : ''}`}>
+              {focusMode && (
+                <button
+                  className={styles.focusModeExit}
+                  onClick={() => setFocusMode(false)}
+                  title="Exit focus mode (Esc)"
+                  type="button"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                  Exit Focus
+                </button>
+              )}
               <EditorContent editor={editor} />
               <CitationAutocomplete
                 editor={editor}
@@ -2488,7 +2639,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         )}
       </div>
 
-      <DocumentStats editor={editor} rawMode={rawMode || splitMode} rawContent={rawContent} />
+      {!focusMode && <DocumentStats editor={editor} rawMode={rawMode || splitMode} rawContent={rawContent} />}
 
       <KeyboardShortcuts
         open={shortcutsOpen}

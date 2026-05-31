@@ -10099,3 +10099,45 @@ __test_1780212315086_import:
     - Import Author
   year: 2025
   venue: Test Journal
+__test_1780212359824_ref:
+  type: article
+  title: Test Reference Paper
+  author:
+    - Test Author
+  year: 2025
+  venue: Test Conference
+__test_1780212359824_import:
+  type: article
+  title: Imported Test Paper
+  author:
+    - Import Author
+  year: 2025
+  venue: Test Journal
+__test_1780215628215_ref:
+  type: article
+  title: Test Reference Paper
+  author:
+    - Test Author
+  year: 2025
+  venue: Test Conference
+__test_1780215628215_import:
+  type: article
+  title: Imported Test Paper
+  author:
+    - Import Author
+  year: 2025
+  venue: Test Journal
+__test_1780215874497_ref:
+  type: article
+  title: Test Reference Paper
+  author:
+    - Test Author
+  year: 2025
+  venue: Test Conference
+__test_1780215874497_import:
+  type: article
+  title: Imported Test Paper
+  author:
+    - Import Author
+  year: 2025
+  venue: Test Journal
