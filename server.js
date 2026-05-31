@@ -2414,7 +2414,7 @@ ${recent.map(item => `<entry>
     const query = (url.searchParams.get('q') || '').toLowerCase().trim();
     if (!query) return json(res, 400, {error: 'Missing query'});
     try {
-      const searchIndex = cached('search:index', 30000, () => {
+      const searchIndex = cached('search:index', 60000, () => {
         const contentDir = path.join(PROJECT_ROOT, 'content');
         const index = [];
         function indexDir(dir) {
@@ -2779,7 +2779,7 @@ ${recent.map(item => `<entry>
     const targetPath = url.searchParams.get('path');
     if (!targetPath) return json(res, 400, {error: 'Missing path param'});
     try {
-      const backlinks = cached(`backlinks:${targetPath}`, 30000, () => {
+      const backlinks = cached(`backlinks:${targetPath}`, 60000, () => {
       const contentDir = path.join(PROJECT_ROOT, 'content');
       const result = [];
 
