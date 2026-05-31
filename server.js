@@ -230,9 +230,17 @@ function parseFeedItem(filePath, category) {
 
 // ── Simple TTL cache for expensive endpoints ──
 const cache = {};
+const MAX_CACHE_ENTRIES = 200;
 function cached(key, ttlMs, fn) {
   const entry = cache[key];
   if (entry && Date.now() - entry.time < ttlMs) return entry.data;
+  // Evict oldest entries if cache is at capacity
+  const keys = Object.keys(cache);
+  if (keys.length >= MAX_CACHE_ENTRIES) {
+    const sorted = keys.sort((a, b) => cache[a].time - cache[b].time);
+    const toRemove = sorted.slice(0, Math.floor(MAX_CACHE_ENTRIES * 0.25));
+    for (const k of toRemove) delete cache[k];
+  }
   const data = fn();
   cache[key] = {data, time: Date.now()};
   return data;
@@ -273,11 +281,30 @@ setInterval(cleanStalePresence, 30000);
 
 // ── In-memory rate limiter ──
 const rateLimits = {};
+const MAX_RATE_LIMIT_KEYS = 10000;
 function rateLimit(key, maxPerMinute) {
   const now = Date.now();
   if (!rateLimits[key]) rateLimits[key] = [];
   rateLimits[key] = rateLimits[key].filter(t => now - t < 60000);
   if (rateLimits[key].length >= maxPerMinute) return false;
+  // Cap total number of tracked keys to prevent memory exhaustion
+  const keys = Object.keys(rateLimits);
+  if (keys.length >= MAX_RATE_LIMIT_KEYS) {
+    // Remove keys with no recent activity first
+    for (const k of keys) {
+      if (rateLimits[k].length === 0) delete rateLimits[k];
+    }
+    // If still over limit, drop oldest half
+    const remaining = Object.keys(rateLimits);
+    if (remaining.length >= MAX_RATE_LIMIT_KEYS) {
+      const oldest = remaining
+        .map(k => ({k, oldest: Math.min(...rateLimits[k])}))
+        .sort((a, b) => a.oldest - b.oldest);
+      for (let i = 0; i < Math.floor(remaining.length / 2); i++) {
+        delete rateLimits[oldest[i].k];
+      }
+    }
+  }
   rateLimits[key].push(now);
   return true;
 }
@@ -288,9 +315,18 @@ setInterval(() => {
     rateLimits[key] = rateLimits[key].filter(t => now - t < 60000);
     if (rateLimits[key].length === 0) delete rateLimits[key];
   }
-  if (Object.keys(cache).length > 100) {
-    for (const key of Object.keys(cache)) {
-      if (Date.now() - cache[key].time > 60000) delete cache[key];
+  // Always evict stale cache entries (older than 5 minutes)
+  for (const key of Object.keys(cache)) {
+    if (now - cache[key].time > 300000) delete cache[key];
+  }
+  // Cap perfMetrics endpoints during periodic cleanup
+  const perfKeys = Object.keys(perfMetrics);
+  if (perfKeys.length > PERF_MAX_ENDPOINTS) {
+    const sorted = perfKeys
+      .map(k => ({k, last: perfMetrics[k].length > 0 ? perfMetrics[k][perfMetrics[k].length - 1] : 0}))
+      .sort((a, b) => a.last - b.last);
+    for (let i = 0; i < sorted.length - PERF_MAX_ENDPOINTS; i++) {
+      delete perfMetrics[sorted[i].k];
     }
   }
 }, 60000);
@@ -442,9 +478,26 @@ function formatCitation(entry, style, key, index) {
 // ── Performance metrics: in-memory response time tracking (last 100 per endpoint) ──
 const perfMetrics = {}; // { '/api/foo': [ms, ms, ...] }
 const PERF_MAX_ENTRIES = 100;
+const PERF_MAX_ENDPOINTS = 200;
 
 function recordPerfMetric(endpoint, ms) {
-  if (!perfMetrics[endpoint]) perfMetrics[endpoint] = [];
+  if (!perfMetrics[endpoint]) {
+    // Cap total number of tracked endpoints
+    const keys = Object.keys(perfMetrics);
+    if (keys.length >= PERF_MAX_ENDPOINTS) {
+      // Drop the endpoint with the oldest last entry
+      let oldestKey = keys[0], oldestTime = Infinity;
+      for (const k of keys) {
+        const arr = perfMetrics[k];
+        if (arr.length === 0 || arr[arr.length - 1] < oldestTime) {
+          oldestTime = arr.length > 0 ? arr[arr.length - 1] : 0;
+          oldestKey = k;
+        }
+      }
+      delete perfMetrics[oldestKey];
+    }
+    perfMetrics[endpoint] = [];
+  }
   const arr = perfMetrics[endpoint];
   arr.push(ms);
   if (arr.length > PERF_MAX_ENTRIES) arr.shift();
@@ -481,6 +534,20 @@ const server = http.createServer(async (req, res) => {
   // ── Health check ──
   if (req.method === 'GET' && pathname === '/api/health') {
     return json(res, 200, {status: 'ok', uptime: process.uptime(), memory: process.memoryUsage().heapUsed});
+  }
+
+  // ── Memory debug endpoint ──
+  if (req.method === 'GET' && pathname === '/api/debug/memory') {
+    const mem = process.memoryUsage();
+    return json(res, 200, {
+      heapUsed: mem.heapUsed,
+      heapTotal: mem.heapTotal,
+      rss: mem.rss,
+      cacheEntries: Object.keys(cache).length,
+      rateLimitEntries: Object.keys(rateLimits).length,
+      presenceEntries: Object.keys(presenceStore).length,
+      perfMetricsEndpoints: Object.keys(perfMetrics).length,
+    });
   }
 
   // ── Access logs ──

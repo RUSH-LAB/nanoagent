@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────
 // End-to-end user workflow tests for Mochi Lab
-// Tests 3 complete user journeys (~19 tests total)
+// Tests 4 complete user journeys (~23 tests total)
 // Usage:  node scripts/test-workflows.mjs
 // Requires the server running on http://localhost:3001
 // ─────────────────────────────────────────────────────────────
@@ -518,6 +518,238 @@ async function journey3() {
   }
 }
 
+// ════════════════════════════════════════════════════════════════
+// Journey 4: Data management (4 steps)
+// ════════════════════════════════════════════════════════════════
+
+async function journey4() {
+  section('Journey 4: Data management');
+
+  const fileA = `content/posts/${TEST_PREFIX}_data_a.md`;
+  const fileB = `content/posts/${TEST_PREFIX}_data_b.md`;
+  const fileC = `content/posts/${TEST_PREFIX}_data_c.md`;
+  const snapshotFile = `content/posts/${TEST_PREFIX}_snap_target.md`;
+  const scheduleFile = `content/posts/${TEST_PREFIX}_sched_target.md`;
+  const bulkMoveDir = `content/posts/${TEST_PREFIX}_bulk_dest`;
+
+  const contentTemplate = (title) =>
+    `---\ntitle: "${title}"\ndate: 2025-07-01\ndraft: true\n---\n\nBody of ${title}.\n`;
+
+  let snapshotId = null;
+  let trashPath = null;
+  let scheduleEntry = null;
+
+  // ── Seed files needed by multiple steps ──
+  console.log(`  ${DIM}Seeding test files...${RESET}`);
+  for (const [fp, title] of [
+    [fileA, 'Data A'],
+    [fileB, 'Data B'],
+    [fileC, 'Data C'],
+    [snapshotFile, 'Snapshot Target'],
+    [scheduleFile, 'Schedule Target'],
+  ]) {
+    await api('POST', '/api/file', {path: fp, content: contentTemplate(title)});
+  }
+
+  // Step 1: Snapshot restore
+  step(1, 'Create a snapshot, modify the file, then restore');
+  await test('4.1 Snapshot restore via POST /api/snapshots/restore', async () => {
+    // Take a snapshot of the original content
+    const {status: snapStatus, data: snapData} = await api('POST', '/api/snapshots', {
+      path: snapshotFile,
+      name: 'before-edit',
+    });
+    assertEq(snapStatus, 200, 'snapshot created');
+    assertOk(snapData.snapshot && snapData.snapshot.id, 'snapshot has id');
+    snapshotId = snapData.snapshot.id;
+
+    // Modify the file so it differs from the snapshot
+    const modifiedContent = contentTemplate('Snapshot Target') + '\nExtra paragraph added after snapshot.\n';
+    const {status: updateStatus} = await api('PUT', '/api/file', {
+      path: snapshotFile,
+      content: modifiedContent,
+    });
+    assertEq(updateStatus, 200, 'file updated');
+
+    // Verify the file was modified
+    const {data: preRestore} = await api('GET', `/api/file?path=${encodeURIComponent(snapshotFile)}`);
+    assertOk(preRestore.content.includes('Extra paragraph'), 'file has modified content before restore');
+
+    // Restore the snapshot
+    const {status: restoreStatus, data: restoreData} = await api('POST', '/api/snapshots/restore', {
+      path: snapshotFile,
+      snapshotId,
+    });
+    assertEq(restoreStatus, 200, 'restore status');
+    assertOk(restoreData.success, 'restore succeeded');
+    assertEq(restoreData.restored.id, snapshotId, 'restored snapshot id matches');
+    assertEq(restoreData.restored.name, 'before-edit', 'restored snapshot name matches');
+
+    // Verify the file content is back to the original
+    const {data: postRestore} = await api('GET', `/api/file?path=${encodeURIComponent(snapshotFile)}`);
+    assertOk(!postRestore.content.includes('Extra paragraph'), 'modified content removed after restore');
+    assertOk(postRestore.content.includes('Body of Snapshot Target'), 'original content restored');
+  });
+
+  // Step 2: Scheduled publish checker
+  step(2, 'Schedule a post for publication and verify status');
+  await test('4.2 Scheduled publish via POST/GET /api/schedule', async () => {
+    // Schedule a file for a date in the past so the checker marks it as due
+    const pastDate = new Date(Date.now() - 60000).toISOString();
+    const {status: schedStatus, data: schedData} = await api('POST', '/api/schedule', {
+      path: scheduleFile,
+      publishAt: pastDate,
+    });
+    assertEq(schedStatus, 200, 'schedule status');
+    assertOk(schedData.success, 'schedule created');
+    assertOk(schedData.schedule || schedData.item, 'has schedule entry');
+    scheduleEntry = schedData.schedule || schedData.item;
+
+    // GET /api/schedule should list our entry; since publishAt is in the past
+    // the checker on GET marks it as 'due'
+    const {status: listStatus, data: listData} = await api('GET', '/api/schedule');
+    assertEq(listStatus, 200, 'list status');
+
+    // The response may use either {schedules} or {items} depending on which
+    // handler processes the request; handle both shapes.
+    const items = listData.schedules || listData.items || [];
+    assertOk(Array.isArray(items), 'has items array');
+    const ours = items.find(i => i.path === scheduleFile);
+    assertOk(ours, 'our scheduled item is present');
+
+    // If the response includes due/upcoming counts, verify at least 1 due
+    if (typeof listData.due === 'number') {
+      assertOk(listData.due >= 1, 'at least 1 due item');
+    }
+  });
+
+  // Step 3: Trash and restore flow
+  step(3, 'Delete a file to trash then restore it');
+  await test('4.3 Trash restore via DELETE /api/file + POST /api/trash/restore', async () => {
+    // Delete file A (moves it to .trash/)
+    const {status: delStatus, data: delData} = await api(
+      'DELETE',
+      `/api/file?path=${encodeURIComponent(fileA)}`,
+    );
+    assertEq(delStatus, 200, 'delete status');
+    assertOk(delData.success, 'file moved to trash');
+    assertOk(delData.trashPath, 'trashPath returned');
+    trashPath = delData.trashPath;
+
+    // Verify it shows up in the trash listing
+    const {status: trashListStatus, data: trashListData} = await api('GET', '/api/trash');
+    assertEq(trashListStatus, 200, 'trash list status');
+    assertOk(Array.isArray(trashListData.files), 'has files array');
+    const trashed = trashListData.files.find(f => f.trashPath === trashPath);
+    assertOk(trashed, 'our file is in the trash listing');
+
+    // Restore the file
+    const {status: restoreStatus, data: restoreData} = await api('POST', '/api/trash/restore', {
+      trashPath,
+    });
+    assertEq(restoreStatus, 200, 'restore status');
+    assertOk(restoreData.success, 'restore succeeded');
+    assertEq(restoreData.restoredPath, fileA, 'restored to original path');
+
+    // Verify the file is readable again at its original path
+    const {status: readStatus, data: readData} = await api(
+      'GET',
+      `/api/file?path=${encodeURIComponent(fileA)}`,
+    );
+    assertEq(readStatus, 200, 'read status after restore');
+    assertOk(readData.content.includes('Body of Data A'), 'content intact after restore');
+  });
+
+  // Step 4: Bulk file operations (move + delete)
+  step(4, 'Bulk move and bulk delete files');
+  await test('4.4 Bulk operations via POST /api/files/bulk', async () => {
+    // 4a: Bulk move fileB into a subdirectory
+    const {status: moveStatus, data: moveData} = await api('POST', '/api/files/bulk', {
+      action: 'move',
+      paths: [fileB],
+      targetDir: bulkMoveDir,
+    });
+    assertEq(moveStatus, 200, 'bulk move status');
+    assertOk(moveData.success, 'bulk move succeeded');
+    assertEq(moveData.processed, 1, 'processed 1 file');
+    assertOk(moveData.errors.length === 0, 'no errors on bulk move');
+
+    // Verify the moved file exists at the new location
+    const movedPath = `${bulkMoveDir}/${TEST_PREFIX}_data_b.md`;
+    const {status: movedRead} = await api(
+      'GET',
+      `/api/file?path=${encodeURIComponent(movedPath)}`,
+    );
+    assertEq(movedRead, 200, 'moved file is readable at new path');
+
+    // 4b: Bulk delete the moved file and fileC
+    const {status: delStatus, data: delData} = await api('POST', '/api/files/bulk', {
+      action: 'delete',
+      paths: [movedPath, fileC],
+    });
+    assertEq(delStatus, 200, 'bulk delete status');
+    assertOk(delData.success, 'bulk delete succeeded');
+    assertEq(delData.processed, 2, 'processed 2 files');
+    assertOk(delData.errors.length === 0, 'no errors on bulk delete');
+
+    // Verify both files are gone from their original locations
+    const {status: gone1} = await api(
+      'GET',
+      `/api/file?path=${encodeURIComponent(movedPath)}`,
+    );
+    assertOk(gone1 === 404, 'moved file no longer at target after bulk delete');
+
+    const {status: gone2} = await api(
+      'GET',
+      `/api/file?path=${encodeURIComponent(fileC)}`,
+    );
+    assertOk(gone2 === 404, 'fileC no longer exists after bulk delete');
+  });
+
+  // Cleanup
+  console.log(`  ${DIM}Cleaning up Journey 4 test data...${RESET}`);
+  let cleanCount = 0;
+  let cleanErrors = 0;
+
+  // Delete snapshot
+  if (snapshotId) {
+    try {
+      await api('DELETE', '/api/snapshots', {path: snapshotFile, snapshotId});
+      cleanCount++;
+    } catch { cleanErrors++; }
+  }
+
+  // Delete schedule entry
+  if (scheduleEntry) {
+    try {
+      const deleteKey = scheduleEntry.id ? {id: scheduleEntry.id} : {path: scheduleFile};
+      await api('DELETE', '/api/schedule', deleteKey);
+      cleanCount++;
+    } catch { cleanErrors++; }
+  }
+
+  // Remove seeded/restored files
+  for (const fp of [fileA, snapshotFile, scheduleFile]) {
+    try {
+      await api('DELETE', `/api/file?path=${encodeURIComponent(fp)}`);
+      cleanCount++;
+    } catch { cleanErrors++; }
+  }
+
+  // Empty trash to clean up bulk-deleted files
+  try {
+    // We only empty items we created; but since empty is all-or-nothing,
+    // we skip emptying trash to avoid deleting unrelated data.
+    // The bulk-deleted files will sit harmlessly in .trash/ with unique prefixes.
+  } catch { /* no-op */ }
+
+  if (cleanErrors > 0) {
+    log('!', YELLOW, `Journey 4 cleanup: ${cleanCount} ok, ${cleanErrors} errors`);
+  } else {
+    log('✓', GREEN, `Journey 4 cleanup: ${cleanCount} items cleaned`);
+  }
+}
+
 // ────────────────────────────────────────────────────────────────
 // Main
 // ────────────────────────────────────────────────────────────────
@@ -525,13 +757,14 @@ async function journey3() {
 async function main() {
   console.log(`\n${BOLD}Mochi Lab -- End-to-End Workflow Tests${RESET}`);
   console.log(`${DIM}Target: ${BASE}${RESET}`);
-  console.log(`${DIM}Testing 3 user journeys (~19 tests)${RESET}`);
+  console.log(`${DIM}Testing 4 user journeys (~23 tests)${RESET}`);
 
   await preflight();
 
   await journey1();
   await journey2();
   await journey3();
+  await journey4();
 
   // ── Summary ──
   const total = passed + failed;
