@@ -45,15 +45,66 @@ function HomepageHeader() {
 function RecentFiles() {
   const API_BASE = require('@site/src/utils/api').default;
   const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     fetch(`${API_BASE}/api/files/recent?limit=6`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data?.files) setFiles(data.files); })
-      .catch(() => {});
+      .then(r => {
+        if (!r.ok) throw new Error(`Failed to load recent files (${r.status})`);
+        return r.json();
+      })
+      .then(data => {
+        setFiles(data?.files || []);
+        setLoading(false);
+      })
+      .catch(err => {
+        setError(err.message);
+        setLoading(false);
+      });
   }, []);
 
-  if (files.length === 0) return null;
+  if (loading) {
+    return (
+      <section style={{maxWidth: 960, margin: '0 auto', padding: '2rem 1.5rem 0'}}>
+        <h2 style={{margin: 0, fontSize: '1.2rem', fontWeight: 600, marginBottom: '1rem'}}>Recently Updated</h2>
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem'}}>
+          {[0, 1, 2].map(i => (
+            <div key={i} style={{
+              padding: '12px 16px', borderRadius: 8,
+              border: '1px solid var(--ifm-color-emphasis-200)',
+              background: 'var(--ifm-color-emphasis-100)',
+              height: 60,
+            }} />
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section style={{maxWidth: 960, margin: '0 auto', padding: '2rem 1.5rem 0'}}>
+        <h2 style={{margin: 0, fontSize: '1.2rem', fontWeight: 600, marginBottom: '1rem'}}>Recently Updated</h2>
+        <p style={{color: 'var(--ifm-color-danger-dark, #e74c3c)', fontSize: '0.9rem'}}>
+          Could not load recent files: {error}
+        </p>
+      </section>
+    );
+  }
+
+  if (files.length === 0) {
+    return (
+      <section style={{maxWidth: 960, margin: '0 auto', padding: '2rem 1.5rem 0'}}>
+        <h2 style={{margin: 0, fontSize: '1.2rem', fontWeight: 600, marginBottom: '1rem'}}>Recently Updated</h2>
+        <p style={{color: 'var(--ifm-color-emphasis-500)', fontSize: '0.9rem'}}>
+          No recently updated files found. Start writing to see your latest work here.
+        </p>
+      </section>
+    );
+  }
 
   function toViewPath(filePath) {
     return '/' + filePath.replace(/^content\//, '').replace(/^books\//, '').replace(/^posts\//, '').replace(/\.(mdx?|md)$/, '');

@@ -1,4 +1,4 @@
-import React, {useState, useEffect, useCallback} from 'react';
+import React, {useState, useEffect} from 'react';
 import API_BASE from '@site/src/utils/api';
 
 const POLL_INTERVAL = 30_000; // 30 seconds
@@ -47,31 +47,40 @@ export function markSeen() {
 export default function NotificationBadge({type}) {
   const [count, setCount] = useState(0);
 
-  const fetchCounts = useCallback(async () => {
-    try {
-      const since = getLastSeen();
-      const resp = await fetch(
-        `${API_BASE}/api/notifications/counts?since=${encodeURIComponent(since)}`,
-      );
-      if (!resp.ok) return;
-      const data = await resp.json();
-      if (type === 'discussions') {
-        setCount(data.discussions || 0);
-      } else if (type === 'comments') {
-        setCount(data.comments || 0);
-      } else {
-        setCount((data.discussions || 0) + (data.comments || 0));
-      }
-    } catch {
-      // API not available - hide badge silently
-    }
-  }, [type]);
-
   useEffect(() => {
-    fetchCounts();
-    const id = setInterval(fetchCounts, POLL_INTERVAL);
-    return () => clearInterval(id);
-  }, [fetchCounts]);
+    let mounted = true;
+    const controller = new AbortController();
+
+    async function fetchWithGuard() {
+      try {
+        const since = getLastSeen();
+        const resp = await fetch(
+          `${API_BASE}/api/notifications/counts?since=${encodeURIComponent(since)}`,
+          {signal: controller.signal},
+        );
+        if (!resp.ok || !mounted) return;
+        const data = await resp.json();
+        if (!mounted) return;
+        if (type === 'discussions') {
+          setCount(data.discussions || 0);
+        } else if (type === 'comments') {
+          setCount(data.comments || 0);
+        } else {
+          setCount((data.discussions || 0) + (data.comments || 0));
+        }
+      } catch {
+        // API not available or aborted - hide badge silently
+      }
+    }
+
+    fetchWithGuard();
+    const id = setInterval(fetchWithGuard, POLL_INTERVAL);
+    return () => {
+      mounted = false;
+      controller.abort();
+      clearInterval(id);
+    };
+  }, [type]);
 
   if (count <= 0) return null;
 

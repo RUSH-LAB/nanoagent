@@ -40,8 +40,11 @@ function StatsDashboard() {
   const [recentFiles, setRecentFiles] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [fetchKey, setFetchKey] = useState(0);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     const controller = new AbortController();
     const { signal } = controller;
 
@@ -78,7 +81,7 @@ function StatsDashboard() {
       });
 
     return () => controller.abort();
-  }, []);
+  }, [fetchKey]);
 
   // ── Loading state ───────────────────────────────────────────────
 
@@ -104,9 +107,27 @@ function StatsDashboard() {
 
   if (error) {
     return (
-      <p style={{ textAlign: 'center', padding: '2rem', color: '#e74c3c' }}>
-        Failed to load statistics: {error}
-      </p>
+      <div style={{ textAlign: 'center', padding: '2rem' }}>
+        <p role="alert" style={{ color: 'var(--ifm-color-danger-dark, #e74c3c)', marginBottom: '1rem' }}>
+          Failed to load statistics: {error}
+        </p>
+        <button
+          onClick={() => setFetchKey(k => k + 1)}
+          style={{
+            padding: '8px 20px',
+            border: '1px solid var(--ifm-color-primary)',
+            borderRadius: '6px',
+            background: 'var(--ifm-color-primary)',
+            color: '#fff',
+            cursor: 'pointer',
+            fontSize: '0.9em',
+            fontWeight: 600,
+            fontFamily: 'inherit',
+          }}
+        >
+          Retry
+        </button>
+      </div>
     );
   }
 

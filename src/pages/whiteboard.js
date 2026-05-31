@@ -25,6 +25,7 @@ function WhiteboardApp() {
 
   const loadBoard = useCallback(async (id) => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch(`${API_BASE}/api/whiteboard?id=${encodeURIComponent(id)}`);
       if (res.ok) {
@@ -32,9 +33,12 @@ function WhiteboardApp() {
         setElements(data.whiteboard.elements || []);
       } else if (res.status === 404) {
         setElements([]);
+      } else {
+        throw new Error(`Failed to load whiteboard (${res.status})`);
       }
-    } catch {
-      // Start with empty board
+    } catch (err) {
+      setElements([]);
+      setError('Failed to load whiteboard: ' + (err.message || 'Unknown error'));
     }
     setDirty(false);
     setLoading(false);
@@ -46,9 +50,11 @@ function WhiteboardApp() {
       if (res.ok) {
         const data = await res.json();
         setBoards(data.whiteboards || []);
+      } else {
+        console.warn('Failed to load whiteboard list:', res.status);
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn('Failed to load whiteboard list:', err.message);
     }
   }, [API_BASE]);
 

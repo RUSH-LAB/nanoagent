@@ -689,16 +689,20 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readBody(req);
       const {page, author, text, parentId, userId} = body;
-      if (!page || !text) return json(res, 400, {error: 'Missing page or text'});
+      if (!page || typeof page !== 'string') return json(res, 400, {error: 'Missing or invalid page'});
+      if (!text || typeof text !== 'string') return json(res, 400, {error: 'Missing or invalid text'});
       if (['__proto__', 'constructor', 'prototype'].includes(page)) return json(res, 400, {error: 'Invalid page'});
+      if (author !== undefined && typeof author !== 'string') return json(res, 400, {error: 'author must be a string'});
+      if (parentId !== undefined && typeof parentId !== 'string') return json(res, 400, {error: 'parentId must be a string'});
+      if (userId !== undefined && typeof userId !== 'string') return json(res, 400, {error: 'userId must be a string'});
       const comments = loadJSON(COMMENTS_FILE);
       if (!comments[page]) comments[page] = [];
       const comment = {
         id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         author: sanitizeText(author) || 'Anonymous',
         text: sanitizeText(text),
-        parentId: parentId || null,
-        userId: userId || null,
+        parentId: parentId ? sanitizeText(parentId) : null,
+        userId: userId ? sanitizeText(userId) : null,
         createdAt: new Date().toISOString(),
       };
       comments[page].push(comment);
@@ -748,9 +752,12 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readBody(req);
       const {key, content, title} = body;
-      if (!key || typeof content !== 'string') return json(res, 400, {error: 'Missing key or content'});
+      if (!key || typeof key !== 'string') return json(res, 400, {error: 'Missing or invalid key'});
+      if (typeof content !== 'string') return json(res, 400, {error: 'Content must be a string'});
+      if (['__proto__', 'constructor', 'prototype'].includes(key)) return json(res, 400, {error: 'Invalid key'});
+      if (title !== undefined && typeof title !== 'string') return json(res, 400, {error: 'title must be a string'});
       const notes = loadJSON(NOTES_FILE);
-      notes[key] = {content, title: title || key, updatedAt: new Date().toISOString()};
+      notes[key] = {content: sanitizeText(content), title: sanitizeText(title) || key, updatedAt: new Date().toISOString()};
       saveJSON(NOTES_FILE, notes);
       return json(res, 200, {success: true});
     } catch {
@@ -763,7 +770,8 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readBody(req);
       const {key} = body;
-      if (!key) return json(res, 400, {error: 'Missing key'});
+      if (!key || typeof key !== 'string') return json(res, 400, {error: 'Missing or invalid key'});
+      if (['__proto__', 'constructor', 'prototype'].includes(key)) return json(res, 400, {error: 'Invalid key'});
       const notes = loadJSON(NOTES_FILE);
       if (!notes[key]) return json(res, 404, {error: 'Note not found'});
       delete notes[key];
@@ -790,17 +798,22 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readBody(req);
       const {userId, startTime, endTime, wordsWritten, filesEdited} = body;
-      if (!userId || !startTime) return json(res, 400, {error: 'Missing userId or startTime'});
+      if (!userId || typeof userId !== 'string') return json(res, 400, {error: 'Missing or invalid userId'});
+      if (!startTime || typeof startTime !== 'string') return json(res, 400, {error: 'Missing or invalid startTime'});
       if (['__proto__', 'constructor', 'prototype'].includes(userId)) return json(res, 400, {error: 'Invalid userId'});
+      if (endTime !== undefined && typeof endTime !== 'string') return json(res, 400, {error: 'endTime must be a string'});
+      if (wordsWritten !== undefined && typeof wordsWritten !== 'number') return json(res, 400, {error: 'wordsWritten must be a number'});
+      if (filesEdited !== undefined && !Array.isArray(filesEdited)) return json(res, 400, {error: 'filesEdited must be an array'});
+      if (Array.isArray(filesEdited) && filesEdited.length > 100) return json(res, 400, {error: 'filesEdited exceeds maximum length of 100'});
       const SESSIONS_FILE = path.join(PROJECT_ROOT, 'data', 'sessions.json');
       const sessions = loadJSON(SESSIONS_FILE);
       if (!sessions[userId]) sessions[userId] = [];
       const session = {
         id: `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        startTime,
-        endTime: endTime || new Date().toISOString(),
+        startTime: sanitizeText(startTime),
+        endTime: endTime ? sanitizeText(endTime) : new Date().toISOString(),
         wordsWritten: wordsWritten || 0,
-        filesEdited: filesEdited || [],
+        filesEdited: (filesEdited || []).slice(0, 100),
         duration: endTime ? Math.round((new Date(endTime) - new Date(startTime)) / 60000) : 0,
       };
       sessions[userId].push(session);
@@ -933,7 +946,9 @@ ${recent.map(item => {
     try {
       const body = await readBody(req);
       const {url: sourceUrl, targetPath, title: customTitle} = body;
-      if (!sourceUrl || !targetPath) return json(res, 400, {error: 'Missing url or targetPath'});
+      if (!sourceUrl || typeof sourceUrl !== 'string') return json(res, 400, {error: 'Missing or invalid url'});
+      if (!targetPath || typeof targetPath !== 'string') return json(res, 400, {error: 'Missing or invalid targetPath'});
+      if (customTitle !== undefined && typeof customTitle !== 'string') return json(res, 400, {error: 'title must be a string'});
       if (!isValidFilePath(targetPath)) return json(res, 400, {error: 'Invalid targetPath'});
       if (!/^https?:\/\//i.test(sourceUrl)) return json(res, 400, {error: 'URL must start with http:// or https://'});
       const fullTarget = path.join(PROJECT_ROOT, targetPath);
@@ -953,7 +968,7 @@ ${recent.map(item => {
       let text = fetchedText.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
       text = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
       text = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-      const title = customTitle || 'Imported from ' + new URL(sourceUrl).hostname;
+      const title = sanitizeText(customTitle) || 'Imported from ' + new URL(sourceUrl).hostname;
       const content = `---\ntitle: "${title}"\ndate: ${new Date().toISOString().slice(0, 10)}\nsource: "${sourceUrl}"\n---\n\n# ${title}\n\n${text.slice(0, 50000)}\n`;
       const dir = path.dirname(fullTarget);
       fs.mkdirSync(dir, {recursive: true});
@@ -970,14 +985,16 @@ ${recent.map(item => {
     try {
       const body = await readBody(req);
       const {path: filePath, publishAt, note} = body;
-      if (!filePath || !publishAt) return json(res, 400, {error: 'Missing path or publishAt'});
+      if (!filePath || typeof filePath !== 'string') return json(res, 400, {error: 'Missing or invalid path'});
+      if (!publishAt || typeof publishAt !== 'string') return json(res, 400, {error: 'Missing or invalid publishAt'});
+      if (note !== undefined && typeof note !== 'string') return json(res, 400, {error: 'note must be a string'});
       const SCHEDULE_FILE = path.join(PROJECT_ROOT, 'data', 'schedule.json');
       const schedule = loadJSON(SCHEDULE_FILE);
       if (!schedule.items) schedule.items = [];
       const item = {
         id: `sched_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         path: sanitizeText(filePath),
-        publishAt,
+        publishAt: sanitizeText(publishAt),
         note: note ? sanitizeText(note) : '',
         createdAt: new Date().toISOString(),
         status: 'scheduled',
@@ -1431,6 +1448,7 @@ ${recent.map(item => `<entry>
       const body = await readBody(req);
       const {path: filePath, draft} = body;
       if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
+      if (typeof draft !== 'boolean') return json(res, 400, {error: 'draft must be a boolean'});
       const fullPath = path.join(PROJECT_ROOT, filePath);
       let content = fs.readFileSync(fullPath, 'utf-8');
       const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/);
@@ -1458,7 +1476,9 @@ ${recent.map(item => `<entry>
     try {
       const body = await readBody(req);
       const {prompt, context, type} = body;
-      if (!prompt) return json(res, 400, {error: 'Missing prompt'});
+      if (!prompt || typeof prompt !== 'string') return json(res, 400, {error: 'Missing or invalid prompt'});
+      if (context !== undefined && typeof context !== 'string') return json(res, 400, {error: 'context must be a string'});
+      if (type !== undefined && typeof type !== 'string') return json(res, 400, {error: 'type must be a string'});
       const validTypes = ['continue', 'improve', 'explain', 'summarize'];
       if (type && !validTypes.includes(type)) {
         return json(res, 400, {error: `Invalid type. Must be one of: ${validTypes.join(', ')}`});
@@ -1679,8 +1699,9 @@ ${recent.map(item => `<entry>
       const yaml = require('js-yaml');
       const body = await readBody(req);
       const {key: citationKey, fields} = body;
-      if (!citationKey) return json(res, 400, {error: 'Missing key'});
-      if (!fields || typeof fields !== 'object') return json(res, 400, {error: 'Missing fields object'});
+      if (!citationKey || typeof citationKey !== 'string') return json(res, 400, {error: 'Missing or invalid key'});
+      if (citationKey.length > 200) return json(res, 400, {error: 'Key too long'});
+      if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return json(res, 400, {error: 'Missing fields object'});
 
       const bibPath = path.join(PROJECT_ROOT, 'references.yaml');
       const refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
@@ -1709,14 +1730,17 @@ ${recent.map(item => `<entry>
       const {path: pagePath, referrer, userAgent} = body;
       if (!pagePath || typeof pagePath !== 'string') return json(res, 400, {error: 'Missing path'});
       if (pagePath.length > 500) return json(res, 400, {error: 'Path too long'});
+      if (["__proto__", "constructor", "prototype"].includes(pagePath)) return json(res, 400, {error: "Invalid path"});
+      if (referrer !== undefined && typeof referrer !== "string") return json(res, 400, {error: "referrer must be a string"});
+      if (userAgent !== undefined && typeof userAgent !== "string") return json(res, 400, {error: "userAgent must be a string"});
       const analytics = loadJSON(ANALYTICS_FILE);
       if (!analytics.counts) analytics.counts = {};
       if (!analytics.recent) analytics.recent = [];
       analytics.counts[pagePath] = (analytics.counts[pagePath] || 0) + 1;
       analytics.recent.unshift({
         path: pagePath,
-        referrer: referrer || null,
-        userAgent: userAgent || null,
+        referrer: referrer ? sanitizeText(referrer) : null,
+        userAgent: userAgent ? sanitizeText(userAgent) : null,
         timestamp: new Date().toISOString(),
       });
       if (analytics.recent.length > 100) analytics.recent = analytics.recent.slice(0, 100);
@@ -1763,9 +1787,12 @@ ${recent.map(item => `<entry>
       const body = await readBody(req);
       const {role, email, name, requesterId} = body;
       const validRoles = ['owner', 'editor', 'viewer'];
-      if (!role || !validRoles.includes(role)) return json(res, 400, {error: 'Invalid role. Must be owner, editor, or viewer'});
+      if (!role || typeof role !== 'string' || !validRoles.includes(role)) return json(res, 400, {error: 'Invalid role. Must be owner, editor, or viewer'});
       if (['__proto__', 'constructor', 'prototype'].includes(userId)) return json(res, 400, {error: 'Invalid userId'});
-      if (!requesterId) return json(res, 403, {error: 'Missing requesterId'});
+      if (!requesterId || typeof requesterId !== 'string') return json(res, 403, {error: 'Missing or invalid requesterId'});
+      if (["__proto__", "constructor", "prototype"].includes(requesterId)) return json(res, 400, {error: "Invalid requesterId"});
+      if (email !== undefined && typeof email !== "string") return json(res, 400, {error: "email must be a string"});
+      if (name !== undefined && typeof name !== "string") return json(res, 400, {error: "name must be a string"});
       const users = loadJSON(USERS_FILE);
       const requester = users[requesterId];
       if (!requester || requester.role !== 'owner') {
@@ -1773,8 +1800,8 @@ ${recent.map(item => `<entry>
       }
       users[userId] = {
         role,
-        email: email || users[userId]?.email || '',
-        name: name || users[userId]?.name || '',
+        email: sanitizeText(email) || users[userId]?.email || '',
+        name: sanitizeText(name) || users[userId]?.name || '',
         addedAt: users[userId]?.addedAt || new Date().toISOString(),
       };
       saveJSON(USERS_FILE, users);
@@ -1838,6 +1865,8 @@ ${recent.map(item => `<entry>
       const {name, topic, linkedPage} = body;
       if (!name || typeof name !== 'string') return json(res, 400, {error: 'Missing or invalid channel name'});
       if (name.length > 100) return json(res, 400, {error: 'Channel name too long (max 100 characters)'});
+      if (topic !== undefined && typeof topic !== 'string') return json(res, 400, {error: 'topic must be a string'});
+      if (linkedPage !== undefined && typeof linkedPage !== 'string') return json(res, 400, {error: 'linkedPage must be a string'});
       const data = loadJSON(DISCUSSIONS_FILE);
       if (!data.channels) data.channels = {};
       if (!data.messages) data.messages = {};
@@ -1847,7 +1876,7 @@ ${recent.map(item => `<entry>
       data.channels[id] = {
         name: sanitizeText(name),
         topic: sanitizeText(topic) || '',
-        linkedPage: linkedPage || null,
+        linkedPage: linkedPage ? sanitizeText(linkedPage) : null,
         createdAt: new Date().toISOString(),
       };
       data.messages[id] = [];
@@ -1902,7 +1931,8 @@ ${recent.map(item => `<entry>
       }
       const body = await readBody(req);
       const {author, text} = body;
-      if (!text) return json(res, 400, {error: 'Missing message text'});
+      if (!text || typeof text !== 'string') return json(res, 400, {error: 'Missing or invalid message text'});
+      if (author !== undefined && typeof author !== 'string') return json(res, 400, {error: 'author must be a string'});
       if (!data.messages) data.messages = {};
       if (!data.messages[channelId]) data.messages[channelId] = [];
       const message = {
@@ -1931,7 +1961,8 @@ ${recent.map(item => `<entry>
       }
       const body = await readBody(req);
       const {messageId, text} = body;
-      if (!messageId || !text) return json(res, 400, {error: 'Missing messageId or text'});
+      if (!messageId || typeof messageId !== 'string') return json(res, 400, {error: 'Missing or invalid messageId'});
+      if (!text || typeof text !== 'string') return json(res, 400, {error: 'Missing or invalid text'});
       if (!data.messages || !data.messages[channelId]) {
         return json(res, 404, {error: 'No messages in channel'});
       }
@@ -2047,7 +2078,7 @@ ${recent.map(item => `<entry>
       const yaml = require('js-yaml');
       const body = await readBody(req);
       const {key} = body;
-      if (!key) return json(res, 400, {error: 'Missing key'});
+      if (!key || typeof key !== 'string') return json(res, 400, {error: 'Missing or invalid key'});
 
       const bibPath = path.join(PROJECT_ROOT, 'references.yaml');
       const refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
@@ -2289,7 +2320,13 @@ ${recent.map(item => `<entry>
       const yaml = require('js-yaml');
       const body = await readBody(req);
       const { title, authors, year, venue, url: paperUrl, arxivId } = body;
-      if (!title) return json(res, 400, { error: 'Missing title' });
+      if (!title || typeof title !== 'string') return json(res, 400, { error: 'Missing or invalid title' });
+      if (authors !== undefined && !Array.isArray(authors)) return json(res, 400, { error: 'authors must be an array' });
+      if (Array.isArray(authors) && authors.length > 50) return json(res, 400, { error: 'authors exceeds maximum length of 50' });
+      if (year !== undefined && typeof year !== 'number' && typeof year !== 'string') return json(res, 400, { error: 'year must be a number or string' });
+      if (venue !== undefined && typeof venue !== 'string') return json(res, 400, { error: 'venue must be a string' });
+      if (paperUrl !== undefined && typeof paperUrl !== 'string') return json(res, 400, { error: 'url must be a string' });
+      if (arxivId !== undefined && typeof arxivId !== 'string') return json(res, 400, { error: 'arxivId must be a string' });
 
       const authorList = authors || [];
       const firstAuthor = authorList[0] || 'unknown';
@@ -2311,12 +2348,12 @@ ${recent.map(item => `<entry>
 
       const entry = {
         type: 'article',
-        title,
-        author: authorList,
+        title: sanitizeText(title),
+        author: authorList.slice(0, 50).map(a => sanitizeText(String(a))),
         year: year || null,
-        venue: venue || '',
+        venue: venue ? sanitizeText(venue) : '',
       };
-      if (paperUrl) entry.url = paperUrl;
+      if (paperUrl) entry.url = sanitizeText(paperUrl);
       else if (arxivId) entry.url = `https://arxiv.org/abs/${arxivId}`;
       if (arxivId) entry.arxivId = arxivId;
 
@@ -2337,6 +2374,7 @@ ${recent.map(item => `<entry>
       const body = await readBody(req);
       const {bibtex} = body;
       if (!bibtex || typeof bibtex !== 'string') return json(res, 400, {error: 'Missing bibtex string'});
+      if (bibtex.length > 500000) return json(res, 400, {error: 'BibTeX input too large (max 500KB)'});
 
       const parsed = parseBibtex(bibtex);
       const bibPath = path.join(PROJECT_ROOT, 'references.yaml');
@@ -2490,7 +2528,10 @@ ${recent.map(item => `<entry>
       const body = await readBody(req);
       const {search, replace, dryRun} = body;
       if (!search || typeof search !== 'string') return json(res, 400, {error: 'Missing search string'});
+      if (search.length > MAX_TEXT_LENGTH) return json(res, 400, {error: 'Search string too long'});
       if (typeof replace !== 'string') return json(res, 400, {error: 'Missing replace string'});
+      if (replace.length > MAX_TEXT_LENGTH) return json(res, 400, {error: 'Replace string too long'});
+      if (dryRun !== undefined && typeof dryRun !== 'boolean') return json(res, 400, {error: 'dryRun must be a boolean'});
       const contentDir = path.join(PROJECT_ROOT, 'content');
       const changes = [];
       function scanReplace(dir) {
@@ -2976,7 +3017,11 @@ ${recent.map(item => `<entry>
       const body = await readBody(req);
       const {paths, format} = body;
       if (!Array.isArray(paths) || paths.length === 0) return json(res, 400, {error: 'Missing paths array'});
+      if (paths.length > 50) return json(res, 400, {error: 'paths exceeds maximum length of 50'});
+      if (!paths.every(p => typeof p === 'string')) return json(res, 400, {error: 'All paths must be strings'});
+      if (format !== undefined && typeof format !== 'string') return json(res, 400, {error: 'format must be a string'});
       const outputFormat = format || 'md';
+      if (!['md', 'html'].includes(outputFormat)) return json(res, 400, {error: 'format must be md or html'});
       const sections = [];
       for (const filePath of paths.slice(0, 20)) {
         if (!isValidFilePath(filePath)) continue;
@@ -3366,6 +3411,11 @@ ${html.trim()}
       const body = await readBody(req);
       const {paths, addTags, removeTags, setDraft} = body;
       if (!Array.isArray(paths) || paths.length === 0) return json(res, 400, {error: 'Missing paths array'});
+      if (addTags !== undefined && (!Array.isArray(addTags) || !addTags.every(t => typeof t === 'string'))) return json(res, 400, {error: 'addTags must be an array of strings'});
+      if (removeTags !== undefined && (!Array.isArray(removeTags) || !removeTags.every(t => typeof t === 'string'))) return json(res, 400, {error: 'removeTags must be an array of strings'});
+      if (addTags && addTags.some(t => t.length > 100)) return json(res, 400, {error: 'Tag names must be 100 characters or fewer'});
+      if (removeTags && removeTags.some(t => t.length > 100)) return json(res, 400, {error: 'Tag names must be 100 characters or fewer'});
+      if (setDraft !== undefined && typeof setDraft !== 'boolean') return json(res, 400, {error: 'setDraft must be a boolean'});
       let updated = 0;
       const errors = [];
       for (const filePath of paths.slice(0, 50)) {
@@ -3537,7 +3587,9 @@ ${html.trim()}
     try {
       const body = await readBody(req);
       const {score, details} = body;
-      if (typeof score !== 'number') return json(res, 400, {error: 'Missing score'});
+      if (typeof score !== 'number' || !isFinite(score)) return json(res, 400, {error: 'Missing or invalid score'});
+      if (score < 0 || score > 100) return json(res, 400, {error: 'Score must be between 0 and 100'});
+      if (details !== undefined && (typeof details !== 'object' || details === null || Array.isArray(details))) return json(res, 400, {error: 'details must be an object'});
       const HISTORY_FILE = path.join(PROJECT_ROOT, 'data', 'health-history.json');
       const data = loadJSON(HISTORY_FILE);
       if (!data.entries) data.entries = [];
@@ -4051,8 +4103,12 @@ ${html.trim()}
     try {
       const body = await readBody(req);
       const {sourcePath, targetPath, separator} = body;
+      if (!sourcePath || typeof sourcePath !== 'string') return json(res, 400, {error: 'Missing or invalid sourcePath'});
+      if (!targetPath || typeof targetPath !== 'string') return json(res, 400, {error: 'Missing or invalid targetPath'});
       if (!isValidFilePath(sourcePath) || !isValidFilePath(targetPath)) return json(res, 400, {error: 'Invalid paths'});
       if (sourcePath === targetPath) return json(res, 400, {error: 'Source and target paths must be different'});
+      if (separator !== undefined && typeof separator !== 'string') return json(res, 400, {error: 'separator must be a string'});
+      if (separator && separator.length > 500) return json(res, 400, {error: 'separator must be 500 characters or fewer'});
       const sourceContent = fs.readFileSync(path.join(PROJECT_ROOT, sourcePath), 'utf-8');
       const targetContent = fs.readFileSync(path.join(PROJECT_ROOT, targetPath), 'utf-8');
       let sourceBody = sourceContent;
@@ -5023,13 +5079,17 @@ ${html.trim()}
     try {
       const body = await readBody(req);
       const {query, userId, resultCount} = body;
-      if (!query) return json(res, 400, {error: 'Missing query'});
+      if (!query || typeof query !== 'string') return json(res, 400, {error: 'Missing or invalid query'});
+      if (query.length > 500) return json(res, 400, {error: 'Query must be 500 characters or fewer'});
+      if (userId !== undefined && typeof userId !== 'string') return json(res, 400, {error: 'userId must be a string'});
+      if (userId && userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
+      if (resultCount !== undefined && (typeof resultCount !== 'number' || !isFinite(resultCount) || resultCount < 0)) return json(res, 400, {error: 'resultCount must be a non-negative number'});
       const HISTORY_FILE = path.join(PROJECT_ROOT, 'data', 'search-history.json');
       const data = loadJSON(HISTORY_FILE);
       if (!data.searches) data.searches = [];
       data.searches.push({
         query: sanitizeText(query),
-        userId: userId || 'anonymous',
+        userId: userId ? sanitizeText(userId) : 'anonymous',
         resultCount: resultCount || 0,
         timestamp: new Date().toISOString(),
       });
@@ -5930,10 +5990,14 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   }
 
   if (req.method === 'POST' && pathname === '/api/template-variables') {
+    if (!rateLimit(`template-vars:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {name, value} = body;
-      if (!name || typeof value !== 'string') return json(res, 400, {error: 'Missing name or value'});
+      if (!name || typeof name !== 'string') return json(res, 400, {error: 'Missing or invalid name'});
+      if (typeof value !== 'string') return json(res, 400, {error: 'Missing or invalid value (must be a string)'});
+      if (name.length > 100) return json(res, 400, {error: 'Name must be 100 characters or fewer'});
+      if (value.length > 5000) return json(res, 400, {error: 'Value must be 5000 characters or fewer'});
       const VARS_FILE = path.join(PROJECT_ROOT, 'data', 'template-variables.json');
       const data = loadJSON(VARS_FILE);
       if (!data.variables) data.variables = {};
@@ -5963,10 +6027,18 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
   // ── Spaced repetition flashcards ──
   if (req.method === 'POST' && pathname === '/api/flashcards') {
+    if (!rateLimit(`flashcards:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {userId, front, back, tags, sourcePath} = body;
-      if (!front || !back) return json(res, 400, {error: 'Missing front or back'});
+      if (!front || typeof front !== 'string') return json(res, 400, {error: 'Missing or invalid front'});
+      if (!back || typeof back !== 'string') return json(res, 400, {error: 'Missing or invalid back'});
+      if (front.length > 5000) return json(res, 400, {error: 'front must be 5000 characters or fewer'});
+      if (back.length > 5000) return json(res, 400, {error: 'back must be 5000 characters or fewer'});
+      if (userId !== undefined && typeof userId !== 'string') return json(res, 400, {error: 'userId must be a string'});
+      if (userId && userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
+      if (tags !== undefined && (!Array.isArray(tags) || !tags.every(t => typeof t === 'string'))) return json(res, 400, {error: 'tags must be an array of strings'});
+      if (sourcePath !== undefined && typeof sourcePath !== 'string') return json(res, 400, {error: 'sourcePath must be a string'});
       const FC_FILE = path.join(PROJECT_ROOT, 'data', 'flashcards.json');
       const data = loadJSON(FC_FILE);
       const uid = userId || 'default';
@@ -6009,10 +6081,16 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   }
 
   if (req.method === 'POST' && pathname === '/api/flashcards/review') {
+    if (!rateLimit(`fc-review:${req.socket.remoteAddress}`, 120)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {userId, cardId, quality} = body;
-      if (!cardId || quality == null) return json(res, 400, {error: 'Missing cardId or quality'});
+      if (!cardId || typeof cardId !== 'string') return json(res, 400, {error: 'Missing or invalid cardId'});
+      if (cardId.length > 200) return json(res, 400, {error: 'cardId must be 200 characters or fewer'});
+      if (quality == null || typeof quality !== 'number' || !isFinite(quality)) return json(res, 400, {error: 'Missing or invalid quality'});
+      if (quality < 0 || quality > 5) return json(res, 400, {error: 'quality must be between 0 and 5'});
+      if (userId !== undefined && typeof userId !== 'string') return json(res, 400, {error: 'userId must be a string'});
+      if (userId && userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
       const q = Math.max(0, Math.min(5, quality));
       const uid = userId || 'default';
       const FC_FILE = path.join(PROJECT_ROOT, 'data', 'flashcards.json');
@@ -6244,10 +6322,12 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   }
 
   if (req.method === 'POST' && pathname === '/api/glossary') {
+    if (!rateLimit(`glossary:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {term, definition, relatedTerms, references} = body;
-      if (!term || !definition) return json(res, 400, {error: 'Missing term or definition'});
+      if (!term || typeof term !== 'string') return json(res, 400, {error: 'Missing or invalid term'});
+      if (!definition || typeof definition !== 'string') return json(res, 400, {error: 'Missing or invalid definition'});
       const GLOSSARY_FILE = path.join(PROJECT_ROOT, 'data', 'glossary.json');
       const data = loadJSON(GLOSSARY_FILE);
       if (!data.terms) data.terms = [];
@@ -6290,10 +6370,11 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
   // ── Study plan generation from reading list ──
   if (req.method === 'POST' && pathname === '/api/study-plan') {
+    if (!rateLimit(`study-plan:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {listId, hoursPerWeek} = body;
-      if (!listId) return json(res, 400, {error: 'Missing listId'});
+      if (!listId || typeof listId !== 'string') return json(res, 400, {error: 'Missing or invalid listId'});
       const data = loadJSON(READING_LISTS_FILE);
       const list = (data.lists || []).find(l => l.id === listId);
       if (!list) return json(res, 404, {error: 'Reading list not found'});
@@ -6345,19 +6426,20 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   }
 
   if (req.method === 'POST' && pathname === '/api/research-questions') {
+    if (!rateLimit(`rq:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {question, context, relatedPapers, tags} = body;
-      if (!question) return json(res, 400, {error: 'Missing question'});
+      if (!question || typeof question !== 'string') return json(res, 400, {error: 'Missing or invalid question'});
       const RQ_FILE = path.join(PROJECT_ROOT, 'data', 'research-questions.json');
       const data = loadJSON(RQ_FILE);
       if (!data.questions) data.questions = [];
       const rq = {
         id: `rq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         question: sanitizeText(question),
-        context: context ? sanitizeText(context) : '',
-        relatedPapers: Array.isArray(relatedPapers) ? relatedPapers.slice(0, 20) : [],
-        tags: Array.isArray(tags) ? tags.slice(0, 10).map(t => sanitizeText(t)) : [],
+        context: context ? sanitizeText(String(context)) : '',
+        relatedPapers: Array.isArray(relatedPapers) ? relatedPapers.slice(0, 20).map(p => sanitizeText(String(p))) : [],
+        tags: Array.isArray(tags) ? tags.slice(0, 10).map(t => sanitizeText(String(t))) : [],
         status: 'open',
         createdAt: new Date().toISOString(),
       };
@@ -6370,10 +6452,11 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   }
 
   if (req.method === 'PUT' && pathname === '/api/research-questions') {
+    if (!rateLimit(`rq-update:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {id, status: newStatus, answer} = body;
-      if (!id) return json(res, 400, {error: 'Missing id'});
+      if (!id || typeof id !== 'string') return json(res, 400, {error: 'Missing or invalid id'});
       const RQ_FILE = path.join(PROJECT_ROOT, 'data', 'research-questions.json');
       const data = loadJSON(RQ_FILE);
       const q = (data.questions || []).find(q => q.id === id);
@@ -6461,10 +6544,11 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   }
 
   if (req.method === 'POST' && pathname === '/api/quicknotes') {
+    if (!rateLimit(`quicknotes:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {userId, text, color} = body;
-      if (!text) return json(res, 400, {error: 'Missing text'});
+      if (!text || typeof text !== 'string') return json(res, 400, {error: 'Missing or invalid text'});
       const uid = userId || 'default';
       const QUICKNOTES_FILE = path.join(PROJECT_ROOT, 'data', 'quicknotes.json');
       const data = loadJSON(QUICKNOTES_FILE);
@@ -6512,10 +6596,11 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   }
 
   if (req.method === 'POST' && pathname === '/api/pins') {
+    if (!rateLimit(`pins:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {path: pagePath, title} = body;
-      if (!pagePath) return json(res, 400, {error: 'Missing path'});
+      if (!pagePath || typeof pagePath !== 'string') return json(res, 400, {error: 'Missing or invalid path'});
       const PINS_FILE = path.join(PROJECT_ROOT, 'data', 'pins.json');
       const data = loadJSON(PINS_FILE);
       if (!data.pins) data.pins = [];
@@ -6556,10 +6641,12 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   }
 
   if (req.method === 'PUT' && pathname === '/api/preferences') {
+    if (!rateLimit(`prefs:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {userId, preferences} = body;
-      if (!userId || !preferences || typeof preferences !== 'object') return json(res, 400, {error: 'Missing userId or preferences'});
+      if (!userId || typeof userId !== 'string') return json(res, 400, {error: 'Missing or invalid userId'});
+      if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) return json(res, 400, {error: 'Missing or invalid preferences'});
       const PREFS_FILE = path.join(PROJECT_ROOT, 'data', 'preferences.json');
       const prefs = loadJSON(PREFS_FILE);
       prefs[userId] = {...(prefs[userId] || {}), ...preferences, updatedAt: new Date().toISOString()};
@@ -6577,6 +6664,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   }
 
   if (req.method === 'POST' && pathname === '/api/bookmarks/folders') {
+    if (!rateLimit(`bm-folders:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {name} = body;
@@ -6596,10 +6684,11 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
   // ── Content review workflow ──
   if (req.method === 'POST' && pathname === '/api/reviews') {
+    if (!rateLimit(`reviews:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {path: pagePath, requestedBy, note} = body;
-      if (!pagePath) return json(res, 400, {error: 'Missing path'});
+      if (!pagePath || typeof pagePath !== 'string') return json(res, 400, {error: 'Missing or invalid path'});
       const REVIEWS_FILE = path.join(PROJECT_ROOT, 'data', 'reviews.json');
       const data = loadJSON(REVIEWS_FILE);
       if (!data.reviews) data.reviews = [];
@@ -6629,10 +6718,12 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   }
 
   if (req.method === 'PUT' && pathname === '/api/reviews') {
+    if (!rateLimit(`reviews-update:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {id, status: newStatus, reviewedBy, feedback} = body;
-      if (!id || !newStatus) return json(res, 400, {error: 'Missing id or status'});
+      if (!id || typeof id !== 'string') return json(res, 400, {error: 'Missing or invalid id'});
+      if (!newStatus || typeof newStatus !== 'string') return json(res, 400, {error: 'Missing or invalid status'});
       if (!['approved', 'rejected', 'pending'].includes(newStatus)) return json(res, 400, {error: 'Invalid status'});
       const REVIEWS_FILE = path.join(PROJECT_ROOT, 'data', 'reviews.json');
       const data = loadJSON(REVIEWS_FILE);
@@ -6651,10 +6742,12 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
   // ── Custom template management ──
   if (req.method === 'POST' && pathname === '/api/templates/custom') {
+    if (!rateLimit(`templates:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {name, content} = body;
-      if (!name || !content) return json(res, 400, {error: 'Missing name or content'});
+      if (!name || typeof name !== 'string') return json(res, 400, {error: 'Missing or invalid name'});
+      if (!content || typeof content !== 'string') return json(res, 400, {error: 'Missing or invalid content'});
       const TEMPLATES_FILE = path.join(PROJECT_ROOT, 'data', 'custom-templates.json');
       const templates = loadJSON(TEMPLATES_FILE);
       if (!templates.items) templates.items = [];
@@ -6763,6 +6856,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
   // ── File versioning: manual named versions ──
   if (req.method === 'POST' && pathname === '/api/file/version') {
+    if (!rateLimit(`file-version:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {path: filePath, label} = body;
@@ -6951,6 +7045,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
   // ── Batch file info ──
   if (req.method === 'POST' && pathname === '/api/files/info') {
+    if (!rateLimit(`files-info:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {paths} = body;
@@ -7339,6 +7434,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
   // ── Bookmarks: add ──
   if (req.method === 'POST' && pathname === '/api/bookmarks') {
+    if (!rateLimit(`bookmarks:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {path: pagePath, title} = body;
@@ -7381,6 +7477,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
   // ── Discussions: pin a message ──
   if (req.method === 'POST' && pathname.match(/^\/api\/discussions\/[^/]+\/pin$/)) {
+    if (!rateLimit(`disc-pin:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
       const channelId = decodeURIComponent(parts[3]);
@@ -7500,6 +7597,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
   // ── Reading Lists: create ──
   if (req.method === 'POST' && pathname === '/api/reading-lists') {
+    if (!rateLimit(`reading-lists:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {name, description} = body;
@@ -7541,6 +7639,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
   // ── Reading Lists: add item ──
   if (req.method === 'POST' && pathname.match(/^\/api\/reading-lists\/[^/]+\/items$/)) {
+    if (!rateLimit(`rl-items:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
       const listId = decodeURIComponent(parts[3]);
@@ -7754,6 +7853,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   }
 
   if (req.method === 'POST' && pathname === '/api/streak') {
+    if (!rateLimit(`streak:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const userId = body.userId || 'default';
@@ -7778,6 +7878,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
   // ── Bulk file operations (delete / move) ──
   if (req.method === 'POST' && pathname === '/api/files/bulk') {
+    if (!rateLimit(`files-bulk:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {action, paths, targetDir} = body;
@@ -8489,15 +8590,17 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
   // ── Reading progress tracking ──
   if (req.method === 'POST' && pathname === '/api/reading-progress') {
+    if (!rateLimit(`reading-progress:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {userId, pagePath, progress} = body;
-      if (!userId || !pagePath) return json(res, 400, {error: 'Missing userId or pagePath'});
+      if (!userId || typeof userId !== 'string') return json(res, 400, {error: 'Missing or invalid userId'});
+      if (!pagePath || typeof pagePath !== 'string') return json(res, 400, {error: 'Missing or invalid pagePath'});
       const PROGRESS_FILE = path.join(PROJECT_ROOT, 'data', 'reading-progress.json');
       const data = loadJSON(PROGRESS_FILE);
       if (!data[userId]) data[userId] = {};
       data[userId][pagePath] = {
-        progress: Math.min(100, Math.max(0, progress || 0)),
+        progress: Math.min(100, Math.max(0, typeof progress === 'number' ? progress : 0)),
         lastRead: new Date().toISOString(),
       };
       saveJSON(PROGRESS_FILE, data);
@@ -8868,6 +8971,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   // ── Scheduled publishing ──
   if (pathname === '/api/schedule') {
     if (req.method === 'POST') {
+      if (!rateLimit(`schedule:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       try {
         const body = await readBody(req);
         const {path: filePath, publishAt} = body;
@@ -9172,6 +9276,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
   // ── Writing goals ──
   if (req.method === 'POST' && pathname === '/api/goals') {
+    if (!rateLimit(`goals:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {type, target, userId} = body;
@@ -9242,10 +9347,11 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   }
 
   if (req.method === 'PUT' && pathname === '/api/goals') {
+    if (!rateLimit(`goals-update:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {id, target} = body;
-      if (!id) return json(res, 400, {error: 'Missing id'});
+      if (!id || typeof id !== 'string') return json(res, 400, {error: 'Missing or invalid id'});
       const data = loadJSON(GOALS_FILE);
       if (!Array.isArray(data.goals)) return json(res, 404, {error: 'No goals found'});
       const goal = data.goals.find(g => g.id === id);
@@ -9353,6 +9459,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
   // ── Backup: restore all user data from bundle ──
   if (req.method === 'POST' && pathname === '/api/backup/restore') {
+    if (!rateLimit(`backup-restore:${req.socket.remoteAddress}`, 5)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       if (!body || typeof body !== 'object') {

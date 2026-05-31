@@ -784,21 +784,25 @@ function DocumentStats({editor, rawMode, rawContent}) {
   useEffect(() => {
     if (streakFetchedRef.current) return;
     streakFetchedRef.current = true;
+    let mounted = true;
     const userId = sessionStorage.getItem('mochi-presence-userId') || 'default';
     fetch(`${API_BASE}/api/streak?userId=${encodeURIComponent(userId)}`)
       .then(r => r.json())
-      .then(data => setStreak(data.currentStreak || 0))
+      .then(data => { if (mounted) setStreak(data.currentStreak || 0); })
       .catch(() => {});
+    return () => { mounted = false; };
   }, []);
 
   // Fetch daily goal progress on mount
   useEffect(() => {
     if (goalFetchedRef.current) return;
     goalFetchedRef.current = true;
+    let mounted = true;
     const userId = sessionStorage.getItem('mochi-presence-userId') || 'default';
     fetch(`${API_BASE}/api/goals?userId=${encodeURIComponent(userId)}`)
       .then(r => r.json())
       .then(data => {
+        if (!mounted) return;
         if (data.goals && data.goals.length > 0) {
           // Prefer daily goal, fall back to weekly
           const daily = data.goals.find(g => g.type === 'daily' && !g.isExpired);
@@ -815,6 +819,7 @@ function DocumentStats({editor, rawMode, rawContent}) {
         }
       })
       .catch(() => {});
+    return () => { mounted = false; };
   }, []);
 
   // Compute stats from raw content (for raw mode) or editor text
@@ -949,6 +954,8 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
       setPresenceUsers([]);
       return;
     }
+    let mounted = true;
+    const controller = new AbortController();
     const userId = getSessionUserId();
     const userName = getSessionUserName();
 
@@ -958,12 +965,14 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({filePath, userId, userName}),
+        signal: controller.signal,
       }).catch(() => {});
 
       // GET presence for this file
-      fetch(`${API_BASE}/api/presence?path=${encodeURIComponent(filePath)}`)
+      fetch(`${API_BASE}/api/presence?path=${encodeURIComponent(filePath)}`, {signal: controller.signal})
         .then(r => r.json())
         .then(data => {
+          if (!mounted) return;
           const others = (data.users || []).filter(u => u.userId !== userId);
           // Only update state if the user list actually changed to avoid unnecessary re-renders
           setPresenceUsers(prev => {
@@ -972,12 +981,19 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
             return prevIds === newIds ? prev : others;
           });
         })
-        .catch(() => setPresenceUsers(prev => prev.length === 0 ? prev : []));
+        .catch(() => {
+          if (!mounted) return;
+          setPresenceUsers(prev => prev.length === 0 ? prev : []);
+        });
     }
 
     tick();
     const interval = setInterval(tick, PRESENCE_INTERVAL);
-    return () => clearInterval(interval);
+    return () => {
+      mounted = false;
+      controller.abort();
+      clearInterval(interval);
+    };
   }, [filePath]);
 
   const editor = useEditor({
@@ -1106,17 +1122,20 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
 
   useEffect(() => {
     if (!filePath || !editor) return;
+    const controller = new AbortController();
+    let cancelled = false;
     setLoading(true);
     setError(null);
     setDirty(false);
     setHasLocalChanges(false);
 
-    fetch(`${API_BASE}/api/file?path=${encodeURIComponent(filePath)}`)
+    fetch(`${API_BASE}/api/file?path=${encodeURIComponent(filePath)}`, {signal: controller.signal})
       .then(res => {
         if (!res.ok) throw new Error('Failed to load');
         return res.json();
       })
       .then(data => {
+        if (cancelled) return;
         const {frontmatter: fm, body} = parseFrontmatter(data.content);
         setFrontmatter(fm);
         setDraft(isDraft(fm));
@@ -1135,7 +1154,8 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
           // localStorage unavailable, ignore
         }
       })
-      .catch(() => {
+      .catch((err) => {
+        if (cancelled || err.name === 'AbortError') return;
         // Server unreachable — try to load from localStorage as a fallback
         try {
           const saved = localStorage.getItem(offlineKey(filePath));
@@ -1156,6 +1176,11 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         setError('Failed to load file. Is the editor server running? (npm start)');
         setLoading(false);
       });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [filePath, editor]);
 
   // Sync editable state when readOnly prop changes
@@ -1287,9 +1312,11 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
       return;
     }
 
+    let cancelled = false;
+
     autoSaveTimerRef.current = setTimeout(async () => {
       // Double-check conditions are still valid when timer fires
-      if (savingRef.current) return;
+      if (savingRef.current || cancelled) return;
 
       setAutoSaveStatus('saving');
       const content = getFullContentRef.current();
@@ -1299,6 +1326,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({path: filePath, content}),
         });
+        if (cancelled) return;
         if (!res.ok) throw new Error('Auto-save failed');
         setDirty(false);
         const now = new Date();
@@ -1311,9 +1339,12 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         setHasLocalChanges(false);
         // Clear the "Auto-saved" indicator after 5 seconds
         setTimeout(() => {
-          setAutoSaveStatus(prev => prev?.startsWith('saved') ? null : prev);
+          if (!cancelled) {
+            setAutoSaveStatus(prev => prev?.startsWith('saved') ? null : prev);
+          }
         }, 5000);
       } catch {
+        if (cancelled) return;
         // Auto-save failed — persist content to localStorage for offline recovery
         try { localStorage.setItem(offlineKey(filePath), content); } catch {}
         setAutoSaveStatus(null);
@@ -1321,6 +1352,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     }, 3000);
 
     return () => {
+      cancelled = true;
       if (autoSaveTimerRef.current) {
         clearTimeout(autoSaveTimerRef.current);
         autoSaveTimerRef.current = null;
@@ -1520,6 +1552,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
 
   useEffect(() => {
     if (filePath) return;
+    let mounted = true;
     // Load recent files from localStorage
     try {
       const stored = JSON.parse(localStorage.getItem('mochi-recent-files') || '[]');
@@ -1530,8 +1563,9 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     // Fetch stats
     fetch(`${API_BASE}/api/stats`)
       .then(r => r.json())
-      .then(data => setEmptyStats(data))
-      .catch(() => setEmptyStats(null));
+      .then(data => { if (mounted) setEmptyStats(data); })
+      .catch(() => { if (mounted) setEmptyStats(null); });
+    return () => { mounted = false; };
   }, [filePath]);
 
   if (!filePath) {

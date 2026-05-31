@@ -1066,6 +1066,8 @@ export default function BibliographyPage() {
     URL.revokeObjectURL(url);
   }, [references]);
 
+  const totalRefs = Object.keys(references || {}).length;
+
   return (
     <Layout title="Bibliography" description="Complete bibliography of cited references">
       <main style={{ padding: '2rem', maxWidth: '900px', margin: '0 auto' }}>
@@ -1105,10 +1107,14 @@ export default function BibliographyPage() {
             </BrowserOnly>
             <button
               onClick={exportAllBibtex}
+              disabled={totalRefs === 0}
               style={{
                 padding: '8px 16px', border: '1px solid var(--ifm-color-primary)',
-                borderRadius: 6, background: 'var(--ifm-color-primary)',
-                color: '#fff', cursor: 'pointer', fontSize: '0.85em',
+                borderRadius: 6,
+                background: totalRefs === 0 ? 'var(--ifm-color-emphasis-200)' : 'var(--ifm-color-primary)',
+                color: totalRefs === 0 ? 'var(--ifm-color-emphasis-500)' : '#fff',
+                cursor: totalRefs === 0 ? 'not-allowed' : 'pointer',
+                fontSize: '0.85em',
                 fontWeight: 600, fontFamily: 'inherit',
               }}
             >
@@ -1116,6 +1122,21 @@ export default function BibliographyPage() {
             </button>
           </div>
         </div>
+        {totalRefs === 0 && (
+          <div style={{
+            textAlign: 'center',
+            padding: '3rem 1rem',
+            color: 'var(--ifm-color-emphasis-500)',
+          }}>
+            <p style={{ fontSize: '1.1em', fontWeight: 500, marginBottom: '0.5rem' }}>
+              No references in your bibliography yet.
+            </p>
+            <p style={{ fontSize: '0.9em', maxWidth: 500, margin: '0 auto' }}>
+              Use <code>[@key]</code> citations in your markdown files, add papers via the
+              &quot;Search &amp; Add Papers&quot; tool, or import a BibTeX file to get started.
+            </p>
+          </div>
+        )}
         {viewMode === 'graph' ? (
           <div style={{ marginTop: '1rem' }}>
             <p style={{ color: 'var(--ifm-color-emphasis-600)', marginBottom: '12px' }}>

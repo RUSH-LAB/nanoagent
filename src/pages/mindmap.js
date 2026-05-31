@@ -50,15 +50,23 @@ function layoutTree(root, width, height) {
 
 function MindmapContent() {
   const [files, setFiles] = useState([]);
+  const [filesLoading, setFilesLoading] = useState(true);
+  const [filesError, setFilesError] = useState(null);
   const [selected, setSelected] = useState('');
   const [tree, setTree] = useState(null);
+  const [treeLoading, setTreeLoading] = useState(false);
   const [error, setError] = useState(null);
   const svgRef = useRef(null);
   const [dims, setDims] = useState({ w: 960, h: 700 });
 
   useEffect(() => {
+    setFilesLoading(true);
+    setFilesError(null);
     fetch(`${API_BASE}/api/files`)
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(`Failed to load file list (${r.status})`);
+        return r.json();
+      })
       .then(d => {
         const flat = [];
         const flatten = (list) => {
@@ -69,8 +77,13 @@ function MindmapContent() {
         };
         flatten(d.files || []);
         setFiles(flat.filter(f => /\.(md|mdx)$/.test(f.name)));
+        setFilesLoading(false);
       })
-      .catch(() => setFiles([]));
+      .catch(err => {
+        setFilesError(err.message);
+        setFiles([]);
+        setFilesLoading(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -85,14 +98,19 @@ function MindmapContent() {
   const fetchMindmap = useCallback((filePath) => {
     setError(null);
     setTree(null);
-    if (!filePath) return;
+    if (!filePath) { setTreeLoading(false); return; }
+    setTreeLoading(true);
     fetch(`${API_BASE}/api/file/mindmap?path=${encodeURIComponent(filePath)}`)
-      .then(r => r.json())
-      .then(d => {
-        if (d.error) { setError(d.error); return; }
-        setTree(d.root);
+      .then(r => {
+        if (!r.ok) throw new Error(`Failed to generate mindmap (${r.status})`);
+        return r.json();
       })
-      .catch(e => setError(e.message));
+      .then(d => {
+        if (d.error) { setError(d.error); setTreeLoading(false); return; }
+        setTree(d.root);
+        setTreeLoading(false);
+      })
+      .catch(e => { setError(e.message); setTreeLoading(false); });
   }, []);
 
   const handleSelect = (e) => {
@@ -115,6 +133,11 @@ function MindmapContent() {
     <div style={{ padding: '20px 40px' }}>
       <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
         <label htmlFor="mindmap-doc-select" style={{ fontWeight: 600, fontSize: 14 }}>Document:</label>
+        {filesLoading ? (
+          <span style={{ color: 'var(--ifm-color-emphasis-500)', fontSize: 14 }}>Loading file list...</span>
+        ) : filesError ? (
+          <span style={{ color: '#ef4444', fontSize: 14 }}>Failed to load files: {filesError}</span>
+        ) : (
         <select
           id="mindmap-doc-select"
           value={selected}
@@ -135,7 +158,14 @@ function MindmapContent() {
             <option key={f.path} value={f.path}>{f.path}</option>
           ))}
         </select>
+        )}
       </div>
+
+      {!filesLoading && !filesError && files.length === 0 && (
+        <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>
+          No markdown files found. Add some .md or .mdx files to generate mindmaps.
+        </div>
+      )}
 
       {error && (
         <div role="alert" style={{ color: '#ef4444', padding: 12, background: '#fef2f2', borderRadius: 8, marginBottom: 12 }}>
@@ -206,8 +236,18 @@ function MindmapContent() {
         </svg>
       )}
 
-      {!tree && !error && selected && (
-        <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>Loading...</div>
+      {treeLoading && selected && (
+        <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>
+          <div style={{
+            width: 32, height: 32, margin: '0 auto 12px',
+            border: '3px solid var(--ifm-color-emphasis-200)',
+            borderTopColor: 'var(--ifm-color-primary)',
+            borderRadius: '50%',
+            animation: 'mindmap-spin 0.8s linear infinite',
+          }} />
+          <style>{`@keyframes mindmap-spin { to { transform: rotate(360deg); } }`}</style>
+          Generating mindmap...
+        </div>
       )}
       {!selected && (
         <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>
