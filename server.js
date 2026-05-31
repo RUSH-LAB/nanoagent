@@ -9719,6 +9719,114 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
     });
   }
 
+  // ── Quick Note: fast capture to markdown file ──
+  if (req.method === 'POST' && pathname === '/api/quicknote') {
+    if (!rateLimit(`quicknote:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    try {
+      const body = await readBody(req);
+      const {text, title} = body;
+      if (!text || typeof text !== 'string' || text.trim().length === 0) {
+        return json(res, 400, {error: 'Missing or empty text'});
+      }
+      if (text.length > MAX_TEXT_LENGTH) {
+        return json(res, 400, {error: 'Text too long'});
+      }
+
+      const now = new Date();
+      const datePrefix = now.toISOString().slice(0, 10); // YYYY-MM-DD
+      const cleanTitle = title && typeof title === 'string' && title.trim().length > 0
+        ? title.trim()
+        : null;
+
+      // Build slug from title or timestamp
+      let slug;
+      if (cleanTitle) {
+        slug = cleanTitle
+          .toLowerCase()
+          .replace(/[^a-z0-9一-鿿]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 60) || `note-${Date.now()}`;
+      } else {
+        slug = `note-${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`;
+      }
+
+      const filename = `${datePrefix}-${slug}.md`;
+      const blogDir = path.join(PROJECT_ROOT, 'content', 'posts', 'blog');
+      const filePath = path.join(blogDir, filename);
+
+      // Ensure blog directory exists
+      if (!fs.existsSync(blogDir)) {
+        fs.mkdirSync(blogDir, {recursive: true});
+      }
+
+      // Avoid overwriting existing files
+      let finalPath = filePath;
+      let finalFilename = filename;
+      if (fs.existsSync(filePath)) {
+        const suffix = `_${Date.now().toString(36)}`;
+        finalFilename = `${datePrefix}-${slug}${suffix}.md`;
+        finalPath = path.join(blogDir, finalFilename);
+      }
+
+      const frontmatterTitle = cleanTitle || `Quick Note ${datePrefix}`;
+      const content = [
+        '---',
+        `slug: ${slug}`,
+        `title: "${frontmatterTitle.replace(/"/g, '\\"')}"`,
+        `authors: [zeyu]`,
+        `tags: [quick-note]`,
+        `draft: true`,
+        '---',
+        '',
+        sanitizeText(text.trim()),
+        '',
+      ].join('\n');
+
+      fs.writeFileSync(finalPath, content, 'utf-8');
+      const relativePath = path.relative(PROJECT_ROOT, finalPath);
+      return json(res, 200, {success: true, path: relativePath, filename: finalFilename});
+    } catch (err) {
+      return json(res, 400, {error: 'Invalid request'});
+    }
+  }
+
+  if (req.method === 'GET' && pathname === '/api/quicknote') {
+    try {
+      const blogDir = path.join(PROJECT_ROOT, 'content', 'posts', 'blog');
+      if (!fs.existsSync(blogDir)) {
+        return json(res, 200, {notes: [], total: 0});
+      }
+      const files = fs.readdirSync(blogDir)
+        .filter(f => f.endsWith('.md'))
+        .sort((a, b) => b.localeCompare(a)); // newest first by filename (date-prefixed)
+
+      const notes = [];
+      for (const file of files) {
+        if (notes.length >= 10) break;
+        try {
+          const raw = fs.readFileSync(path.join(blogDir, file), 'utf-8');
+          // Check if it's a quick note (has quick-note tag)
+          if (!raw.includes('quick-note')) continue;
+          // Extract title from frontmatter
+          const titleMatch = raw.match(/^title:\s*"?(.+?)"?\s*$/m);
+          const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
+          // Extract body (after frontmatter)
+          const bodyMatch = raw.match(/---\s*\n[\s\S]*?\n---\s*\n([\s\S]*)/);
+          notes.push({
+            filename: file,
+            title: titleMatch ? titleMatch[1] : file,
+            date: dateMatch ? dateMatch[1] : null,
+            preview: bodyMatch ? bodyMatch[1].trim().slice(0, 200) : '',
+            path: `content/posts/blog/${file}`,
+          });
+        } catch {}
+      }
+      return json(res, 200, {notes, total: notes.length});
+    } catch {
+      return json(res, 200, {notes: [], total: 0});
+    }
+  }
+
   json(res, 404, {error: 'Not found', path: pathname, hint: 'GET /api/health for server status'});
 
 });

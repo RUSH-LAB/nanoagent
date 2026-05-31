@@ -1,4 +1,4 @@
-import React, {useState, useEffect, useCallback} from 'react';
+import React, {useState, useEffect, useCallback, useMemo, useRef} from 'react';
 import styles from './styles.module.css';
 import API_BASE from '@site/src/utils/api';
 
@@ -55,7 +55,7 @@ function relativeTime(mtimeMs) {
   return `${Math.floor(months / 12)}y ago`;
 }
 
-function TreeNode({node, depth, selectedFile, onSelectFile, onDeleteFile, onRenameFile, onMoveFile, expandedPaths, onToggleExpand, bulkSelected, onToggleBulkSelect, selectMode}) {
+function TreeNode({node, depth, selectedFile, onSelectFile, onDeleteFile, onRenameFile, onMoveFile, expandedPaths, onToggleExpand, bulkSelected, onToggleBulkSelect, selectMode, focusedPath}) {
   const [dropOver, setDropOver] = useState(false);
   const [hovered, setHovered] = useState(false);
   const isDir = node.type === 'directory';
@@ -63,6 +63,7 @@ function TreeNode({node, depth, selectedFile, onSelectFile, onDeleteFile, onRena
   const isReview = node.name.startsWith('_') && node.name.includes('.review.');
   const open = expandedPaths ? expandedPaths.has(node.path) : depth < 1;
   const isBulkSelected = !isDir && bulkSelected.has(node.path);
+  const isFocused = node.path === focusedPath;
 
   if (isReview) return null;
 
@@ -105,12 +106,13 @@ function TreeNode({node, depth, selectedFile, onSelectFile, onDeleteFile, onRena
     return (
       <div role="treeitem" aria-expanded={open} aria-label={node.name}>
         <button
-          className={`${styles.treeItem} ${dropOver ? styles.treeItemDropTarget : ''}`}
+          className={`${styles.treeItem} ${dropOver ? styles.treeItemDropTarget : ''} ${isFocused ? styles.treeItemFocused : ''}`}
           style={{paddingLeft: 8 + depth * 16}}
           onClick={() => onToggleExpand ? onToggleExpand(node.path) : null}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
+          data-tree-path={node.path}
           aria-label={`${open ? 'Collapse' : 'Expand'} folder ${node.name}`}
         >
           <ChevronIcon open={open} />
@@ -132,6 +134,7 @@ function TreeNode({node, depth, selectedFile, onSelectFile, onDeleteFile, onRena
             bulkSelected={bulkSelected}
             onToggleBulkSelect={onToggleBulkSelect}
             selectMode={selectMode}
+            focusedPath={focusedPath}
           />
         ))}
       </div>
@@ -166,8 +169,9 @@ function TreeNode({node, depth, selectedFile, onSelectFile, onDeleteFile, onRena
         />
       )}
       <button
-        className={`${styles.treeItem} ${isSelected ? styles.treeItemSelected : ''} ${isBulkSelected ? styles.treeItemBulkSelected : ''}`}
+        className={`${styles.treeItem} ${isSelected ? styles.treeItemSelected : ''} ${isBulkSelected ? styles.treeItemBulkSelected : ''} ${isFocused ? styles.treeItemFocused : ''}`}
         style={{paddingLeft: showCheckbox ? 4 + depth * 16 : 8 + depth * 16}}
+        data-tree-path={node.path}
         onClick={(e) => {
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
@@ -331,6 +335,92 @@ export default function FileTree({files, selectedFile, onSelectFile, onNewFile, 
   const [selectMode, setSelectMode] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [streak, setStreak] = useState(null);
+  const [focusedPath, setFocusedPath] = useState(null);
+  const treeContainerRef = useRef(null);
+
+  // Build a flat list of visible items (respecting expanded/collapsed directories)
+  const visibleItems = useMemo(() => {
+    const items = [];
+    const walk = (nodes, depth) => {
+      for (const node of nodes) {
+        // Skip review files
+        if (node.name.startsWith('_') && node.name.includes('.review.')) continue;
+
+        const isDir = node.type === 'directory';
+        if (isDir) {
+          const children = (node.children || []).filter(c => {
+            if (c.type === 'file' && c.name.startsWith('_') && c.name.includes('.review.')) return false;
+            return true;
+          });
+          // Skip empty directories (matches TreeNode behavior)
+          if (children.length === 0) continue;
+          items.push({path: node.path, type: 'directory', node});
+          const open = expandedPaths ? expandedPaths.has(node.path) : depth < 1;
+          if (open) {
+            walk(children, depth + 1);
+          }
+        } else {
+          items.push({path: node.path, type: 'file', node});
+        }
+      }
+    };
+    walk(files, 0);
+    return items;
+  }, [files, expandedPaths]);
+
+  // Keyboard navigation handler
+  const handleTreeKeyDown = useCallback((e) => {
+    const {key} = e;
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(key)) return;
+    e.preventDefault();
+
+    if (visibleItems.length === 0) return;
+
+    const currentIndex = focusedPath
+      ? visibleItems.findIndex(item => item.path === focusedPath)
+      : -1;
+
+    if (key === 'ArrowDown') {
+      const nextIndex = currentIndex < visibleItems.length - 1 ? currentIndex + 1 : 0;
+      const nextPath = visibleItems[nextIndex].path;
+      setFocusedPath(nextPath);
+      // Scroll into view
+      const el = treeContainerRef.current?.querySelector(`[data-tree-path="${CSS.escape(nextPath)}"]`);
+      el?.scrollIntoView({block: 'nearest'});
+    } else if (key === 'ArrowUp') {
+      const prevIndex = currentIndex > 0 ? currentIndex - 1 : visibleItems.length - 1;
+      const prevPath = visibleItems[prevIndex].path;
+      setFocusedPath(prevPath);
+      const el = treeContainerRef.current?.querySelector(`[data-tree-path="${CSS.escape(prevPath)}"]`);
+      el?.scrollIntoView({block: 'nearest'});
+    } else if (key === 'Enter') {
+      if (currentIndex < 0) return;
+      const item = visibleItems[currentIndex];
+      if (item.type === 'file') {
+        onSelectFile(item.path);
+      } else {
+        onToggleExpand?.(item.path);
+      }
+    } else if (key === 'ArrowRight') {
+      if (currentIndex < 0) return;
+      const item = visibleItems[currentIndex];
+      if (item.type === 'directory') {
+        const isOpen = expandedPaths ? expandedPaths.has(item.path) : false;
+        if (!isOpen) {
+          onToggleExpand?.(item.path);
+        }
+      }
+    } else if (key === 'ArrowLeft') {
+      if (currentIndex < 0) return;
+      const item = visibleItems[currentIndex];
+      if (item.type === 'directory') {
+        const isOpen = expandedPaths ? expandedPaths.has(item.path) : false;
+        if (isOpen) {
+          onToggleExpand?.(item.path);
+        }
+      }
+    }
+  }, [visibleItems, focusedPath, onSelectFile, onToggleExpand, expandedPaths]);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/streak?userId=default`)
@@ -454,7 +544,14 @@ export default function FileTree({files, selectedFile, onSelectFile, onNewFile, 
           </button>
         )}
       </div>
-      <div className={styles.treeContainer} role="tree" aria-label="File tree">
+      <div
+        className={styles.treeContainer}
+        role="tree"
+        aria-label="File tree"
+        tabIndex={0}
+        ref={treeContainerRef}
+        onKeyDown={handleTreeKeyDown}
+      >
         {files.map(node => (
           <TreeNode
             key={node.path}
@@ -470,6 +567,7 @@ export default function FileTree({files, selectedFile, onSelectFile, onNewFile, 
             bulkSelected={bulkSelected}
             onToggleBulkSelect={toggleBulkSelect}
             selectMode={selectMode}
+            focusedPath={focusedPath}
           />
         ))}
         <TrashSection trashFiles={trashFiles} onRestore={handleRestore} />

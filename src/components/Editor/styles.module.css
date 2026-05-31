@@ -81,10 +81,15 @@
   flex: 1;
   overflow-y: auto;
   padding: 4px 0;
+  outline: none;
 
   /* Custom scrollbar for the file tree */
   scrollbar-width: thin;
   scrollbar-color: var(--ifm-color-emphasis-300) transparent;
+}
+
+.treeContainer:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ifm-color-primary-lightest, rgba(37, 99, 235, 0.15));
 }
 
 .treeContainer::-webkit-scrollbar {
@@ -137,6 +142,12 @@
   border-radius: 4px;
   outline: 2px dashed var(--ifm-color-primary);
   outline-offset: -2px;
+}
+
+.treeItemFocused {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+  border-radius: 2px;
 }
 
 .treeItemSelected {
@@ -2086,5 +2097,248 @@
     height: 50vh;
     border-left: none;
     border-top: 1px solid var(--ifm-color-emphasis-200);
+  }
+}
+
+/* ── Split View ────────────────────────────────────────────── */
+.splitEditorWrapper {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.splitEditorPane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.splitEditorLeft {
+  flex: 1;
+}
+
+.splitEditorRight {
+  flex: 1;
+}
+
+.splitEditorDivider {
+  width: 1px;
+  flex-shrink: 0;
+  background: var(--ifm-color-emphasis-300);
+  cursor: col-resize;
+  transition: background 0.15s;
+}
+
+.splitEditorDivider:hover {
+  background: var(--ifm-color-primary);
+  width: 3px;
+}
+
+.splitPaneHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--ifm-color-emphasis-500);
+  background: var(--ifm-background-surface-color);
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.splitPreview {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 32px 120px;
+  font-family: var(--ifm-font-family-base);
+  font-size: 1rem;
+  line-height: 1.75;
+  color: var(--ifm-font-color-base);
+  background: var(--ifm-background-color);
+
+  /* Custom scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: var(--ifm-color-emphasis-300) transparent;
+}
+
+.splitPreview::-webkit-scrollbar {
+  width: 8px;
+}
+
+.splitPreview::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.splitPreview::-webkit-scrollbar-thumb {
+  background: var(--ifm-color-emphasis-200);
+  border-radius: 4px;
+}
+
+.splitPreview::-webkit-scrollbar-thumb:hover {
+  background: var(--ifm-color-emphasis-400);
+}
+
+/* ── Split Preview typography ────────────────────────────── */
+.splitPreview h1 {
+  font-size: 2em;
+  font-weight: 700;
+  margin: 1em 0 0.5em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.splitPreview h2 {
+  font-size: 1.5em;
+  font-weight: 600;
+  margin: 1em 0 0.5em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--ifm-color-emphasis-100);
+}
+
+.splitPreview h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+}
+
+.splitPreview h4,
+.splitPreview h5,
+.splitPreview h6 {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 0.6em 0 0.3em;
+}
+
+.splitPreview p {
+  margin: 0.5em 0;
+}
+
+.splitPreview a {
+  color: var(--ifm-color-primary);
+  text-decoration: none;
+}
+
+.splitPreview a:hover {
+  text-decoration: underline;
+}
+
+.splitPreview code {
+  background: var(--ifm-color-emphasis-100);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono',
+    Menlo, Consolas, monospace;
+}
+
+.splitPreview pre {
+  background: var(--ifm-color-emphasis-100);
+  padding: 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.splitPreview pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.875em;
+  line-height: 1.6;
+}
+
+.splitPreview blockquote {
+  border-left: 4px solid var(--ifm-color-primary-lighter, #93bbfc);
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  color: var(--ifm-color-emphasis-700);
+  background: var(--ifm-color-emphasis-50, rgba(0,0,0,0.02));
+  border-radius: 0 6px 6px 0;
+}
+
+.splitPreview ul,
+.splitPreview ol {
+  margin: 0.5em 0;
+  padding-left: 2em;
+}
+
+.splitPreview li {
+  margin: 0.25em 0;
+}
+
+.splitPreview hr {
+  border: none;
+  border-top: 1px solid var(--ifm-color-emphasis-300);
+  margin: 1.5em 0;
+}
+
+.splitPreview table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+
+.splitPreview th,
+.splitPreview td {
+  border: 1px solid var(--ifm-color-emphasis-300);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.splitPreview th {
+  background: var(--ifm-color-emphasis-100);
+  font-weight: 600;
+}
+
+.splitPreview img {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 0.5em 0;
+}
+
+.splitPreview del {
+  color: var(--ifm-color-emphasis-500);
+}
+
+/* ── Split Preview dark mode ─────────────────────────────── */
+[data-theme='dark'] .splitPreview blockquote {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme='dark'] .splitPaneHeader {
+  background: var(--ifm-background-surface-color);
+  border-bottom-color: var(--ifm-color-emphasis-300);
+}
+
+[data-theme='dark'] .splitEditorDivider {
+  background: var(--ifm-color-emphasis-400);
+}
+
+/* ── Split View responsive ───────────────────────────────── */
+@media (max-width: 768px) {
+  .splitEditorWrapper {
+    flex-direction: column;
+  }
+
+  .splitEditorDivider {
+    width: 100%;
+    height: 1px;
+    cursor: row-resize;
+  }
+
+  .splitEditorDivider:hover {
+    width: 100%;
+    height: 3px;
+  }
+
+  .splitPreview {
+    padding: 16px;
   }
 }

@@ -415,6 +415,308 @@ function RawEditor({value, onChange}) {
   );
 }
 
+/* ── Client-side markdown-to-HTML conversion ──────────────── */
+function markdownToHtml(md) {
+  // Strip frontmatter
+  let text = md.replace(/^---\n[\s\S]*?\n---\n?/, '');
+
+  // Fenced code blocks (``` ... ```)
+  text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<pre><code class="language-${lang || 'text'}">${escaped}</code></pre>`;
+  });
+
+  // Block-level math ($$...$$) -- must come before inline processing
+  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, latex) => {
+    try {
+      return `<div class="math-display">${katex.renderToString(latex.trim(), {displayMode: true, throwOnError: false})}</div>`;
+    } catch {
+      return `<div class="math-display"><code>${latex.trim()}</code></div>`;
+    }
+  });
+
+  const lines = text.split('\n');
+  const result = [];
+  let inList = false;
+  let listType = null; // 'ul' or 'ol'
+  let inBlockquote = false;
+  let blockquoteLines = [];
+  let inTable = false;
+  let tableRows = [];
+
+  function flushList() {
+    if (inList) {
+      result.push(`</${listType}>`);
+      inList = false;
+      listType = null;
+    }
+  }
+
+  function flushBlockquote() {
+    if (inBlockquote) {
+      result.push(`<blockquote><p>${blockquoteLines.join('<br>')}</p></blockquote>`);
+      inBlockquote = false;
+      blockquoteLines = [];
+    }
+  }
+
+  function flushTable() {
+    if (inTable && tableRows.length > 0) {
+      let html = '<table>';
+      tableRows.forEach((row, idx) => {
+        const tag = idx === 0 ? 'th' : 'td';
+        const rowTag = idx === 0 ? 'thead' : (idx === 1 ? 'tbody' : '');
+        const cells = row.split('|').filter(c => c.trim() !== '').map(c => `<${tag}>${processInline(c.trim())}</${tag}>`).join('');
+        if (idx === 0) html += `<thead><tr>${cells}</tr></thead><tbody>`;
+        else html += `<tr>${cells}</tr>`;
+      });
+      html += '</tbody></table>';
+      result.push(html);
+      inTable = false;
+      tableRows = [];
+    }
+  }
+
+  function processInline(line) {
+    // Inline math ($...$) -- before other inline processing
+    line = line.replace(/(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)/g, (_, latex) => {
+      try {
+        return katex.renderToString(latex.trim(), {displayMode: false, throwOnError: false});
+      } catch {
+        return `<code>${latex.trim()}</code>`;
+      }
+    });
+    // Images
+    line = line.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%">');
+    // Links
+    line = line.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+    // Bold + italic
+    line = line.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    // Bold
+    line = line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    line = line.replace(/__(.+?)__/g, '<strong>$1</strong>');
+    // Italic
+    line = line.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    line = line.replace(/_(.+?)_/g, '<em>$1</em>');
+    // Strikethrough
+    line = line.replace(/~~(.+?)~~/g, '<del>$1</del>');
+    // Inline code
+    line = line.replace(/`([^`]+)`/g, (_, code) => {
+      const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return `<code>${escaped}</code>`;
+    });
+    return line;
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Skip pre-rendered blocks (already processed code blocks become single lines after replace)
+    if (line.startsWith('<pre>') || line.startsWith('<div class="math-display">')) {
+      flushList();
+      flushBlockquote();
+      flushTable();
+      result.push(line);
+      continue;
+    }
+
+    // Table rows
+    if (/^\|(.+)\|$/.test(line.trim())) {
+      flushList();
+      flushBlockquote();
+      // Skip separator rows (|---|---|)
+      if (/^\|[\s\-:|]+\|$/.test(line.trim())) {
+        continue;
+      }
+      inTable = true;
+      tableRows.push(line.trim());
+      continue;
+    } else {
+      flushTable();
+    }
+
+    // Blockquote
+    if (/^>\s?(.*)/.test(line)) {
+      flushList();
+      flushTable();
+      inBlockquote = true;
+      blockquoteLines.push(processInline(line.replace(/^>\s?/, '')));
+      continue;
+    } else {
+      flushBlockquote();
+    }
+
+    // Headings
+    const headingMatch = line.match(/^(#{1,6})\s+(.+)/);
+    if (headingMatch) {
+      flushList();
+      const level = headingMatch[1].length;
+      const id = headingMatch[2].toLowerCase().replace(/[^\w]+/g, '-').replace(/(^-|-$)/g, '');
+      result.push(`<h${level} id="${id}">${processInline(headingMatch[2])}</h${level}>`);
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^(-{3,}|_{3,}|\*{3,})$/.test(line.trim())) {
+      flushList();
+      result.push('<hr>');
+      continue;
+    }
+
+    // Unordered list
+    const ulMatch = line.match(/^(\s*)[-*+]\s+(.*)/);
+    if (ulMatch) {
+      if (!inList || listType !== 'ul') {
+        flushList();
+        inList = true;
+        listType = 'ul';
+        result.push('<ul>');
+      }
+      result.push(`<li>${processInline(ulMatch[2])}</li>`);
+      continue;
+    }
+
+    // Ordered list
+    const olMatch = line.match(/^(\s*)\d+\.\s+(.*)/);
+    if (olMatch) {
+      if (!inList || listType !== 'ol') {
+        flushList();
+        inList = true;
+        listType = 'ol';
+        result.push('<ol>');
+      }
+      result.push(`<li>${processInline(olMatch[2])}</li>`);
+      continue;
+    }
+
+    flushList();
+
+    // Empty line
+    if (line.trim() === '') {
+      continue;
+    }
+
+    // Paragraph
+    result.push(`<p>${processInline(line)}</p>`);
+  }
+
+  flushList();
+  flushBlockquote();
+  flushTable();
+
+  return result.join('\n');
+}
+
+/* ── Split View editor (raw markdown + live HTML preview) ──── */
+function SplitEditor({value, onChange}) {
+  const textareaRef = useRef(null);
+  const lineNumbersRef = useRef(null);
+  const previewRef = useRef(null);
+  const [focused, setFocused] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState('');
+  const debounceRef = useRef(null);
+
+  const lineCount = useMemo(() => value.split('\n').length, [value]);
+
+  const lineNumbers = useMemo(() => {
+    const nums = [];
+    for (let i = 1; i <= lineCount; i++) {
+      nums.push(i);
+    }
+    return nums;
+  }, [lineCount]);
+
+  // Debounced preview update (300ms)
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setPreviewHtml(markdownToHtml(value));
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [value]);
+
+  // Sync scroll: textarea -> line numbers + preview
+  const handleScroll = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    if (lineNumbersRef.current) {
+      lineNumbersRef.current.scrollTop = textarea.scrollTop;
+    }
+
+    if (previewRef.current) {
+      const scrollRatio = textarea.scrollTop / (textarea.scrollHeight - textarea.clientHeight || 1);
+      previewRef.current.scrollTop = scrollRatio * (previewRef.current.scrollHeight - previewRef.current.clientHeight || 1);
+    }
+  }, []);
+
+  // Sync scroll: preview -> textarea + line numbers
+  const handlePreviewScroll = useCallback(() => {
+    const preview = previewRef.current;
+    const textarea = textareaRef.current;
+    if (!preview || !textarea || focused) return; // Only sync when not editing
+
+    const scrollRatio = preview.scrollTop / (preview.scrollHeight - preview.clientHeight || 1);
+    textarea.scrollTop = scrollRatio * (textarea.scrollHeight - textarea.clientHeight || 1);
+    if (lineNumbersRef.current) {
+      lineNumbersRef.current.scrollTop = textarea.scrollTop;
+    }
+  }, [focused]);
+
+  return (
+    <div className={styles.splitEditorWrapper}>
+      <div className={`${styles.splitEditorPane} ${styles.splitEditorLeft}`}>
+        <div className={styles.splitPaneHeader}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
+          </svg>
+          Markdown
+        </div>
+        <div className={`${styles.rawEditorWrapper} ${focused ? styles.rawEditorWrapperFocused : ''}`} style={{borderRadius: 0}}>
+          <div
+            ref={lineNumbersRef}
+            className={styles.lineNumbers}
+            aria-hidden="true"
+          >
+            {lineNumbers.map((num) => (
+              <div key={num} className={styles.lineNumber}>{num}</div>
+            ))}
+          </div>
+          <textarea
+            ref={textareaRef}
+            className={styles.rawTextarea}
+            value={value}
+            onChange={onChange}
+            onScroll={handleScroll}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            spellCheck={false}
+            aria-label="Split view markdown editor"
+          />
+        </div>
+      </div>
+      <div className={styles.splitEditorDivider} />
+      <div className={`${styles.splitEditorPane} ${styles.splitEditorRight}`}>
+        <div className={styles.splitPaneHeader}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+          Preview
+        </div>
+        <div
+          ref={previewRef}
+          className={styles.splitPreview}
+          onScroll={handlePreviewScroll}
+          dangerouslySetInnerHTML={{__html: previewHtml}}
+        />
+      </div>
+    </div>
+  );
+}
+
 /* ── Math Preview Panel ──────────────────────────────────── */
 function extractMathBlocks(text) {
   const blocks = [];
@@ -923,6 +1225,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [rawMode, setRawMode] = useState(false);
+  const [splitMode, setSplitMode] = useState(false);
   const [rawContent, setRawContent] = useState('');
   const [frontmatter, setFrontmatter] = useState('');
   const [draft, setDraft] = useState(false);
@@ -1201,7 +1504,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     if (!filePath || saving) return;
     setSaving(true);
     setError(null);
-    const content = rawMode ? rawContent : getFullContent();
+    const content = (rawMode || splitMode) ? rawContent : getFullContent();
     try {
       const res = await fetch(`${API_BASE}/api/file`, {
         method: 'PUT',
@@ -1218,7 +1521,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
 
       // Update writing streak with current word count
       try {
-        const text = rawMode ? parseFrontmatter(rawContent).body : (editor ? editor.getText() : '');
+        const text = (rawMode || splitMode) ? parseFrontmatter(rawContent).body : (editor ? editor.getText() : '');
         const trimmed = text.trim();
         const wordCount = trimmed.length === 0 ? 0 : trimmed.split(/\s+/).length;
         const userId = sessionStorage.getItem('mochi-presence-userId') || 'default';
@@ -1238,7 +1541,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     } finally {
       setSaving(false);
     }
-  }, [filePath, saving, rawMode, rawContent, getFullContent, onSaveStatus, editor]);
+  }, [filePath, saving, rawMode, splitMode, rawContent, getFullContent, onSaveStatus, editor]);
 
   const handleToggleAI = useCallback(() => {
     setAiOpen(prev => !prev);
@@ -1307,8 +1610,8 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
       autoSaveTimerRef.current = null;
     }
 
-    // Only auto-save when: enabled, content is dirty, not in raw mode, not read-only, and file is loaded
-    if (!autoSaveEnabled || !dirty || rawMode || readOnly || !filePath || saving) {
+    // Only auto-save when: enabled, content is dirty, not in raw/split mode, not read-only, and file is loaded
+    if (!autoSaveEnabled || !dirty || rawMode || splitMode || readOnly || !filePath || saving) {
       return;
     }
 
@@ -1358,7 +1661,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         autoSaveTimerRef.current = null;
       }
     };
-  }, [autoSaveEnabled, dirty, rawMode, readOnly, filePath, saving]);
+  }, [autoSaveEnabled, dirty, rawMode, splitMode, readOnly, filePath, saving]);
 
   // Clear auto-save timer on unmount
   useEffect(() => {
@@ -1395,16 +1698,43 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
 
   const toggleRawMode = useCallback(() => {
     if (rawMode) {
+      // Leaving Source mode -> go to Rich
       const {frontmatter: fm, body} = parseFrontmatter(rawContent);
       setFrontmatter(fm);
       setDraft(isDraft(fm));
       setTags(parseTags(fm));
       editor?.commands.setContent(body);
+    } else if (splitMode) {
+      // Leaving Split mode -> go to Source (rawContent already current)
     } else {
+      // Leaving Rich mode -> go to Source
       setRawContent(getFullContent());
     }
+    setSplitMode(false);
     setRawMode(!rawMode);
-  }, [rawMode, rawContent, editor, getFullContent]);
+  }, [rawMode, splitMode, rawContent, editor, getFullContent]);
+
+  const toggleSplitMode = useCallback(() => {
+    if (splitMode) {
+      // Leaving split mode -> go back to Rich
+      const {frontmatter: fm, body} = parseFrontmatter(rawContent);
+      setFrontmatter(fm);
+      setDraft(isDraft(fm));
+      setTags(parseTags(fm));
+      editor?.commands.setContent(body);
+      setSplitMode(false);
+      setRawMode(false);
+    } else {
+      // Entering split mode
+      if (rawMode) {
+        // Already have rawContent from Source mode
+      } else {
+        setRawContent(getFullContent());
+      }
+      setRawMode(false);
+      setSplitMode(true);
+    }
+  }, [splitMode, rawMode, rawContent, editor, getFullContent]);
 
   const handleToggleDraft = useCallback(async () => {
     if (!filePath) return;
@@ -1424,11 +1754,11 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
       setFrontmatter(fm);
       setTags(parseTags(fm));
       setRawContent(data.content);
-      if (!rawMode) editor?.commands.setContent(body);
+      if (!rawMode && !splitMode) editor?.commands.setContent(body);
     } catch {
       setError('Failed to toggle draft status');
     }
-  }, [filePath, draft, editor, rawMode]);
+  }, [filePath, draft, editor, rawMode, splitMode]);
 
   const isPostFile = filePath?.startsWith('content/posts/');
 
@@ -1440,17 +1770,17 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     setTags(newTags);
     // Save the file with updated frontmatter
     try {
-      const content = rawMode ? rawContent.replace(frontmatter, newFm) : newFm + (editor?.storage.markdown.getMarkdown() || '');
+      const content = (rawMode || splitMode) ? rawContent.replace(frontmatter, newFm) : newFm + (editor?.storage.markdown.getMarkdown() || '');
       await fetch(`${API_BASE}/api/file`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({path: filePath, content}),
       });
-      if (rawMode) setRawContent(content);
+      if (rawMode || splitMode) setRawContent(content);
     } catch {
       setError('Failed to update tags');
     }
-  }, [filePath, readOnly, tags, frontmatter, rawMode, rawContent, editor]);
+  }, [filePath, readOnly, tags, frontmatter, rawMode, splitMode, rawContent, editor]);
 
   const handleAddTag = useCallback(async () => {
     if (!filePath || readOnly) return;
@@ -1464,17 +1794,17 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     setTags(newTags);
     // Save the file with updated frontmatter
     try {
-      const content = rawMode ? rawContent.replace(frontmatter, newFm) : newFm + (editor?.storage.markdown.getMarkdown() || '');
+      const content = (rawMode || splitMode) ? rawContent.replace(frontmatter, newFm) : newFm + (editor?.storage.markdown.getMarkdown() || '');
       await fetch(`${API_BASE}/api/file`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({path: filePath, content}),
       });
-      if (rawMode) setRawContent(content);
+      if (rawMode || splitMode) setRawContent(content);
     } catch {
       setError('Failed to update tags');
     }
-  }, [filePath, readOnly, tags, frontmatter, rawMode, rawContent, editor]);
+  }, [filePath, readOnly, tags, frontmatter, rawMode, splitMode, rawContent, editor]);
 
   const handleImageUpload = useCallback(() => {
     fileInputRef.current?.click();
@@ -1869,14 +2199,27 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
           </button>
           {!readOnly && (
             <button
-              className={`${styles.modeToggle} ${rawMode ? styles.modeToggleActive : ''}`}
+              className={`${styles.modeToggle} ${rawMode && !splitMode ? styles.modeToggleActive : ''}`}
               onClick={toggleRawMode}
               title="Toggle raw markdown"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
               </svg>
-              {rawMode ? 'Rich' : 'Source'}
+              {rawMode && !splitMode ? 'Rich' : 'Source'}
+            </button>
+          )}
+          {!readOnly && (
+            <button
+              className={`${styles.modeToggle} ${splitMode ? styles.modeToggleActive : ''}`}
+              onClick={toggleSplitMode}
+              title="Split view (markdown + preview)"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="3" width="20" height="18" rx="2" />
+                <line x1="12" y1="3" x2="12" y2="21" />
+              </svg>
+              {splitMode ? 'Rich' : 'Split'}
             </button>
           )}
           <div ref={exportRef} style={{position: 'relative', display: 'inline-block'}}>
@@ -1958,6 +2301,14 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
       <div style={{flex: 1, display: 'flex', minHeight: 0, position: 'relative'}}>
         {loading ? (
           <div className={styles.loading}>Loading...</div>
+        ) : splitMode ? (
+          <SplitEditor
+            value={rawContent}
+            onChange={(e) => {
+              setRawContent(e.target.value);
+              setDirty(true);
+            }}
+          />
         ) : rawMode ? (
           <RawEditor
             value={rawContent}
@@ -2113,14 +2464,14 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
           </div>
         )}
 
-        {tocOpen && !rawMode && (
+        {tocOpen && !rawMode && !splitMode && (
           <TableOfContents
             editor={editor}
             onClose={() => setTocOpen(false)}
           />
         )}
 
-        {aiOpen && !rawMode && (
+        {aiOpen && !rawMode && !splitMode && (
           <AIAssistant
             editor={editor}
             onClose={() => setAiOpen(false)}
@@ -2130,14 +2481,14 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         {mathPreviewOpen && (
           <MathPreviewPanel
             editor={editor}
-            rawMode={rawMode}
+            rawMode={rawMode || splitMode}
             rawContent={rawContent}
             onClose={() => setMathPreviewOpen(false)}
           />
         )}
       </div>
 
-      <DocumentStats editor={editor} rawMode={rawMode} rawContent={rawContent} />
+      <DocumentStats editor={editor} rawMode={rawMode || splitMode} rawContent={rawContent} />
 
       <KeyboardShortcuts
         open={shortcutsOpen}
