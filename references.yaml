@@ -10337,3 +10337,33 @@ __test_1780237357793_import:
     - Import Author
   year: 2025
   venue: Test Journal
+__wf_1780240985430_ref:
+  type: article
+  title: Workflow Test Reference Paper
+  author:
+    - Test Author
+    - Second Author
+  year: 2025
+  venue: Test Conference
+wftest-1780241027128_ref:
+  type: article
+  title: Workflow Test Reference Paper
+  author:
+    - Test Author
+    - Second Author
+  year: 2025
+  venue: Test Conference
+__test_1780241061959_ref:
+  type: article
+  title: Test Reference Paper
+  author:
+    - Test Author
+  year: 2025
+  venue: Test Conference
+__test_1780241061959_import:
+  type: article
+  title: Imported Test Paper
+  author:
+    - Import Author
+  year: 2025
+  venue: Test Journal
