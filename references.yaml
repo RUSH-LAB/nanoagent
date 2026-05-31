@@ -10433,3 +10433,61 @@ wftest-1780248191161_ref:
     - Second Author
   year: 2025
   venue: Test Conference
+__test_1780251614998_ref:
+  type: article
+  title: Test Reference Paper
+  author:
+    - Test Author
+  year: 2025
+  venue: Test Conference
+__test_1780251614998_import:
+  type: article
+  title: Imported Test Paper
+  author:
+    - Import Author
+  year: 2025
+  venue: Test Journal
+wftest-1780251616319_ref:
+  type: article
+  title: Workflow Test Reference Paper
+  author:
+    - Test Author
+    - Second Author
+  year: 2025
+  venue: Test Conference
+__test_1780255220427_ref:
+  type: article
+  title: Test Reference Paper
+  author:
+    - Test Author
+  year: 2025
+  venue: Test Conference
+__test_1780255220427_import:
+  type: article
+  title: Imported Test Paper
+  author:
+    - Import Author
+  year: 2025
+  venue: Test Journal
+wftest-1780255225796_ref:
+  type: article
+  title: Workflow Test Reference Paper
+  author:
+    - Test Author
+    - Second Author
+  year: 2025
+  venue: Test Conference
+__test_1780255364286_ref:
+  type: article
+  title: Test Reference Paper
+  author:
+    - Test Author
+  year: 2025
+  venue: Test Conference
+__test_1780255364286_import:
+  type: article
+  title: Imported Test Paper
+  author:
+    - Import Author
+  year: 2025
+  venue: Test Journal

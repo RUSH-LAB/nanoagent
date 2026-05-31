@@ -443,6 +443,26 @@ async function testFileTarget() {
 }
 
 // ────────────────────────────────────────────────────────────────
+// 17. Dashboard (1 test)
+// ────────────────────────────────────────────────────────────────
+
+async function testDashboard() {
+  section('Dashboard');
+
+  // 24. GET /api/dashboard — verify {server, content, activity, endpoints, health}
+  await test('GET /api/dashboard returns server, content, activity, endpoints, health', async () => {
+    const { status, data } = await api('GET', '/api/dashboard');
+    assertEq(status, 200, 'status');
+    assertOk(typeof data === 'object', 'response is object');
+    assertOk('server' in data, 'has server field');
+    assertOk('content' in data, 'has content field');
+    assertOk('activity' in data, 'has activity field');
+    assertOk('endpoints' in data, 'has endpoints field');
+    assertOk('health' in data, 'has health field');
+  });
+}
+
+// ────────────────────────────────────────────────────────────────
 // Main
 // ────────────────────────────────────────────────────────────────
 
@@ -468,6 +488,7 @@ async function main() {
   await testCalendar();
   await testIntegrity();
   await testFileTarget();
+  await testDashboard();
 
   // ── Summary ──
   const total = passed + failed;

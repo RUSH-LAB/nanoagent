@@ -8763,46 +8763,110 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
     }
   }
 
-  // ── Dashboard overview: single endpoint for all key metrics ──
+  // ── Dashboard overview: comprehensive API health dashboard ──
   if (req.method === 'GET' && pathname === '/api/dashboard') {
     try {
-      const yaml = require('js-yaml');
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      let totalFiles = 0, totalWords = 0;
-      function countContent(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.')) continue;
-          if (entry.isDirectory()) { countContent(path.join(dir, entry.name)); continue; }
-          if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-            totalFiles++;
-            try { totalWords += fs.readFileSync(path.join(dir, entry.name), 'utf-8').split(/\s+/).filter(Boolean).length; } catch {}
+      const dashboard = cached('api-dashboard', 30000, () => {
+        const yaml = require('js-yaml');
+
+        // ── server (from /api/health + /api/debug/memory) ──
+        const mem = process.memoryUsage();
+        const server = {
+          uptime: Math.round(process.uptime()),
+          memory: {
+            heapUsed: mem.heapUsed,
+            heapTotal: mem.heapTotal,
+            rss: mem.rss,
+          },
+          startup: {
+            time: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+            durationMs: typeof _routeDiagnostics.startupMs === 'number' ? _routeDiagnostics.startupMs : null,
+            memoryAtStartupMB: typeof _routeDiagnostics.memoryAtStartupMB === 'number' ? _routeDiagnostics.memoryAtStartupMB : null,
+          },
+        };
+
+        // ── content (from /api/stats) ──
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        let totalFiles = 0, totalWords = 0;
+        function countContent(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.')) continue;
+            if (entry.isDirectory()) { countContent(path.join(dir, entry.name)); continue; }
+            if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
+              totalFiles++;
+              try { totalWords += fs.readFileSync(path.join(dir, entry.name), 'utf-8').split(/\s+/).filter(Boolean).length; } catch {}
+            }
           }
         }
-      }
-      countContent(contentDir);
-      let refCount = 0;
-      try { refCount = Object.keys(yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'references.yaml'), 'utf8')) || {}).length; } catch {}
-      const comments = loadJSON(COMMENTS_FILE);
-      let totalComments = 0;
-      for (const page of Object.values(comments)) { if (Array.isArray(page)) totalComments += page.length; }
-      const discData = loadJSON(DISCUSSIONS_FILE);
-      const channelCount = Object.keys(discData.channels || {}).length;
-      let messageCount = 0;
-      for (const msgs of Object.values(discData.messages || {})) { if (Array.isArray(msgs)) messageCount += msgs.length; }
-      const streakData = loadJSON(STREAKS_FILE);
-      const defaultLog = (streakData['default'] && streakData['default'].dailyLog) || [];
-      const today = new Date().toISOString().slice(0, 10);
-      const todayEntry = defaultLog.find(e => e.date === today);
-      const analytics = loadJSON(ANALYTICS_FILE);
-      const totalPageviews = Object.values(analytics.counts || {}).reduce((s, c) => s + c, 0);
-      return json(res, 200, {
-        content: {files: totalFiles, words: totalWords, references: refCount},
-        social: {comments: totalComments, channels: channelCount, messages: messageCount},
-        streak: {wordsToday: todayEntry ? todayEntry.words : 0, totalEntries: defaultLog.length},
-        traffic: {totalPageviews},
-        serverUptime: Math.round(process.uptime()),
-        generatedAt: new Date().toISOString(),
+        countContent(contentDir);
+        let refCount = 0;
+        try { refCount = Object.keys(yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'references.yaml'), 'utf8')) || {}).length; } catch {}
+        const content = {totalFiles, totalWords, references: refCount};
+
+        // ── activity (recent pageviews, comments, discussions) ──
+        const analytics = loadJSON(ANALYTICS_FILE);
+        const recentPageviews = Object.values(analytics.counts || {}).reduce((s, c) => s + c, 0);
+        const comments = loadJSON(COMMENTS_FILE);
+        let recentComments = 0;
+        for (const page of Object.values(comments)) { if (Array.isArray(page)) recentComments += page.length; }
+        const discData = loadJSON(DISCUSSIONS_FILE);
+        const channelCount = Object.keys(discData.channels || {}).length;
+        let messageCount = 0;
+        for (const msgs of Object.values(discData.messages || {})) { if (Array.isArray(msgs)) messageCount += msgs.length; }
+        const activity = {
+          recentPageviews,
+          recentComments,
+          recentDiscussions: {channels: channelCount, messages: messageCount},
+        };
+
+        // ── tests (scan test directory for suites) ──
+        const testsDir = path.join(PROJECT_ROOT, 'tests');
+        let suites = 0, totalTests = 0;
+        try {
+          const testFiles = fs.readdirSync(testsDir, {recursive: true})
+            .filter(f => typeof f === 'string' && f.endsWith('.test.mjs'));
+          suites = testFiles.length;
+          for (const tf of testFiles) {
+            try {
+              const src = fs.readFileSync(path.join(testsDir, tf), 'utf-8');
+              const itMatches = src.match(/\bit\s*\(|test\s*\(/g);
+              if (itMatches) totalTests += itMatches.length;
+            } catch {}
+          }
+        } catch {}
+        const tests = {lastRun: null, suites, totalTests};
+
+        // ── endpoints (from /api/debug/routes) ──
+        const endpoints = {
+          total: typeof _routeDiagnostics.totalHandlers === 'number' ? _routeDiagnostics.totalHandlers : 0,
+          unique: typeof _routeDiagnostics.uniqueRoutes === 'number' ? _routeDiagnostics.uniqueRoutes : 0,
+        };
+
+        // ── health (from /api/integrity + /api/debug/memory) ──
+        // Run integrity checks inline
+        const dataDir = path.join(PROJECT_ROOT, 'data');
+        let integrityPassed = true;
+        let duplicateCount = typeof _routeDiagnostics.duplicateCount === 'number' ? _routeDiagnostics.duplicateCount : 0;
+        try {
+          const jsonFiles = fs.readdirSync(dataDir).filter(f => f.endsWith('.json'));
+          for (const file of jsonFiles) {
+            try { JSON.parse(fs.readFileSync(path.join(dataDir, file), 'utf-8')); }
+            catch { integrityPassed = false; break; }
+          }
+        } catch { integrityPassed = false; }
+        try {
+          const refPath = path.join(PROJECT_ROOT, 'references.yaml');
+          if (fs.existsSync(refPath)) { yaml.load(fs.readFileSync(refPath, 'utf-8')); }
+        } catch { integrityPassed = false; }
+        const health = {
+          integrity: integrityPassed ? 'healthy' : 'issues',
+          duplicates: duplicateCount,
+          cacheEntries: Object.keys(cache).length,
+        };
+
+        return {server, content, activity, tests, endpoints, health, generatedAt: new Date().toISOString()};
       });
+      return json(res, 200, dashboard);
     } catch {
       return json(res, 500, {error: 'Dashboard failed'});
     }
