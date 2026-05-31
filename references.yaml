@@ -10513,3 +10513,17 @@ wftest-1780258825367_ref:
     - Second Author
   year: 2025
   venue: Test Conference
+__test_1780262514732_ref:
+  type: article
+  title: Test Reference Paper
+  author:
+    - Test Author
+  year: 2025
+  venue: Test Conference
+__test_1780262514732_import:
+  type: article
+  title: Imported Test Paper
+  author:
+    - Import Author
+  year: 2025
+  venue: Test Journal
