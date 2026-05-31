@@ -6099,6 +6099,10 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
       if (typeof value !== 'string') return json(res, 400, {error: 'Missing or invalid value (must be a string)'});
       if (name.length > 100) return json(res, 400, {error: 'Name must be 100 characters or fewer'});
       if (value.length > 5000) return json(res, 400, {error: 'Value must be 5000 characters or fewer'});
+      // Guard against prototype pollution via variable names
+      const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+      if (DANGEROUS_KEYS.has(name)) return json(res, 400, {error: 'Invalid variable name'});
+      if (!/^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(name)) return json(res, 400, {error: 'Variable name must be alphanumeric (with underscores/hyphens)'});
       const VARS_FILE = path.join(PROJECT_ROOT, 'data', 'template-variables.json');
       const data = loadJSON(VARS_FILE);
       if (!data.variables) data.variables = {};
@@ -6111,6 +6115,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   }
 
   if (req.method === 'DELETE' && pathname === '/api/template-variables') {
+    if (!rateLimit(`template-vars-del:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {name} = body;
@@ -6681,6 +6686,9 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
       const body = await readBody(req);
       const {userId, text, color} = body;
       if (!text || typeof text !== 'string') return json(res, 400, {error: 'Missing or invalid text'});
+      if (text.length > MAX_TEXT_LENGTH) return json(res, 400, {error: 'Text too long'});
+      if (userId !== undefined && typeof userId !== 'string') return json(res, 400, {error: 'userId must be a string'});
+      if (userId && userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
       const uid = userId || 'default';
       const QUICKNOTES_FILE = path.join(PROJECT_ROOT, 'data', 'quicknotes.json');
       const data = loadJSON(QUICKNOTES_FILE);
@@ -6778,10 +6786,20 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
       const body = await readBody(req);
       const {userId, preferences} = body;
       if (!userId || typeof userId !== 'string') return json(res, 400, {error: 'Missing or invalid userId'});
+      if (userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
       if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) return json(res, 400, {error: 'Missing or invalid preferences'});
+      // Guard against prototype pollution: reject dangerous keys
+      const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+      for (const key of Object.keys(preferences)) {
+        if (DANGEROUS_KEYS.has(key)) return json(res, 400, {error: `Invalid preference key: ${key}`});
+      }
       const PREFS_FILE = path.join(PROJECT_ROOT, 'data', 'preferences.json');
       const prefs = loadJSON(PREFS_FILE);
-      prefs[userId] = {...(prefs[userId] || {}), ...preferences, updatedAt: new Date().toISOString()};
+      if (!prefs[userId]) prefs[userId] = {};
+      for (const [key, value] of Object.entries(preferences)) {
+        if (!DANGEROUS_KEYS.has(key)) prefs[userId][key] = value;
+      }
+      prefs[userId].updatedAt = new Date().toISOString();
       saveJSON(PREFS_FILE, prefs);
       return json(res, 200, {success: true, preferences: prefs[userId]});
     } catch {
@@ -7988,9 +8006,12 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
     if (!rateLimit(`streak:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
+      if (body.userId !== undefined && typeof body.userId !== 'string') return json(res, 400, {error: 'userId must be a string'});
+      if (body.userId && body.userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
       const userId = body.userId || 'default';
-      const wordsWritten = typeof body.wordsWritten === 'number' ? body.wordsWritten : 0;
+      const wordsWritten = typeof body.wordsWritten === 'number' && isFinite(body.wordsWritten) ? body.wordsWritten : 0;
       if (wordsWritten < 0) return json(res, 400, {error: 'wordsWritten must be non-negative'});
+      if (wordsWritten > 1000000) return json(res, 400, {error: 'wordsWritten exceeds maximum'});
       const today = new Date().toISOString().slice(0, 10);
       const data = loadJSON(STREAKS_FILE);
       if (!data[userId]) data[userId] = {dailyLog: []};

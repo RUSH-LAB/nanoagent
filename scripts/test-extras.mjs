@@ -365,6 +365,84 @@ async function testDebugRoutes() {
 }
 
 // ────────────────────────────────────────────────────────────────
+// 13. Perf Endpoint (1 test)
+// ────────────────────────────────────────────────────────────────
+
+async function testPerf() {
+  section('Perf Endpoint');
+
+  // 19. GET /api/perf — verify {endpoints: [...]}
+  await test('GET /api/perf returns endpoints array', async () => {
+    const { status, data } = await api('GET', '/api/perf');
+    assertEq(status, 200, 'status');
+    assertOk(typeof data === 'object', 'response is object');
+    assertOk('endpoints' in data, 'has endpoints field');
+    assertOk(Array.isArray(data.endpoints), 'endpoints is an array');
+  });
+}
+
+// ────────────────────────────────────────────────────────────────
+// 14. Calendar Endpoint (1 test)
+// ────────────────────────────────────────────────────────────────
+
+async function testCalendar() {
+  section('Calendar Endpoint');
+
+  // 20. GET /api/calendar — verify {months: [...]}
+  await test('GET /api/calendar returns months array', async () => {
+    const { status, data } = await api('GET', '/api/calendar');
+    assertEq(status, 200, 'status');
+    assertOk(typeof data === 'object', 'response is object');
+    assertOk('months' in data, 'has months field');
+    assertOk(Array.isArray(data.months), 'months is an array');
+  });
+}
+
+// ────────────────────────────────────────────────────────────────
+// 15. Integrity Endpoint (1 test)
+// ────────────────────────────────────────────────────────────────
+
+async function testIntegrity() {
+  section('Integrity Endpoint');
+
+  // 21. GET /api/integrity — verify {status: "healthy"}
+  await test('GET /api/integrity returns healthy status', async () => {
+    const { status, data } = await api('GET', '/api/integrity');
+    assertEq(status, 200, 'status');
+    assertOk(typeof data === 'object', 'response is object');
+    assertOk('status' in data, 'has status field');
+    assertEq(data.status, 'healthy', 'status is healthy');
+  });
+}
+
+// ────────────────────────────────────────────────────────────────
+// 16. File Target (2 tests)
+// ────────────────────────────────────────────────────────────────
+
+async function testFileTarget() {
+  section('File Target');
+
+  // 22. POST /api/file/target — set word target
+  await test('POST /api/file/target sets word target', async () => {
+    const { status, data } = await api('POST', '/api/file/target', {
+      path: 'content/books/math/0-intro.md',
+      targetWords: 1000
+    });
+    assertEq(status, 200, 'status');
+    assertOk(typeof data === 'object', 'response is object');
+  });
+
+  // 23. GET /api/file/target — verify target + progress
+  await test('GET /api/file/target returns target and progress', async () => {
+    const { status, data } = await api('GET', '/api/file/target?path=content/books/math/0-intro.md');
+    assertEq(status, 200, 'status');
+    assertOk(typeof data === 'object', 'response is object');
+    assertOk('target' in data || 'targetWords' in data, 'has target field');
+    assertOk('progress' in data || 'currentWords' in data || 'wordCount' in data, 'has progress field');
+  });
+}
+
+// ────────────────────────────────────────────────────────────────
 // Main
 // ────────────────────────────────────────────────────────────────
 
@@ -386,6 +464,10 @@ async function main() {
   await testQuicknotes();
   await testSuggestions();
   await testDebugRoutes();
+  await testPerf();
+  await testCalendar();
+  await testIntegrity();
+  await testFileTarget();
 
   // ── Summary ──
   const total = passed + failed;

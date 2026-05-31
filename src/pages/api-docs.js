@@ -498,6 +498,23 @@ const CATEGORIES = [
         request: 'Query: ?since=2025-01-15T00:00:00.000Z',
         response: '{ "comments": 5, "discussions": 12 }',
       },
+      {
+        method: 'GET', path: '/api/perf', description: 'Server performance metrics: average, max, and p95 response times per endpoint.',
+        response: '{ "endpoints": [{ "path": "/api/search", "avgMs": 12.5, "maxMs": 45, "count": 200, "p95Ms": 30 }, ...] }',
+      },
+      {
+        method: 'GET', path: '/api/calendar', description: 'Content calendar: all pages grouped by month with word counts, draft status, and scheduled publications. Cached for 60 seconds.',
+        response: '{ "months": [{ "month": "2025-01", "files": [{ "path": "content/docs/intro.md", "title": "Introduction", "date": "2025-01-15", "wordCount": 500, "draft": false }] }] }',
+      },
+      {
+        method: 'GET', path: '/api/integrity', description: 'Data integrity validation: checks JSON file validity, YAML validity, orphaned snapshots, and orphaned comments.',
+        response: '{ "status": "healthy", "checks": [{ "name": "json_validity", "passed": true, "details": "All 8 JSON files are valid" }, { "name": "yaml_validity", "passed": true, "details": "references.yaml is valid YAML" }, ...] }',
+      },
+      {
+        method: 'GET', path: '/api/suggest', description: 'Get contextual suggestions for references and wiki-link targets based on text being typed.',
+        request: 'Query: ?text=transformer+attention&limit=5',
+        response: '{ "references": [{ "key": "vaswani2017", "title": "Attention Is All You Need", "relevance": 3 }], "pages": [{ "path": "content/docs/attention.md", "title": "Attention Mechanisms", "relevance": 2 }] }',
+      },
     ],
   },
   {
@@ -699,6 +716,11 @@ const CATEGORIES = [
         method: 'GET', path: '/api/references/network', description: 'Citation network analysis: most cited papers, co-citations, uncited references.',
         response: '{ "totalReferences": 844, "citedReferences": 668, "uncitedReferences": 176, "mostCited": [...], "coCitations": [...] }',
       },
+      {
+        method: 'GET', path: '/api/file/quality', description: 'Compute a 0-100 quality score for a file based on word count, frontmatter, headings, citations, media, and readability.',
+        request: 'Query: ?path=content/docs/example.md',
+        response: '{ "path": "content/docs/example.md", "score": 72, "level": "good", "breakdown": { "words": { "score": 20, "max": 25, "wordCount": 650 }, "structure": { "score": 30, "max": 35 }, "citations": { "score": 6, "max": 10, "count": 3 }, "media": { "score": 8, "max": 10 }, "readability": { "score": 8, "max": 10 } }, "suggestions": ["Add citations [@key] to reference sources"] }',
+      },
     ],
   },
   {
@@ -724,6 +746,199 @@ const CATEGORIES = [
       {
         method: 'DELETE', path: '/api/notes', description: 'Delete a note by key.',
         request: '{ "key": "note-key" }',
+        response: '{ "success": true }',
+      },
+    ],
+  },
+  {
+    id: 'flashcards',
+    title: 'Flashcards',
+    icon: '\u{1F0CF}',
+    description: 'Spaced-repetition flashcards with SM-2 scheduling. Supports per-user card decks, tags, and review quality tracking.',
+    endpoints: [
+      {
+        method: 'POST', path: '/api/flashcards', description: 'Create a new flashcard. Rate-limited to 30/min per IP.',
+        request: '{ "front": "What is attention?", "back": "A mechanism for weighting input relevance.", "tags": ["ml", "transformers"], "sourcePath": "content/docs/attention.md", "userId": "default" }',
+        response: '{ "success": true, "card": { "id": "fc_...", "front": "...", "back": "...", "tags": [...], "sourcePath": "...", "interval": 1, "easeFactor": 2.5, "repetitions": 0, "nextReview": "2025-01-15", "createdAt": "..." } }',
+      },
+      {
+        method: 'GET', path: '/api/flashcards', description: 'List all flashcards for a user.',
+        request: 'Query: ?userId=default',
+        response: '{ "cards": [{ "id": "fc_...", "front": "...", "back": "...", "tags": [...], "interval": 1, "nextReview": "2025-01-15", ... }], "total": 42 }',
+      },
+      {
+        method: 'GET', path: '/api/flashcards/due', description: 'Get flashcards due for review today (nextReview <= today).',
+        request: 'Query: ?userId=default',
+        response: '{ "cards": [...], "dueCount": 5 }',
+      },
+      {
+        method: 'GET', path: '/api/flashcards/review', description: 'Get flashcards due for review, sorted by next review date (oldest first).',
+        request: 'Query: ?userId=default',
+        response: '{ "cards": [...], "count": 5 }',
+      },
+      {
+        method: 'POST', path: '/api/flashcards/review', description: 'Submit a review for a flashcard. Quality 0-5 (SM-2 algorithm). Rate-limited to 120/min per IP.',
+        request: '{ "userId": "default", "cardId": "fc_...", "quality": 4 }',
+        response: '{ "success": true, "card": { "id": "fc_...", "interval": 6, "easeFactor": 2.5, "repetitions": 2, "nextReview": "2025-01-21", "lastReviewed": "..." } }',
+      },
+      {
+        method: 'DELETE', path: '/api/flashcards', description: 'Delete a flashcard by ID.',
+        request: '{ "userId": "default", "cardId": "fc_..." }',
+        response: '{ "success": true }',
+      },
+    ],
+  },
+  {
+    id: 'glossary',
+    title: 'Glossary',
+    icon: '\u{1F4D6}',
+    description: 'Concept glossary with term definitions, related terms, and full-text search.',
+    endpoints: [
+      {
+        method: 'GET', path: '/api/glossary', description: 'List all glossary terms, optionally filtered by search query. Sorted alphabetically.',
+        request: 'Query: ?q=attention (optional, searches term and definition)',
+        response: '{ "terms": [{ "id": "gl_...", "term": "Attention", "definition": "A mechanism for...", "relatedTerms": ["transformer"], "references": ["vaswani2017"], "createdAt": "..." }], "total": 25 }',
+      },
+      {
+        method: 'POST', path: '/api/glossary', description: 'Add a new glossary term. Fails with 409 if the term already exists (case-insensitive). Rate-limited to 30/min per IP.',
+        request: '{ "term": "Attention", "definition": "A mechanism for weighting input relevance.", "relatedTerms": ["transformer", "softmax"], "references": ["vaswani2017"] }',
+        response: '{ "success": true, "entry": { "id": "gl_...", "term": "Attention", "definition": "...", "relatedTerms": [...], "references": [...], "createdAt": "..." } }',
+      },
+      {
+        method: 'DELETE', path: '/api/glossary', description: 'Delete a glossary term by ID.',
+        request: '{ "id": "gl_..." }',
+        response: '{ "success": true }',
+      },
+    ],
+  },
+  {
+    id: 'tasks',
+    title: 'Tasks (Kanban)',
+    icon: '\u{2705}',
+    description: 'Task management with kanban-style statuses (todo, doing, done) and priority levels.',
+    endpoints: [
+      {
+        method: 'POST', path: '/api/tasks', description: 'Create a new task. Rate-limited to 60/min per IP.',
+        request: '{ "title": "Review paper draft", "description": "Check citations and formatting", "status": "todo", "priority": "high" }\n\nValid statuses: "todo", "doing", "done"\nValid priorities: "low", "medium", "high"',
+        response: '{ "success": true, "task": { "id": "...", "title": "...", "description": "...", "status": "todo", "priority": "high", "createdAt": "...", "updatedAt": "..." } }',
+      },
+      {
+        method: 'GET', path: '/api/tasks', description: 'List all tasks, grouped by status with counts.',
+        response: '{ "tasks": [...], "grouped": { "todo": [...], "doing": [...], "done": [...] }, "counts": { "todo": 3, "doing": 1, "done": 5 } }',
+      },
+      {
+        method: 'PUT', path: '/api/tasks', description: 'Update a task\'s title, description, status, or priority. Rate-limited to 60/min per IP.',
+        request: '{ "id": "abc123", "status": "doing", "priority": "high" }',
+        response: '{ "success": true, "task": { "id": "abc123", "status": "doing", "priority": "high", "updatedAt": "..." } }',
+      },
+      {
+        method: 'DELETE', path: '/api/tasks', description: 'Delete a task by ID. Rate-limited to 30/min per IP.',
+        request: '{ "id": "abc123" }',
+        response: '{ "success": true }',
+      },
+    ],
+  },
+  {
+    id: 'goals',
+    title: 'Writing Goals',
+    icon: '\u{1F3AF}',
+    description: 'Daily and weekly word-count writing goals with progress tracking against a baseline.',
+    endpoints: [
+      {
+        method: 'POST', path: '/api/goals', description: 'Create or replace a writing goal. Computes a baseline word count from all content files. Rate-limited to 30/min per IP.',
+        request: '{ "type": "daily", "target": 500, "userId": "default" }\n\nValid types: "daily", "weekly"',
+        response: '{ "id": "goal_...", "type": "daily", "target": 500, "userId": "default", "startDate": "2025-01-15", "baselineWords": 125000, "createdAt": "..." }',
+      },
+      {
+        method: 'GET', path: '/api/goals', description: 'Get all goals for a user with current progress. Shows words written since goal creation and expiration status.',
+        request: 'Query: ?userId=default',
+        response: '{ "goals": [{ "id": "goal_...", "type": "daily", "target": 500, "currentWords": 125350, "wordsWritten": 350, "progress": 0.7, "isExpired": false, ... }] }',
+      },
+      {
+        method: 'PUT', path: '/api/goals', description: 'Update a goal\'s target word count. Rate-limited to 30/min per IP.',
+        request: '{ "id": "goal_...", "target": 750 }',
+        response: '{ "id": "goal_...", "type": "daily", "target": 750, ... }',
+      },
+    ],
+  },
+  {
+    id: 'snapshots',
+    title: 'Snapshots',
+    icon: '\u{1F4F8}',
+    description: 'Named file snapshots for manual versioning. Each file can have up to 10 snapshots (oldest pruned automatically).',
+    endpoints: [
+      {
+        method: 'POST', path: '/api/snapshots', description: 'Create a named snapshot of a file\'s current content. Rate-limited to 30/min per IP.',
+        request: '{ "path": "content/docs/example.md", "name": "Before major rewrite" }',
+        response: '{ "success": true, "snapshot": { "id": "uuid", "name": "Before major rewrite", "createdAt": "..." } }',
+      },
+      {
+        method: 'GET', path: '/api/snapshots', description: 'List all snapshots for a file.',
+        request: 'Query: ?path=content/docs/example.md',
+        response: '{ "snapshots": [{ "id": "uuid", "name": "Before major rewrite", "createdAt": "..." }] }',
+      },
+      {
+        method: 'POST', path: '/api/snapshots/restore', description: 'Restore a file to a previous snapshot\'s content. Rate-limited to 30/min per IP.',
+        request: '{ "path": "content/docs/example.md", "snapshotId": "uuid" }',
+        response: '{ "success": true, "restored": { "id": "uuid", "name": "Before major rewrite" } }',
+      },
+      {
+        method: 'DELETE', path: '/api/snapshots', description: 'Delete a specific snapshot. Rate-limited to 30/min per IP.',
+        request: '{ "path": "content/docs/example.md", "snapshotId": "uuid" }',
+        response: '{ "success": true }',
+      },
+    ],
+  },
+  {
+    id: 'schedule',
+    title: 'Scheduled Publishing',
+    icon: '\u{1F4C5}',
+    description: 'Schedule content files for future publication. Manages a publish-at date per file.',
+    endpoints: [
+      {
+        method: 'POST', path: '/api/schedule', description: 'Schedule a file for publication at a future date. Replaces any existing schedule for the same file. Rate-limited to 30/min per IP.',
+        request: '{ "path": "content/docs/upcoming.md", "publishAt": "2025-02-01T09:00:00Z" }',
+        response: '{ "success": true, "schedule": { "path": "content/docs/upcoming.md", "publishAt": "2025-02-01T09:00:00.000Z", "createdAt": "..." } }',
+      },
+      {
+        method: 'GET', path: '/api/schedule', description: 'List all scheduled publications.',
+        response: '{ "schedules": [{ "path": "content/docs/upcoming.md", "publishAt": "2025-02-01T09:00:00.000Z", "createdAt": "..." }] }',
+      },
+      {
+        method: 'DELETE', path: '/api/schedule', description: 'Cancel a scheduled publication for a file.',
+        request: '{ "path": "content/docs/upcoming.md" }',
+        response: '{ "success": true }',
+      },
+    ],
+  },
+  {
+    id: 'quicknote',
+    title: 'Quick Notes',
+    icon: '\u{26A1}',
+    description: 'Fast-capture notes saved as draft blog posts with the quick-note tag. Also supports JSON-backed scratchpad notes.',
+    endpoints: [
+      {
+        method: 'POST', path: '/api/quicknote', description: 'Create a quick note as a markdown file in content/posts/blog/. Auto-generates a date-prefixed filename. Rate-limited to 20/min per IP.',
+        request: '{ "text": "Interesting idea about attention heads...", "title": "Attention Head Hypothesis" }',
+        response: '{ "success": true, "path": "content/posts/blog/2025-01-15-attention-head-hypothesis.md", "filename": "2025-01-15-attention-head-hypothesis.md" }',
+      },
+      {
+        method: 'GET', path: '/api/quicknote', description: 'List the 10 most recent quick notes (blog posts tagged quick-note), newest first.',
+        response: '{ "notes": [{ "filename": "2025-01-15-attention-head-hypothesis.md", "title": "Attention Head Hypothesis", "date": "2025-01-15", "preview": "Interesting idea about...", "path": "content/posts/blog/2025-01-15-attention-head-hypothesis.md" }], "total": 3 }',
+      },
+      {
+        method: 'GET', path: '/api/quicknotes', description: 'List all JSON-backed quick notes plus blog quick notes, sorted newest first.',
+        request: 'Query: ?userId=default',
+        response: '[{ "id": "qn_...", "text": "...", "color": "#fef3c7", "createdAt": "...", "updatedAt": "..." }, ...]',
+      },
+      {
+        method: 'POST', path: '/api/quicknotes', description: 'Create a JSON-backed quick note with optional color. Max 200 per user. Rate-limited to 30/min per IP.',
+        request: '{ "userId": "default", "text": "Remember to check citation graph", "color": "#dbeafe" }',
+        response: '{ "success": true, "note": { "id": "qn_...", "text": "...", "color": "#dbeafe", "createdAt": "...", "updatedAt": "..." } }',
+      },
+      {
+        method: 'DELETE', path: '/api/quicknotes', description: 'Delete a JSON-backed quick note by ID.',
+        request: '{ "userId": "default", "id": "qn_..." }',
         response: '{ "success": true }',
       },
     ],
