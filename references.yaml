@@ -10085,3 +10085,17 @@ __test_1780212268481_import:
     - Import Author
   year: 2025
   venue: Test Journal
+__test_1780212315086_ref:
+  type: article
+  title: Test Reference Paper
+  author:
+    - Test Author
+  year: 2025
+  venue: Test Conference
+__test_1780212315086_import:
+  type: article
+  title: Imported Test Paper
+  author:
+    - Import Author
+  year: 2025
+  venue: Test Journal
