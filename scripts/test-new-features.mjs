@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────
-// Integration tests for new features: Glossary, Flashcards, Tasks, Goals
+// Integration tests for new features: Glossary, Flashcards, Tasks, Goals, Streak, Snapshots, Schedule
 // Usage:  node scripts/test-new-features.mjs
 // Requires the server running on http://localhost:3001
 // ─────────────────────────────────────────────────────────────
@@ -460,18 +460,18 @@ async function testStreak() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Snapshots (4 tests + setup/cleanup)
+// Snapshots (5 tests — includes setup + cleanup)
 // ────────────────────────────────────────────────────────────────
 
 const TEST_SNAPSHOT_PATH = `content/__test_snapshot_${Date.now()}.md`;
 let createdSnapshotId = null;
 
 async function testSnapshots() {
-  section('Snapshots (4 tests)');
+  section('Snapshots (5 tests)');
 
-  // Setup: create a test file via the file-write API
+  // Setup: create a test file via the file-create API
   await test('Setup — create test file for snapshots', async () => {
-    const {status, data} = await api('POST', '/api/files/write', {
+    const {status, data} = await api('POST', '/api/file', {
       path: TEST_SNAPSHOT_PATH,
       content: '# Snapshot Test\n\nThis is a test file for snapshot tests.',
     });
@@ -523,7 +523,7 @@ async function testSnapshots() {
 
   // 4. Cleanup: delete the test file
   await test('Cleanup — remove test file', async () => {
-    const {status} = await api('DELETE', '/api/files', {path: TEST_SNAPSHOT_PATH});
+    const {status} = await api('DELETE', `/api/file?path=${encodeURIComponent(TEST_SNAPSHOT_PATH)}`);
     assertEq(status, 200, 'status');
   });
 }
@@ -661,7 +661,7 @@ async function runCleanup() {
 async function main() {
   console.log(`\n${BOLD}Mochi Lab — New Features Integration Tests${RESET}`);
   console.log(`${DIM}Target: ${BASE}${RESET}`);
-  console.log(`${DIM}Testing: Glossary, Flashcards, Tasks, Goals, Streak, Snapshots, Schedule (28 tests)${RESET}\n`);
+  console.log(`${DIM}Testing: Glossary, Flashcards, Tasks, Goals, Streak, Snapshots, Schedule (29 tests)${RESET}\n`);
 
   await preflight();
 
@@ -669,6 +669,9 @@ async function main() {
   await testFlashcards();
   await testTasks();
   await testGoals();
+  await testStreak();
+  await testSnapshots();
+  await testSchedule();
 
   await runCleanup();
 
