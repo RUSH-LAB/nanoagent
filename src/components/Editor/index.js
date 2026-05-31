@@ -1,6 +1,7 @@
 import React, {useState, useEffect, useCallback, useMemo, useRef} from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import FileTree from './FileTree';
+import RecentFiles from './RecentFiles';
 import TipTapEditor from './TipTapEditor';
 import FileSearchDialog from './FileSearchDialog';
 import TemplateModal from './TemplateModal';
@@ -145,6 +146,7 @@ export default function Editor({initialFile}) {
         const filtered = recent.filter(f => f !== filePath);
         filtered.unshift(filePath);
         localStorage.setItem('mochi-recent-files', JSON.stringify(filtered.slice(0, 10)));
+        window.dispatchEvent(new Event('mochi-recent-updated'));
       } catch {}
     }
   }, []);
@@ -272,25 +274,34 @@ export default function Editor({initialFile}) {
   return (
     <div className={styles.layout}>
       {sidebarOpen && (
-        <FileTree
-          files={files}
-          selectedFile={selectedFile}
-          onSelectFile={handleSelectFile}
-          onNewFile={handleNewFile}
-          onDeleteFile={handleDeleteFile}
-          onRenameFile={handleRenameFile}
-          onMoveFile={handleMoveFile}
-          expandedPaths={expandedPaths}
-          onRestore={loadFiles}
-          onToggleExpand={(path) => {
-            setExpandedPaths(prev => {
-              const next = new Set(prev);
-              if (next.has(path)) next.delete(path);
-              else next.add(path);
-              return next;
-            });
-          }}
-        />
+        <div className={styles.sidebarWrap}>
+          <RecentFiles
+            onSelectFile={(path) => {
+              handleSelectFile(path);
+              expandPathTo(path);
+            }}
+            selectedFile={selectedFile}
+          />
+          <FileTree
+            files={files}
+            selectedFile={selectedFile}
+            onSelectFile={handleSelectFile}
+            onNewFile={handleNewFile}
+            onDeleteFile={handleDeleteFile}
+            onRenameFile={handleRenameFile}
+            onMoveFile={handleMoveFile}
+            expandedPaths={expandedPaths}
+            onRestore={loadFiles}
+            onToggleExpand={(path) => {
+              setExpandedPaths(prev => {
+                const next = new Set(prev);
+                if (next.has(path)) next.delete(path);
+                else next.add(path);
+                return next;
+              });
+            }}
+          />
+        </div>
       )}
       <div className={styles.main}>
         <div className={styles.topBar}>

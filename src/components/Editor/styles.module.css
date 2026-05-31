@@ -13,6 +13,27 @@
   position: relative;
 }
 
+/* ── Sidebar wrapper (holds RecentFiles + FileTree) ────────── */
+.sidebarWrap {
+  width: 260px;
+  min-width: 260px;
+  border-right: 1px solid var(--ifm-color-emphasis-200);
+  background: var(--ifm-background-surface-color);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: sidebarSlideIn 0.2s ease;
+}
+
+.sidebarWrap > .sidebar {
+  width: auto;
+  min-width: 0;
+  border-right: none;
+  animation: none;
+  flex: 1;
+  min-height: 0;
+}
+
 /* ── Sidebar ────────────────────────────────────────────────── */
 .sidebar {
   width: 260px;
@@ -1209,6 +1230,21 @@
 
 /* ── Responsive: Tablet (max-width: 768px) ─────────────────── */
 @media (max-width: 768px) {
+  .sidebarWrap {
+    position: fixed;
+    top: 60px;
+    left: 0;
+    bottom: 0;
+    z-index: 200;
+    width: 260px;
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.15);
+  }
+
+  .sidebarWrap > .sidebar {
+    position: static;
+    box-shadow: none;
+  }
+
   .sidebar {
     position: fixed;
     top: 60px;
@@ -1258,6 +1294,11 @@
 
 /* ── Responsive: Phone (max-width: 480px) ──────────────────── */
 @media (max-width: 480px) {
+  .sidebarWrap {
+    width: 100%;
+    box-shadow: none;
+  }
+
   .sidebar {
     width: 100%;
     box-shadow: none;

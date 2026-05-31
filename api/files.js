@@ -53,6 +53,7 @@ function buildTree(entries, rootDir) {
           name: rest,
           path: e.path,
           type: 'file',
+          size: e.size,
         });
       }
     }

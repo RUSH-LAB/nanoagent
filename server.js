@@ -34,6 +34,33 @@ const TASKS_FILE = path.join(PROJECT_ROOT, 'data', 'tasks.json');
 const GOALS_FILE = path.join(PROJECT_ROOT, 'data', 'goals.json');
 const TRASH_DIR = path.join(PROJECT_ROOT, '.trash');
 
+// ── Access log file setup ──
+const LOGS_DIR = path.join(PROJECT_ROOT, 'logs');
+const ACCESS_LOG = path.join(LOGS_DIR, 'access.log');
+const ACCESS_LOG_MAX_LINES = 5000;
+const ACCESS_LOG_KEEP_LINES = 1000;
+
+if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, {recursive: true});
+
+// Rotate access log on startup if it exceeds the threshold
+(function rotateAccessLog() {
+  try {
+    if (!fs.existsSync(ACCESS_LOG)) return;
+    const content = fs.readFileSync(ACCESS_LOG, 'utf-8');
+    const lines = content.split('\n').filter(l => l.length > 0);
+    if (lines.length > ACCESS_LOG_MAX_LINES) {
+      const trimmed = lines.slice(-ACCESS_LOG_KEEP_LINES).join('\n') + '\n';
+      fs.writeFileSync(ACCESS_LOG, trimmed, 'utf-8');
+    }
+  } catch { /* ignore rotation errors */ }
+})();
+
+function appendAccessLog(line) {
+  try {
+    fs.appendFileSync(ACCESS_LOG, line + '\n', 'utf-8');
+  } catch { /* ignore write errors */ }
+}
+
 
 function walkDir(dir) {
   const result = [];
@@ -45,7 +72,7 @@ function walkDir(dir) {
       result.push({name: entry.name, path: relPath, type: 'directory', children: walkDir(fullPath)});
     } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
       const stat = fs.statSync(fullPath);
-      result.push({name: entry.name, path: relPath, type: 'file', mtime: stat.mtimeMs});
+      result.push({name: entry.name, path: relPath, type: 'file', mtime: stat.mtimeMs, size: stat.size});
     }
   }
   return result;
@@ -421,6 +448,8 @@ const server = http.createServer(async (req, res) => {
     const ms = Date.now() - start;
     if (req.url !== '/api/health' && req.method !== 'OPTIONS') {
       console.log(`[${reqId}] ${req.method} ${req.url} ${res.statusCode} ${ms}ms`);
+      const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '-';
+      appendAccessLog(`${new Date().toISOString()} | ${req.method} | ${req.url} | ${res.statusCode} | ${ms} | ${ip}`);
     }
     return origEnd(...args);
   };
@@ -435,6 +464,19 @@ const server = http.createServer(async (req, res) => {
   // ── Health check ──
   if (req.method === 'GET' && pathname === '/api/health') {
     return json(res, 200, {status: 'ok', uptime: process.uptime(), memory: process.memoryUsage().heapUsed});
+  }
+
+  // ── Access logs ──
+  if (req.method === 'GET' && pathname === '/api/logs') {
+    const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit')) || 50, 1), 500);
+    try {
+      const content = fs.existsSync(ACCESS_LOG) ? fs.readFileSync(ACCESS_LOG, 'utf-8') : '';
+      const lines = content.split('\n').filter(l => l.length > 0);
+      const recent = lines.slice(-limit);
+      return json(res, 200, {total: lines.length, returned: recent.length, logs: recent});
+    } catch {
+      return json(res, 500, {error: 'Failed to read access log'});
+    }
   }
 
   // ── Read file ──
@@ -6581,8 +6623,39 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
     const userId = url.searchParams.get('userId') || 'default';
     const QUICKNOTES_FILE = path.join(PROJECT_ROOT, 'data', 'quicknotes.json');
     const data = loadJSON(QUICKNOTES_FILE);
-    const notes = (data[userId] || []).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-    return json(res, 200, {notes, total: notes.length});
+    const jsonNotes = (data[userId] || []).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+
+    // Also include filesystem-based quick notes from content/posts/blog/
+    const blogDir = path.join(PROJECT_ROOT, 'content', 'posts', 'blog');
+    let blogNotes = [];
+    try {
+      if (fs.existsSync(blogDir)) {
+        const files = fs.readdirSync(blogDir)
+          .filter(f => f.endsWith('.md'))
+          .sort((a, b) => b.localeCompare(a));
+        for (const file of files) {
+          if (blogNotes.length >= 50) break;
+          try {
+            const raw = fs.readFileSync(path.join(blogDir, file), 'utf-8');
+            if (!raw.includes('quick-note')) continue;
+            const titleMatch = raw.match(/^title:\s*"?(.+?)"?\s*$/m);
+            const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
+            const bodyMatch = raw.match(/---\s*\n[\s\S]*?\n---\s*\n([\s\S]*)/);
+            blogNotes.push({
+              id: file,
+              text: bodyMatch ? bodyMatch[1].trim().slice(0, 200) : '',
+              title: titleMatch ? titleMatch[1] : file,
+              date: dateMatch ? dateMatch[1] : null,
+              path: `content/posts/blog/${file}`,
+              source: 'blog',
+            });
+          } catch {}
+        }
+      }
+    } catch {}
+
+    const allNotes = [...jsonNotes, ...blogNotes];
+    return json(res, 200, allNotes);
   }
 
   if (req.method === 'POST' && pathname === '/api/quicknotes') {

@@ -55,6 +55,45 @@ function relativeTime(mtimeMs) {
   return `${Math.floor(months / 12)}y ago`;
 }
 
+/**
+ * Returns a colored dot indicator based on file size as a rough proxy for word count.
+ * Only applies to post files (under content/posts/).
+ * >1KB = green (>500 words), 500B-1KB = yellow (200-500 words), <500B = red (<200 words).
+ */
+function WordCountDot({node}) {
+  if (!node.path || !node.path.startsWith('content/posts/')) return null;
+  if (node.type !== 'file') return null;
+  const size = node.size;
+  if (size == null) return null;
+
+  let color, title;
+  if (size > 1024) {
+    color = '#22c55e'; // green
+    title = 'Long post (>1KB)';
+  } else if (size >= 500) {
+    color = '#eab308'; // yellow
+    title = 'Medium post (500B–1KB)';
+  } else {
+    color = '#ef4444'; // red
+    title = 'Short post (<500B)';
+  }
+
+  return (
+    <span
+      title={title}
+      style={{
+        display: 'inline-block',
+        width: 6,
+        height: 6,
+        borderRadius: '50%',
+        backgroundColor: color,
+        flexShrink: 0,
+        marginLeft: 4,
+      }}
+    />
+  );
+}
+
 function TreeNode({node, depth, selectedFile, onSelectFile, onDeleteFile, onRenameFile, onMoveFile, expandedPaths, onToggleExpand, bulkSelected, onToggleBulkSelect, selectMode, focusedPath}) {
   const [dropOver, setDropOver] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -187,6 +226,7 @@ function TreeNode({node, depth, selectedFile, onSelectFile, onDeleteFile, onRena
         <span style={{width: 12}} />
         <FileIcon />
         <span className={styles.treeName}>{node.name.replace(/\.(md|mdx)$/, '')}</span>
+        <WordCountDot node={node} />
         {hovered && node.mtime && !selectMode && (
           <span style={{
             marginLeft: 'auto',
