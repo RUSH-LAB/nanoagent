@@ -452,6 +452,7 @@ function GlossaryContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [expandedTerm, setExpandedTerm] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -477,6 +478,11 @@ function GlossaryContent() {
 
   useEffect(() => { fetchTerms(); }, [fetchTerms]);
 
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const allCategories = useMemo(() => {
     const cats = new Set();
     for (const t of terms) {
@@ -486,7 +492,7 @@ function GlossaryContent() {
   }, [terms]);
 
   const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
+    const q = debouncedSearch.toLowerCase().trim();
     return terms.filter(t => {
       if (categoryFilter && t.category !== categoryFilter) return false;
       if (!q) return true;
@@ -495,7 +501,7 @@ function GlossaryContent() {
         (t.category || '').toLowerCase().includes(q) ||
         (t.relatedTerms || []).some(r => r.toLowerCase().includes(q));
     });
-  }, [terms, search, categoryFilter]);
+  }, [terms, debouncedSearch, categoryFilter]);
 
   // Group by first letter
   const letterGroups = useMemo(() => {

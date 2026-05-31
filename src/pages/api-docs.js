@@ -1,5 +1,6 @@
 import React from 'react';
 import Layout from '@theme/Layout';
+import ErrorBoundary from '@site/src/components/ErrorBoundary';
 
 const METHOD_COLORS = {
   GET: {bg: '#dbeafe', color: '#1e40af', border: '#93c5fd'},
@@ -992,6 +993,7 @@ export default function ApiDocs() {
 
   return (
     <Layout title="API Documentation" description="API documentation for MochiLab editor server">
+      <ErrorBoundary>
       <main style={{
         maxWidth: '960px',
         margin: '0 auto',
@@ -1026,6 +1028,7 @@ export default function ApiDocs() {
           <p><strong>CORS</strong> is enabled for all origins by default (configurable via <code>CORS_ORIGIN</code> env var). Max request body size: 10 MB.</p>
         </footer>
       </main>
+      </ErrorBoundary>
     </Layout>
   );
 }

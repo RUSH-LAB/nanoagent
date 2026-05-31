@@ -12,6 +12,7 @@ import Translate from '@docusaurus/Translate';
 import Layout from '@theme/Layout';
 import HomepageFeatures from '@site/src/components/HomepageFeatures';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import ErrorBoundary from '@site/src/components/ErrorBoundary';
 
 import Heading from '@theme/Heading';
 import styles from './index.module.css';
@@ -290,8 +291,8 @@ export default function Home() {
       <HomepageHeader />
       <main>
         <HomepageFeatures />
-        <BrowserOnly>{() => <RecentFiles />}</BrowserOnly>
-        <BrowserOnly>{() => <RecentActivity />}</BrowserOnly>
+        <BrowserOnly>{() => <ErrorBoundary><RecentFiles /></ErrorBoundary>}</BrowserOnly>
+        <BrowserOnly>{() => <ErrorBoundary><RecentActivity /></ErrorBoundary>}</BrowserOnly>
       </main>
     </Layout>
   );

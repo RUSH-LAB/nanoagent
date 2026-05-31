@@ -150,6 +150,7 @@ import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
 import { usePluginData } from '@docusaurus/useGlobalData';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
 
 const CitationGraph = lazy(() => import('../components/CitationGraph'));
@@ -288,7 +289,7 @@ const ReferenceEntry = React.memo(function ReferenceEntry({ citationKey, entry }
       <BrowserOnly>
         {() => {
           const PaperNotes = require('../components/PaperNotes').default;
-          return <PaperNotes citationKey={citationKey} title={entry.title} />;
+          return <ErrorBoundary><PaperNotes citationKey={citationKey} title={entry.title} /></ErrorBoundary>;
         }}
       </BrowserOnly>
     </div>
@@ -1143,7 +1144,7 @@ export default function BibliographyPage() {
               </button>
             </div>
             <BrowserOnly>
-              {() => <ImportBibtex />}
+              {() => <ErrorBoundary><ImportBibtex /></ErrorBoundary>}
             </BrowserOnly>
             <button
               onClick={exportAllBibtex}
@@ -1200,7 +1201,7 @@ export default function BibliographyPage() {
                 for (const k of Object.keys(references || {})) {
                   existingKeys[k] = true;
                 }
-                return <SearchAndAddPapers existingKeys={existingKeys} />;
+                return <ErrorBoundary><SearchAndAddPapers existingKeys={existingKeys} /></ErrorBoundary>;
               }}
             </BrowserOnly>
 
@@ -1284,7 +1285,7 @@ export default function BibliographyPage() {
             </div>
 
             <BrowserOnly>
-              {() => <TrackAllPreprints references={references} />}
+              {() => <ErrorBoundary><TrackAllPreprints references={references} /></ErrorBoundary>}
             </BrowserOnly>
 
             <p style={{ fontSize: '0.9em', color: 'var(--ifm-color-emphasis-600)', marginBottom: '16px' }}>
@@ -1344,13 +1345,13 @@ export default function BibliographyPage() {
             )}
 
             <BrowserOnly>
-              {() => <BackToTopButton visible={showBackToTop} />}
+              {() => <ErrorBoundary><BackToTopButton visible={showBackToTop} /></ErrorBoundary>}
             </BrowserOnly>
 
             <BrowserOnly>
               {() => {
                 const PaperRecommendations = require('../components/PaperRecommendations').default;
-                return <PaperRecommendations references={references} />;
+                return <ErrorBoundary><PaperRecommendations references={references} /></ErrorBoundary>;
               }}
             </BrowserOnly>
           </>
