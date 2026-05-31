@@ -140,15 +140,16 @@ function TasksApp() {
   const totalTasks = counts.todo + counts.doing + counts.done;
 
   return (
-    <div style={{maxWidth: 1200, margin: '0 auto', padding: '24px 16px'}}>
+    <div style={{maxWidth: 1200, margin: '0 auto', padding: '24px 16px'}} role="main" aria-label="Task board">
       {/* Header */}
       <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24}}>
         <div>
           <h1 style={{margin: 0, fontSize: 28}}>Task Board</h1>
-          <p style={{margin: '4px 0 0', color: '#6b7280', fontSize: 14}}>{totalTasks} task{totalTasks !== 1 ? 's' : ''} total</p>
+          <p style={{margin: '4px 0 0', color: '#6b7280', fontSize: 14}} aria-live="polite">{totalTasks} task{totalTasks !== 1 ? 's' : ''} total</p>
         </div>
         <button
           onClick={() => { setShowForm(true); setEditingTask(null); setFormTitle(''); setFormDesc(''); setFormStatus('todo'); setFormPriority('medium'); }}
+          aria-label="Add new task"
           style={{
             padding: '10px 20px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8,
             cursor: 'pointer', fontWeight: 600, fontSize: 14,
@@ -161,8 +162,8 @@ function TasksApp() {
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-        }} onClick={(e) => { if (e.target === e.currentTarget) { setShowForm(false); cancelEdit(); } }}>
-          <div style={{
+        }} role="presentation" onClick={(e) => { if (e.target === e.currentTarget) { setShowForm(false); cancelEdit(); } }}>
+          <div role="dialog" aria-modal="true" aria-label={editingTask ? 'Edit task' : 'Create new task'} style={{
             background: '#fff', borderRadius: 12, padding: 24, width: '100%', maxWidth: 480,
             boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
           }}>
@@ -171,6 +172,7 @@ function TasksApp() {
               value={formTitle}
               onChange={e => setFormTitle(e.target.value)}
               placeholder="Task title..."
+              aria-label="Task title"
               autoFocus
               style={{
                 width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: 8,
@@ -182,6 +184,7 @@ function TasksApp() {
               value={formDesc}
               onChange={e => setFormDesc(e.target.value)}
               placeholder="Description (optional)..."
+              aria-label="Task description"
               rows={3}
               style={{
                 width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: 8,
@@ -236,13 +239,15 @@ function TasksApp() {
       )}
 
       {/* Kanban Columns */}
-      <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, alignItems: 'start'}}>
+      <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, alignItems: 'start'}} role="region" aria-label="Kanban board">
         {statusOrder.map(status => {
           const meta = COLUMN_META[status];
           const columnTasks = tasks[status] || [];
           return (
             <div
               key={status}
+              role="region"
+              aria-label={`${meta.label} column, ${columnTasks.length} task${columnTasks.length !== 1 ? 's' : ''}`}
               onDragOver={handleDragOver}
               onDrop={e => handleDrop(e, status)}
               style={{
@@ -269,6 +274,8 @@ function TasksApp() {
                 return (
                   <div
                     key={task.id}
+                    role="article"
+                    aria-label={`${task.title}, ${task.priority} priority`}
                     draggable
                     onDragStart={e => handleDragStart(e, task)}
                     onDragEnd={handleDragEnd}
@@ -297,6 +304,7 @@ function TasksApp() {
                           <button
                             onClick={() => moveTask(task, prevStatus(status))}
                             title={`Move to ${COLUMN_META[prevStatus(status)].label}`}
+                            aria-label={`Move "${task.title}" to ${COLUMN_META[prevStatus(status)].label}`}
                             style={{
                               padding: '3px 8px', fontSize: 11, background: '#f3f4f6', border: '1px solid #e5e7eb',
                               borderRadius: 4, cursor: 'pointer', color: '#374151',
@@ -307,6 +315,7 @@ function TasksApp() {
                           <button
                             onClick={() => moveTask(task, nextStatus(status))}
                             title={`Move to ${COLUMN_META[nextStatus(status)].label}`}
+                            aria-label={`Move "${task.title}" to ${COLUMN_META[nextStatus(status)].label}`}
                             style={{
                               padding: '3px 8px', fontSize: 11, background: '#f3f4f6', border: '1px solid #e5e7eb',
                               borderRadius: 4, cursor: 'pointer', color: '#374151',

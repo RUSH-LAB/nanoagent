@@ -113,10 +113,12 @@ function MindmapContent() {
   return (
     <div style={{ padding: '20px 40px' }}>
       <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-        <label style={{ fontWeight: 600, fontSize: 14 }}>Document:</label>
+        <label htmlFor="mindmap-doc-select" style={{ fontWeight: 600, fontSize: 14 }}>Document:</label>
         <select
+          id="mindmap-doc-select"
           value={selected}
           onChange={handleSelect}
+          aria-label="Select document for mindmap"
           style={{
             padding: '6px 12px',
             borderRadius: 6,
@@ -135,7 +137,7 @@ function MindmapContent() {
       </div>
 
       {error && (
-        <div style={{ color: '#ef4444', padding: 12, background: '#fef2f2', borderRadius: 8, marginBottom: 12 }}>
+        <div role="alert" style={{ color: '#ef4444', padding: 12, background: '#fef2f2', borderRadius: 8, marginBottom: 12 }}>
           {error}
         </div>
       )}
@@ -145,8 +147,11 @@ function MindmapContent() {
           ref={svgRef}
           width={dims.w}
           height={dims.h}
+          role="img"
+          aria-label={`Mindmap for ${selected || 'document'} with ${nodes.length} nodes`}
           style={{ border: '1px solid #e5e7eb', borderRadius: 12, background: '#fafafa' }}
         >
+          <title>Mindmap: {selected}</title>
           {/* Edges */}
           {edges.map((e, i) => {
             const from = nodes[e.from];

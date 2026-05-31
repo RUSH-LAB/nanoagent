@@ -289,12 +289,12 @@ function WhiteboardApp() {
   }
 
   return (
-    <div style={{display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)'}}>
+    <div style={{display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)'}} role="main" aria-label="Whiteboard application">
       {/* Toolbar */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px',
         borderBottom: '1px solid #e5e7eb', background: '#fff', flexWrap: 'wrap',
-      }}>
+      }} role="toolbar" aria-label="Whiteboard tools">
         <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
           <label style={{fontWeight: 600, fontSize: 14, color: '#374151'}}>Board:</label>
           <select
@@ -313,22 +313,25 @@ function WhiteboardApp() {
           <input
             type="text"
             placeholder="New board name"
+            aria-label="New board name"
             value={newBoardName}
             onChange={e => setNewBoardName(e.target.value)}
             style={{padding: '4px 8px', borderRadius: 4, border: '1px solid #d1d5db', fontSize: 13, width: 140}}
           />
-          <button type="submit" style={{
+          <button type="submit" aria-label="Create new board" style={{
             padding: '4px 10px', borderRadius: 4, border: '1px solid #d1d5db',
             background: '#f9fafb', cursor: 'pointer', fontSize: 13,
           }}>+</button>
         </form>
 
-        <div style={{display: 'flex', gap: 4, marginLeft: 8}}>
-          {COLORS.map(c => (
+        <div style={{display: 'flex', gap: 4, marginLeft: 8}} role="group" aria-label="Note color picker">
+          {COLORS.map((c, i) => (
             <button
               key={c}
               onClick={() => setSelectedColor(c)}
               title={c}
+              aria-label={`Select note color ${i + 1}${selectedColor === c ? ' (selected)' : ''}`}
+              aria-pressed={selectedColor === c}
               style={{
                 width: 20, height: 20, borderRadius: '50%', border: selectedColor === c ? '2px solid #3b82f6' : '1px solid #d1d5db',
                 background: c, cursor: 'pointer', padding: 0,
@@ -351,6 +354,7 @@ function WhiteboardApp() {
           </button>
           <button
             onClick={handleDeleteBoard}
+            aria-label="Delete this whiteboard"
             style={{
               padding: '5px 12px', borderRadius: 6, border: '1px solid #fca5a5',
               background: '#fff', color: '#ef4444', cursor: 'pointer', fontSize: 13,
@@ -365,6 +369,9 @@ function WhiteboardApp() {
       <div style={{flex: 1, position: 'relative', overflow: 'hidden'}}>
         <canvas
           ref={canvasRef}
+          role="img"
+          aria-label={`Whiteboard "${boardId}" with ${elements.length} sticky note${elements.length !== 1 ? 's' : ''}. Double-click to add a note, click and drag to move notes.`}
+          tabIndex={0}
           style={{width: '100%', height: '100%', cursor: dragging ? 'grabbing' : 'crosshair'}}
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleCanvasMouseMove}
@@ -372,6 +379,13 @@ function WhiteboardApp() {
           onMouseLeave={handleCanvasMouseUp}
           onDoubleClick={handleCanvasDoubleClick}
         />
+        {/* Screen reader summary of notes */}
+        <div className="sr-only" aria-live="polite" style={{position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap'}}>
+          {elements.length === 0
+            ? 'Whiteboard is empty. Double-click to add a sticky note.'
+            : `${elements.length} note${elements.length !== 1 ? 's' : ''} on the whiteboard: ${elements.map((el, i) => el.text || `Note ${i + 1} (empty)`).join('; ')}`
+          }
+        </div>
 
         {/* Edit overlay */}
         {editing !== null && elements[editing] && (
@@ -395,17 +409,20 @@ function WhiteboardApp() {
                   if (e.key === 'Escape') setEditing(null);
                 }}
                 rows={3}
+                aria-label="Edit note text"
                 style={{
                   width: '100%', padding: 8, borderRadius: 4, border: '1px solid #d1d5db',
                   resize: 'vertical', fontSize: 13, fontFamily: 'inherit',
                 }}
                 placeholder="Type your note..."
               />
-              <div style={{display: 'flex', gap: 4, marginTop: 8}}>
-                {COLORS.map(c => (
+              <div style={{display: 'flex', gap: 4, marginTop: 8}} role="group" aria-label="Change note color">
+                {COLORS.map((c, i) => (
                   <button
                     key={c}
                     onClick={() => handleEditColor(c)}
+                    aria-label={`Color ${i + 1}${(elements[editing]?.color || '#fef3c7') === c ? ' (current)' : ''}`}
+                    aria-pressed={(elements[editing]?.color || '#fef3c7') === c}
                     style={{
                       width: 18, height: 18, borderRadius: '50%', padding: 0, cursor: 'pointer',
                       border: (elements[editing]?.color || '#fef3c7') === c ? '2px solid #3b82f6' : '1px solid #ccc',

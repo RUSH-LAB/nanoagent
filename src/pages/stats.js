@@ -162,11 +162,13 @@ function StatsDashboard() {
   // ── Render ──────────────────────────────────────────────────────
 
   return (
-    <div style={{ maxWidth: '960px', margin: '0 auto', padding: '1.5rem 1rem' }}>
+    <div style={{ maxWidth: '960px', margin: '0 auto', padding: '1.5rem 1rem' }} role="main" aria-label="Content statistics dashboard">
       <h1>Content Statistics</h1>
 
       {/* ── 1. Overview Cards ─────────────────────────────────────── */}
       <div
+        role="region"
+        aria-label="Overview statistics"
         style={{
           display: 'flex',
           gap: '1rem',
@@ -189,7 +191,7 @@ function StatsDashboard() {
 
       {/* ── 2. Content by Section (bar chart) ─────────────────────── */}
       {sections.length > 0 && (
-        <div style={sectionStyle}>
+        <div style={sectionStyle} role="region" aria-label="Content by section">
           <h2>Content by Section</h2>
           <div>
             {sections.map((s, i) => {

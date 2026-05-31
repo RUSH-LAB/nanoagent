@@ -156,7 +156,7 @@ function ContentTimeline() {
       </div>
 
       {/* Timeline */}
-      <div style={{ position: 'relative' }}>
+      <div style={{ position: 'relative' }} role="feed" aria-label="Content timeline">
         {dayGroups.map((group, gi) => {
           const dateLabel = formatDate(group.day);
           return (
@@ -235,6 +235,7 @@ function ContentTimeline() {
                       {/* Card */}
                       <a
                         href={`/editor?file=${encodeURIComponent(filePath)}`}
+                        aria-label={`Edit ${fileName}${wordCount > 0 ? `, ${wordCount.toLocaleString()} words` : ''}`}
                         style={{
                           display: 'block',
                           padding: '12px 16px',

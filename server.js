@@ -1,3 +1,4 @@
+const _startupTime = process.hrtime.bigint();
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -10332,6 +10333,20 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
     }
   }
 
+  // ── Debug: list all registered route patterns ──
+  if (req.method === 'GET' && pathname === '/api/debug/routes') {
+    return json(res, 200, {
+      totalHandlers: _routeDiagnostics.totalHandlers,
+      uniqueRoutes: _routeDiagnostics.uniqueRoutes,
+      duplicateCount: _routeDiagnostics.duplicateCount,
+      deadCodeLines: _routeDiagnostics.deadCodeLines,
+      startupMs: _routeDiagnostics.startupMs,
+      memoryAtStartupMB: _routeDiagnostics.memoryAtStartupMB,
+      routes: _routeDiagnostics.routes,
+      duplicates: _routeDiagnostics.duplicates,
+    });
+  }
+
   json(res, 404, {error: 'Not found', path: pathname, hint: 'GET /api/health for server status'});
   // ── Glossary: list all terms (sorted alphabetically) ──
   if (req.method === 'GET' && pathname === '/api/glossary') {
@@ -10430,13 +10445,81 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
     }
   }
 
+
 });
 
+// ── Route diagnostics: scan the server source to report handler stats ──
+const _routeDiagnostics = (function analyzeRoutes() {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf-8');
+  const lines = src.split('\n');
+  const handlerRe = /req\.method === '([A-Z]+)' && pathname === '(\/api\/[^']+)'/;
+  const anyRe = /pathname === '(\/api\/[^']+)'/;
+
+  const handlers = []; // {line, method, path}
+  for (let i = 0; i < lines.length; i++) {
+    const m1 = handlerRe.exec(lines[i]);
+    if (m1) {
+      handlers.push({line: i + 1, method: m1[1], path: m1[2]});
+    } else if (lines[i].includes("pathname === '") && lines[i].includes('/api/')) {
+      const m2 = anyRe.exec(lines[i]);
+      if (m2) handlers.push({line: i + 1, method: 'ANY', path: m2[1]});
+    }
+  }
+
+  const seen = {};
+  const duplicates = [];
+  for (const h of handlers) {
+    const key = `${h.method} ${h.path}`;
+    if (seen[key]) {
+      duplicates.push({route: key, firstLine: seen[key], duplicateLine: h.line});
+    } else {
+      seen[key] = h.line;
+    }
+  }
+
+  // Estimate dead code lines per duplicate (span until next handler)
+  const handlerLines = handlers.map(h => h.line);
+  let deadCodeLines = 0;
+  for (const dup of duplicates) {
+    const idx = handlerLines.indexOf(dup.duplicateLine);
+    const nextHandler = idx < handlerLines.length - 1 ? handlerLines[idx + 1] : lines.length;
+    deadCodeLines += nextHandler - dup.duplicateLine;
+  }
+
+  const uniquePaths = new Set(handlers.map(h => h.path));
+
+  return {
+    totalHandlers: handlers.length,
+    uniqueRoutes: Object.keys(seen).length,
+    uniquePaths: uniquePaths.size,
+    duplicateCount: duplicates.length,
+    deadCodeLines,
+    startupMs: null, // filled in on listen
+    memoryAtStartupMB: null,
+    routes: Object.keys(seen).sort(),
+    duplicates,
+  };
+})();
+
 server.listen(PORT, () => {
-  const endpoints = 98;
+  const startupNs = process.hrtime.bigint() - _startupTime;
+  const startupMs = Number(startupNs / 1_000_000n);
+  const memMB = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
+  _routeDiagnostics.startupMs = startupMs;
+  _routeDiagnostics.memoryAtStartupMB = parseFloat(memMB);
+
   console.log(`\n  Mochi Lab Editor API`);
   console.log(`  http://localhost:${PORT}`);
-  console.log(`  ${endpoints} endpoints | Rate limited | Request logged\n`);
+  console.log(`  Startup: ${startupMs}ms | Heap: ${memMB} MB`);
+  console.log(`  Handlers: ${_routeDiagnostics.totalHandlers} total, ${_routeDiagnostics.uniqueRoutes} unique routes, ${_routeDiagnostics.uniquePaths} unique paths`);
+  console.log(`  Duplicates: ${_routeDiagnostics.duplicateCount} duplicate handlers (${_routeDiagnostics.deadCodeLines} lines of dead code)`);
+  if (_routeDiagnostics.duplicates.length > 0) {
+    console.log(`  Duplicate details:`);
+    for (const d of _routeDiagnostics.duplicates) {
+      console.log(`    ${d.route}: line ${d.firstLine} (active) -> line ${d.duplicateLine} (dead)`);
+    }
+  }
+  console.log(`  Debug endpoint: GET /api/debug/routes\n`);
 });
 
 process.on('SIGINT', () => {

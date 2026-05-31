@@ -81,6 +81,7 @@ const PAGES = [
   ['/flashcards',     'Flashcards',      ['Flashcard', 'card']],
   ['/tasks',          'Tasks',           ['Task', 'Kanban']],
   ['/glossary',       'Glossary',        ['Glossary', 'term']],
+  ['/timeline',       'Timeline',        ['Timeline', 'timeline']],
 ];
 
 // ── Preflight connectivity check ──

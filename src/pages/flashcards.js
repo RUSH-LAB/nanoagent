@@ -161,7 +161,7 @@ function FlashcardsApp() {
   }
 
   return (
-    <div style={{maxWidth: 900, margin: '0 auto', padding: '2rem 1rem'}}>
+    <div style={{maxWidth: 900, margin: '0 auto', padding: '2rem 1rem'}} role="main" aria-label="Flashcards application">
       {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -178,7 +178,7 @@ function FlashcardsApp() {
       {/* Stats bar */}
       <div style={{
         display: 'flex', gap: 16, marginBottom: '1.5rem', flexWrap: 'wrap',
-      }}>
+      }} role="region" aria-label="Study statistics">
         <div style={{
           padding: '12px 20px', borderRadius: 10,
           background: 'var(--ifm-color-emphasis-100)',
@@ -213,10 +213,13 @@ function FlashcardsApp() {
         border: '1px solid var(--ifm-color-emphasis-200)',
         background: 'var(--ifm-color-emphasis-100)',
         padding: 4,
-      }}>
+      }} role="tablist" aria-label="Flashcard modes">
         {Object.entries(MODES).map(([key, label]) => (
           <button
             key={key}
+            role="tab"
+            aria-selected={mode === key}
+            aria-controls={`flashcard-panel-${key}`}
             onClick={() => key === 'review' ? startReview() : setMode(key)}
             style={{
               flex: 1, padding: '10px 16px',
@@ -251,8 +254,8 @@ function FlashcardsApp() {
           color: 'var(--ifm-color-danger-dark)',
           fontSize: '0.9em',
         }}>
-          {error}
-          <button onClick={() => setError(null)} style={{
+          <span role="alert">{error}</span>
+          <button onClick={() => setError(null)} aria-label="Dismiss error" style={{
             float: 'right', background: 'none', border: 'none',
             cursor: 'pointer', color: 'var(--ifm-color-danger-dark)',
             fontSize: '1.1em', lineHeight: 1,
@@ -262,7 +265,7 @@ function FlashcardsApp() {
 
       {/* ── Browse Mode ── */}
       {mode === 'browse' && (
-        <div>
+        <div id="flashcard-panel-browse" role="tabpanel" aria-label="Browse flashcards">
           {/* Tag filter */}
           {allTags.length > 0 && (
             <div style={{marginBottom: '1rem', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center'}}>
@@ -321,6 +324,7 @@ function FlashcardsApp() {
                   <button
                     onClick={() => handleDelete(card.id)}
                     title="Delete card"
+                    aria-label={`Delete card: ${card.front}`}
                     style={{
                       position: 'absolute', top: 8, right: 10,
                       background: 'none', border: 'none', cursor: 'pointer',
@@ -371,7 +375,7 @@ function FlashcardsApp() {
 
       {/* ── Create Mode ── */}
       {mode === 'create' && (
-        <form onSubmit={handleCreate} style={{
+        <form onSubmit={handleCreate} id="flashcard-panel-create" role="tabpanel" aria-label="Create flashcard" style={{
           maxWidth: 600, margin: '0 auto',
           padding: '1.5rem',
           borderRadius: 12,
@@ -470,7 +474,7 @@ function FlashcardsApp() {
 
       {/* ── Review Mode ── */}
       {mode === 'review' && (
-        <div style={{maxWidth: 560, margin: '0 auto'}}>
+        <div id="flashcard-panel-review" role="tabpanel" aria-label="Review flashcards" style={{maxWidth: 560, margin: '0 auto'}}>
           {reviewLoading && reviewCards.length === 0 ? (
             <div style={{textAlign: 'center', padding: '3rem', color: 'var(--ifm-color-emphasis-500)'}}>
               Loading review cards...
@@ -515,7 +519,7 @@ function FlashcardsApp() {
               </div>
 
               {/* Progress bar */}
-              <div style={{
+              <div role="progressbar" aria-valuenow={reviewIndex} aria-valuemin={0} aria-valuemax={reviewCards.length} aria-label={`Review progress: ${reviewIndex} of ${reviewCards.length} cards`} style={{
                 height: 4, borderRadius: 2, background: 'var(--ifm-color-emphasis-200)',
                 marginBottom: 20, overflow: 'hidden',
               }}>
@@ -530,6 +534,11 @@ function FlashcardsApp() {
               {/* Card with flip animation */}
               <div
                 onClick={() => setFlipped(!flipped)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFlipped(!flipped); } }}
+                role="button"
+                tabIndex={0}
+                aria-label={flipped ? 'Flashcard showing answer. Press to show question.' : 'Flashcard showing question. Press to reveal answer.'}
+                aria-live="polite"
                 style={{
                   perspective: '1000px',
                   cursor: 'pointer',
@@ -610,7 +619,7 @@ function FlashcardsApp() {
 
               {/* Rating buttons - only show when flipped */}
               {flipped && (
-                <div style={{
+                <div role="group" aria-label="Rate your recall" style={{
                   display: 'flex', gap: 8, justifyContent: 'center',
                   flexWrap: 'wrap',
                 }}>

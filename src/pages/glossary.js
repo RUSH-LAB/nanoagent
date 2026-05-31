@@ -55,7 +55,7 @@ function CategoryBadge({ category, onClick, active }) {
 
 function LetterNav({ letters, activeLetter }) {
   return (
-    <div style={{
+    <nav aria-label="Alphabetical navigation" style={{
       display: 'flex',
       gap: '4px',
       flexWrap: 'wrap',
@@ -66,6 +66,7 @@ function LetterNav({ letters, activeLetter }) {
       {letters.map(letter => (
         <button
           key={letter}
+          aria-label={`Jump to letter ${letter}`}
           onClick={() => {
             const el = document.getElementById(`glossary-letter-${letter}`);
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -96,7 +97,7 @@ function LetterNav({ letters, activeLetter }) {
           {letter}
         </button>
       ))}
-    </div>
+    </nav>
   );
 }
 
@@ -287,6 +288,11 @@ function TermEntry({ entry, expanded, onToggle, onEdit, onDelete, onCategoryClic
     }}>
       <div
         onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        aria-label={`${entry.term}${entry.category ? `, category: ${entry.category}` : ''}`}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -656,8 +662,9 @@ function GlossaryContent() {
         alignItems: 'center',
       }}>
         <input
-          type="text"
+          type="search"
           placeholder="Search terms, definitions..."
+          aria-label="Search glossary terms"
           value={search}
           onChange={e => setSearch(e.target.value)}
           style={{
@@ -675,6 +682,7 @@ function GlossaryContent() {
             {categoryFilter && (
               <button
                 onClick={() => setCategoryFilter('')}
+                aria-label="Clear category filter, show all terms"
                 style={{
                   padding: '2px 10px',
                   borderRadius: '12px',
@@ -759,7 +767,7 @@ function GlossaryContent() {
 
       {/* Showing count */}
       {filtered.length > 0 && filtered.length !== terms.length && (
-        <p style={{
+        <p aria-live="polite" style={{
           fontSize: '0.85em',
           color: 'var(--ifm-color-emphasis-500)',
           textAlign: 'center',

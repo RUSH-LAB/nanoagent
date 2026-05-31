@@ -172,6 +172,7 @@ function CompareView() {
         <select
           value={leftPath}
           onChange={(e) => setLeftPath(e.target.value)}
+          aria-label="Select left file for comparison"
           style={selectStyle}
         >
           <option value="">-- Select left file --</option>
@@ -182,6 +183,7 @@ function CompareView() {
         <select
           value={rightPath}
           onChange={(e) => setRightPath(e.target.value)}
+          aria-label="Select right file for comparison"
           style={selectStyle}
         >
           <option value="">-- Select right file --</option>
@@ -192,7 +194,7 @@ function CompareView() {
       </div>
 
       {error && (
-        <p style={{ color: '#e74c3c', padding: '0.5rem 0' }}>{error}</p>
+        <p role="alert" style={{ color: '#e74c3c', padding: '0.5rem 0' }}>{error}</p>
       )}
 
       {loading && (
@@ -202,6 +204,8 @@ function CompareView() {
       {/* Stats bar */}
       {stats && !loading && (
         <div
+          role="region"
+          aria-label="Comparison statistics"
           style={{
             display: 'flex',
             gap: '1.5rem',
@@ -230,6 +234,8 @@ function CompareView() {
       {/* Side-by-side diff */}
       {diff && !loading && (
         <div
+          role="region"
+          aria-label="Side-by-side file diff"
           style={{
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
