@@ -1,7 +1,7 @@
 import React, {useState, useEffect} from 'react';
+import API_BASE from '../../utils/api';
 
-const EDITOR_PORT = 3001;
-const API = `http://localhost:${EDITOR_PORT}`;
+const API = API_BASE;
 
 export default function BookmarkButton({pagePath, pageTitle}) {
   const [bookmarked, setBookmarked] = useState(false);
