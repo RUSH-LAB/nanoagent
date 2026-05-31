@@ -32,6 +32,7 @@ const FLASHCARDS_FILE = path.join(PROJECT_ROOT, 'data', 'flashcards.json');
 const GLOSSARY_FILE = path.join(PROJECT_ROOT, 'data', 'glossary.json');
 const TASKS_FILE = path.join(PROJECT_ROOT, 'data', 'tasks.json');
 const GOALS_FILE = path.join(PROJECT_ROOT, 'data', 'goals.json');
+const TARGETS_FILE = path.join(PROJECT_ROOT, 'data', 'targets.json');
 const TRASH_DIR = path.join(PROJECT_ROOT, '.trash');
 
 // ── Access log file setup ──
@@ -438,6 +439,17 @@ function formatCitation(entry, style, key, index) {
   return title;
 }
 
+// ── Performance metrics: in-memory response time tracking (last 100 per endpoint) ──
+const perfMetrics = {}; // { '/api/foo': [ms, ms, ...] }
+const PERF_MAX_ENTRIES = 100;
+
+function recordPerfMetric(endpoint, ms) {
+  if (!perfMetrics[endpoint]) perfMetrics[endpoint] = [];
+  const arr = perfMetrics[endpoint];
+  arr.push(ms);
+  if (arr.length > PERF_MAX_ENTRIES) arr.shift();
+}
+
 let requestCounter = 0;
 const server = http.createServer(async (req, res) => {
   req.setTimeout(30000);
@@ -450,6 +462,11 @@ const server = http.createServer(async (req, res) => {
       console.log(`[${reqId}] ${req.method} ${req.url} ${res.statusCode} ${ms}ms`);
       const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '-';
       appendAccessLog(`${new Date().toISOString()} | ${req.method} | ${req.url} | ${res.statusCode} | ${ms} | ${ip}`);
+      // Record response time for perf tracking
+      try {
+        const ep = (new URL(req.url, 'http://localhost')).pathname;
+        if (ep.startsWith('/api/')) recordPerfMetric(`${req.method} ${ep}`, ms);
+      } catch { /* ignore malformed URLs */ }
     }
     return origEnd(...args);
   };
@@ -10219,6 +10236,141 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
 
     const allPassed = checks.every(c => c.passed);
     return json(res, 200, {status: allPassed ? 'healthy' : 'issues', checks});
+  }
+
+  // ── Performance metrics endpoint ──
+  if (req.method === 'GET' && pathname === '/api/perf') {
+    const endpoints = Object.entries(perfMetrics)
+      .filter(([, times]) => times.length > 0)
+      .map(([ep, times]) => {
+        const sorted = [...times].sort((a, b) => a - b);
+        const sum = sorted.reduce((s, v) => s + v, 0);
+        const avgMs = Math.round((sum / sorted.length) * 100) / 100;
+        const maxMs = sorted[sorted.length - 1];
+        const p95Idx = Math.min(Math.ceil(sorted.length * 0.95) - 1, sorted.length - 1);
+        const p95Ms = sorted[p95Idx];
+        return {path: ep, avgMs, maxMs, count: sorted.length, p95Ms};
+      })
+      .sort((a, b) => b.avgMs - a.avgMs);
+    return json(res, 200, {endpoints});
+  }
+
+  // ── Word count target per file ──
+  if (req.method === 'POST' && pathname === '/api/file/target') {
+    if (!rateLimit(`file-target:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    try {
+      const body = await readBody(req);
+      const {path: filePath, targetWords} = body;
+      if (!filePath || typeof filePath !== 'string') return json(res, 400, {error: 'Missing or invalid path'});
+      if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid file path'});
+      if (typeof targetWords !== 'number' || targetWords <= 0) return json(res, 400, {error: 'targetWords must be a positive number'});
+      const data = loadJSON(TARGETS_FILE);
+      data[filePath] = targetWords;
+      saveJSON(TARGETS_FILE, data);
+      return json(res, 200, {success: true, path: filePath, targetWords});
+    } catch {
+      return json(res, 400, {error: 'Invalid request'});
+    }
+  }
+
+  if (req.method === 'GET' && pathname === '/api/file/target') {
+    const filePath = url.searchParams.get('path');
+    if (!filePath) return json(res, 400, {error: 'Missing path query parameter'});
+    if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid file path'});
+    const fullPath = path.join(PROJECT_ROOT, filePath);
+    if (!fs.existsSync(fullPath)) return json(res, 404, {error: 'File not found'});
+    const data = loadJSON(TARGETS_FILE);
+    const target = data[filePath];
+    if (!target) return json(res, 404, {error: 'No target set for this file'});
+    const content = fs.readFileSync(fullPath, 'utf-8');
+    const current = content.split(/\s+/).filter(Boolean).length;
+    const progress = Math.min(1, current / target);
+    return json(res, 200, {target, current, progress: Math.round(progress * 1000) / 1000});
+  }
+
+  // ── Content calendar (publishing planner) ──
+  if (req.method === 'GET' && pathname === '/api/calendar') {
+    try {
+      const calendar = cached('calendar', 60000, () => {
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const byMonth = {};
+
+        function scan(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scan(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            try {
+              const content = fs.readFileSync(fp, 'utf-8');
+              const fm = content.match(/^---\n([\s\S]*?)\n---/);
+              let date = null;
+              let title = entry.name.replace(/\.(mdx?|md)$/, '');
+              let draft = false;
+              if (fm) {
+                const dm = fm[1].match(/^date:\s*["']?(\d{4}-\d{2}-\d{2})["']?\s*$/m);
+                if (dm) date = dm[1];
+                const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+                if (tm) title = tm[1];
+                const dfm = fm[1].match(/^draft:\s*(true|yes)\s*$/mi);
+                if (dfm) draft = true;
+              }
+              if (!date) {
+                const stat = fs.statSync(fp);
+                date = stat.mtime.toISOString().slice(0, 10);
+              }
+              const body = content.replace(/^---\n[\s\S]*?\n---\n?/, '');
+              const wordCount = body.split(/\s+/).filter(Boolean).length;
+              const month = date.slice(0, 7);
+              if (!byMonth[month]) byMonth[month] = [];
+              byMonth[month].push({
+                path: path.relative(PROJECT_ROOT, fp),
+                title,
+                date,
+                wordCount,
+                draft,
+              });
+            } catch {}
+          }
+        }
+        scan(contentDir);
+
+        // Include scheduled publications from data/schedules.json
+        const schedulesPath = path.join(PROJECT_ROOT, 'data', 'schedules.json');
+        if (fs.existsSync(schedulesPath)) {
+          try {
+            const schedData = JSON.parse(fs.readFileSync(schedulesPath, 'utf-8'));
+            const items = Array.isArray(schedData) ? schedData : (schedData.items || []);
+            for (const item of items) {
+              if (!item.publishAt) continue;
+              const pubDate = item.publishAt.slice(0, 10);
+              const month = pubDate.slice(0, 7);
+              if (!byMonth[month]) byMonth[month] = [];
+              byMonth[month].push({
+                path: item.path || '',
+                title: item.note || item.path || 'Scheduled',
+                date: pubDate,
+                wordCount: 0,
+                draft: false,
+                scheduled: true,
+                status: item.status || 'scheduled',
+              });
+            }
+          } catch {}
+        }
+
+        // Sort months and files within each month
+        return Object.entries(byMonth)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([month, files]) => ({
+            month,
+            files: files.sort((a, b) => a.date.localeCompare(b.date)),
+          }));
+      });
+      return json(res, 200, {months: calendar});
+    } catch {
+      return json(res, 500, {error: 'Calendar generation failed'});
+    }
   }
 
   json(res, 404, {error: 'Not found', path: pathname, hint: 'GET /api/health for server status'});
