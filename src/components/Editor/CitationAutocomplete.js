@@ -1,4 +1,4 @@
-import React, {useState, useEffect, useRef, useCallback} from 'react';
+import React, {useState, useEffect, useRef, useCallback, useMemo} from 'react';
 import styles from './CitationAutocomplete.module.css';
 import API_BASE from '@site/src/utils/api';
 const S2_API = 'https://api.semanticscholar.org/graph/v1/paper/search';
@@ -144,7 +144,7 @@ export default function CitationAutocomplete({editor, visible, onClose, cursorCo
     setSelectedIndex(0);
   }, [localResults, remoteResults]);
 
-  const allResults = [...localResults, ...remoteResults];
+  const allResults = useMemo(() => [...localResults, ...remoteResults], [localResults, remoteResults]);
 
   // Scroll selected item into view
   useEffect(() => {

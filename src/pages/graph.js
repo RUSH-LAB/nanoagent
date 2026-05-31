@@ -157,24 +157,26 @@ function GraphVisualization() {
 
   // Fetch graph data
   useEffect(() => {
+    const controller = new AbortController();
     async function fetchGraph() {
       setLoading(true);
       setError(null);
       try {
-        const resp = await fetch(`${API_BASE}/api/graph`);
+        const resp = await fetch(`${API_BASE}/api/graph`, { signal: controller.signal });
         if (!resp.ok) {
           const data = await resp.json().catch(() => ({}));
           throw new Error(data.error || `HTTP ${resp.status}`);
         }
         const data = await resp.json();
-        setGraphData(data);
+        if (!controller.signal.aborted) setGraphData(data);
       } catch (err) {
-        setError(err.message);
+        if (!controller.signal.aborted) setError(err.message);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
     fetchGraph();
+    return () => controller.abort();
   }, []);
 
   // Compute layout once data is available

@@ -49,6 +49,11 @@
   background: var(--ifm-color-primary-dark);
 }
 
+.newChannelBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+}
+
 .channelList {
   list-style: none;
   padding: 0.5rem 0;
@@ -66,6 +71,11 @@
 
 .channelItem:hover {
   background: var(--ifm-color-emphasis-100);
+}
+
+.channelItem:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
 }
 
 .channelItemActive {
@@ -348,6 +358,11 @@
   color: var(--ifm-color-danger);
 }
 
+.unpinBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 1px;
+}
+
 /* ── Pin button on messages ──────────────────────────────────────────── */
 
 .pinBtn {
@@ -371,6 +386,12 @@
 .pinBtn:hover {
   opacity: 1 !important;
   background: var(--ifm-color-emphasis-200);
+}
+
+.pinBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+  opacity: 1;
 }
 
 .messageActions {
@@ -402,6 +423,12 @@
   opacity: 1 !important;
   background: var(--ifm-color-danger-contrast-background);
   color: var(--ifm-color-danger-dark);
+}
+
+.deleteMessageBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+  opacity: 1;
 }
 
 .editArea {
@@ -442,6 +469,12 @@
   cursor: pointer;
   font-size: 0.78rem;
   font-family: inherit;
+}
+
+.editSaveBtn:focus-visible,
+.editCancelBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
 }
 
 .editedTag {
@@ -519,6 +552,11 @@
 .sendBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.sendBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
 }
 
 /* ── New channel modal ─────────────────────────────────────────────────── */
@@ -601,6 +639,12 @@
 
 .modalCancelBtn:hover {
   background: var(--ifm-color-emphasis-100);
+}
+
+.modalCancelBtn:focus-visible,
+.modalSubmitBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
 }
 
 .modalSubmitBtn {

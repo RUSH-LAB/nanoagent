@@ -21,63 +21,50 @@ function AnalyticsDashboard() {
   const [writingHeatmapFiles, setWritingHeatmapFiles] = useState(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/files/recent?limit=50`)
-      .then(r => r.json())
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    const fetchJSON = (url) =>
+      fetch(`${API_BASE}${url}`, { signal }).then((r) => r.json());
+
+    // Fire all fetches in parallel, each updating its own state slice
+    fetchJSON('/api/files/recent?limit=50')
       .then(d => setWritingHeatmapFiles(d.files || []))
-      .catch(() => setWritingHeatmapFiles([]));
-  }, []);
+      .catch((err) => { if (!signal.aborted) setWritingHeatmapFiles([]); });
 
-  useEffect(() => {
-    fetch(`${API_BASE}/api/activity-heatmap?days=180`)
-      .then(r => r.json())
+    fetchJSON('/api/activity-heatmap?days=180')
       .then(d => setHeatmap(d.days || {}))
-      .catch(() => setHeatmap(null));
-  }, []);
+      .catch((err) => { if (!signal.aborted) setHeatmap(null); });
 
-  useEffect(() => {
-    fetch(`${API_BASE}/api/analytics`)
-      .then((r) => r.json())
-      .then((d) => {
-        setData(d);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message);
-        setLoading(false);
-      });
-  }, []);
+    fetchJSON('/api/analytics')
+      .then((d) => { setData(d); setLoading(false); })
+      .catch((err) => { if (!signal.aborted) { setError(err.message); setLoading(false); } });
 
-  useEffect(() => {
-    fetch(`${API_BASE}/api/streak?userId=default`)
-      .then(r => r.json())
+    fetchJSON('/api/streak?userId=default')
       .then(d => setStreak(d))
-      .catch(() => setStreak(null));
-  }, []);
+      .catch((err) => { if (!signal.aborted) setStreak(null); });
 
-  useEffect(() => {
-    fetch(`${API_BASE}/api/files/recent?limit=8&includeStats=true`)
-      .then(r => r.json())
+    fetchJSON('/api/files/recent?limit=8&includeStats=true')
       .then(d => setRecentFiles(d.files || []))
-      .catch(() => setRecentFiles([]));
-  }, []);
+      .catch((err) => { if (!signal.aborted) setRecentFiles([]); });
 
-  useEffect(() => {
-    fetch(`${API_BASE}/api/analytics/topics`)
-      .then((r) => r.json())
+    fetchJSON('/api/analytics/topics')
       .then((d) => setTopics(d.topics || []))
-      .catch(() => setTopics([]));
-    fetch(`${API_BASE}/api/stats`)
-      .then((r) => r.json())
+      .catch((err) => { if (!signal.aborted) setTopics([]); });
+
+    fetchJSON('/api/stats')
       .then((d) => setStats(d))
-      .catch(() => setStats(null));
-    fetch(`${API_BASE}/api/analytics/duplicates`)
-      .then((r) => r.json())
+      .catch((err) => { if (!signal.aborted) setStats(null); });
+
+    fetchJSON('/api/analytics/duplicates')
       .then((d) => setDuplicates(d.duplicates || []))
-      .catch(() => setDuplicates([]));
-    fetch(`${API_BASE}/api/analytics/orphans`)
-      .then((r) => r.json())
+      .catch((err) => { if (!signal.aborted) setDuplicates([]); });
+
+    fetchJSON('/api/analytics/orphans')
       .then((d) => setOrphans(d.orphans || []))
-      .catch(() => setOrphans([]));
+      .catch((err) => { if (!signal.aborted) setOrphans([]); });
+
+    return () => controller.abort();
   }, []);
 
   if (loading) {

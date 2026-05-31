@@ -1,6 +1,7 @@
 import React from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import ErrorBoundary from '@site/src/components/ErrorBoundary';
 
 const COLORS = ['#fef3c7', '#dbeafe', '#dcfce7', '#fce7f3', '#e0e7ff', '#fef9c3', '#fed7aa', '#d1fae5'];
 
@@ -20,6 +21,7 @@ function WhiteboardApp() {
   const [loading, setLoading] = useState(true);
   const [newBoardName, setNewBoardName] = useState('');
   const [selectedColor, setSelectedColor] = useState(COLORS[0]);
+  const [error, setError] = useState(null);
 
   const loadBoard = useCallback(async (id) => {
     setLoading(true);
@@ -254,8 +256,8 @@ function WhiteboardApp() {
       });
       setDirty(false);
       loadBoards();
-    } catch {
-      alert('Failed to save');
+    } catch (err) {
+      setError('Failed to save whiteboard: ' + (err.message || 'Unknown error'));
     }
     setSaving(false);
   }
@@ -267,8 +269,8 @@ function WhiteboardApp() {
       setElements([]);
       setDirty(false);
       loadBoards();
-    } catch {
-      alert('Failed to delete');
+    } catch (err) {
+      setError('Failed to delete whiteboard: ' + (err.message || 'Unknown error'));
     }
   }
 
@@ -364,6 +366,21 @@ function WhiteboardApp() {
           </button>
         </div>
       </div>
+
+      {/* Error display */}
+      {error && (
+        <div role="alert" style={{
+          padding: '8px 16px', background: '#fef2f2', border: '1px solid #fca5a5',
+          color: '#991b1b', fontSize: 13, display: 'flex', alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <span>{error}</span>
+          <button onClick={() => setError(null)} aria-label="Dismiss error" style={{
+            background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b',
+            fontSize: 16, lineHeight: 1, padding: '0 4px',
+          }}>&times;</button>
+        </div>
+      )}
 
       {/* Canvas area */}
       <div style={{flex: 1, position: 'relative', overflow: 'hidden'}}>
@@ -477,7 +494,7 @@ export default function WhiteboardPage() {
   return (
     <Layout title="Whiteboard" description="Collaborative brainstorming whiteboard">
       <BrowserOnly fallback={<div style={{padding: 40, textAlign: 'center'}}>Loading...</div>}>
-        {() => <WhiteboardApp />}
+        {() => <ErrorBoundary><WhiteboardApp /></ErrorBoundary>}
       </BrowserOnly>
     </Layout>
   );

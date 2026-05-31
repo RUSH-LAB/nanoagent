@@ -3,7 +3,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const {URL} = require('url');
-const {execSync, execFileSync} = require('child_process');
+const {execFileSync} = require('child_process');
 const {
   isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors,
   mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH,
@@ -265,7 +265,8 @@ setInterval(() => {
 // ── Scheduled publishing checker (runs every 60s) ──
 setInterval(() => {
   try {
-    const schedules = Array.isArray(loadJSON(SCHEDULES_FILE)) ? loadJSON(SCHEDULES_FILE) : [];
+    const loaded = loadJSON(SCHEDULES_FILE);
+    const schedules = Array.isArray(loaded) ? loaded : [];
     if (schedules.length === 0) return;
     const now = new Date();
     const remaining = [];
@@ -689,6 +690,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const {page, author, text, parentId, userId} = body;
       if (!page || !text) return json(res, 400, {error: 'Missing page or text'});
+      if (['__proto__', 'constructor', 'prototype'].includes(page)) return json(res, 400, {error: 'Invalid page'});
       const comments = loadJSON(COMMENTS_FILE);
       if (!comments[page]) comments[page] = [];
       const comment = {
@@ -789,6 +791,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const {userId, startTime, endTime, wordsWritten, filesEdited} = body;
       if (!userId || !startTime) return json(res, 400, {error: 'Missing userId or startTime'});
+      if (['__proto__', 'constructor', 'prototype'].includes(userId)) return json(res, 400, {error: 'Invalid userId'});
       const SESSIONS_FILE = path.join(PROJECT_ROOT, 'data', 'sessions.json');
       const sessions = loadJSON(SESSIONS_FILE);
       if (!sessions[userId]) sessions[userId] = [];
@@ -904,11 +907,14 @@ const server = http.createServer(async (req, res) => {
 <title>Mochi Lab</title>
 <description>Recent content updates from Mochi Lab</description>
 <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
-${recent.map(item => `<item>
-<title>${item.title.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</title>
-<link>/${item.path.replace(/^content\//, '').replace(/\.(md|mdx)$/, '')}</link>
+${recent.map(item => {
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<item>
+<title>${esc(item.title)}</title>
+<link>/${esc(item.path.replace(/^content\//, '').replace(/\.(md|mdx)$/, ''))}</link>
 <pubDate>${new Date(item.date).toUTCString()}</pubDate>
-</item>`).join('\n')}
+</item>`;
+}).join('\n')}
 </channel>
 </rss>`;
       res.writeHead(200, {
@@ -1398,18 +1404,21 @@ ${recent.map(item => `<entry>
 
   // ── References: add entry ──
   if (req.method === 'POST' && pathname === '/api/references') {
+    if (!rateLimit(`add-ref:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const yaml = require('js-yaml');
       const body = await readBody(req);
       const {key, entry} = body;
       if (!key || !entry) return json(res, 400, {error: 'Missing key or entry'});
+      if (typeof key !== 'string' || key.length > 200) return json(res, 400, {error: 'Invalid key'});
+      if (typeof entry !== 'object') return json(res, 400, {error: 'Invalid entry'});
       const bibPath = path.join(PROJECT_ROOT, 'references.yaml');
       const refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
       if (refs[key]) return json(res, 409, {error: 'Key already exists'});
       refs[key] = entry;
       fs.writeFileSync(bibPath, yaml.dump(refs, {lineWidth: -1}), 'utf-8');
       invalidateCache('stats');
-      return json(res, 200, {success: true});
+      return json(res, 201, {success: true});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
     }
@@ -1417,6 +1426,7 @@ ${recent.map(item => `<entry>
 
   // ── Draft toggle ──
   if (req.method === 'POST' && pathname === '/api/file/draft') {
+    if (!rateLimit(`file-draft:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {path: filePath, draft} = body;
@@ -1664,6 +1674,7 @@ ${recent.map(item => `<entry>
 
   // ── References: enrich (POST - apply enriched data to references.yaml) ──
   if (req.method === 'POST' && pathname === '/api/references/enrich') {
+    if (!rateLimit(`enrich-ref:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const yaml = require('js-yaml');
       const body = await readBody(req);
@@ -1692,10 +1703,12 @@ ${recent.map(item => `<entry>
 
   // ── Analytics: record pageview ──
   if (req.method === 'POST' && pathname === '/api/analytics/pageview') {
+    if (!rateLimit(`pageview:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {path: pagePath, referrer, userAgent} = body;
       if (!pagePath || typeof pagePath !== 'string') return json(res, 400, {error: 'Missing path'});
+      if (pagePath.length > 500) return json(res, 400, {error: 'Path too long'});
       const analytics = loadJSON(ANALYTICS_FILE);
       if (!analytics.counts) analytics.counts = {};
       if (!analytics.recent) analytics.recent = [];
@@ -1743,6 +1756,7 @@ ${recent.map(item => `<entry>
 
   // ── Users: set role ──
   if (req.method === 'PUT' && /^\/api\/users\/[^/]+\/role$/.test(pathname)) {
+    if (!rateLimit(`set-role:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
       const userId = parts[3]; // /api/users/:id/role
@@ -1772,14 +1786,17 @@ ${recent.map(item => `<entry>
 
   // ── Presence: update own presence ──
   if (req.method === 'POST' && pathname === '/api/presence') {
+    if (!rateLimit(`presence:${req.socket.remoteAddress}`, 120)) return json(res, 429, {error: 'Too many presence updates. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {filePath: presencePath, userId, userName, cursor} = body;
       if (!presencePath || !userId) return json(res, 400, {error: 'Missing filePath or userId'});
+      if (typeof presencePath !== 'string' || typeof userId !== 'string') return json(res, 400, {error: 'filePath and userId must be strings'});
+      if (presencePath.length > 500 || userId.length > 100) return json(res, 400, {error: 'filePath or userId too long'});
       if (!presenceStore[presencePath]) presenceStore[presencePath] = {};
       presenceStore[presencePath][userId] = {
-        userId,
-        userName: userName || 'Anonymous',
+        userId: sanitizeText(userId),
+        userName: sanitizeText(userName) || 'Anonymous',
         cursor: cursor || null,
         lastSeen: Date.now(),
       };
@@ -1815,24 +1832,27 @@ ${recent.map(item => `<entry>
 
   // ── Discussions: create channel ──
   if (req.method === 'POST' && pathname === '/api/discussions') {
+    if (!rateLimit(`disc-create:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {name, topic, linkedPage} = body;
-      if (!name) return json(res, 400, {error: 'Missing channel name'});
+      if (!name || typeof name !== 'string') return json(res, 400, {error: 'Missing or invalid channel name'});
+      if (name.length > 100) return json(res, 400, {error: 'Channel name too long (max 100 characters)'});
       const data = loadJSON(DISCUSSIONS_FILE);
       if (!data.channels) data.channels = {};
       if (!data.messages) data.messages = {};
       const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      if (!id) return json(res, 400, {error: 'Channel name must contain at least one alphanumeric character'});
       if (data.channels[id]) return json(res, 409, {error: 'Channel already exists'});
       data.channels[id] = {
-        name,
-        topic: topic || '',
+        name: sanitizeText(name),
+        topic: sanitizeText(topic) || '',
         linkedPage: linkedPage || null,
         createdAt: new Date().toISOString(),
       };
       data.messages[id] = [];
       saveJSON(DISCUSSIONS_FILE, data);
-      return json(res, 200, {channel: {id, ...data.channels[id], messageCount: 0}});
+      return json(res, 201, {channel: {id, ...data.channels[id], messageCount: 0}});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
     }
@@ -1893,7 +1913,7 @@ ${recent.map(item => `<entry>
       };
       data.messages[channelId].push(message);
       saveJSON(DISCUSSIONS_FILE, data);
-      return json(res, 200, {message});
+      return json(res, 201, {message});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
     }
@@ -1901,6 +1921,7 @@ ${recent.map(item => `<entry>
 
   // ── Discussions: edit a message in a channel ──
   if (req.method === 'PATCH' && pathname.match(/^\/api\/discussions\/[^/]+\/messages$/)) {
+    if (!rateLimit(`disc-edit:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
       const channelId = decodeURIComponent(parts[3]);
@@ -1927,6 +1948,7 @@ ${recent.map(item => `<entry>
 
   // ── Discussions: delete message from a channel ──
   if (req.method === 'DELETE' && pathname.match(/^\/api\/discussions\/[^/]+\/messages$/)) {
+    if (!rateLimit(`disc-delete:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
       const channelId = decodeURIComponent(parts[3]);
@@ -1952,6 +1974,7 @@ ${recent.map(item => `<entry>
 
   // ── Discussions: delete channel ──
   if (req.method === 'DELETE' && pathname.match(/^\/api\/discussions\/[^/]+$/)) {
+    if (!rateLimit(`disc-del-ch:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
       const channelId = decodeURIComponent(parts[3]);
@@ -2019,6 +2042,7 @@ ${recent.map(item => `<entry>
 
   // ── Preprint tracking: update single reference ──
   if (req.method === 'POST' && pathname === '/api/references/track') {
+    if (!rateLimit(`track-ref:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const yaml = require('js-yaml');
       const body = await readBody(req);
@@ -2260,6 +2284,7 @@ ${recent.map(item => `<entry>
 
   // ── Recommendations: add a recommended paper to bibliography ──
   if (req.method === 'POST' && pathname === '/api/recommendations/add') {
+    if (!rateLimit(`add-rec:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const yaml = require('js-yaml');
       const body = await readBody(req);
@@ -2298,7 +2323,7 @@ ${recent.map(item => `<entry>
       refs[finalKey] = entry;
       fs.writeFileSync(bibPath, yaml.dump(refs, { lineWidth: -1 }), 'utf-8');
 
-      return json(res, 200, { key: finalKey, success: true });
+      return json(res, 201, { key: finalKey, success: true });
     } catch (err) {
       return json(res, 400, { error: 'Invalid request: ' + err.message });
     }
@@ -2699,6 +2724,7 @@ ${recent.map(item => `<entry>
 
   // ── Trash: restore a trashed file ──
   if (req.method === 'POST' && pathname === '/api/trash/restore') {
+    if (!rateLimit(`trash-restore:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {trashPath} = body;
@@ -2730,6 +2756,7 @@ ${recent.map(item => `<entry>
 
   // ── Trash: permanently empty trash ──
   if (req.method === 'DELETE' && pathname === '/api/trash/empty') {
+    if (!rateLimit(`trash-empty:${req.socket.remoteAddress}`, 2)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       if (!fs.existsSync(TRASH_DIR)) return json(res, 200, {success: true, deleted: 0});
       let deleted = 0;
@@ -2827,6 +2854,7 @@ ${recent.map(item => `<entry>
 
   // ── Folder: create ──
   if (req.method === 'POST' && pathname === '/api/folder') {
+    if (!rateLimit(`create-folder:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {path: dirPath} = body;
@@ -2834,7 +2862,7 @@ ${recent.map(item => `<entry>
       const fullPath = path.join(PROJECT_ROOT, dirPath);
       if (fs.existsSync(fullPath)) return json(res, 409, {error: 'Directory already exists'});
       fs.mkdirSync(fullPath, {recursive: true});
-      return json(res, 200, {success: true, path: dirPath});
+      return json(res, 201, {success: true, path: dirPath});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
     }
@@ -2842,6 +2870,7 @@ ${recent.map(item => `<entry>
 
   // ── Folder: delete (empty only) ──
   if (req.method === 'DELETE' && pathname === '/api/folder') {
+    if (!rateLimit(`del-folder:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {path: dirPath} = body;
@@ -2864,6 +2893,7 @@ ${recent.map(item => `<entry>
 
   // ── File: move to a different directory ──
   if (req.method === 'POST' && pathname === '/api/file/move') {
+    if (!rateLimit(`file-move:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {filePath, targetDir} = body;
@@ -2941,6 +2971,7 @@ ${recent.map(item => `<entry>
 
   // ── Bundle export: combine multiple files into one document ──
   if (req.method === 'POST' && pathname === '/api/export/bundle') {
+    if (!rateLimit(`export-bundle:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {paths, format} = body;
@@ -3502,6 +3533,7 @@ ${html.trim()}
 
   // ── Health score history ──
   if (req.method === 'POST' && pathname === '/api/health-history') {
+    if (!rateLimit(`health-history:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {score, details} = body;
@@ -3828,7 +3860,7 @@ ${html.trim()}
           try {
             const content = fs.readFileSync(fp, 'utf-8');
             const lower = content.toLowerCase();
-            if (!lower.includes(query)) return;
+            if (!lower.includes(query)) continue;
             let score = 0;
             const fm = content.match(/^---\n([\s\S]*?)\n---/);
             let title = entry.name.replace(/\.(mdx?|md)$/, '');
@@ -4020,6 +4052,7 @@ ${html.trim()}
       const body = await readBody(req);
       const {sourcePath, targetPath, separator} = body;
       if (!isValidFilePath(sourcePath) || !isValidFilePath(targetPath)) return json(res, 400, {error: 'Invalid paths'});
+      if (sourcePath === targetPath) return json(res, 400, {error: 'Source and target paths must be different'});
       const sourceContent = fs.readFileSync(path.join(PROJECT_ROOT, sourcePath), 'utf-8');
       const targetContent = fs.readFileSync(path.join(PROJECT_ROOT, targetPath), 'utf-8');
       let sourceBody = sourceContent;
@@ -4986,6 +5019,7 @@ ${html.trim()}
 
   // ── Search history tracking ──
   if (req.method === 'POST' && pathname === '/api/search/history') {
+    if (!rateLimit(`search-history:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {query, userId, resultCount} = body;
@@ -6225,7 +6259,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
         term: sanitizeText(term),
         definition: sanitizeText(definition),
         relatedTerms: Array.isArray(relatedTerms) ? relatedTerms.slice(0, 10).map(t => sanitizeText(t)) : [],
-        references: Array.isArray(references) ? references.slice(0, 10) : [],
+        references: Array.isArray(references) ? references.slice(0, 10).map(r => sanitizeText(String(r))) : [],
         createdAt: new Date().toISOString(),
       };
       data.terms.push(entry);
@@ -9012,14 +9046,14 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   }
 
   // ── Flashcards: get cards due for review (SM-2) ──
+  // Uses per-user keyed structure consistent with other flashcard endpoints
   if (req.method === 'GET' && pathname === '/api/flashcards/review') {
+    const userId = url.searchParams.get('userId') || 'default';
+    const today = new Date().toISOString().slice(0, 10);
     const data = loadJSON(FLASHCARDS_FILE);
-    const cards = data.cards || [];
-    const now = new Date();
-    const due = cards
-      .filter(c => new Date(c.nextReview) <= now)
-      .sort((a, b) => new Date(a.nextReview) - new Date(b.nextReview));
-    return json(res, 200, {cards: due, count: due.length});
+    const cards = (data[userId] || []).filter(c => c.nextReview <= today);
+    cards.sort((a, b) => (a.nextReview || '').localeCompare(b.nextReview || ''));
+    return json(res, 200, {cards, count: cards.length});
   }
 
   // ── Mindmap from headings ──

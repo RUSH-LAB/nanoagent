@@ -42,8 +42,11 @@ function StatsDashboard() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
+
     const fetchJSON = (url) =>
-      fetch(`${API_BASE}${url}`).then((r) => {
+      fetch(`${API_BASE}${url}`, { signal }).then((r) => {
         if (!r.ok) throw new Error(`${url} returned ${r.status}`);
         return r.json();
       });
@@ -58,6 +61,7 @@ function StatsDashboard() {
       fetchJSON('/api/files/recent').catch(() => null),
     ])
       .then(([s, r, c, t, o, d, rf]) => {
+        if (signal.aborted) return;
         setStats(s);
         setReferences(r);
         setComments(c);
@@ -68,9 +72,12 @@ function StatsDashboard() {
         setLoading(false);
       })
       .catch((err) => {
+        if (signal.aborted) return;
         setError(err.message);
         setLoading(false);
       });
+
+    return () => controller.abort();
   }, []);
 
   // ── Loading state ───────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
 
 function wordCount(text) {
@@ -36,8 +37,8 @@ function diffLines(linesA, linesB) {
   const n = linesA.length;
   const m = linesB.length;
 
-  // LCS table (space-optimized for rows)
-  const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  // LCS table - use Uint32Array to avoid overflow on files > 65535 lines
+  const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
   for (let i = 1; i <= n; i++) {
     for (let j = 1; j <= m; j++) {
       if (linesA[i - 1] === linesB[j - 1]) {
@@ -340,7 +341,7 @@ export default function ComparePage() {
   return (
     <Layout title="Compare Documents" description="Compare two documents side by side">
       <BrowserOnly fallback={<div style={{ padding: 40, textAlign: 'center' }}>Loading...</div>}>
-        {() => <CompareView />}
+        {() => <ErrorBoundary><CompareView /></ErrorBoundary>}
       </BrowserOnly>
     </Layout>
   );

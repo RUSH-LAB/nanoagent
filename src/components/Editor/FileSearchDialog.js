@@ -42,6 +42,8 @@ export default function FileSearchDialog({files, onSelect, onClose}) {
     setSelectedIndex(0);
   }, [query]);
 
+  const dialogContainerRef = useRef(null);
+
   const handleKeyDown = (e) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -53,12 +55,28 @@ export default function FileSearchDialog({files, onSelect, onClose}) {
       onSelect(results[selectedIndex].path);
     } else if (e.key === 'Escape') {
       onClose();
+    } else if (e.key === 'Tab') {
+      // Trap focus within the dialog
+      if (!dialogContainerRef.current) return;
+      const focusable = dialogContainerRef.current.querySelectorAll(
+        'input, button, [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
   };
 
   return (
     <div className={styles.searchOverlay} onClick={onClose} role="dialog" aria-label="Search files" aria-modal="true">
-      <div className={styles.searchDialog} onClick={e => e.stopPropagation()}>
+      <div ref={dialogContainerRef} className={styles.searchDialog} onClick={e => e.stopPropagation()}>
         <input
           ref={inputRef}
           className={styles.searchInput}

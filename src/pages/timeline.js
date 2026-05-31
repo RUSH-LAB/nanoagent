@@ -71,8 +71,11 @@ function ContentTimeline() {
   const [files, setFiles] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [fetchKey, setFetchKey] = useState(0);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     fetch(`${API_BASE}/api/files/recent?limit=50`)
       .then((r) => {
         if (!r.ok) throw new Error(`API returned ${r.status}`);
@@ -86,7 +89,7 @@ function ContentTimeline() {
         setError(err.message);
         setLoading(false);
       });
-  }, []);
+  }, [fetchKey]);
 
   // ── Loading ───────────────────────────────────────────────────
 
@@ -108,9 +111,27 @@ function ContentTimeline() {
 
   if (error) {
     return (
-      <p style={{ textAlign: 'center', padding: '2rem', color: '#e74c3c' }}>
-        Failed to load timeline: {error}
-      </p>
+      <div style={{ textAlign: 'center', padding: '2rem' }}>
+        <p role="alert" style={{ color: '#e74c3c', marginBottom: '1rem' }}>
+          Failed to load timeline: {error}
+        </p>
+        <button
+          onClick={() => setFetchKey(k => k + 1)}
+          style={{
+            padding: '8px 20px',
+            border: '1px solid var(--ifm-color-emphasis-300, #ccc)',
+            borderRadius: '6px',
+            background: 'var(--ifm-color-primary, #2568c2)',
+            color: '#fff',
+            cursor: 'pointer',
+            fontSize: '0.9rem',
+            fontWeight: 600,
+            fontFamily: 'inherit',
+          }}
+        >
+          Retry
+        </button>
+      </div>
     );
   }
 

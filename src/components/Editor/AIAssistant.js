@@ -51,6 +51,13 @@ export default function AIAssistant({editor, onClose}) {
     };
   }, [editor]);
 
+  // Abort any in-flight request when the component unmounts
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, []);
+
   const contextText = editor ? getContextText() : '';
 
   const handleAction = useCallback(async (type) => {
@@ -130,6 +137,8 @@ export default function AIAssistant({editor, onClose}) {
     navigator.clipboard.writeText(result).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      // Clipboard API unavailable or permission denied; ignore silently
     });
   }, [result]);
 

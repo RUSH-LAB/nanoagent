@@ -74,6 +74,12 @@
   color: #e53e3e;
 }
 
+.deleteBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+  opacity: 1;
+}
+
 .deleteBtn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
@@ -109,6 +115,11 @@
   background: var(--ifm-color-emphasis-100);
 }
 
+.reactionChip:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+}
+
 .reactionChipActive {
   border-color: var(--ifm-color-primary);
   background: rgba(59, 89, 152, 0.08);
@@ -139,6 +150,11 @@
 .reactionAddBtn:hover {
   border-color: var(--ifm-color-primary);
   color: var(--ifm-color-primary);
+}
+
+.reactionAddBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 1px;
 }
 
 .reactionPicker {
@@ -174,6 +190,11 @@
   background: var(--ifm-color-emphasis-100);
 }
 
+.reactionOption:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+}
+
 .replyToggle {
   background: none;
   border: none;
@@ -187,6 +208,11 @@
 
 .replyToggle:hover {
   text-decoration: underline;
+}
+
+.replyToggle:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
 }
 
 /* ── Threaded replies ───────────────────────────────────────────────────── */
@@ -274,6 +300,11 @@
 .submitBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.submitBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
 }
 
 /* ── States ─────────────────────────────────────────────────────────────── */

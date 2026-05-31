@@ -72,6 +72,11 @@
   color: var(--ifm-color-primary);
 }
 
+.newFileBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+}
+
 .treeContainer {
   flex: 1;
   overflow-y: auto;
@@ -120,6 +125,11 @@
 
 .treeItem:hover {
   background: var(--ifm-color-emphasis-100);
+}
+
+.treeItem:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
 }
 
 .treeItemDropTarget {
@@ -173,6 +183,11 @@
   color: var(--ifm-color-emphasis-800);
 }
 
+.sidebarToggle:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+}
+
 .backBtn {
   display: inline-flex;
   align-items: center;
@@ -192,6 +207,11 @@
   border-color: var(--ifm-color-primary);
   color: var(--ifm-color-primary);
   text-decoration: none;
+}
+
+.backBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
 }
 
 /* ── Editor container ───────────────────────────────────────── */
@@ -255,6 +275,11 @@
   border-color: var(--ifm-color-emphasis-400);
 }
 
+.modeToggle:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+}
+
 .modeToggleActive {
   background: var(--ifm-color-emphasis-100);
   border-color: var(--ifm-color-emphasis-400);
@@ -280,6 +305,11 @@
 .saveBtn:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.saveBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
 }
 
 /* ── Editor area ────────────────────────────────────────────── */
@@ -363,6 +393,11 @@
 
 .toolbarBtn:hover {
   background: var(--ifm-color-emphasis-100);
+}
+
+.toolbarBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
 }
 
 .toolbarBtnActive {
@@ -653,6 +688,11 @@
   color: var(--ifm-color-danger);
 }
 
+.treeActionBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+}
+
 /* ── Bulk selection checkbox ─────────────────────────────────── */
 .bulkCheckbox {
   width: 14px;
@@ -724,6 +764,11 @@
 .bulkBarBtn:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.bulkBarBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
 }
 
 .bulkBarBtnDanger {
@@ -846,6 +891,11 @@
   background: var(--ifm-color-primary-lightest, rgba(37, 99, 235, 0.08));
 }
 
+.searchResult:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+}
+
 .searchFileName {
   font-size: 0.9rem;
   font-weight: 500;
@@ -897,6 +947,11 @@
 .draftToggle:hover {
   border-color: var(--ifm-color-primary);
   color: var(--ifm-color-primary);
+}
+
+.draftToggle:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
 }
 
 /* ── History panel ─────────────────────────────────────────── */
@@ -968,6 +1023,11 @@
 
 .historyItem:hover {
   background: var(--ifm-color-emphasis-100);
+}
+
+.historyItem:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
 }
 
 .historyMessage {
@@ -1047,6 +1107,11 @@
   background: var(--ifm-color-primary);
   color: #fff;
   border-color: var(--ifm-color-primary);
+}
+
+.compareBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
 }
 
 .compareContainer {
@@ -1336,6 +1401,12 @@
 .localChangesBtn:hover {
   background: #2563eb;
 }
+
+.localChangesBtn:focus-visible,
+.localChangesBtnDiscard:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+}
 .localChangesBtnDiscard {
   padding: 2px 10px;
   border: 1px solid #93c5fd;
@@ -1517,6 +1588,12 @@
   background: var(--ifm-color-primary-lightest, #dbeafe);
 }
 
+.tagRemove:focus-visible,
+.tagAddBtn:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 1px;
+}
+
 [data-theme='dark'] .tagPill {
   background: rgba(96, 165, 250, 0.15);
   color: #93c5fd;
@@ -1693,6 +1770,11 @@
   color: var(--ifm-font-color-base);
 }
 
+.tocItem:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+}
+
 .tocItemActive {
   color: var(--ifm-color-primary);
   border-left-color: var(--ifm-color-primary);
@@ -1792,6 +1874,11 @@
 .autoSaveToggle:hover {
   border-color: var(--ifm-color-emphasis-400);
   color: var(--ifm-color-emphasis-700);
+}
+
+.autoSaveToggle:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
 }
 
 .autoSaveToggleOn {

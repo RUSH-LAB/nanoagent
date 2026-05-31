@@ -1,6 +1,7 @@
 import React from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import ErrorBoundary from '@site/src/components/ErrorBoundary';
 
 const PRIORITY_COLORS = {
   high: {bg: '#fef2f2', border: '#fca5a5', badge: '#ef4444', text: '#991b1b'},
@@ -21,6 +22,7 @@ function TasksApp() {
   const [tasks, setTasks] = useState({todo: [], doing: [], done: []});
   const [counts, setCounts] = useState({todo: 0, doing: 0, done: 0});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [formTitle, setFormTitle] = useState('');
   const [formDesc, setFormDesc] = useState('');
@@ -31,14 +33,17 @@ function TasksApp() {
 
   const loadTasks = useCallback(async () => {
     try {
+      setError(null);
       const res = await fetch(`${API_BASE}/api/tasks`);
-      if (res.ok) {
-        const data = await res.json();
-        setTasks(data.grouped);
-        setCounts(data.counts);
-      }
-    } catch { /* ignore */ }
-    setLoading(false);
+      if (!res.ok) throw new Error(`Failed to load tasks (${res.status})`);
+      const data = await res.json();
+      setTasks(data.grouped);
+      setCounts(data.counts);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   }, [API_BASE]);
 
   useEffect(() => { loadTasks(); }, [loadTasks]);
@@ -46,38 +51,47 @@ function TasksApp() {
   const createTask = async () => {
     if (!formTitle.trim()) return;
     try {
-      await fetch(`${API_BASE}/api/tasks`, {
+      const res = await fetch(`${API_BASE}/api/tasks`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({title: formTitle, description: formDesc, status: formStatus, priority: formPriority}),
       });
+      if (!res.ok) throw new Error(`Failed to create task (${res.status})`);
       setFormTitle(''); setFormDesc(''); setFormStatus('todo'); setFormPriority('medium');
       setShowForm(false);
       loadTasks();
-    } catch { /* ignore */ }
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   const updateTask = async (id, updates) => {
     try {
-      await fetch(`${API_BASE}/api/tasks`, {
+      const res = await fetch(`${API_BASE}/api/tasks`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({id, ...updates}),
       });
+      if (!res.ok) throw new Error(`Failed to update task (${res.status})`);
       loadTasks();
-    } catch { /* ignore */ }
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   const deleteTask = async (id) => {
     if (!confirm('Delete this task?')) return;
     try {
-      await fetch(`${API_BASE}/api/tasks`, {
+      const res = await fetch(`${API_BASE}/api/tasks`, {
         method: 'DELETE',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({id}),
       });
+      if (!res.ok) throw new Error(`Failed to delete task (${res.status})`);
       loadTasks();
-    } catch { /* ignore */ }
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   const moveTask = (task, newStatus) => {
@@ -157,12 +171,31 @@ function TasksApp() {
         >+ Add Task</button>
       </div>
 
+      {/* Error display */}
+      {error && (
+        <div role="alert" style={{
+          padding: '12px 16px', borderRadius: 8, marginBottom: 16,
+          background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          fontSize: 14,
+        }}>
+          <span>{error}</span>
+          <button onClick={() => setError(null)} aria-label="Dismiss error" style={{
+            background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b',
+            fontSize: 18, lineHeight: 1, padding: '0 4px',
+          }}>&times;</button>
+        </div>
+      )}
+
       {/* Add/Edit Modal */}
       {(showForm || editingTask) && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-        }} role="presentation" onClick={(e) => { if (e.target === e.currentTarget) { setShowForm(false); cancelEdit(); } }}>
+        }} role="presentation"
+        onClick={(e) => { if (e.target === e.currentTarget) { setShowForm(false); cancelEdit(); } }}
+        onKeyDown={(e) => { if (e.key === 'Escape') { setShowForm(false); cancelEdit(); } }}
+        >
           <div role="dialog" aria-modal="true" aria-label={editingTask ? 'Edit task' : 'Create new task'} style={{
             background: '#fff', borderRadius: 12, padding: 24, width: '100%', maxWidth: 480,
             boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
@@ -364,7 +397,7 @@ export default function TasksPage() {
   return (
     <Layout title="Tasks" description="Kanban-style project task board">
       <BrowserOnly fallback={<div style={{padding: 40, textAlign: 'center'}}>Loading...</div>}>
-        {() => <TasksApp />}
+        {() => <ErrorBoundary><TasksApp /></ErrorBoundary>}
       </BrowserOnly>
     </Layout>
   );

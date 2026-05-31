@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
 
 /* ── Category color mapping ──────────────────────────────────── */
@@ -460,7 +461,10 @@ function GlossaryContent() {
     setLoading(true);
     setError(null);
     fetch(`${API_BASE}/api/glossary`)
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(`Server returned ${r.status}`);
+        return r.json();
+      })
       .then(data => {
         setTerms(data.terms || []);
         setLoading(false);
@@ -787,7 +791,7 @@ export default function GlossaryPage() {
     <Layout title="Glossary" description="Terminology reference for Mochi Lab">
       <main style={{ padding: '2rem', maxWidth: '900px', margin: '0 auto' }}>
         <BrowserOnly>
-          {() => <GlossaryContent />}
+          {() => <ErrorBoundary><GlossaryContent /></ErrorBoundary>}
         </BrowserOnly>
       </main>
     </Layout>

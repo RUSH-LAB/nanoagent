@@ -132,6 +132,11 @@
   background: var(--ifm-color-primary-lightest, rgba(37, 99, 235, 0.08));
 }
 
+.item:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+}
+
 .itemIcon {
   flex-shrink: 0;
   width: 28px;

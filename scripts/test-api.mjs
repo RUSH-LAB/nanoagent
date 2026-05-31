@@ -340,7 +340,7 @@ async function testDiscussions() {
       name: TEST_CHANNEL_NAME,
       topic: 'Test topic',
     });
-    assertEq(status, 200, 'status');
+    assertOk(status === 200 || status === 201, 'status 200 or 201');
     assertOk(data.channel, 'has channel');
     assertOk(data.channel.id, 'has id');
     createdChannelId = data.channel.id;
@@ -360,7 +360,7 @@ async function testDiscussions() {
       author: 'Test User',
       text: 'Hello from integration test!',
     });
-    assertEq(status, 200, 'status');
+    assertOk(status === 200 || status === 201, 'status 200 or 201');
     assertOk(data.message, 'has message');
     assertOk(data.message.id, 'has message id');
     assertEq(data.message.text, 'Hello from integration test!', 'text matches');
@@ -452,7 +452,7 @@ async function testReferences() {
         venue: 'Test Conference',
       },
     });
-    assertEq(status, 200, 'status');
+    assertOk(status === 200 || status === 201, 'status 200 or 201');
     assertOk(data.success, 'success');
     cleanup.push(async () => {
       // References don't have a delete endpoint; we rely on the fact

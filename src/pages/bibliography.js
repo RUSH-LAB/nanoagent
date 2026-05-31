@@ -176,13 +176,19 @@ function toBibTeX(key, entry) {
 
 function CopyCiteButton({ citationKey }) {
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef(null);
   const text = `[@${citationKey}]`;
+
+  useEffect(() => {
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, []);
 
   const handleCopy = (e) => {
     e.stopPropagation();
     navigator.clipboard?.writeText(text).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 2000);
     });
   };
 
@@ -424,6 +430,7 @@ function SearchAndAddPapers({ existingKeys }) {
   const [feedbackMsg, setFeedbackMsg] = useState(null);
   const [expanded, setExpanded] = useState(false);
   const debounceRef = useRef(null);
+  const abortRef = useRef(null);
 
   useEffect(() => {
     if (!query.trim()) {
@@ -437,29 +444,39 @@ function SearchAndAddPapers({ existingKeys }) {
     setSearchError(null);
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    // Abort any in-flight request from a previous query
+    if (abortRef.current) abortRef.current.abort();
 
     debounceRef.current = setTimeout(() => {
+      const controller = new AbortController();
+      abortRef.current = controller;
       const encoded = encodeURIComponent(query.trim());
       fetch(
-        `https://api.semanticscholar.org/graph/v1/paper/search?query=${encoded}&limit=10&fields=title,authors,year,venue,externalIds,url`
+        `https://api.semanticscholar.org/graph/v1/paper/search?query=${encoded}&limit=10&fields=title,authors,year,venue,externalIds,url`,
+        { signal: controller.signal }
       )
         .then((res) => {
           if (!res.ok) throw new Error(`Semantic Scholar returned ${res.status}`);
           return res.json();
         })
         .then((data) => {
-          setResults(data.data || []);
-          setSearching(false);
+          if (!controller.signal.aborted) {
+            setResults(data.data || []);
+            setSearching(false);
+          }
         })
         .catch((err) => {
-          setSearchError(err.message);
-          setResults([]);
-          setSearching(false);
+          if (!controller.signal.aborted) {
+            setSearchError(err.message);
+            setResults([]);
+            setSearching(false);
+          }
         });
     }, 300);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (abortRef.current) abortRef.current.abort();
     };
   }, [query]);
 

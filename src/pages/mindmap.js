@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
 
 const DEPTH_COLORS = ['#6366f1', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444'];
@@ -220,7 +221,7 @@ function MindmapContent() {
 export default function MindmapPage() {
   return (
     <Layout title="Mind Map" description="Visual mindmap from document headings">
-      <BrowserOnly>{() => <MindmapContent />}</BrowserOnly>
+      <BrowserOnly>{() => <ErrorBoundary><MindmapContent /></ErrorBoundary>}</BrowserOnly>
     </Layout>
   );
 }

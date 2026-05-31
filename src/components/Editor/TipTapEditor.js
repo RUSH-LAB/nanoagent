@@ -409,6 +409,7 @@ function RawEditor({value, onChange}) {
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         spellCheck={false}
+        aria-label="Raw markdown editor"
       />
     </div>
   );
@@ -481,6 +482,7 @@ function MathPreviewPanel({editor, rawMode, rawContent, onClose}) {
         <button
           className={styles.treeActionBtn}
           onClick={onClose}
+          aria-label="Close math preview"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -565,6 +567,9 @@ function TableOfContents({editor, onClose}) {
   }, [editor, extractHeadings]);
 
   // Track which heading is currently active based on scroll position
+  const activeIdRef = useRef(null);
+  activeIdRef.current = activeId;
+
   useEffect(() => {
     if (!editor || headings.length === 0) return;
 
@@ -593,7 +598,7 @@ function TableOfContents({editor, onClose}) {
         }
       }
 
-      if (current !== activeId) {
+      if (current !== activeIdRef.current) {
         setActiveId(current);
       }
     };
@@ -601,7 +606,7 @@ function TableOfContents({editor, onClose}) {
     editorElement.addEventListener('scroll', handleScroll, {passive: true});
     handleScroll(); // initial check
     return () => editorElement.removeEventListener('scroll', handleScroll);
-  }, [editor, headings, activeId]);
+  }, [editor, headings]);
 
   const handleClick = useCallback((heading) => {
     if (!editor) return;
@@ -627,12 +632,13 @@ function TableOfContents({editor, onClose}) {
     : 1;
 
   return (
-    <div className={styles.tocPanel}>
+    <div className={styles.tocPanel} role="navigation" aria-label="Table of contents">
       <div className={styles.tocHeader}>
         <span>Contents</span>
         <button
           className={styles.treeActionBtn}
           onClick={onClose}
+          aria-label="Close table of contents"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -705,13 +711,16 @@ function DocumentStats({editor, rawMode, rawContent}) {
   // Pomodoro countdown
   useEffect(() => {
     if (!pomodoroActive) {
-      if (pomodoroRef.current) clearInterval(pomodoroRef.current);
+      if (pomodoroRef.current) {
+        clearInterval(pomodoroRef.current);
+        pomodoroRef.current = null;
+      }
       return;
     }
-    pomodoroRef.current = setInterval(() => {
+    const intervalId = setInterval(() => {
       setPomodoroSeconds(prev => {
         if (prev <= 1) {
-          clearInterval(pomodoroRef.current);
+          clearInterval(intervalId);
           pomodoroRef.current = null;
           if (!pomodoroOnBreakRef.current) {
             // Work session complete
@@ -744,8 +753,10 @@ function DocumentStats({editor, rawMode, rawContent}) {
         return prev - 1;
       });
     }, 1000);
+    pomodoroRef.current = intervalId;
     return () => {
-      if (pomodoroRef.current) clearInterval(pomodoroRef.current);
+      clearInterval(intervalId);
+      pomodoroRef.current = null;
     };
   }, [pomodoroActive]);
 
@@ -1232,11 +1243,16 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     setHasLocalChanges(false);
   }, [filePath]);
 
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
+
   useEffect(() => {
     const handler = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
-        if (dirty) handleSave();
+        if (dirtyRef.current) handleSaveRef.current();
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
         e.preventDefault();
@@ -1249,9 +1265,16 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [handleSave, dirty, handleToggleAI]);
+  }, [handleToggleAI]);
 
   // ── Auto-save: debounce 3s after dirty changes ──
+  const getFullContentRef = useRef(getFullContent);
+  getFullContentRef.current = getFullContent;
+  const onSaveStatusRef = useRef(onSaveStatus);
+  onSaveStatusRef.current = onSaveStatus;
+  const savingRef = useRef(saving);
+  savingRef.current = saving;
+
   useEffect(() => {
     // Clear any pending auto-save timer
     if (autoSaveTimerRef.current) {
@@ -1266,10 +1289,10 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
 
     autoSaveTimerRef.current = setTimeout(async () => {
       // Double-check conditions are still valid when timer fires
-      if (!dirty || rawMode || saving) return;
+      if (savingRef.current) return;
 
       setAutoSaveStatus('saving');
-      const content = getFullContent();
+      const content = getFullContentRef.current();
       try {
         const res = await fetch(`${API_BASE}/api/file`, {
           method: 'PUT',
@@ -1281,8 +1304,8 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         const now = new Date();
         const timeStr = now.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
         setAutoSaveStatus(`saved ${timeStr}`);
-        onSaveStatus?.('saved');
-        setTimeout(() => onSaveStatus?.(null), 2000);
+        onSaveStatusRef.current?.('saved');
+        setTimeout(() => onSaveStatusRef.current?.(null), 2000);
         // Successful auto-save — clear any offline backup
         try { localStorage.removeItem(offlineKey(filePath)); } catch {}
         setHasLocalChanges(false);
@@ -1303,7 +1326,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         autoSaveTimerRef.current = null;
       }
     };
-  }, [autoSaveEnabled, dirty, rawMode, readOnly, filePath, saving, getFullContent, onSaveStatus]);
+  }, [autoSaveEnabled, dirty, rawMode, readOnly, filePath, saving]);
 
   // Clear auto-save timer on unmount
   useEffect(() => {
@@ -1888,7 +1911,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         </div>
       </div>
 
-      {error && <div className={styles.error}>{error}</div>}
+      {error && <div className={styles.error} role="alert">{error}</div>}
 
       {hasLocalChanges && (
         <div className={styles.localChangesBanner}>
@@ -1933,6 +1956,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
               multiple
               onChange={handleFileInputChange}
               style={{display: 'none'}}
+              aria-label="Upload image"
             />
           </div>
         )}
@@ -1944,6 +1968,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
               <button
                 className={styles.treeActionBtn}
                 onClick={() => setHistoryOpen(false)}
+                aria-label="Close history panel"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />

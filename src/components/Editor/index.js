@@ -66,16 +66,18 @@ export default function Editor({initialFile}) {
   // Periodic health check — ping /api/health every 15s
   useEffect(() => {
     let timer;
+    let abortTimeout;
+    let reconnectedTimeout;
     const checkHealth = () => {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
+      abortTimeout = setTimeout(() => controller.abort(), 5000);
       fetch(`${API_BASE}/api/health`, {signal: controller.signal})
         .then(res => {
-          clearTimeout(timeout);
+          clearTimeout(abortTimeout);
           if (res.ok) {
             if (wasOfflineRef.current) {
               setShowReconnected(true);
-              setTimeout(() => setShowReconnected(false), 3000);
+              reconnectedTimeout = setTimeout(() => setShowReconnected(false), 3000);
             }
             wasOfflineRef.current = false;
             setServerOnline(true);
@@ -85,14 +87,18 @@ export default function Editor({initialFile}) {
           }
         })
         .catch(() => {
-          clearTimeout(timeout);
+          clearTimeout(abortTimeout);
           wasOfflineRef.current = true;
           setServerOnline(false);
         });
     };
     checkHealth();
     timer = setInterval(checkHealth, 15000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      clearTimeout(abortTimeout);
+      clearTimeout(reconnectedTimeout);
+    };
   }, []);
 
   const loadFiles = useCallback(() => {
@@ -120,14 +126,16 @@ export default function Editor({initialFile}) {
 
   const expandPathTo = useCallback((filePath) => {
     const parts = filePath.split('/');
-    const newExpanded = new Set(expandedPaths);
-    let current = '';
-    for (let i = 0; i < parts.length - 1; i++) {
-      current = current ? `${current}/${parts[i]}` : parts[i];
-      newExpanded.add(current);
-    }
-    setExpandedPaths(newExpanded);
-  }, [expandedPaths]);
+    setExpandedPaths(prev => {
+      const newExpanded = new Set(prev);
+      let current = '';
+      for (let i = 0; i < parts.length - 1; i++) {
+        current = current ? `${current}/${parts[i]}` : parts[i];
+        newExpanded.add(current);
+      }
+      return newExpanded;
+    });
+  }, []);
 
   const handleSelectFile = useCallback((filePath) => {
     setSelectedFile(filePath);
