@@ -362,7 +362,7 @@ function TasksApp() {
 
 export default function TasksPage() {
   return (
-    <Layout title="Task Board" description="Kanban-style project task board">
+    <Layout title="Tasks" description="Kanban-style project task board">
       <BrowserOnly fallback={<div style={{padding: 40, textAlign: 'center'}}>Loading...</div>}>
         {() => <TasksApp />}
       </BrowserOnly>

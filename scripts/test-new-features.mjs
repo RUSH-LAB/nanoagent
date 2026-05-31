@@ -409,6 +409,181 @@ async function testGoals() {
 }
 
 // ────────────────────────────────────────────────────────────────
+// Streak (3 tests)
+// ────────────────────────────────────────────────────────────────
+
+const TEST_STREAK_USER = `test-streak-${TEST_PREFIX}`;
+
+async function testStreak() {
+  section('Streak (3 tests)');
+
+  // 1. Log words written
+  await test('POST /api/streak — log words written', async () => {
+    const {status, data} = await api('POST', '/api/streak', {
+      userId: TEST_STREAK_USER,
+      wordsWritten: 200,
+    });
+    assertEq(status, 200, 'status');
+    assertOk(data.success, 'success');
+    assertEq(data.words, 200, 'words echoed back');
+    assertOk(data.date, 'has date');
+  });
+
+  // 2. Retrieve streak data
+  await test('GET /api/streak?userId=... — verify streak data shape', async () => {
+    const {status, data} = await api('GET', `/api/streak?userId=${encodeURIComponent(TEST_STREAK_USER)}`);
+    assertEq(status, 200, 'status');
+    assertOk(typeof data.currentStreak === 'number', 'has currentStreak');
+    assertOk(typeof data.longestStreak === 'number', 'has longestStreak');
+    assertOk(typeof data.totalWords === 'number', 'has totalWords');
+    assertOk(Array.isArray(data.dailyLog), 'dailyLog is array');
+    assertOk(data.dailyLog.length >= 1, 'dailyLog has at least one entry');
+    assertEq(data.totalWords, 200, 'totalWords equals 200');
+    // 200 words >= 50 threshold, so streak should be at least 1
+    assertOk(data.currentStreak >= 1, 'currentStreak is at least 1');
+  });
+
+  // 3. Post again with more words — verify update
+  await test('POST /api/streak — update with more words', async () => {
+    const {status, data} = await api('POST', '/api/streak', {
+      userId: TEST_STREAK_USER,
+      wordsWritten: 500,
+    });
+    assertEq(status, 200, 'status');
+    assertOk(data.success, 'success');
+    assertEq(data.words, 500, 'words updated to 500');
+    // Verify via GET that the daily entry was updated (replaced, not appended)
+    const {data: streakData} = await api('GET', `/api/streak?userId=${encodeURIComponent(TEST_STREAK_USER)}`);
+    assertEq(streakData.totalWords, 500, 'totalWords reflects updated value');
+    assertEq(streakData.dailyLog.length, 1, 'still only one daily entry (replaced, not appended)');
+  });
+}
+
+// ────────────────────────────────────────────────────────────────
+// Snapshots (4 tests + setup/cleanup)
+// ────────────────────────────────────────────────────────────────
+
+const TEST_SNAPSHOT_PATH = `content/__test_snapshot_${Date.now()}.md`;
+let createdSnapshotId = null;
+
+async function testSnapshots() {
+  section('Snapshots (4 tests)');
+
+  // Setup: create a test file via the file-write API
+  await test('Setup — create test file for snapshots', async () => {
+    const {status, data} = await api('POST', '/api/files/write', {
+      path: TEST_SNAPSHOT_PATH,
+      content: '# Snapshot Test\n\nThis is a test file for snapshot tests.',
+    });
+    assertEq(status, 200, 'status');
+    assertOk(data.success, 'file created');
+  });
+
+  // 1. Create a snapshot
+  await test('POST /api/snapshots — create snapshot', async () => {
+    const {status, data} = await api('POST', '/api/snapshots', {
+      path: TEST_SNAPSHOT_PATH,
+      name: 'test snapshot',
+    });
+    assertEq(status, 200, 'status');
+    assertOk(data.success, 'success');
+    assertOk(data.snapshot, 'has snapshot');
+    assertOk(data.snapshot.id, 'has id');
+    assertEq(data.snapshot.name, 'test snapshot', 'name matches');
+    assertOk(data.snapshot.createdAt, 'has createdAt');
+    createdSnapshotId = data.snapshot.id;
+  });
+
+  // 2. List snapshots for the file
+  await test('GET /api/snapshots?path=... — list snapshots', async () => {
+    const {status, data} = await api('GET', `/api/snapshots?path=${encodeURIComponent(TEST_SNAPSHOT_PATH)}`);
+    assertEq(status, 200, 'status');
+    assertOk(Array.isArray(data.snapshots), 'snapshots is array');
+    assertOk(data.snapshots.length >= 1, 'has at least one snapshot');
+    const found = data.snapshots.find(s => s.id === createdSnapshotId);
+    assertOk(found, 'found our snapshot');
+    assertEq(found.name, 'test snapshot', 'name matches');
+    assertOk(found.createdAt, 'has createdAt');
+  });
+
+  // 3. Delete the snapshot
+  await test('DELETE /api/snapshots — remove snapshot', async () => {
+    const {status, data} = await api('DELETE', '/api/snapshots', {
+      path: TEST_SNAPSHOT_PATH,
+      snapshotId: createdSnapshotId,
+    });
+    assertEq(status, 200, 'status');
+    assertOk(data.success, 'success');
+    // Verify it is gone
+    const {data: listData} = await api('GET', `/api/snapshots?path=${encodeURIComponent(TEST_SNAPSHOT_PATH)}`);
+    const found = listData.snapshots.find(s => s.id === createdSnapshotId);
+    assertOk(!found, 'snapshot is gone');
+    createdSnapshotId = null;
+  });
+
+  // 4. Cleanup: delete the test file
+  await test('Cleanup — remove test file', async () => {
+    const {status} = await api('DELETE', '/api/files', {path: TEST_SNAPSHOT_PATH});
+    assertEq(status, 200, 'status');
+  });
+}
+
+// ────────────────────────────────────────────────────────────────
+// Schedule (3 tests)
+// ────────────────────────────────────────────────────────────────
+
+const SCHEDULE_TEST_PATH = 'content/books/math/0-intro.md';
+let createdScheduleId = null;
+
+async function testSchedule() {
+  section('Schedule (3 tests)');
+
+  const futureDate = new Date(Date.now() + 7 * 86400000).toISOString();
+
+  // 1. Create a schedule entry
+  await test('POST /api/schedule — schedule a file for future publish', async () => {
+    const {status, data} = await api('POST', '/api/schedule', {
+      path: SCHEDULE_TEST_PATH,
+      publishAt: futureDate,
+    });
+    assertEq(status, 200, 'status');
+    assertOk(data.success, 'success');
+    assertOk(data.item, 'has item');
+    assertOk(data.item.id, 'has id');
+    assertEq(data.item.path, SCHEDULE_TEST_PATH, 'path matches');
+    assertOk(data.item.publishAt, 'has publishAt');
+    assertEq(data.item.status, 'scheduled', 'status is scheduled');
+    assertOk(data.item.createdAt, 'has createdAt');
+    createdScheduleId = data.item.id;
+  });
+
+  // 2. List schedules — verify our entry exists
+  await test('GET /api/schedule — verify schedule exists', async () => {
+    const {status, data} = await api('GET', '/api/schedule');
+    assertEq(status, 200, 'status');
+    assertOk(Array.isArray(data.items), 'items is array');
+    assertOk(typeof data.upcoming === 'number', 'has upcoming count');
+    assertOk(typeof data.due === 'number', 'has due count');
+    const found = data.items.find(i => i.id === createdScheduleId);
+    assertOk(found, 'found our scheduled entry');
+    assertEq(found.path, SCHEDULE_TEST_PATH, 'path matches');
+    assertEq(found.status, 'scheduled', 'status is scheduled');
+  });
+
+  // 3. Delete the schedule entry
+  await test('DELETE /api/schedule — remove scheduled entry', async () => {
+    const {status, data} = await api('DELETE', '/api/schedule', {id: createdScheduleId});
+    assertEq(status, 200, 'status');
+    assertOk(data.success, 'success');
+    // Verify it is gone
+    const {data: listData} = await api('GET', '/api/schedule');
+    const found = listData.items.find(i => i.id === createdScheduleId);
+    assertOk(!found, 'schedule entry is gone');
+    createdScheduleId = null;
+  });
+}
+
+// ────────────────────────────────────────────────────────────────
 // Cleanup
 // ────────────────────────────────────────────────────────────────
 
@@ -446,6 +621,22 @@ async function runCleanup() {
   // Goals: no DELETE endpoint; the test user's goals are harmless
   // (they use a unique userId that won't collide with real data)
 
+  // Snapshots: try to delete leftover snapshot
+  if (createdSnapshotId) {
+    try {
+      await api('DELETE', '/api/snapshots', {path: TEST_SNAPSHOT_PATH, snapshotId: createdSnapshotId});
+      cleaned++;
+    } catch { /* ignore */ }
+  }
+
+  // Schedule: try to delete leftover schedule entry
+  if (createdScheduleId) {
+    try {
+      await api('DELETE', '/api/schedule', {id: createdScheduleId});
+      cleaned++;
+    } catch { /* ignore */ }
+  }
+
   // Run any registered cleanup functions
   for (const fn of cleanup) {
     try {
@@ -470,7 +661,7 @@ async function runCleanup() {
 async function main() {
   console.log(`\n${BOLD}Mochi Lab — New Features Integration Tests${RESET}`);
   console.log(`${DIM}Target: ${BASE}${RESET}`);
-  console.log(`${DIM}Testing: Glossary, Flashcards, Tasks, Goals (18 tests)${RESET}\n`);
+  console.log(`${DIM}Testing: Glossary, Flashcards, Tasks, Goals, Streak, Snapshots, Schedule (28 tests)${RESET}\n`);
 
   await preflight();
 

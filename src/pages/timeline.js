@@ -325,7 +325,7 @@ function ContentTimeline() {
 
 export default function TimelinePage() {
   return (
-    <Layout title="Content Timeline" description="Visual timeline of content creation and modification">
+    <Layout title="Timeline" description="Visual timeline of content creation and modification">
       <BrowserOnly>
         {() => (
           <ErrorBoundary>

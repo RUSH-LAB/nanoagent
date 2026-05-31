@@ -219,7 +219,7 @@ function MindmapContent() {
 
 export default function MindmapPage() {
   return (
-    <Layout title="Mindmap" description="Visual mindmap from document headings">
+    <Layout title="Mind Map" description="Visual mindmap from document headings">
       <BrowserOnly>{() => <MindmapContent />}</BrowserOnly>
     </Layout>
   );

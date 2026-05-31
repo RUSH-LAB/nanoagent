@@ -776,7 +776,7 @@ export default function ApiDocs() {
   const totalEndpoints = CATEGORIES.reduce((sum, cat) => sum + cat.endpoints.length, 0);
 
   return (
-    <Layout title="API Reference" description="API documentation for MochiLab editor server">
+    <Layout title="API Documentation" description="API documentation for MochiLab editor server">
       <main style={{
         maxWidth: '960px',
         margin: '0 auto',

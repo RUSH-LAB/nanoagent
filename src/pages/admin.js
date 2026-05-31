@@ -481,7 +481,7 @@ function AdminDashboard() {
 export default function AdminPage() {
   const ErrorBoundary = require('@site/src/components/ErrorBoundary').default;
   return (
-    <Layout title="Admin" noFooter>
+    <Layout title="Admin" description="Manage users, roles, and system status for Mochi Lab" noFooter>
       <BrowserOnly fallback={<div style={{padding: 40, textAlign: 'center'}}>Loading...</div>}>
         {() => <ErrorBoundary><AdminDashboard /></ErrorBoundary>}
       </BrowserOnly>

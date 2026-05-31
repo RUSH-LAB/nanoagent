@@ -338,7 +338,7 @@ function CompareView() {
 
 export default function ComparePage() {
   return (
-    <Layout title="Compare" description="Compare two documents side by side">
+    <Layout title="Compare Documents" description="Compare two documents side by side">
       <BrowserOnly fallback={<div style={{ padding: 40, textAlign: 'center' }}>Loading...</div>}>
         {() => <CompareView />}
       </BrowserOnly>
