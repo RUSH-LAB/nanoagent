@@ -267,6 +267,104 @@ async function testMindmap() {
 }
 
 // ────────────────────────────────────────────────────────────────
+// 9. File Quality (2 tests)
+// ────────────────────────────────────────────────────────────────
+
+async function testFileQuality() {
+  section('File Quality');
+
+  // 13. GET /api/file/quality — verify score, breakdown, suggestions
+  await test('GET /api/file/quality returns score, breakdown, suggestions', async () => {
+    const { status, data } = await api('GET', '/api/file/quality?path=content/books/math/0-intro.md');
+    assertEq(status, 200, 'status');
+    assertOk(typeof data === 'object', 'response is object');
+    assertOk('score' in data, 'has score field');
+    assertOk(typeof data.score === 'number', 'score is a number');
+    assertOk(data.score >= 0 && data.score <= 100, `score in 0–100 range, got ${data.score}`);
+    assertOk('breakdown' in data, 'has breakdown field');
+    assertOk(typeof data.breakdown === 'object', 'breakdown is an object');
+    assertOk('suggestions' in data, 'has suggestions field');
+    assertOk(Array.isArray(data.suggestions), 'suggestions is an array');
+  });
+
+  // 14. GET /api/file/quality-score — verify score only
+  await test('GET /api/file/quality-score returns score', async () => {
+    const { status, data } = await api('GET', '/api/file/quality-score?path=content/books/math/0-intro.md');
+    assertEq(status, 200, 'status');
+    assertOk(typeof data === 'object', 'response is object');
+    assertOk('score' in data, 'has score field');
+    assertOk(typeof data.score === 'number', 'score is a number');
+  });
+}
+
+// ────────────────────────────────────────────────────────────────
+// 10. Quicknotes (2 tests)
+// ────────────────────────────────────────────────────────────────
+
+async function testQuicknotes() {
+  section('Quicknotes');
+
+  // 15. POST /api/quicknote — verify success + path
+  await test('POST /api/quicknote creates a note', async () => {
+    const { status, data } = await api('POST', '/api/quicknote', { text: 'test note' });
+    assertEq(status, 200, 'status');
+    assertOk(typeof data === 'object', 'response is object');
+    assertOk(data.success === true || data.ok === true, 'reports success');
+    assertOk('path' in data, 'has path field');
+    assertOk(typeof data.path === 'string' && data.path.length > 0, 'path is non-empty string');
+  });
+
+  // 16. GET /api/quicknotes — verify list
+  await test('GET /api/quicknotes returns a list', async () => {
+    const { status, data } = await api('GET', '/api/quicknotes');
+    assertEq(status, 200, 'status');
+    assertOk(Array.isArray(data), 'response is an array');
+    assertOk(data.length > 0, 'list is non-empty (at least the note we just created)');
+  });
+}
+
+// ────────────────────────────────────────────────────────────────
+// 11. Suggestions (1 test)
+// ────────────────────────────────────────────────────────────────
+
+async function testSuggestions() {
+  section('Suggestions');
+
+  // 17. GET /api/suggest — verify references and pages arrays
+  await test('GET /api/suggest returns references and pages', async () => {
+    const { status, data } = await api('GET', '/api/suggest?text=machine+learning');
+    assertEq(status, 200, 'status');
+    assertOk(typeof data === 'object', 'response is object');
+    assertOk('references' in data, 'has references field');
+    assertOk(Array.isArray(data.references), 'references is an array');
+    assertOk('pages' in data, 'has pages field');
+    assertOk(Array.isArray(data.pages), 'pages is an array');
+  });
+}
+
+// ────────────────────────────────────────────────────────────────
+// 12. Debug Routes (1 test)
+// ────────────────────────────────────────────────────────────────
+
+async function testDebugRoutes() {
+  section('Debug Routes');
+
+  // 18. GET /api/debug/routes — verify handler counts
+  await test('GET /api/debug/routes returns handler counts', async () => {
+    const { status, data } = await api('GET', '/api/debug/routes');
+    assertEq(status, 200, 'status');
+    assertOk(typeof data === 'object', 'response is object');
+    const keys = Object.keys(data);
+    assertOk(keys.length > 0, 'has at least one route group');
+    // Each value should be a number (count) or an array of route descriptors
+    for (const key of keys) {
+      const val = data[key];
+      assertOk(typeof val === 'number' || Array.isArray(val), `${key} is a number or array`);
+    }
+  });
+}
+
+// ────────────────────────────────────────────────────────────────
 // Main
 // ────────────────────────────────────────────────────────────────
 
@@ -284,6 +382,10 @@ async function main() {
   await testCitationGraph();
   await testDailySummary();
   await testMindmap();
+  await testFileQuality();
+  await testQuicknotes();
+  await testSuggestions();
+  await testDebugRoutes();
 
   // ── Summary ──
   const total = passed + failed;

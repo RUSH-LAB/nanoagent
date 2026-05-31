@@ -9973,6 +9973,93 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
     } catch { return json(res, 404, {error: 'File not found'}); }
   }
 
+  // ── Content suggestions: references & wiki links while typing ──
+  if (req.method === 'GET' && pathname === '/api/suggest') {
+    try {
+      const text = (url.searchParams.get('text') || '').trim();
+      const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '5', 10), 1), 20);
+      if (!text) return json(res, 200, {references: [], pages: []});
+
+      // Extract keywords from last 50 words
+      const stopWords = new Set(['the','a','an','is','are','was','were','be','been','being','have','has','had',
+        'do','does','did','will','would','shall','should','may','might','must','can','could',
+        'and','but','or','nor','not','so','yet','for','of','in','on','at','to','by','with',
+        'from','as','into','about','between','through','after','before','during','without',
+        'this','that','these','those','it','its','he','she','they','we','you','i','me','my',
+        'his','her','our','their','your','which','what','who','whom','how','when','where','why']);
+      const words = text.split(/\s+/).slice(-50);
+      const keywords = words
+        .map(w => w.toLowerCase().replace(/[^a-z0-9一-鿿]/g, ''))
+        .filter(w => w.length > 2 && !stopWords.has(w));
+      if (keywords.length === 0) return json(res, 200, {references: [], pages: []});
+
+      // 1. Search references.yaml for matching titles/authors
+      const matchedRefs = [];
+      try {
+        const yaml = require('js-yaml');
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'references.yaml'), 'utf8')) || {};
+        for (const [key, entry] of Object.entries(refs)) {
+          const title = (entry.title || '').toLowerCase();
+          const authors = (Array.isArray(entry.author) ? entry.author.join(' ') : (entry.author || '')).toLowerCase();
+          const haystack = title + ' ' + authors + ' ' + key.toLowerCase();
+          let relevance = 0;
+          for (const kw of keywords) {
+            if (haystack.includes(kw)) relevance++;
+          }
+          if (relevance > 0) {
+            matchedRefs.push({key, title: entry.title || key, relevance});
+          }
+        }
+      } catch { /* references.yaml missing or invalid */ }
+      matchedRefs.sort((a, b) => b.relevance - a.relevance);
+
+      // 2. Search content files for matching headings
+      const matchedPages = [];
+      try {
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        if (fs.existsSync(contentDir)) {
+          const mdFiles = flatFiles(contentDir).filter(f => f.name.endsWith('.md') || f.name.endsWith('.mdx'));
+          for (const file of mdFiles) {
+            try {
+              const content = fs.readFileSync(path.join(PROJECT_ROOT, file.path), 'utf-8');
+              // Extract title from frontmatter or first heading
+              let pageTitle = '';
+              const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+              if (fmMatch) {
+                const titleMatch = fmMatch[1].match(/^title:\s*['"]?(.+?)['"]?\s*$/m);
+                if (titleMatch) pageTitle = titleMatch[1];
+              }
+              if (!pageTitle) {
+                const h1Match = content.match(/^#\s+(.+)/m);
+                if (h1Match) pageTitle = h1Match[1];
+              }
+              if (!pageTitle) pageTitle = file.name.replace(/\.(md|mdx)$/, '');
+
+              // Match against headings and title
+              const headings = (content.match(/^#{1,3}\s+.+/gm) || []).map(h => h.replace(/^#+\s+/, ''));
+              const haystack = (pageTitle + ' ' + headings.join(' ')).toLowerCase();
+              let relevance = 0;
+              for (const kw of keywords) {
+                if (haystack.includes(kw)) relevance++;
+              }
+              if (relevance > 0) {
+                matchedPages.push({path: file.path, title: pageTitle, relevance});
+              }
+            } catch { /* skip unreadable files */ }
+          }
+        }
+      } catch { /* content dir missing */ }
+      matchedPages.sort((a, b) => b.relevance - a.relevance);
+
+      return json(res, 200, {
+        references: matchedRefs.slice(0, limit),
+        pages: matchedPages.slice(0, limit),
+      });
+    } catch {
+      return json(res, 500, {error: 'Failed to generate suggestions'});
+    }
+  }
+
   json(res, 404, {error: 'Not found', path: pathname, hint: 'GET /api/health for server status'});
 
 });
