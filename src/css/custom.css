@@ -563,3 +563,60 @@ li > input[type="checkbox"]:checked {
 .theme-doc-markdown h4:hover .hash-link:hover {
   color: var(--ifm-color-primary);
 }
+
+/* ── Page transition animations ──────────────────────────────────────────── */
+
+/* Fade-in for main content area on page load */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.main-wrapper {
+  animation: fadeIn 250ms ease-out;
+}
+
+/* Slide-up animation for card grids (homepage features, general card containers) */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Homepage feature cards and any section with a card grid */
+section[class*="features"] [class*="featureGrid"],
+section[class*="features"] [class*="featureCard"],
+.card,
+.cards,
+[class*="cardContainer"] {
+  animation: slideUp 300ms ease-out both;
+}
+
+/* Stagger the slide-up for individual cards within grids */
+section[class*="features"] [class*="featureCard"]:nth-child(1) { animation-delay: 0ms; }
+section[class*="features"] [class*="featureCard"]:nth-child(2) { animation-delay: 60ms; }
+section[class*="features"] [class*="featureCard"]:nth-child(3) { animation-delay: 120ms; }
+section[class*="features"] [class*="featureCard"]:nth-child(4) { animation-delay: 180ms; }
+section[class*="features"] [class*="featureCard"]:nth-child(5) { animation-delay: 240ms; }
+section[class*="features"] [class*="featureCard"]:nth-child(6) { animation-delay: 300ms; }
+
+/* Respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .main-wrapper,
+  section[class*="features"] [class*="featureGrid"],
+  section[class*="features"] [class*="featureCard"],
+  .card,
+  .cards,
+  [class*="cardContainer"] {
+    animation: none;
+  }
+}

@@ -164,6 +164,16 @@ const TECH_STACK = [
   { name: 'Semantic Scholar', detail: 'Academic paper metadata and recommendations' },
 ];
 
+const WHATS_NEW = [
+  { feature: 'Focus mode & split view editor' },
+  { feature: 'Spaced repetition flashcards' },
+  { feature: 'Knowledge graph & mindmap' },
+  { feature: 'Discussion channels with pinned messages' },
+  { feature: 'Content quality scoring' },
+  { feature: 'Collaborative annotations' },
+  { feature: 'Writing streaks & goals' },
+];
+
 const QUICK_LINKS = [
   { label: 'Research Papers', to: '/research', desc: 'Read and discuss research paper summaries' },
   { label: 'Blog', to: '/blog', desc: 'Posts on ideas, tutorials, and updates' },
@@ -208,6 +218,19 @@ export default function AboutPage() {
             management, AI-powered discovery, and collaborative tools into a single, cohesive workspace.
           </p>
         </div>
+
+        {/* What's New */}
+        <section style={sectionStyle}>
+          <h2 style={sectionTitleStyle}>What's New</h2>
+          <ul style={{ ...featureListStyle, ...cardStyle }}>
+            {WHATS_NEW.map((item, i) => (
+              <li key={i} style={featureItemStyle}>
+                <span style={checkStyle}>&#9733;</span>
+                {item.feature}
+              </li>
+            ))}
+          </ul>
+        </section>
 
         {/* Stats */}
         <section style={sectionStyle}>

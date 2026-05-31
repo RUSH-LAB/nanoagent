@@ -10133,6 +10133,94 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
     }
   }
 
+  // ── Data integrity validation ──
+  if (req.method === 'GET' && pathname === '/api/integrity') {
+    const checks = [];
+    const dataDir = path.join(PROJECT_ROOT, 'data');
+
+    // 1. Verify all data/*.json files are valid JSON
+    try {
+      const jsonFiles = fs.readdirSync(dataDir).filter(f => f.endsWith('.json'));
+      const invalid = [];
+      for (const file of jsonFiles) {
+        try {
+          JSON.parse(fs.readFileSync(path.join(dataDir, file), 'utf-8'));
+        } catch (e) {
+          invalid.push({file, error: e.message});
+        }
+      }
+      checks.push({
+        name: 'json_validity',
+        passed: invalid.length === 0,
+        details: invalid.length === 0
+          ? `All ${jsonFiles.length} JSON files are valid`
+          : `${invalid.length} invalid JSON file(s): ${invalid.map(i => i.file).join(', ')}`,
+      });
+    } catch (e) {
+      checks.push({name: 'json_validity', passed: false, details: `Cannot read data directory: ${e.message}`});
+    }
+
+    // 2. Check references.yaml is valid YAML
+    try {
+      const yaml = require('js-yaml');
+      const refPath = path.join(PROJECT_ROOT, 'references.yaml');
+      if (fs.existsSync(refPath)) {
+        yaml.load(fs.readFileSync(refPath, 'utf-8'));
+        checks.push({name: 'yaml_validity', passed: true, details: 'references.yaml is valid YAML'});
+      } else {
+        checks.push({name: 'yaml_validity', passed: true, details: 'references.yaml not found (optional)'});
+      }
+    } catch (e) {
+      checks.push({name: 'yaml_validity', passed: false, details: `references.yaml is invalid: ${e.message}`});
+    }
+
+    // 3. Verify no orphaned snapshot entries (snapshots for deleted files)
+    try {
+      const snapshots = loadJSON(SNAPSHOTS_FILE);
+      const orphaned = [];
+      for (const filePath of Object.keys(snapshots)) {
+        const fullPath = path.join(PROJECT_ROOT, filePath);
+        if (!fs.existsSync(fullPath)) {
+          orphaned.push({file: filePath, count: snapshots[filePath].length});
+        }
+      }
+      checks.push({
+        name: 'orphaned_snapshots',
+        passed: orphaned.length === 0,
+        details: orphaned.length === 0
+          ? 'No orphaned snapshots'
+          : `${orphaned.length} orphaned snapshot(s): ${orphaned.map(o => `${o.file} (${o.count})`).join(', ')}`,
+      });
+    } catch (e) {
+      checks.push({name: 'orphaned_snapshots', passed: false, details: `Cannot check snapshots: ${e.message}`});
+    }
+
+    // 4. Check for comments on non-existent pages
+    try {
+      const comments = loadJSON(COMMENTS_FILE);
+      const orphanedComments = [];
+      for (const page of Object.keys(comments)) {
+        if (page.startsWith('__')) continue; // skip internal/test keys
+        const fullPath = path.join(PROJECT_ROOT, page);
+        if (!fs.existsSync(fullPath) && comments[page].length > 0) {
+          orphanedComments.push({page, count: comments[page].length});
+        }
+      }
+      checks.push({
+        name: 'orphaned_comments',
+        passed: orphanedComments.length === 0,
+        details: orphanedComments.length === 0
+          ? 'No comments on non-existent pages'
+          : `${orphanedComments.length} page(s) with orphaned comments: ${orphanedComments.map(o => `${o.page} (${o.count})`).join(', ')}`,
+      });
+    } catch (e) {
+      checks.push({name: 'orphaned_comments', passed: false, details: `Cannot check comments: ${e.message}`});
+    }
+
+    const allPassed = checks.every(c => c.passed);
+    return json(res, 200, {status: allPassed ? 'healthy' : 'issues', checks});
+  }
+
   json(res, 404, {error: 'Not found', path: pathname, hint: 'GET /api/health for server status'});
 
 });
