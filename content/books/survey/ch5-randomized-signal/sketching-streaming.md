@@ -1,0 +1,46 @@
+---
+sidebar_position: 6
+title: "Sketching & Streaming"
+---
+
+# Sketching & Streaming
+
+Sketching algorithms maintain compact, lossy summaries of data that support approximate query answering. In the streaming model, data arrives one element at a time and the algorithm must process it in a single pass with memory much smaller than the data size. These algorithms are directly relevant to AI systems that must process massive datasets (pre-training data), operate in online settings (continual learning), or compress communication (distributed training).
+
+### Count-Min Sketch and CountSketch
+
+The Count-Min Sketch (Cormode and Muthukrishnan, 2005) [@cormode2005improved] and CountSketch (Charikar et al., 2004) [@charikar2004finding] are streaming data structures that maintain approximate frequency counts in sub-linear space. A Count-Min Sketch uses d hash functions and a d x w array of counters; to insert an element, it increments d counters (one per hash function). To query, it returns the minimum of the d counter values, which overestimates the true frequency by at most epsilon * ||f||_1 with probability at least 1 - delta, using O((1/epsilon) * log(1/delta)) space. CountSketch uses signed hash functions to achieve unbiased estimates with tighter concentration.
+
+These have been adapted for machine learning in several ways:
+
+- **Gradient compression:** Ivkin et al. (2019) [@ivkin2019communication] used CountSketch for compressing gradients in distributed training, transmitting only a sketch instead of the full gradient vector. CountSketch is the natural choice here because it is linear (and thus mergeable across workers) and supports L2-norm estimation, properties that Count-Min Sketch does not provide. This reduces communication cost from O(d) to O(k * log(d/k)) per worker per iteration, enabling efficient distributed training of models with billions of parameters. We discuss this and other gradient-sketching methods in detail in "Applications to Distributed Training" below.
+- **Feature hashing:** Weinberger et al. (2009) [@weinberger2009feature] used hashing to reduce feature dimensionality while preserving inner products, a technique widely used in large-scale linear models and recommendation systems. Feature hashing maps high-dimensional sparse features to a lower-dimensional space using a hash function, avoiding the need to maintain an explicit feature dictionary.
+
+### CountSketch for Optimizer-State Compression
+
+A complementary use of CountSketch targets memory rather than communication. Spring and Shrivastava (2019) [@spring2019compressing] applied Count-Sketches to compress the auxiliary state that adaptive optimizers maintain, such as the per-parameter moment estimates in Adam. Instead of storing a full-size moment vector for every parameter, they store the moments in a Count-Sketch and recover approximate values via the median estimator when applying updates. This reduces the optimizer's memory footprint (the authors report roughly 25% savings on large models) without communicating sketches between workers and with minimal impact on convergence. The key insight is that the moment vectors are approximately sparse: a small fraction of entries carry most of the magnitude, making them amenable to sketching. For a vector of dimension d, a Count-Sketch of size O(k log d) captures the top-k entries with high probability.
+
+### Streaming PCA and Frequent Directions
+
+Streaming PCA algorithms maintain a low-rank approximation of a data matrix seen one row at a time, without storing the full matrix. Oja's algorithm [@oja1982simplified] provides the simplest approach: maintain a single vector that is updated toward the top eigenvector using a stochastic power method. Extending to the top-k eigenvectors, block power iteration processes data in a single pass, maintaining a k-dimensional subspace approximation.
+
+Liberty (2013) [@liberty2013simple] proposed Frequent Directions, a deterministic streaming algorithm for matrix sketching that maintains a small l x d matrix B such that for any unit vector x, ||Ax||^2 - ||Bx||^2 >= 0 and ||Ax||^2 - ||Bx||^2 <= 2||A||_F^2 / l. Frequent Directions processes each row in O(ld) time and uses O(ld) space, independent of the number of rows. This makes it suitable for online learning settings where data arrives continuously and batch PCA is infeasible. In the context of continual learning, Frequent Directions can maintain an evolving low-rank representation of the data seen so far, enabling methods like GPM [@saha2021gradient] to track the representation subspace without storing all previous data. A limitation of these streaming estimators is that they assume the leading subspace is reasonably stable: under abrupt distribution shift the maintained sketch lags the current data, and the rank budget l must be set conservatively to bound the worst-case error.
+
+### Reservoir Sampling
+
+Reservoir sampling [@vitter1985random] maintains a uniform random sample of fixed size k from a stream of unknown length n. Vitter's algorithm processes each element in O(1) amortized time: for the i-th element (i > k), it replaces a random element in the reservoir with probability k/i. After processing n elements, each element has exactly probability k/n of being in the sample, regardless of when it arrived. The proof of correctness is elegant. By induction, after processing i elements, each element is in the reservoir with probability k/i. When the (i+1)-th element arrives, it enters the reservoir with probability k/(i+1), and each existing element stays with probability 1 - (k/(i+1)) * (1/k) = i/(i+1), giving a final probability of (k/i) * (i/(i+1)) = k/(i+1), maintaining the invariant.
+
+In AI systems, reservoir sampling serves several critical functions:
+- **Replay buffers in continual learning:** Maintaining a representative sample of all data seen so far for experience replay, ensuring that the replay buffer does not become biased toward recent tasks (Chapter 1). ER (Experience Replay) [@chaudhry2019tiny] uses reservoir sampling as its buffer management strategy, and the theoretical guarantee of uniform sampling is what ensures that the replay distribution approximates the true data distribution.
+- **Data selection during pre-training:** Sampling representative subsets of massive pre-training corpora for monitoring training progress and constructing evaluation sets. When training on trillion-token corpora, reservoir sampling enables maintaining a fixed-size evaluation set that is representative of all data seen so far, without knowing the total corpus size in advance.
+- **Online evaluation:** Maintaining a running evaluation set from streaming data without storing the full data stream.
+- **Fair sampling:** Ensuring that evaluation and training samples are representative of the data seen so far (note that uniform reservoir sampling assumes a fixed underlying distribution and does not automatically correct for distribution shift).
+- **Weighted reservoir sampling:** Efraimidis and Spirakis (2006) [@efraimidis2006weighted] extended reservoir sampling to weighted streams, where each element has a priority weight and the reservoir maintains a weighted random sample. This is useful in AI for importance-weighted replay, where some examples are more informative than others and should be replayed more frequently.
+
+### Applications to Distributed Training
+
+The sketching and streaming algorithms described above find their most impactful application in distributed deep learning training, where communication between workers is often the primary bottleneck. For a model with d parameters and N workers, naive synchronous SGD requires communicating N * d floats per iteration. For a model like GPT-3 with 175 billion parameters and hundreds of workers, this amounts to terabytes of communication per iteration.
+
+Gradient sketching addresses this by compressing each gradient to a sketch of size O(k * log(d/k)), where k is the number of significant gradient entries. The key insight is that gradients are often approximately sparse, with a small fraction of entries carrying most of the magnitude. The canonical instantiation of this idea is Sketched-SGD (Ivkin et al., 2019) [@ivkin2019communication]: sketch the gradient with a CountSketch, identify the heavy entries from the sketch, and communicate only those entries (with their positions). The authors show that this preserves the convergence rate of SGD while substantially reducing per-iteration communication.
+
+This idea connects to a broader family of communication-efficient training methods. Sketching is one such mechanism; a distinct line of work uses error-feedback quantization, as in DeepSpeed's 1-bit Adam (Tang et al., 2021) [@tang2021onebit] and 0/1 Adam (Lu et al., 2023) [@lu2023maximizing], which compress communicated gradients via low-bit quantization rather than via sketching while reporting reduced communication volume at comparable convergence speed. The theoretical foundation shared across these approaches, namely that compressed stochastic gradients can converge at the same rate as exact stochastic gradients when the compression error is controlled, connects directly to the concentration inequalities and sketching guarantees from Section 5.2.

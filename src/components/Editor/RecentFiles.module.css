@@ -1,0 +1,97 @@
+/* ── Recent Files section ────────────────────────────────── */
+.recentSection {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.recentHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--ifm-color-emphasis-500);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: color 0.15s;
+}
+
+.recentHeader:hover {
+  color: var(--ifm-color-emphasis-700);
+}
+
+.recentHeader:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+}
+
+.chevronExpanded {
+  transform: rotate(90deg);
+  transition: transform 0.15s;
+}
+
+.chevronCollapsed {
+  transform: rotate(0deg);
+  transition: transform 0.15s;
+}
+
+.recentList {
+  padding: 0 4px 6px;
+}
+
+.recentItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 10px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-family: inherit;
+  color: var(--ifm-color-emphasis-600);
+  text-align: left;
+  border-radius: 4px;
+  transition: background 0.1s, color 0.1s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recentItem:hover {
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-color-emphasis-800);
+}
+
+.recentItem:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+}
+
+.recentItemActive {
+  background: var(--ifm-color-primary-lightest, rgba(37, 99, 235, 0.08));
+  color: var(--ifm-color-primary);
+  font-weight: 500;
+}
+
+.recentItemActive:hover {
+  background: var(--ifm-color-primary-lightest, rgba(37, 99, 235, 0.12));
+}
+
+.recentIcon {
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.recentName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}

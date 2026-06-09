@@ -1,0 +1,54 @@
+/* ── Skeleton loading animation ─────────────────────────────────────────── */
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--ifm-color-emphasis-200) 25%,
+    var(--ifm-color-emphasis-100) 50%,
+    var(--ifm-color-emphasis-200) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+.text {
+  composes: skeleton;
+  display: inline-block;
+  height: 1em;
+  border-radius: 4px;
+}
+
+.block {
+  composes: skeleton;
+  display: block;
+  width: 100%;
+  border-radius: 8px;
+}
+
+.circle {
+  composes: skeleton;
+  display: inline-block;
+  border-radius: 50%;
+}
+
+/* ── Dark mode ──────────────────────────────────────────────────────────── */
+
+[data-theme='dark'] .skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--ifm-color-emphasis-200) 25%,
+    var(--ifm-color-emphasis-300) 50%,
+    var(--ifm-color-emphasis-200) 75%
+  );
+  background-size: 200% 100%;
+}

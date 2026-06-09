@@ -1,0 +1,47 @@
+---
+sidebar_position: 15
+title: "Connections to Other Chapters"
+---
+
+# Connections to Other Chapters
+
+**Efficient Architecture Design (Chapter 3):** The connections between randomized algorithms and efficient architectures are among the deepest in this survey, as many efficiency techniques are direct applications of randomized methods:
+
+- *Linear attention via random features:* Performer [@choromanski2021rethinking] uses FAVOR+ (positive orthogonal random features inspired by random Fourier features) to approximate softmax attention in O(n) time, directly applying the random feature framework from Section 5.4.
+- *Sparse attention via hashing:* Reformer [@kitaev2020reformer] uses locality-sensitive hashing from Section 5.5 to identify relevant key-value pairs, reducing attention from O(n^2) to O(n log n).
+- *Model compression via randomized linear algebra:* Low-rank factorization for model compression uses randomized SVD from Section 5.11. LoRA's low-rank weight updates are conceptually related to randomized low-rank approximation.
+- *Quantization as randomized rounding:* Stochastic rounding in quantization-aware training [@gupta2015deep] is a randomized algorithm with provable unbiasedness guarantees: it rounds a value to a neighboring grid point with probability proportional to proximity, so the rounding error is zero in expectation.
+- *Gradient compression via sketching:* CountSketch-based gradient compression from Section 5.6 directly enables communication-efficient distributed training.
+- *State space models and signal processing:* The HiPPO initialization of SSMs (S4, Mamba) is grounded in polynomial projection operators with connections to spectral methods from Section 5.8.
+- *FlashAttention and IO complexity:* While FlashAttention is not a randomized algorithm, its IO-complexity analysis draws on the same mathematical framework (bounding memory access patterns) used to analyze randomized streaming algorithms.
+
+Of these, the random-feature and hashing connections (Performer, Reformer) are load-bearing: randomization is what makes the subquadratic complexity provable. The SSM and FlashAttention links are illustrative, sharing analytical machinery rather than the randomization itself.
+
+**Continual Learning (Chapter 1):** Randomized data structures are essential infrastructure for continual learning systems:
+
+- *Reservoir sampling for replay buffers:* The theoretical foundation for maintaining unbiased samples in experience replay (Section 5.6) directly underlies the buffer management strategies in continual learning, ensuring that replay buffers remain representative as the data stream evolves.
+- *Sketching for compressed replay:* Count-Min Sketch and related structures can compress replay buffers, storing approximate representations of previous task distributions in bounded memory rather than storing raw examples.
+- *Random projections for parameter importance:* EWC-style continual learning methods require computing the Fisher information matrix, which is prohibitively expensive for large models. Random projections enable efficient approximation of parameter importance without materializing the full Fisher matrix.
+- *Streaming PCA for representation tracking:* Gradient Projection Memory (GPM) from Chapter 1 maintains a basis for each task's representation subspace. Streaming PCA algorithms (Frequent Directions) from Section 5.6 provide the algorithmic machinery for maintaining these bases efficiently.
+- *The streaming perspective:* Online continual learning (processing data in a single pass with bounded memory) is an instance of the streaming computation model that motivates sketching and sampling algorithms.
+
+Here the load-bearing connection is reservoir sampling for replay buffers, where unbiased sampling is a correctness requirement rather than an optimization. The sketching and random-projection connections are promising but more illustrative, offering memory savings whose accuracy cost in this setting is not yet well characterized.
+
+**World Models (Chapter 2):** Spectral methods and randomized algorithms connect to world models in several ways:
+
+- *Spectral analysis of learned dynamics:* The dynamics models learned by world models (Dreamer, IRIS) can be analyzed through spectral decomposition, revealing the timescales and modes of the learned dynamics. The eigenspectrum of the transition model determines which dynamical features are captured.
+- *Random projections for state compression:* World model latent states can be compressed using random projections while preserving dynamical properties, enabling more memory-efficient world model training and inference.
+- *Randomized planning:* Planning with world models uses randomized methods extensively, building on the Monte Carlo sampling foundations of Section 5.6: the Cross-Entropy Method (CEM) samples random action sequences and selects the best [@chua2018deep]; random shooting generates random rollouts for Monte Carlo estimation; MCTS uses random simulations for value estimation [@silver2017mastering].
+- *Fourier analysis of temporal patterns:* The spectral bias of neural networks has potential implications for world model learning. We pose as an open hypothesis (not an established result) that world models might learn low-frequency temporal patterns (slow dynamics) before high-frequency ones (fast dynamics), which, if true, would have implications for training curriculum design. Testing whether spectral bias extends to temporal world-model dynamics remains future work.
+
+The randomized-planning connection is load-bearing: sampling-based planners are the standard way world models are used for control. The spectral-analysis and Fourier connections are illustrative or speculative, offering interpretive lenses rather than established algorithmic dependencies.
+
+**Agentic Search (Chapter 4):** The computational backbone of agentic search relies heavily on randomized algorithms:
+
+- *Approximate nearest neighbor search:* Dense retrieval in RAG systems [@karpukhin2020dpr, @khattab2020colbert] queries billion-scale vector databases using approximate nearest neighbor algorithms built on LSH, random projections, HNSW [@malkov2020hnsw] (which uses randomized graph construction), and product quantization. The retrieval quality-speed tradeoff is directly determined by the approximation parameters of these randomized data structures.
+- *Bloom filters for deduplication:* Agentic search systems that retrieve from large corpora use Bloom filters to efficiently track which documents have already been retrieved, avoiding redundant processing.
+- *Hashing for efficient embedding lookup:* Feature hashing and learned hash functions enable efficient lookup of embedding vectors in large-scale retrieval systems.
+- *Random sampling for search diversification:* Search diversification strategies (ensuring retrieved documents cover diverse aspects of a query) use random sampling and randomized rounding algorithms to solve the underlying combinatorial optimization problem approximately.
+- *Streaming algorithms for real-time indexing:* As document collections grow continuously, streaming algorithms from Section 5.6 enable real-time index updates without full re-indexing.
+
+The load-bearing connection is approximate nearest neighbor search: at billion scale, randomized indexing is not an optimization but the only tractable option, and retrieval quality is governed directly by its approximation parameters. The Bloom-filter, feature-hashing, and diversification connections are useful but illustrative, since exact alternatives remain feasible at smaller scales.

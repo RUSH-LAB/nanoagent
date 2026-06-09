@@ -1,0 +1,42 @@
+---
+sidebar_position: 10
+title: "Search in Code & Math"
+---
+
+## Search in Code & Math
+
+Code generation and mathematical reasoning represent some of the most compelling applications of agentic search, because they have **verifiable outcomes**: a generated program either passes its tests or it does not, and a mathematical proof either verifies or it does not. This verifiability enables clean evaluation and provides strong training signals for self-improvement.
+
+### AlphaCode and Competitive Programming
+
+Li et al. (2022) [@li2022alphacode] introduced AlphaCode (DeepMind), which uses large-scale code generation combined with filtering and clustering to solve competitive programming problems. The search strategy is "massive generation followed by intelligent selection": AlphaCode generates up to 1 million candidate solutions per problem, filters them using the provided test cases, clusters the remaining correct solutions (using a learned similarity model), and submits representatives from each cluster. This "generate-and-filter" approach achieved competitive programming performance at the level of a median participant on Codeforces (top 54.3%), demonstrating that search over a massive solution space, guided by test-based verification, can compensate for imperfect individual solution quality.
+
+AlphaCode 2 (2023) [@alphacode2_2023] improved dramatically by using Gemini as the base model and incorporating better search strategies, achieving performance at the 85th percentile of Codeforces participants. The key improvements included more targeted sampling (using a learned scoring model to allocate generation budget to promising solution types) and better clustering (using semantic similarity to identify distinct solution strategies).
+
+**Codex and HumanEval.** The HumanEval benchmark (Chen et al., 2021) [@chen2021humaneval] has become the standard evaluation for code generation, measuring functional correctness through unit test execution. Codex [@chen2021humaneval], the model behind GitHub Copilot, established that pre-training on code produces models capable of synthesizing correct programs from docstrings. The pass@k metric (probability of at least one correct solution in k samples) directly connects code generation to search: higher k means more search budget, and the gap between pass@1 and pass@100 measures how much search helps. For Codex-12B, pass@1 was 28.8% while pass@100 reached 72.3%, showing that search can more than double effective performance.
+
+**APPS and CodeContests.** Hendrycks et al. (2021) [@hendrycks2021apps] introduced APPS, a benchmark of 10,000 coding problems from competitive programming sites spanning introductory to competition-level difficulty. APPS revealed a stark capability gap: models that achieve reasonable performance on easy problems (e.g., 20-30% pass@5) achieve near-zero on competition-level problems, demonstrating that difficulty scaling is a fundamental challenge. CodeContests [@li2022alphacode] provided a curated subset of competitive programming problems with more rigorous test suites.
+
+### SWE-bench and Software Engineering Agents
+
+Jimenez et al. (2024) [@jimenez2024swebench] introduced SWE-bench, a benchmark of real-world GitHub issues from popular Python repositories (Django, Flask, scikit-learn, etc.), where agents must find and fix actual bugs by navigating codebases, understanding code, and producing correct patches. SWE-bench has become the standard evaluation for software engineering agents.
+
+**SWE-Agent** (Yang et al., 2024) [@yang2024sweagent] designed a custom agent-computer interface optimized for LLM-based software engineering. SWE-Agent provides the LLM with specialized commands for navigating codebases (search, open files, scroll), editing code (edit specific lines), and running tests, achieving significantly better performance than agents using raw bash commands. SWE-Agent resolved 12.5% of SWE-bench issues (later improved with better models).
+
+**OpenHands** (Wang et al., 2024) [@wang2024openhands] (formerly OpenDevin) provides a framework for building software development agents that can browse the web, write code, and execute commands. OpenHands supports multiple agent architectures (CodeAct, browsing agents); its CodeAct 2.1 agent reportedly reached around 53% resolved on SWE-bench Verified and 41.7% on SWE-bench Lite (as of early 2025). Where SWE-Agent's contribution is primarily a lean, purpose-built agent-computer interface, OpenHands trades that minimalism for a general-purpose platform (web browsing, multiple agent types, sandboxed execution), making it more extensible at the cost of a larger interface surface.
+
+The rapid progress on SWE-bench, where the original benchmark paper reported best models resolving only around 2% of issues (Jimenez et al., 2024) [@jimenez2024swebench] and agent frameworks now resolve roughly half of the Verified split (as of early 2025), demonstrates that agentic search over codebases is becoming practically useful for automated software engineering. These rates continue to climb, so specific numbers should be read as snapshots rather than ceilings.
+
+### Proof Search in Formal Mathematics
+
+Searching for mathematical proofs in formal languages (Lean, Isabelle, Coq) has become an active area combining LLMs with structured search. The proof search problem is: given a theorem statement, find a sequence of proof steps (tactics) that proves it, where each step transforms the proof state toward a verified conclusion. Major remaining challenges include the autoformalization bottleneck (translating informal mathematics into formal statements), the high computational cost of exploring large proof spaces with sparse rewards, and the gap between benchmark performance and the full breadth of mathematical practice.
+
+**ReProver** (Yang et al., 2023) [@yang2023leandojo] proposed a retrieval-augmented approach to theorem proving in Lean, using a retriever to find relevant lemmas from the mathematical library and a generator to produce proof tactics. The combination of retrieval (finding useful building blocks) with generation (constructing proof steps) significantly outperforms generation alone.
+
+**DeepSeek-Prover** (Xin et al., 2024) [@xin2024deepseekprover] trains a large language model on large-scale synthetic data to produce Lean proofs. The follow-up **DeepSeek-Prover-V1.5** [@xin2024deepseekproverv15] combines whole-proof generation with RMaxTS (a Monte-Carlo tree search variant that uses intrinsic, reward-free signals to drive exploration) and reinforcement learning from binary proof-assistant feedback (RLPAF via GRPO). It reached new state-of-the-art results on miniF2F (63.5%) and ProofNet (25.3%). DeepSeekMath [@zhu2024deepseekmathrl] applied similar MCTS + RL techniques to informal mathematical reasoning, demonstrating that search-guided training substantially outperforms standard supervised learning.
+
+**AlphaProof** (Google DeepMind, 2024) [@deepmind2024alphaproof] combined Gemini with reinforcement learning and tree search to solve International Mathematical Olympiad problems in Lean 4. At IMO 2024, AlphaProof (combined with AlphaGeometry 2) achieved a silver medal-level score, solving 4 of 6 problems. This result demonstrated that the combination of LLM-based generation with formal verification and systematic search can achieve mathematical reasoning at an elite level.
+
+### Process Reward Models for Math Reasoning
+
+A key enabler for search in mathematical reasoning is the **process reward model (PRM)**, which evaluates intermediate reasoning steps rather than only final answers. Lightman et al. (2023) [@lightman2023prm] demonstrated that PRMs trained on step-by-step annotations outperform outcome reward models (ORMs) for guiding search in mathematical reasoning. When combined with best-of-N sampling or tree search, PRMs enable the model to identify and backtrack from incorrect reasoning steps, substantially improving accuracy on competition math benchmarks (on a representative MATH subset with best-of-1860 reranking, PRM-guided selection reached 78.2%, compared to 72.4% for outcome-reward reranking and 69.6% for majority voting). DeepSeekMath (2024) [@zhu2024deepseekmathrl] further demonstrated the effectiveness of RL training with process rewards for mathematical reasoning at scale, achieving strong performance on competition-level math problems through GRPO training combined with step-level verification.

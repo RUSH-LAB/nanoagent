@@ -1,0 +1,622 @@
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+ */
+
+/* You can override the default Infima variables here. */
+:root {
+  --ifm-container-width: 2000px;
+  --ifm-container-width-xl: 2000px;
+  --ifm-font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
+  --ifm-heading-font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  --ifm-color-primary: #3b5998;
+  --ifm-color-primary-dark: #344e85;
+  --ifm-color-primary-darker: #31497d;
+  --ifm-color-primary-darkest: #283c67;
+  --ifm-color-primary-light: #4b69a6;
+  --ifm-color-primary-lighter: #5070ab;
+  --ifm-color-primary-lightest: #6b87bb;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+/* ── Global heading color & title size override ───────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  color: #4a5568 !important;
+}
+
+h1,
+h2[class*="title_"] {
+  font-size: 2.5rem !important;
+}
+
+/* Blog/research list title links use primary color */
+h2[class*="title_"] a {
+  color: var(--ifm-color-primary) !important;
+  text-decoration: none;
+}
+
+h2[class*="title_"] a:hover {
+  color: var(--ifm-color-primary-dark) !important;
+  text-decoration: underline;
+}
+
+[data-theme='dark'] h1,
+[data-theme='dark'] h2,
+[data-theme='dark'] h3,
+[data-theme='dark'] h4,
+[data-theme='dark'] h5,
+[data-theme='dark'] h6,
+[data-theme='dark'] h2[class*="title_"] a {
+  color: #cbd5e1 !important;
+}
+
+[data-theme='dark'] h2[class*="title_"] a:hover {
+  color: #e2e8f0 !important;
+}
+
+/* For readability concerns, you should choose a lighter palette in dark mode. */
+[data-theme='dark'] {
+  --ifm-color-primary: #ffffff;
+  --ifm-color-primary-dark: #e6e6e6;
+  --ifm-color-primary-darker: #d9d9d9;
+  --ifm-color-primary-darkest: #b3b3b3;
+  --ifm-color-primary-light: #ffffff;
+  --ifm-color-primary-lighter: #ffffff;
+  --ifm-color-primary-lightest: #ffffff;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+/* Center equations when navigating to them via anchor links */
+/* Add scroll margin to equation containers */
+div,
+.katex-display {
+  scroll-margin-top: 30vh; /* Adjust this value to control vertical centering */
+  scroll-margin-bottom: 30vh;
+}
+
+/* Smooth scrolling for anchor links */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Highlight any targeted element with an ID */
+:target {
+  animation: highlight-equation 1s ease-in-out;
+}
+
+@keyframes highlight-equation {
+  0%, 100% {
+    background-color: transparent;
+  }
+  50% {
+    background-color: rgba(var(--ifm-color-primary-rgb), 0.1);
+  }
+}
+
+/* Replace "Footnotes" heading with "References" */
+.footnotes h2 {
+  visibility: hidden;
+  position: relative;
+}
+
+.footnotes h2::before {
+  content: "References";
+  visibility: visible;
+  position: absolute;
+  left: 0;
+  font-size: 2rem; /* Adjust this value to match your h2 size */
+  font-weight: var(--ifm-heading-font-weight);
+}
+
+/* ── Math block dark mode ──────────────────────────────────────────────────── */
+[data-theme='dark'] .math-block--theorem,
+[data-theme='dark'] .math-block--lemma,
+[data-theme='dark'] .math-block--proposition,
+[data-theme='dark'] .math-block--corollary {
+  background-color: #1e2a3a !important;
+  border-color: #3a4a5c !important;
+}
+
+[data-theme='dark'] .math-block--definition {
+  background-color: #1a2e1a !important;
+  border-color: #2e4a2e !important;
+}
+
+[data-theme='dark'] .math-block--remark {
+  background-color: #2e2a1a !important;
+  border-color: #4a4428 !important;
+}
+
+[data-theme='dark'] .math-block--example {
+  background-color: #261e30 !important;
+  border-color: #3e3050 !important;
+}
+
+[data-theme='dark'] .math-block--proof {
+  border-left-color: #555 !important;
+}
+
+[data-theme='dark'] .math-block--lean-proof {
+  border-left-color: #60a5fa !important;
+}
+
+[data-theme='dark'] .math-block--lean-proof button {
+  color: #60a5fa !important;
+}
+
+/* Algorithm dark mode */
+[data-theme='dark'] .numbered-algorithm {
+  border-color: #3a4a5c !important;
+}
+
+[data-theme='dark'] .numbered-algorithm > div:first-child {
+  border-bottom-color: #3a4a5c !important;
+}
+
+/* ── Citation system styles ──────────────────────────────────────────────── */
+.citation-link {
+  text-decoration: none;
+  color: #15803d;
+  cursor: pointer;
+}
+
+.citation-link:hover {
+  text-decoration: underline;
+}
+
+.citation-unknown {
+  color: #e53e3e;
+  font-weight: 600;
+  background-color: rgba(229, 62, 62, 0.1);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+.reference-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.reference-item {
+  padding-left: 2em;
+  text-indent: -2em;
+  margin-bottom: 0.75em;
+  scroll-margin-top: 30vh;
+}
+
+.reference-item:target {
+  animation: highlight-equation 1s ease-in-out;
+}
+
+/* ── Tables: left-aligned site-wide ──────────────────────────────────────── */
+table {
+  display: table !important;
+}
+
+/* Remove paragraph margin inside figures so caption sits close to content */
+.numbered-figure p {
+  margin-bottom: 0 !important;
+}
+
+/* Additional numbered-table overrides (column alignment) */
+
+/* Column alignment overrides */
+.numbered-table--cols-center th,
+.numbered-table--cols-center td {
+  text-align: center !important;
+}
+
+.numbered-table--cols-left th,
+.numbered-table--cols-left td {
+  text-align: left !important;
+}
+
+.numbered-table--cols-right th,
+.numbered-table--cols-right td {
+  text-align: right !important;
+}
+
+/* ── Figure & Table caption dark mode ────────────────────────────────────── */
+[data-theme='dark'] .numbered-figure figcaption,
+[data-theme='dark'] .numbered-table > div:first-child {
+  color: #aaa !important;
+}
+
+/* ── Sidebar chapter numbers (inline superscript) ────────────────────────── */
+
+/* Link items: superscript number above the label */
+.sidebar-numbered-link .menu__link {
+  position: relative;
+  padding-top: 0.7rem;
+}
+
+.sidebar-numbered-link .menu__link::before {
+  content: var(--chapter-num);
+  position: absolute;
+  top: 2px;
+  left: 0.3rem;
+  font-size: 0.75rem;
+  color: #15803d;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* Category items: superscript number above the category label */
+.sidebar-numbered-category > .menu__list-item > .menu__list-item-collapsible > .menu__link {
+  position: relative;
+  padding-top: 0.7rem;
+}
+
+.sidebar-numbered-category > .menu__list-item > .menu__list-item-collapsible > .menu__link::before {
+  content: var(--chapter-num);
+  position: absolute;
+  top: 2px;
+  left: 0.3rem;
+  font-size: 0.75rem;
+  color: #15803d;
+  font-weight: 500;
+  line-height: 1;
+}
+
+[data-theme='dark'] .sidebar-numbered-link .menu__link::before,
+[data-theme='dark'] .sidebar-numbered-category > .menu__list-item > .menu__list-item-collapsible > .menu__link::before {
+  color: #4ade80;
+}
+
+/* ── Todo list checkboxes ────────────────────────────────────────────────── */
+li > input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1.55em;
+  height: 1.55em;
+  vertical-align: middle;
+  margin-right: 0.4em;
+  position: relative;
+  top: -0.1em;
+  border: 2.5px solid #9ca3af;
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: default;
+}
+
+li > input[type="checkbox"]:checked {
+  background: #2568c2;
+  border-color: #2568c2;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3E%3C/svg%3E");
+  background-size: 75%;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+[data-theme='dark'] li > input[type="checkbox"] {
+  background: #161b22;
+  border-color: #3a4a5c;
+}
+
+[data-theme='dark'] li > input[type="checkbox"]:checked {
+  background: #3b82f6;
+  border-color: #3b82f6;
+}
+
+/* ── Lean code runner ──────────────────────────────────────────────────────── */
+.lean-runner {
+  position: relative;
+}
+
+.lean-run-btn {
+  position: absolute;
+  top: 10px;
+  right: 56px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(74, 158, 255, 0.9);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: inherit;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.lean-runner:hover .lean-run-btn,
+.lean-run-btn--active {
+  opacity: 1 !important;
+}
+
+.lean-run-btn:hover {
+  background: rgba(74, 158, 255, 1);
+}
+
+.lean-run-btn--active {
+  background: #6b7280;
+}
+
+.lean-run-btn--active:hover {
+  background: #4b5563;
+}
+
+.lean-playground {
+  margin-top: 0.5em;
+  margin-bottom: 1em;
+}
+
+.lean-playground-info {
+  font-size: 0.8rem;
+  color: #888;
+  margin-bottom: 0.4em;
+}
+
+.lean-playground-info a {
+  color: #4a9eff;
+}
+
+.lean-playground-frame {
+  width: 100%;
+  height: 460px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+}
+
+[data-theme='dark'] .lean-playground-frame {
+  border-color: #3a4a5c;
+}
+
+/* ── Wiki link styles ────────────────────────────────────────────────────── */
+.wikilink {
+  color: var(--ifm-color-primary);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--ifm-color-primary-lighter);
+  padding-bottom: 1px;
+}
+.wikilink:hover {
+  border-bottom-style: solid;
+}
+
+/* ── Print-friendly styles ─────────────────────────────────────────────────── */
+@media print {
+  /* 1. Hide navigation, chrome, and non-content elements */
+  nav.navbar,
+  .navbar,
+  .navbar-sidebar,
+  aside.theme-doc-sidebar-container,
+  .theme-doc-sidebar-container,
+  .footer,
+  footer,
+  .search-bar,
+  .DocSearch,
+  .theme-edit-this-page,
+  .theme-doc-toc-desktop,
+  .theme-doc-toc-mobile,
+  .theme-doc-breadcrumbs,
+  .pagination-nav,
+  .theme-doc-footer,
+  .announcementBar_node_modules,
+  [class*="announcementBar"],
+  .theme-back-to-top-button {
+    display: none !important;
+  }
+
+  /* 2. Remove background colors and shadows */
+  body,
+  html,
+  .main-wrapper,
+  .docMainContainer_node_modules,
+  [class*="docMainContainer"],
+  article,
+  .container,
+  .markdown,
+  div[class*="docPage"],
+  div[class*="docRoot"] {
+    background: #fff !important;
+    box-shadow: none !important;
+  }
+
+  /* 3. Black text on white background */
+  body,
+  p,
+  li,
+  td,
+  th,
+  span,
+  div,
+  article {
+    color: #000 !important;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    color: #111 !important;
+  }
+
+  /* 4. Full-width content */
+  .main-wrapper,
+  .container,
+  .col,
+  [class*="docItemCol"],
+  [class*="docMainContainer"],
+  article,
+  .markdown {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* 5. Page break avoidance for code blocks and math blocks */
+  pre,
+  code,
+  .prism-code,
+  .katex-display,
+  .math-block--theorem,
+  .math-block--lemma,
+  .math-block--proposition,
+  .math-block--corollary,
+  .math-block--definition,
+  .math-block--remark,
+  .math-block--example,
+  .math-block--proof,
+  .math-block--lean-proof,
+  .numbered-algorithm,
+  .numbered-figure,
+  .numbered-table,
+  table,
+  blockquote {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Sensible page breaks around headings */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  /* 6. Show URLs after links */
+  a[href]:after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+    color: #555;
+    word-break: break-all;
+  }
+
+  /* Don't show URL for anchor/internal fragment links or javascript */
+  a[href^="#"]:after,
+  a[href^="javascript"]:after {
+    content: "" !important;
+  }
+
+  /* 7. Hide interactive elements */
+  button,
+  input,
+  select,
+  textarea,
+  form,
+  .lean-run-btn,
+  .lean-playground,
+  [class*="toggleButton"],
+  [class*="collapsibleContent"] > button {
+    display: none !important;
+  }
+
+  /* Keep code block styling readable in print */
+  pre {
+    border: 1px solid #ccc !important;
+    background: #f8f8f8 !important;
+    padding: 0.75em !important;
+    white-space: pre-wrap !important;
+    word-wrap: break-word !important;
+  }
+
+  pre code,
+  pre code span {
+    color: #333 !important;
+  }
+
+  /* Ensure images don't overflow the page */
+  img {
+    max-width: 100% !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Remove link styling for cleaner print */
+  a {
+    color: #000 !important;
+    text-decoration: underline;
+  }
+}
+
+/* ── Copy heading link ─────────────────────────────────── */
+.theme-doc-markdown h1,
+.theme-doc-markdown h2,
+.theme-doc-markdown h3,
+.theme-doc-markdown h4 {
+  position: relative;
+}
+
+.theme-doc-markdown h1 .hash-link,
+.theme-doc-markdown h2 .hash-link,
+.theme-doc-markdown h3 .hash-link,
+.theme-doc-markdown h4 .hash-link {
+  opacity: 0;
+  transition: opacity 0.15s;
+  cursor: pointer;
+  margin-left: 0.3rem;
+  font-size: 0.8em;
+  color: var(--ifm-color-emphasis-400);
+}
+
+.theme-doc-markdown h1:hover .hash-link,
+.theme-doc-markdown h2:hover .hash-link,
+.theme-doc-markdown h3:hover .hash-link,
+.theme-doc-markdown h4:hover .hash-link {
+  opacity: 1;
+}
+
+.theme-doc-markdown h1:hover .hash-link:hover,
+.theme-doc-markdown h2:hover .hash-link:hover,
+.theme-doc-markdown h3:hover .hash-link:hover,
+.theme-doc-markdown h4:hover .hash-link:hover {
+  color: var(--ifm-color-primary);
+}
+
+/* ── Page transition animations ──────────────────────────────────────────── */
+
+/* Fade-in for main content area on page load */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.main-wrapper {
+  animation: fadeIn 250ms ease-out;
+}
+
+/* Slide-up animation for card grids (homepage features, general card containers) */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Homepage feature cards and any section with a card grid */
+section[class*="features"] [class*="featureGrid"],
+section[class*="features"] [class*="featureCard"],
+.card,
+.cards,
+[class*="cardContainer"] {
+  animation: slideUp 300ms ease-out both;
+}
+
+/* Stagger the slide-up for individual cards within grids */
+section[class*="features"] [class*="featureCard"]:nth-child(1) { animation-delay: 0ms; }
+section[class*="features"] [class*="featureCard"]:nth-child(2) { animation-delay: 60ms; }
+section[class*="features"] [class*="featureCard"]:nth-child(3) { animation-delay: 120ms; }
+section[class*="features"] [class*="featureCard"]:nth-child(4) { animation-delay: 180ms; }
+section[class*="features"] [class*="featureCard"]:nth-child(5) { animation-delay: 240ms; }
+section[class*="features"] [class*="featureCard"]:nth-child(6) { animation-delay: 300ms; }
+
+/* Respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .main-wrapper,
+  section[class*="features"] [class*="featureGrid"],
+  section[class*="features"] [class*="featureCard"],
+  .card,
+  .cards,
+  [class*="cardContainer"] {
+    animation: none;
+  }
+}
