@@ -1,8 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { ClerkProvider, SignedIn, SignedOut, SignIn } from '@clerk/clerk-react';
+import { ClerkProvider, SignedIn, SignedOut, SignIn, UserButton } from '@clerk/clerk-react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import PageTracker from '@site/src/components/Analytics/PageTracker';
 
-const PUBLISHABLE_KEY = 'pk_test_dW5pcXVlLXJheS0yOS5jbGVyay5hY2NvdW50cy5kZXYk';
+const PUBLISHABLE_KEY =
+  typeof process !== 'undefined' && process.env?.REACT_APP_CLERK_PUBLISHABLE_KEY
+    ? process.env.REACT_APP_CLERK_PUBLISHABLE_KEY
+    : 'pk_test_dW5pcXVlLXJheS0yOS5jbGVyay5hY2NvdW50cy5kZXYk';
 
 const mobileStyles = `
 /* Use viewport-relative units so everything scales fluidly with device width */
@@ -183,12 +187,20 @@ export default function Root({ children }) {
   const authEnabled = siteConfig.customFields?.authEnabled;
 
   if (!authEnabled) {
-    return <>{children}</>;
+    return (
+      <>
+        {children}
+        <PageTracker />
+      </>
+    );
   }
 
   return (
     <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
-      <AuthGate>{children}</AuthGate>
+      <AuthGate>
+        {children}
+      </AuthGate>
+      <PageTracker />
     </ClerkProvider>
   );
 }

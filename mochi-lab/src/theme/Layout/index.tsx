@@ -6,6 +6,7 @@ import {
   SkipToContentFallbackId,
   ThemeClassNames,
 } from '@docusaurus/theme-common';
+import BrowserOnly from '@docusaurus/BrowserOnly';
 import SkipToContent from '@theme/SkipToContent';
 import AnnouncementBar from '@theme/AnnouncementBar';
 import Navbar from '@theme/Navbar';
@@ -13,6 +14,10 @@ import Footer from '@theme/Footer';
 import LayoutProvider from '@theme/Layout/Provider';
 import ErrorPageContent from '@theme/ErrorPageContent';
 import type {Props} from '@theme/Layout';
+import ReadingProgress from '@site/src/components/ReadingProgress';
+import CommandPalette from '@site/src/components/CommandPalette';
+import ToastContainer from '@site/src/components/Toast';
+import QuickActions from '@site/src/components/QuickActions';
 import styles from './styles.module.css';
 
 export default function Layout(props: Props): ReactNode {
@@ -26,6 +31,17 @@ export default function Layout(props: Props): ReactNode {
 
   return (
     <LayoutProvider>
+      <a
+        className={styles.skipToContent}
+        href={`#${SkipToContentFallbackId}`}
+      >
+        Skip to content
+      </a>
+
+      <BrowserOnly>{() => <CommandPalette />}</BrowserOnly>
+      <ReadingProgress />
+      <ToastContainer />
+
       <PageMetadata title={title} description={description} />
 
       <SkipToContent />
@@ -48,6 +64,8 @@ export default function Layout(props: Props): ReactNode {
       </div>
 
       {!noFooter && <Footer />}
+
+      <QuickActions />
     </LayoutProvider>
   );
 }

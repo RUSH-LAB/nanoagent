@@ -19,8 +19,8 @@ function visitText(tree, callback) {
       callback(node, index, parent);
     }
     if (node.children) {
-      // Skip code blocks entirely
-      if (node.type === 'code' || node.type === 'inlineCode') return;
+      // Skip code blocks and links to avoid producing nested <a> elements
+      if (node.type === 'code' || node.type === 'inlineCode' || node.type === 'link') return;
       for (let i = 0; i < node.children.length; i++) {
         walk(node.children[i], i, node);
       }

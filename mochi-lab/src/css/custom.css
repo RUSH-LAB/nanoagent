@@ -365,3 +365,258 @@ li > input[type="checkbox"]:checked {
 [data-theme='dark'] .lean-playground-frame {
   border-color: #3a4a5c;
 }
+
+/* ── Wiki link styles ────────────────────────────────────────────────────── */
+.wikilink {
+  color: var(--ifm-color-primary);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--ifm-color-primary-lighter);
+  padding-bottom: 1px;
+}
+.wikilink:hover {
+  border-bottom-style: solid;
+}
+
+/* ── Print-friendly styles ─────────────────────────────────────────────────── */
+@media print {
+  /* 1. Hide navigation, chrome, and non-content elements */
+  nav.navbar,
+  .navbar,
+  .navbar-sidebar,
+  aside.theme-doc-sidebar-container,
+  .theme-doc-sidebar-container,
+  .footer,
+  footer,
+  .search-bar,
+  .DocSearch,
+  .theme-edit-this-page,
+  .theme-doc-toc-desktop,
+  .theme-doc-toc-mobile,
+  .theme-doc-breadcrumbs,
+  .pagination-nav,
+  .theme-doc-footer,
+  .announcementBar_node_modules,
+  [class*="announcementBar"],
+  .theme-back-to-top-button {
+    display: none !important;
+  }
+
+  /* 2. Remove background colors and shadows */
+  body,
+  html,
+  .main-wrapper,
+  .docMainContainer_node_modules,
+  [class*="docMainContainer"],
+  article,
+  .container,
+  .markdown,
+  div[class*="docPage"],
+  div[class*="docRoot"] {
+    background: #fff !important;
+    box-shadow: none !important;
+  }
+
+  /* 3. Black text on white background */
+  body,
+  p,
+  li,
+  td,
+  th,
+  span,
+  div,
+  article {
+    color: #000 !important;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    color: #111 !important;
+  }
+
+  /* 4. Full-width content */
+  .main-wrapper,
+  .container,
+  .col,
+  [class*="docItemCol"],
+  [class*="docMainContainer"],
+  article,
+  .markdown {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* 5. Page break avoidance for code blocks and math blocks */
+  pre,
+  code,
+  .prism-code,
+  .katex-display,
+  .math-block--theorem,
+  .math-block--lemma,
+  .math-block--proposition,
+  .math-block--corollary,
+  .math-block--definition,
+  .math-block--remark,
+  .math-block--example,
+  .math-block--proof,
+  .math-block--lean-proof,
+  .numbered-algorithm,
+  .numbered-figure,
+  .numbered-table,
+  table,
+  blockquote {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Sensible page breaks around headings */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  /* 6. Show URLs after links */
+  a[href]:after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+    color: #555;
+    word-break: break-all;
+  }
+
+  /* Don't show URL for anchor/internal fragment links or javascript */
+  a[href^="#"]:after,
+  a[href^="javascript"]:after {
+    content: "" !important;
+  }
+
+  /* 7. Hide interactive elements */
+  button,
+  input,
+  select,
+  textarea,
+  form,
+  .lean-run-btn,
+  .lean-playground,
+  [class*="toggleButton"],
+  [class*="collapsibleContent"] > button {
+    display: none !important;
+  }
+
+  /* Keep code block styling readable in print */
+  pre {
+    border: 1px solid #ccc !important;
+    background: #f8f8f8 !important;
+    padding: 0.75em !important;
+    white-space: pre-wrap !important;
+    word-wrap: break-word !important;
+  }
+
+  pre code,
+  pre code span {
+    color: #333 !important;
+  }
+
+  /* Ensure images don't overflow the page */
+  img {
+    max-width: 100% !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Remove link styling for cleaner print */
+  a {
+    color: #000 !important;
+    text-decoration: underline;
+  }
+}
+
+/* ── Copy heading link ─────────────────────────────────── */
+.theme-doc-markdown h1,
+.theme-doc-markdown h2,
+.theme-doc-markdown h3,
+.theme-doc-markdown h4 {
+  position: relative;
+}
+
+.theme-doc-markdown h1 .hash-link,
+.theme-doc-markdown h2 .hash-link,
+.theme-doc-markdown h3 .hash-link,
+.theme-doc-markdown h4 .hash-link {
+  opacity: 0;
+  transition: opacity 0.15s;
+  cursor: pointer;
+  margin-left: 0.3rem;
+  font-size: 0.8em;
+  color: var(--ifm-color-emphasis-400);
+}
+
+.theme-doc-markdown h1:hover .hash-link,
+.theme-doc-markdown h2:hover .hash-link,
+.theme-doc-markdown h3:hover .hash-link,
+.theme-doc-markdown h4:hover .hash-link {
+  opacity: 1;
+}
+
+.theme-doc-markdown h1:hover .hash-link:hover,
+.theme-doc-markdown h2:hover .hash-link:hover,
+.theme-doc-markdown h3:hover .hash-link:hover,
+.theme-doc-markdown h4:hover .hash-link:hover {
+  color: var(--ifm-color-primary);
+}
+
+/* ── Page transition animations ──────────────────────────────────────────── */
+
+/* Fade-in for main content area on page load */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.main-wrapper {
+  animation: fadeIn 250ms ease-out;
+}
+
+/* Slide-up animation for card grids (homepage features, general card containers) */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Homepage feature cards and any section with a card grid */
+section[class*="features"] [class*="featureGrid"],
+section[class*="features"] [class*="featureCard"],
+.card,
+.cards,
+[class*="cardContainer"] {
+  animation: slideUp 300ms ease-out both;
+}
+
+/* Stagger the slide-up for individual cards within grids */
+section[class*="features"] [class*="featureCard"]:nth-child(1) { animation-delay: 0ms; }
+section[class*="features"] [class*="featureCard"]:nth-child(2) { animation-delay: 60ms; }
+section[class*="features"] [class*="featureCard"]:nth-child(3) { animation-delay: 120ms; }
+section[class*="features"] [class*="featureCard"]:nth-child(4) { animation-delay: 180ms; }
+section[class*="features"] [class*="featureCard"]:nth-child(5) { animation-delay: 240ms; }
+section[class*="features"] [class*="featureCard"]:nth-child(6) { animation-delay: 300ms; }
+
+/* Respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .main-wrapper,
+  section[class*="features"] [class*="featureGrid"],
+  section[class*="features"] [class*="featureCard"],
+  .card,
+  .cards,
+  [class*="cardContainer"] {
+    animation: none;
+  }
+}
