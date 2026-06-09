@@ -182,7 +182,7 @@ The core contribution is real and the experiments support it. The criticisms bel
 
 **SIGReg has a known soft spot, stated but not addressed.** The Two-Room failure and the limitations section both point at the same thing: forcing a high-dimensional isotropic Gaussian onto data with low intrinsic dimension is counterproductive. This is the one place where the method is clearly worse than the alternatives, and the fix (adapting the target distribution or dimension to the environment) would reintroduce tuning, partly eroding the simplicity claim.
 
-**Presentation bugs in the artifact that carries the central claim.** The training pseudo-code, which is the figure meant to showcase how simple the method is, does not run as printed in the submitted source: the `mse_loss` call passes a single argument instead of `(input, target)`, and the `SIGReg` line is missing a closing parenthesis. The released codebase presumably is correct, but the listing that is supposed to prove "easy to implement" would not execute. Minor, but it lands on the paper's thesis.
+**Presentation bugs in the artifact that carries the central claim.** The training pseudo-code, which is the figure meant to showcase how simple the method is, does not run as printed in the submitted source: the `mse_loss` call passes a single argument instead of `(input, target)`, and the `SIGReg` line is missing a closing parenthesis. The released codebase is presumably correct, but the listing that is supposed to prove "easy to implement" would not execute. Minor, but it lands on the paper's thesis.
 
 ## Verdict
 

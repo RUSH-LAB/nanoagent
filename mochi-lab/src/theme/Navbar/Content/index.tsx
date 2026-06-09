@@ -15,8 +15,13 @@ import SearchBar from '@theme/SearchBar';
 import NavbarMobileSidebarToggle from '@theme/Navbar/MobileSidebar/Toggle';
 import NavbarLogo from '@theme/Navbar/Logo';
 import NavbarSearch from '@theme/Navbar/Search';
+import NotificationBadge, {markSeen} from '@site/src/components/NotificationBadge';
 
 import styles from './styles.module.css';
+
+const BADGED_ITEMS: Record<string, 'discussions' | 'comments'> = {
+  Discuss: 'discussions',
+};
 
 function useNavbarItems() {
   return useThemeConfig().navbar.items as NavbarItemConfig[];
@@ -25,20 +30,34 @@ function useNavbarItems() {
 function NavbarItems({items}: {items: NavbarItemConfig[]}): ReactNode {
   return (
     <>
-      {items.map((item, i) => (
-        <ErrorCauseBoundary
-          key={i}
-          onError={(error) =>
-            new Error(
-              `A theme navbar item failed to render.
+      {items.map((item, i) => {
+        const badgeType = (item as any).label
+          ? BADGED_ITEMS[(item as any).label]
+          : undefined;
+        return (
+          <ErrorCauseBoundary
+            key={i}
+            onError={(error) =>
+              new Error(
+                `A theme navbar item failed to render.
 Please double-check the following navbar item (themeConfig.navbar.items) of your Docusaurus config:
 ${JSON.stringify(item, null, 2)}`,
-              {cause: error},
-            )
-          }>
-          <NavbarItem {...item} />
-        </ErrorCauseBoundary>
-      ))}
+                {cause: error},
+              )
+            }>
+            {badgeType ? (
+              <span
+                style={{position: 'relative', display: 'inline-flex', alignItems: 'center'}}
+                onClick={() => markSeen()}>
+                <NavbarItem {...item} />
+                <NotificationBadge type={badgeType} />
+              </span>
+            ) : (
+              <NavbarItem {...item} />
+            )}
+          </ErrorCauseBoundary>
+        );
+      })}
     </>
   );
 }

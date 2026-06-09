@@ -3,6 +3,7 @@ import {themes as prismThemes} from 'prism-react-renderer';
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 const remarkCite = require('./plugins/remark-cite');
+const remarkWikiLinks = require('./plugins/remark-wiki-links');
 
 // ── Shared plugin configs ──────────────────────────────────────────────────
 const EDIT_URL = 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/';
@@ -12,6 +13,7 @@ const POSTS_DIR = 'content/posts';
 const defaultRemarkPlugins = [
   [require('remark-math'), { strict: false }],
   remarkCite,
+  remarkWikiLinks,
 ];
 
 const defaultRehypePlugins = [
@@ -105,7 +107,10 @@ const config = {
     locales: ['en'],
   },
 
-  clientModules: [require.resolve('./src/prism-lean4.js')],
+  clientModules: [
+    require.resolve('./src/prism-lean4.js'),
+    require.resolve('./src/copyHeadingLink.js'),
+  ],
 
   presets: [
     [
@@ -180,6 +185,14 @@ const config = {
     ],
   ],
 
+  headTags: [
+    // Preconnect to external APIs for faster first requests
+    {tagName: 'link', attributes: {rel: 'preconnect', href: 'https://api.semanticscholar.org'}},
+    {tagName: 'link', attributes: {rel: 'preconnect', href: 'https://cdn.jsdelivr.net'}},
+    {tagName: 'link', attributes: {rel: 'preconnect', href: 'https://fonts.googleapis.com'}},
+    {tagName: 'link', attributes: {rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: 'anonymous'}},
+  ],
+
   stylesheets: [
     {
       href: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css',
@@ -206,6 +219,7 @@ const config = {
         items: [
           {to: '/research', label: 'Research'},
           {to: '/blog', label: 'Blog'},
+          {to: '/discussions', label: 'Discuss', position: 'left'},
           {
             type: 'doc',
             docId: 'intro',
@@ -229,6 +243,9 @@ const config = {
             docsPluginId: 'builder',
             label: 'Builder',
           },
+          {to: '/graph', label: 'Graph', position: 'left'},
+          {to: '/reading-lists', label: 'Reading Lists', position: 'left'},
+          {to: '/recommendations', label: 'Discover', position: 'left'},
           {
             href: 'https://github.com/zeyuyang8/mochi-lab',
             label: 'GitHub',
@@ -239,10 +256,46 @@ const config = {
             label: 'Bibliography',
             position: 'right',
           },
+          {
+            to: '/analytics',
+            label: 'Analytics',
+            position: 'right',
+          },
         ],
       },
       footer: {
         style: 'dark',
+        links: [
+          {
+            title: 'Content',
+            items: [
+              {label: 'Research', to: '/research'},
+              {label: 'Blog', to: '/blog'},
+              {label: 'Math', to: '/math/intro'},
+              {label: 'Programming', to: '/programming/intro'},
+            ],
+          },
+          {
+            title: 'Tools',
+            items: [
+              {label: 'Editor', to: '/editor'},
+              {label: 'Bibliography', to: '/bibliography'},
+              {label: 'Reading Lists', to: '/reading-lists'},
+              {label: 'Discussions', to: '/discussions'},
+              {label: 'Graph', to: '/graph'},
+            ],
+          },
+          {
+            title: 'More',
+            items: [
+              {label: 'Discover', to: '/recommendations'},
+              {label: 'Analytics', to: '/analytics'},
+              {label: 'API Docs', to: '/api-docs'},
+              {label: 'About', to: '/about'},
+              {label: 'GitHub', href: 'https://github.com/zeyuyang8/mochi-lab'},
+            ],
+          },
+        ],
         copyright: `Copyright © ${new Date().getFullYear()} Mochi Lab. Built with Docusaurus.`,
       },
       prism: {
