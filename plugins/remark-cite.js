@@ -31,7 +31,7 @@ function visitText(tree, callback) {
 
 // Reload references.yaml on every call so the dev server picks up new entries
 // without needing a restart. The file is small so the I/O cost is negligible.
-const bibPath = path.resolve(__dirname, '..', 'references.yaml');
+const bibPath = path.resolve(__dirname, '..', 'bibliography', 'references.yaml');
 function loadBibliography() {
   try {
     return yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};

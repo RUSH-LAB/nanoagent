@@ -39,7 +39,7 @@ const yaml = require('js-yaml');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectDir = path.resolve(__dirname, '..');
-const bibPath = path.join(projectDir, 'references.yaml');
+const bibPath = path.join(projectDir, 'bibliography', 'references.yaml');
 const rawDir = path.join(projectDir, 'raw', 'bibliography');
 
 // ---- args ---------------------------------------------------------------

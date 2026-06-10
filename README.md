@@ -45,7 +45,7 @@ npm run start:auth
 
 ```
 mochi-lab/
-  server.js           # Node.js API server (~10k lines, port 3001)
+  server.js            # Node.js API server entry: setup, dispatch, lifecycle (port 3001)
   docusaurus.config.js # Docusaurus site config
   content/
     books/             # Docs: programming, math, builder, survey
@@ -54,9 +54,11 @@ mochi-lab/
     pages/             # 20 app pages (editor, graph, flashcards, etc.)
     components/        # React components (Editor, CitationGraph, etc.)
     theme/             # Docusaurus theme overrides
+  server/              # Local API server internals
+    server-utils.js    # Shared helpers (validation, bibtex, caching)
+    routes/            # Request handlers split by domain (files, references, discussions, ...)
   api/                 # Vercel serverless functions
   plugins/             # Docusaurus plugins (bibliography, math-registry, remark-cite, wiki-links)
-  lib/                 # Shared utilities (server-utils)
   data/                # JSON data stores (comments, analytics, discussions, etc.)
   tests/               # Unit and integration test suites
 ```

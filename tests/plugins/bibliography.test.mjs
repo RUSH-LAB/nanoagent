@@ -17,7 +17,7 @@ const pluginDir = path.dirname(
   require.resolve('../../plugins/docusaurus-plugin-bibliography'),
 );
 const projectDir = path.resolve(pluginDir, '..');
-const bibPath = path.join(projectDir, 'references.yaml');
+const bibPath = path.join(projectDir, 'bibliography', 'references.yaml');
 const rawBib = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
 
 // Pick keys with known characteristics for targeted tests

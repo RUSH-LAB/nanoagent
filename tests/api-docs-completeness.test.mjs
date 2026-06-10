@@ -11,6 +11,17 @@ describe('API documentation completeness', () => {
   const serverCode = fs.readFileSync(path.join(projectRoot, 'server.js'), 'utf8');
   const apiDocsCode = fs.readFileSync(path.join(projectRoot, 'src/pages/api-docs.js'), 'utf8');
 
+  // Route handlers live in server.js (core) plus the per-domain modules under
+  // api/routes/. Assertions about handler code scan the combined source.
+  const routesDir = path.join(projectRoot, 'server', 'routes');
+  const routesCode = fs.existsSync(routesDir)
+    ? fs.readdirSync(routesDir)
+        .filter(f => f.endsWith('.js'))
+        .map(f => fs.readFileSync(path.join(routesDir, f), 'utf8'))
+        .join('\n')
+    : '';
+  const allHandlerCode = serverCode + '\n' + routesCode;
+
   function extractServerEndpoints() {
     const endpoints = new Set();
     const patterns = [
@@ -76,10 +87,10 @@ describe('API documentation completeness', () => {
     assert.ok(methods.has('PATCH'), 'has PATCH');
   });
 
-  it('server.js imports utilities from lib/server-utils.js', () => {
+  it('server.js imports utilities from server/server-utils.js', () => {
     assert.ok(
-      serverCode.includes("require('./lib/server-utils')"),
-      'server.js should import from lib/server-utils',
+      serverCode.includes("require('./server/server-utils')"),
+      'server.js should import from server/server-utils',
     );
   });
 
@@ -87,8 +98,8 @@ describe('API documentation completeness', () => {
     assert.ok(serverCode.includes('/api/health'), 'has /api/health');
   });
 
-  it('server.js has rate limiting on sensitive endpoints', () => {
-    const rateLimitedEndpoints = (serverCode.match(/rateLimit\(/g) || []).length;
+  it('has rate limiting on sensitive endpoints', () => {
+    const rateLimitedEndpoints = (allHandlerCode.match(/rateLimit\(/g) || []).length;
     assert.ok(rateLimitedEndpoints >= 5, `Only ${rateLimitedEndpoints} rate-limited endpoints, expected >= 5`);
   });
 

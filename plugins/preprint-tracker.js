@@ -16,7 +16,7 @@ const path = require('path');
 const https = require('https');
 const yaml = require('js-yaml');
 
-const REFERENCES_PATH = path.join(__dirname, '..', 'references.yaml');
+const REFERENCES_PATH = path.join(__dirname, '..', 'bibliography', 'references.yaml');
 const S2_API_BASE = 'https://api.semanticscholar.org/graph/v1/paper';
 const RATE_LIMIT_MS = 100;
 

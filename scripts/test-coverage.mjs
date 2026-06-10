@@ -27,7 +27,14 @@ const RESET = '\x1b[0m';
 // ─────────────────────────────────────────────────────────────
 
 function extractEndpoints() {
-  const serverSrc = readFileSync(join(ROOT, 'server.js'), 'utf8');
+  // Routes live in server.js (core) plus the per-domain modules in api/routes/.
+  let serverSrc = readFileSync(join(ROOT, 'server.js'), 'utf8');
+  try {
+    const routesDir = join(ROOT, 'server', 'routes');
+    for (const f of readdirSync(routesDir)) {
+      if (f.endsWith('.js')) serverSrc += '\n' + readFileSync(join(routesDir, f), 'utf8');
+    }
+  } catch { /* routes dir optional */ }
   const paths = new Set();
 
   // Match: pathname === '/api/...'

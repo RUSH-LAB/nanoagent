@@ -33,5 +33,3 @@ raw/
 # Access logs
 /logs
 
-# Performance baselines (machine-specific)
-/snapshots/perf-baseline.json
