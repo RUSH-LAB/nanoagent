@@ -219,7 +219,6 @@ const config = {
         items: [
           {to: '/research', label: 'Research'},
           {to: '/blog', label: 'Blog'},
-          {to: '/discussions', label: 'Discuss', position: 'left'},
           {
             type: 'doc',
             docId: 'intro',
@@ -237,30 +236,7 @@ const config = {
             docsPluginId: 'math',
             label: 'Math',
           },
-          {
-            type: 'doc',
-            docId: 'intro',
-            docsPluginId: 'builder',
-            label: 'Builder',
-          },
-          {to: '/graph', label: 'Graph', position: 'left'},
-          {to: '/reading-lists', label: 'Reading Lists', position: 'left'},
-          {to: '/recommendations', label: 'Discover', position: 'left'},
-          {
-            href: 'https://github.com/zeyuyang8/mochi-lab',
-            label: 'GitHub',
-            position: 'right',
-          },
-          {
-            to: '/bibliography',
-            label: 'Bibliography',
-            position: 'right',
-          },
-          {
-            to: '/analytics',
-            label: 'Analytics',
-            position: 'right',
-          },
+          {to: '/discussions', label: 'Discuss'},
         ],
       },
       footer: {
@@ -271,8 +247,10 @@ const config = {
             items: [
               {label: 'Research', to: '/research'},
               {label: 'Blog', to: '/blog'},
+              {label: 'Survey', to: '/survey/intro'},
               {label: 'Math', to: '/math/intro'},
               {label: 'Programming', to: '/programming/intro'},
+              {label: 'Builder', to: '/builder/intro'},
             ],
           },
           {
