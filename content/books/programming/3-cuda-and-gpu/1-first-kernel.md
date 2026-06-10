@@ -66,7 +66,7 @@ int idx = row * width + col;
 
 The "hello world" of GPU programming:
 
-<Code id="code-first-kernel-3" caption="The "hello world" of GPU programming.">
+<Code id="code-first-kernel-3" caption="The 'hello world' of GPU programming.">
 
 ```cuda
 __global__ void vec_add(float* a, float* b, float* c, int n) {
@@ -148,11 +148,11 @@ With `a[i] = 1.0` and `b[i] = 2.0`, every valid thread writes `c[tid] = 3.0`, an
 </Table>
 
 <Remark id="rmk-kernel-launch-syntax">
-**The triple chevron syntax.** The `<<<grid, block>>>` kernel launch configuration specifies:
+<strong>The triple chevron syntax.</strong> The <code>&lt;&lt;&lt;grid, block&gt;&gt;&gt;</code> kernel launch configuration specifies:
 - **grid**: number of blocks (can be 1D, 2D, or 3D using `dim3`)
 - **block**: threads per block (can be 1D, 2D, or 3D using `dim3`)
-- Optional 3rd argument: shared memory bytes (e.g., `<<<grid, block, shmem_bytes>>>`)
-- Optional 4th argument: CUDA stream (e.g., `<<<grid, block, 0, stream>>>`)
+- Optional 3rd argument: shared memory bytes (e.g., <code>&lt;&lt;&lt;grid, block, shmem_bytes&gt;&gt;&gt;</code>)
+- Optional 4th argument: CUDA stream (e.g., <code>&lt;&lt;&lt;grid, block, 0, stream&gt;&gt;&gt;</code>)
 
 Total threads launched = `grid.x * grid.y * grid.z * block.x * block.y * block.z`.
 </Remark>
