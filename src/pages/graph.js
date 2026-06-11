@@ -257,11 +257,8 @@ function GraphVisualization() {
     // Determine URL from node path and category
     const parts = node.path.split('/');
     let url;
-    if (parts[0] === 'books') {
-      // books/math/foo.md -> /math/foo
-      url = '/' + parts.slice(1).join('/').replace(/\.(mdx?|md)$/, '');
-    } else if (parts[0] === 'posts') {
-      // posts/blog/foo.md -> /blog/foo
+    if (parts[0] === 'books' || parts[0] === 'posts') {
+      // books/math/foo.md -> /math/foo, posts/blog/foo.md -> /blog/foo
       url = '/' + parts.slice(1).join('/').replace(/\.(mdx?|md)$/, '');
     } else {
       url = '/' + node.path.replace(/\.(mdx?|md)$/, '');
