@@ -11,8 +11,15 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
   if (req.method === 'GET' && pathname === '/api/comments') {
     const page = url.searchParams.get('page');
     if (!page) return json(res, 400, {error: 'Missing page param'});
-    const limit = Math.min(parseInt(url.searchParams.get('limit') || '100', 10), 500);
-    const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10), 0);
+    // `parseInt` yields NaN for a present-but-non-numeric value (e.g. `?limit=abc`),
+    // which would otherwise collapse the slice below to an empty page. Fall back to
+    // the default in that case, then apply the existing clamps.
+    const intParam = (name, fallback) => {
+      const n = parseInt(url.searchParams.get(name), 10);
+      return Number.isNaN(n) ? fallback : n;
+    };
+    const limit = Math.min(intParam('limit', 100), 500);
+    const offset = Math.max(intParam('offset', 0), 0);
     const comments = loadJSON(COMMENTS_FILE);
     const all = comments[page] || [];
     const paginated = all.slice(offset, offset + limit);
