@@ -139,8 +139,7 @@ function CompareView() {
     const rightWords = wordCount(rightContent);
     const added = diff ? diff.filter((d) => d.type === 'added').length : 0;
     const removed = diff ? diff.filter((d) => d.type === 'removed').length : 0;
-    const changed = diff ? diff.filter((d) => d.type === 'changed').length : 0;
-    return { leftWords, rightWords, wordDiff: rightWords - leftWords, added, removed, changed };
+    return { leftWords, rightWords, wordDiff: rightWords - leftWords, added, removed };
   }, [leftContent, rightContent, diff]);
 
   const selectStyle = {
