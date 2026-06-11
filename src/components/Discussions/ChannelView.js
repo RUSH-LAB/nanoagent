@@ -50,7 +50,6 @@ export default function ChannelView({channel}) {
   const [editingMsg, setEditingMsg] = useState(null);
   const [editText, setEditText] = useState('');
   const messagesEndRef = useRef(null);
-  const messagesAreaRef = useRef(null);
   const searchInputRef = useRef(null);
 
   const fetchMessages = useCallback(async () => {
@@ -280,7 +279,7 @@ export default function ChannelView({channel}) {
       })()}
 
       {/* Messages area */}
-      <div className={styles.messagesArea} ref={messagesAreaRef} role="log" aria-label="Message history" aria-live="polite">
+      <div className={styles.messagesArea} role="log" aria-label="Message history" aria-live="polite">
         {messages.length === 0 && (
           <div className={styles.emptyMessages}>
             <div className={styles.emptyIcon}>#</div>
@@ -340,7 +339,7 @@ export default function ChannelView({channel}) {
                 title={pinnedIds.includes(msg.id) ? 'Unpin message' : 'Pin message'}
                 aria-label={pinnedIds.includes(msg.id) ? 'Unpin message' : 'Pin message'}
               >
-                {pinnedIds.includes(msg.id) ? '\u{1F4CC}' : '\u{1F4CC}'}
+                {'\u{1F4CC}'}
               </button>
               <button
                 className={styles.pinBtn}
