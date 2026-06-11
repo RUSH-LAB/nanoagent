@@ -58,7 +58,7 @@ export default function AIAssistant({editor, onClose}) {
     };
   }, []);
 
-  const contextText = editor ? getContextText() : '';
+  const contextText = getContextText();
 
   const handleAction = useCallback(async (type) => {
     const text = getContextText();
@@ -75,12 +75,12 @@ export default function AIAssistant({editor, onClose}) {
     abortRef.current = controller;
 
     try {
-      // Get surrounding context (a few paragraphs around the selection)
+      // Include the start of the document as context for the model
       let context = '';
       if (editor) {
         const fullText = editor.state.doc.textContent;
         if (fullText.length > text.length) {
-          // Provide surrounding context, trimmed to a reasonable size
+          // Send the leading portion of the document, trimmed to a reasonable size
           const maxContext = 500;
           context = fullText.length > maxContext
             ? fullText.slice(0, maxContext) + '...'
