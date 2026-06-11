@@ -53,13 +53,6 @@ function computeLayout(nodes, edges, width, height) {
     }
   }
 
-  // Build adjacency set for each node
-  const adjacency = nodes.map(() => new Set());
-  for (const [si, ti] of edgeIndices) {
-    adjacency[si].add(ti);
-    adjacency[ti].add(si);
-  }
-
   const iterations = 300;
   const repulsionStrength = 5000;
   const attractionStrength = 0.005;
