@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react';
 
-// Maps item key (href or label) → chapter number string ("1", "2.1", "2.1.3", ...)
+// Maps an item key (an href, or `category:<label>` for categories) to an entry
+// object { number, label }, where number is the chapter-number string ("1", "2.1", "2.1.3", ...).
 const SidebarNumberContext = createContext(new Map());
 
 /**
