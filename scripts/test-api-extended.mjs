@@ -847,68 +847,6 @@ async function testSchedule() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Snapshots CRUD (4 tests)
-// ────────────────────────────────────────────────────────────────
-
-let createdSnapshotId = null;
-
-async function testSnapshots() {
-  section('Snapshots CRUD');
-
-  const snapshotPath = 'content/books/math/0-intro.md';
-
-  // 1. POST /api/snapshots — create a snapshot
-  await test('Create snapshot', async () => {
-    const {status, data} = await api('POST', '/api/snapshots', {
-      path: snapshotPath,
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.success || data.snapshot, 'success or has snapshot');
-    if (data.snapshot) {
-      assertOk(data.snapshot.id, 'snapshot has id');
-      createdSnapshotId = data.snapshot.id;
-    }
-  });
-
-  // 2. GET /api/snapshots — list snapshots
-  await test('List snapshots', async () => {
-    const {status, data} = await api('GET', '/api/snapshots');
-    assertOk(status === 200, 'status is 200');
-    assertOk(Array.isArray(data.snapshots) || typeof data === 'object', 'response has expected shape');
-  });
-
-  // 3. POST /api/snapshots/restore — restore a snapshot
-  await test('Restore snapshot', async () => {
-    if (!createdSnapshotId) {
-      skip('Restore snapshot', 'no snapshot id from creation');
-      return;
-    }
-    const {status, data} = await api('POST', '/api/snapshots/restore', {
-      id: createdSnapshotId,
-    });
-    assertOk(status === 200 || status === 404, 'status is 200 or 404 (endpoint may not exist)');
-    if (status === 200) {
-      assertOk(data.success, 'success');
-    }
-  });
-
-  // 4. DELETE /api/snapshots — delete a snapshot
-  await test('Delete snapshot', async () => {
-    if (!createdSnapshotId) {
-      skip('Delete snapshot', 'no snapshot id from creation');
-      return;
-    }
-    const {status, data} = await api('DELETE', '/api/snapshots', {
-      id: createdSnapshotId,
-    });
-    assertOk(status === 200 || status === 404, 'status is 200 or 404 (endpoint may not exist)');
-    if (status === 200) {
-      assertOk(data.success, 'success');
-    }
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
 // Whiteboard CRUD (4 tests)
 // ────────────────────────────────────────────────────────────────
 
@@ -2236,8 +2174,6 @@ async function main() {
   await testFileOutline();
   await testFilesRecent();
   await testSchedule();
-  // testSnapshots skipped — endpoint not implemented yet
-
   await testTags();
   await testTimelineStats();
   await testContentHealth();
