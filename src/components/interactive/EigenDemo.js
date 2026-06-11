@@ -1,10 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Mafs, Coordinates, Vector, Plot, Line, Text, Theme } from 'mafs';
 import 'mafs/core.css';
-
-function applyMatrix(m, v) {
-  return [m[0][0] * v[0] + m[0][1] * v[1], m[1][0] * v[0] + m[1][1] * v[1]];
-}
+import { applyMatrix, Slider } from './matrixControls';
 
 function computeEigen2x2(a, b, c, d) {
   const trace = a + d;
@@ -25,17 +22,6 @@ function computeEigen2x2(a, b, c, d) {
     if (mag > 1e-10) eigenvectors.push([vx / mag, vy / mag]);
   }
   return { real: true, eigenvalues: [l1, l2], eigenvectors };
-}
-
-function Slider({ label, value, onChange, min = -3, max = 3, step = 0.1 }) {
-  return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5em', fontSize: '0.9rem' }}>
-      <span style={{ fontFamily: 'serif', fontStyle: 'italic', minWidth: '1.5em' }}>{label}</span>
-      <input type="range" min={min} max={max} step={step} value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))} style={{ width: '100px' }} />
-      <span style={{ fontFamily: 'monospace', minWidth: '3.5em', textAlign: 'right' }}>{value.toFixed(1)}</span>
-    </label>
-  );
 }
 
 export default function EigenDemo() {
@@ -87,10 +73,10 @@ export default function EigenDemo() {
             gap: '0.25em 1em', padding: '0.25em 0.5em',
             borderLeft: '2px solid #333', borderRight: '2px solid #333',
           }}>
-            <Slider label="a" value={a} onChange={setA} />
-            <Slider label="b" value={b} onChange={setB} />
-            <Slider label="c" value={c} onChange={setC} />
-            <Slider label="d" value={d} onChange={setD} />
+            <Slider label="a" value={a} onChange={setA} width="100px" />
+            <Slider label="b" value={b} onChange={setB} width="100px" />
+            <Slider label="c" value={c} onChange={setC} width="100px" />
+            <Slider label="d" value={d} onChange={setD} width="100px" />
           </div>
         </div>
         <div style={{ fontSize: '0.95rem', color: '#555' }}>
