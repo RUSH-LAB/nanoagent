@@ -1,5 +1,5 @@
 import React, {useState, useEffect} from 'react';
-import API_BASE from '../../utils/api';
+import API_BASE from '@site/src/utils/api';
 
 export default function BookmarkButton({pagePath, pageTitle}) {
   const [bookmarked, setBookmarked] = useState(false);
@@ -51,7 +51,6 @@ export default function BookmarkButton({pagePath, pageTitle}) {
     lineHeight: 1,
     opacity: loading ? 0.4 : 1,
     transition: 'opacity 0.2s',
-    title: bookmarked ? 'Remove bookmark' : 'Add bookmark',
   };
 
   return (
