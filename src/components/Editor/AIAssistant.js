@@ -5,10 +5,10 @@ import API_BASE from '@site/src/utils/api';
 const API_URL = `${API_BASE}/api/ai/complete`;
 
 const ACTION_TYPES = [
-  {type: 'continue', label: 'Continue', icon: '>>'},
-  {type: 'improve', label: 'Improve', icon: 'up'},
-  {type: 'explain', label: 'Explain', icon: '?'},
-  {type: 'summarize', label: 'Summarize', icon: 'S'},
+  {type: 'continue', label: 'Continue'},
+  {type: 'improve', label: 'Improve'},
+  {type: 'explain', label: 'Explain'},
+  {type: 'summarize', label: 'Summarize'},
 ];
 
 export default function AIAssistant({editor, onClose}) {
