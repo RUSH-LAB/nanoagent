@@ -400,9 +400,9 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
         const bibPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
         let refs = {};
         try { refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {}; } catch {}
-        const refItems = (list.items || []).filter(item => item.type === 'reference');
         const lines = [];
-        for (const item of refItems) {
+        for (const item of (list.items || [])) {
+          if (item.type !== 'reference') continue;
           const key = item.path;
           const entry = refs[key];
           if (!entry) continue;
