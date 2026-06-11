@@ -1,4 +1,10 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
+import Layout from '@theme/Layout';
+import Link from '@docusaurus/Link';
+import { usePluginData } from '@docusaurus/useGlobalData';
+import BrowserOnly from '@docusaurus/BrowserOnly';
+import ErrorBoundary from '@site/src/components/ErrorBoundary';
+import API_BASE from '@site/src/utils/api';
 
 /* ── Year-based navigation components ──────────────────────────── */
 
@@ -146,12 +152,6 @@ function useActiveYearOnScroll(yearGroups) {
 
   return { activeYear, showBackToTop };
 }
-import Layout from '@theme/Layout';
-import Link from '@docusaurus/Link';
-import { usePluginData } from '@docusaurus/useGlobalData';
-import BrowserOnly from '@docusaurus/BrowserOnly';
-import ErrorBoundary from '@site/src/components/ErrorBoundary';
-import API_BASE from '@site/src/utils/api';
 
 const CitationGraph = lazy(() => import('../components/CitationGraph'));
 
