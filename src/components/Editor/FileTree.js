@@ -2,6 +2,11 @@ import React, {useState, useEffect, useCallback, useMemo, useRef} from 'react';
 import styles from './styles.module.css';
 import API_BASE from '@site/src/utils/api';
 
+// Review files (hidden from the tree) are named like `_foo.review.md`.
+function isReviewFile(name) {
+  return name.startsWith('_') && name.includes('.review.');
+}
+
 function ChevronIcon({open}) {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -99,7 +104,7 @@ function TreeNode({node, depth, selectedFile, onSelectFile, onDeleteFile, onRena
   const [hovered, setHovered] = useState(false);
   const isDir = node.type === 'directory';
   const isSelected = !isDir && node.path === selectedFile;
-  const isReview = node.name.startsWith('_') && node.name.includes('.review.');
+  const isReview = isReviewFile(node.name);
   const open = expandedPaths ? expandedPaths.has(node.path) : depth < 1;
   const isBulkSelected = !isDir && bulkSelected.has(node.path);
   const isFocused = node.path === focusedPath;
@@ -137,7 +142,7 @@ function TreeNode({node, depth, selectedFile, onSelectFile, onDeleteFile, onRena
 
   if (isDir) {
     const children = (node.children || []).filter(c => {
-      if (c.type === 'file' && c.name.startsWith('_') && c.name.includes('.review.')) return false;
+      if (c.type === 'file' && isReviewFile(c.name)) return false;
       return true;
     });
     if (children.length === 0) return null;
@@ -384,12 +389,12 @@ export default function FileTree({files, selectedFile, onSelectFile, onNewFile, 
     const walk = (nodes, depth) => {
       for (const node of nodes) {
         // Skip review files
-        if (node.name.startsWith('_') && node.name.includes('.review.')) continue;
+        if (isReviewFile(node.name)) continue;
 
         const isDir = node.type === 'directory';
         if (isDir) {
           const children = (node.children || []).filter(c => {
-            if (c.type === 'file' && c.name.startsWith('_') && c.name.includes('.review.')) return false;
+            if (c.type === 'file' && isReviewFile(c.name)) return false;
             return true;
           });
           // Skip empty directories (matches TreeNode behavior)
