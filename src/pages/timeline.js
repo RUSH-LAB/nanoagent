@@ -178,7 +178,7 @@ function ContentTimeline() {
 
       {/* Timeline */}
       <div style={{ position: 'relative' }} role="feed" aria-label="Content timeline">
-        {dayGroups.map((group, gi) => {
+        {dayGroups.map((group) => {
           const dateLabel = formatDate(group.day);
           return (
             <div key={group.day} style={{ marginBottom: '2rem' }}>
