@@ -166,7 +166,6 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     try {
       const clusters = cached('content-clusters', 120000, () => {
         const contentDir = path.join(PROJECT_ROOT, 'content');
-        const STOP = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not','can','all','each','some','more','most','other']);
         const pages = [];
         function scanPages(dir) {
           for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -185,12 +184,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
                 const tgm = fmMatch[1].match(/^tags:\s*\[([^\]]*)\]/m);
                 if (tgm) tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => tags.push(t));
               }
-              let text = content.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ');
-              const keywords = text.toLowerCase().split(/\s+/).filter(w => w.length > 4 && !STOP.has(w));
-              const freq = {};
-              for (const w of keywords) freq[w] = (freq[w] || 0) + 1;
-              const topWords = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([w]) => w);
-              pages.push({path: path.relative(PROJECT_ROOT, fp), title, tags, topWords});
+              pages.push({path: path.relative(PROJECT_ROOT, fp), title, tags});
             } catch {}
           }
         }
