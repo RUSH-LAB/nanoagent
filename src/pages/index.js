@@ -28,6 +28,11 @@ function formatAge(ts) {
   return `${d}d ago`;
 }
 
+// Map a content/* source path to its published site route.
+function toViewPath(filePath) {
+  return '/' + filePath.replace(/^content\//, '').replace(/^books\//, '').replace(/^posts\//, '').replace(/\.(mdx?|md)$/, '');
+}
+
 function HomepageHeader() {
   const {siteConfig} = useDocusaurusContext();
   return (
@@ -72,7 +77,7 @@ function RecentActivity() {
           title: f.name.replace(/\.(md|mdx)$/, ''),
           subtitle: f.path.replace(/^content\//, '').replace(/\/[^/]+$/, ''),
           timestamp: f.mtime,
-          link: '/' + f.path.replace(/^content\//, '').replace(/^books\//, '').replace(/^posts\//, '').replace(/\.(mdx?|md)$/, ''),
+          link: toViewPath(f.path),
         })))
         .catch(() => []),
       fetch(`${API_BASE}/api/activity-feed?limit=20`)
@@ -234,10 +239,6 @@ function RecentFiles() {
         </p>
       </section>
     );
-  }
-
-  function toViewPath(filePath) {
-    return '/' + filePath.replace(/^content\//, '').replace(/^books\//, '').replace(/^posts\//, '').replace(/\.(mdx?|md)$/, '');
   }
 
   return (
