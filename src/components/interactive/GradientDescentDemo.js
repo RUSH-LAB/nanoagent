@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Mafs, Coordinates, Plot, Point, Line, Text, Theme, useMovablePoint } from 'mafs';
+import { Mafs, Coordinates, Plot, Point, Line, Theme, useMovablePoint } from 'mafs';
 import 'mafs/core.css';
 
 const f = (x) => 0.15 * (x + 2) * (x - 1) * (x - 3) + 2;
