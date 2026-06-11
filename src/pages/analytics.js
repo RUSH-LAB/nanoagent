@@ -590,28 +590,31 @@ function AnalyticsDashboard() {
               <div style={{fontSize: '0.8rem', color: 'var(--ifm-color-emphasis-600)'}}>Total Words</div>
             </div>
           </div>
-          {streak.dailyLog && streak.dailyLog.length > 0 && (
-            <div style={{
-              display: 'flex', gap: 2, alignItems: 'flex-end', height: 60,
-              padding: '8px 0', borderBottom: '1px solid var(--ifm-color-emphasis-200)',
-            }}>
-              {streak.dailyLog.slice(-30).map((entry, i) => {
-                const max = Math.max(...streak.dailyLog.slice(-30).map(e => e.words), 1);
-                const height = Math.max(2, (entry.words / max) * 50);
-                return (
-                  <div
-                    key={i}
-                    title={`${entry.date}: ${entry.words} words`}
-                    style={{
-                      flex: 1, height,
-                      background: entry.words >= 50 ? 'var(--ifm-color-primary)' : 'var(--ifm-color-emphasis-300)',
-                      borderRadius: 2, minWidth: 3,
-                    }}
-                  />
-                );
-              })}
-            </div>
-          )}
+          {streak.dailyLog && streak.dailyLog.length > 0 && (() => {
+            const recent30 = streak.dailyLog.slice(-30);
+            const streakMax = Math.max(...recent30.map(e => e.words), 1);
+            return (
+              <div style={{
+                display: 'flex', gap: 2, alignItems: 'flex-end', height: 60,
+                padding: '8px 0', borderBottom: '1px solid var(--ifm-color-emphasis-200)',
+              }}>
+                {recent30.map((entry, i) => {
+                  const height = Math.max(2, (entry.words / streakMax) * 50);
+                  return (
+                    <div
+                      key={i}
+                      title={`${entry.date}: ${entry.words} words`}
+                      style={{
+                        flex: 1, height,
+                        background: entry.words >= 50 ? 'var(--ifm-color-primary)' : 'var(--ifm-color-emphasis-300)',
+                        borderRadius: 2, minWidth: 3,
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
 
