@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────
 // Test coverage meta-test for the Mochi Lab editor server
-// Compares endpoints defined in server.js against paths exercised
-// by all test-*.mjs scripts and reports coverage.
+// Compares endpoints defined in server.js and server/routes/ against
+// paths exercised by all test-*.mjs scripts and reports coverage.
 // Usage:  node scripts/test-coverage.mjs
 // ─────────────────────────────────────────────────────────────
 
@@ -115,7 +115,7 @@ function main() {
 
   // ── Report ──
   console.log(`\n${BOLD}Mochi Lab API Test Coverage Report${RESET}`);
-  console.log(`${DIM}Server: server.js${RESET}`);
+  console.log(`${DIM}Server: server.js + server/routes/${RESET}`);
   console.log(`${DIM}Test files: ${testFiles.join(', ')}${RESET}\n`);
 
   console.log(`${BOLD}Total endpoints:${RESET}  ${total}`);
