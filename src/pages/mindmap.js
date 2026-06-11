@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
@@ -56,7 +56,6 @@ function MindmapContent() {
   const [tree, setTree] = useState(null);
   const [treeLoading, setTreeLoading] = useState(false);
   const [error, setError] = useState(null);
-  const svgRef = useRef(null);
   const [dims, setDims] = useState({ w: 960, h: 700 });
 
   useEffect(() => {
@@ -175,7 +174,6 @@ function MindmapContent() {
 
       {tree && nodes.length > 0 && (
         <svg
-          ref={svgRef}
           width={dims.w}
           height={dims.h}
           role="img"
