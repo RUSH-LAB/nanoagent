@@ -27,10 +27,10 @@ const BOLD   = '\x1b[1m';
 const RESET  = '\x1b[0m';
 
 // -- Endpoint definitions --
-// Each entry: [method, path, thresholdMs, label, options?]
-// options.cold  — if present, the first request is measured separately with
-//                 its own threshold and the remaining requests use the warm
-//                 threshold stored in thresholdMs.
+// Each entry is an object: { method, path, threshold, label }.
+// cold (optional)      — if set, the first request is timed separately against this
+//                        cold threshold; the ITERATIONS warm requests use `threshold`.
+// coldLabel (optional) — label for the cold-start row (defaults to `${label} (cold)`).
 const ENDPOINTS = [
   { method: 'GET', path: '/api/health',                   threshold: 5,   label: 'Health check' },
   { method: 'GET', path: '/api/files',                    threshold: 30,  label: 'File listing' },
