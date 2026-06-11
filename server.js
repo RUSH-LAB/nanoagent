@@ -156,19 +156,9 @@ function readRawBody(req) {
   });
 }
 
-function loadJSON(filePath) {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-  } catch {
-    return {};
-  }
-}
-
-function saveJSON(filePath, data) {
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, {recursive: true});
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
-}
+// JSON persistence: atomic writes + an mtime/size aware read cache.
+// See server/data-store.js. Routes call these unchanged via the ctx object.
+const {loadJSON, saveJSON} = require('./server/data-store');
 
 // ── Feed item collector for RSS/Atom ──
 function collectFeedItems(postsDir) {
