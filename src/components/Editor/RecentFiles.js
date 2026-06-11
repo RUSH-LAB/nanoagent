@@ -12,7 +12,7 @@ export default function RecentFiles({onSelectFile, selectedFile}) {
         if (!raw) return;
         const paths = JSON.parse(raw);
         if (!Array.isArray(paths)) return;
-        // Store path + timestamp (we use access order; first = most recent)
+        // Stored as an access-ordered list of paths (first = most recent)
         setRecentFiles(paths.slice(0, 5));
       } catch {}
     }
