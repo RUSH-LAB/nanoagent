@@ -124,7 +124,7 @@ function SearchContent() {
   const toViewPath = useCallback((filePath) => {
     // Strip leading content/ or similar prefixes and .md/.mdx extension
     let p = filePath.replace(/^content\//, '').replace(/\.(mdx?|md)$/, '');
-    // Convert posts/blog/YYYY-MM-DD-slug/index to blog/slug
+    // Strip the leading posts/ and books/ prefixes
     p = p.replace(/^posts\//, '');
     p = p.replace(/^books\//, '');
     return '/' + p;
