@@ -129,6 +129,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
       const targetAuthors = new Set((target.author || []).map(a => a.toLowerCase()));
       const targetVenue = (target.venue || '').toLowerCase();
       const targetYear = target.year || 0;
+      const targetWords = new Set((target.title || '').toLowerCase().split(/\s+/).filter(w => w.length > 3));
       const candidates = [];
       for (const [k, entry] of Object.entries(refs)) {
         if (k === key) continue;
@@ -137,7 +138,6 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
         for (const a of targetAuthors) { if (entryAuthors.has(a)) score += 3; }
         if (targetVenue && (entry.venue || '').toLowerCase() === targetVenue) score += 2;
         if (entry.year && Math.abs((entry.year || 0) - targetYear) <= 2) score += 1;
-        const targetWords = new Set((target.title || '').toLowerCase().split(/\s+/).filter(w => w.length > 3));
         const entryWords = (entry.title || '').toLowerCase().split(/\s+/).filter(w => w.length > 3);
         for (const w of entryWords) { if (targetWords.has(w)) score += 0.5; }
         if (score > 1) {
