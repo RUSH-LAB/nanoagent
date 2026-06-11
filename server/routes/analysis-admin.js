@@ -148,7 +148,13 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
   // ── Recently modified files ──
   if (req.method === 'GET' && pathname === '/api/files/recent') {
     try {
-      const limit = parseInt(url.searchParams.get('limit') || '10', 10);
+      // `parseInt` yields NaN for a present-but-non-numeric value (e.g. `?limit=abc`),
+      // which would otherwise collapse the slice below to an empty list. Fall back to
+      // the default 10, mirroring the `intParam` idiom in comments-notes.js. No upper
+      // clamp is added here, so valid numeric limits (including large ones) pass through
+      // unchanged and the pre-existing slice bound is preserved.
+      const n = parseInt(url.searchParams.get('limit') || '10', 10);
+      const limit = Number.isNaN(n) ? 10 : n;
       const contentDir = path.join(PROJECT_ROOT, 'content');
       const files = [];
       function walkRecent(dir) {
