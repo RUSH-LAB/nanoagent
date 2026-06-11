@@ -205,7 +205,7 @@ async function main() {
   let done = 0;
   let cursor = 0;
 
-  async function worker(id) {
+  async function worker() {
     while (cursor < entries.length) {
       const idx = cursor++;
       const [key, entry] = entries[idx];
@@ -226,7 +226,7 @@ async function main() {
     }
   }
 
-  await Promise.all(Array.from({ length: opts.concurrency }, (_, i) => worker(i)));
+  await Promise.all(Array.from({ length: opts.concurrency }, () => worker()));
 
   console.log('\n[fetch] done. summary:');
   for (const [k, v] of Object.entries(counts).sort()) console.log(`  ${k.padEnd(10)} ${v}`);
