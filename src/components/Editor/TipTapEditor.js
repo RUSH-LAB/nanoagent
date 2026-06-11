@@ -12,8 +12,37 @@ import KeyboardShortcuts from './KeyboardShortcuts';
 import shortcutStyles from './KeyboardShortcuts.module.css';
 import API_BASE from '@site/src/utils/api';
 import {TemplateCards} from './TemplateModal';
-import katex from 'katex';
 const PRESENCE_INTERVAL = 5000; // 5 seconds
+
+// katex is a large library needed only by two opt-in surfaces (the Split view
+// preview and the Math preview panel), so it is fetched on demand via a dynamic
+// import behind a memoized loader instead of being pulled into the editor's
+// initial chunk. Rendered output is unchanged once it resolves; only the timing
+// of the fetch moves to first Split or Math use.
+let katexModule = null;
+let katexPromise;
+function loadKatex() {
+  return (katexPromise ??= import('katex').then((m) => {
+    katexModule = m.default ?? m;
+    return katexModule;
+  }));
+}
+
+// Returns the loaded katex module, or null until the dynamic import resolves.
+function useKatex() {
+  const [katex, setKatex] = useState(katexModule);
+  useEffect(() => {
+    if (katex) return undefined;
+    let mounted = true;
+    loadKatex().then((m) => {
+      if (mounted) setKatex(m);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [katex]);
+  return katex;
+}
 
 // Generate or retrieve a stable session userId
 function getSessionUserId() {
@@ -416,7 +445,7 @@ function RawEditor({value, onChange}) {
 }
 
 /* ── Client-side markdown-to-HTML conversion ──────────────── */
-function markdownToHtml(md) {
+function markdownToHtml(md, katex) {
   // Strip frontmatter
   let text = md.replace(/^---\n[\s\S]*?\n---\n?/, '');
 
@@ -428,11 +457,14 @@ function markdownToHtml(md) {
 
   // Block-level math ($$...$$) -- must come before inline processing
   text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, latex) => {
-    try {
-      return `<div class="math-display">${katex.renderToString(latex.trim(), {displayMode: true, throwOnError: false})}</div>`;
-    } catch {
-      return `<div class="math-display"><code>${latex.trim()}</code></div>`;
+    if (katex) {
+      try {
+        return `<div class="math-display">${katex.renderToString(latex.trim(), {displayMode: true, throwOnError: false})}</div>`;
+      } catch {
+        return `<div class="math-display"><code>${latex.trim()}</code></div>`;
+      }
     }
+    return `<div class="math-display"><code>${latex.trim()}</code></div>`;
   });
 
   const lines = text.split('\n');
@@ -480,11 +512,14 @@ function markdownToHtml(md) {
   function processInline(line) {
     // Inline math ($...$) -- before other inline processing
     line = line.replace(/(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)/g, (_, latex) => {
-      try {
-        return katex.renderToString(latex.trim(), {displayMode: false, throwOnError: false});
-      } catch {
-        return `<code>${latex.trim()}</code>`;
+      if (katex) {
+        try {
+          return katex.renderToString(latex.trim(), {displayMode: false, throwOnError: false});
+        } catch {
+          return `<code>${latex.trim()}</code>`;
+        }
       }
+      return `<code>${latex.trim()}</code>`;
     });
     // Images
     line = line.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%">');
@@ -615,6 +650,7 @@ function SplitEditor({value, onChange}) {
   const [focused, setFocused] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
   const debounceRef = useRef(null);
+  const katex = useKatex();
 
   const lineCount = useMemo(() => value.split('\n').length, [value]);
 
@@ -626,16 +662,18 @@ function SplitEditor({value, onChange}) {
     return nums;
   }, [lineCount]);
 
-  // Debounced preview update (300ms)
+  // Debounced preview update (300ms). markdownToHtml renders math only once katex
+  // has lazily loaded; until then it falls back to plain source text, and the
+  // effect re-runs when katex resolves to upgrade the preview.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      setPreviewHtml(markdownToHtml(value));
+      setPreviewHtml(markdownToHtml(value, katex));
     }, 300);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [value]);
+  }, [value, katex]);
 
   // Sync scroll: textarea -> line numbers + preview
   const handleScroll = useCallback(() => {
@@ -744,6 +782,7 @@ function extractMathBlocks(text) {
 
 function MathPreviewPanel({editor, rawMode, rawContent, onClose}) {
   const [blocks, setBlocks] = useState([]);
+  const katex = useKatex();
 
   useEffect(() => {
     function update() {
@@ -800,14 +839,16 @@ function MathPreviewPanel({editor, rawMode, rawContent, onClose}) {
         {blocks.map((block, i) => {
           let html = '';
           let error = null;
-          try {
-            html = katex.renderToString(block.latex, {
-              displayMode: block.type === 'display',
-              throwOnError: false,
-              trust: true,
-            });
-          } catch (e) {
-            error = e.message;
+          if (katex) {
+            try {
+              html = katex.renderToString(block.latex, {
+                displayMode: block.type === 'display',
+                throwOnError: false,
+                trust: true,
+              });
+            } catch (e) {
+              error = e.message;
+            }
           }
           return (
             <div key={`${block.index}-${i}`} className={styles.mathPreviewItem}>
