@@ -606,22 +606,28 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
       const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
       const FIELDS = ['title', 'author', 'year', 'venue', 'doi', 'url'];
       const results = [];
+      // Per-field present-count, accumulated once during the entry loop below so
+      // fieldCoverage no longer rescans every reference twice for each field.
+      const fieldPresent = {};
+      for (const f of FIELDS) fieldPresent[f] = 0;
       let totalComplete = 0;
       for (const [key, entry] of Object.entries(refs)) {
         const missing = FIELDS.filter(f => !entry[f] || (Array.isArray(entry[f]) && entry[f].length === 0));
         const present = FIELDS.filter(f => entry[f] && (!Array.isArray(entry[f]) || entry[f].length > 0));
+        for (const f of present) fieldPresent[f]++;
         const completeness = Math.round((present.length / FIELDS.length) * 100);
         if (completeness === 100) totalComplete++;
         results.push({key, title: entry.title || key, completeness, missing, presentCount: present.length});
       }
       results.sort((a, b) => a.completeness - b.completeness);
       const avgCompleteness = results.length > 0 ? Math.round(results.reduce((s, r) => s + r.completeness, 0) / results.length) : 0;
+      const coverageDenom = Math.max(results.length, 1);
       return json(res, 200, {
         averageCompleteness: avgCompleteness,
         totalReferences: results.length,
         fullyComplete: totalComplete,
         incomplete: results.filter(r => r.completeness < 100).slice(0, 30),
-        fieldCoverage: FIELDS.map(f => ({field: f, count: Object.values(refs).filter(e => e[f] && (!Array.isArray(e[f]) || e[f].length > 0)).length, percentage: Math.round(Object.values(refs).filter(e => e[f] && (!Array.isArray(e[f]) || e[f].length > 0)).length / Math.max(Object.keys(refs).length, 1) * 100)})),
+        fieldCoverage: FIELDS.map(f => ({field: f, count: fieldPresent[f], percentage: Math.round(fieldPresent[f] / coverageDenom * 100)})),
       });
     } catch {
       return json(res, 500, {error: 'Completeness check failed'});
