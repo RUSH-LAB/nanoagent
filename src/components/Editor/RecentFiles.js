@@ -1,45 +1,41 @@
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useCallback} from 'react';
 import styles from './RecentFiles.module.css';
 
 export default function RecentFiles({onSelectFile, selectedFile}) {
   const [collapsed, setCollapsed] = useState(false);
   const [recentFiles, setRecentFiles] = useState([]);
 
-  useEffect(() => {
-    function load() {
-      try {
-        const raw = localStorage.getItem('mochi-recent-files');
-        if (!raw) return;
-        const paths = JSON.parse(raw);
-        if (!Array.isArray(paths)) return;
-        // Stored as an access-ordered list of paths (first = most recent)
-        setRecentFiles(paths.slice(0, 5));
-      } catch {}
-    }
-    load();
-    // Re-read when storage changes (e.g. from handleSelectFile in parent)
-    const handler = () => load();
-    window.addEventListener('storage', handler);
-    // Also poll on focus to catch same-tab updates
-    window.addEventListener('focus', handler);
-    // Listen for custom event from parent
-    window.addEventListener('mochi-recent-updated', handler);
-    return () => {
-      window.removeEventListener('storage', handler);
-      window.removeEventListener('focus', handler);
-      window.removeEventListener('mochi-recent-updated', handler);
-    };
-  }, []);
-
-  // Re-read whenever selectedFile changes (means a file was just opened)
-  useEffect(() => {
+  const load = useCallback(() => {
     try {
       const raw = localStorage.getItem('mochi-recent-files');
       if (!raw) return;
       const paths = JSON.parse(raw);
-      if (Array.isArray(paths)) setRecentFiles(paths.slice(0, 5));
+      if (!Array.isArray(paths)) return;
+      // Stored as an access-ordered list of paths (first = most recent)
+      setRecentFiles(paths.slice(0, 5));
     } catch {}
-  }, [selectedFile]);
+  }, []);
+
+  useEffect(() => {
+    load();
+    // load ignores its argument, so it can serve as the listener directly.
+    // Re-read when storage changes (e.g. from handleSelectFile in parent)
+    window.addEventListener('storage', load);
+    // Also poll on focus to catch same-tab updates
+    window.addEventListener('focus', load);
+    // Listen for custom event from parent
+    window.addEventListener('mochi-recent-updated', load);
+    return () => {
+      window.removeEventListener('storage', load);
+      window.removeEventListener('focus', load);
+      window.removeEventListener('mochi-recent-updated', load);
+    };
+  }, [load]);
+
+  // Re-read whenever selectedFile changes (means a file was just opened)
+  useEffect(() => {
+    load();
+  }, [selectedFile, load]);
 
   if (recentFiles.length === 0) return null;
 
