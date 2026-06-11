@@ -79,7 +79,7 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
     }
     const all = (data.messages || {})[channelId] || [];
     const results = all.filter(m =>
-      m.text.toLowerCase().includes(query) || m.author.toLowerCase().includes(query)
+      (m.text || '').toLowerCase().includes(query) || (m.author || '').toLowerCase().includes(query)
     );
     return json(res, 200, {results, total: results.length});
   }
