@@ -2,7 +2,7 @@ import React, {useState, useRef, useEffect} from 'react';
 import {toast} from '@site/src/components/Toast/toast';
 
 /**
- * ShareButton -- sits next to BookmarkButton on doc pages.
+ * ShareButton — sits next to BookmarkButton on doc pages.
  *
  * Default click: copies the current page URL to clipboard and shows a toast.
  * Dropdown options:
