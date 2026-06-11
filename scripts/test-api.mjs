@@ -114,7 +114,6 @@ async function preflight() {
 const TEST_PREFIX = `__test_${Date.now()}`;
 const TEST_FILE = `content/posts/${TEST_PREFIX}_post.md`;
 const TEST_FILE_RENAMED = `content/posts/${TEST_PREFIX}_post_renamed.md`;
-const TEST_FILE_MOVED = `content/books/${TEST_PREFIX}_post.md`;
 const TEST_FILE_CONTENT = `---\ntitle: "Test Post"\ndate: 2025-01-01\n---\n\n# Test Post\n\nHello world. This is a test file for API integration tests.\n`;
 const TEST_COMMENT_PAGE = `${TEST_PREFIX}/comments`;
 const TEST_NOTE_KEY = `${TEST_PREFIX}_note`;
