@@ -1,14 +1,12 @@
 import React, {useState, useEffect} from 'react';
 import API_BASE from '../../utils/api';
 
-const API = API_BASE;
-
 export default function BookmarkButton({pagePath, pageTitle}) {
   const [bookmarked, setBookmarked] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${API}/api/bookmarks`)
+    fetch(`${API_BASE}/api/bookmarks`)
       .then(r => r.json())
       .then(data => {
         const exists = (data.bookmarks || []).some(b => b.path === pagePath);
@@ -23,14 +21,14 @@ export default function BookmarkButton({pagePath, pageTitle}) {
     setLoading(true);
     try {
       if (bookmarked) {
-        await fetch(`${API}/api/bookmarks`, {
+        await fetch(`${API_BASE}/api/bookmarks`, {
           method: 'DELETE',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({path: pagePath}),
         });
         setBookmarked(false);
       } else {
-        await fetch(`${API}/api/bookmarks`, {
+        await fetch(`${API_BASE}/api/bookmarks`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({path: pagePath, title: pageTitle || pagePath}),
