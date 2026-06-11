@@ -180,12 +180,6 @@
   text-overflow: ellipsis;
 }
 
-.itemShortcut {
-  flex-shrink: 0;
-  display: flex;
-  gap: 4px;
-}
-
 .kbd {
   display: inline-flex;
   align-items: center;
@@ -250,10 +244,6 @@
   }
 
   .inputHint {
-    display: none;
-  }
-
-  .itemShortcut {
     display: none;
   }
 }
