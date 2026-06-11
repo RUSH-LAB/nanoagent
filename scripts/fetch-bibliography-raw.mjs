@@ -152,7 +152,7 @@ async function processEntry(key, entry) {
     if (!pdfOk) {
       const r = await download(`https://arxiv.org/pdf/${arxivId}`, pdfPath, { expect: 'pdf' });
       pdfOk = r.ok;
-      meta.pdf = r.ok ? { bytes: r.bytes } : { error: r.status || r.contentType || 'failed' };
+      meta.pdf = r.ok ? { bytes: r.bytes } : { error: r.status || 'failed' };
     }
     if (!srcOk) {
       const r = await download(`https://arxiv.org/e-print/${arxivId}`, srcPath);
