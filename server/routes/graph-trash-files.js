@@ -67,12 +67,11 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       collectGraphFiles(contentDir);
 
       // Resolve edge targets: wiki links use route paths
-      // Keep only edges where target matches a known node id
-      const nodeIds = new Set(nodes.map(n => n.id));
+      // Keep only edges where target matches a known node id (own key of nodeMap)
       const resolvedEdges = [];
       for (const edge of edges) {
         let targetId = edge.target;
-        if (nodeIds.has(targetId)) {
+        if (Object.prototype.hasOwnProperty.call(nodeMap, targetId)) {
           resolvedEdges.push({source: edge.source, target: targetId});
         } else {
           // Try matching against the last segment(s)
