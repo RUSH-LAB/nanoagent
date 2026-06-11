@@ -77,6 +77,36 @@ function rankDocuments(query, docs, k1 = BM25_K1, b = BM25_B) {
     .map(({doc, score}) => ({...doc, score}));
 }
 
+// ── Clean BibTeX field-value escaping (pure; unit-tested in tests/bibtex-clean.test.mjs) ──
+// LaTeX reserves a handful of characters; emitted unescaped inside a BibTeX field
+// value they break compilation or mis-render. Map each special character to the
+// escape that yields the literal glyph. `~` and `^` are accent commands on their
+// own, so they take the explicit \textasciitilde{} / \textasciicircum{} forms
+// rather than a bare backslash, and `\` becomes \textbackslash{}.
+const BIBTEX_LATEX_ESCAPES = {
+  '\\': '\\textbackslash{}',
+  '&': '\\&',
+  '%': '\\%',
+  '$': '\\$',
+  '#': '\\#',
+  '_': '\\_',
+  '{': '\\{',
+  '}': '\\}',
+  '~': '\\textasciitilde{}',
+  '^': '\\textasciicircum{}',
+};
+
+// Escape LaTeX special characters in a BibTeX field VALUE and collapse internal
+// runs of whitespace to single spaces (trimming the ends) for clean output. One
+// regex pass over the original string rewrites every special character at once,
+// so a backslash introduced by one escape is never re-escaped by another.
+function cleanBibtexValue(value) {
+  return String(value == null ? '' : value)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[\\&%$#_{}~^]/g, ch => BIBTEX_LATEX_ESCAPES[ch]);
+}
+
 // Route module organized from server.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
@@ -685,18 +715,18 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
         else if (type === 'inproceedings') bibtexType = 'inproceedings';
         else if (type === 'book') bibtexType = 'book';
         const fields = [];
-        fields.push(`  title = {${entry.title || ''}}`);
-        if (authors) fields.push(`  author = {${authors}}`);
-        if (entry.year) fields.push(`  year = {${entry.year}}`);
+        fields.push(`  title = {${cleanBibtexValue(entry.title || '')}}`);
+        if (authors) fields.push(`  author = {${cleanBibtexValue(authors)}}`);
+        if (entry.year) fields.push(`  year = {${cleanBibtexValue(entry.year)}}`);
         if (entry.venue) {
-          if (bibtexType === 'inproceedings') fields.push(`  booktitle = {${entry.venue}}`);
-          else if (bibtexType === 'article') fields.push(`  journal = {${entry.venue}}`);
-          else fields.push(`  howpublished = {${entry.venue}}`);
+          if (bibtexType === 'inproceedings') fields.push(`  booktitle = {${cleanBibtexValue(entry.venue)}}`);
+          else if (bibtexType === 'article') fields.push(`  journal = {${cleanBibtexValue(entry.venue)}}`);
+          else fields.push(`  howpublished = {${cleanBibtexValue(entry.venue)}}`);
         }
-        if (entry.url) fields.push(`  url = {${entry.url}}`);
-        if (entry.doi) fields.push(`  doi = {${entry.doi}}`);
-        if (entry.volume) fields.push(`  volume = {${entry.volume}}`);
-        if (entry.pages) fields.push(`  pages = {${entry.pages}}`);
+        if (entry.url) fields.push(`  url = {${cleanBibtexValue(entry.url)}}`);
+        if (entry.doi) fields.push(`  doi = {${cleanBibtexValue(entry.doi)}}`);
+        if (entry.volume) fields.push(`  volume = {${cleanBibtexValue(entry.volume)}}`);
+        if (entry.pages) fields.push(`  pages = {${cleanBibtexValue(entry.pages)}}`);
         lines.push(`@${bibtexType}{${key},\n${fields.join(',\n')}\n}`);
       }
       const bibtex = lines.join('\n\n') + '\n';
@@ -755,3 +785,7 @@ module.exports.corpusStats = corpusStats;
 module.exports.bm25Idf = bm25Idf;
 module.exports.bm25Score = bm25Score;
 module.exports.rankDocuments = rankDocuments;
+
+// Pure BibTeX field-value escaper, exposed for direct unit testing (see
+// tests/bibtex-clean.test.mjs). It cleans the values emitted by /api/references/export.
+module.exports.cleanBibtexValue = cleanBibtexValue;
