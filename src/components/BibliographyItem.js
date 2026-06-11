@@ -350,7 +350,6 @@ function EnrichSection({ bibKey, entry }) {
   const formatFieldValue = (field, value) => {
     if (value == null) return null;
     if (Array.isArray(value)) return value.join(', ');
-    if (typeof value === 'number') return String(value);
     return String(value);
   };
 
