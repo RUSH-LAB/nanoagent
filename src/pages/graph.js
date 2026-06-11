@@ -431,7 +431,7 @@ function GraphVisualization() {
         ref={svgRef}
         width="100%"
         height="100%"
-        viewBox={viewBox ? `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}` : `0 0 ${dimensions.width} ${dimensions.height}`}
+        viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
         style={{ cursor: isPanning.current ? 'grabbing' : 'grab' }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
