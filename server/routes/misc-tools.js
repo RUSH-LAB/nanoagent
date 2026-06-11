@@ -405,7 +405,8 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         if (!fs.existsSync(fullPath)) return json(res, 404, {error: 'File not found'});
         const publishDate = new Date(publishAt);
         if (isNaN(publishDate.getTime())) return json(res, 400, {error: 'Invalid publishAt date'});
-        const schedules = Array.isArray(loadJSON(SCHEDULES_FILE)) ? loadJSON(SCHEDULES_FILE) : [];
+        const raw = loadJSON(SCHEDULES_FILE);
+        const schedules = Array.isArray(raw) ? raw : [];
         const existing = schedules.findIndex(s => s.path === filePath);
         if (existing !== -1) schedules.splice(existing, 1);
         schedules.push({path: filePath, publishAt: publishDate.toISOString(), createdAt: new Date().toISOString()});
@@ -416,7 +417,8 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       }
     }
     if (req.method === 'GET') {
-      const schedules = Array.isArray(loadJSON(SCHEDULES_FILE)) ? loadJSON(SCHEDULES_FILE) : [];
+      const raw = loadJSON(SCHEDULES_FILE);
+      const schedules = Array.isArray(raw) ? raw : [];
       return json(res, 200, {schedules});
     }
     if (req.method === 'DELETE') {
@@ -424,7 +426,8 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         const body = await readBody(req);
         const {path: filePath} = body;
         if (!filePath) return json(res, 400, {error: 'Missing path'});
-        const schedules = Array.isArray(loadJSON(SCHEDULES_FILE)) ? loadJSON(SCHEDULES_FILE) : [];
+        const raw = loadJSON(SCHEDULES_FILE);
+        const schedules = Array.isArray(raw) ? raw : [];
         const idx = schedules.findIndex(s => s.path === filePath);
         if (idx === -1) return json(res, 404, {error: 'Schedule not found'});
         schedules.splice(idx, 1);
