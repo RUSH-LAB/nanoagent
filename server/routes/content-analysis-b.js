@@ -59,14 +59,18 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
         const avgYear = years.length > 0 ? Math.round(years.reduce((s, y) => s + y, 0) / years.length) : 0;
         const medianYear = years.length > 0 ? years.sort()[Math.floor(years.length / 2)] : 0;
         const avgAge = years.length > 0 ? Math.round(new Date().getFullYear() - avgYear) : 0;
+        // Single pass over entries: the three accumulators are independent, so
+        // tallying them together preserves each object's key-insertion order
+        // (and therefore the downstream uniqueAuthors/uniqueVenues counts, the
+        // sorted top-10 slices, and typeDistribution) versus three separate loops.
         const authorCounts = {};
+        const venueCounts = {};
+        const typeCounts = {};
         for (const e of entries) {
           for (const a of (e.author || [])) authorCounts[a] = (authorCounts[a] || 0) + 1;
+          if (e.venue) venueCounts[e.venue] = (venueCounts[e.venue] || 0) + 1;
+          const t = e.type || 'misc'; typeCounts[t] = (typeCounts[t] || 0) + 1;
         }
-        const venueCounts = {};
-        for (const e of entries) { if (e.venue) venueCounts[e.venue] = (venueCounts[e.venue] || 0) + 1; }
-        const typeCounts = {};
-        for (const e of entries) { const t = e.type || 'misc'; typeCounts[t] = (typeCounts[t] || 0) + 1; }
         return {
           totalReferences: entries.length,
           avgYear, medianYear, avgAge,
