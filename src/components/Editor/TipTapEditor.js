@@ -497,7 +497,6 @@ function markdownToHtml(md, katex) {
       let html = '<table>';
       tableRows.forEach((row, idx) => {
         const tag = idx === 0 ? 'th' : 'td';
-        const rowTag = idx === 0 ? 'thead' : (idx === 1 ? 'tbody' : '');
         const cells = row.split('|').filter(c => c.trim() !== '').map(c => `<${tag}>${processInline(c.trim())}</${tag}>`).join('');
         if (idx === 0) html += `<thead><tr>${cells}</tr></thead><tbody>`;
         else html += `<tr>${cells}</tr>`;
