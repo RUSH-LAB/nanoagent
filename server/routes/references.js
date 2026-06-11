@@ -492,14 +492,18 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
         dblpResult.volume = info.volume;
       }
 
+      const {mergeMetadataSources} = require('../server-utils');
+      const sources = {
+        semanticScholar: Object.keys(s2Result).length > 0 ? s2Result : null,
+        crossref: Object.keys(crossrefResult).length > 0 ? crossrefResult : null,
+        dblp: Object.keys(dblpResult).length > 0 ? dblpResult : null,
+      };
+
       return json(res, 200, {
         key: citationKey,
         current: entry,
-        sources: {
-          semanticScholar: Object.keys(s2Result).length > 0 ? s2Result : null,
-          crossref: Object.keys(crossrefResult).length > 0 ? crossrefResult : null,
-          dblp: Object.keys(dblpResult).length > 0 ? dblpResult : null,
-        },
+        sources,
+        merged: mergeMetadataSources(sources),
       });
     } catch (err) {
       return json(res, 500, {error: 'Enrichment failed. Please try again later.'});

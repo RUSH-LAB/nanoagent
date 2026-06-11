@@ -204,6 +204,124 @@ function mapBibtexEntryType(bibtexType) {
   return typeMap[bibtexType] || 'misc';
 }
 
+// ── Multi-source metadata merge ──
+// Split a "First [Middle] Last" display name into the pieces used for dedup.
+// Sources here always emit names in given-then-family order (Semantic Scholar
+// returns `author.name`, CrossRef joins `given family`, DBLP returns full
+// names), so the last whitespace token is the family name. Only the first and
+// last tokens are considered; any middle names or initials are ignored.
+function splitAuthorName(name) {
+  const tokens = String(name).trim().split(/\s+/);
+  const last = (tokens[tokens.length - 1] || '').toLowerCase();
+  const first = tokens.length > 1 ? tokens[0].toLowerCase().replace(/\./g, '') : '';
+  return {first, last};
+}
+
+// Two author strings name the same person when their family names match and one
+// given name is an initial-prefix of the other. So "J. Doe" matches "John Doe",
+// while "Jane Doe" stays distinct from "John Doe". Known limits: a bare initial
+// ("J. Doe") still collapses into any same-initial full name ("Jane Doe"), and a
+// family-only name ("Doe") collapses into any name with the same family name.
+function sameAuthor(a, b) {
+  const pa = splitAuthorName(a);
+  const pb = splitAuthorName(b);
+  if (!pa.last || !pb.last || pa.last !== pb.last) return false;
+  if (!pa.first || !pb.first) return true;
+  return pa.first === pb.first || pa.first.startsWith(pb.first) || pb.first.startsWith(pa.first);
+}
+
+// Longer given name means a more complete spelling; used to pick the winner when
+// two formats of the same author collapse.
+function authorFirstNameLength(name) {
+  return splitAuthorName(name).first.length;
+}
+
+// Merge author lists from several sources (already in precedence order),
+// preserving first-seen order and keeping the most complete spelling per person.
+function mergeAuthorLists(sourceList) {
+  const merged = [];
+  for (const src of sourceList) {
+    const list = Array.isArray(src.authors) ? src.authors : [];
+    for (const raw of list) {
+      if (typeof raw !== 'string' || !raw.trim()) continue;
+      const name = raw.trim();
+      const idx = merged.findIndex(existing => sameAuthor(existing, name));
+      if (idx === -1) merged.push(name);
+      else if (authorFirstNameLength(name) > authorFirstNameLength(merged[idx])) merged[idx] = name;
+    }
+  }
+  return merged;
+}
+
+// Merge the per-source enrichment objects (Semantic Scholar, CrossRef, DBLP)
+// produced by GET /api/references/enrich into one best-value record. Pure and
+// additive: the handler keeps returning the per-source `sources` map and now
+// also a `merged` view built here.
+//
+// Field precedence, highest first:
+//   • doi:   CrossRef, then DBLP, then Semantic Scholar (CrossRef registers DOIs)
+//   • venue: DBLP, then CrossRef, then Semantic Scholar (DBLP venue names are cleanest)
+//   • every other field: CrossRef, then DBLP, then Semantic Scholar
+// Source-exclusive fields (arxivId, citationCount, referenceCount, tldr, issn,
+// issue, publisher) simply fall through that order to whichever source has them,
+// and any field missing from the preferred source is filled from the next.
+// Authors are merged across sources and de-duplicated across name formats.
+function mergeMetadataSources(sources) {
+  if (!sources || typeof sources !== 'object') return {};
+
+  const SOURCE_ORDER = ['crossref', 'dblp', 'semanticScholar'];
+  const FIELD_ORDER = {
+    doi: ['crossref', 'dblp', 'semanticScholar'],
+    venue: ['dblp', 'crossref', 'semanticScholar'],
+  };
+
+  // Keep only sources actually supplied as objects.
+  const present = {};
+  for (const name of SOURCE_ORDER) {
+    const src = sources[name];
+    if (src && typeof src === 'object' && !Array.isArray(src)) present[name] = src;
+  }
+
+  const hasValue = (v) => {
+    if (v === null || v === undefined) return false;
+    if (typeof v === 'string') return v.trim() !== '';
+    if (Array.isArray(v)) return v.length > 0;
+    return true;
+  };
+
+  // Field names that could pollute the output object's prototype; never copied.
+  const FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype']);
+
+  // Union of every non-author field across sources, in a stable order.
+  const fieldNames = [];
+  for (const name of SOURCE_ORDER) {
+    if (!present[name]) continue;
+    for (const field of Object.keys(present[name])) {
+      if (field === 'authors' || FORBIDDEN.has(field)) continue;
+      if (!fieldNames.includes(field)) fieldNames.push(field);
+    }
+  }
+
+  const merged = {};
+  for (const field of fieldNames) {
+    // hasOwnProperty guard: a field named like an Object.prototype member
+    // (constructor, valueOf, ...) must not pick up an inherited non-array value.
+    const order = Object.prototype.hasOwnProperty.call(FIELD_ORDER, field) ? FIELD_ORDER[field] : SOURCE_ORDER;
+    for (const name of order) {
+      const src = present[name];
+      if (src && hasValue(src[field])) {
+        merged[field] = src[field];
+        break;
+      }
+    }
+  }
+
+  const authors = mergeAuthorLists(SOURCE_ORDER.map(n => present[n]).filter(Boolean));
+  if (authors.length > 0) merged.authors = authors;
+
+  return merged;
+}
+
 module.exports = {
   ALLOWED_EXTS,
   IMAGE_EXTS,
@@ -220,4 +338,5 @@ module.exports = {
   parseBibtex,
   parseBibtexAuthors,
   mapBibtexEntryType,
+  mergeMetadataSources,
 };
