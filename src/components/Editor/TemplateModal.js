@@ -3,6 +3,25 @@ import styles from './TemplateModal.module.css';
 import API_BASE from '@site/src/utils/api';
 
 /**
+ * Build the initial content for a new file created from a template.
+ *
+ * Returns blank frontmatter with a title heading when the template is absent or
+ * builtin; otherwise the template's own content with its title and date
+ * placeholders substituted. The title comes from the file path's basename
+ * (extension stripped, dashes turned into spaces).
+ */
+function buildTemplateContent(tpl, filePath) {
+  const title = filePath.split('/').pop().replace(/\.(md|mdx)$/, '').replace(/-/g, ' ');
+  const today = new Date().toISOString().split('T')[0];
+  if (!tpl || tpl.builtin) {
+    return `---\ntitle: "${title}"\ndate: ${today}\n---\n\n# ${title}\n\n`;
+  }
+  return (tpl.content || '')
+    .replace(/\{\{title\}\}/g, title)
+    .replace(/\{\{date\}\}/g, today);
+}
+
+/**
  * TemplateModal — a two-step inline modal for creating a new file.
  *
  * Step 1: Enter file path (relative to content/).
@@ -84,17 +103,7 @@ export default function TemplateModal({open, onClose, onCreate, defaultDir = '',
 
     // If a template was pre-selected (from empty state cards), skip step 2 and create directly
     if (preselectedTemplate) {
-      const title = fullPath.split('/').pop().replace(/\.(md|mdx)$/, '').replace(/-/g, ' ');
-      const today = new Date().toISOString().split('T')[0];
-      let content;
-      if (preselectedTemplate.builtin) {
-        content = `---\ntitle: "${title}"\ndate: ${today}\n---\n\n# ${title}\n\n`;
-      } else {
-        content = (preselectedTemplate.content || '')
-          .replace(/\{\{title\}\}/g, title)
-          .replace(/\{\{date\}\}/g, today);
-      }
-      onCreate(fullPath, content);
+      onCreate(fullPath, buildTemplateContent(preselectedTemplate, fullPath));
       onClose();
       return;
     }
@@ -107,24 +116,7 @@ export default function TemplateModal({open, onClose, onCreate, defaultDir = '',
   }, []);
 
   const handleCreate = useCallback(() => {
-    const tpl = selectedTemplate;
-    const title = filePath
-      .split('/')
-      .pop()
-      .replace(/\.(md|mdx)$/, '')
-      .replace(/-/g, ' ');
-    const today = new Date().toISOString().split('T')[0];
-
-    let content;
-    if (!tpl || tpl.builtin) {
-      content = `---\ntitle: "${title}"\ndate: ${today}\n---\n\n# ${title}\n\n`;
-    } else {
-      content = (tpl.content || '')
-        .replace(/\{\{title\}\}/g, title)
-        .replace(/\{\{date\}\}/g, today);
-    }
-
-    onCreate(filePath, content);
+    onCreate(filePath, buildTemplateContent(selectedTemplate, filePath));
     onClose();
   }, [selectedTemplate, filePath, onCreate, onClose]);
 
@@ -243,17 +235,7 @@ export default function TemplateModal({open, onClose, onCreate, defaultDir = '',
                       // Small delay so selectedTemplate state is set
                       setTimeout(() => {
                         // Directly trigger create
-                        const title = filePath.split('/').pop().replace(/\.(md|mdx)$/, '').replace(/-/g, ' ');
-                        const today = new Date().toISOString().split('T')[0];
-                        let content;
-                        if (tpl.builtin) {
-                          content = `---\ntitle: "${title}"\ndate: ${today}\n---\n\n# ${title}\n\n`;
-                        } else {
-                          content = (tpl.content || '')
-                            .replace(/\{\{title\}\}/g, title)
-                            .replace(/\{\{date\}\}/g, today);
-                        }
-                        onCreate(filePath, content);
+                        onCreate(filePath, buildTemplateContent(tpl, filePath));
                         onClose();
                       }, 0);
                     }}
