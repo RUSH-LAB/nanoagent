@@ -1,4 +1,82 @@
 'use strict';
+
+// ── BM25 lexical ranking helpers (pure; unit-tested in tests/search-bm25.test.mjs) ──
+// Standard Okapi BM25 over the cached search index: term-frequency / inverse-
+// document-frequency scoring with document-length normalization. Lexical ranking
+// only — no embeddings, vectors, cosine similarity, or semantic retrieval (see
+// .claude/CONSTRAINTS.md).
+const BM25_K1 = 1.5;  // term-frequency saturation point
+const BM25_B = 0.75;  // document-length normalization strength
+// A token is a run of ASCII alphanumerics, Latin-1/extended letters, or CJK ideographs.
+const SEARCH_TOKEN_RE = /[^a-z0-9À-ɏ一-鿿]+/;
+
+// Split text into lowercase terms. The same tokenizer builds the index and parses
+// the query so their terms line up.
+function tokenizeSearch(text) {
+  return String(text).toLowerCase().split(SEARCH_TOKEN_RE).filter(w => w.length > 0);
+}
+
+// term -> occurrence count for one document's token list.
+function termFrequencies(tokens) {
+  const tf = new Map();
+  for (const tok of tokens) tf.set(tok, (tf.get(tok) || 0) + 1);
+  return tf;
+}
+
+// Index entry for a document from raw text: its term-frequency map and length
+// (total token count) — the two per-document inputs BM25 needs.
+function buildSearchDoc(text) {
+  const tokens = tokenizeSearch(text);
+  return {tf: termFrequencies(tokens), length: tokens.length};
+}
+
+// Corpus-wide BM25 statistics over indexed docs: document count N, average
+// document length avgdl, and per-term document frequency df (docs containing it).
+function corpusStats(docs) {
+  const N = docs.length;
+  let totalLength = 0;
+  const df = new Map();
+  for (const doc of docs) {
+    totalLength += doc.length || 0;
+    for (const term of doc.tf.keys()) df.set(term, (df.get(term) || 0) + 1);
+  }
+  return {N, avgdl: N > 0 ? totalLength / N : 0, df};
+}
+
+// BM25 inverse document frequency: ln(1 + (N - df + 0.5) / (df + 0.5)). The
+// leading +1 keeps it non-negative; it falls toward 0 as a term approaches
+// appearing in every document and rises as the term grows rarer.
+function bm25Idf(df, N) {
+  return Math.log(1 + (N - df + 0.5) / (df + 0.5));
+}
+
+// BM25 score of one document for the given query terms. doc carries {tf, length};
+// stats come from corpusStats(). Terms absent from the document add nothing.
+function bm25Score(queryTerms, doc, stats, k1 = BM25_K1, b = BM25_B) {
+  const {N, avgdl, df} = stats;
+  const lengthNorm = avgdl > 0 ? doc.length / avgdl : 0;
+  let score = 0;
+  for (const term of queryTerms) {
+    const tf = doc.tf.get(term) || 0;
+    if (tf === 0) continue;
+    const idf = bm25Idf(df.get(term) || 0, N);
+    score += idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * lengthNorm));
+  }
+  return score;
+}
+
+// Rank documents by descending BM25 score for a query string. Returns a new
+// array of {...doc, score}; pure and side-effect free, so it can be unit tested
+// directly on a fixed corpus.
+function rankDocuments(query, docs, k1 = BM25_K1, b = BM25_B) {
+  const queryTerms = tokenizeSearch(query);
+  const stats = corpusStats(docs);
+  return docs
+    .map(doc => ({doc, score: bm25Score(queryTerms, doc, stats, k1, b)}))
+    .sort((a, b2) => b2.score - a.score)
+    .map(({doc, score}) => ({...doc, score}));
+}
+
 // Route module organized from server.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
@@ -465,14 +543,16 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
     }
   }
 
-  // ── Full-text search across all content files ──
+  // ── Full-text search across all content files (BM25-ranked) ──
   if (req.method === 'GET' && pathname === '/api/search') {
     const query = (url.searchParams.get('q') || '').toLowerCase().trim();
     if (!query) return json(res, 400, {error: 'Missing query'});
     try {
-      const searchIndex = cached('search:index', 60000, () => {
+      // Cached index: each doc carries its term-frequency map and length, plus
+      // corpus-wide BM25 statistics (N, average length, per-term doc frequency).
+      const {docs: searchIndex, stats} = cached('search:index', 60000, () => {
         const contentDir = path.join(PROJECT_ROOT, 'content');
-        const index = [];
+        const docs = [];
         function indexDir(dir) {
           for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
             if (entry.name.startsWith('.')) continue;
@@ -483,13 +563,14 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
               try {
                 const content = fs.readFileSync(fullPath, 'utf-8');
                 const lower = content.toLowerCase();
-                const words = new Set(lower.split(/[^a-z0-9À-ɏ一-鿿]+/).filter(w => w.length > 0));
-                const firstLines = content.slice(0, 500);
-                index.push({
+                const tokens = lower.split(SEARCH_TOKEN_RE).filter(w => w.length > 0);
+                docs.push({
                   path: path.relative(PROJECT_ROOT, fullPath),
                   name: entry.name,
-                  words,
-                  firstLines,
+                  words: new Set(tokens),
+                  tf: termFrequencies(tokens),
+                  length: tokens.length,
+                  firstLines: content.slice(0, 500),
                   _content: content,
                   _lower: lower,
                 });
@@ -498,12 +579,14 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
           }
         }
         indexDir(contentDir);
-        return index;
+        return {docs, stats: corpusStats(docs)};
       });
       const queryWords = query.split(/\s+/).filter(w => w.length > 0);
-      const results = [];
+      const queryTerms = tokenizeSearch(query);
+      // Select candidates (every query word present as a substring of some token),
+      // then score each with BM25 over the corpus statistics.
+      const candidates = [];
       for (const file of searchIndex) {
-        // Fast path: check if all query words exist in the word set
         const allWordsMatch = queryWords.every(qw => {
           for (const w of file.words) {
             if (w.includes(qw)) return true;
@@ -511,27 +594,27 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
           return false;
         });
         if (!allWordsMatch) continue;
-        // Confirmed match — find snippet position from the full text
+        candidates.push({file, score: bm25Score(queryTerms, file, stats)});
+      }
+      // Rank by descending BM25 score BEFORE the 50-result cap, then build snippets.
+      candidates.sort((a, b) => b.score - a.score);
+      const results = [];
+      for (const {file, score} of candidates.slice(0, 50)) {
         const idx = file._lower.indexOf(query);
+        let snippet;
         if (idx >= 0) {
+          // Confirmed phrase match — snippet centered on the occurrence.
           const start = Math.max(0, idx - 50);
           const end = Math.min(file._content.length, idx + query.length + 50);
-          const snippet = file._content.slice(start, end).replace(/\n/g, ' ');
-          results.push({
-            path: file.path,
-            name: file.name,
-            snippet: (start > 0 ? '...' : '') + snippet + (end < file._content.length ? '...' : ''),
-          });
+          snippet = (start > 0 ? '...' : '') +
+            file._content.slice(start, end).replace(/\n/g, ' ') +
+            (end < file._content.length ? '...' : '');
         } else {
-          // Words matched individually but not as exact phrase — show first lines as snippet
-          const snippet = file.firstLines.replace(/\n/g, ' ').slice(0, 100);
-          results.push({
-            path: file.path,
-            name: file.name,
-            snippet: snippet + (file.firstLines.length > 100 ? '...' : ''),
-          });
+          // Words matched individually but not as an exact phrase — show the opening.
+          snippet = file.firstLines.replace(/\n/g, ' ').slice(0, 100) +
+            (file.firstLines.length > 100 ? '...' : '');
         }
-        if (results.length >= 50) break;
+        results.push({path: file.path, name: file.name, snippet, score});
       }
       return json(res, 200, {results});
     } catch {
@@ -662,3 +745,13 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
   }
 
 };
+
+// Pure BM25 ranking helpers, exposed for direct unit testing (see
+// tests/search-bm25.test.mjs). They power the /api/search ranking above.
+module.exports.tokenizeSearch = tokenizeSearch;
+module.exports.termFrequencies = termFrequencies;
+module.exports.buildSearchDoc = buildSearchDoc;
+module.exports.corpusStats = corpusStats;
+module.exports.bm25Idf = bm25Idf;
+module.exports.bm25Score = bm25Score;
+module.exports.rankDocuments = rankDocuments;
