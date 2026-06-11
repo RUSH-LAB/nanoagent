@@ -200,8 +200,6 @@ table {
   margin-bottom: 0 !important;
 }
 
-/* Additional numbered-table overrides (column alignment) */
-
 /* Column alignment overrides */
 .numbered-table--cols-center th,
 .numbered-table--cols-center td {
