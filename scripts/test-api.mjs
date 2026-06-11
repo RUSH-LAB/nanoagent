@@ -600,7 +600,6 @@ async function testSecurity() {
     if (status === 200) {
       await api('DELETE', '/api/file?path=content/should-not-exist.md');
     }
-    pass; // If we get here, the body size limit logic is exercised
   });
 
   // 5. Rate limit check
