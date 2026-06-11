@@ -123,7 +123,7 @@ function SearchContent() {
   // Derive a friendly display path from a file path
   const toViewPath = useCallback((filePath) => {
     // Strip leading content/ or similar prefixes and .md/.mdx extension
-    let p = filePath.replace(/^content\//, '').replace(/\.(mdx?|md)$/, '');
+    let p = filePath.replace(/^content\//, '').replace(/\.mdx?$/, '');
     // Strip the leading posts/ and books/ prefixes
     p = p.replace(/^posts\//, '');
     p = p.replace(/^books\//, '');
@@ -347,7 +347,7 @@ function SearchContent() {
               </h2>
               {fileResults.map((file) => {
                 const filePath = typeof file === 'string' ? file : file.path || file.name || '';
-                const displayPath = filePath.replace(/^content\//, '').replace(/\.(mdx?|md)$/, '');
+                const displayPath = filePath.replace(/^content\//, '').replace(/\.mdx?$/, '');
                 return (
                   <div key={filePath} style={{
                     padding: '10px 14px',
@@ -426,7 +426,7 @@ function SearchContent() {
               {contentResults.map((result, idx) => {
                 const filePath = result.file || result.path || '';
                 const snippet = result.snippet || result.context || result.content || '';
-                const displayPath = filePath.replace(/^content\//, '').replace(/\.(mdx?|md)$/, '');
+                const displayPath = filePath.replace(/^content\//, '').replace(/\.mdx?$/, '');
                 return (
                   <div key={`${filePath}-${idx}`} style={{
                     padding: '10px 14px',
