@@ -230,7 +230,8 @@ table {
   padding-top: 0.7rem;
 }
 
-.sidebar-numbered-link .menu__link::before {
+.sidebar-numbered-link .menu__link::before,
+.sidebar-numbered-category > .menu__list-item > .menu__list-item-collapsible > .menu__link::before {
   content: var(--chapter-num);
   position: absolute;
   top: 2px;
@@ -245,17 +246,6 @@ table {
 .sidebar-numbered-category > .menu__list-item > .menu__list-item-collapsible > .menu__link {
   position: relative;
   padding-top: 0.7rem;
-}
-
-.sidebar-numbered-category > .menu__list-item > .menu__list-item-collapsible > .menu__link::before {
-  content: var(--chapter-num);
-  position: absolute;
-  top: 2px;
-  left: 0.3rem;
-  font-size: 0.75rem;
-  color: #15803d;
-  font-weight: 500;
-  line-height: 1;
 }
 
 [data-theme='dark'] .sidebar-numbered-link .menu__link::before,
