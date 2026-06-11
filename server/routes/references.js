@@ -366,10 +366,37 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
       });
     }
 
+    // Normalize one DBLP publ-search hit into the per-source record shape used
+    // by the merge. DBLP returns `authors.author` as a single object/string for
+    // a one-author paper and an array otherwise; each author is either a plain
+    // string or an object carrying the name under `text`.
+    function parseDblpHit(hit) {
+      const info = hit?.info;
+      if (!info) return null;
+      const authorField = info.authors?.author;
+      const authorArr = Array.isArray(authorField) ? authorField : authorField ? [authorField] : [];
+      const authors = authorArr
+        .map(a => (typeof a === 'string' ? a : a?.text))
+        .filter(a => typeof a === 'string' && a.trim());
+      return {
+        source: 'dblp',
+        title: info.title,
+        authors,
+        year: info.year ? parseInt(info.year, 10) : null,
+        venue: info.venue,
+        doi: info.doi,
+        url: info.ee,
+        type: info.type,
+        pages: info.pages,
+        volume: info.volume,
+      };
+    }
+
     try {
-      const [s2, crossref] = await Promise.all([
+      const [s2, crossref, dblp] = await Promise.all([
         fetchJSON(`https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=5&fields=title,authors,year,venue,externalIds,url`),
         fetchJSON(`https://api.crossref.org/works?query=${encodeURIComponent(query)}&rows=5`),
+        fetchJSON(`https://dblp.org/search/publ/api?q=${encodeURIComponent(query)}&format=json&h=5`),
       ]);
 
       const results = [];
@@ -403,7 +430,31 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
         }
       }
 
-      return json(res, 200, {results});
+      const dblpHits = Array.isArray(dblp?.result?.hits?.hit) ? dblp.result.hits.hit : [];
+      for (const hit of dblpHits) {
+        const rec = parseDblpHit(hit);
+        if (rec) results.push(rec);
+      }
+
+      // Build one merged best-value record from the top hit of each source,
+      // reusing the shared mergeMetadataSources helper (which deduplicates
+      // authors across name formats and guards against prototype-polluting
+      // keys). Strip the `source` discriminator so it never leaks into the
+      // merge input.
+      const {mergeMetadataSources} = require('../server-utils');
+      const topRecord = (sourceName) => {
+        const hit = results.find(r => r.source === sourceName);
+        if (!hit) return null;
+        const {source, ...record} = hit;
+        return record;
+      };
+      const merged = mergeMetadataSources({
+        semanticScholar: topRecord('semanticscholar'),
+        crossref: topRecord('crossref'),
+        dblp: topRecord('dblp'),
+      });
+
+      return json(res, 200, {results, merged});
     } catch {
       return json(res, 500, {error: 'Metadata search failed'});
     }
