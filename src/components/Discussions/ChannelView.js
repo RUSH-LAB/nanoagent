@@ -2,26 +2,7 @@ import React, {useState, useEffect, useRef, useCallback} from 'react';
 import Link from '@docusaurus/Link';
 import styles from './styles.module.css';
 import API_BASE from '@site/src/utils/api';
-
-function formatTime(iso) {
-  const d = new Date(iso);
-  const now = new Date();
-  const diffMs = now - d;
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return 'just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.floor(diffHr / 24);
-  if (diffDay < 7) return `${diffDay}d ago`;
-  return d.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+import {formatTime} from '@site/src/utils/time';
 
 function getInitial(name) {
   return (name || '?')[0];
@@ -303,7 +284,7 @@ export default function ChannelView({channel}) {
               <div>
                 <span className={styles.messageAuthor}>{msg.author}</span>
                 <span className={styles.messageTime}>
-                  {formatTime(msg.createdAt)}
+                  {formatTime(msg.createdAt, {recentDays: 7, withTime: true})}
                 </span>
               </div>
               {editingMsg === msg.id ? (
