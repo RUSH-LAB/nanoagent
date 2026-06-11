@@ -84,11 +84,12 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
       if (!requester || requester.role !== 'owner') {
         return json(res, 403, {error: 'Only owners can change roles'});
       }
+      const existing = users[userId];
       users[userId] = {
         role,
-        email: sanitizeText(email) || users[userId]?.email || '',
-        name: sanitizeText(name) || users[userId]?.name || '',
-        addedAt: users[userId]?.addedAt || new Date().toISOString(),
+        email: sanitizeText(email) || existing?.email || '',
+        name: sanitizeText(name) || existing?.name || '',
+        addedAt: existing?.addedAt || new Date().toISOString(),
       };
       saveJSON(USERS_FILE, users);
       return json(res, 200, {success: true, user: users[userId]});
