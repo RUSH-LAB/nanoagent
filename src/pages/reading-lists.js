@@ -322,7 +322,7 @@ function ReadingListsApp() {
               }}>
                 {/* Items list */}
                 {list.items && list.items.length > 0 ? (
-                  <ol style={{margin: 0, padding: 0, listStyle: 'none', counterReset: 'item-counter'}}>
+                  <ol style={{margin: 0, padding: 0, listStyle: 'none'}}>
                     {list.items.map((item, idx) => (
                       <li
                         key={item.path}
