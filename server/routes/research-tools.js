@@ -592,8 +592,11 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
             } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
               try {
                 const content = fs.readFileSync(fullPath, 'utf-8');
-                const lower = content.toLowerCase();
-                const tokens = lower.split(SEARCH_TOKEN_RE).filter(w => w.length > 0);
+                // Same tokenizer for index and query (see tokenizeSearch). Only
+                // the raw text is kept (_content); the lower-cased haystack the
+                // snippet needs is recomputed on demand below rather than stored,
+                // which would double the index's resident string footprint.
+                const tokens = tokenizeSearch(content);
                 docs.push({
                   path: path.relative(PROJECT_ROOT, fullPath),
                   name: entry.name,
@@ -602,7 +605,6 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
                   length: tokens.length,
                   firstLines: content.slice(0, 500),
                   _content: content,
-                  _lower: lower,
                 });
               } catch {}
             }
@@ -630,7 +632,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       candidates.sort((a, b) => b.score - a.score);
       const results = [];
       for (const {file, score} of candidates.slice(0, 50)) {
-        const idx = file._lower.indexOf(query);
+        const idx = file._content.toLowerCase().indexOf(query);
         let snippet;
         if (idx >= 0) {
           // Confirmed phrase match — snippet centered on the occurrence.
