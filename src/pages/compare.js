@@ -37,7 +37,7 @@ function diffLines(linesA, linesB) {
   const n = linesA.length;
   const m = linesB.length;
 
-  // LCS table - use Uint32Array to avoid overflow on files > 65535 lines
+  // LCS length table; the 5000-line cap above bounds dp values, so a typed array keeps it compact.
   const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
   for (let i = 1; i <= n; i++) {
     for (let j = 1; j <= m; j++) {
