@@ -52,7 +52,7 @@ const ERROR_PATTERNS = [
 ];
 
 // ── Page definitions ──
-// Each entry: [path, description, [contentStringsToMatchAny]]
+// Each entry: [path, [contentStringsToMatchAny]]
 // Note: Docusaurus SPA serves a shell HTML for all routes — the actual page
 // content is rendered client-side via JS. The shell HTML typically only
 // contains the site title ("Mochi Lab"), Docusaurus bootstrap, and linked
@@ -60,26 +60,26 @@ const ERROR_PATTERNS = [
 // Content strings are checked case-insensitively against the full HTML
 // including script bundles and route metadata where available.
 const PAGES = [
-  ['/',               'Homepage',        ['Mochi Lab']],
-  ['/editor',         'Editor',          ['editor', 'Editor']],
-  ['/bibliography',   'Bibliography',    ['Bibliography', 'references']],
-  ['/discussions',    'Discussions',      ['Discuss', 'channel']],
-  ['/recommendations','Recommendations', ['Recommend', 'Discover']],
-  ['/analytics',      'Analytics',       ['Analytics', 'Dashboard']],
-  ['/admin',          'Admin',           ['Admin', 'Management']],
-  ['/graph',          'Graph',           ['Graph', 'Knowledge']],
-  ['/api-docs',       'API Docs',        ['API', 'endpoint']],
-  ['/search',         'Search',          ['Search', 'search']],
-  ['/about',          'About',           ['About', 'Mochi Lab']],
-  ['/reading-lists',  'Reading Lists',   ['Reading', 'list']],
-  ['/compare',        'Compare',         ['Compare', 'comparison']],
-  ['/stats',          'Stats',           ['Stats', 'Statistics']],
-  ['/whiteboard',     'Whiteboard',      ['Whiteboard', 'canvas']],
-  ['/mindmap',        'Mindmap',         ['Mindmap', 'Mind']],
-  ['/flashcards',     'Flashcards',      ['Flashcard', 'card']],
-  ['/tasks',          'Tasks',           ['Task', 'Kanban']],
-  ['/glossary',       'Glossary',        ['Glossary', 'term']],
-  ['/timeline',       'Timeline',        ['Timeline', 'timeline']],
+  ['/',                ['Mochi Lab']],
+  ['/editor',          ['editor', 'Editor']],
+  ['/bibliography',    ['Bibliography', 'references']],
+  ['/discussions',     ['Discuss', 'channel']],
+  ['/recommendations', ['Recommend', 'Discover']],
+  ['/analytics',       ['Analytics', 'Dashboard']],
+  ['/admin',           ['Admin', 'Management']],
+  ['/graph',           ['Graph', 'Knowledge']],
+  ['/api-docs',        ['API', 'endpoint']],
+  ['/search',          ['Search', 'search']],
+  ['/about',           ['About', 'Mochi Lab']],
+  ['/reading-lists',   ['Reading', 'list']],
+  ['/compare',         ['Compare', 'comparison']],
+  ['/stats',           ['Stats', 'Statistics']],
+  ['/whiteboard',      ['Whiteboard', 'canvas']],
+  ['/mindmap',         ['Mindmap', 'Mind']],
+  ['/flashcards',      ['Flashcard', 'card']],
+  ['/tasks',           ['Task', 'Kanban']],
+  ['/glossary',        ['Glossary', 'term']],
+  ['/timeline',        ['Timeline', 'timeline']],
 ];
 
 // ── Preflight connectivity check ──
@@ -98,7 +98,7 @@ async function preflight() {
 }
 
 // ── Test a single page ──
-async function testPage(path, description, contentStrings) {
+async function testPage(path, contentStrings) {
   const url = `${BASE}${path}`;
   const label = `${path}`;
 
@@ -166,8 +166,8 @@ async function main() {
 
   console.log(`\n${BOLD}Pages${RESET}`);
 
-  for (const [path, description, contentStrings] of PAGES) {
-    await testPage(path, description, contentStrings);
+  for (const [path, contentStrings] of PAGES) {
+    await testPage(path, contentStrings);
   }
 
   // ── Summary ──
