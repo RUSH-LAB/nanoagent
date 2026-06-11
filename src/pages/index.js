@@ -17,6 +17,17 @@ import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import Heading from '@theme/Heading';
 import styles from './index.module.css';
 
+function formatAge(ts) {
+  const ms = Date.now() - ts;
+  const min = Math.floor(ms / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const d = Math.floor(hr / 24);
+  return `${d}d ago`;
+}
+
 function HomepageHeader() {
   const {siteConfig} = useDocusaurusContext();
   return (
@@ -84,17 +95,6 @@ function RecentActivity() {
       setLoading(false);
     });
   }, []);
-
-  function formatAge(ts) {
-    const ms = Date.now() - ts;
-    const min = Math.floor(ms / 60000);
-    if (min < 1) return 'just now';
-    if (min < 60) return `${min}m ago`;
-    const hr = Math.floor(min / 60);
-    if (hr < 24) return `${hr}h ago`;
-    const d = Math.floor(hr / 24);
-    return `${d}d ago`;
-  }
 
   if (loading) {
     return (
@@ -238,17 +238,6 @@ function RecentFiles() {
 
   function toViewPath(filePath) {
     return '/' + filePath.replace(/^content\//, '').replace(/^books\//, '').replace(/^posts\//, '').replace(/\.(mdx?|md)$/, '');
-  }
-
-  function formatAge(mtime) {
-    const ms = Date.now() - mtime;
-    const min = Math.floor(ms / 60000);
-    if (min < 1) return 'just now';
-    if (min < 60) return `${min}m ago`;
-    const hr = Math.floor(min / 60);
-    if (hr < 24) return `${hr}h ago`;
-    const d = Math.floor(hr / 24);
-    return `${d}d ago`;
   }
 
   return (
