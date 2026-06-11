@@ -73,7 +73,6 @@ function RecentActivity() {
             type: 'comment',
             title: e.author || 'Anonymous',
             subtitle: e.preview || '',
-            page: e.page,
             timestamp: new Date(e.timestamp).getTime(),
           })))
         .catch(() => []),
