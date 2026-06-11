@@ -2,6 +2,16 @@
 // Route module organized from server.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
+
+// Parse a numeric query parameter, clamping to `max` and falling back to `def`
+// when the value is absent or non-numeric. Without the fallback a stray
+// `?limit=abc` parses to NaN and `all.slice(offset, offset + NaN)` collapses the
+// page to empty. Absent and valid numeric values keep their previous behavior.
+function numericParam(raw, def, max) {
+  const n = parseInt(raw, 10);
+  return Math.min(Number.isNaN(n) ? def : n, max);
+}
+
 module.exports = async function discussions_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -61,8 +71,10 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
       return json(res, 404, {error: 'Channel not found'});
     }
     const all = (data.messages || {})[channelId] || [];
-    const limit = Math.min(parseInt(url.searchParams.get('limit') || '200', 10), 1000);
-    const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10), 0);
+    const limit = numericParam(url.searchParams.get('limit'), 200, 1000);
+    // offset has no upper cap: guard NaN to 0, then floor at 0 (no Math.min).
+    const offsetRaw = parseInt(url.searchParams.get('offset'), 10);
+    const offset = Math.max(Number.isNaN(offsetRaw) ? 0 : offsetRaw, 0);
     const paginated = all.slice(offset, offset + limit);
     return json(res, 200, {messages: paginated, total: all.length});
   }
@@ -191,3 +203,5 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
   }
 
 };
+
+module.exports.numericParam = numericParam;
