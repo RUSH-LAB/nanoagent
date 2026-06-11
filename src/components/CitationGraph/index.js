@@ -146,7 +146,7 @@ function computeLayout(keys, references) {
 
   const edges = buildEdges(keys, references);
 
-  return { nodes, edges, minYear, maxYear, years: [...new Set(years.filter((y) => y > 0))] };
+  return { nodes, edges, minYear, maxYear, years: years.filter((y) => y > 0) };
 }
 
 export default function CitationGraph({ references }) {
