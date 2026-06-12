@@ -98,12 +98,33 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
       const userLog = (streakData[userId] && streakData[userId].dailyLog) || [];
       const sorted = [...userLog].sort((a, b) => a.date.localeCompare(b.date));
       const today = new Date().toISOString().slice(0, 10);
-      const last7Days = sorted.filter(e => e.date >= new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10));
-      const last30Days = sorted.filter(e => e.date >= new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
-      const totalWordsLast7 = last7Days.reduce((s, e) => s + e.words, 0);
-      const totalWordsLast30 = last30Days.reduce((s, e) => s + e.words, 0);
-      const avgWordsPerDay7 = last7Days.length > 0 ? Math.round(totalWordsLast7 / 7) : 0;
-      const avgWordsPerDay30 = last30Days.length > 0 ? Math.round(totalWordsLast30 / 30) : 0;
+      // Fold the 7 and 30 day windows into a single pass over `sorted`. The two
+      // cutoff date strings are computed once here, where the old `.filter`
+      // callbacks rebuilt them per element. Each entry updates whichever windows
+      // it falls in, accumulating the entry count, the word sum, and the
+      // active-day count (entries with `e.words >= 50`), collapsing the former
+      // six passes (two filters, two reduces, two active-day re-walks) into one.
+      // `e.words` is read directly, with no `|| 0`, so NaN and undefined totals
+      // stay identical to the original reduce; iterating `sorted` keeps the
+      // result order independent.
+      const cutoff7 = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+      const cutoff30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+      let count7 = 0, totalWordsLast7 = 0, activeDaysLast7 = 0;
+      let count30 = 0, totalWordsLast30 = 0, activeDaysLast30 = 0;
+      for (const e of sorted) {
+        if (e.date >= cutoff7) {
+          count7++;
+          totalWordsLast7 += e.words;
+          if (e.words >= 50) activeDaysLast7++;
+        }
+        if (e.date >= cutoff30) {
+          count30++;
+          totalWordsLast30 += e.words;
+          if (e.words >= 50) activeDaysLast30++;
+        }
+      }
+      const avgWordsPerDay7 = count7 > 0 ? Math.round(totalWordsLast7 / 7) : 0;
+      const avgWordsPerDay30 = count30 > 0 ? Math.round(totalWordsLast30 / 30) : 0;
       const analytics = loadJSON(ANALYTICS_FILE);
       const totalPageviews = Object.values(analytics.counts || {}).reduce((s, c) => s + c, 0);
       const recentPageviews = (analytics.recent || []).filter(r => r.timestamp >= new Date(Date.now() - 7 * 86400000).toISOString()).length;
@@ -127,8 +148,8 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
       });
       return json(res, 200, {
         streak: {
-          activeDaysLast7: last7Days.filter(e => e.words >= 50).length,
-          activeDaysLast30: last30Days.filter(e => e.words >= 50).length,
+          activeDaysLast7,
+          activeDaysLast30,
           totalWordsLast7,
           totalWordsLast30,
           avgWordsPerDay7,
