@@ -397,6 +397,10 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
 
       if (format === 'bibtex') {
         const yaml = require('js-yaml');
+        // Reuse the canonical exporter's escaper so reading-list BibTeX compiles
+        // even when a value carries a LaTeX special (& % _ $ # { } ~ ^ or a
+        // backslash). Non circular: research-tools does not require this module.
+        const {cleanBibtexValue} = require('./research-tools');
         const bibPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
         let refs = {};
         try { refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {}; } catch {}
@@ -409,12 +413,12 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
           const authors = (entry.author || []).join(' and ');
           const bibtexType = entry.type || 'misc';
           const fields = [];
-          fields.push(`  title = {${entry.title || ''}}`);
-          if (authors) fields.push(`  author = {${authors}}`);
-          if (entry.year) fields.push(`  year = {${entry.year}}`);
-          if (entry.venue) fields.push(`  journal = {${entry.venue}}`);
-          if (entry.url) fields.push(`  url = {${entry.url}}`);
-          if (entry.doi) fields.push(`  doi = {${entry.doi}}`);
+          fields.push(`  title = {${cleanBibtexValue(entry.title || '')}}`);
+          if (authors) fields.push(`  author = {${cleanBibtexValue(authors)}}`);
+          if (entry.year) fields.push(`  year = {${cleanBibtexValue(entry.year)}}`);
+          if (entry.venue) fields.push(`  journal = {${cleanBibtexValue(entry.venue)}}`);
+          if (entry.url) fields.push(`  url = {${cleanBibtexValue(entry.url)}}`);
+          if (entry.doi) fields.push(`  doi = {${cleanBibtexValue(entry.doi)}}`);
           lines.push(`@${bibtexType}{${key},\n${fields.join(',\n')}\n}`);
         }
         const bibtex = lines.join('\n\n') + '\n';
