@@ -63,6 +63,10 @@ function appendAccessLog(line) {
 }
 
 
+function hasAllowedExt(name) {
+  return ALLOWED_EXTS.some(ext => name.endsWith(ext));
+}
+
 function walkDir(dir) {
   const result = [];
   for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -71,7 +75,7 @@ function walkDir(dir) {
     const relPath = path.relative(PROJECT_ROOT, fullPath);
     if (entry.isDirectory()) {
       result.push({name: entry.name, path: relPath, type: 'directory', children: walkDir(fullPath)});
-    } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
+    } else if (hasAllowedExt(entry.name)) {
       const stat = fs.statSync(fullPath);
       result.push({name: entry.name, path: relPath, type: 'file', mtime: stat.mtimeMs, size: stat.size});
     }
@@ -88,7 +92,7 @@ function flatFiles(dir) {
       const relPath = path.relative(PROJECT_ROOT, fullPath);
       if (entry.isDirectory()) {
         walk(fullPath);
-      } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
+      } else if (hasAllowedExt(entry.name)) {
         result.push({name: entry.name, path: relPath});
       }
     }
