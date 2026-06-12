@@ -21,15 +21,26 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
     let longestStreak = 0;
     let totalWords = 0;
     let tempStreak = 0;
+    let prevStreakDate = null;
     // Sort log by date ascending
     const sorted = [...userLog].sort((a, b) => a.date.localeCompare(b.date));
     for (const entry of sorted) {
       totalWords += entry.words;
       if (entry.words >= 50) {
-        tempStreak++;
+        // Extend the run only when this qualifying day directly follows the
+        // previous one; a date gap (or a duplicate date) restarts it at 1,
+        // mirroring the diffDays adjacency check the currentStreak loop uses below.
+        if (prevStreakDate !== null) {
+          const diffDays = (new Date(entry.date) - new Date(prevStreakDate)) / 86400000;
+          tempStreak = diffDays === 1 ? tempStreak + 1 : 1;
+        } else {
+          tempStreak = 1;
+        }
         if (tempStreak > longestStreak) longestStreak = tempStreak;
+        prevStreakDate = entry.date;
       } else {
         tempStreak = 0;
+        prevStreakDate = null;
       }
     }
     // Current streak: count consecutive days ending at today (or yesterday)

@@ -105,12 +105,13 @@ describe('GET /api/streak streak computation', () => {
     assert.equal(r.payload.totalWords, 210);
   });
 
-  it('breaks the current streak on a date gap while the longest run ignores gaps', async () => {
+  it('breaks both the current and longest streak on a date gap', async () => {
     // The two most recent qualifying days skip a calendar day (today and two days
     // ago, with the day between missing). The backward current-streak loop enforces
     // one-day adjacency, so it stops at the gap and reports 1. The forward
-    // longest-streak loop only checks positional adjacency in the sorted array, not
-    // calendar gaps, so it still counts all three qualifying entries as one run of 3.
+    // longest-streak loop now applies the same calendar adjacency check, so the run
+    // of three qualifying entries splits at the gap into a two-day run (three and
+    // two days ago) followed by an isolated day today, giving a longest of 2.
     const store = {
       erin: {
         dailyLog: [
@@ -123,7 +124,7 @@ describe('GET /api/streak streak computation', () => {
     const r = await getStreak(store, 'erin');
     assert.equal(r.status, 200);
     assert.equal(r.payload.currentStreak, 1);
-    assert.equal(r.payload.longestStreak, 3);
+    assert.equal(r.payload.longestStreak, 2);
     assert.equal(r.payload.totalWords, 180);
   });
 
