@@ -30,11 +30,11 @@ function AnalyticsDashboard() {
     // Fire all fetches in parallel, each updating its own state slice
     fetchJSON('/api/files/recent?limit=50')
       .then(d => setWritingHeatmapFiles(d.files || []))
-      .catch((err) => { if (!signal.aborted) setWritingHeatmapFiles([]); });
+      .catch(() => { if (!signal.aborted) setWritingHeatmapFiles([]); });
 
     fetchJSON('/api/activity-heatmap?days=180')
       .then(d => setHeatmap(d.days || {}))
-      .catch((err) => { if (!signal.aborted) setHeatmap(null); });
+      .catch(() => { if (!signal.aborted) setHeatmap(null); });
 
     fetchJSON('/api/analytics')
       .then((d) => { setData(d); setLoading(false); })
@@ -42,27 +42,27 @@ function AnalyticsDashboard() {
 
     fetchJSON('/api/streak?userId=default')
       .then(d => setStreak(d))
-      .catch((err) => { if (!signal.aborted) setStreak(null); });
+      .catch(() => { if (!signal.aborted) setStreak(null); });
 
     fetchJSON('/api/files/recent?limit=8&includeStats=true')
       .then(d => setRecentFiles(d.files || []))
-      .catch((err) => { if (!signal.aborted) setRecentFiles([]); });
+      .catch(() => { if (!signal.aborted) setRecentFiles([]); });
 
     fetchJSON('/api/analytics/topics')
       .then((d) => setTopics(d.topics || []))
-      .catch((err) => { if (!signal.aborted) setTopics([]); });
+      .catch(() => { if (!signal.aborted) setTopics([]); });
 
     fetchJSON('/api/stats')
       .then((d) => setStats(d))
-      .catch((err) => { if (!signal.aborted) setStats(null); });
+      .catch(() => { if (!signal.aborted) setStats(null); });
 
     fetchJSON('/api/analytics/duplicates')
       .then((d) => setDuplicates(d.duplicates || []))
-      .catch((err) => { if (!signal.aborted) setDuplicates([]); });
+      .catch(() => { if (!signal.aborted) setDuplicates([]); });
 
     fetchJSON('/api/analytics/orphans')
       .then((d) => setOrphans(d.orphans || []))
-      .catch((err) => { if (!signal.aborted) setOrphans([]); });
+      .catch(() => { if (!signal.aborted) setOrphans([]); });
 
     return () => controller.abort();
   }, []);
