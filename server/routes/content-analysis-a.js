@@ -14,6 +14,18 @@ function numericParam(raw, def, max) {
   return Math.min(Number.isNaN(n) ? def : n, max);
 }
 
+// Stop-word sets for the keyword filtering in GET /api/file/similarity, GET
+// /api/content-recommend-v2, and GET /api/stats/word-frequency, built once at
+// module load instead of rebuilt on every request. Each set is read only
+// (`.has` membership tests), so hoisting leaves the similarity, recommendation,
+// and word-frequency outputs identical. The three lists intentionally differ in
+// length, so they stay as three distinct constants, mirroring
+// RECOMMEND_STOP_WORDS and SIMILAR_STOP_WORDS in
+// server/routes/content-analysis-b.js.
+const SIMILARITY_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','do','does','did','will','would','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not']);
+const RECOMMEND_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not','can','all','each','some','more','most','other']);
+const WORD_FREQ_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','do','does','did','will','would','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not','can','all','each','some','more','most','other','also','than','very','just','such','only']);
+
 module.exports = async function content_analysis_a_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -86,11 +98,10 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     const path2 = url.searchParams.get('path2');
     if (!isValidFilePath(path1) || !isValidFilePath(path2)) return json(res, 400, {error: 'Invalid paths'});
     try {
-      const STOP = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','do','does','did','will','would','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not']);
       function extractWords(filePath) {
         let text = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
         text = text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ');
-        return text.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !STOP.has(w));
+        return text.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !SIMILARITY_STOP_WORDS.has(w));
       }
       const words1 = extractWords(path1);
       const words2 = extractWords(path2);
@@ -368,14 +379,13 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     if (!isValidFilePath(sourcePath)) return json(res, 400, {error: 'Invalid path'});
     try {
       const sourceContent = fs.readFileSync(path.join(PROJECT_ROOT, sourcePath), 'utf-8');
-      const STOP = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not','can','all','each','some','more','most','other']);
       const sourceFm = sourceContent.match(/^---\n([\s\S]*?)\n---/);
       const sourceTags = new Set();
       if (sourceFm) {
         const tgm = sourceFm[1].match(/^tags:\s*\[([^\]]*)\]/m);
         if (tgm) tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => sourceTags.add(t));
       }
-      const sourceWords = new Set(sourceContent.replace(/^---[\s\S]*?---/, '').toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4 && !STOP.has(w)));
+      const sourceWords = new Set(sourceContent.replace(/^---[\s\S]*?---/, '').toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4 && !RECOMMEND_STOP_WORDS.has(w)));
       const sourceCites = new Set();
       const CITE_RE = /\[@([\w-]+)/g;
       let m;
@@ -403,7 +413,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
               if (tgm) tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => pageTags.add(t));
             }
             for (const t of pageTags) { if (sourceTags.has(t)) score += 5; }
-            const pageWords = content.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4 && !STOP.has(w));
+            const pageWords = content.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4 && !RECOMMEND_STOP_WORDS.has(w));
             let wordOverlap = 0;
             for (const w of pageWords) { if (sourceWords.has(w)) wordOverlap++; }
             score += Math.min(wordOverlap / Math.max(pageWords.length, 1) * 10, 5);
@@ -563,7 +573,6 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     const dir = url.searchParams.get('dir');
     if (!isValidDir(dir)) return json(res, 400, {error: 'Invalid directory'});
     try {
-      const STOP = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','do','does','did','will','would','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not','can','all','each','some','more','most','other','also','than','very','just','such','only']);
       const fullDir = path.join(PROJECT_ROOT, dir);
       const freq = {};
       function scan(d) {
@@ -575,7 +584,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
             try {
               let text = fs.readFileSync(fp, 'utf-8');
               text = text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ');
-              text.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !STOP.has(w)).forEach(w => { freq[w] = (freq[w] || 0) + 1; });
+              text.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !WORD_FREQ_STOP_WORDS.has(w)).forEach(w => { freq[w] = (freq[w] || 0) + 1; });
             } catch {}
           }
         }
