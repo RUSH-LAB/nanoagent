@@ -270,35 +270,45 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
   // ── Content statistics overview (all-in-one) ──
   if (req.method === 'GET' && pathname === '/api/stats/overview') {
     try {
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      let files = 0, words = 0, headings = 0, citations = 0, links = 0;
-      function scan(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scan(fp); continue; }
-          if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-            files++;
-            try {
-              const c = fs.readFileSync(fp, 'utf-8');
-              words += c.split(/\s+/).filter(Boolean).length;
-              headings += (c.match(/^#{1,6}\s+/gm) || []).length;
-              citations += (c.match(/\[@/g) || []).length;
-              links += (c.match(/\[\[/g) || []).length + (c.match(/\]\(/g) || []).length;
-            } catch {}
+      // Memoize the whole recursive content scan and assembled result for 30s,
+      // mirroring the sibling cached('content-stats'), cached('link-density'),
+      // and cached('kb-outline') handlers in this file. The aggregate is
+      // deterministic for a given content state, so serving a 30s snapshot is
+      // behavior preserving while skipping the readdirSync/readFileSync walk on
+      // repeat requests. The try/catch stays outside the closure so a failed
+      // scan returns a 500 that is never cached.
+      const overview = cached('stats-overview', 30000, () => {
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        let files = 0, words = 0, headings = 0, citations = 0, links = 0;
+        function scan(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scan(fp); continue; }
+            if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
+              files++;
+              try {
+                const c = fs.readFileSync(fp, 'utf-8');
+                words += c.split(/\s+/).filter(Boolean).length;
+                headings += (c.match(/^#{1,6}\s+/gm) || []).length;
+                citations += (c.match(/\[@/g) || []).length;
+                links += (c.match(/\[\[/g) || []).length + (c.match(/\]\(/g) || []).length;
+              } catch {}
+            }
           }
         }
-      }
-      scan(contentDir);
-      let refs = 0;
-      try { refs = Object.keys(loadReferencesCached()).length; } catch {}
-      return json(res, 200, {
-        files, words, headings, citations, links, references: refs,
-        avgWordsPerFile: files > 0 ? Math.round(words / files) : 0,
-        avgHeadingsPerFile: files > 0 ? Math.round(headings / files * 10) / 10 : 0,
-        avgCitationsPerFile: files > 0 ? Math.round(citations / files * 10) / 10 : 0,
-        readingTimeHours: Math.round(words / 200 / 60 * 10) / 10,
+        scan(contentDir);
+        let refs = 0;
+        try { refs = Object.keys(loadReferencesCached()).length; } catch {}
+        return {
+          files, words, headings, citations, links, references: refs,
+          avgWordsPerFile: files > 0 ? Math.round(words / files) : 0,
+          avgHeadingsPerFile: files > 0 ? Math.round(headings / files * 10) / 10 : 0,
+          avgCitationsPerFile: files > 0 ? Math.round(citations / files * 10) / 10 : 0,
+          readingTimeHours: Math.round(words / 200 / 60 * 10) / 10,
+        };
       });
+      return json(res, 200, overview);
     } catch {
       return json(res, 500, {error: 'Overview failed'});
     }
