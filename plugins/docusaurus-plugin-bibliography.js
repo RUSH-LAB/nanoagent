@@ -23,6 +23,10 @@ const CONFERENCES = new Set([
   'EMNLP Findings', 'ACL Findings', 'NAACL Findings',
 ]);
 
+const PDF_NAME = 'paper.pdf';
+const SOURCE_NAME = 'source.tar.gz';
+const BIB_FILES_DIR = 'bib-files';
+
 function inferBibtexType(entry) {
   const t = (entry.type || 'misc').toLowerCase();
   if (t === 'book') return 'book';
@@ -100,8 +104,8 @@ module.exports = function bibliographyPlugin() {
       const enhanced = {};
       for (const [key, entry] of Object.entries(references)) {
         const itemDir = path.join(rawDir, key);
-        const hasPdf = fs.existsSync(path.join(itemDir, 'paper.pdf'));
-        const hasLatex = fs.existsSync(path.join(itemDir, 'source.tar.gz'));
+        const hasPdf = fs.existsSync(path.join(itemDir, PDF_NAME));
+        const hasLatex = fs.existsSync(path.join(itemDir, SOURCE_NAME));
 
         // The "special note" written when raw artifacts could not be retrieved.
         let notFound = '';
@@ -128,8 +132,8 @@ module.exports = function bibliographyPlugin() {
             notFound,
             // Files served from the build output (see postBuild). Present only
             // when the local raw archive has been populated at build time.
-            pdfUrl: hasPdf ? `/bib-files/${key}/paper.pdf` : null,
-            sourceUrl: hasLatex ? `/bib-files/${key}/source.tar.gz` : null,
+            pdfUrl: hasPdf ? `/${BIB_FILES_DIR}/${key}/${PDF_NAME}` : null,
+            sourceUrl: hasLatex ? `/${BIB_FILES_DIR}/${key}/${SOURCE_NAME}` : null,
           },
           arxivId: extractArxivId(entry.url),
         };
@@ -157,12 +161,12 @@ module.exports = function bibliographyPlugin() {
     // time; missing artifacts surface as the item's "special note" instead.
     async postBuild({ outDir }) {
       if (!fs.existsSync(rawDir)) return;
-      const destRoot = path.join(outDir, 'bib-files');
+      const destRoot = path.join(outDir, BIB_FILES_DIR);
       let copied = 0;
       for (const key of fs.readdirSync(rawDir)) {
         const itemDir = path.join(rawDir, key);
         if (!fs.statSync(itemDir).isDirectory()) continue;
-        for (const fname of ['paper.pdf', 'source.tar.gz']) {
+        for (const fname of [PDF_NAME, SOURCE_NAME]) {
           const src = path.join(itemDir, fname);
           if (!fs.existsSync(src)) continue;
           const dest = path.join(destRoot, key, fname);
