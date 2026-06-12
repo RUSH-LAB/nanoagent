@@ -379,7 +379,7 @@ async function testDiscussions() {
     assertEq(status, 200, 'status');
     assertOk(data.success, 'success');
     // Verify it is gone
-    const {status: listStatus, data: listData} = await api('GET', '/api/discussions');
+    const {data: listData} = await api('GET', '/api/discussions');
     assertOk(!listData.channels.some(ch => ch.id === createdChannelId), 'channel deleted');
   });
 }
