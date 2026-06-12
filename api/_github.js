@@ -143,5 +143,4 @@ module.exports = {
   listTree,
   jsonResponse,
   optionsResponse,
-  CORS_HEADERS,
 };
