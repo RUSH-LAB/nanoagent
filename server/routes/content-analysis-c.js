@@ -31,6 +31,13 @@ const HEALTH_WIKI_LINK_RE = /\[\[([^\]|]+)/g;
 // persistent /g state.
 const WRITING_PROMPTS_CITE_RE = /\[@([\w-]+)/g;
 
+// Prototype-pollution guard keys for the POST /api/template-variables handler,
+// built once at module load instead of allocated on every request. Used read-only
+// via `.has(name)` to reject a variable name (e.g. `__proto__`) that would
+// otherwise let a caller poison the saved variables map. The Set carries no
+// per-request state, so one shared instance stays correct across requests.
+const TEMPLATE_VAR_PROTO_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 module.exports = async function content_analysis_c_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -1006,8 +1013,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
       if (name.length > 100) return json(res, 400, {error: 'Name must be 100 characters or fewer'});
       if (value.length > 5000) return json(res, 400, {error: 'Value must be 5000 characters or fewer'});
       // Guard against prototype pollution via variable names
-      const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-      if (DANGEROUS_KEYS.has(name)) return json(res, 400, {error: 'Invalid variable name'});
+      if (TEMPLATE_VAR_PROTO_KEYS.has(name)) return json(res, 400, {error: 'Invalid variable name'});
       if (!/^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(name)) return json(res, 400, {error: 'Variable name must be alphanumeric (with underscores/hyphens)'});
       const VARS_FILE = path.join(PROJECT_ROOT, 'data', 'template-variables.json');
       const data = loadJSON(VARS_FILE);
