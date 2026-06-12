@@ -735,7 +735,7 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
     }
   }
 
-  // ── Content semantic similarity (TF-IDF-like) ──
+  // ── Content similarity (keyword-overlap scoring) ──
   if (req.method === 'GET' && pathname === '/api/content-similar') {
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
