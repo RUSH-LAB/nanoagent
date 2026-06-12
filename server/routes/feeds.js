@@ -108,7 +108,13 @@ module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
     const limit = Math.max(numericParam(url.searchParams.get('limit'), 20, 100), 1);
     const SESSIONS_FILE = path.join(PROJECT_ROOT, 'data', 'sessions.json');
     const sessions = loadJSON(SESSIONS_FILE);
-    const userSessions = (sessions[userId] || []).slice(-limit).reverse();
+    // Only treat an OWN key as a real user. A request-controlled id such as
+    // `constructor` or `toString` resolves to a truthy inherited value, so the
+    // `|| []` fallback would be skipped and `.slice` would throw an unhandled
+    // TypeError that hangs the request until the socket timeout. The guard returns
+    // the empty default for any non-own key; real own-key users stay unchanged.
+    // Mirrors the users-me guard.
+    const userSessions = (Object.hasOwn(sessions, userId) ? sessions[userId] : []).slice(-limit).reverse();
     // Accumulate both totals in a single walk over userSessions rather than two
     // separate passes. Same `|| 0` fallbacks, same response shape as before.
     let totalMinutes = 0;
