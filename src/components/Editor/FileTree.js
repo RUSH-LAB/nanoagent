@@ -152,7 +152,7 @@ function TreeNode({node, depth, selectedFile, onSelectFile, onDeleteFile, onRena
         <button
           className={`${styles.treeItem} ${dropOver ? styles.treeItemDropTarget : ''} ${isFocused ? styles.treeItemFocused : ''}`}
           style={{paddingLeft: 8 + depth * 16}}
-          onClick={() => onToggleExpand ? onToggleExpand(node.path) : null}
+          onClick={() => onToggleExpand?.(node.path)}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
