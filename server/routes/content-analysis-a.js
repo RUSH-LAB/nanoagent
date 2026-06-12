@@ -187,12 +187,17 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
       const set1 = new Set(words1);
       const set2 = new Set(words2);
       let intersection = 0;
-      for (const w of set1) if (set2.has(w)) intersection++;
+      // Collect the shared words during the intersection count so set1 is walked
+      // once. Pushing inside the existing `set2.has(w)` branch preserves set1's
+      // insertion order, the same order the former spread-then-filter pass used,
+      // so `sharedAll.slice(0, 20)` stays byte identical to the old `sharedWords`.
+      const sharedAll = [];
+      for (const w of set1) if (set2.has(w)) { intersection++; sharedAll.push(w); }
       // |A ∪ B| = |A| + |B| - |A ∩ B|. The intersection is already counted above,
       // so derive the union by set algebra instead of materializing a merged Set.
       const union = set1.size + set2.size - intersection;
       const jaccard = union > 0 ? Math.round((intersection / union) * 1000) / 1000 : 0;
-      const sharedWords = [...set1].filter(w => set2.has(w)).slice(0, 20);
+      const sharedWords = sharedAll.slice(0, 20);
       return json(res, 200, {
         similarity: jaccard,
         sharedWords,
