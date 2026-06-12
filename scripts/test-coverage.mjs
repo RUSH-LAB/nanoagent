@@ -111,7 +111,8 @@ function main() {
   const total = endpoints.length;
   const coveredCount = covered.length;
   const uncoveredCount = uncovered.length;
-  const pct = total > 0 ? ((coveredCount / total) * 100).toFixed(1) : '0.0';
+  const pctNum = total > 0 ? (coveredCount / total) * 100 : 0;
+  const pct = pctNum.toFixed(1);
 
   // ── Report ──
   console.log(`\n${BOLD}Mochi Lab API Test Coverage Report${RESET}`);
@@ -121,7 +122,7 @@ function main() {
   console.log(`${BOLD}Total endpoints:${RESET}  ${total}`);
   console.log(`${BOLD}Covered:${RESET}          ${GREEN}${coveredCount}${RESET}`);
   console.log(`${BOLD}Uncovered:${RESET}        ${uncoveredCount > 0 ? RED : GREEN}${uncoveredCount}${RESET}`);
-  console.log(`${BOLD}Coverage:${RESET}         ${pct >= 80 ? GREEN : pct >= 60 ? YELLOW : RED}${pct}%${RESET}\n`);
+  console.log(`${BOLD}Coverage:${RESET}         ${pctNum >= 80 ? GREEN : pctNum >= 60 ? YELLOW : RED}${pct}%${RESET}\n`);
 
   if (uncovered.length > 0) {
     console.log(`${BOLD}${RED}Uncovered endpoints:${RESET}`);
@@ -141,7 +142,7 @@ function main() {
 
   // Exit with failure if coverage is below threshold
   const MIN_COVERAGE = 60;
-  if (parseFloat(pct) < MIN_COVERAGE) {
+  if (pctNum < MIN_COVERAGE) {
     console.log(`${RED}FAIL: Coverage ${pct}% is below the ${MIN_COVERAGE}% threshold.${RESET}\n`);
     process.exit(1);
   }
