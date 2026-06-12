@@ -22,6 +22,10 @@ const DIM = '\x1b[2m';
 const BOLD = '\x1b[1m';
 const RESET = '\x1b[0m';
 
+// ── Coverage thresholds (percent) ──
+const MIN_COVERAGE = 60; // gate: fail below this
+const GOOD_COVERAGE = 80; // report: green at or above this
+
 // ─────────────────────────────────────────────────────────────
 // 1. Extract all unique endpoint paths from server.js + server/routes/
 // ─────────────────────────────────────────────────────────────
@@ -122,7 +126,7 @@ function main() {
   console.log(`${BOLD}Total endpoints:${RESET}  ${total}`);
   console.log(`${BOLD}Covered:${RESET}          ${GREEN}${coveredCount}${RESET}`);
   console.log(`${BOLD}Uncovered:${RESET}        ${uncoveredCount > 0 ? RED : GREEN}${uncoveredCount}${RESET}`);
-  console.log(`${BOLD}Coverage:${RESET}         ${pctNum >= 80 ? GREEN : pctNum >= 60 ? YELLOW : RED}${pct}%${RESET}\n`);
+  console.log(`${BOLD}Coverage:${RESET}         ${pctNum >= GOOD_COVERAGE ? GREEN : pctNum >= MIN_COVERAGE ? YELLOW : RED}${pct}%${RESET}\n`);
 
   if (uncovered.length > 0) {
     console.log(`${BOLD}${RED}Uncovered endpoints:${RESET}`);
@@ -141,7 +145,6 @@ function main() {
   }
 
   // Exit with failure if coverage is below threshold
-  const MIN_COVERAGE = 60;
   if (pctNum < MIN_COVERAGE) {
     console.log(`${RED}FAIL: Coverage ${pct}% is below the ${MIN_COVERAGE}% threshold.${RESET}\n`);
     process.exit(1);
