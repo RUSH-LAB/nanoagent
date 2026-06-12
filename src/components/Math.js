@@ -1,5 +1,8 @@
 import { useEffect, useState, useRef, createContext, useContext, useMemo } from 'react';
 import { usePluginData } from '@docusaurus/useGlobalData';
+import { useDocsSidebar } from '@docusaurus/plugin-content-docs/client';
+import { computeNumbers } from '@site/src/theme/SidebarNumberContext';
+import Link from '@docusaurus/Link';
 
 // ── Helper: read math-registry manifest from Docusaurus global data ─────────
 // Returns the manifest object or {} if plugin not loaded.
@@ -426,11 +429,8 @@ export function Ref({ id }) {
 
 // ── PageRef: auto-numbered page reference ────────────────────────────────────
 // Usage: <PageRef path="./components-of-textbooks/figure-and-table" label="Figure and Table" />
-// Renders: "2.1 Figure and Table" as a link, with the number auto-computed from sidebar.
+// Renders: "Section 2.1  Figure and Table" as a link ("Chapter N  ..." for chapter-level numbers), with the number auto-computed from the sidebar.
 // Also works for categories: <PageRef category="Components of Textbooks" />
-import { useDocsSidebar } from '@docusaurus/plugin-content-docs/client';
-import { computeNumbers } from '@site/src/theme/SidebarNumberContext';
-import Link from '@docusaurus/Link';
 
 function useSidebarNumberMap() {
   const sidebar = useDocsSidebar();
