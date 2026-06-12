@@ -664,11 +664,14 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     if (req.method === 'GET') {
       const data = loadJSON(TASKS_FILE);
       const tasks = data.tasks || [];
-      const grouped = {
-        todo: tasks.filter(t => t.status === 'todo'),
-        doing: tasks.filter(t => t.status === 'doing'),
-        done: tasks.filter(t => t.status === 'done'),
-      };
+      // Single pass: bucket each task by status in source order. A status other
+      // than todo/doing/done lands in no bucket; counts derive from bucket lengths.
+      const grouped = {todo: [], doing: [], done: []};
+      for (const t of tasks) {
+        if (t.status === 'todo') grouped.todo.push(t);
+        else if (t.status === 'doing') grouped.doing.push(t);
+        else if (t.status === 'done') grouped.done.push(t);
+      }
       return json(res, 200, {tasks, grouped, counts: {todo: grouped.todo.length, doing: grouped.doing.length, done: grouped.done.length}});
     }
     if (req.method === 'PUT') {
