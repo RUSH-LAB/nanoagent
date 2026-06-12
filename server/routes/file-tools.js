@@ -50,6 +50,23 @@ const READ_SYLLABLE_TRIM_RE = /(?:[^laeiouy]es|ed|[^laeiouy]e)$/;
 const READ_LEADING_Y_RE = /^y/;
 const READ_VOWEL_GROUP_RE = /[aeiouy]{1,2}/g;
 
+// Markdown-stripping patterns for GET /api/file/keywords, compiled once at module
+// load instead of rebuilt on every request. Seven run through String.prototype.replace
+// and KEYWORDS_SPLIT_RE through String.prototype.split; both reset or ignore lastIndex
+// and run to completion each call, so the shared /g instances stay request-independent
+// and the extracted keywords and totalWords are byte-identical to the per-request build.
+// Scoped to the keywords handler only: the identical-looking strip literals in the
+// /summary, /readability, /related, and /suggest-tags handlers keep their own inline
+// patterns. Mirrors the WIKI_RE / READ_* hoists above.
+const KEYWORDS_FRONTMATTER_RE = /^---[\s\S]*?---/;
+const KEYWORDS_FENCE_RE = /```[\s\S]*?```/g;
+const KEYWORDS_INLINE_CODE_RE = /`[^`]*`/g;
+const KEYWORDS_LINK_RE = /!?\[([^\]]*)\]\([^)]*\)/g;
+const KEYWORDS_HEADING_RE = /#{1,6}\s*/g;
+const KEYWORDS_PUNCT_RE = /[*_~`>|\\[\]()-]/g;
+const KEYWORDS_HTML_RE = /<[^>]+>/g;
+const KEYWORDS_SPLIT_RE = /[^a-z]+/;
+
 module.exports = async function file_tools_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -553,11 +570,11 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
       let text = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      text = text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '');
-      text = text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/#{1,6}\s*/g, '');
-      text = text.replace(/[*_~`>|\\[\]()-]/g, ' ').replace(/<[^>]+>/g, '');
+      text = text.replace(KEYWORDS_FRONTMATTER_RE, '').replace(KEYWORDS_FENCE_RE, '').replace(KEYWORDS_INLINE_CODE_RE, '');
+      text = text.replace(KEYWORDS_LINK_RE, '$1').replace(KEYWORDS_HEADING_RE, '');
+      text = text.replace(KEYWORDS_PUNCT_RE, ' ').replace(KEYWORDS_HTML_RE, '');
       const freq = {};
-      const words = text.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 2 && !KEYWORDS_STOP_WORDS.has(w));
+      const words = text.toLowerCase().split(KEYWORDS_SPLIT_RE).filter(w => w.length > 2 && !KEYWORDS_STOP_WORDS.has(w));
       for (const w of words) freq[w] = (freq[w] || 0) + 1;
       const keywords = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([word, count]) => ({word, count}));
       return json(res, 200, {keywords, totalWords: words.length});
@@ -631,3 +648,14 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
 };
 
 module.exports.numericParam = numericParam;
+// Exported for tests: the markdown-stripping regexes shared by the GET
+// /api/file/keywords handler, so the suite can assert each one's source and flags
+// and prove a single shared instance backs every request.
+module.exports.KEYWORDS_FRONTMATTER_RE = KEYWORDS_FRONTMATTER_RE;
+module.exports.KEYWORDS_FENCE_RE = KEYWORDS_FENCE_RE;
+module.exports.KEYWORDS_INLINE_CODE_RE = KEYWORDS_INLINE_CODE_RE;
+module.exports.KEYWORDS_LINK_RE = KEYWORDS_LINK_RE;
+module.exports.KEYWORDS_HEADING_RE = KEYWORDS_HEADING_RE;
+module.exports.KEYWORDS_PUNCT_RE = KEYWORDS_PUNCT_RE;
+module.exports.KEYWORDS_HTML_RE = KEYWORDS_HTML_RE;
+module.exports.KEYWORDS_SPLIT_RE = KEYWORDS_SPLIT_RE;
