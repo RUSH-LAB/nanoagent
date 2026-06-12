@@ -222,7 +222,14 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
     const page = url.searchParams.get('page');
     if (!page) return json(res, 400, {error: 'Missing page parameter'});
     const annotations = loadJSON(ANNOTATIONS_FILE);
-    return json(res, 200, {annotations: annotations[page] || []});
+    // Only treat an OWN key as a real page. A request-controlled `page` such as
+    // `constructor`, `toString`, or `__proto__` resolves to a truthy inherited
+    // value, so the `|| []` fallback is skipped and the body serializes to a
+    // malformed shape (a dropped function leaves `{}`, an inherited object leaves
+    // `{annotations: {}}`) instead of `{annotations: []}`. The guard returns the
+    // empty default for any non-own key; real own-key pages are unchanged.
+    // Mirrors the comments-list read-path guard.
+    return json(res, 200, {annotations: Object.hasOwn(annotations, page) ? annotations[page] : []});
   }
 
   if (req.method === 'POST' && pathname === '/api/annotations') {
