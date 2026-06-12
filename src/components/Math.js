@@ -82,7 +82,7 @@ function pickRegistry(typeName, section) {
 
 // ── Shared hook: resolve the display number for a numbered element ───────────
 // Priority: manifest → section-scoped DOM count → global DOM count.
-// Returns { displayNumber: string, ref, cleanup }.
+// Returns { displayNumber: string, ref }.
 function useNumberedElement(id, typeName, manifest, section) {
   const ref = useRef(null);
   const [displayNumber, setDisplayNumber] = useState('0');
@@ -115,7 +115,7 @@ function useNumberedElement(id, typeName, manifest, section) {
     }
 
     // Update same-page cross-reference links (anchors pointing to #id)
-    const formatted = section ? formatNumber(section, localNum) : `${localNum}`;
+    const formatted = formatNumber(section, localNum);
     const links = document.querySelectorAll(`a[href="#${id}"]`);
     links.forEach(link => {
       link.textContent = `${typeName.charAt(0).toUpperCase() + typeName.slice(1)} ${formatted}`;
@@ -232,7 +232,6 @@ export function Equation({ id, children }) {
     <div
       ref={ref}
       id={id}
-      data-number="0"
       style={{
         margin: '1em 0',
         display: 'flex',
