@@ -103,7 +103,9 @@ describe('GET /api/stats/word-frequency (WORD_FREQ_STOP_WORDS hoisted to module 
   // is 2. Were the set dropped, "would", "very", and "also" would survive and
   // the unique count would be 5, so the assertion pins the filter as live.
   const FIXTURE = { 'content/doc.md': 'machine machine learning would very also' };
-  const ctx = { fs: makeFs(FIXTURE), path, PROJECT_ROOT, ALLOWED_EXTS, isValidDir: () => true };
+  // word-frequency now wraps its scan in cached(key, ttl, fn); supply a pass-through
+  // so this fs-backed test still exercises the real WORD_FREQ_STOP_WORDS filtering.
+  const ctx = { fs: makeFs(FIXTURE), path, PROJECT_ROOT, ALLOWED_EXTS, isValidDir: () => true, cached: (_k, _t, fn) => fn() };
 
   it('omits stop words from the frequency table', async () => {
     const r = await invoke({ pathname: '/api/stats/word-frequency', search: '?dir=content', ctx });
