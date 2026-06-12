@@ -10,6 +10,11 @@ const MAX_TEXT_LENGTH = 10000;
 const MAX_PRESENCE_FILES = 500;
 const MAX_PRESENCE_USERS_PER_FILE = 50;
 
+// Field names that could pollute the output object's prototype; never copied into a
+// merged metadata record. Shared module-scope set, matching the TEMPLATE_VAR_PROTO_KEYS
+// and PROTO_KEYS precedent in server/routes/*.
+const METADATA_FORBIDDEN_FIELDS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function isValidFilePath(filePath) {
   if (!filePath) return false;
   if (filePath.length > 500) return false;
@@ -287,15 +292,12 @@ function mergeMetadataSources(sources) {
     return true;
   };
 
-  // Field names that could pollute the output object's prototype; never copied.
-  const FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype']);
-
   // Union of every non-author field across sources, in a stable order.
   const fieldNames = [];
   for (const name of SOURCE_ORDER) {
     if (!present[name]) continue;
     for (const field of Object.keys(present[name])) {
-      if (field === 'authors' || FORBIDDEN.has(field)) continue;
+      if (field === 'authors' || METADATA_FORBIDDEN_FIELDS.has(field)) continue;
       if (!fieldNames.includes(field)) fieldNames.push(field);
     }
   }
