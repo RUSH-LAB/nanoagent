@@ -4,6 +4,7 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
+import CalendarHeatmap from '@site/src/components/CalendarHeatmap';
 import { buildHeatmapWeeks } from '@site/src/utils/heatmap.mjs';
 import { CHART_HUES } from '@site/src/utils/chartColors';
 
@@ -626,32 +627,16 @@ function AnalyticsDashboard() {
         return (
           <div style={{marginTop: '2rem'}}>
             <h2>Activity Heatmap</h2>
-            <div style={{display: 'flex', gap: 2, overflow: 'auto', padding: '4px 0'}}>
-              {weeks.map((w, wi) => (
-                <div key={wi} style={{display: 'flex', flexDirection: 'column', gap: 2}}>
-                  {w.map((cell, di) => (
-                    <div
-                      key={di}
-                      title={cell ? `${cell.key}: ${cell.count} actions` : ''}
-                      style={{
-                        width: 12, height: 12, borderRadius: 2,
-                        background: cell
-                          ? (cell.count > 0 ? `rgba(34, 197, 94, ${Math.max(0.15, Math.min(1, cell.count / maxVal))})` : 'var(--ifm-color-emphasis-200)')
-                          : 'transparent',
-                      }}
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-            <div style={{fontSize: '0.75rem', color: 'var(--ifm-color-emphasis-500)', marginTop: 4}}>
-              Less <span style={{display: 'inline-flex', gap: 2, margin: '0 4px', verticalAlign: 'middle'}}>
-                {[0, 0.2, 0.4, 0.7, 1].map((v, i) => (
-                  <span key={i} style={{width: 10, height: 10, borderRadius: 2, display: 'inline-block',
-                    background: v === 0 ? 'var(--ifm-color-emphasis-200)' : `rgba(34, 197, 94, ${v})`}} />
-                ))}
-              </span> More
-            </div>
+            <CalendarHeatmap
+              weeks={weeks}
+              columnGap={2}
+              cellColor={(count) => (count > 0 ? `rgba(34, 197, 94, ${Math.max(0.15, Math.min(1, count / maxVal))})` : 'var(--ifm-color-emphasis-200)')}
+              cellTitle={(cell) => `${cell.key}: ${cell.count} actions`}
+              legendColors={[0, 0.2, 0.4, 0.7, 1].map((v) => (v === 0 ? 'var(--ifm-color-emphasis-200)' : `rgba(34, 197, 94, ${v})`))}
+              legendStyle={{fontSize: '0.75rem', color: 'var(--ifm-color-emphasis-500)', marginTop: 4}}
+              legendSwatchWrapStyle={{display: 'inline-flex', gap: 2, margin: '0 4px', verticalAlign: 'middle'}}
+              legendSpaced
+            />
           </div>
         );
       })()}
@@ -837,65 +822,16 @@ function AnalyticsDashboard() {
             <p style={{ fontSize: '0.85rem', color: 'var(--ifm-color-emphasis-600)', marginBottom: '0.75rem' }}>
               File modifications over the last 12 weeks
             </p>
-            <div style={{ display: 'flex', gap: 0, overflow: 'auto', padding: '4px 0' }}>
-              {/* Day-of-week labels */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginRight: 4, paddingTop: 0 }}>
-                {dayLabels.map((label, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      width: 28,
-                      height: 12,
-                      fontSize: '0.6rem',
-                      color: 'var(--ifm-color-emphasis-500)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'flex-end',
-                      paddingRight: 4,
-                      visibility: (i === 1 || i === 3 || i === 5) ? 'visible' : 'hidden',
-                    }}
-                  >
-                    {label}
-                  </div>
-                ))}
-              </div>
-              {/* Grid of weeks */}
-              {weeks.map((w, wi) => (
-                <div key={wi} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  {w.map((cell, di) => (
-                    <div
-                      key={di}
-                      title={cell ? `${cell.count} file${cell.count !== 1 ? 's' : ''} modified on ${cell.key}` : ''}
-                      style={{
-                        width: 12,
-                        height: 12,
-                        borderRadius: 2,
-                        background: cell ? getColor(cell.count) : 'transparent',
-                      }}
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-            {/* Legend */}
-            <div style={{ fontSize: '0.75rem', color: 'var(--ifm-color-emphasis-500)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
-              Less
-              <span style={{ display: 'inline-flex', gap: 2 }}>
-                {['var(--ifm-color-emphasis-200, #ebedf0)', '#9be9a8', '#40c463', '#30a14e', '#216e39'].map((bg, i) => (
-                  <span
-                    key={i}
-                    style={{
-                      width: 10,
-                      height: 10,
-                      borderRadius: 2,
-                      display: 'inline-block',
-                      background: bg,
-                    }}
-                  />
-                ))}
-              </span>
-              More
-            </div>
+            <CalendarHeatmap
+              weeks={weeks}
+              columnGap={0}
+              cellColor={getColor}
+              cellTitle={(cell) => `${cell.count} file${cell.count !== 1 ? 's' : ''} modified on ${cell.key}`}
+              dayLabels={dayLabels}
+              legendColors={['var(--ifm-color-emphasis-200, #ebedf0)', '#9be9a8', '#40c463', '#30a14e', '#216e39']}
+              legendStyle={{ fontSize: '0.75rem', color: 'var(--ifm-color-emphasis-500)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}
+              legendSwatchWrapStyle={{ display: 'inline-flex', gap: 2 }}
+            />
           </div>
         );
       })()}
