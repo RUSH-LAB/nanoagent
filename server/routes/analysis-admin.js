@@ -48,26 +48,36 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
     let longestStreak = 0;
     let totalWords = 0;
     let tempStreak = 0;
-    let prevStreakDate = null;
     // Sort log by date ascending
     const sorted = [...userLog].sort((a, b) => a.date.localeCompare(b.date));
-    for (const entry of sorted) {
+    // Parse each entry's date string into epoch ms exactly once here, then reuse
+    // these cached numbers for every day-difference in both streak loops below.
+    // For the YYYY-MM-DD strings stored here Date.parse(s) equals
+    // new Date(s).getTime(), and Date subtraction uses getTime, so each diffDays
+    // value (and the === 1 / !== 1 adjacency tests built on it) is identical to
+    // re-parsing the string on every pass; an invalid date yields NaN either way.
+    const days = sorted.map(e => Date.parse(e.date)); // epoch ms, parsed once per entry
+    // Previous QUALIFYING day's epoch ms (null = run broken), the numeric
+    // counterpart of the former prevStreakDate string.
+    let prevStreakMs = null;
+    for (let i = 0; i < sorted.length; i++) {
+      const entry = sorted[i];
       totalWords += entry.words;
       if (entry.words >= 50) {
         // Extend the run only when this qualifying day directly follows the
         // previous one; a date gap (or a duplicate date) restarts it at 1,
         // mirroring the diffDays adjacency check the currentStreak loop uses below.
-        if (prevStreakDate !== null) {
-          const diffDays = (new Date(entry.date) - new Date(prevStreakDate)) / 86400000;
+        if (prevStreakMs !== null) {
+          const diffDays = (days[i] - prevStreakMs) / 86400000;
           tempStreak = diffDays === 1 ? tempStreak + 1 : 1;
         } else {
           tempStreak = 1;
         }
         if (tempStreak > longestStreak) longestStreak = tempStreak;
-        prevStreakDate = entry.date;
+        prevStreakMs = days[i];
       } else {
         tempStreak = 0;
-        prevStreakDate = null;
+        prevStreakMs = null;
       }
     }
     // Current streak: count consecutive days ending at today (or yesterday)
@@ -79,9 +89,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
       if (entry.words < 50) break;
       // Check consecutive: each entry should be one day before the next
       if (i < sorted.length - 1) {
-        const prevDate = new Date(sorted[i + 1].date);
-        const curDate = new Date(entry.date);
-        const diffDays = (prevDate - curDate) / 86400000;
+        const diffDays = (days[i + 1] - days[i]) / 86400000;
         if (diffDays !== 1) break;
       }
       currentStreak++;
