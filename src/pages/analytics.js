@@ -5,6 +5,7 @@ import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 import { buildHeatmapWeeks } from '@site/src/utils/heatmap.mjs';
+import { CHART_HUES } from '@site/src/utils/chartColors';
 
 function AnalyticsDashboard() {
   const [data, setData] = useState(null);
@@ -431,7 +432,7 @@ function AnalyticsDashboard() {
         const maxCountT = Math.max(...counts);
         const range = maxCountT - minCount || 1;
 
-        const hues = [210, 340, 150, 30, 270, 180, 0, 60, 300, 120];
+        const hues = CHART_HUES;
 
         return (
           <div style={{ marginBottom: '2rem' }}>
