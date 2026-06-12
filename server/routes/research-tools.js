@@ -628,19 +628,27 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
         indexDir(contentDir);
         return {docs, stats: corpusStats(docs)};
       });
-      const queryWords = query.split(/\s+/).filter(w => w.length > 0);
+      // Tokenize the query the same way the index and BM25 scorer do, so the
+      // candidate gate and the scorer share one vocabulary. A query word that
+      // carries a splitting character (such as the `-` in `gpt-4`) is broken
+      // into the tokens the index actually holds, rather than staying one word
+      // that no indexed token could contain.
       const queryTerms = tokenizeSearch(query);
-      // Select candidates (every query word present as a substring of some token),
+      // A query made up only of splitting characters tokenizes to nothing. An empty
+      // term list would make the gate below vacuously match every document, so treat
+      // it as no match (the same empty result the old whitespace gate returned).
+      if (queryTerms.length === 0) return json(res, 200, {results: []});
+      // Select candidates (every query term present as a substring of some token),
       // then score each with BM25 over the corpus statistics.
       const candidates = [];
       for (const file of searchIndex) {
-        const allWordsMatch = queryWords.every(qw => {
+        const allTermsMatch = queryTerms.every(term => {
           for (const w of file.words) {
-            if (w.includes(qw)) return true;
+            if (w.includes(term)) return true;
           }
           return false;
         });
-        if (!allWordsMatch) continue;
+        if (!allTermsMatch) continue;
         candidates.push({file, score: bm25Score(queryTerms, file, stats)});
       }
       // Rank by descending BM25 score BEFORE the 50-result cap, then build snippets.
