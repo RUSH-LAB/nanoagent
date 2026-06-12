@@ -1,5 +1,5 @@
-// Vercel serverless function: GET /api/file?path=..., PUT /api/file, POST /api/file
-// Reads, writes, and creates files via the GitHub Contents API.
+// Vercel serverless function: GET /api/file?path=..., PUT /api/file, POST /api/file, DELETE /api/file?path=...
+// Reads, writes, creates, and deletes files via the GitHub Contents API.
 
 const { getFile, putFile, deleteFile, isValidFilePath, jsonResponse, optionsResponse } = require('./_github');
 
