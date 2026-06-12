@@ -29,7 +29,6 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
       }
     }
     // Current streak: count consecutive days ending at today (or yesterday)
-    currentStreak = 0;
     const today = new Date().toISOString().slice(0, 10);
     const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
     for (let i = sorted.length - 1; i >= 0; i--) {
