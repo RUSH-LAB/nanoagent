@@ -720,7 +720,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     if (!userId) return json(res, 400, {error: 'Missing userId'});
     const PREFS_FILE = path.join(PROJECT_ROOT, 'data', 'preferences.json');
     const prefs = loadJSON(PREFS_FILE);
-    return json(res, 200, {preferences: prefs[userId] || {}});
+    return json(res, 200, {preferences: Object.hasOwn(prefs, userId) ? prefs[userId] : {}});
   }
 
   if (req.method === 'PUT' && pathname === '/api/preferences') {
@@ -889,9 +889,10 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     const pagePath = url.searchParams.get('path');
     if (!pagePath) return json(res, 400, {error: 'Missing path'});
     const analytics = loadJSON(ANALYTICS_FILE);
-    const views = (analytics.counts || {})[pagePath] || 0;
+    const counts = analytics.counts || {};
+    const views = Object.hasOwn(counts, pagePath) ? counts[pagePath] : 0;
     const comments = loadJSON(COMMENTS_FILE);
-    const commentCount = (comments[pagePath] || []).length;
+    const commentCount = (Object.hasOwn(comments, pagePath) ? comments[pagePath] : []).length;
     const bookmarks = loadJSON(BOOKMARKS_FILE);
     const isBookmarked = (bookmarks.bookmarks || []).some(b => b.path === pagePath);
     const readingLists = loadJSON(READING_LISTS_FILE);
