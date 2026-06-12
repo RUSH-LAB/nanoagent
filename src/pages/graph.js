@@ -259,9 +259,9 @@ function GraphVisualization() {
     let url;
     if (parts[0] === 'books' || parts[0] === 'posts') {
       // books/math/foo.md -> /math/foo, posts/blog/foo.md -> /blog/foo
-      url = '/' + parts.slice(1).join('/').replace(/\.(mdx?|md)$/, '');
+      url = '/' + parts.slice(1).join('/').replace(/\.mdx?$/, '');
     } else {
-      url = '/' + node.path.replace(/\.(mdx?|md)$/, '');
+      url = '/' + node.path.replace(/\.mdx?$/, '');
     }
     // Strip trailing /index
     if (url.endsWith('/index')) url = url.slice(0, -6);
