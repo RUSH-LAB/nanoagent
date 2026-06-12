@@ -20,7 +20,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       const validEmojis = ['thumbsup', 'heart', 'laugh', 'thinking', 'celebrate'];
       if (!validEmojis.includes(emoji)) return json(res, 400, {error: `Invalid emoji. Must be one of: ${validEmojis.join(', ')}`});
       const comments = loadJSON(COMMENTS_FILE);
-      if (!comments[page]) return json(res, 404, {error: 'Page not found'});
+      if (!Object.hasOwn(comments, page)) return json(res, 404, {error: 'Page not found'});
       const comment = comments[page].find(c => c.id === commentId);
       if (!comment) return json(res, 404, {error: 'Comment not found'});
       if (!comment.reactions) comment.reactions = [];
@@ -42,7 +42,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       const {page, commentId, emoji, userId} = body;
       if (!page || !commentId || !emoji || !userId) return json(res, 400, {error: 'Missing page, commentId, emoji, or userId'});
       const comments = loadJSON(COMMENTS_FILE);
-      if (!comments[page]) return json(res, 404, {error: 'Page not found'});
+      if (!Object.hasOwn(comments, page)) return json(res, 404, {error: 'Page not found'});
       const comment = comments[page].find(c => c.id === commentId);
       if (!comment) return json(res, 404, {error: 'Comment not found'});
       if (!comment.reactions) comment.reactions = [];
