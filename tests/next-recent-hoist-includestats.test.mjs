@@ -55,6 +55,9 @@ async function getRecent(search = '') {
     path,
     PROJECT_ROOT: ROOT,
     ALLOWED_EXTS: ['.md', '.mdx'],
+    // The handler now wraps its walk in cached(); inject a pass-through so these
+    // tests exercise the walk on every call exactly as before (no memoization).
+    cached: (_k, _t, fn) => fn(),
     json(_res, status, payload) {
       captured = { status, payload };
       res.writableEnded = true;

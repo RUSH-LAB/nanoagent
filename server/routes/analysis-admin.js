@@ -179,38 +179,47 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
       // read it once here rather than re-evaluating searchParams per content file
       // inside walkRecent. The per-file guard and emitted fields are unchanged.
       const includeStats = url.searchParams.get('includeStats') === 'true';
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const files = [];
-      function walkRecent(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.')) continue;
-          const fullPath = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            walkRecent(fullPath);
-          } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-            const stat = fs.statSync(fullPath);
-            const relPath = path.relative(PROJECT_ROOT, fullPath);
-            const fileInfo = {name: entry.name, path: relPath, mtime: stat.mtimeMs};
-            if (includeStats) {
-              try {
-                const content = fs.readFileSync(fullPath, 'utf-8');
-                const wordCount = content.split(/\s+/).filter(Boolean).length;
-                fileInfo.wordCount = wordCount;
-                fileInfo.readingTimeMin = Math.ceil(wordCount / 200);
-                const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-                if (fmMatch) {
-                  const titleMatch = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
-                  if (titleMatch) fileInfo.title = titleMatch[1];
-                }
-              } catch {}
+      // The walk and sort depend only on includeStats (not on limit, which merely
+      // slices the result below), so cache the full sorted list keyed by that flag
+      // and apply the slice outside the cache, mirroring the sibling cached scans
+      // in this file. A 30s snapshot is behavior preserving because the walk is
+      // deterministic for a given content state. The slice and the try/catch 500
+      // path stay outside the cache, so errors are never cached.
+      const sorted = cached('files-recent:' + (includeStats ? 'stats' : 'plain'), 30000, () => {
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const files = [];
+        function walkRecent(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.')) continue;
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              walkRecent(fullPath);
+            } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
+              const stat = fs.statSync(fullPath);
+              const relPath = path.relative(PROJECT_ROOT, fullPath);
+              const fileInfo = {name: entry.name, path: relPath, mtime: stat.mtimeMs};
+              if (includeStats) {
+                try {
+                  const content = fs.readFileSync(fullPath, 'utf-8');
+                  const wordCount = content.split(/\s+/).filter(Boolean).length;
+                  fileInfo.wordCount = wordCount;
+                  fileInfo.readingTimeMin = Math.ceil(wordCount / 200);
+                  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+                  if (fmMatch) {
+                    const titleMatch = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+                    if (titleMatch) fileInfo.title = titleMatch[1];
+                  }
+                } catch {}
+              }
+              files.push(fileInfo);
             }
-            files.push(fileInfo);
           }
         }
-      }
-      walkRecent(contentDir);
-      files.sort((a, b) => b.mtime - a.mtime);
-      return json(res, 200, {files: files.slice(0, Math.min(limit, 50))});
+        walkRecent(contentDir);
+        files.sort((a, b) => b.mtime - a.mtime);
+        return files;
+      });
+      return json(res, 200, {files: sorted.slice(0, Math.min(limit, 50))});
     } catch {
       return json(res, 500, {error: 'Failed to list recent files'});
     }
