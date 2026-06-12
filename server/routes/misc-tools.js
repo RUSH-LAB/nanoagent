@@ -1214,36 +1214,43 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
 
   if (req.method === 'GET' && pathname === '/api/quicknote') {
     try {
-      const blogDir = path.join(PROJECT_ROOT, 'content', 'posts', 'blog');
-      if (!fs.existsSync(blogDir)) {
-        return json(res, 200, {notes: [], total: 0});
-      }
-      const files = fs.readdirSync(blogDir)
-        .filter(f => f.endsWith('.md'))
-        .sort((a, b) => b.localeCompare(a)); // newest first by filename (date-prefixed)
+      // Param-free deterministic scan: memoize on a 60s window so repeated
+      // requests do not re-walk content/posts/blog. A thrown scan propagates out
+      // of cached() before anything is stored, so the outer catch below still
+      // returns the empty 200 and that failure is never cached.
+      const result = cached('quicknote-list', 60000, () => {
+        const blogDir = path.join(PROJECT_ROOT, 'content', 'posts', 'blog');
+        if (!fs.existsSync(blogDir)) {
+          return {notes: [], total: 0};
+        }
+        const files = fs.readdirSync(blogDir)
+          .filter(f => f.endsWith('.md'))
+          .sort((a, b) => b.localeCompare(a)); // newest first by filename (date-prefixed)
 
-      const notes = [];
-      for (const file of files) {
-        if (notes.length >= 10) break;
-        try {
-          const raw = fs.readFileSync(path.join(blogDir, file), 'utf-8');
-          // Check if it's a quick note (has quick-note tag)
-          if (!raw.includes('quick-note')) continue;
-          // Extract title from frontmatter
-          const titleMatch = raw.match(/^title:\s*"?(.+?)"?\s*$/m);
-          const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
-          // Extract body (after frontmatter)
-          const bodyMatch = raw.match(/---\s*\n[\s\S]*?\n---\s*\n([\s\S]*)/);
-          notes.push({
-            filename: file,
-            title: titleMatch ? titleMatch[1] : file,
-            date: dateMatch ? dateMatch[1] : null,
-            preview: bodyMatch ? bodyMatch[1].trim().slice(0, 200) : '',
-            path: `content/posts/blog/${file}`,
-          });
-        } catch {}
-      }
-      return json(res, 200, {notes, total: notes.length});
+        const notes = [];
+        for (const file of files) {
+          if (notes.length >= 10) break;
+          try {
+            const raw = fs.readFileSync(path.join(blogDir, file), 'utf-8');
+            // Check if it's a quick note (has quick-note tag)
+            if (!raw.includes('quick-note')) continue;
+            // Extract title from frontmatter
+            const titleMatch = raw.match(/^title:\s*"?(.+?)"?\s*$/m);
+            const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
+            // Extract body (after frontmatter)
+            const bodyMatch = raw.match(/---\s*\n[\s\S]*?\n---\s*\n([\s\S]*)/);
+            notes.push({
+              filename: file,
+              title: titleMatch ? titleMatch[1] : file,
+              date: dateMatch ? dateMatch[1] : null,
+              preview: bodyMatch ? bodyMatch[1].trim().slice(0, 200) : '',
+              path: `content/posts/blog/${file}`,
+            });
+          } catch {}
+        }
+        return {notes, total: notes.length};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 200, {notes: [], total: 0});
     }
