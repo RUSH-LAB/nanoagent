@@ -27,8 +27,9 @@ module.exports = async function handler(req) {
       return jsonResponse(400, { error: 'Invalid image type' });
     }
 
-    // Validate directory: no path traversal.
-    if (targetDir.includes('..') || targetDir.startsWith('/')) {
+    // Validate directory: reject traversal and absolute paths, and confine
+    // uploads to the static/img/ area.
+    if (targetDir.includes('..') || targetDir.startsWith('/') || !targetDir.startsWith('static/img/')) {
       return jsonResponse(400, { error: 'Invalid directory' });
     }
 
