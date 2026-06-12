@@ -8,9 +8,9 @@
 // matched earlier, so rebuilding these literals per call is wasted allocation.
 // Hoisting CHANNEL_MESSAGES_RE also dedupes the single pattern shared by four
 // handlers (GET list, POST, PATCH, DELETE). All three are stateless (no /g, no /y
-// flag) and each match result is read only for truthiness (the channel id is
-// re-derived via pathname.split('/')[3]), so one shared instance per pattern is
-// byte-identical to the per-request literals.
+// flag) and used only as boolean route guards via RE.test(pathname) (the channel
+// id is re-derived via pathname.split('/')[3]), so one shared instance per pattern
+// is byte-identical to the per-request literals.
 const CHANNEL_MESSAGES_RE = /^\/api\/discussions\/[^/]+\/messages$/;
 const CHANNEL_MESSAGES_SEARCH_RE = /^\/api\/discussions\/[^/]+\/messages\/search$/;
 const CHANNEL_RE = /^\/api\/discussions\/[^/]+$/;
@@ -75,7 +75,7 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
   }
 
   // ── Discussions: get messages for a channel ──
-  if (req.method === 'GET' && pathname.match(CHANNEL_MESSAGES_RE)) {
+  if (req.method === 'GET' && CHANNEL_MESSAGES_RE.test(pathname)) {
     const parts = pathname.split('/');
     let channelId;
     try { channelId = decodeURIComponent(parts[3]); }
@@ -99,7 +99,7 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
   }
 
   // ── Discussions: search messages in a channel ──
-  if (req.method === 'GET' && pathname.match(CHANNEL_MESSAGES_SEARCH_RE)) {
+  if (req.method === 'GET' && CHANNEL_MESSAGES_SEARCH_RE.test(pathname)) {
     const parts = pathname.split('/');
     let channelId;
     try { channelId = decodeURIComponent(parts[3]); }
@@ -118,7 +118,7 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
   }
 
   // ── Discussions: post message to a channel ──
-  if (req.method === 'POST' && pathname.match(CHANNEL_MESSAGES_RE)) {
+  if (req.method === 'POST' && CHANNEL_MESSAGES_RE.test(pathname)) {
     if (!rateLimit(`disc-msg:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
@@ -152,7 +152,7 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
   }
 
   // ── Discussions: edit a message in a channel ──
-  if (req.method === 'PATCH' && pathname.match(CHANNEL_MESSAGES_RE)) {
+  if (req.method === 'PATCH' && CHANNEL_MESSAGES_RE.test(pathname)) {
     if (!rateLimit(`disc-edit:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
@@ -183,7 +183,7 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
   }
 
   // ── Discussions: delete message from a channel ──
-  if (req.method === 'DELETE' && pathname.match(CHANNEL_MESSAGES_RE)) {
+  if (req.method === 'DELETE' && CHANNEL_MESSAGES_RE.test(pathname)) {
     if (!rateLimit(`disc-delete:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
@@ -211,7 +211,7 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
   }
 
   // ── Discussions: delete channel ──
-  if (req.method === 'DELETE' && pathname.match(CHANNEL_RE)) {
+  if (req.method === 'DELETE' && CHANNEL_RE.test(pathname)) {
     if (!rateLimit(`disc-del-ch:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
