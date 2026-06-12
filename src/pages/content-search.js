@@ -5,6 +5,7 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import { usePluginData } from '@docusaurus/useGlobalData';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
+import {useDebounce} from '@site/src/utils/useDebounce';
 
 function highlightMatch(text, query) {
   if (!query || !text) return text;
@@ -21,15 +22,6 @@ function highlightMatch(text, query) {
       }}>{part}</mark>
     ) : part
   );
-}
-
-function useDebounce(value, delay) {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return debounced;
 }
 
 function SearchContent() {

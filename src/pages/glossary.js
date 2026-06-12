@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
+import {useDebounce} from '@site/src/utils/useDebounce';
 
 /* ── Category color mapping ──────────────────────────────────── */
 
@@ -452,7 +453,7 @@ function GlossaryContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 300);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [expandedTerm, setExpandedTerm] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -477,11 +478,6 @@ function GlossaryContent() {
   }, []);
 
   useEffect(() => { fetchTerms(); }, [fetchTerms]);
-
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
-    return () => clearTimeout(t);
-  }, [search]);
 
   const allCategories = useMemo(() => {
     const cats = new Set();
