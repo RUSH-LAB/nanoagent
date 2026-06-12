@@ -2502,42 +2502,43 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
                 >
                   <span className={styles.historyMessage}>&larr; Back to commits</span>
                 </button>
-                <div className={styles.compareContainer}>
-                  <div className={styles.comparePane}>
-                    <div className={styles.comparePaneHeader}>
-                      {compareView.version1.hash} &middot; {compareView.version1.date?.split(' ')[0] || compareView.version1.date?.split('T')[0]}
+                {(() => {
+                  // Split each version once and build both lookup sets up front, then
+                  // share them across the two panes below. Each pane previously
+                  // re-split both versions, doing four splits where two suffice.
+                  const oldLines = compareView.version1.content.split('\n');
+                  const newLines = compareView.version2.content.split('\n');
+                  const oldSet = new Set(oldLines);
+                  const newSet = new Set(newLines);
+                  return (
+                    <div className={styles.compareContainer}>
+                      <div className={styles.comparePane}>
+                        <div className={styles.comparePaneHeader}>
+                          {compareView.version1.hash} &middot; {compareView.version1.date?.split(' ')[0] || compareView.version1.date?.split('T')[0]}
+                        </div>
+                        <div className={styles.comparePaneContent}>
+                          {oldLines.map((line, i) => (
+                            <div key={i} className={!newSet.has(line) ? styles.diffRemove : ''}>
+                              {line || ' '}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className={styles.comparePane}>
+                        <div className={styles.comparePaneHeader}>
+                          {compareView.version2.hash === 'current' ? 'Current' : compareView.version2.hash} &middot; {compareView.version2.date?.split(' ')[0] || compareView.version2.date?.split('T')[0]}
+                        </div>
+                        <div className={styles.comparePaneContent}>
+                          {newLines.map((line, i) => (
+                            <div key={i} className={!oldSet.has(line) ? styles.diffAdd : ''}>
+                              {line || ' '}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                    <div className={styles.comparePaneContent}>
-                      {(() => {
-                        const oldLines = compareView.version1.content.split('\n');
-                        const newLines = compareView.version2.content.split('\n');
-                        const newSet = new Set(newLines);
-                        return oldLines.map((line, i) => (
-                          <div key={i} className={!newSet.has(line) ? styles.diffRemove : ''}>
-                            {line || ' '}
-                          </div>
-                        ));
-                      })()}
-                    </div>
-                  </div>
-                  <div className={styles.comparePane}>
-                    <div className={styles.comparePaneHeader}>
-                      {compareView.version2.hash === 'current' ? 'Current' : compareView.version2.hash} &middot; {compareView.version2.date?.split(' ')[0] || compareView.version2.date?.split('T')[0]}
-                    </div>
-                    <div className={styles.comparePaneContent}>
-                      {(() => {
-                        const oldLines = compareView.version1.content.split('\n');
-                        const newLines = compareView.version2.content.split('\n');
-                        const oldSet = new Set(oldLines);
-                        return newLines.map((line, i) => (
-                          <div key={i} className={!oldSet.has(line) ? styles.diffAdd : ''}>
-                            {line || ' '}
-                          </div>
-                        ));
-                      })()}
-                    </div>
-                  </div>
-                </div>
+                  );
+                })()}
               </>
             ) : selectedDiff ? (
               <>
