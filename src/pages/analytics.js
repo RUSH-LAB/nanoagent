@@ -166,7 +166,6 @@ function AnalyticsDashboard() {
             >
               {days.map(({ key, count }) => {
                 const heightPct = (count / dayMax) * 100;
-                const label = key.slice(5); // "MM-DD"
                 return (
                   <div
                     key={key}
