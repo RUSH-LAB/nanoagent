@@ -228,25 +228,33 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      let body = content;
-      const fmMatch = body.match(/^---\n([\s\S]*?)\n---\n?/);
-      let title = path.basename(filePath, path.extname(filePath));
-      if (fmMatch) {
-        const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
-        if (tm) title = tm[1];
-        body = body.slice(fmMatch[0].length);
-      }
-      body = body.replace(/```[\s\S]*?```/g, '').replace(/<[^>]+>/g, '').replace(/import\s+.*$/gm, '');
-      const paragraphs = body.split(/\n\n+/).map(p => p.replace(/^#+\s*/gm, '').trim()).filter(p => p.length > 20 && !p.startsWith('import'));
-      const summary = paragraphs.slice(0, 2).join(' ').slice(0, 300);
-      const headings = [];
-      for (const line of content.split('\n')) {
-        const m = line.match(/^(#{1,3})\s+(.+)$/);
-        if (m) headings.push(m[2].trim());
-      }
-      const wordCount = content.split(/\s+/).filter(Boolean).length;
-      return json(res, 200, {title, summary, headings: headings.slice(0, 10), wordCount, readingTime: Math.ceil(wordCount / 200)});
+      // Cache the per-path summary so repeated requests for the same file skip the
+      // frontmatter/code/HTML stripping and heading scan. The readFileSync stays
+      // inside the closure, so a missing file still throws here and propagates to the
+      // outer catch (the 404 is never cached). Mirrors the /api/file/dependencies and
+      // /api/file/related caches above.
+      const result = cached('filesummary:' + filePath, 30000, () => {
+        const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        let body = content;
+        const fmMatch = body.match(/^---\n([\s\S]*?)\n---\n?/);
+        let title = path.basename(filePath, path.extname(filePath));
+        if (fmMatch) {
+          const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+          if (tm) title = tm[1];
+          body = body.slice(fmMatch[0].length);
+        }
+        body = body.replace(/```[\s\S]*?```/g, '').replace(/<[^>]+>/g, '').replace(/import\s+.*$/gm, '');
+        const paragraphs = body.split(/\n\n+/).map(p => p.replace(/^#+\s*/gm, '').trim()).filter(p => p.length > 20 && !p.startsWith('import'));
+        const summary = paragraphs.slice(0, 2).join(' ').slice(0, 300);
+        const headings = [];
+        for (const line of content.split('\n')) {
+          const m = line.match(/^(#{1,3})\s+(.+)$/);
+          if (m) headings.push(m[2].trim());
+        }
+        const wordCount = content.split(/\s+/).filter(Boolean).length;
+        return {title, summary, headings: headings.slice(0, 10), wordCount, readingTime: Math.ceil(wordCount / 200)};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
@@ -291,20 +299,27 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      const headings = [];
-      const lines = content.split('\n');
-      let inCode = false;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.startsWith('```')) { inCode = !inCode; continue; }
-        if (inCode) continue;
-        const match = line.match(/^(#{1,6})\s+(.+)$/);
-        if (match) {
-          headings.push({level: match[1].length, text: match[2].trim(), line: i + 1});
+      // Cache the per-path outline so repeated requests for the same file skip the
+      // line-by-line code-fence walk. The readFileSync stays inside the closure, so a
+      // missing file still throws here and propagates to the outer catch (the 404 is
+      // never cached). Mirrors the /api/file/dependencies and /api/file/related caches above.
+      const result = cached('fileoutline:' + filePath, 30000, () => {
+        const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        const headings = [];
+        const lines = content.split('\n');
+        let inCode = false;
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.startsWith('```')) { inCode = !inCode; continue; }
+          if (inCode) continue;
+          const match = line.match(/^(#{1,6})\s+(.+)$/);
+          if (match) {
+            headings.push({level: match[1].length, text: match[2].trim(), line: i + 1});
+          }
         }
-      }
-      return json(res, 200, {headings, count: headings.length});
+        return {headings, count: headings.length};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
@@ -369,41 +384,49 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      const issues = [];
-      const lines = content.split('\n');
-      const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-      if (!fmMatch) {
-        issues.push({line: 1, severity: 'warning', message: 'Missing frontmatter'});
-      } else {
-        if (!/^title:/m.test(fmMatch[1])) {
-          issues.push({line: 1, severity: 'warning', message: 'Missing title in frontmatter'});
+      // Cache the per-path lint result so repeated requests for the same file skip the
+      // frontmatter check and line-by-line issue scan. The readFileSync stays inside
+      // the closure, so a missing file still throws here and propagates to the outer
+      // catch (the 404 is never cached). Mirrors the /api/file/dependencies and
+      // /api/file/related caches above.
+      const result = cached('filelint:' + filePath, 30000, () => {
+        const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        const issues = [];
+        const lines = content.split('\n');
+        const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+        if (!fmMatch) {
+          issues.push({line: 1, severity: 'warning', message: 'Missing frontmatter'});
+        } else {
+          if (!/^title:/m.test(fmMatch[1])) {
+            issues.push({line: 1, severity: 'warning', message: 'Missing title in frontmatter'});
+          }
         }
-      }
-      let inCodeBlock = false;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.startsWith('```')) { inCodeBlock = !inCodeBlock; continue; }
-        if (inCodeBlock) continue;
-        if (line.length > 500) {
-          issues.push({line: i + 1, severity: 'info', message: `Very long line (${line.length} chars)`});
+        let inCodeBlock = false;
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.startsWith('```')) { inCodeBlock = !inCodeBlock; continue; }
+          if (inCodeBlock) continue;
+          if (line.length > 500) {
+            issues.push({line: i + 1, severity: 'info', message: `Very long line (${line.length} chars)`});
+          }
+          if (/^#{1,6}\s*$/.test(line)) {
+            issues.push({line: i + 1, severity: 'warning', message: 'Empty heading'});
+          }
+          const openBrackets = (line.match(/\[/g) || []).length;
+          const closeBrackets = (line.match(/\]/g) || []).length;
+          if (openBrackets !== closeBrackets && !line.includes('[[') && !line.includes(']]')) {
+            issues.push({line: i + 1, severity: 'info', message: 'Potentially unclosed brackets'});
+          }
+          if (/^\s+#/.test(line) && !/^\s+#.*code/i.test(line)) {
+            issues.push({line: i + 1, severity: 'info', message: 'Heading has leading whitespace'});
+          }
         }
-        if (/^#{1,6}\s*$/.test(line)) {
-          issues.push({line: i + 1, severity: 'warning', message: 'Empty heading'});
+        if (inCodeBlock) {
+          issues.push({line: lines.length, severity: 'error', message: 'Unclosed code block'});
         }
-        const openBrackets = (line.match(/\[/g) || []).length;
-        const closeBrackets = (line.match(/\]/g) || []).length;
-        if (openBrackets !== closeBrackets && !line.includes('[[') && !line.includes(']]')) {
-          issues.push({line: i + 1, severity: 'info', message: 'Potentially unclosed brackets'});
-        }
-        if (/^\s+#/.test(line) && !/^\s+#.*code/i.test(line)) {
-          issues.push({line: i + 1, severity: 'info', message: 'Heading has leading whitespace'});
-        }
-      }
-      if (inCodeBlock) {
-        issues.push({line: lines.length, severity: 'error', message: 'Unclosed code block'});
-      }
-      return json(res, 200, {issues, issueCount: issues.length});
+        return {issues, issueCount: issues.length};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
