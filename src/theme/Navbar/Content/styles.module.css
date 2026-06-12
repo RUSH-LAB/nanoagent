@@ -9,6 +9,6 @@
 }
 
 .navbarInner {
-  max-width: 2000px;
+  max-width: var(--ifm-container-width);
   margin: 0 auto;
 }
