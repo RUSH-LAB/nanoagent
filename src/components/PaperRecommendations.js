@@ -9,7 +9,8 @@ const recommendationCache = new Map();
 
 /**
  * Extract a Semantic Scholar-compatible paper identifier from a reference entry.
- * Returns an arXiv ID (e.g. "ArXiv:2103.14030"), DOI, or null.
+ * Returns the entry's existing paperId, a CorpusId or DOI from externalIds,
+ * an arXiv ID (e.g. "ArXiv:2103.14030") or DOI parsed from the entry, or null.
  */
 function extractPaperId(entry) {
   if (entry.paperId) return entry.paperId;
