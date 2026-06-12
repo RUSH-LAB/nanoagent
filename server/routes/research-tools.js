@@ -139,6 +139,22 @@ const ARXIV_ABS_RE = /arxiv\.org\/abs\/([\d.]+)/;
 const REC_ARXIV_ID_RE = /arxiv\.org\/abs\/(\d+\.\d+(?:v\d+)?)/;
 const REC_DOI_RE = /doi\.org\/(10\.\d{4,}\/[^\s]+)/;
 
+// ── Page templates: built-in scaffolds served by GET /api/templates ──
+// The five built-in page templates (blank, blog, research, math, tutorial) are
+// invariant string literals: `{{date}}` and `{{title}}` are client-side
+// placeholders, never server-interpolated, and the handler is not wrapped in
+// cached(), so the array was genuinely rebuilt on every request. It is pure
+// constant data, so it is built once at module load and frozen (matching the
+// repo's Object.freeze convention for shared read-only data); the handler serves
+// this shared instance and JSON.stringify yields byte-identical output.
+const BUILTIN_TEMPLATES = Object.freeze([
+  {id: 'blank', name: 'Blank Page', content: '---\ntitle: "Untitled"\ndate: {{date}}\n---\n\n# Untitled\n\n'},
+  {id: 'blog', name: 'Blog Post', content: '---\ntitle: "{{title}}"\ndate: {{date}}\nauthors: [zeyu]\ntags: []\n---\n\n# {{title}}\n\n## Introduction\n\n## Main Content\n\n## Conclusion\n'},
+  {id: 'research', name: 'Research Paper Summary', content: '---\ntitle: "{{title}}"\ndate: {{date}}\nauthors: [zeyu]\ntags: [research]\n---\n\n# {{title}}\n\n## Summary\n\n## Key Contributions\n\n## Method\n\n## Results\n\n## Discussion\n\n## References\n'},
+  {id: 'math', name: 'Math Chapter', content: '---\ntitle: "{{title}}"\n---\n\nimport {Theorem, Definition, Proof, Remark} from \'@site/src/components/Math\';\n\n# {{title}}\n\n<Definition id="def-1" name="Definition Name">\nDefinition content.\n</Definition>\n\n<Theorem id="thm-1" name="Theorem Name">\nTheorem statement.\n</Theorem>\n\n<Proof>\nProof content.\n</Proof>\n'},
+  {id: 'tutorial', name: 'Tutorial', content: '---\ntitle: "{{title}}"\nsidebar_position: 1\n---\n\n# {{title}}\n\n## Prerequisites\n\n## Step 1\n\n## Step 2\n\n## Step 3\n\n## Summary\n'},
+]);
+
 // Route module organized from server.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
@@ -589,14 +605,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
   // ── Templates: list available templates ──
   if (req.method === 'GET' && pathname === '/api/templates') {
     try {
-      const templates = [
-        {id: 'blank', name: 'Blank Page', content: '---\ntitle: "Untitled"\ndate: {{date}}\n---\n\n# Untitled\n\n'},
-        {id: 'blog', name: 'Blog Post', content: '---\ntitle: "{{title}}"\ndate: {{date}}\nauthors: [zeyu]\ntags: []\n---\n\n# {{title}}\n\n## Introduction\n\n## Main Content\n\n## Conclusion\n'},
-        {id: 'research', name: 'Research Paper Summary', content: '---\ntitle: "{{title}}"\ndate: {{date}}\nauthors: [zeyu]\ntags: [research]\n---\n\n# {{title}}\n\n## Summary\n\n## Key Contributions\n\n## Method\n\n## Results\n\n## Discussion\n\n## References\n'},
-        {id: 'math', name: 'Math Chapter', content: '---\ntitle: "{{title}}"\n---\n\nimport {Theorem, Definition, Proof, Remark} from \'@site/src/components/Math\';\n\n# {{title}}\n\n<Definition id="def-1" name="Definition Name">\nDefinition content.\n</Definition>\n\n<Theorem id="thm-1" name="Theorem Name">\nTheorem statement.\n</Theorem>\n\n<Proof>\nProof content.\n</Proof>\n'},
-        {id: 'tutorial', name: 'Tutorial', content: '---\ntitle: "{{title}}"\nsidebar_position: 1\n---\n\n# {{title}}\n\n## Prerequisites\n\n## Step 1\n\n## Step 2\n\n## Step 3\n\n## Summary\n'},
-      ];
-      return json(res, 200, {templates}, {cacheControl: 'public, max-age=3600'});
+      return json(res, 200, {templates: BUILTIN_TEMPLATES}, {cacheControl: 'public, max-age=3600'});
     } catch {
       return json(res, 500, {error: 'Failed to load templates'});
     }
@@ -852,3 +861,8 @@ module.exports.ARXIV_ABS_RE = ARXIV_ABS_RE;
 // GET /api/recommendations uses them to pull a canonical id from a reference URL.
 module.exports.REC_ARXIV_ID_RE = REC_ARXIV_ID_RE;
 module.exports.REC_DOI_RE = REC_DOI_RE;
+
+// Built-in page templates, exposed for direct unit testing (see
+// tests/next-researchtools-templates-hoist.test.mjs). GET /api/templates serves
+// this frozen, shared instance instead of rebuilding the array per request.
+module.exports.BUILTIN_TEMPLATES = BUILTIN_TEMPLATES;
