@@ -383,7 +383,6 @@ li > input[type="checkbox"]:checked {
   .theme-doc-breadcrumbs,
   .pagination-nav,
   .theme-doc-footer,
-  .announcementBar_node_modules,
   [class*="announcementBar"],
   .theme-back-to-top-button {
     display: none !important;
@@ -393,7 +392,6 @@ li > input[type="checkbox"]:checked {
   body,
   html,
   .main-wrapper,
-  .docMainContainer_node_modules,
   [class*="docMainContainer"],
   article,
   .container,
