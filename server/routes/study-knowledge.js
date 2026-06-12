@@ -43,7 +43,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       if (sourcePath && sourcePath.length > 500) return json(res, 400, {error: 'sourcePath must be 500 characters or fewer'});
       const data = loadJSON(FLASHCARDS_FILE);
       const uid = userId || 'default';
-      if (!data[uid]) data[uid] = [];
+      if (!Object.hasOwn(data, uid)) data[uid] = [];
       const card = {
         id: `fc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         front: sanitizeText(front),
@@ -93,7 +93,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       const q = Math.max(0, Math.min(5, quality));
       const uid = userId || 'default';
       const data = loadJSON(FLASHCARDS_FILE);
-      const card = (data[uid] || []).find(c => c.id === cardId);
+      const card = (Object.hasOwn(data, uid) ? data[uid] : []).find(c => c.id === cardId);
       if (!card) return json(res, 404, {error: 'Card not found'});
       if (q >= 3) {
         if (card.repetitions === 0) card.interval = 1;
@@ -123,7 +123,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       if (!cardId) return json(res, 400, {error: 'Missing cardId'});
       const uid = userId || 'default';
       const data = loadJSON(FLASHCARDS_FILE);
-      if (!data[uid]) return json(res, 404, {error: 'Card not found'});
+      if (!Object.hasOwn(data, uid)) return json(res, 404, {error: 'Card not found'});
       const idx = data[uid].findIndex(c => c.id === cardId);
       if (idx === -1) return json(res, 404, {error: 'Card not found'});
       data[uid].splice(idx, 1);
@@ -589,7 +589,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       const uid = userId || 'default';
       const QUICKNOTES_FILE = path.join(PROJECT_ROOT, 'data', 'quicknotes.json');
       const data = loadJSON(QUICKNOTES_FILE);
-      if (!data[uid]) data[uid] = [];
+      if (!Object.hasOwn(data, uid)) data[uid] = [];
       const note = {
         id: `qn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         text: sanitizeText(text),
@@ -614,7 +614,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       const uid = userId || 'default';
       const QUICKNOTES_FILE = path.join(PROJECT_ROOT, 'data', 'quicknotes.json');
       const data = loadJSON(QUICKNOTES_FILE);
-      if (!data[uid]) return json(res, 404, {error: 'Note not found'});
+      if (!Object.hasOwn(data, uid)) return json(res, 404, {error: 'Note not found'});
       const idx = data[uid].findIndex(n => n.id === id);
       if (idx === -1) return json(res, 404, {error: 'Note not found'});
       data[uid].splice(idx, 1);
