@@ -2,6 +2,18 @@
 // Route module organized from server.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
+
+// ── /api/file/info content-analysis regexes (module scope, reused per request) ──
+// The four g-flag regexes are consumed only through String.prototype.match, which
+// resets lastIndex, and the two .test() regexes carry no g flag, so one shared
+// instance per pattern is behavior-preserving and needs no lastIndex reset.
+const FILE_INFO_CJK_RE = /[一-鿿㐀-䶿豈-﫿]/g;
+const FILE_INFO_LATIN_RE = /[a-zA-Z]/g;
+const FILE_INFO_CODE_BLOCK_RE = /```/;
+const FILE_INFO_MATH_RE = /\$\$|\$[^$\n]+\$/;
+const FILE_INFO_CITATION_RE = /\[@[^\]]+\]/g;
+const FILE_INFO_IMAGE_RE = /!\[[^\]]*\]/g;
+
 module.exports = async function graph_trash_files_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -338,9 +350,9 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       }
       // ── Content language detection ──
       // Count CJK characters (Chinese/Japanese/Korean unified ideographs + extensions)
-      const cjkCount = (content.match(/[一-鿿㐀-䶿豈-﫿]/g) || []).length;
+      const cjkCount = (content.match(FILE_INFO_CJK_RE) || []).length;
       // Count Latin letter characters
-      const latinCount = (content.match(/[a-zA-Z]/g) || []).length;
+      const latinCount = (content.match(FILE_INFO_LATIN_RE) || []).length;
       const totalLetters = cjkCount + latinCount;
       let detectedLanguage = 'mixed';
       if (totalLetters > 0) {
@@ -351,10 +363,10 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       }
 
       // ── Content feature detection ──
-      const hasCodeBlocks = /```/.test(content);
-      const hasMath = /\$\$|\$[^$\n]+\$/.test(content);
-      const citationCount = (content.match(/\[@[^\]]+\]/g) || []).length;
-      const imageCount = (content.match(/!\[[^\]]*\]/g) || []).length;
+      const hasCodeBlocks = FILE_INFO_CODE_BLOCK_RE.test(content);
+      const hasMath = FILE_INFO_MATH_RE.test(content);
+      const citationCount = (content.match(FILE_INFO_CITATION_RE) || []).length;
+      const imageCount = (content.match(FILE_INFO_IMAGE_RE) || []).length;
 
       return json(res, 200, {
         path: filePath,
