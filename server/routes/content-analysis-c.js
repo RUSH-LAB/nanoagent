@@ -829,26 +829,37 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
     const dir = url.searchParams.get('dir');
     if (!isValidDir(dir)) return json(res, 400, {error: 'Invalid directory'});
     try {
-      const fullDir = path.join(PROJECT_ROOT, dir);
-      let files = 0, words = 0, drafts = 0;
-      function count(d) {
-        for (const entry of fs.readdirSync(d, {withFileTypes: true})) {
-          if (entry.name.startsWith('.')) continue;
-          const fp = path.join(d, entry.name);
-          if (entry.isDirectory()) { count(fp); continue; }
-          if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-            files++;
-            try {
-              const content = fs.readFileSync(fp, 'utf-8');
-              words += content.split(/\s+/).filter(Boolean).length;
-              const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-              if (fmMatch && /^draft:\s*true/m.test(fmMatch[1])) drafts++;
-            } catch {}
+      // Cache the recursive directory walk on a 30s window, keyed by the requested
+      // `dir`, mirroring the sibling cached scans in this file (content-status,
+      // backlink-ranking, health-summary, ...). Repeated requests for the same dir
+      // skip the readdirSync/readFileSync walk and return the memoized result. The
+      // isValidDir 400 guard and the try/catch 404 path stay OUTSIDE the cache: the
+      // walk runs inside the closure, so a non-existent directory still throws and
+      // propagates to the outer catch as a 404, and only a successful scan is ever
+      // cached. The key carries `dir`, so each directory is a distinct cache entry.
+      const result = cached('statsdir:' + dir, 30000, () => {
+        const fullDir = path.join(PROJECT_ROOT, dir);
+        let files = 0, words = 0, drafts = 0;
+        function count(d) {
+          for (const entry of fs.readdirSync(d, {withFileTypes: true})) {
+            if (entry.name.startsWith('.')) continue;
+            const fp = path.join(d, entry.name);
+            if (entry.isDirectory()) { count(fp); continue; }
+            if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
+              files++;
+              try {
+                const content = fs.readFileSync(fp, 'utf-8');
+                words += content.split(/\s+/).filter(Boolean).length;
+                const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+                if (fmMatch && /^draft:\s*true/m.test(fmMatch[1])) drafts++;
+              } catch {}
+            }
           }
         }
-      }
-      count(fullDir);
-      return json(res, 200, {directory: dir, files, words, drafts, avgWordsPerFile: files > 0 ? Math.round(words / files) : 0});
+        count(fullDir);
+        return {directory: dir, files, words, drafts, avgWordsPerFile: files > 0 ? Math.round(words / files) : 0};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'Directory not found'});
     }
