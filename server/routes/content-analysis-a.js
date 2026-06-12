@@ -790,12 +790,23 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
   // ── Brief content summary ──
   if (req.method === 'GET' && pathname === '/api/content-summary') {
     try {
-      let files = 0, words = 0, refs = 0;
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      function scan(dir) { for (const e of fs.readdirSync(dir, {withFileTypes: true})) { if (e.name.startsWith('.')) continue; const fp = path.join(dir, e.name); if (e.isDirectory()) { scan(fp); continue; } if (ALLOWED_EXTS.some(ext => e.name.endsWith(ext))) { files++; try { words += fs.readFileSync(fp, 'utf-8').split(/\s+/).filter(Boolean).length; } catch {} } } }
-      scan(contentDir);
-      try { refs = Object.keys(loadReferencesCached()).length; } catch {}
-      return json(res, 200, {files, words, references: refs, readingHours: Math.round(words / 200 / 60 * 10) / 10});
+      // Memoize the recursive content scan, the references count, and the
+      // assembled summary for 60s, mirroring the sibling cached('stats-overview'),
+      // cached('citations-per-page'), and cached('link-density') handlers in this
+      // file. The handler takes no query parameters, so a single static key serves
+      // every request, and the summary is deterministic for a given content state:
+      // serving a 60s snapshot skips the readdirSync/readFileSync walk on repeat
+      // requests while leaving the payload byte identical. The try/catch stays
+      // outside the closure so a failed scan returns a 500 that is never cached.
+      const summary = cached('content-summary', 60000, () => {
+        let files = 0, words = 0, refs = 0;
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        function scan(dir) { for (const e of fs.readdirSync(dir, {withFileTypes: true})) { if (e.name.startsWith('.')) continue; const fp = path.join(dir, e.name); if (e.isDirectory()) { scan(fp); continue; } if (ALLOWED_EXTS.some(ext => e.name.endsWith(ext))) { files++; try { words += fs.readFileSync(fp, 'utf-8').split(/\s+/).filter(Boolean).length; } catch {} } } }
+        scan(contentDir);
+        try { refs = Object.keys(loadReferencesCached()).length; } catch {}
+        return {files, words, references: refs, readingHours: Math.round(words / 200 / 60 * 10) / 10};
+      });
+      return json(res, 200, summary);
     } catch { return json(res, 500, {error: 'Summary failed'}); }
   }
 
