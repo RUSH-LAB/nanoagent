@@ -81,7 +81,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
       if (wordsWritten > 1000000) return json(res, 400, {error: 'wordsWritten exceeds maximum'});
       const today = new Date().toISOString().slice(0, 10);
       const data = loadJSON(STREAKS_FILE);
-      if (!data[userId]) data[userId] = {dailyLog: []};
+      if (!Object.hasOwn(data, userId)) data[userId] = {dailyLog: []};
       const log = data[userId].dailyLog;
       const existing = log.find(e => e.date === today);
       if (existing) {
