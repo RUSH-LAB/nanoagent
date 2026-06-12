@@ -127,9 +127,9 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
         }
       }
       searchContent(contentDir);
-      const yaml = require('js-yaml');
+      const {loadReferencesCached} = require('./references');
       try {
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
         for (const [key, entry] of Object.entries(refs)) {
           const searchable = [key, entry.title || '', (entry.author || []).join(' ')].join(' ').toLowerCase();
           if (searchable.includes(query)) {
