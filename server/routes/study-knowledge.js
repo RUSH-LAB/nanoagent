@@ -507,41 +507,51 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     const query = (url.searchParams.get('q') || '').toLowerCase().trim();
     if (!query || query.length < 2) return json(res, 200, {suggestions: []});
     try {
-      const suggestions = [];
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      function scanTitles(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scanTitles(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          const name = entry.name.replace(/\.(mdx?|md)$/, '');
-          if (name.toLowerCase().includes(query)) {
-            try {
-              const content = fs.readFileSync(fp, 'utf-8');
-              const fmMatch = content.match(FRONTMATTER_RE);
-              let title = name;
-              if (fmMatch) {
-                const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
-                if (tm) title = tm[1];
-              }
-              suggestions.push({type: 'page', text: title, path: path.relative(PROJECT_ROOT, fp)});
-            } catch {}
+      // Cache the per-query autocomplete scan so a repeat request for the same
+      // term skips the recursive scanTitles walk over content/ and the
+      // references.yaml read. The cache key carries `query`, so each term is its
+      // own entry; the short-query early return above never reaches the cache.
+      // The outer try/catch is preserved: a scan error throws out of the closure
+      // before cached() records anything, so the {suggestions: []} fallback stays
+      // uncached. Mirrors the sibling cached('linksuggest:' + filePath, ...).
+      const result = cached('suggest:' + query, 30000, () => {
+        const suggestions = [];
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        function scanTitles(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scanTitles(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            const name = entry.name.replace(/\.(mdx?|md)$/, '');
+            if (name.toLowerCase().includes(query)) {
+              try {
+                const content = fs.readFileSync(fp, 'utf-8');
+                const fmMatch = content.match(FRONTMATTER_RE);
+                let title = name;
+                if (fmMatch) {
+                  const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+                  if (tm) title = tm[1];
+                }
+                suggestions.push({type: 'page', text: title, path: path.relative(PROJECT_ROOT, fp)});
+              } catch {}
+            }
           }
         }
-      }
-      scanTitles(contentDir);
-      try {
-        const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
-        for (const [key, entry] of Object.entries(refs)) {
-          if (key.toLowerCase().includes(query) || (entry.title || '').toLowerCase().includes(query)) {
-            suggestions.push({type: 'reference', text: entry.title || key, key});
+        scanTitles(contentDir);
+        try {
+          const yaml = require('js-yaml');
+          const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+          for (const [key, entry] of Object.entries(refs)) {
+            if (key.toLowerCase().includes(query) || (entry.title || '').toLowerCase().includes(query)) {
+              suggestions.push({type: 'reference', text: entry.title || key, key});
+            }
+            if (suggestions.length >= 15) break;
           }
-          if (suggestions.length >= 15) break;
-        }
-      } catch {}
-      return json(res, 200, {suggestions: suggestions.slice(0, 10)});
+        } catch {}
+        return {suggestions: suggestions.slice(0, 10)};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 200, {suggestions: []});
     }
