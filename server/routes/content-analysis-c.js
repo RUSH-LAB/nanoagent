@@ -402,22 +402,30 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
   // ── XML Sitemap ──
   if (req.method === 'GET' && pathname === '/api/sitemap.xml') {
     try {
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const urls = [];
-      function scanSitemap(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scanSitemap(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          const stat = fs.statSync(fp);
-          let urlPath = '/' + path.relative(path.join(PROJECT_ROOT, 'content'), fp)
-            .replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
-          if (urlPath.endsWith('/index')) urlPath = urlPath.slice(0, -6);
-          urls.push({loc: urlPath, lastmod: stat.mtime.toISOString().slice(0, 10)});
+      // Cache the content-tree walk on a 60s window, mirroring the sibling cached
+      // scans in this file (content-status, backlink-ranking, knowledge-gaps, ...).
+      // The thunk builds and returns the url list; the XML is rendered from the
+      // cached list below, so the emitted document is byte identical to before and
+      // only the redundant per-request walk is removed.
+      const urls = cached('sitemap-xml', 60000, () => {
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const collected = [];
+        function scanSitemap(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scanSitemap(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            const stat = fs.statSync(fp);
+            let urlPath = '/' + path.relative(path.join(PROJECT_ROOT, 'content'), fp)
+              .replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
+            if (urlPath.endsWith('/index')) urlPath = urlPath.slice(0, -6);
+            collected.push({loc: urlPath, lastmod: stat.mtime.toISOString().slice(0, 10)});
+          }
         }
-      }
-      scanSitemap(contentDir);
+        scanSitemap(contentDir);
+        return collected;
+      });
       const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`).join('\n')}
