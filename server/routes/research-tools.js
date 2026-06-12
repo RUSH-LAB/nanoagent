@@ -556,7 +556,6 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
 
   // ── Templates: list available templates ──
   if (req.method === 'GET' && pathname === '/api/templates') {
-    const templateDir = path.join(PROJECT_ROOT, 'template');
     try {
       const templates = [
         {id: 'blank', name: 'Blank Page', content: '---\ntitle: "Untitled"\ndate: {{date}}\n---\n\n# Untitled\n\n'},
@@ -565,24 +564,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
         {id: 'math', name: 'Math Chapter', content: '---\ntitle: "{{title}}"\n---\n\nimport {Theorem, Definition, Proof, Remark} from \'@site/src/components/Math\';\n\n# {{title}}\n\n<Definition id="def-1" name="Definition Name">\nDefinition content.\n</Definition>\n\n<Theorem id="thm-1" name="Theorem Name">\nTheorem statement.\n</Theorem>\n\n<Proof>\nProof content.\n</Proof>\n'},
         {id: 'tutorial', name: 'Tutorial', content: '---\ntitle: "{{title}}"\nsidebar_position: 1\n---\n\n# {{title}}\n\n## Prerequisites\n\n## Step 1\n\n## Step 2\n\n## Step 3\n\n## Summary\n'},
       ];
-      const body = JSON.stringify({templates});
-      const etag = '"' + crypto.createHash('md5').update(body).digest('hex').slice(0, 16) + '"';
-      const hdrs = {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': CORS_ORIGIN,
-        'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, PATCH, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'X-API-Version': '1.0',
-        'X-Powered-By': 'Mochi Lab',
-        'ETag': etag,
-        'Cache-Control': 'public, max-age=3600',
-      };
-      if (req.headers['if-none-match'] === etag) {
-        res.writeHead(304, hdrs);
-        return res.end();
-      }
-      res.writeHead(200, hdrs);
-      return res.end(body);
+      return json(res, 200, {templates}, {cacheControl: 'public, max-age=3600'});
     } catch {
       return json(res, 500, {error: 'Failed to load templates'});
     }
