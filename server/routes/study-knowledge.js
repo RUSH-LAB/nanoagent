@@ -876,7 +876,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
         }
       }
       scan(contentDir, null);
-      let refCount = 0, citedCount = 0;
+      let refCount = 0;
       try {
         const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
         refCount = Object.keys(refs).length;
