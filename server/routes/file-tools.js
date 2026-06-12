@@ -96,7 +96,7 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
   if (req.method === 'GET' && pathname === '/api/search/global') {
     const query = (url.searchParams.get('q') || '').toLowerCase().trim();
     if (!query) return json(res, 400, {error: 'Missing query'});
-    const limit = numericParam(url.searchParams.get('limit'), 30, 100);
+    const limit = Math.max(numericParam(url.searchParams.get('limit'), 30, 100), 0);
     try {
       const results = [];
       const contentDir = path.join(PROJECT_ROOT, 'content');
