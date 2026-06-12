@@ -20,6 +20,57 @@ function numericParam(raw, def, max) {
 // sort position — identical while avoiding a fresh allocation per author-less entry.
 const UNKNOWN_AUTHORS = Object.freeze(['Unknown']);
 
+// Memoized parse of bibliography/references.yaml, shared across the eight
+// read-only references handlers. Each of them used to parse the full file (a
+// 251 KB, ~748-entry YAML) on every request; this caches the parsed object and
+// re-reads only when the file changes on disk, keyed on its resolved path,
+// mtimeMs, and size (mirroring the loadJSON cache in server/data-store.js).
+// Tracking size alongside mtime catches a same-millisecond rewrite that mtime
+// alone would miss. Every call site only reads the object, so handing back one
+// shared instance is safe and avoids both the per-request parse and a defensive
+// deep copy.
+//
+// The stat is best effort: if statSync throws (for example a stub fs that lacks
+// it) the cache is skipped and the file is read directly, matching the original
+// inline expression. A missing or corrupt file makes the read or parse below
+// throw, so the loader returns {} (mirroring loadJSON). The read-only endpoints
+// then serve empty results, or a 404 for the key-lookup handlers, rather than
+// surfacing a 500; each handler keeps its own try/catch as a backstop for errors
+// raised while building a response.
+let referencesCache = null; // {path, mtimeMs, size, data} or null when uncached
+
+function loadReferencesCached(fs, path, projectRoot) {
+  const file = path.join(projectRoot, 'bibliography', 'references.yaml');
+  let stat = null;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    stat = null;
+  }
+  if (stat && referencesCache &&
+      referencesCache.path === file &&
+      referencesCache.mtimeMs === stat.mtimeMs &&
+      referencesCache.size === stat.size) {
+    return referencesCache.data;
+  }
+  try {
+    const yaml = require('js-yaml');
+    const data = yaml.load(fs.readFileSync(file, 'utf8')) || {};
+    referencesCache = stat
+      ? {path: file, mtimeMs: stat.mtimeMs, size: stat.size, data}
+      : null;
+    return data;
+  } catch {
+    referencesCache = null;
+    return {};
+  }
+}
+
+// Test hook: clear the memoized parse so the next call re-stats and re-reads.
+function _resetReferencesCache() {
+  referencesCache = null;
+}
+
 module.exports = async function references_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -29,8 +80,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
   if (req.method === 'GET' && pathname === '/api/references/format-all') {
     const style = url.searchParams.get('style') || 'apa';
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
       const formatted = [];
       for (const [key, entry] of Object.entries(refs)) {
         const authors = entry.author || [];
@@ -63,8 +113,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
   // ── References: group by venue ──
   if (req.method === 'GET' && pathname === '/api/references/by-venue') {
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
       const byVenue = {};
       for (const [key, entry] of Object.entries(refs)) {
         const venue = entry.venue || 'Unknown';
@@ -83,8 +132,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
   // ── References: group by author ──
   if (req.method === 'GET' && pathname === '/api/references/by-author') {
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
       const byAuthor = {};
       for (const [key, entry] of Object.entries(refs)) {
         for (const author of (entry.author || UNKNOWN_AUTHORS)) {
@@ -105,8 +153,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
   // ── References: year distribution ──
   if (req.method === 'GET' && pathname === '/api/references/year-distribution') {
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
       const byYear = {};
       const byVenue = {};
       for (const entry of Object.values(refs)) {
@@ -140,8 +187,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
     const key = url.searchParams.get('key');
     if (!key) return json(res, 400, {error: 'Missing key'});
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
       const target = refs[key];
       if (!target) return json(res, 404, {error: 'Reference not found'});
       const targetAuthors = new Set((target.author || []).map(a => a.toLowerCase()));
@@ -175,8 +221,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
     const style = url.searchParams.get('style') || 'apa';
     if (!key) return json(res, 400, {error: 'Missing key'});
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
       const entry = refs[key];
       if (!entry) return json(res, 404, {error: 'Reference not found'});
       const authors = entry.author || [];
@@ -209,8 +254,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
     const query = (url.searchParams.get('q') || '').toLowerCase().trim();
     if (!query) return json(res, 400, {error: 'Missing query'});
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
       const limit = numericParam(url.searchParams.get('limit'), 20, 100);
       const results = [];
       for (const [key, entry] of Object.entries(refs)) {
@@ -484,8 +528,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
     if (!citationKey) return json(res, 400, {error: 'Missing key param'});
 
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
       const entry = refs[citationKey];
       if (!entry) return json(res, 404, {error: `Reference "${citationKey}" not found`});
 
@@ -614,3 +657,5 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
 };
 
 module.exports.numericParam = numericParam;
+module.exports.loadReferencesCached = loadReferencesCached;
+module.exports._resetReferencesCache = _resetReferencesCache;
