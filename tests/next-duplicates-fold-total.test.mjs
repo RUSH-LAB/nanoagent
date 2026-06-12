@@ -10,7 +10,9 @@ import contentAnalysisBRoutes from '../server/routes/content-analysis-b.js';
 // Invoke the real /api/references/duplicates handler with a minimal ctx. The
 // handler's only filesystem touch is one readFileSync of bibliography/
 // references.yaml, so we stub that single read and let the real js-yaml parse
-// the supplied YAML. This handler reads directly, so no `cached` stub is needed.
+// the supplied YAML. The handler now wraps its computation in cached(), so the
+// ctx supplies a pass-through `cached` that simply runs fn(); this keeps every
+// case below exercising the real fold rather than a memoized value.
 async function callDuplicates(yamlText) {
   let captured = null;
   const ctx = {
@@ -22,6 +24,7 @@ async function callDuplicates(yamlText) {
     },
     path: nodePath,
     PROJECT_ROOT: '/virtual',
+    cached: (_key, _ttl, fn) => fn(),
     json(res, status, body) {
       captured = { status, body };
       res.writableEnded = true;
