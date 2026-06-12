@@ -105,13 +105,15 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
 
               // Extract title from frontmatter or first heading
               const content = fs.readFileSync(fullPath, 'utf-8');
-              let title = entry.name.replace(/\.(mdx?|md)$/, '');
+              // Strip the extension once; the title seed and the equality guard below reuse it.
+              const strippedName = entry.name.replace(/\.(mdx?|md)$/, '');
+              let title = strippedName;
               const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
               if (fmMatch) {
                 const titleMatch = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
                 if (titleMatch) title = titleMatch[1];
               }
-              if (title === entry.name.replace(/\.(mdx?|md)$/, '')) {
+              if (title === strippedName) {
                 const headingMatch = content.match(/^#\s+(.+)$/m);
                 if (headingMatch) title = headingMatch[1];
               }
