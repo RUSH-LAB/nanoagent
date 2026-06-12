@@ -19,7 +19,6 @@ const RESET = '\x1b[0m';
 // ── State ──
 let passed = 0;
 let failed = 0;
-let skipped = 0;
 
 // Track test data for cleanup
 const cleanup = [];
@@ -37,11 +36,6 @@ function pass(name, detail) {
 function fail(name, detail) {
   failed++;
   log('✗', RED, name, detail);
-}
-
-function skip(name, detail) {
-  skipped++;
-  log('-', YELLOW, name, detail);
 }
 
 function section(title) {
@@ -2226,9 +2220,9 @@ async function main() {
   await runCleanup();
 
   // ── Summary ──
-  const total = passed + failed + skipped;
+  const total = passed + failed;
   console.log(`\n${BOLD}Summary${RESET}`);
-  console.log(`  ${GREEN}${passed}${RESET} passed, ${failed > 0 ? RED : ''}${failed}${RESET} failed${skipped > 0 ? `, ${YELLOW}${skipped}${RESET} skipped` : ''}`);
+  console.log(`  ${GREEN}${passed}${RESET} passed, ${failed > 0 ? RED : ''}${failed}${RESET} failed`);
   console.log(`  ${passed}/${total} tests passed\n`);
 
   process.exit(failed > 0 ? 1 : 0);
