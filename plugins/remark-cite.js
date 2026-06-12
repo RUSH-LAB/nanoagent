@@ -105,20 +105,14 @@ function processTextNode(node, citedKeys, file, bibliography) {
     }
 
     // Wrap multiple citations in parentheses with semicolons
-    if (citationParts.length === 1 && citationParts[0].type === 'link') {
-      result.push({ type: 'text', value: '(' });
-      result.push(citationParts[0]);
-      result.push({ type: 'text', value: ')' });
-    } else {
-      result.push({ type: 'text', value: '(' });
-      for (let i = 0; i < citationParts.length; i++) {
-        result.push(citationParts[i]);
-        if (i < citationParts.length - 1) {
-          result.push({ type: 'text', value: '; ' });
-        }
+    result.push({ type: 'text', value: '(' });
+    for (let i = 0; i < citationParts.length; i++) {
+      result.push(citationParts[i]);
+      if (i < citationParts.length - 1) {
+        result.push({ type: 'text', value: '; ' });
       }
-      result.push({ type: 'text', value: ')' });
     }
+    result.push({ type: 'text', value: ')' });
 
     lastIndex = match.index + match[0].length;
   }
