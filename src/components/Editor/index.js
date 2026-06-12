@@ -7,6 +7,7 @@ import FileSearchDialog from './FileSearchDialog';
 import TemplateModal from './TemplateModal';
 import styles from './styles.module.css';
 import API_BASE from '@site/src/utils/api';
+import {RECENT_FILES_KEY} from '@site/src/utils/recentFiles';
 import {toast} from '@site/src/components/Toast/toast';
 
 function filePathToPageUrl(filePath) {
@@ -142,10 +143,10 @@ export default function Editor({initialFile}) {
     setSelectedFile(filePath);
     if (typeof localStorage !== 'undefined' && filePath) {
       try {
-        const recent = JSON.parse(localStorage.getItem('mochi-recent-files') || '[]');
+        const recent = JSON.parse(localStorage.getItem(RECENT_FILES_KEY) || '[]');
         const filtered = recent.filter(f => f !== filePath);
         filtered.unshift(filePath);
-        localStorage.setItem('mochi-recent-files', JSON.stringify(filtered.slice(0, 10)));
+        localStorage.setItem(RECENT_FILES_KEY, JSON.stringify(filtered.slice(0, 10)));
         window.dispatchEvent(new Event('mochi-recent-updated'));
       } catch {}
     }

@@ -1,5 +1,6 @@
 import React, {useState, useEffect, useCallback} from 'react';
 import styles from './RecentFiles.module.css';
+import {RECENT_FILES_KEY} from '@site/src/utils/recentFiles';
 
 export default function RecentFiles({onSelectFile, selectedFile}) {
   const [collapsed, setCollapsed] = useState(false);
@@ -7,7 +8,7 @@ export default function RecentFiles({onSelectFile, selectedFile}) {
 
   const load = useCallback(() => {
     try {
-      const raw = localStorage.getItem('mochi-recent-files');
+      const raw = localStorage.getItem(RECENT_FILES_KEY);
       if (!raw) return;
       const paths = JSON.parse(raw);
       if (!Array.isArray(paths)) return;
