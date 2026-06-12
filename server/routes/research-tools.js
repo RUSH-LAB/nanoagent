@@ -726,11 +726,17 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
           if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
           try {
             const content = fs.readFileSync(fullPath, 'utf-8');
-            const occurrences = content.split(search).length - 1;
+            // Split each file once and reuse the array: parts.length - 1 is the
+            // occurrence count and parts.join(replace) is the replacement, so a
+            // matching file is split a single time instead of twice. String split
+            // is pure for a fixed content and needle, so reusing parts stays
+            // byte-identical to splitting twice.
+            const parts = content.split(search);
+            const occurrences = parts.length - 1;
             if (occurrences > 0) {
               const relPath = path.relative(PROJECT_ROOT, fullPath);
               if (!dryRun) {
-                const newContent = content.split(search).join(replace);
+                const newContent = parts.join(replace);
                 fs.writeFileSync(fullPath, newContent, 'utf-8');
               }
               changes.push({path: relPath, occurrences});
