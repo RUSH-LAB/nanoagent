@@ -155,6 +155,10 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
       // unchanged and the pre-existing slice bound is preserved.
       const n = parseInt(url.searchParams.get('limit') || '10', 10);
       const limit = Number.isNaN(n) ? 10 : n;
+      // Loop-invariant: the includeStats flag is fixed for the whole request, so
+      // read it once here rather than re-evaluating searchParams per content file
+      // inside walkRecent. The per-file guard and emitted fields are unchanged.
+      const includeStats = url.searchParams.get('includeStats') === 'true';
       const contentDir = path.join(PROJECT_ROOT, 'content');
       const files = [];
       function walkRecent(dir) {
@@ -167,7 +171,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
             const stat = fs.statSync(fullPath);
             const relPath = path.relative(PROJECT_ROOT, fullPath);
             const fileInfo = {name: entry.name, path: relPath, mtime: stat.mtimeMs};
-            if (url.searchParams.get('includeStats') === 'true') {
+            if (includeStats) {
               try {
                 const content = fs.readFileSync(fullPath, 'utf-8');
                 const wordCount = content.split(/\s+/).filter(Boolean).length;
