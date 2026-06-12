@@ -417,7 +417,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
 
   // ── Unified activity feed ──
   if (req.method === 'GET' && pathname === '/api/activity-feed') {
-    const limit = numericParam(url.searchParams.get('limit'), 30, 100);
+    const limit = Math.max(numericParam(url.searchParams.get('limit'), 30, 100), 0);
     try {
       const events = [];
       const comments = loadJSON(COMMENTS_FILE);
