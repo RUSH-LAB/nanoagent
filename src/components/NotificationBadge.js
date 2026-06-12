@@ -3,6 +3,7 @@ import API_BASE from '@site/src/utils/api';
 
 const POLL_INTERVAL = 30_000; // 30 seconds
 const LS_KEY = 'notificationBadge_lastSeen';
+const EPOCH = '1970-01-01T00:00:00.000Z';
 
 const badgeStyle = {
   position: 'absolute',
@@ -30,9 +31,9 @@ const wrapperStyle = {
 
 function getLastSeen() {
   try {
-    return localStorage.getItem(LS_KEY) || '1970-01-01T00:00:00.000Z';
+    return localStorage.getItem(LS_KEY) || EPOCH;
   } catch {
-    return '1970-01-01T00:00:00.000Z';
+    return EPOCH;
   }
 }
 
