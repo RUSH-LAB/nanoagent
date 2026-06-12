@@ -39,6 +39,17 @@ const WIKI_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 const CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
 const MD_LINK_RE = /\[([^\]]*)\]\(\/([^)#?]+)\)/g;
 
+// Per-word syllable patterns for GET /api/file/readability, compiled once at
+// module load instead of four RegExp allocations per word of every request.
+// Each is applied only through String.prototype.replace / String.prototype.match,
+// which reset lastIndex on every call, so the shared /g instances stay
+// request-independent and the syllable counts, grade, and reading level are
+// byte-identical to the per-word build.
+const READ_NONALPHA_RE = /[^a-z]/g;
+const READ_SYLLABLE_TRIM_RE = /(?:[^laeiouy]es|ed|[^laeiouy]e)$/;
+const READ_LEADING_Y_RE = /^y/;
+const READ_VOWEL_GROUP_RE = /[aeiouy]{1,2}/g;
+
 module.exports = async function file_tools_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -405,9 +416,9 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
       const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 3);
       const words = text.split(/\s+/).filter(w => w.length > 0);
       const syllableCount = words.reduce((sum, w) => {
-        const clean = w.toLowerCase().replace(/[^a-z]/g, '');
+        const clean = w.toLowerCase().replace(READ_NONALPHA_RE, '');
         if (!clean) return sum;
-        let syllables = clean.replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, '').replace(/^y/, '').match(/[aeiouy]{1,2}/g);
+        let syllables = clean.replace(READ_SYLLABLE_TRIM_RE, '').replace(READ_LEADING_Y_RE, '').match(READ_VOWEL_GROUP_RE);
         return sum + Math.max(1, syllables ? syllables.length : 1);
       }, 0);
       const wordCount = words.length;
