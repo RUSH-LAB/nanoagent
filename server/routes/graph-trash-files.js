@@ -60,6 +60,19 @@ const RENDER_PARA_RE = /^(?!<[a-z/])((?!\s*$).+)$/gm;
 const RENDER_BLANK_LINES_RE = /\n{3,}/g;
 const SLIDES_H2_RE = /^## (.+)$/m;
 
+// ── /api/trash trashed-name parsing regexes (module scope, reused per request) ──
+// A trashed file stores its delete timestamp in the name as
+// `YYYY-MM-DDTHH-MM-SS-sssZ_originalname.ext`. All three patterns below are
+// NON-global and NON-sticky and are consumed only through String.prototype.match
+// / String.prototype.replace, so none carries lastIndex state and one shared
+// module-scope instance per pattern is byte-identical to the former per-request
+// literals. TRASH_NAME_RE is shared by BOTH the GET /api/trash directory walk
+// (once per trashed file) and the POST /api/trash/restore handler, deduping the
+// one identical literal that previously appeared at both call sites.
+const TRASH_NAME_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)_(.+)$/;
+const TRASH_TIME_TAIL_RE = /(\d{2})-(\d{2})-(\d{3})Z$/;
+const TRASH_TIME_MID_RE = /T(\d{2})-(\d{2})/;
+
 module.exports = async function graph_trash_files_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -165,9 +178,9 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
             const trashRelPath = path.relative(PROJECT_ROOT, fullPath);
             // Extract timestamp and original filename from the trashed name
             // Format: YYYY-MM-DDTHH-MM-SS-sssZ_originalname.md
-            const match = entry.name.match(/^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)_(.+)$/);
+            const match = entry.name.match(TRASH_NAME_RE);
             if (!match) continue;
-            const deletedAt = match[1].replace(/(\d{2})-(\d{2})-(\d{3})Z$/, '$1:$2:$3Z').replace(/T(\d{2})-(\d{2})/, 'T$1:$2');
+            const deletedAt = match[1].replace(TRASH_TIME_TAIL_RE, '$1:$2:$3Z').replace(TRASH_TIME_MID_RE, 'T$1:$2');
             const originalName = match[2];
             // Reconstruct original path: strip .trash/ prefix, use directory structure + original name
             const trashSubDir = path.relative(TRASH_DIR, dir);
@@ -204,7 +217,7 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       if (!fs.existsSync(fullTrashPath)) return json(res, 404, {error: 'Trashed file not found'});
       // Extract original path from trash structure
       const trashedName = path.basename(normalized);
-      const match = trashedName.match(/^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)_(.+)$/);
+      const match = trashedName.match(TRASH_NAME_RE);
       if (!match) return json(res, 400, {error: 'Invalid trash file format'});
       const originalName = match[2];
       const trashSubDir = path.relative(TRASH_DIR, path.dirname(fullTrashPath));
@@ -771,3 +784,12 @@ module.exports.RENDER_LIST_ITEM_RE = RENDER_LIST_ITEM_RE;
 module.exports.RENDER_PARA_RE = RENDER_PARA_RE;
 module.exports.RENDER_BLANK_LINES_RE = RENDER_BLANK_LINES_RE;
 module.exports.SLIDES_H2_RE = SLIDES_H2_RE;
+
+// ── Trash name-parsing regexes: exported for the trashname-re-hoist regression
+// test, which pins each .source/.flags and drives GET /api/trash + POST
+// /api/trash/restore to prove the parsed originalName / deletedAt are unchanged
+// and that one shared TRASH_NAME_RE instance backs both call sites. Not part of
+// the route contract.
+module.exports.TRASH_NAME_RE = TRASH_NAME_RE;
+module.exports.TRASH_TIME_TAIL_RE = TRASH_TIME_TAIL_RE;
+module.exports.TRASH_TIME_MID_RE = TRASH_TIME_MID_RE;
