@@ -739,23 +739,26 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
   // ── Reference timeline (papers by year with top papers per year) ──
   if (req.method === 'GET' && pathname === '/api/references/timeline') {
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
-      const byYear = {};
-      for (const [key, entry] of Object.entries(refs)) {
-        const year = entry.year || 'unknown';
-        if (year === 'unknown') continue;
-        if (!byYear[year]) byYear[year] = [];
-        byYear[year].push({key, title: entry.title, venue: entry.venue, authors: (entry.author || []).slice(0, 3)});
-      }
-      const timeline = Object.entries(byYear)
-        .sort((a, b) => Number(a[0]) - Number(b[0]))
-        .map(([year, papers]) => ({
-          year: Number(year),
-          count: papers.length,
-          papers: papers.slice(0, 5),
-        }));
-      return json(res, 200, {timeline, totalYears: timeline.length});
+      const result = cached('references-timeline', 60000, () => {
+        const yaml = require('js-yaml');
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const byYear = {};
+        for (const [key, entry] of Object.entries(refs)) {
+          const year = entry.year || 'unknown';
+          if (year === 'unknown') continue;
+          if (!byYear[year]) byYear[year] = [];
+          byYear[year].push({key, title: entry.title, venue: entry.venue, authors: (entry.author || []).slice(0, 3)});
+        }
+        const timeline = Object.entries(byYear)
+          .sort((a, b) => Number(a[0]) - Number(b[0]))
+          .map(([year, papers]) => ({
+            year: Number(year),
+            count: papers.length,
+            papers: papers.slice(0, 5),
+          }));
+        return {timeline, totalYears: timeline.length};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 500, {error: 'Timeline failed'});
     }
