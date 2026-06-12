@@ -78,7 +78,7 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
       const idx = comments[page].findIndex(c => c.id === commentId);
       if (idx === -1) return json(res, 404, {error: 'Comment not found'});
       const comment = comments[page][idx];
-      if (comment.userId && userId && comment.userId !== userId) {
+      if (comment.userId && comment.userId !== userId) {
         const users = loadJSON(USERS_FILE);
         const requester = users[userId];
         if (!requester || requester.role !== 'owner') {
