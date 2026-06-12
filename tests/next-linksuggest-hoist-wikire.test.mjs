@@ -59,6 +59,10 @@ async function invokeLinkSuggestions(fs, filePath, { isValidFilePath = () => tru
     PROJECT_ROOT,
     ALLOWED_EXTS,
     isValidFilePath,
+    // Pass-through cache: run the closure every call, preserving this test's
+    // pre-cache behavior. The dedicated memoizing variant lives in
+    // next-linksuggest-scan-cache.test.mjs.
+    cached: (_k, _t, fn) => fn(),
     json(_res, status, payload) { captured = { status, payload }; res.writableEnded = true; return captured; },
   };
   await routes(req, res, url, '/api/file/link-suggestions', ctx);
