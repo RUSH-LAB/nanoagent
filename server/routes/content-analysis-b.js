@@ -389,33 +389,43 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      let text = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      text = text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/<[^>]+>/g, '');
-      const sentences = text.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 5);
-      const words = text.split(/\s+/).filter(Boolean);
-      const paragraphs = text.split(/\n\n+/).filter(p => p.trim().length > 10);
-      const sentenceLengths = sentences.map(s => s.split(/\s+/).length);
-      const avgSentence = sentenceLengths.length > 0 ? Math.round(sentenceLengths.reduce((s, l) => s + l, 0) / sentenceLengths.length * 10) / 10 : 0;
-      const sentenceVariance = sentenceLengths.length > 1 ? Math.round(Math.sqrt(sentenceLengths.reduce((s, l) => s + Math.pow(l - avgSentence, 2), 0) / sentenceLengths.length) * 10) / 10 : 0;
-      const passiveCount = (text.match(STYLE_PASSIVE_RE) || []).length;
-      const passivePercentage = sentences.length > 0 ? Math.round((passiveCount / sentences.length) * 100) : 0;
-      const uniqueWords = new Set(words.map(w => w.toLowerCase())).size;
-      const vocabularyDiversity = words.length > 0 ? Math.round((uniqueWords / words.length) * 100) / 100 : 0;
-      const paragraphLengths = paragraphs.map(p => p.split(/\s+/).length);
-      const avgParagraph = paragraphLengths.length > 0 ? Math.round(paragraphLengths.reduce((s, l) => s + l, 0) / paragraphLengths.length) : 0;
-      return json(res, 200, {
-        path: filePath,
-        style: {
-          avgSentenceLength: avgSentence,
-          sentenceLengthVariation: sentenceVariance,
-          passiveVoicePercentage: passivePercentage,
-          vocabularyDiversity,
-          avgParagraphLength: avgParagraph,
-          totalSentences: sentences.length,
-          totalParagraphs: paragraphs.length,
-          totalWords: words.length,
-        },
+      // The style metrics are a pure function of this one file's content, so
+      // memoize the whole payload keyed by path for the TTL while the json() write
+      // below still runs on every request. Mirrors the per-path caching on
+      // /api/content-similar in this file and /api/file/related in file-tools.js.
+      // The readFileSync stays INSIDE the closure, so a missing file still throws
+      // into the outer catch and the 404 is never cached (cached stores nothing
+      // when fn throws).
+      const result = cached('filestyle:' + filePath, 30000, () => {
+        let text = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        text = text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/<[^>]+>/g, '');
+        const sentences = text.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 5);
+        const words = text.split(/\s+/).filter(Boolean);
+        const paragraphs = text.split(/\n\n+/).filter(p => p.trim().length > 10);
+        const sentenceLengths = sentences.map(s => s.split(/\s+/).length);
+        const avgSentence = sentenceLengths.length > 0 ? Math.round(sentenceLengths.reduce((s, l) => s + l, 0) / sentenceLengths.length * 10) / 10 : 0;
+        const sentenceVariance = sentenceLengths.length > 1 ? Math.round(Math.sqrt(sentenceLengths.reduce((s, l) => s + Math.pow(l - avgSentence, 2), 0) / sentenceLengths.length) * 10) / 10 : 0;
+        const passiveCount = (text.match(STYLE_PASSIVE_RE) || []).length;
+        const passivePercentage = sentences.length > 0 ? Math.round((passiveCount / sentences.length) * 100) : 0;
+        const uniqueWords = new Set(words.map(w => w.toLowerCase())).size;
+        const vocabularyDiversity = words.length > 0 ? Math.round((uniqueWords / words.length) * 100) / 100 : 0;
+        const paragraphLengths = paragraphs.map(p => p.split(/\s+/).length);
+        const avgParagraph = paragraphLengths.length > 0 ? Math.round(paragraphLengths.reduce((s, l) => s + l, 0) / paragraphLengths.length) : 0;
+        return {
+          path: filePath,
+          style: {
+            avgSentenceLength: avgSentence,
+            sentenceLengthVariation: sentenceVariance,
+            passiveVoicePercentage: passivePercentage,
+            vocabularyDiversity,
+            avgParagraphLength: avgParagraph,
+            totalSentences: sentences.length,
+            totalParagraphs: paragraphs.length,
+            totalWords: words.length,
+          },
+        };
       });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
@@ -834,32 +844,42 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      const words = content.split(/\s+/).filter(Boolean);
-      const uniqueWords = new Set(words.map(w => w.toLowerCase())).size;
-      const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 3);
-      const avgSentenceLength = sentences.length > 0 ? Math.round(words.length / sentences.length * 10) / 10 : 0;
-      const headings = (content.match(/^#{1,6}\s+/gm) || []).length;
-      const maxHeadingDepth = Math.max(0, ...(content.match(/^#{1,6}/gm) || []).map(h => h.length));
-      const codeBlocks = (content.match(/```/g) || []).length / 2;
-      const mathBlocks = (content.match(/\$\$/g) || []).length / 2 + (content.match(/\\\[/g) || []).length;
-      const citations = (content.match(/\[@/g) || []).length;
-      const links = (content.match(/\[\[/g) || []).length + (content.match(/\]\(/g) || []).length;
-      const lists = (content.match(/^[-*+]\s/gm) || []).length + (content.match(/^\d+\.\s/gm) || []).length;
-      const vocabularyRichness = words.length > 0 ? Math.round((uniqueWords / words.length) * 100) / 100 : 0;
-      const complexityScore = Math.min(100, Math.round(
-        (avgSentenceLength > 20 ? 15 : avgSentenceLength * 0.75) +
-        Math.min(20, headings * 3) +
-        Math.min(15, codeBlocks * 5) +
-        Math.min(15, mathBlocks * 5) +
-        Math.min(10, citations * 2) +
-        Math.min(10, links * 2) +
-        (vocabularyRichness > 0.6 ? 15 : vocabularyRichness * 25)
-      ));
-      return json(res, 200, {
-        path: filePath, complexityScore,
-        metrics: {wordCount: words.length, uniqueWords, vocabularyRichness, avgSentenceLength, headings, maxHeadingDepth, codeBlocks: Math.floor(codeBlocks), mathBlocks: Math.floor(mathBlocks), citations, links, lists},
+      // The complexity metrics are a pure function of this one file's content, so
+      // memoize the whole payload keyed by path for the TTL while the json() write
+      // below still runs on every request. Mirrors the per-path caching on
+      // /api/content-similar in this file and /api/file/dependencies in
+      // file-tools.js. The readFileSync stays INSIDE the closure, so a missing file
+      // still throws into the outer catch and the 404 is never cached (cached stores
+      // nothing when fn throws).
+      const result = cached('filecomplexity:' + filePath, 30000, () => {
+        const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        const words = content.split(/\s+/).filter(Boolean);
+        const uniqueWords = new Set(words.map(w => w.toLowerCase())).size;
+        const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 3);
+        const avgSentenceLength = sentences.length > 0 ? Math.round(words.length / sentences.length * 10) / 10 : 0;
+        const headings = (content.match(/^#{1,6}\s+/gm) || []).length;
+        const maxHeadingDepth = Math.max(0, ...(content.match(/^#{1,6}/gm) || []).map(h => h.length));
+        const codeBlocks = (content.match(/```/g) || []).length / 2;
+        const mathBlocks = (content.match(/\$\$/g) || []).length / 2 + (content.match(/\\\[/g) || []).length;
+        const citations = (content.match(/\[@/g) || []).length;
+        const links = (content.match(/\[\[/g) || []).length + (content.match(/\]\(/g) || []).length;
+        const lists = (content.match(/^[-*+]\s/gm) || []).length + (content.match(/^\d+\.\s/gm) || []).length;
+        const vocabularyRichness = words.length > 0 ? Math.round((uniqueWords / words.length) * 100) / 100 : 0;
+        const complexityScore = Math.min(100, Math.round(
+          (avgSentenceLength > 20 ? 15 : avgSentenceLength * 0.75) +
+          Math.min(20, headings * 3) +
+          Math.min(15, codeBlocks * 5) +
+          Math.min(15, mathBlocks * 5) +
+          Math.min(10, citations * 2) +
+          Math.min(10, links * 2) +
+          (vocabularyRichness > 0.6 ? 15 : vocabularyRichness * 25)
+        ));
+        return {
+          path: filePath, complexityScore,
+          metrics: {wordCount: words.length, uniqueWords, vocabularyRichness, avgSentenceLength, headings, maxHeadingDepth, codeBlocks: Math.floor(codeBlocks), mathBlocks: Math.floor(mathBlocks), citations, links, lists},
+        };
       });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
