@@ -1228,7 +1228,7 @@ function DocumentStats({editor, rawMode, rawContent}) {
   );
 }
 
-export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, onNavigate, onSelectFile, onNewFile, onCreateFile}) {
+export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, onNavigate, onSelectFile, onNewFile}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [dirty, setDirty] = useState(false);

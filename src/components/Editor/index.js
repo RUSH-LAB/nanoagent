@@ -392,7 +392,6 @@ export default function Editor({initialFile}) {
           readOnly={isReadOnly}
           onSelectFile={handleSelectFile}
           onNewFile={handleNewFile}
-          onCreateFile={handleCreateFile}
           onNavigate={(dirPath) => {
             // Expand the directory in the file tree and open the sidebar
             const parts = dirPath.split('/');
