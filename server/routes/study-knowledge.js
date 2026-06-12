@@ -282,8 +282,8 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       const sameVenue = paper1.venue && paper2.venue && paper1.venue === paper2.venue;
       const yearDiff = Math.abs((paper1.year || 0) - (paper2.year || 0));
       const words1 = new Set((paper1.title || '').toLowerCase().split(/\s+/).filter(w => w.length > 3));
-      const words2 = (paper2.title || '').toLowerCase().split(/\s+/).filter(w => w.length > 3);
-      const sharedTitleWords = words2.filter(w => words1.has(w));
+      const words2 = new Set((paper2.title || '').toLowerCase().split(/\s+/).filter(w => w.length > 3));
+      const sharedTitleWords = [...words2].filter(w => words1.has(w));
       return json(res, 200, {
         paper1: {key: key1, title: paper1.title, year: paper1.year, venue: paper1.venue, authors: paper1.author},
         paper2: {key: key2, title: paper2.title, year: paper2.year, venue: paper2.venue, authors: paper2.author},
