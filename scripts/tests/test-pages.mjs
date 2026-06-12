@@ -9,6 +9,8 @@
 // Requires the Docusaurus dev server running on http://localhost:3002
 // ─────────────────────────────────────────────────────────────
 
+import { PAGE_CONTENT_CHECKS as PAGES } from './pages.mjs';
+
 const BASE = process.env.PAGES_URL || 'http://localhost:3002';
 
 // ── Colors ──
@@ -49,37 +51,6 @@ const ERROR_PATTERNS = [
   /TypeError/i,
   /ReferenceError/i,
   /<pre class="error">/i,
-];
-
-// ── Page definitions ──
-// Each entry: [path, [contentStringsToMatchAny]]
-// Note: Docusaurus SPA serves a shell HTML for all routes — the actual page
-// content is rendered client-side via JS. The shell HTML typically only
-// contains the site title ("Mochi Lab"), Docusaurus bootstrap, and linked
-// bundles. For SPA routes we verify: HTTP 200, valid SPA shell, no errors.
-// Content strings are checked case-insensitively against the full HTML
-// including script bundles and route metadata where available.
-const PAGES = [
-  ['/',                ['Mochi Lab']],
-  ['/editor',          ['editor', 'Editor']],
-  ['/bibliography',    ['Bibliography', 'references']],
-  ['/discussions',     ['Discuss', 'channel']],
-  ['/recommendations', ['Recommend', 'Discover']],
-  ['/analytics',       ['Analytics', 'Dashboard']],
-  ['/admin',           ['Admin', 'Management']],
-  ['/graph',           ['Graph', 'Knowledge']],
-  ['/api-docs',        ['API', 'endpoint']],
-  ['/search',          ['Search', 'search']],
-  ['/about',           ['About', 'Mochi Lab']],
-  ['/reading-lists',   ['Reading', 'list']],
-  ['/compare',         ['Compare', 'comparison']],
-  ['/stats',           ['Stats', 'Statistics']],
-  ['/whiteboard',      ['Whiteboard', 'canvas']],
-  ['/mindmap',         ['Mindmap', 'Mind']],
-  ['/flashcards',      ['Flashcard', 'card']],
-  ['/tasks',           ['Task', 'Kanban']],
-  ['/glossary',        ['Glossary', 'term']],
-  ['/timeline',        ['Timeline', 'timeline']],
 ];
 
 // ── Preflight connectivity check ──

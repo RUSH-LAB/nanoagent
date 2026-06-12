@@ -16,6 +16,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PAGE_PATHS as PAGES } from './pages.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -32,30 +33,6 @@ const CYAN = '\x1b[36m';
 const DIM = '\x1b[2m';
 const BOLD = '\x1b[1m';
 const RESET = '\x1b[0m';
-
-// ── Page definitions (same 20 pages as test-pages.mjs) ──
-const PAGES = [
-  '/',
-  '/editor',
-  '/bibliography',
-  '/discussions',
-  '/recommendations',
-  '/analytics',
-  '/admin',
-  '/graph',
-  '/api-docs',
-  '/search',
-  '/about',
-  '/reading-lists',
-  '/compare',
-  '/stats',
-  '/whiteboard',
-  '/mindmap',
-  '/flashcards',
-  '/tasks',
-  '/glossary',
-  '/timeline',
-];
 
 // ── Regression threshold ──
 const THRESHOLD = 0.20; // 20%
