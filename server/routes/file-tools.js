@@ -20,6 +20,16 @@ function numericParam(raw, def, max) {
 // lists, which intentionally differ from this one.
 const RELATED_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','do','does','did','will','would','could','should','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not']);
 
+// Stop-word sets for the keyword filtering in GET /api/file/suggest-tags and
+// GET /api/file/keywords, built once at module load instead of rebuilt on every
+// request. Each set is read only (`.has` membership tests inside a `.filter`),
+// so hoisting leaves the suggested tags and extracted keywords identical. The
+// two lists intentionally differ in length, so they stay as two distinct
+// constants, mirroring the SIMILARITY_STOP_WORDS / RECOMMEND_STOP_WORDS /
+// WORD_FREQ_STOP_WORDS hoist in server/routes/content-analysis-a.js.
+const SUGGEST_TAGS_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','do','does','did','will','would','could','should','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not','can','all','each','some','more','most','other','very','just','than','too','own','same']);
+const KEYWORDS_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','shall','can','and','but','or','nor','for','yet','so','in','on','at','to','by','of','with','from','up','about','into','through','during','before','after','above','below','between','out','off','over','under','again','further','then','once','here','there','when','where','why','how','all','each','every','both','few','more','most','other','some','such','no','not','only','own','same','than','too','very','just','because','as','until','while','this','that','these','those','it','its','he','she','they','them','their','we','our','you','your','i','me','my','what','which','who','whom','if']);
+
 // Link-extraction patterns for GET /api/file/dependencies, compiled once at
 // module load instead of on every request. Each is a global (/g) regex whose
 // `lastIndex` advances as it scans, so every exec loop below resets `lastIndex`
@@ -289,8 +299,7 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
     try {
       let text = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
       text = text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s-]/g, ' ');
-      const STOP = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','do','does','did','will','would','could','should','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not','can','all','each','some','more','most','other','very','just','than','too','own','same']);
-      const words = text.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !STOP.has(w));
+      const words = text.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !SUGGEST_TAGS_STOP_WORDS.has(w));
       const freq = {};
       for (const w of words) freq[w] = (freq[w] || 0) + 1;
       const existingTags = cached('all-tags-set', 30000, () => {
@@ -488,9 +497,8 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
       text = text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '');
       text = text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/#{1,6}\s*/g, '');
       text = text.replace(/[*_~`>|\\[\]()-]/g, ' ').replace(/<[^>]+>/g, '');
-      const STOP = new Set(['the','a','an','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','shall','can','and','but','or','nor','for','yet','so','in','on','at','to','by','of','with','from','up','about','into','through','during','before','after','above','below','between','out','off','over','under','again','further','then','once','here','there','when','where','why','how','all','each','every','both','few','more','most','other','some','such','no','not','only','own','same','than','too','very','just','because','as','until','while','this','that','these','those','it','its','he','she','they','them','their','we','our','you','your','i','me','my','what','which','who','whom','if']);
       const freq = {};
-      const words = text.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 2 && !STOP.has(w));
+      const words = text.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 2 && !KEYWORDS_STOP_WORDS.has(w));
       for (const w of words) freq[w] = (freq[w] || 0) + 1;
       const keywords = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([word, count]) => ({word, count}));
       return json(res, 200, {keywords, totalWords: words.length});
