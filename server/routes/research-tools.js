@@ -483,6 +483,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
 
       refs[finalKey] = entry;
       fs.writeFileSync(bibPath, yaml.dump(refs, { lineWidth: -1 }), 'utf-8');
+      invalidateCache('stats');
 
       return json(res, 201, { key: finalKey, success: true });
     } catch (err) {
