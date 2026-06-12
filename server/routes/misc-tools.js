@@ -419,15 +419,21 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         scanHealth(contentDir);
 
         const pageIds = new Set(pages.keys());
+        // The suffix-match fallbacks below scan the page id list, which is
+        // loop-invariant: pageIds is never mutated inside the link loop. Spread it
+        // once here instead of rebuilding [...pageIds] per link (twice on the
+        // matched branch). Set insertion order is preserved, so .some() returns
+        // the same boolean and .find() the same first match for every target.
+        const pageIdList = [...pageIds];
         const brokenLinks = [];
         const incomingLinks = new Map();
         for (const link of allLinks) {
           const target = link.target;
-          const found = pageIds.has(target) || [...pageIds].some(id => id.endsWith(target) || id.endsWith('/' + target));
+          const found = pageIds.has(target) || pageIdList.some(id => id.endsWith(target) || id.endsWith('/' + target));
           if (!found) {
             brokenLinks.push({source: link.source, target, type: link.type || 'wiki'});
           } else {
-            const resolvedTarget = pageIds.has(target) ? target : [...pageIds].find(id => id.endsWith(target) || id.endsWith('/' + target));
+            const resolvedTarget = pageIds.has(target) ? target : pageIdList.find(id => id.endsWith(target) || id.endsWith('/' + target));
             if (resolvedTarget) {
               incomingLinks.set(resolvedTarget, (incomingLinks.get(resolvedTarget) || 0) + 1);
             }
