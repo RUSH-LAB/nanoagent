@@ -54,7 +54,7 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
       if (userId !== undefined && typeof userId !== 'string') return json(res, 400, {error: 'userId must be a string'});
       if (userId && userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
       const comments = loadJSON(COMMENTS_FILE);
-      if (!comments[page]) comments[page] = [];
+      if (!Object.hasOwn(comments, page)) comments[page] = [];
       const comment = {
         id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         author: sanitizeText(author) || 'Anonymous',
@@ -78,7 +78,7 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
       const {page, commentId, userId} = body;
       if (!page || !commentId) return json(res, 400, {error: 'Missing page or commentId'});
       const comments = loadJSON(COMMENTS_FILE);
-      if (!comments[page]) return json(res, 404, {error: 'Page not found'});
+      if (!Object.hasOwn(comments, page)) return json(res, 404, {error: 'Page not found'});
       const idx = comments[page].findIndex(c => c.id === commentId);
       if (idx === -1) return json(res, 404, {error: 'Comment not found'});
       const comment = comments[page][idx];
