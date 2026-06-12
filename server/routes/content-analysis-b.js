@@ -641,16 +641,21 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
       const fieldPresent = {};
       for (const f of FIELDS) fieldPresent[f] = 0;
       let totalComplete = 0;
+      // Sum per-entry completeness here so the average no longer needs a second
+      // pass over results. Each term is an integer at most 100 and integer
+      // addition is order independent, so this matches the old post-sort reduce.
+      let completenessSum = 0;
       for (const [key, entry] of Object.entries(refs)) {
         const missing = FIELDS.filter(f => !entry[f] || (Array.isArray(entry[f]) && entry[f].length === 0));
         const present = FIELDS.filter(f => entry[f] && (!Array.isArray(entry[f]) || entry[f].length > 0));
         for (const f of present) fieldPresent[f]++;
         const completeness = Math.round((present.length / FIELDS.length) * 100);
         if (completeness === 100) totalComplete++;
+        completenessSum += completeness;
         results.push({key, title: entry.title || key, completeness, missing, presentCount: present.length});
       }
       results.sort((a, b) => a.completeness - b.completeness);
-      const avgCompleteness = results.length > 0 ? Math.round(results.reduce((s, r) => s + r.completeness, 0) / results.length) : 0;
+      const avgCompleteness = results.length > 0 ? Math.round(completenessSum / results.length) : 0;
       const coverageDenom = Math.max(results.length, 1);
       return json(res, 200, {
         averageCompleteness: avgCompleteness,
