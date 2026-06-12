@@ -2,6 +2,12 @@
 // Route module organized from server.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
+
+// Shared YAML front-matter matcher for the leading `---` block of a content
+// file. It is non-global and used only with String.prototype.match, so it
+// holds no lastIndex state and one shared instance is safe across handlers.
+const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/;
+
 module.exports = async function study_knowledge_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -235,7 +241,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
           if (contentWords.has(pageName) || pageName.split('-').some(w => w.length > 4 && contentWords.has(w))) {
             try {
               const c = fs.readFileSync(fp, 'utf-8');
-              const fm = c.match(/^---\n([\s\S]*?)\n---/);
+              const fm = c.match(FRONTMATTER_RE);
               let title = entry.name.replace(/\.(mdx?|md)$/, '');
               if (fm) {
                 const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
@@ -488,7 +494,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
           if (name.toLowerCase().includes(query)) {
             try {
               const content = fs.readFileSync(fp, 'utf-8');
-              const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+              const fmMatch = content.match(FRONTMATTER_RE);
               let title = name;
               if (fmMatch) {
                 const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
@@ -867,7 +873,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
             if (!byDir[dn]) byDir[dn] = {files: 0, words: 0};
             byDir[dn].files++;
             byDir[dn].words += words;
-            const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+            const fmMatch = content.match(FRONTMATTER_RE);
             if (fmMatch) {
               const tgm = fmMatch[1].match(/^tags:\s*\[([^\]]*)\]/m);
               if (tgm) tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; });
