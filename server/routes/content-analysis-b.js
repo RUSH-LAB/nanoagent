@@ -42,6 +42,15 @@ const GRAPH_WIKI_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 // /api/references/trending.
 const READING_ORDER_CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
 
+// Passive-voice regex for the GET /api/file/style writing-style analysis,
+// compiled once at module load instead of rebuilt on every request. Unlike
+// GRAPH_WIKI_RE and READING_ORDER_CITE_RE, which drive `exec` loops, this /g
+// regex is consumed through String.prototype.match, which resets `lastIndex` to
+// 0 before scanning (and leaves it at 0 afterward). The shared instance therefore
+// needs no per-request reset, and the passive count stays identical across
+// back-to-back requests.
+const STYLE_PASSIVE_RE = /\b(is|are|was|were|been|being)\s+(being\s+)?\w+ed\b/gi;
+
 module.exports = async function content_analysis_b_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -371,8 +380,7 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
       const sentenceLengths = sentences.map(s => s.split(/\s+/).length);
       const avgSentence = sentenceLengths.length > 0 ? Math.round(sentenceLengths.reduce((s, l) => s + l, 0) / sentenceLengths.length * 10) / 10 : 0;
       const sentenceVariance = sentenceLengths.length > 1 ? Math.round(Math.sqrt(sentenceLengths.reduce((s, l) => s + Math.pow(l - avgSentence, 2), 0) / sentenceLengths.length) * 10) / 10 : 0;
-      const passivePatterns = /\b(is|are|was|were|been|being)\s+(being\s+)?\w+ed\b/gi;
-      const passiveCount = (text.match(passivePatterns) || []).length;
+      const passiveCount = (text.match(STYLE_PASSIVE_RE) || []).length;
       const passivePercentage = sentences.length > 0 ? Math.round((passiveCount / sentences.length) * 100) : 0;
       const uniqueWords = new Set(words.map(w => w.toLowerCase())).size;
       const vocabularyDiversity = words.length > 0 ? Math.round((uniqueWords / words.length) * 100) / 100 : 0;
@@ -823,3 +831,6 @@ module.exports.GRAPH_WIKI_RE = GRAPH_WIKI_RE;
 // Exported for tests: lets the /api/references/reading-order suite pre-seed
 // lastIndex and prove the per-file reset keeps this shared module-scope regex correct.
 module.exports.READING_ORDER_CITE_RE = READING_ORDER_CITE_RE;
+// Exported for tests: lets the /api/file/style suite pre-seed lastIndex and prove
+// the String.prototype.match consumer needs no per-request reset to stay correct.
+module.exports.STYLE_PASSIVE_RE = STYLE_PASSIVE_RE;
