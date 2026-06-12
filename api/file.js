@@ -1,17 +1,7 @@
 // Vercel serverless function: GET /api/file?path=..., PUT /api/file, POST /api/file
 // Reads, writes, and creates files via the GitHub Contents API.
 
-const { getFile, putFile, deleteFile, jsonResponse, optionsResponse } = require('./_github');
-
-const ALLOWED_EXTS = ['.md', '.mdx'];
-
-function isValidFilePath(filePath) {
-  if (!filePath || typeof filePath !== 'string') return false;
-  if (filePath.includes('..') || filePath.startsWith('/')) return false;
-  if (!filePath.startsWith('content/')) return false;
-  if (!ALLOWED_EXTS.some(ext => filePath.endsWith(ext))) return false;
-  return true;
-}
+const { getFile, putFile, deleteFile, isValidFilePath, jsonResponse, optionsResponse } = require('./_github');
 
 module.exports = async function handler(req) {
   if (req.method === 'OPTIONS') return optionsResponse();
