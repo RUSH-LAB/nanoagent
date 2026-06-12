@@ -15,7 +15,6 @@ const { listTree, jsonResponse, optionsResponse, ALLOWED_EXTS } = require('./_gi
  */
 function buildTree(entries, rootDir) {
   // Entries kept: blobs under rootDir with an allowed extension (unchanged).
-  const prefix = rootDir ? rootDir + '/' : '';
   // Root seed mirrors the old buildLevel(rootDir || '') call: a falsy rootDir
   // yields the level prefix '/', which no content/... path starts with, so the
   // result is []. This preserves the rootDir === '' to [] edge case exactly.
@@ -30,7 +29,6 @@ function buildTree(entries, rootDir) {
   for (const e of entries) {
     if (e.type !== 'blob') continue;
     const entryPath = e.path;
-    if (!entryPath.startsWith(prefix)) continue;
     if (!ALLOWED_EXTS.some(ext => entryPath.endsWith(ext))) continue;
     if (!entryPath.startsWith(rootPrefix)) continue;
 
