@@ -63,7 +63,10 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
     const userId = url.searchParams.get('userId');
     if (!userId) return json(res, 400, {error: 'Missing userId'});
     const users = loadJSON(USERS_FILE);
-    const user = users[userId];
+    // Only treat an OWN key as a real user. A request-controlled id such as
+    // `__proto__` or `constructor` resolves to a truthy inherited value, which
+    // would otherwise leak {role:undefined,...} instead of the viewer default.
+    const user = Object.hasOwn(users, userId) ? users[userId] : undefined;
     if (user) {
       return json(res, 200, {role: user.role, email: user.email, name: user.name});
     }
