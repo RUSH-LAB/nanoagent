@@ -211,7 +211,7 @@ function Comment({comment, replies, pageId, onPosted, onDeleted, onReactionsChan
       });
       onDeleted?.(comment.id);
     } catch {
-      // Server endpoint may not exist yet; still remove locally
+      // Request failed (network or server error); still remove locally
       onDeleted?.(comment.id);
     } finally {
       setDeleting(false);
