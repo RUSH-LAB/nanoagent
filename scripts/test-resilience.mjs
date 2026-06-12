@@ -105,7 +105,7 @@ const TEST_FILE_CONTENT = `---\ntitle: "Resilience Test"\ndate: 2025-01-01\n---\
 const TEST_COMMENT_PAGE = `${TEST_PREFIX}/stress`;
 
 // ────────────────────────────────────────────────────────────────
-// 1. Concurrent writes to same file -- 5 parallel PUT requests
+// 1. Concurrent writes to same file: 5 parallel PUT requests
 // ────────────────────────────────────────────────────────────────
 async function testConcurrentWrites() {
   section('1. Concurrent writes to same file');
@@ -128,7 +128,7 @@ async function testConcurrentWrites() {
     );
     const results = await Promise.all(writes);
 
-    // All should succeed (status 200) -- no crashes, no corruption
+    // All should succeed (status 200): no crashes, no corruption
     const successes = results.filter(r => r.status === 200).length;
     assertOk(successes >= 1, `at least 1 write succeeded (got ${successes}/5)`);
 
@@ -140,7 +140,7 @@ async function testConcurrentWrites() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 2. Rapid-fire comments -- 20 POST /api/comments in quick succession
+// 2. Rapid-fire comments: 20 POST /api/comments in quick succession
 // ────────────────────────────────────────────────────────────────
 async function testRapidComments() {
   section('2. Rapid-fire comments');
@@ -159,7 +159,7 @@ async function testRapidComments() {
     const ok = results.filter(r => r.status === 200).length;
     const rateLimited = results.filter(r => r.status === 429).length;
 
-    // Server should not crash -- either accept or rate-limit
+    // Server should not crash: either accept or rate-limit
     assertOk(ok + rateLimited === 20, `all 20 got valid responses (${ok} ok, ${rateLimited} rate-limited)`);
     assertOk(ok >= 1, 'at least 1 comment accepted');
 
@@ -174,7 +174,7 @@ async function testRapidComments() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 3. Large payload -- POST /api/comments with 9MB text
+// 3. Large payload: POST /api/comments with 9MB text
 // ────────────────────────────────────────────────────────────────
 async function testLargePayload() {
   section('3. Large payload');
@@ -206,7 +206,7 @@ async function testLargePayload() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 4. Unicode stress -- comments with every Unicode block
+// 4. Unicode stress: comments with every Unicode block
 // ────────────────────────────────────────────────────────────────
 async function testUnicodeStress() {
   section('4. Unicode stress');
@@ -258,7 +258,7 @@ async function testUnicodeStress() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 5. Empty strings -- POST endpoints with empty required fields
+// 5. Empty strings: POST endpoints with empty required fields
 // ────────────────────────────────────────────────────────────────
 async function testEmptyStrings() {
   section('5. Empty strings');
@@ -283,7 +283,7 @@ async function testEmptyStrings() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 6. Null values -- POST with null in required fields
+// 6. Null values: POST with null in required fields
 // ────────────────────────────────────────────────────────────────
 async function testNullValues() {
   section('6. Null values');
@@ -312,7 +312,7 @@ async function testNullValues() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 7. Very long paths -- GET /api/file?path=content/a/b/c/d/e/f/g.md
+// 7. Very long paths: GET /api/file?path=content/a/b/c/d/e/f/g.md
 // ────────────────────────────────────────────────────────────────
 async function testLongPaths() {
   section('7. Very long paths');
@@ -335,7 +335,7 @@ async function testLongPaths() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 8. Special characters in query -- GET /api/search?q=%00%01%02
+// 8. Special characters in query: GET /api/search?q=%00%01%02
 // ────────────────────────────────────────────────────────────────
 async function testSpecialCharsInQuery() {
   section('8. Special characters in query');
@@ -343,7 +343,7 @@ async function testSpecialCharsInQuery() {
   await test('GET /api/search with null bytes and control chars', async () => {
     const specialQ = '\x00\x01\x02\x03\x1F';
     const {status} = await api('GET', `/api/search?q=${encodeURIComponent(specialQ)}`);
-    // Should either return results (empty) or 400 -- not crash
+    // Should either return results (empty) or 400: not crash
     assertOk(status === 200 || status === 400, `expected 200 or 400, got ${status}`);
 
     // Test with SQL-injection-like strings
@@ -363,7 +363,7 @@ async function testSpecialCharsInQuery() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 9. Concurrent reads during write -- read and write same file simultaneously
+// 9. Concurrent reads during write: read and write same file simultaneously
 // ────────────────────────────────────────────────────────────────
 async function testConcurrentReadWrite() {
   section('9. Concurrent reads during write');
@@ -405,7 +405,7 @@ async function testConcurrentReadWrite() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 10. Rate limit test -- fire 100 requests, count 429s
+// 10. Rate limit test: fire 100 requests, count 429s
 // ────────────────────────────────────────────────────────────────
 async function testRateLimit() {
   section('10. Rate limit test');
