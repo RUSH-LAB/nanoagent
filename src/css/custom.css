@@ -69,7 +69,7 @@ h2[class*="title_"] a:hover {
 }
 
 /* Center equations when navigating to them via anchor links */
-/* Add scroll margin to equation containers */
+/* Add scroll margin to all divs and KaTeX display blocks (applies site-wide, not only equations) */
 div,
 .katex-display {
   scroll-margin-top: 30vh; /* Adjust this value to control vertical centering */
