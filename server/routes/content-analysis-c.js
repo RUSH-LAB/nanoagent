@@ -303,32 +303,45 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
     const to = url.searchParams.get('to') || new Date().toISOString().slice(0, 10);
     if (!from) return json(res, 400, {error: 'Missing from date (YYYY-MM-DD)'});
     try {
-      const fromDate = new Date(from + 'T00:00:00Z');
-      const toDate = new Date(to + 'T23:59:59Z');
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const modified = [], created = [];
-      function scan(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scan(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          try {
-            const stat = fs.statSync(fp);
-            const mtime = stat.mtime;
-            const ctime = stat.birthtime;
-            const relPath = path.relative(PROJECT_ROOT, fp);
-            if (mtime >= fromDate && mtime <= toDate) {
-              if (ctime >= fromDate && ctime <= toDate) {
-                created.push({path: relPath, date: mtime.toISOString().slice(0, 10)});
-              } else {
-                modified.push({path: relPath, date: mtime.toISOString().slice(0, 10)});
+      // Cache the content-tree date-range walk on a 30s window, keyed by both date
+      // params, mirroring the sibling cached scans in this file (content-status,
+      // health-summary, statsdir:, ...). The walk reads only file timestamps (no
+      // request state), so it is deterministic given the range and safe to memoize:
+      // repeated requests for the same [from, to] skip the readdirSync/statSync walk
+      // and return the memoized {created, modified}. The 400 missing-from guard, the
+      // per-request `to` default, the try/catch 500 path, and the .slice(0, 50)
+      // previews + counts all stay OUTSIDE the closure, so a failed scan still
+      // propagates to the outer catch as a 500 and only a successful scan is ever
+      // cached. The key carries both dates, so each range is a distinct cache entry.
+      const {created, modified} = cached('diffsummary:' + from + ':' + to, 30000, () => {
+        const fromDate = new Date(from + 'T00:00:00Z');
+        const toDate = new Date(to + 'T23:59:59Z');
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const modified = [], created = [];
+        function scan(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scan(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            try {
+              const stat = fs.statSync(fp);
+              const mtime = stat.mtime;
+              const ctime = stat.birthtime;
+              const relPath = path.relative(PROJECT_ROOT, fp);
+              if (mtime >= fromDate && mtime <= toDate) {
+                if (ctime >= fromDate && ctime <= toDate) {
+                  created.push({path: relPath, date: mtime.toISOString().slice(0, 10)});
+                } else {
+                  modified.push({path: relPath, date: mtime.toISOString().slice(0, 10)});
+                }
               }
-            }
-          } catch {}
+            } catch {}
+          }
         }
-      }
-      scan(contentDir);
+        scan(contentDir);
+        return {created, modified};
+      });
       return json(res, 200, {
         from, to,
         created: created.length,
