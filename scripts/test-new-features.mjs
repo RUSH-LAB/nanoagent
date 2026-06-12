@@ -19,9 +19,6 @@ const RESET = '\x1b[0m';
 let passed = 0;
 let failed = 0;
 
-// Track test data for cleanup
-const cleanup = [];
-
 function log(icon, color, label, detail = '') {
   const detailStr = detail ? ` ${DIM}${detail}${RESET}` : '';
   console.log(`  ${color}${icon}${RESET} ${label}${detailStr}`);
@@ -629,16 +626,6 @@ async function runCleanup() {
       await api('DELETE', '/api/schedule', {id: createdScheduleId});
       cleaned++;
     } catch { /* ignore */ }
-  }
-
-  // Run any registered cleanup functions
-  for (const fn of cleanup) {
-    try {
-      await fn();
-      cleaned++;
-    } catch {
-      cleanFailed++;
-    }
   }
 
   if (cleanFailed > 0) {
