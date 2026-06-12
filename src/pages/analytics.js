@@ -7,6 +7,7 @@ import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 import CalendarHeatmap from '@site/src/components/CalendarHeatmap';
 import { buildHeatmapWeeks } from '@site/src/utils/heatmap.mjs';
 import { CHART_HUES } from '@site/src/utils/chartColors';
+import { displayDirPath } from '@site/src/utils/paths';
 
 function AnalyticsDashboard() {
   const [data, setData] = useState(null);
@@ -656,7 +657,7 @@ function AnalyticsDashboard() {
                   {f.title || f.name.replace(/\.(md|mdx)$/, '')}
                 </div>
                 <div style={{fontSize: '0.78rem', color: 'var(--ifm-color-emphasis-500)', display: 'flex', gap: 12}}>
-                  <span>{f.path.replace(/^content\//, '').replace(/\/[^/]+$/, '')}</span>
+                  <span>{displayDirPath(f.path)}</span>
                   {f.wordCount && <span>{f.wordCount} words</span>}
                   {f.readingTimeMin && <span>{f.readingTimeMin} min read</span>}
                   <span>{new Date(f.mtime).toLocaleDateString()}</span>

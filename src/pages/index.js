@@ -13,6 +13,7 @@ import Layout from '@theme/Layout';
 import HomepageFeatures from '@site/src/components/HomepageFeatures';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
+import { displayDirPath } from '@site/src/utils/paths';
 
 import Heading from '@theme/Heading';
 import styles from './index.module.css';
@@ -75,7 +76,7 @@ function RecentActivity() {
         .then(d => (d?.files || []).map(f => ({
           type: 'file',
           title: f.name.replace(/\.(md|mdx)$/, ''),
-          subtitle: f.path.replace(/^content\//, '').replace(/\/[^/]+$/, ''),
+          subtitle: displayDirPath(f.path),
           timestamp: f.mtime,
           link: toViewPath(f.path),
         })))
@@ -263,7 +264,7 @@ function RecentFiles() {
               {f.name.replace(/\.(md|mdx)$/, '')}
             </div>
             <div style={{fontSize: '0.78rem', color: 'var(--ifm-color-emphasis-500)'}}>
-              {f.path.replace(/^content\//, '').replace(/\/[^/]+$/, '')} &middot; {formatAge(f.mtime)}
+              {displayDirPath(f.path)} &middot; {formatAge(f.mtime)}
             </div>
           </Link>
         ))}
