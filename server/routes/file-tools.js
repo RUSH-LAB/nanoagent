@@ -207,6 +207,11 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
         while ((m = MD_LINK_RE.exec(content)) !== null) outgoing.push({type: 'link', target: m[2].trim()});
         const contentDir = path.join(PROJECT_ROOT, 'content');
         const baseName = path.basename(filePath, path.extname(filePath));
+        // baseName is a const derived from the validated filePath, so the
+        // incoming-link suffix '/' + baseName is invariant across the whole
+        // scanIncoming walk. Build it once here instead of re-concatenating it
+        // on every WIKI_RE match below.
+        const baseSuffix = '/' + baseName;
         const incoming = [];
         function scanIncoming(dir) {
           for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -220,7 +225,8 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
               const c = fs.readFileSync(fp, 'utf-8');
               WIKI_RE.lastIndex = 0;
               while ((m = WIKI_RE.exec(c)) !== null) {
-                if (m[1].trim() === baseName || m[1].trim().endsWith('/' + baseName)) {
+                const target = m[1].trim();
+                if (target === baseName || target.endsWith(baseSuffix)) {
                   incoming.push({type: 'wiki', source: rel});
                   break;
                 }
