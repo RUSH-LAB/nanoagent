@@ -176,6 +176,10 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       const dir = path.dirname(fullOriginalPath);
       fs.mkdirSync(dir, {recursive: true});
       fs.renameSync(fullTrashPath, fullOriginalPath);
+      // A restored file reappears in the content tree and bumps the file count, the
+      // inverse of a delete, so clear both the cached search list and content stats.
+      invalidateCache('search');
+      invalidateCache('stats');
       return json(res, 200, {success: true, restoredPath: originalPath});
     } catch (err) {
       if (err.message === 'Invalid JSON') return json(res, 400, {error: 'Invalid request'});
@@ -338,6 +342,9 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       const fullTargetDir = path.join(PROJECT_ROOT, targetDir);
       fs.mkdirSync(fullTargetDir, {recursive: true});
       fs.renameSync(fullSource, fullTarget);
+      // A move changes only a file's path, not the file count, so drop the cached
+      // flat search list; the content stats stay valid (mirrors files.js rename).
+      invalidateCache('search');
       return json(res, 200, {success: true, newPath});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
