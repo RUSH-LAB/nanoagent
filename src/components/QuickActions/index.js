@@ -1,6 +1,7 @@
 import React, {useState, useRef, useEffect} from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import {toast} from '@site/src/components/Toast/toast';
+import {useClickOutside} from '@site/src/utils/useClickOutside';
 
 const fabStyle = {
   position: 'fixed',
@@ -138,17 +139,7 @@ function QuickActionsInner() {
   const containerRef = useRef(null);
   const textareaRef = useRef(null);
 
-  useEffect(() => {
-    function handleClickOutside(e) {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
-        setOpen(false);
-      }
-    }
-    if (open) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [open]);
+  useClickOutside(containerRef, () => setOpen(false), open);
 
   useEffect(() => {
     if (noteOpen && textareaRef.current) {

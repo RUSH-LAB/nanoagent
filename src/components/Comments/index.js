@@ -2,6 +2,7 @@ import React, {useState, useEffect, useCallback, useRef} from 'react';
 import styles from './styles.module.css';
 import API_BASE from '@site/src/utils/api';
 import {formatTime} from '@site/src/utils/time';
+import {useClickOutside} from '@site/src/utils/useClickOutside';
 
 const EMOJI_MAP = {
   thumbsup: '\u{1F44D}',
@@ -30,16 +31,7 @@ function ReactionBar({reactions = [], pageId, commentId, onReactionsChanged}) {
   const userId = getUserId();
 
   // Close picker on outside click
-  useEffect(() => {
-    if (!showPicker) return;
-    function handleClick(e) {
-      if (pickerRef.current && !pickerRef.current.contains(e.target)) {
-        setShowPicker(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [showPicker]);
+  useClickOutside(pickerRef, () => setShowPicker(false), showPicker);
 
   const toggleReaction = async (emoji) => {
     const hasReacted = reactions.some(r => r.emoji === emoji && r.userId === userId);
