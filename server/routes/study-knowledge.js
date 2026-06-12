@@ -695,7 +695,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       const safeUserId = sanitizeText(userId);
       const PREFS_FILE = path.join(PROJECT_ROOT, 'data', 'preferences.json');
       const prefs = loadJSON(PREFS_FILE);
-      if (!prefs[safeUserId]) prefs[safeUserId] = {};
+      if (!Object.hasOwn(prefs, safeUserId)) prefs[safeUserId] = {};
       for (const [key, value] of Object.entries(preferences)) {
         if (!DANGEROUS_PREFERENCE_KEYS.has(key)) {
           prefs[safeUserId][key] = typeof value === 'string' ? sanitizeText(value).slice(0, 5000) : value;
