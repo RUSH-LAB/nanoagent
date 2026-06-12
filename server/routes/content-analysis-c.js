@@ -636,8 +636,19 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   if (req.method === 'GET' && pathname === '/api/writing-prompts') {
     try {
       const prompts = [];
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      // Serve the parsed bibliography from the shared, mtime + size aware memo
+      // instead of re-reading and re-parsing references.yaml on every request.
+      const {loadReferencesCached} = require('./references');
+      const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
+      // loadReferencesCached swallows a missing or unparseable bibliography and
+      // returns {}. Preserve the original 500-on-failure response by reproducing
+      // that read only when the memoized parse is empty: a genuinely broken or
+      // missing file still throws to the catch, while a legitimately empty file
+      // re-reads cleanly and falls through with refs = {} exactly as before.
+      if (Object.keys(refs).length === 0) {
+        const yaml = require('js-yaml');
+        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8'));
+      }
       const contentDir = path.join(PROJECT_ROOT, 'content');
       const citedKeys = new Set();
       function scanCites(dir) {
