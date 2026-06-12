@@ -61,7 +61,7 @@ const TAG_RE = new RegExp(
  */
 function toRoutePath(relPath, routeBase) {
   let route = relPath
-    .replace(/\.(mdx?|md)$/, '')
+    .replace(/\.mdx?$/, '')
     .split(path.sep)
     .map(seg => seg.replace(/^\d+-/, ''))
     .join('/');
@@ -123,9 +123,9 @@ function readSortedItems(dir) {
         position: getFolderPosition(fullPath),
         path: fullPath,
       });
-    } else if (/\.(mdx?|md)$/.test(entry.name)) {
+    } else if (/\.mdx?$/.test(entry.name)) {
       // Skip index files — they represent the folder itself, not a numbered child
-      if (/^index\.(mdx?|md)$/.test(entry.name)) continue;
+      if (/^index\.mdx?$/.test(entry.name)) continue;
       items.push({
         name: entry.name,
         type: 'file',
