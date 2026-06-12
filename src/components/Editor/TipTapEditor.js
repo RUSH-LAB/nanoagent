@@ -1435,6 +1435,20 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     },
   });
 
+  // Single source of truth for the content-load sites: parse the frontmatter out
+  // of `raw`, sync the frontmatter/draft/tags/rawContent state, and optionally
+  // load the body into the editor. Per-caller options keep each site's exact state
+  // writes: `syncRaw` gates setRawContent, `syncDraft` gates setDraft, and `apply`
+  // gates the editor update (skipped while in raw/split mode).
+  const applyLoadedContent = useCallback((raw, {apply = true, syncRaw = true, syncDraft = true} = {}) => {
+    const {frontmatter: fm, body} = parseFrontmatter(raw);
+    setFrontmatter(fm);
+    if (syncDraft) setDraft(isDraft(fm));
+    setTags(parseTags(fm));
+    if (syncRaw) setRawContent(raw);
+    if (apply) editor?.commands.setContent(body);
+  }, [editor]);
+
   useEffect(() => {
     if (!filePath || !editor) return;
     const controller = new AbortController();
@@ -1453,12 +1467,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
       })
       .then(data => {
         if (cancelled) return;
-        const {frontmatter: fm, body} = parseFrontmatter(data.content);
-        setFrontmatter(fm);
-        setDraft(isDraft(fm));
-        setTags(parseTags(fm));
-        setRawContent(data.content);
-        editor.commands.setContent(body);
+        applyLoadedContent(data.content);
         setLoading(false);
         setDirty(false);
         // Check if there are offline changes saved in localStorage
@@ -1486,12 +1495,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         try {
           const saved = localStorage.getItem(offlineKey(filePath));
           if (saved != null) {
-            const {frontmatter: fm, body} = parseFrontmatter(saved);
-            setFrontmatter(fm);
-            setDraft(isDraft(fm));
-            setTags(parseTags(fm));
-            setRawContent(saved);
-            editor.commands.setContent(body);
+            applyLoadedContent(saved);
             setLoading(false);
             setDirty(true);
             return;
@@ -1507,7 +1511,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
       cancelled = true;
       controller.abort();
     };
-  }, [filePath, editor]);
+  }, [filePath, editor, applyLoadedContent]);
 
   // ── External modification detection: poll /api/file/info every 30s ──
   const dirtyForMtimeRef = useRef(dirty);
@@ -1559,12 +1563,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         return res.json();
       })
       .then(data => {
-        const {frontmatter: fm, body} = parseFrontmatter(data.content);
-        setFrontmatter(fm);
-        setDraft(isDraft(fm));
-        setTags(parseTags(fm));
-        setRawContent(data.content);
-        editor.commands.setContent(body);
+        applyLoadedContent(data.content);
         setDirty(false);
         setLoading(false);
         // Refresh the known mtime
@@ -1580,7 +1579,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         setError('Failed to reload file');
         setLoading(false);
       });
-  }, [filePath, editor]);
+  }, [filePath, editor, applyLoadedContent]);
 
   // Handler: dismiss external modification warning
   const handleExternalDismiss = useCallback(() => {
@@ -1659,18 +1658,13 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     try {
       const saved = localStorage.getItem(offlineKey(filePath));
       if (saved == null) return;
-      const {frontmatter: fm, body} = parseFrontmatter(saved);
-      setFrontmatter(fm);
-      setDraft(isDraft(fm));
-      setTags(parseTags(fm));
-      setRawContent(saved);
-      editor.commands.setContent(body);
+      applyLoadedContent(saved);
       setDirty(true);
       setHasLocalChanges(false);
     } catch {
       setError('Failed to restore local changes');
     }
-  }, [filePath, editor]);
+  }, [filePath, editor, applyLoadedContent]);
 
   const handleDiscardLocal = useCallback(() => {
     if (!filePath) return;
@@ -1809,11 +1803,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
   const toggleRawMode = useCallback(() => {
     if (rawMode) {
       // Leaving Source mode -> go to Rich
-      const {frontmatter: fm, body} = parseFrontmatter(rawContent);
-      setFrontmatter(fm);
-      setDraft(isDraft(fm));
-      setTags(parseTags(fm));
-      editor?.commands.setContent(body);
+      applyLoadedContent(rawContent, {syncRaw: false});
     } else if (splitMode) {
       // Leaving Split mode -> go to Source (rawContent already current)
     } else {
@@ -1822,16 +1812,12 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     }
     setSplitMode(false);
     setRawMode(!rawMode);
-  }, [rawMode, splitMode, rawContent, editor, getFullContent]);
+  }, [rawMode, splitMode, rawContent, editor, getFullContent, applyLoadedContent]);
 
   const toggleSplitMode = useCallback(() => {
     if (splitMode) {
       // Leaving split mode -> go back to Rich
-      const {frontmatter: fm, body} = parseFrontmatter(rawContent);
-      setFrontmatter(fm);
-      setDraft(isDraft(fm));
-      setTags(parseTags(fm));
-      editor?.commands.setContent(body);
+      applyLoadedContent(rawContent, {syncRaw: false});
       setSplitMode(false);
       setRawMode(false);
     } else {
@@ -1844,7 +1830,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
       setRawMode(false);
       setSplitMode(true);
     }
-  }, [splitMode, rawMode, rawContent, editor, getFullContent]);
+  }, [splitMode, rawMode, rawContent, editor, getFullContent, applyLoadedContent]);
 
   const handleToggleDraft = useCallback(async () => {
     if (!filePath) return;
@@ -1860,15 +1846,11 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
       // Reload content to pick up frontmatter change
       const fileRes = await fetch(`${API_BASE}/api/file?path=${encodeURIComponent(filePath)}`);
       const data = await fileRes.json();
-      const {frontmatter: fm, body} = parseFrontmatter(data.content);
-      setFrontmatter(fm);
-      setTags(parseTags(fm));
-      setRawContent(data.content);
-      if (!rawMode && !splitMode) editor?.commands.setContent(body);
+      applyLoadedContent(data.content, {apply: !rawMode && !splitMode, syncDraft: false});
     } catch {
       setError('Failed to toggle draft status');
     }
-  }, [filePath, draft, editor, rawMode, splitMode]);
+  }, [filePath, draft, editor, rawMode, splitMode, applyLoadedContent]);
 
   const isPostFile = filePath?.startsWith('content/posts/');
 
