@@ -1022,37 +1022,48 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      const baseName = path.basename(filePath, path.extname(filePath));
-      const fmMatch = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8').match(/^---\n([\s\S]*?)\n---/);
-      let title = baseName;
-      if (fmMatch) {
-        const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
-        if (tm) title = tm[1];
-      }
-      const searchTerms = [baseName.toLowerCase(), title.toLowerCase()];
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const mentions = [];
-      function scanMentions(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scanMentions(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          const rel = path.relative(PROJECT_ROOT, fp);
-          if (rel === filePath) continue;
-          try {
-            const content = fs.readFileSync(fp, 'utf-8').toLowerCase();
-            for (const term of searchTerms) {
-              if (term.length > 3 && content.includes(term)) {
-                mentions.push({file: rel, matchedTerm: term});
-                break;
-              }
-            }
-          } catch {}
+      // Cache the per-file mentions scan on a 30s window, keyed by the requested
+      // `path`, mirroring the sibling per-file caches (filedeps:, related:,
+      // content-similar). Repeated requests for the same path skip the recursive
+      // readdirSync/readFileSync walk over content/ and return the memoized
+      // payload. The isValidFilePath 400 guard stays OUTSIDE the cache; the target
+      // file's readFileSync stays INSIDE the closure, so a missing target still
+      // throws here, propagates to the outer catch as a 404, and is never cached.
+      // The key carries `path`, so each file is a distinct cache entry.
+      const result = cached('mentions:' + filePath, 30000, () => {
+        const baseName = path.basename(filePath, path.extname(filePath));
+        const fmMatch = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8').match(/^---\n([\s\S]*?)\n---/);
+        let title = baseName;
+        if (fmMatch) {
+          const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+          if (tm) title = tm[1];
         }
-      }
-      scanMentions(contentDir);
-      return json(res, 200, {path: filePath, title, mentions, total: mentions.length});
+        const searchTerms = [baseName.toLowerCase(), title.toLowerCase()];
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const mentions = [];
+        function scanMentions(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scanMentions(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            const rel = path.relative(PROJECT_ROOT, fp);
+            if (rel === filePath) continue;
+            try {
+              const content = fs.readFileSync(fp, 'utf-8').toLowerCase();
+              for (const term of searchTerms) {
+                if (term.length > 3 && content.includes(term)) {
+                  mentions.push({file: rel, matchedTerm: term});
+                  break;
+                }
+              }
+            } catch {}
+          }
+        }
+        scanMentions(contentDir);
+        return {path: filePath, title, mentions, total: mentions.length};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
