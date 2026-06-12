@@ -62,7 +62,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     const userId = url.searchParams.get('userId') || 'default';
     const FC_FILE = path.join(PROJECT_ROOT, 'data', 'flashcards.json');
     const data = loadJSON(FC_FILE);
-    const cards = data[userId] || [];
+    const cards = Object.hasOwn(data, userId) ? data[userId] : [];
     return json(res, 200, {cards, total: cards.length});
   }
 
@@ -71,7 +71,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     const today = new Date().toISOString().slice(0, 10);
     const FC_FILE = path.join(PROJECT_ROOT, 'data', 'flashcards.json');
     const data = loadJSON(FC_FILE);
-    const cards = (data[userId] || []).filter(c => c.nextReview <= today);
+    const cards = (Object.hasOwn(data, userId) ? data[userId] : []).filter(c => c.nextReview <= today);
     return json(res, 200, {cards, dueCount: cards.length});
   }
 
