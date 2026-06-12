@@ -13,6 +13,14 @@ function numericParam(raw, def, max) {
   return Math.min(Number.isNaN(n) ? def : n, max);
 }
 
+// Wiki-link regex for the GET /api/admin/health-summary link-health scan, compiled
+// once at module load instead of rebuilt on every request. Because this /g regex is
+// now shared module state, the handler resets `lastIndex` before each file's exec
+// loop, which keeps the link-health stats identical across back-to-back requests.
+// Named distinctly from the alias-aware WIKI_RE inside the backlink-ranking cached
+// closure, whose `/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g` also requires the closing `]]`.
+const HEALTH_WIKI_LINK_RE = /\[\[([^\]|]+)/g;
+
 module.exports = async function content_analysis_c_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -159,7 +167,6 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
       const contentDir = path.join(PROJECT_ROOT, 'content');
       let totalFiles = 0, filesWithTitle = 0, filesWithTags = 0, totalHeadings = 0;
       let totalWords = 0;
-      const WIKI_RE = /\[\[([^\]|]+)/g;
       let totalLinks = 0, brokenLinks = 0;
       const pageIds = new Set();
       function collect(dir) {
@@ -181,9 +188,9 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
               if (/^title:/m.test(fm[1])) filesWithTitle++;
               if (/^tags:/m.test(fm[1])) filesWithTags++;
             }
-            WIKI_RE.lastIndex = 0;
+            HEALTH_WIKI_LINK_RE.lastIndex = 0;
             let m;
-            while ((m = WIKI_RE.exec(content)) !== null) {
+            while ((m = HEALTH_WIKI_LINK_RE.exec(content)) !== null) {
               totalLinks++;
               const target = m[1].trim();
               if (!pageIds.has(target) && ![...pageIds].some(id => id.endsWith(target))) brokenLinks++;
@@ -1024,3 +1031,6 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 };
 
 module.exports.numericParam = numericParam;
+// Exported for tests: lets the /api/admin/health-summary suite pre-seed lastIndex
+// and prove the per-file reset keeps this shared module-scope regex correct.
+module.exports.HEALTH_WIKI_LINK_RE = HEALTH_WIKI_LINK_RE;
