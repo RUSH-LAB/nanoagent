@@ -101,7 +101,11 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 
 const crypto = require('crypto');
 
-function json(res, status, data) {
+// Send a JSON response with the standard header set. For a GET that returns 200
+// this also computes an ETag and short-circuits to a 304 on a matching
+// if-none-match. Pass opts.cacheControl to override the default 'no-cache' on
+// that GET-200 ETag branch; all other responses are unaffected.
+function json(res, status, data, opts) {
   const body = JSON.stringify(data);
   const headers = {
     'Content-Type': 'application/json',
@@ -114,7 +118,7 @@ function json(res, status, data) {
   if (status === 200 && res.req?.method === 'GET') {
     const etag = '"' + crypto.createHash('md5').update(body).digest('hex').slice(0, 16) + '"';
     headers['ETag'] = etag;
-    headers['Cache-Control'] = 'no-cache';
+    headers['Cache-Control'] = opts?.cacheControl ?? 'no-cache';
     if (res.req.headers['if-none-match'] === etag) {
       res.writeHead(304, headers);
       return res.end();

@@ -184,24 +184,7 @@ module.exports = async function files_routes(req, res, url, pathname, ctx) {
         try { refCount = Object.keys(yaml.load(fs.readFileSync(bibPath, 'utf8')) || {}).length; } catch {}
         return {totalFiles, totalWords, references: refCount, byDirectory: byDir};
       });
-      const body = JSON.stringify(stats);
-      const etag = '"' + crypto.createHash('md5').update(body).digest('hex').slice(0, 16) + '"';
-      const hdrs = {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': CORS_ORIGIN,
-        'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, PATCH, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'X-API-Version': '1.0',
-        'X-Powered-By': 'Mochi Lab',
-        'ETag': etag,
-        'Cache-Control': 'public, max-age=30',
-      };
-      if (req.headers['if-none-match'] === etag) {
-        res.writeHead(304, hdrs);
-        return res.end();
-      }
-      res.writeHead(200, hdrs);
-      return res.end(body);
+      return json(res, 200, stats, {cacheControl: 'public, max-age=30'});
     } catch {
       return json(res, 500, {error: 'Stats failed'});
     }
