@@ -1,17 +1,6 @@
 import React, {useState, useEffect, useRef, useMemo, useCallback} from 'react';
+import {fuzzyMatch} from '@site/src/utils/fuzzyMatch';
 import styles from './styles.module.css';
-
-/* ── Fuzzy match (same approach as the editor's FileSearchDialog) ── */
-function fuzzyMatch(query, text) {
-  const q = query.toLowerCase();
-  const t = text.toLowerCase();
-  if (t.includes(q)) return {match: true, score: t.indexOf(q) === 0 ? 2 : 1};
-  let qi = 0;
-  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
-    if (t[ti] === q[qi]) qi++;
-  }
-  return {match: qi === q.length, score: 0};
-}
 
 /* ── SVG icons (inline to avoid any external dependency) ────────── */
 const icons = {
