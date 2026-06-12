@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import API_BASE from '@site/src/utils/api';
+import { S2_API_BASE } from '@site/src/utils/semanticScholar';
 
-const S2_API = 'https://api.semanticscholar.org';
 const REFERENCES_API = `${API_BASE}/api/references`;
 
 // Module-level cache so repeated opens don't re-fetch
@@ -125,7 +125,7 @@ export default function PaperRecommendations({ references }) {
       for (const seed of seeds) {
         try {
           const url =
-            `${S2_API}/recommendations/v1/papers/forpaper/${encodeURIComponent(seed.paperId)}` +
+            `${S2_API_BASE}/recommendations/v1/papers/forpaper/${encodeURIComponent(seed.paperId)}` +
             `?limit=10&fields=title,authors,year,venue,externalIds,url`;
           const resp = await fetch(url);
           if (!resp.ok) {

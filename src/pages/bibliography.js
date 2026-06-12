@@ -6,6 +6,7 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
 import {useDebounce} from '@site/src/utils/useDebounce';
+import {S2_PAPER_SEARCH} from '@site/src/utils/semanticScholar';
 
 /* ── Year-based navigation components ──────────────────────────── */
 
@@ -454,7 +455,7 @@ function SearchAndAddPapers({ existingKeys }) {
       abortRef.current = controller;
       const encoded = encodeURIComponent(query.trim());
       fetch(
-        `https://api.semanticscholar.org/graph/v1/paper/search?query=${encoded}&limit=10&fields=title,authors,year,venue,externalIds,url`,
+        `${S2_PAPER_SEARCH}?query=${encoded}&limit=10&fields=title,authors,year,venue,externalIds,url`,
         { signal: controller.signal }
       )
         .then((res) => {
