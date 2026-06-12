@@ -29,6 +29,28 @@ const SUGGEST_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be',
   'this','that','these','those','it','its','he','she','they','we','you','i','me','my',
   'his','her','our','their','your','which','what','who','whom','how','when','where','why']);
 
+// ── Batch-export markdown render regexes (GET /api/export/batch) ──
+// The batch-export handler renders up to ~100 markdown files per request, each
+// through this fixed chain of String.prototype.replace calls. Every pattern is
+// used ONLY through replace, which resets lastIndex to 0 on entry and exit, so a
+// single shared module-scope instance yields byte-identical output to the former
+// per-file inline literals while saving one RegExp allocation per pattern per
+// file. Patterns are copied verbatim from the former inline sites; the three tiny
+// escape regexes (for &, <, >) stay inline in the code-fence callback.
+const BATCH_CODE_BLOCK_RE = /```(\w*)\n([\s\S]*?)```/g;
+const BATCH_H4_RE = /^#### (.+)$/gm;
+const BATCH_H3_RE = /^### (.+)$/gm;
+const BATCH_H2_RE = /^## (.+)$/gm;
+const BATCH_H1_RE = /^# (.+)$/gm;
+const BATCH_BOLD_RE = /\*\*(.+?)\*\*/g;
+const BATCH_ITALIC_RE = /\*(.+?)\*/g;
+const BATCH_INLINE_CODE_RE = /`([^`]+)`/g;
+const BATCH_LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
+const BATCH_LIST_RE = /(^- .+$(\n- .+$)*)/gm;
+const BATCH_BLOCKQUOTE_RE = /^> (.+)$/gm;
+const BATCH_PARA_RE = /^(?!<[a-z/])((?!\s*$).+)$/gm;
+const BATCH_BLANK_LINES_RE = /\n{3,}/g;
+
 module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -975,25 +997,25 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
 
           // Convert markdown to HTML
           let html = content;
-          html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+          html = html.replace(BATCH_CODE_BLOCK_RE, (_, lang, code) => {
             const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             return `<pre><code${lang ? ` class="language-${lang}"` : ''}>${escaped}</code></pre>`;
           });
-          html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
-          html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-          html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-          html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-          html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-          html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-          html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-          html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-          html = html.replace(/(^- .+$(\n- .+$)*)/gm, (match) => {
+          html = html.replace(BATCH_H4_RE, '<h4>$1</h4>');
+          html = html.replace(BATCH_H3_RE, '<h3>$1</h3>');
+          html = html.replace(BATCH_H2_RE, '<h2>$1</h2>');
+          html = html.replace(BATCH_H1_RE, '<h1>$1</h1>');
+          html = html.replace(BATCH_BOLD_RE, '<strong>$1</strong>');
+          html = html.replace(BATCH_ITALIC_RE, '<em>$1</em>');
+          html = html.replace(BATCH_INLINE_CODE_RE, '<code>$1</code>');
+          html = html.replace(BATCH_LINK_RE, '<a href="$2">$1</a>');
+          html = html.replace(BATCH_LIST_RE, (match) => {
             const items = match.split('\n').map(line => `<li>${line.slice(2)}</li>`).join('\n');
             return `<ul>\n${items}\n</ul>`;
           });
-          html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
-          html = html.replace(/^(?!<[a-z/])((?!\s*$).+)$/gm, '<p>$1</p>');
-          html = html.replace(/\n{3,}/g, '\n\n');
+          html = html.replace(BATCH_BLOCKQUOTE_RE, '<blockquote>$1</blockquote>');
+          html = html.replace(BATCH_PARA_RE, '<p>$1</p>');
+          html = html.replace(BATCH_BLANK_LINES_RE, '\n\n');
 
           sections.push({title, html: html.trim(), relPath});
         } catch {}
@@ -1682,3 +1704,18 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
 };
 
 module.exports.numericParam = numericParam;
+// Batch-export render regexes, exported so tests can assert their source/flags
+// match the former inline literals byte-for-byte.
+module.exports.BATCH_CODE_BLOCK_RE = BATCH_CODE_BLOCK_RE;
+module.exports.BATCH_H4_RE = BATCH_H4_RE;
+module.exports.BATCH_H3_RE = BATCH_H3_RE;
+module.exports.BATCH_H2_RE = BATCH_H2_RE;
+module.exports.BATCH_H1_RE = BATCH_H1_RE;
+module.exports.BATCH_BOLD_RE = BATCH_BOLD_RE;
+module.exports.BATCH_ITALIC_RE = BATCH_ITALIC_RE;
+module.exports.BATCH_INLINE_CODE_RE = BATCH_INLINE_CODE_RE;
+module.exports.BATCH_LINK_RE = BATCH_LINK_RE;
+module.exports.BATCH_LIST_RE = BATCH_LIST_RE;
+module.exports.BATCH_BLOCKQUOTE_RE = BATCH_BLOCKQUOTE_RE;
+module.exports.BATCH_PARA_RE = BATCH_PARA_RE;
+module.exports.BATCH_BLANK_LINES_RE = BATCH_BLANK_LINES_RE;
