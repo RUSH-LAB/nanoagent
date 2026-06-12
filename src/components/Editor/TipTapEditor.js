@@ -1866,9 +1866,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
 
   const isPostFile = filePath?.startsWith('content/posts/');
 
-  const handleRemoveTag = useCallback(async (tagToRemove) => {
-    if (!filePath || readOnly) return;
-    const newTags = tags.filter(t => t !== tagToRemove);
+  const commitTags = useCallback(async (newTags) => {
     const newFm = updateTagsInFrontmatter(frontmatter, newTags);
     setFrontmatter(newFm);
     setTags(newTags);
@@ -1884,7 +1882,12 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     } catch {
       setError('Failed to update tags');
     }
-  }, [filePath, readOnly, tags, frontmatter, rawMode, splitMode, rawContent, editor]);
+  }, [filePath, frontmatter, rawMode, splitMode, rawContent, editor]);
+
+  const handleRemoveTag = useCallback(async (tagToRemove) => {
+    if (!filePath || readOnly) return;
+    commitTags(tags.filter(t => t !== tagToRemove));
+  }, [filePath, readOnly, tags, commitTags]);
 
   const handleAddTag = useCallback(async () => {
     if (!filePath || readOnly) return;
@@ -1892,23 +1895,8 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     if (!newTag || !newTag.trim()) return;
     const trimmed = newTag.trim().toLowerCase().replace(/\s+/g, '-');
     if (tags.includes(trimmed)) return;
-    const newTags = [...tags, trimmed];
-    const newFm = updateTagsInFrontmatter(frontmatter, newTags);
-    setFrontmatter(newFm);
-    setTags(newTags);
-    // Save the file with updated frontmatter
-    try {
-      const content = (rawMode || splitMode) ? rawContent.replace(frontmatter, newFm) : newFm + (editor?.storage.markdown.getMarkdown() || '');
-      await fetch(`${API_BASE}/api/file`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({path: filePath, content}),
-      });
-      if (rawMode || splitMode) setRawContent(content);
-    } catch {
-      setError('Failed to update tags');
-    }
-  }, [filePath, readOnly, tags, frontmatter, rawMode, splitMode, rawContent, editor]);
+    commitTags([...tags, trimmed]);
+  }, [filePath, readOnly, tags, commitTags]);
 
   const handleImageUpload = useCallback(() => {
     fileInputRef.current?.click();
