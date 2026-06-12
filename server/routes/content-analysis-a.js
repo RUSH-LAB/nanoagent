@@ -41,10 +41,54 @@ const RECOMMEND_CITE_RE = /\[@([\w-]+)/g;
 // requests. It captures the link target and drops any trailing `|alias`.
 const READING_PATH_WIKI_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 
+// js-yaml is required once here at module scope for loadReferencesCached (defined
+// inside the handler below), and the parsed-file memo it maintains also lives here
+// so it survives across requests.
+const yaml = require('js-yaml');
+let referencesCache = null; // { mtimeMs, size, data } for bibliography/references.yaml
+
 module.exports = async function content_analysis_a_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
+
+  // Memoized loader for bibliography/references.yaml, shared by the seven read-only
+  // handlers below that previously re-read and re-parsed the 251 KB / 748 entry file
+  // on every request (productivity report, stats overview, references
+  // export/autofill/random/trajectory, and the content summary). It is keyed on the
+  // file's mtime and size, mirroring server/data-store.js's loadJSON cache: a fresh
+  // stat whose mtimeMs and size both match the cached entry serves the parsed object
+  // straight from memory, so a writer that touches the file is picked up on the very
+  // next request. Exactly one file is ever loaded, so a single slot replaces
+  // data-store's path-keyed Map. The cross-request memo lives at module scope
+  // (`referencesCache`); the function is defined here so it closes over this
+  // request's fs/path/PROJECT_ROOT, the same injection the rest of this module uses.
+  // It returns the SHARED parsed object without copying: every call site below only
+  // reads it (Object.keys, key lookups, JSON.stringify, object spread), so a
+  // per-request deep copy would be pure overhead. Callers must not mutate it. Any
+  // stat, read, or parse failure, and an empty file, yields {}, preserving each
+  // caller's prior `... || {}` fallback.
+  function loadReferencesCached() {
+    const refsFile = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+    let stat;
+    try {
+      stat = fs.statSync(refsFile);
+    } catch {
+      referencesCache = null; // file gone: drop any stale entry, never cache {}
+      return {};
+    }
+    if (referencesCache && referencesCache.mtimeMs === stat.mtimeMs && referencesCache.size === stat.size) {
+      return referencesCache.data;
+    }
+    try {
+      const parsed = yaml.load(fs.readFileSync(refsFile, 'utf8')) || {};
+      referencesCache = {mtimeMs: stat.mtimeMs, size: stat.size, data: parsed};
+      return parsed;
+    } catch {
+      referencesCache = null; // unreadable or unparseable: never cache the {} fallback
+      return {};
+    }
+  }
 
   // ── Productivity report ──
   if (req.method === 'GET' && pathname === '/api/productivity-report') {
@@ -63,9 +107,8 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
       const analytics = loadJSON(ANALYTICS_FILE);
       const totalPageviews = Object.values(analytics.counts || {}).reduce((s, c) => s + c, 0);
       const recentPageviews = (analytics.recent || []).filter(r => r.timestamp >= new Date(Date.now() - 7 * 86400000).toISOString()).length;
-      const yaml = require('js-yaml');
       let refCount = 0;
-      try { refCount = Object.keys(yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {}).length; } catch {}
+      try { refCount = Object.keys(loadReferencesCached()).length; } catch {}
       const stats = cached('content-stats', 30000, () => {
         const contentDir = path.join(PROJECT_ROOT, 'content');
         let totalFiles = 0, totalWords = 0;
@@ -201,7 +244,6 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
   // ── Content statistics overview (all-in-one) ──
   if (req.method === 'GET' && pathname === '/api/stats/overview') {
     try {
-      const yaml = require('js-yaml');
       const contentDir = path.join(PROJECT_ROOT, 'content');
       let files = 0, words = 0, headings = 0, citations = 0, links = 0;
       function scan(dir) {
@@ -223,7 +265,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
       }
       scan(contentDir);
       let refs = 0;
-      try { refs = Object.keys(yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {}).length; } catch {}
+      try { refs = Object.keys(loadReferencesCached()).length; } catch {}
       return json(res, 200, {
         files, words, headings, citations, links, references: refs,
         avgWordsPerFile: files > 0 ? Math.round(words / files) : 0,
@@ -572,8 +614,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
   // ── Bibliography JSON export ──
   if (req.method === 'GET' && pathname === '/api/references/export-json') {
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      const refs = loadReferencesCached();
       const jsonStr = JSON.stringify(refs, null, 2);
       res.writeHead(200, {'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': 'attachment; filename="references.json"', 'Access-Control-Allow-Origin': CORS_ORIGIN});
       return res.end(jsonStr);
@@ -680,8 +721,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     const key = url.searchParams.get('key');
     if (!key) return json(res, 400, {error: 'Missing key'});
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      const refs = loadReferencesCached();
       const entry = refs[key];
       if (!entry) return json(res, 404, {error: 'Reference not found'});
       const suggestions = {};
@@ -708,12 +748,11 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
   // ── Brief content summary ──
   if (req.method === 'GET' && pathname === '/api/content-summary') {
     try {
-      const yaml = require('js-yaml');
       let files = 0, words = 0, refs = 0;
       const contentDir = path.join(PROJECT_ROOT, 'content');
       function scan(dir) { for (const e of fs.readdirSync(dir, {withFileTypes: true})) { if (e.name.startsWith('.')) continue; const fp = path.join(dir, e.name); if (e.isDirectory()) { scan(fp); continue; } if (ALLOWED_EXTS.some(ext => e.name.endsWith(ext))) { files++; try { words += fs.readFileSync(fp, 'utf-8').split(/\s+/).filter(Boolean).length; } catch {} } } }
       scan(contentDir);
-      try { refs = Object.keys(yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {}).length; } catch {}
+      try { refs = Object.keys(loadReferencesCached()).length; } catch {}
       return json(res, 200, {files, words, references: refs, readingHours: Math.round(words / 200 / 60 * 10) / 10});
     } catch { return json(res, 500, {error: 'Summary failed'}); }
   }
@@ -721,8 +760,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
   // ── Random reference ──
   if (req.method === 'GET' && pathname === '/api/references/random') {
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      const refs = loadReferencesCached();
       const keys = Object.keys(refs);
       if (keys.length === 0) return json(res, 200, {reference: null});
       const idx = Math.floor(Math.random() * keys.length);
@@ -868,8 +906,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     const key = url.searchParams.get('key');
     if (!key) return json(res, 400, {error: 'Missing key'});
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      const refs = loadReferencesCached();
       if (!refs[key]) return json(res, 404, {error: 'Reference not found'});
       const contentDir = path.join(PROJECT_ROOT, 'content');
       const CITE_PAT = new RegExp(`\\[@[^\\]]*\\b${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
@@ -1019,3 +1056,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
 };
 
 module.exports.numericParam = numericParam;
+
+// Test hook (not used by routes): reset the references.yaml memo so cache-behavior
+// tests can start from a cold cache.
+module.exports._clearReferencesCache = function () { referencesCache = null; };
