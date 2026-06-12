@@ -499,26 +499,33 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
   // ── Reference deduplication detection ──
   if (req.method === 'GET' && pathname === '/api/references/duplicates') {
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
-      const titleMap = {};
-      for (const [key, entry] of Object.entries(refs)) {
-        const normTitle = (entry.title || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-        if (normTitle.length < 5) continue;
-        if (!titleMap[normTitle]) titleMap[normTitle] = [];
-        titleMap[normTitle].push({key, title: entry.title, year: entry.year, venue: entry.venue});
-      }
-      // Accumulate the duplicate-entry total inside the map: each group's `count`
-      // is its `g.length`, computed right here, and integer addition is order
-      // independent, so this equals the old post-build reduce over `duplicates`.
-      // The trailing sort only reorders groups, never the sum. Mirrors the in-file
-      // completeness and content-quality folds.
-      let totalDuplicateEntries = 0;
-      const duplicates = Object.values(titleMap).filter(g => g.length > 1).map(g => {
-        totalDuplicateEntries += g.length;
-        return {title: g[0].title, entries: g, count: g.length};
-      }).sort((a, b) => b.count - a.count);
-      return json(res, 200, {duplicates, totalDuplicateGroups: duplicates.length, totalDuplicateEntries});
+      // The handler reads no request parameters, so a single static key memoizes
+      // the whole computation: references.yaml is read, parsed, and folded into
+      // duplicate-title groups once per TTL while the json() write below still runs
+      // on every request. Mirrors the sibling cached('bib-analytics', 60000, ...).
+      const result = cached('references-duplicates', 60000, () => {
+        const yaml = require('js-yaml');
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const titleMap = {};
+        for (const [key, entry] of Object.entries(refs)) {
+          const normTitle = (entry.title || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+          if (normTitle.length < 5) continue;
+          if (!titleMap[normTitle]) titleMap[normTitle] = [];
+          titleMap[normTitle].push({key, title: entry.title, year: entry.year, venue: entry.venue});
+        }
+        // Accumulate the duplicate-entry total inside the map: each group's `count`
+        // is its `g.length`, computed right here, and integer addition is order
+        // independent, so this equals the old post-build reduce over `duplicates`.
+        // The trailing sort only reorders groups, never the sum. Mirrors the in-file
+        // completeness and content-quality folds.
+        let totalDuplicateEntries = 0;
+        const duplicates = Object.values(titleMap).filter(g => g.length > 1).map(g => {
+          totalDuplicateEntries += g.length;
+          return {title: g[0].title, entries: g, count: g.length};
+        }).sort((a, b) => b.count - a.count);
+        return {duplicates, totalDuplicateGroups: duplicates.length, totalDuplicateEntries};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 500, {error: 'Deduplication failed'});
     }
