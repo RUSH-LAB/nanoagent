@@ -259,8 +259,6 @@ export function Equation({ id, children }) {
   );
 }
 
-export default Theorem;
-
 // ── Figure (captioned, numbered, cross-referenceable) ─────────────────────────
 export function Figure({ id, caption, children }) {
   const manifest = useMathManifest();
