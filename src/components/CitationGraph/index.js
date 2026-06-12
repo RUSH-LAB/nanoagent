@@ -45,7 +45,7 @@ function yearColor(year, minYear, maxYear) {
 }
 
 /**
- * Build co-citation edges between papers sharing venues or authors.
+ * Build edges between papers that share a venue or an author.
  */
 function buildEdges(keys, references) {
   const edges = [];
@@ -60,22 +60,17 @@ function buildEdges(keys, references) {
 
   for (let i = 0; i < data.length; i++) {
     for (let j = i + 1; j < data.length; j++) {
-      let weight = 0;
+      const sameVenue = data[i].venue && data[i].venue === data[j].venue;
 
-      // Same venue
-      if (data[i].venue && data[i].venue === data[j].venue) {
-        weight += 2;
-      }
-
-      // Shared author
+      let sharedAuthor = false;
       for (const author of data[i].authorSet) {
         if (data[j].authorSet.has(author)) {
-          weight += 2;
+          sharedAuthor = true;
           break;
         }
       }
 
-      if (weight >= 2) {
+      if (sameVenue || sharedAuthor) {
         edges.push({ source: i, target: j });
       }
     }
