@@ -6,52 +6,59 @@ const { listTree, jsonResponse, optionsResponse, ALLOWED_EXTS } = require('./_gi
 /**
  * Build a nested tree structure from the flat GitHub tree entries,
  * matching the format returned by server.js walkDir().
+ *
+ * Single insertion-ordered pass: each relevant blob is walked from `rootDir`
+ * down its path segments, creating a directory node the first time a file is
+ * seen under it and appending file nodes in place. Every entry's `.path` is
+ * read at most once, so the work is O(files x depth) instead of the previous
+ * O(files x directories) (each level used to re-scan the whole filtered list).
  */
 function buildTree(entries, rootDir) {
-  // Filter to entries under rootDir that are blobs with allowed extensions.
+  // Entries kept: blobs under rootDir with an allowed extension (unchanged).
   const prefix = rootDir ? rootDir + '/' : '';
-  const relevant = entries.filter(e => {
-    if (e.type !== 'blob') return false;
-    if (!e.path.startsWith(prefix)) return false;
-    return ALLOWED_EXTS.some(ext => e.path.endsWith(ext));
-  });
+  // Root seed mirrors the old buildLevel(rootDir || '') call: a falsy rootDir
+  // yields the level prefix '/', which no content/... path starts with, so the
+  // result is []. This preserves the rootDir === '' to [] edge case exactly.
+  const rootPath = rootDir || '';
+  const rootPrefix = rootPath + '/';
 
-  // Build nested structure.
-  function buildLevel(dirPath) {
-    const children = [];
-    const seen = new Set();
-    const levelPrefix = dirPath + '/';
+  const rootChildren = [];
+  // Full directory path -> node, so each directory is created once and reused
+  // (the old per-level `seen` set, hoisted to one map keyed by full path).
+  const dirNodes = new Map();
 
-    for (const e of relevant) {
-      if (!e.path.startsWith(levelPrefix)) continue;
-      const rest = e.path.slice(levelPrefix.length);
-      if (rest.includes('/')) {
-        // This file is inside a subdirectory at this level.
-        const subDir = rest.split('/')[0];
-        const subDirPath = dirPath + '/' + subDir;
-        if (!seen.has(subDirPath)) {
-          seen.add(subDirPath);
-          children.push({
-            name: subDir,
-            path: subDirPath,
-            type: 'directory',
-            children: buildLevel(subDirPath),
-          });
-        }
-      } else {
-        children.push({
-          name: rest,
-          path: e.path,
-          type: 'file',
-          size: e.size,
-        });
+  for (const e of entries) {
+    if (e.type !== 'blob') continue;
+    const entryPath = e.path;
+    if (!entryPath.startsWith(prefix)) continue;
+    if (!ALLOWED_EXTS.some(ext => entryPath.endsWith(ext))) continue;
+    if (!entryPath.startsWith(rootPrefix)) continue;
+
+    const segments = entryPath.slice(rootPrefix.length).split('/');
+    let children = rootChildren;
+    let dirPath = rootPath;
+    // Walk the intermediate directories, creating each on first encounter so it
+    // lands at the position of the first file seen beneath it.
+    for (let i = 0; i < segments.length - 1; i++) {
+      dirPath = dirPath + '/' + segments[i];
+      let node = dirNodes.get(dirPath);
+      if (!node) {
+        node = { name: segments[i], path: dirPath, type: 'directory', children: [] };
+        dirNodes.set(dirPath, node);
+        children.push(node);
       }
+      children = node.children;
     }
-
-    return children;
+    // Append the file at its own position within its parent's children.
+    children.push({
+      name: segments[segments.length - 1],
+      path: entryPath,
+      type: 'file',
+      size: e.size,
+    });
   }
 
-  return buildLevel(rootDir || '');
+  return rootChildren;
 }
 
 module.exports = async function handler(req) {
@@ -79,3 +86,6 @@ module.exports = async function handler(req) {
     return jsonResponse(500, { error: err.message });
   }
 };
+
+// Exposed additively for unit tests; the default export stays the handler.
+module.exports.buildTree = buildTree;
