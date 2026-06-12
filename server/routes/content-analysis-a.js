@@ -26,6 +26,14 @@ const SIMILARITY_STOP_WORDS = new Set(['the','a','an','is','are','was','were','b
 const RECOMMEND_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not','can','all','each','some','more','most','other']);
 const WORD_FREQ_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','do','does','did','will','would','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not','can','all','each','some','more','most','other','also','than','very','just','such','only']);
 
+// Citation-key regex for GET /api/content-recommend-v2, hoisted to module scope
+// so it is built once instead of on every request. Because the /g flag makes the
+// regex carry `lastIndex` as shared mutable state, the handler resets
+// `RECOMMEND_CITE_RE.lastIndex = 0` immediately before each `.exec` loop, so there
+// is no carryover within or across requests. This is the simple `[@key` form; the
+// distinct `[@a; @b]` pattern in the cached('ref-pagerank') closure stays local there.
+const RECOMMEND_CITE_RE = /\[@([\w-]+)/g;
+
 module.exports = async function content_analysis_a_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -387,9 +395,9 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
       }
       const sourceWords = new Set(sourceContent.replace(/^---[\s\S]*?---/, '').toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4 && !RECOMMEND_STOP_WORDS.has(w)));
       const sourceCites = new Set();
-      const CITE_RE = /\[@([\w-]+)/g;
       let m;
-      while ((m = CITE_RE.exec(sourceContent)) !== null) sourceCites.add(m[1]);
+      RECOMMEND_CITE_RE.lastIndex = 0;
+      while ((m = RECOMMEND_CITE_RE.exec(sourceContent)) !== null) sourceCites.add(m[1]);
       const contentDir = path.join(PROJECT_ROOT, 'content');
       const candidates = [];
       function scan(dir) {
@@ -417,9 +425,9 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
             let wordOverlap = 0;
             for (const w of pageWords) { if (sourceWords.has(w)) wordOverlap++; }
             score += Math.min(wordOverlap / Math.max(pageWords.length, 1) * 10, 5);
-            CITE_RE.lastIndex = 0;
+            RECOMMEND_CITE_RE.lastIndex = 0;
             const pageCites = new Set();
-            while ((m = CITE_RE.exec(content)) !== null) pageCites.add(m[1]);
+            while ((m = RECOMMEND_CITE_RE.exec(content)) !== null) pageCites.add(m[1]);
             let citeOverlap = 0;
             for (const c of pageCites) { if (sourceCites.has(c)) citeOverlap++; }
             score += citeOverlap * 3;
