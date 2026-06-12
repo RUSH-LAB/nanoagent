@@ -67,8 +67,15 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     const pages = Object.entries(userProgress).map(([pagePath, info]) => ({
       pagePath, ...info,
     })).sort((a, b) => (b.lastRead || '').localeCompare(a.lastRead || ''));
-    const totalRead = pages.filter(p => p.progress >= 100).length;
-    const inProgress = pages.filter(p => p.progress > 0 && p.progress < 100).length;
+    // Single pass over pages: progress >= 100 counts as read, and any remaining
+    // page with progress > 0 is in progress (progress < 100 is implied by the
+    // preceding branch). Equivalent to the two prior filter passes, one loop.
+    let totalRead = 0;
+    let inProgress = 0;
+    for (const p of pages) {
+      if (p.progress >= 100) totalRead++;
+      else if (p.progress > 0) inProgress++;
+    }
     return json(res, 200, {pages, totalRead, inProgress, totalTracked: pages.length});
   }
 
