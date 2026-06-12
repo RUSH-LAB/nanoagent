@@ -11,13 +11,10 @@ import styles from './styles.module.css';
 export function useLineNumbers(value) {
   const lineCount = useMemo(() => value.split('\n').length, [value]);
 
-  const lineNumbers = useMemo(() => {
-    const nums = [];
-    for (let i = 1; i <= lineCount; i++) {
-      nums.push(i);
-    }
-    return nums;
-  }, [lineCount]);
+  const lineNumbers = useMemo(
+    () => Array.from({length: lineCount}, (_, i) => i + 1),
+    [lineCount],
+  );
 
   return lineNumbers;
 }
