@@ -71,6 +71,33 @@ function _resetReferencesCache() {
   referencesCache = null;
 }
 
+// Build a citation string for one reference in the requested style. Shared by
+// GET /api/references/format-all (mapped over every entry) and GET
+// /api/references/format (called once for the looked-up entry) so the APA, MLA,
+// and Chicago author-string and template logic lives in exactly one place. The
+// caller passes already-normalized parts: `authors` an array, `year` a value or
+// 'n.d.', and `title`/`venue` strings. `style` is matched case-sensitively —
+// 'apa' and 'mla' have dedicated formats and every other value (including
+// 'chicago') falls through to the Chicago-style default, preserving the original
+// else branch. Output is byte-identical to the previous inline expressions for
+// every style and for the 0-, 1-, and many-author branches.
+function buildCitation(style, {authors, year, title, venue}) {
+  if (style === 'apa') {
+    const authorStr = authors.length === 0 ? 'Unknown' :
+      authors.length === 1 ? authors[0].split(' ').pop() + ', ' + authors[0].split(' ').slice(0, -1).map(n => n[0] + '.').join(' ') :
+      authors.slice(0, -1).map(a => a.split(' ').pop() + ', ' + a.split(' ').slice(0, -1).map(n => n[0] + '.').join(' ')).join(', ') + ', & ' + authors[authors.length - 1].split(' ').pop() + ', ' + authors[authors.length - 1].split(' ').slice(0, -1).map(n => n[0] + '.').join(' ');
+    return `${authorStr} (${year}). ${title}. ${venue ? venue + '.' : ''}`;
+  }
+  if (style === 'mla') {
+    const authorStr = authors.length === 0 ? 'Unknown' :
+      authors.length === 1 ? authors[0].split(' ').pop() + ', ' + authors[0].split(' ').slice(0, -1).join(' ') :
+      authors[0].split(' ').pop() + ', ' + authors[0].split(' ').slice(0, -1).join(' ') + ', et al.';
+    return `${authorStr}. "${title}." ${venue ? venue + ', ' : ''}${year}.`;
+  }
+  const authorStr = authors.join(', ') || 'Unknown';
+  return `${authorStr}. "${title}." ${venue || ''} (${year}).`;
+}
+
 module.exports = async function references_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -87,20 +114,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
         const year = entry.year || 'n.d.';
         const title = entry.title || '';
         const venue = entry.venue || '';
-        let citation;
-        if (style === 'apa') {
-          const authorStr = authors.length === 0 ? 'Unknown' :
-            authors.length === 1 ? authors[0].split(' ').pop() + ', ' + authors[0].split(' ').slice(0, -1).map(n => n[0] + '.').join(' ') :
-            authors.slice(0, -1).map(a => a.split(' ').pop() + ', ' + a.split(' ').slice(0, -1).map(n => n[0] + '.').join(' ')).join(', ') + ', & ' + authors[authors.length - 1].split(' ').pop() + ', ' + authors[authors.length - 1].split(' ').slice(0, -1).map(n => n[0] + '.').join(' ');
-          citation = `${authorStr} (${year}). ${title}. ${venue ? venue + '.' : ''}`;
-        } else if (style === 'mla') {
-          const authorStr = authors.length === 0 ? 'Unknown' :
-            authors.length === 1 ? authors[0].split(' ').pop() + ', ' + authors[0].split(' ').slice(0, -1).join(' ') :
-            authors[0].split(' ').pop() + ', ' + authors[0].split(' ').slice(0, -1).join(' ') + ', et al.';
-          citation = `${authorStr}. "${title}." ${venue ? venue + ', ' : ''}${year}.`;
-        } else {
-          citation = `${(authors.join(', ') || 'Unknown')}. "${title}." ${venue || ''} (${year}).`;
-        }
+        const citation = buildCitation(style, {authors, year, title, venue});
         formatted.push({key, citation});
       }
       formatted.sort((a, b) => a.citation.localeCompare(b.citation));
@@ -228,21 +242,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
       const year = entry.year || 'n.d.';
       const title = entry.title || '';
       const venue = entry.venue || '';
-      let formatted;
-      if (style === 'apa') {
-        const authorStr = authors.length === 0 ? 'Unknown' :
-          authors.length === 1 ? authors[0].split(' ').pop() + ', ' + authors[0].split(' ').slice(0, -1).map(n => n[0] + '.').join(' ') :
-          authors.slice(0, -1).map(a => a.split(' ').pop() + ', ' + a.split(' ').slice(0, -1).map(n => n[0] + '.').join(' ')).join(', ') + ', & ' + authors[authors.length - 1].split(' ').pop() + ', ' + authors[authors.length - 1].split(' ').slice(0, -1).map(n => n[0] + '.').join(' ');
-        formatted = `${authorStr} (${year}). ${title}. ${venue ? venue + '.' : ''}`;
-      } else if (style === 'mla') {
-        const authorStr = authors.length === 0 ? 'Unknown' :
-          authors.length === 1 ? authors[0].split(' ').pop() + ', ' + authors[0].split(' ').slice(0, -1).join(' ') :
-          authors[0].split(' ').pop() + ', ' + authors[0].split(' ').slice(0, -1).join(' ') + ', et al.';
-        formatted = `${authorStr}. "${title}." ${venue ? venue + ', ' : ''}${year}.`;
-      } else {
-        const authorStr = authors.join(', ') || 'Unknown';
-        formatted = `${authorStr}. "${title}." ${venue || ''} (${year}).`;
-      }
+      const formatted = buildCitation(style, {authors, year, title, venue});
       return json(res, 200, {key, style, formatted, entry});
     } catch {
       return json(res, 500, {error: 'Format failed'});
@@ -658,4 +658,5 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
 
 module.exports.numericParam = numericParam;
 module.exports.loadReferencesCached = loadReferencesCached;
+module.exports.buildCitation = buildCitation;
 module.exports._resetReferencesCache = _resetReferencesCache;
