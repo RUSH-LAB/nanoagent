@@ -30,7 +30,7 @@ function formatAge(ts) {
 
 // Map a content/* source path to its published site route.
 function toViewPath(filePath) {
-  return '/' + filePath.replace(/^content\//, '').replace(/^books\//, '').replace(/^posts\//, '').replace(/\.(mdx?|md)$/, '');
+  return '/' + filePath.replace(/^content\//, '').replace(/^books\//, '').replace(/^posts\//, '').replace(/\.(md|mdx)$/, '');
 }
 
 function HomepageHeader() {
