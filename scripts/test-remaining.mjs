@@ -1149,20 +1149,6 @@ async function testTrashEmpty() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Cleanup
-// ────────────────────────────────────────────────────────────────
-async function runCleanup() {
-  section('Cleanup');
-  let cleaned = 0;
-  let cleanFailed = 0;
-  if (cleanFailed > 0) {
-    log('!', YELLOW, `${cleaned} cleaned, ${cleanFailed} cleanup errors`);
-  } else {
-    log('✓', GREEN, `${cleaned} cleanup actions completed`);
-  }
-}
-
-// ────────────────────────────────────────────────────────────────
 // Main
 // ────────────────────────────────────────────────────────────────
 async function main() {
@@ -1207,8 +1193,6 @@ async function main() {
   await testAiComplete();
   await testQuickNote();
   await testTrashEmpty();
-
-  await runCleanup();
 
   // ── Summary ──
   const total = passed + failed + skipped;
