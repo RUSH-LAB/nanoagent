@@ -40,6 +40,18 @@ function optionsResponse() {
   return new Response(null, { status: 204, headers: CORS_HEADERS });
 }
 
+// ── Path validation ──────────────────────────────────────────────────────────
+
+const ALLOWED_EXTS = ['.md', '.mdx'];
+
+function isValidFilePath(filePath) {
+  if (!filePath || typeof filePath !== 'string') return false;
+  if (filePath.includes('..') || filePath.startsWith('/')) return false;
+  if (!filePath.startsWith('content/')) return false;
+  if (!ALLOWED_EXTS.some(ext => filePath.endsWith(ext))) return false;
+  return true;
+}
+
 // ── GitHub Contents API helpers ──────────────────────────────────────────────
 
 /**
@@ -110,13 +122,12 @@ async function deleteFile(filePath, sha, message) {
 }
 
 /**
- * List the full file tree of the repo for a given branch.
+ * List the full file tree of the repo for the configured branch.
  * Returns the array of tree entries from the Git Trees API.
  */
-async function listTree(branch) {
-  const { token, repo, branch: defaultBranch } = getConfig();
-  const ref = branch || defaultBranch;
-  const url = `${GITHUB_API}/repos/${repo}/git/trees/${ref}?recursive=1`;
+async function listTree() {
+  const { token, repo, branch } = getConfig();
+  const url = `${GITHUB_API}/repos/${repo}/git/trees/${branch}?recursive=1`;
   const res = await fetch(url, { headers: headers(token) });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -129,6 +140,7 @@ async function listTree(branch) {
 
 module.exports = {
   getConfig,
+  isValidFilePath,
   getFile,
   putFile,
   deleteFile,
