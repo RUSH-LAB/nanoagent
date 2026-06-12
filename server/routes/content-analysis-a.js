@@ -814,28 +814,39 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
   // ── Citations per page ranking ──
   if (req.method === 'GET' && pathname === '/api/stats/citations-per-page') {
     try {
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const pages = [];
-      function scan(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scan(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          try {
-            const content = fs.readFileSync(fp, 'utf-8');
-            const citations = (content.match(/\[@/g) || []).length;
-            const words = content.split(/\s+/).filter(Boolean).length;
-            let title = entry.name.replace(/\.(mdx?|md)$/, '');
-            const fm = content.match(/^---\n([\s\S]*?)\n---/);
-            if (fm) { const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m); if (tm) title = tm[1]; }
-            pages.push({path: path.relative(PROJECT_ROOT, fp), title, citations, words, citationsPerKWords: words > 0 ? Math.round((citations / words) * 1000 * 10) / 10 : 0});
-          } catch {}
+      // Memoize the recursive content scan, sort, and assembled ranking for 60s,
+      // mirroring the sibling cached('stats-overview'), cached('link-density'), and
+      // cached('kb-outline') handlers in this file. The handler takes no query
+      // parameters, so a single static key serves every request, and the ranking is
+      // deterministic for a given content state: serving a 60s snapshot skips the
+      // readdirSync/readFileSync walk on repeat requests while leaving the payload
+      // byte identical. The try/catch stays outside the closure so a failed scan
+      // returns a 500 that is never cached.
+      const result = cached('citations-per-page', 60000, () => {
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const pages = [];
+        function scan(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scan(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            try {
+              const content = fs.readFileSync(fp, 'utf-8');
+              const citations = (content.match(/\[@/g) || []).length;
+              const words = content.split(/\s+/).filter(Boolean).length;
+              let title = entry.name.replace(/\.(mdx?|md)$/, '');
+              const fm = content.match(/^---\n([\s\S]*?)\n---/);
+              if (fm) { const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m); if (tm) title = tm[1]; }
+              pages.push({path: path.relative(PROJECT_ROOT, fp), title, citations, words, citationsPerKWords: words > 0 ? Math.round((citations / words) * 1000 * 10) / 10 : 0});
+            } catch {}
+          }
         }
-      }
-      scan(contentDir);
-      pages.sort((a, b) => b.citations - a.citations);
-      return json(res, 200, {pages: pages.slice(0, 20), total: pages.length, avgCitations: Math.round(pages.reduce((s, p) => s + p.citations, 0) / Math.max(pages.length, 1) * 10) / 10});
+        scan(contentDir);
+        pages.sort((a, b) => b.citations - a.citations);
+        return {pages: pages.slice(0, 20), total: pages.length, avgCitations: Math.round(pages.reduce((s, p) => s + p.citations, 0) / Math.max(pages.length, 1) * 10) / 10};
+      });
+      return json(res, 200, result);
     } catch { return json(res, 500, {error: 'Citation density failed'}); }
   }
 
