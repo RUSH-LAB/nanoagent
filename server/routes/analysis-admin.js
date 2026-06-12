@@ -170,11 +170,12 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
     try {
       // `parseInt` yields NaN for a present-but-non-numeric value (e.g. `?limit=abc`),
       // which would otherwise collapse the slice below to an empty list. Fall back to
-      // the default 10, mirroring the `intParam` idiom in comments-notes.js. No upper
-      // clamp is added here, so valid numeric limits (including large ones) pass through
-      // unchanged and the pre-existing slice bound is preserved.
+      // the default 10, mirroring the `intParam` idiom in comments-notes.js. Clamp the
+      // floor to 0 so a negative limit (e.g. `?limit=-5`) yields an empty page instead
+      // of `slice(0, -5)` returning all but the last 5 entries. No upper clamp is added
+      // here; the pre-existing `Math.min(limit, 50)` slice bound still caps large values.
       const n = parseInt(url.searchParams.get('limit') || '10', 10);
-      const limit = Number.isNaN(n) ? 10 : n;
+      const limit = Math.max(Number.isNaN(n) ? 10 : n, 0);
       // Loop-invariant: the includeStats flag is fixed for the whole request, so
       // read it once here rather than re-evaluating searchParams per content file
       // inside walkRecent. The per-file guard and emitted fields are unchanged.
