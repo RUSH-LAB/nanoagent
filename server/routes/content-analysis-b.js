@@ -31,6 +31,17 @@ const SIMILAR_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be',
 // `/\[\[([^\]|]+)/g` captures without the optional alias tail.
 const GRAPH_WIKI_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 
+// Multi-citation regex for the GET /api/references/reading-order topological
+// scan, compiled once at module load instead of rebuilt on every request. Like
+// GRAPH_WIKI_RE this shared /g regex is module state, so the handler resets
+// `lastIndex` before each file's exec loop, which keeps the reading order
+// identical across back-to-back requests. It captures a whole citation group
+// such as `[@a; @b]` (the repeated trailing alternative absorbs each extra
+// `; @key`), and is named distinctly from the simpler single-key CITE_RE locals
+// in /api/content-xref-matrix, /api/content-coverage, and
+// /api/references/trending.
+const READING_ORDER_CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
+
 module.exports = async function content_analysis_b_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -163,7 +174,6 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
       const yaml = require('js-yaml');
       const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
       const contentDir = path.join(PROJECT_ROOT, 'content');
-      const CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
       const citesBefore = {};
       function scan(dir) {
         for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -173,10 +183,10 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
           if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
           try {
             const content = fs.readFileSync(fp, 'utf-8');
-            CITE_RE.lastIndex = 0;
+            READING_ORDER_CITE_RE.lastIndex = 0;
             const pageCites = [];
             let m;
-            while ((m = CITE_RE.exec(content)) !== null) {
+            while ((m = READING_ORDER_CITE_RE.exec(content)) !== null) {
               const keys = m[1].split(/\s*;\s*/).map(k => k.replace(/^@/, ''));
               pageCites.push(...keys);
             }
@@ -810,3 +820,6 @@ module.exports.numericParam = numericParam;
 // Exported for tests: lets the /api/graph/export suite pre-seed lastIndex and
 // prove the per-file reset keeps this shared module-scope regex correct.
 module.exports.GRAPH_WIKI_RE = GRAPH_WIKI_RE;
+// Exported for tests: lets the /api/references/reading-order suite pre-seed
+// lastIndex and prove the per-file reset keeps this shared module-scope regex correct.
+module.exports.READING_ORDER_CITE_RE = READING_ORDER_CITE_RE;
