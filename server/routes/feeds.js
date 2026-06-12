@@ -322,23 +322,33 @@ ${recent.map(item => `<item>
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      let content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      let title = path.basename(filePath, path.extname(filePath));
-      const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/);
-      if (fmMatch) {
-        const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
-        if (tm) title = tm[1];
-        content = content.slice(fmMatch[0].length);
-      }
-      const slides = content.split(/\n---\n|(?=\n## )/).filter(s => s.trim()).map(s => s.trim());
-      return json(res, 200, {
-        title,
-        slides: slides.map((text, i) => ({
-          index: i,
-          content: text,
-        })),
-        totalSlides: slides.length,
+      // Snapshot this file's slide breakdown per path, mirroring the sibling
+      // cached('feed-items', ...) above and the per-path caches elsewhere in the
+      // codebase. The payload is a pure function of the file's on-disk bytes, so a
+      // short TTL snapshot stays byte identical while skipping the repeat read on
+      // the hot path. The isValidFilePath 400 guard and this try/catch stay OUTSIDE
+      // the closure: an invalid path never reaches the cache, and a missing file
+      // still returns 404 uncached (cached() stores nothing when fn throws).
+      const result = cached('slides:' + filePath, 30000, () => {
+        let content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        let title = path.basename(filePath, path.extname(filePath));
+        const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/);
+        if (fmMatch) {
+          const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+          if (tm) title = tm[1];
+          content = content.slice(fmMatch[0].length);
+        }
+        const slides = content.split(/\n---\n|(?=\n## )/).filter(s => s.trim()).map(s => s.trim());
+        return {
+          title,
+          slides: slides.map((text, i) => ({
+            index: i,
+            content: text,
+          })),
+          totalSlides: slides.length,
+        };
       });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
