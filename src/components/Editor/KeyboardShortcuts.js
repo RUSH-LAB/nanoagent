@@ -11,7 +11,7 @@ const CATEGORIES = [
       {action: 'Save', keys: [mod, 'S']},
       {action: 'Bold', keys: [mod, 'B']},
       {action: 'Italic', keys: [mod, 'I']},
-      {action: 'Strikethrough', keys: [mod, 'Shift', 'X']},
+      {action: 'Strikethrough', keys: [mod, 'Shift', 'S']},
       {action: 'Inline code', keys: [mod, 'E']},
       {action: 'Heading 1', keys: [mod, 'Alt', '1']},
       {action: 'Heading 2', keys: [mod, 'Alt', '2']},
