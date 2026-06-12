@@ -67,6 +67,12 @@ function offlineKey(path) {
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?/;
 
+// Shared math-delimiter grammars, held as source strings so every call site can mint its own
+// `new RegExp(..., 'g')`. Both grammars use the global flag, and the sites mix `String.replace`
+// with stateful `.exec` loops; a single shared RegExp would leak `lastIndex` between calls.
+const DISPLAY_MATH_SRC = '\\$\\$([\\s\\S]+?)\\$\\$';
+const INLINE_MATH_SRC = '(?<!\\$)\\$(?!\\$)(.+?)(?<!\\$)\\$(?!\\$)';
+
 function parseFrontmatter(content) {
   const match = content.match(FRONTMATTER_RE);
   if (match) {
@@ -443,7 +449,7 @@ function markdownToHtml(md, katex) {
   });
 
   // Block-level math ($$...$$): must come before inline processing
-  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, latex) => {
+  text = text.replace(new RegExp(DISPLAY_MATH_SRC, 'g'), (_, latex) => {
     if (katex) {
       try {
         return `<div class="math-display">${katex.renderToString(latex.trim(), {displayMode: true, throwOnError: false})}</div>`;
@@ -497,7 +503,7 @@ function markdownToHtml(md, katex) {
 
   function processInline(line) {
     // Inline math ($...$): before other inline processing
-    line = line.replace(/(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)/g, (_, latex) => {
+    line = line.replace(new RegExp(INLINE_MATH_SRC, 'g'), (_, latex) => {
       if (katex) {
         try {
           return katex.renderToString(latex.trim(), {displayMode: false, throwOnError: false});
@@ -729,13 +735,13 @@ function SplitEditor({value, onChange}) {
 function extractMathBlocks(text) {
   const blocks = [];
   // Match display math $$...$$ first (non-greedy, may span lines)
-  const displayRe = /\$\$([\s\S]+?)\$\$/g;
+  const displayRe = new RegExp(DISPLAY_MATH_SRC, 'g');
   let m;
   while ((m = displayRe.exec(text)) !== null) {
     blocks.push({type: 'display', latex: m[1].trim(), index: m.index});
   }
   // Match inline math $...$ (not preceded/followed by $)
-  const inlineRe = /(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)/g;
+  const inlineRe = new RegExp(INLINE_MATH_SRC, 'g');
   while ((m = inlineRe.exec(text)) !== null) {
     // Skip if this position falls inside a display block
     const insideDisplay = blocks.some(
