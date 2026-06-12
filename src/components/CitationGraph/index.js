@@ -15,6 +15,9 @@ const SVG_WIDTH = 1200;
 const SVG_HEIGHT = 800;
 const NODE_RADIUS = 8;
 const PADDING = 60;
+const MIN_VIEW_WIDTH = 200;
+const MIN_VIEW_HEIGHT = 150;
+const MAX_ZOOM_FACTOR = 3;
 
 function formatAuthors(authors) {
   if (!authors || authors.length === 0) return 'Unknown';
@@ -217,8 +220,8 @@ export default function CitationGraph({ references }) {
       e.preventDefault();
       const factor = e.deltaY > 0 ? 1.1 : 0.9;
       setViewBox((prev) => {
-        const newW = Math.max(200, Math.min(SVG_WIDTH * 3, prev.w * factor));
-        const newH = Math.max(150, Math.min(SVG_HEIGHT * 3, prev.h * factor));
+        const newW = Math.max(MIN_VIEW_WIDTH, Math.min(SVG_WIDTH * MAX_ZOOM_FACTOR, prev.w * factor));
+        const newH = Math.max(MIN_VIEW_HEIGHT, Math.min(SVG_HEIGHT * MAX_ZOOM_FACTOR, prev.h * factor));
         // Zoom toward center of current view
         const cx = prev.x + prev.w / 2;
         const cy = prev.y + prev.h / 2;
@@ -311,8 +314,8 @@ export default function CitationGraph({ references }) {
   const zoomIn = useCallback(() => {
     setViewBox((prev) => {
       const factor = 0.8;
-      const newW = Math.max(200, prev.w * factor);
-      const newH = Math.max(150, prev.h * factor);
+      const newW = Math.max(MIN_VIEW_WIDTH, prev.w * factor);
+      const newH = Math.max(MIN_VIEW_HEIGHT, prev.h * factor);
       const cx = prev.x + prev.w / 2;
       const cy = prev.y + prev.h / 2;
       return { x: cx - newW / 2, y: cy - newH / 2, w: newW, h: newH };
@@ -322,8 +325,8 @@ export default function CitationGraph({ references }) {
   const zoomOut = useCallback(() => {
     setViewBox((prev) => {
       const factor = 1.25;
-      const newW = Math.min(SVG_WIDTH * 3, prev.w * factor);
-      const newH = Math.min(SVG_HEIGHT * 3, prev.h * factor);
+      const newW = Math.min(SVG_WIDTH * MAX_ZOOM_FACTOR, prev.w * factor);
+      const newH = Math.min(SVG_HEIGHT * MAX_ZOOM_FACTOR, prev.h * factor);
       const cx = prev.x + prev.w / 2;
       const cy = prev.y + prev.h / 2;
       return { x: cx - newW / 2, y: cy - newH / 2, w: newW, h: newH };
