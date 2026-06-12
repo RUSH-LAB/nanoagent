@@ -17,79 +17,23 @@ function Placeholder({ label }) {
   return <div style={placeholderStyle}>Loading {label}...</div>;
 }
 
-export function VectorPlayground(props) {
-  return (
-    <BrowserOnly fallback={<Placeholder label="vector playground" />}>
-      {() => {
-        const Component = require('./interactive/VectorPlayground').default;
-        return <Component {...props} />;
-      }}
-    </BrowserOnly>
-  );
+function lazyDemo(loader, label) {
+  return function (props) {
+    return (
+      <BrowserOnly fallback={<Placeholder label={label} />}>
+        {() => {
+          const Component = loader().default;
+          return <Component {...props} />;
+        }}
+      </BrowserOnly>
+    );
+  };
 }
 
-export function LinearTransformDemo(props) {
-  return (
-    <BrowserOnly fallback={<Placeholder label="linear transformation demo" />}>
-      {() => {
-        const Component = require('./interactive/LinearTransformDemo').default;
-        return <Component {...props} />;
-      }}
-    </BrowserOnly>
-  );
-}
-
-export function GradientDescentDemo(props) {
-  return (
-    <BrowserOnly fallback={<Placeholder label="gradient descent demo" />}>
-      {() => {
-        const Component = require('./interactive/GradientDescentDemo').default;
-        return <Component {...props} />;
-      }}
-    </BrowserOnly>
-  );
-}
-
-export function EigenDemo(props) {
-  return (
-    <BrowserOnly fallback={<Placeholder label="eigenvalue demo" />}>
-      {() => {
-        const Component = require('./interactive/EigenDemo').default;
-        return <Component {...props} />;
-      }}
-    </BrowserOnly>
-  );
-}
-
-export function RiemannSumDemo(props) {
-  return (
-    <BrowserOnly fallback={<Placeholder label="Riemann sum demo" />}>
-      {() => {
-        const Component = require('./interactive/RiemannSumDemo').default;
-        return <Component {...props} />;
-      }}
-    </BrowserOnly>
-  );
-}
-
-export function DistributionExplorer(props) {
-  return (
-    <BrowserOnly fallback={<Placeholder label="distribution explorer" />}>
-      {() => {
-        const Component = require('./interactive/DistributionExplorer').default;
-        return <Component {...props} />;
-      }}
-    </BrowserOnly>
-  );
-}
-
-export function Surface3DDemo(props) {
-  return (
-    <BrowserOnly fallback={<Placeholder label="3D surface demo" />}>
-      {() => {
-        const Component = require('./interactive/Surface3DDemo').default;
-        return <Component {...props} />;
-      }}
-    </BrowserOnly>
-  );
-}
+export const VectorPlayground = lazyDemo(() => require('./interactive/VectorPlayground'), 'vector playground');
+export const LinearTransformDemo = lazyDemo(() => require('./interactive/LinearTransformDemo'), 'linear transformation demo');
+export const GradientDescentDemo = lazyDemo(() => require('./interactive/GradientDescentDemo'), 'gradient descent demo');
+export const EigenDemo = lazyDemo(() => require('./interactive/EigenDemo'), 'eigenvalue demo');
+export const RiemannSumDemo = lazyDemo(() => require('./interactive/RiemannSumDemo'), 'Riemann sum demo');
+export const DistributionExplorer = lazyDemo(() => require('./interactive/DistributionExplorer'), 'distribution explorer');
+export const Surface3DDemo = lazyDemo(() => require('./interactive/Surface3DDemo'), '3D surface demo');
