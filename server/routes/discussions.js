@@ -73,7 +73,12 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
       return json(res, 404, {error: 'Channel not found'});
     }
     const all = (data.messages || {})[channelId] || [];
-    const limit = numericParam(url.searchParams.get('limit'), 200, 1000);
+    // Lower-clamp the limit too: numericParam guards NaN and caps the upper
+    // bound but passes a negative value through, and `all.slice(offset,
+    // offset + limit)` with offset 0 becomes `slice(0, negative)`, which counts
+    // from the END and drops the last |limit| messages while `total` still
+    // reports the full count. Floor at 0 so a negative limit yields an empty page.
+    const limit = Math.max(numericParam(url.searchParams.get('limit'), 200, 1000), 0);
     // offset has no upper cap: guard NaN to 0, then floor at 0 (no Math.min).
     const offsetRaw = parseInt(url.searchParams.get('offset'), 10);
     const offset = Math.max(Number.isNaN(offsetRaw) ? 0 : offsetRaw, 0);
