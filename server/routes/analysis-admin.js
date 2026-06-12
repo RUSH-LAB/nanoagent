@@ -6,6 +6,12 @@
 // Object keys that must never be used as property names (prototype-pollution guard).
 const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
 
+// Hoisted lint regexes for POST /api/lint, shared across every line and request.
+// A /g regex keeps its lastIndex between calls, so each exec loop resets it to 0
+// first (see the broken-image and missing-alt checks below).
+const LINT_IMG_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
+const LINT_ALT_RE = /!\[\s*\]\([^)]+\)/g;
+
 module.exports = async function analysis_admin_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -485,9 +491,9 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
 
       // 3. Broken image references (path doesn't start with http or /)
       for (let i = 0; i < lines.length; i++) {
-        const imgRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
         let m;
-        while ((m = imgRegex.exec(lines[i])) !== null) {
+        LINT_IMG_RE.lastIndex = 0;
+        while ((m = LINT_IMG_RE.exec(lines[i])) !== null) {
           const imgPath = m[2].trim();
           if (!/^https?:\/\//.test(imgPath) && !imgPath.startsWith('/')) {
             issues.push({line: i + 1, column: m.index + 1, message: `Possibly broken image reference: "${imgPath}" (relative path, should start with / or http)`, severity: 'warning'});
@@ -540,9 +546,9 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
 
       // 7. Missing alt text in images
       for (let i = 0; i < lines.length; i++) {
-        const altRegex = /!\[\s*\]\([^)]+\)/g;
         let m;
-        while ((m = altRegex.exec(lines[i])) !== null) {
+        LINT_ALT_RE.lastIndex = 0;
+        while ((m = LINT_ALT_RE.exec(lines[i])) !== null) {
           issues.push({line: i + 1, column: m.index + 1, message: 'Image is missing alt text', severity: 'warning'});
         }
       }
