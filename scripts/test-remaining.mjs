@@ -19,7 +19,6 @@ const RESET = '\x1b[0m';
 let passed = 0;
 let failed = 0;
 let skipped = 0;
-const cleanup = [];
 
 function log(icon, color, label, detail = '') {
   const detailStr = detail ? ` ${DIM}${detail}${RESET}` : '';
@@ -1156,9 +1155,6 @@ async function runCleanup() {
   section('Cleanup');
   let cleaned = 0;
   let cleanFailed = 0;
-  for (const fn of cleanup) {
-    try { await fn(); cleaned++; } catch { cleanFailed++; }
-  }
   if (cleanFailed > 0) {
     log('!', YELLOW, `${cleaned} cleaned, ${cleanFailed} cleanup errors`);
   } else {
