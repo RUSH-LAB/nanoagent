@@ -38,6 +38,9 @@ async function invoke({ search = '', n }) {
     path,
     PROJECT_ROOT: '/tmp/next-analysis-admin-recent-guard-test',
     ALLOWED_EXTS: ['.md', '.mdx'],
+    // The handler now wraps its walk in cached(); inject a pass-through so each
+    // invoke walks the freshly built fs exactly as before (no cross-call cache).
+    cached: (_k, _t, fn) => fn(),
     json(_res, status, payload) {
       captured = { status, payload };
       res.writableEnded = true;
