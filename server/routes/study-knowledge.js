@@ -15,6 +15,18 @@ const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/;
 // across requests and the per-request allocation is removed.
 const LINKSUGGEST_WIKI_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 
+// Per-file parser regexes for GET /api/quicknotes, which scans the blog post
+// directory and, for each file, matches the title front matter, the date prefix
+// of the filename, and the body that follows the front matter. That handler is
+// not wrapped in cached(), so its loop runs per request over up to ~50 files;
+// one shared instance each is built once at module load instead of re-allocating
+// the literals every iteration. All three are non-global and non-sticky and are
+// read only through String.prototype.match, so they hold no lastIndex state and
+// stay safe to share across requests.
+const QUICKNOTES_TITLE_RE = /^title:\s*"?(.+?)"?\s*$/m;
+const QUICKNOTES_DATE_RE = /^(\d{4}-\d{2}-\d{2})/;
+const QUICKNOTES_BODY_RE = /---\s*\n[\s\S]*?\n---\s*\n([\s\S]*)/;
+
 // Prototype-pollution guard for PUT /api/preferences. These keys would corrupt
 // Object.prototype if accepted as a userId or preference key. The Set is never
 // mutated and is read only through .has(), so one shared module-scope instance
@@ -601,9 +613,9 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
           try {
             const raw = fs.readFileSync(path.join(blogDir, file), 'utf-8');
             if (!raw.includes('quick-note')) continue;
-            const titleMatch = raw.match(/^title:\s*"?(.+?)"?\s*$/m);
-            const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
-            const bodyMatch = raw.match(/---\s*\n[\s\S]*?\n---\s*\n([\s\S]*)/);
+            const titleMatch = raw.match(QUICKNOTES_TITLE_RE);
+            const dateMatch = file.match(QUICKNOTES_DATE_RE);
+            const bodyMatch = raw.match(QUICKNOTES_BODY_RE);
             blogNotes.push({
               id: file,
               text: bodyMatch ? bodyMatch[1].trim().slice(0, 200) : '',
@@ -973,3 +985,11 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
 // lastIndex to prove the per-request `LINKSUGGEST_WIKI_RE.lastIndex = 0` reset is
 // load-bearing. Not part of the route contract.
 module.exports.LINKSUGGEST_WIKI_RE = LINKSUGGEST_WIKI_RE;
+
+// Exported for the quicknotes parser regex-hoist regression test, which pins the
+// .source/.flags and referential stability of the three shared instances and
+// drives GET /api/quicknotes to confirm parsing is unchanged. Not part of the
+// route contract.
+module.exports.QUICKNOTES_TITLE_RE = QUICKNOTES_TITLE_RE;
+module.exports.QUICKNOTES_DATE_RE = QUICKNOTES_DATE_RE;
+module.exports.QUICKNOTES_BODY_RE = QUICKNOTES_BODY_RE;
