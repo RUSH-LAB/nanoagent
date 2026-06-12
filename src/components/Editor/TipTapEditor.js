@@ -1148,7 +1148,7 @@ function DocumentStats({editor, rawMode, rawContent}) {
     const words = trimmed.length === 0 ? 0 : trimmed.split(/\s+/).length;
     const chars = text.length;
     const readingTime = Math.max(1, Math.ceil(words / 200));
-    const lines = rawMode ? rawContent.split('\n').length : text.split('\n').length;
+    const lines = (rawMode ? rawContent : text).split('\n').length;
 
     setStats({words, chars, readingTime, lines});
   }, [editor, rawMode, rawContent]);
