@@ -41,10 +41,11 @@ function buildTemplateContent(tpl, filePath) {
  * Step 2: Pick a template from cards fetched from GET /api/templates.
  *
  * Props:
- *   open        – boolean, whether the modal is visible
- *   onClose     – () => void
- *   onCreate    – (filePath: string, content: string) => void
- *   defaultDir  – optional default directory prefix (e.g. "posts/blog/")
+ *   open                – boolean, whether the modal is visible
+ *   onClose             – () => void
+ *   onCreate            – (filePath: string, content: string) => void
+ *   defaultDir          – optional default directory prefix (e.g. "posts/blog/")
+ *   preselectedTemplate – optional template object; when set, step 1 creates directly and step 2 is skipped
  */
 export default function TemplateModal({open, onClose, onCreate, defaultDir = '', preselectedTemplate = null}) {
   const [step, setStep] = useState(1);
