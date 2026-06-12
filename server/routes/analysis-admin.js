@@ -12,6 +12,13 @@ const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
 const LINT_IMG_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
 const LINT_ALT_RE = /!\[\s*\]\([^)]+\)/g;
 
+// Shared, mtime plus size aware memo for bibliography/references.yaml, reused by
+// the three read-only GET handlers below (citation network, references timeline,
+// and the dashboard reference count) so none re-parses the ~251 KB file on every
+// request. Defined in references.js next to the other reference handlers; ctx
+// does not supply it, so require it here at module scope.
+const {loadReferencesCached} = require('./references');
+
 module.exports = async function analysis_admin_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -631,8 +638,17 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
   if (req.method === 'GET' && pathname === '/api/references/network') {
     try {
       const network = cached('citation-network', 60000, () => {
-        const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        // Serve the parsed bibliography from the shared, mtime plus size aware memo
+        // instead of re-reading and re-parsing references.yaml on every request.
+        // loadReferencesCached swallows a missing or unparseable bibliography and
+        // returns {}; reproduce the original parse only when the memo is empty so a
+        // genuinely broken or missing file still throws to the catch (500), while a
+        // legitimately empty file falls through with refs = {} exactly as before.
+        const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
+        if (Object.keys(refs).length === 0) {
+          const yaml = require('js-yaml');
+          yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8'));
+        }
         const contentDir = path.join(PROJECT_ROOT, 'content');
         const CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
         const citedIn = {};
@@ -752,8 +768,17 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
   if (req.method === 'GET' && pathname === '/api/references/timeline') {
     try {
       const result = cached('references-timeline', 60000, () => {
-        const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        // Serve the parsed bibliography from the shared, mtime plus size aware memo
+        // instead of re-reading and re-parsing references.yaml on every request.
+        // loadReferencesCached swallows a missing or unparseable bibliography and
+        // returns {}; reproduce the original parse only when the memo is empty so a
+        // genuinely broken or missing file still throws to the catch (500), while a
+        // legitimately empty file falls through with refs = {} exactly as before.
+        const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
+        if (Object.keys(refs).length === 0) {
+          const yaml = require('js-yaml');
+          yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8'));
+        }
         const byYear = {};
         for (const [key, entry] of Object.entries(refs)) {
           const year = entry.year || 'unknown';
@@ -846,8 +871,11 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
           }
         }
         countContent(contentDir);
-        let refCount = 0;
-        try { refCount = Object.keys(yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {}).length; } catch {}
+        // The dashboard only counts keys; loadReferencesCached returns {} on a
+        // missing or broken bibliography (it never throws), so a corrupt or absent
+        // file yields refCount = 0 exactly as the swallowed try/catch did. The
+        // integrity probe below keeps its own raw parse to flag a corrupt file.
+        const refCount = Object.keys(loadReferencesCached(fs, path, PROJECT_ROOT)).length;
         const content = {totalFiles, totalWords, references: refCount};
 
         // ── activity (recent pageviews, comments, discussions) ──
