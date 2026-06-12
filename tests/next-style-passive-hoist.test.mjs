@@ -35,6 +35,10 @@ async function invokeStyle(fs, filePath, { isValidFilePath = () => true } = {}) 
     path,
     PROJECT_ROOT,
     isValidFilePath,
+    // /api/file/style now routes its computation through cached('filestyle:' + path,
+    // 30000, fn); a pass-through cached runs fn() inline so this suite exercises the
+    // exact pre-cache code path and every assertion below is unchanged.
+    cached: (_k, _t, fn) => fn(),
     json(_res, status, payload) { captured = { status, payload }; res.writableEnded = true; return captured; },
   };
   await routes(req, res, url, '/api/file/style', ctx);
