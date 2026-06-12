@@ -53,6 +53,9 @@ async function suggest(query) {
     path,
     PROJECT_ROOT: TMP,
     ALLOWED_EXTS,
+    // The handler now memoizes its scan through ctx.cached; this pass-through runs
+    // fn() every call (no caching), so the assertions below are unaffected.
+    cached: (_k, _t, fn) => fn(),
     json: (_res, status, body) => { captured = { status, body }; },
   };
   const url = new URL(`http://localhost/api/search/suggest?q=${encodeURIComponent(query)}`);
