@@ -51,6 +51,14 @@ function scanFeedItems(fs, path, PROJECT_ROOT, ALLOWED_EXTS) {
   return items;
 }
 
+// Escape the three XML metacharacters (&, <, >) shared by the RSS and Atom feed
+// bodies. Hoisted to module scope so the function and its three regex literals
+// are built once at module load, rather than rebuilt per Atom request and per
+// item inside the RSS `.map`. The replace chain and its order are unchanged, so
+// every emitted feed byte stays identical. The ampersand is escaped first; if it
+// ran last it would re-escape the `&` in `&lt;`/`&gt;` into `&amp;lt;`.
+const escapeFeedXml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -184,14 +192,11 @@ module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
 <title>Mochi Lab</title>
 <description>Recent content updates from Mochi Lab</description>
 <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
-${recent.map(item => {
-  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return `<item>
-<title>${esc(item.title)}</title>
-<link>/${esc(item.path.replace(/^content\//, '').replace(/\.(md|mdx)$/, ''))}</link>
+${recent.map(item => `<item>
+<title>${escapeFeedXml(item.title)}</title>
+<link>/${escapeFeedXml(item.path.replace(/^content\//, '').replace(/\.(md|mdx)$/, ''))}</link>
 <pubDate>${new Date(item.date).toUTCString()}</pubDate>
-</item>`;
-}).join('\n')}
+</item>`).join('\n')}
 </channel>
 </rss>`;
       res.writeHead(200, {
@@ -344,17 +349,16 @@ ${recent.map(item => {
     try {
       const items = cached('feed-items', 60000, () => scanFeedItems(fs, path, PROJECT_ROOT, ALLOWED_EXTS));
       const recent = items.slice(0, 20);
-      const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const atom = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
 <title>Mochi Lab</title>
 <updated>${new Date().toISOString()}</updated>
 <id>urn:mochi-lab:feed</id>
 ${recent.map(item => `<entry>
-<title>${esc(item.title)}</title>
+<title>${escapeFeedXml(item.title)}</title>
 <link href="/${item.path.replace(/^content\//, '').replace(/\.(md|mdx)$/, '')}"/>
 <updated>${item.date}</updated>
-<id>urn:mochi-lab:${esc(item.path)}</id>
+<id>urn:mochi-lab:${escapeFeedXml(item.path)}</id>
 </entry>`).join('\n')}
 </feed>`;
       res.writeHead(200, {
@@ -468,3 +472,4 @@ ${recent.map(item => `<entry>
 };
 
 module.exports.numericParam = numericParam;
+module.exports.escapeFeedXml = escapeFeedXml;
