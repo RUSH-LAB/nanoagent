@@ -55,9 +55,12 @@ const READ_VOWEL_GROUP_RE = /[aeiouy]{1,2}/g;
 // and KEYWORDS_SPLIT_RE through String.prototype.split; both reset or ignore lastIndex
 // and run to completion each call, so the shared /g instances stay request-independent
 // and the extracted keywords and totalWords are byte-identical to the per-request build.
-// Scoped to the keywords handler only: the identical-looking strip literals in the
-// /summary, /readability, /related, and /suggest-tags handlers keep their own inline
-// patterns. Mirrors the WIKI_RE / READ_* hoists above.
+// Six of them (FRONTMATTER, FENCE, INLINE_CODE, LINK, HEADING, HTML) are now shared by
+// the GET /api/file/readability handler too, which previously rebuilt byte-identical
+// copies per request; its punct, sentence-split, and word-split patterns genuinely
+// differ from KEYWORDS_PUNCT_RE / KEYWORDS_SPLIT_RE, so they stay inline there. The
+// /summary, /related, and /suggest-tags handlers keep their own inline patterns.
+// Mirrors the WIKI_RE / READ_* hoists above.
 const KEYWORDS_FRONTMATTER_RE = /^---[\s\S]*?---/;
 const KEYWORDS_FENCE_RE = /```[\s\S]*?```/g;
 const KEYWORDS_INLINE_CODE_RE = /`[^`]*`/g;
@@ -465,10 +468,10 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
       let text = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      text = text.replace(/^---[\s\S]*?---/, '');
-      text = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '');
-      text = text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
-      text = text.replace(/#{1,6}\s*/g, '').replace(/<[^>]+>/g, '');
+      text = text.replace(KEYWORDS_FRONTMATTER_RE, '');
+      text = text.replace(KEYWORDS_FENCE_RE, '').replace(KEYWORDS_INLINE_CODE_RE, '');
+      text = text.replace(KEYWORDS_LINK_RE, '$1');
+      text = text.replace(KEYWORDS_HEADING_RE, '').replace(KEYWORDS_HTML_RE, '');
       text = text.replace(/[*_~>|\\[\]]/g, '');
       const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 3);
       const words = text.split(/\s+/).filter(w => w.length > 0);
