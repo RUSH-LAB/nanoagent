@@ -1,4 +1,4 @@
-/** Shared Semantic Scholar API endpoints for the bibliography and editor UIs. */
+/** Shared Semantic Scholar API endpoints for the bibliography, paper-recommendations, and editor UIs. */
 
 /** API host. Used to compose the recommendations and search request URLs. */
 export const S2_API_BASE = 'https://api.semanticscholar.org';
