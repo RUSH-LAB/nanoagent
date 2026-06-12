@@ -794,14 +794,20 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
       if (!entry) return json(res, 404, {error: 'Reference not found'});
       const suggestions = {};
       const FIELDS = ['type', 'venue', 'doi', 'url'];
+      // Lowercase the source entry's authors once, into a Set, instead of
+      // re-lowercasing them inside the innermost comparison for every otherEntry.
+      // entry.author is identical across all FIELDS, so building the Set above the
+      // loop is behavior preserving: an otherEntry matches iff one of its authors
+      // equals a source author case-insensitively, exactly as before.
+      const srcAuthors = entry.author || [];
+      const srcAuthorsLower = new Set(srcAuthors.map(a => a.toLowerCase()));
       for (const field of FIELDS) {
         if (entry[field]) continue;
-        const authors = entry.author || [];
-        if (authors.length === 0) continue;
+        if (srcAuthors.length === 0) continue;
         for (const [otherKey, otherEntry] of Object.entries(refs)) {
           if (otherKey === key || !otherEntry[field]) continue;
           const otherAuthors = otherEntry.author || [];
-          if (authors.some(a => otherAuthors.some(oa => oa.toLowerCase() === a.toLowerCase()))) {
+          if (otherAuthors.some(oa => srcAuthorsLower.has(oa.toLowerCase()))) {
             if (!suggestions[field]) suggestions[field] = [];
             if (suggestions[field].length < 3) suggestions[field].push({value: otherEntry[field], source: otherKey});
           }
