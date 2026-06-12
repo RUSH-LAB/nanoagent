@@ -142,34 +142,41 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
     const format = url.searchParams.get('format') || 'dot';
     if (format !== 'dot') return json(res, 400, {error: 'Only DOT format supported'});
     try {
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const nodes = new Set();
-      const edges = [];
-      function scan(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scan(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          let id = path.relative(path.join(PROJECT_ROOT, 'content'), fp).replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
-          if (id.endsWith('/index')) id = id.slice(0, -6);
-          nodes.add(id);
-          try {
-            const content = fs.readFileSync(fp, 'utf-8');
-            GRAPH_WIKI_RE.lastIndex = 0;
-            let m;
-            while ((m = GRAPH_WIKI_RE.exec(content)) !== null) {
-              edges.push({from: id, to: m[1].trim()});
-            }
-          } catch {}
+      // Only `dot` is served, so a single static cache key is correct: the scan
+      // and DOT-string assembly are memoized for the TTL while the response write
+      // below runs on every request. Mirrors the sibling cached scans in this file
+      // (content-calendar, xref-matrix, ...).
+      const dot = cached('graph-export-dot', 60000, () => {
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const nodes = new Set();
+        const edges = [];
+        function scan(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scan(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            let id = path.relative(path.join(PROJECT_ROOT, 'content'), fp).replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
+            if (id.endsWith('/index')) id = id.slice(0, -6);
+            nodes.add(id);
+            try {
+              const content = fs.readFileSync(fp, 'utf-8');
+              GRAPH_WIKI_RE.lastIndex = 0;
+              let m;
+              while ((m = GRAPH_WIKI_RE.exec(content)) !== null) {
+                edges.push({from: id, to: m[1].trim()});
+              }
+            } catch {}
+          }
         }
-      }
-      scan(contentDir);
-      const esc = s => s.replace(/"/g, '\\"');
-      let dot = 'digraph KnowledgeGraph {\n  rankdir=LR;\n  node [shape=box, style=rounded];\n';
-      for (const n of nodes) dot += `  "${esc(n)}";\n`;
-      for (const e of edges) dot += `  "${esc(e.from)}" -> "${esc(e.to)}";\n`;
-      dot += '}\n';
+        scan(contentDir);
+        const esc = s => s.replace(/"/g, '\\"');
+        let dot = 'digraph KnowledgeGraph {\n  rankdir=LR;\n  node [shape=box, style=rounded];\n';
+        for (const n of nodes) dot += `  "${esc(n)}";\n`;
+        for (const e of edges) dot += `  "${esc(e.from)}" -> "${esc(e.to)}";\n`;
+        dot += '}\n';
+        return dot;
+      });
       res.writeHead(200, {'Content-Type': 'text/plain; charset=utf-8', 'Content-Disposition': 'attachment; filename="knowledge-graph.dot"', 'Access-Control-Allow-Origin': CORS_ORIGIN});
       return res.end(dot);
     } catch {
