@@ -31,7 +31,7 @@ const SUGGEST_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be',
 
 module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── Reading progress tracking ──
@@ -423,53 +423,6 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       return json(res, 200, health);
     } catch {
       return json(res, 500, {error: 'Content health check failed'});
-    }
-  }
-
-  // ── Scheduled publishing ──
-  if (pathname === '/api/schedule') {
-    if (req.method === 'POST') {
-      if (!rateLimit(`schedule:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
-      try {
-        const body = await readBody(req);
-        const {path: filePath, publishAt} = body;
-        if (!filePath || !publishAt) return json(res, 400, {error: 'Missing path or publishAt'});
-        if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
-        const fullPath = path.join(PROJECT_ROOT, filePath);
-        if (!fs.existsSync(fullPath)) return json(res, 404, {error: 'File not found'});
-        const publishDate = new Date(publishAt);
-        if (isNaN(publishDate.getTime())) return json(res, 400, {error: 'Invalid publishAt date'});
-        const raw = loadJSON(SCHEDULES_FILE);
-        const schedules = Array.isArray(raw) ? raw : [];
-        const existing = schedules.findIndex(s => s.path === filePath);
-        if (existing !== -1) schedules.splice(existing, 1);
-        schedules.push({path: filePath, publishAt: publishDate.toISOString(), createdAt: new Date().toISOString()});
-        saveJSON(SCHEDULES_FILE, schedules);
-        return json(res, 200, {success: true, schedule: schedules[schedules.length - 1]});
-      } catch {
-        return json(res, 400, {error: 'Invalid request'});
-      }
-    }
-    if (req.method === 'GET') {
-      const raw = loadJSON(SCHEDULES_FILE);
-      const schedules = Array.isArray(raw) ? raw : [];
-      return json(res, 200, {schedules});
-    }
-    if (req.method === 'DELETE') {
-      try {
-        const body = await readBody(req);
-        const {path: filePath} = body;
-        if (!filePath) return json(res, 400, {error: 'Missing path'});
-        const raw = loadJSON(SCHEDULES_FILE);
-        const schedules = Array.isArray(raw) ? raw : [];
-        const idx = schedules.findIndex(s => s.path === filePath);
-        if (idx === -1) return json(res, 404, {error: 'Schedule not found'});
-        schedules.splice(idx, 1);
-        saveJSON(SCHEDULES_FILE, schedules);
-        return json(res, 200, {success: true});
-      } catch {
-        return json(res, 400, {error: 'Invalid request'});
-      }
     }
   }
 

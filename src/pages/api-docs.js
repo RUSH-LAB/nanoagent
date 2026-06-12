@@ -894,20 +894,20 @@ const CATEGORIES = [
     id: 'schedule',
     title: 'Scheduled Publishing',
     icon: '\u{1F4C5}',
-    description: 'Schedule content files for future publication. Manages a publish-at date per file.',
+    description: 'Schedule content files for future publication. Maintains a list of scheduled items, each with a publish-at date, optional note, and status.',
     endpoints: [
       {
-        method: 'POST', path: '/api/schedule', description: 'Schedule a file for publication at a future date. Replaces any existing schedule for the same file. Rate-limited to 30/min per IP.',
-        request: '{ "path": "content/docs/upcoming.md", "publishAt": "2025-02-01T09:00:00Z" }',
-        response: '{ "success": true, "schedule": { "path": "content/docs/upcoming.md", "publishAt": "2025-02-01T09:00:00.000Z", "createdAt": "..." } }',
+        method: 'POST', path: '/api/schedule', description: 'Schedule a file for publication at a future date. An optional note can be attached. Each call adds a new scheduled item.',
+        request: '{ "path": "content/docs/upcoming.md", "publishAt": "2025-02-01T09:00:00Z", "note": "Launch announcement" }',
+        response: '{ "success": true, "item": { "id": "sched_...", "path": "content/docs/upcoming.md", "publishAt": "2025-02-01T09:00:00Z", "note": "Launch announcement", "createdAt": "...", "status": "scheduled" } }',
       },
       {
-        method: 'GET', path: '/api/schedule', description: 'List all scheduled publications.',
-        response: '{ "schedules": [{ "path": "content/docs/upcoming.md", "publishAt": "2025-02-01T09:00:00.000Z", "createdAt": "..." }] }',
+        method: 'GET', path: '/api/schedule', description: 'List all scheduled items sorted by publish date. Past-due scheduled items are reported as due. Includes counts of upcoming and due items.',
+        response: '{ "items": [{ "id": "sched_...", "path": "content/docs/upcoming.md", "publishAt": "2025-02-01T09:00:00Z", "note": "", "createdAt": "...", "status": "scheduled" }], "upcoming": 1, "due": 0 }',
       },
       {
-        method: 'DELETE', path: '/api/schedule', description: 'Cancel a scheduled publication for a file.',
-        request: '{ "path": "content/docs/upcoming.md" }',
+        method: 'DELETE', path: '/api/schedule', description: 'Cancel a scheduled item by its id.',
+        request: '{ "id": "sched_..." }',
         response: '{ "success": true }',
       },
     ],
