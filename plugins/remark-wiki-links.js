@@ -7,7 +7,7 @@
  * Paths like [[path/to/page]] become href="/path/to/page".
  */
 
-const { visitText } = require('./remark-visit-text');
+const { applyTextReplacements } = require('./remark-visit-text');
 
 // Regex to match [[page]] or [[page|Display Text]]
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
@@ -63,21 +63,9 @@ function processTextNode(node) {
  */
 function remarkWikiLinks() {
   return (tree) => {
-    // Collect replacements first, then apply them (to avoid mutation during traversal).
-    const replacements = [];
-
-    visitText(tree, (node, index, parent) => {
-      const newNodes = processTextNode(node);
-      if (newNodes) {
-        replacements.push({ parent, index, newNodes });
-      }
-    });
-
-    // Apply replacements in reverse order to preserve indices
-    for (let i = replacements.length - 1; i >= 0; i--) {
-      const { parent, index, newNodes } = replacements[i];
-      parent.children.splice(index, 1, ...newNodes);
-    }
+    // The shared helper collects replacements first, then applies them, so the
+    // tree is not mutated during traversal.
+    applyTextReplacements(tree, (node) => processTextNode(node));
   };
 }
 

@@ -11,7 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
-const { visitText } = require('./remark-visit-text');
+const { applyTextReplacements } = require('./remark-visit-text');
 
 // Reload references.yaml on every call so the dev server picks up new entries
 // without needing a restart. The file is small so the I/O cost is negligible.
@@ -203,23 +203,13 @@ function remarkCite() {
     const bibliography = loadBibliography();
     const citedKeys = new Set();
 
-    // Walk the tree and replace citation patterns in text nodes.
-    // Skip code, inlineCode, and link nodes.
-    // We collect replacements first, then apply them (to avoid mutation during traversal).
-    const replacements = [];
-
-    visitText(tree, (node, index, parent) => {
-      const newNodes = processTextNode(node, citedKeys, file, bibliography);
-      if (newNodes) {
-        replacements.push({ parent, index, newNodes });
-      }
-    });
-
-    // Apply replacements in reverse order to preserve indices
-    for (let i = replacements.length - 1; i >= 0; i--) {
-      const { parent, index, newNodes } = replacements[i];
-      parent.children.splice(index, 1, ...newNodes);
-    }
+    // Walk the tree and replace citation patterns in text nodes, skipping
+    // code, inlineCode, and link nodes. The shared helper collects the
+    // replacements first, then applies them, so the tree is not mutated
+    // during traversal.
+    applyTextReplacements(tree, (node) =>
+      processTextNode(node, citedKeys, file, bibliography)
+    );
 
     // Append references section if any citations were found
     const refsSection = buildReferencesSection(citedKeys, bibliography);

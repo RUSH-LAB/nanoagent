@@ -23,4 +23,30 @@ function visitText(tree, callback) {
   walk(tree, null, null);
 }
 
-module.exports = { visitText };
+/**
+ * Collect text-node replacements across the tree, then apply them.
+ *
+ * Walks every visited text node with visitText, calling
+ * transform(node, index, parent). When transform returns an array of
+ * replacement nodes, the original text node is spliced out in its favor.
+ * Replacements are gathered first and applied in reverse document order, so
+ * that earlier indices stay valid while the tree is mutated.
+ */
+function applyTextReplacements(tree, transform) {
+  const replacements = [];
+
+  visitText(tree, (node, index, parent) => {
+    const newNodes = transform(node, index, parent);
+    if (newNodes) {
+      replacements.push({ parent, index, newNodes });
+    }
+  });
+
+  // Apply replacements in reverse order to preserve indices
+  for (let i = replacements.length - 1; i >= 0; i--) {
+    const { parent, index, newNodes } = replacements[i];
+    parent.children.splice(index, 1, ...newNodes);
+  }
+}
+
+module.exports = { visitText, applyTextReplacements };
