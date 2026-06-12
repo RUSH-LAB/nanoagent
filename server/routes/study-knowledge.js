@@ -41,8 +41,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       if (tags !== undefined && (!Array.isArray(tags) || !tags.every(t => typeof t === 'string'))) return json(res, 400, {error: 'tags must be an array of strings'});
       if (sourcePath !== undefined && typeof sourcePath !== 'string') return json(res, 400, {error: 'sourcePath must be a string'});
       if (sourcePath && sourcePath.length > 500) return json(res, 400, {error: 'sourcePath must be 500 characters or fewer'});
-      const FC_FILE = path.join(PROJECT_ROOT, 'data', 'flashcards.json');
-      const data = loadJSON(FC_FILE);
+      const data = loadJSON(FLASHCARDS_FILE);
       const uid = userId || 'default';
       if (!data[uid]) data[uid] = [];
       const card = {
@@ -58,7 +57,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
         createdAt: new Date().toISOString(),
       };
       data[uid].push(card);
-      saveJSON(FC_FILE, data);
+      saveJSON(FLASHCARDS_FILE, data);
       return json(res, 200, {success: true, card});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -67,8 +66,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
 
   if (req.method === 'GET' && pathname === '/api/flashcards') {
     const userId = url.searchParams.get('userId') || 'default';
-    const FC_FILE = path.join(PROJECT_ROOT, 'data', 'flashcards.json');
-    const data = loadJSON(FC_FILE);
+    const data = loadJSON(FLASHCARDS_FILE);
     const cards = Object.hasOwn(data, userId) ? data[userId] : [];
     return json(res, 200, {cards, total: cards.length});
   }
@@ -76,8 +74,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   if (req.method === 'GET' && pathname === '/api/flashcards/due') {
     const userId = url.searchParams.get('userId') || 'default';
     const today = new Date().toISOString().slice(0, 10);
-    const FC_FILE = path.join(PROJECT_ROOT, 'data', 'flashcards.json');
-    const data = loadJSON(FC_FILE);
+    const data = loadJSON(FLASHCARDS_FILE);
     const cards = (Object.hasOwn(data, userId) ? data[userId] : []).filter(c => c.nextReview <= today);
     return json(res, 200, {cards, dueCount: cards.length});
   }
@@ -95,8 +92,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       if (userId && userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
       const q = Math.max(0, Math.min(5, quality));
       const uid = userId || 'default';
-      const FC_FILE = path.join(PROJECT_ROOT, 'data', 'flashcards.json');
-      const data = loadJSON(FC_FILE);
+      const data = loadJSON(FLASHCARDS_FILE);
       const card = (data[uid] || []).find(c => c.id === cardId);
       if (!card) return json(res, 404, {error: 'Card not found'});
       if (q >= 3) {
@@ -113,7 +109,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       next.setDate(next.getDate() + card.interval);
       card.nextReview = next.toISOString().slice(0, 10);
       card.lastReviewed = new Date().toISOString();
-      saveJSON(FC_FILE, data);
+      saveJSON(FLASHCARDS_FILE, data);
       return json(res, 200, {success: true, card});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -126,13 +122,12 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       const {userId, cardId} = body;
       if (!cardId) return json(res, 400, {error: 'Missing cardId'});
       const uid = userId || 'default';
-      const FC_FILE = path.join(PROJECT_ROOT, 'data', 'flashcards.json');
-      const data = loadJSON(FC_FILE);
+      const data = loadJSON(FLASHCARDS_FILE);
       if (!data[uid]) return json(res, 404, {error: 'Card not found'});
       const idx = data[uid].findIndex(c => c.id === cardId);
       if (idx === -1) return json(res, 404, {error: 'Card not found'});
       data[uid].splice(idx, 1);
-      saveJSON(FC_FILE, data);
+      saveJSON(FLASHCARDS_FILE, data);
       return json(res, 200, {success: true});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -308,7 +303,6 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
 
   // ── Concept glossary ──
   if (req.method === 'GET' && pathname === '/api/glossary') {
-    const GLOSSARY_FILE = path.join(PROJECT_ROOT, 'data', 'glossary.json');
     const data = loadJSON(GLOSSARY_FILE);
     const query = (url.searchParams.get('q') || '').toLowerCase();
     let terms = data.terms || [];
@@ -326,7 +320,6 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       if (term.length > 200) return json(res, 400, {error: 'Term must be 200 characters or fewer'});
       if (!definition || typeof definition !== 'string') return json(res, 400, {error: 'Missing or invalid definition'});
       if (definition.length > 5000) return json(res, 400, {error: 'Definition must be 5000 characters or fewer'});
-      const GLOSSARY_FILE = path.join(PROJECT_ROOT, 'data', 'glossary.json');
       const data = loadJSON(GLOSSARY_FILE);
       if (!data.terms) data.terms = [];
       if (data.terms.some(t => t.term.toLowerCase() === term.toLowerCase())) {
@@ -353,7 +346,6 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       const body = await readBody(req);
       const {id} = body;
       if (!id) return json(res, 400, {error: 'Missing id'});
-      const GLOSSARY_FILE = path.join(PROJECT_ROOT, 'data', 'glossary.json');
       const data = loadJSON(GLOSSARY_FILE);
       if (!data.terms) return json(res, 404, {error: 'Term not found'});
       const idx = data.terms.findIndex(t => t.id === id);
