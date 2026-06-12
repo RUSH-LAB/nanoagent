@@ -55,7 +55,7 @@ function CategoryBadge({ category, onClick, active }) {
 
 /* ── Letter nav bar ──────────────────────────────────────────── */
 
-function LetterNav({ letters, activeLetter }) {
+function LetterNav({ letters }) {
   return (
     <nav aria-label="Alphabetical navigation" style={{
       display: 'flex',
@@ -77,15 +77,9 @@ function LetterNav({ letters, activeLetter }) {
             width: '32px',
             height: '32px',
             borderRadius: '6px',
-            border: activeLetter === letter
-              ? '1px solid var(--ifm-color-primary)'
-              : '1px solid var(--ifm-color-emphasis-200)',
-            background: activeLetter === letter
-              ? 'var(--ifm-color-primary)'
-              : 'transparent',
-            color: activeLetter === letter
-              ? '#fff'
-              : 'var(--ifm-font-color-base)',
+            border: '1px solid var(--ifm-color-emphasis-200)',
+            background: 'transparent',
+            color: 'var(--ifm-font-color-base)',
             cursor: 'pointer',
             fontSize: '0.85em',
             fontWeight: 700,
