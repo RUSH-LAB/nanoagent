@@ -4,6 +4,7 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
+import { displayDirPath } from '@site/src/utils/paths';
 
 // ── Color map for content types ─────────────────────────────────
 
@@ -43,11 +44,6 @@ function extractFileName(filePath) {
   const parts = filePath.split('/');
   const raw = parts[parts.length - 1];
   return raw.replace(/\.(md|mdx)$/, '');
-}
-
-function extractDisplayPath(filePath) {
-  if (!filePath) return '';
-  return filePath.replace(/^content\//, '').replace(/\/[^/]+$/, '');
 }
 
 function groupByDay(files) {
@@ -221,7 +217,7 @@ function ContentTimeline() {
                   const colors = getColors(type);
                   const wordCount = file.words || file.wordCount || 0;
                   const fileName = file.title || extractFileName(filePath);
-                  const displayPath = extractDisplayPath(filePath);
+                  const displayPath = displayDirPath(filePath);
                   const modified = file.modified || file.mtime || file.date || '';
                   const timeStr = modified
                     ? new Date(modified).toLocaleTimeString(undefined, {
