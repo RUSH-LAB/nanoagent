@@ -2,6 +2,12 @@
 // Route module organized from server.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
+
+// Object keys that must never be used as map keys in the comment/note stores,
+// since assigning them can pollute Object.prototype. Hoisted and frozen so the
+// three write handlers below share one immutable, read-only guard list.
+const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
+
 module.exports = async function comments_notes_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -36,7 +42,7 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
       if (page.length > 500) return json(res, 400, {error: 'Page must be 500 characters or fewer'});
       if (!text || typeof text !== 'string') return json(res, 400, {error: 'Missing or invalid text'});
       if (text.length > 5000) return json(res, 400, {error: 'Text must be 5000 characters or fewer'});
-      if (['__proto__', 'constructor', 'prototype'].includes(page)) return json(res, 400, {error: 'Invalid page'});
+      if (PROTO_KEYS.includes(page)) return json(res, 400, {error: 'Invalid page'});
       if (author !== undefined && typeof author !== 'string') return json(res, 400, {error: 'author must be a string'});
       if (author && author.length > 100) return json(res, 400, {error: 'Author must be 100 characters or fewer'});
       if (parentId !== undefined && typeof parentId !== 'string') return json(res, 400, {error: 'parentId must be a string'});
@@ -104,7 +110,7 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
       if (key.length > 200) return json(res, 400, {error: 'Key must be 200 characters or fewer'});
       if (typeof content !== 'string') return json(res, 400, {error: 'Content must be a string'});
       if (content.length > 50000) return json(res, 400, {error: 'Content must be 50000 characters or fewer'});
-      if (['__proto__', 'constructor', 'prototype'].includes(key)) return json(res, 400, {error: 'Invalid key'});
+      if (PROTO_KEYS.includes(key)) return json(res, 400, {error: 'Invalid key'});
       if (title !== undefined && typeof title !== 'string') return json(res, 400, {error: 'title must be a string'});
       if (title && title.length > 500) return json(res, 400, {error: 'Title must be 500 characters or fewer'});
       const notes = loadJSON(NOTES_FILE);
@@ -122,7 +128,7 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
       const body = await readBody(req);
       const {key} = body;
       if (!key || typeof key !== 'string') return json(res, 400, {error: 'Missing or invalid key'});
-      if (['__proto__', 'constructor', 'prototype'].includes(key)) return json(res, 400, {error: 'Invalid key'});
+      if (PROTO_KEYS.includes(key)) return json(res, 400, {error: 'Invalid key'});
       const notes = loadJSON(NOTES_FILE);
       if (!notes[key]) return json(res, 404, {error: 'Note not found'});
       delete notes[key];
