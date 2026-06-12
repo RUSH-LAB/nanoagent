@@ -21,6 +21,16 @@ function numericParam(raw, def, max) {
 // closure, whose `/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g` also requires the closing `]]`.
 const HEALTH_WIKI_LINK_RE = /\[\[([^\]|]+)/g;
 
+// Citation-key regex for the GET /api/writing-prompts cited-key scan, compiled once
+// at module load instead of rebuilt on every request. Because this /g regex is now
+// shared module state, the handler resets `lastIndex` before each file's exec loop,
+// which keeps the cited-key set (and the resulting uncited-reference prompts)
+// identical across back-to-back requests. Named distinctly from the per-request
+// `CITE_PAT` built for one key in /api/references/abstracts and from the inline
+// `content.match(/\[@[\w-]+/g)` one-shots in the quality scorers, which need no
+// persistent /g state.
+const WRITING_PROMPTS_CITE_RE = /\[@([\w-]+)/g;
+
 module.exports = async function content_analysis_c_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -540,7 +550,6 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
       const yaml = require('js-yaml');
       const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
       const contentDir = path.join(PROJECT_ROOT, 'content');
-      const CITE_RE = /\[@([\w-]+)/g;
       const citedKeys = new Set();
       function scanCites(dir) {
         for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -551,8 +560,8 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
             try {
               const content = fs.readFileSync(fp, 'utf-8');
               let m;
-              CITE_RE.lastIndex = 0;
-              while ((m = CITE_RE.exec(content)) !== null) citedKeys.add(m[1]);
+              WRITING_PROMPTS_CITE_RE.lastIndex = 0;
+              while ((m = WRITING_PROMPTS_CITE_RE.exec(content)) !== null) citedKeys.add(m[1]);
             } catch {}
           }
         }
@@ -1034,3 +1043,6 @@ module.exports.numericParam = numericParam;
 // Exported for tests: lets the /api/admin/health-summary suite pre-seed lastIndex
 // and prove the per-file reset keeps this shared module-scope regex correct.
 module.exports.HEALTH_WIKI_LINK_RE = HEALTH_WIKI_LINK_RE;
+// Exported for tests: lets the /api/writing-prompts suite pre-seed lastIndex and
+// prove the per-file reset keeps this shared module-scope regex correct.
+module.exports.WRITING_PROMPTS_CITE_RE = WRITING_PROMPTS_CITE_RE;
