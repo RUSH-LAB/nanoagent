@@ -387,7 +387,9 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       if (definition.length > 5000) return json(res, 400, {error: 'Definition must be 5000 characters or fewer'});
       const data = loadJSON(GLOSSARY_FILE);
       if (!data.terms) data.terms = [];
-      if (data.terms.some(t => t.term.toLowerCase() === term.toLowerCase())) {
+      // term is invariant across the scan, so lowercase it once instead of per entry.
+      const termLower = term.toLowerCase();
+      if (data.terms.some(t => t.term.toLowerCase() === termLower)) {
         return json(res, 409, {error: 'Term already exists'});
       }
       const entry = {
