@@ -27,7 +27,11 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
     const limit = Math.min(Math.max(intParam('limit', 100), 0), 500);
     const offset = Math.max(intParam('offset', 0), 0);
     const comments = loadJSON(COMMENTS_FILE);
-    const all = comments[page] || [];
+    // Only treat an OWN key as a real page. A request-controlled `page` such as
+    // `constructor` or `toString` resolves to a truthy inherited value, so the
+    // `|| []` fallback would be skipped and `all.slice` would throw, hanging the
+    // request until the socket timeout. Mirror the users-me read-path guard.
+    const all = Object.hasOwn(comments, page) ? comments[page] : [];
     const paginated = all.slice(offset, offset + limit);
     return json(res, 200, {comments: paginated, total: all.length});
   }
