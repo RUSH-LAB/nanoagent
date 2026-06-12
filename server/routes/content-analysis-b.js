@@ -678,7 +678,11 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
   if (req.method === 'GET' && pathname === '/api/content-similar') {
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
-    const limit = numericParam(url.searchParams.get('limit'), 5, 20);
+    // Lower-clamp the limit: a negative `?limit` would otherwise reach
+    // `candidates.slice(0, limit)` below as `slice(0, negative)`, which counts
+    // from the END and drops the last |limit| matches while `total` still
+    // reports the full count. Floor at 0 so a negative limit yields an empty list.
+    const limit = Math.max(numericParam(url.searchParams.get('limit'), 5, 20), 0);
     try {
       function getKeywords(text) {
         return text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ')
