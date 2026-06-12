@@ -22,7 +22,7 @@ function add(type, message, options = {}) {
   const id = ++nextId;
   const duration = options.duration ?? 3000;
 
-  const entry = {id, type, message, duration, action: options.action || null, actionLabel: options.actionLabel || null};
+  const entry = {id, type, message, action: options.action || null, actionLabel: options.actionLabel || null};
   toasts = [...toasts, entry];
   notify();
 
