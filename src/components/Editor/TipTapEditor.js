@@ -1,10 +1,11 @@
-import React, {useEffect, useState, useCallback, useRef, useMemo} from 'react';
+import React, {useEffect, useState, useCallback, useRef} from 'react';
 import {useEditor, EditorContent} from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Link from '@tiptap/extension-link';
 import {Markdown} from 'tiptap-markdown';
 import styles from './styles.module.css';
+import {useLineNumbers, LineNumberGutter} from './LineNumberGutter';
 import CitationAutocomplete from './CitationAutocomplete';
 import AIAssistant from './AIAssistant';
 import PresenceIndicator from './PresenceIndicator';
@@ -400,15 +401,7 @@ function RawEditor({value, onChange}) {
   const lineNumbersRef = useRef(null);
   const [focused, setFocused] = useState(false);
 
-  const lineCount = useMemo(() => value.split('\n').length, [value]);
-
-  const lineNumbers = useMemo(() => {
-    const nums = [];
-    for (let i = 1; i <= lineCount; i++) {
-      nums.push(i);
-    }
-    return nums;
-  }, [lineCount]);
+  const lineNumbers = useLineNumbers(value);
 
   // Sync scroll between textarea and line numbers
   const handleScroll = useCallback(() => {
@@ -421,15 +414,7 @@ function RawEditor({value, onChange}) {
     <div
       className={`${styles.rawEditorWrapper} ${focused ? styles.rawEditorWrapperFocused : ''}`}
     >
-      <div
-        ref={lineNumbersRef}
-        className={styles.lineNumbers}
-        aria-hidden="true"
-      >
-        {lineNumbers.map((num) => (
-          <div key={num} className={styles.lineNumber}>{num}</div>
-        ))}
-      </div>
+      <LineNumberGutter numbers={lineNumbers} gutterRef={lineNumbersRef} />
       <textarea
         ref={textareaRef}
         className={styles.rawTextarea}
@@ -652,15 +637,7 @@ function SplitEditor({value, onChange}) {
   const debounceRef = useRef(null);
   const katex = useKatex();
 
-  const lineCount = useMemo(() => value.split('\n').length, [value]);
-
-  const lineNumbers = useMemo(() => {
-    const nums = [];
-    for (let i = 1; i <= lineCount; i++) {
-      nums.push(i);
-    }
-    return nums;
-  }, [lineCount]);
+  const lineNumbers = useLineNumbers(value);
 
   // Debounced preview update (300ms). markdownToHtml renders math only once katex
   // has lazily loaded; until then it falls back to plain source text, and the
@@ -713,15 +690,7 @@ function SplitEditor({value, onChange}) {
           Markdown
         </div>
         <div className={`${styles.rawEditorWrapper} ${focused ? styles.rawEditorWrapperFocused : ''}`} style={{borderRadius: 0}}>
-          <div
-            ref={lineNumbersRef}
-            className={styles.lineNumbers}
-            aria-hidden="true"
-          >
-            {lineNumbers.map((num) => (
-              <div key={num} className={styles.lineNumber}>{num}</div>
-            ))}
-          </div>
+          <LineNumberGutter numbers={lineNumbers} gutterRef={lineNumbersRef} />
           <textarea
             ref={textareaRef}
             className={styles.rawTextarea}
