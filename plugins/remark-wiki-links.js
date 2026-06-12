@@ -7,22 +7,7 @@
  * Paths like [[path/to/page]] become href="/path/to/page".
  */
 
-// Simple tree walker — avoids ESM/CJS issues with unist-util-visit v5
-function visitText(tree, callback) {
-  function walk(node, index, parent) {
-    if (node.type === 'text' && parent) {
-      callback(node, index, parent);
-    }
-    if (node.children) {
-      // Skip code blocks and links to avoid producing nested <a> elements
-      if (node.type === 'code' || node.type === 'inlineCode' || node.type === 'link') return;
-      for (let i = 0; i < node.children.length; i++) {
-        walk(node.children[i], i, node);
-      }
-    }
-  }
-  walk(tree, null, null);
-}
+const { visitText } = require('./remark-visit-text');
 
 // Regex to match [[page]] or [[page|Display Text]]
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
