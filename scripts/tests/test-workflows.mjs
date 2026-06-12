@@ -2,7 +2,7 @@
 // ─────────────────────────────────────────────────────────────
 // End-to-end user workflow tests for Mochi Lab
 // Tests 4 complete user journeys (~23 tests total)
-// Usage:  node scripts/test-workflows.mjs
+// Usage:  node scripts/tests/test-workflows.mjs
 // Requires the server running on http://localhost:3001
 // ─────────────────────────────────────────────────────────────
 

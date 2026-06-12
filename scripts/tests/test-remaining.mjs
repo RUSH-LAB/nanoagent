@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────
 // Tests for previously uncovered endpoints in the Mochi Lab server
-// Usage:  node scripts/test-remaining.mjs
+// Usage:  node scripts/tests/test-remaining.mjs
 // Requires the server running on http://localhost:3001
 // ─────────────────────────────────────────────────────────────
 

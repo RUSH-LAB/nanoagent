@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────
 // Comprehensive API integration tests for the Mochi Lab editor server
-// Usage:  node scripts/test-api.mjs
+// Usage:  node scripts/tests/test-api.mjs
 // Requires the server running on http://localhost:3001
 // ─────────────────────────────────────────────────────────────
 

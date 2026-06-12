@@ -37,7 +37,7 @@ ensure_server() {
 run_tests() {
   local passed=0 failed=0 total=0
 
-  for script in scripts/test-*.mjs; do
+  for script in scripts/tests/test-*.mjs; do
     [ -f "$script" ] || continue
     local name=$(basename "$script" .mjs)
     local result=$(node "$script" 2>&1 | tail -1)
@@ -99,7 +99,7 @@ auto_optimize() {
   if command -v claude &> /dev/null; then
     log "${CYAN}Launching Claude Code optimization...${NC}"
     claude -p "你是监工。做以下事情：
-1. 运行 node scripts/test-api.mjs 确认所有测试通过
+1. 运行 node scripts/tests/test-api.mjs 确认所有测试通过
 2. 如果有失败的测试，修复它们
 3. 找一个可以优化的地方（性能、安全、代码质量、新功能）
 4. 实现优化

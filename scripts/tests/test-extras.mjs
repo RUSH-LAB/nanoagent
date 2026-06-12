@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────
 // Extra endpoint coverage tests for the Mochi Lab editor server
-// Usage:  node scripts/test-extras.mjs
+// Usage:  node scripts/tests/test-extras.mjs
 // Requires the server running on http://localhost:3001
 // ─────────────────────────────────────────────────────────────
 

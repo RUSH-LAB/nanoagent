@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────
 // Stress & resilience tests for the Mochi Lab editor server
-// Usage:  node scripts/test-resilience.mjs
+// Usage:  node scripts/tests/test-resilience.mjs
 // Requires the server running on http://localhost:3001
 // ─────────────────────────────────────────────────────────────
 
