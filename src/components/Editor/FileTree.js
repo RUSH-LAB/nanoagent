@@ -119,7 +119,7 @@ function TreeNode({node, depth, selectedFile, onSelectFile, onDeleteFile, onRena
     setDropOver(true);
   };
 
-  const handleDragLeave = (e) => {
+  const handleDragLeave = () => {
     if (!isDir) return;
     setDropOver(false);
   };
