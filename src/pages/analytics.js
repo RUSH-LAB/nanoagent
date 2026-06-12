@@ -4,6 +4,7 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
+import { buildHeatmapWeeks } from '@site/src/utils/heatmap.mjs';
 
 function AnalyticsDashboard() {
   const [data, setData] = useState(null);
@@ -619,25 +620,8 @@ function AnalyticsDashboard() {
 
       {/* --- Activity Heatmap --- */}
       {heatmap && Object.keys(heatmap).length > 0 && (() => {
-        const today = new Date();
-        const cells = [];
         const maxVal = Math.max(...Object.values(heatmap), 1);
-        for (let i = 179; i >= 0; i--) {
-          const d = new Date(today.getTime() - i * 86400000);
-          const key = d.toISOString().slice(0, 10);
-          const count = heatmap[key] || 0;
-          const intensity = count > 0 ? Math.max(0.15, Math.min(1, count / maxVal)) : 0;
-          cells.push({key, count, intensity, day: d.getDay()});
-        }
-        const weeks = [];
-        let week = [];
-        const firstDay = cells[0]?.day || 0;
-        for (let i = 0; i < firstDay; i++) week.push(null);
-        for (const cell of cells) {
-          week.push(cell);
-          if (week.length === 7) { weeks.push(week); week = []; }
-        }
-        if (week.length > 0) weeks.push(week);
+        const weeks = buildHeatmapWeeks(heatmap, { days: 180, today: new Date() });
         return (
           <div style={{marginTop: '2rem'}}>
             <h2>Activity Heatmap</h2>
@@ -651,7 +635,7 @@ function AnalyticsDashboard() {
                       style={{
                         width: 12, height: 12, borderRadius: 2,
                         background: cell
-                          ? (cell.count > 0 ? `rgba(34, 197, 94, ${cell.intensity})` : 'var(--ifm-color-emphasis-200)')
+                          ? (cell.count > 0 ? `rgba(34, 197, 94, ${Math.max(0.15, Math.min(1, cell.count / maxVal))})` : 'var(--ifm-color-emphasis-200)')
                           : 'transparent',
                       }}
                     />
@@ -829,36 +813,10 @@ function AnalyticsDashboard() {
           }
         });
 
-        // Build 12 weeks (84 days) of cells ending today
-        const today = new Date();
-        const totalDays = 12 * 7;
-        const cells = [];
+        // Build 12 weeks (84 days) ending today, padding the final partial
+        // week so every column has 7 rows (Sun=0 ... Sat=6).
         const maxVal = Math.max(...Object.values(dateCounts), 1);
-
-        for (let i = totalDays - 1; i >= 0; i--) {
-          const d = new Date(today.getTime() - i * 86400000);
-          const key = d.toISOString().slice(0, 10);
-          const count = dateCounts[key] || 0;
-          cells.push({ key, count, day: d.getDay() });
-        }
-
-        // Arrange into columns (weeks), 7 rows each (Sun=0 ... Sat=6)
-        const weeks = [];
-        let week = [];
-        // Pad the first week with nulls so the first real cell lands on the correct day-of-week row
-        const firstDayOfWeek = cells[0]?.day || 0;
-        for (let i = 0; i < firstDayOfWeek; i++) week.push(null);
-        for (const cell of cells) {
-          week.push(cell);
-          if (week.length === 7) {
-            weeks.push(week);
-            week = [];
-          }
-        }
-        if (week.length > 0) {
-          while (week.length < 7) week.push(null);
-          weeks.push(week);
-        }
+        const weeks = buildHeatmapWeeks(dateCounts, { days: 12 * 7, today: new Date(), trailingPad: true });
 
         // Green color scale (GitHub-style)
         const getColor = (count) => {
