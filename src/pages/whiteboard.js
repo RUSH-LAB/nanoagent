@@ -100,7 +100,7 @@ function WhiteboardApp() {
       ctx.shadowOffsetY = 2;
 
       // Note background
-      ctx.fillStyle = el.color || '#fef3c7';
+      ctx.fillStyle = el.color || COLORS[0];
       ctx.beginPath();
       ctx.roundRect(el.x, el.y, w, h, 6);
       ctx.fill();
@@ -444,11 +444,11 @@ function WhiteboardApp() {
                   <button
                     key={c}
                     onClick={() => handleEditColor(c)}
-                    aria-label={`Color ${i + 1}${(elements[editing]?.color || '#fef3c7') === c ? ' (current)' : ''}`}
-                    aria-pressed={(elements[editing]?.color || '#fef3c7') === c}
+                    aria-label={`Color ${i + 1}${(elements[editing]?.color || COLORS[0]) === c ? ' (current)' : ''}`}
+                    aria-pressed={(elements[editing]?.color || COLORS[0]) === c}
                     style={{
                       width: 18, height: 18, borderRadius: '50%', padding: 0, cursor: 'pointer',
-                      border: (elements[editing]?.color || '#fef3c7') === c ? '2px solid #3b82f6' : '1px solid #ccc',
+                      border: (elements[editing]?.color || COLORS[0]) === c ? '2px solid #3b82f6' : '1px solid #ccc',
                       background: c,
                     }}
                   />
