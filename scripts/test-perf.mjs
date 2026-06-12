@@ -192,7 +192,7 @@ async function main() {
         `  ${row.label.padEnd(28)}`,
         `${fmtMs(row.avg).padStart(10)}`,
         `${fmtMs(row.max).padStart(10)}`,
-        `${String(row.threshold + 'ms').padStart(10)}`,
+        `${(row.threshold + 'ms').padStart(10)}`,
         `${vc}${v.padStart(8)}${RESET}`,
       ].join('  ');
       console.log(line);
