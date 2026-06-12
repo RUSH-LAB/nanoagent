@@ -30,10 +30,7 @@ export default function AIAssistant({editor, onClose}) {
     // No selection: get current paragraph text
     const resolved = editor.state.doc.resolve(from);
     const parentNode = resolved.parent;
-    if (parentNode && parentNode.textContent) {
-      return parentNode.textContent;
-    }
-    return '';
+    return parentNode?.textContent || '';
   }, [editor]);
 
   // Track selection changes
