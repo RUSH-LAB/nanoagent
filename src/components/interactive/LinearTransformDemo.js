@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Mafs, Coordinates, Vector, Polygon, Line, Text, Theme } from 'mafs';
 import 'mafs/core.css';
-import { applyMatrix, Slider } from './matrixControls';
+import { applyMatrix, MatrixControls } from './matrixControls';
 
 export default function LinearTransformDemo() {
   const [a, setA] = useState(1);
@@ -46,19 +46,10 @@ export default function LinearTransformDemo() {
         marginTop: '0.75em', padding: '0.75em 1em',
         background: '#f5f7f9', borderRadius: '8px',
       }}>
-        <div style={{ display: 'flex', gap: '0.5em', alignItems: 'center' }}>
-          <span style={{ fontFamily: 'serif', fontSize: '1.1rem' }}>A = </span>
-          <div style={{
-            display: 'inline-grid', gridTemplateColumns: '1fr 1fr',
-            gap: '0.25em 1em', padding: '0.25em 0.5em',
-            borderLeft: '2px solid #333', borderRight: '2px solid #333',
-          }}>
-            <Slider label="a" value={a} onChange={setA} />
-            <Slider label="b" value={b} onChange={setB} />
-            <Slider label="c" value={c} onChange={setC} />
-            <Slider label="d" value={d} onChange={setD} />
-          </div>
-        </div>
+        <MatrixControls
+          a={a} b={b} c={c} d={d}
+          setA={setA} setB={setB} setC={setC} setD={setD}
+        />
         <span style={{ fontSize: '0.95rem', color: '#555' }}><b>det(A)</b> = {det.toFixed(2)}</span>
       </div>
     </div>
