@@ -233,40 +233,49 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      const existingLinks = new Set();
-      let m;
-      LINKSUGGEST_WIKI_RE.lastIndex = 0;
-      while ((m = LINKSUGGEST_WIKI_RE.exec(content)) !== null) existingLinks.add(m[1].trim().toLowerCase());
-      const contentWords = new Set(content.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4));
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const suggestions = [];
-      function scanLinks(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scanLinks(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          const rel = path.relative(PROJECT_ROOT, fp);
-          if (rel === filePath) continue;
-          const pageName = entry.name.replace(/\.(mdx?|md)$/, '').toLowerCase();
-          if (existingLinks.has(pageName)) continue;
-          if (contentWords.has(pageName) || pageName.split('-').some(w => w.length > 4 && contentWords.has(w))) {
-            try {
-              const c = fs.readFileSync(fp, 'utf-8');
-              const fm = c.match(FRONTMATTER_RE);
-              let title = entry.name.replace(/\.(mdx?|md)$/, '');
-              if (fm) {
-                const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
-                if (tm) title = tm[1];
-              }
-              suggestions.push({path: rel, title, pageName});
-            } catch {}
+      // Cache the per-path link-suggestions result so repeated requests for the
+      // same file skip the recursive scanLinks walk that reads and word-scores
+      // every content candidate. The source readFileSync and the
+      // LINKSUGGEST_WIKI_RE.lastIndex reset stay inside the closure, so a missing
+      // source still throws to the outer catch (the 404 is never cached) and the
+      // shared module-scope regex stays safe. Mirrors the /api/file/related cache.
+      const result = cached('linksuggest:' + filePath, 30000, () => {
+        const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        const existingLinks = new Set();
+        let m;
+        LINKSUGGEST_WIKI_RE.lastIndex = 0;
+        while ((m = LINKSUGGEST_WIKI_RE.exec(content)) !== null) existingLinks.add(m[1].trim().toLowerCase());
+        const contentWords = new Set(content.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4));
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const suggestions = [];
+        function scanLinks(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scanLinks(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            const rel = path.relative(PROJECT_ROOT, fp);
+            if (rel === filePath) continue;
+            const pageName = entry.name.replace(/\.(mdx?|md)$/, '').toLowerCase();
+            if (existingLinks.has(pageName)) continue;
+            if (contentWords.has(pageName) || pageName.split('-').some(w => w.length > 4 && contentWords.has(w))) {
+              try {
+                const c = fs.readFileSync(fp, 'utf-8');
+                const fm = c.match(FRONTMATTER_RE);
+                let title = entry.name.replace(/\.(mdx?|md)$/, '');
+                if (fm) {
+                  const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+                  if (tm) title = tm[1];
+                }
+                suggestions.push({path: rel, title, pageName});
+              } catch {}
+            }
           }
         }
-      }
-      scanLinks(contentDir);
-      return json(res, 200, {suggestions: suggestions.slice(0, 15), total: suggestions.length});
+        scanLinks(contentDir);
+        return {suggestions: suggestions.slice(0, 15), total: suggestions.length};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
