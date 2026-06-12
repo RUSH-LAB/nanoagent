@@ -411,12 +411,15 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
       const analytics = loadJSON(ANALYTICS_FILE);
       const recent = analytics.recent || [];
       const now = Date.now();
-      const thisWeek = recent.filter(r => r.timestamp && new Date(r.timestamp).getTime() > now - 7 * 86400000).length;
-      const lastWeek = recent.filter(r => {
-        if (!r.timestamp) return false;
+      // The two week windows are disjoint, so tally both in a single pass over
+      // `recent`, mirroring the comments loop below.
+      let thisWeek = 0, lastWeek = 0;
+      for (const r of recent) {
+        if (!r.timestamp) continue;
         const t = new Date(r.timestamp).getTime();
-        return t > now - 14 * 86400000 && t <= now - 7 * 86400000;
-      }).length;
+        if (t > now - 7 * 86400000) thisWeek++;
+        else if (t > now - 14 * 86400000 && t <= now - 7 * 86400000) lastWeek++;
+      }
       const pageviewGrowth = lastWeek > 0 ? Math.round(((thisWeek - lastWeek) / lastWeek) * 100) : thisWeek > 0 ? 100 : 0;
       const comments = loadJSON(COMMENTS_FILE);
       let commentsThisWeek = 0, commentsLastWeek = 0;
