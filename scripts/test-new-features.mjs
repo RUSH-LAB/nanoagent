@@ -581,7 +581,6 @@ async function testSchedule() {
 async function runCleanup() {
   section('Cleanup');
   let cleaned = 0;
-  let cleanFailed = 0;
 
   // Clean up any leftover test data
 
@@ -628,11 +627,7 @@ async function runCleanup() {
     } catch { /* ignore */ }
   }
 
-  if (cleanFailed > 0) {
-    log('!', YELLOW, `${cleaned} cleaned, ${cleanFailed} cleanup errors`);
-  } else {
-    log('✓', GREEN, `${cleaned} cleanup actions completed`);
-  }
+  log('✓', GREEN, `${cleaned} cleanup actions completed`);
 }
 
 // ────────────────────────────────────────────────────────────────
