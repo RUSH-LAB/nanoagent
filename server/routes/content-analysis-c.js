@@ -47,6 +47,12 @@ const ACCESS_HEADING_RE = /^(#{1,6})\s+/;
 // per-request state, so one shared instance stays correct across requests.
 const TEMPLATE_VAR_PROTO_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
+// Variable-name validation pattern for the POST /api/template-variables handler,
+// built once at module load instead of allocated on every request. It is
+// non-global and non-sticky and used only through `.test(name)`, so it holds no
+// lastIndex state and one shared instance stays correct across requests.
+const TEMPLATE_VAR_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
+
 module.exports = async function content_analysis_c_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -1191,7 +1197,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
       if (value.length > 5000) return json(res, 400, {error: 'Value must be 5000 characters or fewer'});
       // Guard against prototype pollution via variable names
       if (TEMPLATE_VAR_PROTO_KEYS.has(name)) return json(res, 400, {error: 'Invalid variable name'});
-      if (!/^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(name)) return json(res, 400, {error: 'Variable name must be alphanumeric (with underscores/hyphens)'});
+      if (!TEMPLATE_VAR_NAME_RE.test(name)) return json(res, 400, {error: 'Variable name must be alphanumeric (with underscores/hyphens)'});
       const VARS_FILE = path.join(PROJECT_ROOT, 'data', 'template-variables.json');
       const data = loadJSON(VARS_FILE);
       if (!data.variables) data.variables = {};
@@ -1229,3 +1235,7 @@ module.exports.HEALTH_WIKI_LINK_RE = HEALTH_WIKI_LINK_RE;
 // Exported for tests: lets the /api/writing-prompts suite pre-seed lastIndex and
 // prove the per-file reset keeps this shared module-scope regex correct.
 module.exports.WRITING_PROMPTS_CITE_RE = WRITING_PROMPTS_CITE_RE;
+// Exported for tests: the shared variable-name validation regex used by the
+// POST /api/template-variables handler, so the suite can assert source/flags and
+// prove a single shared instance backs every request.
+module.exports.TEMPLATE_VAR_NAME_RE = TEMPLATE_VAR_NAME_RE;
