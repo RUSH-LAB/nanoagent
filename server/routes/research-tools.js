@@ -107,6 +107,17 @@ function cleanBibtexValue(value) {
     .replace(/[\\&%$#_{}~^]/g, ch => BIBTEX_LATEX_ESCAPES[ch]);
 }
 
+// ── Recommendation seed ranking: premier publication venues ──
+// GET /api/recommendations gives entries from these venues a fixed score boost
+// when picking the handful of seed papers it expands into recommendations. The
+// set is constant and read only (membership tests inside the sort comparator),
+// so it is built once at module load and shared across requests instead of being
+// rebuilt on every call.
+const REC_TOP_VENUES = new Set([
+  'NeurIPS', 'ICML', 'ICLR', 'CVPR', 'ICCV', 'ECCV', 'ACL', 'EMNLP',
+  'NAACL', 'AAAI', 'IJCAI', 'Nature', 'Science', 'JMLR',
+]);
+
 // Route module organized from server.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
@@ -344,13 +355,9 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
         return json(res, 200, { recommendations: [] });
       }
 
-      const recTopVenues = new Set([
-        'NeurIPS', 'ICML', 'ICLR', 'CVPR', 'ICCV', 'ECCV', 'ACL', 'EMNLP',
-        'NAACL', 'AAAI', 'IJCAI', 'Nature', 'Science', 'JMLR',
-      ]);
       papersWithIds.sort((a, b) => {
-        const aScore = (recTopVenues.has(a.entry.venue) ? 10 : 0) + ((a.entry.year || 2000) - 2000);
-        const bScore = (recTopVenues.has(b.entry.venue) ? 10 : 0) + ((b.entry.year || 2000) - 2000);
+        const aScore = (REC_TOP_VENUES.has(a.entry.venue) ? 10 : 0) + ((a.entry.year || 2000) - 2000);
+        const bScore = (REC_TOP_VENUES.has(b.entry.venue) ? 10 : 0) + ((b.entry.year || 2000) - 2000);
         return bScore - aScore;
       });
       const seeds = papersWithIds.slice(0, 5);
