@@ -27,6 +27,9 @@ yarn-error.log*
 raw/
 .worktrees/
 
+# Fleet (next/moon) git worktrees
+.claude/worktrees/
+
 # Trash (soft-deleted files)
 /.trash
 
