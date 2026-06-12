@@ -14,6 +14,12 @@ function numericParam(raw, def, max) {
   return Math.min(Number.isNaN(n) ? def : n, max);
 }
 
+// Single frozen fallback for author-less entries in GET /api/references/by-author.
+// The array is only iterated (never mutated or retained), so one shared instance
+// keeps the byAuthor grouping — including the synthesized 'Unknown' group and its
+// sort position — identical while avoiding a fresh allocation per author-less entry.
+const UNKNOWN_AUTHORS = Object.freeze(['Unknown']);
+
 module.exports = async function references_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -81,7 +87,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
       const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
       const byAuthor = {};
       for (const [key, entry] of Object.entries(refs)) {
-        for (const author of (entry.author || ['Unknown'])) {
+        for (const author of (entry.author || UNKNOWN_AUTHORS)) {
           if (!byAuthor[author]) byAuthor[author] = [];
           byAuthor[author].push({key, title: entry.title, year: entry.year, venue: entry.venue});
         }
