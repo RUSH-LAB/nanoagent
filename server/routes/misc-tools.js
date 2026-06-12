@@ -1260,102 +1260,112 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      const suggestions = [];
+      // The quality score is a pure function of this one file's content, so
+      // memoize the whole payload keyed by path for the TTL while the json() write
+      // below still runs on every request. Mirrors cached('filestyle:'+path,30000)
+      // in content-analysis-b.js and cached('fileinfo:'+path,30000) in
+      // graph-trash-files.js. The readFileSync stays INSIDE the closure, so a
+      // missing file still throws into the outer catch and the 404 is never cached
+      // (cached stores nothing when fn throws).
+      const result = cached('filequality:' + filePath, 30000, () => {
+        const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        const suggestions = [];
 
-      // 1. Word count score (max 25)
-      const bodyText = content.replace(/^---\n[\s\S]*?\n---\n?/, '').replace(/```[\s\S]*?```/g, '').replace(/!?\[.*?\]\(.*?\)/g, '');
-      const words = bodyText.split(/\s+/).filter(Boolean).length;
-      let wordsScore = 0;
-      if (words >= 1000) wordsScore = 25;
-      else if (words >= 500) wordsScore = 20;
-      else if (words >= 200) wordsScore = 15;
-      else if (words >= 100) wordsScore = 10;
-      else wordsScore = 5;
-      if (words < 500) suggestions.push('Add more content — aim for at least 500 words for a substantive document');
+        // 1. Word count score (max 25)
+        const bodyText = content.replace(/^---\n[\s\S]*?\n---\n?/, '').replace(/```[\s\S]*?```/g, '').replace(/!?\[.*?\]\(.*?\)/g, '');
+        const words = bodyText.split(/\s+/).filter(Boolean).length;
+        let wordsScore = 0;
+        if (words >= 1000) wordsScore = 25;
+        else if (words >= 500) wordsScore = 20;
+        else if (words >= 200) wordsScore = 15;
+        else if (words >= 100) wordsScore = 10;
+        else wordsScore = 5;
+        if (words < 500) suggestions.push('Add more content — aim for at least 500 words for a substantive document');
 
-      // 2. Frontmatter structure (max 15)
-      const fm = content.match(/^---\n([\s\S]*?)\n---/);
-      let structureFmScore = 0;
-      if (fm) {
-        structureFmScore += 5;
-        if (/^title:/m.test(fm[1])) structureFmScore += 5;
-        else suggestions.push('Add a title field to frontmatter');
-        if (/^date:/m.test(fm[1])) structureFmScore += 5;
-        else suggestions.push('Add a date field to frontmatter');
-      } else {
-        suggestions.push('Add YAML frontmatter with title and date fields');
-      }
+        // 2. Frontmatter structure (max 15)
+        const fm = content.match(/^---\n([\s\S]*?)\n---/);
+        let structureFmScore = 0;
+        if (fm) {
+          structureFmScore += 5;
+          if (/^title:/m.test(fm[1])) structureFmScore += 5;
+          else suggestions.push('Add a title field to frontmatter');
+          if (/^date:/m.test(fm[1])) structureFmScore += 5;
+          else suggestions.push('Add a date field to frontmatter');
+        } else {
+          suggestions.push('Add YAML frontmatter with title and date fields');
+        }
 
-      // 3. Heading structure (max 20)
-      const h1s = (content.match(/^# .+$/gm) || []).length;
-      const h2s = (content.match(/^## .+$/gm) || []).length;
-      const h3s = (content.match(/^### .+$/gm) || []).length;
-      const totalHeadings = h1s + h2s + h3s;
-      let structureHdScore = 0;
-      if (totalHeadings >= 5) structureHdScore = 20;
-      else if (totalHeadings >= 3) structureHdScore = 15;
-      else if (totalHeadings >= 1) structureHdScore = 10;
-      else structureHdScore = 0;
-      if (totalHeadings === 0) suggestions.push('Add headings (##, ###) to organize content');
-      else if (h2s === 0 && h3s === 0) suggestions.push('Add sub-headings (##, ###) for better structure');
+        // 3. Heading structure (max 20)
+        const h1s = (content.match(/^# .+$/gm) || []).length;
+        const h2s = (content.match(/^## .+$/gm) || []).length;
+        const h3s = (content.match(/^### .+$/gm) || []).length;
+        const totalHeadings = h1s + h2s + h3s;
+        let structureHdScore = 0;
+        if (totalHeadings >= 5) structureHdScore = 20;
+        else if (totalHeadings >= 3) structureHdScore = 15;
+        else if (totalHeadings >= 1) structureHdScore = 10;
+        else structureHdScore = 0;
+        if (totalHeadings === 0) suggestions.push('Add headings (##, ###) to organize content');
+        else if (h2s === 0 && h3s === 0) suggestions.push('Add sub-headings (##, ###) for better structure');
 
-      const structureScore = structureFmScore + structureHdScore;
+        const structureScore = structureFmScore + structureHdScore;
 
-      // 4. Citations (max 10)
-      const citationMatches = content.match(/\[@[^\]]+\]/g) || [];
-      const citationsCount = citationMatches.length;
-      let citationsScore = Math.min(10, citationsCount * 2);
-      if (citationsCount === 0) suggestions.push('Add citations [@key] to reference sources');
+        // 4. Citations (max 10)
+        const citationMatches = content.match(/\[@[^\]]+\]/g) || [];
+        const citationsCount = citationMatches.length;
+        let citationsScore = Math.min(10, citationsCount * 2);
+        if (citationsCount === 0) suggestions.push('Add citations [@key] to reference sources');
 
-      // 5. Media — images (max 10)
-      const imageMatches = content.match(/!\[[^\]]*\]\([^)]+\)/g) || [];
-      const imageCount = imageMatches.length;
-      let mediaScore = Math.min(10, imageCount * 3);
-      if (imageCount === 0) suggestions.push('Add images to enhance visual engagement');
+        // 5. Media — images (max 10)
+        const imageMatches = content.match(/!\[[^\]]*\]\([^)]+\)/g) || [];
+        const imageCount = imageMatches.length;
+        let mediaScore = Math.min(10, imageCount * 3);
+        if (imageCount === 0) suggestions.push('Add images to enhance visual engagement');
 
-      // 6. Code blocks (max 10)
-      const codeBlocks = content.match(/```[\s\S]*?```/g) || [];
-      const codeCount = codeBlocks.length;
-      mediaScore = Math.min(10, mediaScore + Math.min(5, codeCount * 2));
-      if (codeCount === 0 && /technical|code|programming|algorithm/i.test(content)) {
-        suggestions.push('Add code blocks to illustrate technical concepts');
-      }
+        // 6. Code blocks (max 10)
+        const codeBlocks = content.match(/```[\s\S]*?```/g) || [];
+        const codeCount = codeBlocks.length;
+        mediaScore = Math.min(10, mediaScore + Math.min(5, codeCount * 2));
+        if (codeCount === 0 && /technical|code|programming|algorithm/i.test(content)) {
+          suggestions.push('Add code blocks to illustrate technical concepts');
+        }
 
-      // 7. Readability — average sentence length (max 10)
-      const sentences = bodyText.replace(/\n/g, ' ').split(/[.!?]+/).filter(s => s.trim().length > 5);
-      const avgSentenceLen = sentences.length > 0 ? sentences.reduce((sum, s) => sum + s.trim().split(/\s+/).length, 0) / sentences.length : 0;
-      let readabilityScore = 0;
-      if (sentences.length === 0) {
-        readabilityScore = 0;
-      } else if (avgSentenceLen <= 15) {
-        readabilityScore = 10;
-      } else if (avgSentenceLen <= 20) {
-        readabilityScore = 8;
-      } else if (avgSentenceLen <= 25) {
-        readabilityScore = 5;
-      } else {
-        readabilityScore = 2;
-        suggestions.push('Shorten sentences for better readability — aim for 15-20 words per sentence');
-      }
+        // 7. Readability — average sentence length (max 10)
+        const sentences = bodyText.replace(/\n/g, ' ').split(/[.!?]+/).filter(s => s.trim().length > 5);
+        const avgSentenceLen = sentences.length > 0 ? sentences.reduce((sum, s) => sum + s.trim().split(/\s+/).length, 0) / sentences.length : 0;
+        let readabilityScore = 0;
+        if (sentences.length === 0) {
+          readabilityScore = 0;
+        } else if (avgSentenceLen <= 15) {
+          readabilityScore = 10;
+        } else if (avgSentenceLen <= 20) {
+          readabilityScore = 8;
+        } else if (avgSentenceLen <= 25) {
+          readabilityScore = 5;
+        } else {
+          readabilityScore = 2;
+          suggestions.push('Shorten sentences for better readability — aim for 15-20 words per sentence');
+        }
 
-      // 8. Total
-      const totalScore = Math.max(0, Math.min(100, wordsScore + structureScore + citationsScore + mediaScore + readabilityScore));
-      const level = totalScore >= 80 ? 'excellent' : totalScore >= 60 ? 'good' : totalScore >= 40 ? 'adequate' : totalScore >= 20 ? 'needs-improvement' : 'minimal';
+        // 8. Total
+        const totalScore = Math.max(0, Math.min(100, wordsScore + structureScore + citationsScore + mediaScore + readabilityScore));
+        const level = totalScore >= 80 ? 'excellent' : totalScore >= 60 ? 'good' : totalScore >= 40 ? 'adequate' : totalScore >= 20 ? 'needs-improvement' : 'minimal';
 
-      return json(res, 200, {
-        path: filePath,
-        score: totalScore,
-        level,
-        breakdown: {
-          words: {score: wordsScore, max: 25, wordCount: words},
-          structure: {score: structureScore, max: 35, frontmatter: structureFmScore, headings: structureHdScore, headingCounts: {h1: h1s, h2: h2s, h3: h3s}},
-          citations: {score: citationsScore, max: 10, count: citationsCount},
-          media: {score: mediaScore, max: 10, images: imageCount, codeBlocks: codeCount},
-          readability: {score: readabilityScore, max: 10, avgSentenceLength: Math.round(avgSentenceLen * 10) / 10, sentenceCount: sentences.length},
-        },
-        suggestions,
+        return {
+          path: filePath,
+          score: totalScore,
+          level,
+          breakdown: {
+            words: {score: wordsScore, max: 25, wordCount: words},
+            structure: {score: structureScore, max: 35, frontmatter: structureFmScore, headings: structureHdScore, headingCounts: {h1: h1s, h2: h2s, h3: h3s}},
+            citations: {score: citationsScore, max: 10, count: citationsCount},
+            media: {score: mediaScore, max: 10, images: imageCount, codeBlocks: codeCount},
+            readability: {score: readabilityScore, max: 10, avgSentenceLength: Math.round(avgSentenceLen * 10) / 10, sentenceCount: sentences.length},
+          },
+          suggestions,
+        };
       });
+      return json(res, 200, result);
     } catch { return json(res, 404, {error: 'File not found'}); }
   }
 
