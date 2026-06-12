@@ -348,7 +348,16 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
           lastHeadingLevel = level;
         }
       }
-      const score = Math.max(0, 100 - issues.filter(i => i.type === 'warning').length * 10 - issues.filter(i => i.type === 'info').length * 3);
+      // Tally the warning and info issue types in a single walk of `issues`, then
+      // score from the tallies. This replaces the two `issues.filter(...).length`
+      // passes with one loop; the same categories, multipliers, and Math.max(0, ...)
+      // clamp keep `score` (and every other response field) byte identical.
+      let warningCount = 0, infoCount = 0;
+      for (const iss of issues) {
+        if (iss.type === 'warning') warningCount++;
+        else if (iss.type === 'info') infoCount++;
+      }
+      const score = Math.max(0, 100 - warningCount * 10 - infoCount * 3);
       return json(res, 200, {path: filePath, score, issues, issueCount: issues.length});
     } catch {
       return json(res, 404, {error: 'File not found'});
