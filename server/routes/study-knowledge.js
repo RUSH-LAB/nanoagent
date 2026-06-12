@@ -378,9 +378,9 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
         const readingTimeMin = Math.max(5, Math.ceil(wordCount / 200));
         return {...item, order: i, readingTimeMin, wordCount};
       });
-      const totalMinutes = items.reduce((s, item) => s + item.readingTimeMin, 0);
       const minutesPerWeek = hpw * 60;
       const weeks = [];
+      let totalMinutes = 0;
       let currentWeek = {week: 1, items: [], totalMinutes: 0};
       for (const item of items) {
         if (currentWeek.totalMinutes + item.readingTimeMin > minutesPerWeek && currentWeek.items.length > 0) {
@@ -389,6 +389,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
         }
         currentWeek.items.push(item);
         currentWeek.totalMinutes += item.readingTimeMin;
+        totalMinutes += item.readingTimeMin;
       }
       if (currentWeek.items.length > 0) weeks.push(currentWeek);
       return json(res, 200, {
