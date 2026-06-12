@@ -85,7 +85,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   // ── Content changelog ──
   if (req.method === 'GET' && pathname === '/api/changelog') {
     try {
-      const limit = numericParam(url.searchParams.get('limit'), 50, 200);
+      const limit = Math.max(numericParam(url.searchParams.get('limit'), 50, 200), 0);
       const events = [];
       const comments = loadJSON(COMMENTS_FILE);
       for (const [page, pageComments] of Object.entries(comments)) {
@@ -160,7 +160,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   // ── Shared annotations feed ──
   if (req.method === 'GET' && pathname === '/api/annotations/shared') {
     try {
-      const limit = numericParam(url.searchParams.get('limit'), 50, 200);
+      const limit = Math.max(numericParam(url.searchParams.get('limit'), 50, 200), 0);
       const annotations = loadJSON(ANNOTATIONS_FILE);
       const all = [];
       for (const [page, pageAnnotations] of Object.entries(annotations)) {
