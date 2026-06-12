@@ -180,11 +180,11 @@ export default function Annotations({pageId}) {
   }, []);
 
   // Close popup on click outside
-  useClickOutside(popupRef, () => setPopup(null));
+  useClickOutside(popupRef, () => setPopup(null), !!popup);
   useClickOutside(noteRef, () => {
     setNoteMode(null);
     setNoteText('');
-  });
+  }, !!noteMode);
 
   const saveAnnotation = useCallback(async (text, note, startOffset, endOffset) => {
     setSaving(true);
