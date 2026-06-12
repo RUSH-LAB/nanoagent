@@ -49,7 +49,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       const data = loadJSON(PROGRESS_FILE);
       const safeUserId = sanitizeText(userId);
       const safePagePath = sanitizeText(pagePath);
-      if (!data[safeUserId]) data[safeUserId] = {};
+      if (!Object.hasOwn(data, safeUserId)) data[safeUserId] = {};
       data[safeUserId][safePagePath] = {
         progress: Math.min(100, Math.max(0, typeof progress === 'number' ? progress : 0)),
         lastRead: new Date().toISOString(),
