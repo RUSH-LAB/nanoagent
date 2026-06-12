@@ -114,7 +114,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       const parts = pathname.split('/');
       const channelId = decodeURIComponent(parts[3]);
       const data = loadJSON(DISCUSSIONS_FILE);
-      if (!data.channels || !data.channels[channelId]) {
+      if (!data.channels || !Object.hasOwn(data.channels, channelId)) {
         return json(res, 404, {error: 'Channel not found'});
       }
       const body = await readBody(req);
@@ -145,7 +145,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       const parts = pathname.split('/');
       const channelId = decodeURIComponent(parts[3]);
       const data = loadJSON(DISCUSSIONS_FILE);
-      if (!data.channels || !data.channels[channelId]) {
+      if (!data.channels || !Object.hasOwn(data.channels, channelId)) {
         return json(res, 404, {error: 'Channel not found'});
       }
       const body = await readBody(req);
