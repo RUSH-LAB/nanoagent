@@ -735,7 +735,6 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       const yaml = require('js-yaml');
       const bibPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
       const refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
-      const bibliography = require('../../plugins/docusaurus-plugin-bibliography');
       const lines = [];
       for (const [key, entry] of Object.entries(refs)) {
         const authors = (entry.author || []).join(' and ');
