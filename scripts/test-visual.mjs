@@ -276,7 +276,6 @@ async function main() {
 
   let totalRegressions = 0;
   let pagesWithRegressions = 0;
-  const regressionDetails = [];
 
   for (const path of PAGES) {
     const current = currentSnapshot.pages[path];
@@ -300,7 +299,6 @@ async function main() {
     } else {
       pagesWithRegressions++;
       totalRegressions += regressions.length;
-      regressionDetails.push({ path, regressions });
 
       console.log(`  ${RED}✗${RESET} ${path} ${RED}${regressions.length} regression(s)${RESET}`);
       for (const r of regressions) {
