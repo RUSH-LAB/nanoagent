@@ -39,6 +39,9 @@ async function getInfo(filePath, isValidFilePath = () => true) {
     fs, path,
     PROJECT_ROOT: root,
     isValidFilePath,
+    // The handler now wraps its scan in cached(key, ttl, fn); a pass-through here
+    // keeps these regex tests exercising the real computation on every call.
+    cached: (_k, _t, fn) => fn(),
     json: (_res, status, payload) => { captured = { status, payload }; },
   };
   const url = new URL(`http://localhost/api/file/info?path=${encodeURIComponent(filePath)}`);

@@ -350,49 +350,57 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     const fullPath = path.join(PROJECT_ROOT, filePath);
     try {
-      const stat = fs.statSync(fullPath);
-      const content = fs.readFileSync(fullPath, 'utf-8');
-      const wordCount = content.split(/\s+/).filter(Boolean).length;
-      const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-      const hasFrontmatter = !!fmMatch;
-      let draft = false;
-      if (fmMatch) {
-        const draftMatch = fmMatch[1].match(/^draft:\s*(.+)$/m);
-        if (draftMatch) draft = draftMatch[1].trim() === 'true';
-      }
-      // ── Content language detection ──
-      // Count CJK characters (Chinese/Japanese/Korean unified ideographs + extensions)
-      const cjkCount = (content.match(FILE_INFO_CJK_RE) || []).length;
-      // Count Latin letter characters
-      const latinCount = (content.match(FILE_INFO_LATIN_RE) || []).length;
-      const totalLetters = cjkCount + latinCount;
-      let detectedLanguage = 'mixed';
-      if (totalLetters > 0) {
-        const cjkRatio = cjkCount / totalLetters;
-        const latinRatio = latinCount / totalLetters;
-        if (cjkRatio > 0.3) detectedLanguage = 'chinese';
-        else if (latinRatio > 0.7) detectedLanguage = 'english';
-      }
+      // Every returned field is a pure function of the file's on-disk state (its
+      // size, stored mtime, and content), so a short TTL snapshot stays byte
+      // identical while skipping the repeat stat and read. The isValidFilePath
+      // guard and this try/catch stay OUTSIDE the closure, so a missing file
+      // still returns 404 and the cached helper stores nothing when fn throws.
+      const result = cached('fileinfo:' + filePath, 30000, () => {
+        const stat = fs.statSync(fullPath);
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        const wordCount = content.split(/\s+/).filter(Boolean).length;
+        const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+        const hasFrontmatter = !!fmMatch;
+        let draft = false;
+        if (fmMatch) {
+          const draftMatch = fmMatch[1].match(/^draft:\s*(.+)$/m);
+          if (draftMatch) draft = draftMatch[1].trim() === 'true';
+        }
+        // ── Content language detection ──
+        // Count CJK characters (Chinese/Japanese/Korean unified ideographs + extensions)
+        const cjkCount = (content.match(FILE_INFO_CJK_RE) || []).length;
+        // Count Latin letter characters
+        const latinCount = (content.match(FILE_INFO_LATIN_RE) || []).length;
+        const totalLetters = cjkCount + latinCount;
+        let detectedLanguage = 'mixed';
+        if (totalLetters > 0) {
+          const cjkRatio = cjkCount / totalLetters;
+          const latinRatio = latinCount / totalLetters;
+          if (cjkRatio > 0.3) detectedLanguage = 'chinese';
+          else if (latinRatio > 0.7) detectedLanguage = 'english';
+        }
 
-      // ── Content feature detection ──
-      const hasCodeBlocks = FILE_INFO_CODE_BLOCK_RE.test(content);
-      const hasMath = FILE_INFO_MATH_RE.test(content);
-      const citationCount = (content.match(FILE_INFO_CITATION_RE) || []).length;
-      const imageCount = (content.match(FILE_INFO_IMAGE_RE) || []).length;
+        // ── Content feature detection ──
+        const hasCodeBlocks = FILE_INFO_CODE_BLOCK_RE.test(content);
+        const hasMath = FILE_INFO_MATH_RE.test(content);
+        const citationCount = (content.match(FILE_INFO_CITATION_RE) || []).length;
+        const imageCount = (content.match(FILE_INFO_IMAGE_RE) || []).length;
 
-      return json(res, 200, {
-        path: filePath,
-        size: stat.size,
-        mtime: stat.mtime.toISOString(),
-        wordCount,
-        hasFrontmatter,
-        draft,
-        detectedLanguage,
-        hasCodeBlocks,
-        hasMath,
-        citationCount,
-        imageCount,
+        return {
+          path: filePath,
+          size: stat.size,
+          mtime: stat.mtime.toISOString(),
+          wordCount,
+          hasFrontmatter,
+          draft,
+          detectedLanguage,
+          hasCodeBlocks,
+          hasMath,
+          citationCount,
+          imageCount,
+        };
       });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
