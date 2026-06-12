@@ -12,6 +12,20 @@ const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
 const LINT_IMG_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
 const LINT_ALT_RE = /!\[\s*\]\([^)]+\)/g;
 
+// Per-line lint regexes for POST /api/lint, also shared across every line and
+// request so the handler stops rebuilding them per line. All are non-global and
+// non-sticky, used only through .test()/.match(), so each holds no lastIndex
+// state and a single shared instance is behavior preserving. The fence and
+// heading-prefix patterns each appeared at two identical sites; both collapse to
+// one shared const here.
+const LINT_FM_TITLE_RE = /^title\s*:/m;
+const LINT_HEADING_RE = /^(#{1,6})\s+(.+)$/;
+const LINT_HTTP_PREFIX_RE = /^https?:\/\//;
+const LINT_FENCE_RE = /^```/;
+const LINT_URL_ONLY_RE = /^\s*https?:\/\/\S+\s*$/;
+const LINT_LINK_ONLY_RE = /^\s*\[.*\]\(https?:\/\/\S+\)\s*$/;
+const LINT_HEADING_PREFIX_RE = /^#{1,6}\s+/;
+
 // Shared, mtime plus size aware memo for bibliography/references.yaml, reused by
 // the three read-only GET handlers below (citation network, references timeline,
 // and the dashboard reference count) so none re-parses the ~251 KB file on every
@@ -504,7 +518,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
         const fmEnd = content.indexOf('---', 3);
         if (fmEnd !== -1) {
           const frontmatter = content.slice(3, fmEnd);
-          if (!/^title\s*:/m.test(frontmatter)) {
+          if (!LINT_FM_TITLE_RE.test(frontmatter)) {
             issues.push({line: 1, column: 1, message: 'Frontmatter is missing a title field', severity: 'warning'});
           }
         }
@@ -513,7 +527,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
       // 2. Duplicate headings
       const headingSeen = new Map();
       for (let i = 0; i < lines.length; i++) {
-        const hMatch = lines[i].match(/^(#{1,6})\s+(.+)$/);
+        const hMatch = lines[i].match(LINT_HEADING_RE);
         if (hMatch) {
           const text = hMatch[2].trim();
           if (headingSeen.has(text)) {
@@ -530,7 +544,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
         LINT_IMG_RE.lastIndex = 0;
         while ((m = LINT_IMG_RE.exec(lines[i])) !== null) {
           const imgPath = m[2].trim();
-          if (!/^https?:\/\//.test(imgPath) && !imgPath.startsWith('/')) {
+          if (!LINT_HTTP_PREFIX_RE.test(imgPath) && !imgPath.startsWith('/')) {
             issues.push({line: i + 1, column: m.index + 1, message: `Possibly broken image reference: "${imgPath}" (relative path, should start with / or http)`, severity: 'warning'});
           }
         }
@@ -540,7 +554,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
       let codeBlockCount = 0;
       let codeBlockOpenLine = 0;
       for (let i = 0; i < lines.length; i++) {
-        if (/^```/.test(lines[i].trim())) {
+        if (LINT_FENCE_RE.test(lines[i].trim())) {
           codeBlockCount++;
           if (codeBlockCount % 2 === 1) codeBlockOpenLine = i + 1;
         }
@@ -552,25 +566,25 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
       // 5. Very long lines (>200 chars, excluding URLs and code blocks)
       let inCodeBlock = false;
       for (let i = 0; i < lines.length; i++) {
-        if (/^```/.test(lines[i].trim())) {
+        if (LINT_FENCE_RE.test(lines[i].trim())) {
           inCodeBlock = !inCodeBlock;
           continue;
         }
         if (inCodeBlock) continue;
         if (lines[i].length > 200) {
           // Skip lines that are mostly a URL
-          if (/^\s*https?:\/\/\S+\s*$/.test(lines[i])) continue;
-          if (/^\s*\[.*\]\(https?:\/\/\S+\)\s*$/.test(lines[i])) continue;
+          if (LINT_URL_ONLY_RE.test(lines[i])) continue;
+          if (LINT_LINK_ONLY_RE.test(lines[i])) continue;
           issues.push({line: i + 1, column: 201, message: `Line is ${lines[i].length} characters long (exceeds 200 char limit)`, severity: 'warning'});
         }
       }
 
       // 6. Empty sections (heading with no content before next heading)
       for (let i = 0; i < lines.length; i++) {
-        if (/^#{1,6}\s+/.test(lines[i])) {
+        if (LINT_HEADING_PREFIX_RE.test(lines[i])) {
           let hasContent = false;
           for (let j = i + 1; j < lines.length; j++) {
-            if (/^#{1,6}\s+/.test(lines[j])) break;
+            if (LINT_HEADING_PREFIX_RE.test(lines[j])) break;
             if (lines[j].trim().length > 0) { hasContent = true; break; }
           }
           if (!hasContent) {
@@ -948,3 +962,16 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
   }
 
 };
+
+// Exported for the per-line lint regex-hoist regression test, which pins each
+// shared instance's .source/.flags, confirms the two collapsed pairs (fence and
+// heading-prefix) are each a single instance, and drives POST /api/lint to
+// verify the findings are unchanged. Not part of the route contract.
+// LINT_IMG_RE/LINT_ALT_RE stay internal, exercised only through the handler.
+module.exports.LINT_FM_TITLE_RE = LINT_FM_TITLE_RE;
+module.exports.LINT_HEADING_RE = LINT_HEADING_RE;
+module.exports.LINT_HTTP_PREFIX_RE = LINT_HTTP_PREFIX_RE;
+module.exports.LINT_FENCE_RE = LINT_FENCE_RE;
+module.exports.LINT_URL_ONLY_RE = LINT_URL_ONLY_RE;
+module.exports.LINT_LINK_ONLY_RE = LINT_LINK_ONLY_RE;
+module.exports.LINT_HEADING_PREFIX_RE = LINT_HEADING_PREFIX_RE;
