@@ -10,6 +10,13 @@
 // module-scope `_RE` const convention in the sibling route files.
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/;
 
+// Front-matter `title:` extractor for that same GET /api/files/search handler,
+// likewise compiled once at module load rather than rebuilt per matched file on
+// each request. Like FRONTMATTER_RE it has no /g or /y flag and is used with
+// String.prototype.match, so it holds no lastIndex state and one shared instance
+// produces the same result for the same input as a freshly allocated literal.
+const SEARCH_TITLE_RE = /^title:\s*["']?(.+?)["']?\s*$/m;
+
 module.exports = async function files_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -143,7 +150,7 @@ module.exports = async function files_routes(req, res, url, pathname, ctx) {
           const fmMatch = content.match(FRONTMATTER_RE);
           let title = f.name.replace(/\.(md|mdx)$/, '');
           if (fmMatch) {
-            const titleMatch = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+            const titleMatch = fmMatch[1].match(SEARCH_TITLE_RE);
             if (titleMatch) title = titleMatch[1];
           }
           return {...f, title};
@@ -267,3 +274,9 @@ module.exports = async function files_routes(req, res, url, pathname, ctx) {
   }
 
 };
+
+// Exported so the regression test (tests/next-filesearch-title-re-hoist.test.mjs)
+// can assert the title extractor is the single shared module-scope instance.
+// files.js otherwise exports only the route handler above, so attach the const
+// as a property on it.
+module.exports.SEARCH_TITLE_RE = SEARCH_TITLE_RE;
