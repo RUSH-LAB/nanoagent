@@ -727,7 +727,7 @@ function SplitEditor({value, onChange}) {
 /* ── Math Preview Panel ──────────────────────────────────── */
 function extractMathBlocks(text) {
   const blocks = [];
-  // Match display math $$...$$ first (greedy across lines)
+  // Match display math $$...$$ first (non-greedy, may span lines)
   const displayRe = /\$\$([\s\S]+?)\$\$/g;
   let m;
   while ((m = displayRe.exec(text)) !== null) {
