@@ -254,7 +254,7 @@ function GraphVisualization() {
 
   // Node click handler
   const handleNodeClick = useCallback((node) => {
-    // Determine URL from node path and category
+    // Determine URL from node path
     const parts = node.path.split('/');
     let url;
     if (parts[0] === 'books' || parts[0] === 'posts') {
