@@ -50,7 +50,10 @@ describe('GET /api/content-reading-path (READING_PATH_WIKI_RE hoisted to module 
     fs.writeFileSync(path.join(contentDir, 'start.md'), '---\ntitle: Start\n---\n\nStart here, then read [[middle]].\n');
     fs.writeFileSync(path.join(contentDir, 'middle.md'), '---\ntitle: Middle\n---\n\nContinue to [[end|the end]] when ready.\n');
     fs.writeFileSync(path.join(contentDir, 'end.md'), '---\ntitle: End\n---\n\nYou have arrived.\n');
-    ctx = { fs, path, PROJECT_ROOT: tmpRoot, ALLOWED_EXTS, isValidFilePath: () => true };
+    // /api/content-reading-path now wraps its walk in cached(); a pass-through cached
+    // (run fn every call, never memoize) keeps this suite exercising the genuine walk
+    // and leaves every assertion below unchanged.
+    ctx = { fs, path, PROJECT_ROOT: tmpRoot, ALLOWED_EXTS, isValidFilePath: () => true, cached: (_k, _t, fn) => fn() };
   });
 
   after(() => {
