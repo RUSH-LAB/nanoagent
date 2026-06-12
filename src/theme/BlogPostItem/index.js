@@ -1,7 +1,7 @@
 import React from 'react';
 import BlogPostItem from '@theme-original/BlogPostItem';
 import {useBlogPost} from '@docusaurus/plugin-content-blog/client';
-import {EditablePageWrapper} from '@site/src/components/MarkdownEditor';
+import {EditablePageWrapper} from '@site/src/components/EditPageButton';
 import Comments from '@site/src/components/Comments';
 
 export default function BlogPostItemWrapper(props) {
