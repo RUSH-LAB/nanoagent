@@ -4,8 +4,8 @@
 // dispatcher in server.js detects a sent response via res.writableEnded.
 
 // ── Route-match regexes (module scope, reused per request) ──
-// Each pattern is stateless (no /g, no /y flag) and every match result is read
-// only for truthiness, so one shared instance per pattern is behavior-preserving
+// Each pattern is stateless (no /g, no /y flag) and used only as a boolean route
+// guard via RE.test(pathname), so one shared instance per pattern is behavior-preserving
 // across requests and is rebuilt 0 times per request. DISCUSSION_PIN_RE and
 // READING_LIST_ITEMS_RE are each referenced at multiple call sites; sharing also
 // deduplicates the repeated literals.
@@ -120,7 +120,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
   }
 
   // ── Discussions: pin a message ──
-  if (req.method === 'POST' && pathname.match(DISCUSSION_PIN_RE)) {
+  if (req.method === 'POST' && DISCUSSION_PIN_RE.test(pathname)) {
     if (!rateLimit(`disc-pin:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
@@ -152,7 +152,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
   }
 
   // ── Discussions: unpin a message ──
-  if (req.method === 'DELETE' && pathname.match(DISCUSSION_PIN_RE)) {
+  if (req.method === 'DELETE' && DISCUSSION_PIN_RE.test(pathname)) {
     try {
       const parts = pathname.split('/');
       const channelId = decodeURIComponent(parts[3]);
@@ -267,7 +267,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
   }
 
   // ── Reading Lists: delete a list ──
-  if (req.method === 'DELETE' && pathname.match(READING_LIST_RE) && !pathname.includes('/items')) {
+  if (req.method === 'DELETE' && READING_LIST_RE.test(pathname) && !pathname.includes('/items')) {
     try {
       const parts = pathname.split('/');
       const listId = decodeURIComponent(parts[3]);
@@ -284,7 +284,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
   }
 
   // ── Reading Lists: add item ──
-  if (req.method === 'POST' && pathname.match(READING_LIST_ITEMS_RE)) {
+  if (req.method === 'POST' && READING_LIST_ITEMS_RE.test(pathname)) {
     if (!rateLimit(`rl-items:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
@@ -317,7 +317,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
   }
 
   // ── Reading Lists: remove item ──
-  if (req.method === 'DELETE' && pathname.match(READING_LIST_ITEMS_RE)) {
+  if (req.method === 'DELETE' && READING_LIST_ITEMS_RE.test(pathname)) {
     try {
       const parts = pathname.split('/');
       const listId = decodeURIComponent(parts[3]);
@@ -368,7 +368,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
   }
 
   // ── Reading Lists: reorder items ──
-  if (req.method === 'PATCH' && pathname.match(READING_LIST_ITEMS_RE)) {
+  if (req.method === 'PATCH' && READING_LIST_ITEMS_RE.test(pathname)) {
     try {
       const parts = pathname.split('/');
       const listId = decodeURIComponent(parts[3]);
@@ -396,7 +396,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
   }
 
   // ── Reading Lists: export as markdown ──
-  if (req.method === 'GET' && pathname.match(READING_LIST_EXPORT_RE)) {
+  if (req.method === 'GET' && READING_LIST_EXPORT_RE.test(pathname)) {
     try {
       const parts = pathname.split('/');
       const listId = decodeURIComponent(parts[3]);
