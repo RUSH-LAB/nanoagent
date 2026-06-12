@@ -29,78 +29,84 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
   // ── Graph: wiki link connections between all pages ──
   if (req.method === 'GET' && pathname === '/api/graph') {
     try {
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const nodes = [];
-      const edges = [];
-      const nodeMap = {};
+      // Param-free, deterministic scan (the exact sibling of the already-cached
+      // GET /api/graph/export): memoize the whole {nodes, edges} computation under
+      // one static key for the TTL while the json() write runs on every request.
+      const result = cached('graph-data', 60000, () => {
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const nodes = [];
+        const edges = [];
+        const nodeMap = {};
 
-      // Collect all markdown/mdx files
-      function collectGraphFiles(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fullPath = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            collectGraphFiles(fullPath);
-          } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-            const relPath = path.relative(path.join(PROJECT_ROOT, 'content'), fullPath);
-            // Build a route-like id: strip extension, strip trailing /index
-            let id = relPath.replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
-            if (id.endsWith('/index')) id = id.slice(0, -6);
+        // Collect all markdown/mdx files
+        function collectGraphFiles(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              collectGraphFiles(fullPath);
+            } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
+              const relPath = path.relative(path.join(PROJECT_ROOT, 'content'), fullPath);
+              // Build a route-like id: strip extension, strip trailing /index
+              let id = relPath.replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
+              if (id.endsWith('/index')) id = id.slice(0, -6);
 
-            // Extract title from frontmatter or first heading
-            const content = fs.readFileSync(fullPath, 'utf-8');
-            let title = entry.name.replace(/\.(mdx?|md)$/, '');
-            const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-            if (fmMatch) {
-              const titleMatch = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
-              if (titleMatch) title = titleMatch[1];
-            }
-            if (title === entry.name.replace(/\.(mdx?|md)$/, '')) {
-              const headingMatch = content.match(/^#\s+(.+)$/m);
-              if (headingMatch) title = headingMatch[1];
-            }
+              // Extract title from frontmatter or first heading
+              const content = fs.readFileSync(fullPath, 'utf-8');
+              let title = entry.name.replace(/\.(mdx?|md)$/, '');
+              const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+              if (fmMatch) {
+                const titleMatch = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+                if (titleMatch) title = titleMatch[1];
+              }
+              if (title === entry.name.replace(/\.(mdx?|md)$/, '')) {
+                const headingMatch = content.match(/^#\s+(.+)$/m);
+                if (headingMatch) title = headingMatch[1];
+              }
 
-            // Determine directory category
-            const parts = relPath.split(path.sep);
-            let category = parts.length > 1 ? parts[0] : '';
-            // For books/X and posts/X, use X as the category
-            if ((category === 'books' || category === 'posts') && parts.length > 2) {
-              category = parts[1];
-            }
+              // Determine directory category
+              const parts = relPath.split(path.sep);
+              let category = parts.length > 1 ? parts[0] : '';
+              // For books/X and posts/X, use X as the category
+              if ((category === 'books' || category === 'posts') && parts.length > 2) {
+                category = parts[1];
+              }
 
-            const node = {id, path: relPath, title, category};
-            nodes.push(node);
-            nodeMap[id] = node;
+              const node = {id, path: relPath, title, category};
+              nodes.push(node);
+              nodeMap[id] = node;
 
-            // Extract wiki links
-            WIKI_LINK_RE.lastIndex = 0;
-            let match;
-            while ((match = WIKI_LINK_RE.exec(content)) !== null) {
-              const target = match[1].trim();
-              edges.push({source: id, target});
+              // Extract wiki links
+              WIKI_LINK_RE.lastIndex = 0;
+              let match;
+              while ((match = WIKI_LINK_RE.exec(content)) !== null) {
+                const target = match[1].trim();
+                edges.push({source: id, target});
+              }
             }
           }
         }
-      }
-      collectGraphFiles(contentDir);
+        collectGraphFiles(contentDir);
 
-      // Resolve edge targets: wiki links use route paths
-      // Keep only edges where target matches a known node id (own key of nodeMap)
-      const resolvedEdges = [];
-      for (const edge of edges) {
-        let targetId = edge.target;
-        if (Object.prototype.hasOwnProperty.call(nodeMap, targetId)) {
-          resolvedEdges.push({source: edge.source, target: targetId});
-        } else {
-          // Try matching against the last segment(s)
-          const found = nodes.find(n => n.id.endsWith(targetId) || n.id.endsWith('/' + targetId));
-          if (found) {
-            resolvedEdges.push({source: edge.source, target: found.id});
+        // Resolve edge targets: wiki links use route paths
+        // Keep only edges where target matches a known node id (own key of nodeMap)
+        const resolvedEdges = [];
+        for (const edge of edges) {
+          let targetId = edge.target;
+          if (Object.prototype.hasOwnProperty.call(nodeMap, targetId)) {
+            resolvedEdges.push({source: edge.source, target: targetId});
+          } else {
+            // Try matching against the last segment(s)
+            const found = nodes.find(n => n.id.endsWith(targetId) || n.id.endsWith('/' + targetId));
+            if (found) {
+              resolvedEdges.push({source: edge.source, target: found.id});
+            }
           }
         }
-      }
 
-      return json(res, 200, {nodes, edges: resolvedEdges});
+        return {nodes, edges: resolvedEdges};
+      });
+      return json(res, 200, result);
     } catch (err) {
       return json(res, 500, {error: 'Graph generation failed: ' + err.message});
     }
