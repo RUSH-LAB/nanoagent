@@ -22,6 +22,12 @@ async function searchFiles({ files, contents, query }) {
   const ctx = {
     path,
     PROJECT_ROOT,
+    // The search handler now snapshots its directory walk through
+    // cached('search:list', 30000, () => flatFiles(fullDir)); a pass-through
+    // cached keeps this suite's behavior identical (it just runs fn each call),
+    // and the no-op invalidateCache satisfies the shared ctx shape.
+    cached: (_k, _t, fn) => fn(),
+    invalidateCache: () => {},
     flatFiles: () => files,
     fs: {
       readFileSync(fp) {
