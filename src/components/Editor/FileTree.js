@@ -530,14 +530,14 @@ export default function FileTree({files, selectedFile, onSelectFile, onNewFile, 
       if (data.errors && data.errors.length > 0) {
         alert(`Deleted ${data.processed} file${data.processed !== 1 ? 's' : ''}. ${data.errors.length} failed.`);
       }
-      setBulkSelected(new Set());
+      clearSelection();
       onRestore?.(); // triggers file list reload
     } catch {
       alert('Bulk delete failed');
     } finally {
       setBulkLoading(false);
     }
-  }, [bulkSelected, onRestore]);
+  }, [bulkSelected, onRestore, clearSelection]);
 
   const handleBulkMove = useCallback(async () => {
     const targetDir = window.prompt('Move files to directory (e.g. content/archive):');
@@ -557,14 +557,14 @@ export default function FileTree({files, selectedFile, onSelectFile, onNewFile, 
       if (data.errors && data.errors.length > 0) {
         alert(`Moved ${data.processed} file${data.processed !== 1 ? 's' : ''}. ${data.errors.length} failed:\n${data.errors.map(e => `${e.path}: ${e.error}`).join('\n')}`);
       }
-      setBulkSelected(new Set());
+      clearSelection();
       onRestore?.(); // triggers file list reload
     } catch {
       alert('Bulk move failed');
     } finally {
       setBulkLoading(false);
     }
-  }, [bulkSelected, onRestore]);
+  }, [bulkSelected, onRestore, clearSelection]);
 
   const handleRestore = useCallback(() => {
     loadTrash();
