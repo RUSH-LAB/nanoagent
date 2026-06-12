@@ -1112,7 +1112,7 @@ async function testAiComplete() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Quick Note (POST /api/quicknote -- distinct from /api/quicknotes)
+// Quick Note (POST /api/quicknote: distinct from /api/quicknotes)
 // ────────────────────────────────────────────────────────────────
 async function testQuickNote() {
   section('Quick Note');
@@ -1127,7 +1127,7 @@ async function testQuickNote() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Trash Empty (validation only -- we do not actually empty trash)
+// Trash Empty (validation only: we do not actually empty trash)
 // ────────────────────────────────────────────────────────────────
 async function testTrashEmpty() {
   section('Trash Empty');
