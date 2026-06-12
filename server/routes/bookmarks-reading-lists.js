@@ -396,14 +396,16 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       const safeName = list.name.replace(/[^a-zA-Z0-9_-]/g, '_');
 
       if (format === 'bibtex') {
-        const yaml = require('js-yaml');
         // Reuse the canonical exporter's escaper so reading-list BibTeX compiles
         // even when a value carries a LaTeX special (& % _ $ # { } ~ ^ or a
         // backslash). Non circular: research-tools does not require this module.
         const {cleanBibtexValue} = require('./research-tools');
-        const bibPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
-        let refs = {};
-        try { refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {}; } catch {}
+        // Share the mtime and size aware references.yaml memo used by every other
+        // references handler instead of re-reading and re-parsing the bibliography
+        // on each export. It returns {} on a missing or broken file, preserving
+        // the prior `let refs = {}; try { ... } catch {}` empty-export fallback.
+        const {loadReferencesCached} = require('./references');
+        const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
         const lines = [];
         for (const item of (list.items || [])) {
           if (item.type !== 'reference') continue;
