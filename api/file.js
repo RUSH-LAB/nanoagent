@@ -73,7 +73,7 @@ module.exports = async function handler(req) {
         return jsonResponse(409, { error: 'File already exists' });
       } catch (err) {
         if (err.status !== 404) throw err;
-        // 404 is expected -- file does not exist, we can create it.
+        // 404 is expected: file does not exist, we can create it.
       }
 
       await putFile(filePath, content, `Create ${filePath}`);
