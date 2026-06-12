@@ -454,53 +454,61 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      const fullPath = path.join(PROJECT_ROOT, filePath);
-      const content = fs.readFileSync(fullPath, 'utf-8');
-      const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-      const sourceTags = new Set();
-      if (fmMatch) {
-        const tagsMatch = fmMatch[1].match(/^tags:\s*\[([^\]]*)\]/m);
-        if (tagsMatch) {
-          tagsMatch[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => sourceTags.add(t));
+      // Cache the per-path related result so repeated requests for the same file
+      // skip the recursive scanRelated walk that reads and word-compares every
+      // content file. The source-file readFileSync stays inside the closure, so a
+      // missing source file still throws here and propagates to the outer catch
+      // (the 404 is never cached). Mirrors the /api/file/dependencies cache above.
+      const result = cached('related:' + filePath, 30000, () => {
+        const fullPath = path.join(PROJECT_ROOT, filePath);
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+        const sourceTags = new Set();
+        if (fmMatch) {
+          const tagsMatch = fmMatch[1].match(/^tags:\s*\[([^\]]*)\]/m);
+          if (tagsMatch) {
+            tagsMatch[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => sourceTags.add(t));
+          }
         }
-      }
-      let plainText = content.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ');
-      const sourceWords = new Set(plainText.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !RELATED_STOP_WORDS.has(w)));
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const candidates = [];
-      function scanRelated(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scanRelated(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          const rel = path.relative(PROJECT_ROOT, fp);
-          if (rel === filePath) continue;
-          try {
-            const c = fs.readFileSync(fp, 'utf-8');
-            const fm = c.match(/^---\n([\s\S]*?)\n---/);
-            let title = entry.name.replace(/\.(mdx?|md)$/, '');
-            const tags = new Set();
-            if (fm) {
-              const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
-              if (tm) title = tm[1];
-              const tgm = fm[1].match(/^tags:\s*\[([^\]]*)\]/m);
-              if (tgm) tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => tags.add(t));
-            }
-            let score = 0;
-            for (const t of tags) { if (sourceTags.has(t)) score += 5; }
-            let pt = c.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ');
-            const ws = pt.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !RELATED_STOP_WORDS.has(w));
-            let shared = 0;
-            for (const w of ws) { if (sourceWords.has(w)) shared++; }
-            score += Math.min(shared / Math.max(ws.length, 1) * 10, 5);
-            if (score > 0.5) candidates.push({path: rel, title, score: Math.round(score * 100) / 100});
-          } catch {}
+        let plainText = content.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ');
+        const sourceWords = new Set(plainText.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !RELATED_STOP_WORDS.has(w)));
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const candidates = [];
+        function scanRelated(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scanRelated(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            const rel = path.relative(PROJECT_ROOT, fp);
+            if (rel === filePath) continue;
+            try {
+              const c = fs.readFileSync(fp, 'utf-8');
+              const fm = c.match(/^---\n([\s\S]*?)\n---/);
+              let title = entry.name.replace(/\.(mdx?|md)$/, '');
+              const tags = new Set();
+              if (fm) {
+                const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+                if (tm) title = tm[1];
+                const tgm = fm[1].match(/^tags:\s*\[([^\]]*)\]/m);
+                if (tgm) tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => tags.add(t));
+              }
+              let score = 0;
+              for (const t of tags) { if (sourceTags.has(t)) score += 5; }
+              let pt = c.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ');
+              const ws = pt.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !RELATED_STOP_WORDS.has(w));
+              let shared = 0;
+              for (const w of ws) { if (sourceWords.has(w)) shared++; }
+              score += Math.min(shared / Math.max(ws.length, 1) * 10, 5);
+              if (score > 0.5) candidates.push({path: rel, title, score: Math.round(score * 100) / 100});
+            } catch {}
+          }
         }
-      }
-      scanRelated(contentDir);
-      candidates.sort((a, b) => b.score - a.score);
-      return json(res, 200, {related: candidates.slice(0, 10)});
+        scanRelated(contentDir);
+        candidates.sort((a, b) => b.score - a.score);
+        return {related: candidates.slice(0, 10)};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
