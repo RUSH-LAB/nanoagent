@@ -15,6 +15,16 @@ const MAX_PRESENCE_USERS_PER_FILE = 50;
 // and PROTO_KEYS precedent in server/routes/*.
 const METADATA_FORBIDDEN_FIELDS = new Set(['__proto__', 'constructor', 'prototype']);
 
+// Regex literals used inside parseBibtex, hoisted to module scope. The
+// character-scanning while loops below otherwise allocated a fresh RegExp for
+// every character scanned. All four are non-global and used only via
+// .split() / .match() / .test(), which never touch lastIndex, so one shared
+// instance per pattern is byte-for-byte equivalent to the inline literals.
+const BIBTEX_ENTRY_SPLIT_RE = /(?=@\s*[a-zA-Z]+\s*\{)/;
+const BIBTEX_HEADER_RE = /^@\s*([a-zA-Z]+)\s*\{\s*([^,\s]+)\s*,/;
+const BIBTEX_WS_OR_COMMA_RE = /[\s,]/;
+const BIBTEX_WS_RE = /[\s]/;
+
 function isValidFilePath(filePath) {
   if (!filePath) return false;
   if (filePath.length > 500) return false;
@@ -99,12 +109,12 @@ function makePresenceStore() {
 
 function parseBibtex(input) {
   const entries = [];
-  const rawEntries = input.split(/(?=@\s*[a-zA-Z]+\s*\{)/);
+  const rawEntries = input.split(BIBTEX_ENTRY_SPLIT_RE);
   for (const raw of rawEntries) {
     const trimmed = raw.trim();
     if (!trimmed.startsWith('@')) continue;
 
-    const headerMatch = trimmed.match(/^@\s*([a-zA-Z]+)\s*\{\s*([^,\s]+)\s*,/);
+    const headerMatch = trimmed.match(BIBTEX_HEADER_RE);
     if (!headerMatch) continue;
     const entryType = headerMatch[1].toLowerCase();
     const citationKey = headerMatch[2];
@@ -128,18 +138,18 @@ function parseBibtex(input) {
     const fields = {};
     let i = 0;
     while (i < bodyStr.length) {
-      while (i < bodyStr.length && /[\s,]/.test(bodyStr[i])) i++;
+      while (i < bodyStr.length && BIBTEX_WS_OR_COMMA_RE.test(bodyStr[i])) i++;
       if (i >= bodyStr.length) break;
 
       const fieldStart = i;
-      while (i < bodyStr.length && bodyStr[i] !== '=' && !/[\s]/.test(bodyStr[i])) i++;
+      while (i < bodyStr.length && bodyStr[i] !== '=' && !BIBTEX_WS_RE.test(bodyStr[i])) i++;
       const fieldName = bodyStr.slice(fieldStart, i).trim().toLowerCase();
       if (!fieldName) { i++; continue; }
 
-      while (i < bodyStr.length && /[\s]/.test(bodyStr[i])) i++;
+      while (i < bodyStr.length && BIBTEX_WS_RE.test(bodyStr[i])) i++;
       if (i >= bodyStr.length || bodyStr[i] !== '=') { i++; continue; }
       i++;
-      while (i < bodyStr.length && /[\s]/.test(bodyStr[i])) i++;
+      while (i < bodyStr.length && BIBTEX_WS_RE.test(bodyStr[i])) i++;
       if (i >= bodyStr.length) break;
 
       let value = '';
@@ -162,7 +172,7 @@ function parseBibtex(input) {
         if (i < bodyStr.length) i++;
       } else {
         const valStart = i;
-        while (i < bodyStr.length && bodyStr[i] !== ',' && bodyStr[i] !== '}' && !/[\s]/.test(bodyStr[i])) i++;
+        while (i < bodyStr.length && bodyStr[i] !== ',' && bodyStr[i] !== '}' && !BIBTEX_WS_RE.test(bodyStr[i])) i++;
         value = bodyStr.slice(valStart, i);
       }
 
@@ -340,3 +350,8 @@ module.exports = {
   mapBibtexEntryType,
   mergeMetadataSources,
 };
+
+module.exports.BIBTEX_ENTRY_SPLIT_RE = BIBTEX_ENTRY_SPLIT_RE;
+module.exports.BIBTEX_HEADER_RE = BIBTEX_HEADER_RE;
+module.exports.BIBTEX_WS_OR_COMMA_RE = BIBTEX_WS_OR_COMMA_RE;
+module.exports.BIBTEX_WS_RE = BIBTEX_WS_RE;
