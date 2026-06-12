@@ -16,6 +16,41 @@ function numericParam(raw, def, max) {
 // Object keys that must never be used as property names (prototype-pollution guard).
 const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
 
+// Walk content/ once into the {title, date, path, mtime} list the RSS and Atom
+// feeds share, sorted by mtime descending. Each feed handler wraps this in
+// cached('feed-items'), so the tree is scanned once per cache window instead of
+// once per RSS request plus once per Atom request. The produced item shape and
+// sort order match the two walks this replaces, so each feed's XML is unchanged.
+function scanFeedItems(fs, path, PROJECT_ROOT, ALLOWED_EXTS) {
+  const contentDir = path.join(PROJECT_ROOT, 'content');
+  const items = [];
+  function scan(dir) {
+    for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+      if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+      const fp = path.join(dir, entry.name);
+      if (entry.isDirectory()) { scan(fp); continue; }
+      if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+      try {
+        const stat = fs.statSync(fp);
+        const content = fs.readFileSync(fp, 'utf-8');
+        const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+        let title = entry.name.replace(/\.(mdx?|md)$/, '');
+        let date = stat.mtime.toISOString();
+        if (fmMatch) {
+          const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+          if (tm) title = tm[1];
+          const dm = fmMatch[1].match(/^date:\s*["']?(\d{4}-\d{2}-\d{2})/m);
+          if (dm) date = dm[1] + 'T00:00:00Z';
+        }
+        items.push({title, date, path: path.relative(PROJECT_ROOT, fp), mtime: stat.mtimeMs});
+      } catch {}
+    }
+  }
+  scan(contentDir);
+  items.sort((a, b) => b.mtime - a.mtime);
+  return items;
+}
+
 module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -131,33 +166,7 @@ module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
   // ── RSS feed of recent content updates ──
   if (req.method === 'GET' && pathname === '/api/feed/rss') {
     try {
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const items = [];
-      function scanRSS(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scanRSS(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          try {
-            const stat = fs.statSync(fp);
-            const content = fs.readFileSync(fp, 'utf-8');
-            const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-            let title = entry.name.replace(/\.(mdx?|md)$/, '');
-            let date = stat.mtime.toISOString();
-            if (fmMatch) {
-              const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
-              if (tm) title = tm[1];
-              const dm = fmMatch[1].match(/^date:\s*["']?(\d{4}-\d{2}-\d{2})/m);
-              if (dm) date = dm[1] + 'T00:00:00Z';
-            }
-            const relPath = path.relative(PROJECT_ROOT, fp);
-            items.push({title, date, path: relPath, mtime: stat.mtimeMs});
-          } catch {}
-        }
-      }
-      scanRSS(contentDir);
-      items.sort((a, b) => b.mtime - a.mtime);
+      const items = cached('feed-items', 60000, () => scanFeedItems(fs, path, PROJECT_ROOT, ALLOWED_EXTS));
       const recent = items.slice(0, 20);
       const rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -323,32 +332,7 @@ ${recent.map(item => {
   // ── Atom feed of recent content updates ──
   if (req.method === 'GET' && pathname === '/api/feed/atom') {
     try {
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const items = [];
-      function scanAtom(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scanAtom(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          try {
-            const stat = fs.statSync(fp);
-            const content = fs.readFileSync(fp, 'utf-8');
-            const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-            let title = entry.name.replace(/\.(mdx?|md)$/, '');
-            let date = stat.mtime.toISOString();
-            if (fmMatch) {
-              const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
-              if (tm) title = tm[1];
-              const dm = fmMatch[1].match(/^date:\s*["']?(\d{4}-\d{2}-\d{2})/m);
-              if (dm) date = dm[1] + 'T00:00:00Z';
-            }
-            items.push({title, date, path: path.relative(PROJECT_ROOT, fp), mtime: stat.mtimeMs});
-          } catch {}
-        }
-      }
-      scanAtom(contentDir);
-      items.sort((a, b) => b.mtime - a.mtime);
+      const items = cached('feed-items', 60000, () => scanFeedItems(fs, path, PROJECT_ROOT, ALLOWED_EXTS));
       const recent = items.slice(0, 20);
       const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const atom = `<?xml version="1.0" encoding="UTF-8"?>
