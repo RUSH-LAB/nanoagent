@@ -258,40 +258,54 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
     const query = (url.searchParams.get('q') || '').toLowerCase().trim();
     if (!query) return json(res, 400, {error: 'Missing query'});
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const matches = [];
-      for (const [key, entry] of Object.entries(refs)) {
-        const searchable = [key, entry.title || '', (entry.author || []).join(' ')].join(' ').toLowerCase();
-        if (!searchable.includes(query)) continue;
-        const contexts = [];
-        const CITE_PAT = new RegExp(`\\[@[^\\]]*\\b${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b[^\\]]*\\]`, 'g');
-        function scanCtx(dir) {
-          for (const e of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (e.name.startsWith('.')) continue;
-            const fp = path.join(dir, e.name);
-            if (e.isDirectory()) { scanCtx(fp); continue; }
-            if (!ALLOWED_EXTS.some(ext => e.name.endsWith(ext))) continue;
-            try {
-              const c = fs.readFileSync(fp, 'utf-8');
-              CITE_PAT.lastIndex = 0;
-              let m;
-              while ((m = CITE_PAT.exec(c)) !== null) {
-                const start = Math.max(0, m.index - 80);
-                const end = Math.min(c.length, m.index + m[0].length + 80);
-                contexts.push(c.slice(start, end).replace(/\n/g, ' ').trim());
-                if (contexts.length >= 3) break;
-              }
-            } catch {}
-            if (contexts.length >= 3) break;
+      // Cache the references.yaml parse and the per-key content-tree citation-context
+      // walk on a 60s window, keyed by the lowercased/trimmed query, mirroring the
+      // sibling cached scans in this file (byauthor:, venuestats:, authorprofile:,
+      // diffsummary:, statsdir:). Both inputs are pure functions of on-disk content
+      // plus the query, so a short TTL snapshot stays byte identical while skipping
+      // the repeat parse and walk. The empty-query 400 guard stays OUTSIDE and ABOVE
+      // this closure, so an empty query never reaches the cache; the require('js-yaml'),
+      // the references.yaml read, and the match/scan loop stay INSIDE; the try/catch
+      // 500 stays OUTSIDE, so a broken references.yaml still returns 500 and is never
+      // cached (cached() stores nothing when fn throws). The key carries the query, so
+      // each query is a distinct cache entry.
+      const result = cached('abstracts:' + query, 60000, () => {
+        const yaml = require('js-yaml');
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const matches = [];
+        for (const [key, entry] of Object.entries(refs)) {
+          const searchable = [key, entry.title || '', (entry.author || []).join(' ')].join(' ').toLowerCase();
+          if (!searchable.includes(query)) continue;
+          const contexts = [];
+          const CITE_PAT = new RegExp(`\\[@[^\\]]*\\b${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b[^\\]]*\\]`, 'g');
+          function scanCtx(dir) {
+            for (const e of fs.readdirSync(dir, {withFileTypes: true})) {
+              if (e.name.startsWith('.')) continue;
+              const fp = path.join(dir, e.name);
+              if (e.isDirectory()) { scanCtx(fp); continue; }
+              if (!ALLOWED_EXTS.some(ext => e.name.endsWith(ext))) continue;
+              try {
+                const c = fs.readFileSync(fp, 'utf-8');
+                CITE_PAT.lastIndex = 0;
+                let m;
+                while ((m = CITE_PAT.exec(c)) !== null) {
+                  const start = Math.max(0, m.index - 80);
+                  const end = Math.min(c.length, m.index + m[0].length + 80);
+                  contexts.push(c.slice(start, end).replace(/\n/g, ' ').trim());
+                  if (contexts.length >= 3) break;
+                }
+              } catch {}
+              if (contexts.length >= 3) break;
+            }
           }
+          scanCtx(contentDir);
+          matches.push({key, title: entry.title, year: entry.year, venue: entry.venue, authors: entry.author, contexts});
+          if (matches.length >= 10) break;
         }
-        scanCtx(contentDir);
-        matches.push({key, title: entry.title, year: entry.year, venue: entry.venue, authors: entry.author, contexts});
-        if (matches.length >= 10) break;
-      }
-      return json(res, 200, {results: matches, total: matches.length});
+        return {results: matches, total: matches.length};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 500, {error: 'Abstract search failed'});
     }
