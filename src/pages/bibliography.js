@@ -7,6 +7,7 @@ import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
 import {useDebounce} from '@site/src/utils/useDebounce';
 import {S2_PAPER_SEARCH} from '@site/src/utils/semanticScholar';
+import {formatAuthorList} from '@site/src/utils/authors';
 
 /* ── Year-based navigation components ──────────────────────────── */
 
@@ -157,12 +158,6 @@ function useActiveYearOnScroll(yearGroups) {
 
 const CitationGraph = lazy(() => import('../components/CitationGraph'));
 
-function formatAuthors(authors) {
-  if (!authors || authors.length === 0) return 'Unknown';
-  if (authors.length <= 3) return authors.join(', ');
-  return `${authors.slice(0, 3).join(', ')}, et al.`;
-}
-
 function toBibTeX(key, entry) {
   const type = entry.type || 'misc';
   const fields = [];
@@ -215,7 +210,7 @@ function CopyCiteButton({ citationKey }) {
 }
 
 const ReferenceEntry = React.memo(function ReferenceEntry({ citationKey, entry }) {
-  const authors = formatAuthors(entry.author);
+  const authors = formatAuthorList(entry.author);
   const venue = entry.venue || '';
   const vol = entry.volume ? `, vol. ${entry.volume}` : '';
   const pages = entry.pages ? `, pp. ${entry.pages}` : '';
@@ -637,7 +632,7 @@ function SearchAndAddPapers({ existingKeys }) {
                 const authors = paper.authors
                   ? paper.authors.map((a) => a.name)
                   : [];
-                const authorStr = formatAuthors(authors);
+                const authorStr = formatAuthorList(authors);
                 const isAdded = addedKeys[generateCitationKey(paper)];
                 const isAdding = addingKey === paperId;
 

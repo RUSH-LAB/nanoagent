@@ -2,14 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import API_BASE from '@site/src/utils/api';
+import {formatAuthorList} from '@site/src/utils/authors';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
-
-function formatAuthors(authors) {
-  if (!authors || authors.length === 0) return 'Unknown';
-  if (authors.length <= 3) return authors.join(', ');
-  return `${authors.slice(0, 3).join(', ')}, et al.`;
-}
 
 function RecommendationsDashboard() {
   const [recommendations, setRecommendations] = useState([]);
@@ -197,7 +192,7 @@ function RecommendationsDashboard() {
                       )}
                     </div>
                     <div style={{ fontSize: '0.88em', color: 'var(--ifm-color-emphasis-700)', marginBottom: '4px' }}>
-                      {formatAuthors(rec.authors)}
+                      {formatAuthorList(rec.authors)}
                       {rec.year && <span> ({rec.year})</span>}
                       {rec.venue && <span> &mdash; {rec.venue}</span>}
                     </div>
