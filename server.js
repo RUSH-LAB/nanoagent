@@ -160,64 +160,6 @@ function readRawBody(req) {
 // See server/data-store.js. Routes call these unchanged via the ctx object.
 const {loadJSON, saveJSON} = require('./server/data-store');
 
-// ── Feed item collector for RSS/Atom ──
-function collectFeedItems(postsDir) {
-  const items = [];
-  function scanDir(dir, category) {
-    if (!fs.existsSync(dir)) return;
-    for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-      if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        // Directory-based post: look for index.md or index.mdx
-        const indexMd = path.join(fullPath, 'index.md');
-        const indexMdx = path.join(fullPath, 'index.mdx');
-        const indexFile = fs.existsSync(indexMdx) ? indexMdx : fs.existsSync(indexMd) ? indexMd : null;
-        if (indexFile) {
-          const item = parseFeedItem(indexFile, category);
-          if (item) items.push(item);
-        }
-      } else if (entry.name.endsWith('.md') || entry.name.endsWith('.mdx')) {
-        const item = parseFeedItem(fullPath, category);
-        if (item) items.push(item);
-      }
-    }
-  }
-  scanDir(path.join(postsDir, 'blog'), 'blog');
-  scanDir(path.join(postsDir, 'research'), 'research');
-  items.sort((a, b) => new Date(b.date) - new Date(a.date));
-  return items.slice(0, 20);
-}
-
-function parseFeedItem(filePath, category) {
-  try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-    if (!fmMatch) return null;
-    const fm = fmMatch[1];
-    const get = (key) => {
-      const m = fm.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'));
-      return m ? m[1].trim().replace(/^["']|["']$/g, '') : '';
-    };
-    const title = get('title');
-    const slug = get('slug');
-    if (!title || !slug) return null;
-    const dateStr = get('date');
-    const date = dateStr ? new Date(dateStr) : new Date(fs.statSync(filePath).mtimeMs);
-    const authorsMatch = fm.match(/^authors:\s*\[([^\]]*)\]/m);
-    const authors = authorsMatch ? authorsMatch[1].split(',').map(a => a.trim()) : [];
-    const tagsMatch = fm.match(/^tags:\s*\[([^\]]*)\]/m);
-    const tags = tagsMatch ? tagsMatch[1].split(',').map(t => t.trim()) : [];
-    // Extract description: text after frontmatter, strip truncate marker, take first 200 chars
-    const body = content.slice(fmMatch[0].length).replace(/<!--\s*truncate\s*-->/, '').replace(/\{\/\*\s*truncate\s*\*\/\}/, '').trim();
-    const plainText = body.replace(/!\[.*?\]\(.*?\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[#*_`~>\-|]/g, '').replace(/\s+/g, ' ').trim();
-    const description = plainText.slice(0, 200) + (plainText.length > 200 ? '...' : '');
-    return {title, slug, category, date, authors, tags, description};
-  } catch {
-    return null;
-  }
-}
-
 // ── Simple TTL cache for expensive endpoints ──
 const cache = {};
 const MAX_CACHE_ENTRIES = 200;
@@ -367,104 +309,6 @@ setInterval(() => {
   }
 }, 60000);
 
-// ── Citation formatter ──
-function formatAuthorAPA(name) {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0];
-  const last = parts.pop();
-  return last + ', ' + parts.map(p => p[0].toUpperCase() + '.').join(' ');
-}
-
-function formatAuthorMLA(name) { return name.trim(); }
-
-function formatAuthorIEEE(name) {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0];
-  const last = parts.pop();
-  return parts.map(p => p[0].toUpperCase() + '.').join(' ') + ' ' + last;
-}
-
-function formatCitation(entry, style, key, index) {
-  const authors = entry.author || [];
-  const title = entry.title || 'Untitled';
-  const year = entry.year || 'n.d.';
-  const venue = entry.venue || '';
-  const vol = entry.volume || '';
-  const iss = entry.issue || '';
-  const pages = entry.pages || '';
-  const doi = entry.doi ? 'https://doi.org/' + entry.doi : '';
-
-  if (style === 'apa') {
-    let authorStr = '';
-    if (authors.length === 0) authorStr = '';
-    else if (authors.length === 1) authorStr = formatAuthorAPA(authors[0]);
-    else if (authors.length === 2) authorStr = formatAuthorAPA(authors[0]) + ', & ' + formatAuthorAPA(authors[1]);
-    else authorStr = authors.slice(0, -1).map(formatAuthorAPA).join(', ') + ', & ' + formatAuthorAPA(authors[authors.length - 1]);
-    let cite = authorStr ? authorStr + ' ' : '';
-    cite += '(' + year + '). ' + title + '.';
-    if (venue) {
-      cite += ' ' + venue;
-      if (vol) cite += ', ' + vol;
-      if (iss) cite += '(' + iss + ')';
-      if (pages) cite += ', ' + pages;
-      cite += '.';
-    }
-    if (doi) cite += ' ' + doi;
-    return cite;
-  }
-
-  if (style === 'mla') {
-    let authorStr = '';
-    if (authors.length === 1) authorStr = formatAuthorMLA(authors[0]);
-    else if (authors.length === 2) authorStr = formatAuthorMLA(authors[0]) + ', and ' + formatAuthorMLA(authors[1]);
-    else if (authors.length >= 3) authorStr = formatAuthorMLA(authors[0]) + ', et al.';
-    let cite = authorStr ? authorStr + '. ' : '';
-    cite += '"' + title + '."';
-    if (venue) {
-      cite += ' ' + venue;
-      if (vol) {
-        cite += ' ' + vol;
-        if (iss) cite += '.' + iss;
-      }
-      cite += ' (' + year + ')';
-      if (pages) cite += ': ' + pages;
-      cite += '.';
-    }
-    return cite;
-  }
-
-  if (style === 'chicago') {
-    let authorStr = authors.map(formatAuthorMLA).join(', ');
-    let cite = authorStr ? authorStr + '. ' : '';
-    cite += '"' + title + '."';
-    if (venue) {
-      cite += ' ' + venue;
-      if (vol) cite += ' ' + vol;
-      if (iss) cite += ', no. ' + iss;
-      cite += ' (' + year + ')';
-      if (pages) cite += ': ' + pages;
-      cite += '.';
-    }
-    if (doi) cite += ' ' + doi + '.';
-    return cite;
-  }
-
-  if (style === 'ieee') {
-    const num = typeof index === 'number' ? index : 1;
-    let authorStr = authors.map(formatAuthorIEEE).join(', ');
-    let cite = '[' + num + '] ';
-    if (authorStr) cite += authorStr + ', ';
-    cite += '"' + title + ',"';
-    if (venue) cite += ' ' + venue;
-    if (vol) cite += ', vol. ' + vol;
-    if (pages) cite += ', pp. ' + pages;
-    cite += ', ' + year + '.';
-    return cite;
-  }
-
-  return title;
-}
-
 // ── Performance metrics: in-memory response time tracking (last 100 per endpoint) ──
 const perfMetrics = {}; // { '/api/foo': [ms, ms, ...] }
 const PERF_MAX_ENTRIES = 100;
@@ -497,7 +341,7 @@ let requestCounter = 0;
 
 // ── Shared context handed to every route module in server/routes/ ──
 const ctx = {
-  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
+  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
   _routeDiagnostics: null,
 };
 
@@ -579,7 +423,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // ── Domain route modules (see api/routes/). First to send a response wins. ──
+  // ── Domain route modules (see server/routes/). First to send a response wins. ──
   for (const route of routeModules) {
     await route(req, res, url, pathname, ctx);
     if (res.writableEnded) return;
