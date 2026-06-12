@@ -25,6 +25,16 @@ const BIBTEX_HEADER_RE = /^@\s*([a-zA-Z]+)\s*\{\s*([^,\s]+)\s*,/;
 const BIBTEX_WS_OR_COMMA_RE = /[\s,]/;
 const BIBTEX_WS_RE = /[\s]/;
 
+// Author-parsing regexes, hoisted so parseBibtexAuthors / splitAuthorName build
+// each once at module load instead of on every author. AUTHORS_AND_SPLIT_RE (i)
+// and AUTHOR_NAME_WS_SPLIT_RE (no flags) are used via String.prototype.split,
+// which never reads or writes lastIndex. AUTHOR_INITIAL_DOT_RE (g) is used only
+// via String.prototype.replace(re, ''), which resets lastIndex to 0 before and
+// after each call, so a shared instance carries no state between calls.
+const AUTHORS_AND_SPLIT_RE = /\s+and\s+/i;
+const AUTHOR_NAME_WS_SPLIT_RE = /\s+/;
+const AUTHOR_INITIAL_DOT_RE = /\./g;
+
 function isValidFilePath(filePath) {
   if (!filePath) return false;
   if (filePath.length > 500) return false;
@@ -186,7 +196,7 @@ function parseBibtex(input) {
 
 function parseBibtexAuthors(authorStr) {
   if (!authorStr) return [];
-  return authorStr.split(/\s+and\s+/i).map(a => {
+  return authorStr.split(AUTHORS_AND_SPLIT_RE).map(a => {
     a = a.trim();
     if (!a) return null;
     if (a.includes(',')) {
@@ -224,9 +234,9 @@ function mapBibtexEntryType(bibtexType) {
 // names), so the last whitespace token is the family name. Only the first and
 // last tokens are considered; any middle names or initials are ignored.
 function splitAuthorName(name) {
-  const tokens = String(name).trim().split(/\s+/);
+  const tokens = String(name).trim().split(AUTHOR_NAME_WS_SPLIT_RE);
   const last = (tokens[tokens.length - 1] || '').toLowerCase();
-  const first = tokens.length > 1 ? tokens[0].toLowerCase().replace(/\./g, '') : '';
+  const first = tokens.length > 1 ? tokens[0].toLowerCase().replace(AUTHOR_INITIAL_DOT_RE, '') : '';
   return {first, last};
 }
 
@@ -355,3 +365,6 @@ module.exports.BIBTEX_ENTRY_SPLIT_RE = BIBTEX_ENTRY_SPLIT_RE;
 module.exports.BIBTEX_HEADER_RE = BIBTEX_HEADER_RE;
 module.exports.BIBTEX_WS_OR_COMMA_RE = BIBTEX_WS_OR_COMMA_RE;
 module.exports.BIBTEX_WS_RE = BIBTEX_WS_RE;
+module.exports.AUTHORS_AND_SPLIT_RE = AUTHORS_AND_SPLIT_RE;
+module.exports.AUTHOR_NAME_WS_SPLIT_RE = AUTHOR_NAME_WS_SPLIT_RE;
+module.exports.AUTHOR_INITIAL_DOT_RE = AUTHOR_INITIAL_DOT_RE;
