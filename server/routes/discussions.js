@@ -69,7 +69,7 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
     try { channelId = decodeURIComponent(parts[3]); }
     catch { return json(res, 400, {error: 'Invalid channel id'}); }
     const data = loadJSON(DISCUSSIONS_FILE);
-    if (!data.channels || !data.channels[channelId]) {
+    if (!data.channels || !Object.hasOwn(data.channels, channelId)) {
       return json(res, 404, {error: 'Channel not found'});
     }
     const all = (data.messages || {})[channelId] || [];
@@ -90,7 +90,7 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
     const query = (url.searchParams.get('q') || '').toLowerCase().trim();
     if (!query) return json(res, 400, {error: 'Missing query'});
     const data = loadJSON(DISCUSSIONS_FILE);
-    if (!data.channels || !data.channels[channelId]) {
+    if (!data.channels || !Object.hasOwn(data.channels, channelId)) {
       return json(res, 404, {error: 'Channel not found'});
     }
     const all = (data.messages || {})[channelId] || [];
@@ -109,7 +109,7 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
       try { channelId = decodeURIComponent(parts[3]); }
       catch { return json(res, 400, {error: 'Invalid channel id'}); }
       const data = loadJSON(DISCUSSIONS_FILE);
-      if (!data.channels || !data.channels[channelId]) {
+      if (!data.channels || !Object.hasOwn(data.channels, channelId)) {
         return json(res, 404, {error: 'Channel not found'});
       }
       const body = await readBody(req);
@@ -143,7 +143,7 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
       try { channelId = decodeURIComponent(parts[3]); }
       catch { return json(res, 400, {error: 'Invalid channel id'}); }
       const data = loadJSON(DISCUSSIONS_FILE);
-      if (!data.channels || !data.channels[channelId]) {
+      if (!data.channels || !Object.hasOwn(data.channels, channelId)) {
         return json(res, 404, {error: 'Channel not found'});
       }
       const body = await readBody(req);
@@ -174,7 +174,7 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
       try { channelId = decodeURIComponent(parts[3]); }
       catch { return json(res, 400, {error: 'Invalid channel id'}); }
       const data = loadJSON(DISCUSSIONS_FILE);
-      if (!data.channels || !data.channels[channelId]) {
+      if (!data.channels || !Object.hasOwn(data.channels, channelId)) {
         return json(res, 404, {error: 'Channel not found'});
       }
       const body = await readBody(req);
@@ -202,7 +202,7 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
       try { channelId = decodeURIComponent(parts[3]); }
       catch { return json(res, 400, {error: 'Invalid channel id'}); }
       const data = loadJSON(DISCUSSIONS_FILE);
-      if (!data.channels || !data.channels[channelId]) {
+      if (!data.channels || !Object.hasOwn(data.channels, channelId)) {
         return json(res, 404, {error: 'Channel not found'});
       }
       delete data.channels[channelId];
