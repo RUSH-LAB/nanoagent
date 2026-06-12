@@ -139,8 +139,21 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     const key = url.searchParams.get('key');
     if (!key) return json(res, 400, {error: 'Missing key'});
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      // Serve the parsed bibliography from the shared, mtime + size aware memo
+      // instead of re-reading and re-parsing references.yaml on every request.
+      // This read sits OUTSIDE the content-scan cache below (it feeds the 404
+      // guard), so it previously ran on every request, including cache hits.
+      const {loadReferencesCached} = require('./references');
+      const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
+      // loadReferencesCached swallows a missing or unparseable bibliography and
+      // returns {}. Preserve the original 500-on-failure response by reproducing
+      // that read only when the memoized parse is empty: a genuinely broken or
+      // missing file still throws to the catch, while a legitimately empty file
+      // re-reads cleanly and falls through to the unchanged 404 below.
+      if (Object.keys(refs).length === 0) {
+        const yaml = require('js-yaml');
+        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8'));
+      }
       if (!refs[key]) return json(res, 404, {error: 'Reference not found'});
       // Cache the per-key content scan so repeated requests for the same citation
       // key skip the recursive walk that reads and regex-scans every content file.
@@ -292,8 +305,19 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     const key2 = url.searchParams.get('key2');
     if (!key1 || !key2) return json(res, 400, {error: 'Missing key1 or key2'});
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      // Serve the parsed bibliography from the shared, mtime + size aware memo
+      // instead of re-reading and re-parsing references.yaml on every request.
+      const {loadReferencesCached} = require('./references');
+      const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
+      // loadReferencesCached swallows a missing or unparseable bibliography and
+      // returns {}. Preserve the original 500-on-failure response by reproducing
+      // that read only when the memoized parse is empty: a genuinely broken or
+      // missing file still throws to the catch, while a legitimately empty file
+      // re-reads cleanly and falls through to the unchanged 404 below.
+      if (Object.keys(refs).length === 0) {
+        const yaml = require('js-yaml');
+        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8'));
+      }
       const paper1 = refs[key1];
       const paper2 = refs[key2];
       if (!paper1 || !paper2) return json(res, 404, {error: 'One or both references not found'});
