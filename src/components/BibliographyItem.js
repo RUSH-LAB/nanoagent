@@ -344,7 +344,6 @@ function EnrichSection({ bibKey, entry }) {
       .finally(() => setSaving(false));
   };
 
-  const buttonBase = BUTTON_BASE;
 
   // Fields to display from enrichment sources
   const displayFields = ['title', 'authors', 'year', 'venue', 'doi', 'arxivId', 'url', 'publisher', 'volume', 'issue', 'pages', 'citationCount', 'referenceCount', 'tldr'];
@@ -382,7 +381,7 @@ function EnrichSection({ bibKey, entry }) {
         <button
           onClick={enrichData && expanded ? () => setExpanded(!expanded) : handleEnrich}
           disabled={loading}
-          style={{ ...buttonBase, opacity: loading ? 0.6 : 1 }}
+          style={{ ...BUTTON_BASE, opacity: loading ? 0.6 : 1 }}
         >
           {loading ? 'Fetching...' : enrichData && expanded ? 'Collapse' : enrichData ? 'Expand' : 'Enrich'}
         </button>
@@ -579,7 +578,7 @@ function EnrichSection({ bibKey, entry }) {
                 onClick={handleApply}
                 disabled={saving}
                 style={{
-                  ...buttonBase,
+                  ...BUTTON_BASE,
                   background: 'var(--ifm-color-primary)',
                   color: 'var(--ifm-color-white)',
                   border: '1px solid var(--ifm-color-primary)',
@@ -666,7 +665,6 @@ function PublicationTracker({ entry, bibKey }) {
     border: `1px solid ${published ? 'var(--ifm-color-success-dark)' : 'var(--ifm-color-warning-dark)'}`,
   });
 
-  const buttonBase = BUTTON_BASE;
 
   return (
     <div style={{ marginBottom: '2rem' }}>
@@ -741,7 +739,7 @@ function PublicationTracker({ entry, bibKey }) {
           <button
             onClick={handleCheck}
             disabled={checking}
-            style={{ ...buttonBase, opacity: checking ? 0.6 : 1 }}
+            style={{ ...BUTTON_BASE, opacity: checking ? 0.6 : 1 }}
           >
             {checking ? 'Checking...' : 'Check Now'}
           </button>
@@ -750,7 +748,7 @@ function PublicationTracker({ entry, bibKey }) {
               onClick={handleUpdate}
               disabled={updating}
               style={{
-                ...buttonBase,
+                ...BUTTON_BASE,
                 background: 'var(--ifm-color-primary)',
                 color: 'var(--ifm-color-white)',
                 border: '1px solid var(--ifm-color-primary)',
@@ -939,7 +937,6 @@ function NotesSection({ notes: staticNotes, bibKey }) {
       });
   };
 
-  const buttonBase = BUTTON_BASE;
 
   return (
     <div style={{ marginBottom: '2rem' }}>
@@ -948,7 +945,7 @@ function NotesSection({ notes: staticNotes, bibKey }) {
         {!editing && !loading && (
           <button
             onClick={() => setEditing(true)}
-            style={buttonBase}
+            style={BUTTON_BASE}
           >
             Edit
           </button>
@@ -1011,7 +1008,7 @@ function NotesSection({ notes: staticNotes, bibKey }) {
               onClick={handleSave}
               disabled={saving}
               style={{
-                ...buttonBase,
+                ...BUTTON_BASE,
                 background: 'var(--ifm-color-primary)',
                 color: 'var(--ifm-color-white)',
                 border: '1px solid var(--ifm-color-primary)',
@@ -1023,7 +1020,7 @@ function NotesSection({ notes: staticNotes, bibKey }) {
             <button
               onClick={handleCancel}
               disabled={saving}
-              style={buttonBase}
+              style={BUTTON_BASE}
             >
               Cancel
             </button>
@@ -1105,7 +1102,6 @@ function RelatedPapers({ title }) {
       .finally(() => setAddingIdx(null));
   };
 
-  const buttonBase = BUTTON_BASE;
 
   return (
     <div style={{ marginBottom: '2rem' }}>
@@ -1114,7 +1110,7 @@ function RelatedPapers({ title }) {
         <button
           onClick={handleSearch}
           disabled={loading}
-          style={{ ...buttonBase, opacity: loading ? 0.6 : 1 }}
+          style={{ ...BUTTON_BASE, opacity: loading ? 0.6 : 1 }}
         >
           {loading ? 'Searching...' : 'Find Related Papers'}
         </button>
@@ -1183,7 +1179,7 @@ function RelatedPapers({ title }) {
                 onClick={() => handleAdd(paper, idx)}
                 disabled={addingIdx === idx || addedSet.has(idx)}
                 style={{
-                  ...buttonBase,
+                  ...BUTTON_BASE,
                   flexShrink: 0,
                   fontSize: '0.8em',
                   padding: '2px 10px',
