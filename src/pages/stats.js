@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
+import { CHART_HUES } from '@site/src/utils/chartColors';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 
 // ── Shared styles ────────────────────────────────────────────────
@@ -20,7 +21,7 @@ const sectionStyle = {
   marginBottom: '2.5rem',
 };
 
-const hues = [210, 340, 150, 30, 270, 180, 0, 60, 300, 120];
+const hues = CHART_HUES;
 
 // ── Helper: format large numbers ─────────────────────────────────
 
