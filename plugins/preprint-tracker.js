@@ -109,7 +109,7 @@ async function main() {
   console.log(`Found ${candidates.length} arXiv preprints without a formal venue\n`);
 
   if (candidates.length === 0) {
-    console.log('Nothing to do -- all arXiv papers already have venues.');
+    console.log('Nothing to do — all arXiv papers already have venues.');
     return;
   }
 
