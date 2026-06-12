@@ -6,7 +6,6 @@ const remarkCite = require('./plugins/remark-cite');
 const remarkWikiLinks = require('./plugins/remark-wiki-links');
 
 // ── Shared plugin configs ──────────────────────────────────────────────────
-const EDIT_URL = 'https://github.com/zeyuyang8/mochi-lab/tree/main/mochi-lab/';
 const BOOKS_DIR = 'content/books';
 const POSTS_DIR = 'content/posts';
 
