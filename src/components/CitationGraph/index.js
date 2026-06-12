@@ -119,7 +119,6 @@ function computeLayout(keys, references) {
   const usableWidth = SVG_WIDTH - PADDING * 2;
 
   // Assign positions
-  const keyToIndex = {};
   const nodes = [];
 
   for (const year of years) {
@@ -133,7 +132,6 @@ function computeLayout(keys, references) {
 
     for (let i = 0; i < group.length; i++) {
       const key = group[i];
-      keyToIndex[key] = nodes.length;
       nodes.push({
         key,
         entry: references[key],
