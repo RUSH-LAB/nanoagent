@@ -1379,7 +1379,7 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
   if (req.method === 'GET' && pathname === '/api/suggest') {
     try {
       const text = (url.searchParams.get('text') || '').trim();
-      const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '5', 10), 1), 20);
+      const limit = Math.max(numericParam(url.searchParams.get('limit'), 5, 20), 1);
       if (!text) return json(res, 200, {references: [], pages: []});
 
       // Extract keywords from last 50 words
