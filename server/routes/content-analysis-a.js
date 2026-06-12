@@ -621,46 +621,59 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     const maxDepth = numericParam(url.searchParams.get('depth'), 3, 5);
     if (!isValidFilePath(startPath)) return json(res, 400, {error: 'Invalid start path'});
     try {
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const pageLinks = {};
-      const pageTitles = {};
-      function scan(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scan(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          const rel = path.relative(PROJECT_ROOT, fp);
-          try {
-            const content = fs.readFileSync(fp, 'utf-8');
-            let title = entry.name.replace(/\.(mdx?|md)$/, '');
-            const fm = content.match(/^---\n([\s\S]*?)\n---/);
-            if (fm) { const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m); if (tm) title = tm[1]; }
-            pageTitles[rel] = title;
-            READING_PATH_WIKI_RE.lastIndex = 0;
-            const links = [];
-            let m;
-            while ((m = READING_PATH_WIKI_RE.exec(content)) !== null) links.push(m[1].trim());
-            pageLinks[rel] = links;
-          } catch {}
-        }
-      }
-      scan(contentDir);
-      const visited = new Set();
-      const readingPath = [];
-      function walk(filePath, depth) {
-        if (depth > maxDepth || visited.has(filePath)) return;
-        visited.add(filePath);
-        readingPath.push({path: filePath, title: pageTitles[filePath] || filePath, depth});
-        for (const link of (pageLinks[filePath] || [])) {
-          const resolved = Object.keys(pageTitles).find(p => p.endsWith(link + '.md') || p.endsWith(link + '.mdx') || p.includes('/' + link + '.'));
-          if (resolved && !visited.has(resolved)) {
-            walk(resolved, depth + 1);
+      // Memoize the full content/ walk and depth-bounded BFS for 60s, mirroring the
+      // sibling cached('word-frequency:' + dir), cached('content-summary'), and
+      // cached('stats-overview') handlers in this file. The reading path is a pure
+      // function of the content/ files plus startPath and maxDepth, so the key carries
+      // both: each (start, depth) pair gets its own entry and a 60s snapshot stays byte
+      // identical while skipping the repeat readdirSync/readFileSync walk. The
+      // isValidFilePath 400 guard and the maxDepth parse stay above this try, and the
+      // try/catch stays outside the closure, so an invalid start never scans and a
+      // failed scan returns a 404 that is never cached (the cached helper stores
+      // nothing when fn throws).
+      const result = cached('readingpath:' + startPath + ':' + maxDepth, 60000, () => {
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const pageLinks = {};
+        const pageTitles = {};
+        function scan(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scan(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            const rel = path.relative(PROJECT_ROOT, fp);
+            try {
+              const content = fs.readFileSync(fp, 'utf-8');
+              let title = entry.name.replace(/\.(mdx?|md)$/, '');
+              const fm = content.match(/^---\n([\s\S]*?)\n---/);
+              if (fm) { const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m); if (tm) title = tm[1]; }
+              pageTitles[rel] = title;
+              READING_PATH_WIKI_RE.lastIndex = 0;
+              const links = [];
+              let m;
+              while ((m = READING_PATH_WIKI_RE.exec(content)) !== null) links.push(m[1].trim());
+              pageLinks[rel] = links;
+            } catch {}
           }
         }
-      }
-      walk(startPath, 0);
-      return json(res, 200, {startPath, readingPath, totalPages: readingPath.length, maxDepthReached: Math.max(0, ...readingPath.map(p => p.depth))});
+        scan(contentDir);
+        const visited = new Set();
+        const readingPath = [];
+        function walk(filePath, depth) {
+          if (depth > maxDepth || visited.has(filePath)) return;
+          visited.add(filePath);
+          readingPath.push({path: filePath, title: pageTitles[filePath] || filePath, depth});
+          for (const link of (pageLinks[filePath] || [])) {
+            const resolved = Object.keys(pageTitles).find(p => p.endsWith(link + '.md') || p.endsWith(link + '.mdx') || p.includes('/' + link + '.'));
+            if (resolved && !visited.has(resolved)) {
+              walk(resolved, depth + 1);
+            }
+          }
+        }
+        walk(startPath, 0);
+        return {startPath, readingPath, totalPages: readingPath.length, maxDepthReached: Math.max(0, ...readingPath.map(p => p.depth))};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'Start path not found'});
     }

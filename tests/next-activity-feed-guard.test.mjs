@@ -147,6 +147,10 @@ describe('GET /api/content-reading-path depth guard', () => {
         PROJECT_ROOT: tmpRoot,
         ALLOWED_EXTS: ['.md', '.mdx'],
         isValidFilePath: () => true,
+        // /api/content-reading-path now wraps its walk in cached(); a pass-through
+        // cached (run fn every call, never memoize) keeps this depth-guard suite
+        // exercising the real BFS and leaves every assertion below unchanged.
+        cached: (_k, _t, fn) => fn(),
       },
     });
 
