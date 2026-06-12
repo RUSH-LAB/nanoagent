@@ -383,9 +383,11 @@ const server = http.createServer(async (req, res) => {
       console.log(`[${reqId}] ${req.method} ${req.url} ${res.statusCode} ${ms}ms`);
       const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '-';
       appendAccessLog(`${new Date().toISOString()} | ${req.method} | ${req.url} | ${res.statusCode} | ${ms} | ${ip}`);
-      // Record response time for perf tracking
+      // Record response time for perf tracking. Reuse the dispatch's already
+      // parsed pathname (URL.pathname ignores the host/port base, so this is
+      // identical to re-parsing req.url) to drop one WHATWG URL parse per request.
       try {
-        const ep = (new URL(req.url, 'http://localhost')).pathname;
+        const ep = pathname;
         if (ep.startsWith('/api/')) recordPerfMetric(`${req.method} ${ep}`, ms);
       } catch { /* ignore malformed URLs */ }
     }
