@@ -5,7 +5,7 @@
 
 // Object keys that must never be used as map keys in the analytics/user stores,
 // since assigning them can pollute Object.prototype. Hoisted and frozen so the
-// pageview and set-role handlers below share one immutable, read-only guard list.
+// pageview, set-role, and presence handlers below share one immutable, read-only guard list.
 const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
 
 module.exports = async function analytics_users_routes(req, res, url, pathname, ctx) {
