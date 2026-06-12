@@ -14,6 +14,9 @@ function numericParam(raw, def, max) {
   return Math.min(Number.isNaN(n) ? def : n, max);
 }
 
+// Object keys that must never be used as property names (prototype-pollution guard).
+const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
+
 // Stop words stripped from the keyword list in GET /api/suggest, built once at
 // module load instead of rebuilt on every request. The set holds only constant
 // string literals and is read only (`.has` membership tests), so hoisting it
@@ -41,7 +44,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       if (userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
       if (!pagePath || typeof pagePath !== 'string') return json(res, 400, {error: 'Missing or invalid pagePath'});
       if (pagePath.length > 500) return json(res, 400, {error: 'pagePath must be 500 characters or fewer'});
-      if (["__proto__", "constructor", "prototype"].includes(userId) || ["__proto__", "constructor", "prototype"].includes(pagePath)) return json(res, 400, {error: 'Invalid key'});
+      if (PROTO_KEYS.includes(userId) || PROTO_KEYS.includes(pagePath)) return json(res, 400, {error: 'Invalid key'});
       const PROGRESS_FILE = path.join(PROJECT_ROOT, 'data', 'reading-progress.json');
       const data = loadJSON(PROGRESS_FILE);
       const safeUserId = sanitizeText(userId);

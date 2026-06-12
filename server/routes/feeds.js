@@ -13,6 +13,9 @@ function numericParam(raw, def, max) {
   return Math.min(Number.isNaN(n) ? def : n, max);
 }
 
+// Object keys that must never be used as property names (prototype-pollution guard).
+const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
+
 module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -36,7 +39,7 @@ module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
       const {userId, startTime, endTime, wordsWritten, filesEdited} = body;
       if (!userId || typeof userId !== 'string') return json(res, 400, {error: 'Missing or invalid userId'});
       if (!startTime || typeof startTime !== 'string') return json(res, 400, {error: 'Missing or invalid startTime'});
-      if (['__proto__', 'constructor', 'prototype'].includes(userId)) return json(res, 400, {error: 'Invalid userId'});
+      if (PROTO_KEYS.includes(userId)) return json(res, 400, {error: 'Invalid userId'});
       if (endTime !== undefined && typeof endTime !== 'string') return json(res, 400, {error: 'endTime must be a string'});
       if (wordsWritten !== undefined && typeof wordsWritten !== 'number') return json(res, 400, {error: 'wordsWritten must be a number'});
       if (filesEdited !== undefined && !Array.isArray(filesEdited)) return json(res, 400, {error: 'filesEdited must be an array'});
