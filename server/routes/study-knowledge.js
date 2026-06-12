@@ -8,6 +8,12 @@
 // holds no lastIndex state and one shared instance is safe across handlers.
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/;
 
+// Prototype-pollution guard for PUT /api/preferences. These keys would corrupt
+// Object.prototype if accepted as a userId or preference key. The Set is never
+// mutated and is read only through .has(), so one shared module-scope instance
+// is safe across requests and is built once at module load.
+const DANGEROUS_PREFERENCE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 module.exports = async function study_knowledge_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -673,17 +679,16 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       if (userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
       if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) return json(res, 400, {error: 'Missing or invalid preferences'});
       // Guard against prototype pollution: reject dangerous keys
-      const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-      if (DANGEROUS_KEYS.has(userId)) return json(res, 400, {error: 'Invalid userId'});
+      if (DANGEROUS_PREFERENCE_KEYS.has(userId)) return json(res, 400, {error: 'Invalid userId'});
       for (const key of Object.keys(preferences)) {
-        if (DANGEROUS_KEYS.has(key)) return json(res, 400, {error: `Invalid preference key: ${key}`});
+        if (DANGEROUS_PREFERENCE_KEYS.has(key)) return json(res, 400, {error: `Invalid preference key: ${key}`});
       }
       const safeUserId = sanitizeText(userId);
       const PREFS_FILE = path.join(PROJECT_ROOT, 'data', 'preferences.json');
       const prefs = loadJSON(PREFS_FILE);
       if (!prefs[safeUserId]) prefs[safeUserId] = {};
       for (const [key, value] of Object.entries(preferences)) {
-        if (!DANGEROUS_KEYS.has(key)) {
+        if (!DANGEROUS_PREFERENCE_KEYS.has(key)) {
           prefs[safeUserId][key] = typeof value === 'string' ? sanitizeText(value).slice(0, 5000) : value;
         }
       }
