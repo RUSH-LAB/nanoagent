@@ -190,54 +190,64 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
   // ── Admin health summary score ──
   if (req.method === 'GET' && pathname === '/api/admin/health-summary') {
     try {
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      let totalFiles = 0, filesWithTitle = 0, filesWithTags = 0, totalHeadings = 0;
-      let totalWords = 0;
-      let totalLinks = 0, brokenLinks = 0;
-      const pageIds = new Set();
-      function collect(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { collect(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          totalFiles++;
-          let id = path.relative(path.join(PROJECT_ROOT, 'content'), fp).replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
-          if (id.endsWith('/index')) id = id.slice(0, -6);
-          pageIds.add(id);
-          try {
-            const content = fs.readFileSync(fp, 'utf-8');
-            totalWords += content.split(/\s+/).filter(Boolean).length;
-            totalHeadings += (content.match(/^#{1,6}\s+/gm) || []).length;
-            const fm = content.match(/^---\n([\s\S]*?)\n---/);
-            if (fm) {
-              if (/^title:/m.test(fm[1])) filesWithTitle++;
-              if (/^tags:/m.test(fm[1])) filesWithTags++;
-            }
-            HEALTH_WIKI_LINK_RE.lastIndex = 0;
-            let m;
-            while ((m = HEALTH_WIKI_LINK_RE.exec(content)) !== null) {
-              totalLinks++;
-              const target = m[1].trim();
-              if (!pageIds.has(target) && ![...pageIds].some(id => id.endsWith(target))) brokenLinks++;
-            }
-          } catch {}
+      // Cache the content-tree walk and score assembly on a 60s window, mirroring
+      // the sibling cached scans in this file (content-status, backlink-ranking,
+      // content-quality, ...). Repeated requests within the TTL skip the full
+      // readdirSync/readFileSync walk and return the memoized result object. The
+      // try/catch stays OUTSIDE the closure so a failed scan is never cached, and
+      // the HEALTH_WIKI_LINK_RE.lastIndex reset stays INSIDE, before each file's
+      // exec loop, so the link-health stats stay correct across requests.
+      const summary = cached('health-summary', 60000, () => {
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        let totalFiles = 0, filesWithTitle = 0, filesWithTags = 0, totalHeadings = 0;
+        let totalWords = 0;
+        let totalLinks = 0, brokenLinks = 0;
+        const pageIds = new Set();
+        function collect(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { collect(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            totalFiles++;
+            let id = path.relative(path.join(PROJECT_ROOT, 'content'), fp).replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
+            if (id.endsWith('/index')) id = id.slice(0, -6);
+            pageIds.add(id);
+            try {
+              const content = fs.readFileSync(fp, 'utf-8');
+              totalWords += content.split(/\s+/).filter(Boolean).length;
+              totalHeadings += (content.match(/^#{1,6}\s+/gm) || []).length;
+              const fm = content.match(/^---\n([\s\S]*?)\n---/);
+              if (fm) {
+                if (/^title:/m.test(fm[1])) filesWithTitle++;
+                if (/^tags:/m.test(fm[1])) filesWithTags++;
+              }
+              HEALTH_WIKI_LINK_RE.lastIndex = 0;
+              let m;
+              while ((m = HEALTH_WIKI_LINK_RE.exec(content)) !== null) {
+                totalLinks++;
+                const target = m[1].trim();
+                if (!pageIds.has(target) && ![...pageIds].some(id => id.endsWith(target))) brokenLinks++;
+              }
+            } catch {}
+          }
         }
-      }
-      collect(contentDir);
-      const titleScore = totalFiles > 0 ? Math.round((filesWithTitle / totalFiles) * 25) : 0;
-      const tagScore = totalFiles > 0 ? Math.round((filesWithTags / totalFiles) * 15) : 0;
-      const headingScore = Math.min(20, Math.round((totalHeadings / Math.max(totalFiles, 1)) * 5));
-      const wordScore = Math.min(20, Math.round((totalWords / Math.max(totalFiles, 1)) / 100));
-      const linkHealthScore = totalLinks > 0 ? Math.round(((totalLinks - brokenLinks) / totalLinks) * 20) : 20;
-      const overallScore = Math.min(100, titleScore + tagScore + headingScore + wordScore + linkHealthScore);
-      const level = overallScore >= 80 ? 'excellent' : overallScore >= 60 ? 'good' : overallScore >= 40 ? 'adequate' : 'needs-work';
-      return json(res, 200, {
-        score: overallScore,
-        level,
-        breakdown: {titles: titleScore, tags: tagScore, headings: headingScore, wordCount: wordScore, linkHealth: linkHealthScore},
-        stats: {totalFiles, filesWithTitle, filesWithTags, totalWords, totalLinks, brokenLinks},
+        collect(contentDir);
+        const titleScore = totalFiles > 0 ? Math.round((filesWithTitle / totalFiles) * 25) : 0;
+        const tagScore = totalFiles > 0 ? Math.round((filesWithTags / totalFiles) * 15) : 0;
+        const headingScore = Math.min(20, Math.round((totalHeadings / Math.max(totalFiles, 1)) * 5));
+        const wordScore = Math.min(20, Math.round((totalWords / Math.max(totalFiles, 1)) / 100));
+        const linkHealthScore = totalLinks > 0 ? Math.round(((totalLinks - brokenLinks) / totalLinks) * 20) : 20;
+        const overallScore = Math.min(100, titleScore + tagScore + headingScore + wordScore + linkHealthScore);
+        const level = overallScore >= 80 ? 'excellent' : overallScore >= 60 ? 'good' : overallScore >= 40 ? 'adequate' : 'needs-work';
+        return {
+          score: overallScore,
+          level,
+          breakdown: {titles: titleScore, tags: tagScore, headings: headingScore, wordCount: wordScore, linkHealth: linkHealthScore},
+          stats: {totalFiles, filesWithTitle, filesWithTags, totalWords, totalLinks, brokenLinks},
+        };
       });
+      return json(res, 200, summary);
     } catch {
       return json(res, 500, {error: 'Health summary failed'});
     }

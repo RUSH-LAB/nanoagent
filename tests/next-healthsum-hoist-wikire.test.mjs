@@ -69,6 +69,11 @@ async function runHealthSummary() {
     fs, path,
     PROJECT_ROOT: root,
     ALLOWED_EXTS: ['.md', '.mdx'],
+    // The handler now wraps its scan in cached(key, ttl, fn). Inject a pass-through
+    // so this guard keeps re-running the real scan on every call (its back-to-back
+    // and stale-lastIndex assertions depend on the scan actually executing), which
+    // preserves this test's behavior exactly as before the cache wrap.
+    cached: (_k, _t, fn) => fn(),
     json: (_res, status, payload) => { captured = { status, payload }; },
   };
   const url = new URL('http://localhost/api/admin/health-summary');
