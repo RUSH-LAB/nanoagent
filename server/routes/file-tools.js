@@ -330,50 +330,60 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      let text = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      text = text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s-]/g, ' ');
-      const words = text.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !SUGGEST_TAGS_STOP_WORDS.has(w));
-      const freq = {};
-      for (const w of words) freq[w] = (freq[w] || 0) + 1;
-      const existingTags = cached('all-tags-set', 30000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
-        const tagSet = new Set();
-        function scan(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-            const fp = path.join(dir, entry.name);
-            if (entry.isDirectory()) { scan(fp); continue; }
-            if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              try {
-                const c = fs.readFileSync(fp, 'utf-8');
-                const fm = c.match(/^---\n([\s\S]*?)\n---/);
-                if (fm) {
-                  const tgm = fm[1].match(/^tags:\s*\[([^\]]*)\]/m);
-                  if (tgm) tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => tagSet.add(t));
-                }
-              } catch {}
+      // Cache the per-path suggestion payload so repeated requests for the same file
+      // skip the source read, the frequency-map build, and the suggestion fold over the
+      // corpus tag set. The source readFileSync stays inside the closure, so a missing
+      // file still throws here and propagates to the outer catch (the 404 is never
+      // cached). The inner all-tags-set cache is preserved, so the whole payload carries
+      // the same 30s staleness that corpus cache already has. Mirrors the
+      // /api/file/dependencies, /summary, /outline, and /lint caches above.
+      const result = cached('suggesttags:' + filePath, 30000, () => {
+        let text = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        text = text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s-]/g, ' ');
+        const words = text.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !SUGGEST_TAGS_STOP_WORDS.has(w));
+        const freq = {};
+        for (const w of words) freq[w] = (freq[w] || 0) + 1;
+        const existingTags = cached('all-tags-set', 30000, () => {
+          const contentDir = path.join(PROJECT_ROOT, 'content');
+          const tagSet = new Set();
+          function scan(dir) {
+            for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+              if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+              const fp = path.join(dir, entry.name);
+              if (entry.isDirectory()) { scan(fp); continue; }
+              if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
+                try {
+                  const c = fs.readFileSync(fp, 'utf-8');
+                  const fm = c.match(/^---\n([\s\S]*?)\n---/);
+                  if (fm) {
+                    const tgm = fm[1].match(/^tags:\s*\[([^\]]*)\]/m);
+                    if (tgm) tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => tagSet.add(t));
+                  }
+                } catch {}
+              }
             }
           }
+          scan(contentDir);
+          return tagSet;
+        });
+        const suggestions = [];
+        for (const tag of existingTags) {
+          const tagLower = tag.toLowerCase();
+          if (freq[tagLower] && freq[tagLower] >= 2) {
+            suggestions.push({tag, confidence: Math.min(freq[tagLower] / 5, 1)});
+          }
+          const hyphenated = tagLower.replace(/-/g, ' ').split(' ');
+          if (hyphenated.length > 1 && hyphenated.every(w => freq[w] && freq[w] >= 1)) {
+            suggestions.push({tag, confidence: 0.7});
+          }
         }
-        scan(contentDir);
-        return tagSet;
+        const topKeywords = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([word]) => word);
+        const uniqueSuggestions = [...new Map(suggestions.map(s => [s.tag, s])).values()]
+          .sort((a, b) => b.confidence - a.confidence)
+          .slice(0, 10);
+        return {suggestions: uniqueSuggestions, topKeywords};
       });
-      const suggestions = [];
-      for (const tag of existingTags) {
-        const tagLower = tag.toLowerCase();
-        if (freq[tagLower] && freq[tagLower] >= 2) {
-          suggestions.push({tag, confidence: Math.min(freq[tagLower] / 5, 1)});
-        }
-        const hyphenated = tagLower.replace(/-/g, ' ').split(' ');
-        if (hyphenated.length > 1 && hyphenated.every(w => freq[w] && freq[w] >= 1)) {
-          suggestions.push({tag, confidence: 0.7});
-        }
-      }
-      const topKeywords = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([word]) => word);
-      const uniqueSuggestions = [...new Map(suggestions.map(s => [s.tag, s])).values()]
-        .sort((a, b) => b.confidence - a.confidence)
-        .slice(0, 10);
-      return json(res, 200, {suggestions: uniqueSuggestions, topKeywords});
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
