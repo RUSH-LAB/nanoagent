@@ -471,58 +471,71 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     const sourcePath = url.searchParams.get('path');
     if (!isValidFilePath(sourcePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      const sourceContent = fs.readFileSync(path.join(PROJECT_ROOT, sourcePath), 'utf-8');
-      const sourceFm = sourceContent.match(/^---\n([\s\S]*?)\n---/);
-      const sourceTags = new Set();
-      if (sourceFm) {
-        const tgm = sourceFm[1].match(/^tags:\s*\[([^\]]*)\]/m);
-        if (tgm) tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => sourceTags.add(t));
-      }
-      const sourceWords = new Set(sourceContent.replace(/^---[\s\S]*?---/, '').toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4 && !RECOMMEND_STOP_WORDS.has(w)));
-      const sourceCites = new Set();
-      let m;
-      RECOMMEND_CITE_RE.lastIndex = 0;
-      while ((m = RECOMMEND_CITE_RE.exec(sourceContent)) !== null) sourceCites.add(m[1]);
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const candidates = [];
-      function scan(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scan(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          const rel = path.relative(PROJECT_ROOT, fp);
-          if (rel === sourcePath) continue;
-          try {
-            const content = fs.readFileSync(fp, 'utf-8');
-            let score = 0;
-            const fm = content.match(/^---\n([\s\S]*?)\n---/);
-            let title = entry.name.replace(/\.(mdx?|md)$/, '');
-            const pageTags = new Set();
-            if (fm) {
-              const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
-              if (tm) title = tm[1];
-              const tgm = fm[1].match(/^tags:\s*\[([^\]]*)\]/m);
-              if (tgm) tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => pageTags.add(t));
-            }
-            for (const t of pageTags) { if (sourceTags.has(t)) score += 5; }
-            const pageWords = content.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4 && !RECOMMEND_STOP_WORDS.has(w));
-            let wordOverlap = 0;
-            for (const w of pageWords) { if (sourceWords.has(w)) wordOverlap++; }
-            score += Math.min(wordOverlap / Math.max(pageWords.length, 1) * 10, 5);
-            RECOMMEND_CITE_RE.lastIndex = 0;
-            const pageCites = new Set();
-            while ((m = RECOMMEND_CITE_RE.exec(content)) !== null) pageCites.add(m[1]);
-            let citeOverlap = 0;
-            for (const c of pageCites) { if (sourceCites.has(c)) citeOverlap++; }
-            score += citeOverlap * 3;
-            if (score > 1) candidates.push({path: rel, title, score: Math.round(score * 10) / 10, sharedTags: [...pageTags].filter(t => sourceTags.has(t)), sharedCitations: citeOverlap});
-          } catch {}
+      // Memoize the per-source-path computation (source read, tag/keyword/citation
+      // extraction, the recursive content-tree scan, and the sort) for 60s, mirroring
+      // the sibling cached('word-frequency:' + dir) and cached('trajectory:' + key)
+      // handlers in this module family. The handler reads a `path` query parameter, so
+      // the key carries `sourcePath`: every source path gets its own cache entry and the
+      // recommendation set is deterministic for that path's content state. Serving a 60s
+      // snapshot skips the readdirSync/readFileSync walk on repeat requests while leaving
+      // the payload byte identical. The isValidFilePath 400 guard stays above this try,
+      // and the try/catch stays outside the closure, so an invalid path never scans and a
+      // missing source file returns a 404 that is never cached.
+      const result = cached('recommendv2:' + sourcePath, 60000, () => {
+        const sourceContent = fs.readFileSync(path.join(PROJECT_ROOT, sourcePath), 'utf-8');
+        const sourceFm = sourceContent.match(/^---\n([\s\S]*?)\n---/);
+        const sourceTags = new Set();
+        if (sourceFm) {
+          const tgm = sourceFm[1].match(/^tags:\s*\[([^\]]*)\]/m);
+          if (tgm) tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => sourceTags.add(t));
         }
-      }
-      scan(contentDir);
-      candidates.sort((a, b) => b.score - a.score);
-      return json(res, 200, {recommendations: candidates.slice(0, 10), sourcePath, basedOn: {tags: sourceTags.size, keywords: sourceWords.size, citations: sourceCites.size}});
+        const sourceWords = new Set(sourceContent.replace(/^---[\s\S]*?---/, '').toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4 && !RECOMMEND_STOP_WORDS.has(w)));
+        const sourceCites = new Set();
+        let m;
+        RECOMMEND_CITE_RE.lastIndex = 0;
+        while ((m = RECOMMEND_CITE_RE.exec(sourceContent)) !== null) sourceCites.add(m[1]);
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const candidates = [];
+        function scan(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scan(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            const rel = path.relative(PROJECT_ROOT, fp);
+            if (rel === sourcePath) continue;
+            try {
+              const content = fs.readFileSync(fp, 'utf-8');
+              let score = 0;
+              const fm = content.match(/^---\n([\s\S]*?)\n---/);
+              let title = entry.name.replace(/\.(mdx?|md)$/, '');
+              const pageTags = new Set();
+              if (fm) {
+                const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+                if (tm) title = tm[1];
+                const tgm = fm[1].match(/^tags:\s*\[([^\]]*)\]/m);
+                if (tgm) tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => pageTags.add(t));
+              }
+              for (const t of pageTags) { if (sourceTags.has(t)) score += 5; }
+              const pageWords = content.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4 && !RECOMMEND_STOP_WORDS.has(w));
+              let wordOverlap = 0;
+              for (const w of pageWords) { if (sourceWords.has(w)) wordOverlap++; }
+              score += Math.min(wordOverlap / Math.max(pageWords.length, 1) * 10, 5);
+              RECOMMEND_CITE_RE.lastIndex = 0;
+              const pageCites = new Set();
+              while ((m = RECOMMEND_CITE_RE.exec(content)) !== null) pageCites.add(m[1]);
+              let citeOverlap = 0;
+              for (const c of pageCites) { if (sourceCites.has(c)) citeOverlap++; }
+              score += citeOverlap * 3;
+              if (score > 1) candidates.push({path: rel, title, score: Math.round(score * 10) / 10, sharedTags: [...pageTags].filter(t => sourceTags.has(t)), sharedCitations: citeOverlap});
+            } catch {}
+          }
+        }
+        scan(contentDir);
+        candidates.sort((a, b) => b.score - a.score);
+        return {recommendations: candidates.slice(0, 10), sourcePath, basedOn: {tags: sourceTags.size, keywords: sourceWords.size, citations: sourceCites.size}};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }

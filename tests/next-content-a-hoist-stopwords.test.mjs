@@ -138,7 +138,9 @@ describe('GET /api/content-recommend-v2 (RECOMMEND_STOP_WORDS hoisted to module 
     'content/source.md': '---\ntitle: Source\n---\nmachine learning networks algorithms other\n',
     'content/cand.md': 'machine learning networks algorithms other\n',
   };
-  const ctx = { fs: makeFs(FIXTURE), path, PROJECT_ROOT, ALLOWED_EXTS, isValidFilePath: () => true };
+  // content-recommend-v2 now wraps its per-path scan in cached(key, ttl, fn); supply a
+  // pass-through so this fs-backed test still exercises the real RECOMMEND_STOP_WORDS filter.
+  const ctx = { fs: makeFs(FIXTURE), path, PROJECT_ROOT, ALLOWED_EXTS, isValidFilePath: () => true, cached: (_key, _ttl, fn) => fn() };
 
   it('drops stop words from the source keyword set and ranks the overlapping page', async () => {
     const r = await invoke({ pathname: '/api/content-recommend-v2', search: '?path=content/source.md', ctx });
