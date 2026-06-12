@@ -8,7 +8,7 @@ import React from 'react';
  *
  * All data preparation stays with the caller. Pass the already-computed `weeks`
  * (from buildHeatmapWeeks) plus the parts that vary between the two heatmaps.
- * This component renders only the grid of 12x12 cells and the legend; the caller
+ * This component renders only the grid of 12px square cells and the legend; the caller
  * keeps its own section heading and any surrounding chrome.
  *
  * @param {object} props
