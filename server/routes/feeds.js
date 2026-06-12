@@ -101,7 +101,11 @@ module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
 
   if (req.method === 'GET' && pathname === '/api/sessions') {
     const userId = url.searchParams.get('userId') || 'default';
-    const limit = numericParam(url.searchParams.get('limit'), 20, 100);
+    // Lower-clamp to 1: numericParam only upper-bounds, so a negative limit would
+    // flip slice(-limit) into slice(limit), skipping the first |limit| sessions and
+    // over-returning instead of taking the most-recent tail. Non-negative limits
+    // keep their previous behavior.
+    const limit = Math.max(numericParam(url.searchParams.get('limit'), 20, 100), 1);
     const SESSIONS_FILE = path.join(PROJECT_ROOT, 'data', 'sessions.json');
     const sessions = loadJSON(SESSIONS_FILE);
     const userSessions = (sessions[userId] || []).slice(-limit).reverse();
