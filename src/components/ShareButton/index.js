@@ -33,7 +33,7 @@ export default function ShareButton({pageTitle, pagePath}) {
   }
 
   function citationKey() {
-    // Derive a BibTeX-style key from the path, e.g. /docs/math/topology -> topology
+    // Derive a BibTeX-style key from the path, e.g. /docs/math/topology -> math-topology
     const slug = (pagePath || '')
       .replace(/^\/docs\//, '')
       .replace(/\//g, '-')
