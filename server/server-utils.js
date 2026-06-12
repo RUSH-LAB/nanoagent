@@ -161,9 +161,7 @@ function parseBibtex(input) {
         value = bodyStr.slice(valStart, i);
       }
 
-      if (fieldName) {
-        fields[fieldName] = value.trim();
-      }
+      fields[fieldName] = value.trim();
     }
 
     entries.push({entryType, citationKey, fields});
