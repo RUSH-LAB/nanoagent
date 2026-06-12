@@ -670,25 +670,38 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     const dir = url.searchParams.get('dir');
     if (!isValidDir(dir)) return json(res, 400, {error: 'Invalid directory'});
     try {
-      const fullDir = path.join(PROJECT_ROOT, dir);
-      const freq = {};
-      function scan(d) {
-        for (const entry of fs.readdirSync(d, {withFileTypes: true})) {
-          if (entry.name.startsWith('.')) continue;
-          const fp = path.join(d, entry.name);
-          if (entry.isDirectory()) { scan(fp); continue; }
-          if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-            try {
-              let text = fs.readFileSync(fp, 'utf-8');
-              text = text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ');
-              text.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !WORD_FREQ_STOP_WORDS.has(w)).forEach(w => { freq[w] = (freq[w] || 0) + 1; });
-            } catch {}
+      // Memoize the recursive directory scan and assembled frequency table for 60s,
+      // mirroring the sibling cached('stats-overview'), cached('content-summary'),
+      // and cached('citations-per-page') handlers in this file. Unlike those, this
+      // handler reads a `dir` query parameter, so the key carries `dir`: every
+      // validated directory gets its own cache entry and the table is deterministic
+      // for that directory's content state. Serving a 60s snapshot skips the
+      // readdirSync/readFileSync walk on repeat requests while leaving the payload
+      // byte identical. The isValidDir 400 guard stays above this try, and the
+      // try/catch stays outside the closure, so an invalid directory never scans and
+      // a failed scan returns a 500 that is never cached.
+      const result = cached('word-frequency:' + dir, 60000, () => {
+        const fullDir = path.join(PROJECT_ROOT, dir);
+        const freq = {};
+        function scan(d) {
+          for (const entry of fs.readdirSync(d, {withFileTypes: true})) {
+            if (entry.name.startsWith('.')) continue;
+            const fp = path.join(d, entry.name);
+            if (entry.isDirectory()) { scan(fp); continue; }
+            if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
+              try {
+                let text = fs.readFileSync(fp, 'utf-8');
+                text = text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ');
+                text.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !WORD_FREQ_STOP_WORDS.has(w)).forEach(w => { freq[w] = (freq[w] || 0) + 1; });
+              } catch {}
+            }
           }
         }
-      }
-      scan(fullDir);
-      const words = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 50).map(([word, count]) => ({word, count}));
-      return json(res, 200, {directory: dir, words, totalUniqueWords: Object.keys(freq).length});
+        scan(fullDir);
+        const words = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 50).map(([word, count]) => ({word, count}));
+        return {directory: dir, words, totalUniqueWords: Object.keys(freq).length};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 500, {error: 'Word frequency failed'});
     }
