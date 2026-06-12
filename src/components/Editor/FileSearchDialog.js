@@ -1,16 +1,6 @@
 import React, {useState, useEffect, useRef, useMemo} from 'react';
+import {fuzzyMatch} from '@site/src/utils/fuzzyMatch';
 import styles from './styles.module.css';
-
-function fuzzyMatch(query, text) {
-  const q = query.toLowerCase();
-  const t = text.toLowerCase();
-  if (t.includes(q)) return {match: true, score: t.indexOf(q) === 0 ? 2 : 1};
-  let qi = 0;
-  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
-    if (t[ti] === q[qi]) qi++;
-  }
-  return {match: qi === q.length, score: 0};
-}
 
 export default function FileSearchDialog({files, onSelect, onClose}) {
   const [query, setQuery] = useState('');
