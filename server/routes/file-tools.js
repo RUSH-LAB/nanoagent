@@ -20,6 +20,15 @@ function numericParam(raw, def, max) {
 // lists, which intentionally differ from this one.
 const RELATED_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','do','does','did','will','would','could','should','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not']);
 
+// Link-extraction patterns for GET /api/file/dependencies, compiled once at
+// module load instead of on every request. Each is a global (/g) regex whose
+// `lastIndex` advances as it scans, so every exec loop below resets `lastIndex`
+// to 0 before reusing the pattern, keeping back-to-back requests independent.
+// This mirrors the convention in the sibling content-analysis route files.
+const WIKI_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+const CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
+const MD_LINK_RE = /\[([^\]]*)\]\(\/([^)#?]+)\)/g;
+
 module.exports = async function file_tools_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -139,16 +148,16 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
       const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      const WIKI_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
-      const CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
-      const MD_LINK_RE = /\[([^\]]*)\]\(\/([^)#?]+)\)/g;
       const outgoing = [];
       let m;
+      WIKI_RE.lastIndex = 0;
       while ((m = WIKI_RE.exec(content)) !== null) outgoing.push({type: 'wiki', target: m[1].trim()});
+      CITE_RE.lastIndex = 0;
       while ((m = CITE_RE.exec(content)) !== null) {
         const keys = m[1].split(/\s*;\s*/).map(k => k.replace(/^@/, ''));
         for (const key of keys) outgoing.push({type: 'citation', target: key});
       }
+      MD_LINK_RE.lastIndex = 0;
       while ((m = MD_LINK_RE.exec(content)) !== null) outgoing.push({type: 'link', target: m[2].trim()});
       const contentDir = path.join(PROJECT_ROOT, 'content');
       const baseName = path.basename(filePath, path.extname(filePath));
