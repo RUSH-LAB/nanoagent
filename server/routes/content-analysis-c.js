@@ -31,6 +31,15 @@ const HEALTH_WIKI_LINK_RE = /\[\[([^\]|]+)/g;
 // persistent /g state.
 const WRITING_PROMPTS_CITE_RE = /\[@([\w-]+)/g;
 
+// Image-without-alt and heading regexes for the GET /api/file/accessibility
+// per-line scan, compiled once at module load instead of rebuilt on every line of
+// every request. Both are non-global and read only through String.prototype.match,
+// so they hold no lastIndex state and need no per-request reset (unlike the /g scan
+// regexes above); one shared instance of each stays correct across back-to-back
+// requests, and every issue keeps the same type, order, and line number as before.
+const ACCESS_IMG_NOALT_RE = /!\[\]\(/;
+const ACCESS_HEADING_RE = /^(#{1,6})\s+/;
+
 // Prototype-pollution guard keys for the POST /api/template-variables handler,
 // built once at module load instead of allocated on every request. Used read-only
 // via `.has(name)` to reject a variable name (e.g. `__proto__`) that would
@@ -337,9 +346,9 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
         const line = lines[i];
         if (line.startsWith('```')) { inCode = !inCode; continue; }
         if (inCode) continue;
-        const imgNoAlt = line.match(/!\[\]\(/);
+        const imgNoAlt = line.match(ACCESS_IMG_NOALT_RE);
         if (imgNoAlt) issues.push({line: i + 1, type: 'warning', message: 'Image without alt text'});
-        const headingMatch = line.match(/^(#{1,6})\s+/);
+        const headingMatch = line.match(ACCESS_HEADING_RE);
         if (headingMatch) {
           const level = headingMatch[1].length;
           if (lastHeadingLevel > 0 && level > lastHeadingLevel + 1) {
