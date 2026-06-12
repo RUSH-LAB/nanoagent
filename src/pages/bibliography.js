@@ -5,6 +5,7 @@ import { usePluginData } from '@docusaurus/useGlobalData';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
+import {useDebounce} from '@site/src/utils/useDebounce';
 
 /* ── Year-based navigation components ──────────────────────────── */
 
@@ -968,23 +969,11 @@ const ITEMS_PER_PAGE = 50;
 export default function BibliographyPage() {
   const { references } = usePluginData('bibliography');
   const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 250);
   const [yearFilter, setYearFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'graph'
   const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
-  const searchTimerRef = useRef(null);
-
-  // Debounce the search input by 250ms
-  useEffect(() => {
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = setTimeout(() => {
-      setDebouncedSearch(search);
-    }, 250);
-    return () => {
-      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    };
-  }, [search]);
 
   // Reset visible count when filters change
   useEffect(() => {
