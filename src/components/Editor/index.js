@@ -272,6 +272,8 @@ export default function Editor({initialFile}) {
     return result;
   }, [files]);
 
+  const pageUrl = selectedFile && filePathToPageUrl(selectedFile);
+
   return (
     <div className={styles.layout}>
       {sidebarOpen && (
@@ -317,10 +319,10 @@ export default function Editor({initialFile}) {
               <line x1="9" y1="3" x2="9" y2="21" />
             </svg>
           </button>
-          {selectedFile && filePathToPageUrl(selectedFile) && (
+          {pageUrl && (
             <a
               className={styles.backBtn}
-              href={filePathToPageUrl(selectedFile)}
+              href={pageUrl}
               title="Back to page"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
