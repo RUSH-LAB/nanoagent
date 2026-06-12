@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────
 // Integration tests for new features: Glossary, Flashcards, Tasks, Goals, Streak, Snapshots, Schedule
-// Usage:  node scripts/test-new-features.mjs
+// Usage:  node scripts/tests/test-new-features.mjs
 // Requires the server running on http://localhost:3001
 // ─────────────────────────────────────────────────────────────
 

@@ -3,7 +3,7 @@
 // Test coverage meta-test for the Mochi Lab editor server
 // Compares endpoints defined in server.js and server/routes/ against
 // paths exercised by all test-*.mjs scripts and reports coverage.
-// Usage:  node scripts/test-coverage.mjs
+// Usage:  node scripts/tests/test-coverage.mjs
 // ─────────────────────────────────────────────────────────────
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const ROOT = join(__dirname, '..');
+const ROOT = join(__dirname, '..', '..');
 
 // ── Colors ──
 const GREEN = '\x1b[32m';
@@ -52,7 +52,7 @@ function extractEndpoints() {
 // ─────────────────────────────────────────────────────────────
 
 function extractTestedPaths() {
-  const scriptsDir = join(ROOT, 'scripts');
+  const scriptsDir = join(ROOT, 'scripts', 'tests');
   const testFiles = readdirSync(scriptsDir).filter(
     f => f.startsWith('test-') && f.endsWith('.mjs') && f !== 'test-coverage.mjs'
   );

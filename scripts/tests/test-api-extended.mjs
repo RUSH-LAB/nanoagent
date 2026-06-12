@@ -2,7 +2,7 @@
 // ─────────────────────────────────────────────────────────────
 // Extended API integration tests for the Mochi Lab editor server
 // Covers endpoints NOT tested by test-api.mjs
-// Usage:  node scripts/test-api-extended.mjs
+// Usage:  node scripts/tests/test-api-extended.mjs
 // Requires the server running on http://localhost:3001
 // ─────────────────────────────────────────────────────────────
 

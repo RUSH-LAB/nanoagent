@@ -9,7 +9,7 @@
 //   - Has CSS loaded (stylesheet links present)
 // Compares against a baseline snapshot and flags regressions
 // when any metric changes by more than 20%.
-// Usage:  node scripts/test-visual.mjs
+// Usage:  node scripts/tests/test-visual.mjs
 // Requires the Docusaurus dev server running on http://localhost:3002
 // ─────────────────────────────────────────────────────────────
 
@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const ROOT = join(__dirname, '..');
+const ROOT = join(__dirname, '..', '..');
 
 const BASE = process.env.PAGES_URL || 'http://localhost:3002';
 const BASELINE_PATH = join(ROOT, 'snapshots', 'visual-baseline.json');

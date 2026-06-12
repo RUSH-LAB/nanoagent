@@ -5,7 +5,7 @@
 //   1. HTTP status is 200
 //   2. HTML contains expected content strings
 //   3. No error indicators in the HTML
-// Usage:  node scripts/test-pages.mjs
+// Usage:  node scripts/tests/test-pages.mjs
 // Requires the Docusaurus dev server running on http://localhost:3002
 // ─────────────────────────────────────────────────────────────
 

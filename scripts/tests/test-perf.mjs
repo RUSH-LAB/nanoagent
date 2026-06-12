@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // -----------------------------------------------------------------
 // Performance regression tests for the Mochi Lab editor server
-// Usage:  node scripts/test-perf.mjs
+// Usage:  node scripts/tests/test-perf.mjs
 // Requires the server running on http://localhost:3001
 // -----------------------------------------------------------------
 
@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = join(__dirname, '..');
+const PROJECT_ROOT = join(__dirname, '..', '..');
 const SNAPSHOT_DIR = join(PROJECT_ROOT, 'snapshots');
 const SNAPSHOT_PATH = join(SNAPSHOT_DIR, 'perf-baseline.json');
 
