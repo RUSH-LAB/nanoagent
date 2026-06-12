@@ -13,6 +13,13 @@ function numericParam(raw, def, max) {
   return Math.min(Number.isNaN(n) ? def : n, max);
 }
 
+// Stop words dropped before the GET /api/file/related handler measures word
+// overlap between two files. This set is identical on every request, so it is
+// built once at module load rather than rebuilt per request. The other
+// file-tools handlers (suggest-tags, keywords) keep their own separate stop
+// lists, which intentionally differ from this one.
+const RELATED_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','do','does','did','will','would','could','should','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not']);
+
 module.exports = async function file_tools_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -421,9 +428,8 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
           tagsMatch[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => sourceTags.add(t));
         }
       }
-      const STOP = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','do','does','did','will','would','could','should','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not']);
       let plainText = content.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ');
-      const sourceWords = new Set(plainText.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !STOP.has(w)));
+      const sourceWords = new Set(plainText.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !RELATED_STOP_WORDS.has(w)));
       const contentDir = path.join(PROJECT_ROOT, 'content');
       const candidates = [];
       function scanRelated(dir) {
@@ -448,7 +454,7 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
             let score = 0;
             for (const t of tags) { if (sourceTags.has(t)) score += 5; }
             let pt = c.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ');
-            const ws = pt.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !STOP.has(w));
+            const ws = pt.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !RELATED_STOP_WORDS.has(w));
             let shared = 0;
             for (const w of ws) { if (sourceWords.has(w)) shared++; }
             score += Math.min(shared / Math.max(ws.length, 1) * 10, 5);
