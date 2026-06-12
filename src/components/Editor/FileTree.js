@@ -141,10 +141,9 @@ function TreeNode({node, depth, selectedFile, onSelectFile, onDeleteFile, onRena
   };
 
   if (isDir) {
-    const children = (node.children || []).filter(c => {
-      if (c.type === 'file' && isReviewFile(c.name)) return false;
-      return true;
-    });
+    const children = (node.children || []).filter(
+      c => !(c.type === 'file' && isReviewFile(c.name)),
+    );
     if (children.length === 0) return null;
 
     return (
@@ -393,10 +392,9 @@ export default function FileTree({files, selectedFile, onSelectFile, onNewFile, 
 
         const isDir = node.type === 'directory';
         if (isDir) {
-          const children = (node.children || []).filter(c => {
-            if (c.type === 'file' && isReviewFile(c.name)) return false;
-            return true;
-          });
+          const children = (node.children || []).filter(
+            c => !(c.type === 'file' && isReviewFile(c.name)),
+          );
           // Skip empty directories (matches TreeNode behavior)
           if (children.length === 0) continue;
           items.push({path: node.path, type: 'directory', node});
