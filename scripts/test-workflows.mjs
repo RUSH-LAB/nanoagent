@@ -755,7 +755,7 @@ async function journey4() {
 // ────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`\n${BOLD}Mochi Lab -- End-to-End Workflow Tests${RESET}`);
+  console.log(`\n${BOLD}Mochi Lab — End-to-End Workflow Tests${RESET}`);
   console.log(`${DIM}Target: ${BASE}${RESET}`);
   console.log(`${DIM}Testing 4 user journeys (~23 tests)${RESET}`);
 

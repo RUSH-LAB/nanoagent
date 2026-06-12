@@ -1152,7 +1152,7 @@ async function testTrashEmpty() {
 // Main
 // ────────────────────────────────────────────────────────────────
 async function main() {
-  console.log(`\n${BOLD}Mochi Lab -- Remaining Endpoints Test Coverage${RESET}`);
+  console.log(`\n${BOLD}Mochi Lab — Remaining Endpoints Test Coverage${RESET}`);
   console.log(`${DIM}Target: ${BASE}${RESET}\n`);
 
   await preflight();
