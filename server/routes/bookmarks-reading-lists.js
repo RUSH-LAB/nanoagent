@@ -165,20 +165,20 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
 
   // ── Analytics: content topics/keywords ──
   if (req.method === 'GET' && pathname === '/api/analytics/topics') {
-    const STOP_WORDS = new Set([
-      'the','a','an','is','are','was','were','be','been','being','have','has','had',
-      'do','does','did','will','would','could','should','may','might','shall','can',
-      'and','but','or','nor','for','yet','so','in','on','at','to','by','of','with',
-      'from','up','about','into','through','during','before','after','above','below',
-      'between','out','off','over','under','again','further','then','once','here',
-      'there','when','where','why','how','all','each','every','both','few','more',
-      'most','other','some','such','no','not','only','own','same','than','too','very',
-      'just','because','as','until','while','this','that','these','those','it','its',
-      'he','she','they','them','their','we','our','you','your','i','me','my','what',
-      'which','who','whom','if',
-    ]);
-
     const topics = cached('analytics:topics', 60000, () => {
+      const STOP_WORDS = new Set([
+        'the','a','an','is','are','was','were','be','been','being','have','has','had',
+        'do','does','did','will','would','could','should','may','might','shall','can',
+        'and','but','or','nor','for','yet','so','in','on','at','to','by','of','with',
+        'from','up','about','into','through','during','before','after','above','below',
+        'between','out','off','over','under','again','further','then','once','here',
+        'there','when','where','why','how','all','each','every','both','few','more',
+        'most','other','some','such','no','not','only','own','same','than','too','very',
+        'just','because','as','until','while','this','that','these','those','it','its',
+        'he','she','they','them','their','we','our','you','your','i','me','my','what',
+        'which','who','whom','if',
+      ]);
+
       const contentDir = path.join(PROJECT_ROOT, 'content');
       const freq = {};
 
