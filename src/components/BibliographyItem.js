@@ -363,10 +363,10 @@ function EnrichSection({ bibKey, entry }) {
   };
 
 
-  // Fields to display from enrichment sources
-  const displayFields = ['title', 'authors', 'year', 'venue', 'doi', 'arxivId', 'url', 'publisher', 'volume', 'issue', 'pages', 'citationCount', 'referenceCount', 'tldr'];
+  // Fields to display from enrichment sources, in FIELD_LABELS order (single source of truth).
+  const displayFields = Object.keys(FIELD_LABELS);
 
-  const formatFieldValue = (field, value) => {
+  const formatFieldValue = (value) => {
     if (value == null) return null;
     if (Array.isArray(value)) return value.join(', ');
     return String(value);
@@ -465,7 +465,7 @@ function EnrichSection({ bibKey, entry }) {
                 <div style={{ padding: '0.5rem 1rem' }}>
                   {displayFields.map((field) => {
                     const value = sourceData[field];
-                    const formatted = formatFieldValue(field, value);
+                    const formatted = formatFieldValue(value);
                     if (!formatted) return null;
 
                     const fieldKey = `${sourceKey}:${field}`;
@@ -474,7 +474,7 @@ function EnrichSection({ bibKey, entry }) {
                     // Compare with current entry value
                     const currentField = field === 'authors' ? 'author' : field;
                     const currentValue = entry[currentField];
-                    const currentFormatted = formatFieldValue(currentField, currentValue);
+                    const currentFormatted = formatFieldValue(currentValue);
                     const isDifferent = currentFormatted !== formatted;
                     const isNew = currentValue == null || currentValue === '';
 
