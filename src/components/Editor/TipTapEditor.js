@@ -11,6 +11,7 @@ import PresenceIndicator from './PresenceIndicator';
 import KeyboardShortcuts from './KeyboardShortcuts';
 import shortcutStyles from './KeyboardShortcuts.module.css';
 import API_BASE from '@site/src/utils/api';
+import {useClickOutside} from '@site/src/utils/useClickOutside';
 import {TemplateCards} from './TemplateModal';
 const PRESENCE_INTERVAL = 5000; // 5 seconds
 
@@ -1823,16 +1824,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
   }, []);
 
   // Close export dropdown on outside click
-  useEffect(() => {
-    if (!exportOpen) return;
-    const handler = (e) => {
-      if (exportRef.current && !exportRef.current.contains(e.target)) {
-        setExportOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [exportOpen]);
+  useClickOutside(exportRef, () => setExportOpen(false), exportOpen);
 
   const handleExport = useCallback((format) => {
     if (!filePath) return;

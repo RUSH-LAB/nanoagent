@@ -1,5 +1,6 @@
 import React, {useState, useRef, useEffect} from 'react';
 import {toast} from '@site/src/components/Toast/toast';
+import {useClickOutside} from '@site/src/utils/useClickOutside';
 
 /**
  * ShareButton — sits next to BookmarkButton on doc pages.
@@ -15,16 +16,7 @@ export default function ShareButton({pageTitle, pagePath}) {
   const ref = useRef(null);
 
   // Close dropdown on outside click
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [open]);
+  useClickOutside(ref, () => setOpen(false), open);
 
   // Close on Escape
   useEffect(() => {

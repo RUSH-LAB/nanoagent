@@ -1,6 +1,7 @@
 import React, {useState, useEffect, useCallback, useRef} from 'react';
 import API_BASE from '@site/src/utils/api';
 import {formatTime} from '@site/src/utils/time';
+import {useClickOutside} from '@site/src/utils/useClickOutside';
 
 const styles = {
   section: {
@@ -179,19 +180,11 @@ export default function Annotations({pageId}) {
   }, []);
 
   // Close popup on click outside
-  useEffect(() => {
-    function handleClick(e) {
-      if (popupRef.current && !popupRef.current.contains(e.target)) {
-        setPopup(null);
-      }
-      if (noteRef.current && !noteRef.current.contains(e.target)) {
-        setNoteMode(null);
-        setNoteText('');
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
+  useClickOutside(popupRef, () => setPopup(null));
+  useClickOutside(noteRef, () => {
+    setNoteMode(null);
+    setNoteText('');
+  });
 
   const saveAnnotation = useCallback(async (text, note, startOffset, endOffset) => {
     setSaving(true);
