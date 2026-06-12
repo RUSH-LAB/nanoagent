@@ -883,33 +883,44 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
     const authorName = url.searchParams.get('name');
     if (!authorName) return json(res, 400, {error: 'Missing name'});
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
-      const nameLower = authorName.toLowerCase();
-      const coauthors = new Set();
-      const preferredVenues = new Set();
-      for (const entry of Object.values(refs)) {
-        if ((entry.author || []).some(a => a.toLowerCase().includes(nameLower))) {
-          for (const a of (entry.author || [])) {
-            if (!a.toLowerCase().includes(nameLower)) coauthors.add(a.toLowerCase());
+      // Cache the references.yaml parse and coauthor/venue scoring on a 60s window,
+      // keyed by the queried author, mirroring the sibling cached scans in this file
+      // (statsdir:, mentions:, diffsummary:). The payload is a pure function of
+      // references.yaml plus the name, so a short TTL snapshot stays byte identical
+      // while skipping the repeat parse. The 400 missing-name guard stays OUTSIDE the
+      // closure; the require('js-yaml'), fs.readFileSync, and yaml.load stay INSIDE,
+      // so a broken references.yaml still throws to the outer catch as a 500 and is
+      // never cached. The key carries the name, so each author is a distinct entry.
+      const result = cached('byauthor:' + authorName, 60000, () => {
+        const yaml = require('js-yaml');
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const nameLower = authorName.toLowerCase();
+        const coauthors = new Set();
+        const preferredVenues = new Set();
+        for (const entry of Object.values(refs)) {
+          if ((entry.author || []).some(a => a.toLowerCase().includes(nameLower))) {
+            for (const a of (entry.author || [])) {
+              if (!a.toLowerCase().includes(nameLower)) coauthors.add(a.toLowerCase());
+            }
+            if (entry.venue) preferredVenues.add(entry.venue);
           }
-          if (entry.venue) preferredVenues.add(entry.venue);
         }
-      }
-      const recommendations = [];
-      for (const [key, entry] of Object.entries(refs)) {
-        if ((entry.author || []).some(a => a.toLowerCase().includes(nameLower))) continue;
-        let score = 0;
-        for (const a of (entry.author || [])) {
-          if (coauthors.has(a.toLowerCase())) score += 2;
+        const recommendations = [];
+        for (const [key, entry] of Object.entries(refs)) {
+          if ((entry.author || []).some(a => a.toLowerCase().includes(nameLower))) continue;
+          let score = 0;
+          for (const a of (entry.author || [])) {
+            if (coauthors.has(a.toLowerCase())) score += 2;
+          }
+          if (preferredVenues.has(entry.venue)) score += 1;
+          if (score > 0) {
+            recommendations.push({key, title: entry.title, year: entry.year, venue: entry.venue, score});
+          }
         }
-        if (preferredVenues.has(entry.venue)) score += 1;
-        if (score > 0) {
-          recommendations.push({key, title: entry.title, year: entry.year, venue: entry.venue, score});
-        }
-      }
-      recommendations.sort((a, b) => b.score - a.score || (b.year || 0) - (a.year || 0));
-      return json(res, 200, {author: authorName, recommendations: recommendations.slice(0, 15)});
+        recommendations.sort((a, b) => b.score - a.score || (b.year || 0) - (a.year || 0));
+        return {author: authorName, recommendations: recommendations.slice(0, 15)};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 500, {error: 'Recommendation failed'});
     }
@@ -951,32 +962,43 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
     const venue = url.searchParams.get('venue');
     if (!venue) return json(res, 400, {error: 'Missing venue'});
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
-      const venueLower = venue.toLowerCase();
-      const papers = [];
-      const authorCounts = {};
-      const byYear = {};
-      for (const [key, entry] of Object.entries(refs)) {
-        if ((entry.venue || '').toLowerCase() === venueLower) {
-          papers.push({key, title: entry.title, year: entry.year, authors: entry.author});
-          const year = entry.year || 'unknown';
-          byYear[year] = (byYear[year] || 0) + 1;
-          for (const author of (entry.author || [])) {
-            authorCounts[author] = (authorCounts[author] || 0) + 1;
+      // Cache the references.yaml parse and per-venue aggregation on a 60s window,
+      // keyed by the queried venue, mirroring the sibling cached scans in this file
+      // (statsdir:, mentions:, diffsummary:). The payload is a pure function of
+      // references.yaml plus the venue, so a short TTL snapshot stays byte identical
+      // while skipping the repeat parse. The 400 missing-venue guard stays OUTSIDE the
+      // closure; the require('js-yaml'), fs.readFileSync, and yaml.load stay INSIDE,
+      // so a broken references.yaml still throws to the outer catch as a 500 and is
+      // never cached. The key carries the venue, so each venue is a distinct entry.
+      const result = cached('venuestats:' + venue, 60000, () => {
+        const yaml = require('js-yaml');
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const venueLower = venue.toLowerCase();
+        const papers = [];
+        const authorCounts = {};
+        const byYear = {};
+        for (const [key, entry] of Object.entries(refs)) {
+          if ((entry.venue || '').toLowerCase() === venueLower) {
+            papers.push({key, title: entry.title, year: entry.year, authors: entry.author});
+            const year = entry.year || 'unknown';
+            byYear[year] = (byYear[year] || 0) + 1;
+            for (const author of (entry.author || [])) {
+              authorCounts[author] = (authorCounts[author] || 0) + 1;
+            }
           }
         }
-      }
-      const topAuthors = Object.entries(authorCounts).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([name, count]) => ({name, count}));
-      const years = Object.entries(byYear).filter(([y]) => y !== 'unknown').sort((a, b) => Number(a[0]) - Number(b[0])).map(([year, count]) => ({year: Number(year), count}));
-      return json(res, 200, {
-        venue,
-        paperCount: papers.length,
-        authorCount: Object.keys(authorCounts).length,
-        topAuthors,
-        yearDistribution: years,
-        papers: papers.sort((a, b) => (b.year || 0) - (a.year || 0)).slice(0, 20),
+        const topAuthors = Object.entries(authorCounts).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([name, count]) => ({name, count}));
+        const years = Object.entries(byYear).filter(([y]) => y !== 'unknown').sort((a, b) => Number(a[0]) - Number(b[0])).map(([year, count]) => ({year: Number(year), count}));
+        return {
+          venue,
+          paperCount: papers.length,
+          authorCount: Object.keys(authorCounts).length,
+          topAuthors,
+          yearDistribution: years,
+          papers: papers.sort((a, b) => (b.year || 0) - (a.year || 0)).slice(0, 20),
+        };
       });
+      return json(res, 200, result);
     } catch {
       return json(res, 500, {error: 'Venue stats failed'});
     }
@@ -987,31 +1009,42 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
     const name = url.searchParams.get('name');
     if (!name) return json(res, 400, {error: 'Missing name'});
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
-      const nameLower = name.toLowerCase();
-      const papers = [];
-      const coauthorSet = new Set();
-      const venueSet = new Set();
-      for (const [key, entry] of Object.entries(refs)) {
-        const authors = entry.author || [];
-        if (authors.some(a => a.toLowerCase().includes(nameLower))) {
-          papers.push({key, title: entry.title, year: entry.year, venue: entry.venue});
-          if (entry.venue) venueSet.add(entry.venue);
-          for (const a of authors) {
-            if (!a.toLowerCase().includes(nameLower)) coauthorSet.add(a);
+      // Cache the references.yaml parse and per-author aggregation on a 60s window,
+      // keyed by the queried name, mirroring the sibling cached scans in this file
+      // (statsdir:, mentions:, diffsummary:). The payload is a pure function of
+      // references.yaml plus the name, so a short TTL snapshot stays byte identical
+      // while skipping the repeat parse. The 400 missing-name guard stays OUTSIDE the
+      // closure; the require('js-yaml'), fs.readFileSync, and yaml.load stay INSIDE,
+      // so a broken references.yaml still throws to the outer catch as a 500 and is
+      // never cached. The key carries the name, so each author is a distinct entry.
+      const result = cached('authorprofile:' + name, 60000, () => {
+        const yaml = require('js-yaml');
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const nameLower = name.toLowerCase();
+        const papers = [];
+        const coauthorSet = new Set();
+        const venueSet = new Set();
+        for (const [key, entry] of Object.entries(refs)) {
+          const authors = entry.author || [];
+          if (authors.some(a => a.toLowerCase().includes(nameLower))) {
+            papers.push({key, title: entry.title, year: entry.year, venue: entry.venue});
+            if (entry.venue) venueSet.add(entry.venue);
+            for (const a of authors) {
+              if (!a.toLowerCase().includes(nameLower)) coauthorSet.add(a);
+            }
           }
         }
-      }
-      papers.sort((a, b) => (b.year || 0) - (a.year || 0));
-      return json(res, 200, {
-        name,
-        paperCount: papers.length,
-        papers,
-        coauthors: [...coauthorSet].slice(0, 30),
-        venues: [...venueSet],
-        yearRange: papers.length > 0 ? {earliest: papers[papers.length - 1].year, latest: papers[0].year} : null,
+        papers.sort((a, b) => (b.year || 0) - (a.year || 0));
+        return {
+          name,
+          paperCount: papers.length,
+          papers,
+          coauthors: [...coauthorSet].slice(0, 30),
+          venues: [...venueSet],
+          yearRange: papers.length > 0 ? {earliest: papers[papers.length - 1].year, latest: papers[0].year} : null,
+        };
       });
+      return json(res, 200, result);
     } catch {
       return json(res, 500, {error: 'Profile aggregation failed'});
     }
