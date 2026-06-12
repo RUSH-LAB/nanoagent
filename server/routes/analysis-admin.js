@@ -159,6 +159,17 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
         }
       }
 
+      // A bulk delete moves files into .trash/ (the file count drops) and a bulk
+      // move renames files across directories (the per-directory breakdown changes),
+      // so both clear the cached flat file list served by GET /api/files/search and
+      // the content-stats counts, mirroring the single-file files.js handlers and
+      // the graph-trash-files.js move/restore fix. Guard on processed > 0 so an
+      // all-invalid batch (nothing actually moved) invalidates nothing.
+      if (processed > 0) {
+        invalidateCache('search');
+        invalidateCache('stats');
+      }
+
       return json(res, 200, {success: true, processed, errors});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
