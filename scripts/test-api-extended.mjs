@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────
 // Extended API integration tests for the Mochi Lab editor server
-// Covers ~39 endpoints NOT tested by test-api.mjs
+// Covers endpoints NOT tested by test-api.mjs
 // Usage:  node scripts/test-api-extended.mjs
 // Requires the server running on http://localhost:3001
 // ─────────────────────────────────────────────────────────────
