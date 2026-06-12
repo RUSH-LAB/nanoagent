@@ -66,10 +66,3 @@
 .presenceDot:hover .tooltip {
   opacity: 1;
 }
-
-.presenceLabel {
-  font-size: 0.72rem;
-  color: var(--ifm-color-emphasis-500);
-  margin-left: 4px;
-  white-space: nowrap;
-}
