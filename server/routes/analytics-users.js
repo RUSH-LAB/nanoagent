@@ -2,6 +2,12 @@
 // Route module organized from server.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
+
+// Object keys that must never be used as map keys in the analytics/user stores,
+// since assigning them can pollute Object.prototype. Hoisted and frozen so the
+// pageview and set-role handlers below share one immutable, read-only guard list.
+const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
+
 module.exports = async function analytics_users_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -15,7 +21,7 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
       const {path: pagePath, referrer, userAgent} = body;
       if (!pagePath || typeof pagePath !== 'string') return json(res, 400, {error: 'Missing path'});
       if (pagePath.length > 500) return json(res, 400, {error: 'Path too long'});
-      if (["__proto__", "constructor", "prototype"].includes(pagePath)) return json(res, 400, {error: "Invalid path"});
+      if (PROTO_KEYS.includes(pagePath)) return json(res, 400, {error: "Invalid path"});
       if (referrer !== undefined && typeof referrer !== "string") return json(res, 400, {error: "referrer must be a string"});
       if (userAgent !== undefined && typeof userAgent !== "string") return json(res, 400, {error: "userAgent must be a string"});
       const analytics = loadJSON(ANALYTICS_FILE);
@@ -74,9 +80,9 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
       const {role, email, name, requesterId} = body;
       const validRoles = ['owner', 'editor', 'viewer'];
       if (!role || typeof role !== 'string' || !validRoles.includes(role)) return json(res, 400, {error: 'Invalid role. Must be owner, editor, or viewer'});
-      if (['__proto__', 'constructor', 'prototype'].includes(userId)) return json(res, 400, {error: 'Invalid userId'});
+      if (PROTO_KEYS.includes(userId)) return json(res, 400, {error: 'Invalid userId'});
       if (!requesterId || typeof requesterId !== 'string') return json(res, 403, {error: 'Missing or invalid requesterId'});
-      if (["__proto__", "constructor", "prototype"].includes(requesterId)) return json(res, 400, {error: "Invalid requesterId"});
+      if (PROTO_KEYS.includes(requesterId)) return json(res, 400, {error: "Invalid requesterId"});
       if (email !== undefined && typeof email !== "string") return json(res, 400, {error: "email must be a string"});
       if (name !== undefined && typeof name !== "string") return json(res, 400, {error: "name must be a string"});
       const users = loadJSON(USERS_FILE);
