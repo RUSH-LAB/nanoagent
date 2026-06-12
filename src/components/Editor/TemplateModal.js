@@ -16,6 +16,28 @@ const BLANK_TEMPLATE_CARD = {
 };
 
 /**
+ * Fetch the template list for the New File flow.
+ *
+ * Requests GET /api/templates, drops the server's own "Blank Page" entry so it
+ * is not shown twice, and prepends the supplied built-in blank descriptor so it
+ * always appears first. On any failure (a non-ok response or a network error)
+ * it falls back to a list holding just the blank descriptor.
+ */
+async function loadTemplates(blankTemplate) {
+  try {
+    const res = await fetch(`${API_BASE}/api/templates`);
+    if (!res.ok) throw new Error('Failed to load templates');
+    const data = await res.json();
+    const fetched = (data.templates || []).filter(
+      t => t.name.toLowerCase() !== 'blank page'
+    );
+    return [blankTemplate, ...fetched];
+  } catch {
+    return [blankTemplate];
+  }
+}
+
+/**
  * Build the initial content for a new file created from a template.
  *
  * Returns blank frontmatter with a title heading when the template is absent or
@@ -71,24 +93,10 @@ export default function TemplateModal({open, onClose, onCreate, preselectedTempl
   useEffect(() => {
     if (step !== 2) return;
     setLoadingTemplates(true);
-    fetch(`${API_BASE}/api/templates`)
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to load templates');
-        return res.json();
-      })
-      .then(data => {
-        const fetched = (data.templates || []).filter(
-          t => t.name.toLowerCase() !== 'blank page'
-        );
-        // Always prepend the built-in "Blank Page" option
-        setTemplates([BLANK_TEMPLATE, ...fetched]);
-        setLoadingTemplates(false);
-      })
-      .catch(() => {
-        // If the endpoint fails, still show the blank page option
-        setTemplates([BLANK_TEMPLATE]);
-        setLoadingTemplates(false);
-      });
+    loadTemplates(BLANK_TEMPLATE).then(list => {
+      setTemplates(list);
+      setLoadingTemplates(false);
+    });
   }, [step]);
 
   const handlePathSubmit = useCallback((e) => {
@@ -301,22 +309,10 @@ export function TemplateCards({onSelectTemplate}) {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/templates`)
-      .then(res => {
-        if (!res.ok) throw new Error();
-        return res.json();
-      })
-      .then(data => {
-        const fetched = (data.templates || []).filter(
-          t => t.name.toLowerCase() !== 'blank page'
-        );
-        setTemplates([BLANK_TEMPLATE_CARD, ...fetched]);
-        setLoaded(true);
-      })
-      .catch(() => {
-        setTemplates([BLANK_TEMPLATE_CARD]);
-        setLoaded(true);
-      });
+    loadTemplates(BLANK_TEMPLATE_CARD).then(list => {
+      setTemplates(list);
+      setLoaded(true);
+    });
   }, []);
 
   if (!loaded || templates.length === 0) return null;
