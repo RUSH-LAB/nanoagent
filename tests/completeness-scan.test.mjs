@@ -22,6 +22,9 @@ async function callCompleteness(yamlText) {
     },
     path: nodePath,
     PROJECT_ROOT: '/virtual',
+    // The handler wraps its fold in cached(key, ttl, fn); this pass-through runs
+    // fn() every call so the byte-identity assertions below are unaffected.
+    cached: (_k, _t, fn) => fn(),
     json(res, status, body) {
       captured = { status, body };
       res.writableEnded = true;
