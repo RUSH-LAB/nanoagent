@@ -690,6 +690,11 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       if (dryRun !== undefined && typeof dryRun !== 'boolean') return json(res, 400, {error: 'dryRun must be a boolean'});
       const contentDir = path.join(PROJECT_ROOT, 'content');
       const changes = [];
+      // Accumulate the occurrence total during the walk instead of re-reducing
+      // `changes` afterward. The total is a sum of per-file integer counts and
+      // integer addition is order independent, so it stays identical to the old
+      // second pass.
+      let totalOccurrences = 0;
       function scanReplace(dir) {
         for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
           if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
@@ -706,13 +711,13 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
                 fs.writeFileSync(fullPath, newContent, 'utf-8');
               }
               changes.push({path: relPath, occurrences});
+              totalOccurrences += occurrences;
             }
           } catch {}
         }
       }
       scanReplace(contentDir);
       invalidateCache('search');
-      const totalOccurrences = changes.reduce((s, c) => s + c.occurrences, 0);
       return json(res, 200, {
         dryRun: !!dryRun,
         filesChanged: changes.length,
