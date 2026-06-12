@@ -135,8 +135,8 @@ function buildReferencesSection(citedKeys, bibliography) {
   const sorted = [...citedKeys].sort((a, b) => {
     const ea = bibliography[a] || {};
     const eb = bibliography[b] || {};
-    const authorA = (ea.author || [''])[0].split(/\s+/).pop() || '';
-    const authorB = (eb.author || [''])[0].split(/\s+/).pop() || '';
+    const authorA = ((ea.author || [])[0] || '').split(/\s+/).pop() || '';
+    const authorB = ((eb.author || [])[0] || '').split(/\s+/).pop() || '';
     const cmp = authorA.localeCompare(authorB);
     if (cmp !== 0) return cmp;
     return (ea.year || 0) - (eb.year || 0);
@@ -204,7 +204,7 @@ function remarkCite() {
     const citedKeys = new Set();
 
     // Walk the tree and replace citation patterns in text nodes.
-    // Skip code and inlineCode nodes.
+    // Skip code, inlineCode, and link nodes.
     // We collect replacements first, then apply them (to avoid mutation during traversal).
     const replacements = [];
 
