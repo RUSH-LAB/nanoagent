@@ -2,6 +2,19 @@ import React, {useState, useEffect, useRef, useCallback} from 'react';
 import styles from './TemplateModal.module.css';
 import API_BASE from '@site/src/utils/api';
 
+// Built-in "Blank Page" descriptors. The modal and the empty-state cards use
+// different descriptions, so keep two separate constants.
+const BLANK_TEMPLATE = {
+  name: 'Blank Page',
+  description: 'Start with a minimal frontmatter and heading.',
+  builtin: true,
+};
+const BLANK_TEMPLATE_CARD = {
+  name: 'Blank Page',
+  description: 'Empty document with frontmatter',
+  builtin: true,
+};
+
 /**
  * Build the initial content for a new file created from a template.
  *
@@ -64,27 +77,16 @@ export default function TemplateModal({open, onClose, onCreate, defaultDir = '',
         return res.json();
       })
       .then(data => {
-        // Always prepend a "Blank Page" option
-        const builtIn = {
-          name: 'Blank Page',
-          description: 'Start with a minimal frontmatter and heading.',
-          builtin: true,
-        };
         const fetched = (data.templates || []).filter(
           t => t.name.toLowerCase() !== 'blank page'
         );
-        setTemplates([builtIn, ...fetched]);
+        // Always prepend the built-in "Blank Page" option
+        setTemplates([BLANK_TEMPLATE, ...fetched]);
         setLoadingTemplates(false);
       })
       .catch(() => {
         // If the endpoint fails, still show the blank page option
-        setTemplates([
-          {
-            name: 'Blank Page',
-            description: 'Start with a minimal frontmatter and heading.',
-            builtin: true,
-          },
-        ]);
+        setTemplates([BLANK_TEMPLATE]);
         setLoadingTemplates(false);
       });
   }, [step]);
@@ -305,25 +307,14 @@ export function TemplateCards({onSelectTemplate}) {
         return res.json();
       })
       .then(data => {
-        const builtIn = {
-          name: 'Blank Page',
-          description: 'Empty document with frontmatter',
-          builtin: true,
-        };
         const fetched = (data.templates || []).filter(
           t => t.name.toLowerCase() !== 'blank page'
         );
-        setTemplates([builtIn, ...fetched]);
+        setTemplates([BLANK_TEMPLATE_CARD, ...fetched]);
         setLoaded(true);
       })
       .catch(() => {
-        setTemplates([
-          {
-            name: 'Blank Page',
-            description: 'Empty document with frontmatter',
-            builtin: true,
-          },
-        ]);
+        setTemplates([BLANK_TEMPLATE_CARD]);
         setLoaded(true);
       });
   }, []);
