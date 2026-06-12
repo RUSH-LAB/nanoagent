@@ -441,7 +441,7 @@ function markdownToHtml(md, katex) {
     return `<pre><code class="language-${lang || 'text'}">${escaped}</code></pre>`;
   });
 
-  // Block-level math ($$...$$) -- must come before inline processing
+  // Block-level math ($$...$$): must come before inline processing
   text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, latex) => {
     if (katex) {
       try {
@@ -495,7 +495,7 @@ function markdownToHtml(md, katex) {
   }
 
   function processInline(line) {
-    // Inline math ($...$) -- before other inline processing
+    // Inline math ($...$): before other inline processing
     line = line.replace(/(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)/g, (_, latex) => {
       if (katex) {
         try {
