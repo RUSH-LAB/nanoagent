@@ -416,7 +416,11 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
           fields.push(`  title = {${cleanBibtexValue(entry.title || '')}}`);
           if (authors) fields.push(`  author = {${cleanBibtexValue(authors)}}`);
           if (entry.year) fields.push(`  year = {${cleanBibtexValue(entry.year)}}`);
-          if (entry.venue) fields.push(`  journal = {${cleanBibtexValue(entry.venue)}}`);
+          if (entry.venue) {
+            if (bibtexType === 'inproceedings') fields.push(`  booktitle = {${cleanBibtexValue(entry.venue)}}`);
+            else if (bibtexType === 'article') fields.push(`  journal = {${cleanBibtexValue(entry.venue)}}`);
+            else fields.push(`  howpublished = {${cleanBibtexValue(entry.venue)}}`);
+          }
           if (entry.url) fields.push(`  url = {${cleanBibtexValue(entry.url)}}`);
           if (entry.doi) fields.push(`  doi = {${cleanBibtexValue(entry.doi)}}`);
           lines.push(`@${bibtexType}{${key},\n${fields.join(',\n')}\n}`);
