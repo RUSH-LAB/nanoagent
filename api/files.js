@@ -16,14 +16,6 @@ function buildTree(entries, rootDir) {
     return ALLOWED_EXTS.some(ext => e.path.endsWith(ext));
   });
 
-  // Also collect directories that contain relevant files.
-  const dirs = new Set();
-  for (const e of entries) {
-    if (e.type === 'tree' && e.path.startsWith(prefix)) {
-      dirs.add(e.path);
-    }
-  }
-
   // Build nested structure.
   function buildLevel(dirPath) {
     const children = [];
