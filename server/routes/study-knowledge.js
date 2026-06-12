@@ -8,6 +8,13 @@
 // holds no lastIndex state and one shared instance is safe across handlers.
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/;
 
+// Wiki-link matcher for GET /api/file/link-suggestions, collecting the set of
+// page names a file already links to. Unlike FRONTMATTER_RE this regex is global
+// (/g), so it carries lastIndex state between exec() calls; the handler resets
+// lastIndex to 0 before its loop, so one shared module-scope instance stays safe
+// across requests and the per-request allocation is removed.
+const LINKSUGGEST_WIKI_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+
 // Prototype-pollution guard for PUT /api/preferences. These keys would corrupt
 // Object.prototype if accepted as a userId or preference key. The Set is never
 // mutated and is read only through .has(), so one shared module-scope instance
@@ -227,10 +234,10 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
       const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      const WIKI_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
       const existingLinks = new Set();
       let m;
-      while ((m = WIKI_RE.exec(content)) !== null) existingLinks.add(m[1].trim().toLowerCase());
+      LINKSUGGEST_WIKI_RE.lastIndex = 0;
+      while ((m = LINKSUGGEST_WIKI_RE.exec(content)) !== null) existingLinks.add(m[1].trim().toLowerCase());
       const contentWords = new Set(content.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 4));
       const contentDir = path.join(PROJECT_ROOT, 'content');
       const suggestions = [];
@@ -907,3 +914,8 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   }
 
 };
+
+// Exported for the link-suggestions regression test, which pre-seeds a stale
+// lastIndex to prove the per-request `LINKSUGGEST_WIKI_RE.lastIndex = 0` reset is
+// load-bearing. Not part of the route contract.
+module.exports.LINKSUGGEST_WIKI_RE = LINKSUGGEST_WIKI_RE;
