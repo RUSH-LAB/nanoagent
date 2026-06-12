@@ -616,7 +616,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     const userId = url.searchParams.get('userId') || 'default';
     const today = new Date().toISOString().slice(0, 10);
     const data = loadJSON(FLASHCARDS_FILE);
-    const cards = (data[userId] || []).filter(c => c.nextReview <= today);
+    const cards = (Object.hasOwn(data, userId) ? data[userId] : []).filter(c => c.nextReview <= today);
     cards.sort((a, b) => (a.nextReview || '').localeCompare(b.nextReview || ''));
     return json(res, 200, {cards, count: cards.length});
   }
