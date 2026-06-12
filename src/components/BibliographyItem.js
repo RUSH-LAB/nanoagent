@@ -197,7 +197,7 @@ function CitationCount({ entry, bibKey }) {
   const handleFetch = () => {
     setLoading(true);
     setError(null);
-    fetch(`${API_BASE}/api/references/enrich?key=${encodeURIComponent(bibKey)}`)
+    fetch(`${ENRICH_API}?key=${encodeURIComponent(bibKey)}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.error) {
