@@ -168,49 +168,56 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      const outgoing = [];
-      let m;
-      WIKI_RE.lastIndex = 0;
-      while ((m = WIKI_RE.exec(content)) !== null) outgoing.push({type: 'wiki', target: m[1].trim()});
-      CITE_RE.lastIndex = 0;
-      while ((m = CITE_RE.exec(content)) !== null) {
-        const keys = m[1].split(/\s*;\s*/).map(k => k.replace(/^@/, ''));
-        for (const key of keys) outgoing.push({type: 'citation', target: key});
-      }
-      MD_LINK_RE.lastIndex = 0;
-      while ((m = MD_LINK_RE.exec(content)) !== null) outgoing.push({type: 'link', target: m[2].trim()});
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const baseName = path.basename(filePath, path.extname(filePath));
-      const incoming = [];
-      function scanIncoming(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scanIncoming(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          const rel = path.relative(PROJECT_ROOT, fp);
-          if (rel === filePath) continue;
-          try {
-            const c = fs.readFileSync(fp, 'utf-8');
-            WIKI_RE.lastIndex = 0;
-            while ((m = WIKI_RE.exec(c)) !== null) {
-              if (m[1].trim() === baseName || m[1].trim().endsWith('/' + baseName)) {
-                incoming.push({type: 'wiki', source: rel});
-                break;
-              }
-            }
-          } catch {}
+      // Cache the per-path dependencies result so repeated requests for the same
+      // file skip the recursive scanIncoming walk over content/. The readFileSync
+      // for the source file stays inside the closure, so a missing file still
+      // throws here and propagates to the outer catch (the 404 is never cached).
+      const result = cached('filedeps:' + filePath, 30000, () => {
+        const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        const outgoing = [];
+        let m;
+        WIKI_RE.lastIndex = 0;
+        while ((m = WIKI_RE.exec(content)) !== null) outgoing.push({type: 'wiki', target: m[1].trim()});
+        CITE_RE.lastIndex = 0;
+        while ((m = CITE_RE.exec(content)) !== null) {
+          const keys = m[1].split(/\s*;\s*/).map(k => k.replace(/^@/, ''));
+          for (const key of keys) outgoing.push({type: 'citation', target: key});
         }
-      }
-      scanIncoming(contentDir);
-      return json(res, 200, {
-        path: filePath,
-        outgoing,
-        incoming,
-        outgoingCount: outgoing.length,
-        incomingCount: incoming.length,
+        MD_LINK_RE.lastIndex = 0;
+        while ((m = MD_LINK_RE.exec(content)) !== null) outgoing.push({type: 'link', target: m[2].trim()});
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const baseName = path.basename(filePath, path.extname(filePath));
+        const incoming = [];
+        function scanIncoming(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scanIncoming(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            const rel = path.relative(PROJECT_ROOT, fp);
+            if (rel === filePath) continue;
+            try {
+              const c = fs.readFileSync(fp, 'utf-8');
+              WIKI_RE.lastIndex = 0;
+              while ((m = WIKI_RE.exec(c)) !== null) {
+                if (m[1].trim() === baseName || m[1].trim().endsWith('/' + baseName)) {
+                  incoming.push({type: 'wiki', source: rel});
+                  break;
+                }
+              }
+            } catch {}
+          }
+        }
+        scanIncoming(contentDir);
+        return {
+          path: filePath,
+          outgoing,
+          incoming,
+          outgoingCount: outgoing.length,
+          incomingCount: incoming.length,
+        };
       });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
