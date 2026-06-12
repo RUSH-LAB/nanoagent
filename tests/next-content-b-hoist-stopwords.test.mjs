@@ -135,6 +135,10 @@ describe('GET /api/content-similar (SIMILAR_STOP_WORDS hoisted to module scope)'
     PROJECT_ROOT,
     ALLOWED_EXTS,
     isValidFilePath: () => true,
+    // /api/content-similar now wraps its candidate scan in cached(key, ttl, fn);
+    // inject a pass-through so the handler still runs the fs-backed walk here, so the
+    // SIMILAR_STOP_WORDS filtering is still exercised end to end.
+    cached: (_k, _t, fn) => fn(),
   };
   const callSimilar = search =>
     invoke({ pathname: '/api/content-similar', search: `?path=${SOURCE_REL}${search}`, ctx });
