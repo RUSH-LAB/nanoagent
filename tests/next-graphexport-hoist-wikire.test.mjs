@@ -63,6 +63,10 @@ async function invokeGraphExport(fs, { format, corsOrigin = '*' } = {}) {
     PROJECT_ROOT,
     ALLOWED_EXTS,
     CORS_ORIGIN: corsOrigin,
+    // The handler now wraps its scan in cached(key, ttl, fn). A pass-through that
+    // always runs fn() preserves this suite's behavior exactly (every call re-scans),
+    // so the alias/orphan/stale-lastIndex assertions below still exercise the walk.
+    cached: (_key, _ttlMs, fn) => fn(),
     json(_res, status, payload) { captured.json = { status, payload }; res.writableEnded = true; },
   };
   await routes(req, res, url, '/api/graph/export', ctx);
