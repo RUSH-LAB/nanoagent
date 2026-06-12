@@ -113,6 +113,7 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
       if (!presencePath || !userId) return json(res, 400, {error: 'Missing filePath or userId'});
       if (typeof presencePath !== 'string' || typeof userId !== 'string') return json(res, 400, {error: 'filePath and userId must be strings'});
       if (presencePath.length > 500 || userId.length > 100) return json(res, 400, {error: 'filePath or userId too long'});
+      if (PROTO_KEYS.includes(presencePath) || PROTO_KEYS.includes(userId)) return json(res, 400, {error: 'Invalid filePath or userId'});
       if (!presenceStore[presencePath]) presenceStore[presencePath] = {};
       presenceStore[presencePath][userId] = {
         userId: sanitizeText(userId),
