@@ -69,7 +69,22 @@ async function invoke(pathname, ctx, search = '') {
   return { head, body, json: jsonResp };
 }
 
-const baseCtx = (fsMock) => ({ fs: fsMock, path, PROJECT_ROOT: '/fake/root', CORS_ORIGIN: '*' });
+// A memoizing cached(key, ttl, fn): /api/content-summary now wraps its scan in
+// cached('content-summary', ...), so the ctx must supply the helper the live
+// server provides. Each test issues at most one summary request, so a permanent
+// per-key memo (TTL ignored) is sufficient; the freshness assertions below only
+// drive export-json/random, which never touch the cache.
+function makeCached() {
+  const store = new Map();
+  return function cached(key, _ttlMs, fn) {
+    if (store.has(key)) return store.get(key);
+    const data = fn();
+    store.set(key, data);
+    return data;
+  };
+}
+
+const baseCtx = (fsMock) => ({ fs: fsMock, path, PROJECT_ROOT: '/fake/root', CORS_ORIGIN: '*', cached: makeCached() });
 
 // The references memo is module-scope state that survives across requests (that is
 // the whole point of the change), so each test starts from a cold cache.
