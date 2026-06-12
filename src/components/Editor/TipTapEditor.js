@@ -433,7 +433,7 @@ function RawEditor({value, onChange}) {
 /* ── Client-side markdown-to-HTML conversion ──────────────── */
 function markdownToHtml(md, katex) {
   // Strip frontmatter
-  let text = md.replace(/^---\n[\s\S]*?\n---\n?/, '');
+  let text = md.replace(FRONTMATTER_RE, '');
 
   // Fenced code blocks (``` ... ```)
   text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
@@ -849,7 +849,6 @@ function MathPreviewPanel({editor, rawMode, rawContent, onClose}) {
 function TableOfContents({editor, onClose}) {
   const [headings, setHeadings] = useState([]);
   const [activeId, setActiveId] = useState(null);
-  const scrollContainerRef = useRef(null);
 
   // Extract headings from the editor document
   const extractHeadings = useCallback(() => {
@@ -957,7 +956,7 @@ function TableOfContents({editor, onClose}) {
           </svg>
         </button>
       </div>
-      <div className={styles.tocList} ref={scrollContainerRef}>
+      <div className={styles.tocList}>
         {headings.length === 0 ? (
           <div className={styles.tocEmpty}>
             No headings found
