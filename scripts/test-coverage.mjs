@@ -23,7 +23,7 @@ const BOLD = '\x1b[1m';
 const RESET = '\x1b[0m';
 
 // ─────────────────────────────────────────────────────────────
-// 1. Extract all unique endpoint paths from server.js
+// 1. Extract all unique endpoint paths from server.js + server/routes/
 // ─────────────────────────────────────────────────────────────
 
 function extractEndpoints() {
