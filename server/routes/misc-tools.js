@@ -577,32 +577,39 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   if (req.method === 'GET' && pathname === '/api/file/mindmap') {
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
-    const fullPath = path.join(PROJECT_ROOT, filePath);
-    let md;
     try {
-      md = fs.readFileSync(fullPath, 'utf-8');
+      // The mindmap tree is a pure function of this one file's content, so memoize
+      // the whole payload keyed by path for the TTL while the json() write below
+      // still runs on every request. Mirrors cached('filequality:'+path,30000)
+      // above. The readFileSync stays INSIDE the closure, so a missing file still
+      // throws into the outer catch and the 404 is never cached (cached stores
+      // nothing when fn throws).
+      const result = cached('filemindmap:' + filePath, 30000, () => {
+        let md = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        // Strip frontmatter
+        md = md.replace(/^---\n[\s\S]*?\n---\n?/, '');
+        // Parse headings
+        const headings = [];
+        for (const line of md.split('\n')) {
+          const m = line.match(/^(#{1,4})\s+(.+)/);
+          if (m) headings.push({level: m[1].length, text: m[2].replace(/[*_`\[\]]/g, '').trim()});
+        }
+        // Build tree
+        const title = filePath.replace(/^.*\//, '').replace(/\.(md|mdx)$/, '');
+        const root = {text: title, children: []};
+        const stack = [{node: root, level: 0}];
+        for (const h of headings) {
+          const child = {text: h.text, children: []};
+          while (stack.length > 1 && stack[stack.length - 1].level >= h.level) stack.pop();
+          stack[stack.length - 1].node.children.push(child);
+          stack.push({node: child, level: h.level});
+        }
+        return {root};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
-    // Strip frontmatter
-    md = md.replace(/^---\n[\s\S]*?\n---\n?/, '');
-    // Parse headings
-    const headings = [];
-    for (const line of md.split('\n')) {
-      const m = line.match(/^(#{1,4})\s+(.+)/);
-      if (m) headings.push({level: m[1].length, text: m[2].replace(/[*_`\[\]]/g, '').trim()});
-    }
-    // Build tree
-    const title = filePath.replace(/^.*\//, '').replace(/\.(md|mdx)$/, '');
-    const root = {text: title, children: []};
-    const stack = [{node: root, level: 0}];
-    for (const h of headings) {
-      const child = {text: h.text, children: []};
-      while (stack.length > 1 && stack[stack.length - 1].level >= h.level) stack.pop();
-      stack[stack.length - 1].node.children.push(child);
-      stack.push({node: child, level: h.level});
-    }
-    return json(res, 200, {root});
   }
 
   // ── Tasks (Kanban) ──
