@@ -459,7 +459,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
         if (!r.timestamp) continue;
         const t = new Date(r.timestamp).getTime();
         if (t > now - 7 * 86400000) thisWeek++;
-        else if (t > now - 14 * 86400000 && t <= now - 7 * 86400000) lastWeek++;
+        else if (t > now - 14 * 86400000) lastWeek++;
       }
       const pageviewGrowth = lastWeek > 0 ? Math.round(((thisWeek - lastWeek) / lastWeek) * 100) : thisWeek > 0 ? 100 : 0;
       const comments = loadJSON(COMMENTS_FILE);
