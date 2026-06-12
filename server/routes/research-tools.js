@@ -714,9 +714,18 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
   // ── Export all references as BibTeX ──
   if (req.method === 'GET' && pathname === '/api/references/export') {
     try {
-      const yaml = require('js-yaml');
-      const bibPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
-      const refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
+      // Serve the parsed bibliography from the shared, mtime + size aware memo
+      // instead of re-reading and re-parsing references.yaml on every request.
+      const {loadReferencesCached} = require('./references');
+      const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
+      // loadReferencesCached swallows a missing or unparseable bibliography and
+      // returns {}. Preserve the original 500-on-failure response by reproducing
+      // that read only when the memoized parse is empty; the populated happy path
+      // is served entirely from the memo and never re-reads or re-parses.
+      if (Object.keys(refs).length === 0) {
+        const yaml = require('js-yaml');
+        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8'));
+      }
       const lines = [];
       for (const [key, entry] of Object.entries(refs)) {
         const authors = (entry.author || []).join(' and ');
