@@ -975,26 +975,38 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
     const path2 = url.searchParams.get('path2');
     if (!isValidFilePath(path1) || !isValidFilePath(path2)) return json(res, 400, {error: 'Invalid paths'});
     try {
-      const content1 = fs.readFileSync(path.join(PROJECT_ROOT, path1), 'utf-8');
-      const content2 = fs.readFileSync(path.join(PROJECT_ROOT, path2), 'utf-8');
-      const lines1 = content1.split('\n');
-      const lines2 = content2.split('\n');
-      const diff = [];
-      const maxLen = Math.max(lines1.length, lines2.length);
-      for (let i = 0; i < maxLen; i++) {
-        const l1 = lines1[i];
-        const l2 = lines2[i];
-        if (l1 === undefined) diff.push({line: i + 1, type: 'added', text: l2});
-        else if (l2 === undefined) diff.push({line: i + 1, type: 'removed', text: l1});
-        else if (l1 !== l2) diff.push({line: i + 1, type: 'changed', old: l1, new: l2});
-      }
-      return json(res, 200, {
-        path1, path2,
-        lines1: lines1.length,
-        lines2: lines2.length,
-        changes: diff.length,
-        diff: diff.slice(0, 200),
+      // The diff payload is a pure function of the two files' contents plus the pair
+      // of paths, so memoize the whole result keyed by both paths for the TTL while
+      // the json() write below still runs on every request. Mirrors the per-file
+      // caches in this file (accessibility:, jsonld:). Both readFileSync reads stay
+      // INSIDE the closure, so a missing file still throws into the outer catch and
+      // the 404 is never cached (cached stores nothing when fn throws). Distinct from
+      // the never-cache /api/file/compare in file-tools.js, which shells out to
+      // `git show` and stamps new Date() into its payload; this handler does neither,
+      // so the snapshot stays byte identical for the TTL window.
+      const result = cached('filediff:' + path1 + ':' + path2, 30000, () => {
+        const content1 = fs.readFileSync(path.join(PROJECT_ROOT, path1), 'utf-8');
+        const content2 = fs.readFileSync(path.join(PROJECT_ROOT, path2), 'utf-8');
+        const lines1 = content1.split('\n');
+        const lines2 = content2.split('\n');
+        const diff = [];
+        const maxLen = Math.max(lines1.length, lines2.length);
+        for (let i = 0; i < maxLen; i++) {
+          const l1 = lines1[i];
+          const l2 = lines2[i];
+          if (l1 === undefined) diff.push({line: i + 1, type: 'added', text: l2});
+          else if (l2 === undefined) diff.push({line: i + 1, type: 'removed', text: l1});
+          else if (l1 !== l2) diff.push({line: i + 1, type: 'changed', old: l1, new: l2});
+        }
+        return {
+          path1, path2,
+          lines1: lines1.length,
+          lines2: lines2.length,
+          changes: diff.length,
+          diff: diff.slice(0, 200),
+        };
       });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
