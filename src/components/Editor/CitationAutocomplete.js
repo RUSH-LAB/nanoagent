@@ -1,7 +1,7 @@
 import React, {useState, useEffect, useRef, useCallback, useMemo} from 'react';
 import styles from './CitationAutocomplete.module.css';
 import API_BASE from '@site/src/utils/api';
-const S2_API = 'https://api.semanticscholar.org/graph/v1/paper/search';
+import {S2_PAPER_SEARCH} from '@site/src/utils/semanticScholar';
 
 /**
  * Generate a citation key from author name and year: "vaswani2017"
@@ -106,7 +106,7 @@ export default function CitationAutocomplete({editor, visible, onClose, cursorCo
 
     setRemoteLoading(true);
     debounceRef.current = setTimeout(() => {
-      const url = `${S2_API}?query=${encodeURIComponent(query.trim())}&limit=5&fields=title,authors,year,venue,externalIds`;
+      const url = `${S2_PAPER_SEARCH}?query=${encodeURIComponent(query.trim())}&limit=5&fields=title,authors,year,venue,externalIds`;
       fetch(url)
         .then(r => r.json())
         .then(data => {

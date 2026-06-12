@@ -5,6 +5,7 @@ import Link from '@docusaurus/Link';
 import { usePluginData } from '@docusaurus/useGlobalData';
 import { useLocation } from '@docusaurus/router';
 import API_BASE from '@site/src/utils/api';
+import { S2_PAPER_SEARCH } from '@site/src/utils/semanticScholar';
 
 const BUTTON_BASE = {
   padding: '4px 14px',
@@ -1060,7 +1061,7 @@ function RelatedPapers({ title }) {
     setError(null);
     setResults(null);
     const url =
-      'https://api.semanticscholar.org/graph/v1/paper/search?query=' +
+      S2_PAPER_SEARCH + '?query=' +
       encodeURIComponent(title) +
       '&limit=5&fields=title,authors,year,venue,url';
     fetch(url)
