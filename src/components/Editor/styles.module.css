@@ -43,9 +43,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  /* Smooth sidebar open/close via parent conditional render
-     is instant, so we add transitions for width-based approach.
-     The sidebar uses a clip + transform animation instead. */
+  /* Slide + fade in on mount via sidebarSlideIn (parent conditionally renders the sidebar) */
   animation: sidebarSlideIn 0.2s ease;
 }
 
