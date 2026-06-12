@@ -17,8 +17,8 @@ const DEFAULT_COLOR = { dot: '#94a3b8', bg: 'rgba(148, 163, 184, 0.08)', label: 
 function getContentType(filePath) {
   if (!filePath) return 'other';
   const lower = filePath.toLowerCase();
-  if (lower.startsWith('content/books/') || lower.includes('/books/')) return 'books';
-  if (lower.startsWith('content/posts/') || lower.includes('/posts/') || lower.includes('/blog/')) return 'posts';
+  if (lower.includes('/books/')) return 'books';
+  if (lower.includes('/posts/') || lower.includes('/blog/')) return 'posts';
   return 'other';
 }
 
