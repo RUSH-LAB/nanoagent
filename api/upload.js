@@ -1,7 +1,7 @@
 // Vercel serverless function: POST /api/upload
 // Uploads an image to the GitHub repo under static/img/uploads/.
 
-const { getFile, getConfig, jsonResponse, optionsResponse } = require('./_github');
+const { getFile, getConfig, jsonResponse, optionsResponse, headers, GITHUB_API } = require('./_github');
 
 const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
 
@@ -27,7 +27,7 @@ module.exports = async function handler(req) {
       return jsonResponse(400, { error: 'Invalid image type' });
     }
 
-    // Validate directory -- no path traversal.
+    // Validate directory: no path traversal.
     if (targetDir.includes('..') || targetDir.startsWith('/')) {
       return jsonResponse(400, { error: 'Invalid directory' });
     }
@@ -53,7 +53,7 @@ module.exports = async function handler(req) {
     // Upload via GitHub Contents API (putFile expects string content,
     // but for binary we need to send base64 directly).
     const { token, repo, branch } = getConfig();
-    const apiUrl = `https://api.github.com/repos/${repo}/contents/${filePath}`;
+    const apiUrl = `${GITHUB_API}/repos/${repo}/contents/${filePath}`;
     const body = {
       message: `Upload image ${safeName}`,
       content: base64Content,
@@ -63,12 +63,7 @@ module.exports = async function handler(req) {
 
     const res = await fetch(apiUrl, {
       method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        'Content-Type': 'application/json',
-      },
+      headers: headers(token),
       body: JSON.stringify(body),
     });
 
