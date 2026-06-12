@@ -4,9 +4,9 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 
 const PRIORITY_COLORS = {
-  high: {bg: '#fef2f2', border: '#fca5a5', badge: '#ef4444', text: '#991b1b'},
-  medium: {bg: '#fffbeb', border: '#fcd34d', badge: '#f59e0b', text: '#92400e'},
-  low: {bg: '#f0fdf4', border: '#86efac', badge: '#22c55e', text: '#166534'},
+  high: {border: '#fca5a5', badge: '#ef4444'},
+  medium: {border: '#fcd34d', badge: '#f59e0b'},
+  low: {border: '#86efac', badge: '#22c55e'},
 };
 
 const COLUMN_META = {
