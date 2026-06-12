@@ -58,6 +58,11 @@ async function invokeReadingOrder(fs) {
     path,
     PROJECT_ROOT,
     ALLOWED_EXTS,
+    // The handler now wraps its computation in cached(key, ttl, fn); this
+    // pass-through runs fn() every call, so the assertions below still exercise
+    // the full scan. The dedicated cache behavior is pinned in
+    // next-content-b-ref-caches.test.mjs.
+    cached: (_k, _t, fn) => fn(),
     json(_res, status, payload) { captured = { status, payload }; res.writableEnded = true; return captured; },
   };
   await routes(req, res, url, '/api/references/reading-order', ctx);

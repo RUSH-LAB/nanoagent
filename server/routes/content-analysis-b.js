@@ -187,61 +187,71 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
   // ── Reference reading order (topological sort by citation deps) ──
   if (req.method === 'GET' && pathname === '/api/references/reading-order') {
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const citesBefore = {};
-      function scan(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scan(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          try {
-            const content = fs.readFileSync(fp, 'utf-8');
-            READING_ORDER_CITE_RE.lastIndex = 0;
-            const pageCites = [];
-            let m;
-            while ((m = READING_ORDER_CITE_RE.exec(content)) !== null) {
-              const keys = m[1].split(/\s*;\s*/).map(k => k.replace(/^@/, ''));
-              pageCites.push(...keys);
-            }
-            for (let i = 0; i < pageCites.length; i++) {
-              for (let j = i + 1; j < pageCites.length; j++) {
-                const a = pageCites[i], b = pageCites[j];
-                if (refs[a] && refs[b]) {
-                  const yearA = refs[a].year || 9999;
-                  const yearB = refs[b].year || 9999;
-                  if (yearA < yearB) {
-                    if (!citesBefore[b]) citesBefore[b] = new Set();
-                    citesBefore[b].add(a);
-                  } else if (yearB < yearA) {
-                    if (!citesBefore[a]) citesBefore[a] = new Set();
-                    citesBefore[a].add(b);
+      // The reading order is a pure function of references.yaml and the content/
+      // tree, so memoize the whole computation under a static (param free) key for
+      // the TTL while the json() write below still runs on every request. Mirrors
+      // the sibling cached scans in this file (xref-matrix, content-coverage, ...).
+      // The references.yaml read and the READING_ORDER_CITE_RE.lastIndex resets
+      // stay INSIDE the closure, so a broken references.yaml throws into the outer
+      // catch and the 500 is never cached (cached stores nothing when fn throws).
+      const result = cached('reading-order', 60000, () => {
+        const yaml = require('js-yaml');
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const citesBefore = {};
+        function scan(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scan(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            try {
+              const content = fs.readFileSync(fp, 'utf-8');
+              READING_ORDER_CITE_RE.lastIndex = 0;
+              const pageCites = [];
+              let m;
+              while ((m = READING_ORDER_CITE_RE.exec(content)) !== null) {
+                const keys = m[1].split(/\s*;\s*/).map(k => k.replace(/^@/, ''));
+                pageCites.push(...keys);
+              }
+              for (let i = 0; i < pageCites.length; i++) {
+                for (let j = i + 1; j < pageCites.length; j++) {
+                  const a = pageCites[i], b = pageCites[j];
+                  if (refs[a] && refs[b]) {
+                    const yearA = refs[a].year || 9999;
+                    const yearB = refs[b].year || 9999;
+                    if (yearA < yearB) {
+                      if (!citesBefore[b]) citesBefore[b] = new Set();
+                      citesBefore[b].add(a);
+                    } else if (yearB < yearA) {
+                      if (!citesBefore[a]) citesBefore[a] = new Set();
+                      citesBefore[a].add(b);
+                    }
                   }
                 }
               }
-            }
-          } catch {}
+            } catch {}
+          }
         }
-      }
-      scan(contentDir);
-      const allKeys = Object.keys(refs);
-      const visited = new Set();
-      const order = [];
-      function visit(key) {
-        if (visited.has(key)) return;
-        visited.add(key);
-        for (const dep of (citesBefore[key] || [])) visit(dep);
-        order.push(key);
-      }
-      allKeys.sort((a, b) => (refs[a].year || 9999) - (refs[b].year || 9999));
-      for (const key of allKeys) visit(key);
-      const readingOrder = order.slice(0, 30).map((key, i) => ({
-        order: i + 1, key, title: refs[key].title, year: refs[key].year, venue: refs[key].venue,
-        prerequisites: [...(citesBefore[key] || [])].slice(0, 5),
-      }));
-      return json(res, 200, {readingOrder, totalOrdered: order.length});
+        scan(contentDir);
+        const allKeys = Object.keys(refs);
+        const visited = new Set();
+        const order = [];
+        function visit(key) {
+          if (visited.has(key)) return;
+          visited.add(key);
+          for (const dep of (citesBefore[key] || [])) visit(dep);
+          order.push(key);
+        }
+        allKeys.sort((a, b) => (refs[a].year || 9999) - (refs[b].year || 9999));
+        for (const key of allKeys) visit(key);
+        const readingOrder = order.slice(0, 30).map((key, i) => ({
+          order: i + 1, key, title: refs[key].title, year: refs[key].year, venue: refs[key].venue,
+          prerequisites: [...(citesBefore[key] || [])].slice(0, 5),
+        }));
+        return {readingOrder, totalOrdered: order.length};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 500, {error: 'Reading order failed'});
     }
@@ -669,38 +679,47 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
   // ── Reference field completeness ──
   if (req.method === 'GET' && pathname === '/api/references/completeness') {
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
-      const FIELDS = ['title', 'author', 'year', 'venue', 'doi', 'url'];
-      const results = [];
-      // Per-field present-count, accumulated once during the entry loop below so
-      // fieldCoverage no longer rescans every reference twice for each field.
-      const fieldPresent = {};
-      for (const f of FIELDS) fieldPresent[f] = 0;
-      let totalComplete = 0;
-      // Sum per-entry completeness here so the average no longer needs a second
-      // pass over results. Each term is an integer at most 100 and integer
-      // addition is order independent, so this matches the old post-sort reduce.
-      let completenessSum = 0;
-      for (const [key, entry] of Object.entries(refs)) {
-        const missing = FIELDS.filter(f => !entry[f] || (Array.isArray(entry[f]) && entry[f].length === 0));
-        const present = FIELDS.filter(f => entry[f] && (!Array.isArray(entry[f]) || entry[f].length > 0));
-        for (const f of present) fieldPresent[f]++;
-        const completeness = Math.round((present.length / FIELDS.length) * 100);
-        if (completeness === 100) totalComplete++;
-        completenessSum += completeness;
-        results.push({key, title: entry.title || key, completeness, missing, presentCount: present.length});
-      }
-      results.sort((a, b) => a.completeness - b.completeness);
-      const avgCompleteness = results.length > 0 ? Math.round(completenessSum / results.length) : 0;
-      const coverageDenom = Math.max(results.length, 1);
-      return json(res, 200, {
-        averageCompleteness: avgCompleteness,
-        totalReferences: results.length,
-        fullyComplete: totalComplete,
-        incomplete: results.filter(r => r.completeness < 100).slice(0, 30),
-        fieldCoverage: FIELDS.map(f => ({field: f, count: fieldPresent[f], percentage: Math.round(fieldPresent[f] / coverageDenom * 100)})),
+      // Field coverage is a pure fold over references.yaml, so memoize the whole
+      // payload under a static (param free) key for the TTL while the json() write
+      // below still runs on every request. Mirrors the sibling cached reads in this
+      // file (bib-analytics, references-duplicates, ...). The references.yaml read
+      // stays INSIDE the closure, so a broken references.yaml throws into the outer
+      // catch and the 500 is never cached (cached stores nothing when fn throws).
+      const result = cached('references-completeness', 60000, () => {
+        const yaml = require('js-yaml');
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const FIELDS = ['title', 'author', 'year', 'venue', 'doi', 'url'];
+        const results = [];
+        // Per-field present-count, accumulated once during the entry loop below so
+        // fieldCoverage no longer rescans every reference twice for each field.
+        const fieldPresent = {};
+        for (const f of FIELDS) fieldPresent[f] = 0;
+        let totalComplete = 0;
+        // Sum per-entry completeness here so the average no longer needs a second
+        // pass over results. Each term is an integer at most 100 and integer
+        // addition is order independent, so this matches the old post-sort reduce.
+        let completenessSum = 0;
+        for (const [key, entry] of Object.entries(refs)) {
+          const missing = FIELDS.filter(f => !entry[f] || (Array.isArray(entry[f]) && entry[f].length === 0));
+          const present = FIELDS.filter(f => entry[f] && (!Array.isArray(entry[f]) || entry[f].length > 0));
+          for (const f of present) fieldPresent[f]++;
+          const completeness = Math.round((present.length / FIELDS.length) * 100);
+          if (completeness === 100) totalComplete++;
+          completenessSum += completeness;
+          results.push({key, title: entry.title || key, completeness, missing, presentCount: present.length});
+        }
+        results.sort((a, b) => a.completeness - b.completeness);
+        const avgCompleteness = results.length > 0 ? Math.round(completenessSum / results.length) : 0;
+        const coverageDenom = Math.max(results.length, 1);
+        return {
+          averageCompleteness: avgCompleteness,
+          totalReferences: results.length,
+          fullyComplete: totalComplete,
+          incomplete: results.filter(r => r.completeness < 100).slice(0, 30),
+          fieldCoverage: FIELDS.map(f => ({field: f, count: fieldPresent[f], percentage: Math.round(fieldPresent[f] / coverageDenom * 100)})),
+        };
       });
+      return json(res, 200, result);
     } catch {
       return json(res, 500, {error: 'Completeness check failed'});
     }
