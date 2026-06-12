@@ -39,10 +39,17 @@ const cache = new Map();
 // Monotonic counter for collision-free temp file names within this process.
 let tmpCounter = 0;
 
-// Structural deep copy via JSON round-trip. Data here is always JSON-shaped, so
-// the copy is exactly what a subsequent disk read would parse back.
+// Structural deep copy via the native structuredClone global. Every value that
+// reaches deepCopy is JSON-shaped: it is always the cached `data`, itself the
+// output of a JSON parse (a fresh disk read on a miss, or the reparsed
+// serialized value on the write-through path). Such values hold only JSON types
+// (null, booleans, finite numbers, strings, arrays, plain objects), so
+// structuredClone yields a copy deep-equal to, and structurally identical to,
+// the former serialize-and-reparse round-trip, in one native traversal with no
+// intermediate string. The `undefined` guard is kept exactly as before so an
+// `undefined` input still yields `undefined`.
 function deepCopy(value) {
-  return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+  return value === undefined ? undefined : structuredClone(value);
 }
 
 // Read an entry and refresh its LRU recency (move to most-recently-used).
@@ -130,4 +137,7 @@ function _clearCache() {
   cache.clear();
 }
 
-module.exports = {loadJSON, saveJSON, MAX_CACHE_ENTRIES, _cacheSize, _clearCache};
+// `deepCopy` is exported alongside the diagnostic hooks so the suite can
+// exercise the `undefined` guard directly; that branch is unreachable through
+// loadJSON/saveJSON, whose data is always JSON-shaped. Routes never import it.
+module.exports = {loadJSON, saveJSON, deepCopy, MAX_CACHE_ENTRIES, _cacheSize, _clearCache};
