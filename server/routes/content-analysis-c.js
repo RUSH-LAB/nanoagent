@@ -374,37 +374,47 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      const issues = [];
-      const lines = content.split('\n');
-      let lastHeadingLevel = 0;
-      let inCode = false;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.startsWith('```')) { inCode = !inCode; continue; }
-        if (inCode) continue;
-        const imgNoAlt = line.match(ACCESS_IMG_NOALT_RE);
-        if (imgNoAlt) issues.push({line: i + 1, type: 'warning', message: 'Image without alt text'});
-        const headingMatch = line.match(ACCESS_HEADING_RE);
-        if (headingMatch) {
-          const level = headingMatch[1].length;
-          if (lastHeadingLevel > 0 && level > lastHeadingLevel + 1) {
-            issues.push({line: i + 1, type: 'info', message: `Heading level skipped: h${lastHeadingLevel} to h${level}`});
+      // The a11y issue list and score are a pure function of this one file's
+      // content, so memoize the whole payload keyed by path for the TTL while the
+      // json() write below still runs on every request. Mirrors the per-path caches
+      // in this file (mentions:, statsdir:) and the blessed filestyle: cache in
+      // content-analysis-b.js. The readFileSync stays INSIDE the closure, so a
+      // missing file still throws into the outer catch and the 404 is never cached
+      // (cached stores nothing when fn throws).
+      const result = cached('accessibility:' + filePath, 30000, () => {
+        const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        const issues = [];
+        const lines = content.split('\n');
+        let lastHeadingLevel = 0;
+        let inCode = false;
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.startsWith('```')) { inCode = !inCode; continue; }
+          if (inCode) continue;
+          const imgNoAlt = line.match(ACCESS_IMG_NOALT_RE);
+          if (imgNoAlt) issues.push({line: i + 1, type: 'warning', message: 'Image without alt text'});
+          const headingMatch = line.match(ACCESS_HEADING_RE);
+          if (headingMatch) {
+            const level = headingMatch[1].length;
+            if (lastHeadingLevel > 0 && level > lastHeadingLevel + 1) {
+              issues.push({line: i + 1, type: 'info', message: `Heading level skipped: h${lastHeadingLevel} to h${level}`});
+            }
+            lastHeadingLevel = level;
           }
-          lastHeadingLevel = level;
         }
-      }
-      // Tally the warning and info issue types in a single walk of `issues`, then
-      // score from the tallies. This replaces the two `issues.filter(...).length`
-      // passes with one loop; the same categories, multipliers, and Math.max(0, ...)
-      // clamp keep `score` (and every other response field) byte identical.
-      let warningCount = 0, infoCount = 0;
-      for (const iss of issues) {
-        if (iss.type === 'warning') warningCount++;
-        else if (iss.type === 'info') infoCount++;
-      }
-      const score = Math.max(0, 100 - warningCount * 10 - infoCount * 3);
-      return json(res, 200, {path: filePath, score, issues, issueCount: issues.length});
+        // Tally the warning and info issue types in a single walk of `issues`, then
+        // score from the tallies. This replaces the two `issues.filter(...).length`
+        // passes with one loop; the same categories, multipliers, and Math.max(0, ...)
+        // clamp keep `score` (and every other response field) byte identical.
+        let warningCount = 0, infoCount = 0;
+        for (const iss of issues) {
+          if (iss.type === 'warning') warningCount++;
+          else if (iss.type === 'info') infoCount++;
+        }
+        const score = Math.max(0, 100 - warningCount * 10 - infoCount * 3);
+        return {path: filePath, score, issues, issueCount: issues.length};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
@@ -415,40 +425,49 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      const stat = fs.statSync(path.join(PROJECT_ROOT, filePath));
-      const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-      let title = path.basename(filePath, path.extname(filePath));
-      let date = stat.mtime.toISOString();
-      let description = '';
-      let tags = [];
-      let authors = [];
-      if (fmMatch) {
-        const fm = fmMatch[1];
-        const tm = fm.match(/^title:\s*["']?(.+?)["']?\s*$/m);
-        if (tm) title = tm[1];
-        const dm = fm.match(/^date:\s*["']?(\d{4}-\d{2}-\d{2})/m);
-        if (dm) date = dm[1] + 'T00:00:00Z';
-        const desc = fm.match(/^description:\s*["']?(.+?)["']?\s*$/m);
-        if (desc) description = desc[1];
-        const tgm = fm.match(/^tags:\s*\[([^\]]*)\]/m);
-        if (tgm) tags = tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
-        const auth = fm.match(/^authors:\s*\[([^\]]*)\]/m);
-        if (auth) authors = auth[1].split(',').map(a => a.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
-      }
-      const wordCount = content.split(/\s+/).filter(Boolean).length;
-      const jsonld = {
-        '@context': 'https://schema.org',
-        '@type': 'Article',
-        headline: title,
-        datePublished: date,
-        dateModified: stat.mtime.toISOString(),
-        wordCount,
-        ...(description && {description}),
-        ...(authors.length > 0 && {author: authors.map(a => ({'@type': 'Person', name: a}))}),
-        ...(tags.length > 0 && {keywords: tags.join(', ')}),
-      };
-      return json(res, 200, jsonld);
+      // The JSON-LD object is a pure function of this one file's content plus its
+      // stored mtime, so memoize the whole payload keyed by path for the TTL while
+      // the json() write below still runs on every request. The stat.mtime read is
+      // deterministic, exactly like the blessed fileinfo: cache in
+      // graph-trash-files.js, so the statSync stays INSIDE the closure alongside the
+      // readFileSync; both throw into the outer catch for a missing file, so the 404
+      // is never cached (cached stores nothing when fn throws).
+      const result = cached('jsonld:' + filePath, 30000, () => {
+        const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        const stat = fs.statSync(path.join(PROJECT_ROOT, filePath));
+        const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+        let title = path.basename(filePath, path.extname(filePath));
+        let date = stat.mtime.toISOString();
+        let description = '';
+        let tags = [];
+        let authors = [];
+        if (fmMatch) {
+          const fm = fmMatch[1];
+          const tm = fm.match(/^title:\s*["']?(.+?)["']?\s*$/m);
+          if (tm) title = tm[1];
+          const dm = fm.match(/^date:\s*["']?(\d{4}-\d{2}-\d{2})/m);
+          if (dm) date = dm[1] + 'T00:00:00Z';
+          const desc = fm.match(/^description:\s*["']?(.+?)["']?\s*$/m);
+          if (desc) description = desc[1];
+          const tgm = fm.match(/^tags:\s*\[([^\]]*)\]/m);
+          if (tgm) tags = tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+          const auth = fm.match(/^authors:\s*\[([^\]]*)\]/m);
+          if (auth) authors = auth[1].split(',').map(a => a.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+        }
+        const wordCount = content.split(/\s+/).filter(Boolean).length;
+        return {
+          '@context': 'https://schema.org',
+          '@type': 'Article',
+          headline: title,
+          datePublished: date,
+          dateModified: stat.mtime.toISOString(),
+          wordCount,
+          ...(description && {description}),
+          ...(authors.length > 0 && {author: authors.map(a => ({'@type': 'Person', name: a}))}),
+          ...(tags.length > 0 && {keywords: tags.join(', ')}),
+        };
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
@@ -748,49 +767,59 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-      let score = 0;
-      const breakdown = {};
-      if (fmMatch) {
-        const fm = fmMatch[1];
-        let fmScore = 0;
-        if (/^title:/m.test(fm)) fmScore += 5;
-        if (/^date:/m.test(fm)) fmScore += 3;
-        if (/^tags:/m.test(fm)) fmScore += 3;
-        if (/^description:/m.test(fm)) fmScore += 4;
-        breakdown.frontmatter = fmScore;
-        score += fmScore;
-      } else {
-        breakdown.frontmatter = 0;
-      }
-      const wordCount = content.split(/\s+/).filter(Boolean).length;
-      const wordScore = Math.min(20, Math.round(wordCount / 50));
-      breakdown.wordCount = wordScore;
-      score += wordScore;
-      const headings = (content.match(/^#{1,6}\s+.+$/gm) || []).length;
-      const headingScore = Math.min(15, headings * 3);
-      breakdown.headings = headingScore;
-      score += headingScore;
-      const citations = (content.match(/\[@[\w-]+/g) || []).length;
-      const citationScore = Math.min(15, citations * 3);
-      breakdown.citations = citationScore;
-      score += citationScore;
-      const links = (content.match(/\[\[/g) || []).length + (content.match(/\]\(/g) || []).length;
-      const linkScore = Math.min(10, links * 2);
-      breakdown.links = linkScore;
-      score += linkScore;
-      const codeBlocks = (content.match(/```/g) || []).length / 2;
-      const codeScore = Math.min(10, Math.round(codeBlocks * 3));
-      breakdown.codeExamples = codeScore;
-      score += codeScore;
-      const images = (content.match(/!\[/g) || []).length;
-      const imageScore = Math.min(10, images * 5);
-      breakdown.images = imageScore;
-      score += imageScore;
-      score = Math.min(100, score);
-      const level = score >= 80 ? 'excellent' : score >= 60 ? 'good' : score >= 40 ? 'adequate' : score >= 20 ? 'needs-improvement' : 'minimal';
-      return json(res, 200, {path: filePath, score, level, breakdown, wordCount});
+      // The score breakdown is a pure function of this one file's content, so
+      // memoize the whole payload keyed by path for the TTL while the json() write
+      // below still runs on every request. Mirrors the per-path caches in this file
+      // (mentions:, statsdir:) and the blessed filestyle: cache in
+      // content-analysis-b.js. The readFileSync stays INSIDE the closure, so a
+      // missing file still throws into the outer catch and the 404 is never cached
+      // (cached stores nothing when fn throws).
+      const result = cached('qualityscore:' + filePath, 30000, () => {
+        const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+        let score = 0;
+        const breakdown = {};
+        if (fmMatch) {
+          const fm = fmMatch[1];
+          let fmScore = 0;
+          if (/^title:/m.test(fm)) fmScore += 5;
+          if (/^date:/m.test(fm)) fmScore += 3;
+          if (/^tags:/m.test(fm)) fmScore += 3;
+          if (/^description:/m.test(fm)) fmScore += 4;
+          breakdown.frontmatter = fmScore;
+          score += fmScore;
+        } else {
+          breakdown.frontmatter = 0;
+        }
+        const wordCount = content.split(/\s+/).filter(Boolean).length;
+        const wordScore = Math.min(20, Math.round(wordCount / 50));
+        breakdown.wordCount = wordScore;
+        score += wordScore;
+        const headings = (content.match(/^#{1,6}\s+.+$/gm) || []).length;
+        const headingScore = Math.min(15, headings * 3);
+        breakdown.headings = headingScore;
+        score += headingScore;
+        const citations = (content.match(/\[@[\w-]+/g) || []).length;
+        const citationScore = Math.min(15, citations * 3);
+        breakdown.citations = citationScore;
+        score += citationScore;
+        const links = (content.match(/\[\[/g) || []).length + (content.match(/\]\(/g) || []).length;
+        const linkScore = Math.min(10, links * 2);
+        breakdown.links = linkScore;
+        score += linkScore;
+        const codeBlocks = (content.match(/```/g) || []).length / 2;
+        const codeScore = Math.min(10, Math.round(codeBlocks * 3));
+        breakdown.codeExamples = codeScore;
+        score += codeScore;
+        const images = (content.match(/!\[/g) || []).length;
+        const imageScore = Math.min(10, images * 5);
+        breakdown.images = imageScore;
+        score += imageScore;
+        score = Math.min(100, score);
+        const level = score >= 80 ? 'excellent' : score >= 60 ? 'good' : score >= 40 ? 'adequate' : score >= 20 ? 'needs-improvement' : 'minimal';
+        return {path: filePath, score, level, breakdown, wordCount};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }

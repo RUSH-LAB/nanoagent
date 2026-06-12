@@ -22,6 +22,10 @@ async function accessibility(content) {
     PROJECT_ROOT: '/fake-root',
     fs: { readFileSync: () => content },
     path,
+    // /api/file/accessibility now wraps its scan in cached('accessibility:' + path,
+    // 30000, fn); a pass-through cached runs fn() inline so this suite still exercises
+    // the real single-pass computation rather than the 404 catch.
+    cached: (_key, _ttl, fn) => fn(),
     json(_res, status, payload) {
       captured = { status, payload };
       res.writableEnded = true;
