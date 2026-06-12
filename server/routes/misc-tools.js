@@ -539,9 +539,8 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       const id = url.searchParams.get('id');
       const whiteboards = loadJSON(WHITEBOARDS_FILE);
       if (id) {
-        const wb = whiteboards[id];
-        if (!wb) return json(res, 404, {error: 'Whiteboard not found'});
-        return json(res, 200, {whiteboard: wb});
+        if (!Object.hasOwn(whiteboards, id)) return json(res, 404, {error: 'Whiteboard not found'});
+        return json(res, 200, {whiteboard: whiteboards[id]});
       }
       return json(res, 400, {error: 'Missing id parameter. Use GET /api/whiteboards to list all.'});
     }
@@ -550,7 +549,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       const id = url.searchParams.get('id');
       if (!id) return json(res, 400, {error: 'Missing id parameter'});
       const whiteboards = loadJSON(WHITEBOARDS_FILE);
-      if (!whiteboards[id]) return json(res, 404, {error: 'Whiteboard not found'});
+      if (!Object.hasOwn(whiteboards, id)) return json(res, 404, {error: 'Whiteboard not found'});
       delete whiteboards[id];
       saveJSON(WHITEBOARDS_FILE, whiteboards);
       return json(res, 200, {success: true});
