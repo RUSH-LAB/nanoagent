@@ -1,9 +1,7 @@
 // Vercel serverless function: GET /api/files
 // Lists files from the GitHub repo using the Git Trees API.
 
-const { listTree, jsonResponse, optionsResponse } = require('./_github');
-
-const ALLOWED_EXTS = ['.md', '.mdx'];
+const { listTree, jsonResponse, optionsResponse, ALLOWED_EXTS } = require('./_github');
 
 /**
  * Build a nested tree structure from the flat GitHub tree entries,

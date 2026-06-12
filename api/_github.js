@@ -55,6 +55,19 @@ function isValidFilePath(filePath) {
 // ── GitHub Contents API helpers ──────────────────────────────────────────────
 
 /**
+ * Throw a descriptive Error when a GitHub API response is not OK.
+ * Reads the error body for a message and attaches the HTTP status code.
+ */
+async function throwIfNotOk(res) {
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const error = new Error(err.message || `GitHub API error: ${res.status}`);
+    error.status = res.status;
+    throw error;
+  }
+}
+
+/**
  * Read a file from the repo.
  * Returns { content, sha, encoding } on success.
  */
@@ -62,12 +75,7 @@ async function getFile(filePath) {
   const { token, repo, branch } = getConfig();
   const url = `${GITHUB_API}/repos/${repo}/contents/${filePath}?ref=${branch}`;
   const res = await fetch(url, { headers: headers(token) });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const error = new Error(err.message || `GitHub API error: ${res.status}`);
-    error.status = res.status;
-    throw error;
-  }
+  await throwIfNotOk(res);
   return res.json();
 }
 
@@ -90,12 +98,7 @@ async function putFile(filePath, content, message, sha) {
     headers: headers(token),
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const error = new Error(err.message || `GitHub API error: ${res.status}`);
-    error.status = res.status;
-    throw error;
-  }
+  await throwIfNotOk(res);
   return res.json();
 }
 
@@ -112,12 +115,7 @@ async function deleteFile(filePath, sha, message) {
     headers: headers(token),
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const error = new Error(err.message || `GitHub API error: ${res.status}`);
-    error.status = res.status;
-    throw error;
-  }
+  await throwIfNotOk(res);
   return res.json();
 }
 
@@ -129,17 +127,15 @@ async function listTree() {
   const { token, repo, branch } = getConfig();
   const url = `${GITHUB_API}/repos/${repo}/git/trees/${branch}?recursive=1`;
   const res = await fetch(url, { headers: headers(token) });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const error = new Error(err.message || `GitHub API error: ${res.status}`);
-    error.status = res.status;
-    throw error;
-  }
+  await throwIfNotOk(res);
   return res.json();
 }
 
 module.exports = {
   getConfig,
+  headers,
+  GITHUB_API,
+  ALLOWED_EXTS,
   isValidFilePath,
   getFile,
   putFile,
