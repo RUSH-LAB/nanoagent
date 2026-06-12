@@ -186,7 +186,7 @@ html {
   scroll-margin-top: 30vh;
 }
 
-/* ── Tables: left-aligned site-wide ──────────────────────────────────────── */
+/* ── Tables: render as a table box, not a scrollable block ──────────────────────────────────────── */
 table {
   display: table !important;
 }
