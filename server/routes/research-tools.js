@@ -126,6 +126,19 @@ const REC_TOP_VENUES = new Set([
 // Kept separate from the stricter id pattern in /api/recommendations below.
 const ARXIV_ABS_RE = /arxiv\.org\/abs\/([\d.]+)/;
 
+// ── Recommendations: stricter paper-id matchers ──
+// extractRecPaperId in GET /api/recommendations pulls a canonical id from a
+// reference URL: an arXiv id (capture group 1, version suffix kept) emitted as
+// `ArXiv:<id>`, or a DOI (capture group 1) emitted raw. It runs once per
+// bibliography entry, and the handler is not wrapped in cached(), so hoisting
+// these avoids re-allocating a RegExp per entry on every request. Both are
+// non-global and used only with String.prototype.match (no lastIndex state), so
+// one shared instance is safe across entries and requests. Intentionally
+// stricter than ARXIV_ABS_RE above, whose looser `([\d.]+)` capture and
+// different output shape serve the track* handlers.
+const REC_ARXIV_ID_RE = /arxiv\.org\/abs\/(\d+\.\d+(?:v\d+)?)/;
+const REC_DOI_RE = /doi\.org\/(10\.\d{4,}\/[^\s]+)/;
+
 // Route module organized from server.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
@@ -361,9 +374,9 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       function extractRecPaperId(entry) {
         if (entry.paperId) return entry.paperId;
         if (entry.url) {
-          const arxivMatch = entry.url.match(/arxiv\.org\/abs\/(\d+\.\d+(?:v\d+)?)/);
+          const arxivMatch = entry.url.match(REC_ARXIV_ID_RE);
           if (arxivMatch) return `ArXiv:${arxivMatch[1]}`;
-          const doiMatch = entry.url.match(/doi\.org\/(10\.\d{4,}\/[^\s]+)/);
+          const doiMatch = entry.url.match(REC_DOI_RE);
           if (doiMatch) return doiMatch[1];
         }
         if (entry.arxivId) return `ArXiv:${entry.arxivId}`;
@@ -833,3 +846,9 @@ module.exports.cleanBibtexValue = cleanBibtexValue;
 // tests/next-researchtools-dedup-arxivre.test.mjs). The three preprint-tracking
 // handlers extract an arXiv id from a reference URL with it.
 module.exports.ARXIV_ABS_RE = ARXIV_ABS_RE;
+
+// Stricter recommendations paper-id matchers, exposed for direct unit testing
+// (see tests/next-recommend-paperid-re-hoist.test.mjs). extractRecPaperId in
+// GET /api/recommendations uses them to pull a canonical id from a reference URL.
+module.exports.REC_ARXIV_ID_RE = REC_ARXIV_ID_RE;
+module.exports.REC_DOI_RE = REC_DOI_RE;
