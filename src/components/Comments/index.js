@@ -6,7 +6,7 @@ import {useClickOutside} from '@site/src/utils/useClickOutside';
 
 const EMOJI_MAP = {
   thumbsup: '\u{1F44D}',
-  heart: '❤️',
+  heart: '\u{2764}\u{FE0F}',
   laugh: '\u{1F604}',
   thinking: '\u{1F914}',
   celebrate: '\u{1F389}',
