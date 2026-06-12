@@ -67,8 +67,14 @@ module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
     const SESSIONS_FILE = path.join(PROJECT_ROOT, 'data', 'sessions.json');
     const sessions = loadJSON(SESSIONS_FILE);
     const userSessions = (sessions[userId] || []).slice(-limit).reverse();
-    const totalMinutes = userSessions.reduce((s, sess) => s + (sess.duration || 0), 0);
-    const totalWords = userSessions.reduce((s, sess) => s + (sess.wordsWritten || 0), 0);
+    // Accumulate both totals in a single walk over userSessions rather than two
+    // separate passes. Same `|| 0` fallbacks, same response shape as before.
+    let totalMinutes = 0;
+    let totalWords = 0;
+    for (const sess of userSessions) {
+      totalMinutes += sess.duration || 0;
+      totalWords += sess.wordsWritten || 0;
+    }
     return json(res, 200, {
       sessions: userSessions,
       summary: {totalSessions: userSessions.length, totalMinutes, totalWords},
