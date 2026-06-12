@@ -64,8 +64,10 @@ module.exports = async function handler(req) {
   const url = new URL(req.url, 'http://localhost');
   const dir = url.searchParams.get('dir') || 'content';
 
-  // Basic validation: must be within content.
-  if (dir !== 'content' && !dir.startsWith('content/')) {
+  // Basic validation: must be within content and free of path traversal.
+  // The `..` check mirrors `isValidFilePath` in ./_github.js and blocks a value
+  // like `content/../secret` that would otherwise pass the `content/` prefix test.
+  if ((dir !== 'content' && !dir.startsWith('content/')) || dir.includes('..')) {
     return jsonResponse(400, { error: 'Invalid directory' });
   }
 
