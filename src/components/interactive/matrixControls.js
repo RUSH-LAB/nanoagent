@@ -1,5 +1,21 @@
 // Shared controls for the 2x2 matrix interactive demos (EigenDemo, LinearTransformDemo).
 
+// Wrapper style for the control panel rendered below each matrix demo. Both
+// demos draw an identical flex panel with a wider em based gap and no container
+// font size, so it differs from the other demos' CONTROL_PANEL_STYLE and lives
+// here next to the controls these two demos share.
+export const MATRIX_PANEL_STYLE = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '1em 2em',
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginTop: '0.75em',
+  padding: '0.75em 1em',
+  background: '#f5f7f9',
+  borderRadius: '8px',
+};
+
 export function applyMatrix(matrix, v) {
   return [
     matrix[0][0] * v[0] + matrix[0][1] * v[1],

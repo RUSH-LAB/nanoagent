@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Mafs, Coordinates, Vector, Polygon, Line, Text, Theme } from 'mafs';
 import 'mafs/core.css';
-import { applyMatrix, MatrixControls } from './matrixControls';
+import { applyMatrix, MatrixControls, MATRIX_PANEL_STYLE } from './matrixControls';
 
 export default function LinearTransformDemo() {
   const [a, setA] = useState(1);
@@ -40,12 +40,7 @@ export default function LinearTransformDemo() {
         <Text x={te1[0] + 0.3} y={te1[1] + 0.3} color={Theme.blue} size={16}>Ae₁</Text>
         <Text x={te2[0] + 0.3} y={te2[1] + 0.3} color={Theme.red} size={16}>Ae₂</Text>
       </Mafs>
-      <div style={{
-        display: 'flex', flexWrap: 'wrap', gap: '1em 2em',
-        justifyContent: 'center', alignItems: 'center',
-        marginTop: '0.75em', padding: '0.75em 1em',
-        background: '#f5f7f9', borderRadius: '8px',
-      }}>
+      <div style={MATRIX_PANEL_STYLE}>
         <MatrixControls
           a={a} b={b} c={c} d={d}
           setA={setA} setB={setB} setC={setC} setD={setD}
