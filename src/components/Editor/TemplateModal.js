@@ -234,7 +234,7 @@ export default function TemplateModal({open, onClose, onCreate, preselectedTempl
                     onClick={() => handleTemplateSelect(tpl)}
                     onDoubleClick={() => {
                       handleTemplateSelect(tpl);
-                      // Small delay so selectedTemplate state is set
+                      // Defer create and close to the next tick so the current event settles first
                       setTimeout(() => {
                         // Directly trigger create
                         onCreate(filePath, buildTemplateContent(tpl, filePath));
