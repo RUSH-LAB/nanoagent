@@ -67,8 +67,16 @@ module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
   // ── References: search (for citation autocomplete) ──
   if (req.method === 'GET' && pathname === '/api/references') {
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+      // Reuse the references module's mtime+size memo so this autocomplete GET
+      // shares one parse of the 251 KB references.yaml with the read-only
+      // references handlers, instead of re-reading and re-parsing the file on
+      // every request. The loader re-stats each call and re-parses on any
+      // mtime or size change, so there is no staleness. Non circular:
+      // references.js does not require this module. Any stat, read, or parse
+      // failure yields {}, matching the catch below, so a missing or corrupt
+      // file still serves {references: {}}.
+      const {loadReferencesCached} = require('./references');
+      const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
       return json(res, 200, {references: refs});
     } catch {
       return json(res, 200, {references: {}});
