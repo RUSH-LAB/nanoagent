@@ -21,6 +21,14 @@ const FILE_INFO_IMAGE_RE = /!\[[^\]]*\]/g;
 // and back-to-back requests.
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 
+// ── Export/bundle front-matter + title regexes (module scope, reused per request) ──
+// Both are consumed only through String.prototype.match (no /g flag, no lastIndex
+// state), so one shared instance each is behavior-preserving and rebuilt 0 times per
+// request. The trailing "\n?" and the /m flag are preserved exactly, distinct from the
+// no-suffix front-matter pattern used by the /api/graph and /api/file/info handlers.
+const EXPORT_FM_RE = /^---\n([\s\S]*?)\n---\n?/;
+const EXPORT_TITLE_RE = /^title:\s*["']?(.+?)["']?\s*$/m;
+
 module.exports = async function graph_trash_files_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -431,9 +439,9 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
         try {
           let content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
           let title = path.basename(filePath, path.extname(filePath));
-          const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/);
+          const fmMatch = content.match(EXPORT_FM_RE);
           if (fmMatch) {
-            const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+            const tm = fmMatch[1].match(EXPORT_TITLE_RE);
             if (tm) title = tm[1];
             content = content.slice(fmMatch[0].length);
           }
@@ -477,10 +485,10 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       if (format === 'slides') {
         let markdown = content;
         let title = baseName;
-        const fmMatch = markdown.match(/^---\n([\s\S]*?)\n---\n?/);
+        const fmMatch = markdown.match(EXPORT_FM_RE);
         if (fmMatch) {
           const fm = fmMatch[1];
-          const tm = fm.match(/^title:\s*["']?(.+?)["']?\s*$/m);
+          const tm = fm.match(EXPORT_TITLE_RE);
           if (tm) title = tm[1];
           markdown = markdown.slice(fmMatch[0].length);
         }
@@ -524,10 +532,10 @@ show(0);document.addEventListener('keydown',e=>{if(e.key==='ArrowRight'||e.key==
         let markdown = content;
         let title = baseName;
         let authors = '';
-        const fmMatch = markdown.match(/^---\n([\s\S]*?)\n---\n?/);
+        const fmMatch = markdown.match(EXPORT_FM_RE);
         if (fmMatch) {
           const fm = fmMatch[1];
-          const tm = fm.match(/^title:\s*["']?(.+?)["']?\s*$/m);
+          const tm = fm.match(EXPORT_TITLE_RE);
           if (tm) title = tm[1];
           const am = fm.match(/^authors?:\s*\[([^\]]*)\]/m);
           if (am) authors = am[1].split(',').map(a => a.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).join(' \\and ');
@@ -567,10 +575,10 @@ ${latex.trim()}
       if (format === 'pdf') {
         let markdown = content;
         let title = baseName;
-        const fmMatch = markdown.match(/^---\n([\s\S]*?)\n---\n?/);
+        const fmMatch = markdown.match(EXPORT_FM_RE);
         if (fmMatch) {
           const fm = fmMatch[1];
-          const titleMatch = fm.match(/^title:\s*["']?(.+?)["']?\s*$/m);
+          const titleMatch = fm.match(EXPORT_TITLE_RE);
           if (titleMatch) title = titleMatch[1];
           markdown = markdown.slice(fmMatch[0].length);
         }
@@ -638,10 +646,10 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
       // Strip frontmatter
       let markdown = content;
       let title = baseName;
-      const fmMatch = markdown.match(/^---\n([\s\S]*?)\n---\n?/);
+      const fmMatch = markdown.match(EXPORT_FM_RE);
       if (fmMatch) {
         const fm = fmMatch[1];
-        const titleMatch = fm.match(/^title:\s*["']?(.+?)["']?\s*$/m);
+        const titleMatch = fm.match(EXPORT_TITLE_RE);
         if (titleMatch) title = titleMatch[1];
         markdown = markdown.slice(fmMatch[0].length);
       }
