@@ -1138,7 +1138,7 @@ async function testTrashEmpty() {
   await test('DELETE /api/trash/empty responds (endpoint exists)', async () => {
     // This endpoint actually empties the trash, so we only call it if
     // the trash is empty already.
-    const {status: trashStatus, data: trashData} = await api('GET', '/api/trash');
+    const {data: trashData} = await api('GET', '/api/trash');
     if (trashData.items && trashData.items.length === 0) {
       const {status} = await api('DELETE', '/api/trash/empty');
       assertEq(status, 200, 'status');
