@@ -660,15 +660,22 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
         results.sort((a, b) => b.score - a.score);
         return results;
       });
-      const avgScore = scores.length > 0 ? Math.round(scores.reduce((s, r) => s + r.score, 0) / scores.length * 10) / 10 : 0;
+      // Single pass over the request-sized `scores`: accumulate the score sum
+      // alongside the bucket distribution so the array is walked once. Summing the
+      // same values in the same order, then applying the same rounding, keeps
+      // `scoreSum` and the derived `averageScore` identical to the prior
+      // reduce-based form; the empty-array guard still yields avgScore 0.
+      let scoreSum = 0;
       const counts = {excellent: 0, good: 0, adequate: 0, needsImprovement: 0, minimal: 0};
       for (const r of scores) {
+        scoreSum += r.score;
         if (r.score >= 80) counts.excellent++;
         else if (r.score >= 60) counts.good++;
         else if (r.score >= 40) counts.adequate++;
         else if (r.score >= 20) counts.needsImprovement++;
         else counts.minimal++;
       }
+      const avgScore = scores.length > 0 ? Math.round(scoreSum / scores.length * 10) / 10 : 0;
       return json(res, 200, {
         averageScore: avgScore,
         totalFiles: scores.length,
