@@ -534,7 +534,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     const userId = url.searchParams.get('userId') || 'default';
     const QUICKNOTES_FILE = path.join(PROJECT_ROOT, 'data', 'quicknotes.json');
     const data = loadJSON(QUICKNOTES_FILE);
-    const jsonNotes = (data[userId] || []).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    const jsonNotes = (Object.hasOwn(data, userId) ? data[userId] : []).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 
     // Also include filesystem-based quick notes from content/posts/blog/
     const blogDir = path.join(PROJECT_ROOT, 'content', 'posts', 'blog');
