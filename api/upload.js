@@ -1,7 +1,7 @@
 // Vercel serverless function: POST /api/upload
 // Uploads an image to the GitHub repo under static/img/uploads/.
 
-const { getFile, putFile, jsonResponse, optionsResponse } = require('./_github');
+const { getFile, getConfig, jsonResponse, optionsResponse } = require('./_github');
 
 const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
 
@@ -52,7 +52,6 @@ module.exports = async function handler(req) {
 
     // Upload via GitHub Contents API (putFile expects string content,
     // but for binary we need to send base64 directly).
-    const { getConfig } = require('./_github');
     const { token, repo, branch } = getConfig();
     const apiUrl = `https://api.github.com/repos/${repo}/contents/${filePath}`;
     const body = {
