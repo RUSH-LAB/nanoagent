@@ -272,6 +272,23 @@ const SOURCE_COLORS = {
   dblp: '#E8A83E',
 };
 
+const FIELD_LABELS = {
+  title: 'Title',
+  authors: 'Authors',
+  year: 'Year',
+  venue: 'Venue',
+  doi: 'DOI',
+  arxivId: 'arXiv ID',
+  url: 'URL',
+  publisher: 'Publisher',
+  volume: 'Volume',
+  issue: 'Issue',
+  pages: 'Pages',
+  citationCount: 'Citations',
+  referenceCount: 'References',
+  tldr: 'TL;DR',
+};
+
 function EnrichSection({ bibKey, entry }) {
   const [enrichData, setEnrichData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -355,25 +372,7 @@ function EnrichSection({ bibKey, entry }) {
     return String(value);
   };
 
-  const fieldLabel = (field) => {
-    const labels = {
-      title: 'Title',
-      authors: 'Authors',
-      year: 'Year',
-      venue: 'Venue',
-      doi: 'DOI',
-      arxivId: 'arXiv ID',
-      url: 'URL',
-      publisher: 'Publisher',
-      volume: 'Volume',
-      issue: 'Issue',
-      pages: 'Pages',
-      citationCount: 'Citations',
-      referenceCount: 'References',
-      tldr: 'TL;DR',
-    };
-    return labels[field] || field;
-  };
+  const fieldLabel = (field) => FIELD_LABELS[field] || field;
 
   return (
     <div style={{ marginBottom: '2rem' }}>
