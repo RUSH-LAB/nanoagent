@@ -95,7 +95,6 @@ function useNumberedElement(id, typeName, manifest, section) {
     if (globalEntry && !section) {
       // Manifest takes precedence when not inside a Section
       localNum = globalEntry.number;
-      setDisplayNumber(`${localNum}`);
     } else {
       // DOM-based numbering (scoped to section or global)
       registry.set(id, ref.current);
@@ -111,11 +110,15 @@ function useNumberedElement(id, typeName, manifest, section) {
       });
 
       localNum = parseInt(ref.current?.dataset.number || '0');
-      setDisplayNumber(formatNumber(section, localNum));
     }
 
-    // Update same-page cross-reference links (anchors pointing to #id)
+    // Resolve the display number once. The manifest branch leaves section null, so
+    // formatNumber(null, localNum) === `${localNum}`, identical to the value each
+    // branch set before.
     const formatted = formatNumber(section, localNum);
+    setDisplayNumber(formatted);
+
+    // Update same-page cross-reference links (anchors pointing to #id)
     const links = document.querySelectorAll(`a[href="#${id}"]`);
     links.forEach(link => {
       link.textContent = `${typeName.charAt(0).toUpperCase() + typeName.slice(1)} ${formatted}`;
