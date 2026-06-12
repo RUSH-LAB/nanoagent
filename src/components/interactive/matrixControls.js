@@ -17,3 +17,21 @@ export function Slider({ label, value, onChange, min = -3, max = 3, step = 0.1, 
     </label>
   );
 }
+
+export function MatrixControls({ a, b, c, d, setA, setB, setC, setD, sliderWidth }) {
+  return (
+    <div style={{ display: 'flex', gap: '0.5em', alignItems: 'center' }}>
+      <span style={{ fontFamily: 'serif', fontSize: '1.1rem' }}>A = </span>
+      <div style={{
+        display: 'inline-grid', gridTemplateColumns: '1fr 1fr',
+        gap: '0.25em 1em', padding: '0.25em 0.5em',
+        borderLeft: '2px solid #333', borderRight: '2px solid #333',
+      }}>
+        <Slider label="a" value={a} onChange={setA} width={sliderWidth} />
+        <Slider label="b" value={b} onChange={setB} width={sliderWidth} />
+        <Slider label="c" value={c} onChange={setC} width={sliderWidth} />
+        <Slider label="d" value={d} onChange={setD} width={sliderWidth} />
+      </div>
+    </div>
+  );
+}
