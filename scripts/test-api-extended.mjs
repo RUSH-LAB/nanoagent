@@ -925,8 +925,8 @@ async function testFeeds() {
 async function testSlides() {
   section('Slides');
 
-  // 1. GET /api/file/slides?path=... — verify HTML for existing file
-  await test('Slides for existing file returns HTML', async () => {
+  // 1. GET /api/file/slides?path=... — verify JSON {slides} for existing file
+  await test('Slides for existing file returns JSON slides array', async () => {
     const {status, data} = await api('GET', '/api/file/slides?path=content/books/math/0-intro.md');
     assertEq(status, 200, 'status');
     assertOk(typeof data === 'object', 'response is object');
