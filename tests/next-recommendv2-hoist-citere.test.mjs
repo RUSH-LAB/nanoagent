@@ -52,7 +52,9 @@ describe('GET /api/content-recommend-v2 (RECOMMEND_CITE_RE hoisted to module sco
     fs.writeFileSync(path.join(contentDir, 'source.md'), '---\ntitle: Source\n---\nsee [@li2020] and [@wu2019] now\n');
     fs.writeFileSync(path.join(contentDir, 'cand-a.md'), '---\ntitle: Cand A\n---\nref [@li2020] here\n');
     fs.writeFileSync(path.join(contentDir, 'cand-b.md'), '---\ntitle: Cand B\n---\nsee [@li2020] plus [@wu2019] too\n');
-    ctx = { fs, path, PROJECT_ROOT: tmpRoot, ALLOWED_EXTS, isValidFilePath: () => true };
+    // content-recommend-v2 now wraps its per-path scan in cached(key, ttl, fn); supply a
+    // pass-through so this real-fs test still drives the genuine content walk on each call.
+    ctx = { fs, path, PROJECT_ROOT: tmpRoot, ALLOWED_EXTS, isValidFilePath: () => true, cached: (_key, _ttl, fn) => fn() };
   });
 
   after(() => {
