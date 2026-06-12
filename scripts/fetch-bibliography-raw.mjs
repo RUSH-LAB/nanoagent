@@ -67,7 +67,7 @@ function extractArxivId(url) {
 }
 
 async function download(url, destPath, { expect } = {}) {
-  // Returns { ok, bytes } — never throws on HTTP errors.
+  // Returns { ok: true, bytes } on success or { ok: false, status } on failure — never throws on HTTP errors.
   // Uses curl: the sandbox blocks node's outbound sockets (EPERM) but allows curl.
   fs.mkdirSync(path.dirname(destPath), { recursive: true });
   const tmp = `${destPath}.part`;
