@@ -62,6 +62,7 @@ module.exports = async function files_routes(req, res, url, pathname, ctx) {
       fs.mkdirSync(dir, {recursive: true});
       fs.writeFileSync(fullPath, content, 'utf-8');
       invalidateCache('stats');
+      invalidateCache('search');
       return json(res, 200, {success: true, path: filePath});
     } catch {
       return json(res, 400, {error: 'Failed to create file: request body must be JSON with "path" (string) and "content" (string) fields'});
@@ -84,6 +85,7 @@ module.exports = async function files_routes(req, res, url, pathname, ctx) {
       fs.mkdirSync(trashSubDir, {recursive: true});
       const trashFullPath = path.join(trashSubDir, trashedName);
       fs.renameSync(fullPath, trashFullPath);
+      invalidateCache('search');
       return json(res, 200, {success: true, trashPath: path.relative(PROJECT_ROOT, trashFullPath)});
     } catch {
       return json(res, 500, {error: 'Failed to move file to trash: the file may be locked or the trash directory is not writable'});
@@ -103,6 +105,7 @@ module.exports = async function files_routes(req, res, url, pathname, ctx) {
       const dir = path.dirname(fullNew);
       fs.mkdirSync(dir, {recursive: true});
       fs.renameSync(fullOld, fullNew);
+      invalidateCache('search');
       return json(res, 200, {success: true, path: newPath});
     } catch {
       return json(res, 400, {error: 'Failed to rename file: request body must be JSON with "oldPath" (string) and "newPath" (string) fields'});
@@ -126,7 +129,11 @@ module.exports = async function files_routes(req, res, url, pathname, ctx) {
     const query = (url.searchParams.get('q') || '').toLowerCase();
     const fullDir = path.join(PROJECT_ROOT, 'content');
     try {
-      const all = flatFiles(fullDir);
+      // The directory walk is query independent and runs on every keystroke of
+      // the file search box, so snapshot it through the shared cache and reuse
+      // it until a mutation invalidates 'search' or the 30s TTL clears it. This
+      // mirrors the cached('content-stats', ...) wrap below.
+      const all = cached('search:list', 30000, () => flatFiles(fullDir));
       if (!query) return json(res, 200, {files: all});
       const filtered = all.filter(f =>
         f.name.toLowerCase().includes(query) || f.path.toLowerCase().includes(query)
@@ -211,6 +218,7 @@ module.exports = async function files_routes(req, res, url, pathname, ctx) {
       if (!fullPath.startsWith(PROJECT_ROOT)) return json(res, 400, {error: 'Invalid path'});
       const rawBody = await readRawBody(req);
       fs.writeFileSync(fullPath, rawBody);
+      invalidateCache('search');
 
       const publicPath = '/' + path.relative(path.join(PROJECT_ROOT, 'static'), fullPath).replace(/\\/g, '/');
       return json(res, 200, {success: true, url: publicPath});
