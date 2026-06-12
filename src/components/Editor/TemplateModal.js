@@ -44,12 +44,11 @@ function buildTemplateContent(tpl, filePath) {
  *   open                – boolean, whether the modal is visible
  *   onClose             – () => void
  *   onCreate            – (filePath: string, content: string) => void
- *   defaultDir          – optional default directory prefix (e.g. "posts/blog/")
  *   preselectedTemplate – optional template object; when set, step 1 creates directly and step 2 is skipped
  */
-export default function TemplateModal({open, onClose, onCreate, defaultDir = '', preselectedTemplate = null}) {
+export default function TemplateModal({open, onClose, onCreate, preselectedTemplate = null}) {
   const [step, setStep] = useState(1);
-  const [filePath, setFilePath] = useState(defaultDir);
+  const [filePath, setFilePath] = useState('');
   const [templates, setTemplates] = useState([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [error, setError] = useState(null);
@@ -61,12 +60,12 @@ export default function TemplateModal({open, onClose, onCreate, defaultDir = '',
   useEffect(() => {
     if (open) {
       setStep(1);
-      setFilePath(defaultDir);
+      setFilePath('');
       setError(null);
       setSelectedTemplate(preselectedTemplate || null);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [open, defaultDir, preselectedTemplate]);
+  }, [open, preselectedTemplate]);
 
   // Fetch templates when entering step 2
   useEffect(() => {
