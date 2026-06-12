@@ -9,7 +9,7 @@ const PUBLISHABLE_KEY =
     : 'pk_test_dW5pcXVlLXJheS0yOS5jbGVyay5hY2NvdW50cy5kZXYk';
 
 const mobileStyles = `
-/* Use viewport-relative units so everything scales fluidly with device width */
+/* Phones use viewport-relative units to scale fluidly with device width; tablets below use fixed px and rem sizes */
 
 /* Small phones (up to 390px, e.g. iPhone SE, iPhone 13 mini) */
 @media (max-width: 390px) {
