@@ -129,7 +129,7 @@ async function fetchPageMetrics(path) {
 }
 
 // ── Compare two metric sets for a page, return regressions ──
-function compareMetrics(path, baseline, current) {
+function compareMetrics(baseline, current) {
   const regressions = [];
 
   // Title change (exact match, not percentage)
@@ -292,7 +292,7 @@ async function main() {
       continue;
     }
 
-    const regressions = compareMetrics(path, base, current);
+    const regressions = compareMetrics(base, current);
 
     if (regressions.length === 0) {
       console.log(`  ${GREEN}✓${RESET} ${path} ${DIM}no regressions${RESET}`);
