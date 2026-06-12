@@ -13,6 +13,7 @@ import KeyboardShortcuts from './KeyboardShortcuts';
 import shortcutStyles from './KeyboardShortcuts.module.css';
 import API_BASE from '@site/src/utils/api';
 import {useClickOutside} from '@site/src/utils/useClickOutside';
+import {RECENT_FILES_KEY} from '@site/src/utils/recentFiles';
 import {TemplateCards} from './TemplateModal';
 const PRESENCE_INTERVAL = 5000; // 5 seconds
 
@@ -1988,7 +1989,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     let mounted = true;
     // Load recent files from localStorage
     try {
-      const stored = JSON.parse(localStorage.getItem('mochi-recent-files') || '[]');
+      const stored = JSON.parse(localStorage.getItem(RECENT_FILES_KEY) || '[]');
       setRecentFiles(stored.slice(0, 5));
     } catch {
       setRecentFiles([]);
