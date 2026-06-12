@@ -255,7 +255,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
       if (author !== undefined && typeof author === 'string' && author.length > 100) return json(res, 400, {error: 'Author must be 100 characters or fewer'});
       if (PROTO_KEYS.includes(page)) return json(res, 400, {error: 'Invalid page'});
       const annotations = loadJSON(ANNOTATIONS_FILE);
-      if (!annotations[page]) annotations[page] = [];
+      if (!Object.hasOwn(annotations, page)) annotations[page] = [];
       const annotation = {
         id: 'ann_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
         text: sanitizeText(text),
@@ -279,7 +279,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
       const {page, id} = body;
       if (!page || !id) return json(res, 400, {error: 'Missing page or id'});
       const annotations = loadJSON(ANNOTATIONS_FILE);
-      if (!annotations[page]) return json(res, 404, {error: 'Page not found'});
+      if (!Object.hasOwn(annotations, page)) return json(res, 404, {error: 'Page not found'});
       const idx = annotations[page].findIndex(a => a.id === id);
       if (idx === -1) return json(res, 404, {error: 'Annotation not found'});
       annotations[page].splice(idx, 1);
