@@ -2,6 +2,18 @@
 // Route module organized from server.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
+
+// ── Route-match regexes (module scope, reused per request) ──
+// Each pattern is stateless (no /g, no /y flag) and every match result is read
+// only for truthiness, so one shared instance per pattern is behavior-preserving
+// across requests and is rebuilt 0 times per request. DISCUSSION_PIN_RE and
+// READING_LIST_ITEMS_RE are each referenced at multiple call sites; sharing also
+// deduplicates the repeated literals.
+const DISCUSSION_PIN_RE = /^\/api\/discussions\/[^/]+\/pin$/;
+const READING_LIST_RE = /^\/api\/reading-lists\/[^/]+$/;
+const READING_LIST_ITEMS_RE = /^\/api\/reading-lists\/[^/]+\/items$/;
+const READING_LIST_EXPORT_RE = /^\/api\/reading-lists\/[^/]+\/export$/;
+
 module.exports = async function bookmarks_reading_lists_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -108,7 +120,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
   }
 
   // ── Discussions: pin a message ──
-  if (req.method === 'POST' && pathname.match(/^\/api\/discussions\/[^/]+\/pin$/)) {
+  if (req.method === 'POST' && pathname.match(DISCUSSION_PIN_RE)) {
     if (!rateLimit(`disc-pin:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
@@ -140,7 +152,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
   }
 
   // ── Discussions: unpin a message ──
-  if (req.method === 'DELETE' && pathname.match(/^\/api\/discussions\/[^/]+\/pin$/)) {
+  if (req.method === 'DELETE' && pathname.match(DISCUSSION_PIN_RE)) {
     try {
       const parts = pathname.split('/');
       const channelId = decodeURIComponent(parts[3]);
@@ -255,7 +267,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
   }
 
   // ── Reading Lists: delete a list ──
-  if (req.method === 'DELETE' && pathname.match(/^\/api\/reading-lists\/[^/]+$/) && !pathname.includes('/items')) {
+  if (req.method === 'DELETE' && pathname.match(READING_LIST_RE) && !pathname.includes('/items')) {
     try {
       const parts = pathname.split('/');
       const listId = decodeURIComponent(parts[3]);
@@ -272,7 +284,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
   }
 
   // ── Reading Lists: add item ──
-  if (req.method === 'POST' && pathname.match(/^\/api\/reading-lists\/[^/]+\/items$/)) {
+  if (req.method === 'POST' && pathname.match(READING_LIST_ITEMS_RE)) {
     if (!rateLimit(`rl-items:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
@@ -305,7 +317,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
   }
 
   // ── Reading Lists: remove item ──
-  if (req.method === 'DELETE' && pathname.match(/^\/api\/reading-lists\/[^/]+\/items$/)) {
+  if (req.method === 'DELETE' && pathname.match(READING_LIST_ITEMS_RE)) {
     try {
       const parts = pathname.split('/');
       const listId = decodeURIComponent(parts[3]);
@@ -356,7 +368,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
   }
 
   // ── Reading Lists: reorder items ──
-  if (req.method === 'PATCH' && pathname.match(/^\/api\/reading-lists\/[^/]+\/items$/)) {
+  if (req.method === 'PATCH' && pathname.match(READING_LIST_ITEMS_RE)) {
     try {
       const parts = pathname.split('/');
       const listId = decodeURIComponent(parts[3]);
@@ -384,7 +396,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
   }
 
   // ── Reading Lists: export as markdown ──
-  if (req.method === 'GET' && pathname.match(/^\/api\/reading-lists\/[^/]+\/export$/)) {
+  if (req.method === 'GET' && pathname.match(READING_LIST_EXPORT_RE)) {
     try {
       const parts = pathname.split('/');
       const listId = decodeURIComponent(parts[3]);
@@ -458,3 +470,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
   }
 
 };
+
+// Exported so tests can assert the hoisted route-match regexes are stateless,
+// referentially stable, and match the intended paths while rejecting near misses.
+module.exports.routeRegexes = { DISCUSSION_PIN_RE, READING_LIST_RE, READING_LIST_ITEMS_RE, READING_LIST_EXPORT_RE };
