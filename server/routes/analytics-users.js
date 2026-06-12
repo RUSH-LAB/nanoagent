@@ -117,7 +117,11 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
       if (typeof presencePath !== 'string' || typeof userId !== 'string') return json(res, 400, {error: 'filePath and userId must be strings'});
       if (presencePath.length > 500 || userId.length > 100) return json(res, 400, {error: 'filePath or userId too long'});
       if (PROTO_KEYS.includes(presencePath) || PROTO_KEYS.includes(userId)) return json(res, 400, {error: 'Invalid filePath or userId'});
-      if (!presenceStore[presencePath]) presenceStore[presencePath] = {};
+      // Treat only an OWN key as an initialized bucket. A request-controlled
+      // filePath like `hasOwnProperty`/`toString`/`valueOf` (not screened by
+      // PROTO_KEYS) is a truthy inherited member, so the old bare check skipped
+      // this init and wrote the record onto Object.prototype instead of an own key.
+      if (!Object.hasOwn(presenceStore, presencePath)) presenceStore[presencePath] = {};
       presenceStore[presencePath][userId] = {
         userId: sanitizeText(userId),
         userName: sanitizeText(userName) || 'Anonymous',
