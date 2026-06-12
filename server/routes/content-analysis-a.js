@@ -975,34 +975,49 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     const dir2 = url.searchParams.get('dir2');
     if (!isValidDir(dir1) || !isValidDir(dir2)) return json(res, 400, {error: 'Invalid directories'});
     try {
-      function dirStats(dirPath) {
-        const fullDir = path.join(PROJECT_ROOT, dirPath);
-        let files = 0, words = 0, headings = 0;
-        function scan(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.')) continue;
-            const fp = path.join(dir, entry.name);
-            if (entry.isDirectory()) { scan(fp); continue; }
-            if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              files++;
-              try {
-                const c = fs.readFileSync(fp, 'utf-8');
-                words += c.split(/\s+/).filter(Boolean).length;
-                headings += (c.match(/^#{1,6}\s+/gm) || []).length;
-              } catch {}
+      // Memoize the two-directory recursive scan and the assembled comparison for
+      // 30s, mirroring the sibling cached('similarity:' + path1 + ':' + path2) and
+      // cached('word-frequency:' + dir) caches in this file. The payload is a pure
+      // function of the files under dir1 and dir2 plus the two query params — no
+      // Date, randomness, network, mutable-store read, or wall-clock stamp (unlike
+      // the productivity-report's generatedAt) — so the key carries both directories:
+      // each (dir1, dir2) pair gets its own entry and a 30s snapshot stays byte
+      // identical while skipping the repeat readdirSync/readFileSync word and heading
+      // scan. The two isValidDir 400 guards stay above this try, and the try/catch
+      // stays outside the closure, so invalid input never scans and a failed scan
+      // returns a 500 that is never cached (the cached helper stores nothing when fn
+      // throws).
+      const result = cached('statscompare:' + dir1 + ':' + dir2, 30000, () => {
+        function dirStats(dirPath) {
+          const fullDir = path.join(PROJECT_ROOT, dirPath);
+          let files = 0, words = 0, headings = 0;
+          function scan(dir) {
+            for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+              if (entry.name.startsWith('.')) continue;
+              const fp = path.join(dir, entry.name);
+              if (entry.isDirectory()) { scan(fp); continue; }
+              if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
+                files++;
+                try {
+                  const c = fs.readFileSync(fp, 'utf-8');
+                  words += c.split(/\s+/).filter(Boolean).length;
+                  headings += (c.match(/^#{1,6}\s+/gm) || []).length;
+                } catch {}
+              }
             }
           }
+          scan(fullDir);
+          return {directory: dirPath, files, words, headings, avgWordsPerFile: files > 0 ? Math.round(words / files) : 0};
         }
-        scan(fullDir);
-        return {directory: dirPath, files, words, headings, avgWordsPerFile: files > 0 ? Math.round(words / files) : 0};
-      }
-      const stats1 = dirStats(dir1);
-      const stats2 = dirStats(dir2);
-      return json(res, 200, {dir1: stats1, dir2: stats2, comparison: {
-        fileDiff: stats1.files - stats2.files,
-        wordDiff: stats1.words - stats2.words,
-        avgWordsDiff: stats1.avgWordsPerFile - stats2.avgWordsPerFile,
-      }});
+        const stats1 = dirStats(dir1);
+        const stats2 = dirStats(dir2);
+        return {dir1: stats1, dir2: stats2, comparison: {
+          fileDiff: stats1.files - stats2.files,
+          wordDiff: stats1.words - stats2.words,
+          avgWordsDiff: stats1.avgWordsPerFile - stats2.avgWordsPerFile,
+        }};
+      });
+      return json(res, 200, result);
     } catch {
       return json(res, 500, {error: 'Comparison failed'});
     }
