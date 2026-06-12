@@ -65,7 +65,9 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
   // ── Discussions: get messages for a channel ──
   if (req.method === 'GET' && pathname.match(/^\/api\/discussions\/[^/]+\/messages$/)) {
     const parts = pathname.split('/');
-    const channelId = decodeURIComponent(parts[3]);
+    let channelId;
+    try { channelId = decodeURIComponent(parts[3]); }
+    catch { return json(res, 400, {error: 'Invalid channel id'}); }
     const data = loadJSON(DISCUSSIONS_FILE);
     if (!data.channels || !data.channels[channelId]) {
       return json(res, 404, {error: 'Channel not found'});
@@ -82,7 +84,9 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
   // ── Discussions: search messages in a channel ──
   if (req.method === 'GET' && pathname.match(/^\/api\/discussions\/[^/]+\/messages\/search$/)) {
     const parts = pathname.split('/');
-    const channelId = decodeURIComponent(parts[3]);
+    let channelId;
+    try { channelId = decodeURIComponent(parts[3]); }
+    catch { return json(res, 400, {error: 'Invalid channel id'}); }
     const query = (url.searchParams.get('q') || '').toLowerCase().trim();
     if (!query) return json(res, 400, {error: 'Missing query'});
     const data = loadJSON(DISCUSSIONS_FILE);
@@ -101,7 +105,9 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
     if (!rateLimit(`disc-msg:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
-      const channelId = decodeURIComponent(parts[3]);
+      let channelId;
+      try { channelId = decodeURIComponent(parts[3]); }
+      catch { return json(res, 400, {error: 'Invalid channel id'}); }
       const data = loadJSON(DISCUSSIONS_FILE);
       if (!data.channels || !data.channels[channelId]) {
         return json(res, 404, {error: 'Channel not found'});
@@ -133,7 +139,9 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
     if (!rateLimit(`disc-edit:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
-      const channelId = decodeURIComponent(parts[3]);
+      let channelId;
+      try { channelId = decodeURIComponent(parts[3]); }
+      catch { return json(res, 400, {error: 'Invalid channel id'}); }
       const data = loadJSON(DISCUSSIONS_FILE);
       if (!data.channels || !data.channels[channelId]) {
         return json(res, 404, {error: 'Channel not found'});
@@ -162,7 +170,9 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
     if (!rateLimit(`disc-delete:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
-      const channelId = decodeURIComponent(parts[3]);
+      let channelId;
+      try { channelId = decodeURIComponent(parts[3]); }
+      catch { return json(res, 400, {error: 'Invalid channel id'}); }
       const data = loadJSON(DISCUSSIONS_FILE);
       if (!data.channels || !data.channels[channelId]) {
         return json(res, 404, {error: 'Channel not found'});
@@ -188,7 +198,9 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
     if (!rateLimit(`disc-del-ch:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
-      const channelId = decodeURIComponent(parts[3]);
+      let channelId;
+      try { channelId = decodeURIComponent(parts[3]); }
+      catch { return json(res, 400, {error: 'Invalid channel id'}); }
       const data = loadJSON(DISCUSSIONS_FILE);
       if (!data.channels || !data.channels[channelId]) {
         return json(res, 404, {error: 'Channel not found'});
