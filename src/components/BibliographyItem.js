@@ -6,6 +6,17 @@ import { usePluginData } from '@docusaurus/useGlobalData';
 import { useLocation } from '@docusaurus/router';
 import API_BASE from '@site/src/utils/api';
 
+const BUTTON_BASE = {
+  padding: '4px 14px',
+  fontSize: '0.85em',
+  borderRadius: '4px',
+  border: '1px solid var(--ifm-color-emphasis-300)',
+  background: 'var(--ifm-color-emphasis-0)',
+  color: 'var(--ifm-font-color-base)',
+  cursor: 'pointer',
+  fontWeight: 500,
+};
+
 export default function BibliographyItem() {
   const { references } = usePluginData('bibliography');
   const location = useLocation();
@@ -333,16 +344,7 @@ function EnrichSection({ bibKey, entry }) {
       .finally(() => setSaving(false));
   };
 
-  const buttonBase = {
-    padding: '4px 14px',
-    fontSize: '0.85em',
-    borderRadius: '4px',
-    border: '1px solid var(--ifm-color-emphasis-300)',
-    background: 'var(--ifm-color-emphasis-0)',
-    color: 'var(--ifm-font-color-base)',
-    cursor: 'pointer',
-    fontWeight: 500,
-  };
+  const buttonBase = BUTTON_BASE;
 
   // Fields to display from enrichment sources
   const displayFields = ['title', 'authors', 'year', 'venue', 'doi', 'arxivId', 'url', 'publisher', 'volume', 'issue', 'pages', 'citationCount', 'referenceCount', 'tldr'];
@@ -369,8 +371,6 @@ function EnrichSection({ bibKey, entry }) {
       citationCount: 'Citations',
       referenceCount: 'References',
       tldr: 'TL;DR',
-      type: 'Type',
-      issn: 'ISSN',
     };
     return labels[field] || field;
   };
@@ -666,16 +666,7 @@ function PublicationTracker({ entry, bibKey }) {
     border: `1px solid ${published ? 'var(--ifm-color-success-dark)' : 'var(--ifm-color-warning-dark)'}`,
   });
 
-  const buttonBase = {
-    padding: '4px 14px',
-    fontSize: '0.85em',
-    borderRadius: '4px',
-    border: '1px solid var(--ifm-color-emphasis-300)',
-    background: 'var(--ifm-color-emphasis-0)',
-    color: 'var(--ifm-font-color-base)',
-    cursor: 'pointer',
-    fontWeight: 500,
-  };
+  const buttonBase = BUTTON_BASE;
 
   return (
     <div style={{ marginBottom: '2rem' }}>
@@ -948,16 +939,7 @@ function NotesSection({ notes: staticNotes, bibKey }) {
       });
   };
 
-  const buttonBase = {
-    padding: '4px 14px',
-    fontSize: '0.85em',
-    borderRadius: '4px',
-    border: '1px solid var(--ifm-color-emphasis-300)',
-    background: 'var(--ifm-color-emphasis-0)',
-    color: 'var(--ifm-font-color-base)',
-    cursor: 'pointer',
-    fontWeight: 500,
-  };
+  const buttonBase = BUTTON_BASE;
 
   return (
     <div style={{ marginBottom: '2rem' }}>
@@ -1123,16 +1105,7 @@ function RelatedPapers({ title }) {
       .finally(() => setAddingIdx(null));
   };
 
-  const buttonBase = {
-    padding: '4px 14px',
-    fontSize: '0.85em',
-    borderRadius: '4px',
-    border: '1px solid var(--ifm-color-emphasis-300)',
-    background: 'var(--ifm-color-emphasis-0)',
-    color: 'var(--ifm-font-color-base)',
-    cursor: 'pointer',
-    fontWeight: 500,
-  };
+  const buttonBase = BUTTON_BASE;
 
   return (
     <div style={{ marginBottom: '2rem' }}>
