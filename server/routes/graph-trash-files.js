@@ -14,6 +14,13 @@ const FILE_INFO_MATH_RE = /\$\$|\$[^$\n]+\$/;
 const FILE_INFO_CITATION_RE = /\[@[^\]]+\]/g;
 const FILE_INFO_IMAGE_RE = /!\[[^\]]*\]/g;
 
+// ── /api/graph wiki-link regex (module scope, reused per request) ──
+// Consumed only through WIKI_LINK_RE.exec(...) in a loop that runs to
+// exhaustion, and collectGraphFiles resets WIKI_LINK_RE.lastIndex = 0 before
+// each file's loop, so one shared instance is behavior-preserving across files
+// and back-to-back requests.
+const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+
 module.exports = async function graph_trash_files_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -23,7 +30,6 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
   if (req.method === 'GET' && pathname === '/api/graph') {
     try {
       const contentDir = path.join(PROJECT_ROOT, 'content');
-      const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
       const nodes = [];
       const edges = [];
       const nodeMap = {};
