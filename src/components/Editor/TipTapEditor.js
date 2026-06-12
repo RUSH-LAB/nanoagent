@@ -778,13 +778,6 @@ function MathPreviewPanel({editor, rawMode, rawContent, onClose}) {
     }
   }, [editor, rawMode, rawContent]);
 
-  // Re-extract when rawContent changes (for raw mode)
-  useEffect(() => {
-    if (rawMode) {
-      setBlocks(extractMathBlocks(rawContent || ''));
-    }
-  }, [rawMode, rawContent]);
-
   return (
     <div className={styles.mathPreviewPanel}>
       <div className={styles.mathPreviewHeader}>
