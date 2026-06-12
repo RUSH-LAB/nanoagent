@@ -73,7 +73,7 @@ function buildEdges(keys, references) {
       }
 
       if (weight >= 2) {
-        edges.push({ source: i, target: j, weight });
+        edges.push({ source: i, target: j });
       }
     }
   }
@@ -139,7 +139,6 @@ function computeLayout(keys, references) {
         entry: references[key],
         x: group.length === 1 ? SVG_WIDTH / 2 : startX + i * step,
         y,
-        year: year > 0 ? year : null,
       });
     }
   }
