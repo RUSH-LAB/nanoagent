@@ -1393,8 +1393,8 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
       // 1. Search references.yaml for matching titles/authors
       const matchedRefs = [];
       try {
-        const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const {loadReferencesCached} = require('./references');
+        const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
         for (const [key, entry] of Object.entries(refs)) {
           const title = (entry.title || '').toLowerCase();
           const authors = (Array.isArray(entry.author) ? entry.author.join(' ') : (entry.author || '')).toLowerCase();
