@@ -245,12 +245,16 @@ function splitAuthorName(name) {
 // while "Jane Doe" stays distinct from "John Doe". Known limits: a bare initial
 // ("J. Doe") still collapses into any same-initial full name ("Jane Doe"), and a
 // family-only name ("Doe") collapses into any name with the same family name.
-function sameAuthor(a, b) {
-  const pa = splitAuthorName(a);
-  const pb = splitAuthorName(b);
-  if (!pa.last || !pb.last || pa.last !== pb.last) return false;
-  if (!pa.first || !pb.first) return true;
-  return pa.first === pb.first || pa.first.startsWith(pb.first) || pb.first.startsWith(pa.first);
+//
+// The second name arrives already split into its {first, last} pieces so a caller
+// comparing one fixed name against many candidates parses that name once rather
+// than on every probe. The existing (first-argument) side is split per call
+// because it genuinely varies as the merged list grows.
+function sameAuthorParsed(existing, pName) {
+  const pa = splitAuthorName(existing);
+  if (!pa.last || !pName.last || pa.last !== pName.last) return false;
+  if (!pa.first || !pName.first) return true;
+  return pa.first === pName.first || pa.first.startsWith(pName.first) || pName.first.startsWith(pa.first);
 }
 
 // Longer given name means a more complete spelling; used to pick the winner when
@@ -268,9 +272,12 @@ function mergeAuthorLists(sourceList) {
     for (const raw of list) {
       if (typeof raw !== 'string' || !raw.trim()) continue;
       const name = raw.trim();
-      const idx = merged.findIndex(existing => sameAuthor(existing, name));
+      // Parse this incoming name once; the findIndex scan below would otherwise
+      // re-split this fixed name on every already-merged probe (O(N^2) parses).
+      const pName = splitAuthorName(name);
+      const idx = merged.findIndex(existing => sameAuthorParsed(existing, pName));
       if (idx === -1) merged.push(name);
-      else if (authorFirstNameLength(name) > authorFirstNameLength(merged[idx])) merged[idx] = name;
+      else if (pName.first.length > authorFirstNameLength(merged[idx])) merged[idx] = name;
     }
   }
   return merged;
