@@ -118,6 +118,14 @@ const REC_TOP_VENUES = new Set([
   'NAACL', 'AAAI', 'IJCAI', 'Nature', 'Science', 'JMLR',
 ]);
 
+// ── Preprint tracking: shared arXiv abstract-URL id matcher ──
+// The three /api/references/track* handlers each pull an arXiv id out of a
+// reference URL with this same pattern (capture group 1 is the id). It is
+// non-global and only ever used with String.prototype.match, so it carries no
+// lastIndex state and one shared module-scope instance is safe across handlers.
+// Kept separate from the stricter id pattern in /api/recommendations below.
+const ARXIV_ABS_RE = /arxiv\.org\/abs\/([\d.]+)/;
+
 // Route module organized from server.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
@@ -138,7 +146,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       if (!entry) return json(res, 404, {error: 'Reference not found'});
 
       // Extract arXiv ID from URL or explicit field
-      const arxivId = entry.arxivId || (entry.url && entry.url.match(/arxiv\.org\/abs\/([\d.]+)/)?.[1]) || null;
+      const arxivId = entry.arxivId || (entry.url && entry.url.match(ARXIV_ABS_RE)?.[1]) || null;
       if (!arxivId) return json(res, 200, {published: false, error: 'No arXiv ID found for this reference'});
 
       const https = require('https');
@@ -192,7 +200,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       const entry = refs[key];
       if (!entry) return json(res, 404, {error: 'Reference not found'});
 
-      const arxivId = entry.arxivId || (entry.url && entry.url.match(/arxiv\.org\/abs\/([\d.]+)/)?.[1]) || null;
+      const arxivId = entry.arxivId || (entry.url && entry.url.match(ARXIV_ABS_RE)?.[1]) || null;
       if (!arxivId) return json(res, 400, {error: 'No arXiv ID found for this reference'});
 
       const https = require('https');
@@ -271,7 +279,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       // Find all entries with arXiv IDs that don't have publishedVenue yet
       const toCheck = [];
       for (const [key, entry] of Object.entries(refs)) {
-        const arxivId = entry.arxivId || (entry.url && entry.url.match(/arxiv\.org\/abs\/([\d.]+)/)?.[1]) || null;
+        const arxivId = entry.arxivId || (entry.url && entry.url.match(ARXIV_ABS_RE)?.[1]) || null;
         if (arxivId && !entry.publishedVenue) {
           toCheck.push({key, entry, arxivId});
         }
@@ -798,3 +806,8 @@ module.exports.rankDocuments = rankDocuments;
 // Pure BibTeX field-value escaper, exposed for direct unit testing (see
 // tests/bibtex-clean.test.mjs). It cleans the values emitted by /api/references/export.
 module.exports.cleanBibtexValue = cleanBibtexValue;
+
+// Shared arXiv abstract-URL id matcher, exposed for direct unit testing (see
+// tests/next-researchtools-dedup-arxivre.test.mjs). The three preprint-tracking
+// handlers extract an arXiv id from a reference URL with it.
+module.exports.ARXIV_ABS_RE = ARXIV_ABS_RE;
