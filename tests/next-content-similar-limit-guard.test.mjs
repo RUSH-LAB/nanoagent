@@ -91,6 +91,10 @@ describe('GET /api/content-similar limit guard', () => {
     PROJECT_ROOT,
     ALLOWED_EXTS: ['.md', '.mdx'],
     isValidFilePath: () => true,
+    // /api/content-similar now wraps its candidate scan in cached(key, ttl, fn);
+    // inject a pass-through so the handler still runs the fs-backed walk here, which
+    // keeps the limit-guard cases (default / clamp / NaN) exercising the real scan.
+    cached: (_k, _t, fn) => fn(),
   };
   const callSimilar = search =>
     invoke({ pathname: '/api/content-similar', search: `?path=${SOURCE_REL}${search}`, ctx });

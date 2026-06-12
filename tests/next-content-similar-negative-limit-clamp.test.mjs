@@ -64,6 +64,10 @@ describe('GET /api/content-similar negative-limit clamp', () => {
     PROJECT_ROOT,
     ALLOWED_EXTS: ['.md', '.mdx'],
     isValidFilePath: () => true,
+    // /api/content-similar now wraps its candidate scan in cached(key, ttl, fn);
+    // inject a pass-through so the handler still runs the fs-backed walk here. The
+    // negative-limit clamp stays outside the cache, so the assertions are unchanged.
+    cached: (_k, _t, fn) => fn(),
   };
   const callSimilar = search =>
     invoke({ pathname: '/api/content-similar', search: `?path=${SOURCE_REL}${search}`, ctx });

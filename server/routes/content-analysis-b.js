@@ -709,42 +709,52 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
     // reports the full count. Floor at 0 so a negative limit yields an empty list.
     const limit = Math.max(numericParam(url.searchParams.get('limit'), 5, 20), 0);
     try {
-      function getKeywords(text) {
-        return text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ')
-          .toLowerCase().split(/\s+/).filter(w => w.length > 4 && !SIMILAR_STOP_WORDS.has(w));
-      }
-      const sourceContent = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      const sourceWords = getKeywords(sourceContent);
-      const sourceFreq = {};
-      for (const w of sourceWords) sourceFreq[w] = (sourceFreq[w] || 0) + 1;
-      const sourceTopWords = new Set(Object.entries(sourceFreq).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([w]) => w));
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const candidates = [];
-      function scan(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scan(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          const rel = path.relative(PROJECT_ROOT, fp);
-          if (rel === filePath) continue;
-          try {
-            const c = fs.readFileSync(fp, 'utf-8');
-            const words = getKeywords(c);
-            const targetSet = new Set(words);
-            let overlap = 0;
-            for (const w of sourceTopWords) { if (targetSet.has(w)) overlap++; }
-            if (overlap > 2) {
-              let title = entry.name.replace(/\.(mdx?|md)$/, '');
-              const fm = c.match(/^---\n([\s\S]*?)\n---/);
-              if (fm) { const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m); if (tm) title = tm[1]; }
-              candidates.push({path: rel, title, similarity: Math.round((overlap / sourceTopWords.size) * 100) / 100});
-            }
-          } catch {}
+      // The recursive content/ walk that scores word-overlap candidates depends
+      // only on the source filePath, so memoize the SORTED FULL candidate list
+      // keyed by path for the TTL; the `limit` slice below runs on every request
+      // off the cached list. Mirrors the per-path caching on /api/file/related and
+      // /api/file/dependencies. The source readFileSync stays inside the closure,
+      // so a missing source file still throws into the outer catch (the 404 is
+      // never cached).
+      const candidates = cached('content-similar:' + filePath, 30000, () => {
+        function getKeywords(text) {
+          return text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ')
+            .toLowerCase().split(/\s+/).filter(w => w.length > 4 && !SIMILAR_STOP_WORDS.has(w));
         }
-      }
-      scan(contentDir);
-      candidates.sort((a, b) => b.similarity - a.similarity);
+        const sourceContent = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        const sourceWords = getKeywords(sourceContent);
+        const sourceFreq = {};
+        for (const w of sourceWords) sourceFreq[w] = (sourceFreq[w] || 0) + 1;
+        const sourceTopWords = new Set(Object.entries(sourceFreq).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([w]) => w));
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const scored = [];
+        function scan(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scan(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            const rel = path.relative(PROJECT_ROOT, fp);
+            if (rel === filePath) continue;
+            try {
+              const c = fs.readFileSync(fp, 'utf-8');
+              const words = getKeywords(c);
+              const targetSet = new Set(words);
+              let overlap = 0;
+              for (const w of sourceTopWords) { if (targetSet.has(w)) overlap++; }
+              if (overlap > 2) {
+                let title = entry.name.replace(/\.(mdx?|md)$/, '');
+                const fm = c.match(/^---\n([\s\S]*?)\n---/);
+                if (fm) { const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m); if (tm) title = tm[1]; }
+                scored.push({path: rel, title, similarity: Math.round((overlap / sourceTopWords.size) * 100) / 100});
+              }
+            } catch {}
+          }
+        }
+        scan(contentDir);
+        scored.sort((a, b) => b.similarity - a.similarity);
+        return scored;
+      });
       return json(res, 200, {similar: candidates.slice(0, limit), total: candidates.length});
     } catch {
       return json(res, 404, {error: 'File not found'});
