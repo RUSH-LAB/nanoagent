@@ -13,7 +13,7 @@ function WhiteboardApp() {
   const [elements, setElements] = useState([]);
   const [boardId, setBoardId] = useState('default');
   const [boards, setBoards] = useState([]);
-  const [dragging, setDragging] = useState(null); // {index, offsetX, offsetY}
+  const [dragging, setDragging] = useState(null); // {index, offsetX, offsetY, moved}
   const [editing, setEditing] = useState(null); // index
   const [editText, setEditText] = useState('');
   const [dirty, setDirty] = useState(false);
