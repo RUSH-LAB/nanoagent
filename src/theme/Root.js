@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ClerkProvider, SignedIn, SignedOut, SignIn, UserButton } from '@clerk/clerk-react';
+import { ClerkProvider, SignedIn, SignedOut, SignIn } from '@clerk/clerk-react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import PageTracker from '@site/src/components/Analytics/PageTracker';
 
