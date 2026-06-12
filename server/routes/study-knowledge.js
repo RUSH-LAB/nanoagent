@@ -8,6 +8,16 @@
 // holds no lastIndex state and one shared instance is safe across handlers.
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/;
 
+// Shared front-matter title matcher. After FRONTMATTER_RE isolates the leading
+// `---` block, three content-scan handlers (GET /api/content-clusters,
+// /api/file/link-suggestions, and /api/search/suggest) pull the `title:` field
+// out of that block with this pattern. It accepts an optional single or double
+// quote around the value, which keeps it distinct from QUICKNOTES_TITLE_RE below
+// (that one allows a double quote only). It is non-global and non-sticky and is
+// read only through String.prototype.match, so it holds no lastIndex state and
+// one shared module-scope instance is safe across requests.
+const FRONTMATTER_TITLE_RE = /^title:\s*["']?(.+?)["']?\s*$/m;
+
 // Wiki-link matcher for GET /api/file/link-suggestions, collecting the set of
 // page names a file already links to. Unlike FRONTMATTER_RE this regex is global
 // (/g), so it carries lastIndex state between exec() calls; the handler resets
@@ -228,7 +238,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
               let title = entry.name.replace(/\.(mdx?|md)$/, '');
               const tags = [];
               if (fmMatch) {
-                const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+                const tm = fmMatch[1].match(FRONTMATTER_TITLE_RE);
                 if (tm) title = tm[1];
                 const tgm = fmMatch[1].match(/^tags:\s*\[([^\]]*)\]/m);
                 if (tgm) tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => tags.push(t));
@@ -294,7 +304,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
                 const fm = c.match(FRONTMATTER_RE);
                 let title = entry.name.replace(/\.(mdx?|md)$/, '');
                 if (fm) {
-                  const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+                  const tm = fm[1].match(FRONTMATTER_TITLE_RE);
                   if (tm) title = tm[1];
                 }
                 suggestions.push({path: rel, title, pageName});
@@ -566,7 +576,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
                 const fmMatch = content.match(FRONTMATTER_RE);
                 let title = name;
                 if (fmMatch) {
-                  const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+                  const tm = fmMatch[1].match(FRONTMATTER_TITLE_RE);
                   if (tm) title = tm[1];
                 }
                 suggestions.push({type: 'page', text: title, path: path.relative(PROJECT_ROOT, fp)});
@@ -993,3 +1003,10 @@ module.exports.LINKSUGGEST_WIKI_RE = LINKSUGGEST_WIKI_RE;
 module.exports.QUICKNOTES_TITLE_RE = QUICKNOTES_TITLE_RE;
 module.exports.QUICKNOTES_DATE_RE = QUICKNOTES_DATE_RE;
 module.exports.QUICKNOTES_BODY_RE = QUICKNOTES_BODY_RE;
+
+// Exported for the front-matter title regex-hoist regression test, which pins
+// the .source/.flags and referential stability of the one shared instance and
+// drives the three content-scan handlers to confirm title extraction is
+// unchanged for double-quoted, single-quoted, and unquoted front-matter titles.
+// Not part of the route contract.
+module.exports.FRONTMATTER_TITLE_RE = FRONTMATTER_TITLE_RE;
