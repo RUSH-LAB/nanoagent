@@ -101,7 +101,7 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
   if (req.method === 'GET' && pathname === '/api/notes') {
     const key = url.searchParams.get('key');
     const notes = loadJSON(NOTES_FILE);
-    if (key) return json(res, 200, {note: notes[key] || null});
+    if (key) return json(res, 200, {note: Object.hasOwn(notes, key) ? notes[key] : null});
     return json(res, 200, {notes});
   }
 
@@ -134,7 +134,7 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
       if (!key || typeof key !== 'string') return json(res, 400, {error: 'Missing or invalid key'});
       if (PROTO_KEYS.includes(key)) return json(res, 400, {error: 'Invalid key'});
       const notes = loadJSON(NOTES_FILE);
-      if (!notes[key]) return json(res, 404, {error: 'Note not found'});
+      if (!Object.hasOwn(notes, key)) return json(res, 404, {error: 'Note not found'});
       delete notes[key];
       saveJSON(NOTES_FILE, notes);
       return json(res, 200, {success: true});
