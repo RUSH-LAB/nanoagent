@@ -51,6 +51,15 @@ const BATCH_BLOCKQUOTE_RE = /^> (.+)$/gm;
 const BATCH_PARA_RE = /^(?!<[a-z/])((?!\s*$).+)$/gm;
 const BATCH_BLANK_LINES_RE = /\n{3,}/g;
 
+// ── Task (Kanban) validation arrays (POST/PUT /api/tasks) ──
+// The allowed task status and priority values are invariant and read only via
+// `.includes(...)` membership checks. Built once at module load and frozen so a
+// handler can never mutate the shared array, instead of reallocating both arrays
+// on every POST and PUT request. Mirrors the frozen-array convention of
+// PROTO_KEYS above and the researchtools-templates-hoist stream.
+const TASK_STATUSES = Object.freeze(['todo', 'doing', 'done']);
+const TASK_PRIORITIES = Object.freeze(['low', 'medium', 'high']);
+
 module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -642,10 +651,8 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         const body = await readBody(req);
         const {title, description, status, priority} = body;
         if (!title || typeof title !== 'string' || !title.trim()) return json(res, 400, {error: 'Missing title'});
-        const validStatuses = ['todo', 'doing', 'done'];
-        const safeStatus = validStatuses.includes(status) ? status : 'todo';
-        const validPriorities = ['low', 'medium', 'high'];
-        const safePriority = validPriorities.includes(priority) ? priority : 'medium';
+        const safeStatus = TASK_STATUSES.includes(status) ? status : 'todo';
+        const safePriority = TASK_PRIORITIES.includes(priority) ? priority : 'medium';
         const data = loadJSON(TASKS_FILE);
         if (!data.tasks) data.tasks = [];
         const task = {
@@ -687,12 +694,10 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         if (!data.tasks) data.tasks = [];
         const task = data.tasks.find(t => t.id === id);
         if (!task) return json(res, 404, {error: 'Task not found'});
-        const validStatuses = ['todo', 'doing', 'done'];
-        const validPriorities = ['low', 'medium', 'high'];
-        if (status !== undefined && validStatuses.includes(status)) task.status = status;
+        if (status !== undefined && TASK_STATUSES.includes(status)) task.status = status;
         if (title !== undefined && typeof title === 'string' && title.trim()) task.title = sanitizeText(title.trim()).slice(0, 200);
         if (description !== undefined) task.description = sanitizeText(String(description).trim()).slice(0, 2000);
-        if (priority !== undefined && validPriorities.includes(priority)) task.priority = priority;
+        if (priority !== undefined && TASK_PRIORITIES.includes(priority)) task.priority = priority;
         task.updatedAt = new Date().toISOString();
         saveJSON(TASKS_FILE, data);
         return json(res, 200, {success: true, task});
@@ -1719,3 +1724,7 @@ module.exports.BATCH_LIST_RE = BATCH_LIST_RE;
 module.exports.BATCH_BLOCKQUOTE_RE = BATCH_BLOCKQUOTE_RE;
 module.exports.BATCH_PARA_RE = BATCH_PARA_RE;
 module.exports.BATCH_BLANK_LINES_RE = BATCH_BLANK_LINES_RE;
+// Task validation arrays, exported so tests can assert their frozen contents and
+// shared identity match the former inline arrays.
+module.exports.TASK_STATUSES = TASK_STATUSES;
+module.exports.TASK_PRIORITIES = TASK_PRIORITIES;
