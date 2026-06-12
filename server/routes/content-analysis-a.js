@@ -985,37 +985,48 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     try {
       const refs = loadReferencesCached();
       if (!refs[key]) return json(res, 404, {error: 'Reference not found'});
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const CITE_PAT = new RegExp(`\\[@[^\\]]*\\b${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
-      const citingPages = [];
-      function scan(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scan(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          try {
-            const content = fs.readFileSync(fp, 'utf-8');
-            CITE_PAT.lastIndex = 0;
-            if (CITE_PAT.test(content)) {
-              const stat = fs.statSync(fp);
-              let title = entry.name.replace(/\.(mdx?|md)$/, '');
-              const fm = content.match(/^---\n([\s\S]*?)\n---/);
-              let date = stat.mtime.toISOString().slice(0, 10);
-              if (fm) {
-                const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
-                if (tm) title = tm[1];
-                const dm = fm[1].match(/^date:\s*["']?(\d{4}-\d{2}-\d{2})/m);
-                if (dm) date = dm[1];
+      // Cache the per-key content-tree walk for 60s, mirroring the sibling
+      // per-target caches in this module family (cached('word-frequency:' + dir)
+      // above, cached('related:' + filePath) in file-tools). The cache key
+      // includes `key` so each citation key is its own entry. The missing-key 400
+      // and the reference-not-found 404 both return BEFORE this call, so only a
+      // successful scan is memoized. `title` is read from refs[key] outside the
+      // cache, so the {key, title, trajectory, totalCitations} payload and its
+      // field order stay byte-identical to the pre-cache output.
+      const trajectory = cached('trajectory:' + key, 60000, () => {
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const CITE_PAT = new RegExp(`\\[@[^\\]]*\\b${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+        const citingPages = [];
+        function scan(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scan(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            try {
+              const content = fs.readFileSync(fp, 'utf-8');
+              CITE_PAT.lastIndex = 0;
+              if (CITE_PAT.test(content)) {
+                const stat = fs.statSync(fp);
+                let title = entry.name.replace(/\.(mdx?|md)$/, '');
+                const fm = content.match(/^---\n([\s\S]*?)\n---/);
+                let date = stat.mtime.toISOString().slice(0, 10);
+                if (fm) {
+                  const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
+                  if (tm) title = tm[1];
+                  const dm = fm[1].match(/^date:\s*["']?(\d{4}-\d{2}-\d{2})/m);
+                  if (dm) date = dm[1];
+                }
+                citingPages.push({path: path.relative(PROJECT_ROOT, fp), title, date});
               }
-              citingPages.push({path: path.relative(PROJECT_ROOT, fp), title, date});
-            }
-          } catch {}
+            } catch {}
+          }
         }
-      }
-      scan(contentDir);
-      citingPages.sort((a, b) => a.date.localeCompare(b.date));
-      return json(res, 200, {key, title: refs[key].title, trajectory: citingPages, totalCitations: citingPages.length});
+        scan(contentDir);
+        citingPages.sort((a, b) => a.date.localeCompare(b.date));
+        return citingPages;
+      });
+      return json(res, 200, {key, title: refs[key].title, trajectory, totalCitations: trajectory.length});
     } catch {
       return json(res, 500, {error: 'Trajectory analysis failed'});
     }
