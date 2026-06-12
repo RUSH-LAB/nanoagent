@@ -29,6 +29,37 @@ const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 const EXPORT_FM_RE = /^---\n([\s\S]*?)\n---\n?/;
 const EXPORT_TITLE_RE = /^title:\s*["']?(.+?)["']?\s*$/m;
 
+// ── /api/file/export markdown render regexes (module scope, reused per request) ──
+// The pdf, html, latex, and slides branches each rebuilt this chain of markdown
+// render regexes inline on every request. Each one carries the /g or /gm flag and
+// is consumed ONLY through String.prototype.replace, which sets lastIndex back to 0
+// at the start of every global replace, so a single shared instance per pattern is
+// behavior-preserving across formats and across back-to-back requests. The pdf,
+// html, and latex branches share these patterns (only the replacement strings or
+// callbacks differ), so one const per pattern serves all of them.
+//
+// Two deliberate non-merges:
+//   • SLIDES_H2_RE is the NON-global /^## (.+)$/m used by the slides branch (a
+//     single replacement per slide). It must stay separate from the global
+//     RENDER_H2_RE; merging them would turn one replacement into a global one and
+//     change the rendered output.
+//   • RENDER_LIST_ITEM_RE (the per-line /^- (.+)$/gm used by slides and latex) is a
+//     different pattern from the consecutive-block RENDER_LIST_RE (used by pdf and
+//     html); they are not interchangeable.
+const RENDER_CODE_BLOCK_RE = /```(\w*)\n([\s\S]*?)```/g;
+const RENDER_H1_RE = /^# (.+)$/gm;
+const RENDER_H2_RE = /^## (.+)$/gm;
+const RENDER_H3_RE = /^### (.+)$/gm;
+const RENDER_BOLD_RE = /\*\*(.+?)\*\*/g;
+const RENDER_ITALIC_RE = /\*(.+?)\*/g;
+const RENDER_INLINE_CODE_RE = /`([^`]+)`/g;
+const RENDER_LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
+const RENDER_LIST_RE = /(^- .+$(\n- .+$)*)/gm;
+const RENDER_LIST_ITEM_RE = /^- (.+)$/gm;
+const RENDER_PARA_RE = /^(?!<[a-z/])((?!\s*$).+)$/gm;
+const RENDER_BLANK_LINES_RE = /\n{3,}/g;
+const SLIDES_H2_RE = /^## (.+)$/m;
+
 module.exports = async function graph_trash_files_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -495,12 +526,12 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
         const slides = markdown.split(/\n(?=## )/).filter(s => s.trim());
         const safeTitle = title.replace(/&/g, '&amp;').replace(/</g, '&lt;');
         const slideHtml = slides.map((s, i) => {
-          let html = s.replace(/^## (.+)$/m, '<h2>$1</h2>').replace(/^### (.+)$/gm, '<h3>$1</h3>');
-          html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>');
-          html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-          html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+          let html = s.replace(SLIDES_H2_RE, '<h2>$1</h2>').replace(RENDER_H3_RE, '<h3>$1</h3>');
+          html = html.replace(RENDER_BOLD_RE, '<strong>$1</strong>').replace(RENDER_ITALIC_RE, '<em>$1</em>');
+          html = html.replace(RENDER_INLINE_CODE_RE, '<code>$1</code>');
+          html = html.replace(RENDER_LIST_ITEM_RE, '<li>$1</li>');
           html = html.replace(/(<li>.*<\/li>\n?)+/g, m => `<ul>${m}</ul>`);
-          html = html.replace(/^(?!<[a-z/])((?!\s*$).+)$/gm, '<p>$1</p>');
+          html = html.replace(RENDER_PARA_RE, '<p>$1</p>');
           return `<section class="slide" id="slide-${i}">\n${html.trim()}\n</section>`;
         }).join('\n');
         const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${safeTitle}</title>
@@ -542,15 +573,15 @@ show(0);document.addEventListener('keydown',e=>{if(e.key==='ArrowRight'||e.key==
           markdown = markdown.slice(fmMatch[0].length);
         }
         let latex = markdown;
-        latex = latex.replace(/^# (.+)$/gm, '\\section{$1}');
-        latex = latex.replace(/^## (.+)$/gm, '\\subsection{$1}');
-        latex = latex.replace(/^### (.+)$/gm, '\\subsubsection{$1}');
-        latex = latex.replace(/\*\*(.+?)\*\*/g, '\\textbf{$1}');
-        latex = latex.replace(/\*(.+?)\*/g, '\\textit{$1}');
-        latex = latex.replace(/`([^`]+)`/g, '\\texttt{$1}');
-        latex = latex.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => `\\begin{verbatim}\n${code}\\end{verbatim}`);
-        latex = latex.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '\\href{$2}{$1}');
-        latex = latex.replace(/^- (.+)$/gm, '\\item $1');
+        latex = latex.replace(RENDER_H1_RE, '\\section{$1}');
+        latex = latex.replace(RENDER_H2_RE, '\\subsection{$1}');
+        latex = latex.replace(RENDER_H3_RE, '\\subsubsection{$1}');
+        latex = latex.replace(RENDER_BOLD_RE, '\\textbf{$1}');
+        latex = latex.replace(RENDER_ITALIC_RE, '\\textit{$1}');
+        latex = latex.replace(RENDER_INLINE_CODE_RE, '\\texttt{$1}');
+        latex = latex.replace(RENDER_CODE_BLOCK_RE, (_, lang, code) => `\\begin{verbatim}\n${code}\\end{verbatim}`);
+        latex = latex.replace(RENDER_LINK_RE, '\\href{$2}{$1}');
+        latex = latex.replace(RENDER_LIST_ITEM_RE, '\\item $1');
         const safeTitle = title.replace(/[&%$#_{}~^\\]/g, s => '\\' + s);
         const fullLatex = `\\documentclass{article}
 \\usepackage[utf8]{inputenc}
@@ -583,23 +614,23 @@ ${latex.trim()}
           markdown = markdown.slice(fmMatch[0].length);
         }
         let html = markdown;
-        html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+        html = html.replace(RENDER_CODE_BLOCK_RE, (_, lang, code) => {
           const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
           return `<pre><code>${escaped}</code></pre>`;
         });
-        html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-        html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-        html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-        html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-        html = html.replace(/(^- .+$(\n- .+$)*)/gm, (match) => {
+        html = html.replace(RENDER_H3_RE, '<h3>$1</h3>');
+        html = html.replace(RENDER_H2_RE, '<h2>$1</h2>');
+        html = html.replace(RENDER_H1_RE, '<h1>$1</h1>');
+        html = html.replace(RENDER_BOLD_RE, '<strong>$1</strong>');
+        html = html.replace(RENDER_ITALIC_RE, '<em>$1</em>');
+        html = html.replace(RENDER_INLINE_CODE_RE, '<code>$1</code>');
+        html = html.replace(RENDER_LINK_RE, '<a href="$2">$1</a>');
+        html = html.replace(RENDER_LIST_RE, (match) => {
           const items = match.split('\n').map(line => `<li>${line.slice(2)}</li>`).join('\n');
           return `<ul>\n${items}\n</ul>`;
         });
-        html = html.replace(/^(?!<[a-z/])((?!\s*$).+)$/gm, '<p>$1</p>');
-        html = html.replace(/\n{3,}/g, '\n\n');
+        html = html.replace(RENDER_PARA_RE, '<p>$1</p>');
+        html = html.replace(RENDER_BLANK_LINES_RE, '\n\n');
         const safeTitle = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const fullHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -658,37 +689,37 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
       let html = markdown;
 
       // Code blocks (``` ... ```) — must come before inline code
-      html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+      html = html.replace(RENDER_CODE_BLOCK_RE, (_, lang, code) => {
         const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         return `<pre><code${lang ? ` class="language-${lang}"` : ''}>${escaped}</code></pre>`;
       });
 
       // Headings
-      html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-      html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-      html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+      html = html.replace(RENDER_H3_RE, '<h3>$1</h3>');
+      html = html.replace(RENDER_H2_RE, '<h2>$1</h2>');
+      html = html.replace(RENDER_H1_RE, '<h1>$1</h1>');
 
       // Bold and italic
-      html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-      html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+      html = html.replace(RENDER_BOLD_RE, '<strong>$1</strong>');
+      html = html.replace(RENDER_ITALIC_RE, '<em>$1</em>');
 
       // Inline code
-      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+      html = html.replace(RENDER_INLINE_CODE_RE, '<code>$1</code>');
 
       // Links
-      html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+      html = html.replace(RENDER_LINK_RE, '<a href="$2">$1</a>');
 
       // Unordered lists: collect consecutive lines starting with "- "
-      html = html.replace(/(^- .+$(\n- .+$)*)/gm, (match) => {
+      html = html.replace(RENDER_LIST_RE, (match) => {
         const items = match.split('\n').map(line => `<li>${line.slice(2)}</li>`).join('\n');
         return `<ul>\n${items}\n</ul>`;
       });
 
       // Paragraphs: wrap remaining non-empty, non-tag lines
-      html = html.replace(/^(?!<[a-z/])((?!\s*$).+)$/gm, '<p>$1</p>');
+      html = html.replace(RENDER_PARA_RE, '<p>$1</p>');
 
       // Clean up multiple blank lines
-      html = html.replace(/\n{3,}/g, '\n\n');
+      html = html.replace(RENDER_BLANK_LINES_RE, '\n\n');
 
       const fullHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -722,3 +753,21 @@ ${html.trim()}
   }
 
 };
+
+// ── File-export render regexes: exported for the render-regex-hoist regression
+// test, which pins each .source/.flags (including that SLIDES_H2_RE stays
+// non-global) and drives GET /api/file/export per format to prove the rendered
+// payloads are byte-for-byte unchanged. Not part of the route contract.
+module.exports.RENDER_CODE_BLOCK_RE = RENDER_CODE_BLOCK_RE;
+module.exports.RENDER_H1_RE = RENDER_H1_RE;
+module.exports.RENDER_H2_RE = RENDER_H2_RE;
+module.exports.RENDER_H3_RE = RENDER_H3_RE;
+module.exports.RENDER_BOLD_RE = RENDER_BOLD_RE;
+module.exports.RENDER_ITALIC_RE = RENDER_ITALIC_RE;
+module.exports.RENDER_INLINE_CODE_RE = RENDER_INLINE_CODE_RE;
+module.exports.RENDER_LINK_RE = RENDER_LINK_RE;
+module.exports.RENDER_LIST_RE = RENDER_LIST_RE;
+module.exports.RENDER_LIST_ITEM_RE = RENDER_LIST_ITEM_RE;
+module.exports.RENDER_PARA_RE = RENDER_PARA_RE;
+module.exports.RENDER_BLANK_LINES_RE = RENDER_BLANK_LINES_RE;
+module.exports.SLIDES_H2_RE = SLIDES_H2_RE;
