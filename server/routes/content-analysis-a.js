@@ -34,6 +34,13 @@ const WORD_FREQ_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be
 // distinct `[@a; @b]` pattern in the cached('ref-pagerank') closure stays local there.
 const RECOMMEND_CITE_RE = /\[@([\w-]+)/g;
 
+// Wiki-link regex for GET /api/content-reading-path, hoisted to module scope so it
+// is built once per process instead of on every request. The /g flag makes the
+// regex carry `lastIndex` as shared mutable state, so the handler resets it to 0
+// immediately before each file's exec loop, leaving no carryover within or across
+// requests. It captures the link target and drops any trailing `|alias`.
+const READING_PATH_WIKI_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+
 module.exports = async function content_analysis_a_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -518,7 +525,6 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     if (!isValidFilePath(startPath)) return json(res, 400, {error: 'Invalid start path'});
     try {
       const contentDir = path.join(PROJECT_ROOT, 'content');
-      const WIKI_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
       const pageLinks = {};
       const pageTitles = {};
       function scan(dir) {
@@ -534,10 +540,10 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
             const fm = content.match(/^---\n([\s\S]*?)\n---/);
             if (fm) { const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m); if (tm) title = tm[1]; }
             pageTitles[rel] = title;
-            WIKI_RE.lastIndex = 0;
+            READING_PATH_WIKI_RE.lastIndex = 0;
             const links = [];
             let m;
-            while ((m = WIKI_RE.exec(content)) !== null) links.push(m[1].trim());
+            while ((m = READING_PATH_WIKI_RE.exec(content)) !== null) links.push(m[1].trim());
             pageLinks[rel] = links;
           } catch {}
         }
