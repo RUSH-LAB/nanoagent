@@ -81,7 +81,7 @@ module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
       if (Array.isArray(filesEdited) && filesEdited.length > 100) return json(res, 400, {error: 'filesEdited exceeds maximum length of 100'});
       const SESSIONS_FILE = path.join(PROJECT_ROOT, 'data', 'sessions.json');
       const sessions = loadJSON(SESSIONS_FILE);
-      if (!sessions[userId]) sessions[userId] = [];
+      if (!Object.hasOwn(sessions, userId)) sessions[userId] = [];
       const session = {
         id: `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         startTime: sanitizeText(startTime),
