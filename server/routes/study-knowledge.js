@@ -866,48 +866,56 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   // ── Knowledge base summary report ──
   if (req.method === 'GET' && pathname === '/api/report/knowledge-base') {
     try {
-      const yaml = require('js-yaml');
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      let totalFiles = 0, totalWords = 0;
-      const byDir = {};
-      const tagCounts = {};
-      function scan(dir, dirName) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scan(fp, dirName || entry.name); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          totalFiles++;
-          try {
-            const content = fs.readFileSync(fp, 'utf-8');
-            const words = content.split(/\s+/).filter(Boolean).length;
-            totalWords += words;
-            const dn = dirName || 'root';
-            if (!byDir[dn]) byDir[dn] = {files: 0, words: 0};
-            byDir[dn].files++;
-            byDir[dn].words += words;
-            const fmMatch = content.match(FRONTMATTER_RE);
-            if (fmMatch) {
-              const tgm = fmMatch[1].match(/^tags:\s*\[([^\]]*)\]/m);
-              if (tgm) tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; });
-            }
-          } catch {}
+      // The recursive content scan is deterministic, so memoize the derived
+      // report under a short TTL, mirroring the sibling content-clusters
+      // endpoint. Only the scan-derived data is cached; generatedAt is computed
+      // OUTSIDE the cache so every response carries a fresh per-request
+      // timestamp, and the try/catch stays outside so the 500 path is never
+      // cached.
+      const report = cached('kb-report', 60000, () => {
+        const yaml = require('js-yaml');
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        let totalFiles = 0, totalWords = 0;
+        const byDir = {};
+        const tagCounts = {};
+        function scan(dir, dirName) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scan(fp, dirName || entry.name); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            totalFiles++;
+            try {
+              const content = fs.readFileSync(fp, 'utf-8');
+              const words = content.split(/\s+/).filter(Boolean).length;
+              totalWords += words;
+              const dn = dirName || 'root';
+              if (!byDir[dn]) byDir[dn] = {files: 0, words: 0};
+              byDir[dn].files++;
+              byDir[dn].words += words;
+              const fmMatch = content.match(FRONTMATTER_RE);
+              if (fmMatch) {
+                const tgm = fmMatch[1].match(/^tags:\s*\[([^\]]*)\]/m);
+                if (tgm) tgm[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; });
+              }
+            } catch {}
+          }
         }
-      }
-      scan(contentDir, null);
-      let refCount = 0;
-      try {
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
-        refCount = Object.keys(refs).length;
-      } catch {}
-      const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
-      const sections = Object.entries(byDir).sort((a, b) => b[1].words - a[1].words).map(([name, info]) => ({name, ...info}));
-      return json(res, 200, {
-        overview: {totalFiles, totalWords, references: refCount, avgWordsPerFile: totalFiles > 0 ? Math.round(totalWords / totalFiles) : 0},
-        sections,
-        topTags: topTags.map(([tag, count]) => ({tag, count})),
-        generatedAt: new Date().toISOString(),
+        scan(contentDir, null);
+        let refCount = 0;
+        try {
+          const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+          refCount = Object.keys(refs).length;
+        } catch {}
+        const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+        const sections = Object.entries(byDir).sort((a, b) => b[1].words - a[1].words).map(([name, info]) => ({name, ...info}));
+        return {
+          overview: {totalFiles, totalWords, references: refCount, avgWordsPerFile: totalFiles > 0 ? Math.round(totalWords / totalFiles) : 0},
+          sections,
+          topTags: topTags.map(([tag, count]) => ({tag, count})),
+        };
       });
+      return json(res, 200, {...report, generatedAt: new Date().toISOString()});
     } catch {
       return json(res, 500, {error: 'Report generation failed'});
     }

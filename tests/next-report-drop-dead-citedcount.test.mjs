@@ -47,8 +47,11 @@ function makeFs(fileMap, emptyDirs = []) {
 }
 
 // Invoke GET /api/report/knowledge-base with a mocked ctx and return the
-// captured json() response. The report handler reads only path, PROJECT_ROOT,
-// ALLOWED_EXTS, fs, and json from ctx (js-yaml is required directly).
+// captured json() response. The report handler reads path, PROJECT_ROOT,
+// ALLOWED_EXTS, fs, cached, and json from ctx (js-yaml is required directly).
+// `cached` is a pass-through here so the scan runs every call, preserving this
+// suite's original behavior; the kb-report cache itself is covered by
+// tests/next-kbreport-cache.test.mjs.
 async function getReport(fs) {
   let captured = null;
   const ctx = {
@@ -56,6 +59,7 @@ async function getReport(fs) {
     PROJECT_ROOT,
     ALLOWED_EXTS,
     fs,
+    cached: (_k, _t, fn) => fn(),
     json: (_res, status, body) => { captured = { status, body }; },
   };
   const url = new URL('http://localhost/api/report/knowledge-base');
