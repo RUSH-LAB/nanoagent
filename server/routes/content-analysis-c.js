@@ -166,7 +166,7 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
         })).sort((a, b) => b.incomingLinks - a.incomingLinks);
         return ranked;
       });
-      const limit = numericParam(url.searchParams.get('limit'), 30, 200);
+      const limit = Math.max(numericParam(url.searchParams.get('limit'), 30, 200), 0);
       return json(res, 200, {
         pages: ranking.slice(0, limit),
         totalPages: ranking.length,
