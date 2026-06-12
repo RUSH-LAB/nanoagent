@@ -184,7 +184,8 @@ export default function CommandPalette() {
 
   /* Keyboard navigation */
   const handleKeyDown = useCallback((e) => {
-    // Count only actionable items (skip category headers)
+    // results holds only commands; category headers are inserted later into `grouped`,
+    // so its length is the actionable item count.
     const itemCount = results.length;
 
     if (e.key === 'ArrowDown') {
