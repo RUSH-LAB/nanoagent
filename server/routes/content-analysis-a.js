@@ -500,17 +500,23 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
       const searches = data.searches || [];
       const queryCounts = {};
       let zeroResults = 0;
+      // Collect the zero-result queries during this pass rather than re-filtering
+      // `searches` afterward. Pushing inside the existing `resultCount === 0` branch
+      // preserves source order, so the Set dedup and slice below stay byte identical.
+      const zeroResultQueries = [];
       const byDay = {};
       for (const s of searches) {
         queryCounts[s.query] = (queryCounts[s.query] || 0) + 1;
-        if (s.resultCount === 0) zeroResults++;
+        if (s.resultCount === 0) {
+          zeroResults++;
+          zeroResultQueries.push(s.query);
+        }
         if (s.timestamp) {
           const day = s.timestamp.slice(0, 10);
           byDay[day] = (byDay[day] || 0) + 1;
         }
       }
       const topQueries = Object.entries(queryCounts).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([q, c]) => ({query: q, count: c}));
-      const zeroResultQueries = searches.filter(s => s.resultCount === 0).map(s => s.query);
       const uniqueZero = [...new Set(zeroResultQueries)].slice(0, 10);
       const dailyVolume = Object.entries(byDay).sort(([a], [b]) => a.localeCompare(b)).map(([day, count]) => ({day, count}));
       return json(res, 200, {
