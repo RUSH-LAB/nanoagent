@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Mafs, Coordinates, Plot, Polygon, Theme, useMovablePoint } from 'mafs';
 import 'mafs/core.css';
+import { CONTROL_PANEL_STYLE } from './controlPanelStyle';
 
 const f = (x) => Math.sin(x) + 1;
 const F = (a, b) => -Math.cos(b) + b - (-Math.cos(a) + a);
@@ -51,12 +52,7 @@ export default function RiemannSumDemo() {
         {leftBound.element}
         {rightBound.element}
       </Mafs>
-      <div style={{
-        display: 'flex', flexWrap: 'wrap', gap: '0.8em 1.5em',
-        justifyContent: 'center', alignItems: 'center',
-        marginTop: '0.75em', padding: '0.75em 1em',
-        background: '#f5f7f9', borderRadius: '8px', fontSize: '0.9rem',
-      }}>
+      <div style={{ ...CONTROL_PANEL_STYLE, gap: '0.8em 1.5em' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5em' }}>
           <b>n</b>
           <input type="range" min={1} max={100} value={n}

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Mafs, Coordinates, Plot, Polygon, Theme, useMovablePoint } from 'mafs';
 import 'mafs/core.css';
+import { CONTROL_PANEL_STYLE } from './controlPanelStyle';
 
 function normalPDF(x, mu, sigma) {
   return (1 / (sigma * Math.sqrt(2 * Math.PI))) *
@@ -122,12 +123,7 @@ function DistributionView({ distKey, onDistChange }) {
         {left.element}
         {right.element}
       </Mafs>
-      <div style={{
-        display: 'flex', flexWrap: 'wrap', gap: '0.8em 1.5em',
-        justifyContent: 'center', alignItems: 'center',
-        marginTop: '0.75em', padding: '0.75em 1em',
-        background: '#f5f7f9', borderRadius: '8px', fontSize: '0.9rem',
-      }}>
+      <div style={{ ...CONTROL_PANEL_STYLE, gap: '0.8em 1.5em' }}>
         <select value={distKey} onChange={(e) => onDistChange(e.target.value)}
           style={{
             padding: '0.3em 0.5em', borderRadius: '4px',

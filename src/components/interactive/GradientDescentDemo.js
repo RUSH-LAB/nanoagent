@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Mafs, Coordinates, Plot, Point, Line, Theme, useMovablePoint } from 'mafs';
 import 'mafs/core.css';
+import { CONTROL_PANEL_STYLE } from './controlPanelStyle';
 
 const f = (x) => 0.15 * (x + 2) * (x - 1) * (x - 3) + 2;
 const df = (x) => 0.15 * ((x - 1) * (x - 3) + (x + 2) * (x - 3) + (x + 2) * (x - 1));
@@ -54,12 +55,7 @@ export default function GradientDescentDemo() {
         {finalPoint && <Point x={finalPoint[0]} y={finalPoint[1]} color={Theme.green} />}
         {start.element}
       </Mafs>
-      <div style={{
-        display: 'flex', flexWrap: 'wrap', gap: '1em 2em',
-        justifyContent: 'center', alignItems: 'center',
-        marginTop: '0.75em', padding: '0.75em 1em',
-        background: '#f5f7f9', borderRadius: '8px', fontSize: '0.9rem',
-      }}>
+      <div style={{ ...CONTROL_PANEL_STYLE, gap: '1em 2em' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5em' }}>
           <span><b>Learning rate η</b></span>
           <input type="range" min={0.01} max={0.5} step={0.01} value={lr}
