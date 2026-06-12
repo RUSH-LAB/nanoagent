@@ -644,6 +644,11 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
           }
         }
         scan(contentDir);
+        // pageTitles is fully populated by scan() above and is never mutated inside
+        // walk(), so its key list is loop-invariant. Compute it once here instead of
+        // rebuilding Object.keys(pageTitles) on every link resolution. The key order
+        // is unchanged, so .find() returns the same first match for every link.
+        const pageTitleKeys = Object.keys(pageTitles);
         const visited = new Set();
         const readingPath = [];
         function walk(filePath, depth) {
@@ -651,7 +656,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
           visited.add(filePath);
           readingPath.push({path: filePath, title: pageTitles[filePath] || filePath, depth});
           for (const link of (pageLinks[filePath] || [])) {
-            const resolved = Object.keys(pageTitles).find(p => p.endsWith(link + '.md') || p.endsWith(link + '.mdx') || p.includes('/' + link + '.'));
+            const resolved = pageTitleKeys.find(p => p.endsWith(link + '.md') || p.endsWith(link + '.mdx') || p.includes('/' + link + '.'));
             if (resolved && !visited.has(resolved)) {
               walk(resolved, depth + 1);
             }
