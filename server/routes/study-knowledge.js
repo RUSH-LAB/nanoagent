@@ -142,33 +142,43 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       const yaml = require('js-yaml');
       const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
       if (!refs[key]) return json(res, 404, {error: 'Reference not found'});
-      const contentDir = path.join(PROJECT_ROOT, 'content');
-      const contexts = [];
-      const CITE_PATTERN = new RegExp(`\\[@[^\\]]*\\b${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b[^\\]]*\\]`, 'g');
-      function scanContexts(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-          const fp = path.join(dir, entry.name);
-          if (entry.isDirectory()) { scanContexts(fp); continue; }
-          if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-          try {
-            const content = fs.readFileSync(fp, 'utf-8');
-            CITE_PATTERN.lastIndex = 0;
-            let m;
-            while ((m = CITE_PATTERN.exec(content)) !== null) {
-              const start = Math.max(0, m.index - 100);
-              const end = Math.min(content.length, m.index + m[0].length + 100);
-              const context = content.slice(start, end).replace(/\n/g, ' ').trim();
-              contexts.push({
-                file: path.relative(PROJECT_ROOT, fp),
-                context: (start > 0 ? '...' : '') + context + (end < content.length ? '...' : ''),
-                position: m.index,
-              });
-            }
-          } catch {}
+      // Cache the per-key content scan so repeated requests for the same citation
+      // key skip the recursive walk that reads and regex-scans every content file.
+      // The cache key includes `key`, so each citation key is its own entry. The
+      // references.yaml read, the missing-key 400, and the not-found 404 all stay
+      // OUTSIDE the cache, so only a successful 200 scan is memoized; the per-key
+      // CITE_PATTERN is built inside the closure from the captured `key`. Mirrors
+      // the sibling cached('linksuggest:' + filePath, ...) in this file.
+      const contexts = cached('refcontext:' + key, 30000, () => {
+        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const contexts = [];
+        const CITE_PATTERN = new RegExp(`\\[@[^\\]]*\\b${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b[^\\]]*\\]`, 'g');
+        function scanContexts(dir) {
+          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+            const fp = path.join(dir, entry.name);
+            if (entry.isDirectory()) { scanContexts(fp); continue; }
+            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
+            try {
+              const content = fs.readFileSync(fp, 'utf-8');
+              CITE_PATTERN.lastIndex = 0;
+              let m;
+              while ((m = CITE_PATTERN.exec(content)) !== null) {
+                const start = Math.max(0, m.index - 100);
+                const end = Math.min(content.length, m.index + m[0].length + 100);
+                const context = content.slice(start, end).replace(/\n/g, ' ').trim();
+                contexts.push({
+                  file: path.relative(PROJECT_ROOT, fp),
+                  context: (start > 0 ? '...' : '') + context + (end < content.length ? '...' : ''),
+                  position: m.index,
+                });
+              }
+            } catch {}
+          }
         }
-      }
-      scanContexts(contentDir);
+        scanContexts(contentDir);
+        return contexts;
+      });
       return json(res, 200, {key, title: refs[key].title, contexts, totalCitations: contexts.length});
     } catch {
       return json(res, 500, {error: 'Context extraction failed'});
