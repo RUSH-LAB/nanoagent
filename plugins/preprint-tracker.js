@@ -121,7 +121,7 @@ async function main() {
     checked++;
     process.stdout.write(`[${checked}/${candidates.length}] ${key} (arXiv:${arxivId})... `);
 
-    const url = `${S2_API_BASE}/arXiv:${arxivId}?fields=venue,year,externalIds,journal`;
+    const url = `${S2_API_BASE}/arXiv:${arxivId}?fields=venue,externalIds,journal`;
     const data = await fetchJson(url);
 
     if (!data) {
