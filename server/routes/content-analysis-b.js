@@ -483,12 +483,17 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
         if (!titleMap[normTitle]) titleMap[normTitle] = [];
         titleMap[normTitle].push({key, title: entry.title, year: entry.year, venue: entry.venue});
       }
-      const duplicates = Object.values(titleMap).filter(g => g.length > 1).map(g => ({
-        title: g[0].title,
-        entries: g,
-        count: g.length,
-      })).sort((a, b) => b.count - a.count);
-      return json(res, 200, {duplicates, totalDuplicateGroups: duplicates.length, totalDuplicateEntries: duplicates.reduce((s, d) => s + d.count, 0)});
+      // Accumulate the duplicate-entry total inside the map: each group's `count`
+      // is its `g.length`, computed right here, and integer addition is order
+      // independent, so this equals the old post-build reduce over `duplicates`.
+      // The trailing sort only reorders groups, never the sum. Mirrors the in-file
+      // completeness and content-quality folds.
+      let totalDuplicateEntries = 0;
+      const duplicates = Object.values(titleMap).filter(g => g.length > 1).map(g => {
+        totalDuplicateEntries += g.length;
+        return {title: g[0].title, entries: g, count: g.length};
+      }).sort((a, b) => b.count - a.count);
+      return json(res, 200, {duplicates, totalDuplicateGroups: duplicates.length, totalDuplicateEntries});
     } catch {
       return json(res, 500, {error: 'Deduplication failed'});
     }
