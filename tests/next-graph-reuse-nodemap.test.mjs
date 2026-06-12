@@ -65,6 +65,9 @@ async function runGraph() {
     fs, path,
     PROJECT_ROOT: root,
     ALLOWED_EXTS: ['.md', '.mdx'],
+    // The /api/graph scan now runs inside cached(); a pass-through keeps this
+    // suite exercising the real fs-backed walk (nodeMap-reuse assertions unchanged).
+    cached: (_k, _t, fn) => fn(),
     json: (_res, status, payload) => { captured = { status, payload }; },
   };
   const url = new URL('http://localhost/api/graph');
