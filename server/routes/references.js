@@ -2,6 +2,18 @@
 // Route module organized from server.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
+
+// Parse a numeric query parameter, clamping to `max` and falling back to `def`
+// when the value is absent or non-numeric. Without the fallback a stray
+// `?limit=abc` parses to NaN: the by-author feed then does `slice(0, NaN)` ===
+// empty, and the search loop's `results.length >= NaN` never trips so it returns
+// an unbounded page. Absent and valid numeric values keep their previous
+// behavior. Mirrors the helper in server/routes/misc-tools.js.
+function numericParam(raw, def, max) {
+  const n = parseInt(raw, 10);
+  return Math.min(Number.isNaN(n) ? def : n, max);
+}
+
 module.exports = async function references_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -77,7 +89,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
       const authors = Object.entries(byAuthor)
         .map(([author, papers]) => ({author, count: papers.length, papers: papers.sort((a, b) => (b.year || 0) - (a.year || 0))}))
         .sort((a, b) => b.count - a.count);
-      const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 200);
+      const limit = numericParam(url.searchParams.get('limit'), 50, 200);
       return json(res, 200, {authors: authors.slice(0, limit), totalAuthors: authors.length});
     } catch {
       return json(res, 500, {error: 'Failed to group references by author: references.yaml may be missing or contain invalid YAML syntax'});
@@ -193,7 +205,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
     try {
       const yaml = require('js-yaml');
       const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
-      const limit = Math.min(parseInt(url.searchParams.get('limit') || '20', 10), 100);
+      const limit = numericParam(url.searchParams.get('limit'), 20, 100);
       const results = [];
       for (const [key, entry] of Object.entries(refs)) {
         const searchable = [
@@ -594,3 +606,5 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
   }
 
 };
+
+module.exports.numericParam = numericParam;
