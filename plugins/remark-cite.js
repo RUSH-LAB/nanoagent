@@ -14,7 +14,8 @@ const yaml = require('js-yaml');
 const { applyTextReplacements } = require('./remark-visit-text');
 
 // Reload references.yaml on every call so the dev server picks up new entries
-// without needing a restart. The file is small so the I/O cost is negligible.
+// without needing a restart. references.yaml is large (~250KB), so this re-reads
+// and parses the whole file once per content file at build time.
 const bibPath = path.resolve(__dirname, '..', 'bibliography', 'references.yaml');
 function loadBibliography() {
   try {
