@@ -6,7 +6,7 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import API_BASE from '@site/src/utils/api';
 
 const ROLE_DESCRIPTIONS = {
-  owner: 'Full access -- can manage users, edit content, and configure the site.',
+  owner: 'Full access — can manage users, edit content, and configure the site.',
   editor: 'Can edit and publish content, but cannot manage user roles.',
   viewer: 'Read-only access. Cannot edit or publish content.',
 };

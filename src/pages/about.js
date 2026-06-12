@@ -207,7 +207,7 @@ function FeatureCard({ title, items }) {
 
 export default function AboutPage() {
   return (
-    <Layout title="About" description="About Mochi Lab -- features, tech stack, and getting started">
+    <Layout title="About" description="About Mochi Lab — features, tech stack, and getting started">
       <ErrorBoundary>
       <main style={{ maxWidth: '960px', margin: '0 auto', padding: '2rem 1.5rem' }}>
 

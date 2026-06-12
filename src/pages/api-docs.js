@@ -992,7 +992,7 @@ export default function ApiDocs() {
   const totalEndpoints = CATEGORIES.reduce((sum, cat) => sum + cat.endpoints.length, 0);
 
   return (
-    <Layout title="API Documentation" description="API documentation for MochiLab editor server">
+    <Layout title="API Documentation" description="API documentation for Mochi Lab editor server">
       <ErrorBoundary>
       <main style={{
         maxWidth: '960px',
@@ -1002,7 +1002,7 @@ export default function ApiDocs() {
         <div style={{marginBottom: '2rem'}}>
           <h1 style={{marginBottom: '8px'}}>API Reference</h1>
           <p style={{color: '#6b7280', fontSize: '1rem', marginBottom: '4px'}}>
-            Documentation for the MochiLab editor server API -- {totalEndpoints} endpoints across {CATEGORIES.length} categories.
+            Documentation for the Mochi Lab editor server API &mdash; {totalEndpoints} endpoints across {CATEGORIES.length} categories.
           </p>
           <p style={{color: '#9ca3af', fontSize: '0.85rem'}}>
             Base URL: <code>http://localhost:3001</code> (configurable via <code>EDITOR_PORT</code> env var). All request/response bodies are JSON unless noted otherwise.

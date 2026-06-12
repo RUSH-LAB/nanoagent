@@ -402,7 +402,7 @@ function TrackAllPreprints({ references }) {
             }}>
               {result.results.filter(r => r.published).map((r) => (
                 <div key={r.key} style={{ margin: '2px 0' }}>
-                  <code>@{r.key}</code> -- published at <strong>{r.venue}</strong>
+                  <code>@{r.key}</code> &mdash; published at <strong>{r.venue}</strong>
                 </div>
               ))}
             </div>
@@ -1005,7 +1005,7 @@ export default function BibliographyPage() {
     }
     const yearSpan = (minYear <= maxYear) ? maxYear - minYear + 1 : 0;
     const avgPerYear = yearSpan > 0 ? (total / yearSpan).toFixed(1) : 0;
-    const yearRange = yearSpan > 0 ? `${minYear}--${maxYear}` : 'N/A';
+    const yearRange = yearSpan > 0 ? `${minYear}–${maxYear}` : 'N/A';
     // Sort types by count descending for the breakdown
     const typeBreakdown = Object.entries(typeCounts)
       .sort((a, b) => b[1] - a[1])
