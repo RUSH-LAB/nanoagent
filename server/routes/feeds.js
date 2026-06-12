@@ -260,7 +260,16 @@ ${recent.map(item => {
         item.status = 'due';
       }
     }
-    return json(res, 200, {items, upcoming: items.filter(i => i.status === 'scheduled').length, due: items.filter(i => i.status === 'due').length});
+    // Tally both status buckets in a single pass over items rather than two
+    // separate filter passes. The counts run after the promotion above, so the
+    // totals stay identical to the prior post-loop filters; response unchanged.
+    let upcoming = 0;
+    let due = 0;
+    for (const item of items) {
+      if (item.status === 'scheduled') upcoming++;
+      else if (item.status === 'due') due++;
+    }
+    return json(res, 200, {items, upcoming, due});
   }
 
   if (req.method === 'DELETE' && pathname === '/api/schedule') {
