@@ -56,6 +56,9 @@ async function getRelated(fs, filePath, isValidFilePath = () => true) {
     ALLOWED_EXTS,
     fs,
     isValidFilePath,
+    // The handler now wraps its result building in cached(); inject a
+    // pass-through so this test keeps exercising the full scan on every call.
+    cached: (_k, _t, fn) => fn(),
     json: (_res, status, body) => { captured = { status, body }; },
   };
   const url = new URL(`http://localhost/api/file/related?path=${encodeURIComponent(filePath)}`);
