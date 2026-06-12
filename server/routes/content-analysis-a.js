@@ -177,34 +177,46 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     const path2 = url.searchParams.get('path2');
     if (!isValidFilePath(path1) || !isValidFilePath(path2)) return json(res, 400, {error: 'Invalid paths'});
     try {
-      function extractWords(filePath) {
-        let text = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-        text = text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ');
-        return text.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !SIMILARITY_STOP_WORDS.has(w));
-      }
-      const words1 = extractWords(path1);
-      const words2 = extractWords(path2);
-      const set1 = new Set(words1);
-      const set2 = new Set(words2);
-      let intersection = 0;
-      // Collect the shared words during the intersection count so set1 is walked
-      // once. Pushing inside the existing `set2.has(w)` branch preserves set1's
-      // insertion order, the same order the former spread-then-filter pass used,
-      // so `sharedAll.slice(0, 20)` stays byte identical to the old `sharedWords`.
-      const sharedAll = [];
-      for (const w of set1) if (set2.has(w)) { intersection++; sharedAll.push(w); }
-      // |A ∪ B| = |A| + |B| - |A ∩ B|. The intersection is already counted above,
-      // so derive the union by set algebra instead of materializing a merged Set.
-      const union = set1.size + set2.size - intersection;
-      const jaccard = union > 0 ? Math.round((intersection / union) * 1000) / 1000 : 0;
-      const sharedWords = sharedAll.slice(0, 20);
-      return json(res, 200, {
-        similarity: jaccard,
-        sharedWords,
-        uniqueToFile1: set1.size - intersection,
-        uniqueToFile2: set2.size - intersection,
-        sharedCount: intersection,
+      // Memoize the two file reads and the Jaccard computation for 30s, mirroring
+      // the sibling cached('filestyle:' + path) and cached('filecomplexity:' + path)
+      // per-file caches in content-analysis-b.js. The payload is a pure function of
+      // the two content files, so the key carries both paths: each (path1, path2)
+      // pair gets its own entry and a 30s snapshot stays byte identical while
+      // skipping the repeat reads. The isValidFilePath 400 guard stays above this
+      // try, and the try/catch stays outside the closure, so an invalid path never
+      // reads and a missing file returns a 404 that is never cached (the cached
+      // helper stores nothing when fn throws).
+      const result = cached('similarity:' + path1 + ':' + path2, 30000, () => {
+        function extractWords(filePath) {
+          let text = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+          text = text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ');
+          return text.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !SIMILARITY_STOP_WORDS.has(w));
+        }
+        const words1 = extractWords(path1);
+        const words2 = extractWords(path2);
+        const set1 = new Set(words1);
+        const set2 = new Set(words2);
+        let intersection = 0;
+        // Collect the shared words during the intersection count so set1 is walked
+        // once. Pushing inside the existing `set2.has(w)` branch preserves set1's
+        // insertion order, the same order the former spread-then-filter pass used,
+        // so `sharedAll.slice(0, 20)` stays byte identical to the old `sharedWords`.
+        const sharedAll = [];
+        for (const w of set1) if (set2.has(w)) { intersection++; sharedAll.push(w); }
+        // |A ∪ B| = |A| + |B| - |A ∩ B|. The intersection is already counted above,
+        // so derive the union by set algebra instead of materializing a merged Set.
+        const union = set1.size + set2.size - intersection;
+        const jaccard = union > 0 ? Math.round((intersection / union) * 1000) / 1000 : 0;
+        const sharedWords = sharedAll.slice(0, 20);
+        return {
+          similarity: jaccard,
+          sharedWords,
+          uniqueToFile1: set1.size - intersection,
+          uniqueToFile2: set2.size - intersection,
+          sharedCount: intersection,
+        };
       });
+      return json(res, 200, result);
     } catch {
       return json(res, 404, {error: 'File not found'});
     }
@@ -586,32 +598,44 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      const fm = content.match(/^---\n([\s\S]*?)\n---/);
-      let score = 0;
-      const checks = {};
-      checks.hasFrontmatter = !!fm;
-      if (fm) { score += 10; checks.hasTitle = /^title:/m.test(fm[1]); if (checks.hasTitle) score += 10; checks.hasTags = /^tags:/m.test(fm[1]); if (checks.hasTags) score += 5; checks.hasDate = /^date:/m.test(fm[1]); if (checks.hasDate) score += 5; }
-      const words = content.split(/\s+/).filter(Boolean).length;
-      checks.wordCount = words;
-      score += Math.min(20, Math.round(words / 50));
-      const headings = (content.match(/^#{1,6}\s+.+$/gm) || []).length;
-      checks.headings = headings;
-      score += Math.min(15, headings * 3);
-      const citations = (content.match(/\[@/g) || []).length;
-      checks.citations = citations;
-      score += Math.min(10, citations * 2);
-      const links = (content.match(/\[\[/g) || []).length + (content.match(/\]\(/g) || []).length;
-      checks.links = links;
-      score += Math.min(10, links * 2);
-      const images = (content.match(/!\[/g) || []).length;
-      checks.images = images;
-      score += Math.min(5, images * 3);
-      const imgNoAlt = (content.match(/!\[\]\(/g) || []).length;
-      if (imgNoAlt > 0) { score -= 5; checks.imagesWithoutAlt = imgNoAlt; }
-      score = Math.max(0, Math.min(100, score));
-      const level = score >= 80 ? 'excellent' : score >= 60 ? 'good' : score >= 40 ? 'adequate' : score >= 20 ? 'needs-improvement' : 'minimal';
-      return json(res, 200, {path: filePath, healthScore: score, level, checks});
+      // Memoize the single file read and health scoring for 30s, mirroring the
+      // sibling cached('filestyle:' + path) and cached('filecomplexity:' + path)
+      // per-file caches in content-analysis-b.js. The score is a pure function of
+      // the file bytes, so the key carries filePath: each path gets its own entry
+      // and a 30s snapshot stays byte identical while skipping the repeat read. The
+      // isValidFilePath 400 guard stays above this try, and the try/catch stays
+      // outside the closure, so an invalid path never reads and a missing file
+      // returns a 404 that is never cached (the cached helper stores nothing when fn
+      // throws).
+      const result = cached('filehealth:' + filePath, 30000, () => {
+        const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        const fm = content.match(/^---\n([\s\S]*?)\n---/);
+        let score = 0;
+        const checks = {};
+        checks.hasFrontmatter = !!fm;
+        if (fm) { score += 10; checks.hasTitle = /^title:/m.test(fm[1]); if (checks.hasTitle) score += 10; checks.hasTags = /^tags:/m.test(fm[1]); if (checks.hasTags) score += 5; checks.hasDate = /^date:/m.test(fm[1]); if (checks.hasDate) score += 5; }
+        const words = content.split(/\s+/).filter(Boolean).length;
+        checks.wordCount = words;
+        score += Math.min(20, Math.round(words / 50));
+        const headings = (content.match(/^#{1,6}\s+.+$/gm) || []).length;
+        checks.headings = headings;
+        score += Math.min(15, headings * 3);
+        const citations = (content.match(/\[@/g) || []).length;
+        checks.citations = citations;
+        score += Math.min(10, citations * 2);
+        const links = (content.match(/\[\[/g) || []).length + (content.match(/\]\(/g) || []).length;
+        checks.links = links;
+        score += Math.min(10, links * 2);
+        const images = (content.match(/!\[/g) || []).length;
+        checks.images = images;
+        score += Math.min(5, images * 3);
+        const imgNoAlt = (content.match(/!\[\]\(/g) || []).length;
+        if (imgNoAlt > 0) { score -= 5; checks.imagesWithoutAlt = imgNoAlt; }
+        score = Math.max(0, Math.min(100, score));
+        const level = score >= 80 ? 'excellent' : score >= 60 ? 'good' : score >= 40 ? 'adequate' : score >= 20 ? 'needs-improvement' : 'minimal';
+        return {path: filePath, healthScore: score, level, checks};
+      });
+      return json(res, 200, result);
     } catch { return json(res, 404, {error: 'File not found'}); }
   }
 
@@ -905,31 +929,43 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      const flat = [];
-      let inCode = false;
-      for (const line of content.split('\n')) {
-        if (line.startsWith('```')) { inCode = !inCode; continue; }
-        if (inCode) continue;
-        const m = line.match(/^(#{1,6})\s+(.+)$/);
-        if (m) flat.push({level: m[1].length, text: m[2].trim()});
-      }
-      function buildTree(items, minLevel) {
-        const tree = [];
-        let i = 0;
-        while (i < items.length) {
-          const item = items[i];
-          if (item.level === minLevel) {
-            const children = [];
-            i++;
-            while (i < items.length && items[i].level > minLevel) { children.push(items[i]); i++; }
-            tree.push({text: item.text, level: item.level, children: children.length > 0 ? buildTree(children, minLevel + 1) : []});
-          } else { i++; }
+      // Memoize the single file read and heading-tree build for 30s, mirroring the
+      // sibling cached('filestyle:' + path) and cached('filecomplexity:' + path)
+      // per-file caches in content-analysis-b.js. The tree is a pure function of the
+      // file bytes, so the key carries filePath: each path gets its own entry and a
+      // 30s snapshot stays byte identical while skipping the repeat read. The
+      // isValidFilePath 400 guard stays above this try, and the try/catch stays
+      // outside the closure, so an invalid path never reads and a missing file
+      // returns a 404 that is never cached (the cached helper stores nothing when fn
+      // throws).
+      const result = cached('toctree:' + filePath, 30000, () => {
+        const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+        const flat = [];
+        let inCode = false;
+        for (const line of content.split('\n')) {
+          if (line.startsWith('```')) { inCode = !inCode; continue; }
+          if (inCode) continue;
+          const m = line.match(/^(#{1,6})\s+(.+)$/);
+          if (m) flat.push({level: m[1].length, text: m[2].trim()});
         }
-        return tree;
-      }
-      const minLevel = flat.length > 0 ? Math.min(...flat.map(h => h.level)) : 1;
-      return json(res, 200, {tree: buildTree(flat, minLevel), totalHeadings: flat.length});
+        function buildTree(items, minLevel) {
+          const tree = [];
+          let i = 0;
+          while (i < items.length) {
+            const item = items[i];
+            if (item.level === minLevel) {
+              const children = [];
+              i++;
+              while (i < items.length && items[i].level > minLevel) { children.push(items[i]); i++; }
+              tree.push({text: item.text, level: item.level, children: children.length > 0 ? buildTree(children, minLevel + 1) : []});
+            } else { i++; }
+          }
+          return tree;
+        }
+        const minLevel = flat.length > 0 ? Math.min(...flat.map(h => h.level)) : 1;
+        return {tree: buildTree(flat, minLevel), totalHeadings: flat.length};
+      });
+      return json(res, 200, result);
     } catch { return json(res, 404, {error: 'File not found'}); }
   }
 

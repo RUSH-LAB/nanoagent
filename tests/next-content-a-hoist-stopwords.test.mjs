@@ -71,7 +71,10 @@ describe('GET /api/file/similarity (SIMILARITY_STOP_WORDS hoisted to module scop
     'f1.md': 'machine learning networks would that this',
     'f2.md': 'machine learning networks',
   };
-  const ctx = { fs: makeFs(FIXTURE), path, PROJECT_ROOT, isValidFilePath: () => true };
+  // /api/file/similarity now wraps its two reads and Jaccard math in cached(key, ttl,
+  // fn); supply a pass-through so this fs-backed test still exercises the real
+  // SIMILARITY_STOP_WORDS filtering.
+  const ctx = { fs: makeFs(FIXTURE), path, PROJECT_ROOT, isValidFilePath: () => true, cached: (_k, _t, fn) => fn() };
 
   it('filters stop words from both files before scoring Jaccard overlap', async () => {
     const r = await invoke({ pathname: '/api/file/similarity', search: '?path1=f1.md&path2=f2.md', ctx });

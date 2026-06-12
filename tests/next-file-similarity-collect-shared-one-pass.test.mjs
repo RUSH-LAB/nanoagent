@@ -27,6 +27,10 @@ function makeCtx(files) {
     path,
     PROJECT_ROOT,
     isValidFilePath: p => typeof p === 'string' && p.length > 0,
+    // /api/file/similarity now wraps its two reads and Jaccard math in
+    // cached('similarity:' + path1 + ':' + path2, 30000, fn); supply a pass-through
+    // so this fs-backed test still exercises the real one-pass sharedWords collect.
+    cached: (_k, _t, fn) => fn(),
   };
 }
 
