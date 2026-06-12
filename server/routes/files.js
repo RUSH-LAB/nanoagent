@@ -245,11 +245,13 @@ module.exports = async function files_routes(req, res, url, pathname, ctx) {
       const output = execFileSync('git', [
         'log', `--format=%h${SEP}%an${SEP}%ai${SEP}%s`, '-20', '--', filePath,
       ], {cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 5000});
-      const commits = output.trim().split('\n').filter(Boolean).map(line => {
+      const commits = output.trim().split('\n').reduce((acc, line) => {
+        if (!line) return acc;
         const parts = line.split(SEP);
-        if (parts.length < 4) return null;
-        return {hash: parts[0], author: parts[1], date: parts[2], message: parts.slice(3).join(SEP)};
-      }).filter(Boolean);
+        if (parts.length < 4) return acc;
+        acc.push({hash: parts[0], author: parts[1], date: parts[2], message: parts.slice(3).join(SEP)});
+        return acc;
+      }, []);
       return json(res, 200, {commits});
     } catch {
       return json(res, 200, {commits: []});
