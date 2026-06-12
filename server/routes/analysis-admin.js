@@ -373,18 +373,26 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
         // Compare all pairs using Jaccard similarity
         const pairs = [];
         for (let i = 0; i < fingerprints.length; i++) {
+          // Hoist the outer-i-invariant reads out of the inner j loop. fingerprints
+          // is fully built by scanFiles before this loop and is never mutated here
+          // (the only write in the loop is pairs.push), so fingerprints[i].words, its
+          // .size, and fingerprints[i].path are constant across every j. Reading them
+          // once per i, rather than (n - i - 1) times, leaves the pairs array (paths,
+          // similarity values, and order) byte-identical.
+          const a = fingerprints[i].words;
+          const aSize = a.size;
+          const pathI = fingerprints[i].path;
           for (let j = i + 1; j < fingerprints.length; j++) {
-            const a = fingerprints[i].words;
             const b = fingerprints[j].words;
             let intersection = 0;
             for (const w of a) {
               if (b.has(w)) intersection++;
             }
-            const union = a.size + b.size - intersection;
+            const union = aSize + b.size - intersection;
             const similarity = union === 0 ? 0 : intersection / union;
             if (similarity > 0.5) {
               pairs.push({
-                file1: fingerprints[i].path,
+                file1: pathI,
                 file2: fingerprints[j].path,
                 similarity: Math.round(similarity * 1000) / 1000,
               });
