@@ -8,6 +8,13 @@
 // pageview, set-role, and presence handlers below share one immutable, read-only guard list.
 const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
 
+// Set-role route matcher for PUT /api/users/:id/role. Hoisted to module scope so
+// the RegExp is built once at module load instead of re-allocated on every request
+// that falls through the earlier handlers to the set-role dispatch check below. The
+// pattern is stateless (no /g, no /y), and .test() on a non-global regex never reads
+// or mutates lastIndex, so one shared instance returns the same boolean every call.
+const SET_ROLE_RE = /^\/api\/users\/[^/]+\/role$/;
+
 module.exports = async function analytics_users_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, collectFeedItems, parseFeedItem, cached, invalidateCache, cleanStalePresence, rateLimit, formatAuthorAPA, formatAuthorMLA, formatAuthorIEEE, formatCitation, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -74,7 +81,7 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
   }
 
   // ── Users: set role ──
-  if (req.method === 'PUT' && /^\/api\/users\/[^/]+\/role$/.test(pathname)) {
+  if (req.method === 'PUT' && SET_ROLE_RE.test(pathname)) {
     if (!rateLimit(`set-role:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
@@ -146,3 +153,8 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
   }
 
 };
+
+// Set-role route matcher, exposed for direct unit testing (see
+// tests/next-analyticsusers-setrole-re-hoist.test.mjs). The PUT /api/users/:id/role
+// handler uses it to guard its dispatch.
+module.exports.SET_ROLE_RE = SET_ROLE_RE;
