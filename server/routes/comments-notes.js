@@ -24,7 +24,7 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
       const n = parseInt(url.searchParams.get(name), 10);
       return Number.isNaN(n) ? fallback : n;
     };
-    const limit = Math.min(intParam('limit', 100), 500);
+    const limit = Math.min(Math.max(intParam('limit', 100), 0), 500);
     const offset = Math.max(intParam('offset', 0), 0);
     const comments = loadJSON(COMMENTS_FILE);
     const all = comments[page] || [];
