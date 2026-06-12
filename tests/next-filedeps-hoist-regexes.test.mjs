@@ -54,6 +54,9 @@ async function getDependencies(fs, filePath, isValidFilePath = () => true) {
     ALLOWED_EXTS,
     fs,
     isValidFilePath,
+    // The dependencies handler now wraps its result building in cached(); inject
+    // a pass-through so this test still exercises the full handler body unchanged.
+    cached: (_k, _t, fn) => fn(),
     json: (_res, status, body) => { captured = { status, body }; },
   };
   const url = new URL(`http://localhost/api/file/dependencies?path=${encodeURIComponent(filePath)}`);
