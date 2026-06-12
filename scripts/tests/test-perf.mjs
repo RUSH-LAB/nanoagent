@@ -44,7 +44,7 @@ const ENDPOINTS = [
 // -- Helpers --
 
 function verdict(avg, threshold) {
-  if (avg <= threshold * 2) return 'PASS';  // within threshold
+  if (avg <= threshold * 2) return 'PASS';  // within 2x threshold
   if (avg <= threshold * 5) return 'WARN';
   return 'FAIL';
 }
