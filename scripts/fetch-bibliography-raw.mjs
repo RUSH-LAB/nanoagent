@@ -90,7 +90,7 @@ async function download(url, destPath, { expect } = {}) {
       const isPdf = buf.slice(0, 5).toString('latin1') === '%PDF-';
       if (!isPdf) {
         fs.rmSync(tmp, { force: true });
-        return { ok: false, status, notPdf: true };
+        return { ok: false, status };
       }
     }
     fs.renameSync(tmp, destPath);
