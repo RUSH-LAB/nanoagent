@@ -58,11 +58,9 @@ function RecentActivity() {
   const API_BASE = require('@site/src/utils/api').default;
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
   useEffect(() => {
     setLoading(true);
-    setError(null);
 
     Promise.all([
       fetch(`${API_BASE}/api/files/recent?limit=5`)
@@ -113,7 +111,7 @@ function RecentActivity() {
     );
   }
 
-  if (error || items.length === 0) {
+  if (items.length === 0) {
     return null;
   }
 
