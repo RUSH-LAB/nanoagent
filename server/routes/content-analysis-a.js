@@ -576,7 +576,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
         let score = 0;
         const checks = {};
         checks.hasFrontmatter = !!fm;
-        if (fm) { score += 10; checks.hasTitle = /^title:/m.test(fm[1]); if (checks.hasTitle) score += 10; checks.hasTags = /^tags:/m.test(fm[1]); if (checks.hasTags) score += 5; checks.hasDate = /^date:/m.test(fm[1]); if (checks.hasDate) score += 5; }
+        if (fm) { const fmBody = fm[1]; score += 10; checks.hasTitle = /^title:/m.test(fmBody); if (checks.hasTitle) score += 10; checks.hasTags = /^tags:/m.test(fmBody); if (checks.hasTags) score += 5; checks.hasDate = /^date:/m.test(fmBody); if (checks.hasDate) score += 5; }
         const words = content.split(/\s+/).filter(Boolean).length;
         checks.wordCount = words;
         score += Math.min(20, Math.round(words / 50));
