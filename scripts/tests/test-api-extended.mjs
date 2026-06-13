@@ -7,6 +7,8 @@
 // ─────────────────────────────────────────────────────────────
 
 const BASE = process.env.API_URL || 'http://localhost:3001';
+// Sample document path exercised across the endpoint tests below.
+const SAMPLE_DOC = 'content/books/math/0-intro.md';
 
 // ── Colors ──
 const GREEN = '\x1b[32m';
@@ -120,7 +122,7 @@ async function testHistory() {
 
   // 1. GET /api/history — for a known file
   await test('Get file history', async () => {
-    const {status, data} = await api('GET', '/api/history?path=content/books/math/0-intro.md');
+    const {status, data} = await api('GET', `/api/history?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(data.commits !== undefined, 'has commits field');
     assertOk(Array.isArray(data.commits), 'commits is array');
@@ -135,7 +137,7 @@ async function testHistory() {
 
   // 2. GET /api/history/diff — with a fabricated hash (should handle gracefully)
   await test('Get history diff with fabricated hash', async () => {
-    const {status, data} = await api('GET', '/api/history/diff?path=content/books/math/0-intro.md&hash=abcdef1');
+    const {status, data} = await api('GET', `/api/history/diff?path=${SAMPLE_DOC}&hash=abcdef1`);
     // Server catches git errors and returns {diff: ''} with 200
     assertOk(status === 200 || status === 400, 'status is 200 or 400');
     if (status === 200) {
@@ -549,7 +551,7 @@ async function testMisc() {
 
   // 2. GET /api/backlinks?path=...
   await test('Backlinks for a known file', async () => {
-    const {status, data} = await api('GET', '/api/backlinks?path=content/books/math/0-intro.md');
+    const {status, data} = await api('GET', `/api/backlinks?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(data.backlinks !== undefined, 'has backlinks field');
     assertOk(Array.isArray(data.backlinks), 'backlinks is array');
@@ -700,7 +702,7 @@ async function testFileInfoEnriched() {
   section('File Info: Enriched');
 
   await test('File info returns enriched fields', async () => {
-    const {status, data} = await api('GET', '/api/file/info?path=content/books/math/0-intro.md');
+    const {status, data} = await api('GET', `/api/file/info?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(typeof data.detectedLanguage === 'string', 'has detectedLanguage');
     assertOk(['english', 'chinese', 'mixed'].includes(data.detectedLanguage), 'detectedLanguage is valid');
@@ -757,7 +759,7 @@ async function testFileOutline() {
   section('File Outline');
 
   await test('File outline for existing file', async () => {
-    const {status, data} = await api('GET', '/api/file/outline?path=content/books/math/0-intro.md');
+    const {status, data} = await api('GET', `/api/file/outline?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(Array.isArray(data.headings), 'headings is array');
     assertOk(typeof data.count === 'number', 'has count');
@@ -799,7 +801,7 @@ async function testFilesRecent() {
 async function testSchedule() {
   section('Schedule CRUD');
 
-  const schedulePath = 'content/books/math/0-intro.md';
+  const schedulePath = SAMPLE_DOC;
   const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
   // 1. POST /api/schedule — create a schedule
@@ -927,7 +929,7 @@ async function testSlides() {
 
   // 1. GET /api/file/slides?path=... — verify JSON {slides} for existing file
   await test('Slides for existing file returns JSON slides array', async () => {
-    const {status, data} = await api('GET', '/api/file/slides?path=content/books/math/0-intro.md');
+    const {status, data} = await api('GET', `/api/file/slides?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(typeof data === 'object', 'response is object');
     assertOk(Array.isArray(data.slides), 'slides is array');
@@ -981,7 +983,7 @@ async function testFileLint() {
 
   // 1. GET /api/file/lint?path=... — verify shape
   await test('File lint returns issues and issueCount', async () => {
-    const {status, data} = await api('GET', '/api/file/lint?path=content/books/math/0-intro.md');
+    const {status, data} = await api('GET', `/api/file/lint?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(Array.isArray(data.issues), 'issues is array');
     assertOk(typeof data.issueCount === 'number', 'issueCount is number');
@@ -1009,7 +1011,7 @@ async function testFileReadability() {
   section('File Readability');
 
   await test('File readability returns expected metrics', async () => {
-    const {status, data} = await api('GET', '/api/file/readability?path=content/books/math/0-intro.md');
+    const {status, data} = await api('GET', `/api/file/readability?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(typeof data.wordCount === 'number', 'has wordCount');
     assertOk(typeof data.sentenceCount === 'number', 'has sentenceCount');
@@ -1029,7 +1031,7 @@ async function testFileRelated() {
   section('File Related');
 
   await test('File related returns related array', async () => {
-    const {status, data} = await api('GET', '/api/file/related?path=content/books/math/0-intro.md');
+    const {status, data} = await api('GET', `/api/file/related?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(Array.isArray(data.related), 'related is array');
     if (data.related.length > 0) {
@@ -1137,7 +1139,7 @@ async function testWordDiff() {
 
   // 1. Invalid hash returns empty diff (endpoint catches git errors)
   await test('Word diff with invalid hash returns empty diff', async () => {
-    const {status, data} = await api('GET', '/api/file/word-diff?path=content/books/math/0-intro.md&hash=0000000000000000000000000000000000000000');
+    const {status, data} = await api('GET', `/api/file/word-diff?path=${SAMPLE_DOC}&hash=0000000000000000000000000000000000000000`);
     assertOk(status === 200 || status === 400, `status is ${status}`);
     if (status === 200) {
       assertOk(typeof data.diff === 'string' || typeof data.wordDiff === 'string', 'has diff field');
@@ -1161,7 +1163,7 @@ async function testPdfExport() {
 
   // 1. Returns HTML text with print styles
   await test('PDF export returns HTML with print styles', async () => {
-    const {status, data} = await api('GET', '/api/file/export?path=content/books/math/0-intro.md&format=pdf');
+    const {status, data} = await api('GET', `/api/file/export?path=${SAMPLE_DOC}&format=pdf`);
     assertEq(status, 200, 'status');
     assertOk(typeof data === 'string', 'response is text (HTML)');
     assertOk(data.includes('<'), 'contains HTML tags');
@@ -1169,7 +1171,7 @@ async function testPdfExport() {
 
   // 2. Contains @page CSS rule
   await test('PDF export contains @page CSS rule', async () => {
-    const {status, data} = await api('GET', '/api/file/export?path=content/books/math/0-intro.md&format=pdf');
+    const {status, data} = await api('GET', `/api/file/export?path=${SAMPLE_DOC}&format=pdf`);
     assertEq(status, 200, 'status');
     assertOk(typeof data === 'string', 'response is text');
     assertOk(data.includes('@page'), 'contains @page CSS rule');
@@ -1461,7 +1463,7 @@ async function testFileKeywords() {
 
   // 1. GET /api/file/keywords — verify shape for a real file
   await test('File keywords returns {keywords, totalWords} shape', async () => {
-    const {status, data} = await api('GET', '/api/file/keywords?path=content/books/math/0-intro.md');
+    const {status, data} = await api('GET', `/api/file/keywords?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(Array.isArray(data.keywords), 'keywords is array');
     assertOk(typeof data.totalWords === 'number', 'totalWords is number');
@@ -1469,7 +1471,7 @@ async function testFileKeywords() {
 
   // 2. Keywords is non-empty for a real file
   await test('File keywords is non-empty for real file', async () => {
-    const {status, data} = await api('GET', '/api/file/keywords?path=content/books/math/0-intro.md');
+    const {status, data} = await api('GET', `/api/file/keywords?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(data.keywords.length > 0, 'keywords array is non-empty');
     const kw = data.keywords[0];
@@ -2085,7 +2087,7 @@ async function testFileSummary() {
 
   // 1. GET /api/file/summary?path=... — returns expected shape
   await test('File summary returns {title, summary, headings}', async () => {
-    const {status, data} = await api('GET', '/api/file/summary?path=content/books/math/0-intro.md');
+    const {status, data} = await api('GET', `/api/file/summary?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(typeof data.title === 'string', 'has title');
     assertOk(typeof data.summary === 'string', 'has summary');
