@@ -34,7 +34,7 @@ function processTextNode(node) {
 
     const page = match[1].trim();
     // Default display text is the last path segment (e.g., "math/intro" → "intro")
-    const defaultDisplay = page.includes('/') ? page.split('/').pop() : page;
+    const defaultDisplay = page.split('/').pop();
     const displayText = match[2] ? match[2].trim() : defaultDisplay;
     const href = '/' + page;
 
