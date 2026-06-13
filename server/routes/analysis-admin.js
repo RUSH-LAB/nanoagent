@@ -709,8 +709,9 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
               }
               const citeArray = [...pageCites];
               for (let i = 0; i < citeArray.length; i++) {
+                const ci = citeArray[i];
                 for (let j = i + 1; j < citeArray.length; j++) {
-                  const pair = [citeArray[i], citeArray[j]].sort().join('::');
+                  const pair = [ci, citeArray[j]].sort().join('::');
                   coCitations[pair] = (coCitations[pair] || 0) + 1;
                 }
               }
