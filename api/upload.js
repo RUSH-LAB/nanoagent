@@ -22,7 +22,7 @@ module.exports = async function handler(req) {
     }
 
     // Validate extension.
-    const ext = '.' + fileName.split('.').pop().toLowerCase();
+    const ext = '.' + fileName.slice(fileName.lastIndexOf('.') + 1).toLowerCase();
     if (!IMAGE_EXTS.includes(ext)) {
       return jsonResponse(400, { error: 'Invalid image type' });
     }
