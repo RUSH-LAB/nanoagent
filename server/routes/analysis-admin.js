@@ -960,7 +960,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
         // Run integrity checks inline
         const dataDir = path.join(PROJECT_ROOT, 'data');
         let integrityPassed = true;
-        let duplicateCount = typeof _routeDiagnostics.duplicateCount === 'number' ? _routeDiagnostics.duplicateCount : 0;
+        const duplicateCount = typeof _routeDiagnostics.duplicateCount === 'number' ? _routeDiagnostics.duplicateCount : 0;
         try {
           const jsonFiles = fs.readdirSync(dataDir).filter(f => f.endsWith('.json'));
           for (const file of jsonFiles) {
