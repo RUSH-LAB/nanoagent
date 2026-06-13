@@ -263,7 +263,10 @@ setInterval(() => {
   const perfKeys = Object.keys(perfMetrics);
   if (perfKeys.length > PERF_MAX_ENDPOINTS) {
     const sorted = perfKeys
-      .map(k => ({k, last: perfMetrics[k].length > 0 ? perfMetrics[k][perfMetrics[k].length - 1] : 0}))
+      .map(k => {
+        const arr = perfMetrics[k];
+        return {k, last: arr.length > 0 ? arr[arr.length - 1] : 0};
+      })
       .sort((a, b) => a.last - b.last);
     for (let i = 0; i < sorted.length - PERF_MAX_ENDPOINTS; i++) {
       delete perfMetrics[sorted[i].k];
