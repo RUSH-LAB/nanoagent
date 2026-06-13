@@ -806,10 +806,19 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
       // equals a source author case-insensitively, exactly as before.
       const srcAuthors = entry.author || [];
       const srcAuthorsLower = new Set(srcAuthors.map(a => a.toLowerCase()));
+      // refs is a const from loadReferencesCached and is neither reassigned nor
+      // mutated in this handler (the loops only read otherEntry and push into the
+      // separate suggestions object, with no intervening await), so
+      // Object.entries(refs) yields the same entries in the same order on every
+      // field iteration. Compute it once here instead of rebuilding it up to four
+      // times, once per FIELD; enumerating the single refEntries array scans the
+      // identical candidates in the identical order, so every suggestions[field]
+      // (value + source, capped at 3) stays byte identical.
+      const refEntries = Object.entries(refs);
       for (const field of FIELDS) {
         if (entry[field]) continue;
         if (srcAuthors.length === 0) continue;
-        for (const [otherKey, otherEntry] of Object.entries(refs)) {
+        for (const [otherKey, otherEntry] of refEntries) {
           if (otherKey === key || !otherEntry[field]) continue;
           const otherAuthors = otherEntry.author || [];
           if (otherAuthors.some(oa => srcAuthorsLower.has(oa.toLowerCase()))) {
