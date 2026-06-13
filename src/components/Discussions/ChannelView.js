@@ -189,6 +189,11 @@ export default function ChannelView({channel}) {
 
   if (!channel) return null;
 
+  const lowerSearchQuery = searchQuery.toLowerCase();
+  const filteredMessages = searchQuery
+    ? messages.filter((msg) => msg.text.toLowerCase().includes(lowerSearchQuery))
+    : messages;
+
   return (
     <div className={styles.main}>
       {/* Channel header */}
@@ -218,9 +223,7 @@ export default function ChannelView({channel}) {
           />
           {searchQuery && (
             <span className={styles.searchCount}>
-              {messages.filter((msg) =>
-                msg.text.toLowerCase().includes(searchQuery.toLowerCase()),
-              ).length}{' '}
+              {filteredMessages.length}{' '}
               of {messages.length} messages
             </span>
           )}
@@ -272,12 +275,7 @@ export default function ChannelView({channel}) {
             </span>
           </div>
         )}
-        {(searchQuery
-          ? messages.filter((msg) =>
-              msg.text.toLowerCase().includes(searchQuery.toLowerCase()),
-            )
-          : messages
-        ).map((msg) => (
+        {filteredMessages.map((msg) => (
           <div key={msg.id} className={styles.messageGroup}>
             <div className={styles.avatar}>{getInitial(msg.author)}</div>
             <div className={styles.messageContent}>
