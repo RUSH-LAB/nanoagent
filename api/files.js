@@ -37,7 +37,8 @@ function buildTree(entries, rootDir) {
     let dirPath = rootPath;
     // Walk the intermediate directories, creating each on first encounter so it
     // lands at the position of the first file seen beneath it.
-    for (let i = 0; i < segments.length - 1; i++) {
+    const last = segments.length - 1;
+    for (let i = 0; i < last; i++) {
       dirPath = dirPath + '/' + segments[i];
       let node = dirNodes.get(dirPath);
       if (!node) {
@@ -49,7 +50,7 @@ function buildTree(entries, rootDir) {
     }
     // Append the file at its own position within its parent's children.
     children.push({
-      name: segments[segments.length - 1],
+      name: segments[last],
       path: entryPath,
       type: 'file',
       size: e.size,
