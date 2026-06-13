@@ -1873,12 +1873,12 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
     }
   }, [filePath, frontmatter, rawMode, splitMode, rawContent, editor]);
 
-  const handleRemoveTag = useCallback(async (tagToRemove) => {
+  const handleRemoveTag = useCallback((tagToRemove) => {
     if (!filePath || readOnly) return;
     commitTags(tags.filter(t => t !== tagToRemove));
   }, [filePath, readOnly, tags, commitTags]);
 
-  const handleAddTag = useCallback(async () => {
+  const handleAddTag = useCallback(() => {
     if (!filePath || readOnly) return;
     const newTag = prompt('Enter tag name:');
     if (!newTag || !newTag.trim()) return;
