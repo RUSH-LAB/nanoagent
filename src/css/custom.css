@@ -19,6 +19,8 @@
   --ifm-color-primary-lightest: #6b87bb;
   --ifm-code-font-size: 95%;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+  /* Vertical offset when jumping to an anchored element; adjust to control vertical centering. */
+  --anchor-scroll-margin: 30vh;
 }
 
 /* ── Global heading color & title size override ───────────────────────────── */
@@ -71,8 +73,8 @@ h2[class*="title_"] a:hover {
 /* Add scroll margin to all divs and KaTeX display blocks (applies site-wide, not only equations) */
 div,
 .katex-display {
-  scroll-margin-top: 30vh; /* Adjust this value to control vertical centering */
-  scroll-margin-bottom: 30vh;
+  scroll-margin-top: var(--anchor-scroll-margin);
+  scroll-margin-bottom: var(--anchor-scroll-margin);
 }
 
 /* Smooth scrolling for anchor links */
@@ -182,7 +184,7 @@ html {
   padding-left: 2em;
   text-indent: -2em;
   margin-bottom: 0.75em;
-  scroll-margin-top: 30vh;
+  scroll-margin-top: var(--anchor-scroll-margin);
 }
 
 /* ── Tables: render as a table box, not a scrollable block ──────────────────────────────────────── */
