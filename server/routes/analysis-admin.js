@@ -732,10 +732,17 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
           .sort((a, b) => b.coOccurrences - a.coOccurrences)
           .slice(0, 20);
 
+        // refs and citedIn are fully built by scanCitations above and are not
+        // mutated before this return, so each Object.keys(...).length is a
+        // constant. Compute each once and reuse it for the three count fields
+        // (uncited is just total minus cited). Named totalRefCount/citedRefCount
+        // because refCount is already used by another handler in this file.
+        const totalRefCount = Object.keys(refs).length;
+        const citedRefCount = Object.keys(citedIn).length;
         return {
-          totalReferences: Object.keys(refs).length,
-          citedReferences: Object.keys(citedIn).length,
-          uncitedReferences: Object.keys(refs).length - Object.keys(citedIn).length,
+          totalReferences: totalRefCount,
+          citedReferences: citedRefCount,
+          uncitedReferences: totalRefCount - citedRefCount,
           mostCited,
           coCitations: coCited,
         };
