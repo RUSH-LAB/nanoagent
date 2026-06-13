@@ -114,7 +114,7 @@ export default function AIAssistant({editor, onClose}) {
 
   const handleInsert = useCallback(() => {
     if (!result || !editor) return;
-    // Insert at cursor position (after selection end)
+    // Insert at the cursor, replacing the active selection if there is one
     editor.chain().focus().insertContent(result).run();
   }, [result, editor]);
 
