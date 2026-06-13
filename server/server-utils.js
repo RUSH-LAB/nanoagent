@@ -99,12 +99,13 @@ function makePresenceStore() {
     const now = Date.now();
     const STALE_MS = 30000;
     for (const filePath of Object.keys(presenceStore)) {
-      for (const userId of Object.keys(presenceStore[filePath])) {
-        if (now - presenceStore[filePath][userId].lastSeen > STALE_MS) {
-          delete presenceStore[filePath][userId];
+      const users = presenceStore[filePath];
+      for (const userId of Object.keys(users)) {
+        if (now - users[userId].lastSeen > STALE_MS) {
+          delete users[userId];
         }
       }
-      if (Object.keys(presenceStore[filePath]).length === 0) {
+      if (Object.keys(users).length === 0) {
         delete presenceStore[filePath];
       }
     }
