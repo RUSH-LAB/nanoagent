@@ -1193,7 +1193,10 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
           Object.assign(scores, newScores);
         }
         return Object.entries(scores)
-          .map(([key, score]) => ({key, title: refs[key].title, year: refs[key].year, venue: refs[key].venue, rank: Math.round(score * 1000) / 1000}))
+          .map(([key, score]) => {
+            const r = refs[key];
+            return {key, title: r.title, year: r.year, venue: r.venue, rank: Math.round(score * 1000) / 1000};
+          })
           .sort((a, b) => b.rank - a.rank)
           .slice(0, 30);
       });
