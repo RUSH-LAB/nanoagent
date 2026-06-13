@@ -3,16 +3,7 @@
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
 
-// Parse a numeric query parameter, clamping to `max` and falling back to `def`
-// when the value is absent or non-numeric. Without the fallback a stray
-// `?limit=abc` or `?depth=abc` parses to NaN: the activity feed then slices to
-// `events.slice(0, NaN)` and collapses to empty, and the reading-path BFS never
-// trips its `depth > maxDepth` cutoff, so it traverses the whole reachable
-// graph. Absent and valid numeric values keep their previous behavior.
-function numericParam(raw, def, max) {
-  const n = parseInt(raw, 10);
-  return Math.min(Number.isNaN(n) ? def : n, max);
-}
+const { numericParam } = require('../server-utils');
 
 // Stop-word sets for the keyword filtering in GET /api/file/similarity, GET
 // /api/content-recommend-v2, and GET /api/stats/word-frequency, built once at

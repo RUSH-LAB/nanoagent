@@ -15,14 +15,7 @@ const CHANNEL_MESSAGES_RE = /^\/api\/discussions\/[^/]+\/messages$/;
 const CHANNEL_MESSAGES_SEARCH_RE = /^\/api\/discussions\/[^/]+\/messages\/search$/;
 const CHANNEL_RE = /^\/api\/discussions\/[^/]+$/;
 
-// Parse a numeric query parameter, clamping to `max` and falling back to `def`
-// when the value is absent or non-numeric. Without the fallback a stray
-// `?limit=abc` parses to NaN and `all.slice(offset, offset + NaN)` collapses the
-// page to empty. Absent and valid numeric values keep their previous behavior.
-function numericParam(raw, def, max) {
-  const n = parseInt(raw, 10);
-  return Math.min(Number.isNaN(n) ? def : n, max);
-}
+const { numericParam } = require('../server-utils');
 
 module.exports = async function discussions_routes(req, res, url, pathname, ctx) {
   const {
