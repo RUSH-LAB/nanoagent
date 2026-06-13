@@ -451,13 +451,14 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       let totalMinutes = 0;
       let currentWeek = {week: 1, items: [], totalMinutes: 0};
       for (const item of items) {
-        if (currentWeek.totalMinutes + item.readingTimeMin > minutesPerWeek && currentWeek.items.length > 0) {
+        const rt = item.readingTimeMin;
+        if (currentWeek.totalMinutes + rt > minutesPerWeek && currentWeek.items.length > 0) {
           weeks.push(currentWeek);
           currentWeek = {week: weeks.length + 1, items: [], totalMinutes: 0};
         }
         currentWeek.items.push(item);
-        currentWeek.totalMinutes += item.readingTimeMin;
-        totalMinutes += item.readingTimeMin;
+        currentWeek.totalMinutes += rt;
+        totalMinutes += rt;
       }
       if (currentWeek.items.length > 0) weeks.push(currentWeek);
       return json(res, 200, {
