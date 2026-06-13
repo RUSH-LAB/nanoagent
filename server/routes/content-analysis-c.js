@@ -961,7 +961,8 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
         for (const entry of Object.values(refs)) {
           if ((entry.author || []).some(a => a.toLowerCase().includes(nameLower))) {
             for (const a of (entry.author || [])) {
-              if (!a.toLowerCase().includes(nameLower)) coauthors.add(a.toLowerCase());
+              const aLower = a.toLowerCase();
+              if (!aLower.includes(nameLower)) coauthors.add(aLower);
             }
             if (entry.venue) preferredVenues.add(entry.venue);
           }
