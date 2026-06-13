@@ -1162,11 +1162,12 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
               }
               const arr = [...pageCites];
               for (let i = 0; i < arr.length; i++) {
+                const ai = arr[i];
                 for (let j = i + 1; j < arr.length; j++) {
-                  if (!coOccurrences[arr[i]]) coOccurrences[arr[i]] = {};
+                  if (!coOccurrences[ai]) coOccurrences[ai] = {};
                   if (!coOccurrences[arr[j]]) coOccurrences[arr[j]] = {};
-                  coOccurrences[arr[i]][arr[j]] = (coOccurrences[arr[i]][arr[j]] || 0) + 1;
-                  coOccurrences[arr[j]][arr[i]] = (coOccurrences[arr[j]][arr[i]] || 0) + 1;
+                  coOccurrences[ai][arr[j]] = (coOccurrences[ai][arr[j]] || 0) + 1;
+                  coOccurrences[arr[j]][ai] = (coOccurrences[arr[j]][ai] || 0) + 1;
                 }
               }
             } catch {}
