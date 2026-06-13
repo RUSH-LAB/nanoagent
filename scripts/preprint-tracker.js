@@ -8,7 +8,7 @@
  * to see if they have been published in a venue. If so, updates the
  * entry with the venue information.
  *
- * Usage: node plugins/preprint-tracker.js
+ * Usage: node scripts/preprint-tracker.js
  */
 
 const fs = require('fs');
