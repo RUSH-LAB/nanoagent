@@ -509,10 +509,13 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       const bibPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
       const refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
 
+      // titleSlug depends only on `title` (a guaranteed non-empty string by the
+      // L491 guard) and the loop never mutates it, so compute it once before the
+      // collision loop instead of recomputing the same value on every iteration.
+      const titleSlug = (title || '').split(/\s+/).slice(0, 1).join('').toLowerCase().replace(/[^a-z0-9]/g, '');
       let finalKey = baseKey;
       let suffix = 1;
       while (refs[finalKey]) {
-        const titleSlug = (title || '').split(/\s+/).slice(0, 1).join('').toLowerCase().replace(/[^a-z0-9]/g, '');
         finalKey = `${baseKey}${titleSlug || suffix}`;
         suffix++;
         if (refs[finalKey]) finalKey = `${baseKey}${suffix}`;
