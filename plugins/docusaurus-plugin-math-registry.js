@@ -102,7 +102,7 @@ function getFolderPosition(folderPath) {
 
 /**
  * Read a directory and return sorted items (files and subdirectories).
- * index.md is excluded — it's returned separately as the folder's own page.
+ * index.md/index.mdx is excluded — it's returned separately as the folder's own page.
  * Skips hidden files, _-prefixed entries, and 'assets' directories.
  */
 function readSortedItems(dir) {
@@ -149,7 +149,7 @@ function findIndexFile(dir) {
 
 /**
  * Build a flat list of files with their hierarchical prefix and chapter number.
- * Recurses to arbitrary depth. index.md in a folder gets the folder's own prefix.
+ * Recurses to arbitrary depth. index.md/index.mdx in a folder gets the folder's own prefix.
  * Returns: [{ filePath, prefix: "2.1", chapter: 1, page }]
  *
  * "chapter" is always the top-level number (depth-1), used for per-chapter counters.
