@@ -17,6 +17,7 @@ import {RECENT_FILES_KEY} from '@site/src/utils/recentFiles';
 import {PRESENCE_USER_ID_KEY} from '@site/src/utils/presence';
 import {TemplateCards} from './TemplateModal';
 const PRESENCE_INTERVAL = 5000; // 5 seconds
+const MTIME_POLL_INTERVAL = 30000; // 30 seconds
 
 // katex is a large library needed only by two opt-in surfaces (the Split view
 // preview and the Math preview panel), so it is fetched on demand via a dynamic
@@ -1541,7 +1542,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         .catch(() => {});
     };
 
-    const intervalId = setInterval(pollMtime, 30000);
+    const intervalId = setInterval(pollMtime, MTIME_POLL_INTERVAL);
     return () => {
       mounted = false;
       clearInterval(intervalId);
