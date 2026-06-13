@@ -156,7 +156,7 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
             const fp = path.join(dir, entry.name);
             if (entry.isDirectory()) { scan(fp); continue; }
             if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-            let id = path.relative(path.join(PROJECT_ROOT, 'content'), fp).replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
+            let id = path.relative(contentDir, fp).replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
             if (id.endsWith('/index')) id = id.slice(0, -6);
             nodes.add(id);
             try {
@@ -273,7 +273,7 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
             const fp = path.join(dir, entry.name);
             if (entry.isDirectory()) { scan(fp); continue; }
             if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-            let id = path.relative(path.join(PROJECT_ROOT, 'content'), fp).replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
+            let id = path.relative(contentDir, fp).replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
             if (id.endsWith('/index')) id = id.slice(0, -6);
             let title = entry.name.replace(/\.(mdx?|md)$/, '');
             try {
