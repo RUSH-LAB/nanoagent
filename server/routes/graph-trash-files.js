@@ -275,6 +275,7 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       const baseName = path.basename(targetPath, path.extname(targetPath));
       const relFromContent = path.relative('content', targetPath).replace(/\\/g, '/');
       const withoutExt = relFromContent.replace(/\.(md|mdx)$/, '');
+      const withoutExtNoDocs = withoutExt.replace(/^docs\//, '');
 
       // Regex patterns
       const wikiLinkRe = /\[\[([^\]]+)\]\]/g;
@@ -311,7 +312,7 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
                 const linkTarget = match[1].split('|')[0].trim(); // handle [[page|alias]]
                 // Match if the link target equals the basename, or the full path without extension
                 if (linkTarget === baseName || linkTarget === withoutExt ||
-                    linkTarget === withoutExt.replace(/^docs\//, '')) {
+                    linkTarget === withoutExtNoDocs) {
                   result.push({sourcePath, sourceTitle, linkType: 'wikilink'});
                   break;
                 }
