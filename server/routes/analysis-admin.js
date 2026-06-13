@@ -480,6 +480,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
           const baseName = path.basename(page.path, path.extname(page.path));
           const relFromContent = path.relative('content', page.path).replace(/\\/g, '/');
           const withoutExt = relFromContent.replace(/\.(md|mdx)$/, '');
+          const withoutExtNoDocs = withoutExt.replace(/^docs\//, '');
 
           // Check if any link target matches this page
           const isLinked =
@@ -487,8 +488,8 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
             linkedTargets.has(baseName.toLowerCase()) ||
             linkedTargets.has(withoutExt) ||
             linkedTargets.has(withoutExt.toLowerCase()) ||
-            linkedTargets.has(withoutExt.replace(/^docs\//, '')) ||
-            linkedTargets.has(withoutExt.replace(/^docs\//, '').toLowerCase());
+            linkedTargets.has(withoutExtNoDocs) ||
+            linkedTargets.has(withoutExtNoDocs.toLowerCase());
 
           // Index/readme pages are navigational, skip them
           if (/^(index|readme|_category_)$/i.test(baseName)) continue;
