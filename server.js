@@ -331,8 +331,9 @@ function recordPerfMetric(endpoint, ms) {
       let oldestKey = keys[0], oldestTime = Infinity;
       for (const k of keys) {
         const arr = perfMetrics[k];
-        if (arr.length === 0 || arr[arr.length - 1] < oldestTime) {
-          oldestTime = arr.length > 0 ? arr[arr.length - 1] : 0;
+        const lastEntry = arr.length > 0 ? arr[arr.length - 1] : 0;
+        if (arr.length === 0 || lastEntry < oldestTime) {
+          oldestTime = lastEntry;
           oldestKey = k;
         }
       }
