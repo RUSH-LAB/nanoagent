@@ -614,7 +614,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       // The mindmap tree is a pure function of this one file's content, so memoize
       // the whole payload keyed by path for the TTL while the json() write below
       // still runs on every request. Mirrors cached('filequality:'+path,30000)
-      // above. The readFileSync stays INSIDE the closure, so a missing file still
+      // in this file. The readFileSync stays INSIDE the closure, so a missing file still
       // throws into the outer catch and the 404 is never cached (cached stores
       // nothing when fn throws).
       const result = cached('filemindmap:' + filePath, 30000, () => {
