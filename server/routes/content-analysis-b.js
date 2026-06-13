@@ -246,10 +246,13 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
         }
         allKeys.sort((a, b) => (refs[a].year || 9999) - (refs[b].year || 9999));
         for (const key of allKeys) visit(key);
-        const readingOrder = order.slice(0, 30).map((key, i) => ({
-          order: i + 1, key, title: refs[key].title, year: refs[key].year, venue: refs[key].venue,
-          prerequisites: [...(citesBefore[key] || [])].slice(0, 5),
-        }));
+        const readingOrder = order.slice(0, 30).map((key, i) => {
+          const r = refs[key];
+          return {
+            order: i + 1, key, title: r.title, year: r.year, venue: r.venue,
+            prerequisites: [...(citesBefore[key] || [])].slice(0, 5),
+          };
+        });
         return {readingOrder, totalOrdered: order.length};
       });
       return json(res, 200, result);
