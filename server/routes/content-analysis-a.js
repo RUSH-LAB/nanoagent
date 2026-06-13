@@ -1164,10 +1164,11 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
               for (let i = 0; i < arr.length; i++) {
                 const ai = arr[i];
                 for (let j = i + 1; j < arr.length; j++) {
+                  const aj = arr[j];
                   if (!coOccurrences[ai]) coOccurrences[ai] = {};
-                  if (!coOccurrences[arr[j]]) coOccurrences[arr[j]] = {};
-                  coOccurrences[ai][arr[j]] = (coOccurrences[ai][arr[j]] || 0) + 1;
-                  coOccurrences[arr[j]][ai] = (coOccurrences[arr[j]][ai] || 0) + 1;
+                  if (!coOccurrences[aj]) coOccurrences[aj] = {};
+                  coOccurrences[ai][aj] = (coOccurrences[ai][aj] || 0) + 1;
+                  coOccurrences[aj][ai] = (coOccurrences[aj][ai] || 0) + 1;
                 }
               }
             } catch {}
