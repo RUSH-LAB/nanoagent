@@ -79,9 +79,10 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
       if (!page || !commentId) return json(res, 400, {error: 'Missing page or commentId'});
       const comments = loadJSON(COMMENTS_FILE);
       if (!Object.hasOwn(comments, page)) return json(res, 404, {error: 'Page not found'});
-      const idx = comments[page].findIndex(c => c.id === commentId);
+      const pageComments = comments[page];
+      const idx = pageComments.findIndex(c => c.id === commentId);
       if (idx === -1) return json(res, 404, {error: 'Comment not found'});
-      const comment = comments[page][idx];
+      const comment = pageComments[idx];
       if (comment.userId && comment.userId !== userId) {
         const users = loadJSON(USERS_FILE);
         const requester = users[userId];
@@ -89,7 +90,7 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
           return json(res, 403, {error: 'Only the comment author or an admin can delete this comment'});
         }
       }
-      comments[page].splice(idx, 1);
+      pageComments.splice(idx, 1);
       saveJSON(COMMENTS_FILE, comments);
       return json(res, 200, {success: true});
     } catch {
