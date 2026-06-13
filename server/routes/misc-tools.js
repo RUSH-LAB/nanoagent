@@ -862,14 +862,17 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         scanDir(contentDir);
 
         // Build nodes from cited references only
-        const nodes = [...citedKeys].map(key => ({
-          id: key,
-          title: refs[key]?.title || key,
-          year: refs[key]?.year || null,
-          authors: Array.isArray(refs[key]?.author)
-            ? refs[key].author.slice(0, 3).join(', ')
-            : (refs[key]?.author || ''),
-        }));
+        const nodes = [...citedKeys].map(key => {
+          const ref = refs[key];
+          return {
+            id: key,
+            title: ref?.title || key,
+            year: ref?.year || null,
+            authors: Array.isArray(ref?.author)
+              ? ref.author.slice(0, 3).join(', ')
+              : (ref?.author || ''),
+          };
+        });
 
         // Build edges from co-citations (papers cited on the same page)
         const edgeMap = {};
