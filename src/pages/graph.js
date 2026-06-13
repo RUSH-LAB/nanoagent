@@ -401,7 +401,7 @@ function GraphVisualization() {
         const node = graphData.nodes[idx];
         const pos = positions[idx];
         const svg = svgRef.current;
-        if (!svg || !viewBox) return null;
+        if (!svg) return null;
         const rect = svg.getBoundingClientRect();
         const screenX = rect.left + ((pos.x - viewBox.x) / viewBox.w) * rect.width;
         const screenY = rect.top + ((pos.y - viewBox.y) / viewBox.h) * rect.height;
@@ -482,7 +482,7 @@ function GraphVisualization() {
                 filter={isHovered ? 'url(#glow)' : undefined}
               />
               {/* Show label at sufficient zoom or on hover */}
-              {(isHovered || (viewBox && viewBox.w < dimensions.width * 1.5 && connections >= 1)) && (
+              {(isHovered || (viewBox.w < dimensions.width * 1.5 && connections >= 1)) && (
                 <text
                   x={pos.x}
                   y={pos.y + radius + 12}
