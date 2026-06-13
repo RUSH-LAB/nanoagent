@@ -29,9 +29,12 @@ function loadBibliography() {
 // Regex to match [@key] or [@key1; @key2; ...]
 const CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
 
+// Placeholder shown when a bibliography entry has no year.
+const MISSING_YEAR = '????';
+
 /**
- * Format author name for inline citation: "LastName et al." for 3+,
- * "Last1 & Last2" for 2, "Last1" for 1.
+ * Format author name for inline citation: "Unknown" for empty/missing authors,
+ * "Last1" for 1, "Last1 & Last2" for 2, "LastName et al." for 3+.
  */
 function formatInlineAuthors(authors) {
   if (!authors || authors.length === 0) return 'Unknown';
@@ -49,7 +52,7 @@ function formatInlineAuthors(authors) {
  */
 function formatReference(key, entry) {
   const authors = (entry.author || []).join(', ');
-  const year = entry.year || '????';
+  const year = entry.year || MISSING_YEAR;
   const title = entry.title || key;
   const venue = entry.venue ? `. ${entry.venue}` : '';
   const vol = entry.volume ? `, ${entry.volume}` : '';
@@ -94,7 +97,7 @@ function processTextNode(node, citedKeys, file, bibliography) {
       }
 
       citedKeys.add(key);
-      const label = `${formatInlineAuthors(entry.author)}, ${entry.year || '????'}`;
+      const label = `${formatInlineAuthors(entry.author)}, ${entry.year || MISSING_YEAR}`;
       citationParts.push({
         type: 'link',
         url: `#ref-${key}`,
