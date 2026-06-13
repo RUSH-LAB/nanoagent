@@ -815,13 +815,32 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
       // identical candidates in the identical order, so every suggestions[field]
       // (value + source, capped at 3) stays byte identical.
       const refEntries = Object.entries(refs);
+      // The author-overlap test depends only on otherEntry.author and srcAuthorsLower, both invariant
+      // across FIELDS, yet the original recomputed it (re-lowercasing every candidate author) once per
+      // missing field. Precompute, in document order, the set of candidate keys whose authors overlap the
+      // source authors. Guard it to the SAME candidates the original would have tested: only those carrying
+      // at least one of the source's missing fields (missingFields.some(f => otherEntry[f])). This keeps it
+      // byte-identical in BOTH the result AND the error path: oa.toLowerCase() runs on exactly the same
+      // authors as before, so a malformed non-string author throws the same 500 in the same cases and never
+      // a new one. refs and entry are never mutated and there is no await, so the predicate and its result
+      // are identical on every field pass; the field loop keeps the same walk order, the same
+      // !otherEntry[field] guard, and the same per-field cap of 3.
+      const missingFields = FIELDS.filter(f => !entry[f]);
+      const authorMatchKeys = new Set();
+      if (srcAuthors.length > 0 && missingFields.length > 0) {
+        for (const [otherKey, otherEntry] of refEntries) {
+          if (otherKey === key) continue;
+          if (!missingFields.some(f => otherEntry[f])) continue;
+          const otherAuthors = otherEntry.author || [];
+          if (otherAuthors.some(oa => srcAuthorsLower.has(oa.toLowerCase()))) authorMatchKeys.add(otherKey);
+        }
+      }
       for (const field of FIELDS) {
         if (entry[field]) continue;
         if (srcAuthors.length === 0) continue;
         for (const [otherKey, otherEntry] of refEntries) {
           if (otherKey === key || !otherEntry[field]) continue;
-          const otherAuthors = otherEntry.author || [];
-          if (otherAuthors.some(oa => srcAuthorsLower.has(oa.toLowerCase()))) {
+          if (authorMatchKeys.has(otherKey)) {
             if (!suggestions[field]) suggestions[field] = [];
             if (suggestions[field].length < 3) suggestions[field].push({value: otherEntry[field], source: otherKey});
           }
