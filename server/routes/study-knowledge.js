@@ -196,6 +196,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
             if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
             try {
               const content = fs.readFileSync(fp, 'utf-8');
+              const relFile = path.relative(PROJECT_ROOT, fp);
               CITE_PATTERN.lastIndex = 0;
               let m;
               while ((m = CITE_PATTERN.exec(content)) !== null) {
@@ -203,7 +204,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
                 const end = Math.min(content.length, m.index + m[0].length + 100);
                 const context = content.slice(start, end).replace(/\n/g, ' ').trim();
                 contexts.push({
-                  file: path.relative(PROJECT_ROOT, fp),
+                  file: relFile,
                   context: (start > 0 ? '...' : '') + context + (end < content.length ? '...' : ''),
                   position: m.index,
                 });
