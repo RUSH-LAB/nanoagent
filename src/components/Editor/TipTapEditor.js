@@ -14,6 +14,7 @@ import shortcutStyles from './KeyboardShortcuts.module.css';
 import API_BASE from '@site/src/utils/api';
 import {useClickOutside} from '@site/src/utils/useClickOutside';
 import {RECENT_FILES_KEY} from '@site/src/utils/recentFiles';
+import {PRESENCE_USER_ID_KEY} from '@site/src/utils/presence';
 import {TemplateCards} from './TemplateModal';
 const PRESENCE_INTERVAL = 5000; // 5 seconds
 
@@ -49,10 +50,10 @@ function useKatex() {
 
 // Generate or retrieve a stable session userId
 function getSessionUserId() {
-  let id = sessionStorage.getItem('mochi-presence-userId');
+  let id = sessionStorage.getItem(PRESENCE_USER_ID_KEY);
   if (!id) {
     id = 'user_' + Math.random().toString(36).slice(2, 10);
-    sessionStorage.setItem('mochi-presence-userId', id);
+    sessionStorage.setItem(PRESENCE_USER_ID_KEY, id);
   }
   return id;
 }
@@ -1096,7 +1097,7 @@ function DocumentStats({editor, rawMode, rawContent}) {
     if (streakFetchedRef.current) return;
     streakFetchedRef.current = true;
     let mounted = true;
-    const userId = sessionStorage.getItem('mochi-presence-userId') || 'default';
+    const userId = sessionStorage.getItem(PRESENCE_USER_ID_KEY) || 'default';
     fetch(`${API_BASE}/api/streak?userId=${encodeURIComponent(userId)}`)
       .then(r => r.json())
       .then(data => { if (mounted) setStreak(data.currentStreak || 0); })
@@ -1109,7 +1110,7 @@ function DocumentStats({editor, rawMode, rawContent}) {
     if (goalFetchedRef.current) return;
     goalFetchedRef.current = true;
     let mounted = true;
-    const userId = sessionStorage.getItem('mochi-presence-userId') || 'default';
+    const userId = sessionStorage.getItem(PRESENCE_USER_ID_KEY) || 'default';
     fetch(`${API_BASE}/api/goals?userId=${encodeURIComponent(userId)}`)
       .then(r => r.json())
       .then(data => {
@@ -1630,7 +1631,7 @@ export default function TipTapEditor({filePath, onSaveStatus, readOnly = false, 
         const text = (rawMode || splitMode) ? parseFrontmatter(rawContent).body : (editor ? editor.getText() : '');
         const trimmed = text.trim();
         const wordCount = trimmed.length === 0 ? 0 : trimmed.split(/\s+/).length;
-        const userId = sessionStorage.getItem('mochi-presence-userId') || 'default';
+        const userId = sessionStorage.getItem(PRESENCE_USER_ID_KEY) || 'default';
         fetch(`${API_BASE}/api/streak`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},

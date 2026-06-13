@@ -8,6 +8,7 @@ import TemplateModal from './TemplateModal';
 import styles from './styles.module.css';
 import API_BASE from '@site/src/utils/api';
 import {RECENT_FILES_KEY} from '@site/src/utils/recentFiles';
+import {PRESENCE_USER_ID_KEY} from '@site/src/utils/presence';
 import {toast} from '@site/src/components/Toast/toast';
 
 function filePathToPageUrl(filePath) {
@@ -51,7 +52,7 @@ export default function Editor({initialFile}) {
     }
     setRoleLoading(true);
     const userId = typeof sessionStorage !== 'undefined'
-      ? sessionStorage.getItem('mochi-presence-userId') || 'anonymous'
+      ? sessionStorage.getItem(PRESENCE_USER_ID_KEY) || 'anonymous'
       : 'anonymous';
     fetch(`${API_BASE}/api/users/me?userId=${encodeURIComponent(userId)}`)
       .then(r => r.json())
