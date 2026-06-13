@@ -441,9 +441,10 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
       const result = cached('jsonld:' + filePath, 30000, () => {
         const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
         const stat = fs.statSync(path.join(PROJECT_ROOT, filePath));
+        const mtimeIso = stat.mtime.toISOString();
         const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
         let title = path.basename(filePath, path.extname(filePath));
-        let date = stat.mtime.toISOString();
+        let date = mtimeIso;
         let description = '';
         let tags = [];
         let authors = [];
@@ -466,7 +467,7 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
           '@type': 'Article',
           headline: title,
           datePublished: date,
-          dateModified: stat.mtime.toISOString(),
+          dateModified: mtimeIso,
           wordCount,
           ...(description && {description}),
           ...(authors.length > 0 && {author: authors.map(a => ({'@type': 'Person', name: a}))}),
