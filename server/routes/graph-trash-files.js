@@ -151,7 +151,8 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
             resolvedEdges.push({source: edge.source, target: targetId});
           } else {
             // Try matching against the last segment(s)
-            const found = nodes.find(n => n.id.endsWith(targetId) || n.id.endsWith('/' + targetId));
+            const slashTarget = '/' + targetId;
+            const found = nodes.find(n => n.id.endsWith(targetId) || n.id.endsWith(slashTarget));
             if (found) {
               resolvedEdges.push({source: edge.source, target: found.id});
             }
