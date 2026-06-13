@@ -961,8 +961,9 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
         const coauthors = new Set();
         const preferredVenues = new Set();
         for (const entry of Object.values(refs)) {
-          if ((entry.author || []).some(a => a.toLowerCase().includes(nameLower))) {
-            for (const a of (entry.author || [])) {
+          const authors = entry.author || [];
+          if (authors.some(a => a.toLowerCase().includes(nameLower))) {
+            for (const a of authors) {
               const aLower = a.toLowerCase();
               if (!aLower.includes(nameLower)) coauthors.add(aLower);
             }
@@ -971,9 +972,10 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
         }
         const recommendations = [];
         for (const [key, entry] of Object.entries(refs)) {
-          if ((entry.author || []).some(a => a.toLowerCase().includes(nameLower))) continue;
+          const authors = entry.author || [];
+          if (authors.some(a => a.toLowerCase().includes(nameLower))) continue;
           let score = 0;
-          for (const a of (entry.author || [])) {
+          for (const a of authors) {
             if (coauthors.has(a.toLowerCase())) score += 2;
           }
           if (preferredVenues.has(entry.venue)) score += 1;
