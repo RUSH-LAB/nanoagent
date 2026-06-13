@@ -736,12 +736,9 @@ async function journey4() {
     } catch { cleanErrors++; }
   }
 
-  // Empty trash to clean up bulk-deleted files
-  try {
-    // We only empty items we created; but since empty is all-or-nothing,
-    // we skip emptying trash to avoid deleting unrelated data.
-    // The bulk-deleted files will sit harmlessly in .trash/ with unique prefixes.
-  } catch { /* no-op */ }
+  // Trash is intentionally left un-emptied: "empty" is all-or-nothing, so
+  // emptying would delete unrelated data. The bulk-deleted files sit
+  // harmlessly in .trash/ with unique prefixes.
 
   if (cleanErrors > 0) {
     log('!', YELLOW, `Journey 4 cleanup: ${cleanCount} ok, ${cleanErrors} errors`);
