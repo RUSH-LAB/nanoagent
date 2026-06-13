@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url);
 
 // The preprint-tracker script runs main() on require, so we can't require it directly.
 // Instead, we test the extractArxivId logic by reimplementing the pure function.
-// This mirrors the function in scripts/preprint-tracker.js lines 27-35.
+// This mirrors the extractArxivId function in scripts/preprint-tracker.js.
 function extractArxivId(entry) {
   if (entry.arxivId) return entry.arxivId;
   if (entry.url) {
