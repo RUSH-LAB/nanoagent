@@ -218,8 +218,9 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
                 for (let j = i + 1; j < pageCites.length; j++) {
                   const a = pageCites[i], b = pageCites[j];
                   if (refs[a] && refs[b]) {
-                    const yearA = refs[a].year || 9999;
-                    const yearB = refs[b].year || 9999;
+                    const ra = refs[a], rb = refs[b];
+                    const yearA = ra.year || 9999;
+                    const yearB = rb.year || 9999;
                     if (yearA < yearB) {
                       if (!citesBefore[b]) citesBefore[b] = new Set();
                       citesBefore[b].add(a);
