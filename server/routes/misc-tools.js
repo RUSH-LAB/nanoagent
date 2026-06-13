@@ -218,8 +218,9 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         for (const entry of Object.values(refs)) {
           const authors = entry.author || [];
           for (let i = 0; i < authors.length; i++) {
+            const authorI = authors[i];
             for (let j = i + 1; j < authors.length; j++) {
-              const pair = [authors[i], authors[j]].sort().join('::');
+              const pair = [authorI, authors[j]].sort().join('::');
               coauthorCounts[pair] = (coauthorCounts[pair] || 0) + 1;
             }
           }
