@@ -1041,7 +1041,7 @@ async function testTrash() {
   await test('GET /api/trash returns trash items', async () => {
     const {status, data} = await api('GET', '/api/trash');
     assertEq(status, 200, 'status');
-    assertOk(Array.isArray(data.items), 'items is array');
+    assertOk(Array.isArray(data.files), 'files is array');
   });
 
   // We won't test trash/restore or trash/empty as they could destroy data
@@ -1138,7 +1138,7 @@ async function testTrashEmpty() {
     // This endpoint actually empties the trash, so we only call it if
     // the trash is empty already.
     const {data: trashData} = await api('GET', '/api/trash');
-    if (trashData.items && trashData.items.length === 0) {
+    if (trashData.files && trashData.files.length === 0) {
       const {status} = await api('DELETE', '/api/trash/empty');
       assertEq(status, 200, 'status');
     } else {
