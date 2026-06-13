@@ -250,7 +250,7 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
       // frontmatter/code/HTML stripping and heading scan. The readFileSync stays
       // inside the closure, so a missing file still throws here and propagates to the
       // outer catch (the 404 is never cached). Mirrors the /api/file/dependencies and
-      // /api/file/related caches above.
+      // /api/file/related caches in this module.
       const result = cached('filesummary:' + filePath, 30000, () => {
         const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
         let body = content;
@@ -320,7 +320,7 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
       // Cache the per-path outline so repeated requests for the same file skip the
       // line-by-line code-fence walk. The readFileSync stays inside the closure, so a
       // missing file still throws here and propagates to the outer catch (the 404 is
-      // never cached). Mirrors the /api/file/dependencies and /api/file/related caches above.
+      // never cached). Mirrors the /api/file/dependencies and /api/file/related caches in this module.
       const result = cached('fileoutline:' + filePath, 30000, () => {
         const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
         const headings = [];
@@ -354,7 +354,7 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
       // file still throws here and propagates to the outer catch (the 404 is never
       // cached). The inner all-tags-set cache is preserved, so the whole payload carries
       // the same 30s staleness that corpus cache already has. Mirrors the
-      // /api/file/dependencies, /summary, /outline, and /lint caches above.
+      // /api/file/dependencies, /summary, /outline, and /lint caches in this module.
       const result = cached('suggesttags:' + filePath, 30000, () => {
         let text = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
         text = text.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s-]/g, ' ');
@@ -417,7 +417,7 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
       // frontmatter check and line-by-line issue scan. The readFileSync stays inside
       // the closure, so a missing file still throws here and propagates to the outer
       // catch (the 404 is never cached). Mirrors the /api/file/dependencies and
-      // /api/file/related caches above.
+      // /api/file/related caches in this module.
       const result = cached('filelint:' + filePath, 30000, () => {
         const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
         const issues = [];
