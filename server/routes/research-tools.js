@@ -403,18 +403,15 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       const papersWithIds = [];
       for (const [key, entry] of Object.entries(refs)) {
         const paperId = extractRecPaperId(entry);
-        if (paperId) papersWithIds.push({ key, entry, paperId });
+        if (paperId) papersWithIds.push({ key, entry, paperId,
+          seedScore: (REC_TOP_VENUES.has(entry.venue) ? 10 : 0) + ((entry.year || 2000) - 2000) });
       }
 
       if (papersWithIds.length === 0) {
         return json(res, 200, { recommendations: [] });
       }
 
-      papersWithIds.sort((a, b) => {
-        const aScore = (REC_TOP_VENUES.has(a.entry.venue) ? 10 : 0) + ((a.entry.year || 2000) - 2000);
-        const bScore = (REC_TOP_VENUES.has(b.entry.venue) ? 10 : 0) + ((b.entry.year || 2000) - 2000);
-        return bScore - aScore;
-      });
+      papersWithIds.sort((a, b) => b.seedScore - a.seedScore);
       const seeds = papersWithIds.slice(0, 5);
 
       function fetchS2Recs(fetchUrl) {
