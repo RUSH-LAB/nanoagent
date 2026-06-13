@@ -160,7 +160,7 @@ const TECH_STACK = [
   { name: 'Docusaurus', detail: 'Static site framework with docs, blog, and pages' },
   { name: 'TipTap', detail: 'Rich-text editor built on ProseMirror' },
   { name: 'Clerk', detail: 'Authentication and user management' },
-  { name: 'Node.js', detail: 'Editor server with 70 API endpoints (no Express)' },
+  { name: 'Node.js', detail: 'Editor server with 90+ API endpoints (no Express)' },
   { name: 'KaTeX', detail: 'Fast LaTeX math rendering' },
   { name: 'Semantic Scholar', detail: 'Academic paper metadata and recommendations' },
 ];
