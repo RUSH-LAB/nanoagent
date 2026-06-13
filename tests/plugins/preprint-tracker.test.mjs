@@ -68,8 +68,10 @@ describe('extractArxivId (preprint-tracker logic)', () => {
   });
 });
 
-// Also test the bibliography plugin's extractArxivId (same logic)
-describe('bibliography extractArxivId', () => {
+// Also smoke-test that the bibliography plugin loads and exposes getPathsToWatch.
+// Note: its own extractArxivId differs from the preprint-tracker logic above —
+// it drops the arXiv version suffix (/abs/([\d.]+)) where preprint-tracker keeps it.
+describe('bibliography plugin', () => {
   const bibliographyPlugin = require('../../plugins/docusaurus-plugin-bibliography');
 
   it('plugin loads without error', () => {
