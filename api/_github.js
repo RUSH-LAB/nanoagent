@@ -121,7 +121,8 @@ async function deleteFile(filePath, sha, message) {
 
 /**
  * List the full file tree of the repo for the configured branch.
- * Returns the array of tree entries from the Git Trees API.
+ * Returns the full Git Trees API response object; access its `tree` property
+ * for the array of entries.
  */
 async function listTree() {
   const { token, repo, branch } = getConfig();
