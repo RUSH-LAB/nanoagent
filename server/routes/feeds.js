@@ -346,7 +346,7 @@ ${recent.map(item => `<item>
           if (tm) title = tm[1];
           content = content.slice(fmMatch[0].length);
         }
-        const slides = content.split(/\n---\n|(?=\n## )/).filter(s => s.trim()).map(s => s.trim());
+        const slides = content.split(/\n---\n|(?=\n## )/).map(s => s.trim()).filter(s => s);
         return {
           title,
           slides: slides.map((text, i) => ({
