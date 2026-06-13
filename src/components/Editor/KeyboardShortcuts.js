@@ -43,7 +43,7 @@ const CATEGORIES = [
   {
     title: 'View',
     shortcuts: [
-      {action: 'Toggle auto-save', keys: ['Toolbar']},
+      {action: 'Toggle auto-save', keys: ['Auto-save button']},
       {action: 'Version history', keys: ['History button']},
       {action: 'Source / Rich toggle', keys: ['Source button']},
       {action: 'Table of Contents', keys: ['TOC button']},
