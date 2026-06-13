@@ -137,13 +137,14 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       if (!channelMessages.find(m => m.id === messageId)) {
         return json(res, 404, {error: 'Message not found in this channel'});
       }
-      if (!data.channels[channelId].pinnedMessages) {
-        data.channels[channelId].pinnedMessages = [];
+      const channel = data.channels[channelId];
+      if (!channel.pinnedMessages) {
+        channel.pinnedMessages = [];
       }
-      if (data.channels[channelId].pinnedMessages.includes(messageId)) {
+      if (channel.pinnedMessages.includes(messageId)) {
         return json(res, 200, {success: true, already: true});
       }
-      data.channels[channelId].pinnedMessages.push(messageId);
+      channel.pinnedMessages.push(messageId);
       saveJSON(DISCUSSIONS_FILE, data);
       return json(res, 200, {success: true});
     } catch {
@@ -163,11 +164,12 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       const body = await readBody(req);
       const {messageId} = body;
       if (!messageId) return json(res, 400, {error: 'Missing messageId'});
-      const pinned = data.channels[channelId].pinnedMessages || [];
+      const channel = data.channels[channelId];
+      const pinned = channel.pinnedMessages || [];
       const idx = pinned.indexOf(messageId);
       if (idx === -1) return json(res, 404, {error: 'Message is not pinned'});
       pinned.splice(idx, 1);
-      data.channels[channelId].pinnedMessages = pinned;
+      channel.pinnedMessages = pinned;
       saveJSON(DISCUSSIONS_FILE, data);
       return json(res, 200, {success: true});
     } catch {
