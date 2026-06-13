@@ -6,6 +6,8 @@
 // ─────────────────────────────────────────────────────────────
 
 const BASE = process.env.API_URL || 'http://localhost:3001';
+// Sample document path exercised across the endpoint tests below.
+const SAMPLE_DOC = 'content/books/math/0-intro.md';
 
 // ── Colors ──
 const GREEN = '\x1b[32m';
@@ -204,7 +206,7 @@ async function testSlides() {
 
   // 9. GET /api/file/slides — verify JSON with slides array
   await test('GET /api/file/slides returns slides array', async () => {
-    const { status, data } = await api('GET', '/api/file/slides?path=content/books/math/0-intro.md');
+    const { status, data } = await api('GET', `/api/file/slides?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(typeof data === 'object', 'response is object');
     assertOk(Array.isArray(data.slides), 'has slides array');
@@ -257,7 +259,7 @@ async function testMindmap() {
 
   // 12. GET /api/file/mindmap — verify {root} tree
   await test('GET /api/file/mindmap returns {root} tree', async () => {
-    const { status, data } = await api('GET', '/api/file/mindmap?path=content/books/math/0-intro.md');
+    const { status, data } = await api('GET', `/api/file/mindmap?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(typeof data === 'object', 'response is object');
     assertOk('root' in data, 'has root field');
@@ -274,7 +276,7 @@ async function testFileQuality() {
 
   // 13. GET /api/file/quality — verify score, breakdown, suggestions
   await test('GET /api/file/quality returns score, breakdown, suggestions', async () => {
-    const { status, data } = await api('GET', '/api/file/quality?path=content/books/math/0-intro.md');
+    const { status, data } = await api('GET', `/api/file/quality?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(typeof data === 'object', 'response is object');
     assertOk('score' in data, 'has score field');
@@ -288,7 +290,7 @@ async function testFileQuality() {
 
   // 14. GET /api/file/quality-score — verify score only
   await test('GET /api/file/quality-score returns score', async () => {
-    const { status, data } = await api('GET', '/api/file/quality-score?path=content/books/math/0-intro.md');
+    const { status, data } = await api('GET', `/api/file/quality-score?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(typeof data === 'object', 'response is object');
     assertOk('score' in data, 'has score field');
@@ -424,7 +426,7 @@ async function testFileTarget() {
   // 22. POST /api/file/target — set word target
   await test('POST /api/file/target sets word target', async () => {
     const { status, data } = await api('POST', '/api/file/target', {
-      path: 'content/books/math/0-intro.md',
+      path: SAMPLE_DOC,
       targetWords: 1000
     });
     assertEq(status, 200, 'status');
@@ -433,7 +435,7 @@ async function testFileTarget() {
 
   // 23. GET /api/file/target — verify target + progress
   await test('GET /api/file/target returns target and progress', async () => {
-    const { status, data } = await api('GET', '/api/file/target?path=content/books/math/0-intro.md');
+    const { status, data } = await api('GET', `/api/file/target?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(typeof data === 'object', 'response is object');
     assertOk('target' in data || 'targetWords' in data, 'has target field');
