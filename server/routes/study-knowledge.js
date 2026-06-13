@@ -296,13 +296,14 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
             if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
             const rel = path.relative(PROJECT_ROOT, fp);
             if (rel === filePath) continue;
-            const pageName = entry.name.replace(/\.(mdx?|md)$/, '').toLowerCase();
+            const baseName = entry.name.replace(/\.(mdx?|md)$/, '');
+            const pageName = baseName.toLowerCase();
             if (existingLinks.has(pageName)) continue;
             if (contentWords.has(pageName) || pageName.split('-').some(w => w.length > 4 && contentWords.has(w))) {
               try {
                 const c = fs.readFileSync(fp, 'utf-8');
                 const fm = c.match(FRONTMATTER_RE);
-                let title = entry.name.replace(/\.(mdx?|md)$/, '');
+                let title = baseName;
                 if (fm) {
                   const tm = fm[1].match(FRONTMATTER_TITLE_RE);
                   if (tm) title = tm[1];
