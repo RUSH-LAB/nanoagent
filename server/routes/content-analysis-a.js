@@ -735,7 +735,11 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     }
   }
 
-  // ── Semantic search with relevance scoring ──
+  // ── /api/search/semantic: lexical (substring) relevance search ──
+  // Despite the route name, this is plain case-insensitive substring matching with
+  // hand-weighted relevance scoring (title match +10, each matching heading +5, body
+  // occurrences capped at +20) — no embeddings, vectors, or semantic retrieval (see
+  // .claude/CONSTRAINTS.md). The /semantic path is kept for caller compatibility.
   if (req.method === 'GET' && pathname === '/api/search/semantic') {
     const query = (url.searchParams.get('q') || '').toLowerCase().trim();
     if (!query) return json(res, 400, {error: 'Missing query'});
