@@ -1179,13 +1179,33 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
         const scores = {};
         for (const k of keys) scores[k] = 1;
         const damping = 0.85;
+        // Each node's total out-weight is loop-invariant: coOccurrences is fully built by scan() above
+        // (there is no await in this thunk) and is only read in the iteration loop below, so compute
+        // each neighbor's total once here instead of re-reducing it on all 20 iterations. Iterate the
+        // actual neighbor keys and memoize per distinct n with an own-property guard, NOT a plain
+        // `for (const n of keys)`: a citation key colliding with an Object.prototype member name (e.g.
+        // "valueOf") passes the `if (refs[k])` truthy gate during scan yet is absent from
+        // Object.keys(refs), so iterating neighbors is what gives such a key its own outTotals entry
+        // and stops `outTotals[n] || 0` from reading an inherited prototype value. Each total uses the
+        // identical Object.values(coOccurrences[n] || {}).reduce(...) over the same never-mutated
+        // objects, so every totalOut, and thus every rank, stays byte identical to the old inline form.
+        const outTotals = {};
+        for (const k of keys) {
+          const nb = coOccurrences[k];
+          if (!nb) continue;
+          for (const n of Object.keys(nb)) {
+            if (!Object.prototype.hasOwnProperty.call(outTotals, n)) {
+              outTotals[n] = Object.values(coOccurrences[n] || {}).reduce((s, v) => s + v, 0);
+            }
+          }
+        }
         for (let iter = 0; iter < 20; iter++) {
           const newScores = {};
           for (const k of keys) {
             let sum = 0;
             const neighbors = coOccurrences[k] || {};
             for (const [n, weight] of Object.entries(neighbors)) {
-              const totalOut = Object.values(coOccurrences[n] || {}).reduce((s, v) => s + v, 0);
+              const totalOut = outTotals[n] || 0;
               if (totalOut > 0) sum += (scores[n] * weight) / totalOut;
             }
             newScores[k] = (1 - damping) + damping * sum;
