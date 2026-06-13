@@ -429,11 +429,15 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         const incomingLinks = new Map();
         for (const link of allLinks) {
           const target = link.target;
-          const found = pageIds.has(target) || pageIdList.some(id => id.endsWith(target) || id.endsWith('/' + target));
+          // `target` is fixed for this link, so the `'/' + target` suffix probe is
+          // loop-invariant across the pageIdList scan. Build it once here instead of
+          // re-concatenating per id inside both the .some and .find callbacks.
+          const slashTarget = '/' + target;
+          const found = pageIds.has(target) || pageIdList.some(id => id.endsWith(target) || id.endsWith(slashTarget));
           if (!found) {
             brokenLinks.push({source: link.source, target, type: link.type || 'wiki'});
           } else {
-            const resolvedTarget = pageIds.has(target) ? target : pageIdList.find(id => id.endsWith(target) || id.endsWith('/' + target));
+            const resolvedTarget = pageIds.has(target) ? target : pageIdList.find(id => id.endsWith(target) || id.endsWith(slashTarget));
             if (resolvedTarget) {
               incomingLinks.set(resolvedTarget, (incomingLinks.get(resolvedTarget) || 0) + 1);
             }
