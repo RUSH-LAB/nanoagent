@@ -447,7 +447,8 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
         for (const ref of data.data) {
           const cited = ref.citedPaper;
           if (!cited || !cited.title) continue;
-          const titleLower = cited.title.toLowerCase().trim();
+          const citedTitle = cited.title;
+          const titleLower = citedTitle.toLowerCase().trim();
           if (existingTitles.has(titleLower)) continue;
 
           if (recMap.has(titleLower)) {
@@ -458,7 +459,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
             }
           } else {
             recMap.set(titleLower, {
-              title: cited.title,
+              title: citedTitle,
               authors: (cited.authors || []).map(a => a.name || a),
               year: cited.year,
               venue: cited.venue || '',
