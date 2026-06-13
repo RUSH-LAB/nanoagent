@@ -880,8 +880,9 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         for (const cites of pageCiteSets) {
           const arr = [...cites].sort();
           for (let i = 0; i < arr.length; i++) {
+            const ai = arr[i];
             for (let j = i + 1; j < arr.length; j++) {
-              const eid = arr[i] + '::' + arr[j];
+              const eid = ai + '::' + arr[j];
               edgeMap[eid] = (edgeMap[eid] || 0) + 1;
             }
           }
