@@ -245,14 +245,16 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
     try {
       const body = await readBody(req);
       const {name, description} = body;
-      if (!name || typeof name !== 'string' || !name.trim()) return json(res, 400, {error: 'Missing name'});
+      if (!name || typeof name !== 'string') return json(res, 400, {error: 'Missing name'});
+      const trimmedName = name.trim();
+      if (!trimmedName) return json(res, 400, {error: 'Missing name'});
       if (name.length > 200) return json(res, 400, {error: 'Name must be 200 characters or fewer'});
       if (description !== undefined && typeof description === 'string' && description.length > 5000) return json(res, 400, {error: 'Description must be 5000 characters or fewer'});
       const data = loadJSON(READING_LISTS_FILE);
       if (!data.lists) data.lists = [];
       const list = {
         id: crypto.randomUUID(),
-        name: sanitizeText(name.trim()),
+        name: sanitizeText(trimmedName),
         description: sanitizeText((description || '').trim()),
         items: [],
         createdAt: new Date().toISOString(),
