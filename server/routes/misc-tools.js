@@ -1593,12 +1593,13 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
       .filter(([, times]) => times.length > 0)
       .map(([ep, times]) => {
         const sorted = [...times].sort((a, b) => a - b);
+        const len = sorted.length;
         const sum = sorted.reduce((s, v) => s + v, 0);
-        const avgMs = Math.round((sum / sorted.length) * 100) / 100;
-        const maxMs = sorted[sorted.length - 1];
-        const p95Idx = Math.min(Math.ceil(sorted.length * 0.95) - 1, sorted.length - 1);
+        const avgMs = Math.round((sum / len) * 100) / 100;
+        const maxMs = sorted[len - 1];
+        const p95Idx = Math.min(Math.ceil(len * 0.95) - 1, len - 1);
         const p95Ms = sorted[p95Idx];
-        return {path: ep, avgMs, maxMs, count: sorted.length, p95Ms};
+        return {path: ep, avgMs, maxMs, count: len, p95Ms};
       })
       .sort((a, b) => b.avgMs - a.avgMs);
     return json(res, 200, {endpoints});
