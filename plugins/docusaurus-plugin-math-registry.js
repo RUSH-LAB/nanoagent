@@ -34,12 +34,9 @@ const KNOWN_TYPES = [
 ];
 
 // Per-chapter types: shared counter for theorem-like, separate counters for Figure/Table/Code/Algorithm.
-// Per-file type: only Equation (dense content needs section-level precision).
-const PER_CHAPTER_TYPES = new Set([
-  'Theorem', 'Lemma', 'Proposition', 'Corollary',
-  'Definition', 'Remark', 'Example',
-  'Figure', 'Table', 'Code', 'Algorithm',
-]);
+// Per-file type: only Equation (dense content needs section-level precision), so it is the sole
+// exclusion. Derived from KNOWN_TYPES so the two lists cannot drift apart.
+const PER_CHAPTER_TYPES = new Set(KNOWN_TYPES.filter(type => type !== 'Equation'));
 
 const THEOREM_LIKE = new Set([
   'Theorem', 'Lemma', 'Proposition', 'Corollary',
