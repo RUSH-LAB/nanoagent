@@ -395,8 +395,9 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
         const suggestions = [];
         for (const tag of existingTags) {
           const tagLower = tag.toLowerCase();
-          if (freq[tagLower] && freq[tagLower] >= 2) {
-            suggestions.push({tag, confidence: Math.min(freq[tagLower] / 5, 1)});
+          const tagFreq = freq[tagLower];
+          if (tagFreq && tagFreq >= 2) {
+            suggestions.push({tag, confidence: Math.min(tagFreq / 5, 1)});
           }
           const hyphenated = tagLower.replace(/-/g, ' ').split(' ');
           if (hyphenated.length > 1 && hyphenated.every(w => freq[w] && freq[w] >= 1)) {
