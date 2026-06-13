@@ -23,7 +23,7 @@ export function applyMatrix(matrix, v) {
   ];
 }
 
-export function Slider({ label, value, onChange, min = -3, max = 3, step = 0.1, width = '120px' }) {
+function Slider({ label, value, onChange, min = -3, max = 3, step = 0.1, width = '120px' }) {
   return (
     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5em', fontSize: '0.9rem' }}>
       <span style={{ fontFamily: 'serif', fontStyle: 'italic', minWidth: '1.5em' }}>{label}</span>
