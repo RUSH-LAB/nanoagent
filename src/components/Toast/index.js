@@ -64,6 +64,3 @@ export default function ToastContainer() {
     </div>
   );
 }
-
-// Re-export the API for convenience
-export {toast} from './toast';
