@@ -442,6 +442,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
         const s2Url = `https://api.semanticscholar.org/graph/v1/paper/${encodeURIComponent(seed.paperId)}/references?fields=title,authors,year,venue,externalIds&limit=5`;
         const data = await fetchS2Recs(s2Url);
         if (!data || !data.data) continue;
+        const seedTitle = seed.entry.title;
 
         for (const ref of data.data) {
           const cited = ref.citedPaper;
@@ -452,8 +453,8 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
           if (recMap.has(titleLower)) {
             const existing = recMap.get(titleLower);
             existing.score += 1;
-            if (!existing.recommendedBy.includes(seed.entry.title)) {
-              existing.recommendedBy.push(seed.entry.title);
+            if (!existing.recommendedBy.includes(seedTitle)) {
+              existing.recommendedBy.push(seedTitle);
             }
           } else {
             recMap.set(titleLower, {
@@ -463,7 +464,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
               venue: cited.venue || '',
               arxivId: cited.externalIds?.ArXiv || null,
               score: 1,
-              recommendedBy: [seed.entry.title],
+              recommendedBy: [seedTitle],
             });
           }
         }
