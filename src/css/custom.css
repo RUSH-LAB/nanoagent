@@ -68,7 +68,6 @@ h2[class*="title_"] a:hover {
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
 }
 
-/* Center equations when navigating to them via anchor links */
 /* Add scroll margin to all divs and KaTeX display blocks (applies site-wide, not only equations) */
 div,
 .katex-display {
