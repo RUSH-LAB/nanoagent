@@ -18,6 +18,7 @@ const yaml = require('js-yaml');
 
 const REFERENCES_PATH = path.join(__dirname, '..', 'bibliography', 'references.yaml');
 const S2_API_BASE = 'https://api.semanticscholar.org/graph/v1/paper';
+const USER_AGENT = 'MochiLab-PreprintTracker/1.0';
 const RATE_LIMIT_MS = 100;
 
 /**
@@ -41,7 +42,7 @@ function extractArxivId(entry) {
  */
 function fetchJson(url) {
   return new Promise((resolve) => {
-    https.get(url, { headers: { 'User-Agent': 'MochiLab-PreprintTracker/1.0' } }, (res) => {
+    https.get(url, { headers: { 'User-Agent': USER_AGENT } }, (res) => {
       if (res.statusCode === 429) {
         console.warn('  [rate-limited] Got 429, skipping...');
         res.resume();
