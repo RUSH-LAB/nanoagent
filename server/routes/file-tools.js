@@ -3,15 +3,7 @@
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
 
-// Parse a numeric query parameter, clamping to `max` and falling back to `def`
-// when the value is absent or non-numeric. Without the fallback a stray
-// `?limit=abc` parses to NaN, and `results.slice(0, NaN)` yields an empty page
-// even when matches exist (the response still reports a positive `total`).
-// Absent and valid numeric values keep their previous behavior.
-function numericParam(raw, def, max) {
-  const n = parseInt(raw, 10);
-  return Math.min(Number.isNaN(n) ? def : n, max);
-}
+const { numericParam } = require('../server-utils');
 
 // Stop words dropped before the GET /api/file/related handler measures word
 // overlap between two files. This set is identical on every request, so it is

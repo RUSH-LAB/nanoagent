@@ -3,15 +3,7 @@
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
 
-// Parse a numeric query parameter, clamping to `max` and falling back to `def`
-// when the value is absent or non-numeric. Without the fallback a stray
-// `?limit=abc` parses to NaN, which silently breaks the slicing and date math
-// downstream (returning the whole list, or throwing on an Invalid Date). Absent
-// and valid numeric values keep their previous behavior.
-function numericParam(raw, def, max) {
-  const n = parseInt(raw, 10);
-  return Math.min(Number.isNaN(n) ? def : n, max);
-}
+const { numericParam } = require('../server-utils');
 
 // Object keys that must never be used as property names (prototype-pollution guard).
 const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);

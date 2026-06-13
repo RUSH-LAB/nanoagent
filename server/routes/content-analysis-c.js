@@ -3,15 +3,7 @@
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
 
-// Parse a numeric query parameter, clamping to `max` and falling back to `def`
-// when the value is absent or non-numeric. Without the fallback a stray
-// `?limit=abc` parses to NaN, `Math.min(NaN, 200)` stays NaN, and the
-// backlink-ranking page collapses to `ranking.slice(0, NaN)` === empty even when
-// matches exist. Absent and valid numeric values keep their previous behavior.
-function numericParam(raw, def, max) {
-  const n = parseInt(raw, 10);
-  return Math.min(Number.isNaN(n) ? def : n, max);
-}
+const { numericParam } = require('../server-utils');
 
 // Wiki-link regex for the GET /api/admin/health-summary link-health scan, compiled
 // once at module load instead of rebuilt on every request. Because this /g regex is

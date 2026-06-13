@@ -3,16 +3,7 @@
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server.js detects a sent response via res.writableEnded.
 
-// Parse a numeric query parameter, clamping to `max` and falling back to `def`
-// when the value is absent or non-numeric. Without the fallback a stray
-// `?limit=abc` parses to NaN: the by-author feed then does `slice(0, NaN)` ===
-// empty, and the search loop's `results.length >= NaN` never trips so it returns
-// an unbounded page. Absent and valid numeric values keep their previous
-// behavior. Mirrors the helper in server/routes/misc-tools.js.
-function numericParam(raw, def, max) {
-  const n = parseInt(raw, 10);
-  return Math.min(Number.isNaN(n) ? def : n, max);
-}
+const { numericParam } = require('../server-utils');
 
 // Single frozen fallback for author-less entries in GET /api/references/by-author.
 // The array is only iterated (never mutated or retained), so one shared instance

@@ -59,6 +59,17 @@ function sanitizeText(str) {
   return str.slice(0, MAX_TEXT_LENGTH);
 }
 
+// Parse a numeric query parameter, clamping to `max` and falling back to `def`
+// when the value is absent or non-numeric. Without the fallback a stray
+// `?limit=abc` parses to NaN, which silently breaks the downstream slicing,
+// ranking, and date math in the route handlers that call this (collapsing a
+// page to empty, returning an unbounded list, or throwing on an Invalid Date).
+// Absent and valid numeric values keep their previous behavior.
+function numericParam(raw, def, max) {
+  const n = parseInt(raw, 10);
+  return Math.min(Number.isNaN(n) ? def : n, max);
+}
+
 function makeRateLimiter() {
   const rateLimits = {};
   function rateLimit(key, maxPerMinute) {
@@ -360,6 +371,7 @@ module.exports = {
   isValidFilePath,
   isValidDir,
   sanitizeText,
+  numericParam,
   makeRateLimiter,
   makeCache,
   makePresenceStore,
