@@ -137,13 +137,14 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
       if (author && author.length > 100) return json(res, 400, {error: 'Author must be 100 characters or fewer'});
       if (!data.messages) data.messages = {};
       if (!data.messages[channelId]) data.messages[channelId] = [];
+      const channelMessages = data.messages[channelId];
       const message = {
         id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         author: sanitizeText(author) || 'Anonymous',
         text: sanitizeText(text),
         createdAt: new Date().toISOString(),
       };
-      data.messages[channelId].push(message);
+      channelMessages.push(message);
       saveJSON(DISCUSSIONS_FILE, data);
       return json(res, 201, {message});
     } catch {
@@ -171,7 +172,8 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
       if (!data.messages || !data.messages[channelId]) {
         return json(res, 404, {error: 'No messages in channel'});
       }
-      const msg = data.messages[channelId].find(m => m.id === messageId);
+      const channelMessages = data.messages[channelId];
+      const msg = channelMessages.find(m => m.id === messageId);
       if (!msg) return json(res, 404, {error: 'Message not found'});
       msg.text = sanitizeText(text);
       msg.editedAt = new Date().toISOString();
@@ -200,9 +202,10 @@ module.exports = async function discussions_routes(req, res, url, pathname, ctx)
       if (!data.messages || !data.messages[channelId]) {
         return json(res, 404, {error: 'No messages in channel'});
       }
-      const idx = data.messages[channelId].findIndex(m => m.id === messageId);
+      const channelMessages = data.messages[channelId];
+      const idx = channelMessages.findIndex(m => m.id === messageId);
       if (idx === -1) return json(res, 404, {error: 'Message not found'});
-      data.messages[channelId].splice(idx, 1);
+      channelMessages.splice(idx, 1);
       saveJSON(DISCUSSIONS_FILE, data);
       return json(res, 200, {success: true});
     } catch {
