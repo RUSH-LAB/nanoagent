@@ -865,13 +865,14 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         // Build nodes from cited references only
         const nodes = [...citedKeys].map(key => {
           const ref = refs[key];
+          const refAuthor = ref?.author;
           return {
             id: key,
             title: ref?.title || key,
             year: ref?.year || null,
-            authors: Array.isArray(ref?.author)
-              ? ref.author.slice(0, 3).join(', ')
-              : (ref?.author || ''),
+            authors: Array.isArray(refAuthor)
+              ? refAuthor.slice(0, 3).join(', ')
+              : (refAuthor || ''),
           };
         });
 
