@@ -13,7 +13,7 @@ const UNKNOWN_AUTHORS = Object.freeze(['Unknown']);
 
 // Memoized parse of bibliography/references.yaml, shared across the eight
 // read-only references handlers. Each of them used to parse the full file (a
-// 251 KB, ~748-entry YAML) on every request; this caches the parsed object and
+// 251 KB, ~1000-entry YAML) on every request; this caches the parsed object and
 // re-reads only when the file changes on disk, keyed on its resolved path,
 // mtimeMs, and size (mirroring the loadJSON cache in server/data-store.js).
 // Tracking size alongside mtime catches a same-millisecond rewrite that mtime
