@@ -573,13 +573,15 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
         pageScores[page].comments = Array.isArray(pageComments) ? pageComments.length : 0;
       }
       for (const b of (bookmarks.bookmarks || [])) {
-        if (!pageScores[b.path]) pageScores[b.path] = {views: 0, comments: 0, bookmarks: 0, readingLists: 0};
-        pageScores[b.path].bookmarks++;
+        const bp = b.path;
+        if (!pageScores[bp]) pageScores[bp] = {views: 0, comments: 0, bookmarks: 0, readingLists: 0};
+        pageScores[bp].bookmarks++;
       }
       for (const list of (readingLists.lists || [])) {
         for (const item of (list.items || [])) {
-          if (!pageScores[item.path]) pageScores[item.path] = {views: 0, comments: 0, bookmarks: 0, readingLists: 0};
-          pageScores[item.path].readingLists++;
+          const ip = item.path;
+          if (!pageScores[ip]) pageScores[ip] = {views: 0, comments: 0, bookmarks: 0, readingLists: 0};
+          pageScores[ip].readingLists++;
         }
       }
       const scored = Object.entries(pageScores).map(([page, data]) => {
