@@ -51,7 +51,6 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
       const streakData = loadJSON(STREAKS_FILE);
       const userLog = (streakData[userId] && streakData[userId].dailyLog) || [];
       const sorted = [...userLog].sort((a, b) => a.date.localeCompare(b.date));
-      const today = new Date().toISOString().slice(0, 10);
       // Fold the 7 and 30 day windows into a single pass over `sorted`. The two
       // cutoff date strings are computed once here, where the old `.filter`
       // callbacks rebuilt them per element. Each entry updates whichever windows
