@@ -31,9 +31,8 @@ function NavbarItems({items}: {items: NavbarItemConfig[]}): ReactNode {
   return (
     <>
       {items.map((item, i) => {
-        const badgeType = (item as any).label
-          ? BADGED_ITEMS[(item as any).label]
-          : undefined;
+        const label = (item as any).label;
+        const badgeType = label ? BADGED_ITEMS[label] : undefined;
         return (
           <ErrorCauseBoundary
             key={i}
