@@ -2,8 +2,9 @@
  * remark-cite: A remark plugin for academic citations in Docusaurus.
  *
  * Syntax: [@key] or [@key1; @key2] in markdown text nodes.
- * Renders inline as "(Author et al., Year)" linking to #ref-key,
- * and appends a "References" section listing only cited works.
+ * Renders inline as "(Author et al., Year)", each key linking to its own
+ * #ref-key anchor and multiple keys joined by "; " in one set of parentheses.
+ * Appends a "References" section listing only cited works.
  *
  * Must run AFTER remark-math so math expressions are already parsed out.
  */
