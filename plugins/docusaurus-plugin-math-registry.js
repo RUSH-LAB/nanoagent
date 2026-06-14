@@ -246,7 +246,7 @@ module.exports = function mathRegistryPlugin(_context, opts = {}) {
               chapterCounters[chapter][key] = (chapterCounters[chapter][key] || 0) + 1;
               displayNumber = `${chapter}.${chapterCounters[chapter][key]}`;
             } else {
-              // Equation: per-file counter → chapter.section.N
+              // Equation: per-file counter → prefix.N
               fileCounters[type] = (fileCounters[type] || 0) + 1;
               displayNumber = `${prefix}.${fileCounters[type]}`;
             }
