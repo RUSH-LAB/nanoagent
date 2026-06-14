@@ -6,8 +6,9 @@
  * once there are more than three.
  *
  * Named distinctly from the divergent `formatAuthors` helpers elsewhere in the
- * codebase (CitationGraph, CitationAutocomplete, PaperRecommendations, and the
- * content-search page), which intentionally format author lists in other ways.
+ * codebase (CitationGraph, CitationAutocomplete, PaperRecommendations) and the
+ * inline author formatting on the content-search page, which intentionally
+ * format author lists in other ways.
  *
  * @param {string[]} authors  List of author names.
  * @returns {string}  The formatted author list.
