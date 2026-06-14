@@ -64,7 +64,7 @@ function cacheGet(key) {
 
 // Install an entry, refresh recency, and evict the oldest beyond the bound.
 function cacheSet(key, mtimeMs, size, data) {
-  if (cache.has(key)) cache.delete(key);
+  cache.delete(key);
   cache.set(key, {mtimeMs, size, data});
   while (cache.size > MAX_CACHE_ENTRIES) {
     cache.delete(cache.keys().next().value);
