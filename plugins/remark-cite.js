@@ -62,7 +62,8 @@ function formatReference(key, entry) {
 
 /**
  * Process a single text node, splitting it into text + citation link nodes.
- * Returns an array of nodes to replace the original text node.
+ * Returns an array of nodes to replace the original text node, or null if no
+ * citations were found.
  */
 function processTextNode(node, citedKeys, file, bibliography) {
   const text = node.value;
