@@ -10,7 +10,7 @@ function wordCount(text) {
 }
 
 function diffLines(linesA, linesB) {
-  // Simple line-by-line comparison producing a merged diff view
+  // Simple line-by-line comparison producing a side-by-side diff view
   // Uses a basic LCS approach for small files, falls back to line-by-line for large ones
   const result = [];
   const maxLen = Math.max(linesA.length, linesB.length);
