@@ -14,15 +14,47 @@ const path = require('path');
 const yaml = require('js-yaml');
 const { applyTextReplacements } = require('./remark-visit-text');
 
-// Reload references.yaml on every call so the dev server picks up new entries
-// without needing a restart. references.yaml is large (~250KB), so this re-reads
-// and parses the whole file once per content file at build time.
+// references.yaml is large (~250KB) and remarkCite() loads it once per content
+// file, so a build with ~300 content files used to re-read and re-parse the
+// whole file ~300 times. Cache the parsed object keyed on the file's mtimeMs
+// and size: the first call reads and parses, later calls reuse the stored parse
+// while the file is unchanged on disk. The dev server still picks up new entries
+// without a restart because any edit changes the mtime (and size), which misses
+// the cache and forces a fresh read and parse. Tracking size alongside mtime
+// also catches a same-millisecond rewrite that mtime alone would miss. Mirrors
+// loadReferencesCached (server/routes/references.js) and loadJSON
+// (server/data-store.js).
+//
+// The stat is best effort: if statSync throws (a missing file, or a test that
+// stubs an fs without it) the cache is skipped and the read below still runs,
+// preserving the exact fallback for a missing or broken file (console.warn then
+// return {}). remark-cite only reads bibliography[key] and never mutates it, so
+// the shared cached object is returned directly with no defensive deep copy.
 const bibPath = path.resolve(__dirname, '..', 'bibliography', 'references.yaml');
+let bibCache = null; // {mtimeMs, size, data} or null when uncached
+
 function loadBibliography() {
+  let stat = null;
   try {
-    return yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
+    stat = fs.statSync(bibPath);
+  } catch {
+    stat = null;
+  }
+  if (
+    stat &&
+    bibCache &&
+    bibCache.mtimeMs === stat.mtimeMs &&
+    bibCache.size === stat.size
+  ) {
+    return bibCache.data;
+  }
+  try {
+    const data = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
+    bibCache = stat ? { mtimeMs: stat.mtimeMs, size: stat.size, data } : null;
+    return data;
   } catch (err) {
     console.warn(`[remark-cite] Could not load ${bibPath}: ${err.message}`);
+    bibCache = null;
     return {};
   }
 }
