@@ -71,16 +71,21 @@ function toRoutePath(relPath, routeBase) {
 /**
  * Get the sort position for a file from its frontmatter sidebar_position
  * or numeric prefix in the filename.
+ *
+ * Returns { position, raw } where `raw` is the file text read once here, so the
+ * tag-scan phase in loadContent can reuse it instead of reading the same file a
+ * second time. `raw` is null when the read failed; loadContent then reads as before.
  */
 function getFilePosition(filePath) {
+  let raw = null;
   try {
-    const raw = fs.readFileSync(filePath, 'utf8');
+    raw = fs.readFileSync(filePath, 'utf8');
     const { data } = matter(raw);
-    if (data.sidebar_position != null) return data.sidebar_position;
+    if (data.sidebar_position != null) return { position: data.sidebar_position, raw };
   } catch { /* ignore */ }
   const basename = path.basename(filePath);
   const match = basename.match(/^(\d+)/);
-  return match ? parseInt(match[1], 10) : 999;
+  return { position: match ? parseInt(match[1], 10) : 999, raw };
 }
 
 /**
@@ -123,11 +128,15 @@ function readSortedItems(dir) {
     } else if (/\.mdx?$/.test(entry.name)) {
       // Skip index files — they represent the folder itself, not a numbered child
       if (/^index\.mdx?$/.test(entry.name)) continue;
+      // getFilePosition reads the file once; carry its raw text so loadContent's
+      // tag scan can reuse it instead of reading the same file again.
+      const { position, raw } = getFilePosition(fullPath);
       items.push({
         name: entry.name,
         type: 'file',
-        position: getFilePosition(fullPath),
+        position,
         path: fullPath,
+        raw,
       });
     }
   }
@@ -170,7 +179,9 @@ function buildHierarchy(contentDir, routeBase) {
       if (item.type === 'file') {
         const relPath = path.relative(contentDir, item.path);
         const page = toRoutePath(relPath, routeBase);
-        result.push({ filePath: item.path, prefix, chapter: chap, page });
+        // Carry the raw text already read by getFilePosition (null only if that read
+        // failed); the folder index files below carry no raw and are read in loadContent.
+        result.push({ filePath: item.path, prefix, chapter: chap, page, raw: item.raw });
       } else {
         // Folder: first register its index.md (if any) with the folder's prefix
         const indexFile = findIndexFile(item.path);
@@ -219,8 +230,10 @@ module.exports = function mathRegistryPlugin(_context, opts = {}) {
         // These span all files within a chapter → "chapter.N" numbering.
         const chapterCounters = {}; // { chapterNum: { _theoremLike: N, Figure: N, ... } }
 
-        for (const { filePath, prefix, chapter, page } of hierarchy) {
-          const raw = fs.readFileSync(filePath, 'utf8');
+        for (const { filePath, prefix, chapter, page, raw: carriedRaw } of hierarchy) {
+          // Reuse the text getFilePosition already read for non-index files; index
+          // files (and any whose earlier read failed) carry no raw, so read them here.
+          const raw = typeof carriedRaw === 'string' ? carriedRaw : fs.readFileSync(filePath, 'utf8');
 
           // Per-file counter for Equation only → "prefix.N" (dense, needs section precision)
           const fileCounters = {};
