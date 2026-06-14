@@ -244,7 +244,7 @@ async function testContentAnalysis() {
   });
 
   await test('GET /api/content-recommend-v2 returns recommendations (needs path)', async () => {
-    const {status, data} = await api('GET', `/api/content-recommend-v2?path=${encodeURIComponent(TEST_FILE_PATH)}`);
+    const {status} = await api('GET', `/api/content-recommend-v2?path=${encodeURIComponent(TEST_FILE_PATH)}`);
     assertOk(status === 200 || status === 400, 'status is 200 or 400');
   });
 
@@ -1121,7 +1121,7 @@ async function testQuickNote() {
     assertEq(status, 400, 'status');
   });
   await test('GET /api/quicknote lists quick notes', async () => {
-    const {status, data} = await api('GET', '/api/quicknote');
+    const {status} = await api('GET', '/api/quicknote');
     assertOk(status === 200 || status === 404, `status is ${status}`);
   });
 }
