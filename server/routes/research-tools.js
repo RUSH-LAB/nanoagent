@@ -778,11 +778,10 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       const lines = [];
       for (const [key, entry] of Object.entries(refs)) {
         const authors = (entry.author || []).join(' and ');
-        const type = entry.type || 'misc';
         // The BibTeX entry type is the reference type verbatim; recognized types
         // (article, inproceedings, book) and unknown ones alike pass through, and
-        // a missing type already defaulted to 'misc' above.
-        const bibtexType = type;
+        // a missing type defaults to 'misc'.
+        const bibtexType = entry.type || 'misc';
         const fields = [];
         fields.push(`  title = {${cleanBibtexValue(entry.title || '')}}`);
         if (authors) fields.push(`  author = {${cleanBibtexValue(authors)}}`);
