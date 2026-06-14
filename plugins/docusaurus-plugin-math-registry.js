@@ -159,9 +159,11 @@ function findIndexFile(dir) {
 /**
  * Build a flat list of files with their hierarchical prefix and chapter number.
  * Recurses to arbitrary depth. index.md/index.mdx in a folder gets the folder's own prefix.
- * Returns: [{ filePath, prefix: "2.1", chapter: 1, page }]
+ * Returns: [{ filePath, prefix: "2.1", chapter: 1, page, raw }]
  *
  * "chapter" is always the top-level number (depth-1), used for per-chapter counters.
+ * "raw" is the text getFilePosition already read for non-index files (null if that
+ * read failed, absent for folder index files, which loadContent reads itself).
  */
 function buildHierarchy(contentDir, routeBase) {
   const result = [];
