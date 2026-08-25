@@ -405,9 +405,13 @@ export async function invoke(routes, opts = {}) {
     ctx.readRawBody = async () => Buffer.from(typeof body === 'string' ? body : JSON.stringify(body ?? ''));
   }
 
+  // ctx.calls.json accumulates across every invoke sharing this ctx, which the
+  // cache tests deliberately do, so snapshot the length first and report only
+  // the replies this call produced.
+  const before = ctx.calls.json.length;
   await routes(req, res, url, pathname, ctx);
 
-  const replies = ctx.calls.json;
+  const replies = ctx.calls.json.slice(before);
   const first = replies[0];
   return {
     status: first?.status,
