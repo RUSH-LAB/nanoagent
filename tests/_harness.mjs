@@ -150,6 +150,10 @@ export function mockFs(tree = {}, overrides = {}) {
       throw enoent(p);
     },
     mkdirSync(p) { dirs.add(p); },
+    rmdirSync(p) {
+      if (!isDir(p)) throw enoent(p);
+      dirs.delete(p);
+    },
     rmSync(p) {
       files.delete(p);
       for (const k of [...files.keys()]) if (k.startsWith(p + nodePath.sep)) files.delete(k);
