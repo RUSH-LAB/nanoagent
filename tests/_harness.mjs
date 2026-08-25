@@ -367,7 +367,24 @@ export async function invoke(routes, opts = {}) {
       })();
 
   const url = new URL(`http://localhost:3001${pathname}${search}`);
-  const res = {writableEnded: false, statusCode: 200};
+  // A few handlers (the RSS and Atom feeds, file downloads) stream a non-JSON
+  // body straight through writeHead/end instead of calling json(). Record those
+  // on res.written so a test can assert the status, headers and body.
+  const res = {
+    writableEnded: false,
+    statusCode: 200,
+    written: null,
+    writeHead(status, respHeaders) {
+      this.statusCode = status;
+      this.written = {status, headers: respHeaders, body: undefined};
+      return this;
+    },
+    end(body) {
+      if (this.written) this.written.body = body;
+      this.writableEnded = true;
+      return this;
+    },
+  };
   const req = {method, url: pathname + search, headers, socket: {remoteAddress: '127.0.0.1'}};
   res.req = req;
 
@@ -392,6 +409,7 @@ export async function invoke(routes, opts = {}) {
     status: first?.status,
     payload: first?.payload,
     replies,
+    written: res.written,
     ctx,
     res,
     req,
