@@ -16,7 +16,7 @@ const require = createRequire(import.meta.url);
 const routes = require('../../../../../server/routes/content-analysis-c.js');
 
 const PROJECT_ROOT = '/proj';
-const REFS_PATH = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+const REFS_PATH = path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml');
 const CONTENT_DIR = path.join(PROJECT_ROOT, 'content');
 const INTRO_PATH = path.join(CONTENT_DIR, 'intro.md');
 const METHODS_PATH = path.join(CONTENT_DIR, 'sub', 'methods.md');

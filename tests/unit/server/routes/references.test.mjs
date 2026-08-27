@@ -18,7 +18,7 @@ import {loadRoute, makeCtx, invoke, mockFs, PROJECT_ROOT} from '../../_harness.m
 const routes = loadRoute('references');
 const {numericParam, loadReferencesCached, buildCitation, _resetReferencesCache} = routes;
 const at = rel => path.join(PROJECT_ROOT, rel);
-const BIB = at('bibliography/references.yaml');
+const BIB = at('content/bibliography/references.yaml');
 
 function fsCtx(files, over = {}) {
   const base = mockFs(files);

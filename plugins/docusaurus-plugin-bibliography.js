@@ -81,7 +81,7 @@ function extractArxivId(url) {
 
 module.exports = function bibliographyPlugin() {
   const projectDir = path.resolve(__dirname, '..');
-  const bibPath = path.join(projectDir, 'bibliography', 'references.yaml');
+  const bibPath = path.join(projectDir, 'content', 'bibliography', 'references.yaml');
   const notesDir = path.join(projectDir, 'notes');
   const rawDir = path.join(projectDir, 'raw', 'bibliography');
 

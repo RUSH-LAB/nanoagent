@@ -22,9 +22,9 @@ const PROJECT_ROOT = '/proj';
 // Data-file constants handed to each handler through ctx. The mocked loadJSON
 // answers only for the matching path, so a stray read surfaces as a thrown error
 // instead of silently passing; the handler and the mock agree on each store path.
-const SNAPSHOTS_FILE = path.join(PROJECT_ROOT, 'data', 'snapshots.json');
-const WHITEBOARDS_FILE = path.join(PROJECT_ROOT, 'data', 'whiteboards.json');
-const GOALS_FILE = path.join(PROJECT_ROOT, 'data', 'goals.json');
+const SNAPSHOTS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'snapshots.json');
+const WHITEBOARDS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'whiteboards.json');
+const GOALS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'goals.json');
 
 // Drive POST /api/snapshots (create) over a mocked ctx. rateLimit records each
 // call (key and limit) and returns the per-call toggle; readBody returns the

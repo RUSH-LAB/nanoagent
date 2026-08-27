@@ -13,7 +13,7 @@ const require = createRequire(import.meta.url);
 const miscToolsRoutes = require('../../../../../server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/fake/root';
-const REFS_PATH = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+const REFS_PATH = path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml');
 const CONTENT_DIR = path.join(PROJECT_ROOT, 'content');
 
 // An fs mock: readFileSync serves `refsYaml` for references.yaml and the `pages`

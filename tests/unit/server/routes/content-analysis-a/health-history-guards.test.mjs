@@ -16,7 +16,7 @@ const routes = require('../../../../../server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/fake/root';
 // The history file path the handler builds from ctx.path + ctx.PROJECT_ROOT.
-const HISTORY_FILE = path.join(PROJECT_ROOT, 'data', 'health-history.json');
+const HISTORY_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'health-history.json');
 
 // Drive the /api/health-history handler with a mocked ctx and capture both the
 // json(res, status, payload) response and the list of saveJSON(file, data) calls.

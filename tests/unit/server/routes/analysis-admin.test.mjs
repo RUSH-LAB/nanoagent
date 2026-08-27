@@ -16,8 +16,8 @@ import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_ha
 const routes = loadRoute('analysis-admin');
 const {STREAKS_FILE, ANNOTATIONS_FILE, ANALYTICS_FILE, COMMENTS_FILE, DISCUSSIONS_FILE} = FILES;
 const at = rel => path.join(PROJECT_ROOT, rel);
-const BIB = at('bibliography/references.yaml');
-const TRASH_DIR = at('.trash');
+const BIB = at('content/bibliography/references.yaml');
+const TRASH_DIR = at('var/trash');
 
 const PROTO_KEYS = ['__proto__', 'constructor', 'prototype'];
 const INHERITED_KEYS = ['toString', 'valueOf', 'hasOwnProperty'];
@@ -1001,7 +1001,7 @@ describe('GET /api/dashboard', () => {
     [at('content/.hidden.md')]: 'ignored',
     [at('content/notes.txt')]: 'ignored',
     [BIB]: bib({r1: {title: 'R1'}, r2: {title: 'R2'}}),
-    [at('data/comments.json')]: '{}',
+    [at('var/data/comments.json')]: '{}',
     [at('tests/one.test.mjs')]: "it('a', () => {}); it('b', () => {}); test('c', () => {});",
   };
   const STORE = {
@@ -1054,7 +1054,7 @@ describe('GET /api/dashboard', () => {
   });
 
   it('flags the integrity check when a data JSON file is corrupt', async () => {
-    const {ctx} = fsCtx({...TREE, [at('data/broken.json')]: '{not json'}, {store: STORE, _routeDiagnostics: DIAG});
+    const {ctx} = fsCtx({...TREE, [at('var/data/broken.json')]: '{not json'}, {store: STORE, _routeDiagnostics: DIAG});
     const r = await invoke(routes, {path: '/api/dashboard', ctx});
     assert.equal(r.payload.health.integrity, 'issues');
   });

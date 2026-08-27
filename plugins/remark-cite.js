@@ -30,7 +30,7 @@ const { applyTextReplacements } = require('./remark-visit-text');
 // preserving the exact fallback for a missing or broken file (console.warn then
 // return {}). remark-cite only reads bibliography[key] and never mutates it, so
 // the shared cached object is returned directly with no defensive deep copy.
-const bibPath = path.resolve(__dirname, '..', 'bibliography', 'references.yaml');
+const bibPath = path.resolve(__dirname, '..', 'content', 'bibliography', 'references.yaml');
 let bibCache = null; // {mtimeMs, size, data} or null when uncached
 
 function loadBibliography() {

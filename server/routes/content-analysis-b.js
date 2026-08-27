@@ -4,6 +4,7 @@
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 
 const { numericParam } = require('../server-utils');
+const {REFERENCES_SEGS, dataFileSegs} = require('../paths');
 
 // Stop-word sets for the keyword-overlap scoring in GET /api/content-recommend
 // and GET /api/content-similar, built once at module load instead of rebuilt on
@@ -94,7 +95,7 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
     try {
       const analytics = cached('bib-analytics', 60000, () => {
         const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
         const entries = Object.values(refs);
         const years = entries.map(e => e.year).filter(Boolean);
         const avgYear = years.length > 0 ? Math.round(years.reduce((s, y) => s + y, 0) / years.length) : 0;
@@ -188,7 +189,7 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
       // catch and the 500 is never cached (cached stores nothing when fn throws).
       const result = cached('reading-order', 60000, () => {
         const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
         const contentDir = path.join(PROJECT_ROOT, 'content');
         const citesBefore = {};
         function scan(dir) {
@@ -521,7 +522,7 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
       // on every request. Mirrors the sibling cached('bib-analytics', 60000, ...).
       const result = cached('references-duplicates', 60000, () => {
         const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
         const titleMap = {};
         for (const [key, entry] of Object.entries(refs)) {
           const normTitle = (entry.title || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
@@ -552,7 +553,7 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
     try {
       const coverage = cached('content-coverage', 120000, () => {
         const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
         const contentDir = path.join(PROJECT_ROOT, 'content');
         const venueTopics = {};
         for (const entry of Object.values(refs)) {
@@ -635,7 +636,7 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
   if (req.method === 'GET' && pathname === '/api/content-recommend') {
     const userId = url.searchParams.get('userId') || 'default';
     try {
-      const PROGRESS_FILE = path.join(PROJECT_ROOT, 'data', 'reading-progress.json');
+      const PROGRESS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('reading-progress'));
       const progressData = loadJSON(PROGRESS_FILE);
       const readPages = new Set(Object.keys(progressData[userId] || {}));
       const bookmarks = loadJSON(BOOKMARKS_FILE);
@@ -693,7 +694,7 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
       // catch and the 500 is never cached (cached stores nothing when fn throws).
       const result = cached('references-completeness', 60000, () => {
         const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
         const FIELDS = ['title', 'author', 'year', 'venue', 'doi', 'url'];
         const results = [];
         // Per-field present-count, accumulated once during the entry loop below so
@@ -798,7 +799,7 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
     try {
       const trending = cached('ref-trending', 60000, () => {
         const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
         const contentDir = path.join(PROJECT_ROOT, 'content');
         const CITE_RE = /\[@([\w-]+)/g;
         const citeCounts = {};

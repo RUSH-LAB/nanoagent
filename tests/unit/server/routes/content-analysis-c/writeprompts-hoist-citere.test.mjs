@@ -56,8 +56,8 @@ let root;
 
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'writeprompts-hoist-citere-'));
-  fs.mkdirSync(path.join(root, 'bibliography'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'bibliography', 'references.yaml'), REFERENCES_YAML, 'utf-8');
+  fs.mkdirSync(path.join(root, 'content', 'bibliography'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'content', 'bibliography', 'references.yaml'), REFERENCES_YAML, 'utf-8');
   for (const [rel, body] of Object.entries(CONTENT)) {
     const full = path.join(root, 'content', rel);
     fs.mkdirSync(path.dirname(full), { recursive: true });

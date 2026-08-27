@@ -3,6 +3,8 @@
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 
+const {REFERENCES_SEGS} = require('../paths');
+
 // YAML front-matter delimiter pattern for GET /api/files/search, compiled once
 // at module load instead of rebuilt for every matched file on each request. It
 // has no /g flag and is used with String.prototype.match, so it carries no
@@ -76,7 +78,7 @@ module.exports = async function files_routes(req, res, url, pathname, ctx) {
     }
   }
 
-  // ── Delete file (move to .trash/) ──
+  // ── Delete file (move to the trash directory) ──
   if (req.method === 'DELETE' && pathname === '/api/file') {
     if (!rateLimit(`file-delete:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     const filePath = url.searchParams.get('path');
@@ -193,7 +195,7 @@ module.exports = async function files_routes(req, res, url, pathname, ctx) {
           if (entry.isDirectory()) countDir(path.join(contentDir, entry.name), entry.name);
         }
         const yaml = require('js-yaml');
-        const bibPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+        const bibPath = path.join(PROJECT_ROOT, ...REFERENCES_SEGS);
         let refCount = 0;
         try { refCount = Object.keys(yaml.load(fs.readFileSync(bibPath, 'utf8')) || {}).length; } catch {}
         return {totalFiles, totalWords, references: refCount, byDirectory: byDir};

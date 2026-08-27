@@ -20,12 +20,12 @@ const ANNOTATIONS_FILE = 'annotations';
 // The sibling success suites (projection, guard, negative-limit-clamp) drive the
 // handler with this ctx shape: the node path module, the data-file path tokens,
 // and a loadJSON that dispatches on the file token. The reviews source path is
-// computed inside the handler as path.join(PROJECT_ROOT, 'data', 'reviews.json'),
+// computed inside the handler as path.join(PROJECT_ROOT, 'var', 'data', 'reviews.json'),
 // so the dispatcher keys the reviews fixture off that exact resolved path. With
 // throwOnLoad set, loadJSON throws on its very first call (the comments load, the
 // first failable step inside the try), sending the handler into the outer catch.
 function makeCtx({ comments = {}, discussions = {}, annotations = {}, reviews = {}, throwOnLoad = false } = {}) {
-  const REVIEWS_FILE = path.join(PROJECT_ROOT, 'data', 'reviews.json');
+  const REVIEWS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'reviews.json');
   const calls = { loadJSON: [] };
   const ctx = {
     path,

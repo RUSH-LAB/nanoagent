@@ -36,6 +36,7 @@ const yaml = require('js-yaml');
 const bibPath = path.resolve(
   path.dirname(require.resolve('../../../../plugins/remark-cite')),
   '..',
+  'content',
   'bibliography',
   'references.yaml',
 );

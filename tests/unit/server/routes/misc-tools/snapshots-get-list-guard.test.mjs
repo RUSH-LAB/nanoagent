@@ -19,11 +19,11 @@ const routes = require('../../../../../server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
 // The handler loads the snapshot store at this path, mirroring server/index.js
-// (path.join(PROJECT_ROOT, 'data', 'snapshots.json')). The mocked loadJSON
+// (path.join(PROJECT_ROOT, 'var', 'data', 'snapshots.json')). The mocked loadJSON
 // answers only for this exact path, so a stray read surfaces as a thrown error
 // instead of silently passing; the same constant is handed to the handler
 // through ctx, so the handler and the mock agree on the store path.
-const SNAPSHOTS_FILE = path.join(PROJECT_ROOT, 'data', 'snapshots.json');
+const SNAPSHOTS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'snapshots.json');
 
 // Drive GET /api/snapshots over a mocked ctx. The handler reads the requested
 // path from url.searchParams.get('path'), validates it, loads the store, and

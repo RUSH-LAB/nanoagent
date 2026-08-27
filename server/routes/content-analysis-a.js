@@ -38,6 +38,7 @@ const READING_PATH_WIKI_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 // stat and read both throw) yields {}, so every call site's `... || {}` fallback
 // and the 200-empty-on-broken-yaml behavior are preserved.
 const { loadReferencesCached } = require('./references');
+const {REFERENCES_SEGS, dataFileSegs} = require('../paths');
 
 module.exports = async function content_analysis_a_routes(req, res, url, pathname, ctx) {
   const {
@@ -370,7 +371,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
       if (typeof score !== 'number' || !isFinite(score)) return json(res, 400, {error: 'Missing or invalid score'});
       if (score < 0 || score > 100) return json(res, 400, {error: 'Score must be between 0 and 100'});
       if (details !== undefined && (typeof details !== 'object' || details === null || Array.isArray(details))) return json(res, 400, {error: 'details must be an object'});
-      const HISTORY_FILE = path.join(PROJECT_ROOT, 'data', 'health-history.json');
+      const HISTORY_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('health-history'));
       const data = loadJSON(HISTORY_FILE);
       if (!data.entries) data.entries = [];
       data.entries.push({score, details: details || {}, date: new Date().toISOString()});
@@ -383,7 +384,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
   }
 
   if (req.method === 'GET' && pathname === '/api/health-history') {
-    const HISTORY_FILE = path.join(PROJECT_ROOT, 'data', 'health-history.json');
+    const HISTORY_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('health-history'));
     const data = loadJSON(HISTORY_FILE);
     const entries = (data.entries || []).slice(-90);
     const trend = entries.length >= 2 ? (entries[entries.length - 1].score - entries[0].score) : 0;
@@ -419,7 +420,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
           }
         }
       }
-      const REVIEWS_FILE = path.join(PROJECT_ROOT, 'data', 'reviews.json');
+      const REVIEWS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('reviews'));
       const reviewData = loadJSON(REVIEWS_FILE);
       for (const r of (reviewData.reviews || [])) {
         events.push({type: 'review', path: r.path, author: r.requestedBy, status: r.status, timestamp: r.createdAt});
@@ -509,7 +510,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
   // ── Search analytics ──
   if (req.method === 'GET' && pathname === '/api/search/analytics') {
     try {
-      const HISTORY_FILE = path.join(PROJECT_ROOT, 'data', 'search-history.json');
+      const HISTORY_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('search-history'));
       const data = loadJSON(HISTORY_FILE);
       const searches = data.searches || [];
       const queryCounts = {};
@@ -1155,7 +1156,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
     try {
       const ranks = cached('ref-pagerank', 120000, () => {
         const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
         const contentDir = path.join(PROJECT_ROOT, 'content');
         const CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
         const coOccurrences = {};

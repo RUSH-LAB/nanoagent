@@ -22,11 +22,11 @@ const routes = require('../../../../../server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
 // The handler reads the per-file word-count targets from this path, mirroring
-// server/index.js (path.join(PROJECT_ROOT, 'data', 'targets.json')). The mocked
+// server/index.js (path.join(PROJECT_ROOT, 'var', 'data', 'targets.json')). The mocked
 // loadJSON answers only for this exact path, so a stray read on a guard branch
 // surfaces as a thrown error instead of silently passing; the same constant is
 // handed to the handler through ctx, so the guard and the handler agree on it.
-const TARGETS_FILE = path.join(PROJECT_ROOT, 'data', 'targets.json');
+const TARGETS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'targets.json');
 
 // Drive GET /api/file/target over a mocked ctx. isValidFilePath is a per-call
 // toggle that records every path it is asked about; fs.existsSync and

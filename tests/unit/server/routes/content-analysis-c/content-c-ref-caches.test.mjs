@@ -16,7 +16,7 @@ const require = createRequire(import.meta.url);
 const routes = require('../../../../../server/routes/content-analysis-c.js');
 
 const PROJECT_ROOT = '/proj';
-const REFS_PATH = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+const REFS_PATH = path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml');
 
 // A tiny bibliography whose document order (smith2020, jones2019, white2021) is the
 // iteration order of Object.entries / Object.values, so every score, sort, and Set

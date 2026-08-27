@@ -12,7 +12,7 @@ const miscToolsRoutes = require('../../../../../server/routes/misc-tools.js');
 const { _resetReferencesCache } = require('../../../../../server/routes/references.js');
 
 const PROJECT_ROOT = '/fake/root';
-const REFS_PATH = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+const REFS_PATH = path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml');
 
 // Two-entry bibliography. For the query "attention transformer" only the first
 // entry matches (its title carries "attention"); the second overlaps no keyword,

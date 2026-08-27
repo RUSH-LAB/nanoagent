@@ -26,7 +26,7 @@ import nodePath from 'node:path';
 // genuinely-invalid YAML, is swallowed to {}; JSON.stringify({}) succeeds and the
 // handler STREAMS a 200. The reliable 500 seam is therefore a LOADER-LEVEL throw:
 // loadReferencesCached's first statement,
-// `path.join(projectRoot, 'bibliography', 'references.yaml')` (references.js:34), is
+// `path.join(projectRoot, 'content', 'bibliography', 'references.yaml')` (references.js:34), is
 // the one op outside the loader's internal try/catch, so a throwing path.join escapes
 // the loader and lands in this handler's outer catch.
 const require = createRequire(import.meta.url);

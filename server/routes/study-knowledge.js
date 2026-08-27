@@ -3,6 +3,8 @@
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 
+const {REFERENCES_SEGS, dataFileSegs} = require('../paths');
+
 // Shared YAML front-matter matcher for the leading `---` block of a content
 // file. It is non-global and used only with String.prototype.match, so it
 // holds no lastIndex state and one shared instance is safe across handlers.
@@ -174,7 +176,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       // re-reads cleanly and falls through to the unchanged 404 below.
       if (Object.keys(refs).length === 0) {
         const yaml = require('js-yaml');
-        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8'));
+        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8'));
       }
       if (!refs[key]) return json(res, 404, {error: 'Reference not found'});
       // Cache the per-key content scan so repeated requests for the same citation
@@ -340,7 +342,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       // re-reads cleanly and falls through to the unchanged 404 below.
       if (Object.keys(refs).length === 0) {
         const yaml = require('js-yaml');
-        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8'));
+        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8'));
       }
       const paper1 = refs[key1];
       const paper2 = refs[key2];
@@ -478,7 +480,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
 
   // ── Research question tracking ──
   if (req.method === 'GET' && pathname === '/api/research-questions') {
-    const RQ_FILE = path.join(PROJECT_ROOT, 'data', 'research-questions.json');
+    const RQ_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('research-questions'));
     const data = loadJSON(RQ_FILE);
     const status = url.searchParams.get('status');
     let questions = data.questions || [];
@@ -494,7 +496,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       if (!question || typeof question !== 'string') return json(res, 400, {error: 'Missing or invalid question'});
       if (question.length > 5000) return json(res, 400, {error: 'Question must be 5000 characters or fewer'});
       if (context !== undefined && typeof context === 'string' && context.length > 5000) return json(res, 400, {error: 'Context must be 5000 characters or fewer'});
-      const RQ_FILE = path.join(PROJECT_ROOT, 'data', 'research-questions.json');
+      const RQ_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('research-questions'));
       const data = loadJSON(RQ_FILE);
       if (!data.questions) data.questions = [];
       const rq = {
@@ -521,7 +523,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       const {id, status: newStatus, answer} = body;
       if (!id || typeof id !== 'string') return json(res, 400, {error: 'Missing or invalid id'});
       if (answer !== undefined && typeof answer === 'string' && answer.length > 5000) return json(res, 400, {error: 'Answer must be 5000 characters or fewer'});
-      const RQ_FILE = path.join(PROJECT_ROOT, 'data', 'research-questions.json');
+      const RQ_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('research-questions'));
       const data = loadJSON(RQ_FILE);
       const q = (data.questions || []).find(q => q.id === id);
       if (!q) return json(res, 404, {error: 'Question not found'});
@@ -540,7 +542,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       const body = await readBody(req);
       const {id} = body;
       if (!id) return json(res, 400, {error: 'Missing id'});
-      const RQ_FILE = path.join(PROJECT_ROOT, 'data', 'research-questions.json');
+      const RQ_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('research-questions'));
       const data = loadJSON(RQ_FILE);
       if (!data.questions) return json(res, 404, {error: 'Not found'});
       const idx = data.questions.findIndex(q => q.id === id);
@@ -592,7 +594,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
         scanTitles(contentDir);
         try {
           const yaml = require('js-yaml');
-          const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+          const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
           for (const [key, entry] of Object.entries(refs)) {
             if (key.toLowerCase().includes(query) || (entry.title || '').toLowerCase().includes(query)) {
               suggestions.push({type: 'reference', text: entry.title || key, key});
@@ -611,7 +613,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   // ── Quick notes / scratchpad ──
   if (req.method === 'GET' && pathname === '/api/quicknotes') {
     const userId = url.searchParams.get('userId') || 'default';
-    const QUICKNOTES_FILE = path.join(PROJECT_ROOT, 'data', 'quicknotes.json');
+    const QUICKNOTES_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('quicknotes'));
     const data = loadJSON(QUICKNOTES_FILE);
     const jsonNotes = (Object.hasOwn(data, userId) ? data[userId] : []).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 
@@ -658,7 +660,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       if (userId !== undefined && typeof userId !== 'string') return json(res, 400, {error: 'userId must be a string'});
       if (userId && userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
       const uid = userId || 'default';
-      const QUICKNOTES_FILE = path.join(PROJECT_ROOT, 'data', 'quicknotes.json');
+      const QUICKNOTES_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('quicknotes'));
       const data = loadJSON(QUICKNOTES_FILE);
       if (!Object.hasOwn(data, uid)) data[uid] = [];
       const note = {
@@ -683,7 +685,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       const {userId, id} = body;
       if (!id) return json(res, 400, {error: 'Missing id'});
       const uid = userId || 'default';
-      const QUICKNOTES_FILE = path.join(PROJECT_ROOT, 'data', 'quicknotes.json');
+      const QUICKNOTES_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('quicknotes'));
       const data = loadJSON(QUICKNOTES_FILE);
       if (!Object.hasOwn(data, uid)) return json(res, 404, {error: 'Note not found'});
       const idx = data[uid].findIndex(n => n.id === id);
@@ -698,7 +700,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
 
   // ── Content pins (starred pages) ──
   if (req.method === 'GET' && pathname === '/api/pins') {
-    const PINS_FILE = path.join(PROJECT_ROOT, 'data', 'pins.json');
+    const PINS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('pins'));
     const data = loadJSON(PINS_FILE);
     return json(res, 200, {pins: data.pins || []});
   }
@@ -711,7 +713,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       if (!pagePath || typeof pagePath !== 'string') return json(res, 400, {error: 'Missing or invalid path'});
       if (pagePath.length > 500) return json(res, 400, {error: 'Path must be 500 characters or fewer'});
       if (title !== undefined && typeof title === 'string' && title.length > 500) return json(res, 400, {error: 'Title must be 500 characters or fewer'});
-      const PINS_FILE = path.join(PROJECT_ROOT, 'data', 'pins.json');
+      const PINS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('pins'));
       const data = loadJSON(PINS_FILE);
       if (!data.pins) data.pins = [];
       if (data.pins.some(p => p.path === pagePath)) return json(res, 200, {success: true, message: 'Already pinned'});
@@ -728,7 +730,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       const body = await readBody(req);
       const {path: pagePath} = body;
       if (!pagePath) return json(res, 400, {error: 'Missing path'});
-      const PINS_FILE = path.join(PROJECT_ROOT, 'data', 'pins.json');
+      const PINS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('pins'));
       const data = loadJSON(PINS_FILE);
       if (!data.pins) return json(res, 404, {error: 'Not pinned'});
       const idx = data.pins.findIndex(p => p.path === pagePath);
@@ -745,7 +747,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   if (req.method === 'GET' && pathname === '/api/preferences') {
     const userId = url.searchParams.get('userId');
     if (!userId) return json(res, 400, {error: 'Missing userId'});
-    const PREFS_FILE = path.join(PROJECT_ROOT, 'data', 'preferences.json');
+    const PREFS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('preferences'));
     const prefs = loadJSON(PREFS_FILE);
     return json(res, 200, {preferences: Object.hasOwn(prefs, userId) ? prefs[userId] : {}});
   }
@@ -764,7 +766,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
         if (DANGEROUS_PREFERENCE_KEYS.has(key)) return json(res, 400, {error: `Invalid preference key: ${key}`});
       }
       const safeUserId = sanitizeText(userId);
-      const PREFS_FILE = path.join(PROJECT_ROOT, 'data', 'preferences.json');
+      const PREFS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('preferences'));
       const prefs = loadJSON(PREFS_FILE);
       if (!Object.hasOwn(prefs, safeUserId)) prefs[safeUserId] = {};
       for (const [key, value] of Object.entries(preferences)) {
@@ -816,7 +818,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       if (pagePath.length > 500) return json(res, 400, {error: 'Path must be 500 characters or fewer'});
       if (requestedBy !== undefined && typeof requestedBy === 'string' && requestedBy.length > 100) return json(res, 400, {error: 'requestedBy must be 100 characters or fewer'});
       if (note !== undefined && typeof note === 'string' && note.length > 5000) return json(res, 400, {error: 'Note must be 5000 characters or fewer'});
-      const REVIEWS_FILE = path.join(PROJECT_ROOT, 'data', 'reviews.json');
+      const REVIEWS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('reviews'));
       const data = loadJSON(REVIEWS_FILE);
       if (!data.reviews) data.reviews = [];
       const review = {
@@ -836,7 +838,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   }
 
   if (req.method === 'GET' && pathname === '/api/reviews') {
-    const REVIEWS_FILE = path.join(PROJECT_ROOT, 'data', 'reviews.json');
+    const REVIEWS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('reviews'));
     const data = loadJSON(REVIEWS_FILE);
     const status = url.searchParams.get('status');
     let reviews = data.reviews || [];
@@ -854,7 +856,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       if (!['approved', 'rejected', 'pending'].includes(newStatus)) return json(res, 400, {error: 'Invalid status'});
       if (reviewedBy !== undefined && typeof reviewedBy === 'string' && reviewedBy.length > 100) return json(res, 400, {error: 'reviewedBy must be 100 characters or fewer'});
       if (feedback !== undefined && typeof feedback === 'string' && feedback.length > 5000) return json(res, 400, {error: 'Feedback must be 5000 characters or fewer'});
-      const REVIEWS_FILE = path.join(PROJECT_ROOT, 'data', 'reviews.json');
+      const REVIEWS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('reviews'));
       const data = loadJSON(REVIEWS_FILE);
       const review = (data.reviews || []).find(r => r.id === id);
       if (!review) return json(res, 404, {error: 'Review not found'});
@@ -879,7 +881,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       if (name.length > 200) return json(res, 400, {error: 'Name must be 200 characters or fewer'});
       if (!content || typeof content !== 'string') return json(res, 400, {error: 'Missing or invalid content'});
       if (content.length > 50000) return json(res, 400, {error: 'Content must be 50000 characters or fewer'});
-      const TEMPLATES_FILE = path.join(PROJECT_ROOT, 'data', 'custom-templates.json');
+      const TEMPLATES_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('custom-templates'));
       const templates = loadJSON(TEMPLATES_FILE);
       if (!templates.items) templates.items = [];
       const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -898,7 +900,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       const body = await readBody(req);
       const {id} = body;
       if (!id) return json(res, 400, {error: 'Missing id'});
-      const TEMPLATES_FILE = path.join(PROJECT_ROOT, 'data', 'custom-templates.json');
+      const TEMPLATES_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('custom-templates'));
       const templates = loadJSON(TEMPLATES_FILE);
       if (!templates.items) return json(res, 404, {error: 'Template not found'});
       const idx = templates.items.findIndex(t => t.id === id);
@@ -977,7 +979,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
         scan(contentDir, null);
         let refCount = 0;
         try {
-          const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+          const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
           refCount = Object.keys(refs).length;
         } catch {}
         const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);

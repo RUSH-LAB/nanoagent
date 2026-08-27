@@ -81,7 +81,8 @@ describe('GET /api/whiteboards: plural list summary', () => {
 // 0.5 (year >= 2020), else 0. Both thresholds are static literals, so the scoring
 // is fully deterministic and clock-independent.
 
-// In-memory fs over a {bibliography, content} tree keyed by absolute path.
+// In-memory fs over a content tree keyed by absolute path; the bibliography
+// lives inside it, at content/bibliography/references.yaml.
 // readdirSync and readFileSync are counted so a test can prove the second request
 // is served from cache. Mirrors makeFs in tests/next-citations-cache.test.mjs.
 function makeFs(tree, root) {
@@ -148,7 +149,7 @@ function bib(entries) {
 }
 
 function impactFixture(entries, content = {}) {
-  return { bibliography: { 'references.yaml': bib(entries) }, content };
+  return { content: { ...content, bibliography: { 'references.yaml': bib(entries) } } };
 }
 
 async function invokeImpact(fsMock, cached) {
@@ -190,7 +191,7 @@ describe('GET /api/references/impact: deterministic scoring', () => {
     '.hidden.md': 'hidden [@citedpaper]',
     '_draft.md': 'underscore [@citedpaper]',
   };
-  const TREE = { bibliography: { 'references.yaml': YAML }, content: CONTENT };
+  const TREE = { content: { ...CONTENT, bibliography: { 'references.yaml': YAML } } };
 
   // citedpaper: round((2*3 + 2 + 1)*10)/10 = 9; venuetop: 0 + 2 + 0 = 2;
   // recencyhigh: 0 + 0 + 1 = 1; recencymid: 0 + 0 + 0.5 = 0.5; plainold: 0.
@@ -268,7 +269,7 @@ describe('GET /api/references/impact: scoring components and error branch', () =
 
   it('returns 200 with an empty list when the bibliography YAML is empty', async () => {
     // yaml.load('') is undefined, so `|| {}` yields no references.
-    const tree = { bibliography: { 'references.yaml': '' }, content: {} };
+    const tree = { content: { bibliography: { 'references.yaml': '' } } };
     const { fsMock } = makeFs(tree, PROJECT_ROOT);
     const r = await invokeImpact(fsMock, makeCached());
     assert.equal(r.status, 200);

@@ -23,7 +23,7 @@ const PROJECT_ROOT = '/proj';
 // The data-file constant handed to the handler through ctx. The mocked loadJSON
 // answers only for this exact path, so a stray read surfaces as a thrown error
 // instead of silently passing; handler and mock agree on the store path.
-const GOALS_FILE = path.join(PROJECT_ROOT, 'data', 'goals.json');
+const GOALS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'goals.json');
 
 // Drive POST /api/goals (create) over a mocked ctx. rateLimit records each call
 // (key and limit) and returns the per-call toggle; readBody returns the supplied

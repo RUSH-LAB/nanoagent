@@ -14,29 +14,27 @@ const {
   mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH,
 } = require('./server-utils');
 
-const PROJECT_ROOT = path.dirname(__dirname);
+const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
 const PORT = process.env.EDITOR_PORT || 3001;
-const COMMENTS_FILE = path.join(PROJECT_ROOT, 'data', 'comments.json');
-const NOTES_FILE = path.join(PROJECT_ROOT, 'data', 'notes.json');
-const ANALYTICS_FILE = path.join(PROJECT_ROOT, 'data', 'analytics.json');
-const DISCUSSIONS_FILE = path.join(PROJECT_ROOT, 'data', 'discussions.json');
-const USERS_FILE = path.join(PROJECT_ROOT, 'data', 'users.json');
-const BOOKMARKS_FILE = path.join(PROJECT_ROOT, 'data', 'bookmarks.json');
-const READING_LISTS_FILE = path.join(PROJECT_ROOT, 'data', 'reading-lists.json');
-const STREAKS_FILE = path.join(PROJECT_ROOT, 'data', 'streaks.json');
-const ANNOTATIONS_FILE = path.join(PROJECT_ROOT, 'data', 'annotations.json');
-const SNAPSHOTS_FILE = path.join(PROJECT_ROOT, 'data', 'snapshots.json');
-const SCHEDULES_FILE = path.join(PROJECT_ROOT, 'data', 'schedules.json');
-const WHITEBOARDS_FILE = path.join(PROJECT_ROOT, 'data', 'whiteboards.json');
-const FLASHCARDS_FILE = path.join(PROJECT_ROOT, 'data', 'flashcards.json');
-const GLOSSARY_FILE = path.join(PROJECT_ROOT, 'data', 'glossary.json');
-const TASKS_FILE = path.join(PROJECT_ROOT, 'data', 'tasks.json');
-const GOALS_FILE = path.join(PROJECT_ROOT, 'data', 'goals.json');
-const TARGETS_FILE = path.join(PROJECT_ROOT, 'data', 'targets.json');
-const TRASH_DIR = path.join(PROJECT_ROOT, '.trash');
+const COMMENTS_FILE = dataFile('comments');
+const NOTES_FILE = dataFile('notes');
+const ANALYTICS_FILE = dataFile('analytics');
+const DISCUSSIONS_FILE = dataFile('discussions');
+const USERS_FILE = dataFile('users');
+const BOOKMARKS_FILE = dataFile('bookmarks');
+const READING_LISTS_FILE = dataFile('reading-lists');
+const STREAKS_FILE = dataFile('streaks');
+const ANNOTATIONS_FILE = dataFile('annotations');
+const SNAPSHOTS_FILE = dataFile('snapshots');
+const SCHEDULES_FILE = dataFile('schedules');
+const WHITEBOARDS_FILE = dataFile('whiteboards');
+const FLASHCARDS_FILE = dataFile('flashcards');
+const GLOSSARY_FILE = dataFile('glossary');
+const TASKS_FILE = dataFile('tasks');
+const GOALS_FILE = dataFile('goals');
+const TARGETS_FILE = dataFile('targets');
 
 // ── Access log file setup ──
-const LOGS_DIR = path.join(PROJECT_ROOT, 'logs');
 const ACCESS_LOG = path.join(LOGS_DIR, 'access.log');
 const ACCESS_LOG_MAX_LINES = 5000;
 const ACCESS_LOG_KEEP_LINES = 1000;
@@ -61,7 +59,6 @@ function appendAccessLog(line) {
     fs.appendFileSync(ACCESS_LOG, line + '\n', 'utf-8');
   } catch { /* ignore write errors */ }
 }
-
 
 function hasAllowedExt(name) {
   return ALLOWED_EXTS.some(ext => name.endsWith(ext));
@@ -131,7 +128,6 @@ function json(res, status, data, opts) {
   res.writeHead(status, headers);
   res.end(body);
 }
-
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -442,7 +438,6 @@ const server = http.createServer(async (req, res) => {
     await route(req, res, url, pathname, ctx);
     if (res.writableEnded) return;
   }
-
 
   json(res, 404, {error: 'Not found', path: pathname, hint: 'GET /api/health for server status'});
 

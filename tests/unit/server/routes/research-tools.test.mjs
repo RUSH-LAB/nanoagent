@@ -15,7 +15,7 @@ import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_ha
 const routes = loadRoute('research-tools');
 const {COMMENTS_FILE, DISCUSSIONS_FILE} = FILES;
 const at = rel => path.join(PROJECT_ROOT, rel);
-const BIB = at('bibliography/references.yaml');
+const BIB = at('content/bibliography/references.yaml');
 
 const {
   tokenizeSearch, termFrequencies, buildSearchDoc, corpusStats,

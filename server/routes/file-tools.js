@@ -4,6 +4,7 @@
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 
 const { numericParam } = require('../server-utils');
+const {dataFileSegs} = require('../paths');
 
 // Stop words dropped before the GET /api/file/related handler measures word
 // overlap between two files. This set is identical on every request, so it is
@@ -76,7 +77,7 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
       if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
       if (label !== undefined && typeof label === 'string' && label.length > 500) return json(res, 400, {error: 'Label must be 500 characters or fewer'});
       const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-      const VERSIONS_FILE = path.join(PROJECT_ROOT, 'data', 'versions.json');
+      const VERSIONS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('versions'));
       const versions = loadJSON(VERSIONS_FILE);
       if (!versions[filePath]) versions[filePath] = [];
       const version = {
@@ -98,7 +99,7 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
   if (req.method === 'GET' && pathname === '/api/file/versions') {
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
-    const VERSIONS_FILE = path.join(PROJECT_ROOT, 'data', 'versions.json');
+    const VERSIONS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('versions'));
     const versions = loadJSON(VERSIONS_FILE);
     const fileVersions = (versions[filePath] || []).map(v => ({id: v.id, label: v.label, createdAt: v.createdAt, wordCount: v.wordCount}));
     return json(res, 200, {versions: fileVersions.reverse(), total: fileVersions.length});
@@ -108,7 +109,7 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
     const filePath = url.searchParams.get('path');
     const versionId = url.searchParams.get('id');
     if (!isValidFilePath(filePath) || !versionId) return json(res, 400, {error: 'Invalid params'});
-    const VERSIONS_FILE = path.join(PROJECT_ROOT, 'data', 'versions.json');
+    const VERSIONS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('versions'));
     const versions = loadJSON(VERSIONS_FILE);
     const v = (versions[filePath] || []).find(v => v.id === versionId);
     if (!v) return json(res, 404, {error: 'Version not found'});

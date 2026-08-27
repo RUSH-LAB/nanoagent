@@ -172,8 +172,7 @@ const GAP_CONTENT = {
   'c3.md': Array(12).fill('attention').join(' '),
 };
 const GAP_TREE = {
-  bibliography: { 'references.yaml': REFS_YAML },
-  content: GAP_CONTENT,
+  content: { ...GAP_CONTENT, bibliography: { 'references.yaml': REFS_YAML } },
 };
 
 // Hand-computed gaps for the fixtures above (only topics with refCount >= 5 and
@@ -308,8 +307,10 @@ describe('GET /api/knowledge-gaps (cached reference vs content topic gap scan)',
 
   it('returns {gaps: [], total: 0} for an empty references.yaml', async () => {
     const fs = buildMockFs(PROJECT_ROOT, {
-      bibliography: { 'references.yaml': '' },
-      content: { 'only.md': 'diffusion transformers analysis content here' },
+      content: {
+        'only.md': 'diffusion transformers analysis content here',
+        bibliography: { 'references.yaml': '' },
+      },
     });
     const cached = buildMemoizingCached();
 

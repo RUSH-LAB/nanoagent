@@ -89,7 +89,7 @@ describe('GET /api/export/batch guard branches (pins current behavior)', () => {
   it('returns 400 for a directory that fails isValidDir, with no fs read', async () => {
     // A path traversal, a sibling-of-content path, and the empty string all fail
     // the isValidDir guard and must short-circuit before any filesystem access.
-    for (const badDir of ['../etc', 'data/secrets', '']) {
+    for (const badDir of ['../etc', 'var/data/secrets', '']) {
       const { fs, counter } = makeNoTouchFs();
       const out = await runBatch({ dir: badDir, format: 'html', fs });
       assert.deepEqual(

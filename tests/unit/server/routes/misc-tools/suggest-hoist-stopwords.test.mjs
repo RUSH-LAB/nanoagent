@@ -49,7 +49,7 @@ const REFS_YAML = [
 ].join('\n');
 
 const FILE_MAP = {
-  [path.join(PROJECT_ROOT, 'bibliography', 'references.yaml')]: REFS_YAML,
+  [path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml')]: REFS_YAML,
   [path.join(PROJECT_ROOT, 'content', 'transformers.md')]:
     '---\ntitle: Transformer Models\n---\n# Transformer Models\n## Attention Mechanism\nBody text.\n',
   [path.join(PROJECT_ROOT, 'content', 'attention-notes.md')]:

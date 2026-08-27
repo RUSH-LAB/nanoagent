@@ -4,6 +4,7 @@
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 
 const { numericParam } = require('../server-utils');
+const {REFERENCES_SEGS, dataFileSegs} = require('../paths');
 
 // Wiki-link regex for the GET /api/admin/health-summary link-health scan, compiled
 // once at module load instead of rebuilt on every request. Because this /g regex is
@@ -104,7 +105,7 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
       if (userId !== undefined && typeof userId !== 'string') return json(res, 400, {error: 'userId must be a string'});
       if (userId && userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
       if (resultCount !== undefined && (typeof resultCount !== 'number' || !isFinite(resultCount) || resultCount < 0)) return json(res, 400, {error: 'resultCount must be a non-negative number'});
-      const HISTORY_FILE = path.join(PROJECT_ROOT, 'data', 'search-history.json');
+      const HISTORY_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('search-history'));
       const data = loadJSON(HISTORY_FILE);
       if (!data.searches) data.searches = [];
       data.searches.push({
@@ -122,7 +123,7 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
   }
 
   if (req.method === 'GET' && pathname === '/api/search/history') {
-    const HISTORY_FILE = path.join(PROJECT_ROOT, 'data', 'search-history.json');
+    const HISTORY_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('search-history'));
     const data = loadJSON(HISTORY_FILE);
     const searches = (data.searches || []).slice(-50).reverse();
     const topQueries = {};
@@ -269,7 +270,7 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
       // each query is a distinct cache entry.
       const result = cached('abstracts:' + query, 60000, () => {
         const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
         const contentDir = path.join(PROJECT_ROOT, 'content');
         const matches = [];
         for (const [key, entry] of Object.entries(refs)) {
@@ -591,7 +592,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
     try {
       const gaps = cached('knowledge-gaps', 120000, () => {
         const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
         const contentDir = path.join(PROJECT_ROOT, 'content');
         const STOP = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not','can','all']);
         const refTopics = {};
@@ -648,7 +649,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
       // re-reads cleanly and falls through with refs = {} exactly as before.
       if (Object.keys(refs).length === 0) {
         const yaml = require('js-yaml');
-        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8'));
+        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8'));
       }
       const contentDir = path.join(PROJECT_ROOT, 'content');
       const citedKeys = new Set();
@@ -672,7 +673,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
       for (const [key, entry] of uncited) {
         prompts.push({type: 'uncited-reference', prompt: `Write about "${entry.title}" — it's in your bibliography but hasn't been cited yet.`, key});
       }
-      const RQ_FILE = path.join(PROJECT_ROOT, 'data', 'research-questions.json');
+      const RQ_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('research-questions'));
       const rqData = loadJSON(RQ_FILE);
       const openQuestions = (rqData.questions || []).filter(q => q.status === 'open').slice(0, 3);
       for (const q of openQuestions) {
@@ -948,7 +949,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
       // never cached. The key carries the name, so each author is a distinct entry.
       const result = cached('byauthor:' + authorName, 60000, () => {
         const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
         const nameLower = authorName.toLowerCase();
         const coauthors = new Set();
         const preferredVenues = new Set();
@@ -1042,7 +1043,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
       // never cached. The key carries the venue, so each venue is a distinct entry.
       const result = cached('venuestats:' + venue, 60000, () => {
         const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
         const venueLower = venue.toLowerCase();
         const papers = [];
         const authorCounts = {};
@@ -1089,7 +1090,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
       // never cached. The key carries the name, so each author is a distinct entry.
       const result = cached('authorprofile:' + name, 60000, () => {
         const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
         const nameLower = name.toLowerCase();
         const papers = [];
         const coauthorSet = new Set();
@@ -1174,7 +1175,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
   // ── Template variables ──
   if (req.method === 'GET' && pathname === '/api/template-variables') {
-    const VARS_FILE = path.join(PROJECT_ROOT, 'data', 'template-variables.json');
+    const VARS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('template-variables'));
     const data = loadJSON(VARS_FILE);
     const builtIn = {
       date: new Date().toISOString().slice(0, 10),
@@ -1196,7 +1197,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
       // Guard against prototype pollution via variable names
       if (TEMPLATE_VAR_PROTO_KEYS.has(name)) return json(res, 400, {error: 'Invalid variable name'});
       if (!TEMPLATE_VAR_NAME_RE.test(name)) return json(res, 400, {error: 'Variable name must be alphanumeric (with underscores/hyphens)'});
-      const VARS_FILE = path.join(PROJECT_ROOT, 'data', 'template-variables.json');
+      const VARS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('template-variables'));
       const data = loadJSON(VARS_FILE);
       if (!data.variables) data.variables = {};
       data.variables[sanitizeText(name)] = sanitizeText(value);
@@ -1213,7 +1214,7 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
       const body = await readBody(req);
       const {name} = body;
       if (!name) return json(res, 400, {error: 'Missing name'});
-      const VARS_FILE = path.join(PROJECT_ROOT, 'data', 'template-variables.json');
+      const VARS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('template-variables'));
       const data = loadJSON(VARS_FILE);
       if (!data.variables || !(name in data.variables)) return json(res, 404, {error: 'Variable not found'});
       delete data.variables[name];

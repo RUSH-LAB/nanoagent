@@ -32,6 +32,7 @@ const LINT_HEADING_PREFIX_RE = /^#{1,6}\s+/;
 // request. Defined in references.js next to the other reference handlers; ctx
 // does not supply it, so require it here at module scope.
 const {loadReferencesCached} = require('./references');
+const {DATA_SEGS, REFERENCES_SEGS} = require('../paths');
 
 module.exports = async function analysis_admin_routes(req, res, url, pathname, ctx) {
   const {
@@ -188,7 +189,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
         }
       }
 
-      // A bulk delete moves files into .trash/ (the file count drops) and a bulk
+      // A bulk delete moves files into the trash directory (the file count drops) and a bulk
       // move renames files across directories (the per-directory breakdown changes),
       // so both clear the cached flat file list served by GET /api/files/search and
       // the content-stats counts, mirroring the single-file files.js handlers and
@@ -678,7 +679,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
         const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
         if (Object.keys(refs).length === 0) {
           const yaml = require('js-yaml');
-          yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8'));
+          yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8'));
         }
         const contentDir = path.join(PROJECT_ROOT, 'content');
         const CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
@@ -816,7 +817,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
         const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
         if (Object.keys(refs).length === 0) {
           const yaml = require('js-yaml');
-          yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8'));
+          yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8'));
         }
         const byYear = {};
         for (const [key, entry] of Object.entries(refs)) {
@@ -958,7 +959,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
 
         // ── health (from /api/integrity + /api/debug/memory) ──
         // Run integrity checks inline
-        const dataDir = path.join(PROJECT_ROOT, 'data');
+        const dataDir = path.join(PROJECT_ROOT, ...DATA_SEGS);
         let integrityPassed = true;
         const duplicateCount = typeof _routeDiagnostics.duplicateCount === 'number' ? _routeDiagnostics.duplicateCount : 0;
         try {
@@ -969,7 +970,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
           }
         } catch { integrityPassed = false; }
         try {
-          const refPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+          const refPath = path.join(PROJECT_ROOT, ...REFERENCES_SEGS);
           if (fs.existsSync(refPath)) { yaml.load(fs.readFileSync(refPath, 'utf-8')); }
         } catch { integrityPassed = false; }
         const health = {

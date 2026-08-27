@@ -57,7 +57,7 @@ describe('GET /api/suggest limit guard', () => {
   }));
 
   const fileContents = new Map();
-  fileContents.set(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), refsYaml);
+  fileContents.set(path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml'), refsYaml);
   for (const f of pageFiles) {
     fileContents.set(path.join(PROJECT_ROOT, f.path), `# Elephant page ${f.name}\n`);
   }

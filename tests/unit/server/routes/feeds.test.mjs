@@ -13,8 +13,8 @@ import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_ha
 
 const routes = loadRoute('feeds');
 const {COMMENTS_FILE, DISCUSSIONS_FILE, STREAKS_FILE} = FILES;
-const SESSIONS_FILE = path.join(PROJECT_ROOT, 'data', 'sessions.json');
-const SCHEDULE_FILE = path.join(PROJECT_ROOT, 'data', 'schedule.json');
+const SESSIONS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'sessions.json');
+const SCHEDULE_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'schedule.json');
 const at = rel => path.join(PROJECT_ROOT, rel);
 
 const PROTO_KEYS = ['__proto__', 'constructor', 'prototype'];
@@ -68,7 +68,7 @@ describe('escapeFeedXml (hoisted feed XML escaper)', () => {
 // ── References passthrough ────────────────────────────────────────────────
 
 describe('GET /api/references', () => {
-  const BIB = at('bibliography/references.yaml');
+  const BIB = at('content/bibliography/references.yaml');
 
   it('serves the parsed references through the shared memo', async () => {
     const fs = mockFs({[BIB]: 'smith2020:\n  title: A Paper\n'});

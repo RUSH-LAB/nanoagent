@@ -3,6 +3,8 @@
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 
+const {TRASH_SEGS} = require('../paths');
+
 // ── /api/file/info content-analysis regexes (module scope, reused per request) ──
 // The four g-flag regexes are consumed only through String.prototype.match, which
 // resets lastIndex, and the two .test() regexes carry no g flag, so one shared
@@ -185,7 +187,7 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
             if (!match) continue;
             const deletedAt = match[1].replace(TRASH_TIME_TAIL_RE, '$1:$2:$3Z').replace(TRASH_TIME_MID_RE, 'T$1:$2');
             const originalName = match[2];
-            // Reconstruct original path: strip .trash/ prefix, use directory structure + original name
+            // Reconstruct original path: strip the trash prefix, use directory structure + original name
             const trashSubDir = path.relative(TRASH_DIR, dir);
             const originalPath = path.join(trashSubDir, originalName);
             files.push({
@@ -215,7 +217,10 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       if (!trashPath || typeof trashPath !== 'string') return json(res, 400, {error: 'Missing trashPath'});
       const normalized = path.normalize(trashPath);
       if (normalized.startsWith('..') || path.isAbsolute(normalized)) return json(res, 400, {error: 'Invalid path'});
-      if (!normalized.startsWith('.trash/') && !normalized.startsWith('.trash' + path.sep)) return json(res, 400, {error: 'Path must be within .trash/'});
+      // trashPath arrives root-relative, so the prefix follows the trash
+      // directory's location. Both separators, since the client may send either.
+      const trashPrefix = TRASH_SEGS.join('/');
+      if (!normalized.startsWith(trashPrefix + '/') && !normalized.startsWith(TRASH_SEGS.join(path.sep) + path.sep)) return json(res, 400, {error: `Path must be within ${trashPrefix}/`});
       const fullTrashPath = path.join(PROJECT_ROOT, normalized);
       if (!fs.existsSync(fullTrashPath)) return json(res, 404, {error: 'Trashed file not found'});
       // Extract original path from trash structure

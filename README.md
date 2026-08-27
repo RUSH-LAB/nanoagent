@@ -21,7 +21,6 @@ A research knowledge platform for writing, organizing, and exploring technical c
 - Whiteboard for freeform visual note-taking
 
 **Collaboration & Analytics**
-- Discussion channels with threaded conversations
 - Inline annotations and document comments
 - Real-time presence indicators and user sessions
 - Page view analytics, activity heatmaps, and content health reports
@@ -35,32 +34,42 @@ npm install
 npm start        # starts API server (port 3001) + Docusaurus dev server (port 3000)
 ```
 
-Auth is disabled by default in dev. To enable Clerk authentication:
+Auth is disabled by default, in dev and in production builds. To enable the Clerk sign-in gate:
 
 ```bash
-npm run start:auth
+npm run start:auth   # dev server with auth
+npm run build:auth   # production build with auth
 ```
 
 ## Architecture
 
 ```
 mochi-lab/
-  server/index.js            # Node.js API server entry: setup, dispatch, lifecycle (port 3001)
-  docusaurus.config.js # Docusaurus site config
-  content/
-    books/             # Docs: programming, math, builder, survey
-    posts/             # Blog posts and research papers
-  src/
-    pages/             # 20 app pages (editor, graph, flashcards, etc.)
-    components/        # React components (Editor, CitationGraph, etc.)
-    theme/             # Docusaurus theme overrides
-  server/              # Local API server internals
-    server-utils.js    # Shared helpers (validation, bibtex, caching)
-    routes/            # Request handlers split by domain (files, references, discussions, ...)
-  api/                 # Vercel serverless functions
-  plugins/             # Docusaurus plugins (bibliography, math-registry, remark-cite, wiki-links)
-  data/                # JSON data stores (comments, analytics, discussions, etc.)
-  tests/               # Unit and integration test suites
+  docusaurus.config.js   # Docusaurus site config
+  content/               # Everything authored
+    books/               #   Docs: programming, math, builder, survey
+    posts/               #   Blog posts and research papers
+    bibliography/        #   references.yaml, the citation source of truth
+  src/                   # The browser bundle, and nothing else
+    pages/               #   App pages (editor, graph, flashcards, ...)
+    components/          #   React components, one directory each
+    hooks/               #   Shared React hooks
+    theme/               #   Docusaurus theme overrides
+    css/                 #   Global stylesheets and the shared page layout
+    client/              #   Docusaurus clientModules
+  server/                # The local API, entry point included
+    index.js             #   Setup, dispatch, lifecycle (port 3001)
+    routes/              #   Request handlers by domain (files, references, feeds, ...)
+    server-utils.js      #   Shared helpers (validation, bibtex, caching)
+    paths.js             #   Every path the server derives from the repo root
+  api/                   # Vercel serverless functions
+  plugins/               # Docusaurus plugins (bibliography, math-registry, remark-cite, wiki-links)
+  scripts/               # Developer tooling
+  tests/
+    unit/                #   Mirrors the source tree
+    integration/         #   HTTP suites against a running server
+  var/                   # Runtime state, gitignored (data, logs, trash)
+  archive/               # Kept artifacts that no code reads
 ```
 
 The platform runs two processes in parallel: a **Docusaurus static site** serving content pages, and a **Node.js HTTP API server** providing data persistence and backend features.
@@ -78,7 +87,7 @@ The API server exposes **205 REST endpoints** under `/api/*`. Major categories:
 | Search | 8 | Full-text search, metadata search, find-and-replace |
 | Flashcards | 6 | Spaced-repetition review, deck management |
 | Comments & notes | 8 | Threaded comments, personal notes, annotations |
-| Collaboration | 7 | Discussions, presence, sessions, users |
+| Collaboration | 7 | Comments, presence, sessions, users |
 | Knowledge tools | 10 | Bookmarks, reading lists, glossary, templates, goals |
 | Infrastructure | 10 | Health, backup, snapshots, logs, debug, perf |
 
@@ -116,7 +125,6 @@ npm run test:all            # unit + integration tests
 | Bibliography | `/bibliography` | Reference manager with citation analytics |
 | Research | `/research` | Research paper summaries and notes |
 | Blog | `/blog` | Blog posts |
-| Discussions | `/discussions` | Discussion channels |
 | Reading Lists | `/reading-lists` | Curated reading collections |
 | Recommendations | `/recommendations` | Content discovery engine |
 | Flashcards | `/flashcards` | Spaced-repetition study cards |

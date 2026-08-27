@@ -55,7 +55,7 @@ describe('GET /api/search/history aggregation (recent, popular, total)', () => {
     assert.equal(result.loadCount, 1);
     assert.equal(result.jsonCount, 1);
     assert.equal(result.saveCount, 0);
-    assert.equal(result.loadedFile, path.join(PROJECT_ROOT, 'data', 'search-history.json'));
+    assert.equal(result.loadedFile, path.join(PROJECT_ROOT, 'var', 'data', 'search-history.json'));
   });
 
   it('returns the same empty aggregation when the store has an empty searches array', async () => {

@@ -14,7 +14,7 @@ const contentAnalysisARoutes = require('../../../server/routes/content-analysis-
 const { _resetReferencesCache } = require('../../../server/routes/references.js');
 
 const PROJECT_ROOT = '/fake/root';
-const REFS_PATH = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+const REFS_PATH = path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml');
 
 // One bibliography exercising every branch of GET /api/references/autofill:
 //   - target is MISSING type, doi, and url (three of the four FIELDS) but HAS a

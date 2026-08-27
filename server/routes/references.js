@@ -4,6 +4,7 @@
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 
 const { numericParam } = require('../server-utils');
+const {REFERENCES_SEGS} = require('../paths');
 
 // Single frozen fallback for author-less entries in GET /api/references/by-author.
 // The array is only iterated (never mutated or retained), so one shared instance
@@ -31,7 +32,7 @@ const UNKNOWN_AUTHORS = Object.freeze(['Unknown']);
 let referencesCache = null; // {path, mtimeMs, size, data} or null when uncached
 
 function loadReferencesCached(fs, path, projectRoot) {
-  const file = path.join(projectRoot, 'bibliography', 'references.yaml');
+  const file = path.join(projectRoot, ...REFERENCES_SEGS);
   let stat = null;
   try {
     stat = fs.statSync(file);
@@ -281,7 +282,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
         else if (Array.isArray(value)) sanitizedEntry[field] = value.slice(0, 50).map(v => typeof v === 'string' ? sanitizeText(v).slice(0, 500) : v);
         else sanitizedEntry[field] = value;
       }
-      const bibPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+      const bibPath = path.join(PROJECT_ROOT, ...REFERENCES_SEGS);
       const refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
       if (refs[key]) return json(res, 409, {error: 'Key already exists'});
       refs[key] = sanitizedEntry;
@@ -624,7 +625,7 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
       if (citationKey.length > 200) return json(res, 400, {error: 'Key too long'});
       if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return json(res, 400, {error: 'Missing fields object'});
 
-      const bibPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+      const bibPath = path.join(PROJECT_ROOT, ...REFERENCES_SEGS);
       const refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
       if (!refs[citationKey]) return json(res, 404, {error: `Reference "${citationKey}" not found`});
 

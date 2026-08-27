@@ -14,9 +14,9 @@ const COMMENTS_FILE = 'comments';
 const DISCUSSIONS_FILE = 'discussions';
 const ANNOTATIONS_FILE = 'annotations';
 // The handler computes the reviews source path internally as
-// path.join(PROJECT_ROOT, 'data', 'reviews.json'), so the loadJSON dispatcher
+// path.join(PROJECT_ROOT, 'var', 'data', 'reviews.json'), so the loadJSON dispatcher
 // keys the reviews fixture off this exact resolved path.
-const REVIEWS_FILE = path.join(PROJECT_ROOT, 'data', 'reviews.json');
+const REVIEWS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'reviews.json');
 
 // Build a ctx whose loadJSON dispatches on the file token for the three stub
 // paths and on the computed reviews path for the reviews source. Any source the

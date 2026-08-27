@@ -50,12 +50,12 @@ const DATA_FILES = [
 export const FILES = Object.fromEntries(
   DATA_FILES.map(spec => {
     const [key, base] = spec.split(':');
-    return [key, nodePath.join(PROJECT_ROOT, 'data', `${base}.json`)];
+    return [key, nodePath.join(PROJECT_ROOT, 'var', 'data', `${base}.json`)];
   })
 );
 
-export const TRASH_DIR = nodePath.join(PROJECT_ROOT, '.trash');
-export const LOGS_DIR = nodePath.join(PROJECT_ROOT, 'logs');
+export const TRASH_DIR = nodePath.join(PROJECT_ROOT, 'var', 'trash');
+export const LOGS_DIR = nodePath.join(PROJECT_ROOT, 'var', 'logs');
 export const ACCESS_LOG = nodePath.join(LOGS_DIR, 'access.log');
 
 /** Load a real route module by bare name, e.g. loadRoute('study-knowledge'). */
@@ -248,9 +248,9 @@ export function makeCtx(overrides = {}) {
     ...FILES,
     PROJECT_ROOT: root,
     PORT: 3001,
-    TRASH_DIR: nodePath.join(root, '.trash'),
-    LOGS_DIR: nodePath.join(root, 'logs'),
-    ACCESS_LOG: nodePath.join(root, 'logs', 'access.log'),
+    TRASH_DIR: nodePath.join(root, 'var', 'trash'),
+    LOGS_DIR: nodePath.join(root, 'var', 'logs'),
+    ACCESS_LOG: nodePath.join(root, 'var', 'logs', 'access.log'),
     ACCESS_LOG_MAX_LINES: 5000,
     ACCESS_LOG_KEEP_LINES: 1000,
     CORS_ORIGIN: '*',

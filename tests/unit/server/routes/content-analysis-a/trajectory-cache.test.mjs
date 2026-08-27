@@ -147,7 +147,7 @@ Plain text with no citation markers at all.
 `;
 
 const FIXTURE = {
-  'bibliography/references.yaml': REFS_YAML,
+  'content/bibliography/references.yaml': REFS_YAML,
   'content/intro.md': INTRO,
   'content/sub/deep.md': DEEP,
   'content/other.md': OTHER,

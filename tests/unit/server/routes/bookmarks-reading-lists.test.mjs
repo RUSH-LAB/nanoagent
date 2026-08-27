@@ -14,7 +14,7 @@ import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_ha
 const routes = loadRoute('bookmarks-reading-lists');
 const {COMMENTS_FILE, DISCUSSIONS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE} = FILES;
 const at = rel => path.join(PROJECT_ROOT, rel);
-const BIB = at('bibliography/references.yaml');
+const BIB = at('content/bibliography/references.yaml');
 
 /** Truthy inherited members that an own-key check must still reject. */
 const INHERITED_KEYS = ['__proto__', 'constructor', 'toString'];

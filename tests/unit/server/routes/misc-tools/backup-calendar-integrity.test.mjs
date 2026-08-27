@@ -166,7 +166,7 @@ describe('GET /api/backup', () => {
 // returns a fixed mtime so the no-date fallback stays clock-independent.
 function makeCalendarFs(tree, schedules) {
   const contentDir = path.join(PROJECT_ROOT, 'content');
-  const schedulesPath = path.join(PROJECT_ROOT, 'data', 'schedules.json');
+  const schedulesPath = path.join(PROJECT_ROOT, 'var', 'data', 'schedules.json');
   const counts = { readdirSync: 0, readFileSync: 0, statSync: 0, existsSync: 0 };
   function nodeAt(absPath) {
     const rel = path.relative(contentDir, absPath);
@@ -356,8 +356,8 @@ const INVALID_YAML = 'key: [a, b';
 // references.yaml is served when refsYaml is provided; existsSync reports true
 // only for refPath (when present) and for the listed existing relative paths.
 function makeIntegrityFs({ dataFiles = {}, refsYaml, existingPaths = [] }) {
-  const dataDir = path.join(PROJECT_ROOT, 'data');
-  const refPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+  const dataDir = path.join(PROJECT_ROOT, 'var', 'data');
+  const refPath = path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml');
   const existing = new Set(existingPaths);
   const enoent = (p) => { const e = new Error(`ENOENT: ${p}`); e.code = 'ENOENT'; return e; };
   return {

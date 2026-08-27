@@ -13,7 +13,7 @@ import {loadRoute, makeCtx, invoke, mockFs, PROJECT_ROOT} from '../../_harness.m
 
 const routes = loadRoute('graph-trash-files');
 const at = rel => path.join(PROJECT_ROOT, rel);
-const TRASH_DIR = at('.trash');
+const TRASH_DIR = at('var/trash');
 
 const fm = (fields, body = '') =>
   `---\n${Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n')}\n---\n${body}`;
@@ -168,7 +168,7 @@ describe('GET /api/trash', () => {
     assert.equal(r.status, 200);
     assert.deepEqual(r.payload.files, [
       {
-        trashPath: '.trash/content/sub/2026-02-02T10-45-30-456Z_newer.md',
+        trashPath: 'var/trash/content/sub/2026-02-02T10-45-30-456Z_newer.md',
         originalPath: 'content/sub/newer.md',
         originalName: 'newer.md',
         // The two replaces produce "HH:MM:SS:sssZ": a colon, not a dot, before
@@ -176,7 +176,7 @@ describe('GET /api/trash', () => {
         deletedAt: '2026-02-02T10:45:30:456Z',
       },
       {
-        trashPath: '.trash/content/2026-01-01T09-30-15-123Z_older.md',
+        trashPath: 'var/trash/content/2026-01-01T09-30-15-123Z_older.md',
         originalPath: 'content/older.md',
         originalName: 'older.md',
         deletedAt: '2026-01-01T09:30:15:123Z',
@@ -211,14 +211,14 @@ describe('GET /api/trash', () => {
 describe('POST /api/trash/restore', () => {
   const STAMP = '2026-01-01T09-30-15-123Z';
   const TRASHED = path.join(TRASH_DIR, 'content', `${STAMP}_note.md`);
-  const REL = `.trash/content/${STAMP}_note.md`;
+  const REL = `var/trash/content/${STAMP}_note.md`;
 
   const GUARDS = [
     {name: 'a missing trashPath', body: {}, status: 400, error: 'Missing trashPath'},
     {name: 'a non-string trashPath', body: {trashPath: 7}, status: 400, error: 'Missing trashPath'},
     {name: 'a parent-traversal path', body: {trashPath: '../outside.md'}, status: 400, error: 'Invalid path'},
-    {name: 'a path outside the trash root', body: {trashPath: 'content/note.md'}, status: 400, error: 'Path must be within .trash/'},
-    {name: 'an absent trashed file', body: {trashPath: '.trash/content/2026-01-01T09-30-15-123Z_gone.md'}, status: 404, error: 'Trashed file not found'},
+    {name: 'a path outside the trash root', body: {trashPath: 'content/note.md'}, status: 400, error: 'Path must be within var/trash/'},
+    {name: 'an absent trashed file', body: {trashPath: 'var/trash/content/2026-01-01T09-30-15-123Z_gone.md'}, status: 404, error: 'Trashed file not found'},
   ];
   for (const {name, body, status, error} of GUARDS) {
     it(`rejects ${name}`, async () => {
@@ -231,7 +231,7 @@ describe('POST /api/trash/restore', () => {
   it('rejects a trashed name that does not match the timestamp pattern', async () => {
     const odd = path.join(TRASH_DIR, 'content', 'plain.md');
     const {ctx} = fsCtx({[odd]: 'body'});
-    const r = await invoke(routes, {method: 'POST', path: '/api/trash/restore', body: {trashPath: '.trash/content/plain.md'}, ctx});
+    const r = await invoke(routes, {method: 'POST', path: '/api/trash/restore', body: {trashPath: 'var/trash/content/plain.md'}, ctx});
     assert.deepEqual([r.status, r.payload], [400, {error: 'Invalid trash file format'}]);
   });
 

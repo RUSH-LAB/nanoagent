@@ -14,7 +14,7 @@ import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_ha
 
 const routes = loadRoute('file-tools');
 const {COMMENTS_FILE, DISCUSSIONS_FILE} = FILES;
-const VERSIONS_FILE = path.join(PROJECT_ROOT, 'data', 'versions.json');
+const VERSIONS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'versions.json');
 const at = rel => path.join(PROJECT_ROOT, rel);
 
 const fm = (fields, body = '') =>
@@ -803,7 +803,7 @@ describe('GET /api/search/global', () => {
     [at('content/quantum.md')]: 'a page about quantum things',
     [at('content/.hidden.md')]: 'hidden quantum page',
     [at('content/notes.txt')]: 'quantum but wrong extension',
-    [at('bibliography/references.yaml')]: 'q2020:\n  title: Quantum Paper\n  author:\n    - Alice Quantum\n',
+    [at('content/bibliography/references.yaml')]: 'q2020:\n  title: Quantum Paper\n  author:\n    - Alice Quantum\n',
   };
   const STORE = {
     [COMMENTS_FILE]: {'/p': [{text: 'a quantum comment', author: 'Ada'}], bad: 'not-an-array'},
@@ -836,7 +836,7 @@ describe('GET /api/search/global', () => {
   });
 
   it('still returns 200 when the bibliography is unreadable', async () => {
-    const {ctx} = fsCtx({[at('content/quantum.md')]: 'quantum', [at('bibliography/references.yaml')]: '\tbroken: [' }, {store: {}});
+    const {ctx} = fsCtx({[at('content/quantum.md')]: 'quantum', [at('content/bibliography/references.yaml')]: '\tbroken: [' }, {store: {}});
     const r = await invoke(routes, {path: '/api/search/global', query: {q: 'quantum'}, ctx});
     assert.equal(r.status, 200);
     assert.deepEqual(r.payload.results.map(x => x.type), ['content']);

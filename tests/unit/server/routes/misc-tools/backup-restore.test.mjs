@@ -23,18 +23,18 @@ const PROJECT_ROOT = '/proj';
 // distinct path so an assertion can prove which file a restored key wrote to. The
 // handler treats them as opaque tokens passed straight to saveJSON, so the exact
 // names do not matter; only their distinctness does.
-const COMMENTS_FILE = path.join(PROJECT_ROOT, 'data', 'comments.json');
-const NOTES_FILE = path.join(PROJECT_ROOT, 'data', 'notes.json');
-const DISCUSSIONS_FILE = path.join(PROJECT_ROOT, 'data', 'discussions.json');
-const BOOKMARKS_FILE = path.join(PROJECT_ROOT, 'data', 'bookmarks.json');
-const READING_LISTS_FILE = path.join(PROJECT_ROOT, 'data', 'reading-lists.json');
-const GLOSSARY_FILE = path.join(PROJECT_ROOT, 'data', 'glossary.json');
-const FLASHCARDS_FILE = path.join(PROJECT_ROOT, 'data', 'flashcards.json');
-const TASKS_FILE = path.join(PROJECT_ROOT, 'data', 'tasks.json');
-const ANALYTICS_FILE = path.join(PROJECT_ROOT, 'data', 'analytics.json');
-const GOALS_FILE = path.join(PROJECT_ROOT, 'data', 'goals.json');
-const STREAKS_FILE = path.join(PROJECT_ROOT, 'data', 'streaks.json');
-const ANNOTATIONS_FILE = path.join(PROJECT_ROOT, 'data', 'annotations.json');
+const COMMENTS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'comments.json');
+const NOTES_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'notes.json');
+const DISCUSSIONS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'discussions.json');
+const BOOKMARKS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'bookmarks.json');
+const READING_LISTS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'reading-lists.json');
+const GLOSSARY_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'glossary.json');
+const FLASHCARDS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'flashcards.json');
+const TASKS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'tasks.json');
+const ANALYTICS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'analytics.json');
+const GOALS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'goals.json');
+const STREAKS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'streaks.json');
+const ANNOTATIONS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'annotations.json');
 
 // Drive POST /api/backup/restore over a mocked ctx. rateLimit records each call
 // (key and limit) and returns the per-call toggle; readBody returns the supplied

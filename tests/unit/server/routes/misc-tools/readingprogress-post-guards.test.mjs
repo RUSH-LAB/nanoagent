@@ -22,10 +22,10 @@ const routes = require('../../../../../server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
 // The reading-progress store path is built inside the handler as
-// path.join(PROJECT_ROOT, 'data', 'reading-progress.json'); it is not a ctx
+// path.join(PROJECT_ROOT, 'var', 'data', 'reading-progress.json'); it is not a ctx
 // field. The mocked loadJSON answers only for this exact path, so a stray read on
 // a guard branch surfaces as a thrown error instead of silently passing.
-const PROGRESS_FILE = path.join(PROJECT_ROOT, 'data', 'reading-progress.json');
+const PROGRESS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'reading-progress.json');
 
 // Drive POST /api/reading-progress over a mocked ctx. rateLimit records each call
 // (key and limit) and returns the per-call toggle; readBody returns the supplied

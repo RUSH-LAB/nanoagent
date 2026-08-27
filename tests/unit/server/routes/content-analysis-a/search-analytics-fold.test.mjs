@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const routes = require('../../../../../server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/fake/root';
-const HISTORY_PATH = path.join(PROJECT_ROOT, 'data', 'search-history.json');
+const HISTORY_PATH = path.join(PROJECT_ROOT, 'var', 'data', 'search-history.json');
 
 // Drive the real GET /api/search/analytics handler over a mocked ctx and capture
 // the json() response. `loadJSON` only answers for the search-history path, so a

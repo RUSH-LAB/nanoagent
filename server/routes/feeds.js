@@ -4,6 +4,7 @@
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 
 const { numericParam } = require('../server-utils');
+const {dataFileSegs} = require('../paths');
 
 // Object keys that must never be used as property names (prototype-pollution guard).
 const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
@@ -87,7 +88,7 @@ module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
       if (wordsWritten !== undefined && typeof wordsWritten !== 'number') return json(res, 400, {error: 'wordsWritten must be a number'});
       if (filesEdited !== undefined && !Array.isArray(filesEdited)) return json(res, 400, {error: 'filesEdited must be an array'});
       if (Array.isArray(filesEdited) && filesEdited.length > 100) return json(res, 400, {error: 'filesEdited exceeds maximum length of 100'});
-      const SESSIONS_FILE = path.join(PROJECT_ROOT, 'data', 'sessions.json');
+      const SESSIONS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('sessions'));
       const sessions = loadJSON(SESSIONS_FILE);
       if (!Object.hasOwn(sessions, userId)) sessions[userId] = [];
       const session = {
@@ -114,7 +115,7 @@ module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
     // over-returning instead of taking the most-recent tail. Non-negative limits
     // keep their previous behavior.
     const limit = Math.max(numericParam(url.searchParams.get('limit'), 20, 100), 1);
-    const SESSIONS_FILE = path.join(PROJECT_ROOT, 'data', 'sessions.json');
+    const SESSIONS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('sessions'));
     const sessions = loadJSON(SESSIONS_FILE);
     // Only treat an OWN key as a real user. A request-controlled id such as
     // `constructor` or `toString` resolves to a truthy inherited value, so the
@@ -258,7 +259,7 @@ ${recent.map(item => `<item>
       if (!filePath || typeof filePath !== 'string') return json(res, 400, {error: 'Missing or invalid path'});
       if (!publishAt || typeof publishAt !== 'string') return json(res, 400, {error: 'Missing or invalid publishAt'});
       if (note !== undefined && typeof note !== 'string') return json(res, 400, {error: 'note must be a string'});
-      const SCHEDULE_FILE = path.join(PROJECT_ROOT, 'data', 'schedule.json');
+      const SCHEDULE_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('schedule'));
       const schedule = loadJSON(SCHEDULE_FILE);
       if (!schedule.items) schedule.items = [];
       const item = {
@@ -278,7 +279,7 @@ ${recent.map(item => `<item>
   }
 
   if (req.method === 'GET' && pathname === '/api/schedule') {
-    const SCHEDULE_FILE = path.join(PROJECT_ROOT, 'data', 'schedule.json');
+    const SCHEDULE_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('schedule'));
     const schedule = loadJSON(SCHEDULE_FILE);
     const items = (schedule.items || []).sort((a, b) => a.publishAt.localeCompare(b.publishAt));
     const now = new Date().toISOString();
@@ -304,7 +305,7 @@ ${recent.map(item => `<item>
       const body = await readBody(req);
       const {id} = body;
       if (!id) return json(res, 400, {error: 'Missing id'});
-      const SCHEDULE_FILE = path.join(PROJECT_ROOT, 'data', 'schedule.json');
+      const SCHEDULE_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('schedule'));
       const schedule = loadJSON(SCHEDULE_FILE);
       if (!schedule.items) return json(res, 404, {error: 'Not found'});
       const idx = schedule.items.findIndex(i => i.id === id);

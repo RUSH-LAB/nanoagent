@@ -4,6 +4,7 @@
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 
 const { numericParam } = require('../server-utils');
+const {DATA_SEGS, REFERENCES_SEGS, dataFileSegs} = require('../paths');
 
 // Object keys that must never be used as property names (prototype-pollution guard).
 const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
@@ -67,7 +68,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       if (!pagePath || typeof pagePath !== 'string') return json(res, 400, {error: 'Missing or invalid pagePath'});
       if (pagePath.length > 500) return json(res, 400, {error: 'pagePath must be 500 characters or fewer'});
       if (PROTO_KEYS.includes(userId) || PROTO_KEYS.includes(pagePath)) return json(res, 400, {error: 'Invalid key'});
-      const PROGRESS_FILE = path.join(PROJECT_ROOT, 'data', 'reading-progress.json');
+      const PROGRESS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('reading-progress'));
       const data = loadJSON(PROGRESS_FILE);
       const safeUserId = sanitizeText(userId);
       const safePagePath = sanitizeText(pagePath);
@@ -86,7 +87,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   if (req.method === 'GET' && pathname === '/api/reading-progress') {
     const userId = url.searchParams.get('userId');
     if (!userId) return json(res, 400, {error: 'Missing userId'});
-    const PROGRESS_FILE = path.join(PROJECT_ROOT, 'data', 'reading-progress.json');
+    const PROGRESS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('reading-progress'));
     const data = loadJSON(PROGRESS_FILE);
     const userProgress = data[userId] || {};
     const pages = Object.entries(userProgress).map(([pagePath, info]) => ({
@@ -137,7 +138,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     try {
       const impact = cached('ref-impact', 60000, () => {
         const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
         const contentDir = path.join(PROJECT_ROOT, 'content');
         const CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
         const citeCounts = {};
@@ -204,7 +205,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     try {
       const network = cached('co-author-network', 60000, () => {
         const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
         const coauthorCounts = {};
         for (const entry of Object.values(refs)) {
           const authors = entry.author || [];
@@ -823,7 +824,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     try {
       const graph = cached('citation-graph-viz', 60000, () => {
         const yaml = require('js-yaml');
-        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8')) || {};
+        const refs = yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8')) || {};
         const contentDir = path.join(PROJECT_ROOT, 'content');
         const CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
 
@@ -1494,7 +1495,7 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
   // ── Data integrity validation ──
   if (req.method === 'GET' && pathname === '/api/integrity') {
     const checks = [];
-    const dataDir = path.join(PROJECT_ROOT, 'data');
+    const dataDir = path.join(PROJECT_ROOT, ...DATA_SEGS);
 
     // 1. Verify all data/*.json files are valid JSON
     try {
@@ -1521,7 +1522,7 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
     // 2. Check references.yaml is valid YAML
     try {
       const yaml = require('js-yaml');
-      const refPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+      const refPath = path.join(PROJECT_ROOT, ...REFERENCES_SEGS);
       if (fs.existsSync(refPath)) {
         yaml.load(fs.readFileSync(refPath, 'utf-8'));
         checks.push({name: 'yaml_validity', passed: true, details: 'references.yaml is valid YAML'});
@@ -1678,7 +1679,7 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
         scan(contentDir);
 
         // Include scheduled publications from data/schedules.json
-        const schedulesPath = path.join(PROJECT_ROOT, 'data', 'schedules.json');
+        const schedulesPath = path.join(PROJECT_ROOT, ...dataFileSegs('schedules'));
         if (fs.existsSync(schedulesPath)) {
           try {
             const schedData = JSON.parse(fs.readFileSync(schedulesPath, 'utf-8'));

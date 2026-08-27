@@ -13,11 +13,11 @@ const routes = require('../../../../../server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
 // The handler loads and persists the snapshot store at this path, mirroring
-// server/index.js (path.join(PROJECT_ROOT, 'data', 'snapshots.json')). The mocked
+// server/index.js (path.join(PROJECT_ROOT, 'var', 'data', 'snapshots.json')). The mocked
 // loadJSON answers only for this exact path, so a stray read surfaces as a thrown
 // error instead of silently passing; the same constant is handed to the handler
 // through ctx, so the guard and the handler agree on the store path.
-const SNAPSHOTS_FILE = path.join(PROJECT_ROOT, 'data', 'snapshots.json');
+const SNAPSHOTS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'snapshots.json');
 
 // Drive DELETE /api/snapshots over a mocked ctx. rateLimit records every call
 // (key and limit) and returns the per-call toggle, so a rate-limited request can

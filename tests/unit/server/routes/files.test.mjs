@@ -225,7 +225,7 @@ describe('DELETE /api/file (move to trash)', () => {
     const r = await invoke(routes, {method: 'DELETE', path: '/api/file', query: {path: 'content/old.md'}, ctx});
     assert.equal(r.status, 200);
     assert.equal(r.payload.success, true);
-    assert.match(r.payload.trashPath, /^\.trash\/content\/.*_old\.md$/);
+    assert.match(r.payload.trashPath, /^var\/trash\/content\/.*_old\.md$/);
     assert.equal(calls.renameSync, 1);
     assert.deepEqual(ctx.calls.invalidateCache, ['search']);
   });

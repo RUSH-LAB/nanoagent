@@ -158,6 +158,8 @@ const BUILTIN_TEMPLATES = Object.freeze([
 // Route module organized from server/index.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
+
+const {REFERENCES_SEGS} = require('../paths');
 module.exports = async function research_tools_routes(req, res, url, pathname, ctx) {
   const {
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
@@ -178,7 +180,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       // is served entirely from the memo and never re-reads or re-parses.
       if (Object.keys(refs).length === 0) {
         const yaml = require('js-yaml');
-        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8'));
+        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8'));
       }
       const entry = refs[key];
       if (!entry) return json(res, 404, {error: 'Reference not found'});
@@ -233,7 +235,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       const {key} = body;
       if (!key || typeof key !== 'string') return json(res, 400, {error: 'Missing or invalid key'});
 
-      const bibPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+      const bibPath = path.join(PROJECT_ROOT, ...REFERENCES_SEGS);
       const refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
       const entry = refs[key];
       if (!entry) return json(res, 404, {error: 'Reference not found'});
@@ -292,7 +294,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
     try {
       const yaml = require('js-yaml');
       const https = require('https');
-      const bibPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+      const bibPath = path.join(PROJECT_ROOT, ...REFERENCES_SEGS);
       const refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
 
       function fetchS2(arxivId) {
@@ -384,7 +386,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       // is served entirely from the memo and never re-reads or re-parses.
       if (Object.keys(refs).length === 0) {
         const yaml = require('js-yaml');
-        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8'));
+        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8'));
       }
 
       function extractRecPaperId(entry) {
@@ -504,7 +506,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       const yearStr = year || 'unknown';
       const baseKey = `${lastName}${yearStr}`;
 
-      const bibPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+      const bibPath = path.join(PROJECT_ROOT, ...REFERENCES_SEGS);
       const refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
 
       // titleSlug depends only on `title` (a guaranteed non-empty string by the
@@ -551,7 +553,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       if (bibtex.length > 500000) return json(res, 400, {error: 'BibTeX input too large (max 500KB)'});
 
       const parsed = parseBibtex(bibtex);
-      const bibPath = path.join(PROJECT_ROOT, 'bibliography', 'references.yaml');
+      const bibPath = path.join(PROJECT_ROOT, ...REFERENCES_SEGS);
       let refs;
       try {
         refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
@@ -773,7 +775,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       // is served entirely from the memo and never re-reads or re-parses.
       if (Object.keys(refs).length === 0) {
         const yaml = require('js-yaml');
-        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, 'bibliography', 'references.yaml'), 'utf8'));
+        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8'));
       }
       const lines = [];
       for (const [key, entry] of Object.entries(refs)) {

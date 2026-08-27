@@ -19,8 +19,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Runtime data (comments, notes, analytics, discussions)
-/data
+# Mutable runtime state the server writes: the JSON stores (var/data), the
+# access log (var/logs) and soft-deleted files (var/trash). See server/paths.js.
+/var
 
 # Raw bibliography artifacts (large PDFs/sources)
 /raw
@@ -30,11 +31,6 @@ raw/
 # Fleet (next/moon) git worktrees
 .claude/worktrees/
 
-# Trash (soft-deleted files)
-/.trash
-
-# Access logs
-/logs
-
 # Loop scaffolding and per-cycle records written by the next/moon fleets
 /progress
+

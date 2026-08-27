@@ -17,8 +17,8 @@ import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_ha
 const routes = loadRoute('content-analysis-b');
 const {BOOKMARKS_FILE} = FILES;
 const at = rel => path.join(PROJECT_ROOT, rel);
-const BIB = at('bibliography/references.yaml');
-const PROGRESS_FILE = at('data/reading-progress.json');
+const BIB = at('content/bibliography/references.yaml');
+const PROGRESS_FILE = at('var/data/reading-progress.json');
 
 const fm = (fields, body = '') =>
   `---\n${Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n')}\n---\n${body}`;

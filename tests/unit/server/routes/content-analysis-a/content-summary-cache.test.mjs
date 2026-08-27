@@ -40,9 +40,9 @@ const TREE = {
     '_draft.md': 'draft note kept here',      // 4 words (underscore file: counted)
     'skip.txt': 'wrong extension ignored',    // skipped: not an allowed extension
     '.hidden.md': 'dotfile words ignored',    // skipped: dotfile
-  },
-  bibliography: {
-    'references.yaml': REFS_YAML,
+    bibliography: {
+      'references.yaml': REFS_YAML,
+    },
   },
 };
 

@@ -16,7 +16,7 @@ const path = require('path');
 const https = require('https');
 const yaml = require('js-yaml');
 
-const REFERENCES_PATH = path.join(__dirname, '..', 'bibliography', 'references.yaml');
+const REFERENCES_PATH = path.join(__dirname, '..', 'content', 'bibliography', 'references.yaml');
 const S2_API_BASE = 'https://api.semanticscholar.org/graph/v1/paper';
 const USER_AGENT = 'MochiLab-PreprintTracker/1.0';
 const RATE_LIMIT_MS = 100;
