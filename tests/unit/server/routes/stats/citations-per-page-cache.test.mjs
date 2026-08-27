@@ -1,50 +1,50 @@
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
 // content-analysis-a.js is CommonJS; load it the way the other route tests do
-// (mirrors tests/next-content-a-cache-refs.test.mjs).
+// (mirrors tests/next-statsoverview-cache.test.mjs).
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../server/routes/stats.js');
 
 const PROJECT_ROOT = '/fake/root';
 const ALLOWED_EXTS = ['.md', '.mdx'];
 
 // A fixture content tree under <root>/content. Plain strings are files; nested
-// objects are directories. The non-allowed extension and the hidden directory
-// exercise the handler's skip paths so they must not contribute to the totals.
+// objects are directories. `alpha.md` carries frontmatter so the title branch is
+// exercised; the others fall back to the filename. The non-allowed extension, the
+// dotfile, and the underscore-prefixed file all hit the handler's skip paths, so
+// they must not contribute a page (and must never be read).
 const TREE = {
   content: {
-    'a.md': '# Heading One\n\nHello world foo [@smith2020] [[WikiLink]] [text](http://x)',
-    notes: {
-      'b.md': '## Sub\n### Deep\nalpha beta gamma [@a; @b]',
+    'alpha.md': '---\ntitle: Alpha Post\n---\nintro [@a] [@b] [@c] end',
+    sub: {
+      'gamma.md': '[@a] [@b] [@c] [@d] [@e]',
     },
-    'skip.txt': 'wrong extension, not counted',
-    '.git': { config: 'ignored hidden directory' },
+    'beta.md': '[@a] w w w',
+    'skip.txt': 'wrong extension [@nope] not counted',
+    '.hidden.md': 'hidden [@x] [@y]',
+    '_draft.md': 'underscore [@z]',
   },
 };
 
-// The aggregate the handler should produce over TREE. `references` is 0 because
-// the fake fs has no bibliography/references.yaml: statSync throws and
-// loadReferencesCached swallows that to {}, exactly as the GOAL anticipates.
+// The ranking the handler should produce over TREE: pages sorted by citation
+// count descending (gamma 5, alpha 3, beta 1), the 20-page slice, the total page
+// count, and the rounded average citations per page (round((5+3+1)/3 * 10) / 10).
 const EXPECTED = {
-  files: 2,
-  words: 18,
-  headings: 3,
-  citations: 2,
-  links: 2,
-  references: 0,
-  avgWordsPerFile: 9,
-  avgHeadingsPerFile: 1.5,
-  avgCitationsPerFile: 1,
-  readingTimeHours: 0,
+  pages: [
+    { path: 'content/sub/gamma.md', title: 'gamma', citations: 5, words: 5, citationsPerKWords: 1000 },
+    { path: 'content/alpha.md', title: 'Alpha Post', citations: 3, words: 10, citationsPerKWords: 300 },
+    { path: 'content/beta.md', title: 'beta', citations: 1, words: 4, citationsPerKWords: 250 },
+  ],
+  total: 3,
+  avgCitations: 3,
 };
 
 // Build an in-memory fs over TREE keyed by absolute path. readdirSync and
 // readFileSync are counted so a test can prove the second request is served from
-// cache (no repeat directory walk). statSync always throws, so the bibliography
-// read inside loadReferencesCached falls back to {} deterministically.
+// cache (no repeat directory walk).
 function makeFs(tree, root) {
   const dirs = new Map();  // absDir -> [{name, dir}]
   const files = new Map(); // absFile -> contents
@@ -58,7 +58,7 @@ function makeFs(tree, root) {
     dirs.set(dirPath, entries);
   })(tree, root);
 
-  const counts = { readdir: 0, read: 0, stat: 0 };
+  const counts = { readdir: 0, read: 0 };
   const fsMock = {
     readdirSync(dir) {
       counts.readdir++;
@@ -71,7 +71,6 @@ function makeFs(tree, root) {
       if (files.has(fp)) return files.get(fp);
       throw new Error(`ENOENT read ${fp}`);
     },
-    statSync() { counts.stat++; throw new Error('ENOENT stat'); },
   };
   return { fsMock, counts };
 }
@@ -110,16 +109,12 @@ async function invoke(pathname, ctx) {
 
 const baseCtx = (fsMock) => ({ fs: fsMock, path, PROJECT_ROOT, ALLOWED_EXTS, cached: makeCached() });
 
-// loadReferencesCached keeps a module-scope memo; start each test from a cold
-// cache so the references fallback is exercised fresh.
-beforeEach(() => { routes._clearReferencesCache(); });
-
-describe('GET /api/stats/overview: cached content scan', () => {
-  it('returns the expected aggregate counts on the first call', async () => {
+describe('GET /api/stats/citations-per-page: cached content scan', () => {
+  it('returns the expected ranking on the first call', async () => {
     const { fsMock } = makeFs(TREE, PROJECT_ROOT);
     const ctx = baseCtx(fsMock);
 
-    const r = await invoke('/api/stats/overview', ctx);
+    const r = await invoke('/api/stats/citations-per-page', ctx);
 
     assert.equal(r.status, 200);
     assert.deepEqual(r.payload, EXPECTED);
@@ -129,15 +124,17 @@ describe('GET /api/stats/overview: cached content scan', () => {
     const { fsMock, counts } = makeFs(TREE, PROJECT_ROOT);
     const ctx = baseCtx(fsMock);
 
-    const first = await invoke('/api/stats/overview', ctx);
+    const first = await invoke('/api/stats/citations-per-page', ctx);
     const readdirAfterFirst = counts.readdir;
+    const readAfterFirst = counts.read;
     assert.ok(readdirAfterFirst > 0, 'the first request walks the content tree');
 
-    const second = await invoke('/api/stats/overview', ctx);
+    const second = await invoke('/api/stats/citations-per-page', ctx);
 
     assert.equal(second.status, 200);
     assert.deepEqual(second.payload, first.payload, 'second payload matches the first');
     assert.deepEqual(second.payload, EXPECTED);
     assert.equal(counts.readdir, readdirAfterFirst, 'second request is served from cache: no repeat readdirSync');
+    assert.equal(counts.read, readAfterFirst, 'second request reads no files: served from cache');
   });
 });

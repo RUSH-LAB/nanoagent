@@ -5,7 +5,14 @@ import path from 'node:path';
 
 // content-analysis-a.js is CommonJS; load it the way the other route tests do.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+// This suite spans two modules since /api/stats/* moved to its own. Dispatch
+// through both, stopping once one has replied, exactly as server/index.js does.
+const content_analysis_a_routes = require('../../../../../server/routes/content-analysis-a.js');
+const stats_routes = require('../../../../../server/routes/stats.js');
+const routes = async (req, res, url, pathname, ctx) => {
+  await content_analysis_a_routes(req, res, url, pathname, ctx);
+  if (!res.writableEnded) await stats_routes(req, res, url, pathname, ctx);
+};
 
 const PROJECT_ROOT = '/proj';
 const ALLOWED_EXTS = ['.md', '.mdx'];

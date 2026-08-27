@@ -7,7 +7,14 @@ import path from 'node:path';
 // do (mirrors tests/next-statsdir-cache.test.mjs and
 // tests/next-whiteboard-write-ownprop-guard.test.mjs).
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+// This suite spans two modules since /api/stats/* moved to its own. Dispatch
+// through both, stopping once one has replied, exactly as server/index.js does.
+const misc_tools_routes = require('../../../../../server/routes/misc-tools.js');
+const stats_routes = require('../../../../../server/routes/stats.js');
+const routes = async (req, res, url, pathname, ctx) => {
+  await misc_tools_routes(req, res, url, pathname, ctx);
+  if (!res.writableEnded) await stats_routes(req, res, url, pathname, ctx);
+};
 
 // These three GET handlers each wrap a recursive content walk in
 // cached(key, ttl, fn) and touch the filesystem only through ctx.fs. A mocked fs

@@ -328,45 +328,6 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   }
 
   // ── Content stats timeline ──
-  if (req.method === 'GET' && pathname === '/api/stats/timeline') {
-    try {
-      const timeline = cached('stats:timeline', 60000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
-        const byMonth = {};
-        function scanTimeline(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-            const fullPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              scanTimeline(fullPath);
-            } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              try {
-                const content = fs.readFileSync(fullPath, 'utf-8');
-                const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-                let date = null;
-                if (fmMatch) {
-                  const dateMatch = fmMatch[1].match(/^date:\s*["']?(\d{4}-\d{2}(?:-\d{2})?)/m);
-                  if (dateMatch) date = dateMatch[1].slice(0, 7);
-                }
-                if (!date) {
-                  const stat = fs.statSync(fullPath);
-                  date = stat.mtime.toISOString().slice(0, 7);
-                }
-                byMonth[date] = (byMonth[date] || 0) + 1;
-              } catch {}
-            }
-          }
-        }
-        scanTimeline(contentDir);
-        return Object.entries(byMonth)
-          .sort((a, b) => a[0].localeCompare(b[0]))
-          .map(([month, count]) => ({month, count}));
-      });
-      return json(res, 200, {timeline});
-    } catch {
-      return json(res, 500, {error: 'Timeline stats failed'});
-    }
-  }
 
   // ── Content health check ──
   if (req.method === 'GET' && pathname === '/api/content-health') {

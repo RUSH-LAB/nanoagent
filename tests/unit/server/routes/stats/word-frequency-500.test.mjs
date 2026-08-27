@@ -20,7 +20,7 @@ import path from 'node:path';
 // 'content' (isValidDir at server-utils.js:50, where normalized === 'content' holds),
 // so the cache key the route builds is 'word-frequency:content'.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../server/routes/stats.js');
 
 const PROJECT_ROOT = '/virtual-root';
 

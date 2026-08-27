@@ -7,7 +7,7 @@ import path from 'node:path';
 // route tests do (mirrors tests/next-statsdir-cache.test.mjs and
 // tests/next-healthsummary-cache.test.mjs).
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../server/routes/stats.js');
 
 // GET /api/stats/directory wraps its recursive directory walk in
 // cached('statsdir:' + dir, 30000, fn). The sibling suite

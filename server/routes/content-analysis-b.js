@@ -299,42 +299,6 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
   }
 
   // ── Heading depth distribution ──
-  if (req.method === 'GET' && pathname === '/api/stats/heading-depth') {
-    try {
-      const stats = cached('heading-depth', 60000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
-        const depthCounts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0};
-        let totalHeadings = 0, filesWithHeadings = 0, filesWithoutHeadings = 0;
-        function scan(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-            const fp = path.join(dir, entry.name);
-            if (entry.isDirectory()) { scan(fp); continue; }
-            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-            try {
-              const content = fs.readFileSync(fp, 'utf-8');
-              const headings = content.match(/^(#{1,6})\s+/gm) || [];
-              if (headings.length > 0) {
-                filesWithHeadings++;
-                for (const h of headings) {
-                  const depth = h.trim().replace(/\s+$/, '').length;
-                  if (depthCounts[depth] !== undefined) depthCounts[depth]++;
-                  totalHeadings++;
-                }
-              } else {
-                filesWithoutHeadings++;
-              }
-            } catch {}
-          }
-        }
-        scan(contentDir);
-        return {depthCounts, totalHeadings, filesWithHeadings, filesWithoutHeadings};
-      });
-      return json(res, 200, stats);
-    } catch {
-      return json(res, 500, {error: 'Heading analysis failed'});
-    }
-  }
 
   // ── Content update suggestions ──
   if (req.method === 'GET' && pathname === '/api/content-update-suggestions') {
@@ -477,41 +441,6 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
   }
 
   // ── Word count leaderboard ──
-  if (req.method === 'GET' && pathname === '/api/stats/word-leaderboard') {
-    try {
-      const leaderboard = cached('word-leaderboard', 60000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
-        const pages = [];
-        function scan(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-            const fp = path.join(dir, entry.name);
-            if (entry.isDirectory()) { scan(fp); continue; }
-            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-            try {
-              const content = fs.readFileSync(fp, 'utf-8');
-              const wordCount = content.split(/\s+/).filter(Boolean).length;
-              let title = entry.name.replace(/\.(mdx?|md)$/, '');
-              const fm = content.match(/^---\n([\s\S]*?)\n---/);
-              if (fm) { const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m); if (tm) title = tm[1]; }
-              pages.push({path: path.relative(PROJECT_ROOT, fp), title, wordCount});
-            } catch {}
-          }
-        }
-        scan(contentDir);
-        pages.sort((a, b) => b.wordCount - a.wordCount);
-        return pages;
-      });
-      return json(res, 200, {
-        longest: leaderboard.slice(0, 20),
-        shortest: leaderboard.slice(-10).reverse(),
-        total: leaderboard.length,
-        avgWordCount: Math.round(leaderboard.reduce((s, p) => s + p.wordCount, 0) / Math.max(leaderboard.length, 1)),
-      });
-    } catch {
-      return json(res, 500, {error: 'Leaderboard failed'});
-    }
-  }
 
   // ── Reference deduplication detection ──
   if (req.method === 'GET' && pathname === '/api/references/duplicates') {
@@ -597,40 +526,6 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
   }
 
   // ── Total reading time estimation ──
-  if (req.method === 'GET' && pathname === '/api/stats/reading-time') {
-    try {
-      const stats = cached('reading-time-stats', 60000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
-        const byDir = {};
-        let totalWords = 0;
-        function scan(dir, dirName) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-            const fp = path.join(dir, entry.name);
-            if (entry.isDirectory()) { scan(fp, dirName || entry.name); continue; }
-            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-            try {
-              const words = fs.readFileSync(fp, 'utf-8').split(/\s+/).filter(Boolean).length;
-              totalWords += words;
-              const dn = dirName || 'root';
-              if (!byDir[dn]) byDir[dn] = 0;
-              byDir[dn] += words;
-            } catch {}
-          }
-        }
-        scan(contentDir, null);
-        return {totalWords, byDir};
-      });
-      const totalMinutes = Math.ceil(stats.totalWords / 200);
-      const totalHours = Math.round(totalMinutes / 60 * 10) / 10;
-      const directories = Object.entries(stats.byDir).map(([name, words]) => ({
-        name, words, readingTimeMinutes: Math.ceil(words / 200), readingTimeHours: Math.round(words / 200 / 60 * 10) / 10,
-      })).sort((a, b) => b.words - a.words);
-      return json(res, 200, {totalWords: stats.totalWords, totalReadingMinutes: totalMinutes, totalReadingHours: totalHours, directories});
-    } catch {
-      return json(res, 500, {error: 'Reading time calculation failed'});
-    }
-  }
 
   // ── Personalized content recommendations ──
   if (req.method === 'GET' && pathname === '/api/content-recommend') {

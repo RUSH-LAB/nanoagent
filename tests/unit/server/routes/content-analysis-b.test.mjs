@@ -15,6 +15,8 @@ import path from 'node:path';
 import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
 
 const routes = loadRoute('content-analysis-b');
+// /api/stats/* lives in its own module now; the three describes below use it.
+const statsRoutes = loadRoute('stats');
 const {BOOKMARKS_FILE} = FILES;
 const at = rel => path.join(PROJECT_ROOT, rel);
 const BIB = at('content/bibliography/references.yaml');
@@ -72,18 +74,21 @@ describe('cached corpus scans', () => {
   const TREE = {[at('content/a.md')]: fm({title: 'A'}, 'body text'), [BIB]: bib({k1: {title: 'T', year: 2024}})};
 
   for (const {path: p, key, ttl, error, source} of SCANS) {
+    // /api/stats/* moved to its own module; the rest of this table stays here.
+    const owner = p.startsWith('/api/stats/') ? statsRoutes : routes;
+
     it(`${p} memoizes under "${key}" with a ${ttl} ms TTL`, async () => {
       let seen;
       const {ctx} = fsCtx(TREE, {cached: (k, t, fn) => { seen ??= [k, t]; return fn(); }});
-      await invoke(routes, {path: p, ctx});
+      await invoke(owner, {path: p, ctx});
       assert.deepEqual(seen, [key, ttl]);
     });
 
     it(`${p} serves a repeat request without re-scanning`, async () => {
       const {ctx, counts} = fsCtx(TREE);
-      await invoke(routes, {path: p, ctx});
+      await invoke(owner, {path: p, ctx});
       const after = counts.read + counts.readdir;
-      await invoke(routes, {path: p, ctx});
+      await invoke(owner, {path: p, ctx});
       assert.equal(counts.read + counts.readdir, after);
     });
 
@@ -93,7 +98,7 @@ describe('cached corpus scans', () => {
         ? {...base, readFileSync: q => { if (q === BIB) throw new Error('unreadable'); return base.readFileSync(q); }}
         : {...base, readdirSync() { throw new Error('unreadable'); }};
       const ctx = makeCtx({fs});
-      const r = await invoke(routes, {path: p, ctx});
+      const r = await invoke(owner, {path: p, ctx});
       assert.deepEqual(r.replies, [{status: 500, payload: {error}, opts: undefined}]);
       assert.deepEqual(Object.keys(ctx.cache), [], 'a failed scan caches nothing, so the next request retries');
       assert.equal(r.written, null);
@@ -321,7 +326,7 @@ describe('GET /api/stats/heading-depth', () => {
       [at('content/b.md')]: 'no headings here',
       [at('content/_skip.md')]: '# Skipped',
     });
-    const r = await invoke(routes, {path: '/api/stats/heading-depth', ctx});
+    const r = await invoke(statsRoutes, {path: '/api/stats/heading-depth', ctx});
     assert.deepEqual(r.payload, {
       depthCounts: {1: 1, 2: 2, 3: 0, 4: 0, 5: 0, 6: 1},
       totalHeadings: 4,
@@ -548,7 +553,7 @@ describe('GET /api/stats/word-leaderboard', () => {
       [at('content/mid.md')]: words(200),
       [at('content/small.md')]: words(100),
     });
-    const r = await invoke(routes, {path: '/api/stats/word-leaderboard', ctx});
+    const r = await invoke(statsRoutes, {path: '/api/stats/word-leaderboard', ctx});
     assert.deepEqual(r.payload.longest.map(p => p.path), ['content/big.md', 'content/mid.md', 'content/small.md']);
     assert.deepEqual(r.payload.shortest.map(p => p.path), ['content/small.md', 'content/mid.md', 'content/big.md']);
     assert.equal(r.payload.total, 3);
@@ -558,14 +563,14 @@ describe('GET /api/stats/word-leaderboard', () => {
   it('caps longest at twenty and shortest at ten', async () => {
     const files = Object.fromEntries(Array.from({length: 30}, (_, i) => [at(`content/p${i}.md`), words(i + 1)]));
     const {ctx} = fsCtx(files);
-    const r = await invoke(routes, {path: '/api/stats/word-leaderboard', ctx});
+    const r = await invoke(statsRoutes, {path: '/api/stats/word-leaderboard', ctx});
     assert.equal(r.payload.longest.length, 20);
     assert.equal(r.payload.shortest.length, 10);
   });
 
   it('returns zeroes for an empty content tree without dividing by zero', async () => {
     const {ctx} = fsCtx({[at('content/.keep')]: ''});
-    const r = await invoke(routes, {path: '/api/stats/word-leaderboard', ctx});
+    const r = await invoke(statsRoutes, {path: '/api/stats/word-leaderboard', ctx});
     assert.deepEqual(r.payload, {longest: [], shortest: [], total: 0, avgWordCount: 0});
   });
 });
@@ -655,7 +660,7 @@ describe('GET /api/stats/reading-time', () => {
       [at('content/books/deep/b.md')]: words(200),
       [at('content/loose.md')]: words(20),
     });
-    const r = await invoke(routes, {path: '/api/stats/reading-time', ctx});
+    const r = await invoke(statsRoutes, {path: '/api/stats/reading-time', ctx});
     // 620 / 200 is 3.1, so the ceil gives 4 where a round would give 3.
     assert.equal(r.payload.totalWords, 620);
     assert.equal(r.payload.totalReadingMinutes, 4);

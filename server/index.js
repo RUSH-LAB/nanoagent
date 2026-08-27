@@ -370,6 +370,7 @@ const routeModules = [
   require('./routes/bookmarks-reading-lists'),
   require('./routes/analysis-admin'),
   require('./routes/misc-tools'),
+  require('./routes/stats'),
 ];
 
 const server = http.createServer(async (req, res) => {

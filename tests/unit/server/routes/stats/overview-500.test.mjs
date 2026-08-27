@@ -8,7 +8,7 @@ import path from 'node:path';
 // characterization test drives the genuine GET /api/stats/overview handler and
 // never a reimplementation.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../server/routes/stats.js');
 
 // The overview handler (content-analysis-a.js:236) wraps a memoized content scan,
 // cached('stats-overview', 30000, () => { ... }) at content-analysis-a.js:245, in
