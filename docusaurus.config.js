@@ -110,8 +110,8 @@ const config = {
   },
 
   clientModules: [
-    require.resolve('./src/prism-lean4.js'),
-    require.resolve('./src/copyHeadingLink.js'),
+    require.resolve('./src/client/prism-lean4.js'),
+    require.resolve('./src/client/copyHeadingLink.js'),
   ],
 
   presets: [

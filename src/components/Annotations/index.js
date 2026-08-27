@@ -1,7 +1,7 @@
 import React, {useState, useEffect, useCallback, useRef} from 'react';
 import API_BASE from '@site/src/utils/api';
 import {formatTime} from '@site/src/utils/time';
-import {useClickOutside} from '@site/src/utils/useClickOutside';
+import {useClickOutside} from '@site/src/hooks/useClickOutside';
 
 const styles = {
   section: {

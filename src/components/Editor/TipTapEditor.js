@@ -12,7 +12,7 @@ import PresenceIndicator from './PresenceIndicator';
 import KeyboardShortcuts from './KeyboardShortcuts';
 import shortcutStyles from './KeyboardShortcuts.module.css';
 import API_BASE from '@site/src/utils/api';
-import {useClickOutside} from '@site/src/utils/useClickOutside';
+import {useClickOutside} from '@site/src/hooks/useClickOutside';
 import {RECENT_FILES_KEY} from '@site/src/utils/recentFiles';
 import {PRESENCE_USER_ID_KEY} from '@site/src/utils/presence';
 import {TemplateCards} from './TemplateModal';

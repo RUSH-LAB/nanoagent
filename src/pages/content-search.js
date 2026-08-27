@@ -5,7 +5,7 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import { usePluginData } from '@docusaurus/useGlobalData';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
-import {useDebounce} from '@site/src/utils/useDebounce';
+import {useDebounce} from '@site/src/hooks/useDebounce';
 
 function highlightMatch(text, query) {
   if (!query || !text) return text;

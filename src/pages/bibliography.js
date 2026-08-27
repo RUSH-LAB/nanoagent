@@ -5,7 +5,7 @@ import { usePluginData } from '@docusaurus/useGlobalData';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
-import {useDebounce} from '@site/src/utils/useDebounce';
+import {useDebounce} from '@site/src/hooks/useDebounce';
 import {S2_PAPER_SEARCH} from '@site/src/utils/semanticScholar';
 import {formatAuthorList} from '@site/src/utils/authors';
 

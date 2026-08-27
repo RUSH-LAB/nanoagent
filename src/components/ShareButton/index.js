@@ -1,6 +1,6 @@
 import React, {useState, useRef, useEffect} from 'react';
 import {toast} from '@site/src/components/Toast/toast';
-import {useClickOutside} from '@site/src/utils/useClickOutside';
+import {useClickOutside} from '@site/src/hooks/useClickOutside';
 
 /**
  * ShareButton — sits next to BookmarkButton on doc pages.

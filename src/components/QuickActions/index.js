@@ -1,7 +1,7 @@
 import React, {useState, useRef, useEffect} from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import {toast} from '@site/src/components/Toast/toast';
-import {useClickOutside} from '@site/src/utils/useClickOutside';
+import {useClickOutside} from '@site/src/hooks/useClickOutside';
 
 const fabStyle = {
   position: 'fixed',
