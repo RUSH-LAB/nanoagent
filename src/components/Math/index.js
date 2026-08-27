@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, createContext, useContext, useMemo } from 'react';
 import { usePluginData } from '@docusaurus/useGlobalData';
 import { useDocsSidebar } from '@docusaurus/plugin-content-docs/client';
-import { computeNumbers } from '@site/src/theme/SidebarNumberContext';
+import { computeNumbers } from '@site/src/contexts/SidebarNumberContext';
 import Link from '@docusaurus/Link';
 
 // ── Helper: read math-registry manifest from Docusaurus global data ─────────

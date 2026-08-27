@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 // CHART_HUES is authored as an ES module under src/utils (consumed by the
 // Docusaurus build); Node's module-syntax detection lets this .mjs test import
 // the .js source directly and read the named export.
-import { CHART_HUES } from '../../../../../src/utils/chartColors.js';
+import { CHART_HUES } from '../../../../src/utils/chartColors.js';
 
 // The canonical palette, spelled out independently of the source so this test
 // pins the exact ten hues (values and order) the stats and analytics charts

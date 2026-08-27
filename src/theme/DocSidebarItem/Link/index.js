@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from '@theme-original/DocSidebarItem/Link';
-import { useSidebarNumbers } from '../../SidebarNumberContext';
+import { useSidebarNumbers } from '@site/src/contexts/SidebarNumberContext';
 
 export default function LinkWrapper(props) {
   const numberMap = useSidebarNumbers();

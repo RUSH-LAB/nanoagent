@@ -1,6 +1,6 @@
 import React, { memo, useMemo } from 'react';
 import DocSidebarItems from '@theme-original/DocSidebarItems';
-import SidebarNumberContext, { computeNumbers } from '../SidebarNumberContext';
+import SidebarNumberContext, { computeNumbers } from '@site/src/contexts/SidebarNumberContext';
 
 function DocSidebarItemsWrapper({ items, level, ...props }) {
   // Only compute numbering at the top level (level === 1) to avoid

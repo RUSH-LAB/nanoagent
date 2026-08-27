@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 // module is authored as an ES module under src/utils (consumed by the
 // Docusaurus build); Node's module-syntax detection lets this .mjs test import
 // the .js source directly and read the named export.
-import { RECENT_FILES_KEY } from '../../../../../src/utils/recentFiles.js';
+import { RECENT_FILES_KEY } from '../../../../src/utils/recentFiles.js';
 
 describe('recentFiles shared module', () => {
   it('exports RECENT_FILES_KEY as the canonical localStorage key', () => {

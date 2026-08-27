@@ -1,4 +1,4 @@
-// Edge-branch tests for buildHeatmapWeeks in src/utils/heatmap.mjs.
+// Edge-branch tests for buildHeatmapWeeks in src/utils/heatmap.js.
 //
 // The sibling moon-heatmap-dedup suite already pins representative data, an
 // empty `{}` map, a single day, a partial final week, and trailing padding.
@@ -15,7 +15,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildHeatmapWeeks } from '../../../../../src/utils/heatmap.mjs';
+import { buildHeatmapWeeks } from '../../../../../src/utils/heatmap.js';
 
 // A fixed reference day so the window and day-of-week packing are deterministic.
 // `getDay()` reads local time, so an absolute weekday can shift with the runner

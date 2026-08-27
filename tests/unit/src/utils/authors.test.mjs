@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 // formatAuthorList is authored as an ES module under src/utils (consumed by the
 // Docusaurus build); Node's module-syntax detection lets this .mjs test import
 // the .js source directly and read the named export.
-import { formatAuthorList } from '../../../../../src/utils/authors.js';
+import { formatAuthorList } from '../../../../src/utils/authors.js';
 
 describe('formatAuthorList (shared author-list formatter)', () => {
   it('returns Unknown for an empty array', () => {

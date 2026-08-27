@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 // displayDirPath is authored as an ES module under src/utils (consumed by the
 // Docusaurus build); Node's module-syntax detection lets this .mjs test import
 // the .js source directly and read the named export.
-import { displayDirPath } from '../../../../../src/utils/paths.js';
+import { displayDirPath } from '../../../../src/utils/paths.js';
 
 describe('displayDirPath (shared parent-directory label)', () => {
   it('strips the content/ prefix and drops the final segment', () => {

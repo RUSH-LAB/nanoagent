@@ -30,10 +30,10 @@ function lazyDemo(loader, label) {
   };
 }
 
-export const VectorPlayground = lazyDemo(() => require('../interactive/VectorPlayground'), 'vector playground');
-export const LinearTransformDemo = lazyDemo(() => require('../interactive/LinearTransformDemo'), 'linear transformation demo');
-export const GradientDescentDemo = lazyDemo(() => require('../interactive/GradientDescentDemo'), 'gradient descent demo');
-export const EigenDemo = lazyDemo(() => require('../interactive/EigenDemo'), 'eigenvalue demo');
-export const RiemannSumDemo = lazyDemo(() => require('../interactive/RiemannSumDemo'), 'Riemann sum demo');
-export const DistributionExplorer = lazyDemo(() => require('../interactive/DistributionExplorer'), 'distribution explorer');
-export const Surface3DDemo = lazyDemo(() => require('../interactive/Surface3DDemo'), '3D surface demo');
+export const VectorPlayground = lazyDemo(() => require('./demos/VectorPlayground'), 'vector playground');
+export const LinearTransformDemo = lazyDemo(() => require('./demos/LinearTransformDemo'), 'linear transformation demo');
+export const GradientDescentDemo = lazyDemo(() => require('./demos/GradientDescentDemo'), 'gradient descent demo');
+export const EigenDemo = lazyDemo(() => require('./demos/EigenDemo'), 'eigenvalue demo');
+export const RiemannSumDemo = lazyDemo(() => require('./demos/RiemannSumDemo'), 'Riemann sum demo');
+export const DistributionExplorer = lazyDemo(() => require('./demos/DistributionExplorer'), 'distribution explorer');
+export const Surface3DDemo = lazyDemo(() => require('./demos/Surface3DDemo'), '3D surface demo');

@@ -1,6 +1,6 @@
 import React from 'react';
 import Category from '@theme-original/DocSidebarItem/Category';
-import { useSidebarNumbers } from '../../SidebarNumberContext';
+import { useSidebarNumbers } from '@site/src/contexts/SidebarNumberContext';
 
 export default function CategoryWrapper(props) {
   const numberMap = useSidebarNumbers();

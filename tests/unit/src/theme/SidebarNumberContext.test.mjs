@@ -24,7 +24,7 @@ import assert from 'node:assert/strict';
 //
 // The `label` field is LIVE: the math sidebar's PageRef reads `entry.label`, so
 // pinning it asserts CORRECT current behavior, not dead state.
-import { computeNumbers } from '../../../../../src/theme/SidebarNumberContext.js';
+import { computeNumbers } from '../../../../src/contexts/SidebarNumberContext.js';
 
 describe('computeNumbers (sidebar chapter numbering)', () => {
   it('numbers top-level items 1, 2, 3 in order', () => {

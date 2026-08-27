@@ -5,7 +5,7 @@ import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 import CalendarHeatmap from '@site/src/components/CalendarHeatmap';
-import { buildHeatmapWeeks } from '@site/src/utils/heatmap.mjs';
+import { buildHeatmapWeeks } from '@site/src/utils/heatmap';
 import { CHART_HUES } from '@site/src/utils/chartColors';
 import { displayDirPath } from '@site/src/utils/paths';
 

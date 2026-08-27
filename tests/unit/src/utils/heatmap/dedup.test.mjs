@@ -1,7 +1,7 @@
 // Golden test for the calendar-heatmap dedupe on src/pages/analytics.js.
 //
 // The Activity and Writing heatmaps used to hand-roll the same day-window and
-// week-packing math. That logic now lives in src/utils/heatmap.mjs. These tests
+// week-packing math. That logic now lives in src/utils/heatmap.js. These tests
 // prove the refactor is byte-identical in OUTPUT: for both heatmaps they compare
 // the full ordered grid of rendered per-cell { title, background } produced by
 // the NEW path (helper + the rewired analytics.js cell rendering) against the
@@ -9,7 +9,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildHeatmapWeeks } from '../../../../../src/utils/heatmap.mjs';
+import { buildHeatmapWeeks } from '../../../../../src/utils/heatmap.js';
 
 // A fixed reference day so the day-window and day-of-week packing are
 // deterministic. Both the NEW and ORIGINAL paths share it, so any machine
