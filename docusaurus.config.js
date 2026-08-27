@@ -41,6 +41,9 @@ function makeDocsPlugin(id, name) {
       id,
       path: `${BOOKS_DIR}/${name}`,
       routeBasePath: name,
+      // The breadcrumb bar's last crumb repeats the page title that the
+      // <h1> right below it already carries.
+      breadcrumbs: false,
       remarkPlugins: defaultRemarkPlugins,
       rehypePlugins: defaultRehypePlugins,
     },
@@ -120,6 +123,7 @@ const config = {
           path: `${BOOKS_DIR}/programming`,
           routeBasePath: 'programming',
           sidebarPath: './sidebars.js',
+          breadcrumbs: false,
           remarkPlugins: defaultRemarkPlugins,
           rehypePlugins: defaultRehypePlugins,
         },
@@ -209,6 +213,13 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       image: 'img/mochi.jpg',
+      docs: {
+        sidebar: {
+          // Adds the collapse control at the foot of the chapter sidebar, so a
+          // page can be read against the full width of the shell.
+          hideable: true,
+        },
+      },
       navbar: {
         title: 'Mochi Lab',
         logo: {
