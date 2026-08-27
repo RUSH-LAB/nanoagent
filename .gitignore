@@ -36,3 +36,5 @@ raw/
 # Access logs
 /logs
 
+# Loop scaffolding and per-cycle records written by the next/moon fleets
+/progress
