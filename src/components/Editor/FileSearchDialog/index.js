@@ -1,6 +1,6 @@
 import React, {useState, useEffect, useRef, useMemo} from 'react';
 import {fuzzyMatch} from '@site/src/utils/fuzzyMatch';
-import styles from './styles.module.css';
+import styles from '../styles.module.css';
 
 export default function FileSearchDialog({files, onSelect, onClose}) {
   const [query, setQuery] = useState('');

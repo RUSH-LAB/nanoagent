@@ -1,5 +1,5 @@
 import React, {useMemo} from 'react';
-import styles from './styles.module.css';
+import styles from '../styles.module.css';
 
 /* ── Shared line-number gutter for the raw and split editors ──
    Both editors render an identical gutter beside their textarea. This module

@@ -1,5 +1,5 @@
 import React, {useState, useRef, useCallback, useEffect} from 'react';
-import styles from './AIAssistant.module.css';
+import styles from './styles.module.css';
 import API_BASE from '@site/src/utils/api';
 
 const API_URL = `${API_BASE}/api/ai/complete`;

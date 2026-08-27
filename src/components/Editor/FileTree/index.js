@@ -1,5 +1,5 @@
 import React, {useState, useEffect, useCallback, useMemo, useRef} from 'react';
-import styles from './styles.module.css';
+import styles from '../styles.module.css';
 import API_BASE from '@site/src/utils/api';
 
 // Review files (hidden from the tree) are named like `_foo.review.md`.

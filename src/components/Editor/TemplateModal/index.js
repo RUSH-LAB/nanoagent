@@ -1,5 +1,5 @@
 import React, {useState, useEffect, useRef, useCallback} from 'react';
-import styles from './TemplateModal.module.css';
+import styles from './styles.module.css';
 import API_BASE from '@site/src/utils/api';
 
 // Built-in "Blank Page" descriptors. The modal and the empty-state cards use

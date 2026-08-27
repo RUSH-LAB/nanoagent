@@ -1,5 +1,5 @@
 import React, {useState, useEffect, useCallback} from 'react';
-import styles from './RecentFiles.module.css';
+import styles from './styles.module.css';
 import {RECENT_FILES_KEY} from '@site/src/utils/recentFiles';
 
 export default function RecentFiles({onSelectFile, selectedFile}) {

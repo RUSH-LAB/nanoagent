@@ -1,5 +1,5 @@
 import React, {useState, useEffect, useRef, useCallback, useMemo} from 'react';
-import styles from './CitationAutocomplete.module.css';
+import styles from './styles.module.css';
 import API_BASE from '@site/src/utils/api';
 import {S2_PAPER_SEARCH} from '@site/src/utils/semanticScholar';
 

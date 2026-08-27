@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useCallback} from 'react';
-import styles from './KeyboardShortcuts.module.css';
+import styles from './styles.module.css';
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
 const mod = isMac ? '⌘' : 'Ctrl';

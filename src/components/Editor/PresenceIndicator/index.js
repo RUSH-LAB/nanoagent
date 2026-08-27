@@ -1,5 +1,5 @@
 import React from 'react';
-import styles from './PresenceIndicator.module.css';
+import styles from './styles.module.css';
 
 // Generate a consistent color from a user name string
 function nameToColor(name) {

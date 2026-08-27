@@ -4,18 +4,18 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Link from '@tiptap/extension-link';
 import {Markdown} from 'tiptap-markdown';
-import styles from './styles.module.css';
-import {useLineNumbers, LineNumberGutter} from './LineNumberGutter';
-import CitationAutocomplete from './CitationAutocomplete';
-import AIAssistant from './AIAssistant';
-import PresenceIndicator from './PresenceIndicator';
-import KeyboardShortcuts from './KeyboardShortcuts';
-import shortcutStyles from './KeyboardShortcuts.module.css';
+import styles from '../styles.module.css';
+import {useLineNumbers, LineNumberGutter} from '../LineNumberGutter';
+import CitationAutocomplete from '../CitationAutocomplete';
+import AIAssistant from '../AIAssistant';
+import PresenceIndicator from '../PresenceIndicator';
+import KeyboardShortcuts from '../KeyboardShortcuts';
+import shortcutStyles from '../KeyboardShortcuts/styles.module.css';
 import API_BASE from '@site/src/utils/api';
 import {useClickOutside} from '@site/src/hooks/useClickOutside';
 import {RECENT_FILES_KEY} from '@site/src/utils/recentFiles';
 import {PRESENCE_USER_ID_KEY} from '@site/src/utils/presence';
-import {TemplateCards} from './TemplateModal';
+import {TemplateCards} from '../TemplateModal';
 const PRESENCE_INTERVAL = 5000; // 5 seconds
 const MTIME_POLL_INTERVAL = 30000; // 30 seconds
 
