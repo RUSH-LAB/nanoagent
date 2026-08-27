@@ -1,7 +1,7 @@
 'use strict';
-// Route module organized from server.js. Each handler runs with the shared
+// Route module organized from server/index.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
-// dispatcher in server.js detects a sent response via res.writableEnded.
+// dispatcher in server/index.js detects a sent response via res.writableEnded.
 
 // ── /api/file/info content-analysis regexes (module scope, reused per request) ──
 // The four g-flag regexes are consumed only through String.prototype.match, which

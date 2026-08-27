@@ -45,7 +45,7 @@ npm run start:auth
 
 ```
 mochi-lab/
-  server.js            # Node.js API server entry: setup, dispatch, lifecycle (port 3001)
+  server/index.js            # Node.js API server entry: setup, dispatch, lifecycle (port 3001)
   docusaurus.config.js # Docusaurus site config
   content/
     books/             # Docs: programming, math, builder, survey

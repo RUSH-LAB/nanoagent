@@ -5,7 +5,7 @@ const { listTree, jsonResponse, optionsResponse, ALLOWED_EXTS } = require('./_gi
 
 /**
  * Build a nested tree structure from the flat GitHub tree entries,
- * matching the format returned by server.js walkDir().
+ * matching the format returned by server/index.js walkDir().
  *
  * Single insertion-ordered pass: each relevant blob is walked from `rootDir`
  * down its path segments, creating a directory node the first time a file is

@@ -2,7 +2,7 @@
  * Atomic, cached JSON persistence for the API server's flat-file data stores.
  *
  * Drop-in replacement for the inline loadJSON/saveJSON that used to live in
- * server.js. The externally observable behaviour is identical to the originals:
+ * server/index.js. The externally observable behaviour is identical to the originals:
  *
  *   - loadJSON(filePath): parse the file as JSON. A missing or corrupt file
  *     reads back as {}. Every call returns a fresh, mutable value.
