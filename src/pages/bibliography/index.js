@@ -156,7 +156,7 @@ function useActiveYearOnScroll(yearGroups) {
   return { activeYear, showBackToTop };
 }
 
-const CitationGraph = lazy(() => import('../components/CitationGraph'));
+const CitationGraph = lazy(() => import('../../components/CitationGraph'));
 
 function toBibTeX(key, entry) {
   const type = entry.type || 'misc';
@@ -285,7 +285,7 @@ const ReferenceEntry = React.memo(function ReferenceEntry({ citationKey, entry }
       )}
       <BrowserOnly>
         {() => {
-          const PaperNotes = require('../components/PaperNotes').default;
+          const PaperNotes = require('../../components/PaperNotes').default;
           return <ErrorBoundary><PaperNotes citationKey={citationKey} title={entry.title} /></ErrorBoundary>;
         }}
       </BrowserOnly>
@@ -1335,7 +1335,7 @@ export default function BibliographyPage() {
 
             <BrowserOnly>
               {() => {
-                const PaperRecommendations = require('../components/PaperRecommendations').default;
+                const PaperRecommendations = require('../../components/PaperRecommendations').default;
                 return <ErrorBoundary><PaperRecommendations references={references} /></ErrorBoundary>;
               }}
             </BrowserOnly>

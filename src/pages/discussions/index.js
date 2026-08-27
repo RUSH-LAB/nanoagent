@@ -5,10 +5,10 @@ import ErrorBoundary from '@site/src/components/ErrorBoundary';
 
 function DiscussionsApp() {
   const ChannelView =
-    require('../components/Discussions/ChannelView').default;
-  const styles = require('../components/Discussions/styles.module.css');
+    require('../../components/Discussions/ChannelView').default;
+  const styles = require('../../components/Discussions/styles.module.css');
   const LoadingSkeleton =
-    require('../components/LoadingSkeleton').default;
+    require('../../components/LoadingSkeleton').default;
 
   const API_BASE = require('@site/src/utils/api').default;
 

@@ -9,7 +9,7 @@ const projectRoot = path.resolve(__dirname, '..', '..', '..', '..');
 
 describe('API documentation completeness', () => {
   const serverCode = fs.readFileSync(path.join(projectRoot, 'server/index.js'), 'utf8');
-  const apiDocsCode = fs.readFileSync(path.join(projectRoot, 'src/pages/api-docs.js'), 'utf8');
+  const apiDocsCode = fs.readFileSync(path.join(projectRoot, 'src/pages/api-docs/index.js'), 'utf8');
 
   // Route handlers live in server/index.js (core) plus the per-domain modules under
   // api/routes/. Assertions about handler code scan the combined source.
