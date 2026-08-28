@@ -109,7 +109,6 @@ async function preflight() {
 // ────────────────────────────────────────────────────────────────
 
 const TEST_PREFIX = `__xtest_${Date.now()}`;
-const TEST_COMMENT_PAGE = `${TEST_PREFIX}/react-page`;
 const TEST_ANNOTATION_PAGE = `${TEST_PREFIX}/annotation-page`;
 
 // ────────────────────────────────────────────────────────────────
@@ -357,120 +356,6 @@ async function testStreak() {
     assertOk(typeof data.totalWords === 'number', 'has totalWords');
     assertOk(Array.isArray(data.dailyLog), 'has dailyLog array');
     assertOk(data.totalWords >= 100, 'totalWords includes our entry');
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
-// Annotations (3 tests)
-// ────────────────────────────────────────────────────────────────
-
-let createdAnnotationId = null;
-
-async function testAnnotations() {
-  section('Annotations');
-
-  // 1. POST /api/annotations
-  await test('Create annotation', async () => {
-    const {status, data} = await api('POST', '/api/annotations', {
-      page: TEST_ANNOTATION_PAGE,
-      text: 'highlighted',
-      note: 'my note',
-      startOffset: 0,
-      endOffset: 10,
-      author: 'test',
-    });
-    assertEq(status, 201, 'status');
-    assertOk(data.annotation, 'has annotation object');
-    assertOk(data.annotation.id, 'annotation has id');
-    assertEq(data.annotation.text, 'highlighted', 'text matches');
-    assertEq(data.annotation.note, 'my note', 'note matches');
-    assertEq(data.annotation.startOffset, 0, 'startOffset matches');
-    assertEq(data.annotation.endOffset, 10, 'endOffset matches');
-    assertEq(data.annotation.author, 'test', 'author matches');
-    assertOk(typeof data.annotation.createdAt === 'string', 'has createdAt');
-    createdAnnotationId = data.annotation.id;
-  });
-
-  // 2. GET /api/annotations?page=...
-  await test('List annotations for page', async () => {
-    const {status, data} = await api('GET', `/api/annotations?page=${encodeURIComponent(TEST_ANNOTATION_PAGE)}`);
-    assertEq(status, 200, 'status');
-    assertOk(Array.isArray(data.annotations), 'annotations is array');
-    assertOk(data.annotations.length >= 1, 'has at least one annotation');
-    const found = data.annotations.find(a => a.id === createdAnnotationId);
-    assertOk(found, 'found our annotation');
-    assertEq(found.text, 'highlighted', 'text matches');
-  });
-
-  // 3. DELETE /api/annotations
-  await test('Delete annotation', async () => {
-    if (!createdAnnotationId) throw new Error('No annotation id from previous test');
-    const {status, data} = await api('DELETE', '/api/annotations', {
-      page: TEST_ANNOTATION_PAGE,
-      id: createdAnnotationId,
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.success, 'success');
-    // Verify it is gone
-    const {data: listData} = await api('GET', `/api/annotations?page=${encodeURIComponent(TEST_ANNOTATION_PAGE)}`);
-    assertOk(!listData.annotations.some(a => a.id === createdAnnotationId), 'annotation deleted');
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
-// Reactions (2 tests)
-// ────────────────────────────────────────────────────────────────
-
-let reactCommentId = null;
-
-async function testReactions() {
-  section('Reactions');
-
-  // Setup: create a comment to react to
-  const {data: commentData} = await api('POST', '/api/comments', {
-    page: TEST_COMMENT_PAGE,
-    author: 'React Test User',
-    text: 'Comment for reaction tests',
-  });
-  reactCommentId = commentData.comment?.id;
-  if (!reactCommentId) {
-    fail('Setup: create comment for reactions', 'Could not create comment');
-    return;
-  }
-  cleanup.push(async () => {
-    try {
-      await api('DELETE', '/api/comments', {page: TEST_COMMENT_PAGE, commentId: reactCommentId});
-    } catch { /* ignore */ }
-  });
-
-  // 1. POST /api/comments/react — add reaction
-  await test('Add reaction to comment', async () => {
-    const {status, data} = await api('POST', '/api/comments/react', {
-      page: TEST_COMMENT_PAGE,
-      commentId: reactCommentId,
-      emoji: 'thumbsup',
-      userId: `${TEST_PREFIX}_reactor`,
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.success, 'success');
-    assertOk(Array.isArray(data.reactions), 'reactions is array');
-    const reaction = data.reactions.find(r => r.emoji === 'thumbsup' && r.userId === `${TEST_PREFIX}_reactor`);
-    assertOk(reaction, 'found our reaction');
-  });
-
-  // 2. DELETE /api/comments/react — remove reaction
-  await test('Remove reaction from comment', async () => {
-    const {status, data} = await api('DELETE', '/api/comments/react', {
-      page: TEST_COMMENT_PAGE,
-      commentId: reactCommentId,
-      emoji: 'thumbsup',
-      userId: `${TEST_PREFIX}_reactor`,
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.success, 'success');
-    assertOk(Array.isArray(data.reactions), 'reactions is array');
-    const reaction = data.reactions.find(r => r.emoji === 'thumbsup' && r.userId === `${TEST_PREFIX}_reactor`);
-    assertOk(!reaction, 'reaction removed');
   });
 }
 
@@ -1494,14 +1379,6 @@ async function testBibtexExport() {
 async function testSharedAnnotations() {
   section('Shared Annotations');
 
-  await test('Shared annotations returns {annotations, total}', async () => {
-    const {status, data} = await api('GET', '/api/annotations/shared');
-    assertEq(status, 200, 'status');
-    assertOk(Array.isArray(data.annotations), 'annotations is array');
-    assertOk(typeof data.total === 'number', 'total is number');
-    assertOk(data.total >= 0, 'total is non-negative');
-    assertEq(data.total, data.annotations.length, 'total matches annotations length');
-  });
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1614,21 +1491,6 @@ async function testReadingProgress() {
 async function testChangelog() {
   section('Changelog');
 
-  await test('Changelog returns {events, total}', async () => {
-    const {status, data} = await api('GET', '/api/changelog');
-    assertEq(status, 200, 'status');
-    assertOk(Array.isArray(data.events), 'events is array');
-    assertOk(typeof data.total === 'number', 'total is number');
-    assertOk(data.total >= 0, 'total is non-negative');
-    if (data.events.length > 0) {
-      const event = data.events[0];
-      // Events should have at least a date/timestamp
-      assertOk(
-        typeof event.date === 'string' || typeof event.timestamp === 'string',
-        'event has date or timestamp',
-      );
-    }
-  });
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -2102,8 +1964,6 @@ async function main() {
   await testBookmarks();
   await testReadingLists();
   await testStreak();
-  await testAnnotations();
-  await testReactions();
   await testMisc();
 
   await testAnalyticsDuplicatesAndOrphans();

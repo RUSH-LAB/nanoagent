@@ -19,7 +19,6 @@ const routes = require('../../../../../src/server/routes/content-analysis-c.js')
 // The handler resolves its four data inputs through ctx.loadJSON keyed by these file
 // constants. The mock dispatches on the constant; the throwing variant ignores it.
 const ANALYTICS_FILE = 'analytics.json';
-const COMMENTS_FILE = 'comments.json';
 const BOOKMARKS_FILE = 'bookmarks.json';
 const READING_LISTS_FILE = 'reading-lists.json';
 
@@ -41,7 +40,7 @@ async function engagement({ throwOnCall = 1 } = {}) {
       return {};
     },
     cached: (_key, _ttl, fn) => fn(),
-    ANALYTICS_FILE, COMMENTS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE,
+    ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE,
   };
   const pathname = '/api/content-engagement';
   const url = new URL(`http://localhost${pathname}`);
@@ -75,12 +74,12 @@ describe('GET /api/content-engagement outer catch returns 500 Engagement scoring
     assert.equal(replies.some((r) => r.body && ('pages' in r.body || 'total' in r.body)), false);
   });
 
-  it('still returns the same 500 when a later load (bookmarks, the 3rd call) throws mid-try', async () => {
+  it('still returns the same 500 when a later load (bookmarks, the 2nd call) throws mid-try', async () => {
     // analytics + comments load fine (`{}`), then bookmarks throws on the 3rd call.
     // The SAME outer catch wraps the whole body, so the reply is still the lone 500
     // and the success projection is still never reached.
-    const { loadCalls, replies } = await engagement({ throwOnCall: 3 });
-    assert.deepEqual(loadCalls, [ANALYTICS_FILE, COMMENTS_FILE, BOOKMARKS_FILE]);
+    const { loadCalls, replies } = await engagement({ throwOnCall: 2 });
+    assert.deepEqual(loadCalls, [ANALYTICS_FILE, BOOKMARKS_FILE]);
     assert.equal(replies.length, 1);
     assert.deepEqual(replies[0], { status: 500, body: { error: 'Engagement scoring failed' } });
     assert.equal(replies.some((r) => r.status === 200), false);

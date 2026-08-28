@@ -35,7 +35,6 @@ function fmt(n) {
 function StatsDashboard() {
   const [stats, setStats] = useState(null);
   const [references, setReferences] = useState(null);
-  const [comments, setComments] = useState(null);
   const [topics, setTopics] = useState(null);
   const [orphans, setOrphans] = useState(null);
   const [duplicates, setDuplicates] = useState(null);
@@ -59,17 +58,15 @@ function StatsDashboard() {
     Promise.all([
       fetchJSON('/api/stats').catch(() => null),
       fetchJSON('/api/references').catch(() => null),
-      fetchJSON('/api/comments').catch(() => null),
       fetchJSON('/api/analytics/topics').catch(() => null),
       fetchJSON('/api/analytics/orphans').catch(() => null),
       fetchJSON('/api/analytics/duplicates').catch(() => null),
       fetchJSON('/api/files/recent').catch(() => null),
     ])
-      .then(([s, r, c, t, o, d, rf]) => {
+      .then(([s, r, t, o, d, rf]) => {
         if (signal.aborted) return;
         setStats(s);
         setReferences(r);
-        setComments(c);
         setTopics(t);
         setOrphans(o);
         setDuplicates(d);
@@ -146,11 +143,6 @@ function StatsDashboard() {
     : [];
   const totalRefs = refEntries.length;
 
-  // Comments: could be an array or { comments: [...] }
-  const commentList = Array.isArray(comments)
-    ? comments
-    : comments?.comments || [];
-  const totalComments = commentList.length;
 
   // By-directory breakdown
   const byDir = stats?.byDirectory || {};
@@ -210,7 +202,6 @@ function StatsDashboard() {
           { value: fmt(totalFiles), label: 'Total Files' },
           { value: fmt(totalWords), label: 'Total Words' },
           { value: fmt(totalRefs), label: 'References' },
-          { value: fmt(totalComments), label: 'Comments' },
         ].map(({ value, label }) => (
           <div key={label} style={cardStyle}>
             <div style={{ fontSize: '2rem', fontWeight: 700, lineHeight: 1.2 }}>{value}</div>

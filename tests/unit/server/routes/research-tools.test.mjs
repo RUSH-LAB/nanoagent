@@ -871,36 +871,3 @@ describe('POST /api/search/replace', () => {
   });
 });
 
-// ── Notification counts ───────────────────────────────────────────────────
-
-describe('GET /api/notifications/counts', () => {
-  const STORE = {
-    [COMMENTS_FILE]: {
-      '/p': [{createdAt: '2026-01-02T00:00:00.000Z'}, {createdAt: '2026-01-01T00:00:00.000Z'}, {}],
-      bad: 'not-an-array',
-    },
-  };
-
-  it('counts entries created strictly after the given since', async () => {
-    const r = await invoke(routes, {path: '/api/notifications/counts', query: {since: '2026-01-01T00:00:00.000Z'}, ctx: makeCtx({store: STORE})});
-    // The boundary is exclusive, so the comment equal to `since` is not
-    // counted, and entries without a createdAt are ignored.
-    assert.deepEqual([r.status, r.payload], [200, {comments: 1}]);
-  });
-
-  it('defaults since to the Unix epoch, counting even a pre-2000 entry', async () => {
-    const store = {[COMMENTS_FILE]: {'/p': [{createdAt: '1985-01-01T00:00:00.000Z'}]}};
-    const r = await invoke(routes, {path: '/api/notifications/counts', ctx: makeCtx({store})});
-    assert.deepEqual(r.payload, {comments: 1});
-  });
-
-  it('counts every timestamped entry when no since is given', async () => {
-    const r = await invoke(routes, {path: '/api/notifications/counts', ctx: makeCtx({store: STORE})});
-    assert.deepEqual(r.payload, {comments: 2});
-  });
-
-  it('returns zero when the comments document is empty', async () => {
-    const r = await invoke(routes, {path: '/api/notifications/counts', ctx: makeCtx({store: {[COMMENTS_FILE]: {}}})});
-    assert.deepEqual(r.payload, {comments: 0});
-  });
-});

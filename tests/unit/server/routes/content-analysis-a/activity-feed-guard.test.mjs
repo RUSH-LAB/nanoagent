@@ -63,24 +63,19 @@ describe('numericParam helper', () => {
 });
 
 describe('GET /api/activity-feed limit guard', () => {
-  // 110 comment events so the default (30), the clamp (100), and the broken NaN
+  // 110 review events so the default (30), the clamp (100), and the broken NaN
   // path (slice(0, NaN) === empty) are all distinguishable from one another.
-  const comments = {
-    page1: Array.from({ length: 110 }, (_, i) => ({
-      author: 'a',
-      text: 'hello',
-      createdAt: `2024-01-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
-    })),
-  };
+  const reviews = Array.from({ length: 110 }, (_, i) => ({
+    path: `page-${i}.md`,
+    requestedBy: 'a',
+    status: 'pending',
+    createdAt: `2024-01-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+  }));
   const ctx = {
     path,
     PROJECT_ROOT: '/tmp/activity-feed-test',
-    COMMENTS_FILE: 'comments',
-    ANNOTATIONS_FILE: 'annotations',
-    loadJSON(file) {
-      if (file === 'comments') return comments;
-      if (file === 'annotations') return {};
-      return { reviews: [] }; // computed data/reviews.json path
+    loadJSON() {
+      return { reviews }; // the computed var/data/reviews.json path
     },
   };
   const callFeed = search => invoke({ pathname: '/api/activity-feed', search, ctx });

@@ -48,7 +48,7 @@ const TEMPLATE_VAR_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
 
 module.exports = async function content_analysis_c_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── Content publishing workflow status ──
@@ -527,21 +527,8 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
         else if (t > now - 14 * 86400000) lastWeek++;
       }
       const pageviewGrowth = lastWeek > 0 ? Math.round(((thisWeek - lastWeek) / lastWeek) * 100) : thisWeek > 0 ? 100 : 0;
-      const comments = loadJSON(COMMENTS_FILE);
-      let commentsThisWeek = 0, commentsLastWeek = 0;
-      for (const page of Object.values(comments)) {
-        if (!Array.isArray(page)) continue;
-        for (const c of page) {
-          if (!c.createdAt) continue;
-          const t = new Date(c.createdAt).getTime();
-          if (t > now - 7 * 86400000) commentsThisWeek++;
-          else if (t > now - 14 * 86400000) commentsLastWeek++;
-        }
-      }
-      const commentGrowth = commentsLastWeek > 0 ? Math.round(((commentsThisWeek - commentsLastWeek) / commentsLastWeek) * 100) : commentsThisWeek > 0 ? 100 : 0;
       return json(res, 200, {
         pageviews: {thisWeek, lastWeek, growth: pageviewGrowth},
-        comments: {thisWeek: commentsThisWeek, lastWeek: commentsLastWeek, growth: commentGrowth},
         period: '7 days',
       });
     } catch {
@@ -553,32 +540,27 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
   if (req.method === 'GET' && pathname === '/api/content-engagement') {
     try {
       const analytics = loadJSON(ANALYTICS_FILE);
-      const comments = loadJSON(COMMENTS_FILE);
       const bookmarks = loadJSON(BOOKMARKS_FILE);
       const readingLists = loadJSON(READING_LISTS_FILE);
       const pageScores = {};
       for (const [page, views] of Object.entries(analytics.counts || {})) {
-        if (!pageScores[page]) pageScores[page] = {views: 0, comments: 0, bookmarks: 0, readingLists: 0};
+        if (!pageScores[page]) pageScores[page] = {views: 0, bookmarks: 0, readingLists: 0};
         pageScores[page].views = views;
-      }
-      for (const [page, pageComments] of Object.entries(comments)) {
-        if (!pageScores[page]) pageScores[page] = {views: 0, comments: 0, bookmarks: 0, readingLists: 0};
-        pageScores[page].comments = Array.isArray(pageComments) ? pageComments.length : 0;
       }
       for (const b of (bookmarks.bookmarks || [])) {
         const bp = b.path;
-        if (!pageScores[bp]) pageScores[bp] = {views: 0, comments: 0, bookmarks: 0, readingLists: 0};
+        if (!pageScores[bp]) pageScores[bp] = {views: 0, bookmarks: 0, readingLists: 0};
         pageScores[bp].bookmarks++;
       }
       for (const list of (readingLists.lists || [])) {
         for (const item of (list.items || [])) {
           const ip = item.path;
-          if (!pageScores[ip]) pageScores[ip] = {views: 0, comments: 0, bookmarks: 0, readingLists: 0};
+          if (!pageScores[ip]) pageScores[ip] = {views: 0, bookmarks: 0, readingLists: 0};
           pageScores[ip].readingLists++;
         }
       }
       const scored = Object.entries(pageScores).map(([page, data]) => {
-        const score = data.views * 1 + data.comments * 5 + data.bookmarks * 10 + data.readingLists * 3;
+        const score = data.views * 1 + data.bookmarks * 10 + data.readingLists * 3;
         return {page, ...data, engagementScore: score};
       }).sort((a, b) => b.engagementScore - a.engagementScore);
       return json(res, 200, {pages: scored.slice(0, 30), total: scored.length});

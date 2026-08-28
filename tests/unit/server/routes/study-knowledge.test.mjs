@@ -16,7 +16,7 @@ import {loadRoute, loadServer, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} fro
 
 const routes = loadRoute('study-knowledge');
 const {LINKSUGGEST_WIKI_RE, QUICKNOTES_TITLE_RE, QUICKNOTES_DATE_RE, QUICKNOTES_BODY_RE, FRONTMATTER_TITLE_RE} = routes;
-const {FLASHCARDS_FILE, GLOSSARY_FILE, READING_LISTS_FILE, BOOKMARKS_FILE, ANALYTICS_FILE, COMMENTS_FILE} = FILES;
+const {FLASHCARDS_FILE, GLOSSARY_FILE, READING_LISTS_FILE, BOOKMARKS_FILE, ANALYTICS_FILE} = FILES;
 const at = rel => path.join(PROJECT_ROOT, rel);
 const BIB = at('content/bibliography/references.yaml');
 const RQ_FILE = at('var/data/research-questions.json');
@@ -1371,7 +1371,6 @@ describe('/api/templates/custom', () => {
 describe('GET /api/analytics/page', () => {
   const STORE = {
     [ANALYTICS_FILE]: {counts: {'/p': 7}},
-    [COMMENTS_FILE]: {'/p': [{}, {}]},
     [BOOKMARKS_FILE]: {bookmarks: [{path: '/p'}]},
     [READING_LISTS_FILE]: {lists: [{items: [{path: '/p'}]}, {items: [{path: '/other'}]}, {}]},
   };
@@ -1381,14 +1380,14 @@ describe('GET /api/analytics/page', () => {
     assert.deepEqual([r.status, r.payload], [400, {error: 'Missing path'}]);
   });
 
-  it('aggregates views, comments, bookmark state and reading-list membership', async () => {
+  it('aggregates views, bookmark state and reading-list membership', async () => {
     const r = await invoke(routes, {path: '/api/analytics/page', query: {path: '/p'}, ctx: makeCtx({store: STORE})});
-    assert.deepEqual(r.payload, {path: '/p', views: 7, comments: 2, isBookmarked: true, inReadingLists: 1});
+    assert.deepEqual(r.payload, {path: '/p', views: 7, isBookmarked: true, inReadingLists: 1});
   });
 
   it('zeroes every counter for an unseen page', async () => {
     const r = await invoke(routes, {path: '/api/analytics/page', query: {path: '/unseen'}, ctx: makeCtx({store: STORE})});
-    assert.deepEqual(r.payload, {path: '/unseen', views: 0, comments: 0, isBookmarked: false, inReadingLists: 0});
+    assert.deepEqual(r.payload, {path: '/unseen', views: 0, isBookmarked: false, inReadingLists: 0});
   });
 
   // Both lookups are own-key checks, so an inherited name cannot leak a
@@ -1396,7 +1395,7 @@ describe('GET /api/analytics/page', () => {
   for (const pagePath of [...PROTO_KEYS, ...INHERITED_KEYS]) {
     it(`returns zeroes for the non-own page ${JSON.stringify(pagePath)}`, async () => {
       const r = await invoke(routes, {path: '/api/analytics/page', query: {path: pagePath}, ctx: makeCtx({store: STORE})});
-      assert.deepEqual([r.payload.views, r.payload.comments], [0, 0]);
+      assert.equal(r.payload.views, 0);
     });
   }
 });

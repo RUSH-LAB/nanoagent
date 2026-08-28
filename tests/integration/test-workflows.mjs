@@ -264,75 +264,6 @@ async function journey1() {
 // Journey 2: Collaboration (6 steps)
 // ════════════════════════════════════════════════════════════════
 
-async function journey2() {
-  section('Journey 2: Collaboration');
-
-  const commentPage = `${TEST_PREFIX}/collab-page`;
-  let commentId = null;
-  const userId = `${TEST_PREFIX}_collaborator`;
-
-  step(1, 'Add a comment on a page');
-  await test('2.1 Add comment via POST /api/comments', async () => {
-    const {status, data} = await api('POST', '/api/comments', {
-      page: commentPage,
-      author: 'Reviewer B',
-      text: 'Great analysis in section 3!',
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.comment, 'has comment');
-    assertOk(data.comment.id, 'comment has id');
-    commentId = data.comment.id;
-  });
-
-  // Step 5: React to the comment
-  step(2, 'React to the comment');
-  await test('2.2 React via POST /api/comments/react', async () => {
-    assertOk(commentId, 'comment id from step 4');
-    const {status, data} = await api('POST', '/api/comments/react', {
-      page: commentPage,
-      commentId,
-      emoji: 'thumbsup',
-      userId,
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.success, 'reaction added');
-    assertOk(Array.isArray(data.reactions), 'has reactions array');
-    const reaction = data.reactions.find(r => r.emoji === 'thumbsup' && r.userId === userId);
-    assertOk(reaction, 'our reaction is present');
-  });
-
-  // Step 6: Check notifications
-  step(3, 'Check notification counts');
-  await test('2.3 Check notifications via GET /api/notifications/counts', async () => {
-    // Use a since timestamp from just before we started so we capture our test data
-    const since = new Date(TS - 5000).toISOString();
-    const {status, data} = await api('GET', `/api/notifications/counts?since=${encodeURIComponent(since)}`);
-    assertEq(status, 200, 'status');
-    assertOk(typeof data.comments === 'number', 'has comments count');
-    // Our comment should be counted
-    assertOk(data.comments >= 1, 'at least 1 new comment notification');
-  });
-
-  // Cleanup
-  console.log(`  ${DIM}Cleaning up Journey 2 test data...${RESET}`);
-  let cleanCount = 0;
-  let cleanErrors = 0;
-
-  // Delete the comment
-  if (commentId) {
-    try {
-      await api('DELETE', '/api/comments', {page: commentPage, commentId});
-      cleanCount++;
-    } catch { cleanErrors++; }
-  }
-
-  if (cleanErrors > 0) {
-    log('!', YELLOW, `Journey 2 cleanup: ${cleanCount} ok, ${cleanErrors} errors`);
-  } else {
-    log('✓', GREEN, `Journey 2 cleanup: ${cleanCount} items cleaned`);
-  }
-}
-
 // ════════════════════════════════════════════════════════════════
 // Journey 3: Study session (5 steps)
 // ════════════════════════════════════════════════════════════════
@@ -705,7 +636,6 @@ async function main() {
   await preflight();
 
   await journey1();
-  await journey2();
   await journey3();
   await journey4();
 

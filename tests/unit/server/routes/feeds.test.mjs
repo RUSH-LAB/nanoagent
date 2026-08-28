@@ -12,7 +12,7 @@ import path from 'node:path';
 import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
 
 const routes = loadRoute('feeds');
-const {COMMENTS_FILE, STREAKS_FILE} = FILES;
+const {STREAKS_FILE} = FILES;
 const SESSIONS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'sessions.json');
 const SCHEDULE_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'schedule.json');
 const at = rel => path.join(PROJECT_ROOT, rel);
@@ -645,33 +645,28 @@ describe('GET /api/activity-heatmap', () => {
     });
     const now = new Date();
     const fs = {...base, statSync: p => ({...base.statSync(p), mtime: now}), ...(over.fs ? {} : {})};
-    const store = {[COMMENTS_FILE]: {'/p': [{createdAt: `${today}T10:00:00.000Z`}, {}], bad: 'not-an-array'}};
-    return makeCtx({fs, store, ...over});
+    return makeCtx({fs, ...over});
   }
 
-  it('merges content mtimes and comment timestamps into one per-day tally', async () => {
+  it('tallies content mtimes into one per-day bucket set', async () => {
     const r = await invoke(routes, {path: '/api/activity-heatmap', ctx: heatmapCtx()});
     assert.equal(r.status, 200);
-    // Two markdown files (one nested) plus one comment all land on today. The
-    // dot-file, the dot-directory and the .txt are skipped, the non-array
-    // bucket is ignored, and the comment with no createdAt is not counted.
-    assert.deepEqual(r.payload.days, {[today]: 3});
+    // Two markdown files (one nested) land on today. The dot-file, the
+    // dot-directory and the .txt are all skipped.
+    assert.deepEqual(r.payload.days, {[today]: 2});
     assert.equal(r.payload.totalDays, 1);
   });
 
-  it('narrows the window with ?days and drops older buckets', async () => {
-    const store = {[COMMENTS_FILE]: {'/p': [{createdAt: old}, {createdAt: `${today}T10:00:00.000Z`}]}};
-    const mk = () => makeCtx({fs: mockFs({[at('content/.keep')]: ''}), store});
-    const wide = await invoke(routes, {path: '/api/activity-heatmap', query: {days: '365'}, ctx: mk()});
-    assert.equal(wide.payload.days[old.slice(0, 10)], undefined, 'a 400-day-old entry is outside even the widest window');
+  it('narrows the window with ?days and keeps only today\'s bucket', async () => {
+    const wide = await invoke(routes, {path: '/api/activity-heatmap', query: {days: '365'}, ctx: heatmapCtx()});
     assert.deepEqual(Object.keys(wide.payload.days), [today]);
-    const narrow = await invoke(routes, {path: '/api/activity-heatmap', query: {days: '1'}, ctx: mk()});
+    const narrow = await invoke(routes, {path: '/api/activity-heatmap', query: {days: '1'}, ctx: heatmapCtx()});
     assert.deepEqual(Object.keys(narrow.payload.days), [today]);
   });
 
   it('falls back to the default window for a non-numeric days value', async () => {
     const r = await invoke(routes, {path: '/api/activity-heatmap', query: {days: 'abc'}, ctx: heatmapCtx()});
-    assert.deepEqual([r.status, r.payload.days], [200, {[today]: 3}]);
+    assert.deepEqual([r.status, r.payload.days], [200, {[today]: 2}]);
   });
 
   const SEAMS = [
@@ -695,7 +690,6 @@ describe('GET /api/summary/daily', () => {
 
   it('returns the full daily shape over a representative mix', async () => {
     const store = {
-      [COMMENTS_FILE]: {'/p': [{createdAt: `${today}T09:00:00.000Z`}, {createdAt: '2020-01-01T00:00:00.000Z'}, {}], bad: 'not-an-array'},
       [STREAKS_FILE]: {default: {dailyLog: [{date: today, words: 750}]}},
     };
     // mockFs stamps a fixed past mtime, so no content file counts as modified today.
@@ -706,20 +700,13 @@ describe('GET /api/summary/daily', () => {
       date: today,
       filesModifiedToday: 0,
       modifiedFiles: [],
-      commentsToday: 1,
       wordsWrittenToday: 750,
     });
   });
 
   it('returns zeros for empty stores and empty content', async () => {
     const r = await invoke(routes, {path: '/api/summary/daily', ctx: makeCtx({fs: mockFs({[at('content/.keep')]: ''})})});
-    assert.deepEqual(r.payload, {date: today, filesModifiedToday: 0, modifiedFiles: [], commentsToday: 0, wordsWrittenToday: 0});
-  });
-
-  it('counts entries whose createdAt equals the start-of-day cutoff', async () => {
-    const store = {[COMMENTS_FILE]: {'/p': [{createdAt: todayISO}]}};
-    const r = await invoke(routes, {path: '/api/summary/daily', ctx: makeCtx({fs: mockFs({[at('content/.keep')]: ''}), store})});
-    assert.equal(r.payload.commentsToday, 1, 'the comparison is inclusive');
+    assert.deepEqual(r.payload, {date: today, filesModifiedToday: 0, modifiedFiles: [], wordsWrittenToday: 0});
   });
 
   it('counts every file modified today but caps modifiedFiles at 20', async () => {

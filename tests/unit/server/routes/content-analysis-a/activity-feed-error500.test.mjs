@@ -13,29 +13,23 @@ const require = createRequire(import.meta.url);
 const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/fake/root';
-const COMMENTS_FILE = 'comments';
-const ANNOTATIONS_FILE = 'annotations';
 
 // The sibling success suites (projection, guard, negative-limit-clamp) drive the
 // handler with this ctx shape: the node path module, the data-file path tokens,
 // and a loadJSON that dispatches on the file token. The reviews source path is
 // computed inside the handler as path.join(PROJECT_ROOT, 'var', 'data', 'reviews.json'),
 // so the dispatcher keys the reviews fixture off that exact resolved path. With
-// throwOnLoad set, loadJSON throws on its very first call (the comments load, the
+// throwOnLoad set, loadJSON throws on its very first call (the reviews load, the
 // first failable step inside the try), sending the handler into the outer catch.
-function makeCtx({ comments = {}, annotations = {}, reviews = {}, throwOnLoad = false } = {}) {
+function makeCtx({ reviews = {}, throwOnLoad = false } = {}) {
   const REVIEWS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'reviews.json');
   const calls = { loadJSON: [] };
   const ctx = {
     path,
     PROJECT_ROOT,
-    COMMENTS_FILE,
-    ANNOTATIONS_FILE,
     loadJSON(file) {
       calls.loadJSON.push(file);
       if (throwOnLoad) throw new Error('activity store unreadable');
-      if (file === COMMENTS_FILE) return comments;
-      if (file === ANNOTATIONS_FILE) return annotations;
       if (file === REVIEWS_FILE) return reviews;
       return {};
     },
@@ -75,7 +69,7 @@ describe('GET /api/activity-feed: outer-catch 500', () => {
     // golden is owned by next-activity-feed-projection; this pins only that the
     // success reply is reachable with this exact ctx shape.
     const { ctx, calls } = makeCtx({
-      comments: { 'guide.md': [{ author: 'alice', text: 'hi', createdAt: '2024-05-01T00:00:00.000Z' }] },
+      reviews: { reviews: [{ path: 'guide.md', requestedBy: 'alice', status: 'pending', createdAt: '2024-05-01T00:00:00.000Z' }] },
     });
     const { jsonCalls } = await invoke(ctx);
 
@@ -83,11 +77,11 @@ describe('GET /api/activity-feed: outer-catch 500', () => {
     assert.deepEqual(jsonCalls[0], {
       status: 200,
       payload: {
-        events: [{ type: 'comment', page: 'guide.md', author: 'alice', preview: 'hi', timestamp: '2024-05-01T00:00:00.000Z' }],
+        events: [{ type: 'review', path: 'guide.md', author: 'alice', status: 'pending', timestamp: '2024-05-01T00:00:00.000Z' }],
         total: 1,
       },
     });
-    assert.equal(calls.loadJSON.length, 3, 'the success path loads all three sources');
+    assert.equal(calls.loadJSON.length, 1, 'the success path loads its single source');
   });
 
   it('returns 500 Activity feed failed via json when the first loadJSON throws', async () => {
@@ -104,9 +98,9 @@ describe('GET /api/activity-feed: outer-catch 500', () => {
     const { ctx, calls } = makeCtx({ throwOnLoad: true });
     const { jsonCalls } = await invoke(ctx);
 
-    // loadJSON throws on its first call (the comments load), so the downstream
+    // loadJSON throws on its only call (the reviews load), so the projection and
     // annotations and reviews loads never run.
-    assert.deepEqual(calls.loadJSON, [COMMENTS_FILE], 'only the comments load is attempted before the throw');
+    assert.equal(calls.loadJSON.length, 1, 'the single load is attempted before the throw');
     // Never-reached proof: exactly one reply, and no json call carried the success
     // 200 {events, total} body.
     assert.equal(jsonCalls.length, 1, 'the catch emits the only reply');

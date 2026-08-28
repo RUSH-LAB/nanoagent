@@ -54,7 +54,7 @@ const TASK_PRIORITIES = Object.freeze(['low', 'medium', 'high']);
 
 module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── Reading progress tracking ──
@@ -105,26 +105,6 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     return json(res, 200, {pages, totalRead, inProgress, totalTracked: pages.length});
   }
 
-  // ── Content changelog ──
-  if (req.method === 'GET' && pathname === '/api/changelog') {
-    try {
-      const limit = Math.max(numericParam(url.searchParams.get('limit'), 50, 200), 0);
-      const events = [];
-      const comments = loadJSON(COMMENTS_FILE);
-      for (const [page, pageComments] of Object.entries(comments)) {
-        if (Array.isArray(pageComments)) {
-          for (const c of pageComments) {
-            events.push({type: 'comment', page, author: c.author, text: c.text?.slice(0, 100), timestamp: c.createdAt});
-          }
-        }
-      }
-      events.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
-      return json(res, 200, {events: events.slice(0, limit), total: events.length});
-    } catch {
-      return json(res, 500, {error: 'Changelog failed'});
-    }
-  }
-
   // ── Reference impact scoring ──
   if (req.method === 'GET' && pathname === '/api/references/impact') {
     try {
@@ -169,26 +149,6 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       return json(res, 200, {references: impact, total: impact.length});
     } catch {
       return json(res, 500, {error: 'Impact scoring failed'});
-    }
-  }
-
-  // ── Shared annotations feed ──
-  if (req.method === 'GET' && pathname === '/api/annotations/shared') {
-    try {
-      const limit = Math.max(numericParam(url.searchParams.get('limit'), 50, 200), 0);
-      const annotations = loadJSON(ANNOTATIONS_FILE);
-      const all = [];
-      for (const [page, pageAnnotations] of Object.entries(annotations)) {
-        if (Array.isArray(pageAnnotations)) {
-          for (const ann of pageAnnotations) {
-            all.push({...ann, page});
-          }
-        }
-      }
-      all.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-      return json(res, 200, {annotations: all.slice(0, limit), total: all.length});
-    } catch {
-      return json(res, 500, {error: 'Failed to load shared annotations'});
     }
   }
 
@@ -850,7 +810,6 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   if (req.method === 'GET' && pathname === '/api/backup') {
     try {
       const bundle = {
-        comments: loadJSON(COMMENTS_FILE),
         notes: loadJSON(NOTES_FILE),
         bookmarks: loadJSON(BOOKMARKS_FILE),
         readingLists: loadJSON(READING_LISTS_FILE),
@@ -860,7 +819,6 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         analytics: loadJSON(ANALYTICS_FILE),
         goals: loadJSON(GOALS_FILE),
         streaks: loadJSON(STREAKS_FILE),
-        annotations: loadJSON(ANNOTATIONS_FILE),
         exportedAt: new Date().toISOString(),
       };
       return json(res, 200, bundle);
@@ -878,7 +836,6 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         return json(res, 400, {error: 'Invalid backup bundle'});
       }
       const mapping = {
-        comments: COMMENTS_FILE,
         notes: NOTES_FILE,
         bookmarks: BOOKMARKS_FILE,
         readingLists: READING_LISTS_FILE,
@@ -888,7 +845,6 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         analytics: ANALYTICS_FILE,
         goals: GOALS_FILE,
         streaks: STREAKS_FILE,
-        annotations: ANNOTATIONS_FILE,
       };
       const restored = [];
       for (const [key, filePath] of Object.entries(mapping)) {
@@ -1503,28 +1459,6 @@ Generated from Mochi Lab &mdash; ${new Date().toLocaleDateString()}
       });
     } catch (e) {
       checks.push({name: 'orphaned_snapshots', passed: false, details: `Cannot check snapshots: ${e.message}`});
-    }
-
-    // 4. Check for comments on non-existent pages
-    try {
-      const comments = loadJSON(COMMENTS_FILE);
-      const orphanedComments = [];
-      for (const page of Object.keys(comments)) {
-        if (page.startsWith('__')) continue; // skip internal/test keys
-        const fullPath = path.join(PROJECT_ROOT, page);
-        if (!fs.existsSync(fullPath) && comments[page].length > 0) {
-          orphanedComments.push({page, count: comments[page].length});
-        }
-      }
-      checks.push({
-        name: 'orphaned_comments',
-        passed: orphanedComments.length === 0,
-        details: orphanedComments.length === 0
-          ? 'No comments on non-existent pages'
-          : `${orphanedComments.length} page(s) with orphaned comments: ${orphanedComments.map(o => `${o.page} (${o.count})`).join(', ')}`,
-      });
-    } catch (e) {
-      checks.push({name: 'orphaned_comments', passed: false, details: `Cannot check comments: ${e.message}`});
     }
 
     const allPassed = checks.every(c => c.passed);

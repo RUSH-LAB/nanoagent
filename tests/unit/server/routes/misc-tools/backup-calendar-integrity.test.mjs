@@ -56,13 +56,12 @@ function makeMemoCached() {
 }
 
 // ───────────────────────────── GET /api/backup ─────────────────────────────
-// The handler aggregates eleven stores through ctx.loadJSON(FILE) into one
+// The handler aggregates nine stores through ctx.loadJSON(FILE) into one
 // bundle plus an exportedAt timestamp. Each store is a distinct value so a
 // swapped FILE->bundle-key pairing would fail the deep-equal. The file-path
 // constants are realistic sentinels; loadJSON maps each back to its store key.
 
 const BACKUP_STORES = {
-  comments: [{ id: 'c1', text: 'hi' }],
   notes: { intro: 'a note' },
   bookmarks: [{ url: 'https://x' }],
   readingLists: { default: ['paper-1'] },
@@ -72,11 +71,9 @@ const BACKUP_STORES = {
   analytics: { views: { home: 10 } },
   goals: { goals: [{ id: 'g1' }] },
   streaks: { alice: { current: 3 } },
-  annotations: { guide: [{ note: 'n' }] },
 };
 
 const BACKUP_FILES = {
-  COMMENTS_FILE: '/proj/data/comments.json',
   NOTES_FILE: '/proj/data/notes.json',
   BOOKMARKS_FILE: '/proj/data/bookmarks.json',
   READING_LISTS_FILE: '/proj/data/reading-lists.json',
@@ -86,14 +83,12 @@ const BACKUP_FILES = {
   ANALYTICS_FILE: '/proj/data/analytics.json',
   GOALS_FILE: '/proj/data/goals.json',
   STREAKS_FILE: '/proj/data/streaks.json',
-  ANNOTATIONS_FILE: '/proj/data/annotations.json',
 };
 
 // Maps each file-path sentinel to its store key, so loadJSON(FILE) resolves to
 // the matching store value. Because the handler pairs each bundle key with the
-// matching FILE constant, the resulting eleven-key bundle equals BACKUP_STORES.
+// matching FILE constant, the resulting nine-key bundle equals BACKUP_STORES.
 const FILE_TO_KEY = new Map([
-  [BACKUP_FILES.COMMENTS_FILE, 'comments'],
   [BACKUP_FILES.NOTES_FILE, 'notes'],
   [BACKUP_FILES.BOOKMARKS_FILE, 'bookmarks'],
   [BACKUP_FILES.READING_LISTS_FILE, 'readingLists'],
@@ -103,7 +98,6 @@ const FILE_TO_KEY = new Map([
   [BACKUP_FILES.ANALYTICS_FILE, 'analytics'],
   [BACKUP_FILES.GOALS_FILE, 'goals'],
   [BACKUP_FILES.STREAKS_FILE, 'streaks'],
-  [BACKUP_FILES.ANNOTATIONS_FILE, 'annotations'],
 ]);
 
 const okBackupLoad = (file) => {
@@ -121,17 +115,17 @@ async function invokeBackup(loadJSON) {
 }
 
 describe('GET /api/backup', () => {
-  it('exports an eleven-key bundle deep-equal to the mapped stores, plus an ISO exportedAt', async () => {
+  it('exports a nine-key bundle deep-equal to the mapped stores, plus an ISO exportedAt', async () => {
     const r = await invokeBackup(okBackupLoad);
     assert.equal(r.status, 200);
 
     const { exportedAt, ...bundle } = r.payload;
     assert.deepEqual(bundle, BACKUP_STORES);
 
-    // Key set and order: the eleven store keys followed by exportedAt.
+    // Key set and order: the nine store keys followed by exportedAt.
     assert.deepEqual(Object.keys(r.payload), [
-      'comments', 'notes', 'bookmarks', 'readingLists', 'glossary',
-      'flashcards', 'tasks', 'analytics', 'goals', 'streaks', 'annotations', 'exportedAt',
+      'notes', 'bookmarks', 'readingLists', 'glossary',
+      'flashcards', 'tasks', 'analytics', 'goals', 'streaks', 'exportedAt',
     ]);
 
     // exportedAt is an ISO timestamp string (assert its shape, never an instant).
@@ -340,10 +334,10 @@ describe('GET /api/calendar', () => {
 // ─────────────────────────── GET /api/integrity ────────────────────────────
 // The handler always returns 200 {status, checks}. status is 'healthy' when
 // every check passed, else 'issues'. checks is four entries in fixed order:
-// json_validity, yaml_validity, orphaned_snapshots, orphaned_comments. A failing
+// json_validity, yaml_validity, orphaned_snapshots. A failing
 // sub-check is captured as passed:false; there is no top-level 500.
 
-const CHECK_NAMES = ['json_validity', 'yaml_validity', 'orphaned_snapshots', 'orphaned_comments'];
+const CHECK_NAMES = ['json_validity', 'yaml_validity', 'orphaned_snapshots'];
 const VALID_YAML = 'key1:\n  title: Hello\n  year: 2020\n';
 // js-yaml rejects this unterminated flow collection with a YAMLException.
 const INVALID_YAML = 'key: [a, b';
@@ -397,7 +391,7 @@ describe('GET /api/integrity', () => {
   const healthyLoad = (file) =>
     file === 'SNAPSHOTS' ? { 'content/exists.md': [{ id: 's1' }] } : { 'content/exists.md': [{ text: 'hi' }] };
 
-  it('reports status "healthy" with all four named checks passed for valid inputs', async () => {
+  it('reports status "healthy" with all three named checks passed for valid inputs', async () => {
     const fs = makeIntegrityFs({
       dataFiles: { 'comments.json': '{}', 'notes.json': '[1,2,3]' },
       refsYaml: VALID_YAML,
@@ -411,7 +405,6 @@ describe('GET /api/integrity', () => {
       { name: 'json_validity', passed: true, details: 'All 2 JSON files are valid' },
       { name: 'yaml_validity', passed: true, details: 'references.yaml is valid YAML' },
       { name: 'orphaned_snapshots', passed: true, details: 'No orphaned snapshots' },
-      { name: 'orphaned_comments', passed: true, details: 'No comments on non-existent pages' },
     ]);
   });
 
@@ -432,7 +425,6 @@ describe('GET /api/integrity', () => {
     // The other three checks remain healthy.
     assert.equal(checks.yaml_validity.passed, true);
     assert.equal(checks.orphaned_snapshots.passed, true);
-    assert.equal(checks.orphaned_comments.passed, true);
   });
 
   it('flags yaml_validity for an invalid references.yaml', async () => {
@@ -470,26 +462,6 @@ describe('GET /api/integrity', () => {
     assert.deepEqual(checks.orphaned_snapshots, {
       name: 'orphaned_snapshots', passed: false, details: '1 orphaned snapshot(s): content/deleted.md (2)',
     });
-    assert.equal(checks.orphaned_comments.passed, true);
   });
 
-  it('flags orphaned_comments (skipping "__"-prefixed keys) for comments on a missing page', async () => {
-    const fs = makeIntegrityFs({
-      dataFiles: { 'comments.json': '{}' },
-      refsYaml: VALID_YAML,
-      existingPaths: [],
-    });
-    // __internal__ is skipped by the page.startsWith('__') guard; only the real
-    // missing page content/gone.md is reported as orphaned.
-    const loadJSON = (file) =>
-      file === 'SNAPSHOTS' ? {} : { __internal__: [{ text: 'x' }], 'content/gone.md': [{ text: 'a' }, { text: 'b' }] };
-    const r = await invokeIntegrity({ fs, loadJSON });
-    assert.equal(r.status, 200);
-    assert.equal(r.payload.status, 'issues');
-    const checks = byName(r.payload.checks);
-    assert.deepEqual(checks.orphaned_comments, {
-      name: 'orphaned_comments', passed: false, details: '1 page(s) with orphaned comments: content/gone.md (2)',
-    });
-    assert.equal(checks.orphaned_snapshots.passed, true);
-  });
 });

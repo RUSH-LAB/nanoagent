@@ -54,7 +54,7 @@ const escapeFeedXml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── References: search (for citation autocomplete) ──
@@ -405,17 +405,6 @@ ${recent.map(item => `<entry>
           }
         }
         scanActivity(contentDir);
-        const comments = loadJSON(COMMENTS_FILE);
-        for (const page of Object.values(comments)) {
-          if (Array.isArray(page)) {
-            for (const c of page) {
-              if (c.createdAt) {
-                const d = c.createdAt.slice(0, 10);
-                activity[d] = (activity[d] || 0) + 1;
-              }
-            }
-          }
-        }
         return activity;
       });
       const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
@@ -434,13 +423,6 @@ ${recent.map(item => `<entry>
     try {
       const today = new Date().toISOString().slice(0, 10);
       const todayISO = today + 'T00:00:00.000Z';
-      const comments = loadJSON(COMMENTS_FILE);
-      let commentsToday = 0;
-      for (const page of Object.values(comments)) {
-        if (Array.isArray(page)) {
-          commentsToday += page.filter(c => c.createdAt && c.createdAt >= todayISO).length;
-        }
-      }
       const contentDir = path.join(PROJECT_ROOT, 'content');
       const modifiedToday = [];
       function findModified(dir) {
@@ -464,7 +446,6 @@ ${recent.map(item => `<entry>
         date: today,
         filesModifiedToday: modifiedToday.length,
         modifiedFiles: modifiedToday.slice(0, 20),
-        commentsToday,
         wordsWrittenToday: todayEntry ? todayEntry.words : 0,
       });
     } catch {

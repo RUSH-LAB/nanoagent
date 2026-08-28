@@ -34,22 +34,17 @@ describe('GET /api/activity-feed negative limit clamp', () => {
   // `events.slice(0, -2)` would drop the last two events and return the first
   // three, while `total` still reported the full count.
   const EVENT_COUNT = 5;
-  const comments = {
-    page1: Array.from({ length: EVENT_COUNT }, (_, i) => ({
-      author: 'a',
-      text: 'hello',
-      createdAt: `2024-01-01T00:00:0${i}.000Z`,
-    })),
-  };
+  const reviews = Array.from({ length: EVENT_COUNT }, (_, i) => ({
+    path: `page-${i}.md`,
+    requestedBy: 'a',
+    status: 'pending',
+    createdAt: `2024-01-01T00:00:0${i}.000Z`,
+  }));
   const ctx = {
     path,
     PROJECT_ROOT: '/tmp/activity-feed-neg-test',
-    COMMENTS_FILE: 'comments',
-    ANNOTATIONS_FILE: 'annotations',
-    loadJSON(file) {
-      if (file === 'comments') return comments;
-      if (file === 'annotations') return {};
-      return { reviews: [] }; // computed data/reviews.json path
+    loadJSON() {
+      return { reviews }; // the computed var/data/reviews.json path
     },
   };
   const callFeed = search => invoke({ pathname: '/api/activity-feed', search, ctx });

@@ -23,7 +23,6 @@ async function trends({ recent = [], comments = {} } = {}) {
   let captured = null;
   const ctx = {
     ANALYTICS_FILE: 'ANALYTICS',
-    COMMENTS_FILE: 'COMMENTS',
     loadJSON: (file) =>
       file === 'ANALYTICS' ? { recent } : file === 'COMMENTS' ? comments : {},
     json(_res, status, payload) {
@@ -141,7 +140,7 @@ describe('GET /api/analytics/trends — pageview growth fallbacks', () => {
 });
 
 describe('GET /api/analytics/trends — response shape', () => {
-  it('returns the documented pageviews, comments, and period fields', async () => {
+  it('returns the documented pageviews and period fields', async () => {
     const r = await trends({
       recent: [{ timestamp: iso(NOW - 1 * DAY) }],
       comments: {
@@ -159,7 +158,6 @@ describe('GET /api/analytics/trends — response shape', () => {
     assert.equal(r.status, 200);
     assert.deepEqual(r.payload, {
       pageviews: { thisWeek: 1, lastWeek: 0, growth: 100 },
-      comments: { thisWeek: 2, lastWeek: 1, growth: 100 },
       period: '7 days',
     });
   });

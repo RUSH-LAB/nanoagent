@@ -577,11 +577,6 @@ async function testMetadataSearch() {
 // ────────────────────────────────────────────────────────────────
 async function testNotifications() {
   section('Notifications');
-  await test('GET /api/notifications/counts returns counts', async () => {
-    const {status, data} = await api('GET', '/api/notifications/counts');
-    assertEq(status, 200, 'status');
-    assertOk(typeof data === 'object', 'response is object');
-  });
 }
 
 // ────────────────────────────────────────────────────────────────

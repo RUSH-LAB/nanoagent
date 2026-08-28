@@ -36,7 +36,7 @@ const {DATA_SEGS, REFERENCES_SEGS} = require('../paths');
 
 module.exports = async function analysis_admin_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── Writing Streak Tracker ──
@@ -264,71 +264,6 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
       return json(res, 200, {files: sorted.slice(0, Math.min(limit, 50))});
     } catch {
       return json(res, 500, {error: 'Failed to list recent files'});
-    }
-  }
-
-  // ── Annotations ─────────────────────────────────────────────────────────
-
-  if (req.method === 'GET' && pathname === '/api/annotations') {
-    const page = url.searchParams.get('page');
-    if (!page) return json(res, 400, {error: 'Missing page parameter'});
-    const annotations = loadJSON(ANNOTATIONS_FILE);
-    // Only treat an OWN key as a real page. A request-controlled `page` such as
-    // `constructor`, `toString`, or `__proto__` resolves to a truthy inherited
-    // value, so the `|| []` fallback is skipped and the body serializes to a
-    // malformed shape (a dropped function leaves `{}`, an inherited object leaves
-    // `{annotations: {}}`) instead of `{annotations: []}`. The guard returns the
-    // empty default for any non-own key; real own-key pages are unchanged.
-    // Mirrors the comments-list read-path guard.
-    return json(res, 200, {annotations: Object.hasOwn(annotations, page) ? annotations[page] : []});
-  }
-
-  if (req.method === 'POST' && pathname === '/api/annotations') {
-    if (!rateLimit(`annotations:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
-    try {
-      const body = await readBody(req);
-      const {page, text, note, startOffset, endOffset, author} = body;
-      if (!page || !text || startOffset == null || endOffset == null) {
-        return json(res, 400, {error: 'Missing required fields: page, text, startOffset, endOffset'});
-      }
-      if (typeof page === 'string' && page.length > 500) return json(res, 400, {error: 'Page must be 500 characters or fewer'});
-      if (typeof text === 'string' && text.length > 5000) return json(res, 400, {error: 'Text must be 5000 characters or fewer'});
-      if (note !== undefined && typeof note === 'string' && note.length > 5000) return json(res, 400, {error: 'Note must be 5000 characters or fewer'});
-      if (author !== undefined && typeof author === 'string' && author.length > 100) return json(res, 400, {error: 'Author must be 100 characters or fewer'});
-      if (PROTO_KEYS.includes(page)) return json(res, 400, {error: 'Invalid page'});
-      const annotations = loadJSON(ANNOTATIONS_FILE);
-      if (!Object.hasOwn(annotations, page)) annotations[page] = [];
-      const annotation = {
-        id: 'ann_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
-        text: sanitizeText(text),
-        note: note ? sanitizeText(note) : '',
-        startOffset,
-        endOffset,
-        author: sanitizeText(author || 'Anonymous'),
-        createdAt: new Date().toISOString(),
-      };
-      annotations[page].push(annotation);
-      saveJSON(ANNOTATIONS_FILE, annotations);
-      return json(res, 201, {annotation});
-    } catch {
-      return json(res, 400, {error: 'Invalid request'});
-    }
-  }
-
-  if (req.method === 'DELETE' && pathname === '/api/annotations') {
-    try {
-      const body = await readBody(req);
-      const {page, id} = body;
-      if (!page || !id) return json(res, 400, {error: 'Missing page or id'});
-      const annotations = loadJSON(ANNOTATIONS_FILE);
-      if (!Object.hasOwn(annotations, page)) return json(res, 404, {error: 'Page not found'});
-      const idx = annotations[page].findIndex(a => a.id === id);
-      if (idx === -1) return json(res, 404, {error: 'Annotation not found'});
-      annotations[page].splice(idx, 1);
-      saveJSON(ANNOTATIONS_FILE, annotations);
-      return json(res, 200, {success: true});
-    } catch {
-      return json(res, 400, {error: 'Invalid request'});
     }
   }
 
@@ -918,16 +853,10 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
         const refCount = Object.keys(loadReferencesCached(fs, path, PROJECT_ROOT)).length;
         const content = {totalFiles, totalWords, references: refCount};
 
-        // ── activity (recent pageviews, comments) ──
+        // ── activity (recent pageviews) ──
         const analytics = loadJSON(ANALYTICS_FILE);
         const recentPageviews = Object.values(analytics.counts || {}).reduce((s, c) => s + c, 0);
-        const comments = loadJSON(COMMENTS_FILE);
-        let recentComments = 0;
-        for (const page of Object.values(comments)) { if (Array.isArray(page)) recentComments += page.length; }
-        const activity = {
-          recentPageviews,
-          recentComments,
-        };
+        const activity = {recentPageviews};
 
         // ── tests (scan test directory for suites) ──
         const testsDir = path.join(PROJECT_ROOT, 'tests');

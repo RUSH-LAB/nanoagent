@@ -19,11 +19,10 @@ const require = createRequire(import.meta.url);
 const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
-// The eleven data-file constants handed to the handler through ctx. Each one is a
+// The nine data-file constants handed to the handler through ctx. Each one is a
 // distinct path so an assertion can prove which file a restored key wrote to. The
 // handler treats them as opaque tokens passed straight to saveJSON, so the exact
 // names do not matter; only their distinctness does.
-const COMMENTS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'comments.json');
 const NOTES_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'notes.json');
 const BOOKMARKS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'bookmarks.json');
 const READING_LISTS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'reading-lists.json');
@@ -33,7 +32,6 @@ const TASKS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'tasks.json');
 const ANALYTICS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'analytics.json');
 const GOALS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'goals.json');
 const STREAKS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'streaks.json');
-const ANNOTATIONS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'annotations.json');
 
 // Drive POST /api/backup/restore over a mocked ctx. rateLimit records each call
 // (key and limit) and returns the per-call toggle; readBody returns the supplied
@@ -64,9 +62,9 @@ async function runBackupRestore({
       if (throwOnSaveJSON) throw new Error('saveJSON write failed');
       saved.push({ fp, data });
     },
-    COMMENTS_FILE, NOTES_FILE, BOOKMARKS_FILE,
+    NOTES_FILE, BOOKMARKS_FILE,
     READING_LISTS_FILE, GLOSSARY_FILE, FLASHCARDS_FILE, TASKS_FILE,
-    ANALYTICS_FILE, GOALS_FILE, STREAKS_FILE, ANNOTATIONS_FILE,
+    ANALYTICS_FILE, GOALS_FILE, STREAKS_FILE,
     json: (_res, status, b) => { captured = { status, body: b }; },
   };
   const pathname = '/api/backup/restore';
@@ -79,7 +77,7 @@ async function runBackupRestore({
 
 describe('POST /api/backup/restore in routes/misc-tools.js', () => {
   it('a rate-limited restore returns 429, never reads the body or writes, and uses the backup-restore key with limit 5', async () => {
-    const r = await runBackupRestore({ rateLimitOk: false, body: { comments: [{ id: 1 }] } });
+    const r = await runBackupRestore({ rateLimitOk: false, body: { notes: { k: 'v' } } });
     assert.equal(r.captured.status, 429);
     assert.deepEqual(r.captured.body, { error: 'Too many requests. Try again in a minute.' });
     assert.equal(r.readBodyCount, 0, 'the rate-limit guard returns before readBody');
@@ -132,7 +130,7 @@ describe('POST /api/backup/restore in routes/misc-tools.js', () => {
 
   it('an array body passes the type check but has no mapped keys, returning 400 No recognizable data keys in bundle', async () => {
     // typeof [] === 'object', so an array clears the type guard, but it carries
-    // none of the twelve mapped keys, so the empty-result guard fires with no write.
+    // none of the nine mapped keys, so the empty-result guard fires with no write.
     const r = await runBackupRestore({ body: [] });
     assert.equal(r.captured.status, 400);
     assert.deepEqual(r.captured.body, { error: 'No recognizable data keys in bundle' });
@@ -140,43 +138,41 @@ describe('POST /api/backup/restore in routes/misc-tools.js', () => {
     assert.equal(r.saved.length, 0);
   });
 
-  it('a single recognized key restores once: 200, restored is [comments], one saveJSON to COMMENTS_FILE, restoredAt a string', async () => {
+  it('a single recognized key restores once: 200, restored is [notes], one saveJSON to NOTES_FILE, restoredAt a string', async () => {
     const payload = [{ id: 'c1', text: 'hi' }];
-    const r = await runBackupRestore({ body: { comments: payload } });
+    const r = await runBackupRestore({ body: { notes: payload } });
     assert.equal(r.captured.status, 200);
     assert.equal(r.captured.body.success, true);
-    assert.deepEqual(r.captured.body.restored, ['comments']);
+    assert.deepEqual(r.captured.body.restored, ['notes']);
     assert.equal(typeof r.captured.body.restoredAt, 'string');
     assert.equal(r.saveJSONCount, 1);
     assert.equal(r.saved.length, 1);
-    assert.equal(r.saved[0].fp, COMMENTS_FILE);
+    assert.equal(r.saved[0].fp, NOTES_FILE);
     assert.deepEqual(r.saved[0].data, payload);
     assert.deepEqual(r.rateLimitCalls[0], { key: 'backup-restore:127.0.0.1', limit: 5 });
   });
 
   it('multiple keys restore in mapping order, one saveJSON per key to its correct file, unknown keys ignored', async () => {
     // The body lists the keys out of mapping order and includes an unknown key.
-    // restored must follow the mapping iteration order (comments, then tasks, then
-    // streaks, then annotations), not the body insertion order, and the unknown
-    // key must not appear in restored or trigger a write.
-    const cData = [{ id: 'c1' }];
+    // restored must follow the mapping iteration order (notes, then tasks, then
+    // streaks), not the body insertion order, and the unknown key must not
+    // appear in restored or trigger a write.
+    const nData = { k: 'v' };
     const tData = { todo: ['x'] };
     const sData = { current: 3 };
-    const aData = [{ id: 'a1' }];
     const r = await runBackupRestore({
-      body: { streaks: sData, unknownKey: 'ignored', annotations: aData, comments: cData, tasks: tData },
+      body: { streaks: sData, unknownKey: 'ignored', notes: nData, tasks: tData },
     });
     assert.equal(r.captured.status, 200);
     assert.equal(r.captured.body.success, true);
-    assert.deepEqual(r.captured.body.restored, ['comments', 'tasks', 'streaks', 'annotations']);
+    assert.deepEqual(r.captured.body.restored, ['notes', 'tasks', 'streaks']);
     assert.equal(typeof r.captured.body.restoredAt, 'string');
-    assert.equal(r.saveJSONCount, 4);
+    assert.equal(r.saveJSONCount, 3);
     // The writes land in mapping order, each to its matching file with its value.
     assert.deepEqual(r.saved, [
-      { fp: COMMENTS_FILE, data: cData },
+      { fp: NOTES_FILE, data: nData },
       { fp: TASKS_FILE, data: tData },
       { fp: STREAKS_FILE, data: sData },
-      { fp: ANNOTATIONS_FILE, data: aData },
     ]);
   });
 
@@ -184,17 +180,17 @@ describe('POST /api/backup/restore in routes/misc-tools.js', () => {
     // body[key] !== undefined is the gate: null passes it (null is restored and
     // written), but a property explicitly set to undefined is treated the same as
     // an absent key and is skipped.
-    const r = await runBackupRestore({ body: { comments: null, notes: undefined } });
+    const r = await runBackupRestore({ body: { notes: null, tasks: undefined } });
     assert.equal(r.captured.status, 200);
-    assert.deepEqual(r.captured.body.restored, ['comments']);
+    assert.deepEqual(r.captured.body.restored, ['notes']);
     assert.equal(r.saveJSONCount, 1);
     assert.equal(r.saved.length, 1);
-    assert.equal(r.saved[0].fp, COMMENTS_FILE);
+    assert.equal(r.saved[0].fp, NOTES_FILE);
     assert.equal(r.saved[0].data, null);
   });
 
   it('a throwing saveJSON returns 500 Backup restore failed with the error detail, after reaching the write', async () => {
-    const r = await runBackupRestore({ body: { comments: [{ id: 'c1' }] }, throwOnSaveJSON: true });
+    const r = await runBackupRestore({ body: { notes: { k: 'v' } }, throwOnSaveJSON: true });
     assert.equal(r.captured.status, 500);
     assert.deepEqual(r.captured.body, { error: 'Backup restore failed', detail: 'saveJSON write failed' });
     // The handler reached the write (saveJSON was called once) but recorded no
@@ -207,7 +203,7 @@ describe('POST /api/backup/restore in routes/misc-tools.js', () => {
     // There is no inner body-parse try in this handler, so a readBody that throws
     // propagates to the outer catch and yields 500, unlike the sibling create and
     // update handlers, which translate a readBody failure into a 400 Invalid request.
-    const r = await runBackupRestore({ throwOnReadBody: true, body: { comments: [{ id: 'c1' }] } });
+    const r = await runBackupRestore({ throwOnReadBody: true, body: { notes: { k: 'v' } } });
     assert.equal(r.captured.status, 500);
     assert.deepEqual(r.captured.body, { error: 'Backup restore failed', detail: 'readBody failed' });
     assert.equal(r.readBodyCount, 1);

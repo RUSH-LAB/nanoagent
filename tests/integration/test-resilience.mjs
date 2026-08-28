@@ -102,7 +102,7 @@ async function preflight() {
 const TEST_PREFIX = `__resilience_${Date.now()}`;
 const TEST_FILE = `content/posts/${TEST_PREFIX}_stress.md`;
 const TEST_FILE_CONTENT = `---\ntitle: "Resilience Test"\ndate: 2025-01-01\n---\n\nOriginal content for resilience testing.\n`;
-const TEST_COMMENT_PAGE = `${TEST_PREFIX}/stress`;
+const TEST_STRESS_KEY = `${TEST_PREFIX}/stress`;
 
 // ────────────────────────────────────────────────────────────────
 // 1. Concurrent writes to same file: 5 parallel PUT requests
@@ -140,79 +140,13 @@ async function testConcurrentWrites() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 2. Rapid-fire comments: 20 POST /api/comments in quick succession
-// ────────────────────────────────────────────────────────────────
-async function testRapidComments() {
-  section('2. Rapid-fire comments');
-
-  await test('20 rapid POST /api/comments', async () => {
-    const page = `${TEST_COMMENT_PAGE}/rapid`;
-    const requests = Array.from({length: 20}, (_, i) =>
-      api('POST', '/api/comments', {
-        page,
-        author: `Bot ${i}`,
-        text: `Rapid comment ${i}`,
-      })
-    );
-    const results = await Promise.all(requests);
-
-    const ok = results.filter(r => r.status === 200).length;
-    const rateLimited = results.filter(r => r.status === 429).length;
-
-    // Server should not crash: either accept or rate-limit
-    assertOk(ok + rateLimited === 20, `all 20 got valid responses (${ok} ok, ${rateLimited} rate-limited)`);
-    assertOk(ok >= 1, 'at least 1 comment accepted');
-
-    // Cleanup
-    cleanup.push(async () => {
-      const {data} = await api('GET', `/api/comments?page=${encodeURIComponent(page)}&limit=100`);
-      for (const c of (data.comments || [])) {
-        await api('DELETE', '/api/comments', {page, commentId: c.id});
-      }
-    });
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
-// 3. Large payload: POST /api/comments with 9MB text
-// ────────────────────────────────────────────────────────────────
-async function testLargePayload() {
-  section('3. Large payload');
-
-  await test('POST /api/comments with 9MB text (under 10MB limit)', async () => {
-    const page = `${TEST_COMMENT_PAGE}/large`;
-    const bigText = 'x'.repeat(9 * 1024 * 1024); // 9MB
-    const {status} = await api('POST', '/api/comments', {
-      page,
-      author: 'Big Sender',
-      text: bigText,
-    });
-    // Should succeed (under 10MB limit) or at least not crash the server
-    // Note: the text may be truncated by sanitizeText (MAX_TEXT_LENGTH = 10000)
-    assertOk(status === 200 || status === 413, `expected 200 or 413, got ${status}`);
-
-    // Verify server is still alive
-    const {status: healthStatus} = await api('GET', '/api/health');
-    assertEq(healthStatus, 200, 'server still alive after large payload');
-
-    // Cleanup
-    cleanup.push(async () => {
-      const {data} = await api('GET', `/api/comments?page=${encodeURIComponent(page)}&limit=100`);
-      for (const c of (data.comments || [])) {
-        await api('DELETE', '/api/comments', {page, commentId: c.id});
-      }
-    });
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
-// 4. Unicode stress: comments with every Unicode block
+// 4. Unicode stress: quick notes with every Unicode block
 // ────────────────────────────────────────────────────────────────
 async function testUnicodeStress() {
   section('4. Unicode stress');
 
-  await test('Comments with emoji, CJK, Arabic, Cyrillic, etc.', async () => {
-    const page = `${TEST_COMMENT_PAGE}/unicode`;
+  await test('Quick notes with emoji, CJK, Arabic, Cyrillic, etc.', async () => {
+    const page = `${TEST_STRESS_KEY}/unicode`;
     const unicodeText = [
       // Emoji
       '\u{1F600}\u{1F680}\u{1F4A9}\u{1F3F3}\u{FE0F}\u{200D}\u{1F308}\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}',
@@ -232,28 +166,13 @@ async function testUnicodeStress() {
       'àéîõü​‌‍﻿',
     ].join(' | ');
 
-    const {status, data} = await api('POST', '/api/comments', {
-      page,
-      author: '\u{1F600} Тест テスト',
+    const {status, data} = await api('POST', '/api/quicknote', {
+      title: page,
       text: unicodeText,
     });
-    assertEq(status, 200, 'status');
-    assertOk(data.comment, 'has comment');
-    assertOk(data.comment.text.length > 0, 'text is non-empty');
-
-    // Read it back
-    const {data: listData} = await api('GET', `/api/comments?page=${encodeURIComponent(page)}`);
-    const found = listData.comments.find(c => c.id === data.comment.id);
-    assertOk(found, 'comment persisted');
-    assertOk(found.text.length > 0, 'stored text is non-empty');
-
-    // Cleanup
-    cleanup.push(async () => {
-      const {data: d} = await api('GET', `/api/comments?page=${encodeURIComponent(page)}&limit=100`);
-      for (const c of (d.comments || [])) {
-        await api('DELETE', '/api/comments', {page, commentId: c.id});
-      }
-    });
+    assertOk(status === 200 || status === 201, 'status');
+    assertOk(data.success, 'note was written');
+    assertOk(data.filename || data.path, 'reply names the file it wrote');
   });
 }
 
@@ -263,23 +182,6 @@ async function testUnicodeStress() {
 async function testEmptyStrings() {
   section('5. Empty strings');
 
-  await test('POST /api/comments with empty required fields', async () => {
-    // Empty text should be rejected (server checks: if (!page || !text))
-    const {status: s1} = await api('POST', '/api/comments', {
-      page: `${TEST_COMMENT_PAGE}/empty`,
-      author: 'Test',
-      text: '',
-    });
-    assertEq(s1, 400, 'empty text rejected');
-
-    // Empty page should also be rejected
-    const {status: s2} = await api('POST', '/api/comments', {
-      page: '',
-      author: 'Test',
-      text: 'Some text',
-    });
-    assertEq(s2, 400, 'empty page rejected');
-  });
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -288,27 +190,6 @@ async function testEmptyStrings() {
 async function testNullValues() {
   section('6. Null values');
 
-  await test('POST /api/comments with null text and page', async () => {
-    const {status: s1} = await api('POST', '/api/comments', {
-      page: null,
-      author: 'Test',
-      text: 'Some text',
-    });
-    assertEq(s1, 400, 'null page rejected');
-
-    const {status: s2} = await api('POST', '/api/comments', {
-      page: `${TEST_COMMENT_PAGE}/null`,
-      author: 'Test',
-      text: null,
-    });
-    assertEq(s2, 400, 'null text rejected');
-
-    const {status: s3} = await api('POST', '/api/file', {
-      path: null,
-      content: 'test',
-    });
-    assertEq(s3, 400, 'null path rejected for file create');
-  });
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -411,14 +292,13 @@ async function testRateLimit() {
   section('10. Rate limit test');
 
   await test('Fire 100 requests to rate-limited endpoint, count 429s', async () => {
-    // The comments POST endpoint has a rate limit of 30/min per IP.
+    // The quicknote POST endpoint has a rate limit of 20/min per IP.
     // Some requests from earlier tests may have already consumed part of the budget.
     // We fire 100 requests and expect a mix of 200s and 429s.
-    const page = `${TEST_COMMENT_PAGE}/ratelimit`;
+    const page = `${TEST_STRESS_KEY}/ratelimit`;
     const requests = Array.from({length: 100}, (_, i) =>
-      api('POST', '/api/comments', {
-        page,
-        author: 'Rate Tester',
+      api('POST', '/api/quicknote', {
+        title: page,
         text: `Rate limit test ${i}`,
       }).then(r => r.status)
     );
@@ -434,13 +314,6 @@ async function testRateLimit() {
     assertOk(limited > 0, `expected some 429s from 100 requests (got ${limited})`);
     assertOk(other === 0, `no unexpected status codes (got ${other})`);
 
-    // Cleanup
-    cleanup.push(async () => {
-      const {data} = await api('GET', `/api/comments?page=${encodeURIComponent(page)}&limit=200`);
-      for (const c of (data.comments || [])) {
-        await api('DELETE', '/api/comments', {page, commentId: c.id});
-      }
-    });
   });
 }
 

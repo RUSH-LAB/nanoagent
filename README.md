@@ -21,7 +21,6 @@ A research knowledge platform for writing, organizing, and exploring technical c
 - Whiteboard for freeform visual note-taking
 
 **Collaboration & Analytics**
-- Inline annotations and document comments
 - Real-time presence indicators and user sessions
 - Page view analytics, activity heatmaps, and content health reports
 - Task and goal tracking with productivity reports
@@ -88,8 +87,8 @@ The API server exposes **205 REST endpoints** under `/api/*`. Major categories:
 | Analytics & stats | 20 | Page views, heatmaps, dashboards, productivity reports |
 | Search | 8 | Full-text search, metadata search, find-and-replace |
 | Flashcards | 6 | Spaced-repetition review, deck management |
-| Comments & notes | 8 | Threaded comments, personal notes, annotations |
-| Collaboration | 7 | Comments, presence, sessions, users |
+| Notes | 4 | Personal keyed notes |
+| Collaboration | 6 | Presence, sessions, users |
 | Knowledge tools | 10 | Bookmarks, reading lists, glossary, templates, goals |
 | Infrastructure | 10 | Health, backup, snapshots, logs, debug, perf |
 

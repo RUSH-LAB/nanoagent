@@ -15,57 +15,8 @@ const READING_LIST_EXPORT_RE = /^\/api\/reading-lists\/[^/]+\/export$/;
 
 module.exports = async function bookmarks_reading_lists_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
-
-  // ── Comments: add reaction ──
-  if (req.method === 'POST' && pathname === '/api/comments/react') {
-    if (!rateLimit(`react:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
-    try {
-      const body = await readBody(req);
-      const {page, commentId, emoji, userId} = body;
-      if (!page || !commentId || !emoji || !userId) return json(res, 400, {error: 'Missing page, commentId, emoji, or userId'});
-      if (typeof page !== 'string' || page.length > 500) return json(res, 400, {error: 'page must be a string of 500 characters or fewer'});
-      if (typeof commentId !== 'string' || commentId.length > 200) return json(res, 400, {error: 'commentId must be a string of 200 characters or fewer'});
-      if (typeof userId !== 'string' || userId.length > 200) return json(res, 400, {error: 'userId must be a string of 200 characters or fewer'});
-      const validEmojis = ['thumbsup', 'heart', 'laugh', 'thinking', 'celebrate'];
-      if (!validEmojis.includes(emoji)) return json(res, 400, {error: `Invalid emoji. Must be one of: ${validEmojis.join(', ')}`});
-      const comments = loadJSON(COMMENTS_FILE);
-      if (!Object.hasOwn(comments, page)) return json(res, 404, {error: 'Page not found'});
-      const comment = comments[page].find(c => c.id === commentId);
-      if (!comment) return json(res, 404, {error: 'Comment not found'});
-      if (!comment.reactions) comment.reactions = [];
-      const safeUserId = sanitizeText(userId);
-      const existing = comment.reactions.find(r => r.emoji === emoji && r.userId === safeUserId);
-      if (existing) return json(res, 200, {success: true, reactions: comment.reactions});
-      comment.reactions.push({emoji, userId: safeUserId});
-      saveJSON(COMMENTS_FILE, comments);
-      return json(res, 200, {success: true, reactions: comment.reactions});
-    } catch {
-      return json(res, 400, {error: 'Invalid request'});
-    }
-  }
-
-  // ── Comments: remove reaction ──
-  if (req.method === 'DELETE' && pathname === '/api/comments/react') {
-    try {
-      const body = await readBody(req);
-      const {page, commentId, emoji, userId} = body;
-      if (!page || !commentId || !emoji || !userId) return json(res, 400, {error: 'Missing page, commentId, emoji, or userId'});
-      const comments = loadJSON(COMMENTS_FILE);
-      if (!Object.hasOwn(comments, page)) return json(res, 404, {error: 'Page not found'});
-      const comment = comments[page].find(c => c.id === commentId);
-      if (!comment) return json(res, 404, {error: 'Comment not found'});
-      if (!comment.reactions) comment.reactions = [];
-      const idx = comment.reactions.findIndex(r => r.emoji === emoji && r.userId === userId);
-      if (idx === -1) return json(res, 200, {success: true, reactions: comment.reactions});
-      comment.reactions.splice(idx, 1);
-      saveJSON(COMMENTS_FILE, comments);
-      return json(res, 200, {success: true, reactions: comment.reactions});
-    } catch {
-      return json(res, 400, {error: 'Invalid request'});
-    }
-  }
 
   // ── Bookmarks: list all ──
   if (req.method === 'GET' && pathname === '/api/bookmarks') {

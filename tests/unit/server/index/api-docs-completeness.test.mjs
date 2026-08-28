@@ -50,12 +50,11 @@ describe('API documentation completeness', () => {
 
   it('has documentation for all major endpoint groups', () => {
     const requiredGroups = [
-      '/api/health', '/api/file', '/api/files', '/api/comments',
-      '/api/notes', '/api/references', '/api/analytics',
+      '/api/health', '/api/file', '/api/files', '/api/notes', '/api/references', '/api/analytics',
       '/api/users', '/api/presence', '/api/graph', '/api/backlinks',
       '/api/trash', '/api/bookmarks', '/api/reading-lists', '/api/streak',
-      '/api/annotations', '/api/search', '/api/stats', '/api/templates',
-      '/api/recommendations', '/api/upload', '/api/notifications',
+      '/api/search', '/api/stats', '/api/templates',
+      '/api/recommendations', '/api/upload',
       '/api/folder', '/api/ai', '/api/metadata',
     ];
     const docPaths = extractDocumentedPaths();

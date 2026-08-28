@@ -9,27 +9,24 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
-// The trends handler reads loadJSON, ANALYTICS_FILE, COMMENTS_FILE, and json from
+// The trends handler reads loadJSON, ANALYTICS_FILE, and json from
 // ctx. loadJSON is stubbed so no real filesystem is touched, and every call is
 // recorded so a test can prove which reads run before the outer catch fires.
 // Distinctive sentinel paths prove each stubbed read is keyed on the right ctx
 // field.
 const ANALYTICS_FILE = '/fake/root/data/analytics.json';
-const COMMENTS_FILE = '/fake/root/data/comments.json';
 
 function makeCtx({ analytics = {}, comments = {}, throwOnLoad = false } = {}) {
   const calls = { loadJSON: [] };
   const ctx = {
     ANALYTICS_FILE,
-    COMMENTS_FILE,
     loadJSON(file) {
       calls.loadJSON.push(file);
       // The ANALYTICS_FILE read at content-analysis-c.js:516 is the first
       // statement inside the try, so throwing on this first call lands directly
-      // in the outer catch before the COMMENTS_FILE read at line 529 is reached.
+      // in the outer catch before any later step is reached.
       if (throwOnLoad) throw new Error('analytics store unreadable');
       return file === ANALYTICS_FILE ? analytics
-        : file === COMMENTS_FILE ? comments
         : {};
     },
   };
@@ -70,7 +67,7 @@ describe('GET /api/analytics/trends: outer-catch 500', () => {
     assert.equal(res.writableEnded, true, 'the catch sent its json reply');
 
     // The throw aborts at the first loadJSON (ANALYTICS_FILE, line 516); the
-    // COMMENTS_FILE read at line 529 and every later step are never reached.
+    // Every later step is never reached.
     assert.deepStrictEqual(calls.loadJSON, [ANALYTICS_FILE]);
   });
 
@@ -99,12 +96,11 @@ describe('GET /api/analytics/trends: success reachability anchor', () => {
         status: 200,
         payload: {
           pageviews: { thisWeek: 0, lastWeek: 0, growth: 0 },
-          comments: { thisWeek: 0, lastWeek: 0, growth: 0 },
           period: '7 days',
         },
       },
     ]);
-    // The success path reads both stores, ANALYTICS_FILE then COMMENTS_FILE.
-    assert.deepStrictEqual(calls.loadJSON, [ANALYTICS_FILE, COMMENTS_FILE]);
+    // The success path reads its single store.
+    assert.deepStrictEqual(calls.loadJSON, [ANALYTICS_FILE]);
   });
 });

@@ -109,7 +109,6 @@ const TEST_PREFIX = `__test_${Date.now()}`;
 const TEST_FILE = `content/posts/${TEST_PREFIX}_post.md`;
 const TEST_FILE_RENAMED = `content/posts/${TEST_PREFIX}_post_renamed.md`;
 const TEST_FILE_CONTENT = `---\ntitle: "Test Post"\ndate: 2025-01-01\n---\n\n# Test Post\n\nHello world. This is a test file for API integration tests.\n`;
-const TEST_COMMENT_PAGE = `${TEST_PREFIX}/comments`;
 const TEST_NOTE_KEY = `${TEST_PREFIX}_note`;
 const TEST_REF_KEY = `${TEST_PREFIX}_ref`;
 
@@ -255,66 +254,14 @@ async function testComments() {
   section('Comments');
 
   // 1. Create comment
-  await test('Create comment', async () => {
-    const {status, data} = await api('POST', '/api/comments', {
-      page: TEST_COMMENT_PAGE,
-      author: 'Test User',
-      text: 'This is a test comment',
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.comment, 'has comment');
-    assertOk(data.comment.id, 'has id');
-    assertEq(data.comment.author, 'Test User', 'author matches');
-    createdCommentId = data.comment.id;
-  });
 
   // 2. List comments
-  await test('List comments', async () => {
-    const {status, data} = await api('GET', `/api/comments?page=${encodeURIComponent(TEST_COMMENT_PAGE)}`);
-    assertEq(status, 200, 'status');
-    assertOk(Array.isArray(data.comments), 'comments is array');
-    assertOk(data.comments.length >= 1, 'has at least one comment');
-    assertOk(data.comments.some(c => c.id === createdCommentId), 'found our comment');
-  });
 
   // 3. Create reply (with parentId)
-  await test('Create reply (with parentId)', async () => {
-    const {status, data} = await api('POST', '/api/comments', {
-      page: TEST_COMMENT_PAGE,
-      author: 'Reply User',
-      text: 'This is a reply',
-      parentId: createdCommentId,
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.comment, 'has comment');
-    assertEq(data.comment.parentId, createdCommentId, 'parentId matches');
-    createdReplyId = data.comment.id;
-  });
 
   // 4. Delete comment
-  await test('Delete comment', async () => {
-    const {status, data} = await api('DELETE', '/api/comments', {
-      page: TEST_COMMENT_PAGE,
-      commentId: createdReplyId,
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.success, 'success');
-  });
 
   // 5. List after deletion
-  await test('List after deletion', async () => {
-    const {status, data} = await api('GET', `/api/comments?page=${encodeURIComponent(TEST_COMMENT_PAGE)}`);
-    assertEq(status, 200, 'status');
-    assertOk(!data.comments.some(c => c.id === createdReplyId), 'reply deleted');
-    assertOk(data.comments.some(c => c.id === createdCommentId), 'parent still exists');
-    // Cleanup remaining comment
-    cleanup.push(async () => {
-      await api('DELETE', '/api/comments', {
-        page: TEST_COMMENT_PAGE,
-        commentId: createdCommentId,
-      });
-    });
-  });
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -536,23 +483,13 @@ async function testSecurity() {
 
   // 5. Rate limit check
   await test('Rate limit check', async () => {
-    // The comments endpoint has a rate limit of 30/min per IP.
-    // We verify the endpoint works and the rate limiter is active by checking
-    // normal requests succeed (we don't want to actually hit 30 requests).
-    // Instead, just confirm the endpoint responds and that a single request
-    // does NOT get rate-limited.
-    const {status} = await api('POST', '/api/comments', {
-      page: `${TEST_PREFIX}/rate-limit-test`,
+    // /api/quicknote is rate-limited to 20/min per IP. Confirm a single request
+    // is not rate-limited rather than actually driving the limiter.
+    const {status} = await api('POST', '/api/quicknote', {
+      title: `${TEST_PREFIX} rate limit`,
       text: 'rate limit test',
     });
-    assertEq(status, 200, 'first request passes rate limit');
-    // Clean up
-    cleanup.push(async () => {
-      const {data} = await api('GET', `/api/comments?page=${encodeURIComponent(`${TEST_PREFIX}/rate-limit-test`)}`);
-      for (const c of (data.comments || [])) {
-        await api('DELETE', '/api/comments', {page: `${TEST_PREFIX}/rate-limit-test`, commentId: c.id});
-      }
-    });
+    assertOk(status === 200 || status === 201, 'first request passes rate limit');
   });
 }
 

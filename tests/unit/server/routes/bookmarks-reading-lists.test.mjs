@@ -19,138 +19,6 @@ const BIB = at('content/bibliography/references.yaml');
 /** Truthy inherited members that an own-key check must still reject. */
 const INHERITED_KEYS = ['__proto__', 'constructor', 'toString'];
 
-// ── Comment reactions ─────────────────────────────────────────────────────
-
-describe('POST /api/comments/react', () => {
-  const OK = {page: '/p', commentId: 'c1', emoji: 'heart', userId: 'u1'};
-  const withComment = (reactions = []) => ({[COMMENTS_FILE]: {'/p': [{id: 'c1', reactions}]}});
-
-  it('returns 429 before reading the body', async () => {
-    let reads = 0;
-    const ctx = makeCtx({rateLimitAllow: false, readBody: async () => { reads++; return {}; }});
-    const r = await invoke(routes, {method: 'POST', path: '/api/comments/react', ctx});
-    assert.deepEqual([r.status, r.payload], [429, {error: 'Too many requests. Try again in a minute.'}]);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'react:127.0.0.1', maxPerMinute: 60}]);
-    assert.equal(reads, 0);
-    assert.deepEqual(ctx.calls.loadJSON, []);
-  });
-
-  const MISSING = 'Missing page, commentId, emoji, or userId';
-  const GUARDS = [
-    ...['page', 'commentId', 'emoji', 'userId'].flatMap(field => [
-      {name: `an omitted ${field}`, body: {...OK, [field]: undefined}, error: MISSING},
-      {name: `an empty-string ${field}`, body: {...OK, [field]: ''}, error: MISSING},
-    ]),
-    {name: 'a non-string page', body: {...OK, page: 7}, error: 'page must be a string of 500 characters or fewer'},
-    {name: 'a page over 500 characters', body: {...OK, page: 'p'.repeat(501)}, error: 'page must be a string of 500 characters or fewer'},
-    {name: 'a non-string commentId', body: {...OK, commentId: 7}, error: 'commentId must be a string of 200 characters or fewer'},
-    {name: 'a commentId over 200 characters', body: {...OK, commentId: 'c'.repeat(201)}, error: 'commentId must be a string of 200 characters or fewer'},
-    {name: 'a non-string userId', body: {...OK, userId: 7}, error: 'userId must be a string of 200 characters or fewer'},
-    {name: 'a userId over 200 characters', body: {...OK, userId: 'u'.repeat(201)}, error: 'userId must be a string of 200 characters or fewer'},
-    {name: 'an emoji outside the allowed set', body: {...OK, emoji: 'shrug'}, error: 'Invalid emoji. Must be one of: thumbsup, heart, laugh, thinking, celebrate'},
-  ];
-  for (const {name, body, error} of GUARDS) {
-    it(`rejects ${name} without touching the store`, async () => {
-      const ctx = makeCtx({store: withComment()});
-      const r = await invoke(routes, {method: 'POST', path: '/api/comments/react', body, ctx});
-      assert.deepEqual([r.status, r.payload], [400, {error}]);
-      assert.deepEqual(ctx.calls.loadJSON, []);
-      assert.deepEqual(ctx.calls.saveJSON, []);
-    });
-  }
-
-  for (const emoji of ['thumbsup', 'heart', 'laugh', 'thinking', 'celebrate']) {
-    it(`accepts the allowed emoji ${JSON.stringify(emoji)}`, async () => {
-      const ctx = makeCtx({store: withComment()});
-      const r = await invoke(routes, {method: 'POST', path: '/api/comments/react', body: {...OK, emoji}, ctx});
-      assert.equal(r.status, 200);
-      assert.deepEqual(r.payload.reactions, [{emoji, userId: 'u1'}]);
-    });
-  }
-
-  for (const page of [...INHERITED_KEYS, '/absent']) {
-    it(`returns 404 for the non-own page ${JSON.stringify(page)}`, async () => {
-      const ctx = makeCtx({store: withComment()});
-      const r = await invoke(routes, {method: 'POST', path: '/api/comments/react', body: {...OK, page}, ctx});
-      assert.deepEqual([r.status, r.payload], [404, {error: 'Page not found'}]);
-      assert.deepEqual(ctx.calls.saveJSON, []);
-    });
-  }
-
-  it('returns 404 when the comment id is not on the page', async () => {
-    const ctx = makeCtx({store: withComment()});
-    const r = await invoke(routes, {method: 'POST', path: '/api/comments/react', body: {...OK, commentId: 'nope'}, ctx});
-    assert.deepEqual([r.status, r.payload], [404, {error: 'Comment not found'}]);
-  });
-
-  it('appends the reaction and saves once', async () => {
-    const ctx = makeCtx({store: withComment([{emoji: 'laugh', userId: 'u2'}])});
-    const r = await invoke(routes, {method: 'POST', path: '/api/comments/react', body: OK, ctx});
-    assert.equal(r.status, 200);
-    assert.deepEqual(r.payload.reactions, [{emoji: 'laugh', userId: 'u2'}, {emoji: 'heart', userId: 'u1'}]);
-    assert.equal(ctx.calls.saveJSON.length, 1);
-  });
-
-  // A repeat reaction is a no-op: the current list is echoed and nothing saved.
-  for (const [label, reactions] of [
-    ['the only reaction', [{emoji: 'heart', userId: 'u1'}]],
-    ['one among others', [{emoji: 'laugh', userId: 'u2'}, {emoji: 'heart', userId: 'u1'}, {emoji: 'heart', userId: 'u3'}]],
-  ]) {
-    it(`is idempotent when the reaction is already present as ${label}`, async () => {
-      const ctx = makeCtx({store: withComment(reactions)});
-      const r = await invoke(routes, {method: 'POST', path: '/api/comments/react', body: OK, ctx});
-      assert.deepEqual([r.status, r.payload], [200, {success: true, reactions}]);
-      assert.deepEqual(ctx.calls.saveJSON, []);
-    });
-  }
-});
-
-describe('DELETE /api/comments/react', () => {
-  const OK = {page: '/p', commentId: 'c1', emoji: 'heart', userId: 'u1'};
-  const withComment = (reactions = []) => ({[COMMENTS_FILE]: {'/p': [{id: 'c1', reactions}]}});
-
-  for (const field of ['page', 'commentId', 'emoji', 'userId']) {
-    it(`rejects an omitted ${field}`, async () => {
-      const ctx = makeCtx({store: withComment()});
-      const r = await invoke(routes, {method: 'DELETE', path: '/api/comments/react', body: {...OK, [field]: undefined}, ctx});
-      assert.deepEqual([r.status, r.payload], [400, {error: 'Missing page, commentId, emoji, or userId'}]);
-      assert.deepEqual(ctx.calls.loadJSON, []);
-    });
-  }
-
-  for (const page of [...INHERITED_KEYS, '/absent']) {
-    it(`returns 404 for the non-own page ${JSON.stringify(page)}`, async () => {
-      const r = await invoke(routes, {method: 'DELETE', path: '/api/comments/react', body: {...OK, page}, ctx: makeCtx({store: withComment()})});
-      assert.deepEqual([r.status, r.payload], [404, {error: 'Page not found'}]);
-    });
-  }
-
-  it('returns 404 when the comment id is not on the page', async () => {
-    const r = await invoke(routes, {method: 'DELETE', path: '/api/comments/react', body: {...OK, commentId: 'nope'}, ctx: makeCtx({store: withComment()})});
-    assert.deepEqual([r.status, r.payload], [404, {error: 'Comment not found'}]);
-  });
-
-  it('removes the matching reaction and saves once', async () => {
-    const ctx = makeCtx({store: withComment([{emoji: 'heart', userId: 'u1'}, {emoji: 'laugh', userId: 'u2'}])});
-    const r = await invoke(routes, {method: 'DELETE', path: '/api/comments/react', body: OK, ctx});
-    assert.deepEqual([r.status, r.payload], [200, {success: true, reactions: [{emoji: 'laugh', userId: 'u2'}]}]);
-    assert.equal(ctx.calls.saveJSON.length, 1);
-  });
-
-  // Removing an absent reaction is a no-op rather than a 404.
-  for (const [label, reactions] of [
-    ['an empty list', []],
-    ['a list of other reactions', [{emoji: 'laugh', userId: 'u2'}]],
-  ]) {
-    it(`echoes the list unchanged and saves nothing for ${label}`, async () => {
-      const ctx = makeCtx({store: withComment(reactions)});
-      const r = await invoke(routes, {method: 'DELETE', path: '/api/comments/react', body: OK, ctx});
-      assert.deepEqual([r.status, r.payload], [200, {success: true, reactions}]);
-      assert.deepEqual(ctx.calls.saveJSON, []);
-    });
-  }
-});
-
 // ── Bookmarks ─────────────────────────────────────────────────────────────
 
 describe('GET /api/bookmarks', () => {
@@ -808,8 +676,6 @@ describe('exported route-match regexes', () => {
 // in one try whose catch returns a fixed 400 ahead of the first inner guard.
 describe('malformed-body outer catches', () => {
   const CASES = [
-    {method: 'POST', path: '/api/comments/react'},
-    {method: 'DELETE', path: '/api/comments/react'},
     {method: 'POST', path: '/api/bookmarks'},
     {method: 'DELETE', path: '/api/bookmarks'},
     {method: 'POST', path: '/api/reading-lists'},
@@ -833,10 +699,4 @@ describe('malformed-body outer catches', () => {
 
   // An empty object still carries every destructured key as undefined, so it
   // stops at the first inner guard rather than reaching the outer catch.
-  it('DELETE /api/comments/react stops at the inner guard for an empty body', async () => {
-    const ctx = makeCtx();
-    const r = await invoke(routes, {method: 'DELETE', path: '/api/comments/react', body: {}, ctx});
-    assert.deepEqual([r.status, r.payload], [400, {error: 'Missing page, commentId, emoji, or userId'}]);
-    assert.deepEqual(ctx.calls.loadJSON, []);
-  });
 });

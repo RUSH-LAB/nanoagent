@@ -255,29 +255,6 @@ const CATEGORIES = [
     ],
   },
   {
-    id: 'comments',
-    title: 'Comments',
-    icon: '💬',
-    description: 'Per-page comments with threading support.',
-    endpoints: [
-      {
-        method: 'GET', path: '/api/comments', description: 'List comments for a specific page.',
-        request: 'Query: ?page=/docs/example',
-        response: '{ "comments": [{ "id": "c_1705312200000_abc123", "author": "Alice", "text": "Great article!", "parentId": null, "createdAt": "2025-01-15T10:30:00.000Z" }] }',
-      },
-      {
-        method: 'POST', path: '/api/comments', description: 'Create a new comment. Rate-limited to 30 requests/minute per IP.',
-        request: '{ "page": "/docs/example", "author": "Alice", "text": "Great article!", "parentId": null }',
-        response: '{ "comment": { "id": "c_...", "author": "Alice", "text": "Great article!", "parentId": null, "createdAt": "..." } }',
-      },
-      {
-        method: 'DELETE', path: '/api/comments', description: 'Delete a comment by ID.',
-        request: '{ "page": "/docs/example", "commentId": "c_1705312200000_abc123" }',
-        response: '{ "success": true }',
-      },
-    ],
-  },
-  {
     id: 'references',
     title: 'References & Bibliography',
     icon: '📚',
@@ -464,11 +441,6 @@ const CATEGORIES = [
         response: '{ "templates": [{ "id": "blank", "name": "Blank Page", "content": "---\\ntitle: \\"Untitled\\"\\n..." }, ...] }',
       },
       {
-        method: 'GET', path: '/api/notifications/counts', description: 'Get the count of new comments since a given timestamp.',
-        request: 'Query: ?since=2025-01-15T00:00:00.000Z',
-        response: '{ "comments": 5 }',
-      },
-      {
         method: 'GET', path: '/api/perf', description: 'Server performance metrics: average, max, and p95 response times per endpoint.',
         response: '{ "endpoints": [{ "path": "/api/search", "avgMs": 12.5, "maxMs": 45, "count": 200, "p95Ms": 30 }, ...] }',
       },
@@ -477,7 +449,7 @@ const CATEGORIES = [
         response: '{ "months": [{ "month": "2025-01", "files": [{ "path": "content/docs/intro.md", "title": "Introduction", "date": "2025-01-15", "wordCount": 500, "draft": false }] }] }',
       },
       {
-        method: 'GET', path: '/api/integrity', description: 'Data integrity validation: checks JSON file validity, YAML validity, orphaned snapshots, and orphaned comments.',
+        method: 'GET', path: '/api/integrity', description: 'Data integrity validation: checks JSON file validity, YAML validity, and orphaned snapshots.',
         response: '{ "status": "healthy", "checks": [{ "name": "json_validity", "passed": true, "details": "All 8 JSON files are valid" }, { "name": "yaml_validity", "passed": true, "details": "references.yaml is valid YAML" }, ...] }',
       },
       {
@@ -557,45 +529,6 @@ const CATEGORIES = [
         method: 'POST', path: '/api/streak', description: 'Record words written today.',
         request: '{ "userId": "default", "wordsWritten": 350 }',
         response: '{ "success": true, "date": "2025-01-15", "words": 350 }',
-      },
-    ],
-  },
-  {
-    id: 'annotations',
-    title: 'Annotations',
-    icon: '\u{1F4DD}',
-    endpoints: [
-      {
-        method: 'GET', path: '/api/annotations', description: 'List annotations for a page.',
-        request: 'Query: ?page=/docs/intro',
-        response: '{ "annotations": [{ "id": "ann_...", "text": "selected text", "note": "my note", "startOffset": 10, "endOffset": 25, "author": "...", "createdAt": "..." }] }',
-      },
-      {
-        method: 'POST', path: '/api/annotations', description: 'Create an annotation (highlight + optional note).',
-        request: '{ "page": "/docs/intro", "text": "selected text", "note": "my note", "startOffset": 10, "endOffset": 25, "author": "User" }',
-        response: '{ "annotation": { "id": "ann_...", ... } }',
-      },
-      {
-        method: 'DELETE', path: '/api/annotations', description: 'Delete an annotation.',
-        request: '{ "page": "/docs/intro", "id": "ann_..." }',
-        response: '{ "success": true }',
-      },
-    ],
-  },
-  {
-    id: 'reactions',
-    title: 'Comment Reactions',
-    icon: '\u{1F44D}',
-    endpoints: [
-      {
-        method: 'POST', path: '/api/comments/react', description: 'Add a reaction to a comment. Valid emojis: thumbsup, heart, laugh, thinking, celebrate.',
-        request: '{ "page": "/docs/intro", "commentId": "c_...", "emoji": "thumbsup", "userId": "user1" }',
-        response: '{ "success": true, "reactions": [{ "emoji": "thumbsup", "userId": "user1" }] }',
-      },
-      {
-        method: 'DELETE', path: '/api/comments/react', description: 'Remove a reaction from a comment.',
-        request: '{ "page": "/docs/intro", "commentId": "c_...", "emoji": "thumbsup", "userId": "user1" }',
-        response: '{ "success": true, "reactions": [] }',
       },
     ],
   },

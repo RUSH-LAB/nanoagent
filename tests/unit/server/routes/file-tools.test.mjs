@@ -13,7 +13,7 @@ import path from 'node:path';
 import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
 
 const routes = loadRoute('file-tools');
-const {COMMENTS_FILE} = FILES;
+
 const VERSIONS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'versions.json');
 const at = rel => path.join(PROJECT_ROOT, rel);
 
@@ -806,25 +806,16 @@ describe('GET /api/search/global', () => {
     [at('content/bibliography/references.yaml')]: 'q2020:\n  title: Quantum Paper\n  author:\n    - Alice Quantum\n',
   };
   const STORE = {
-    [COMMENTS_FILE]: {'/p': [{text: 'a quantum comment', author: 'Ada'}], bad: 'not-an-array'},
   };
 
-  it('aggregates content, reference and comment hits in that order', async () => {
+  it('aggregates content and reference hits in that order', async () => {
     const {ctx} = fsCtx(TREE, {store: STORE});
     const r = await invoke(routes, {path: '/api/search/global', query: {q: 'quantum'}, ctx});
     assert.equal(r.status, 200);
-    assert.deepEqual(r.payload.results.map(x => x.type), ['content', 'reference', 'comment']);
+    assert.deepEqual(r.payload.results.map(x => x.type), ['content', 'reference']);
     assert.equal(r.payload.query, 'quantum');
-    assert.equal(r.payload.total, 3);
+    assert.equal(r.payload.total, 2);
     assert.equal(r.payload.results[0].path, 'content/quantum.md', 'dot files and non-markdown are skipped');
-  });
-
-  it('truncates comment bodies to one hundred characters', async () => {
-    const long = `quantum ${'x'.repeat(200)}`;
-    const store = {[COMMENTS_FILE]: {'/p': [{text: long}]}};
-    const {ctx} = fsCtx({[at('content/.keep')]: ''}, {store});
-    const r = await invoke(routes, {path: '/api/search/global', query: {q: 'quantum'}, ctx});
-    for (const hit of r.payload.results) assert.equal(hit.text.length, 100);
   });
 
   it('returns 400 for a missing query before scanning', async () => {
@@ -858,10 +849,10 @@ describe('GET /api/search/global', () => {
   });
 
   const LIMITS = [
-    {name: 'absent, giving the default of 30', query: {}, want: 3},
+    {name: 'absent, giving the default of 30', query: {}, want: 2},
     {name: 'valid', query: {limit: '2'}, want: 2},
-    {name: 'above the cap, clamped to 100', query: {limit: '9999'}, want: 3},
-    {name: 'non-numeric, falling back to the default', query: {limit: 'abc'}, want: 3},
+    {name: 'above the cap, clamped to 100', query: {limit: '9999'}, want: 2},
+    {name: 'non-numeric, falling back to the default', query: {limit: 'abc'}, want: 2},
     // numericParam only upper-bounds, so without the floor slice(0, -1) would
     // silently drop the last match instead of returning nothing.
     {name: 'negative, clamped to zero', query: {limit: '-1'}, want: 0},
@@ -872,7 +863,7 @@ describe('GET /api/search/global', () => {
       const {ctx} = fsCtx(TREE, {store: STORE});
       const r = await invoke(routes, {path: '/api/search/global', query: {q: 'quantum', ...query}, ctx});
       assert.equal(r.payload.results.length, want);
-      assert.equal(r.payload.total, 3, 'total always reports the full match count');
+      assert.equal(r.payload.total, 2, 'total always reports the full match count');
     });
   }
 });
