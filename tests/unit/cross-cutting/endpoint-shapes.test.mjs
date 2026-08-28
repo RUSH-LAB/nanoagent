@@ -22,12 +22,6 @@ describe('API response shapes', () => {
     assert.equal(shape.total, 1);
   });
 
-  it('discussion channel shape', () => {
-    const shape = {channels: [{id: 'general', name: 'General', topic: '', messageCount: 5}]};
-    assert.ok(Array.isArray(shape.channels));
-    assert.ok(typeof shape.channels[0].messageCount === 'number');
-  });
-
   it('reference shape', () => {
     const shape = {references: {key1: {type: 'article', title: 'Test', author: ['Author'], year: 2024}}};
     assert.ok(typeof shape.references === 'object');

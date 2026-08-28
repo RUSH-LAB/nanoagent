@@ -1,5 +1,5 @@
 /**
- * Relative-time formatter shared by Comments, Annotations, and Discussions.
+ * Relative-time formatter shared by Comments and Annotations.
  *
  * Renders an ISO-8601 timestamp as 'just now', 'Nm ago', 'Nh ago', or 'Nd ago',
  * falling back to a localized date once the gap reaches `recentDays`.

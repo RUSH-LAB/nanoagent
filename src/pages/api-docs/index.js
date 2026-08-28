@@ -1,6 +1,7 @@
 import React from 'react';
 import Layout from '@theme/Layout';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
+import pageStyles from '@site/src/css/page.module.css';
 
 const METHOD_COLORS = {
   GET: {bg: '#dbeafe', color: '#1e40af', border: '#93c5fd'},
@@ -277,38 +278,6 @@ const CATEGORIES = [
     ],
   },
   {
-    id: 'discussions',
-    title: 'Discussions',
-    icon: '🗣️',
-    description: 'Channel-based discussions with real-time messaging.',
-    endpoints: [
-      {
-        method: 'GET', path: '/api/discussions', description: 'List all discussion channels with message counts.',
-        response: '{ "channels": [{ "id": "general", "name": "General", "topic": "...", "linkedPage": null, "createdAt": "...", "messageCount": 12 }] }',
-      },
-      {
-        method: 'POST', path: '/api/discussions', description: 'Create a new discussion channel.',
-        request: '{ "name": "Research Ideas", "topic": "Brainstorming session", "linkedPage": "/docs/research" }',
-        response: '{ "channel": { "id": "research-ideas", "name": "Research Ideas", "topic": "...", "linkedPage": "...", "createdAt": "...", "messageCount": 0 } }',
-      },
-      {
-        method: 'GET', path: '/api/discussions/:id/messages', description: 'Get all messages in a channel.',
-        request: 'URL param: :id = channel ID (e.g., "general")',
-        response: '{ "messages": [{ "id": "msg_...", "author": "Alice", "text": "Hello!", "createdAt": "..." }] }',
-      },
-      {
-        method: 'POST', path: '/api/discussions/:id/messages', description: 'Post a message to a channel. Rate-limited to 30/min per IP.',
-        request: 'URL param: :id = channel ID\n{ "author": "Alice", "text": "Hello everyone!" }',
-        response: '{ "message": { "id": "msg_...", "author": "Alice", "text": "Hello everyone!", "createdAt": "..." } }',
-      },
-      {
-        method: 'DELETE', path: '/api/discussions/:id', description: 'Delete a channel and all its messages.',
-        request: 'URL param: :id = channel ID',
-        response: '{ "success": true }',
-      },
-    ],
-  },
-  {
     id: 'references',
     title: 'References & Bibliography',
     icon: '📚',
@@ -495,9 +464,9 @@ const CATEGORIES = [
         response: '{ "templates": [{ "id": "blank", "name": "Blank Page", "content": "---\\ntitle: \\"Untitled\\"\\n..." }, ...] }',
       },
       {
-        method: 'GET', path: '/api/notifications/counts', description: 'Get counts of new comments and discussion messages since a given timestamp.',
+        method: 'GET', path: '/api/notifications/counts', description: 'Get the count of new comments since a given timestamp.',
         request: 'Query: ?since=2025-01-15T00:00:00.000Z',
-        response: '{ "comments": 5, "discussions": 12 }',
+        response: '{ "comments": 5 }',
       },
       {
         method: 'GET', path: '/api/perf', description: 'Server performance metrics: average, max, and p95 response times per endpoint.',
@@ -652,23 +621,6 @@ const CATEGORIES = [
     ],
   },
   {
-    id: 'discussion-pins',
-    title: 'Discussion Pins',
-    icon: '\u{1F4CC}',
-    endpoints: [
-      {
-        method: 'POST', path: '/api/discussions/:id/pin', description: 'Pin a message in a channel.',
-        request: '{ "messageId": "msg_..." }',
-        response: '{ "success": true }',
-      },
-      {
-        method: 'DELETE', path: '/api/discussions/:id/pin', description: 'Unpin a message from a channel.',
-        request: '{ "messageId": "msg_..." }',
-        response: '{ "success": true }',
-      },
-    ],
-  },
-  {
     id: 'content-analysis',
     title: 'Content Analysis',
     icon: '\u{1F4CA}',
@@ -729,21 +681,6 @@ const CATEGORIES = [
     title: 'Message Management',
     icon: '\u{1F4AC}',
     endpoints: [
-      {
-        method: 'DELETE', path: '/api/discussions/:id/messages', description: 'Delete a message from a channel.',
-        request: '{ "messageId": "msg_..." }',
-        response: '{ "success": true }',
-      },
-      {
-        method: 'PATCH', path: '/api/discussions/:id/messages', description: 'Edit a message in a channel.',
-        request: '{ "messageId": "msg_...", "text": "Updated text" }',
-        response: '{ "success": true, "message": { "id": "msg_...", "text": "Updated text", "editedAt": "..." } }',
-      },
-      {
-        method: 'GET', path: '/api/discussions/:id/messages/search', description: 'Search messages within a channel.',
-        request: 'Query: ?q=search+term',
-        response: '{ "results": [{ "id": "msg_...", "author": "...", "text": "...", "createdAt": "..." }], "total": 2 }',
-      },
       {
         method: 'DELETE', path: '/api/notes', description: 'Delete a note by key.',
         request: '{ "key": "note-key" }',
@@ -994,11 +931,7 @@ export default function ApiDocs() {
   return (
     <Layout title="API Documentation" description="API documentation for Mochi Lab editor server">
       <ErrorBoundary>
-      <main style={{
-        maxWidth: '960px',
-        margin: '0 auto',
-        padding: '2rem 1.5rem',
-      }}>
+      <main className={pageStyles.pageContainer}>
         <div style={{marginBottom: '2rem'}}>
           <h1 style={{marginBottom: '8px'}}>API Reference</h1>
           <p style={{color: '#6b7280', fontSize: '1rem', marginBottom: '4px'}}>

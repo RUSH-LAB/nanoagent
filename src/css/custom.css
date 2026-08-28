@@ -6,8 +6,47 @@
 
 /* You can override the default Infima variables here. */
 :root {
-  --ifm-container-width: 2000px;
-  --ifm-container-width-xl: 2000px;
+  /* Layout rhythm, derived from one number.
+     --site-prose-width is the article measure, identical on docs, blog and
+     research; the two navigation columns are fixed; the shell is whatever
+     holds all three. Everything the shell renders (navbar row, page content,
+     footer) is capped at --site-max-width and centered, so a wide monitor
+     grows the side gutters instead of the text measure.
+     The *-col values add Infima's 1rem of .col padding on each side; .row
+     cancels that again with its own negative margins, so a container whose
+     width equals the sum of the columns lands on the measures exactly. */
+  --site-prose-width: 1040px;
+  --site-toc-width: 240px;
+  --site-doc-sidebar-width: 300px;
+  --doc-sidebar-width: var(--site-doc-sidebar-width);
+  --site-prose-col: calc(var(--site-prose-width) + 2rem);
+  --site-toc-col: calc(var(--site-toc-width) + 2rem);
+  --site-content-width: calc(var(--site-prose-col) + var(--site-toc-col));
+  --site-max-width: calc(var(--site-content-width) + var(--site-doc-sidebar-width));
+
+  /* Standalone pages (src/pages) have no theme layout to inherit a column
+     from, so they share these instead. The caps include the gutter, which
+     puts their content box on exactly --site-prose-width (reading pages) or
+     --site-content-width (dashboards and tools) — the same two measures the
+     blog and docs columns use. Consume them through src/css/page.module.css. */
+  --site-page-gutter: 1.5rem;
+  --site-page-width: calc(var(--site-prose-width) + 2 * var(--site-page-gutter));
+  --site-page-width-wide: calc(var(--site-content-width) + 2 * var(--site-page-gutter));
+  /* The CLI docked to the bottom of every page (src/components/CommandBar).
+     --site-cli-row is the prompt line. --site-cli-height is the whole strip the
+     window occupies; CommandBar republishes it on the root element as the
+     window opens, collapses and resizes, and the value here is the collapsed
+     fallback used before hydration. */
+  --site-cli-row: 2.75rem;
+  --site-cli-height: var(--site-cli-row);
+  /* Everything between the navbar and the CLI bar. The one place that knows
+     either height, for the pages whose body is a fixed region rather than a
+     document. */
+  --site-shell-height: calc(
+    100vh - var(--ifm-navbar-height, 3.75rem) - var(--site-cli-height)
+  );
+  --ifm-container-width: var(--site-max-width);
+  --ifm-container-width-xl: var(--site-max-width);
   --ifm-font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
   --ifm-heading-font-family: 'Inter', system-ui, -apple-system, sans-serif;
   --ifm-color-primary: #3b5998;
@@ -21,6 +60,67 @@
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
   /* Vertical offset when jumping to an anchored element; adjust to control vertical centering. */
   --anchor-scroll-margin: 30vh;
+}
+
+/* ── Docs reading column ──────────────────────────────────────────────────── */
+/* Infima splits the doc row 75/25, which ties the article measure to the
+   viewport. Pin the table of contents instead and let the article take the
+   rest, up to --site-prose-width, so docs match the blog. Below 997px
+   Docusaurus stacks the two columns, hence the desktop-only scope. */
+@media (min-width: 997px) {
+  .row > [class*="docItemCol_"] {
+    flex: 1 1 0 !important;
+    /* Without this the column keeps min-width:auto, so a wide code block or
+       table holds it above the space left by the TOC and the TOC wraps onto a
+       line of its own below the article. */
+    min-width: 0;
+    max-width: var(--site-prose-col) !important;
+  }
+
+  .row > [class*="docItemCol_"] + .col--3 {
+    flex: 0 0 var(--site-toc-col) !important;
+    max-width: var(--site-toc-col) !important;
+  }
+
+  /* Both columns are capped, so collapsing the sidebar hands the row more
+     width than they can use. Centre the surplus instead of letting it pile up
+     on one side. A no-op while the sidebar is open, where the row is exactly
+     as wide as the two columns. */
+  .row:has(> [class*="docItemCol_"]) {
+    justify-content: center;
+  }
+}
+
+/* Between the stacking breakpoint and here, a 240px TOC plus the 300px chapter
+   sidebar leaves the article under ~600px, which is too cramped to be worth the
+   split. Drop the side TOC and hand the article the whole row.
+
+   The theme already server-renders its collapsible in-article TOC and hides it
+   above 996px purely in CSS, so the band keeps a heading list by swapping which
+   of the two is visible rather than by rendering anything new. Scoped through
+   `article` to outrank the theme's own display:none. */
+@media (min-width: 997px) and (max-width: 1200px) {
+  .row > [class*="docItemCol_"] + .col--3 {
+    display: none;
+  }
+
+  article .theme-doc-toc-mobile {
+    display: block;
+  }
+}
+
+/* ── Docs chapter sidebar ─────────────────────────────────────────────────── */
+/* The theme appends its hideable-sidebar collapse button after the menu, which
+   puts it at the foot of a tall chapter list. The sidebar is a flex column, so
+   `order` lifts the button above the menu without swizzling the component; the
+   sticky edge flips with it. */
+@media (min-width: 997px) {
+  .theme-doc-sidebar-container [class*="collapseSidebarButton"] {
+    order: -1;
+    top: 0;
+    bottom: auto;
+    border-top: none;
+  }
 }
 
 /* ── Global heading color & title size override ───────────────────────────── */
@@ -563,7 +663,7 @@ li > input[type="checkbox"]:checked {
   animation: fadeIn 250ms ease-out;
 }
 
-/* Slide-up animation for card grids (homepage features, general card containers) */
+/* Slide-up animation for card grids */
 @keyframes slideUp {
   from {
     opacity: 0;
@@ -575,28 +675,17 @@ li > input[type="checkbox"]:checked {
   }
 }
 
-/* Homepage feature cards and any section with a card grid */
-section[class*="features"] [class*="featureGrid"],
-section[class*="features"] [class*="featureCard"],
+/* Doc cards and any section with a card grid. cardContainer_* comes from
+   Docusaurus's own DocCard, so this is live even with no first-party .card. */
 .card,
 .cards,
 [class*="cardContainer"] {
   animation: slideUp 300ms ease-out both;
 }
 
-/* Stagger the slide-up for individual cards within grids */
-section[class*="features"] [class*="featureCard"]:nth-child(1) { animation-delay: 0ms; }
-section[class*="features"] [class*="featureCard"]:nth-child(2) { animation-delay: 60ms; }
-section[class*="features"] [class*="featureCard"]:nth-child(3) { animation-delay: 120ms; }
-section[class*="features"] [class*="featureCard"]:nth-child(4) { animation-delay: 180ms; }
-section[class*="features"] [class*="featureCard"]:nth-child(5) { animation-delay: 240ms; }
-section[class*="features"] [class*="featureCard"]:nth-child(6) { animation-delay: 300ms; }
-
 /* Respect reduced-motion preference */
 @media (prefers-reduced-motion: reduce) {
   .main-wrapper,
-  section[class*="features"] [class*="featureGrid"],
-  section[class*="features"] [class*="featureCard"],
   .card,
   .cards,
   [class*="cardContainer"] {

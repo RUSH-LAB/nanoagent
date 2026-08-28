@@ -112,7 +112,6 @@ const TEST_FILE_CONTENT = `---\ntitle: "Test Post"\ndate: 2025-01-01\n---\n\n# T
 const TEST_COMMENT_PAGE = `${TEST_PREFIX}/comments`;
 const TEST_NOTE_KEY = `${TEST_PREFIX}_note`;
 const TEST_REF_KEY = `${TEST_PREFIX}_ref`;
-const TEST_CHANNEL_NAME = `Test Channel ${TEST_PREFIX}`;
 
 // ────────────────────────────────────────────────────────────────
 // File CRUD (10 tests)
@@ -315,66 +314,6 @@ async function testComments() {
         commentId: createdCommentId,
       });
     });
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
-// Discussions (5 tests)
-// ────────────────────────────────────────────────────────────────
-
-let createdChannelId = null;
-
-async function testDiscussions() {
-  section('Discussions');
-
-  // 1. Create channel
-  await test('Create channel', async () => {
-    const {status, data} = await api('POST', '/api/discussions', {
-      name: TEST_CHANNEL_NAME,
-      topic: 'Test topic',
-    });
-    assertOk(status === 200 || status === 201, 'status 200 or 201');
-    assertOk(data.channel, 'has channel');
-    assertOk(data.channel.id, 'has id');
-    createdChannelId = data.channel.id;
-  });
-
-  // 2. List channels
-  await test('List channels', async () => {
-    const {status, data} = await api('GET', '/api/discussions');
-    assertEq(status, 200, 'status');
-    assertOk(Array.isArray(data.channels), 'channels is array');
-    assertOk(data.channels.some(ch => ch.id === createdChannelId), 'found our channel');
-  });
-
-  // 3. Post message
-  await test('Post message', async () => {
-    const {status, data} = await api('POST', `/api/discussions/${createdChannelId}/messages`, {
-      author: 'Test User',
-      text: 'Hello from integration test!',
-    });
-    assertOk(status === 200 || status === 201, 'status 200 or 201');
-    assertOk(data.message, 'has message');
-    assertOk(data.message.id, 'has message id');
-    assertEq(data.message.text, 'Hello from integration test!', 'text matches');
-  });
-
-  // 4. Get messages
-  await test('Get messages', async () => {
-    const {status, data} = await api('GET', `/api/discussions/${createdChannelId}/messages`);
-    assertEq(status, 200, 'status');
-    assertOk(Array.isArray(data.messages), 'messages is array');
-    assertOk(data.messages.length >= 1, 'has at least one message');
-  });
-
-  // 5. Delete channel
-  await test('Delete channel', async () => {
-    const {status, data} = await api('DELETE', `/api/discussions/${createdChannelId}`);
-    assertEq(status, 200, 'status');
-    assertOk(data.success, 'success');
-    // Verify it is gone
-    const {data: listData} = await api('GET', '/api/discussions');
-    assertOk(!listData.channels.some(ch => ch.id === createdChannelId), 'channel deleted');
   });
 }
 
@@ -674,7 +613,6 @@ async function main() {
 
   await testFileCRUD();
   await testComments();
-  await testDiscussions();
   await testNotes();
   await testReferences();
   await testMisc();

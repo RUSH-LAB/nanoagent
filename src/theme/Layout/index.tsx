@@ -17,7 +17,7 @@ import type {Props} from '@theme/Layout';
 import ReadingProgress from '@site/src/components/ReadingProgress';
 import CommandPalette from '@site/src/components/CommandPalette';
 import ToastContainer from '@site/src/components/Toast';
-import QuickActions from '@site/src/components/QuickActions';
+import CommandBar from '@site/src/components/CommandBar';
 import styles from './styles.module.css';
 
 export default function Layout(props: Props): ReactNode {
@@ -65,7 +65,7 @@ export default function Layout(props: Props): ReactNode {
 
       {!noFooter && <Footer />}
 
-      <QuickActions />
+      <CommandBar />
     </LayoutProvider>
   );
 }

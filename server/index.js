@@ -1,6 +1,6 @@
 /**
  * Mochi Lab API server. Exposes a REST API on port 3001 (or EDITOR_PORT) for
- * file CRUD, references, analytics, discussions, snapshots, and more.
+ * file CRUD, references, analytics, snapshots, and more.
  * All routes live under /api/* and return JSON with CORS headers.
  */
 const _startupTime = process.hrtime.bigint();
@@ -19,7 +19,6 @@ const PORT = process.env.EDITOR_PORT || 3001;
 const COMMENTS_FILE = dataFile('comments');
 const NOTES_FILE = dataFile('notes');
 const ANALYTICS_FILE = dataFile('analytics');
-const DISCUSSIONS_FILE = dataFile('discussions');
 const USERS_FILE = dataFile('users');
 const BOOKMARKS_FILE = dataFile('bookmarks');
 const READING_LISTS_FILE = dataFile('reading-lists');
@@ -35,6 +34,7 @@ const GOALS_FILE = dataFile('goals');
 const TARGETS_FILE = dataFile('targets');
 
 // ── Access log file setup ──
+
 const ACCESS_LOG = path.join(LOGS_DIR, 'access.log');
 const ACCESS_LOG_MAX_LINES = 5000;
 const ACCESS_LOG_KEEP_LINES = 1000;
@@ -349,7 +349,7 @@ let requestCounter = 0;
 
 // ── Shared context handed to every route module in server/routes/ ──
 const ctx = {
-  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
+  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
   _routeDiagnostics: null,
 };
 
@@ -359,7 +359,6 @@ const routeModules = [
   require('./routes/feeds'),
   require('./routes/references'),
   require('./routes/analytics-users'),
-  require('./routes/discussions'),
   require('./routes/research-tools'),
   require('./routes/graph-trash-files'),
   require('./routes/content-analysis-a'),

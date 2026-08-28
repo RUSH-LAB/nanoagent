@@ -4,6 +4,7 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
 import {useDebounce} from '@site/src/hooks/useDebounce';
+import pageStyles from '@site/src/css/page.module.css';
 
 /* ── Category color mapping ──────────────────────────────────── */
 
@@ -785,7 +786,7 @@ function GlossaryContent() {
 export default function GlossaryPage() {
   return (
     <Layout title="Glossary" description="Terminology reference for Mochi Lab">
-      <main style={{ padding: '2rem', maxWidth: '900px', margin: '0 auto' }}>
+      <main className={pageStyles.pageContainer}>
         <BrowserOnly>
           {() => <ErrorBoundary><GlossaryContent /></ErrorBoundary>}
         </BrowserOnly>

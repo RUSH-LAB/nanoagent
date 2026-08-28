@@ -2,6 +2,7 @@ import React from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
+import pageStyles from '@site/src/css/page.module.css';
 
 const PRIORITY_COLORS = {
   high: {border: '#fca5a5', badge: '#ef4444'},
@@ -154,7 +155,7 @@ function TasksApp() {
   const totalTasks = counts.todo + counts.doing + counts.done;
 
   return (
-    <div style={{maxWidth: 1200, margin: '0 auto', padding: '24px 16px'}} role="main" aria-label="Task board">
+    <div className={`${pageStyles.pageContainer} ${pageStyles.wide}`} role="main" aria-label="Task board">
       {/* Header */}
       <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24}}>
         <div>

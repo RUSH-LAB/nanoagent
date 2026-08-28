@@ -54,7 +54,7 @@ const TASK_PRIORITIES = Object.freeze(['low', 'medium', 'high']);
 
 module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── Reading progress tracking ──
@@ -115,14 +115,6 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         if (Array.isArray(pageComments)) {
           for (const c of pageComments) {
             events.push({type: 'comment', page, author: c.author, text: c.text?.slice(0, 100), timestamp: c.createdAt});
-          }
-        }
-      }
-      const discData = loadJSON(DISCUSSIONS_FILE);
-      for (const [channelId, msgs] of Object.entries(discData.messages || {})) {
-        if (Array.isArray(msgs)) {
-          for (const m of msgs) {
-            events.push({type: 'message', channel: channelId, author: m.author, text: m.text?.slice(0, 100), timestamp: m.createdAt});
           }
         }
       }
@@ -860,7 +852,6 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       const bundle = {
         comments: loadJSON(COMMENTS_FILE),
         notes: loadJSON(NOTES_FILE),
-        discussions: loadJSON(DISCUSSIONS_FILE),
         bookmarks: loadJSON(BOOKMARKS_FILE),
         readingLists: loadJSON(READING_LISTS_FILE),
         glossary: loadJSON(GLOSSARY_FILE),
@@ -889,7 +880,6 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       const mapping = {
         comments: COMMENTS_FILE,
         notes: NOTES_FILE,
-        discussions: DISCUSSIONS_FILE,
         bookmarks: BOOKMARKS_FILE,
         readingLists: READING_LISTS_FILE,
         glossary: GLOSSARY_FILE,

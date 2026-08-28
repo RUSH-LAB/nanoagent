@@ -35,7 +35,6 @@ async function invoke({ method = 'GET', pathname, search = '', ctx = {} }) {
 
 describe('GET /api/changelog negative limit clamp', () => {
   const COMMENTS_FILE = '/tmp/misc-tools-neg-changelog-comments.json';
-  const DISCUSSIONS_FILE = '/tmp/misc-tools-neg-changelog-discussions.json';
   const comments = {
     'content/page.md': Array.from({ length: 250 }, (_, i) => ({
       author: 'tester',
@@ -47,7 +46,6 @@ describe('GET /api/changelog negative limit clamp', () => {
   const ctx = {
     loadJSON: file => (file === COMMENTS_FILE ? comments : discData),
     COMMENTS_FILE,
-    DISCUSSIONS_FILE,
   };
   const call = search => invoke({ pathname: '/api/changelog', search, ctx });
 

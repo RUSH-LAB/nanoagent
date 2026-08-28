@@ -45,11 +45,9 @@ describe('GET /api/activity-feed negative limit clamp', () => {
     path,
     PROJECT_ROOT: '/tmp/activity-feed-neg-test',
     COMMENTS_FILE: 'comments',
-    DISCUSSIONS_FILE: 'discussions',
     ANNOTATIONS_FILE: 'annotations',
     loadJSON(file) {
       if (file === 'comments') return comments;
-      if (file === 'discussions') return { messages: {} };
       if (file === 'annotations') return {};
       return { reviews: [] }; // computed data/reviews.json path
     },

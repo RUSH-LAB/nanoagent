@@ -12,7 +12,7 @@ import path from 'node:path';
 import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
 
 const routes = loadRoute('feeds');
-const {COMMENTS_FILE, DISCUSSIONS_FILE, STREAKS_FILE} = FILES;
+const {COMMENTS_FILE, STREAKS_FILE} = FILES;
 const SESSIONS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'sessions.json');
 const SCHEDULE_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'schedule.json');
 const at = rel => path.join(PROJECT_ROOT, rel);
@@ -696,7 +696,6 @@ describe('GET /api/summary/daily', () => {
   it('returns the full daily shape over a representative mix', async () => {
     const store = {
       [COMMENTS_FILE]: {'/p': [{createdAt: `${today}T09:00:00.000Z`}, {createdAt: '2020-01-01T00:00:00.000Z'}, {}], bad: 'not-an-array'},
-      [DISCUSSIONS_FILE]: {messages: {general: [{createdAt: `${today}T09:00:00.000Z`}], bad: 'not-an-array'}},
       [STREAKS_FILE]: {default: {dailyLog: [{date: today, words: 750}]}},
     };
     // mockFs stamps a fixed past mtime, so no content file counts as modified today.
@@ -708,14 +707,13 @@ describe('GET /api/summary/daily', () => {
       filesModifiedToday: 0,
       modifiedFiles: [],
       commentsToday: 1,
-      messagesToday: 1,
       wordsWrittenToday: 750,
     });
   });
 
   it('returns zeros for empty stores and empty content', async () => {
     const r = await invoke(routes, {path: '/api/summary/daily', ctx: makeCtx({fs: mockFs({[at('content/.keep')]: ''})})});
-    assert.deepEqual(r.payload, {date: today, filesModifiedToday: 0, modifiedFiles: [], commentsToday: 0, messagesToday: 0, wordsWrittenToday: 0});
+    assert.deepEqual(r.payload, {date: today, filesModifiedToday: 0, modifiedFiles: [], commentsToday: 0, wordsWrittenToday: 0});
   });
 
   it('counts entries whose createdAt equals the start-of-day cutoff', async () => {

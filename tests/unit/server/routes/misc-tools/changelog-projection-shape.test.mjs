@@ -3,22 +3,21 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 // Characterization test for the pure projection behind GET /api/changelog in
-// server/routes/misc-tools.js. The handler reads two stubbable loadJSON sources
-// (comments keyed by page, discussion messages keyed by channel), projects each
-// into a flat event, sorts the merged list descending by timestamp, and returns
-// {events: events.slice(0, limit), total: events.length}. It touches no clock,
-// no randomness, no network, and no filesystem scan, so its exact output shape,
-// field set, text truncation, and sort order pin down to one deepStrictEqual
-// golden per case. The source stays untouched; this file only observes.
+// server/routes/misc-tools.js. The handler reads one stubbable loadJSON source
+// (comments keyed by page), projects each into a flat event, sorts the merged
+// list descending by timestamp, and returns {events: events.slice(0, limit),
+// total: events.length}. It touches no clock, no randomness, no network, and no
+// filesystem scan, so its exact output shape, field set, text truncation, and
+// sort order pin down to one deepStrictEqual golden per case. The source stays
+// untouched; this file only observes.
 
 // misc-tools.js is CommonJS; load it the way the sibling server route tests do.
 const require = createRequire(import.meta.url);
 const miscToolsRoutes = require('../../../../../server/routes/misc-tools.js');
 
-// File tokens the changelog handler reads through loadJSON. The mocked loadJSON
-// dispatches on these so comments and discussions come from separate fixtures.
+// The file token the changelog handler reads through loadJSON. The mocked
+// loadJSON dispatches on it so the comments fixture is the only source.
 const COMMENTS_FILE = '/tmp/next-changelog-comments.json';
-const DISCUSSIONS_FILE = '/tmp/next-changelog-discussions.json';
 
 // Drive GET /api/changelog with a mocked ctx and capture the response the
 // handler hands to json(res, status, payload). No ?limit= is sent, so
@@ -46,28 +45,20 @@ async function getChangelog(ctx) {
   return captured;
 }
 
-// A ctx whose loadJSON returns the comments fixture for COMMENTS_FILE and the
-// discussions fixture for DISCUSSIONS_FILE.
-function changelogCtx(comments, discData) {
+// A ctx whose loadJSON returns the comments fixture for COMMENTS_FILE.
+function changelogCtx(comments) {
   return {
-    loadJSON: file => {
-      if (file === COMMENTS_FILE) return comments;
-      if (file === DISCUSSIONS_FILE) return discData;
-      return {};
-    },
+    loadJSON: file => (file === COMMENTS_FILE ? comments : {}),
     COMMENTS_FILE,
-    DISCUSSIONS_FILE,
   };
 }
 
 describe('GET /api/changelog projection shape and sort', () => {
-  it('merges comment and message events into one descending feed, pinning both event shapes and the 100-char text truncation', async () => {
-    // Two comment pages and two discussion channels, with distinct timestamps
-    // chosen so the descending order alternates message, comment, message,
-    // comment. One comment and one message carry text longer than 100 characters
-    // so the slice(0, 100) truncation is pinned for both event shapes.
+  it('projects comments into a descending feed, pinning the event shape and the 100-char text truncation', async () => {
+    // Two comment pages with distinct timestamps, so the descending order is
+    // the reverse of the fixture order. The first comment carries text longer
+    // than 100 characters so the slice(0, 100) truncation is pinned.
     const longCommentText = 'C'.repeat(100) + 'OVERFLOW_comment_tail_that_must_be_dropped';
-    const longMessageText = 'M'.repeat(100) + 'OVERFLOW_message_tail_that_must_be_dropped';
     const comments = {
       'content/alpha.md': [
         { author: 'alice', text: longCommentText, createdAt: '2026-03-03T10:00:00Z' },
@@ -76,75 +67,40 @@ describe('GET /api/changelog projection shape and sort', () => {
         { author: 'bob', text: 'nice post', createdAt: '2026-03-01T10:00:00Z' },
       ],
     };
-    const discData = {
-      messages: {
-        general: [
-          { author: 'mallory', text: longMessageText, createdAt: '2026-03-04T10:00:00Z' },
-        ],
-        random: [
-          { author: 'rick', text: 'see you', createdAt: '2026-03-02T10:00:00Z' },
-        ],
-      },
-    };
-    const r = await getChangelog(changelogCtx(comments, discData));
+    const r = await getChangelog(changelogCtx(comments));
     assert.equal(r.status, 200);
     assert.deepStrictEqual(r.payload, {
       events: [
-        { type: 'message', channel: 'general', author: 'mallory', text: 'M'.repeat(100), timestamp: '2026-03-04T10:00:00Z' },
         { type: 'comment', page: 'content/alpha.md', author: 'alice', text: 'C'.repeat(100), timestamp: '2026-03-03T10:00:00Z' },
-        { type: 'message', channel: 'random', author: 'rick', text: 'see you', timestamp: '2026-03-02T10:00:00Z' },
         { type: 'comment', page: 'content/beta.md', author: 'bob', text: 'nice post', timestamp: '2026-03-01T10:00:00Z' },
       ],
-      total: 4,
+      total: 2,
     });
   });
 
-  it('skips comment pages and discussion channels whose value is not an array', async () => {
-    // content/notarray.md maps to a plain object and the "broken" channel maps to
-    // a string; both fail Array.isArray and contribute nothing. Only the two real
-    // array entries become events.
+  it('skips comment pages whose value is not an array', async () => {
+    // content/notarray.md maps to a plain object, which fails Array.isArray and
+    // contributes nothing. Only the real array entry becomes an event.
     const comments = {
       'content/valid.md': [
         { author: 'carol', text: 'real comment', createdAt: '2026-02-02T00:00:00Z' },
       ],
       'content/notarray.md': { not: 'an array' },
     };
-    const discData = {
-      messages: {
-        general: [
-          { author: 'dave', text: 'real message', createdAt: '2026-02-01T00:00:00Z' },
-        ],
-        broken: 'not an array',
-      },
-    };
-    const r = await getChangelog(changelogCtx(comments, discData));
+    const r = await getChangelog(changelogCtx(comments));
     assert.equal(r.status, 200);
     assert.deepStrictEqual(r.payload, {
       events: [
         { type: 'comment', page: 'content/valid.md', author: 'carol', text: 'real comment', timestamp: '2026-02-02T00:00:00Z' },
-        { type: 'message', channel: 'general', author: 'dave', text: 'real message', timestamp: '2026-02-01T00:00:00Z' },
-      ],
-      total: 2,
-    });
-  });
-
-  it('contributes no message events when discData has no messages key', async () => {
-    // discData lacks a messages property, so (discData.messages || {}) is empty
-    // and the message loop iterates nothing. Only comment events appear.
-    const comments = {
-      'content/only.md': [
-        { author: 'erin', text: 'sole comment', createdAt: '2026-04-01T00:00:00Z' },
-      ],
-    };
-    const discData = {};
-    const r = await getChangelog(changelogCtx(comments, discData));
-    assert.equal(r.status, 200);
-    assert.deepStrictEqual(r.payload, {
-      events: [
-        { type: 'comment', page: 'content/only.md', author: 'erin', text: 'sole comment', timestamp: '2026-04-01T00:00:00Z' },
       ],
       total: 1,
     });
+  });
+
+  it('returns an empty feed when the comments document is empty', async () => {
+    const r = await getChangelog(changelogCtx({}));
+    assert.equal(r.status, 200);
+    assert.deepStrictEqual(r.payload, { events: [], total: 0 });
   });
 
   it('sorts an event with no timestamp to the end via the (timestamp || empty) fallback', async () => {
@@ -155,21 +111,15 @@ describe('GET /api/changelog projection shape and sort', () => {
       'content/p.md': [
         { author: 'frank', text: 'newest', createdAt: '2026-05-02T00:00:00Z' },
         { author: 'grace', text: 'no timestamp' },
+        { author: 'heidi', text: 'middle', createdAt: '2026-05-01T00:00:00Z' },
       ],
     };
-    const discData = {
-      messages: {
-        general: [
-          { author: 'heidi', text: 'middle', createdAt: '2026-05-01T00:00:00Z' },
-        ],
-      },
-    };
-    const r = await getChangelog(changelogCtx(comments, discData));
+    const r = await getChangelog(changelogCtx(comments));
     assert.equal(r.status, 200);
     assert.deepStrictEqual(r.payload, {
       events: [
         { type: 'comment', page: 'content/p.md', author: 'frank', text: 'newest', timestamp: '2026-05-02T00:00:00Z' },
-        { type: 'message', channel: 'general', author: 'heidi', text: 'middle', timestamp: '2026-05-01T00:00:00Z' },
+        { type: 'comment', page: 'content/p.md', author: 'heidi', text: 'middle', timestamp: '2026-05-01T00:00:00Z' },
         { type: 'comment', page: 'content/p.md', author: 'grace', text: 'no timestamp', timestamp: undefined },
       ],
       total: 3,

@@ -1,7 +1,7 @@
 /**
- * server/routes/bookmarks-reading-lists.js: comment reactions, bookmarks,
- * pinned discussion messages, the content topic index, and reading lists with
- * their markdown and BibTeX exports.
+ * server/routes/bookmarks-reading-lists.js: comment reactions, bookmarks, the
+ * content topic index, and reading lists with their markdown and BibTeX
+ * exports.
  *
  * Consolidated from the twenty-seven per-branch suites that used to cover this
  * module.
@@ -12,7 +12,7 @@ import path from 'node:path';
 import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
 
 const routes = loadRoute('bookmarks-reading-lists');
-const {COMMENTS_FILE, DISCUSSIONS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE} = FILES;
+const {COMMENTS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE} = FILES;
 const at = rel => path.join(PROJECT_ROOT, rel);
 const BIB = at('content/bibliography/references.yaml');
 
@@ -258,87 +258,6 @@ describe('DELETE /api/bookmarks', () => {
     assert.equal(ctx.calls.saveJSON.length, 1);
   });
 });
-
-// ── Pinned messages ───────────────────────────────────────────────────────
-
-describe('discussion message pinning', () => {
-  const PIN = '/api/discussions/general/pin';
-  const withChannel = (channel = {}, messages = [{id: 'm1'}]) => ({
-    [DISCUSSIONS_FILE]: {channels: {general: channel}, messages: {general: messages}},
-  });
-
-  it('POST returns 429 before any IO', async () => {
-    let reads = 0;
-    const ctx = makeCtx({rateLimitAllow: false, readBody: async () => { reads++; return {}; }});
-    const r = await invoke(routes, {method: 'POST', path: PIN, ctx});
-    assert.equal(r.status, 429);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'disc-pin:127.0.0.1', maxPerMinute: 30}]);
-    assert.deepEqual([ctx.calls.loadJSON, ctx.calls.saveJSON, reads], [[], [], 0]);
-  });
-
-  for (const method of ['POST', 'DELETE']) {
-    for (const channelId of [...INHERITED_KEYS, 'absent']) {
-      it(`${method} returns 404 for the non-own channel ${JSON.stringify(channelId)}`, async () => {
-        const ctx = makeCtx({store: withChannel()});
-        const r = await invoke(routes, {method, path: `/api/discussions/${channelId}/pin`, body: {messageId: 'm1'}, ctx});
-        assert.deepEqual([r.status, r.payload], [404, {error: 'Channel not found'}]);
-        assert.deepEqual(ctx.calls.saveJSON, []);
-      });
-    }
-
-    it(`${method} rejects a body with no messageId`, async () => {
-      const ctx = makeCtx({store: withChannel()});
-      const r = await invoke(routes, {method, path: PIN, body: {}, ctx});
-      assert.deepEqual([r.status, r.payload], [400, {error: 'Missing messageId'}]);
-      assert.deepEqual(ctx.calls.saveJSON, []);
-    });
-
-    it(`${method} maps a store failure to the outer catch`, async () => {
-      const ctx = makeCtx({loadJSON() { throw new Error('unreadable'); }});
-      const r = await invoke(routes, {method, path: PIN, body: {messageId: 'm1'}, ctx});
-      assert.deepEqual([r.status, r.payload], [400, {error: 'Invalid request'}]);
-    });
-  }
-
-  it('POST rejects a messageId absent from the channel', async () => {
-    const ctx = makeCtx({store: withChannel()});
-    const r = await invoke(routes, {method: 'POST', path: PIN, body: {messageId: 'nope'}, ctx});
-    assert.deepEqual([r.status, r.payload], [404, {error: 'Message not found in this channel'}]);
-    assert.deepEqual(ctx.calls.saveJSON, []);
-  });
-
-  it('POST pins the message and saves once', async () => {
-    const ctx = makeCtx({store: withChannel()});
-    const r = await invoke(routes, {method: 'POST', path: PIN, body: {messageId: 'm1'}, ctx});
-    assert.deepEqual([r.status, r.payload], [200, {success: true}]);
-    assert.deepEqual(ctx.store[DISCUSSIONS_FILE].channels.general.pinnedMessages, ['m1']);
-    assert.equal(ctx.calls.saveJSON.length, 1);
-  });
-
-  it('POST is idempotent for an already pinned message', async () => {
-    const ctx = makeCtx({store: withChannel({pinnedMessages: ['m1']})});
-    const r = await invoke(routes, {method: 'POST', path: PIN, body: {messageId: 'm1'}, ctx});
-    assert.deepEqual([r.status, r.payload], [200, {success: true, already: true}]);
-    assert.deepEqual(ctx.calls.saveJSON, []);
-  });
-
-  it('DELETE rejects unpinning a message that is not pinned', async () => {
-    const ctx = makeCtx({store: withChannel({pinnedMessages: []})});
-    const r = await invoke(routes, {method: 'DELETE', path: PIN, body: {messageId: 'm1'}, ctx});
-    assert.deepEqual([r.status, r.payload], [404, {error: 'Message is not pinned'}]);
-    assert.deepEqual(ctx.calls.saveJSON, []);
-  });
-
-  it('DELETE unpins the message and saves once', async () => {
-    const ctx = makeCtx({store: withChannel({pinnedMessages: ['m1', 'm2']})});
-    const r = await invoke(routes, {method: 'DELETE', path: PIN, body: {messageId: 'm1'}, ctx});
-    assert.deepEqual([r.status, r.payload], [200, {success: true}]);
-    assert.deepEqual(ctx.store[DISCUSSIONS_FILE].channels.general.pinnedMessages, ['m2']);
-    assert.equal(ctx.calls.saveJSON.length, 1);
-  });
-});
-
-// ── Topics ────────────────────────────────────────────────────────────────
 
 describe('GET /api/analytics/topics', () => {
   it('ranks content words by frequency, stripping markdown and stop words', async () => {
@@ -859,8 +778,8 @@ describe('GET /api/reading-lists/:id/export', () => {
 describe('exported route-match regexes', () => {
   const {routeRegexes} = routes;
 
-  it('exports the four named patterns, each one shared stateless instance', () => {
-    assert.deepEqual(Object.keys(routeRegexes).sort(), ['DISCUSSION_PIN_RE', 'READING_LIST_EXPORT_RE', 'READING_LIST_ITEMS_RE', 'READING_LIST_RE']);
+  it('exports the three named patterns, each one shared stateless instance', () => {
+    assert.deepEqual(Object.keys(routeRegexes).sort(), ['READING_LIST_EXPORT_RE', 'READING_LIST_ITEMS_RE', 'READING_LIST_RE']);
     for (const [name, re] of Object.entries(routeRegexes)) {
       assert.equal(re.global, false, name);
       assert.equal(re.sticky, false, name);
@@ -869,9 +788,6 @@ describe('exported route-match regexes', () => {
   });
 
   const MATCHES = [
-    ['DISCUSSION_PIN_RE', '/api/discussions/general/pin', true],
-    ['DISCUSSION_PIN_RE', '/api/discussions/a/b/pin', false],
-    ['DISCUSSION_PIN_RE', '/api/discussions/general', false],
     ['READING_LIST_RE', '/api/reading-lists/l1', true],
     // The single-segment pattern must not swallow the subpaths.
     ['READING_LIST_RE', '/api/reading-lists/l1/items', false],

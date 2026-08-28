@@ -6,6 +6,7 @@ import { usePluginData } from '@docusaurus/useGlobalData';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
 import {useDebounce} from '@site/src/hooks/useDebounce';
+import pageStyles from '@site/src/css/page.module.css';
 
 function highlightMatch(text, query) {
   if (!query || !text) return text;
@@ -123,7 +124,7 @@ function SearchContent() {
   }, []);
 
   return (
-    <div style={{ maxWidth: '900px', margin: '0 auto', padding: '2rem 1rem' }}>
+    <div className={pageStyles.pageContainer}>
       <h1 style={{ marginBottom: '1.5rem' }}>Search</h1>
 
       {/* Search input */}

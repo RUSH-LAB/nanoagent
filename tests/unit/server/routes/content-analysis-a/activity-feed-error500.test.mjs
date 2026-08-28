@@ -14,7 +14,6 @@ const routes = require('../../../../../server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/fake/root';
 const COMMENTS_FILE = 'comments';
-const DISCUSSIONS_FILE = 'discussions';
 const ANNOTATIONS_FILE = 'annotations';
 
 // The sibling success suites (projection, guard, negative-limit-clamp) drive the
@@ -24,20 +23,18 @@ const ANNOTATIONS_FILE = 'annotations';
 // so the dispatcher keys the reviews fixture off that exact resolved path. With
 // throwOnLoad set, loadJSON throws on its very first call (the comments load, the
 // first failable step inside the try), sending the handler into the outer catch.
-function makeCtx({ comments = {}, discussions = {}, annotations = {}, reviews = {}, throwOnLoad = false } = {}) {
+function makeCtx({ comments = {}, annotations = {}, reviews = {}, throwOnLoad = false } = {}) {
   const REVIEWS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'reviews.json');
   const calls = { loadJSON: [] };
   const ctx = {
     path,
     PROJECT_ROOT,
     COMMENTS_FILE,
-    DISCUSSIONS_FILE,
     ANNOTATIONS_FILE,
     loadJSON(file) {
       calls.loadJSON.push(file);
       if (throwOnLoad) throw new Error('activity store unreadable');
       if (file === COMMENTS_FILE) return comments;
-      if (file === DISCUSSIONS_FILE) return discussions;
       if (file === ANNOTATIONS_FILE) return annotations;
       if (file === REVIEWS_FILE) return reviews;
       return {};
@@ -90,7 +87,7 @@ describe('GET /api/activity-feed: outer-catch 500', () => {
         total: 1,
       },
     });
-    assert.equal(calls.loadJSON.length, 4, 'the success path loads all four sources');
+    assert.equal(calls.loadJSON.length, 3, 'the success path loads all three sources');
   });
 
   it('returns 500 Activity feed failed via json when the first loadJSON throws', async () => {
@@ -108,7 +105,7 @@ describe('GET /api/activity-feed: outer-catch 500', () => {
     const { jsonCalls } = await invoke(ctx);
 
     // loadJSON throws on its first call (the comments load), so the downstream
-    // discussions, annotations, and reviews loads never run.
+    // annotations and reviews loads never run.
     assert.deepEqual(calls.loadJSON, [COMMENTS_FILE], 'only the comments load is attempted before the throw');
     // Never-reached proof: exactly one reply, and no json call carried the success
     // 200 {events, total} body.

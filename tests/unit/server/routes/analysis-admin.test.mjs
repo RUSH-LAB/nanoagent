@@ -14,7 +14,7 @@ import path from 'node:path';
 import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
 
 const routes = loadRoute('analysis-admin');
-const {STREAKS_FILE, ANNOTATIONS_FILE, ANALYTICS_FILE, COMMENTS_FILE, DISCUSSIONS_FILE} = FILES;
+const {STREAKS_FILE, ANNOTATIONS_FILE, ANALYTICS_FILE, COMMENTS_FILE} = FILES;
 const at = rel => path.join(PROJECT_ROOT, rel);
 const BIB = at('content/bibliography/references.yaml');
 const TRASH_DIR = at('var/trash');
@@ -1007,7 +1007,6 @@ describe('GET /api/dashboard', () => {
   const STORE = {
     [ANALYTICS_FILE]: {counts: {'/a': 3, '/b': 4}},
     [COMMENTS_FILE]: {'/p': [{}, {}], bad: 'not-an-array'},
-    [DISCUSSIONS_FILE]: {channels: {g: {}, h: {}}, messages: {g: [{}, {}, {}], bad: 'not-an-array'}},
   };
   const DIAG = {startupMs: 42, memoryAtStartupMB: 7, totalHandlers: 200, uniqueRoutes: 190, duplicateCount: 3};
 
@@ -1019,7 +1018,6 @@ describe('GET /api/dashboard', () => {
     assert.deepEqual(r.payload.activity, {
       recentPageviews: 7,
       recentComments: 2,
-      recentDiscussions: {channels: 2, messages: 3},
     });
     assert.deepEqual(r.payload.tests, {lastRun: null, suites: 1, totalTests: 3});
     assert.deepEqual(r.payload.endpoints, {total: 200, unique: 190});

@@ -81,8 +81,9 @@ const config = {
   favicon: 'img/mochi.jpg',
 
   customFields: {
-    // Set DISABLE_AUTH=true to skip the Clerk auth gate (used by `npm start`).
-    authEnabled: process.env.DISABLE_AUTH !== 'true',
+    // The Clerk auth gate is off by default, in dev and in production builds.
+    // Set ENABLE_AUTH=true to turn it back on (used by `npm run start:auth`).
+    authEnabled: process.env.ENABLE_AUTH === 'true',
   },
 
   future: {
@@ -246,45 +247,7 @@ const config = {
             docsPluginId: 'math',
             label: 'Math',
           },
-          {to: '/discussions', label: 'Discuss'},
         ],
-      },
-      footer: {
-        style: 'dark',
-        links: [
-          {
-            title: 'Content',
-            items: [
-              {label: 'Research', to: '/research'},
-              {label: 'Blog', to: '/blog'},
-              {label: 'Survey', to: '/survey/intro'},
-              {label: 'Math', to: '/math/intro'},
-              {label: 'Programming', to: '/programming/intro'},
-              {label: 'Builder', to: '/builder/intro'},
-            ],
-          },
-          {
-            title: 'Tools',
-            items: [
-              {label: 'Editor', to: '/editor'},
-              {label: 'Bibliography', to: '/bibliography'},
-              {label: 'Reading Lists', to: '/reading-lists'},
-              {label: 'Discussions', to: '/discussions'},
-              {label: 'Graph', to: '/graph'},
-            ],
-          },
-          {
-            title: 'More',
-            items: [
-              {label: 'Discover', to: '/recommendations'},
-              {label: 'Analytics', to: '/analytics'},
-              {label: 'API Docs', to: '/api-docs'},
-              {label: 'About', to: '/about'},
-              {label: 'GitHub', href: 'https://github.com/zeyuyang8/mochi-lab'},
-            ],
-          },
-        ],
-        copyright: `Copyright © ${new Date().getFullYear()} Mochi Lab. Built with Docusaurus.`,
       },
       prism: {
         theme: prismThemes.github,

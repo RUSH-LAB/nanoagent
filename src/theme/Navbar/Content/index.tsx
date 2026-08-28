@@ -15,13 +15,8 @@ import SearchBar from '@theme/SearchBar';
 import NavbarMobileSidebarToggle from '@theme/Navbar/MobileSidebar/Toggle';
 import NavbarLogo from '@theme/Navbar/Logo';
 import NavbarSearch from '@theme/Navbar/Search';
-import NotificationBadge, {markSeen} from '@site/src/components/NotificationBadge';
 
 import styles from './styles.module.css';
-
-const BADGED_ITEMS: Record<string, 'discussions' | 'comments'> = {
-  Discuss: 'discussions',
-};
 
 function useNavbarItems() {
   return useThemeConfig().navbar.items as NavbarItemConfig[];
@@ -31,8 +26,6 @@ function NavbarItems({items}: {items: NavbarItemConfig[]}): ReactNode {
   return (
     <>
       {items.map((item, i) => {
-        const label = (item as any).label;
-        const badgeType = label ? BADGED_ITEMS[label] : undefined;
         return (
           <ErrorCauseBoundary
             key={i}
@@ -44,16 +37,7 @@ ${JSON.stringify(item, null, 2)}`,
                 {cause: error},
               )
             }>
-            {badgeType ? (
-              <span
-                style={{position: 'relative', display: 'inline-flex', alignItems: 'center'}}
-                onClick={() => markSeen()}>
-                <NavbarItem {...item} />
-                <NotificationBadge type={badgeType} />
-              </span>
-            ) : (
-              <NavbarItem {...item} />
-            )}
+            <NavbarItem {...item} />
           </ErrorCauseBoundary>
         );
       })}

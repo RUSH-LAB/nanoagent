@@ -5,6 +5,7 @@ import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
 import { CHART_HUES } from '@site/src/utils/chartColors';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
+import pageStyles from '@site/src/css/page.module.css';
 
 // ── Shared styles ────────────────────────────────────────────────
 
@@ -88,7 +89,7 @@ function StatsDashboard() {
 
   if (loading) {
     return (
-      <div style={{ maxWidth: '960px', margin: '0 auto', padding: '1.5rem 1rem' }}>
+      <div className={`${pageStyles.pageContainer} ${pageStyles.wide}`}>
         <LoadingSkeleton shape="text" width="260px" height={36} style={{ marginBottom: '1.5rem' }} />
         <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
           {[0, 1, 2, 3].map((i) => (
@@ -191,7 +192,7 @@ function StatsDashboard() {
   // ── Render ──────────────────────────────────────────────────────
 
   return (
-    <div style={{ maxWidth: '960px', margin: '0 auto', padding: '1.5rem 1rem' }} role="main" aria-label="Content statistics dashboard">
+    <div className={`${pageStyles.pageContainer} ${pageStyles.wide}`} role="main" aria-label="Content statistics dashboard">
       <h1>Content Statistics</h1>
 
       {/* ── 1. Overview Cards ─────────────────────────────────────── */}

@@ -8,6 +8,7 @@ import CalendarHeatmap from '@site/src/components/CalendarHeatmap';
 import { buildHeatmapWeeks } from '@site/src/utils/heatmap';
 import { CHART_HUES } from '@site/src/utils/chartColors';
 import { displayDirPath } from '@site/src/utils/paths';
+import pageStyles from '@site/src/css/page.module.css';
 
 function AnalyticsDashboard() {
   const [data, setData] = useState(null);
@@ -73,7 +74,7 @@ function AnalyticsDashboard() {
 
   if (loading) {
     return (
-      <div style={{ maxWidth: '900px', margin: '0 auto', padding: '1.5rem 1rem' }}>
+      <div className={`${pageStyles.pageContainer} ${pageStyles.wide}`}>
         <LoadingSkeleton shape="text" width="220px" height={32} style={{ marginBottom: '1.5rem' }} />
         <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
           {[0, 1, 2].map((i) => (
@@ -106,7 +107,7 @@ function AnalyticsDashboard() {
   const maxCount = top20.length > 0 ? top20[0][1] : 1;
 
   return (
-    <div style={{ maxWidth: '900px', margin: '0 auto', padding: '1.5rem 1rem' }}>
+    <div className={`${pageStyles.pageContainer} ${pageStyles.wide}`}>
       <h1>Analytics Dashboard</h1>
 
       <div

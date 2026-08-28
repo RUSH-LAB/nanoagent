@@ -35,7 +35,7 @@ export const PROJECT_ROOT = '/fake/root';
 
 const DATA_FILES = [
   'COMMENTS_FILE:comments', 'NOTES_FILE:notes', 'ANALYTICS_FILE:analytics',
-  'DISCUSSIONS_FILE:discussions', 'USERS_FILE:users', 'BOOKMARKS_FILE:bookmarks',
+  'USERS_FILE:users', 'BOOKMARKS_FILE:bookmarks',
   'READING_LISTS_FILE:reading-lists', 'STREAKS_FILE:streaks',
   'ANNOTATIONS_FILE:annotations', 'SNAPSHOTS_FILE:snapshots',
   'SCHEDULES_FILE:schedules', 'WHITEBOARDS_FILE:whiteboards',

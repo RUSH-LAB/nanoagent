@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
+import pageStyles from '@site/src/css/page.module.css';
 
 function ReadingListsApp() {
   const API_BASE = require('@site/src/utils/api').default;
@@ -137,7 +138,7 @@ function ReadingListsApp() {
   }
 
   return (
-    <div style={{maxWidth: 820, margin: '0 auto', padding: '2rem 1rem'}}>
+    <div className={pageStyles.pageContainer}>
       {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',

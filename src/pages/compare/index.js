@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
+import pageStyles from '@site/src/css/page.module.css';
 
 function wordCount(text) {
   if (!text) return 0;
@@ -164,7 +165,7 @@ function CompareView() {
   };
 
   return (
-    <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '1.5rem 1rem' }}>
+    <div className={`${pageStyles.pageContainer} ${pageStyles.wide}`}>
       <h1>Compare Documents</h1>
 
       {/* File selectors */}

@@ -19,13 +19,12 @@ const require = createRequire(import.meta.url);
 const routes = require('../../../../../server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
-// The twelve data-file constants handed to the handler through ctx. Each one is a
+// The eleven data-file constants handed to the handler through ctx. Each one is a
 // distinct path so an assertion can prove which file a restored key wrote to. The
 // handler treats them as opaque tokens passed straight to saveJSON, so the exact
 // names do not matter; only their distinctness does.
 const COMMENTS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'comments.json');
 const NOTES_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'notes.json');
-const DISCUSSIONS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'discussions.json');
 const BOOKMARKS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'bookmarks.json');
 const READING_LISTS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'reading-lists.json');
 const GLOSSARY_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'glossary.json');
@@ -65,7 +64,7 @@ async function runBackupRestore({
       if (throwOnSaveJSON) throw new Error('saveJSON write failed');
       saved.push({ fp, data });
     },
-    COMMENTS_FILE, NOTES_FILE, DISCUSSIONS_FILE, BOOKMARKS_FILE,
+    COMMENTS_FILE, NOTES_FILE, BOOKMARKS_FILE,
     READING_LISTS_FILE, GLOSSARY_FILE, FLASHCARDS_FILE, TASKS_FILE,
     ANALYTICS_FILE, GOALS_FILE, STREAKS_FILE, ANNOTATIONS_FILE,
     json: (_res, status, b) => { captured = { status, body: b }; },

@@ -13,7 +13,7 @@ import path from 'node:path';
 import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
 
 const routes = loadRoute('research-tools');
-const {COMMENTS_FILE, DISCUSSIONS_FILE} = FILES;
+const {COMMENTS_FILE} = FILES;
 const at = rel => path.join(PROJECT_ROOT, rel);
 const BIB = at('content/bibliography/references.yaml');
 
@@ -879,39 +879,28 @@ describe('GET /api/notifications/counts', () => {
       '/p': [{createdAt: '2026-01-02T00:00:00.000Z'}, {createdAt: '2026-01-01T00:00:00.000Z'}, {}],
       bad: 'not-an-array',
     },
-    [DISCUSSIONS_FILE]: {
-      messages: {
-        general: [{createdAt: '2026-01-02T00:00:00.000Z'}, {createdAt: '2026-01-01T00:00:00.000Z'}, {}],
-        bad: 'not-an-array',
-      },
-    },
   };
 
   it('counts entries created strictly after the given since', async () => {
     const r = await invoke(routes, {path: '/api/notifications/counts', query: {since: '2026-01-01T00:00:00.000Z'}, ctx: makeCtx({store: STORE})});
-    // The boundary is exclusive on both counters, so the comment and the
-    // message equal to `since` are not counted, and entries without a
-    // createdAt are ignored.
-    assert.deepEqual([r.status, r.payload], [200, {comments: 1, discussions: 1}]);
+    // The boundary is exclusive, so the comment equal to `since` is not
+    // counted, and entries without a createdAt are ignored.
+    assert.deepEqual([r.status, r.payload], [200, {comments: 1}]);
   });
 
   it('defaults since to the Unix epoch, counting even a pre-2000 entry', async () => {
-    const store = {
-      [COMMENTS_FILE]: {'/p': [{createdAt: '1985-01-01T00:00:00.000Z'}]},
-      [DISCUSSIONS_FILE]: {messages: {general: [{createdAt: '1985-01-01T00:00:00.000Z'}]}},
-    };
+    const store = {[COMMENTS_FILE]: {'/p': [{createdAt: '1985-01-01T00:00:00.000Z'}]}};
     const r = await invoke(routes, {path: '/api/notifications/counts', ctx: makeCtx({store})});
-    assert.deepEqual(r.payload, {comments: 1, discussions: 1});
+    assert.deepEqual(r.payload, {comments: 1});
   });
 
   it('counts every timestamped entry when no since is given', async () => {
     const r = await invoke(routes, {path: '/api/notifications/counts', ctx: makeCtx({store: STORE})});
-    assert.deepEqual(r.payload, {comments: 2, discussions: 2});
+    assert.deepEqual(r.payload, {comments: 2});
   });
 
-  it('returns zeroes when the discussions document has no messages map', async () => {
-    const store = {[COMMENTS_FILE]: {}, [DISCUSSIONS_FILE]: {}};
-    const r = await invoke(routes, {path: '/api/notifications/counts', ctx: makeCtx({store})});
-    assert.deepEqual(r.payload, {comments: 0, discussions: 0});
+  it('returns zero when the comments document is empty', async () => {
+    const r = await invoke(routes, {path: '/api/notifications/counts', ctx: makeCtx({store: {[COMMENTS_FILE]: {}}})});
+    assert.deepEqual(r.payload, {comments: 0});
   });
 });

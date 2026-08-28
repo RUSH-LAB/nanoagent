@@ -2,6 +2,7 @@ import React, {useState, useEffect, useCallback} from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
+import pageStyles from '@site/src/css/page.module.css';
 
 const MODES = {browse: 'Browse', create: 'Create', review: 'Review'};
 
@@ -161,7 +162,7 @@ function FlashcardsApp() {
   }
 
   return (
-    <div style={{maxWidth: 900, margin: '0 auto', padding: '2rem 1rem'}} role="main" aria-label="Flashcards application">
+    <div className={pageStyles.pageContainer} role="main" aria-label="Flashcards application">
       {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',

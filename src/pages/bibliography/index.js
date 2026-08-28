@@ -8,6 +8,7 @@ import API_BASE from '@site/src/utils/api';
 import {useDebounce} from '@site/src/hooks/useDebounce';
 import {S2_PAPER_SEARCH} from '@site/src/utils/semanticScholar';
 import {formatAuthorList} from '@site/src/utils/authors';
+import pageStyles from '@site/src/css/page.module.css';
 
 /* ── Year-based navigation components ──────────────────────────── */
 
@@ -1096,7 +1097,7 @@ export default function BibliographyPage() {
 
   return (
     <Layout title="Bibliography" description="Complete bibliography of cited references">
-      <main style={{ padding: '2rem', maxWidth: '900px', margin: '0 auto' }}>
+      <main className={pageStyles.pageContainer}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
           <h1 style={{ margin: 0 }}>Bibliography</h1>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

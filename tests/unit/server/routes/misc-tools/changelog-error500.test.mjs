@@ -21,7 +21,6 @@ const miscToolsRoutes = require('../../../../../server/routes/misc-tools.js');
 // first of the two loads, so a loadJSON that throws on its first call models an
 // unreadable comments store and trips the outer catch before anything else runs.
 const COMMENTS_FILE = '/tmp/next-changelog-comments.json';
-const DISCUSSIONS_FILE = '/tmp/next-changelog-discussions.json';
 
 // Drive GET /api/changelog with a mocked ctx, recording every reply the handler
 // hands to json(res, status, payload). Mirrors the invoke helper in the
@@ -49,7 +48,7 @@ async function getChangelogReplies(ctx) {
 
 // A ctx whose loadJSON throws on its first call (the COMMENTS_FILE read) and
 // records each call, so the test can prove the catch fired at the first failable
-// load: before the DISCUSSIONS_FILE read and before any success reply. Mirrors
+// load: before any success reply. Mirrors
 // the throwOnLoad plus calls.loadJSON pattern in next-analytics-export-csv.test.mjs,
 // reusing the changelogCtx shape from next-changelog-projection-shape.test.mjs.
 function throwingCtx() {
@@ -60,7 +59,6 @@ function throwingCtx() {
       throw new Error('comments store unreadable');
     },
     COMMENTS_FILE,
-    DISCUSSIONS_FILE,
   };
   return { ctx, calls };
 }
@@ -80,7 +78,7 @@ describe('GET /api/changelog outer catch', () => {
     assert.ok(!replies.some(r => r.status === 200), 'the success 200 projection is never emitted');
 
     // The throw lands on the very first load, so loadJSON is called exactly once
-    // with COMMENTS_FILE; the DISCUSSIONS_FILE read and the sort/slice never run.
+    // with COMMENTS_FILE; the sort/slice never runs.
     assert.deepStrictEqual(calls.loadJSON, [COMMENTS_FILE]);
   });
 });

@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import API_BASE from '@site/src/utils/api';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
+import pageStyles from '@site/src/css/page.module.css';
 
 // Category color palette
 const CATEGORY_COLORS = {
@@ -339,9 +340,8 @@ function GraphVisualization() {
   return (
     <div
       ref={containerRef}
+      className={`${pageStyles.pageContainer} ${pageStyles.full} ${pageStyles.fill}`}
       style={{
-        width: '100%',
-        height: 'calc(100vh - 60px)',
         position: 'relative',
         overflow: 'hidden',
         background: 'var(--ifm-background-color)',

@@ -41,4 +41,7 @@ body {
   min-height: 100%;
   display: flex;
   flex-direction: column;
+  /* The CommandBar is fixed to the bottom of the viewport, so reserve its strip
+     or it would sit over the end of the page and the footer. */
+  padding-bottom: var(--site-cli-height);
 }

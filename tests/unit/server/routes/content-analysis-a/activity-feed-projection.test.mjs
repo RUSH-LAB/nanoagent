@@ -11,28 +11,24 @@ const routes = require('../../../../../server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/fake/root';
 const COMMENTS_FILE = 'comments';
-const DISCUSSIONS_FILE = 'discussions';
 const ANNOTATIONS_FILE = 'annotations';
 // The handler computes the reviews source path internally as
 // path.join(PROJECT_ROOT, 'var', 'data', 'reviews.json'), so the loadJSON dispatcher
 // keys the reviews fixture off this exact resolved path.
 const REVIEWS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'reviews.json');
 
-// Build a ctx whose loadJSON dispatches on the file token for the three stub
+// Build a ctx whose loadJSON dispatches on the file token for the two stub
 // paths and on the computed reviews path for the reviews source. Any source the
 // caller omits falls back to an empty object, matching the handler's own
-// `Object.entries(...)`, `discData.messages || {}`, and `reviewData.reviews || []`
-// guards.
-function makeCtx({ comments = {}, discussions = {}, annotations = {}, reviews = {} } = {}) {
+// `Object.entries(...)` and `reviewData.reviews || []` guards.
+function makeCtx({ comments = {}, annotations = {}, reviews = {} } = {}) {
   return {
     path,
     PROJECT_ROOT,
     COMMENTS_FILE,
-    DISCUSSIONS_FILE,
     ANNOTATIONS_FILE,
     loadJSON(file) {
       if (file === COMMENTS_FILE) return comments;
-      if (file === DISCUSSIONS_FILE) return discussions;
       if (file === ANNOTATIONS_FILE) return annotations;
       if (file === REVIEWS_FILE) return reviews;
       return {};
@@ -62,23 +58,16 @@ async function feed(sources) {
 }
 
 describe('GET /api/activity-feed unified projection', () => {
-  it('projects all four sources and descending-sorts them into one alternating golden feed', async () => {
+  it('projects all three sources and descending-sorts them into one alternating golden feed', async () => {
     // Timestamps are chosen so the correct descending order alternates across the
-    // four sources (review, comment, message, annotation, comment) and genuinely
-    // reorders the handler's source-by-source insertion order.
+    // three sources (review, comment, annotation, comment) and genuinely reorders
+    // the handler's source-by-source insertion order.
     const r = await feed({
       comments: {
         'guide/intro.md': [
           { author: 'alice', text: 'First comment body', createdAt: '2024-05-04T10:00:00.000Z' },
           { author: 'bob', text: 'Older comment', createdAt: '2024-05-01T09:00:00.000Z' },
         ],
-      },
-      discussions: {
-        messages: {
-          general: [
-            { author: 'carol', text: 'A chat message', createdAt: '2024-05-03T11:00:00.000Z' },
-          ],
-        },
       },
       annotations: {
         'guide/intro.md': [
@@ -93,16 +82,15 @@ describe('GET /api/activity-feed unified projection', () => {
     });
     assert.equal(r.status, 200);
     // The review event carries path/status and author from r.requestedBy with no
-    // preview; comment, message, and annotation events carry preview and no status.
+    // preview; comment and annotation events carry preview and no status.
     assert.deepStrictEqual(r.payload, {
       events: [
         { type: 'review', path: 'guide/intro.md', author: 'erin', status: 'pending', timestamp: '2024-05-05T08:00:00.000Z' },
         { type: 'comment', page: 'guide/intro.md', author: 'alice', preview: 'First comment body', timestamp: '2024-05-04T10:00:00.000Z' },
-        { type: 'message', channel: 'general', author: 'carol', preview: 'A chat message', timestamp: '2024-05-03T11:00:00.000Z' },
         { type: 'annotation', page: 'guide/intro.md', author: 'dave', preview: 'An annotation', timestamp: '2024-05-02T12:00:00.000Z' },
         { type: 'comment', page: 'guide/intro.md', author: 'bob', preview: 'Older comment', timestamp: '2024-05-01T09:00:00.000Z' },
       ],
-      total: 5,
+      total: 4,
     });
   });
 
@@ -128,7 +116,7 @@ describe('GET /api/activity-feed unified projection', () => {
     });
   });
 
-  it('skips non-array pages and missing messages/reviews keys, and sorts a missing-timestamp event last', async () => {
+  it('skips non-array pages and a missing reviews key, and sorts a missing-timestamp event last', async () => {
     const r = await feed({
       comments: {
         'good.md': [
@@ -137,7 +125,6 @@ describe('GET /api/activity-feed unified projection', () => {
         ],
         'broken.md': 'not-an-array', // non-array page value contributes nothing
       },
-      discussions: {}, // no messages key, so discData.messages || {} contributes nothing
       annotations: {
         'good.md': [
           { author: 'lee', text: 'annotation with ts', createdAt: '2024-07-03T00:00:00.000Z' },
@@ -161,7 +148,6 @@ describe('GET /api/activity-feed unified projection', () => {
   it('returns an empty feed when every source is empty or its key is missing', async () => {
     const r = await feed({
       comments: {},
-      discussions: {},
       annotations: {},
       reviews: { reviews: [] },
     });

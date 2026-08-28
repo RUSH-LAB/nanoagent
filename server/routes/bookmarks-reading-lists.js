@@ -6,17 +6,16 @@
 // ── Route-match regexes (module scope, reused per request) ──
 // Each pattern is stateless (no /g, no /y flag) and used only as a boolean route
 // guard via RE.test(pathname), so one shared instance per pattern is behavior-preserving
-// across requests and is rebuilt 0 times per request. DISCUSSION_PIN_RE and
-// READING_LIST_ITEMS_RE are each referenced at multiple call sites; sharing also
-// deduplicates the repeated literals.
-const DISCUSSION_PIN_RE = /^\/api\/discussions\/[^/]+\/pin$/;
+// across requests and is rebuilt 0 times per request. READING_LIST_ITEMS_RE is
+// referenced at multiple call sites; sharing also deduplicates the repeated
+// literals.
 const READING_LIST_RE = /^\/api\/reading-lists\/[^/]+$/;
 const READING_LIST_ITEMS_RE = /^\/api\/reading-lists\/[^/]+\/items$/;
 const READING_LIST_EXPORT_RE = /^\/api\/reading-lists\/[^/]+\/export$/;
 
 module.exports = async function bookmarks_reading_lists_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── Comments: add reaction ──
@@ -113,64 +112,6 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       if (idx === -1) return json(res, 404, {error: 'Bookmark not found'});
       data.bookmarks.splice(idx, 1);
       saveJSON(BOOKMARKS_FILE, data);
-      return json(res, 200, {success: true});
-    } catch {
-      return json(res, 400, {error: 'Invalid request'});
-    }
-  }
-
-  // ── Discussions: pin a message ──
-  if (req.method === 'POST' && DISCUSSION_PIN_RE.test(pathname)) {
-    if (!rateLimit(`disc-pin:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
-    try {
-      const parts = pathname.split('/');
-      const channelId = decodeURIComponent(parts[3]);
-      const data = loadJSON(DISCUSSIONS_FILE);
-      if (!data.channels || !Object.hasOwn(data.channels, channelId)) {
-        return json(res, 404, {error: 'Channel not found'});
-      }
-      const body = await readBody(req);
-      const {messageId} = body;
-      if (!messageId) return json(res, 400, {error: 'Missing messageId'});
-      // Verify the message exists in this channel
-      const channelMessages = (data.messages || {})[channelId] || [];
-      if (!channelMessages.find(m => m.id === messageId)) {
-        return json(res, 404, {error: 'Message not found in this channel'});
-      }
-      const channel = data.channels[channelId];
-      if (!channel.pinnedMessages) {
-        channel.pinnedMessages = [];
-      }
-      if (channel.pinnedMessages.includes(messageId)) {
-        return json(res, 200, {success: true, already: true});
-      }
-      channel.pinnedMessages.push(messageId);
-      saveJSON(DISCUSSIONS_FILE, data);
-      return json(res, 200, {success: true});
-    } catch {
-      return json(res, 400, {error: 'Invalid request'});
-    }
-  }
-
-  // ── Discussions: unpin a message ──
-  if (req.method === 'DELETE' && DISCUSSION_PIN_RE.test(pathname)) {
-    try {
-      const parts = pathname.split('/');
-      const channelId = decodeURIComponent(parts[3]);
-      const data = loadJSON(DISCUSSIONS_FILE);
-      if (!data.channels || !Object.hasOwn(data.channels, channelId)) {
-        return json(res, 404, {error: 'Channel not found'});
-      }
-      const body = await readBody(req);
-      const {messageId} = body;
-      if (!messageId) return json(res, 400, {error: 'Missing messageId'});
-      const channel = data.channels[channelId];
-      const pinned = channel.pinnedMessages || [];
-      const idx = pinned.indexOf(messageId);
-      if (idx === -1) return json(res, 404, {error: 'Message is not pinned'});
-      pinned.splice(idx, 1);
-      channel.pinnedMessages = pinned;
-      saveJSON(DISCUSSIONS_FILE, data);
       return json(res, 200, {success: true});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -477,4 +418,4 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
 
 // Exported so tests can assert the hoisted route-match regexes are stateless,
 // referentially stable, and match the intended paths while rejecting near misses.
-module.exports.routeRegexes = { DISCUSSION_PIN_RE, READING_LIST_RE, READING_LIST_ITEMS_RE, READING_LIST_EXPORT_RE };
+module.exports.routeRegexes = { READING_LIST_RE, READING_LIST_ITEMS_RE, READING_LIST_EXPORT_RE };

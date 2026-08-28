@@ -111,7 +111,6 @@ async function preflight() {
 const TEST_PREFIX = `__xtest_${Date.now()}`;
 const TEST_COMMENT_PAGE = `${TEST_PREFIX}/react-page`;
 const TEST_ANNOTATION_PAGE = `${TEST_PREFIX}/annotation-page`;
-const TEST_CHANNEL_NAME = `XTest Pin Channel ${TEST_PREFIX}`;
 
 // ────────────────────────────────────────────────────────────────
 // History & Versioning (3 tests)
@@ -472,59 +471,6 @@ async function testReactions() {
     assertOk(Array.isArray(data.reactions), 'reactions is array');
     const reaction = data.reactions.find(r => r.emoji === 'thumbsup' && r.userId === `${TEST_PREFIX}_reactor`);
     assertOk(!reaction, 'reaction removed');
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
-// Discussion Pins (2 tests)
-// ────────────────────────────────────────────────────────────────
-
-let pinChannelId = null;
-let pinMessageId = null;
-
-async function testDiscussionPins() {
-  section('Discussion Pins');
-
-  // Setup: create channel and post a message
-  const {data: chData} = await api('POST', '/api/discussions', {
-    name: TEST_CHANNEL_NAME,
-    topic: 'Pin test channel',
-  });
-  pinChannelId = chData.channel?.id;
-  if (!pinChannelId) {
-    fail('Setup: create channel for pins', 'Could not create channel');
-    return;
-  }
-  cleanup.push(async () => {
-    try { await api('DELETE', `/api/discussions/${pinChannelId}`); } catch { /* ignore */ }
-  });
-
-  const {data: msgData} = await api('POST', `/api/discussions/${pinChannelId}/messages`, {
-    author: 'Pin Test User',
-    text: 'This message will be pinned',
-  });
-  pinMessageId = msgData.message?.id;
-  if (!pinMessageId) {
-    fail('Setup: post message for pins', 'Could not post message');
-    return;
-  }
-
-  // 1. POST /api/discussions/:channelId/pin — pin message
-  await test('Pin message in channel', async () => {
-    const {status, data} = await api('POST', `/api/discussions/${pinChannelId}/pin`, {
-      messageId: pinMessageId,
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.success, 'success');
-  });
-
-  // 2. DELETE /api/discussions/:channelId/pin — unpin message
-  await test('Unpin message in channel', async () => {
-    const {status, data} = await api('DELETE', `/api/discussions/${pinChannelId}/pin`, {
-      messageId: pinMessageId,
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.success, 'success');
   });
 }
 
@@ -2158,7 +2104,6 @@ async function main() {
   await testStreak();
   await testAnnotations();
   await testReactions();
-  await testDiscussionPins();
   await testMisc();
 
   await testAnalyticsDuplicatesAndOrphans();

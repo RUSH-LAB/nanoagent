@@ -5,6 +5,7 @@ import API_BASE from '@site/src/utils/api';
 import {formatAuthorList} from '@site/src/utils/authors';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
+import pageStyles from '@site/src/css/page.module.css';
 
 function RecommendationsDashboard() {
   const [recommendations, setRecommendations] = useState([]);
@@ -67,7 +68,7 @@ function RecommendationsDashboard() {
   };
 
   return (
-    <div style={{ maxWidth: '900px', margin: '0 auto', padding: '1.5rem' }}>
+    <div className={pageStyles.pageContainer}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
         <h1 style={{ margin: 0 }}>Discover Papers</h1>
         <button

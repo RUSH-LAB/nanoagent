@@ -5,6 +5,7 @@ import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 import { displayDirPath } from '@site/src/utils/paths';
+import pageStyles from '@site/src/css/page.module.css';
 
 // ── Color map for content types ─────────────────────────────────
 
@@ -91,7 +92,7 @@ function ContentTimeline() {
 
   if (loading) {
     return (
-      <div style={{ maxWidth: '720px', margin: '0 auto', padding: '2rem 1rem' }}>
+      <div className={pageStyles.pageContainer}>
         <LoadingSkeleton shape="text" width="200px" height={32} style={{ marginBottom: '2rem' }} />
         {[0, 1, 2, 3, 4].map((i) => (
           <div key={i} style={{ display: 'flex', gap: '1.5rem', marginBottom: '1.5rem' }}>
@@ -146,7 +147,7 @@ function ContentTimeline() {
   const dayGroups = groupByDay(files);
 
   return (
-    <div style={{ maxWidth: '720px', margin: '0 auto', padding: '2rem 1rem' }}>
+    <div className={pageStyles.pageContainer}>
       <h1 style={{ marginBottom: '0.5rem' }}>Content Timeline</h1>
       <p style={{ color: '#888', fontSize: '0.9rem', marginBottom: '2rem' }}>
         Recent content activity across the knowledge base

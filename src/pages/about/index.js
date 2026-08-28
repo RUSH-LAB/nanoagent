@@ -2,6 +2,7 @@ import React from 'react';
 import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
+import pageStyles from '@site/src/css/page.module.css';
 
 const sectionStyle = {
   marginBottom: '2.5rem',
@@ -120,7 +121,6 @@ const FEATURES = [
   {
     title: 'Collaboration',
     items: [
-      'Channel-based discussions with threading',
       'Per-page comments system',
       'Real-time editing presence indicators',
       'Role-based access control (owner/editor/viewer)',
@@ -169,7 +169,6 @@ const WHATS_NEW = [
   { feature: 'Focus mode & split view editor' },
   { feature: 'Spaced repetition flashcards' },
   { feature: 'Knowledge graph & mindmap' },
-  { feature: 'Discussion channels with pinned messages' },
   { feature: 'Content quality scoring' },
   { feature: 'Collaborative annotations' },
   { feature: 'Writing streaks & goals' },
@@ -182,7 +181,6 @@ const QUICK_LINKS = [
   { label: 'Bibliography', to: '/bibliography', desc: 'Browse and manage references' },
   { label: 'Knowledge Graph', to: '/graph', desc: 'Visualize page connections' },
   { label: 'Discover', to: '/recommendations', desc: 'AI-powered paper recommendations' },
-  { label: 'Discussions', to: '/discussions', desc: 'Channel-based conversations' },
   { label: 'API Reference', to: '/api-docs', desc: 'Full API documentation (90+ endpoints)' },
   { label: 'Analytics', to: '/analytics', desc: 'Pageview tracking dashboard' },
 ];
@@ -209,7 +207,7 @@ export default function AboutPage() {
   return (
     <Layout title="About" description="About Mochi Lab — features, tech stack, and getting started">
       <ErrorBoundary>
-      <main style={{ maxWidth: '960px', margin: '0 auto', padding: '2rem 1.5rem' }}>
+      <main className={pageStyles.pageContainer}>
 
         {/* Hero */}
         <div style={{ marginBottom: '2.5rem' }}>

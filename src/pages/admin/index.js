@@ -4,6 +4,7 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 
 import API_BASE from '@site/src/utils/api';
+import pageStyles from '@site/src/css/page.module.css';
 
 const ROLE_DESCRIPTIONS = {
   owner: 'Full access — can manage users, edit content, and configure the site.',
@@ -144,7 +145,7 @@ function AdminDashboard() {
   const userEntries = Object.entries(users);
 
   return (
-    <div style={{maxWidth: 800, margin: '0 auto', padding: '2rem 1rem'}}>
+    <div className={pageStyles.pageContainer}>
       <h1 style={{fontSize: '1.8rem', marginBottom: '0.5rem'}}>User Management</h1>
       <p style={{color: 'var(--ifm-color-emphasis-600)', marginBottom: '2rem'}}>
         Manage user roles and permissions. Your role: <RoleBadge role={myRole} />

@@ -267,56 +267,12 @@ async function journey1() {
 async function journey2() {
   section('Journey 2: Collaboration');
 
-  const channelName = `Workflow Test ${TEST_PREFIX}`;
   const commentPage = `${TEST_PREFIX}/collab-page`;
-  let channelId = null;
-  let messageId = null;
   let commentId = null;
   const userId = `${TEST_PREFIX}_collaborator`;
 
-  // Step 1: Create a discussion channel
-  step(1, 'Create a discussion channel');
-  await test('2.1 Create channel via POST /api/discussions', async () => {
-    const {status, data} = await api('POST', '/api/discussions', {
-      name: channelName,
-      topic: 'Discussing our research workflow',
-    });
-    assertOk(status === 200 || status === 201, 'status 200 or 201');
-    assertOk(data.channel, 'has channel');
-    assertOk(data.channel.id, 'channel has id');
-    assertEq(data.channel.name, channelName, 'name matches');
-    channelId = data.channel.id;
-  });
-
-  // Step 2: Post a message
-  step(2, 'Post a message to the channel');
-  await test('2.2 Post message via POST /api/discussions/:id/messages', async () => {
-    assertOk(channelId, 'channel id from step 1');
-    const {status, data} = await api('POST', `/api/discussions/${channelId}/messages`, {
-      author: 'Researcher A',
-      text: 'I found an interesting paper we should discuss!',
-    });
-    assertOk(status === 200 || status === 201, 'status 200 or 201');
-    assertOk(data.message, 'has message');
-    assertOk(data.message.id, 'message has id');
-    assertEq(data.message.text, 'I found an interesting paper we should discuss!', 'text matches');
-    messageId = data.message.id;
-  });
-
-  // Step 3: Pin the message
-  step(3, 'Pin the important message');
-  await test('2.3 Pin message via POST /api/discussions/:id/pin', async () => {
-    assertOk(channelId && messageId, 'channel and message ids from prior steps');
-    const {status, data} = await api('POST', `/api/discussions/${channelId}/pin`, {
-      messageId,
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.success, 'message pinned');
-  });
-
-  // Step 4: Add a comment on a page
-  step(4, 'Add a comment on a page');
-  await test('2.4 Add comment via POST /api/comments', async () => {
+  step(1, 'Add a comment on a page');
+  await test('2.1 Add comment via POST /api/comments', async () => {
     const {status, data} = await api('POST', '/api/comments', {
       page: commentPage,
       author: 'Reviewer B',
@@ -329,8 +285,8 @@ async function journey2() {
   });
 
   // Step 5: React to the comment
-  step(5, 'React to the comment');
-  await test('2.5 React via POST /api/comments/react', async () => {
+  step(2, 'React to the comment');
+  await test('2.2 React via POST /api/comments/react', async () => {
     assertOk(commentId, 'comment id from step 4');
     const {status, data} = await api('POST', '/api/comments/react', {
       page: commentPage,
@@ -346,17 +302,15 @@ async function journey2() {
   });
 
   // Step 6: Check notifications
-  step(6, 'Check notification counts');
-  await test('2.6 Check notifications via GET /api/notifications/counts', async () => {
+  step(3, 'Check notification counts');
+  await test('2.3 Check notifications via GET /api/notifications/counts', async () => {
     // Use a since timestamp from just before we started so we capture our test data
     const since = new Date(TS - 5000).toISOString();
     const {status, data} = await api('GET', `/api/notifications/counts?since=${encodeURIComponent(since)}`);
     assertEq(status, 200, 'status');
     assertOk(typeof data.comments === 'number', 'has comments count');
-    assertOk(typeof data.discussions === 'number', 'has discussions count');
-    // Our comment and message should be counted
+    // Our comment should be counted
     assertOk(data.comments >= 1, 'at least 1 new comment notification');
-    assertOk(data.discussions >= 1, 'at least 1 new discussion notification');
   });
 
   // Cleanup
@@ -368,14 +322,6 @@ async function journey2() {
   if (commentId) {
     try {
       await api('DELETE', '/api/comments', {page: commentPage, commentId});
-      cleanCount++;
-    } catch { cleanErrors++; }
-  }
-
-  // Delete the discussion channel (also removes messages and pins)
-  if (channelId) {
-    try {
-      await api('DELETE', `/api/discussions/${channelId}`);
       cleanCount++;
     } catch { cleanErrors++; }
   }

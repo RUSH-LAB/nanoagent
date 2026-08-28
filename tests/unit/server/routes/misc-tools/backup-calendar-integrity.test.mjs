@@ -56,7 +56,7 @@ function makeMemoCached() {
 }
 
 // ───────────────────────────── GET /api/backup ─────────────────────────────
-// The handler aggregates twelve stores through ctx.loadJSON(FILE) into one
+// The handler aggregates eleven stores through ctx.loadJSON(FILE) into one
 // bundle plus an exportedAt timestamp. Each store is a distinct value so a
 // swapped FILE->bundle-key pairing would fail the deep-equal. The file-path
 // constants are realistic sentinels; loadJSON maps each back to its store key.
@@ -64,7 +64,6 @@ function makeMemoCached() {
 const BACKUP_STORES = {
   comments: [{ id: 'c1', text: 'hi' }],
   notes: { intro: 'a note' },
-  discussions: { messages: { general: [] } },
   bookmarks: [{ url: 'https://x' }],
   readingLists: { default: ['paper-1'] },
   glossary: { TLA: 'Three Letter Acronym' },
@@ -79,7 +78,6 @@ const BACKUP_STORES = {
 const BACKUP_FILES = {
   COMMENTS_FILE: '/proj/data/comments.json',
   NOTES_FILE: '/proj/data/notes.json',
-  DISCUSSIONS_FILE: '/proj/data/discussions.json',
   BOOKMARKS_FILE: '/proj/data/bookmarks.json',
   READING_LISTS_FILE: '/proj/data/reading-lists.json',
   GLOSSARY_FILE: '/proj/data/glossary.json',
@@ -93,11 +91,10 @@ const BACKUP_FILES = {
 
 // Maps each file-path sentinel to its store key, so loadJSON(FILE) resolves to
 // the matching store value. Because the handler pairs each bundle key with the
-// matching FILE constant, the resulting twelve-key bundle equals BACKUP_STORES.
+// matching FILE constant, the resulting eleven-key bundle equals BACKUP_STORES.
 const FILE_TO_KEY = new Map([
   [BACKUP_FILES.COMMENTS_FILE, 'comments'],
   [BACKUP_FILES.NOTES_FILE, 'notes'],
-  [BACKUP_FILES.DISCUSSIONS_FILE, 'discussions'],
   [BACKUP_FILES.BOOKMARKS_FILE, 'bookmarks'],
   [BACKUP_FILES.READING_LISTS_FILE, 'readingLists'],
   [BACKUP_FILES.GLOSSARY_FILE, 'glossary'],
@@ -124,16 +121,16 @@ async function invokeBackup(loadJSON) {
 }
 
 describe('GET /api/backup', () => {
-  it('exports a twelve-key bundle deep-equal to the mapped stores, plus an ISO exportedAt', async () => {
+  it('exports an eleven-key bundle deep-equal to the mapped stores, plus an ISO exportedAt', async () => {
     const r = await invokeBackup(okBackupLoad);
     assert.equal(r.status, 200);
 
     const { exportedAt, ...bundle } = r.payload;
     assert.deepEqual(bundle, BACKUP_STORES);
 
-    // Key set and order: the twelve store keys followed by exportedAt.
+    // Key set and order: the eleven store keys followed by exportedAt.
     assert.deepEqual(Object.keys(r.payload), [
-      'comments', 'notes', 'discussions', 'bookmarks', 'readingLists', 'glossary',
+      'comments', 'notes', 'bookmarks', 'readingLists', 'glossary',
       'flashcards', 'tasks', 'analytics', 'goals', 'streaks', 'annotations', 'exportedAt',
     ]);
 

@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE from '@site/src/utils/api';
+import pageStyles from '@site/src/css/page.module.css';
 
 const DEPTH_COLORS = ['#6366f1', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444'];
 const NODE_RX = 80;
@@ -129,7 +130,7 @@ function MindmapContent() {
   const { nodes, edges } = tree ? layoutTree(tree, dims.w, dims.h) : { nodes: [], edges: [] };
 
   return (
-    <div style={{ padding: '20px 40px' }}>
+    <div className={`${pageStyles.pageContainer} ${pageStyles.wide}`}>
       <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
         <label htmlFor="mindmap-doc-select" style={{ fontWeight: 600, fontSize: 14 }}>Document:</label>
         {filesLoading ? (

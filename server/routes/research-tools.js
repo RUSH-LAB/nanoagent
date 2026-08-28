@@ -5,6 +5,8 @@
 // document-frequency scoring with document-length normalization. Lexical ranking
 // only — no embeddings, vectors, cosine similarity, or semantic retrieval (see
 // .claude/CONSTRAINTS.md).
+const {REFERENCES_SEGS} = require('../paths');
+
 const BM25_K1 = 1.5;  // term-frequency saturation point
 const BM25_B = 0.75;  // document-length normalization strength
 // A token is a run of ASCII alphanumerics, Latin-1/extended letters, or CJK ideographs.
@@ -158,11 +160,9 @@ const BUILTIN_TEMPLATES = Object.freeze([
 // Route module organized from server/index.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
-
-const {REFERENCES_SEGS} = require('../paths');
 module.exports = async function research_tools_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, DISCUSSIONS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, COMMENTS_FILE, NOTES_FILE, ANALYTICS_FILE, USERS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, ANNOTATIONS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── Preprint tracking: check single reference ──
@@ -828,20 +828,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       }
     }
 
-    // Count discussion messages created after `since` across all channels
-    const discData = loadJSON(DISCUSSIONS_FILE);
-    let discussionCount = 0;
-    const messages = discData.messages || {};
-    for (const channelId of Object.keys(messages)) {
-      const channelMessages = messages[channelId];
-      if (Array.isArray(channelMessages)) {
-        for (const m of channelMessages) {
-          if (m.createdAt && m.createdAt > since) discussionCount++;
-        }
-      }
-    }
-
-    return json(res, 200, {comments: commentCount, discussions: discussionCount});
+    return json(res, 200, {comments: commentCount});
   }
 
 };

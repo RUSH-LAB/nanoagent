@@ -2,22 +2,21 @@
 // Shared page list for the Mochi Lab integration test scripts.
 //
 // Both test-visual.mjs and test-pages.mjs exercise the SAME ordered
-// set of 20 site routes. Previously each script hardcoded its own
+// set of 19 site routes. Previously each script hardcoded its own
 // copy and the two had to be hand-synced; this module is now the
 // single source of that data so the lists can no longer drift apart.
 //
 // Exports:
-//   PAGE_PATHS           ordered list of the 20 route paths
+//   PAGE_PATHS           ordered list of the 19 route paths
 //   PAGE_CONTENT_MATCHES path-keyed content-match strings
 //   PAGE_CONTENT_CHECKS  [path, matches] tuples in PAGE_PATHS order
 // ─────────────────────────────────────────────────────────────
 
-// ── The 20 site routes, in canonical order ──
+// ── The 19 site routes, in canonical order ──
 export const PAGE_PATHS = [
   '/',
   '/editor',
   '/bibliography',
-  '/discussions',
   '/recommendations',
   '/analytics',
   '/admin',
@@ -47,7 +46,6 @@ export const PAGE_CONTENT_MATCHES = {
   '/':                ['Mochi Lab'],
   '/editor':          ['editor', 'Editor'],
   '/bibliography':    ['Bibliography', 'references'],
-  '/discussions':     ['Discuss', 'channel'],
   '/recommendations': ['Recommend', 'Discover'],
   '/analytics':       ['Analytics', 'Dashboard'],
   '/admin':           ['Admin', 'Management'],

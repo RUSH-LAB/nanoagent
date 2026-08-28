@@ -2,6 +2,7 @@ import React from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
+import pageStyles from '@site/src/css/page.module.css';
 
 const COLORS = ['#fef3c7', '#dbeafe', '#dcfce7', '#fce7f3', '#e0e7ff', '#fef9c3', '#fed7aa', '#d1fae5'];
 
@@ -297,7 +298,12 @@ function WhiteboardApp() {
   }
 
   return (
-    <div style={{display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)'}} role="main" aria-label="Whiteboard application">
+    <div
+      className={`${pageStyles.pageContainer} ${pageStyles.full} ${pageStyles.fill}`}
+      style={{display: 'flex', flexDirection: 'column'}}
+      role="main"
+      aria-label="Whiteboard application"
+    >
       {/* Toolbar */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px',
