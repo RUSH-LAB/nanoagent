@@ -62,7 +62,7 @@ function makeBlogPlugin(id, name, {title, description, sidebarTitle, showReading
       blogDescription: description,
       blogSidebarTitle: sidebarTitle,
       blogSidebarCount: 0,
-      authorsMapPath: '../../../authors.yml',
+      authorsMapPath: '../authors.yml',
       feedOptions: { type: ['rss', 'atom'], xslt: true },
       onInlineTags: 'warn',
       onInlineAuthors: 'warn',
@@ -126,7 +126,6 @@ const config = {
         docs: {
           path: `${BOOKS_DIR}/programming`,
           routeBasePath: 'programming',
-          sidebarPath: './sidebars.js',
           breadcrumbs: false,
           remarkPlugins: defaultRemarkPlugins,
           rehypePlugins: defaultRehypePlugins,
@@ -244,7 +243,7 @@ const config = {
           },
           {
             type: 'docSidebar',
-            sidebarId: 'tutorialSidebar',
+            sidebarId: 'defaultSidebar',
             label: 'Programming',
           },
           {

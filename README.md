@@ -50,6 +50,7 @@ mochi-lab/
   content/               # Everything authored by a human
     books/               #   Docs: programming, math, builder, survey
     posts/               #   Blog posts and research papers
+      authors.yml        #     Shared author map for both blog instances
     bibliography/        #   references.yaml, the citation source of truth
   src/                   # All first-party source
     pages/               #   App pages (editor, graph, flashcards, ...)
