@@ -62,7 +62,7 @@ function extractIntConst(src, name) {
 // Lift recordPerfMetric bound to the given perfMetrics object, returning the
 // callable plus the source text and the real caps for assertions.
 function liftRecordPerfMetric(perfMetrics) {
-  const src = readFileSync(path.join(REPO_ROOT, 'server/index.js'), 'utf-8');
+  const src = readFileSync(path.join(REPO_ROOT, 'src/server/index.js'), 'utf-8');
   const fnSrc = extractFn(src, 'recordPerfMetric');
   const PERF_MAX_ENDPOINTS = extractIntConst(src, 'PERF_MAX_ENDPOINTS');
   const PERF_MAX_ENTRIES = extractIntConst(src, 'PERF_MAX_ENTRIES');

@@ -11,7 +11,7 @@ import path from 'node:path';
 // cached('qualityscore:' + filePath, 30000, fn); these tests drive all three wraps
 // directly with a counting fs and a memoizing cached, no network and no server.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 const PROJECT_ROOT = '/proj';
 

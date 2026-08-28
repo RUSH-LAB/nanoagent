@@ -6,7 +6,7 @@ import path from 'node:path';
 // content-analysis-a.js is CommonJS; load the real module the way the sibling
 // route suites do (see tests/next-search-semantic-missing-query.test.mjs).
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 // Note: '/api/search/semantic' is documented substring search, NOT banned
 // retrieval. The handler comment (content-analysis-a.js:737-741) states it is

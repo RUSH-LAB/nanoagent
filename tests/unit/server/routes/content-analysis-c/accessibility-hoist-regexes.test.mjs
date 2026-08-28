@@ -9,7 +9,7 @@ import path from 'node:path';
 // GET /api/file/accessibility issues are byte-for-byte unchanged and that the now
 // shared regexes carry no state across back-to-back requests.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 // Drive the real GET /api/file/accessibility handler over a minimal mocked ctx.
 // `fs.readFileSync` returns the supplied content so no real file is read, and

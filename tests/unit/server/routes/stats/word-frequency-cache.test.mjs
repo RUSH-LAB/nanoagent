@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // content-analysis-a.js is CommonJS; load it the way the other route tests do.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/stats.js');
+const routes = require('../../../../../src/server/routes/stats.js');
 
 const PROJECT_ROOT = '/proj';
 const ALLOWED_EXTS = ['.md', '.mdx'];

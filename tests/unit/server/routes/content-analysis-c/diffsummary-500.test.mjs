@@ -18,7 +18,7 @@ import path from 'node:path';
 // projection `{from, to, created, modified, total, createdFiles, modifiedFiles}`
 // returned at :357 is then never emitted.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 const PROJECT_ROOT = '/virtual-root';
 const ALLOWED_EXTS = ['.md', '.mdx'];

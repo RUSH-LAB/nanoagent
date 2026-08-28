@@ -10,7 +10,7 @@ import path from 'node:path';
 // the `edges` array, i.e. the co-citation O(n^2) edge loop that binds
 // `const ai = arr[i];` once per outer iteration before the inner j loop.
 const require = createRequire(import.meta.url);
-const miscToolsRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/fake/root';
 const REFS_PATH = path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml');

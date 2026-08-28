@@ -80,6 +80,9 @@ const config = {
   tagline: 'Innovative Research & Development',
   favicon: 'img/mochi.jpg',
 
+  // Served assets live with the rest of the source rather than at the root.
+  staticDirectories: ['src/static'],
+
   customFields: {
     // The Clerk auth gate is off by default, in dev and in production builds.
     // Set ENABLE_AUTH=true to turn it back on (used by `npm run start:auth`).
@@ -137,6 +140,9 @@ const config = {
   ],
 
   plugins: [
+    // Serves the Lake project's declarations so <LeanProof name="..."> can
+    // render the real, lake-checked source.
+    './plugins/lean-proofs',
     // Local search
     [
       '@easyops-cn/docusaurus-search-local',

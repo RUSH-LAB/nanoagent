@@ -17,7 +17,7 @@ import { createRequire } from 'node:module';
 // success 200 projection `json(res, 200, {annotations, total})` at :196 is then
 // never emitted.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const ANNOTATIONS_FILE = '/virtual/annotations.json';
 

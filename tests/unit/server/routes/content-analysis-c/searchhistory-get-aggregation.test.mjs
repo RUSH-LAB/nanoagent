@@ -9,7 +9,7 @@ import path from 'node:path';
 // server/routes/content-analysis-c.js) lives in this module, so these tests exercise
 // the genuine aggregation rather than a reimplementation.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 const PROJECT_ROOT = '/fake/root';
 

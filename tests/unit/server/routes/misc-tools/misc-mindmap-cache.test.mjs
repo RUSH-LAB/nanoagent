@@ -9,7 +9,7 @@ import path from 'node:path';
 // cached('filemindmap:' + filePath, 30000, fn); these tests drive that wrap
 // directly with a counting fs and a memoizing cached, no network and no server.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
 

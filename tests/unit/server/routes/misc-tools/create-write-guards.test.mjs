@@ -16,7 +16,7 @@ import path from 'node:path';
 // /api/whiteboard, PUT /api/goals) so a future refactor cannot silently change
 // them. No source file is edited.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
 // Data-file constants handed to each handler through ctx. The mocked loadJSON

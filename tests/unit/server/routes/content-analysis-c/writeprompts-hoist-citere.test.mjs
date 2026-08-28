@@ -7,7 +7,7 @@ import path from 'node:path';
 
 // content-analysis-c.js is CommonJS; load it the way the other route tests do.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 // Fixture for GET /api/writing-prompts. WRITING_PROMPTS_CITE_RE was hoisted to module
 // scope, so one shared instance now scans every file across every request to build the

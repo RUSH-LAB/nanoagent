@@ -28,7 +28,7 @@ import crypto from 'node:crypto';
 const require = createRequire(import.meta.url);
 
 /** The real shared helpers, exposed so suites can assert against them. */
-export const utils = require('../../server/server-utils.js');
+export const utils = require('../../src/server/server-utils.js');
 
 /** Stand-in repo root. Never touched on disk; only joined into paths. */
 export const PROJECT_ROOT = '/fake/root';
@@ -60,12 +60,12 @@ export const ACCESS_LOG = nodePath.join(LOGS_DIR, 'access.log');
 
 /** Load a real route module by bare name, e.g. loadRoute('study-knowledge'). */
 export function loadRoute(name) {
-  return require(`../../server/routes/${name}.js`);
+  return require(`../../src/server/routes/${name}.js`);
 }
 
 /** Load any other real server module, e.g. loadServer('data-store'). */
 export function loadServer(name) {
-  return require(`../../server/${name}.js`);
+  return require(`../../src/server/${name}.js`);
 }
 
 // ── In-memory fs ──────────────────────────────────────────────────────────

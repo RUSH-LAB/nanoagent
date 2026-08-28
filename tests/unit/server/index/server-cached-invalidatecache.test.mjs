@@ -53,7 +53,7 @@ function extractFn(src, name) {
 // Each call to make(cache, MAX_CACHE_ENTRIES) binds both functions to the supplied cache
 // object, so every test gets an isolated, fresh cache.
 function liftCacheFns() {
-  const src = readFileSync(path.join(REPO_ROOT, 'server/index.js'), 'utf-8');
+  const src = readFileSync(path.join(REPO_ROOT, 'src/server/index.js'), 'utf-8');
   const cachedSrc = extractFn(src, 'cached');
   const invalidateCacheSrc = extractFn(src, 'invalidateCache');
   // Pin the eviction cap against the real source constant, not a hard-coded copy.

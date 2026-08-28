@@ -30,7 +30,7 @@ import nodePath from 'node:path';
 // the one op outside the loader's internal try/catch, so a throwing path.join escapes
 // the loader and lands in this handler's outer catch.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/virtual-root';
 const CORS_ORIGIN = 'https://example.test';

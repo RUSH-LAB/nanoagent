@@ -23,7 +23,7 @@ import path from 'node:path';
 // loadReferencesCached helper (which this pagerank handler does not call, so a
 // {}-on-broken-yaml loader could never turn the 500 into a 200).
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/virtual-root';
 

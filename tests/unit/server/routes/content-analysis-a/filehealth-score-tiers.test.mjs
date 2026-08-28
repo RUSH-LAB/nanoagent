@@ -17,7 +17,7 @@ import path from 'node:path';
 // asserted with a full-payload deepEqual plus a JSON.stringify order pin. The content
 // generators are identical to the probe, so a transcription drift would fail the run.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/proj';
 

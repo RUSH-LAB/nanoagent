@@ -8,7 +8,7 @@ import path from 'node:path';
 // content-analysis-c.js is CommonJS; load it the way the other server route
 // tests do.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 // A real TTL memo standing in for ctx.cached. It runs the thunk only on a miss
 // and records how many times each key's thunk actually executes, so a test can

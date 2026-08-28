@@ -10,7 +10,7 @@ import path from 'node:path';
 // to the real module and is never stubbed: the `const limit = ...` line runs
 // before the try and must not throw.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/fake/root';
 const COMMENTS_FILE = 'comments';

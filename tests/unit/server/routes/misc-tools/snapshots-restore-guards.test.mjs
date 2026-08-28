@@ -9,7 +9,7 @@ import path from 'node:path';
 // than a reimplementation. The handler runs over a fully mocked ctx: no real
 // filesystem, network, or git is ever touched.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
 // The handler loads the snapshot store at this path, mirroring server/index.js

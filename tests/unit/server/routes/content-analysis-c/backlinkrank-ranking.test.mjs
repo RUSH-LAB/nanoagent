@@ -17,7 +17,7 @@ import path from 'node:path';
 // Here `cached` is a pass-through that runs the real closure against an in-memory fixture fs,
 // so the genuine readdirSync/readFileSync scan and its incremental resolution are exercised.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 const PROJECT_ROOT = '/virtual-root';
 const ALLOWED_EXTS = ['.md', '.mdx'];

@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 // drives this same handler with a valid body; here we instead supply a rejecting
 // or null readBody to reach the outer catch.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const FILE_TARGET_PATHNAME = '/api/file/target';
 const REMOTE_ADDR = '203.0.113.7';

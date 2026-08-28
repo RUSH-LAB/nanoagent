@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { parseBibtex } = require('../../../../server/server-utils.js');
+const { parseBibtex } = require('../../../../src/server/server-utils.js');
 
 // Characterization test for the malformed and unterminated input recovery
-// branches of parseBibtex in ../server/server-utils.js. Its happy path and the
+// branches of parseBibtex in ../src/server/server-utils.js. Its happy path and the
 // two reject paths (non-@ / empty input, empty-key header) are pinned in
 // tests/server-utils.test.mjs and tests/next-serverutils-parsebibtex-re-hoist.test.mjs;
 // these cases cover the recovery branches that those leave unasserted.

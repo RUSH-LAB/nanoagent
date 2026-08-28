@@ -10,10 +10,10 @@ import { fileURLToPath } from 'node:url';
 // reuse the same in-memory-fs ctx-mocking shape. These tests drive the REAL
 // GET /api/content-health handler over a virtual content tree, with no server.
 const require = createRequire(import.meta.url);
-const miscToolsRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MISC_TOOLS_PATH = path.join(__dirname, '..', '..', '..', '..', '..', 'server', 'routes', 'misc-tools.js');
+const MISC_TOOLS_PATH = path.join(__dirname, '..', '..', '..', '..', '..', 'src', 'server', 'routes', 'misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
 

@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // content-analysis-a.js is CommonJS; load it the way the other route tests do.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 // A small but realistic references.yaml: two entries, mirroring the shape the
 // real bibliography uses (key -> { title, year, ... }).

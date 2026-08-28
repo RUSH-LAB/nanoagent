@@ -8,7 +8,7 @@ import path from 'node:path';
 // through its own require('js-yaml'), so the fs mock below only needs to serve
 // that file plus the content tree the co-citation scan walks.
 const require = createRequire(import.meta.url);
-const miscToolsRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/fake/root';
 const REFS_PATH = path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml');

@@ -16,7 +16,7 @@ import path from 'node:path';
 // The success 200 projection `{averageScore, totalFiles, distribution, top10, bottom10}`
 // returned at :765 is then never emitted.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 const PROJECT_ROOT = '/virtual-root';
 

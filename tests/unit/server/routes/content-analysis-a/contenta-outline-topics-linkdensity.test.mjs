@@ -9,8 +9,8 @@ import path from 'node:path';
 const require = createRequire(import.meta.url);
 // This suite spans two modules since /api/stats/* moved to its own. Dispatch
 // through both, stopping once one has replied, exactly as server/index.js does.
-const content_analysis_a_routes = require('../../../../../server/routes/content-analysis-a.js');
-const stats_routes = require('../../../../../server/routes/stats.js');
+const content_analysis_a_routes = require('../../../../../src/server/routes/content-analysis-a.js');
+const stats_routes = require('../../../../../src/server/routes/stats.js');
 const routes = async (req, res, url, pathname, ctx) => {
   await content_analysis_a_routes(req, res, url, pathname, ctx);
   if (!res.writableEnded) await stats_routes(req, res, url, pathname, ctx);

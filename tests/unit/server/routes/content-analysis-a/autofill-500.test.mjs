@@ -35,7 +35,7 @@ import path from 'node:path';
 // 404 guard rejects a falsy entry before any author access, so the entry must be a
 // truthy object carrying a malformed (number) author.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/virtual-root';
 

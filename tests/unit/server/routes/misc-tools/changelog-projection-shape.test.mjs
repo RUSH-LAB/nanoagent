@@ -13,7 +13,7 @@ import { createRequire } from 'node:module';
 
 // misc-tools.js is CommonJS; load it the way the sibling server route tests do.
 const require = createRequire(import.meta.url);
-const miscToolsRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js');
 
 // The file token the changelog handler reads through loadJSON. The mocked
 // loadJSON dispatches on it so the comments fixture is the only source.

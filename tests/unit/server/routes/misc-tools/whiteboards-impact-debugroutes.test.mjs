@@ -9,7 +9,7 @@ import path from 'node:path';
 // the CURRENT, correct behavior of three network-free handlers over a fully
 // mocked ctx: no real filesystem, network, subprocess, clock, or randomness.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const WHITEBOARDS_FILE = '/fake/whiteboards.json';
 const PROJECT_ROOT = '/fake/root';

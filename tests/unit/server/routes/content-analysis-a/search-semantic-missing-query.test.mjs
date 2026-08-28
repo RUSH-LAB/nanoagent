@@ -6,7 +6,7 @@ import path from 'node:path';
 // content-analysis-a.js is CommonJS; load the real module the way the sibling
 // route suites do (see tests/next-content-a-cache-refs.test.mjs).
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 // The route path is the honest anchor: the 'Missing query' message is shared by
 // several handlers, but '/api/search/semantic' is unique to this guard.

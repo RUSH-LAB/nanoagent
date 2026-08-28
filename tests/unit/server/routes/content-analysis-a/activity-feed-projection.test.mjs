@@ -7,7 +7,7 @@ import path from 'node:path';
 // server route tests do. numericParam is required at the module top from
 // ../server-utils, so it is part of the real module and is never stubbed here.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/fake/root';
 const COMMENTS_FILE = 'comments';

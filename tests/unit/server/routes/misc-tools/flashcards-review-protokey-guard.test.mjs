@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 
 // misc-tools.js is CommonJS; load it the way the other server route tests do.
 const require = createRequire(import.meta.url);
-const miscToolsRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js');
 
 // Drive the GET /api/flashcards/review handler with a minimal mocked ctx and
 // capture the response handed to json(res, status, payload). loadJSON returns

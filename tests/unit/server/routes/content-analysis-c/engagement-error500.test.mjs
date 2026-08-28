@@ -14,7 +14,7 @@ import { createRequire } from 'node:module';
 // on its first call short-circuits the entire handler straight into that 500, and the
 // success 200 `{pages, total}` projection at :583 is never emitted.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 // The handler resolves its four data inputs through ctx.loadJSON keyed by these file
 // constants. The mock dispatches on the constant; the throwing variant ignores it.

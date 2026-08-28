@@ -5,11 +5,11 @@ import path from 'node:path';
 
 // misc-tools.js is CommonJS; load it the way the other route tests do.
 const require = createRequire(import.meta.url);
-const miscToolsRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js');
 // GET /api/suggest now reads references.yaml through the shared loadReferencesCached
 // memo (a module-level singleton); clear it between scenarios so each case
 // re-stats and re-reads deterministically.
-const { _resetReferencesCache } = require('../../../../../server/routes/references.js');
+const { _resetReferencesCache } = require('../../../../../src/server/routes/references.js');
 
 const PROJECT_ROOT = '/fake/root';
 const REFS_PATH = path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml');

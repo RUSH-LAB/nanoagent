@@ -6,7 +6,7 @@ import path from 'node:path';
 // content-analysis-c.js is CommonJS; load the real module the way the sibling
 // route tests do (mirrors tests/next-contentc-status-gaps.test.mjs).
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/stats.js');
+const routes = require('../../../../../src/server/routes/stats.js');
 
 // Add-only characterization suite for GET /api/stats/readability in
 // content-analysis-c.js, the last untested route in that module. The handler

@@ -6,7 +6,7 @@ import path from 'node:path';
 // content-analysis-c.js is CommonJS; load it the way the sibling route suites do
 // (next-related-cache, next-filedeps-cache) and reuse their ctx-mocking shape.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 const PROJECT_ROOT = '/fake/root';
 const ALLOWED_EXTS = ['.md', '.mdx'];

@@ -11,7 +11,7 @@ import { createRequire } from 'module';
 // running the real function (no hand-written goldens); it pins CURRENT behavior
 // and edits no source.
 const require = createRequire(import.meta.url);
-const { parseBibtexAuthors } = require('../../../../server/server-utils.js');
+const { parseBibtexAuthors } = require('../../../../src/server/server-utils.js');
 
 describe('parseBibtexAuthors edge branches', () => {
   it('leading-comma segment ", John" keeps the trailing space from an empty last name', () => {

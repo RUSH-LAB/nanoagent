@@ -13,7 +13,7 @@ import path from 'node:path';
 // no cache is invalidated; success paths assert the exact rebuilt file content
 // plus the two cache invalidations.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/fake/root';
 

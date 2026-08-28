@@ -1,15 +1,3 @@
 {
-  "framework": "docusaurus-2",
-  "rewrites": [
-    { "source": "/api/file/rename", "destination": "/api/file-rename" },
-    { "source": "/api/file", "destination": "/api/file" },
-    { "source": "/api/files", "destination": "/api/files" },
-    { "source": "/api/upload", "destination": "/api/upload" }
-  ],
-  "functions": {
-    "api/file.js": { "maxDuration": 10 },
-    "api/files.js": { "maxDuration": 10 },
-    "api/file-rename.js": { "maxDuration": 10 },
-    "api/upload.js": { "maxDuration": 10 }
-  }
+  "framework": "docusaurus-2"
 }

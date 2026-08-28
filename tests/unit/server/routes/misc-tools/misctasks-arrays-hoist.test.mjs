@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 
 // misc-tools.js is CommonJS; load it the way the other route tests do.
 const require = createRequire(import.meta.url);
-const miscRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscRoutes = require('../../../../../src/server/routes/misc-tools.js');
 const { TASK_STATUSES, TASK_PRIORITIES } = miscRoutes;
 
 // Canonical values, copied verbatim from the former inline arrays. Used to assert
@@ -70,8 +70,8 @@ describe('TASK_STATUSES / TASK_PRIORITIES (hoisted to frozen module scope in mis
   });
 
   it('is referentially stable across two requires (single shared instance)', () => {
-    const a = require('../../../../../server/routes/misc-tools.js');
-    const b = require('../../../../../server/routes/misc-tools.js');
+    const a = require('../../../../../src/server/routes/misc-tools.js');
+    const b = require('../../../../../src/server/routes/misc-tools.js');
     assert.strictEqual(a.TASK_STATUSES, b.TASK_STATUSES);
     assert.strictEqual(a.TASK_PRIORITIES, b.TASK_PRIORITIES);
   });

@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 
 // misc-tools.js is CommonJS; load it the way the other server route tests do.
 const require = createRequire(import.meta.url);
-const miscToolsRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js');
 const { numericParam } = miscToolsRoutes;
 
 // Invoke a misc-tools route handler with a minimal mocked ctx and capture the

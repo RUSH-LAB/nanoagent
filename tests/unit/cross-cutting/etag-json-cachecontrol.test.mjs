@@ -27,7 +27,7 @@ const REPO_ROOT = path.join(__dirname, '..', '..', '..');
 // bytes rather than a reimplementation.
 const TEST_CORS_ORIGIN = '*';
 function loadJson(corsOrigin = TEST_CORS_ORIGIN) {
-  const src = readFileSync(path.join(REPO_ROOT, 'server/index.js'), 'utf-8');
+  const src = readFileSync(path.join(REPO_ROOT, 'src/server/index.js'), 'utf-8');
   const lines = src.split('\n');
   const start = lines.findIndex(l => /^function json\b/.test(l));
   assert.ok(start !== -1, 'server/index.js must define a top-level `function json`');
@@ -211,7 +211,7 @@ describe('json() reproduces the old hand-rolled blocks byte-for-byte', () => {
 // shape, without depending on a running server or the filesystem.
 describe('route call sites forward the right cacheControl', () => {
   it('GET /api/stats calls json with cacheControl public, max-age=30', async () => {
-    const filesRoutes = require('../../../server/routes/files.js');
+    const filesRoutes = require('../../../src/server/routes/files.js');
     const FAKE_STATS = { totalFiles: 7, totalWords: 1234, references: 5, byDirectory: {} };
     let captured = null;
     const ctx = {
@@ -227,7 +227,7 @@ describe('route call sites forward the right cacheControl', () => {
   });
 
   it('GET /api/templates calls json with cacheControl public, max-age=3600', async () => {
-    const rtRoutes = require('../../../server/routes/research-tools.js');
+    const rtRoutes = require('../../../src/server/routes/research-tools.js');
     let captured = null;
     const ctx = {
       path,

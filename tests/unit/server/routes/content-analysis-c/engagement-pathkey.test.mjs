@@ -12,7 +12,7 @@ import { createRequire } from 'node:module';
 // inside each loop, so a crossed reuse (bp vs ip) or an object hoist past the
 // `if (!pageScores[key])` guard would change a count and fail.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 // The handler resolves its four inputs through ctx.loadJSON keyed by these file
 // constants, so the mock dispatches on the constant rather than touching fs.

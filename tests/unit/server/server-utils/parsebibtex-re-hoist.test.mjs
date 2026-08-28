@@ -9,7 +9,7 @@ const {
   BIBTEX_HEADER_RE,
   BIBTEX_WS_OR_COMMA_RE,
   BIBTEX_WS_RE,
-} = require('../../../../server/server-utils.js');
+} = require('../../../../src/server/server-utils.js');
 
 // Each hoisted constant must stay the exact non-global pattern it replaced, so
 // the shared instance behaves identically to the former inline literal.

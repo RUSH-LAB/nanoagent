@@ -8,7 +8,7 @@ import path from 'node:path';
 // shape. The exported _clearReferencesCache hook resets the module-scope
 // references.yaml memo so each test starts from a cold cache.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/fake/root';
 const ALLOWED_EXTS = ['.md', '.mdx'];

@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 // content-analysis-c.js is CommonJS; load it the way the other server route
 // tests do.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 const DAY = 86400000;
 // A fixed epoch so the 7 and 14 day window boundaries fall on exact, repeatable

@@ -8,7 +8,7 @@ import path from 'node:path';
 // /api/search/history handler (roughly lines 97 to 122) lives in this module, so
 // these tests exercise the genuine guard branches rather than a reimplementation.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 const PROJECT_ROOT = '/fake/root';
 

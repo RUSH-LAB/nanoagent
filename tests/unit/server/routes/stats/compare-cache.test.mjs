@@ -11,7 +11,7 @@ import path from 'node:path';
 // wrap directly with a counting fs and a memoizing cached, no network and no
 // server.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/stats.js');
+const routes = require('../../../../../src/server/routes/stats.js');
 
 const PROJECT_ROOT = '/proj';
 const ALLOWED_EXTS = ['.md', '.mdx'];

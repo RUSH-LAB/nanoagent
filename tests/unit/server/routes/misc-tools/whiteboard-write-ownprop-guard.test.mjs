@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 
 // misc-tools.js is CommonJS; load it the way the other server route tests do.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const WHITEBOARDS_FILE = '/fake/whiteboards.json';
 

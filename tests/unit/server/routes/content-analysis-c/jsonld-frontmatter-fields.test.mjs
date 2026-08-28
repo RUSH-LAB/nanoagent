@@ -7,7 +7,7 @@ import path from 'node:path';
 // route tests do (next-jsonld-mtime-iso.test.mjs, next-content-c-filemicro-cache.test.mjs)
 // so this suite exercises the shipped GET /api/file/jsonld handler, not a copy.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 const PROJECT_ROOT = '/proj';
 

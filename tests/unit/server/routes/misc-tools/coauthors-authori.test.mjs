@@ -7,7 +7,7 @@ import path from 'node:path';
 // (mirrors tests/next-byauthor-alower.test.mjs).
 const require = createRequire(import.meta.url);
 const yaml = require('js-yaml');
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 // A small bibliography that exercises the O(n^2) co-author pairing of
 // GET /api/references/co-authors. paper1 and paper3 each list three authors, so

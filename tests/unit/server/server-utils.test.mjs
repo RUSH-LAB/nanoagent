@@ -19,7 +19,7 @@ const {
   parseBibtex,
   parseBibtexAuthors,
   mapBibtexEntryType,
-} = require('../../../server/server-utils.js');
+} = require('../../../src/server/server-utils.js');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

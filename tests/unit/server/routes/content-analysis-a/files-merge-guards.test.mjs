@@ -11,7 +11,7 @@ import path from 'node:path';
 // so these tests exercise the genuine guards instead of a reimplementation. The
 // content-analysis-c.js name is recorded here to document that GOAL discrepancy.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/fake/root';
 

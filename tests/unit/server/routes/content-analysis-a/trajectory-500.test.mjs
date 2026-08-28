@@ -30,7 +30,7 @@ import path from 'node:path';
 // truthy and the 404 is bypassed, then steers the failure into the region AFTER
 // both guards via the two seams below.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/virtual-root';
 

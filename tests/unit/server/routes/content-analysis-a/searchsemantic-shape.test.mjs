@@ -8,7 +8,7 @@ import path from 'node:path';
 // tests/next-search-semantic-missing-query.test.mjs, which both drive THIS
 // handler's error arms). This suite pins the complementary SUCCESS path.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 // GET /api/search/semantic is documented SUBSTRING search, NOT banned retrieval.
 // The handler comment (content-analysis-a.js:737-741) states it is plain

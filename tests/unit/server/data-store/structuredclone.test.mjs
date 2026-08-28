@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const require = createRequire(import.meta.url);
-const { loadJSON, saveJSON, deepCopy, _clearCache } = require('../../../../server/data-store.js');
+const { loadJSON, saveJSON, deepCopy, _clearCache } = require('../../../../src/server/data-store.js');
 
 let dir;
 

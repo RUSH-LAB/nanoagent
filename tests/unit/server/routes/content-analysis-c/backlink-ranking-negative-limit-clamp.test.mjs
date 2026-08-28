@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 // content-analysis-c.js is CommonJS; load it the way the sibling guard suite
 // (next-content-analysis-c-guard.test.mjs) does and reuse its ctx-mocking shape.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 // Invoke a content-analysis-c route handler with a minimal mocked ctx and
 // capture the response that the handler hands to `json(res, status, payload)`.

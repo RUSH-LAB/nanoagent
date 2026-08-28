@@ -17,7 +17,7 @@ import path from 'node:path';
 // These cases pin the CURRENT, correct create behavior so a future refactor
 // cannot silently change it. No source file is edited.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
 // The data-file constant handed to the handler through ctx. The mocked loadJSON

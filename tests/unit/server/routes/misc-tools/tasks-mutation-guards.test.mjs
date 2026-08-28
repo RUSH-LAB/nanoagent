@@ -15,7 +15,7 @@ import { createRequire } from 'node:module';
 // also use Date.now, Math.random, and new Date, so they are left out as
 // non-deterministic. No source file is edited.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 // The mocked loadJSON answers only for this exact store path, so a stray read
 // surfaces as a thrown error instead of silently passing.

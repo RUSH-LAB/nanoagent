@@ -12,7 +12,7 @@ const {
   MAX_CACHE_ENTRIES,
   _cacheSize,
   _clearCache,
-} = require('../../../server/data-store.js');
+} = require('../../../src/server/data-store.js');
 
 let dir;
 

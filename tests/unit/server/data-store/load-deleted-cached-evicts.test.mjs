@@ -11,7 +11,7 @@ const {
   loadJSON,
   _cacheSize,
   _clearCache,
-} = require('../../../../server/data-store.js');
+} = require('../../../../src/server/data-store.js');
 
 let root;
 

@@ -14,7 +14,7 @@ import path from 'node:path';
 // images). It is add-only characterization: no source file is changed, and every golden
 // below was captured from the live handler in server/routes/content-analysis-c.js.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 const PROJECT_ROOT = '/proj';
 

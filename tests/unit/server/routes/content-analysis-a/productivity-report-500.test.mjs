@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 // drives the genuine GET /api/productivity-report handler, never a
 // reimplementation.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 // Distinctive sentinel file paths. The handler's first data read is
 // loadJSON(STREAKS_FILE) at content-analysis-a.js:51; loadJSON(ANALYTICS_FILE)

@@ -16,7 +16,7 @@ import { createRequire } from 'node:module';
 // Both reject and neither persists. No source file is edited. Every handler runs
 // over a fully mocked ctx: no real filesystem, network, or clock is touched.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const WHITEBOARDS_FILE = '/fake/whiteboards.json';
 

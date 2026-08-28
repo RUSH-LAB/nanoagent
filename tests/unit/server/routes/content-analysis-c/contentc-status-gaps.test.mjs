@@ -6,7 +6,7 @@ import path from 'node:path';
 // content-analysis-c.js is CommonJS; load the real module the way the sibling
 // route tests do (mirrors tests/next-statsdir-cache.test.mjs).
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 // Add-only characterization suite for two content-walk handlers in
 // content-analysis-c.js that were untested today: GET /api/content-status (cache

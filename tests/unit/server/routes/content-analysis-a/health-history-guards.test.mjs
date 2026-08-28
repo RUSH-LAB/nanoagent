@@ -12,7 +12,7 @@ import path from 'node:path';
 // guard cases also assert saveJSON was never reached, and the success cases
 // assert exactly one write, pinning the no-write-on-rejection discipline.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/fake/root';
 // The history file path the handler builds from ctx.path + ctx.PROJECT_ROOT.

@@ -18,7 +18,7 @@ import path from 'node:path';
 // status code, an error message, or the order in which the guards run. No source
 // file is edited.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
 // The reading-progress store path is built inside the handler as

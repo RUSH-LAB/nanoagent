@@ -7,11 +7,11 @@ import path from 'node:path';
 // The handler's module-scope require('./references.js') resolves
 // loadReferencesCached from the repo, exactly as the live server wires it.
 const require = createRequire(import.meta.url);
-const contentAnalysisARoutes = require('../../../server/routes/content-analysis-a.js');
+const contentAnalysisARoutes = require('../../../src/server/routes/content-analysis-a.js');
 // loadReferencesCached memoizes in a module-level singleton; clear it between
 // scenarios so each case re-stats and re-reads deterministically. Imported
 // read-only; the test never mutates references.js.
-const { _resetReferencesCache } = require('../../../server/routes/references.js');
+const { _resetReferencesCache } = require('../../../src/server/routes/references.js');
 
 const PROJECT_ROOT = '/fake/root';
 const REFS_PATH = path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml');

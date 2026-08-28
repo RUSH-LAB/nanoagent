@@ -17,7 +17,7 @@ import path from 'node:path';
 // (_k, _t, fn) => fn() that reproduces the exact pre-cache code path, plus an
 // in-memory fs.readFileSync keyed by absolute path. No network, no server.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
 

@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // content-analysis-a.js is CommonJS; load it the way the sibling route tests do.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 // A small bibliography exercising five references. alpha2020 is the co-citation
 // hub, beta/gamma/delta are co-cited with decreasing connectivity, and

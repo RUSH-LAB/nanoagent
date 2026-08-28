@@ -55,7 +55,7 @@ function extractFn(src, name) {
 // source (not a hard coded copy). make(store, cap) binds rateLimit to the
 // supplied store object and cap, so every test gets an isolated, fresh store and
 // can exercise the eviction with a tiny cap.
-const src = readFileSync(path.join(REPO_ROOT, 'server/index.js'), 'utf-8');
+const src = readFileSync(path.join(REPO_ROOT, 'src/server/index.js'), 'utf-8');
 const rateLimitSrc = extractFn(src, 'rateLimit');
 const capMatch = src.match(/^const MAX_RATE_LIMIT_KEYS = (\d+);/m);
 assert.ok(capMatch, 'server/index.js must declare `const MAX_RATE_LIMIT_KEYS = <n>;`');

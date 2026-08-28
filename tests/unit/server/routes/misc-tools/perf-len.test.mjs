@@ -11,7 +11,7 @@ import { createRequire } from 'node:module';
 // so a mistyped reuse that crossed one read into another would change a value and
 // fail this suite.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 // Drive GET /api/perf with a mocked ctx carrying only what this branch reads:
 // the perfMetrics store and the json(res, status, payload) capture. Every other

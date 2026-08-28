@@ -6,7 +6,7 @@ import path from 'node:path';
 // content-analysis-a.js is CommonJS; load it the way the other server route
 // tests do.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/fake/root';
 

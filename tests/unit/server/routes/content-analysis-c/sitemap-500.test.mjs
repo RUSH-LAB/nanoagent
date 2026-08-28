@@ -20,7 +20,7 @@ import path from 'node:path';
 // writableEnded) alongside a json() stub, and the failure tests prove that streaming
 // success path is never taken.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 const PROJECT_ROOT = '/virtual-root';
 

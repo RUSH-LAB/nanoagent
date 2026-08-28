@@ -18,7 +18,7 @@ import path from 'node:path';
 // success 200 projection returned by `json(res, 200, health)` at :456 is then
 // never emitted.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/virtual-root';
 

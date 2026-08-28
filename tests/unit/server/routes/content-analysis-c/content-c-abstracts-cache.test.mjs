@@ -13,7 +13,7 @@ import path from 'node:path';
 // text for bibliography/references.yaml plus the content files, and the real
 // js-yaml parses it, exactly as production does.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 const PROJECT_ROOT = '/proj';
 const REFS_PATH = path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml');

@@ -7,10 +7,10 @@ import path from 'node:path';
 // batch-export tests do (next-batchexport-guard-branches.test.mjs shares this
 // same driver and ctx harness).
 const require = createRequire(import.meta.url);
-const miscRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscRoutes = require('../../../../../src/server/routes/misc-tools.js');
 // Reuse the production isValidDir so the first guard is pinned against the real
 // contract, exactly as the guard-branches sibling does.
-const { isValidDir } = require('../../../../../server/server-utils.js');
+const { isValidDir } = require('../../../../../src/server/server-utils.js');
 
 const PROJECT_ROOT = '/fake/root';
 const EXPORT_DIR = 'content/batch-sample';

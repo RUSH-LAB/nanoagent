@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // content-analysis-c.js is CommonJS; load it the way the other route tests do.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 const { TEMPLATE_VAR_NAME_RE } = routes;
 
 // Drive POST /api/template-variables with a mocked ctx and capture the json()
@@ -50,8 +50,8 @@ describe('TEMPLATE_VAR_NAME_RE (hoisted to module scope in content-analysis-c.js
   });
 
   it('is referentially stable across two requires (single shared instance)', () => {
-    const a = require('../../../../../server/routes/content-analysis-c.js').TEMPLATE_VAR_NAME_RE;
-    const b = require('../../../../../server/routes/content-analysis-c.js').TEMPLATE_VAR_NAME_RE;
+    const a = require('../../../../../src/server/routes/content-analysis-c.js').TEMPLATE_VAR_NAME_RE;
+    const b = require('../../../../../src/server/routes/content-analysis-c.js').TEMPLATE_VAR_NAME_RE;
     assert.strictEqual(a, b);
   });
 

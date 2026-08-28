@@ -11,7 +11,7 @@ import path from 'node:path';
 // that pin the handlers' current, correct behavior so a future refactor cannot
 // silently change them. No source file is touched.
 const require = createRequire(import.meta.url);
-const miscToolsRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
 // new Date().toISOString() shape, e.g. 2026-06-13T13:27:33.584Z.

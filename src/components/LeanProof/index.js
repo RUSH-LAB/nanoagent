@@ -1,4 +1,6 @@
 import {useState, useRef, createContext} from 'react';
+import {usePluginData} from '@docusaurus/useGlobalData';
+import CodeBlock from '@theme/CodeBlock';
 
 export const LeanProofContext = createContext(false);
 
@@ -25,7 +27,25 @@ function leanWebUrl(code, project) {
   return `https://live.lean-lang.org/?theme=${theme}#${args.join('&')}`;
 }
 
-export function LeanProof({children, title, runnable = true, project}) {
+/**
+ * Pull a declaration out of the lean-proofs plugin's global data. Returns null
+ * when the plugin is absent so the component degrades to its `children`.
+ */
+function useProofSource(name) {
+  const data = usePluginData('lean-proofs');
+  if (!name) return null;
+  const proof = data?.proofs?.[name];
+  if (!proof) {
+    throw new Error(
+      `<LeanProof name="${name}"> found no such declaration in the Lake project. ` +
+      `Available: ${Object.keys(data?.proofs ?? {}).join(', ') || 'none'}.`,
+    );
+  }
+  return proof.source;
+}
+
+export function LeanProof({children, name, title, runnable = true, project}) {
+  const source = useProofSource(name);
   const [open, setOpen] = useState(false);
   const [runUrl, setRunUrl] = useState(null);
   const codeRef = useRef(null);
@@ -93,7 +113,7 @@ export function LeanProof({children, title, runnable = true, project}) {
 
       <LeanProofContext.Provider value={true}>
         <div ref={codeRef} style={{display: open ? 'block' : 'none', padding: '0 0.75em 0.5em'}}>
-          {children}
+          {source ? <CodeBlock language="lean">{source}</CodeBlock> : children}
         </div>
       </LeanProofContext.Provider>
 

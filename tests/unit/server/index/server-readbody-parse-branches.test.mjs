@@ -59,7 +59,7 @@ function extractFn(src, name) {
 // functions reference the free variable MAX_BODY_SIZE (a module import in the
 // real server/index.js); injecting it as the factory parameter is what lets a 7-byte
 // chunk overflow a cap of 5.
-const src = readFileSync(path.join(REPO_ROOT, 'server/index.js'), 'utf-8');
+const src = readFileSync(path.join(REPO_ROOT, 'src/server/index.js'), 'utf-8');
 const readBodySrc = extractFn(src, 'readBody');
 const readRawBodySrc = extractFn(src, 'readRawBody');
 const make = new Function(

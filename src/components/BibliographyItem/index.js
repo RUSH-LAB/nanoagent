@@ -813,8 +813,7 @@ function RawFilesSection({ entry, bibKey }) {
         </div>
       ) : (
         <p style={{ color: 'var(--ifm-color-emphasis-600)', fontStyle: 'italic' }}>
-          No raw files yet. Run <code>node scripts/fetch-bibliography-raw.mjs --only {bibKey}</code>{' '}
-          to populate, or drop files into <code>raw/bibliography/{bibKey}/</code>.
+          No raw files yet. Drop files into <code>raw/bibliography/{bibKey}/</code>.
         </p>
       )}
     </div>

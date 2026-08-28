@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 // content-analysis-a.js is CommonJS; load the real module the way the sibling
 // route tests do, so this characterization test drives the genuine handler.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 // The GET /api/analytics/export handler reads only loadJSON, ANALYTICS_FILE,
 // CORS_ORIGIN, and json from ctx. loadJSON is stubbed so no real filesystem is

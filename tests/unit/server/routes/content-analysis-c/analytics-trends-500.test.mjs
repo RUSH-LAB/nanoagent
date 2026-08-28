@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 // do, so this characterization test drives the genuine GET /api/analytics/trends
 // handler rather than a reimplementation.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 // The trends handler reads loadJSON, ANALYTICS_FILE, COMMENTS_FILE, and json from
 // ctx. loadJSON is stubbed so no real filesystem is touched, and every call is

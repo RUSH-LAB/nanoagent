@@ -8,7 +8,7 @@ import path from 'node:path';
 // and parsed through it, keeping the bytes the handler sees identical to the
 // object the oracle below reasons over.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 const yaml = require('js-yaml');
 
 const PROJECT_ROOT = '/fake/root';

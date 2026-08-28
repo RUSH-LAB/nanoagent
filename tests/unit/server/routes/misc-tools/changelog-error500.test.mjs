@@ -15,7 +15,7 @@ import { createRequire } from 'node:module';
 // misc-tools.js is CommonJS; load the real module the way the sibling server
 // route tests do, so this drives the genuine handler, not a reimplementation.
 const require = createRequire(import.meta.url);
-const miscToolsRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js');
 
 // File tokens the changelog handler reads through loadJSON. COMMENTS_FILE is the
 // first of the two loads, so a loadJSON that throws on its first call models an

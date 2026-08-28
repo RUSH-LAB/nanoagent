@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // content-analysis-a.js is CommonJS; load it the way the other route tests do.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const DAY = 86400000;
 // A fixed clock so the 7 and 30 day cutoffs land on repeatable dates no matter

@@ -6,7 +6,7 @@ import path from 'node:path';
 // content-analysis-c.js is CommonJS; load the REAL module the way the sibling
 // route tests do (createRequire, no reimplementation).
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 // Characterization test for the currently-uncovered OUTER CATCH of
 // POST /api/template-variables (content-analysis-c.js, handler around L1187 to

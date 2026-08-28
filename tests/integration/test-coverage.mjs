@@ -32,9 +32,9 @@ const GOOD_COVERAGE = 80; // report: green at or above this
 
 function extractEndpoints() {
   // Routes live in server/index.js (core) plus the per-domain modules in server/routes/.
-  let serverSrc = readFileSync(join(ROOT, 'server/index.js'), 'utf8');
+  let serverSrc = readFileSync(join(ROOT, 'src/server/index.js'), 'utf8');
   try {
-    const routesDir = join(ROOT, 'server', 'routes');
+    const routesDir = join(ROOT, 'src', 'server', 'routes');
     for (const f of readdirSync(routesDir)) {
       if (f.endsWith('.js')) serverSrc += '\n' + readFileSync(join(routesDir, f), 'utf8');
     }

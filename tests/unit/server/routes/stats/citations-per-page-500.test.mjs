@@ -26,7 +26,7 @@ import path from 'node:path';
 // in any case the throwing readdirSync fires first on every directory. The
 // injectable throwing seam inside the closure is therefore that ctx.fs.readdirSync.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/stats.js');
+const routes = require('../../../../../src/server/routes/stats.js');
 
 const PROJECT_ROOT = '/virtual-root';
 

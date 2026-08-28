@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // content-analysis-c.js is CommonJS; load it the way the sibling route tests do.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 // GET /api/admin/health-summary now wraps its whole content-tree scan and score
 // assembly in cached('health-summary', 60000, fn). This suite proves the wrap is

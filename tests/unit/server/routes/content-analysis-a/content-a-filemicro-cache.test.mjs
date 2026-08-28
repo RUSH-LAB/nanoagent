@@ -12,7 +12,7 @@ import path from 'node:path';
 // These tests drive all three wraps directly with a counting fs and a memoizing
 // cached, no network and no server.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/proj';
 

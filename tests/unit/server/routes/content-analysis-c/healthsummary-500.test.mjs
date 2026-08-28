@@ -16,7 +16,7 @@ import path from 'node:path';
 // `json(res, 500, {error: 'Health summary failed'})`. The success 200 projection
 // `{score, level, breakdown, stats}` returned at :248 is then never emitted.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 const PROJECT_ROOT = '/virtual-root';
 

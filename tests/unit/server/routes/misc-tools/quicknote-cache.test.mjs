@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // misc-tools.js is CommonJS; load it the way the other server route tests do.
 const require = createRequire(import.meta.url);
-const miscToolsRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/fake/root';
 const BLOG_DIR = path.join(PROJECT_ROOT, 'content', 'posts', 'blog');

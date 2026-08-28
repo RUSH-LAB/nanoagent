@@ -46,30 +46,31 @@ npm run build:auth   # production build with auth
 ```
 mochi-lab/
   docusaurus.config.js   # Docusaurus site config
-  content/               # Everything authored
+  vercel.json            # Deploy config (static build, no serverless functions)
+  content/               # Everything authored by a human
     books/               #   Docs: programming, math, builder, survey
     posts/               #   Blog posts and research papers
     bibliography/        #   references.yaml, the citation source of truth
-  src/                   # The browser bundle, and nothing else
+  src/                   # All first-party source
     pages/               #   App pages (editor, graph, flashcards, ...)
     components/          #   React components, one directory each
-    hooks/               #   Shared React hooks
     theme/               #   Docusaurus theme overrides
+    hooks/  contexts/    #   Shared React hooks and context
     css/                 #   Global stylesheets and the shared page layout
     client/              #   Docusaurus clientModules
-  server/                # The local API, entry point included
-    index.js             #   Setup, dispatch, lifecycle (port 3001)
-    routes/              #   Request handlers by domain (files, references, feeds, ...)
-    server-utils.js      #   Shared helpers (validation, bibtex, caching)
-    paths.js             #   Every path the server derives from the repo root
-  api/                   # Vercel serverless functions
-  plugins/               # Docusaurus plugins (bibliography, math-registry, remark-cite, wiki-links)
-  scripts/               # Developer tooling
+    static/              #   Served verbatim (see staticDirectories)
+    server/              #   The local API, entry point included
+      index.js           #     Setup, dispatch, lifecycle (port 3001)
+      routes/            #     Handlers by domain (files, references, feeds, ...)
+      server-utils.js    #     Shared helpers (validation, bibtex, caching)
+      paths.js           #     Every path the server derives from the repo root
+  plugins/               # Docusaurus plugins
+    lean-proofs/         #   Serves the Lake project in proofs/ as global data
+    bibliography/  math-registry/  remark-cite/  remark-wiki-links/
   tests/
     unit/                #   Mirrors the source tree
     integration/         #   HTTP suites against a running server
   var/                   # Runtime state, gitignored (data, logs, trash)
-  archive/               # Kept artifacts that no code reads
 ```
 
 The platform runs two processes in parallel: a **Docusaurus static site** serving content pages, and a **Node.js HTTP API server** providing data persistence and backend features.

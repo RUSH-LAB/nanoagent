@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // misc-tools.js is CommonJS; load it the way the other route tests do.
 const require = createRequire(import.meta.url);
-const miscRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscRoutes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/fake/root';
 const EXPORT_DIR = 'content/batch-sample';
@@ -169,8 +169,8 @@ describe('GET /api/export/batch (BATCH_* render regexes hoisted to module scope)
   });
 
   it('shares one referentially stable instance across requires', () => {
-    const a = require('../../../../../server/routes/misc-tools.js');
-    const b = require('../../../../../server/routes/misc-tools.js');
+    const a = require('../../../../../src/server/routes/misc-tools.js');
+    const b = require('../../../../../src/server/routes/misc-tools.js');
     for (const name of Object.keys(CANON)) {
       assert.strictEqual(a[name], b[name], `${name} should be a single shared instance`);
     }

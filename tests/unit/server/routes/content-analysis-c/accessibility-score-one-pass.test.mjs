@@ -6,7 +6,7 @@ import path from 'node:path';
 // content-analysis-c.js is CommonJS; load it the way the other server route
 // tests do.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 // Drive the real GET /api/file/accessibility handler over a minimal mocked ctx.
 // `fs.readFileSync` returns the supplied content so no real file is read, and

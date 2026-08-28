@@ -8,10 +8,10 @@ import path from 'node:path';
 // shares this driver and ctx harness). This is an ADD-ONLY characterization test
 // that pins the CURRENT behavior of GET /api/export/batch and touches no source.
 const require = createRequire(import.meta.url);
-const miscRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscRoutes = require('../../../../../src/server/routes/misc-tools.js');
 // Reuse the production isValidDir so the first guard is pinned against the real
 // contract. The handler reads isValidDir from ctx, and 'content/foo' satisfies it.
-const { isValidDir } = require('../../../../../server/server-utils.js');
+const { isValidDir } = require('../../../../../src/server/server-utils.js');
 
 const PROJECT_ROOT = '/fake/root';
 

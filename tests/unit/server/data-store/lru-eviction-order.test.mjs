@@ -31,7 +31,7 @@ import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, '..', '..', '..', '..');
-const DATA_STORE = path.join(REPO_ROOT, 'server', 'data-store.js');
+const DATA_STORE = path.join(REPO_ROOT, 'src', 'server', 'data-store.js');
 
 // Lift a top-level `function <name>` out of data-store.js by brace balancing. The
 // start is the line beginning with `function <name>`; the end is the line where

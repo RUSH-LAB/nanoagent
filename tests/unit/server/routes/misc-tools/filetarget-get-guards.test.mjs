@@ -18,7 +18,7 @@ import path from 'node:path';
 // status code, an error message, the guard order, or the word count and
 // progress math. No source file is edited.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
 // The handler reads the per-file word-count targets from this path, mirroring

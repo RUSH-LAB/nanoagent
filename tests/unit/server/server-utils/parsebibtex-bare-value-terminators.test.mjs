@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { parseBibtex } = require('../../../../server/server-utils.js');
+const { parseBibtex } = require('../../../../src/server/server-utils.js');
 
 // Characterization tests for the bare-value scanner in parseBibtex
 // (server/server-utils.js, function at line 132; bare-value loop at line 197).

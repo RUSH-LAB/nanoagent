@@ -22,7 +22,7 @@ import path from 'node:path';
 // MAX_TEXT_LENGTH characters would clear the length guard and reach the clock, so
 // only an over-length text is asserted on that branch.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 // Mirrors the real MAX_TEXT_LENGTH exported from server/server-utils.js (line 9),
 // which the live server spreads into ctx. The handler reads the limit from ctx, so

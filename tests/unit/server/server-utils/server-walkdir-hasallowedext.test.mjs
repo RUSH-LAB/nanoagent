@@ -26,7 +26,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, '..', '..', '..', '..');
 
 // Pin against the real allowed-extension list rather than a hard-coded copy.
-const { ALLOWED_EXTS } = require('../../../../server/server-utils');
+const { ALLOWED_EXTS } = require('../../../../src/server/server-utils');
 
 // Lift a top-level `function <name>` out of server/index.js by brace balancing. The
 // start is the line beginning with `function <name>`; the end is the line where
@@ -54,7 +54,7 @@ function extractFn(src, name) {
 // two walkers reference the helper, and walkDir recurses into itself). Inject the
 // four module-scope values they close over: fs, path, PROJECT_ROOT, ALLOWED_EXTS.
 function liftWalkers(fs, projectRoot) {
-  const src = readFileSync(path.join(REPO_ROOT, 'server/index.js'), 'utf-8');
+  const src = readFileSync(path.join(REPO_ROOT, 'src/server/index.js'), 'utf-8');
   const hasAllowedExtSrc = extractFn(src, 'hasAllowedExt');
   const walkDirSrc = extractFn(src, 'walkDir');
   const flatFilesSrc = extractFn(src, 'flatFiles');

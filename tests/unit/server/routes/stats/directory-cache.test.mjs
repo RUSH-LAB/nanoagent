@@ -6,7 +6,7 @@ import path from 'node:path';
 // content-analysis-c.js is CommonJS; load it the way the sibling route tests do
 // (mirrors tests/next-healthsummary-cache.test.mjs).
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/stats.js');
+const routes = require('../../../../../src/server/routes/stats.js');
 
 // GET /api/stats/directory now wraps its recursive directory walk in
 // cached('statsdir:' + dir, 30000, fn), keyed by the requested dir. This suite

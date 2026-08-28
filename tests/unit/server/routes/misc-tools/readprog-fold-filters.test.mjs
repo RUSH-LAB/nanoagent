@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // misc-tools.js is CommonJS; load it the way the other server route tests do.
 const require = createRequire(import.meta.url);
-const miscToolsRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js');
 
 // Invoke the GET /api/reading-progress handler with a mocked ctx. `stored` is the
 // whole reading-progress file (keyed by userId); the handler reads it via loadJSON

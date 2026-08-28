@@ -34,7 +34,7 @@ import path from 'node:path';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, '..', '..', '..', '..');
 
-const readServer = () => readFileSync(path.join(REPO_ROOT, 'server/index.js'), 'utf-8');
+const readServer = () => readFileSync(path.join(REPO_ROOT, 'src/server/index.js'), 'utf-8');
 
 // Lift the `const sorted = perfKeys ... .sort(...);` statement out of server/index.js.
 // The start is the line beginning `const sorted = perfKeys`; the end is the first

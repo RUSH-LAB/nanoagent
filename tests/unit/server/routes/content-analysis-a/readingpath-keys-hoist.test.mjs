@@ -15,7 +15,7 @@ import path from 'node:path';
 // Object.keys(pageTitles) on each lookup), driving the real handler in-process
 // with a stub fs and a memoizing cached, no network and no server.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/proj';
 const ALLOWED_EXTS = ['.md', '.mdx'];
@@ -229,7 +229,7 @@ describe('GET /api/content-reading-path hoists Object.keys(pageTitles) into page
   });
 
   it('the reading-path handler source computes the key list once and keeps no per-resolution rebuild', () => {
-    const src = readFileSync(new URL('../../../../../server/routes/content-analysis-a.js', import.meta.url), 'utf-8');
+    const src = readFileSync(new URL('../../../../../src/server/routes/content-analysis-a.js', import.meta.url), 'utf-8');
     // Slice the handler block between its route guard and the next handler's guard
     // (both ASCII string literals, so the slice does not depend on box-drawing
     // comment markers). The assertions then target only this handler.

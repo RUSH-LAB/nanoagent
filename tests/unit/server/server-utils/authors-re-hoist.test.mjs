@@ -8,7 +8,7 @@ const {
   AUTHORS_AND_SPLIT_RE,
   AUTHOR_NAME_WS_SPLIT_RE,
   AUTHOR_INITIAL_DOT_RE,
-} = require('../../../../server/server-utils.js');
+} = require('../../../../src/server/server-utils.js');
 
 describe('server-utils author regex hoist', () => {
   it('exports each author regex as a module-scope RegExp with the expected source and flags', () => {

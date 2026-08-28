@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { parseBibtex } = require('../../../../server/server-utils.js');
+const { parseBibtex } = require('../../../../src/server/server-utils.js');
 
 // Characterization tests for two so far unpinned branches of the field parser in
 // parseBibtex (server/server-utils.js, function at line 132).

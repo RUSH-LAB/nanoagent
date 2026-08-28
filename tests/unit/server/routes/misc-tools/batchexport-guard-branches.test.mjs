@@ -6,10 +6,10 @@ import path from 'node:path';
 // misc-tools.js is CommonJS; load the REAL route module the way the sibling
 // route test does (next-batchexport-md-re-hoist.test.mjs uses the same driver).
 const require = createRequire(import.meta.url);
-const miscRoutes = require('../../../../../server/routes/misc-tools.js');
+const miscRoutes = require('../../../../../src/server/routes/misc-tools.js');
 // Use the production isValidDir so the first guard is pinned against the real
 // contract rather than an approximation of it.
-const { isValidDir } = require('../../../../../server/server-utils.js');
+const { isValidDir } = require('../../../../../src/server/server-utils.js');
 
 const PROJECT_ROOT = '/fake/root';
 const EXPORT_DIR = 'content/batch-sample';

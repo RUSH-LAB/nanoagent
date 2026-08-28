@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { mergeMetadataSources } = require('../../../../server/server-utils.js');
+const { mergeMetadataSources } = require('../../../../src/server/server-utils.js');
 
 // Characterization test for two aspects of mergeMetadataSources
 // (server/server-utils.js, the function around lines 311 to 362) that the

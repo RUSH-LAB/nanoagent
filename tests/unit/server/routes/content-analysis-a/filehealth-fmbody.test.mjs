@@ -11,7 +11,7 @@ import path from 'node:path';
 // three checks independently (all present, title only, tags + date only, none), so a
 // mistyped reuse that crossed one read into another would change a score and fail.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/proj';
 

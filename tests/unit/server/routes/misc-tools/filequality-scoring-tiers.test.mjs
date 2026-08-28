@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 // (excellent through minimal), and every suggestion string. The goldens below were
 // captured from the real handler; no source file is touched.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 // Fixture builders (deterministic, so the captured goldens can never drift).
 // A backtick without writing one literally (keeps this file free of code fences).

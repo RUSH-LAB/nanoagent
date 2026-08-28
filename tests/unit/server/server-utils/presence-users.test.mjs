@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { makePresenceStore } = require('../../../../server/server-utils.js');
+const { makePresenceStore } = require('../../../../src/server/server-utils.js');
 
 // ─── cleanStalePresence: const-users hoist ──────────────────────────────────────
 //

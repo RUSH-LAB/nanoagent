@@ -6,7 +6,7 @@ import path from 'node:path';
 // content-analysis-a.js is CommonJS; load it the way the other route tests do
 // (mirrors tests/next-content-a-cache-refs.test.mjs).
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/stats.js');
+const routes = require('../../../../../src/server/routes/stats.js');
 
 const PROJECT_ROOT = '/fake/root';
 const ALLOWED_EXTS = ['.md', '.mdx'];

@@ -19,7 +19,7 @@ import path from 'node:path';
 // are easy to get subtly wrong. No source file is modified; the handler is loaded
 // read-only and exercised through the same ctx harness as the sibling suite.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 const PROJECT_ROOT = '/fake/root';
 

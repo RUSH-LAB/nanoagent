@@ -8,12 +8,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..', '..', '..', '..');
 
 describe('API documentation completeness', () => {
-  const serverCode = fs.readFileSync(path.join(projectRoot, 'server/index.js'), 'utf8');
+  const serverCode = fs.readFileSync(path.join(projectRoot, 'src/server/index.js'), 'utf8');
   const apiDocsCode = fs.readFileSync(path.join(projectRoot, 'src/pages/api-docs/index.js'), 'utf8');
 
   // Route handlers live in server/index.js (core) plus the per-domain modules under
   // api/routes/. Assertions about handler code scan the combined source.
-  const routesDir = path.join(projectRoot, 'server', 'routes');
+  const routesDir = path.join(projectRoot, 'src', 'server', 'routes');
   const routesCode = fs.existsSync(routesDir)
     ? fs.readdirSync(routesDir)
         .filter(f => f.endsWith('.js'))

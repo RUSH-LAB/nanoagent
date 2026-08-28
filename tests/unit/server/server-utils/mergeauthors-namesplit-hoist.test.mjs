@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { mergeMetadataSources } = require('../../../../server/server-utils.js');
+const { mergeMetadataSources } = require('../../../../src/server/server-utils.js');
 
 // mergeAuthorLists is internal (only mergeMetadataSources is exported), so it is
 // exercised here through mergeMetadataSources, whose author union runs the merge
@@ -60,7 +60,7 @@ describe('mergeAuthorLists name-split hoist (via mergeMetadataSources)', () => {
   it('hoists the incoming name parse to a single const pName = splitAuthorName(name)', () => {
     // Source-slice guard: the incoming name is parsed once, and the old inline
     // per-probe re-parse callback is gone.
-    const src = readFileSync(new URL('../../../../server/server-utils.js', import.meta.url), 'utf8');
+    const src = readFileSync(new URL('../../../../src/server/server-utils.js', import.meta.url), 'utf8');
     assert.ok(
       src.includes('const pName = splitAuthorName(name)'),
       'expected mergeAuthorLists to hoist the name parse into `const pName = splitAuthorName(name)`',

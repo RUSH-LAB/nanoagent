@@ -7,7 +7,7 @@ import path from 'node:path';
 // tests do (mirrors tests/next-jsonld-mtime-iso.test.mjs).
 const require = createRequire(import.meta.url);
 const yaml = require('js-yaml');
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 // A small bibliography that exercises the coauthor + preferred-venue scoring of
 // GET /api/references/recommend-by-author. The queried author is "Alice"; her

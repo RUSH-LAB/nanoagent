@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 // server-utils.js is CommonJS; load the REAL module the way the other server
 // tests do (see tests/feeds-guard.test.mjs, which exercises numericParam too).
 const require = createRequire(import.meta.url);
-const { numericParam } = require('../../../../server/server-utils.js');
+const { numericParam } = require('../../../../src/server/server-utils.js');
 
 // numericParam(raw, def, max) computes
 //   Math.min(Number.isNaN(parseInt(raw, 10)) ? def : parsed, max).

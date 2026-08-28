@@ -21,7 +21,7 @@ import { createRequire } from 'node:module';
 // :1490. The success 200 projection `json(res, 200, {references, pages})` at :1485 to
 // :1488 is then never emitted.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/misc-tools.js');
+const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 // The exact reply the outer catch emits, in the {status, body} shape the json() stub
 // below records.

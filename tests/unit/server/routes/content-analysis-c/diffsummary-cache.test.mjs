@@ -6,7 +6,7 @@ import path from 'node:path';
 // content-analysis-c.js is CommonJS; load it the way the sibling route tests do
 // (mirrors tests/next-statsdir-cache.test.mjs).
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-c.js');
+const routes = require('../../../../../src/server/routes/content-analysis-c.js');
 
 // GET /api/content-diff-summary now wraps its recursive content-tree date-range
 // walk in cached('diffsummary:' + from + ':' + to, 30000, fn), keyed by both date

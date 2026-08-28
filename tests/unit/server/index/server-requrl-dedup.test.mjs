@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
-const SERVER_JS = path.join(REPO_ROOT, 'server/index.js');
+const SERVER_JS = path.join(REPO_ROOT, 'src/server/index.js');
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -81,7 +81,7 @@ describe('server/index.js req.url double-parse dedup', () => {
   it('boots the real server and records exactly one deduped perf metric', async () => {
     const port = await getFreePort();
     const base = `http://127.0.0.1:${port}`;
-    const child = spawn(process.execPath, ['server/index.js'], {
+    const child = spawn(process.execPath, ['src/server/index.js'], {
       cwd: REPO_ROOT,
       env: { ...process.env, EDITOR_PORT: String(port) },
       stdio: ['ignore', 'ignore', 'pipe'],

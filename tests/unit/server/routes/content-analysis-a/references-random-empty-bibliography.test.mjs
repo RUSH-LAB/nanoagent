@@ -10,7 +10,7 @@ import path from 'node:path';
 // no entries, the handler returns HTTP 200 {reference: null} at the
 // `if (keys.length === 0)` guard, before it ever draws a random index.
 const require = createRequire(import.meta.url);
-const routes = require('../../../../../server/routes/content-analysis-a.js');
+const routes = require('../../../../../src/server/routes/content-analysis-a.js');
 
 // A minimal fake fs that satisfies the shared bibliography loader: statSync reports
 // a stable mtime/size (so the loader may memoize) and readFileSync returns the
