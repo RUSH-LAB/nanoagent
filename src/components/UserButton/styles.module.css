@@ -1,0 +1,44 @@
+/* The navbar account button. Sits after the search bar, so it keeps the same
+   vertical rhythm as the other navbar items rather than the link styling. */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.5rem;
+  padding: 0;
+  border-radius: 50%;
+  line-height: 0;
+}
+
+.button:hover {
+  text-decoration: none;
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--ifm-color-primary);
+  color: #ffffff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1;
+  /* The letter is centred by flex; the font's own baseline offset would
+     otherwise sit it slightly low inside a circle this small. */
+  text-transform: uppercase;
+  user-select: none;
+  transition: background 150ms ease;
+}
+
+.button:hover .avatar,
+.button:focus-visible .avatar {
+  background: var(--ifm-color-primary-dark);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+}

@@ -257,6 +257,11 @@ const config = {
             docsPluginId: 'math',
             label: 'Math',
           },
+          // Naming the search bar explicitly moves it from its default
+          // auto-appended position to here, which is what lets the account
+          // button sit to the right of it.
+          {type: 'search', position: 'right'},
+          {type: 'custom-userButton', position: 'right'},
         ],
       },
       prism: {
