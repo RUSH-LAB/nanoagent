@@ -20,7 +20,7 @@ import styles from './authScreen.module.css';
  * outside production, explicitly enabled, and called from loopback, so the
  * button is a shortcut past the keyboard rather than past authentication.
  */
-export default function AuthScreen({ devAutoLogin = false }) {
+export default function AuthScreen({ devAutoLogin = false, unreachable = null }) {
   const [mode, setMode] = useState('signin');
   const [identifier, setIdentifier] = useState('');
   const [email, setEmail] = useState('');
@@ -168,6 +168,13 @@ export default function AuthScreen({ devAutoLogin = false }) {
 
         {!signingIn && (
           <p className={styles.hint}>At least 8 characters.</p>
+        )}
+
+        {unreachable && !error && (
+          <p className={styles.error} role="alert">
+            Could not reach the API server on {API_BASE || 'this origin'}. Start it with{' '}
+            <code>npm start</code>, then reload. ({unreachable})
+          </p>
         )}
 
         {error && <p className={styles.error} role="alert">{error}</p>}

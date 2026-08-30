@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import PageTracker from '@site/src/components/Analytics/PageTracker';
@@ -12,36 +12,69 @@ import PageTracker from '@site/src/components/Analytics/PageTracker';
  * same flag the API server reads, so the two can never disagree about whether
  * a session is required.
  *
- * With `devAutoLogin` the sign-in screen offers a one-click "Sign in as root"
- * button. It used to sign itself in with no click at all, which was a mistake:
- * to avoid an infinite reload the gate had to remember that it had already
- * tried, and that memory outlived the session it was tracking. Wiping the
- * database left tabs permanently stuck on the form with no way to ask again.
- * A button has no state to go stale, and shows what it is about to do.
+ * The session is fetched with `authClient.getSession()` rather than the
+ * `useSession()` hook. The hook silently never issued the request: signing in
+ * stored a working token, the page reloaded, `apiFetch` authenticated with that
+ * token, and yet no GET /api/auth/get-session ever reached the server, so the
+ * gate concluded nobody was signed in and showed the form again. One explicit
+ * call, one piece of state, and a failure that says so.
  *
  * Children stay mounted but hidden while the session resolves, rather than
  * being withheld: the search indexer reads them during the static build, and
  * unmounting would also throw away scroll position on every reload.
  */
+
+/** What the gate knows about the session, and how it found out. */
+const CHECKING = 'checking';
+const SIGNED_IN = 'signed-in';
+const SIGNED_OUT = 'signed-out';
+const UNREACHABLE = 'unreachable';
+
+function Hidden({ children }) {
+  return (
+    <div style={{ visibility: 'hidden', position: 'absolute', width: 0, height: 0, overflow: 'hidden' }}>
+      {children}
+    </div>
+  );
+}
+
 function AuthGate({ children, devAutoLogin }) {
   // Required lazily, inside BrowserOnly, because the auth client reaches for
   // localStorage and would run during the static build otherwise.
-  const { useSession } = require('@site/src/utils/authClient');
+  const { authClient } = require('@site/src/utils/authClient');
   const AuthScreen = require('@site/src/theme/Root/AuthScreen').default;
 
-  const { data: session, isPending } = useSession();
+  const [status, setStatus] = useState(CHECKING);
+  const [detail, setDetail] = useState(null);
 
-  if (isPending) {
-    return (
-      <div style={{ visibility: 'hidden', position: 'absolute', width: 0, height: 0, overflow: 'hidden' }}>
-        {children}
-      </div>
-    );
-  }
+  useEffect(() => {
+    let cancelled = false;
+    authClient
+      .getSession()
+      .then((result) => {
+        if (cancelled) return;
+        if (result?.data?.user) setStatus(SIGNED_IN);
+        else setStatus(SIGNED_OUT);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // A network failure is not the same as being signed out, and telling
+        // someone to sign in when the API server is down wastes their time.
+        setStatus(UNREACHABLE);
+        setDetail(err?.message || 'The API server did not respond.');
+      });
+    return () => { cancelled = true; };
+  }, [authClient]);
 
-  if (!session?.user) return <AuthScreen devAutoLogin={devAutoLogin} />;
+  if (status === CHECKING) return <Hidden>{children}</Hidden>;
+  if (status === SIGNED_IN) return <>{children}</>;
 
-  return <>{children}</>;
+  return (
+    <AuthScreen
+      devAutoLogin={devAutoLogin}
+      unreachable={status === UNREACHABLE ? detail : null}
+    />
+  );
 }
 
 export default function Root({ children }) {
