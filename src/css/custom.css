@@ -49,6 +49,18 @@
   --ifm-container-width-xl: var(--site-max-width);
   --ifm-font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
   --ifm-heading-font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  /* Type scale, matched to docs.sglang.io: 16px body on 1.75 leading, a
+     compact 30 / 24 / 20px heading ramp, and 14px for the navigation chrome.
+     Infima's own ramp is half again as large and inflates h1–h3 a second time
+     inside an article; the "Type scale" section below undoes that. */
+  --site-h1-font-size: 1.875rem;
+  --site-h2-font-size: 1.5rem;
+  --site-h3-font-size: 1.25rem;
+  --site-chrome-font-size: 0.875rem;
+  --ifm-line-height-base: 1.75;
+  --ifm-h1-font-size: var(--site-h1-font-size);
+  --ifm-h2-font-size: var(--site-h2-font-size);
+  --ifm-h3-font-size: var(--site-h3-font-size);
   --ifm-color-primary: #3b5998;
   --ifm-color-primary-dark: #344e85;
   --ifm-color-primary-darker: #31497d;
@@ -150,6 +162,29 @@
   }
 }
 
+/* ── Type scale ───────────────────────────────────────────────────────────── */
+/* Infima redeclares the size variable on the heading elements themselves, and
+   a declaration on the element beats the :root ramp however the layers fall,
+   so an article's opening h1 and its top-level h2/h3 need pinning again. */
+.markdown h1:first-child {
+  --ifm-h1-font-size: var(--site-h1-font-size);
+}
+
+.markdown > h2 {
+  --ifm-h2-font-size: var(--site-h2-font-size);
+}
+
+.markdown > h3 {
+  --ifm-h3-font-size: var(--site-h3-font-size);
+}
+
+/* Navigation reads one step below body copy, as on the reference site. */
+.navbar,
+.menu,
+.footer {
+  font-size: var(--site-chrome-font-size);
+}
+
 /* ── Global heading color & title size override ───────────────────────────── */
 h1, h2, h3, h4, h5, h6 {
   color: #4a5568 !important;
@@ -157,7 +192,7 @@ h1, h2, h3, h4, h5, h6 {
 
 h1,
 h2[class*="title_"] {
-  font-size: 2.5rem !important;
+  font-size: var(--site-h1-font-size) !important;
 }
 
 /* Blog/research list title links use primary color */
@@ -234,7 +269,7 @@ html {
   visibility: visible;
   position: absolute;
   left: 0;
-  font-size: 2rem; /* Adjust this value to match your h2 size */
+  font-size: var(--site-h2-font-size); /* matches the h2 it stands in for */
   font-weight: var(--ifm-heading-font-weight);
 }
 
