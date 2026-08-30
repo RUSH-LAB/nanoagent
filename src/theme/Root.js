@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { ClerkProvider, SignedIn, SignedOut, SignIn } from '@clerk/clerk-react';
+import { ClerkProvider, SignedIn, SignedOut, SignIn, useAuth } from '@clerk/clerk-react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import PageTracker from '@site/src/components/Analytics/PageTracker';
+import { registerTokenGetter } from '@site/src/utils/api';
 
 const PUBLISHABLE_KEY =
   typeof process !== 'undefined' && process.env?.REACT_APP_CLERK_PUBLISHABLE_KEY
@@ -74,6 +75,18 @@ const clerkAppearance = {
     },
   },
 };
+
+// Publishes Clerk's session-token getter to src/utils/api.js, where apiFetch
+// can await it. Rendering nothing, it exists only to call a hook from inside
+// ClerkProvider on behalf of the many non-component callers that cannot.
+function TokenBridge() {
+  const { getToken } = useAuth();
+  useEffect(() => {
+    registerTokenGetter(getToken);
+    return () => registerTokenGetter(null);
+  }, [getToken]);
+  return null;
+}
 
 function AuthGate({ children }) {
   const [isMobile, setIsMobile] = useState(false);
@@ -197,6 +210,7 @@ export default function Root({ children }) {
 
   return (
     <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
+      <TokenBridge />
       <AuthGate>
         {children}
       </AuthGate>

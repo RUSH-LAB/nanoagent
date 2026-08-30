@@ -2,6 +2,13 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
+// The identity server/index.js attaches to every request after verifying the
+// session token. The handler reads its store key from here, never from the URL
+// or the body.
+const AUTH = Object.freeze({ userId: 'test-user', orgId: null, orgRole: null, sessionId: null });
+const UID = AUTH.userId;
+
+
 // content-analysis-a.js is CommonJS; load the real module the way the sibling
 // route tests do (mirroring tests/next-analytics-export-csv.test.mjs and
 // tests/next-productivity-report-fold.test.mjs), so this characterization test
@@ -47,7 +54,7 @@ function makeCtx() {
 async function invoke(ctx) {
   const pathname = '/api/productivity-report';
   const url = new URL(`http://localhost${pathname}`);
-  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' }, auth: AUTH };
   const res = { writableEnded: false };
   await routes(req, res, url, pathname, ctx);
   return { res };

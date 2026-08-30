@@ -1,0 +1,140 @@
+{
+  "timestamp": "2026-08-30T02:41:53.945Z",
+  "server": "http://localhost:3001",
+  "iterations": 5,
+  "nodeVersion": "v24.10.0",
+  "results": [
+    {
+      "endpoint": "/api/health",
+      "label": "Health check",
+      "avg": 11.87,
+      "max": 38.46,
+      "min": 0.87,
+      "threshold": 5,
+      "result": "WARN",
+      "times": [
+        38.46,
+        1.76,
+        0.87,
+        1.2,
+        17.05
+      ],
+      "httpStatus": 200
+    },
+    {
+      "endpoint": "/api/files",
+      "label": "File listing",
+      "avg": 28.37,
+      "max": 95.52,
+      "min": 5.01,
+      "threshold": 30,
+      "result": "PASS",
+      "times": [
+        26.51,
+        95.52,
+        8.38,
+        6.45,
+        5.01
+      ],
+      "httpStatus": 200
+    },
+    {
+      "endpoint": "/api/search?q=gradient",
+      "label": "Search (cold)",
+      "avg": 67.69,
+      "max": 67.69,
+      "min": 67.69,
+      "threshold": 200,
+      "result": "PASS",
+      "times": [
+        67.69
+      ],
+      "httpStatus": 200
+    },
+    {
+      "endpoint": "/api/search?q=gradient",
+      "label": "Search (warm)",
+      "avg": 2.42,
+      "max": 3.86,
+      "min": 1.77,
+      "threshold": 10,
+      "result": "PASS",
+      "times": [
+        3.86,
+        2.51,
+        2.01,
+        1.77,
+        1.94
+      ],
+      "httpStatus": 200
+    },
+    {
+      "endpoint": "/api/stats",
+      "label": "Stats",
+      "avg": 9.23,
+      "max": 43.4,
+      "min": 0.65,
+      "threshold": 200,
+      "result": "PASS",
+      "times": [
+        43.4,
+        0.67,
+        0.71,
+        0.74,
+        0.65
+      ],
+      "httpStatus": 200
+    },
+    {
+      "endpoint": "/api/references/citation-graph",
+      "label": "Citation graph",
+      "avg": 8.24,
+      "max": 8.43,
+      "min": 7.99,
+      "threshold": 100,
+      "result": "PASS",
+      "times": [
+        8.36,
+        8.22,
+        8.43,
+        8.21,
+        7.99
+      ],
+      "httpStatus": 200
+    },
+    {
+      "endpoint": "/api/integrity",
+      "label": "Integrity check",
+      "avg": 10.1,
+      "max": 11.06,
+      "min": 9.52,
+      "threshold": 20,
+      "result": "PASS",
+      "times": [
+        9.59,
+        11.06,
+        9.52,
+        9.8,
+        10.5
+      ],
+      "httpStatus": 200
+    },
+    {
+      "endpoint": "/api/dashboard",
+      "label": "Dashboard",
+      "avg": 5.75,
+      "max": 9.2,
+      "min": 2.95,
+      "threshold": 200,
+      "result": "PASS",
+      "times": [
+        9.2,
+        6.5,
+        3.62,
+        6.48,
+        2.95
+      ],
+      "httpStatus": 200
+    }
+  ]
+}

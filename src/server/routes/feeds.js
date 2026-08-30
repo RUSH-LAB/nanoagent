@@ -6,9 +6,6 @@
 const { numericParam } = require('../server-utils');
 const {dataFileSegs} = require('../paths');
 
-// Object keys that must never be used as property names (prototype-pollution guard).
-const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
-
 // Walk content/ once into the {title, date, path, mtime} list the RSS and Atom
 // feeds share, sorted by mtime descending. Each feed handler wraps this in
 // cached('feed-items'), so the tree is scanned once per cache window instead of
@@ -80,10 +77,11 @@ module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
   if (req.method === 'POST' && pathname === '/api/sessions') {
     try {
       const body = await readBody(req);
-      const {userId, startTime, endTime, wordsWritten, filesEdited} = body;
-      if (!userId || typeof userId !== 'string') return json(res, 400, {error: 'Missing or invalid userId'});
+      const {startTime, endTime, wordsWritten, filesEdited} = body;
+      // The session belongs to whoever is signed in; `body.userId` used to let
+      // a caller file writing time under someone else's name.
+      const {userId} = req.auth;
       if (!startTime || typeof startTime !== 'string') return json(res, 400, {error: 'Missing or invalid startTime'});
-      if (PROTO_KEYS.includes(userId)) return json(res, 400, {error: 'Invalid userId'});
       if (endTime !== undefined && typeof endTime !== 'string') return json(res, 400, {error: 'endTime must be a string'});
       if (wordsWritten !== undefined && typeof wordsWritten !== 'number') return json(res, 400, {error: 'wordsWritten must be a number'});
       if (filesEdited !== undefined && !Array.isArray(filesEdited)) return json(res, 400, {error: 'filesEdited must be an array'});
@@ -109,7 +107,7 @@ module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
   }
 
   if (req.method === 'GET' && pathname === '/api/sessions') {
-    const userId = url.searchParams.get('userId') || 'default';
+    const {userId} = req.auth;
     // Lower-clamp to 1: numericParam only upper-bounds, so a negative limit would
     // flip slice(-limit) into slice(limit), skipping the first |limit| sessions and
     // over-returning instead of taking the most-recent tail. Non-negative limits

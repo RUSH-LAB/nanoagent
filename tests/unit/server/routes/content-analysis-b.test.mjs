@@ -12,7 +12,7 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, TEST_IDENTITY} from '../../_harness.mjs';
 
 const routes = loadRoute('content-analysis-b');
 // /api/stats/* lives in its own module now; the three describes below use it.
@@ -687,7 +687,7 @@ describe('GET /api/content-recommend', () => {
     [at('content/faint.md')]: 'quantum entanglement gardening horticulture botany',
   };
   const STORE = {
-    [PROGRESS_FILE]: {default: {'content/read.md': {}}},
+    [PROGRESS_FILE]: {[TEST_IDENTITY.userId]: {'content/read.md': {}}},
     [BOOKMARKS_FILE]: {bookmarks: [{path: 'content/bookmarked.md'}]},
   };
 
@@ -707,13 +707,17 @@ describe('GET /api/content-recommend', () => {
     assert.ok(r.payload.recommendations.some(x => x.title === 'Overlapping'));
   });
 
-  it('reads the per-user progress bucket', async () => {
+  it('reads the signed-in caller\'s progress bucket', async () => {
     const store = {...STORE, [PROGRESS_FILE]: {alice: {'content/read.md': {}}}};
     const {ctx} = fsCtx(TREE, {store});
-    const r = await invoke(routes, {path: '/api/content-recommend', query: {userId: 'alice'}, ctx});
+    const asUser = userId => ({...TEST_IDENTITY, userId});
+    const r = await invoke(routes, {path: '/api/content-recommend', ctx, auth: asUser('alice')});
     assert.equal(r.payload.basedOn.pagesRead, 1);
-    const other = await invoke(routes, {path: '/api/content-recommend', query: {userId: 'bob'}, ctx: fsCtx(TREE, {store}).ctx});
+    const other = await invoke(routes, {path: '/api/content-recommend', ctx: fsCtx(TREE, {store}).ctx, auth: asUser('bob')});
     assert.equal(other.payload.basedOn.pagesRead, 0);
+    // A userId in the query buys nothing: alice's bucket stays alice's.
+    const spoof = await invoke(routes, {path: '/api/content-recommend', query: {userId: 'alice'}, ctx: fsCtx(TREE, {store}).ctx});
+    assert.equal(spoof.payload.basedOn.pagesRead, 0);
   });
 
   it('caps the recommendation list at ten, sorted by relevance', async () => {

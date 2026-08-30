@@ -35,9 +35,27 @@ npm start        # starts API server (port 3001) + Docusaurus dev server (port 3
 Auth is disabled by default, in dev and in production builds. To enable the Clerk sign-in gate:
 
 ```bash
-npm run start:auth   # dev server with auth
-npm run build:auth   # production build with auth
+export CLERK_SECRET_KEY=sk_...   # required whenever ENABLE_AUTH=true
+npm run start:auth               # dev server with auth
+npm run build:auth               # production build with auth
 ```
+
+### Authentication
+
+`ENABLE_AUTH` gates the site's sign-in screen and the API's identity check together.
+
+With it on, every endpoint except `/api/health`, `/api/feed/rss`, and `/api/feed/atom` requires a Clerk
+session token, sent as `Authorization: Bearer <token>` or in the `__session` cookie. The server verifies
+it with `@clerk/backend` and attaches `{userId, orgId, orgRole, sessionId}` to the request; a missing or
+invalid token is a `401` before any handler runs. The server refuses to start with auth on and no
+`CLERK_SECRET_KEY`, rather than falling open.
+
+With it off, every request resolves to a fixed development identity, so `npm start` and the test suite
+run without a Clerk account.
+
+Either way, handlers read the caller only from the verified identity. A `userId` in a query string or
+request body is ignored, and browser code reaches the API through `apiFetch` in `src/utils/api.js`,
+which attaches the token. `src/server/auth.js` is the single place any of this is decided.
 
 ## Architecture
 

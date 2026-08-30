@@ -392,16 +392,20 @@ async function testSecurity() {
 
   // 2. Prototype pollution blocked
   await test('Prototype pollution blocked', async () => {
-    // The server checks for __proto__, constructor, prototype in user IDs
+    // The target user id still comes from the URL, so the server still rejects
+    // a prototype name there. The requester is the session subject now, so the
+    // body has nothing to say about who is asking.
     const {status} = await api('PUT', '/api/users/__proto__/role', {
       role: 'owner',
-      requesterId: 'attacker',
     });
     assertEq(status, 400, 'status should be 400 for __proto__');
   });
 
-  // 3. Auth bypass blocked (role change without owner)
+  // 3. Auth bypass blocked (role change by a non-owner)
   await test('Auth bypass blocked', async () => {
+    // A requesterId in the body used to decide this. Naming a real owner here
+    // is now inert: the caller is whoever the session token says, and the
+    // development identity holds no owner record.
     const {status, data} = await api('PUT', '/api/users/someuser/role', {
       role: 'owner',
       requesterId: 'nonexistent-user',

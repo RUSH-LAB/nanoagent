@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 import { displayDirPath } from '@site/src/utils/paths';
 import pageStyles from '@site/src/css/page.module.css';
@@ -73,7 +73,7 @@ function ContentTimeline() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetch(`${API_BASE}/api/files/recent?limit=50`)
+    apiFetch(`${API_BASE}/api/files/recent?limit=50`)
       .then((r) => {
         if (!r.ok) throw new Error(`API returned ${r.status}`);
         return r.json();

@@ -1,5 +1,5 @@
 import React, {useState, useEffect} from 'react';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 
 const styles = {
   container: {
@@ -83,7 +83,7 @@ export default function Backlinks({filePath}) {
     let cancelled = false;
     async function fetchBacklinks() {
       try {
-        const resp = await fetch(
+        const resp = await apiFetch(
           `${API_BASE}/api/backlinks?path=${encodeURIComponent(filePath)}`
         );
         if (!resp.ok) throw new Error('Failed');

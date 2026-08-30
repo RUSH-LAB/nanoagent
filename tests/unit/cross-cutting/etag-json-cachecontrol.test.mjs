@@ -90,7 +90,10 @@ function legacyHandRolled(data, cacheControl, { corsOrigin = TEST_CORS_ORIGIN, i
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': corsOrigin,
     'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, PATCH, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    // Authorization joined the allowed request headers when the API started
+    // verifying Clerk session tokens (src/server/auth.js); the preflight has to
+    // permit the header the client now sends.
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'X-API-Version': '1.0',
     'X-Powered-By': 'Mochi Lab',
     'ETag': etag,

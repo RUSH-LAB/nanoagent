@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 import pageStyles from '@site/src/css/page.module.css';
 
 const DEPTH_COLORS = ['#6366f1', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444'];
@@ -62,7 +62,7 @@ function MindmapContent() {
   useEffect(() => {
     setFilesLoading(true);
     setFilesError(null);
-    fetch(`${API_BASE}/api/files`)
+    apiFetch(`${API_BASE}/api/files`)
       .then(r => {
         if (!r.ok) throw new Error(`Failed to load file list (${r.status})`);
         return r.json();
@@ -100,7 +100,7 @@ function MindmapContent() {
     setTree(null);
     if (!filePath) { setTreeLoading(false); return; }
     setTreeLoading(true);
-    fetch(`${API_BASE}/api/file/mindmap?path=${encodeURIComponent(filePath)}`)
+    apiFetch(`${API_BASE}/api/file/mindmap?path=${encodeURIComponent(filePath)}`)
       .then(r => {
         if (!r.ok) throw new Error(`Failed to generate mindmap (${r.status})`);
         return r.json();

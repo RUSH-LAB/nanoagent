@@ -62,18 +62,19 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     if (!rateLimit(`reading-progress:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
-      const {userId, pagePath, progress} = body;
-      if (!userId || typeof userId !== 'string') return json(res, 400, {error: 'Missing or invalid userId'});
-      if (userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
+      const {pagePath, progress} = body;
+      const {userId} = req.auth;
       if (!pagePath || typeof pagePath !== 'string') return json(res, 400, {error: 'Missing or invalid pagePath'});
       if (pagePath.length > 500) return json(res, 400, {error: 'pagePath must be 500 characters or fewer'});
-      if (PROTO_KEYS.includes(userId) || PROTO_KEYS.includes(pagePath)) return json(res, 400, {error: 'Invalid key'});
+      // pagePath is still client-supplied and still keys the inner map, so its
+      // prototype-key guard stays. userId no longer needs one: it comes from
+      // the session and server/auth.js already rejected an unsafe subject.
+      if (PROTO_KEYS.includes(pagePath)) return json(res, 400, {error: 'Invalid key'});
       const PROGRESS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('reading-progress'));
       const data = loadJSON(PROGRESS_FILE);
-      const safeUserId = sanitizeText(userId);
       const safePagePath = sanitizeText(pagePath);
-      if (!Object.hasOwn(data, safeUserId)) data[safeUserId] = {};
-      data[safeUserId][safePagePath] = {
+      if (!Object.hasOwn(data, userId)) data[userId] = {};
+      data[userId][safePagePath] = {
         progress: Math.min(100, Math.max(0, typeof progress === 'number' ? progress : 0)),
         lastRead: new Date().toISOString(),
       };
@@ -85,8 +86,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   }
 
   if (req.method === 'GET' && pathname === '/api/reading-progress') {
-    const userId = url.searchParams.get('userId');
-    if (!userId) return json(res, 400, {error: 'Missing userId'});
+    const {userId} = req.auth;
     const PROGRESS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('reading-progress'));
     const data = loadJSON(PROGRESS_FILE);
     const userProgress = data[userId] || {};
@@ -512,7 +512,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   // ── Flashcards: get cards due for review (SM-2) ──
   // Uses per-user keyed structure consistent with other flashcard endpoints
   if (req.method === 'GET' && pathname === '/api/flashcards/review') {
-    const userId = url.searchParams.get('userId') || 'default';
+    const {userId} = req.auth;
     const today = new Date().toISOString().slice(0, 10);
     const data = loadJSON(FLASHCARDS_FILE);
     const cards = (Object.hasOwn(data, userId) ? data[userId] : []).filter(c => c.nextReview <= today);

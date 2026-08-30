@@ -3,9 +3,6 @@
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 
-// Object keys that must never be used as property names (prototype-pollution guard).
-const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
-
 // Hoisted lint regexes for POST /api/lint, shared across every line and request.
 // A /g regex keeps its lastIndex between calls, so each exec loop resets it to 0
 // first (see the broken-image and missing-alt checks below).
@@ -41,7 +38,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
 
   // ── Writing Streak Tracker ──
   if (req.method === 'GET' && pathname === '/api/streak') {
-    const userId = url.searchParams.get('userId') || 'default';
+    const {userId} = req.auth;
     const data = loadJSON(STREAKS_FILE);
     const userLog = (data[userId] && data[userId].dailyLog) || [];
     // Compute streaks from log
@@ -102,10 +99,11 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
     if (!rateLimit(`streak:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
-      if (body.userId !== undefined && typeof body.userId !== 'string') return json(res, 400, {error: 'userId must be a string'});
-      if (body.userId && body.userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
-      if (body.userId && PROTO_KEYS.includes(body.userId)) return json(res, 400, {error: 'Invalid userId'});
-      const userId = body.userId ? sanitizeText(body.userId) : 'default';
+      // Identity comes from the session, so the shape, length, and
+      // prototype-key checks that used to police `body.userId` are gone: the
+      // value is no longer client-supplied. server/auth.js runs the equivalent
+      // check once, on the token subject.
+      const {userId} = req.auth;
       const wordsWritten = typeof body.wordsWritten === 'number' && isFinite(body.wordsWritten) ? body.wordsWritten : 0;
       if (wordsWritten < 0) return json(res, 400, {error: 'wordsWritten must be non-negative'});
       if (wordsWritten > 1000000) return json(res, 400, {error: 'wordsWritten exceeds maximum'});

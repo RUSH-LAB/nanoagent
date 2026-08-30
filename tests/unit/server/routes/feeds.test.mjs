@@ -9,7 +9,7 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, TEST_IDENTITY} from '../../_harness.mjs';
 
 const routes = loadRoute('feeds');
 const {STREAKS_FILE} = FILES;
@@ -95,18 +95,21 @@ describe('GET /api/references', () => {
 // ── Sessions ──────────────────────────────────────────────────────────────
 
 describe('POST /api/sessions', () => {
-  const OK = {userId: 'u1', startTime: '2026-01-01T09:00:00.000Z'};
+  const OK = {startTime: '2026-01-01T09:00:00.000Z'};
+  // The session is filed under the signed-in caller, so the store bucket the
+  // assertions look in is the harness identity, not a body field.
+  const UID = TEST_IDENTITY.userId;
+  const asUser = userId => ({...TEST_IDENTITY, userId});
 
+  // The userId guards are gone with `body.userId`; startTime and the optional
+  // fields are still client-supplied and still guarded.
   const GUARDS = [
-    {name: 'a missing userId', body: {startTime: 'x'}, error: 'Missing or invalid userId'},
-    {name: 'a non-string userId', body: {userId: 7, startTime: 'x'}, error: 'Missing or invalid userId'},
-    {name: 'a missing startTime', body: {userId: 'u1'}, error: 'Missing or invalid startTime'},
-    {name: 'a non-string startTime', body: {userId: 'u1', startTime: 7}, error: 'Missing or invalid startTime'},
+    {name: 'a missing startTime', body: {}, error: 'Missing or invalid startTime'},
+    {name: 'a non-string startTime', body: {startTime: 7}, error: 'Missing or invalid startTime'},
     {name: 'a non-string endTime', body: {...OK, endTime: 7}, error: 'endTime must be a string'},
     {name: 'a non-number wordsWritten', body: {...OK, wordsWritten: 'x'}, error: 'wordsWritten must be a number'},
     {name: 'a non-array filesEdited', body: {...OK, filesEdited: 'x'}, error: 'filesEdited must be an array'},
     {name: 'a filesEdited array over 100 entries', body: {...OK, filesEdited: new Array(101).fill('f.md')}, error: 'filesEdited exceeds maximum length of 100'},
-    ...PROTO_KEYS.map(userId => ({name: `the proto userId ${JSON.stringify(userId)}`, body: {...OK, userId}, error: 'Invalid userId'})),
   ];
   for (const {name, body, error} of GUARDS) {
     it(`rejects ${name}, persisting nothing`, async () => {
@@ -131,7 +134,7 @@ describe('POST /api/sessions', () => {
       duration: 90,
     });
     assert.match(id, /^sess_\d+_[a-z0-9]+$/);
-    assert.deepEqual(ctx.store[SESSIONS_FILE].u1, [r.payload.session]);
+    assert.deepEqual(ctx.store[SESSIONS_FILE][UID], [r.payload.session]);
   });
 
   it('defaults an omitted endTime to now, with zero words and duration', async () => {
@@ -148,17 +151,23 @@ describe('POST /api/sessions', () => {
   });
 
   it('appends to an existing user without dropping prior sessions', async () => {
-    const ctx = makeCtx({store: {[SESSIONS_FILE]: {u1: [{id: 'old'}]}}});
+    const ctx = makeCtx({store: {[SESSIONS_FILE]: {[UID]: [{id: 'old'}]}}});
     await invoke(routes, {method: 'POST', path: '/api/sessions', body: OK, ctx});
-    assert.deepEqual(ctx.store[SESSIONS_FILE].u1.map(s => s.id).slice(0, 1), ['old']);
-    assert.equal(ctx.store[SESSIONS_FILE].u1.length, 2);
+    assert.deepEqual(ctx.store[SESSIONS_FILE][UID].map(s => s.id).slice(0, 1), ['old']);
+    assert.equal(ctx.store[SESSIONS_FILE][UID].length, 2);
+  });
+
+  it('files the session under the caller, ignoring a userId in the body', async () => {
+    const ctx = makeCtx();
+    await invoke(routes, {method: 'POST', path: '/api/sessions', body: {...OK, userId: 'someone-else'}, ctx});
+    assert.deepEqual(Object.keys(ctx.store[SESSIONS_FILE]), [UID]);
   });
 
   it('caps a user history at the most recent 1000 sessions', async () => {
     const existing = Array.from({length: 1000}, (_, i) => ({id: `s${i}`}));
-    const ctx = makeCtx({store: {[SESSIONS_FILE]: {u1: existing}}});
+    const ctx = makeCtx({store: {[SESSIONS_FILE]: {[UID]: existing}}});
     await invoke(routes, {method: 'POST', path: '/api/sessions', body: OK, ctx});
-    const saved = ctx.store[SESSIONS_FILE].u1;
+    const saved = ctx.store[SESSIONS_FILE][UID];
     assert.equal(saved.length, 1000);
     assert.equal(saved[0].id, 's1', 'the oldest session is dropped');
   });
@@ -168,7 +177,7 @@ describe('POST /api/sessions', () => {
   for (const userId of INHERITED_KEYS) {
     it(`stores the inherited userId ${JSON.stringify(userId)} as an own key`, async () => {
       const ctx = makeCtx();
-      const r = await invoke(routes, {method: 'POST', path: '/api/sessions', body: {...OK, userId}, ctx});
+      const r = await invoke(routes, {method: 'POST', path: '/api/sessions', body: OK, ctx, auth: asUser(userId)});
       assert.equal(r.status, 200);
       assert.ok(Object.hasOwn(ctx.store[SESSIONS_FILE], userId));
       assert.equal(ctx.store[SESSIONS_FILE][userId].length, 1);
@@ -179,40 +188,42 @@ describe('POST /api/sessions', () => {
 describe('GET /api/sessions', () => {
   const sess = (id, over = {}) => ({id, duration: 10, wordsWritten: 100, ...over});
   const five = Array.from({length: 5}, (_, i) => sess(`s${i}`));
+  const UID = TEST_IDENTITY.userId;
+  const asUser = userId => ({...TEST_IDENTITY, userId});
 
   it('returns the most recent page newest first, with summed totals', async () => {
-    const ctx = makeCtx({store: {[SESSIONS_FILE]: {u1: five}}});
-    const r = await invoke(routes, {path: '/api/sessions', query: {userId: 'u1', limit: '2'}, ctx});
+    const ctx = makeCtx({store: {[SESSIONS_FILE]: {[UID]: five}}});
+    const r = await invoke(routes, {path: '/api/sessions', query: {limit: '2'}, ctx});
     assert.equal(r.status, 200);
     assert.deepEqual(r.payload.sessions.map(s => s.id), ['s4', 's3']);
     assert.deepEqual(r.payload.summary, {totalSessions: 2, totalMinutes: 20, totalWords: 200});
   });
 
   it('summarises only the limited page, not the whole history', async () => {
-    const ctx = makeCtx({store: {[SESSIONS_FILE]: {u1: five}}});
-    const r = await invoke(routes, {path: '/api/sessions', query: {userId: 'u1', limit: '1'}, ctx});
+    const ctx = makeCtx({store: {[SESSIONS_FILE]: {[UID]: five}}});
+    const r = await invoke(routes, {path: '/api/sessions', query: {limit: '1'}, ctx});
     assert.deepEqual(r.payload.summary, {totalSessions: 1, totalMinutes: 10, totalWords: 100});
   });
 
   it('applies the zero fallback for missing or falsy duration and wordsWritten', async () => {
-    const store = {[SESSIONS_FILE]: {u1: [sess('a', {duration: undefined, wordsWritten: undefined}), sess('b', {duration: 0, wordsWritten: 0})]}};
-    const r = await invoke(routes, {path: '/api/sessions', query: {userId: 'u1'}, ctx: makeCtx({store})});
+    const store = {[SESSIONS_FILE]: {[UID]: [sess('a', {duration: undefined, wordsWritten: undefined}), sess('b', {duration: 0, wordsWritten: 0})]}};
+    const r = await invoke(routes, {path: '/api/sessions', ctx: makeCtx({store})});
     assert.deepEqual(r.payload.summary, {totalSessions: 2, totalMinutes: 0, totalWords: 0});
   });
 
-  it('reads the literal "default" user when no userId is given', async () => {
-    const store = {[SESSIONS_FILE]: {default: [sess('d1')], other: [sess('o1')]}};
-    const r = await invoke(routes, {path: '/api/sessions', ctx: makeCtx({store})});
-    assert.deepEqual(r.payload.sessions.map(s => s.id), ['d1'], 'other-key data does not leak');
+  it('reads the caller\'s own bucket, ignoring a userId in the query', async () => {
+    const store = {[SESSIONS_FILE]: {[UID]: [sess('mine')], other: [sess('theirs')]}};
+    const r = await invoke(routes, {path: '/api/sessions', query: {userId: 'other'}, ctx: makeCtx({store})});
+    assert.deepEqual(r.payload.sessions.map(s => s.id), ['mine'], 'other-key data does not leak');
   });
 
   // A request-controlled id such as `constructor` resolves to a truthy
   // inherited value, so without the own-key guard `.slice` would throw and hang
   // the request until the socket timeout.
-  for (const userId of [...INHERITED_KEYS, 'constructor', 'absent', 'default']) {
+  for (const userId of [...INHERITED_KEYS, 'absent', 'default']) {
     it(`returns an empty page and zeroed summary for the non-own id ${JSON.stringify(userId)}`, async () => {
       const store = {[SESSIONS_FILE]: {real: [sess('s')]}};
-      const r = await invoke(routes, {path: '/api/sessions', query: {userId}, ctx: makeCtx({store})});
+      const r = await invoke(routes, {path: '/api/sessions', ctx: makeCtx({store}), auth: asUser(userId)});
       assert.deepEqual([r.status, r.payload], [200, {sessions: [], summary: {totalSessions: 0, totalMinutes: 0, totalWords: 0}}]);
     });
   }
@@ -230,8 +241,8 @@ describe('GET /api/sessions', () => {
   ];
   for (const {name, query, ids} of LIMITS) {
     it(`handles a limit that is ${name}`, async () => {
-      const ctx = makeCtx({store: {[SESSIONS_FILE]: {u1: five}}});
-      const r = await invoke(routes, {path: '/api/sessions', query: {userId: 'u1', ...query}, ctx});
+      const ctx = makeCtx({store: {[SESSIONS_FILE]: {[UID]: five}}});
+      const r = await invoke(routes, {path: '/api/sessions', query, ctx});
       assert.deepEqual(r.payload.sessions.map(s => s.id), ids);
     });
   }

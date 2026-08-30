@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
+// The identity server/index.js attaches to every request after verifying the
+// session token. The handler reads its store key from here, never from the URL
+// or the body.
+const AUTH = Object.freeze({ userId: 'test-user', orgId: null, orgRole: null, sessionId: null });
+const UID = AUTH.userId;
+
+
 // content-analysis-a.js is CommonJS; load it the way the other route tests do.
 const require = createRequire(import.meta.url);
 const routes = require('../../../../../src/server/routes/content-analysis-a.js');
@@ -50,9 +57,9 @@ async function report(dailyLog) {
   const ANALYTICS_FILE = 'ANALYTICS';
   // `undefined` means the user has no streak record at all (streakData = {});
   // anything else is wrapped as that user's dailyLog.
-  const streakData = dailyLog === undefined ? {} : { default: { dailyLog } };
+  const streakData = dailyLog === undefined ? {} : { [UID]: { dailyLog } };
   const url = new URL('http://localhost/api/productivity-report');
-  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' }, auth: AUTH };
   const res = { writableEnded: false };
   let captured = null;
   const ctx = {

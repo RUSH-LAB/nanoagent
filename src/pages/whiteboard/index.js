@@ -8,7 +8,7 @@ const COLORS = ['#fef3c7', '#dbeafe', '#dcfce7', '#fce7f3', '#e0e7ff', '#fef9c3'
 
 function WhiteboardApp() {
   const {useState, useEffect, useRef, useCallback} = require('react');
-  const API_BASE = require('@site/src/utils/api').default;
+  const { default: API_BASE, apiFetch } = require('@site/src/utils/api');
 
   const canvasRef = useRef(null);
   const [elements, setElements] = useState([]);
@@ -28,7 +28,7 @@ function WhiteboardApp() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/whiteboard?id=${encodeURIComponent(id)}`);
+      const res = await apiFetch(`${API_BASE}/api/whiteboard?id=${encodeURIComponent(id)}`);
       if (res.ok) {
         const data = await res.json();
         setElements(data.whiteboard.elements || []);
@@ -47,7 +47,7 @@ function WhiteboardApp() {
 
   const loadBoards = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/whiteboards`);
+      const res = await apiFetch(`${API_BASE}/api/whiteboards`);
       if (res.ok) {
         const data = await res.json();
         setBoards(data.whiteboards || []);
@@ -256,7 +256,7 @@ function WhiteboardApp() {
   async function handleSave() {
     setSaving(true);
     try {
-      await fetch(`${API_BASE}/api/whiteboard`, {
+      await apiFetch(`${API_BASE}/api/whiteboard`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({id: boardId, elements}),
@@ -272,7 +272,7 @@ function WhiteboardApp() {
   async function handleDeleteBoard() {
     if (!confirm('Delete this whiteboard?')) return;
     try {
-      await fetch(`${API_BASE}/api/whiteboard?id=${encodeURIComponent(boardId)}`, {method: 'DELETE'});
+      await apiFetch(`${API_BASE}/api/whiteboard?id=${encodeURIComponent(boardId)}`, {method: 'DELETE'});
       setElements([]);
       setDirty(false);
       loadBoards();

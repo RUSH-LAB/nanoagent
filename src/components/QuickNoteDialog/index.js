@@ -1,5 +1,5 @@
 import React, {useState, useEffect, useRef} from 'react';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 import {toast} from '@site/src/components/Toast/toast';
 import styles from './styles.module.css';
 
@@ -36,7 +36,7 @@ export default function QuickNoteDialog({open, onClose}) {
     }
     setSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/api/quicknote`, {
+      const res = await apiFetch(`${API_BASE}/api/quicknote`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({

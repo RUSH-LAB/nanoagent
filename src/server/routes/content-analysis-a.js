@@ -47,7 +47,7 @@ module.exports = async function content_analysis_a_routes(req, res, url, pathnam
   // ── Productivity report ──
   if (req.method === 'GET' && pathname === '/api/productivity-report') {
     try {
-      const userId = url.searchParams.get('userId') || 'default';
+      const {userId} = req.auth;
       const streakData = loadJSON(STREAKS_FILE);
       const userLog = (streakData[userId] && streakData[userId].dailyLog) || [];
       const sorted = [...userLog].sort((a, b) => a.date.localeCompare(b.date));

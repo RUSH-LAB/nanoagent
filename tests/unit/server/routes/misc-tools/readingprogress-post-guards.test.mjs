@@ -39,6 +39,7 @@ async function runReadingProgress({
   store = {},
   rateLimitOk = true,
   throwOnReadBody = false,
+  userId = 'reader-1',
 } = {}) {
   const saved = [];
   const rateLimitCalls = [];
@@ -65,7 +66,11 @@ async function runReadingProgress({
   };
   const pathname = '/api/reading-progress';
   const url = new URL(`http://localhost${pathname}`);
-  const req = { method: 'POST', socket: { remoteAddress: '127.0.0.1' } };
+  // The store key is the session subject, attached by server/index.js after it
+  // verifies the Clerk token. It is no longer a body field, so none of the
+  // guards below concern it.
+  const auth = { userId, orgId: null, orgRole: null, sessionId: null };
+  const req = { method: 'POST', socket: { remoteAddress: '127.0.0.1' }, auth };
   const res = { writableEnded: false };
   await routes(req, res, url, pathname, ctx);
   return { captured, saved, readBodyCount, loadJSONCount, rateLimitCalls };
@@ -73,7 +78,7 @@ async function runReadingProgress({
 
 describe('POST /api/reading-progress guards in routes/misc-tools.js', () => {
   it('a rate-limited request returns 429, never reads the body, loads, or saves, and uses the reading-progress key with limit 60', async () => {
-    const r = await runReadingProgress({ rateLimitOk: false, body: { userId: 'reader-1', pagePath: '/reading/page-1' } });
+    const r = await runReadingProgress({ rateLimitOk: false, body: { pagePath: '/reading/page-1' } });
     assert.equal(r.captured.status, 429);
     assert.deepEqual(r.captured.body, { error: 'Too many requests. Try again in a minute.' });
     assert.equal(r.readBodyCount, 0, 'the rate-limit guard returns before readBody');
@@ -86,60 +91,20 @@ describe('POST /api/reading-progress guards in routes/misc-tools.js', () => {
     assert.deepEqual(r.rateLimitCalls[0], { key: 'reading-progress:127.0.0.1', limit: 60 });
   });
 
-  it('an empty body has a falsy userId, returning 400 Missing or invalid userId, reading the body once, never loading or saving', async () => {
-    // An empty object destructures to an undefined userId, which is falsy, so the
-    // first validation guard rejects it. The body is read inside the try before
-    // any field is validated.
+  // The userId type, length, and prototype-key guards this suite used to pin
+  // are gone: identity is no longer a body field. A body carrying one is simply
+  // ignored, which the last case here proves.
+  it('an empty body has no pagePath, returning 400 Missing or invalid pagePath, reading the body once, never loading or saving', async () => {
     const r = await runReadingProgress({ body: {} });
     assert.equal(r.captured.status, 400);
-    assert.deepEqual(r.captured.body, { error: 'Missing or invalid userId' });
-    assert.equal(r.readBodyCount, 1, 'the body is read before userId is validated');
-    assert.equal(r.loadJSONCount, 0);
-    assert.equal(r.saved.length, 0);
-  });
-
-  it('an empty-string userId is falsy, returning 400 Missing or invalid userId, never loading or saving', async () => {
-    const r = await runReadingProgress({ body: { userId: '', pagePath: '/reading/page-1' } });
-    assert.equal(r.captured.status, 400);
-    assert.deepEqual(r.captured.body, { error: 'Missing or invalid userId' });
-    assert.equal(r.readBodyCount, 1);
-    assert.equal(r.loadJSONCount, 0);
-    assert.equal(r.saved.length, 0);
-  });
-
-  it('a non-string userId (42) trips the typeof guard, returning 400 Missing or invalid userId, never loading or saving', async () => {
-    // 42 is truthy so it clears the falsy check, but typeof 42 !== 'string' trips
-    // the same guard; a numeric userId is never accepted.
-    const r = await runReadingProgress({ body: { userId: 42, pagePath: '/reading/page-1' } });
-    assert.equal(r.captured.status, 400);
-    assert.deepEqual(r.captured.body, { error: 'Missing or invalid userId' });
-    assert.equal(r.readBodyCount, 1);
-    assert.equal(r.loadJSONCount, 0);
-    assert.equal(r.saved.length, 0);
-  });
-
-  it('a 201-character userId clears the typeof guard but trips the length guard, returning 400 userId must be 200 characters or fewer', async () => {
-    const r = await runReadingProgress({ body: { userId: 'u'.repeat(201), pagePath: '/reading/page-1' } });
-    assert.equal(r.captured.status, 400);
-    assert.deepEqual(r.captured.body, { error: 'userId must be 200 characters or fewer' });
-    assert.equal(r.readBodyCount, 1);
-    assert.equal(r.loadJSONCount, 0);
-    assert.equal(r.saved.length, 0);
-  });
-
-  it('a valid userId with a missing pagePath returns 400 Missing or invalid pagePath, never loading or saving', async () => {
-    // userId passes both userId guards, so the falsy pagePath is the branch under
-    // test; an absent pagePath destructures to undefined, which is falsy.
-    const r = await runReadingProgress({ body: { userId: 'reader-1' } });
-    assert.equal(r.captured.status, 400);
     assert.deepEqual(r.captured.body, { error: 'Missing or invalid pagePath' });
-    assert.equal(r.readBodyCount, 1);
+    assert.equal(r.readBodyCount, 1, 'the body is read before pagePath is validated');
     assert.equal(r.loadJSONCount, 0);
     assert.equal(r.saved.length, 0);
   });
 
   it('a non-string pagePath (99) trips the typeof guard, returning 400 Missing or invalid pagePath, never loading or saving', async () => {
-    const r = await runReadingProgress({ body: { userId: 'reader-1', pagePath: 99 } });
+    const r = await runReadingProgress({ body: { pagePath: 99 } });
     assert.equal(r.captured.status, 400);
     assert.deepEqual(r.captured.body, { error: 'Missing or invalid pagePath' });
     assert.equal(r.readBodyCount, 1);
@@ -148,7 +113,7 @@ describe('POST /api/reading-progress guards in routes/misc-tools.js', () => {
   });
 
   it('a 501-character pagePath clears the typeof guard but trips the length guard, returning 400 pagePath must be 500 characters or fewer', async () => {
-    const r = await runReadingProgress({ body: { userId: 'reader-1', pagePath: 'p'.repeat(501) } });
+    const r = await runReadingProgress({ body: { pagePath: 'p'.repeat(501) } });
     assert.equal(r.captured.status, 400);
     assert.deepEqual(r.captured.body, { error: 'pagePath must be 500 characters or fewer' });
     assert.equal(r.readBodyCount, 1);
@@ -156,23 +121,11 @@ describe('POST /api/reading-progress guards in routes/misc-tools.js', () => {
     assert.equal(r.saved.length, 0);
   });
 
-  it('a __proto__ userId is a reserved key, returning 400 Invalid key, never loading or saving', async () => {
-    // '__proto__' is a truthy, short string, so it clears every userId guard and a
-    // valid pagePath clears the pagePath guards; the prototype-key guard is the
-    // branch that rejects it.
-    const r = await runReadingProgress({ body: { userId: '__proto__', pagePath: '/reading/page-1' } });
-    assert.equal(r.captured.status, 400);
-    assert.deepEqual(r.captured.body, { error: 'Invalid key' });
-    assert.equal(r.readBodyCount, 1);
-    assert.equal(r.loadJSONCount, 0);
-    assert.equal(r.saved.length, 0);
-  });
-
   it('a constructor pagePath is a reserved key, returning 400 Invalid key, never loading or saving', async () => {
-    // A valid userId clears the userId guards; 'constructor' clears the pagePath
-    // type and length guards, so the prototype-key guard rejects it from the
-    // pagePath side of the same check.
-    const r = await runReadingProgress({ body: { userId: 'reader-1', pagePath: 'constructor' } });
+    // pagePath is still client-supplied and still keys the inner map, so its
+    // prototype-key guard survives; 'constructor' clears the type and length
+    // guards and is rejected by that check.
+    const r = await runReadingProgress({ body: { pagePath: 'constructor' } });
     assert.equal(r.captured.status, 400);
     assert.deepEqual(r.captured.body, { error: 'Invalid key' });
     assert.equal(r.readBodyCount, 1);
@@ -180,19 +133,31 @@ describe('POST /api/reading-progress guards in routes/misc-tools.js', () => {
     assert.equal(r.saved.length, 0);
   });
 
-  it('a prototype userId is a reserved key, returning 400 Invalid key, never loading or saving', async () => {
-    const r = await runReadingProgress({ body: { userId: 'prototype', pagePath: '/reading/page-1' } });
+  it('a prototype pagePath is a reserved key, returning 400 Invalid key, never loading or saving', async () => {
+    const r = await runReadingProgress({ body: { pagePath: 'prototype' } });
     assert.equal(r.captured.status, 400);
     assert.deepEqual(r.captured.body, { error: 'Invalid key' });
     assert.equal(r.readBodyCount, 1);
     assert.equal(r.loadJSONCount, 0);
     assert.equal(r.saved.length, 0);
+  });
+
+  it('a __proto__ userId in the body is ignored, and the write lands on the session subject', async () => {
+    // Under the old handler this body was a 400 Invalid key, because the store
+    // key came from the body. It is now inert data: the guard never sees it and
+    // the entry is filed under the authenticated caller.
+    const store = {};
+    const r = await runReadingProgress({ body: { userId: '__proto__', pagePath: '/reading/page-1', progress: 40 }, store });
+    assert.deepEqual([r.captured.status, r.captured.body], [200, { success: true }]);
+    assert.deepEqual(Object.keys(r.saved[0].data), ['reader-1']);
+    assert.equal(r.saved[0].data['reader-1']['/reading/page-1'].progress, 40);
+    assert.equal({}.polluted, undefined);
   });
 
   it('an outer throw (readBody fails) returns 400 Invalid request, reads the body once, never loading or saving', async () => {
     // readBody runs inside the try with no inner parse guard, so its rejection
     // lands on the outer catch as a 400 Invalid request, not a validation 400.
-    const r = await runReadingProgress({ throwOnReadBody: true, body: { userId: 'reader-1', pagePath: '/reading/page-1' } });
+    const r = await runReadingProgress({ throwOnReadBody: true, body: { pagePath: '/reading/page-1' } });
     assert.equal(r.captured.status, 400);
     assert.deepEqual(r.captured.body, { error: 'Invalid request' });
     assert.equal(r.readBodyCount, 1);

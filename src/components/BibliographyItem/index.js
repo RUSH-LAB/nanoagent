@@ -4,7 +4,7 @@ import Head from '@docusaurus/Head';
 import Link from '@docusaurus/Link';
 import { usePluginData } from '@docusaurus/useGlobalData';
 import { useLocation } from '@docusaurus/router';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 import { S2_PAPER_SEARCH } from '@site/src/utils/semanticScholar';
 
 const BUTTON_BASE = {
@@ -197,7 +197,7 @@ function CitationCount({ entry, bibKey }) {
   const handleFetch = () => {
     setLoading(true);
     setError(null);
-    fetch(`${ENRICH_API}?key=${encodeURIComponent(bibKey)}`)
+    apiFetch(`${ENRICH_API}?key=${encodeURIComponent(bibKey)}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.error) {
@@ -304,7 +304,7 @@ function EnrichSection({ bibKey, entry }) {
     setEnrichData(null);
     setSelectedFields({});
     setSaved(false);
-    fetch(`${ENRICH_API}?key=${encodeURIComponent(bibKey)}`)
+    apiFetch(`${ENRICH_API}?key=${encodeURIComponent(bibKey)}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.error) {
@@ -343,7 +343,7 @@ function EnrichSection({ bibKey, entry }) {
     setSaving(true);
     setSaved(false);
     setError(null);
-    fetch(ENRICH_API, {
+    apiFetch(ENRICH_API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: bibKey, fields }),
@@ -617,7 +617,7 @@ function PublicationTracker({ entry, bibKey }) {
   const handleCheck = () => {
     setChecking(true);
     setError(null);
-    fetch(`${TRACK_API}?key=${encodeURIComponent(bibKey)}`)
+    apiFetch(`${TRACK_API}?key=${encodeURIComponent(bibKey)}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.error && !data.published) {
@@ -633,7 +633,7 @@ function PublicationTracker({ entry, bibKey }) {
   const handleUpdate = () => {
     setUpdating(true);
     setError(null);
-    fetch(TRACK_API, {
+    apiFetch(TRACK_API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: bibKey }),
@@ -878,7 +878,7 @@ function NotesSection({ notes: staticNotes, bibKey }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${NOTES_API}?key=${encodeURIComponent(bibKey)}`)
+    apiFetch(`${NOTES_API}?key=${encodeURIComponent(bibKey)}`)
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
@@ -902,7 +902,7 @@ function NotesSection({ notes: staticNotes, bibKey }) {
     setSaving(true);
     setSaved(false);
     setError(null);
-    fetch(NOTES_API, {
+    apiFetch(NOTES_API, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: bibKey, content }),
@@ -927,7 +927,7 @@ function NotesSection({ notes: staticNotes, bibKey }) {
     setEditing(false);
     setError(null);
     // Re-fetch to reset content to server state
-    fetch(`${NOTES_API}?key=${encodeURIComponent(bibKey)}`)
+    apiFetch(`${NOTES_API}?key=${encodeURIComponent(bibKey)}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.note && data.note.content != null) {
@@ -1083,7 +1083,7 @@ function RelatedPapers({ title }) {
       venue: paper.venue || '',
       url: paper.url || '',
     };
-    fetch(`${API_BASE}/api/references`, {
+    apiFetch(`${API_BASE}/api/references`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(ref),

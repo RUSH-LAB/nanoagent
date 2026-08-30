@@ -55,18 +55,16 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     if (!rateLimit(`flashcards:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
-      const {userId, front, back, tags, sourcePath} = body;
+      const {front, back, tags, sourcePath} = body;
+      const {userId: uid} = req.auth;
       if (!front || typeof front !== 'string') return json(res, 400, {error: 'Missing or invalid front'});
       if (!back || typeof back !== 'string') return json(res, 400, {error: 'Missing or invalid back'});
       if (front.length > 5000) return json(res, 400, {error: 'front must be 5000 characters or fewer'});
       if (back.length > 5000) return json(res, 400, {error: 'back must be 5000 characters or fewer'});
-      if (userId !== undefined && typeof userId !== 'string') return json(res, 400, {error: 'userId must be a string'});
-      if (userId && userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
       if (tags !== undefined && (!Array.isArray(tags) || !tags.every(t => typeof t === 'string'))) return json(res, 400, {error: 'tags must be an array of strings'});
       if (sourcePath !== undefined && typeof sourcePath !== 'string') return json(res, 400, {error: 'sourcePath must be a string'});
       if (sourcePath && sourcePath.length > 500) return json(res, 400, {error: 'sourcePath must be 500 characters or fewer'});
       const data = loadJSON(FLASHCARDS_FILE);
-      const uid = userId || 'default';
       if (!Object.hasOwn(data, uid)) data[uid] = [];
       const card = {
         id: `fc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -89,14 +87,14 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   }
 
   if (req.method === 'GET' && pathname === '/api/flashcards') {
-    const userId = url.searchParams.get('userId') || 'default';
+    const {userId} = req.auth;
     const data = loadJSON(FLASHCARDS_FILE);
     const cards = Object.hasOwn(data, userId) ? data[userId] : [];
     return json(res, 200, {cards, total: cards.length});
   }
 
   if (req.method === 'GET' && pathname === '/api/flashcards/due') {
-    const userId = url.searchParams.get('userId') || 'default';
+    const {userId} = req.auth;
     const today = new Date().toISOString().slice(0, 10);
     const data = loadJSON(FLASHCARDS_FILE);
     const cards = (Object.hasOwn(data, userId) ? data[userId] : []).filter(c => c.nextReview <= today);
@@ -107,15 +105,13 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     if (!rateLimit(`fc-review:${req.socket.remoteAddress}`, 120)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
-      const {userId, cardId, quality} = body;
+      const {cardId, quality} = body;
+      const {userId: uid} = req.auth;
       if (!cardId || typeof cardId !== 'string') return json(res, 400, {error: 'Missing or invalid cardId'});
       if (cardId.length > 200) return json(res, 400, {error: 'cardId must be 200 characters or fewer'});
       if (quality == null || typeof quality !== 'number' || !isFinite(quality)) return json(res, 400, {error: 'Missing or invalid quality'});
       if (quality < 0 || quality > 5) return json(res, 400, {error: 'quality must be between 0 and 5'});
-      if (userId !== undefined && typeof userId !== 'string') return json(res, 400, {error: 'userId must be a string'});
-      if (userId && userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
       const q = Math.max(0, Math.min(5, quality));
-      const uid = userId || 'default';
       const data = loadJSON(FLASHCARDS_FILE);
       const card = (Object.hasOwn(data, uid) ? data[uid] : []).find(c => c.id === cardId);
       if (!card) return json(res, 404, {error: 'Card not found'});
@@ -143,9 +139,9 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   if (req.method === 'DELETE' && pathname === '/api/flashcards') {
     try {
       const body = await readBody(req);
-      const {userId, cardId} = body;
+      const {cardId} = body;
+      const {userId: uid} = req.auth;
       if (!cardId) return json(res, 400, {error: 'Missing cardId'});
-      const uid = userId || 'default';
       const data = loadJSON(FLASHCARDS_FILE);
       if (!Object.hasOwn(data, uid)) return json(res, 404, {error: 'Card not found'});
       const idx = data[uid].findIndex(c => c.id === cardId);
@@ -612,7 +608,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
 
   // ── Quick notes / scratchpad ──
   if (req.method === 'GET' && pathname === '/api/quicknotes') {
-    const userId = url.searchParams.get('userId') || 'default';
+    const {userId} = req.auth;
     const QUICKNOTES_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('quicknotes'));
     const data = loadJSON(QUICKNOTES_FILE);
     const jsonNotes = (Object.hasOwn(data, userId) ? data[userId] : []).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
@@ -654,12 +650,10 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     if (!rateLimit(`quicknotes:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
-      const {userId, text, color} = body;
+      const {text, color} = body;
+      const {userId: uid} = req.auth;
       if (!text || typeof text !== 'string') return json(res, 400, {error: 'Missing or invalid text'});
       if (text.length > MAX_TEXT_LENGTH) return json(res, 400, {error: 'Text too long'});
-      if (userId !== undefined && typeof userId !== 'string') return json(res, 400, {error: 'userId must be a string'});
-      if (userId && userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
-      const uid = userId || 'default';
       const QUICKNOTES_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('quicknotes'));
       const data = loadJSON(QUICKNOTES_FILE);
       if (!Object.hasOwn(data, uid)) data[uid] = [];
@@ -682,9 +676,9 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   if (req.method === 'DELETE' && pathname === '/api/quicknotes') {
     try {
       const body = await readBody(req);
-      const {userId, id} = body;
+      const {id} = body;
+      const {userId: uid} = req.auth;
       if (!id) return json(res, 400, {error: 'Missing id'});
-      const uid = userId || 'default';
       const QUICKNOTES_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('quicknotes'));
       const data = loadJSON(QUICKNOTES_FILE);
       if (!Object.hasOwn(data, uid)) return json(res, 404, {error: 'Note not found'});
@@ -745,8 +739,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
 
   // ── User preferences ──
   if (req.method === 'GET' && pathname === '/api/preferences') {
-    const userId = url.searchParams.get('userId');
-    if (!userId) return json(res, 400, {error: 'Missing userId'});
+    const {userId} = req.auth;
     const PREFS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('preferences'));
     const prefs = loadJSON(PREFS_FILE);
     return json(res, 200, {preferences: Object.hasOwn(prefs, userId) ? prefs[userId] : {}});
@@ -756,16 +749,14 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     if (!rateLimit(`prefs:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
-      const {userId, preferences} = body;
-      if (!userId || typeof userId !== 'string') return json(res, 400, {error: 'Missing or invalid userId'});
-      if (userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
+      const {preferences} = body;
+      const {userId: safeUserId} = req.auth;
       if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) return json(res, 400, {error: 'Missing or invalid preferences'});
-      // Guard against prototype pollution: reject dangerous keys
-      if (DANGEROUS_PREFERENCE_KEYS.has(userId)) return json(res, 400, {error: 'Invalid userId'});
+      // Preference names are still client-supplied, so their prototype-key
+      // guard stays. The store key is the session subject, already checked.
       for (const key of Object.keys(preferences)) {
         if (DANGEROUS_PREFERENCE_KEYS.has(key)) return json(res, 400, {error: `Invalid preference key: ${key}`});
       }
-      const safeUserId = sanitizeText(userId);
       const PREFS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('preferences'));
       const prefs = loadJSON(PREFS_FILE);
       if (!Object.hasOwn(prefs, safeUserId)) prefs[safeUserId] = {};

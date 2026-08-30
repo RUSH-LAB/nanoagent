@@ -347,7 +347,6 @@ async function testStreak() {
   // 1. Log words written
   await test('POST /api/streak — log words written', async () => {
     const {status, data} = await api('POST', '/api/streak', {
-      userId: TEST_STREAK_USER,
       wordsWritten: 200,
     });
     assertEq(status, 200, 'status');
@@ -357,8 +356,8 @@ async function testStreak() {
   });
 
   // 2. Retrieve streak data
-  await test('GET /api/streak?userId=... — verify streak data shape', async () => {
-    const {status, data} = await api('GET', `/api/streak?userId=${encodeURIComponent(TEST_STREAK_USER)}`);
+  await test('GET /api/streak — verify streak data shape', async () => {
+    const {status, data} = await api('GET', `/api/streak`);
     assertEq(status, 200, 'status');
     assertOk(typeof data.currentStreak === 'number', 'has currentStreak');
     assertOk(typeof data.longestStreak === 'number', 'has longestStreak');
@@ -373,14 +372,13 @@ async function testStreak() {
   // 3. Post again with more words — verify update
   await test('POST /api/streak — update with more words', async () => {
     const {status, data} = await api('POST', '/api/streak', {
-      userId: TEST_STREAK_USER,
       wordsWritten: 500,
     });
     assertEq(status, 200, 'status');
     assertOk(data.success, 'success');
     assertEq(data.words, 500, 'words updated to 500');
     // Verify via GET that the daily entry was updated (replaced, not appended)
-    const {data: streakData} = await api('GET', `/api/streak?userId=${encodeURIComponent(TEST_STREAK_USER)}`);
+    const {data: streakData} = await api('GET', `/api/streak`);
     assertEq(streakData.totalWords, 500, 'totalWords reflects updated value');
     assertEq(streakData.dailyLog.length, 1, 'still only one daily entry (replaced, not appended)');
   });

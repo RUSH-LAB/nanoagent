@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 import { CHART_HUES } from '@site/src/utils/chartColors';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 import pageStyles from '@site/src/css/page.module.css';
@@ -50,7 +50,7 @@ function StatsDashboard() {
     const { signal } = controller;
 
     const fetchJSON = (url) =>
-      fetch(`${API_BASE}${url}`, { signal }).then((r) => {
+      apiFetch(`${API_BASE}${url}`, { signal }).then((r) => {
         if (!r.ok) throw new Error(`${url} returned ${r.status}`);
         return r.json();
       });

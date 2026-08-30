@@ -1,7 +1,7 @@
 import React, {useState, useEffect, useRef, useMemo, useCallback} from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import {useHistory} from '@docusaurus/router';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 import {fuzzyMatch} from '@site/src/utils/fuzzyMatch';
 import {COMMANDS, commandHaystack} from '@site/src/components/commands';
 import QuickNoteDialog from '@site/src/components/QuickNoteDialog';
@@ -255,7 +255,7 @@ function CommandBarInner() {
       .join('\n\n')
       .slice(-CONTEXT_CHARS);
     try {
-      const res = await fetch(`${API_BASE}/api/ai/complete`, {
+      const res = await apiFetch(`${API_BASE}/api/ai/complete`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(context ? {prompt: text, context} : {prompt: text}),

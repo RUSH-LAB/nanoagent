@@ -15,6 +15,7 @@ const {
 } = require('./server-utils');
 
 const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
+const {resolveIdentity, isPublicPath} = require('./auth');
 const PORT = process.env.EDITOR_PORT || 3001;
 const NOTES_FILE = dataFile('notes');
 const ANALYTICS_FILE = dataFile('analytics');
@@ -110,7 +111,9 @@ function json(res, status, data, opts) {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': CORS_ORIGIN,
     'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, PATCH, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    // Authorization is listed so the preflight lets the session token through;
+    // without it every authenticated cross-origin call fails before it is sent.
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'X-API-Version': '1.0',
     'X-Powered-By': 'Mochi Lab',
   };
@@ -398,6 +401,18 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const pathname = url.pathname;
+
+  // ── Identity ──
+  // Resolved once, before any handler runs, and attached to the request rather
+  // than to `ctx`: `ctx` is a single module-level object shared by every
+  // in-flight request, so an identity parked there would leak across
+  // concurrent callers. Handlers read `req.auth` and nothing else; a `userId`
+  // in a query string or body is now ignored wherever it still appears.
+  const auth = await resolveIdentity(req);
+  if (!auth.ok && pathname.startsWith('/api/') && !isPublicPath(pathname)) {
+    return json(res, auth.status, {error: auth.error});
+  }
+  req.auth = auth.ok ? auth.identity : null;
 
   // ── Health check ──
   if (req.method === 'GET' && pathname === '/api/health') {

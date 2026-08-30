@@ -18,7 +18,7 @@ const COLUMN_META = {
 
 function TasksApp() {
   const {useState, useEffect, useCallback} = require('react');
-  const API_BASE = require('@site/src/utils/api').default;
+  const { default: API_BASE, apiFetch } = require('@site/src/utils/api');
 
   const [tasks, setTasks] = useState({todo: [], doing: [], done: []});
   const [counts, setCounts] = useState({todo: 0, doing: 0, done: 0});
@@ -35,7 +35,7 @@ function TasksApp() {
   const loadTasks = useCallback(async () => {
     try {
       setError(null);
-      const res = await fetch(`${API_BASE}/api/tasks`);
+      const res = await apiFetch(`${API_BASE}/api/tasks`);
       if (!res.ok) throw new Error(`Failed to load tasks (${res.status})`);
       const data = await res.json();
       setTasks(data.grouped);
@@ -52,7 +52,7 @@ function TasksApp() {
   const createTask = async () => {
     if (!formTitle.trim()) return;
     try {
-      const res = await fetch(`${API_BASE}/api/tasks`, {
+      const res = await apiFetch(`${API_BASE}/api/tasks`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({title: formTitle, description: formDesc, status: formStatus, priority: formPriority}),
@@ -68,7 +68,7 @@ function TasksApp() {
 
   const updateTask = async (id, updates) => {
     try {
-      const res = await fetch(`${API_BASE}/api/tasks`, {
+      const res = await apiFetch(`${API_BASE}/api/tasks`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({id, ...updates}),
@@ -83,7 +83,7 @@ function TasksApp() {
   const deleteTask = async (id) => {
     if (!confirm('Delete this task?')) return;
     try {
-      const res = await fetch(`${API_BASE}/api/tasks`, {
+      const res = await apiFetch(`${API_BASE}/api/tasks`, {
         method: 'DELETE',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({id}),

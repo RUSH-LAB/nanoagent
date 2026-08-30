@@ -10,7 +10,7 @@ const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js'
 // Invoke the GET /api/reading-progress handler with a mocked ctx. `stored` is the
 // whole reading-progress file (keyed by userId); the handler reads it via loadJSON
 // and reports per-user counts. json() records the response the handler sends.
-async function invokeReadingProgress({ userId, stored }) {
+async function invokeReadingProgress({ userId, stored, query = '' }) {
   let captured = null;
   const ctx = {
     path,
@@ -18,9 +18,11 @@ async function invokeReadingProgress({ userId, stored }) {
     loadJSON: () => stored,
     json: (_res, status, body) => { captured = { status, body }; return captured; },
   };
-  const search = userId === undefined ? '' : `?userId=${encodeURIComponent(userId)}`;
-  const url = new URL(`http://localhost/api/reading-progress${search}`);
-  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
+  const url = new URL(`http://localhost/api/reading-progress${query}`);
+  // The bucket read is the session subject's, resolved by server/index.js from
+  // the Clerk token and attached as req.auth.
+  const auth = { userId, orgId: null, orgRole: null, sessionId: null };
+  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' }, auth };
   const res = { writableEnded: false };
   await miscToolsRoutes(req, res, url, '/api/reading-progress', ctx);
   return captured;
@@ -97,9 +99,15 @@ describe('GET /api/reading-progress folds the two filter passes into one loop', 
     assert.deepEqual(r.body, { pages: [], totalRead: 0, inProgress: 0, totalTracked: 0 });
   });
 
-  it('rejects a request with no userId', async () => {
-    const r = await invokeReadingProgress({ stored });
-    assert.equal(r.status, 400);
-    assert.deepEqual(r.body, { error: 'Missing userId' });
+  // The handler used to 400 on a missing `?userId=`. There is no such branch
+  // now: an unauthenticated request never reaches a route module, and an
+  // authenticated one always carries a subject. A caller with no stored bucket
+  // gets the same zeroed reply as any other stranger, which the case above
+  // pins.
+  it('ignores a userId in the query string', async () => {
+    // Signed in as a stranger, asking for reader's bucket by name. The query
+    // parameter is dead weight: the reply is the stranger's own empty bucket.
+    const r = await invokeReadingProgress({ userId: 'stranger', stored, query: '?userId=reader' });
+    assert.deepEqual(r.body, { pages: [], totalRead: 0, inProgress: 0, totalTracked: 0 });
   });
 });

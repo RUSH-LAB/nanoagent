@@ -529,7 +529,7 @@ module.exports = async function content_analysis_b_routes(req, res, url, pathnam
 
   // ── Personalized content recommendations ──
   if (req.method === 'GET' && pathname === '/api/content-recommend') {
-    const userId = url.searchParams.get('userId') || 'default';
+    const {userId} = req.auth;
     try {
       const PROGRESS_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('reading-progress'));
       const progressData = loadJSON(PROGRESS_FILE);

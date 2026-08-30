@@ -24,6 +24,7 @@
     "write-heading-ids": "docusaurus write-heading-ids"
   },
   "dependencies": {
+    "@clerk/backend": "^3.16.13",
     "@clerk/clerk-react": "^5.0.0",
     "@docusaurus/core": "^3.10.0",
     "@docusaurus/faster": "^3.10.0",

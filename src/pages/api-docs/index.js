@@ -315,8 +315,8 @@ const CATEGORIES = [
         response: '{ "users": { "user_abc123": { "role": "owner", "email": "alice@example.com", "name": "Alice", "addedAt": "..." } } }',
       },
       {
-        method: 'GET', path: '/api/users/me', description: 'Get the current user\'s role. Returns "viewer" for unknown users.',
-        request: 'Query: ?userId=user_abc123',
+        method: 'GET', path: '/api/users/me', description: 'Get the signed-in user\'s id, organization, and role. Returns "viewer" for a user with no stored record.',
+        request: 'No parameters: the caller is the subject of the session token.',
         response: '{ "role": "owner", "email": "alice@example.com", "name": "Alice" }',
       },
       {
@@ -458,13 +458,13 @@ const CATEGORIES = [
     icon: '\u{1F525}',
     endpoints: [
       {
-        method: 'GET', path: '/api/streak', description: 'Get writing streak data for a user.',
-        request: 'Query: ?userId=default',
+        method: 'GET', path: '/api/streak', description: 'Get the signed-in user\'s writing streak data.',
+        request: 'No parameters.',
         response: '{ "currentStreak": 5, "longestStreak": 12, "totalWords": 8500, "dailyLog": [{ "date": "2025-01-15", "words": 350 }, ...] }',
       },
       {
         method: 'POST', path: '/api/streak', description: 'Record words written today.',
-        request: '{ "userId": "default", "wordsWritten": 350 }',
+        request: '{ "wordsWritten": 350 }',
         response: '{ "success": true, "date": "2025-01-15", "words": 350 }',
       },
     ],
@@ -561,32 +561,32 @@ const CATEGORIES = [
     endpoints: [
       {
         method: 'POST', path: '/api/flashcards', description: 'Create a new flashcard. Rate-limited to 30/min per IP.',
-        request: '{ "front": "What is attention?", "back": "A mechanism for weighting input relevance.", "tags": ["ml", "transformers"], "sourcePath": "content/docs/attention.md", "userId": "default" }',
+        request: '{ "front": "What is attention?", "back": "A mechanism for weighting input relevance.", "tags": ["ml", "transformers"], "sourcePath": "content/docs/attention.md" }',
         response: '{ "success": true, "card": { "id": "fc_...", "front": "...", "back": "...", "tags": [...], "sourcePath": "...", "interval": 1, "easeFactor": 2.5, "repetitions": 0, "nextReview": "2025-01-15", "createdAt": "..." } }',
       },
       {
-        method: 'GET', path: '/api/flashcards', description: 'List all flashcards for a user.',
-        request: 'Query: ?userId=default',
+        method: 'GET', path: '/api/flashcards', description: 'List the signed-in user\'s flashcards.',
+        request: 'No parameters.',
         response: '{ "cards": [{ "id": "fc_...", "front": "...", "back": "...", "tags": [...], "interval": 1, "nextReview": "2025-01-15", ... }], "total": 42 }',
       },
       {
         method: 'GET', path: '/api/flashcards/due', description: 'Get flashcards due for review today (nextReview <= today).',
-        request: 'Query: ?userId=default',
+        request: 'No parameters.',
         response: '{ "cards": [...], "dueCount": 5 }',
       },
       {
         method: 'GET', path: '/api/flashcards/review', description: 'Get flashcards due for review, sorted by next review date (oldest first).',
-        request: 'Query: ?userId=default',
+        request: 'No parameters.',
         response: '{ "cards": [...], "count": 5 }',
       },
       {
         method: 'POST', path: '/api/flashcards/review', description: 'Submit a review for a flashcard. Quality 0-5 (SM-2 algorithm). Rate-limited to 120/min per IP.',
-        request: '{ "userId": "default", "cardId": "fc_...", "quality": 4 }',
+        request: '{ "cardId": "fc_...", "quality": 4 }',
         response: '{ "success": true, "card": { "id": "fc_...", "interval": 6, "easeFactor": 2.5, "repetitions": 2, "nextReview": "2025-01-21", "lastReviewed": "..." } }',
       },
       {
         method: 'DELETE', path: '/api/flashcards', description: 'Delete a flashcard by ID.',
-        request: '{ "userId": "default", "cardId": "fc_..." }',
+        request: '{ "cardId": "fc_..." }',
         response: '{ "success": true }',
       },
     ],
@@ -707,18 +707,18 @@ const CATEGORIES = [
         response: '{ "notes": [{ "filename": "2025-01-15-attention-head-hypothesis.md", "title": "Attention Head Hypothesis", "date": "2025-01-15", "preview": "Interesting idea about...", "path": "content/posts/blog/2025-01-15-attention-head-hypothesis.md" }], "total": 3 }',
       },
       {
-        method: 'GET', path: '/api/quicknotes', description: 'List all JSON-backed quick notes plus blog quick notes, sorted newest first.',
-        request: 'Query: ?userId=default',
+        method: 'GET', path: '/api/quicknotes', description: 'List the signed-in user\'s JSON-backed quick notes plus blog quick notes, sorted newest first.',
+        request: 'No parameters.',
         response: '[{ "id": "qn_...", "text": "...", "color": "#fef3c7", "createdAt": "...", "updatedAt": "..." }, ...]',
       },
       {
         method: 'POST', path: '/api/quicknotes', description: 'Create a JSON-backed quick note with optional color. Max 200 per user. Rate-limited to 30/min per IP.',
-        request: '{ "userId": "default", "text": "Remember to check citation graph", "color": "#dbeafe" }',
+        request: '{ "text": "Remember to check citation graph", "color": "#dbeafe" }',
         response: '{ "success": true, "note": { "id": "qn_...", "text": "...", "color": "#dbeafe", "createdAt": "...", "updatedAt": "..." } }',
       },
       {
         method: 'DELETE', path: '/api/quicknotes', description: 'Delete a JSON-backed quick note by ID.',
-        request: '{ "userId": "default", "id": "qn_..." }',
+        request: '{ "id": "qn_..." }',
         response: '{ "success": true }',
       },
     ],
@@ -781,6 +781,13 @@ export default function ApiDocs() {
           </p>
           <p style={{color: '#9ca3af', fontSize: '0.85rem'}}>
             Base URL: <code>http://localhost:3001</code> (configurable via <code>EDITOR_PORT</code> env var). All request/response bodies are JSON unless noted otherwise.
+          </p>
+          <p style={{color: '#9ca3af', fontSize: '0.85rem'}}>
+            <strong>Authentication.</strong> With <code>ENABLE_AUTH=true</code>, every endpoint except{' '}
+            <code>/api/health</code>, <code>/api/feed/rss</code>, and <code>/api/feed/atom</code> requires a Clerk
+            session token, sent as <code>Authorization: Bearer &lt;token&gt;</code> or in the{' '}
+            <code>__session</code> cookie. A missing or invalid token is a <code>401</code>. Per-user endpoints read
+            the caller from that token; a <code>userId</code> in a query string or body is ignored.
           </p>
         </div>
 

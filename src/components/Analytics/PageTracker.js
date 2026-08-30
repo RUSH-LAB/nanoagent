@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 
 function PageTrackerInner() {
   const sent = useRef(false);
@@ -13,7 +13,7 @@ function PageTrackerInner() {
     const referrer = document.referrer || undefined;
     const userAgent = navigator.userAgent || undefined;
 
-    fetch(`${API_BASE}/api/analytics/pageview`, {
+    apiFetch(`${API_BASE}/api/analytics/pageview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: pagePath, referrer, userAgent }),

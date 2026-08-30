@@ -336,6 +336,18 @@ export function makeCtx(overrides = {}) {
 // ── invoke ────────────────────────────────────────────────────────────────
 
 /**
+ * The identity server/index.js would have attached after verifying a session
+ * token. Suites that do not care who is calling get this one; suites that do
+ * pass their own via invoke's `auth` option.
+ */
+export const TEST_IDENTITY = Object.freeze({
+  userId: 'test-user',
+  orgId: null,
+  orgRole: null,
+  sessionId: null,
+});
+
+/**
  * Drive one request through a route module.
  *
  * Options:
@@ -348,6 +360,10 @@ export function makeCtx(overrides = {}) {
  *            malformed-body arms of the handlers catch.
  *   ctx      a makeCtx() result; one is created if omitted
  *   headers  request headers, default {}
+ *   auth     the resolved identity the dispatcher attaches as req.auth, default
+ *            TEST_IDENTITY. Handlers read the caller from here and nowhere
+ *            else, so a suite that needs two distinct users passes a different
+ *            userId per invoke rather than a different query parameter.
  *
  * Returns {status, payload, replies, ctx, res}. `status`/`payload` are the
  * first reply, which is the one the dispatcher would have sent; `replies` is
@@ -361,6 +377,7 @@ export async function invoke(routes, opts = {}) {
     body,
     ctx = makeCtx(),
     headers = {},
+    auth = TEST_IDENTITY,
   } = opts;
 
   const search = typeof query === 'string'
@@ -389,7 +406,7 @@ export async function invoke(routes, opts = {}) {
       return this;
     },
   };
-  const req = {method, url: pathname + search, headers, socket: {remoteAddress: '127.0.0.1'}};
+  const req = {method, url: pathname + search, headers, socket: {remoteAddress: '127.0.0.1'}, auth};
   res.req = req;
 
   if (ctx.readBody === DEFAULT_READ_BODY) {

@@ -819,7 +819,6 @@ async function testSessions() {
 
   await test('POST /api/sessions creates a session', async () => {
     const {status, data} = await api('POST', '/api/sessions', {
-      userId: `user-${TEST_PREFIX}`,
       startTime: new Date(Date.now() - 3600000).toISOString(),
       endTime: new Date().toISOString(),
       wordsWritten: 100,
@@ -829,8 +828,8 @@ async function testSessions() {
     assertOk(data.session, 'has session');
   });
 
-  await test('GET /api/sessions returns sessions for user', async () => {
-    const {status, data} = await api('GET', `/api/sessions?userId=${encodeURIComponent(`user-${TEST_PREFIX}`)}`);
+  await test('GET /api/sessions returns the caller\'s own sessions', async () => {
+    const {status, data} = await api('GET', '/api/sessions');
     assertEq(status, 200, 'status');
     assertOk(Array.isArray(data.sessions), 'sessions is array');
   });

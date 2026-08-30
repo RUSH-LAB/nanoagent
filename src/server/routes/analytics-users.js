@@ -67,17 +67,21 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
 
   // ── Users: get current user's role ──
   if (req.method === 'GET' && pathname === '/api/users/me') {
-    const userId = url.searchParams.get('userId');
-    if (!userId) return json(res, 400, {error: 'Missing userId'});
+    // The caller is whoever the session token says they are. The old
+    // `?userId=` form let anyone read anyone's role by asking for it.
+    const {userId, orgId, orgRole} = req.auth;
     const users = loadJSON(USERS_FILE);
-    // Only treat an OWN key as a real user. A request-controlled id such as
-    // `__proto__` or `constructor` resolves to a truthy inherited value, which
-    // would otherwise leak {role:undefined,...} instead of the viewer default.
+    // Only treat an OWN key as a real user, so a store that happens to hold a
+    // prototype-named key cannot answer with an inherited value.
     const user = Object.hasOwn(users, userId) ? users[userId] : undefined;
-    if (user) {
-      return json(res, 200, {role: user.role, email: user.email, name: user.name});
-    }
-    return json(res, 200, {role: 'viewer'});
+    return json(res, 200, {
+      userId,
+      orgId,
+      orgRole,
+      role: user ? user.role : 'viewer',
+      email: user?.email,
+      name: user?.name,
+    });
   }
 
   // ── Users: set role ──
@@ -87,16 +91,17 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
       const parts = pathname.split('/');
       const userId = parts[3]; // /api/users/:id/role
       const body = await readBody(req);
-      const {role, email, name, requesterId} = body;
+      const {role, email, name} = body;
       const validRoles = ['owner', 'editor', 'viewer'];
       if (!role || typeof role !== 'string' || !validRoles.includes(role)) return json(res, 400, {error: 'Invalid role. Must be owner, editor, or viewer'});
       if (PROTO_KEYS.includes(userId)) return json(res, 400, {error: 'Invalid userId'});
-      if (!requesterId || typeof requesterId !== 'string') return json(res, 403, {error: 'Missing or invalid requesterId'});
-      if (PROTO_KEYS.includes(requesterId)) return json(res, 400, {error: "Invalid requesterId"});
       if (email !== undefined && typeof email !== "string") return json(res, 400, {error: "email must be a string"});
       if (name !== undefined && typeof name !== "string") return json(res, 400, {error: "name must be a string"});
       const users = loadJSON(USERS_FILE);
-      const requester = users[requesterId];
+      // The requester is the session holder. It used to be `body.requesterId`,
+      // so granting yourself ownership was a matter of naming an existing owner
+      // in the JSON you posted.
+      const requester = Object.hasOwn(users, req.auth.userId) ? users[req.auth.userId] : undefined;
       if (!requester || requester.role !== 'owner') {
         return json(res, 403, {error: 'Only owners can change roles'});
       }

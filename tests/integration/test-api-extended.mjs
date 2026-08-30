@@ -297,7 +297,6 @@ async function testStreak() {
   // 1. POST /api/streak
   await test('Log streak entry', async () => {
     const {status, data} = await api('POST', '/api/streak', {
-      userId: streakUserId,
       wordsWritten: 100,
     });
     assertEq(status, 200, 'status');
@@ -306,9 +305,9 @@ async function testStreak() {
     assertEq(data.words, 100, 'words matches');
   });
 
-  // 2. GET /api/streak?userId=...
+  // 2. GET /api/streak
   await test('Get streak data', async () => {
-    const {status, data} = await api('GET', `/api/streak?userId=${encodeURIComponent(streakUserId)}`);
+    const {status, data} = await api('GET', `/api/streak`);
     assertEq(status, 200, 'status');
     assertOk(typeof data.currentStreak === 'number', 'has currentStreak');
     assertOk(typeof data.longestStreak === 'number', 'has longestStreak');
@@ -1348,7 +1347,6 @@ async function testReadingProgress() {
   // 1. POST /api/reading-progress — track progress
   await test('Post reading progress returns {success: true}', async () => {
     const {status, data} = await api('POST', '/api/reading-progress', {
-      userId: progressUserId,
       pagePath: progressPagePath,
       progress: 0.5,
     });
@@ -1356,9 +1354,9 @@ async function testReadingProgress() {
     assertOk(data.success === true, 'success is true');
   });
 
-  // 2. GET /api/reading-progress?userId=... — retrieve progress
+  // 2. GET /api/reading-progress — retrieve progress
   await test('Get reading progress returns {pages, totalRead, inProgress, totalTracked}', async () => {
-    const {status, data} = await api('GET', `/api/reading-progress?userId=${encodeURIComponent(progressUserId)}`);
+    const {status, data} = await api('GET', `/api/reading-progress`);
     assertEq(status, 200, 'status');
     assertOk(Array.isArray(data.pages), 'pages is array');
     assertOk(typeof data.totalRead === 'number', 'totalRead is number');
@@ -1373,13 +1371,12 @@ async function testReadingProgress() {
   // 3. POST again with full progress, verify totalRead increments
   await test('Update reading progress to 100 marks as read', async () => {
     const {status, data} = await api('POST', '/api/reading-progress', {
-      userId: progressUserId,
       pagePath: progressPagePath,
       progress: 100,
     });
     assertEq(status, 200, 'status');
     assertOk(data.success === true, 'success is true');
-    const {data: getData} = await api('GET', `/api/reading-progress?userId=${encodeURIComponent(progressUserId)}`);
+    const {data: getData} = await api('GET', `/api/reading-progress`);
     const found = getData.pages.find(p => p.pagePath === progressPagePath);
     assertOk(found, 'found tracked page');
     assertEq(found.progress, 100, 'progress updated to 100');
@@ -1479,7 +1476,6 @@ async function testQuickNotes() {
   // 1. POST /api/quicknotes — create a note
   await test('Create quick note', async () => {
     const {status, data} = await api('POST', '/api/quicknotes', {
-      userId: QUICKNOTE_USER,
       text: `Test note ${TEST_PREFIX}`,
       color: '#ffeb3b',
     });
@@ -1494,9 +1490,9 @@ async function testQuickNotes() {
     createdQuickNoteId = data.note.id;
   });
 
-  // 2. GET /api/quicknotes?userId=... — list notes
+  // 2. GET /api/quicknotes — list notes
   await test('List quick notes contains test note', async () => {
-    const {status, data} = await api('GET', `/api/quicknotes?userId=${encodeURIComponent(QUICKNOTE_USER)}`);
+    const {status, data} = await api('GET', `/api/quicknotes`);
     assertEq(status, 200, 'status');
     assertOk(Array.isArray(data.notes), 'notes is array');
     assertOk(typeof data.total === 'number', 'total is number');
@@ -1510,13 +1506,12 @@ async function testQuickNotes() {
   await test('Delete quick note', async () => {
     if (!createdQuickNoteId) throw new Error('No note id from previous test');
     const {status, data} = await api('DELETE', '/api/quicknotes', {
-      userId: QUICKNOTE_USER,
       id: createdQuickNoteId,
     });
     assertEq(status, 200, 'status');
     assertOk(data.success, 'success');
     // Verify it is gone
-    const {data: listData} = await api('GET', `/api/quicknotes?userId=${encodeURIComponent(QUICKNOTE_USER)}`);
+    const {data: listData} = await api('GET', `/api/quicknotes`);
     assertOk(!listData.notes.some(n => n.id === createdQuickNoteId), 'note removed');
   });
 }
@@ -1576,7 +1571,6 @@ async function testPreferences() {
   // 1. PUT /api/preferences — set preferences
   await test('Set preferences', async () => {
     const {status, data} = await api('PUT', '/api/preferences', {
-      userId: PREFS_USER,
       preferences: {theme: 'dark', fontSize: 16, language: 'en'},
     });
     assertEq(status, 200, 'status');
@@ -1588,9 +1582,9 @@ async function testPreferences() {
     assertOk(typeof data.preferences.updatedAt === 'string', 'has updatedAt');
   });
 
-  // 2. GET /api/preferences?userId=... — get preferences
+  // 2. GET /api/preferences — get preferences
   await test('Get preferences', async () => {
-    const {status, data} = await api('GET', `/api/preferences?userId=${encodeURIComponent(PREFS_USER)}`);
+    const {status, data} = await api('GET', `/api/preferences`);
     assertEq(status, 200, 'status');
     assertOk(data.preferences, 'has preferences object');
     assertEq(data.preferences.theme, 'dark', 'theme matches');

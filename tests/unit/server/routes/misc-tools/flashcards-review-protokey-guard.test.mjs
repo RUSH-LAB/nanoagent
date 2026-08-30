@@ -12,9 +12,11 @@ const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js'
 // constructor and toString resolve to truthy values exactly as they would on
 // the real loadJSON result. The read path never writes, so saveJSON is unneeded.
 async function invoke({ userId, data }) {
-  const query = userId === undefined ? '' : `?userId=${encodeURIComponent(userId)}`;
-  const url = new URL(`http://localhost/api/flashcards/review${query}`);
-  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
+  const url = new URL('http://localhost/api/flashcards/review');
+  // The deck is keyed on the session subject, which server/index.js resolves
+  // from the Clerk token and attaches as req.auth before any handler runs.
+  const auth = { userId, orgId: null, orgRole: null, sessionId: null };
+  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' }, auth };
   const res = { writableEnded: false };
   let captured = null;
   const ctx = {
@@ -44,7 +46,11 @@ const FLASHCARDS = {
   ],
 };
 
-const PROTO_KEYS = ['constructor', 'toString', '__proto__'];
+// server/auth.js rejects a token whose subject is one of the three prototype
+// names outright, so only the inherited-but-legal members can still reach the
+// handler. They are the ones that make the missing-guard failure mode real: each
+// resolves to a truthy inherited function, defeating the `|| []` fallback.
+const PROTO_KEYS = ['constructor', 'toString'];
 
 describe('GET /api/flashcards/review own-property userId guard', () => {
   for (const userId of PROTO_KEYS) {

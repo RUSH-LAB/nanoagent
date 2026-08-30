@@ -7,7 +7,7 @@ import pageStyles from '@site/src/css/page.module.css';
 const MODES = {browse: 'Browse', create: 'Create', review: 'Review'};
 
 function FlashcardsApp() {
-  const API_BASE = require('@site/src/utils/api').default;
+  const { default: API_BASE, apiFetch } = require('@site/src/utils/api');
 
   const [mode, setMode] = useState('browse');
   const [cards, setCards] = useState([]);
@@ -35,7 +35,7 @@ function FlashcardsApp() {
 
   const fetchCards = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/flashcards`);
+      const res = await apiFetch(`${API_BASE}/api/flashcards`);
       if (!res.ok) throw new Error(`Failed to load (${res.status})`);
       const data = await res.json();
       setCards(data.cards || []);
@@ -52,7 +52,7 @@ function FlashcardsApp() {
   const fetchReviewCards = useCallback(async () => {
     setReviewLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/flashcards/review`);
+      const res = await apiFetch(`${API_BASE}/api/flashcards/review`);
       if (!res.ok) throw new Error(`Failed to load review cards (${res.status})`);
       const data = await res.json();
       setReviewCards(data.cards || []);
@@ -74,7 +74,7 @@ function FlashcardsApp() {
     setError(null);
     try {
       const tags = tagsInput.split(',').map(t => t.trim()).filter(Boolean);
-      const res = await fetch(`${API_BASE}/api/flashcards`, {
+      const res = await apiFetch(`${API_BASE}/api/flashcards`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({front: front.trim(), back: back.trim(), tags, source: source.trim() || undefined}),
@@ -95,7 +95,7 @@ function FlashcardsApp() {
   const handleDelete = async (id) => {
     if (!confirm('Delete this flashcard?')) return;
     try {
-      const res = await fetch(`${API_BASE}/api/flashcards`, {
+      const res = await apiFetch(`${API_BASE}/api/flashcards`, {
         method: 'DELETE',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({id}),
@@ -112,7 +112,7 @@ function FlashcardsApp() {
     if (!card) return;
     setReviewLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/flashcards/review`, {
+      const res = await apiFetch(`${API_BASE}/api/flashcards/review`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({id: card.id, quality}),

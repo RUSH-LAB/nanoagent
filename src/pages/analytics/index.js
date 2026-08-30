@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 import LoadingSkeleton from '@site/src/components/LoadingSkeleton';
 import CalendarHeatmap from '@site/src/components/CalendarHeatmap';
 import { buildHeatmapWeeks } from '@site/src/utils/heatmap';
@@ -30,7 +30,7 @@ function AnalyticsDashboard() {
     const { signal } = controller;
 
     const fetchJSON = (url) =>
-      fetch(`${API_BASE}${url}`, { signal }).then((r) => r.json());
+      apiFetch(`${API_BASE}${url}`, { signal }).then((r) => r.json());
 
     // Fire all fetches in parallel, each updating its own state slice
     fetchJSON('/api/files/recent?limit=50')
@@ -45,7 +45,7 @@ function AnalyticsDashboard() {
       .then((d) => { setData(d); setLoading(false); })
       .catch((err) => { if (!signal.aborted) { setError(err.message); setLoading(false); } });
 
-    fetchJSON('/api/streak?userId=default')
+    fetchJSON('/api/streak')
       .then(d => setStreak(d))
       .catch(() => { if (!signal.aborted) setStreak(null); });
 

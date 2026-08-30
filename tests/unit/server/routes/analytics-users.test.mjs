@@ -9,7 +9,7 @@
  */
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
-import {loadRoute, makeCtx, invoke, FILES} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, FILES, TEST_IDENTITY} from '../../_harness.mjs';
 
 const routes = loadRoute('analytics-users');
 const {ANALYTICS_FILE, USERS_FILE} = FILES;
@@ -123,24 +123,47 @@ describe('GET /api/users', () => {
 
 describe('GET /api/users/me', () => {
   const USERS = {u1: {role: 'editor', email: 'e@x', name: 'Ed'}};
+  const asUser = userId => ({...TEST_IDENTITY, userId});
 
-  it('returns 400 when userId is missing', async () => {
-    const r = await invoke(routes, {path: '/api/users/me'});
-    assert.deepEqual([r.status, r.payload], [400, {error: 'Missing userId'}]);
+  it('answers for the session subject, not for a userId in the query', async () => {
+    const ctx = makeCtx({store: {[USERS_FILE]: USERS}});
+    const r = await invoke(routes, {path: '/api/users/me', query: {userId: 'u1'}, ctx});
+    // Signed in as TEST_IDENTITY, who is not in the store, so the query
+    // parameter naming a real editor buys the caller nothing.
+    assert.deepEqual([r.status, r.payload], [200, {
+      userId: TEST_IDENTITY.userId, orgId: null, orgRole: null,
+      role: 'viewer', email: undefined, name: undefined,
+    }]);
   });
 
   it('returns the role, email and name for a real user', async () => {
-    const r = await invoke(routes, {path: '/api/users/me', query: {userId: 'u1'}, ctx: makeCtx({store: {[USERS_FILE]: USERS}})});
-    assert.deepEqual([r.status, r.payload], [200, {role: 'editor', email: 'e@x', name: 'Ed'}]);
+    const ctx = makeCtx({store: {[USERS_FILE]: USERS}});
+    const r = await invoke(routes, {path: '/api/users/me', ctx, auth: asUser('u1')});
+    assert.deepEqual([r.status, r.payload], [200, {
+      userId: 'u1', orgId: null, orgRole: null,
+      role: 'editor', email: 'e@x', name: 'Ed',
+    }]);
   });
 
-  // A request-controlled id such as `constructor` resolves to a truthy
-  // inherited value, which without the own-key guard would leak
-  // {role: undefined, ...} instead of the viewer default.
-  for (const userId of [...PROTO_KEYS, ...INHERITED_KEYS, 'absent']) {
+  it('passes the active organization through from the session', async () => {
+    const auth = {userId: 'u1', orgId: 'org_1', orgRole: 'admin', sessionId: 'sess_1'};
+    const ctx = makeCtx({store: {[USERS_FILE]: USERS}});
+    const r = await invoke(routes, {path: '/api/users/me', ctx, auth});
+    assert.deepEqual([r.payload.orgId, r.payload.orgRole], ['org_1', 'admin']);
+  });
+
+  // An id such as `constructor` resolves to a truthy inherited value, which
+  // without the own-key guard would leak {role: undefined, ...} instead of the
+  // viewer default. server/auth.js rejects the three prototype names outright,
+  // so only the inherited-but-legal ones can still reach the handler.
+  for (const userId of [...INHERITED_KEYS, 'absent']) {
     it(`returns the viewer default for the non-own id ${JSON.stringify(userId)}`, async () => {
-      const r = await invoke(routes, {path: '/api/users/me', query: {userId}, ctx: makeCtx({store: {[USERS_FILE]: USERS}})});
-      assert.deepEqual([r.status, r.payload], [200, {role: 'viewer'}]);
+      const ctx = makeCtx({store: {[USERS_FILE]: USERS}});
+      const r = await invoke(routes, {path: '/api/users/me', ctx, auth: asUser(userId)});
+      assert.deepEqual([r.status, r.payload], [200, {
+        userId, orgId: null, orgRole: null,
+        role: 'viewer', email: undefined, name: undefined,
+      }]);
     });
   }
 });
@@ -173,7 +196,10 @@ describe('SET_ROLE_RE', () => {
 
 describe('PUT /api/users/:id/role', () => {
   const ROLE_PATH = '/api/users/u1/role';
-  const OWNER = {[USERS_FILE]: {boss: {role: 'owner'}}};
+  // The requester is the session subject now, so the owner record in the store
+  // has to be filed under the id the harness signs the request as.
+  const BOSS = TEST_IDENTITY.userId;
+  const OWNER = {[USERS_FILE]: {[BOSS]: {role: 'owner'}}};
 
   it('returns 429 before any validation', async () => {
     const ctx = makeCtx({rateLimitAllow: false});
@@ -190,11 +216,8 @@ describe('PUT /api/users/:id/role', () => {
     {name: 'an out-of-list role', body: {role: 'admin'}, status: 400, error: ROLE_ERR},
     // The allow-list is case-sensitive.
     {name: 'a wrong-case role', body: {role: 'Owner'}, status: 400, error: ROLE_ERR},
-    {name: 'a missing requesterId', body: {role: 'editor'}, status: 403, error: 'Missing or invalid requesterId'},
-    {name: 'a non-string requesterId', body: {role: 'editor', requesterId: 7}, status: 403, error: 'Missing or invalid requesterId'},
-    {name: 'a non-string email', body: {role: 'editor', requesterId: 'boss', email: 7}, status: 400, error: 'email must be a string'},
-    {name: 'a non-string name', body: {role: 'editor', requesterId: 'boss', name: 7}, status: 400, error: 'name must be a string'},
-    ...PROTO_KEYS.map(id => ({name: `the proto requesterId ${JSON.stringify(id)}`, body: {role: 'editor', requesterId: id}, status: 400, error: 'Invalid requesterId'})),
+    {name: 'a non-string email', body: {role: 'editor', email: 7}, status: 400, error: 'email must be a string'},
+    {name: 'a non-string name', body: {role: 'editor', name: 7}, status: 400, error: 'name must be a string'},
   ];
   for (const {name, body, status, error} of GUARDS) {
     it(`rejects ${name} without saving`, async () => {
@@ -208,7 +231,7 @@ describe('PUT /api/users/:id/role', () => {
   for (const userId of PROTO_KEYS) {
     it(`rejects the proto target userId ${JSON.stringify(userId)}`, async () => {
       const ctx = makeCtx({store: structuredClone(OWNER)});
-      const body = {role: 'editor', requesterId: 'boss'};
+      const body = {role: 'editor'};
       const r = await invoke(routes, {method: 'PUT', path: `/api/users/${userId}/role`, body, ctx});
       assert.deepEqual([r.status, r.payload], [400, {error: 'Invalid userId'}]);
       assert.deepEqual(ctx.calls.saveJSON, []);
@@ -216,20 +239,32 @@ describe('PUT /api/users/:id/role', () => {
   }
 
   it('advances past the role guard for every valid role', async () => {
+    // An empty store means the session subject is not an owner, so each valid
+    // role reaches, and stops at, the owner check.
     for (const role of ['owner', 'editor', 'viewer']) {
       const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body: {role}, ctx: makeCtx()});
-      assert.deepEqual([r.status, r.payload], [403, {error: 'Missing or invalid requesterId'}], `role ${role}`);
+      assert.deepEqual([r.status, r.payload], [403, {error: 'Only owners can change roles'}], `role ${role}`);
     }
+  });
+
+  it('ignores a requesterId in the body naming a real owner', async () => {
+    // The old handler read the requester straight out of the posted JSON, so
+    // this body alone was enough to promote yourself. The session subject is an
+    // editor, and that is what decides.
+    const ctx = makeCtx({store: {[USERS_FILE]: {owner1: {role: 'owner'}, [BOSS]: {role: 'editor'}}}});
+    const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body: {role: 'owner', requesterId: 'owner1'}, ctx});
+    assert.deepEqual([r.status, r.payload], [403, {error: 'Only owners can change roles'}]);
+    assert.deepEqual(ctx.calls.saveJSON, []);
   });
 
   const NON_OWNERS = [
     {name: 'an unknown requester', users: {}},
-    {name: 'an editor requester', users: {boss: {role: 'editor'}}},
+    {name: 'an editor requester', users: {[TEST_IDENTITY.userId]: {role: 'editor'}}},
   ];
   for (const {name, users} of NON_OWNERS) {
     it(`rejects ${name} with 403`, async () => {
       const ctx = makeCtx({store: {[USERS_FILE]: users}});
-      const body = {role: 'editor', requesterId: 'boss'};
+      const body = {role: 'editor'};
       const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body, ctx});
       assert.deepEqual([r.status, r.payload], [403, {error: 'Only owners can change roles'}]);
       assert.deepEqual(ctx.calls.saveJSON, []);
@@ -238,7 +273,7 @@ describe('PUT /api/users/:id/role', () => {
 
   it('creates a brand-new user with a fresh record', async () => {
     const ctx = makeCtx({store: structuredClone(OWNER)});
-    const body = {role: 'editor', requesterId: 'boss', email: 'new@x', name: 'New'};
+    const body = {role: 'editor', email: 'new@x', name: 'New'};
     const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body, ctx});
     assert.equal(r.status, 200);
     assert.equal(r.payload.success, true);
@@ -250,14 +285,14 @@ describe('PUT /api/users/:id/role', () => {
 
   it('preserves the existing email, name and addedAt when the body omits them', async () => {
     const existing = {role: 'viewer', email: 'old@x', name: 'Old', addedAt: '2020-01-01T00:00:00.000Z'};
-    const ctx = makeCtx({store: {[USERS_FILE]: {boss: {role: 'owner'}, u1: existing}}});
-    const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body: {role: 'owner', requesterId: 'boss'}, ctx});
+    const ctx = makeCtx({store: {[USERS_FILE]: {[BOSS]: {role: 'owner'}, u1: existing}}});
+    const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body: {role: 'owner'}, ctx});
     assert.deepEqual(r.payload.user, {role: 'owner', email: 'old@x', name: 'Old', addedAt: '2020-01-01T00:00:00.000Z'});
   });
 
   it('defaults email and name to empty strings for a new user with neither supplied', async () => {
     const ctx = makeCtx({store: structuredClone(OWNER)});
-    const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body: {role: 'viewer', requesterId: 'boss'}, ctx});
+    const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body: {role: 'viewer'}, ctx});
     assert.equal(r.payload.user.email, '');
     assert.equal(r.payload.user.name, '');
   });

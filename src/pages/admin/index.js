@@ -1,9 +1,8 @@
 import React, {useState, useEffect, useCallback} from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
-import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 import pageStyles from '@site/src/css/page.module.css';
 
 const ROLE_DESCRIPTIONS = {
@@ -39,10 +38,6 @@ function RoleBadge({role}) {
 }
 
 function AdminDashboard() {
-  const {siteConfig} = useDocusaurusContext();
-  const authEnabled = siteConfig.customFields?.authEnabled;
-  const isLoaded = true;
-  const clerkUser = authEnabled ? {id: 'admin'} : null;
   const [users, setUsers] = useState({});
   const [myRole, setMyRole] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -52,16 +47,19 @@ function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [contentHealth, setContentHealth] = useState(null);
   const [statusLoading, setStatusLoading] = useState(false);
-
-  const userId = clerkUser?.id;
+  // Who the server says we are. The page used to invent this locally, as a
+  // hardcoded {id: 'admin'} whenever the auth gate was on, and then post that id
+  // back as the requester of a role change. Identity is the server's answer now,
+  // and /api/users/me reports the subject of the verified session.
+  const [myUserId, setMyUserId] = useState(null);
 
   const loadStatus = useCallback(async () => {
     setStatusLoading(true);
     try {
       const [healthRes, statsRes, contentHealthRes] = await Promise.allSettled([
-        fetch(`${API_BASE}/api/health`).then(r => r.json()),
-        fetch(`${API_BASE}/api/stats`).then(r => r.json()),
-        fetch(`${API_BASE}/api/content-health`).then(r => r.json()),
+        apiFetch(`${API_BASE}/api/health`).then(r => r.json()),
+        apiFetch(`${API_BASE}/api/stats`).then(r => r.json()),
+        apiFetch(`${API_BASE}/api/content-health`).then(r => r.json()),
       ]);
       setHealth(healthRes.status === 'fulfilled' ? healthRes.value : {status: 'down'});
       setStats(statsRes.status === 'fulfilled' ? statsRes.value : null);
@@ -75,42 +73,39 @@ function AdminDashboard() {
   }, []);
 
   const loadData = useCallback(async () => {
-    if (!userId) return;
     setLoading(true);
     try {
       const [usersRes, meRes] = await Promise.all([
-        fetch(`${API_BASE}/api/users`).then(r => r.json()),
-        fetch(`${API_BASE}/api/users/me?userId=${encodeURIComponent(userId)}`).then(r => r.json()),
+        apiFetch(`${API_BASE}/api/users`).then(r => r.json()),
+        apiFetch(`${API_BASE}/api/users/me`).then(r => r.json()),
       ]);
       setUsers(usersRes.users || {});
       setMyRole(meRes.role || 'viewer');
+      setMyUserId(meRes.userId || null);
     } catch {
       setError('Failed to load user data. Is the editor server running?');
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, []);
 
   useEffect(() => {
-    if (isLoaded && userId) {
-      loadData();
-      loadStatus();
-    }
-  }, [isLoaded, userId, loadData, loadStatus]);
+    loadData();
+    loadStatus();
+  }, [loadData, loadStatus]);
 
   const handleRoleChange = useCallback(async (targetUserId, newRole) => {
     setError(null);
     setSuccess(null);
     try {
       const existingUser = users[targetUserId] || {};
-      const res = await fetch(`${API_BASE}/api/users/${encodeURIComponent(targetUserId)}/role`, {
+      const res = await apiFetch(`${API_BASE}/api/users/${encodeURIComponent(targetUserId)}/role`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           role: newRole,
           email: existingUser.email,
           name: existingUser.name,
-          requesterId: userId,
         }),
       });
       if (!res.ok) {
@@ -123,20 +118,12 @@ function AdminDashboard() {
     } catch (err) {
       setError(err.message);
     }
-  }, [userId, users, loadData]);
+  }, [users, loadData]);
 
-  if (!isLoaded || loading) {
+  if (loading) {
     return (
       <div style={{padding: 40, textAlign: 'center', color: 'var(--ifm-color-emphasis-500)'}}>
         Loading...
-      </div>
-    );
-  }
-
-  if (!clerkUser) {
-    return (
-      <div style={{padding: 40, textAlign: 'center'}}>
-        <p>You need to sign in to access the admin dashboard.</p>
       </div>
     );
   }
@@ -417,7 +404,7 @@ function AdminDashboard() {
                 whiteSpace: 'nowrap',
               }}>
                 {userData.name || uid}
-                {uid === userId && (
+                {uid === myUserId && (
                   <span style={{
                     marginLeft: 6,
                     fontSize: '0.7rem',
@@ -436,7 +423,7 @@ function AdminDashboard() {
               </span>
               <span><RoleBadge role={userData.role} /></span>
               <span>
-                {isOwner && uid !== userId ? (
+                {isOwner && uid !== myUserId ? (
                   <select
                     value={userData.role}
                     onChange={(e) => handleRoleChange(uid, e.target.value)}
@@ -456,7 +443,7 @@ function AdminDashboard() {
                   </select>
                 ) : (
                   <span style={{fontSize: '0.8rem', color: 'var(--ifm-color-emphasis-400)'}}>
-                    {uid === userId ? '--' : 'No access'}
+                    {uid === myUserId ? '--' : 'No access'}
                   </span>
                 )}
               </span>

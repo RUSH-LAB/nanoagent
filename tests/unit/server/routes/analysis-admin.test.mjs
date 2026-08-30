@@ -11,7 +11,7 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, TEST_IDENTITY} from '../../_harness.mjs';
 
 const routes = loadRoute('analysis-admin');
 const {STREAKS_FILE, ANNOTATIONS_FILE, ANALYTICS_FILE, COMMENTS_FILE} = FILES;
@@ -19,8 +19,12 @@ const at = rel => path.join(PROJECT_ROOT, rel);
 const BIB = at('content/bibliography/references.yaml');
 const TRASH_DIR = at('var/trash');
 
-const PROTO_KEYS = ['__proto__', 'constructor', 'prototype'];
 const INHERITED_KEYS = ['toString', 'valueOf', 'hasOwnProperty'];
+
+// The signed-in caller the harness supplies unless a case overrides it. Both
+// streak handlers key the store on this, never on anything in the request.
+const UID = TEST_IDENTITY.userId;
+const asUser = userId => ({...TEST_IDENTITY, userId});
 
 const fm = (fields, body = '') =>
   `---\n${Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n')}\n---\n${body}`;
@@ -55,9 +59,9 @@ const daysAgo = n => new Date(Date.now() - n * 86400000).toISOString().slice(0, 
 // ── Writing streak ────────────────────────────────────────────────────────
 
 describe('GET /api/streak', () => {
-  const streak = async (dailyLog, userId) => {
-    const store = {[STREAKS_FILE]: {default: {dailyLog}, alice: {dailyLog: []}}};
-    const r = await invoke(routes, {path: '/api/streak', query: userId ? {userId} : {}, ctx: makeCtx({store})});
+  const streak = async (dailyLog, auth) => {
+    const store = {[STREAKS_FILE]: {[UID]: {dailyLog}, alice: {dailyLog: []}}};
+    const r = await invoke(routes, {path: '/api/streak', ctx: makeCtx({store}), ...(auth ? {auth} : {})});
     return r.payload;
   };
 
@@ -65,14 +69,15 @@ describe('GET /api/streak', () => {
     assert.deepEqual(await streak([]), {currentStreak: 0, longestStreak: 0, totalWords: 0, dailyLog: []});
   });
 
-  it('treats an unknown user as an empty log', async () => {
-    const out = await streak([{date: daysAgo(0), words: 100}], 'nobody');
+  it('treats a user with no stored log as an empty log', async () => {
+    const out = await streak([{date: daysAgo(0), words: 100}], asUser('nobody'));
     assert.deepEqual(out, {currentStreak: 0, longestStreak: 0, totalWords: 0, dailyLog: []});
   });
 
-  it('falls back to the default user when no userId is given', async () => {
-    const out = await streak([{date: daysAgo(0), words: 100}]);
-    assert.equal(out.currentStreak, 1);
+  it('reads the signed-in user, ignoring a userId in the query string', async () => {
+    const store = {[STREAKS_FILE]: {[UID]: {dailyLog: [{date: daysAgo(0), words: 100}]}, alice: {dailyLog: []}}};
+    const r = await invoke(routes, {path: '/api/streak', query: {userId: 'alice'}, ctx: makeCtx({store})});
+    assert.equal(r.payload.currentStreak, 1);
   });
 
   it('sorts the log ascending and totals every entry, qualifying or not', async () => {
@@ -130,14 +135,13 @@ describe('POST /api/streak', () => {
     assert.deepEqual([reads, ctx.calls.loadJSON.length], [0, 0]);
   });
 
+  // The userId type, length, and prototype-key guards that used to live here
+  // went away with `body.userId`: the store key is now the session subject,
+  // which server/auth.js validates once. What the body still supplies, and so
+  // what still needs guarding, is wordsWritten.
   const GUARDS = [
-    {name: 'a numeric userId', body: {userId: 7}, error: 'userId must be a string'},
-    {name: 'a boolean userId', body: {userId: true}, error: 'userId must be a string'},
-    {name: 'an object userId', body: {userId: {}}, error: 'userId must be a string'},
-    {name: 'a userId over 200 characters', body: {userId: 'u'.repeat(201)}, error: 'userId must be 200 characters or fewer'},
     {name: 'a negative wordsWritten', body: {wordsWritten: -1}, error: 'wordsWritten must be non-negative'},
     {name: 'a wordsWritten above the maximum', body: {wordsWritten: 1000001}, error: 'wordsWritten exceeds maximum'},
-    ...PROTO_KEYS.map(userId => ({name: `the proto userId ${JSON.stringify(userId)}`, body: {userId}, error: 'Invalid userId'})),
   ];
   for (const {name, body, error} of GUARDS) {
     it(`rejects ${name} before touching the store`, async () => {
@@ -148,19 +152,27 @@ describe('POST /api/streak', () => {
     });
   }
 
-  it('records today under the default user', async () => {
+  it('records today under the signed-in user', async () => {
     const ctx = makeCtx();
     const today = new Date().toISOString().slice(0, 10);
     const r = await invoke(routes, {method: 'POST', path: '/api/streak', body: {wordsWritten: 500}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {success: true, date: today, words: 500}]);
-    assert.deepEqual(ctx.store[STREAKS_FILE].default.dailyLog, [{date: today, words: 500}]);
+    assert.deepEqual(ctx.store[STREAKS_FILE][UID].dailyLog, [{date: today, words: 500}]);
+  });
+
+  it('ignores a userId in the body and still writes to the session bucket', async () => {
+    const ctx = makeCtx();
+    const today = new Date().toISOString().slice(0, 10);
+    await invoke(routes, {method: 'POST', path: '/api/streak', body: {userId: 'alice', wordsWritten: 500}, ctx});
+    assert.deepEqual(Object.keys(ctx.store[STREAKS_FILE]), [UID]);
+    assert.deepEqual(ctx.store[STREAKS_FILE][UID].dailyLog, [{date: today, words: 500}]);
   });
 
   it('overwrites today rather than appending a second entry', async () => {
     const today = new Date().toISOString().slice(0, 10);
-    const ctx = makeCtx({store: {[STREAKS_FILE]: {default: {dailyLog: [{date: today, words: 100}]}}}});
+    const ctx = makeCtx({store: {[STREAKS_FILE]: {[UID]: {dailyLog: [{date: today, words: 100}]}}}});
     await invoke(routes, {method: 'POST', path: '/api/streak', body: {wordsWritten: 900}, ctx});
-    assert.deepEqual(ctx.store[STREAKS_FILE].default.dailyLog, [{date: today, words: 900}]);
+    assert.deepEqual(ctx.store[STREAKS_FILE][UID].dailyLog, [{date: today, words: 900}]);
   });
 
   it('defaults a non-numeric or infinite wordsWritten to zero', async () => {
@@ -175,10 +187,11 @@ describe('POST /api/streak', () => {
   for (const userId of INHERITED_KEYS) {
     it(`records under the inherited userId ${JSON.stringify(userId)} as an own key`, async () => {
       const ctx = makeCtx();
-      const r = await invoke(routes, {method: 'POST', path: '/api/streak', body: {userId, wordsWritten: 100}, ctx});
+      const auth = asUser(userId);
+      const r = await invoke(routes, {method: 'POST', path: '/api/streak', body: {wordsWritten: 100}, ctx, auth});
       assert.equal(r.status, 200);
       assert.ok(Object.hasOwn(ctx.store[STREAKS_FILE], userId));
-      const read = await invoke(routes, {path: '/api/streak', query: {userId}, ctx: makeCtx({store: ctx.store})});
+      const read = await invoke(routes, {path: '/api/streak', ctx: makeCtx({store: ctx.store}), auth});
       assert.equal(read.payload.totalWords, 100);
     });
   }

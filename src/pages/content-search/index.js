@@ -4,7 +4,7 @@ import Link from '@docusaurus/Link';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import { usePluginData } from '@docusaurus/useGlobalData';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 import {useDebounce} from '@site/src/hooks/useDebounce';
 import pageStyles from '@site/src/css/page.module.css';
 
@@ -68,7 +68,7 @@ function SearchContent() {
     // Search files
     setLoadingFiles(true);
     setErrorFiles(null);
-    fetch(`${API_BASE}/api/files/search?q=${encoded}`)
+    apiFetch(`${API_BASE}/api/files/search?q=${encoded}`)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
@@ -80,7 +80,7 @@ function SearchContent() {
     // Full-text search
     setLoadingContent(true);
     setErrorContent(null);
-    fetch(`${API_BASE}/api/search?q=${encoded}`)
+    apiFetch(`${API_BASE}/api/search?q=${encoded}`)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();

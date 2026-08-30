@@ -250,7 +250,6 @@ async function journey3() {
   step(1, 'Create a flashcard');
   await test('3.1 Create flashcard via POST /api/flashcards', async () => {
     const {status, data} = await api('POST', '/api/flashcards', {
-      userId: studyUserId,
       front: 'What is the Transformer architecture?',
       back: 'A neural network architecture based on self-attention mechanisms, introduced in "Attention Is All You Need" (2017).',
       tags: ['deep-learning', 'nlp'],
@@ -268,7 +267,7 @@ async function journey3() {
   // Step 2: Get due cards
   step(2, 'Get due cards for review');
   await test('3.2 Get due cards via GET /api/flashcards/due', async () => {
-    const {status, data} = await api('GET', `/api/flashcards/due?userId=${encodeURIComponent(studyUserId)}`);
+    const {status, data} = await api('GET', `/api/flashcards/due`);
     assertEq(status, 200, 'status');
     assertOk(Array.isArray(data.cards), 'cards is array');
     assertOk(typeof data.dueCount === 'number', 'has dueCount');
@@ -282,7 +281,6 @@ async function journey3() {
   await test('3.3 Review card via POST /api/flashcards/review', async () => {
     assertOk(cardId, 'card id from step 1');
     const {status, data} = await api('POST', '/api/flashcards/review', {
-      userId: studyUserId,
       cardId,
       quality: 4,
     });
@@ -298,7 +296,6 @@ async function journey3() {
   step(4, 'Track writing streak');
   await test('3.4 Log streak via POST /api/streak', async () => {
     const {status, data} = await api('POST', '/api/streak', {
-      userId: studyUserId,
       wordsWritten: 350,
     });
     assertEq(status, 200, 'status');
@@ -307,7 +304,7 @@ async function journey3() {
     assertOk(typeof data.date === 'string', 'has date');
 
     // Verify streak data
-    const {data: streakData} = await api('GET', `/api/streak?userId=${encodeURIComponent(studyUserId)}`);
+    const {data: streakData} = await api('GET', `/api/streak`);
     assertEq(streakData.totalWords, 350, 'totalWords is 350');
     assertOk(streakData.currentStreak >= 1, 'currentStreak is at least 1');
     assertOk(Array.isArray(streakData.dailyLog), 'has dailyLog');
@@ -322,12 +319,13 @@ async function journey3() {
   // Delete the flashcard
   if (cardId) {
     try {
-      await api('DELETE', '/api/flashcards', {userId: studyUserId, cardId});
+      await api('DELETE', '/api/flashcards', {cardId});
       cleanCount++;
     } catch { cleanErrors++; }
   }
 
-  // Streak data uses a unique userId, so it is harmless and needs no cleanup.
+  // Streak data is a per-day word count under the caller's own key, so it is
+  // harmless and needs no cleanup.
 
   if (cleanErrors > 0) {
     log('!', YELLOW, `Journey 3 cleanup: ${cleanCount} ok, ${cleanErrors} errors`);

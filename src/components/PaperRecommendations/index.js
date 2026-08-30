@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 import { S2_API_BASE } from '@site/src/utils/semanticScholar';
 
 const REFERENCES_API = `${API_BASE}/api/references`;
@@ -192,7 +192,7 @@ export default function PaperRecommendations({ references }) {
     }
 
     try {
-      const resp = await fetch(REFERENCES_API, {
+      const resp = await apiFetch(REFERENCES_API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, entry }),

@@ -6,13 +6,13 @@
  * per-page analytics and the knowledge-base report.
  *
  * Consolidated from the sixty per-branch suites that used to cover this module.
- * Many of its stores are keyed by a request-supplied userId, so the own-key and
+ * Many of its stores are keyed by the authenticated userId, so the own-key and
  * proto-key guards are driven from shared tables.
  */
 import {describe, it, beforeEach} from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {loadRoute, loadServer, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
+import {loadRoute, loadServer, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, TEST_IDENTITY} from '../../_harness.mjs';
 
 const routes = loadRoute('study-knowledge');
 const {LINKSUGGEST_WIKI_RE, QUICKNOTES_TITLE_RE, QUICKNOTES_DATE_RE, QUICKNOTES_BODY_RE, FRONTMATTER_TITLE_RE} = routes;
@@ -28,6 +28,13 @@ const TEMPLATES_FILE = at('var/data/custom-templates.json');
 
 const PROTO_KEYS = ['__proto__', 'constructor', 'prototype'];
 const INHERITED_KEYS = ['toString', 'valueOf', 'hasOwnProperty'];
+
+// Every per-user store below is keyed on the session subject the harness signs
+// requests as. A case that needs a different caller passes `auth`, which is
+// what a differing `?userId=` or `body.userId` used to do before the API
+// started deriving identity from the token.
+const UID = TEST_IDENTITY.userId;
+const asUser = userId => ({...TEST_IDENTITY, userId});
 
 const fm = (fields, body = '') =>
   `---\n${Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n')}\n---\n${body}`;
@@ -78,8 +85,6 @@ describe('POST /api/flashcards', () => {
     {name: 'a non-string back', body: {front: 'Q', back: 7}, error: 'Missing or invalid back'},
     {name: 'a front over 5000 characters', body: {front: 'f'.repeat(5001), back: 'A'}, error: 'front must be 5000 characters or fewer'},
     {name: 'a back over 5000 characters', body: {front: 'Q', back: 'b'.repeat(5001)}, error: 'back must be 5000 characters or fewer'},
-    {name: 'a non-string userId', body: {...OK, userId: 7}, error: 'userId must be a string'},
-    {name: 'a userId over 200 characters', body: {...OK, userId: 'u'.repeat(201)}, error: 'userId must be 200 characters or fewer'},
     {name: 'a non-array tags', body: {...OK, tags: 'x'}, error: 'tags must be an array of strings'},
     {name: 'a tags array with a non-string', body: {...OK, tags: ['ok', 7]}, error: 'tags must be an array of strings'},
     {name: 'a non-string sourcePath', body: {...OK, sourcePath: 7}, error: 'sourcePath must be a string'},
@@ -105,7 +110,7 @@ describe('POST /api/flashcards', () => {
       interval: 1, easeFactor: 2.5, repetitions: 0, nextReview: today,
     });
     assert.match(id, /^fc_\d+_[a-z0-9]+$/);
-    assert.deepEqual(ctx.store[FLASHCARDS_FILE].default, [r.payload.card]);
+    assert.deepEqual(ctx.store[FLASHCARDS_FILE][UID], [r.payload.card]);
   });
 
   it('caps the tag list at ten and nulls an omitted sourcePath', async () => {
@@ -118,7 +123,7 @@ describe('POST /api/flashcards', () => {
   for (const userId of INHERITED_KEYS) {
     it(`stores the inherited userId ${JSON.stringify(userId)} as an own key`, async () => {
       const ctx = makeCtx();
-      const r = await invoke(routes, {method: 'POST', path: '/api/flashcards', body: {...OK, userId}, ctx});
+      const r = await invoke(routes, {method: 'POST', path: '/api/flashcards', body: OK, ctx, auth: asUser(userId)});
       assert.equal(r.status, 200);
       assert.ok(Object.hasOwn(ctx.store[FLASHCARDS_FILE], userId));
     });
@@ -134,7 +139,7 @@ describe('GET /api/flashcards and /due', () => {
     {id: 'today', nextReview: today},
     {id: 'future', nextReview: tomorrow},
   ];
-  const store = () => ({[FLASHCARDS_FILE]: {default: CARDS, alice: [{id: 'a', nextReview: today}]}});
+  const store = () => ({[FLASHCARDS_FILE]: {[UID]: CARDS, alice: [{id: 'a', nextReview: today}]}});
 
   it('lists a user cards with the total', async () => {
     const r = await invoke(routes, {path: '/api/flashcards', ctx: makeCtx({store: store()})});
@@ -142,8 +147,13 @@ describe('GET /api/flashcards and /due', () => {
     assert.deepEqual(r.payload.cards.map(c => c.id), ['past', 'today', 'future']);
   });
 
-  it('reads the named user rather than the default', async () => {
+  it('reads the signed-in user, not a userId in the query', async () => {
     const r = await invoke(routes, {path: '/api/flashcards', query: {userId: 'alice'}, ctx: makeCtx({store: store()})});
+    assert.deepEqual(r.payload.cards.map(c => c.id), ['past', 'today', 'future']);
+  });
+
+  it('reads a different caller\'s own cards', async () => {
+    const r = await invoke(routes, {path: '/api/flashcards', ctx: makeCtx({store: store()}), auth: asUser('alice')});
     assert.deepEqual(r.payload.cards.map(c => c.id), ['a']);
   });
 
@@ -155,9 +165,9 @@ describe('GET /api/flashcards and /due', () => {
   });
 
   for (const p of ['/api/flashcards', '/api/flashcards/due']) {
-    for (const userId of [...PROTO_KEYS, ...INHERITED_KEYS, 'absent']) {
+    for (const userId of [...INHERITED_KEYS, 'absent']) {
       it(`${p} returns an empty list for the non-own user ${JSON.stringify(userId)}`, async () => {
-        const r = await invoke(routes, {path: p, query: {userId}, ctx: makeCtx({store: store()})});
+        const r = await invoke(routes, {path: p, ctx: makeCtx({store: store()}), auth: asUser(userId)});
         assert.deepEqual(r.payload.cards, []);
       });
     }
@@ -166,7 +176,7 @@ describe('GET /api/flashcards and /due', () => {
 
 describe('POST /api/flashcards/review', () => {
   const card = over => ({id: 'c1', interval: 1, easeFactor: 2.5, repetitions: 0, nextReview: '2020-01-01', ...over});
-  const store = over => ({[FLASHCARDS_FILE]: {default: [card(over)]}});
+  const store = over => ({[FLASHCARDS_FILE]: {[UID]: [card(over)]}});
 
   it('returns 429 with the fc-review key', async () => {
     const ctx = makeCtx({rateLimitAllow: false});
@@ -184,8 +194,6 @@ describe('POST /api/flashcards/review', () => {
     {name: 'an infinite quality', body: {cardId: 'c1', quality: Infinity}, error: 'Missing or invalid quality'},
     {name: 'a quality below zero', body: {cardId: 'c1', quality: -1}, error: 'quality must be between 0 and 5'},
     {name: 'a quality above five', body: {cardId: 'c1', quality: 6}, error: 'quality must be between 0 and 5'},
-    {name: 'a non-string userId', body: {cardId: 'c1', quality: 4, userId: 7}, error: 'userId must be a string'},
-    {name: 'a userId over 200 characters', body: {cardId: 'c1', quality: 4, userId: 'u'.repeat(201)}, error: 'userId must be 200 characters or fewer'},
   ];
   for (const {name, body, error} of GUARDS) {
     it(`rejects ${name} without saving`, async () => {
@@ -234,7 +242,7 @@ describe('POST /api/flashcards/review', () => {
 });
 
 describe('DELETE /api/flashcards', () => {
-  const store = () => ({[FLASHCARDS_FILE]: {default: [{id: 'c1'}, {id: 'c2'}]}});
+  const store = () => ({[FLASHCARDS_FILE]: {[UID]: [{id: 'c1'}, {id: 'c2'}]}});
 
   it('rejects a missing cardId', async () => {
     const ctx = makeCtx({store: store()});
@@ -245,7 +253,7 @@ describe('DELETE /api/flashcards', () => {
 
   for (const userId of [...INHERITED_KEYS, 'absent']) {
     it(`returns 404 for the non-own user ${JSON.stringify(userId)}`, async () => {
-      const r = await invoke(routes, {method: 'DELETE', path: '/api/flashcards', body: {cardId: 'c1', userId}, ctx: makeCtx({store: store()})});
+      const r = await invoke(routes, {method: 'DELETE', path: '/api/flashcards', body: {cardId: 'c1'}, ctx: makeCtx({store: store()}), auth: asUser(userId)});
       assert.deepEqual([r.status, r.payload], [404, {error: 'Card not found'}]);
     });
   }
@@ -259,7 +267,7 @@ describe('DELETE /api/flashcards', () => {
     const ctx = makeCtx({store: store()});
     const r = await invoke(routes, {method: 'DELETE', path: '/api/flashcards', body: {cardId: 'c1'}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {success: true}]);
-    assert.deepEqual(ctx.store[FLASHCARDS_FILE].default.map(c => c.id), ['c2']);
+    assert.deepEqual(ctx.store[FLASHCARDS_FILE][UID].map(c => c.id), ['c2']);
   });
 });
 
@@ -869,16 +877,16 @@ describe('GET /api/quicknotes', () => {
   ];
 
   it('returns the stored notes newest first', async () => {
-    const ctx = makeCtx({store: {[QUICKNOTES_FILE]: {default: JSON_NOTES}}, fs: mockFs({})});
+    const ctx = makeCtx({store: {[QUICKNOTES_FILE]: {[UID]: JSON_NOTES}}, fs: mockFs({})});
     const r = await invoke(routes, {path: '/api/quicknotes', ctx});
     assert.equal(r.status, 200);
     assert.deepEqual(r.payload.map(n => n.id), ['n2', 'n1']);
   });
 
-  for (const userId of [...PROTO_KEYS, ...INHERITED_KEYS, 'absent']) {
+  for (const userId of [...INHERITED_KEYS, 'absent']) {
     it(`returns nothing for the non-own user ${JSON.stringify(userId)}`, async () => {
-      const ctx = makeCtx({store: {[QUICKNOTES_FILE]: {default: JSON_NOTES}}, fs: mockFs({})});
-      const r = await invoke(routes, {path: '/api/quicknotes', query: {userId}, ctx});
+      const ctx = makeCtx({store: {[QUICKNOTES_FILE]: {[UID]: JSON_NOTES}}, fs: mockFs({})});
+      const r = await invoke(routes, {path: '/api/quicknotes', ctx, auth: asUser(userId)});
       assert.deepEqual(r.payload, []);
     });
   }
@@ -913,7 +921,7 @@ describe('GET /api/quicknotes', () => {
   });
 
   it('returns only the stored notes when the blog directory is absent', async () => {
-    const ctx = makeCtx({store: {[QUICKNOTES_FILE]: {default: JSON_NOTES}}, fs: mockFs({})});
+    const ctx = makeCtx({store: {[QUICKNOTES_FILE]: {[UID]: JSON_NOTES}}, fs: mockFs({})});
     const r = await invoke(routes, {path: '/api/quicknotes', ctx});
     assert.equal(r.payload.length, 2);
   });
@@ -931,8 +939,6 @@ describe('POST and DELETE /api/quicknotes', () => {
     {name: 'an omitted text', body: {}, error: 'Missing or invalid text'},
     {name: 'a non-string text', body: {text: 7}, error: 'Missing or invalid text'},
     {name: 'a text over the length cap', body: {text: 't'.repeat(10001)}, error: 'Text too long'},
-    {name: 'a non-string userId', body: {text: 't', userId: 7}, error: 'userId must be a string'},
-    {name: 'a userId over 200 characters', body: {text: 't', userId: 'u'.repeat(201)}, error: 'userId must be 200 characters or fewer'},
   ];
   for (const {name, body, error} of GUARDS) {
     it(`POST rejects ${name} without saving`, async () => {
@@ -949,7 +955,7 @@ describe('POST and DELETE /api/quicknotes', () => {
     assert.equal(r.status, 200);
     assert.equal(r.payload.note.color, '#fef3c7');
     assert.match(r.payload.note.id, /^qn_\d+_[a-z0-9]+$/);
-    assert.deepEqual(ctx.store[QUICKNOTES_FILE].default, [r.payload.note]);
+    assert.deepEqual(ctx.store[QUICKNOTES_FILE][UID], [r.payload.note]);
   });
 
   // Only a hex colour of three to eight digits is accepted.
@@ -963,9 +969,9 @@ describe('POST and DELETE /api/quicknotes', () => {
 
   it('POST caps a user history at the most recent two hundred notes', async () => {
     const existing = Array.from({length: 200}, (_, i) => ({id: `n${i}`}));
-    const ctx = makeCtx({store: {[QUICKNOTES_FILE]: {default: existing}}});
+    const ctx = makeCtx({store: {[QUICKNOTES_FILE]: {[UID]: existing}}});
     await invoke(routes, {method: 'POST', path: '/api/quicknotes', body: {text: 't'}, ctx});
-    const saved = ctx.store[QUICKNOTES_FILE].default;
+    const saved = ctx.store[QUICKNOTES_FILE][UID];
     assert.equal(saved.length, 200);
     assert.equal(saved[0].id, 'n1');
   });
@@ -973,15 +979,15 @@ describe('POST and DELETE /api/quicknotes', () => {
   for (const userId of INHERITED_KEYS) {
     it(`POST stores the inherited userId ${JSON.stringify(userId)} as an own key`, async () => {
       const ctx = makeCtx();
-      await invoke(routes, {method: 'POST', path: '/api/quicknotes', body: {text: 't', userId}, ctx});
+      await invoke(routes, {method: 'POST', path: '/api/quicknotes', body: {text: 't'}, ctx, auth: asUser(userId)});
       assert.ok(Object.hasOwn(ctx.store[QUICKNOTES_FILE], userId));
     });
   }
 
   const DELETE_CASES = [
-    {name: 'a missing id', body: {}, stored: {default: [{id: 'n1'}]}, status: 400, error: 'Missing id'},
-    {name: 'an absent user', body: {id: 'n1', userId: 'nobody'}, stored: {default: [{id: 'n1'}]}, status: 404, error: 'Note not found'},
-    {name: 'an unknown id', body: {id: 'nope'}, stored: {default: [{id: 'n1'}]}, status: 404, error: 'Note not found'},
+    {name: 'a missing id', body: {}, stored: {[UID]: [{id: 'n1'}]}, status: 400, error: 'Missing id'},
+    {name: 'a caller with no notes', body: {id: 'n1'}, stored: {someone_else: [{id: 'n1'}]}, status: 404, error: 'Note not found'},
+    {name: 'an unknown id', body: {id: 'nope'}, stored: {[UID]: [{id: 'n1'}]}, status: 404, error: 'Note not found'},
   ];
   for (const {name, body, stored, status, error} of DELETE_CASES) {
     it(`DELETE rejects ${name}`, async () => {
@@ -993,10 +999,10 @@ describe('POST and DELETE /api/quicknotes', () => {
   }
 
   it('DELETE removes the matching note', async () => {
-    const ctx = makeCtx({store: {[QUICKNOTES_FILE]: {default: [{id: 'n1'}, {id: 'n2'}]}}});
+    const ctx = makeCtx({store: {[QUICKNOTES_FILE]: {[UID]: [{id: 'n1'}, {id: 'n2'}]}}});
     const r = await invoke(routes, {method: 'DELETE', path: '/api/quicknotes', body: {id: 'n1'}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {success: true}]);
-    assert.deepEqual(ctx.store[QUICKNOTES_FILE].default.map(n => n.id), ['n2']);
+    assert.deepEqual(ctx.store[QUICKNOTES_FILE][UID].map(n => n.id), ['n2']);
   });
 });
 
@@ -1104,19 +1110,19 @@ describe('/api/pins', () => {
 describe('/api/preferences', () => {
   const PREFS = {alice: {theme: 'dark'}};
 
-  it('GET returns 400 without a userId', async () => {
-    const r = await invoke(routes, {path: '/api/preferences'});
-    assert.deepEqual([r.status, r.payload], [400, {error: 'Missing userId'}]);
-  });
-
-  it('GET returns the stored preferences for a real user', async () => {
-    const r = await invoke(routes, {path: '/api/preferences', query: {userId: 'alice'}, ctx: makeCtx({store: {[PREFS_FILE]: PREFS}})});
+  it('GET returns the stored preferences for the signed-in user', async () => {
+    const r = await invoke(routes, {path: '/api/preferences', ctx: makeCtx({store: {[PREFS_FILE]: PREFS}}), auth: asUser('alice')});
     assert.deepEqual([r.status, r.payload], [200, {preferences: {theme: 'dark'}}]);
   });
 
-  for (const userId of [...PROTO_KEYS, ...INHERITED_KEYS, 'absent']) {
+  it('GET ignores a userId in the query', async () => {
+    const r = await invoke(routes, {path: '/api/preferences', query: {userId: 'alice'}, ctx: makeCtx({store: {[PREFS_FILE]: PREFS}})});
+    assert.deepEqual([r.status, r.payload], [200, {preferences: {}}]);
+  });
+
+  for (const userId of [...INHERITED_KEYS, 'absent']) {
     it(`GET returns an empty object for the non-own user ${JSON.stringify(userId)}`, async () => {
-      const r = await invoke(routes, {path: '/api/preferences', query: {userId}, ctx: makeCtx({store: {[PREFS_FILE]: PREFS}})});
+      const r = await invoke(routes, {path: '/api/preferences', ctx: makeCtx({store: {[PREFS_FILE]: PREFS}}), auth: asUser(userId)});
       assert.deepEqual([r.status, r.payload], [200, {preferences: {}}]);
     });
   }
@@ -1128,15 +1134,13 @@ describe('/api/preferences', () => {
     assert.deepEqual(ctx.calls.rateLimit, [{key: 'prefs:127.0.0.1', maxPerMinute: 30}]);
   });
 
+  // The store key is the session subject now, so only the preference payload
+  // is still client-supplied, and only its keys still need a pollution guard.
   const GUARDS = [
-    {name: 'an omitted userId', body: {preferences: {}}, error: 'Missing or invalid userId'},
-    {name: 'a non-string userId', body: {userId: 7, preferences: {}}, error: 'Missing or invalid userId'},
-    {name: 'a userId over 200 characters', body: {userId: 'u'.repeat(201), preferences: {}}, error: 'userId must be 200 characters or fewer'},
-    {name: 'an omitted preferences', body: {userId: 'u'}, error: 'Missing or invalid preferences'},
-    {name: 'a non-object preferences', body: {userId: 'u', preferences: 'x'}, error: 'Missing or invalid preferences'},
-    {name: 'an array preferences', body: {userId: 'u', preferences: []}, error: 'Missing or invalid preferences'},
-    ...PROTO_KEYS.map(userId => ({name: `the proto userId ${JSON.stringify(userId)}`, body: {userId, preferences: {}}, error: 'Invalid userId'})),
-    ...PROTO_KEYS.map(k => ({name: `the proto preference key ${JSON.stringify(k)}`, body: {userId: 'u', preferences: {[k]: 1}}, error: `Invalid preference key: ${k}`})),
+    {name: 'an omitted preferences', body: {}, error: 'Missing or invalid preferences'},
+    {name: 'a non-object preferences', body: {preferences: 'x'}, error: 'Missing or invalid preferences'},
+    {name: 'an array preferences', body: {preferences: []}, error: 'Missing or invalid preferences'},
+    ...PROTO_KEYS.map(k => ({name: `the proto preference key ${JSON.stringify(k)}`, body: {preferences: {[k]: 1}}, error: `Invalid preference key: ${k}`})),
   ];
   for (const {name, body, error} of GUARDS) {
     it(`PUT rejects ${name} without saving`, async () => {
@@ -1150,7 +1154,7 @@ describe('/api/preferences', () => {
 
   it('PUT merges the supplied keys and stamps updatedAt', async () => {
     const ctx = makeCtx({store: {[PREFS_FILE]: {alice: {theme: 'dark', keep: 'me'}}}});
-    const r = await invoke(routes, {method: 'PUT', path: '/api/preferences', body: {userId: 'alice', preferences: {theme: 'light', size: 14}}, ctx});
+    const r = await invoke(routes, {method: 'PUT', path: '/api/preferences', body: {preferences: {theme: 'light', size: 14}}, ctx, auth: asUser('alice')});
     assert.equal(r.status, 200);
     assert.deepEqual([r.payload.preferences.theme, r.payload.preferences.size, r.payload.preferences.keep], ['light', 14, 'me']);
     assert.ok(r.payload.preferences.updatedAt);
@@ -1158,14 +1162,14 @@ describe('/api/preferences', () => {
 
   it('PUT truncates a string preference at 5000 characters', async () => {
     const ctx = makeCtx();
-    const r = await invoke(routes, {method: 'PUT', path: '/api/preferences', body: {userId: 'u', preferences: {bio: 'b'.repeat(6000)}}, ctx});
+    const r = await invoke(routes, {method: 'PUT', path: '/api/preferences', body: {preferences: {bio: 'b'.repeat(6000)}}, ctx});
     assert.equal(r.payload.preferences.bio.length, 5000);
   });
 
   for (const userId of INHERITED_KEYS) {
     it(`PUT writes the inherited userId ${JSON.stringify(userId)} as an own key`, async () => {
       const ctx = makeCtx();
-      const r = await invoke(routes, {method: 'PUT', path: '/api/preferences', body: {userId, preferences: {a: 1}}, ctx});
+      const r = await invoke(routes, {method: 'PUT', path: '/api/preferences', body: {preferences: {a: 1}}, ctx, auth: asUser(userId)});
       assert.equal(r.status, 200);
       assert.ok(Object.hasOwn(ctx.store[PREFS_FILE], userId));
     });

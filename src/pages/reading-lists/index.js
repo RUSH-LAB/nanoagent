@@ -6,7 +6,7 @@ import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import pageStyles from '@site/src/css/page.module.css';
 
 function ReadingListsApp() {
-  const API_BASE = require('@site/src/utils/api').default;
+  const { default: API_BASE, apiFetch } = require('@site/src/utils/api');
 
   const [lists, setLists] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -30,7 +30,7 @@ function ReadingListsApp() {
 
   const fetchLists = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/reading-lists`);
+      const res = await apiFetch(`${API_BASE}/api/reading-lists`);
       if (!res.ok) throw new Error(`Failed to load (${res.status})`);
       const data = await res.json();
       setLists(data.lists || []);
@@ -49,7 +49,7 @@ function ReadingListsApp() {
     setCreating(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/reading-lists`, {
+      const res = await apiFetch(`${API_BASE}/api/reading-lists`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({name: newName.trim(), description: newDesc.trim()}),
@@ -69,7 +69,7 @@ function ReadingListsApp() {
   const handleDeleteList = async (listId) => {
     if (!confirm('Delete this reading list?')) return;
     try {
-      const res = await fetch(`${API_BASE}/api/reading-lists/${listId}`, {method: 'DELETE'});
+      const res = await apiFetch(`${API_BASE}/api/reading-lists/${listId}`, {method: 'DELETE'});
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed'); }
       await fetchLists();
     } catch (err) {
@@ -83,7 +83,7 @@ function ReadingListsApp() {
     setAddingItem(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/reading-lists/${listId}/items`, {
+      const res = await apiFetch(`${API_BASE}/api/reading-lists/${listId}/items`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({path: itemPath.trim(), title: itemTitle.trim(), type: itemType}),
@@ -103,7 +103,7 @@ function ReadingListsApp() {
 
   const handleRemoveItem = async (listId, itemPath) => {
     try {
-      const res = await fetch(`${API_BASE}/api/reading-lists/${listId}/items`, {
+      const res = await apiFetch(`${API_BASE}/api/reading-lists/${listId}/items`, {
         method: 'DELETE',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({path: itemPath}),
@@ -117,7 +117,7 @@ function ReadingListsApp() {
 
   const handleMoveItem = async (listId, itemPath, direction) => {
     try {
-      const res = await fetch(`${API_BASE}/api/reading-lists/${listId}/items`, {
+      const res = await apiFetch(`${API_BASE}/api/reading-lists/${listId}/items`, {
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({path: itemPath, direction}),

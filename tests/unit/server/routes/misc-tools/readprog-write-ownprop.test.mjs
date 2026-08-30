@@ -13,14 +13,15 @@ const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js'
 const MAX_TEXT_LENGTH = 10000;
 const sanitizeText = (str) => (typeof str === 'string' ? str.slice(0, MAX_TEXT_LENGTH) : '');
 
-// Invoke the POST /api/reading-progress handler with a mocked ctx. `store` is the
-// reading-progress file (keyed by userId) that loadJSON returns verbatim; it must be
+// Invoke the POST /api/reading-progress handler with a mocked ctx. `userId` is the
+// authenticated caller the request arrives as. `store` is the reading-progress
+// file (keyed by that id) that loadJSON returns verbatim; it must be
 // a plain object literal so inherited names (toString, valueOf, hasOwnProperty)
 // resolve to truthy inherited functions exactly as on a real loadJSON result. A
 // capturing saveJSON records the object the handler tried to persist (the handler
 // passes its live `data` object, so this is the persisted state). `Object` is never
 // injected into ctx, so the own-property guard exercises the real global Object.hasOwn.
-async function postReadingProgress({ body, store }) {
+async function postReadingProgress({ body, store, userId }) {
   let captured = null;
   let saved = null;
   const ctx = {
@@ -34,7 +35,10 @@ async function postReadingProgress({ body, store }) {
     json: (_res, status, payload) => { captured = { status, payload }; res.writableEnded = true; return captured; },
   };
   const url = new URL('http://localhost/api/reading-progress');
-  const req = { method: 'POST', socket: { remoteAddress: '127.0.0.1' } };
+  // The store key is the session subject, resolved by server/index.js from the
+  // Clerk token and attached as req.auth before any handler runs.
+  const auth = { userId, orgId: null, orgRole: null, sessionId: null };
+  const req = { method: 'POST', socket: { remoteAddress: '127.0.0.1' }, auth };
   const res = { writableEnded: false };
   await miscToolsRoutes(req, res, url, '/api/reading-progress', ctx);
   return { captured, saved };
@@ -61,7 +65,8 @@ describe('POST /api/reading-progress own-property userId guard', () => {
       // Snapshot the inherited function so we can prove it is never mutated.
       const protoMember = Object.prototype[userId];
       const { captured, saved } = await postReadingProgress({
-        body: { userId, pagePath, progress: 50 },
+        userId,
+        body: { pagePath, progress: 50 },
         store,
       });
 
@@ -92,7 +97,8 @@ describe('POST /api/reading-progress own-property userId guard', () => {
   it('records progress for a normal userId (200, persisted as an own key)', async () => {
     const store = {};
     const { captured, saved } = await postReadingProgress({
-      body: { userId: 'reader', pagePath: 'content/intro.md', progress: 42 },
+      userId: 'reader',
+      body: { pagePath: 'content/intro.md', progress: 42 },
       store,
     });
     assert.deepEqual(captured, { status: 200, payload: { success: true } });
@@ -106,7 +112,8 @@ describe('POST /api/reading-progress own-property userId guard', () => {
     // wipe it; the new page is merged alongside the existing one.
     const store = { reader: { 'content/old.md': { progress: 100, lastRead: '2026-01-01T00:00:00.000Z' } } };
     const { captured, saved } = await postReadingProgress({
-      body: { userId: 'reader', pagePath: 'content/new.md', progress: 30 },
+      userId: 'reader',
+      body: { pagePath: 'content/new.md', progress: 30 },
       store,
     });
     assert.deepEqual(captured, { status: 200, payload: { success: true } });
@@ -117,12 +124,14 @@ describe('POST /api/reading-progress own-property userId guard', () => {
 
   it('clamps progress into the 0..100 range', async () => {
     const over = await postReadingProgress({
-      body: { userId: 'reader', pagePath: 'content/a.md', progress: 150 },
+      userId: 'reader',
+      body: { pagePath: 'content/a.md', progress: 150 },
       store: {},
     });
     assert.equal(over.saved.reader['content/a.md'].progress, 100);
     const under = await postReadingProgress({
-      body: { userId: 'reader', pagePath: 'content/b.md', progress: -5 },
+      userId: 'reader',
+      body: { pagePath: 'content/b.md', progress: -5 },
       store: {},
     });
     assert.equal(under.saved.reader['content/b.md'].progress, 0);

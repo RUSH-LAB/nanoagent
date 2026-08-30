@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
+// The identity server/index.js attaches to every request after verifying the
+// session token. The handler reads its store key from here, never from the URL
+// or the body.
+const AUTH = Object.freeze({ userId: 'test-user', orgId: null, orgRole: null, sessionId: null });
+const UID = AUTH.userId;
+
+
 // content-analysis-c.js is CommonJS; load the REAL module the way the other server
 // route tests do (mirroring next-templatevars-hoist-protoset.test.mjs). The POST
 // /api/search/history handler (roughly lines 97 to 122) lives in this module, so
@@ -27,7 +34,7 @@ async function invoke({
 } = {}) {
   const pathname = '/api/search/history';
   const url = new URL(`http://localhost${pathname}`);
-  const req = { method: 'POST', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'POST', socket: { remoteAddress: '127.0.0.1' }, auth: AUTH };
   const res = { writableEnded: false };
   let captured = null;
   let loadCount = 0;
@@ -107,19 +114,21 @@ describe('POST /api/search/history guard branches (no read or write on any rejec
     assertNoIO(result);
   });
 
-  it('returns 400 when userId is present but not a string', async () => {
-    const result = await invoke({ body: { query: 'hi', userId: 99 } });
-    assert.equal(result.captured.status, 400);
-    assert.deepEqual(result.captured.payload, { error: 'userId must be a string' });
-    assertNoIO(result);
-  });
-
-  it('returns 400 when userId is longer than 200 characters', async () => {
-    const result = await invoke({ body: { query: 'hi', userId: 'u'.repeat(201) } });
-    assert.equal(result.captured.status, 400);
-    assert.deepEqual(result.captured.payload, { error: 'userId must be 200 characters or fewer' });
-    assertNoIO(result);
-  });
+  // The handler used to validate `body.userId` and reject a non-string or an
+  // over-long one. It now attributes the search to the session subject and
+  // ignores the body field entirely, so neither shape is a guard branch any
+  // more: both walk past every guard and reach loadJSON, which this harness
+  // stubs to throw. The catch-path 'Invalid request' plus loadCount === 1 is
+  // what "no longer rejected" looks like from inside a guards-only suite.
+  for (const [name, userId] of [['non-string', 99], ['over-long', 'u'.repeat(201)]]) {
+    it(`no longer rejects a ${name} userId in the body`, async () => {
+      const result = await invoke({ body: { query: 'hi', userId } });
+      assert.equal(result.captured.status, 400);
+      assert.deepEqual(result.captured.payload, { error: 'Invalid request' });
+      assert.equal(result.loadCount, 1, 'the request reached the store read');
+      assert.equal(result.saveCount, 0);
+    });
+  }
 
   it('returns 400 when resultCount is not a number', async () => {
     const result = await invoke({ body: { query: 'hi', resultCount: 'five' } });

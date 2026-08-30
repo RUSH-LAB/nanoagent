@@ -4,7 +4,7 @@ import Link from '@docusaurus/Link';
 import { usePluginData } from '@docusaurus/useGlobalData';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 import {useDebounce} from '@site/src/hooks/useDebounce';
 import {S2_PAPER_SEARCH} from '@site/src/utils/semanticScholar';
 import {formatAuthorList} from '@site/src/utils/authors';
@@ -312,7 +312,7 @@ function TrackAllPreprints({ references }) {
     setTracking(true);
     setError(null);
     setResult(null);
-    fetch(`${API_BASE}/api/references/track-all`, {
+    apiFetch(`${API_BASE}/api/references/track-all`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: '{}',
@@ -523,7 +523,7 @@ function SearchAndAddPapers({ existingKeys }) {
       if (paper.externalIds.ArXiv) refData.arxivId = paper.externalIds.ArXiv;
     }
 
-    fetch(`${API_BASE}/api/references`, {
+    apiFetch(`${API_BASE}/api/references`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(refData),
@@ -752,7 +752,7 @@ function ImportBibtex() {
     setError(null);
     setResult(null);
 
-    fetch(`${API_BASE}/api/references/import-bibtex`, {
+    apiFetch(`${API_BASE}/api/references/import-bibtex`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bibtex: bibtexText }),

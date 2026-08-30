@@ -1,5 +1,5 @@
 import React, {useState, useEffect, useCallback, useRef} from 'react';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 
 export default function PaperNotes({citationKey, title}) {
   const [expanded, setExpanded] = useState(false);
@@ -11,7 +11,7 @@ export default function PaperNotes({citationKey, title}) {
 
   useEffect(() => {
     if (!expanded || loaded) return;
-    fetch(`${API_BASE}/api/notes?key=${encodeURIComponent(citationKey)}`)
+    apiFetch(`${API_BASE}/api/notes?key=${encodeURIComponent(citationKey)}`)
       .then(r => r.json())
       .then(d => {
         if (d.note) setContent(d.note.content || '');
@@ -23,7 +23,7 @@ export default function PaperNotes({citationKey, title}) {
   const save = useCallback(async (text) => {
     setSaving(true);
     try {
-      await fetch(`${API_BASE}/api/notes`, {
+      await apiFetch(`${API_BASE}/api/notes`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({key: citationKey, content: text, title}),

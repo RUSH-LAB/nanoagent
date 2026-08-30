@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 import {useDebounce} from '@site/src/hooks/useDebounce';
 import pageStyles from '@site/src/css/page.module.css';
 
@@ -457,7 +457,7 @@ function GlossaryContent() {
   const fetchTerms = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetch(`${API_BASE}/api/glossary`)
+    apiFetch(`${API_BASE}/api/glossary`)
       .then(r => {
         if (!r.ok) throw new Error(`Server returned ${r.status}`);
         return r.json();
@@ -514,7 +514,7 @@ function GlossaryContent() {
   const allLetters = useMemo(() => letterGroups.map(g => g.letter), [letterGroups]);
 
   const handleAdd = async (data) => {
-    const r = await fetch(`${API_BASE}/api/glossary`, {
+    const r = await apiFetch(`${API_BASE}/api/glossary`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -526,7 +526,7 @@ function GlossaryContent() {
   };
 
   const handleUpdate = async (data) => {
-    const r = await fetch(`${API_BASE}/api/glossary`, {
+    const r = await apiFetch(`${API_BASE}/api/glossary`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -538,7 +538,7 @@ function GlossaryContent() {
   };
 
   const handleDelete = async (term) => {
-    const r = await fetch(`${API_BASE}/api/glossary`, {
+    const r = await apiFetch(`${API_BASE}/api/glossary`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ term }),

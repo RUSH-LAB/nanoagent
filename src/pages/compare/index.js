@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 import pageStyles from '@site/src/css/page.module.css';
 
 function wordCount(text) {
@@ -91,7 +91,7 @@ function CompareView() {
 
   // Fetch file list on mount
   useEffect(() => {
-    fetch(`${API_BASE}/api/files`)
+    apiFetch(`${API_BASE}/api/files`)
       .then((r) => r.json())
       .then((d) => {
         const flat = flattenTree(d.files || []).sort();
@@ -111,8 +111,8 @@ function CompareView() {
     setError(null);
 
     Promise.all([
-      fetch(`${API_BASE}/api/file?path=${encodeURIComponent(leftPath)}`).then((r) => r.json()),
-      fetch(`${API_BASE}/api/file?path=${encodeURIComponent(rightPath)}`).then((r) => r.json()),
+      apiFetch(`${API_BASE}/api/file?path=${encodeURIComponent(leftPath)}`).then((r) => r.json()),
+      apiFetch(`${API_BASE}/api/file?path=${encodeURIComponent(rightPath)}`).then((r) => r.json()),
     ])
       .then(([left, right]) => {
         if (left.error) throw new Error(`Left file: ${left.error}`);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
-import API_BASE from '@site/src/utils/api';
+import API_BASE, { apiFetch } from '@site/src/utils/api';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import pageStyles from '@site/src/css/page.module.css';
 
@@ -156,7 +156,7 @@ function GraphVisualization() {
       setLoading(true);
       setError(null);
       try {
-        const resp = await fetch(`${API_BASE}/api/graph`, { signal: controller.signal });
+        const resp = await apiFetch(`${API_BASE}/api/graph`, { signal: controller.signal });
         if (!resp.ok) {
           const data = await resp.json().catch(() => ({}));
           throw new Error(data.error || `HTTP ${resp.status}`);

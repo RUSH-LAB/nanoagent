@@ -99,18 +99,19 @@ module.exports = async function content_analysis_c_routes(req, res, url, pathnam
     if (!rateLimit(`search-history:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
-      const {query, userId, resultCount} = body;
+      const {query, resultCount} = body;
+      // A search is attributed to the session holder, not to whatever name the
+      // request cared to put in the body.
+      const {userId} = req.auth;
       if (!query || typeof query !== 'string') return json(res, 400, {error: 'Missing or invalid query'});
       if (query.length > 500) return json(res, 400, {error: 'Query must be 500 characters or fewer'});
-      if (userId !== undefined && typeof userId !== 'string') return json(res, 400, {error: 'userId must be a string'});
-      if (userId && userId.length > 200) return json(res, 400, {error: 'userId must be 200 characters or fewer'});
       if (resultCount !== undefined && (typeof resultCount !== 'number' || !isFinite(resultCount) || resultCount < 0)) return json(res, 400, {error: 'resultCount must be a non-negative number'});
       const HISTORY_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('search-history'));
       const data = loadJSON(HISTORY_FILE);
       if (!data.searches) data.searches = [];
       data.searches.push({
         query: sanitizeText(query),
-        userId: userId ? sanitizeText(userId) : 'anonymous',
+        userId,
         resultCount: resultCount || 0,
         timestamp: new Date().toISOString(),
       });
