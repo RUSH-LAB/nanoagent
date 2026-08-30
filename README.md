@@ -65,9 +65,45 @@ API on `:3001`, and a browser will not send a cookie across origins without HTTP
 session; anything else is a `401` before a handler runs. Handlers read the caller only from that
 session, so a `userId` in a query string or request body is ignored.
 
+### The database
+
+One SQLite file, `var/data/mochi.db`, created on first run. Inspect it with any SQLite client:
+
+```bash
+sqlite3 var/data/mochi.db ".tables"
+sqlite3 -header -column var/data/mochi.db "SELECT username, email, name FROM user;"
+sqlite3 -header -column var/data/mochi.db \
+  "SELECT u.username, COALESCE(r.role,'viewer') AS role
+     FROM user u LEFT JOIN user_role r ON r.userId = u.id;"
+```
+
+| Table | Holds |
+|---|---|
+| `user` | accounts: id, username, email, name |
+| `session` | live sessions and their tokens |
+| `account` | credentials, including the password hash |
+| `user_role` | site-wide role (`owner` / `editor` / `viewer`), foreign key to `user` |
+| `organization`, `member`, `invitation` | organizations and membership |
+| `verification` | email and reset tokens |
+| `_migrations` | which migrations have been applied |
+
+### Managing users
+
+`/admin` lists every account with its role, and an owner can change any of them. Roles are site-wide:
+**owner** manages roles, **editor** and **viewer** are for your own authorization checks.
+
+Root is the first owner, created by `npm start`. Everyone else signs up on the sign-in screen and
+starts as a viewer until an owner promotes them. The last owner cannot be demoted, since that would
+leave nobody able to promote anyone.
+
+Roles live in the database rather than a JSON file, joined to `user` by a foreign key with
+`ON DELETE CASCADE`. The file they replaced had no such link: recreating the database gave root a new
+id and left the old row behind, so `/admin` came to list three owners, two of them accounts that no
+longer existed.
+
 **Schema.** `src/server/migrations/*.sql` is applied at startup and recorded, so a clean checkout works
 on the first `npm start`. `tests/unit/server/db-schema.test.mjs` fails if the committed schema drifts
-from what the installed Better Auth expects.
+from what the installed Better Auth expects, or if a migration is added but never applied.
 
 **The root account.** `npm start` creates `root` if it is missing and makes it an owner in the role
 store, which is what gives `/admin` a first owner to act as. It is an ordinary account: the generated

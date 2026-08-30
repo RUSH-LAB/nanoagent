@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import pageStyles from '@site/src/css/page.module.css';
+import { useColorMode } from '@docusaurus/theme-common';
 import API_BASE, { apiFetch } from '@site/src/utils/api';
 import styles from './styles.module.css';
 
@@ -15,16 +16,21 @@ import styles from './styles.module.css';
  * settings by asking.
  */
 
+/**
+ * Docusaurus models "follow the system" as a null colour mode, so the stored
+ * preference and the theme's own value are not quite the same vocabulary.
+ */
 const THEMES = [
-  { value: 'system', label: 'Follow system' },
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'Follow system', colorMode: null },
+  { value: 'light', label: 'Light', colorMode: 'light' },
+  { value: 'dark', label: 'Dark', colorMode: 'dark' },
 ];
 
 function SettingsApp() {
-  const { useSession, signOutAndForget } = require('@site/src/utils/authClient');
-  const { data: session } = useSession();
+  const { authClient, signOutAndForget } = require('@site/src/utils/authClient');
+  const { setColorMode } = useColorMode();
 
+  const [session, setSession] = useState(null);
   const [prefs, setPrefs] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -33,13 +39,20 @@ function SettingsApp() {
 
   useEffect(() => {
     let cancelled = false;
+    // getSession rather than the useSession hook: the hook silently never
+    // issued its request, which is what left the auth gate showing the sign-in
+    // form to people who were signed in.
+    authClient.getSession()
+      .then((r) => { if (!cancelled) setSession(r?.data ?? null); })
+      .catch(() => { /* the account section simply stays empty */ });
+
     apiFetch(`${API_BASE}/api/preferences`)
       .then((r) => r.json())
       .then((d) => { if (!cancelled) setPrefs(d.preferences || {}); })
       .catch(() => { if (!cancelled) setError('Could not load your settings. Is the API server running?'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [authClient]);
 
   const save = useCallback(async (patch) => {
     setSaving(true);
@@ -107,36 +120,22 @@ function SettingsApp() {
           <select
             value={prefs?.theme ?? 'system'}
             disabled={saving}
-            onChange={(e) => save({ theme: e.target.value })}
+            onChange={(e) => {
+              const choice = THEMES.find((t) => t.value === e.target.value);
+              // Apply it before saving, so the page changes as you choose
+              // rather than after a round trip.
+              setColorMode(choice.colorMode);
+              save({ theme: choice.value });
+            }}
           >
             {THEMES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
         </label>
 
-        <label className={styles.field}>
-          <span>Editor font size</span>
-          <input
-            type="number"
-            min={10}
-            max={32}
-            defaultValue={prefs?.fontSize ?? 16}
-            disabled={saving}
-            onBlur={(e) => {
-              const fontSize = Number(e.target.value);
-              if (Number.isFinite(fontSize) && fontSize !== prefs?.fontSize) save({ fontSize });
-            }}
-          />
-        </label>
-
-        <label className={styles.checkbox}>
-          <input
-            type="checkbox"
-            checked={Boolean(prefs?.compactSidebar)}
-            disabled={saving}
-            onChange={(e) => save({ compactSidebar: e.target.checked })}
-          />
-          <span>Compact sidebar</span>
-        </label>
+        <p className={styles.muted}>
+          Stored on your account, so it follows you to another browser. The navbar
+          toggle changes this device only.
+        </p>
 
         {status && <p className={styles.status}>{status}</p>}
         {error && <p className={styles.error} role="alert">{error}</p>}

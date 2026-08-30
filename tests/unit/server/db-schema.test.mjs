@@ -70,9 +70,36 @@ describe('server/migrations matches the installed better-auth', () => {
     );
   });
 
-  it('records the migration so a second start is a no-op', () => {
+  it('records every migration, so a second start is a no-op', () => {
+    // Read the directory rather than naming the files: a new migration should
+    // not have to remember to update this test, only to actually apply.
+    const {MIGRATIONS_DIR} = require('../../../src/server/db.js');
+    const onDisk = fs.readdirSync(MIGRATIONS_DIR).filter(f => f.endsWith('.sql')).sort();
     const applied = db.prepare('SELECT name FROM _migrations ORDER BY name').all().map(r => r.name);
-    assert.deepEqual(applied, ['0001_auth.sql']);
+    assert.deepEqual(applied, onDisk);
+    assert.ok(onDisk.length > 0, 'there is at least one migration');
+  });
+
+  it('creates the role table, tied to the user table by foreign key', () => {
+    const cols = db.prepare('PRAGMA table_info(user_role)').all().map(c => c.name);
+    assert.deepEqual(cols.sort(), ['addedAt', 'role', 'userId']);
+
+    const fks = db.prepare('PRAGMA foreign_key_list(user_role)').all();
+    assert.equal(fks.length, 1, 'exactly one foreign key');
+    assert.equal(fks[0].table, 'user');
+    // The cascade is the point: it is what makes an orphan role impossible,
+    // which the JSON store it replaced could not prevent.
+    assert.equal(fks[0].on_delete, 'CASCADE');
+  });
+
+  it('deletes a role along with its user', () => {
+    db.prepare('INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?,?,?,?,?,?)')
+      .run('cascade-test', 'X', 'x@test.invalid', 0, 0, 0);
+    db.prepare('INSERT INTO user_role (userId, role, addedAt) VALUES (?,?,?)')
+      .run('cascade-test', 'owner', '2026-01-01T00:00:00.000Z');
+    db.prepare('DELETE FROM "user" WHERE id = ?').run('cascade-test');
+    const left = db.prepare('SELECT COUNT(*) AS n FROM user_role WHERE userId = ?').get('cascade-test').n;
+    assert.equal(left, 0, 'the role went with the user');
   });
 
   it('has the tables the organization plugin needs', () => {

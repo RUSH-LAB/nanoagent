@@ -21,6 +21,10 @@ const require = createRequire(import.meta.url);
 const DEV_AUTH_PATH = require.resolve('../../../src/server/dev-auth.js');
 const AUTH_PATH = require.resolve('../../../src/server/auth.js');
 const DB_PATH = require.resolve('../../../src/server/db.js');
+const ROLES_PATH = require.resolve('../../../src/server/roles.js');
+// Every module that closes over the database connection, so a reload under a
+// different DATABASE_FILE gets a consistent set rather than a stale mix.
+const MODULE_PATHS = [DEV_AUTH_PATH, AUTH_PATH, DB_PATH, ROLES_PATH];
 
 const ENV_KEYS = [
   'DEV_AUTOLOGIN', 'NODE_ENV', 'DATABASE_FILE', 'BETTER_AUTH_SECRET',
@@ -34,17 +38,22 @@ function load(env, {withAuth = false} = {}) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }
-  for (const p of [DEV_AUTH_PATH, AUTH_PATH, DB_PATH]) delete require.cache[p];
+  for (const p of MODULE_PATHS) delete require.cache[p];
   try {
     const devAuth = require('../../../src/server/dev-auth.js');
     const auth = withAuth ? require('../../../src/server/auth.js').auth : null;
-    return {devAuth, auth};
+    // Required here, not by the caller: the finally below restores the
+    // environment, so a later require would load db.js against the default
+    // DATABASE_FILE and read a different database than the one under test.
+    const roles = withAuth ? require('../../../src/server/roles.js') : null;
+    const db = withAuth ? require('../../../src/server/db.js').db : null;
+    return {devAuth, auth, roles, db};
   } finally {
     for (const [k, v] of Object.entries(saved)) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }
-    for (const p of [DEV_AUTH_PATH, AUTH_PATH, DB_PATH]) delete require.cache[p];
+    for (const p of MODULE_PATHS) delete require.cache[p];
   }
 }
 
@@ -140,12 +149,12 @@ describe('the root account', () => {
   let dir;
   let devAuth;
   let auth;
-  let usersFile;   // scratch role store; the real one must stay untouched
+  let roles;
+  let db;
 
   before(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-root-'));
-    usersFile = path.join(dir, 'users.json');
-    ({devAuth, auth} = load({
+    ({devAuth, auth, roles, db} = load({
       DEV_AUTOLOGIN: 'true',
       NODE_ENV: undefined,
       ENABLE_AUTH: 'true',
@@ -161,7 +170,7 @@ describe('the root account', () => {
   });
 
   it('is created on the first call, as a real row', async () => {
-    const report = await devAuth.ensureRootUser(auth, usersFile);
+    const report = await devAuth.ensureRootUser(auth);
     assert.equal(report.created, true);
     assert.equal(report.username, 'root');
     assert.ok(report.userId, 'has a generated id');
@@ -170,8 +179,8 @@ describe('the root account', () => {
   // Every restart after the first takes the sign-in path instead, which is the
   // branch that broke first in development.
   it('is reused, not recreated, on a second call', async () => {
-    const first = await devAuth.ensureRootUser(auth, usersFile);
-    const second = await devAuth.ensureRootUser(auth, usersFile);
+    const first = await devAuth.ensureRootUser(auth);
+    const second = await devAuth.ensureRootUser(auth);
     assert.equal(second.created, false, 'the account already existed');
     assert.equal(second.userId, first.userId, 'and it is the same account');
   });
@@ -183,14 +192,30 @@ describe('the root account', () => {
     assert.ok(result.token, 'root is an ordinary account with a working password');
   });
 
-  it('grants root the owner role in the store', async () => {
-    const report = await devAuth.ensureRootUser(auth, usersFile);
-    const users = JSON.parse(fs.readFileSync(usersFile, 'utf-8'));
-    assert.equal(users[report.userId].role, 'owner', 'root is the first owner');
+  it('grants root the owner role, in the database', async () => {
+    const report = await devAuth.ensureRootUser(auth);
+    assert.equal(roles.getRole(report.userId), 'owner', 'root is the first owner');
+  });
+
+  it('reports no change when root is already an owner', async () => {
+    await devAuth.ensureRootUser(auth);
+    const again = await devAuth.ensureRootUser(auth);
+    assert.equal(again.grantedOwner, false);
+  });
+
+  // The role is a foreign key to the user table now, so deleting the account
+  // takes the role with it. The JSON store had no such link, which is how three
+  // owners accumulated for a root that only ever existed once.
+  it('leaves no orphan role behind when the account is deleted', async () => {
+    const report = await devAuth.ensureRootUser(auth);
+    assert.equal(roles.getRole(report.userId), 'owner');
+    db.prepare('DELETE FROM "user" WHERE id = ?').run(report.userId);
+    assert.equal(roles.getRole(report.userId), 'viewer', 'the role went with the user');
+    assert.equal(roles.ownerCount(), 0, 'and left no owner row behind');
   });
 
   it('hands out a session to a loopback caller', async () => {
-    await devAuth.ensureRootUser(auth, usersFile);
+    await devAuth.ensureRootUser(auth);
     const {calls, json} = capture();
     await devAuth.handleDevLogin(reqFrom('127.0.0.1'), {}, auth, json);
     assert.equal(calls[0].status, 200);
@@ -201,55 +226,5 @@ describe('the root account', () => {
   it('creates nothing at all when auto-login is off', async () => {
     const off = load({DEV_AUTOLOGIN: undefined}).devAuth;
     assert.equal(await off.ensureRootUser(auth), null);
-  });
-});
-
-describe('grantOwner', () => {
-  let dir;
-  let devAuth;
-  let usersFile;
-
-  before(() => {
-    // A scratch role store. The real one lives in the repo, and a test that
-    // wrote through to it would leave the checkout dirty and race any other
-    // suite reading it.
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-owner-'));
-    usersFile = path.join(dir, 'users.json');
-    ({devAuth} = load({DEV_AUTOLOGIN: 'true', NODE_ENV: undefined}));
-  });
-
-  after(() => {
-    try { fs.rmSync(dir, {recursive: true, force: true}); } catch { /* already gone */ }
-  });
-
-  const read = () => JSON.parse(fs.readFileSync(usersFile, 'utf-8'));
-
-  it('records a new user as owner and reports the change', () => {
-    assert.equal(devAuth.grantOwner('owner-1', 'a@test.invalid', 'A', usersFile), true);
-    assert.equal(read()['owner-1'].role, 'owner');
-    assert.equal(read()['owner-1'].email, 'a@test.invalid');
-  });
-
-  it('is idempotent, reporting no change the second time', () => {
-    devAuth.grantOwner('owner-2', 'b@test.invalid', 'B', usersFile);
-    assert.equal(devAuth.grantOwner('owner-2', 'b@test.invalid', 'B', usersFile), false);
-  });
-
-  it('promotes an existing non-owner, keeping their original details', () => {
-    const users = read();
-    users['owner-3'] = {role: 'viewer', email: 'c@test.invalid', name: 'C', addedAt: '2020-01-01T00:00:00.000Z'};
-    fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
-
-    assert.equal(devAuth.grantOwner('owner-3', 'ignored@test.invalid', 'Ignored', usersFile), true);
-    const after = read()['owner-3'];
-    assert.equal(after.role, 'owner');
-    assert.equal(after.addedAt, '2020-01-01T00:00:00.000Z', 'the original join date survives');
-    assert.equal(after.email, 'c@test.invalid', 'the existing email wins over the argument');
-  });
-
-  it('leaves other users untouched', () => {
-    const before = Object.keys(read()).sort();
-    devAuth.grantOwner('owner-4', 'd@test.invalid', 'D', usersFile);
-    assert.deepEqual(Object.keys(read()).sort(), [...before, 'owner-4'].sort());
   });
 });

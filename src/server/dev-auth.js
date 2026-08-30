@@ -17,17 +17,15 @@
  *   3. The request arrives from the loopback interface. Even with the flag on,
  *      a machine reachable from the network will not hand a session to it.
  *
- * Root is also the owner in the app's role store, which closes a real gap:
- * var/data/users.json starts empty, nobody is an owner, and PUT
- * /api/users/:id/role answers 403 to everyone, so the admin page could never
- * grant anyone anything. Seeding root as owner gives that endpoint a first
- * owner to act.
+ * Root is also the first owner, which closes a real gap: with no owner, PUT
+ * /api/users/:id/role answers 403 to everyone and the admin page can never
+ * grant anyone anything.
  */
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const {DATA_DIR, dataFile} = require('./paths');
-const {loadJSON, saveJSON} = require('./data-store');
+const {DATA_DIR} = require('./paths');
+const {setRole, getRole} = require('./roles');
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
@@ -74,34 +72,26 @@ function rootPassword() {
 }
 
 /**
- * Record `userId` as an owner in the app's role store, if not already known.
- * `usersFile` is a parameter so tests can point at a scratch file instead of
- * writing through to the repo's own store.
+ * Make `userId` an owner, unless they already are. Returns whether anything
+ * changed, which the startup banner reports.
+ *
+ * Writes to the user_role table, whose foreign key ties the role to a real
+ * account. The previous JSON store had no such link, so recreating the database
+ * left the old entry behind and /admin listed owners that did not exist.
  */
-function grantOwner(userId, email, name, usersFile = dataFile('users')) {
-  const users = loadJSON(usersFile);
-  if (Object.hasOwn(users, userId) && users[userId].role === 'owner') return false;
-  users[userId] = {
-    role: 'owner',
-    email: users[userId]?.email || email,
-    name: users[userId]?.name || name,
-    addedAt: users[userId]?.addedAt || new Date().toISOString(),
-  };
-  saveJSON(usersFile, users);
-  return true;
+function grantOwner(userId) {
+  if (getRole(userId) === 'owner') return false;
+  return setRole(userId, 'owner');
 }
 
 /**
  * Create the root account if it does not exist, and make sure it is an owner.
  *
- * `usersFile` names the role store, as a parameter so a test can point at a
- * scratch file rather than granting ownership in the real one.
- *
  * Returns a small report for the startup banner, or null when auto-login is
  * off, in which case nothing is created: a production database should not grow
  * a well-known account just because this module was imported.
  */
-async function ensureRootUser(auth, usersFile = dataFile('users')) {
+async function ensureRootUser(auth) {
   if (!DEV_AUTOLOGIN) return null;
 
   const password = rootPassword();
@@ -130,7 +120,7 @@ async function ensureRootUser(auth, usersFile = dataFile('users')) {
     }
   }
 
-  const grantedOwner = grantOwner(userId, ROOT_EMAIL, ROOT_NAME, usersFile);
+  const grantedOwner = grantOwner(userId);
   return {userId, username: ROOT_USERNAME, email: ROOT_EMAIL, created, grantedOwner, passwordFile: ROOT_PASSWORD_FILE};
 }
 

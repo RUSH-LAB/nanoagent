@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import {loadRoute, makeCtx, invoke, FILES} from '../../_harness.mjs';
 
 const routes = loadRoute('comments-notes');
-const {NOTES_FILE, USERS_FILE} = FILES;
+const {NOTES_FILE} = FILES;
 
 /** The three keys the module refuses as a store key (its frozen PROTO_KEYS). */
 const PROTO_KEYS = ['__proto__', 'constructor', 'prototype'];

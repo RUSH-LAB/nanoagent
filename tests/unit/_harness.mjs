@@ -35,7 +35,7 @@ export const PROJECT_ROOT = '/fake/root';
 
 const DATA_FILES = [
   'COMMENTS_FILE:comments', 'NOTES_FILE:notes', 'ANALYTICS_FILE:analytics',
-  'USERS_FILE:users', 'BOOKMARKS_FILE:bookmarks',
+  'BOOKMARKS_FILE:bookmarks',
   'READING_LISTS_FILE:reading-lists', 'STREAKS_FILE:streaks',
   'ANNOTATIONS_FILE:annotations', 'SNAPSHOTS_FILE:snapshots',
   'SCHEDULES_FILE:schedules', 'WHITEBOARDS_FILE:whiteboards',
@@ -192,18 +192,64 @@ const DEFAULT_READ_BODY = Symbol('defaultReadBody');
  *   fs              an fs implementation, default an empty mockFs()
  *   rateLimitAllow  boolean or (key, max) => boolean, default true (allow)
  *   PROJECT_ROOT    override the repo root token
+ *   users           accounts to seed the in-memory role store with, as
+ *                   [{id, username, email, name, role}]
+ *   roles           a whole roles implementation, if the default will not do
  * Any other key is copied onto the ctx verbatim, replacing the default.
  *
  * ctx.calls records loadJSON/saveJSON/rateLimit/invalidateCache/json activity
  * and ctx.store is the live backing map, so a test can assert both what the
  * handler read and what it persisted.
  */
+/**
+ * An in-memory stand-in for server/roles.js, matching its semantics: an unknown
+ * user reads as a viewer, setRole refuses a user who does not exist (the real
+ * one is refused by a foreign key), and listUsers reports every account whether
+ * or not it has been given a role.
+ *
+ * Seed it through makeCtx({users: [{id, username, email, name, role}]}).
+ */
+export function makeRoles(seed = []) {
+  const users = new Map();
+  const assigned = new Map();
+  for (const u of seed) {
+    users.set(u.id, {id: u.id, username: u.username, email: u.email, name: u.name, createdAt: u.createdAt ?? 0});
+    if (u.role) assigned.set(u.id, {role: u.role, addedAt: u.addedAt ?? '2026-01-01T00:00:00.000Z'});
+  }
+  const ROLES = ['owner', 'editor', 'viewer'];
+  const DEFAULT_ROLE = 'viewer';
+  const api = {
+    ROLES,
+    DEFAULT_ROLE,
+    _users: users,
+    _assigned: assigned,
+    isValidRole: role => typeof role === 'string' && ROLES.includes(role),
+    getRole: userId => assigned.get(userId)?.role ?? DEFAULT_ROLE,
+    setRole(userId, role) {
+      if (!api.isValidRole(role)) throw new Error(`Invalid role: ${role}`);
+      if (!users.has(userId)) return false;
+      assigned.set(userId, {role, addedAt: '2026-01-01T00:00:00.000Z'});
+      return true;
+    },
+    listUsers: () => [...users.values()].map(u => ({
+      ...u,
+      role: assigned.get(u.id)?.role ?? DEFAULT_ROLE,
+      addedAt: assigned.get(u.id)?.addedAt,
+    })),
+    isOwner: userId => api.getRole(userId) === 'owner',
+    ownerCount: () => [...assigned.values()].filter(r => r.role === 'owner').length,
+  };
+  return api;
+}
+
 export function makeCtx(overrides = {}) {
   const {
     store = {},
     fs = mockFs(),
     rateLimitAllow = true,
     PROJECT_ROOT: root = PROJECT_ROOT,
+    users = [],
+    roles = makeRoles(users),
     ...rest
   } = overrides;
 
@@ -246,6 +292,7 @@ export function makeCtx(overrides = {}) {
 
   const ctx = {
     ...FILES,
+    roles,
     PROJECT_ROOT: root,
     PORT: 3001,
     TRASH_DIR: nodePath.join(root, 'var', 'trash'),
