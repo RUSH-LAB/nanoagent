@@ -1,0 +1,72 @@
+/**
+ * What the channel directory has that the people one does not: the kind mark,
+ * the archived treatment, and the inline rename form. The rest of the layout is
+ * shared, in src/css/directory.module.css.
+ */
+
+/* The same one-character marks the CLI rail uses, so a channel looks like
+   itself in both places: # anyone may read it, * members only. */
+.mark {
+  flex-shrink: 0;
+  width: 1ch;
+  color: var(--ifm-color-emphasis-500);
+  font-family: var(--ifm-font-family-monospace);
+  font-weight: 700;
+  text-align: center;
+}
+
+/* Archived rows stay legible but stop competing for attention. */
+.archived {
+  opacity: 0.6;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+/* ── Renaming in place ──────────────────────────────────────────── */
+
+.edit {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.editName,
+.editTopic {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 6px;
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+  font-size: 0.85rem;
+}
+
+.editName {
+  width: 14ch;
+  font-family: var(--ifm-font-family-monospace);
+}
+
+.editTopic {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .edit {
+    flex-wrap: wrap;
+  }
+
+  .editName,
+  .editTopic {
+    flex-basis: 100%;
+  }
+}

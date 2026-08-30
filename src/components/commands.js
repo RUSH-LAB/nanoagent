@@ -153,6 +153,9 @@ export const COMMANDS = [
   {id: 'builder', name: 'builder', category: 'Content', icon: icons.book, title: 'Builder', description: 'Notes on building this site', href: '/builder/intro'},
   {id: 'timeline', name: 'timeline', category: 'Content', icon: icons.clock, title: 'Timeline', description: 'Recent content activity', href: '/timeline'},
 
+  {id: 'people', name: 'people', category: 'Tools', icon: icons.list, title: 'People', description: 'Everyone in your organization', href: '/people'},
+  {id: 'channels', name: 'channels', category: 'Tools', icon: icons.layers, title: 'Channels', description: 'Browse, rename, and archive channels', href: '/channels'},
+
   // Insights
   {id: 'analytics', name: 'analytics', category: 'Insights', icon: icons.chart, title: 'Analytics', description: 'Pageview dashboard', href: '/analytics'},
   {id: 'stats', name: 'stats', category: 'Insights', icon: icons.chart, title: 'Stats', description: 'Content statistics', href: '/stats'},

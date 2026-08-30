@@ -22,9 +22,10 @@ const DEV_AUTH_PATH = require.resolve('../../../src/server/dev-auth.js');
 const AUTH_PATH = require.resolve('../../../src/server/auth.js');
 const DB_PATH = require.resolve('../../../src/server/db.js');
 const ROLES_PATH = require.resolve('../../../src/server/roles.js');
+const CHAT_PATH = require.resolve('../../../src/server/chat.js');
 // Every module that closes over the database connection, so a reload under a
 // different DATABASE_FILE gets a consistent set rather than a stale mix.
-const MODULE_PATHS = [DEV_AUTH_PATH, AUTH_PATH, DB_PATH, ROLES_PATH];
+const MODULE_PATHS = [DEV_AUTH_PATH, AUTH_PATH, DB_PATH, ROLES_PATH, CHAT_PATH];
 
 const ENV_KEYS = [
   'DEV_AUTOLOGIN', 'NODE_ENV', 'DATABASE_FILE', 'BETTER_AUTH_SECRET',
@@ -226,5 +227,39 @@ describe('the root account', () => {
   it('creates nothing at all when auto-login is off', async () => {
     const off = load({DEV_AUTOLOGIN: undefined}).devAuth;
     assert.equal(await off.ensureRootUser(auth), null);
+  });
+
+  // Chat is scoped to an organization and Better Auth creates none, so without
+  // this a fresh database answers 409 to every chat endpoint and the CLI opens
+  // on an empty rail.
+  it('gives root an organization with a #general in it', async () => {
+    const {userId} = await devAuth.ensureRootUser(auth);
+    const memberships = db.prepare('SELECT organizationId FROM member WHERE userId = ?').all(userId);
+    assert.equal(memberships.length, 1);
+    const channels = db
+      .prepare('SELECT name, kind FROM channel WHERE organizationId = ?')
+      .all(memberships[0].organizationId);
+    assert.deepEqual(channels, [{name: devAuth.ROOT_CHANNEL, kind: 'public'}]);
+  });
+
+  it('provisions the workspace once, not on every start', async () => {
+    const again = await devAuth.ensureRootUser(auth);
+    assert.equal(again.workspace.created, false, 'the workspace was already there');
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM organization').get().n, 1);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM channel').get().n, 1);
+  });
+
+  // The whole point of provisioning it: the one-click sign-in lands somewhere
+  // with something in it.
+  it('signs root in to that workspace', async () => {
+    const {userId} = await devAuth.ensureRootUser(auth);
+    const {calls, json} = capture();
+    await devAuth.handleDevLogin(reqFrom('127.0.0.1'), {}, auth, json);
+
+    const session = await auth.api.getSession({
+      headers: {authorization: `Bearer ${calls[0].body.token}`},
+    });
+    const {organizationId} = db.prepare('SELECT organizationId FROM member WHERE userId = ?').get(userId);
+    assert.equal(session.session.activeOrganizationId, organizationId);
   });
 });

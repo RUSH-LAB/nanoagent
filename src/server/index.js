@@ -20,6 +20,7 @@ const {auth, resolveIdentity, isPublicPath} = require('./auth');
 // a test can substitute an in-memory implementation instead of a real database.
 const roles = require('./roles');
 const chat = require('./chat');
+const org = require('./org');
 const {toNodeHandler} = require('better-auth/node');
 const {DEV_AUTOLOGIN, ensureRootUser, handleDevLogin, ROOT_USERNAME} = require('./dev-auth');
 const PORT = process.env.EDITOR_PORT || 3001;
@@ -376,6 +377,7 @@ const ctx = {
   appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
   roles,
   chat,
+  org,
   _routeDiagnostics: null,
 };
 
@@ -397,6 +399,7 @@ const routeModules = [
   require('./routes/misc-tools'),
   require('./routes/stats'),
   require('./routes/chat'),
+  require('./routes/org'),
 ];
 
 // Built once: toNodeHandler wraps the Better Auth fetch handler for node's
@@ -600,6 +603,9 @@ server.listen(PORT, async () => {
   if (root) {
     console.log(`  Dev sign-in: one click as "${root.username}" (owner)${root.created ? ', account created' : ''}`);
     console.log(`  Root password: ${root.passwordFile}`);
+    const {workspace} = root;
+    if (workspace?.error) console.log(`  Workspace: none (${workspace.error})`);
+    else if (workspace?.created) console.log(`  Workspace: "${workspace.name}" ready, with #${workspace.channel}`);
   }
   console.log('');
 });

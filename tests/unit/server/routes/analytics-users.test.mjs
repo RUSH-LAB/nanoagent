@@ -102,14 +102,17 @@ describe('GET /api/analytics', () => {
 
 // ── Users ─────────────────────────────────────────────────────────────────
 
+// Every account on the server, across every organization, with addresses. That
+// is the site owner's view, so each case below is asked as one and the refusal
+// is the last of them. A member wanting to know who they work with reads their
+// own organization's roster at GET /api/org/members instead.
 describe('GET /api/users', () => {
-  const ACCOUNTS = [
-    {id: 'u1', username: 'ann', email: 'ann@x', name: 'Ann', role: 'owner'},
-    {id: 'u2', username: 'bo', email: 'bo@x', name: 'Bo', role: 'viewer'},
-  ];
+  const OWNER = {id: 'u1', username: 'ann', email: 'ann@x', name: 'Ann', role: 'owner'};
+  const ACCOUNTS = [OWNER, {id: 'u2', username: 'bo', email: 'bo@x', name: 'Bo', role: 'viewer'}];
+  const asOwner = {...TEST_IDENTITY, userId: OWNER.id};
 
   it('lists every account with its role, keyed by id', async () => {
-    const r = await invoke(routes, {path: '/api/users', ctx: makeCtx({users: ACCOUNTS})});
+    const r = await invoke(routes, {path: '/api/users', ctx: makeCtx({users: ACCOUNTS}), auth: asOwner});
     assert.equal(r.status, 200);
     assert.deepEqual(Object.keys(r.payload.users).sort(), ['u1', 'u2']);
     assert.equal(r.payload.users.u1.role, 'owner');
@@ -119,14 +122,23 @@ describe('GET /api/users', () => {
   // An account with no role row is still an account. Hiding it would make it
   // impossible to give anyone their first role through /admin.
   it('reports an account with no assigned role as a viewer', async () => {
-    const ctx = makeCtx({users: [{id: 'u3', username: 'cy', email: 'cy@x', name: 'Cy'}]});
-    const r = await invoke(routes, {path: '/api/users', ctx});
+    const ctx = makeCtx({users: [OWNER, {id: 'u3', username: 'cy', email: 'cy@x', name: 'Cy'}]});
+    const r = await invoke(routes, {path: '/api/users', ctx, auth: asOwner});
     assert.equal(r.payload.users.u3.role, 'viewer');
   });
 
-  it('returns an empty object when there are no accounts', async () => {
-    const r = await invoke(routes, {path: '/api/users'});
-    assert.deepEqual([r.status, r.payload], [200, {users: {}}]);
+  // There is no answering this with nothing at all any more: a role belongs to
+  // an account by foreign key, so somebody has to exist to be the owner asking.
+  it('returns only the accounts that exist', async () => {
+    const r = await invoke(routes, {path: '/api/users', ctx: makeCtx({users: [OWNER]}), auth: asOwner});
+    assert.deepEqual([r.status, Object.keys(r.payload.users)], [200, ['u1']]);
+  });
+
+  it('refuses anyone who is not an owner, without naming a single account', async () => {
+    const r = await invoke(routes, {path: '/api/users', ctx: makeCtx({users: ACCOUNTS})});
+    assert.equal(r.status, 403);
+    assert.equal(r.payload.code, 'not-owner');
+    assert.equal(r.payload.users, undefined);
   });
 });
 

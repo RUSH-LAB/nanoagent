@@ -64,6 +64,29 @@ function resolveSecret() {
 }
 
 /**
+ * The organization a new session starts in: the caller's oldest membership, or
+ * null when they belong to none.
+ *
+ * Better Auth leaves `activeOrganizationId` unset until something calls
+ * set-active, and everything under /api/chat needs one, so a fresh sign-in
+ * would otherwise land in a workspace of nothing until the client thought to
+ * choose. Nobody signing in has expressed a preference yet; their first
+ * organization is the least surprising stand-in, and switching is one call.
+ */
+function firstOrganizationOf(userId) {
+  try {
+    const row = db
+      .prepare('SELECT organizationId FROM member WHERE userId = ? ORDER BY createdAt, id LIMIT 1')
+      .get(userId);
+    return row?.organizationId ?? null;
+  } catch {
+    // Same reason as orgRoleFor: on a database predating the plugin the tables
+    // are missing, which means no organization, not a failed sign-in.
+    return null;
+  }
+}
+
+/**
  * The Better Auth instance. server/index.js mounts `auth.handler` so the
  * sign-up, sign-in, sign-out, and organization routes exist; this module calls
  * `auth.api.getSession` to identify everyone else.
@@ -86,6 +109,19 @@ const auth = betterAuth({
     // new local account out of the app it just signed up for.
     requireEmailVerification: false,
     minPasswordLength: 8,
+  },
+  // Every session opens in an organization when the account has one. Written
+  // as the session row is created rather than patched afterwards, so there is
+  // no window in which a signed-in caller has no active organization.
+  databaseHooks: {
+    session: {
+      create: {
+        before(session) {
+          const orgId = firstOrganizationOf(session.userId);
+          return orgId ? {data: {...session, activeOrganizationId: orgId}} : undefined;
+        },
+      },
+    },
   },
   plugins: [
     // Lets people sign in with a username as well as an email address.
@@ -121,9 +157,23 @@ const PUBLIC_PATHS = new Set([
   '/api/feed/atom',
 ]);
 
+/**
+ * Endpoints whose path carries an unguessable id, reachable without a session
+ * for the same reason as the ones above: their caller cannot hold one yet.
+ *
+ * Reading an invitation is the only member. Someone following an invitation
+ * link has no account, and cannot make one with the right address until they
+ * are told which address was invited. The pattern is deliberately exact rather
+ * than a prefix, so that accepting the invitation, at
+ * /api/invite/:id/accept, still requires the session whose address that is.
+ */
+const PUBLIC_PATTERNS = [/^\/api\/invite\/[^/]+$/];
+
 /** Whether `pathname` may be served without a session. */
 function isPublicPath(pathname) {
-  return PUBLIC_PATHS.has(pathname) || pathname.startsWith('/api/auth/');
+  return PUBLIC_PATHS.has(pathname)
+    || pathname.startsWith('/api/auth/')
+    || PUBLIC_PATTERNS.some(pattern => pattern.test(pathname));
 }
 
 /**
@@ -181,7 +231,12 @@ async function resolveIdentity(req) {
     return {ok: false, status: 401, error: 'Invalid session subject'};
   }
 
-  const orgId = session.session?.activeOrganizationId ?? null;
+  // The session's choice if it has made one, and otherwise the account's first
+  // organization. The create hook writes that choice for every new session, but
+  // sessions issued before an account had an organization are still out there
+  // holding a null, and they would each be one silent 409 from every chat
+  // endpoint until their owner happened to sign out and back in.
+  const orgId = session.session?.activeOrganizationId ?? firstOrganizationOf(userId);
   return {
     ok: true,
     identity: Object.freeze({
@@ -202,4 +257,5 @@ module.exports = {
   AUTH_ENABLED,
   DEV_IDENTITY,
   PUBLIC_PATHS,
+  PUBLIC_PATTERNS,
 };

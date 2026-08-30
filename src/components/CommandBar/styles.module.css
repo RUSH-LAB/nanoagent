@@ -75,10 +75,149 @@
   border-bottom: 1px solid var(--ifm-color-emphasis-200);
 }
 
-.panes {
+/* The rail and the panes share the window's height; the completion list sits
+   under both. */
+.workspace {
   display: flex;
   flex: 1;
   min-height: 0;
+}
+
+.panes {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ── Conversation rail ──────────────────────────────────────────── */
+
+.sidebar {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  overflow-y: auto;
+  width: 180px;
+  padding: 0.35rem 0 0.5rem;
+  border-right: 1px solid var(--ifm-color-emphasis-200);
+}
+
+/* Section captions, and the one control that creates a channel. */
+.group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.6rem 0.15rem;
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.groupAction {
+  padding: 0 0.2rem;
+  border: none;
+  background: none;
+  color: var(--ifm-color-emphasis-500);
+  font-family: inherit;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.groupAction:hover:not(:disabled) {
+  color: var(--ifm-color-primary);
+}
+
+.groupAction:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.convo {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.16rem 0.6rem;
+  border: none;
+  background: none;
+  color: var(--ifm-font-color-base);
+  font-family: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.convo:hover {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.convoActive {
+  background: var(--ifm-color-emphasis-200);
+}
+
+.convoMark {
+  flex-shrink: 0;
+  color: var(--ifm-color-emphasis-500);
+}
+
+.convoActive .convoMark {
+  color: var(--ifm-color-primary);
+}
+
+.convoName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.convoActive .convoName {
+  font-weight: 700;
+}
+
+.unread {
+  flex-shrink: 0;
+  padding: 0 0.35rem;
+  border-radius: 8px;
+  background: var(--ifm-color-primary);
+  color: var(--ifm-background-color);
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+.newChannel {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.16rem 0.6rem;
+}
+
+.newChannelInput {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ifm-font-color-base);
+  font-family: inherit;
+  font-size: 0.78rem;
+  outline: none;
+}
+
+.sidebarNote {
+  margin: 0;
+  padding: 0.16rem 0.6rem;
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.7rem;
+}
+
+.sidebarFailure {
+  margin: 0;
+  padding: 0.16rem 0.6rem;
+  color: var(--ifm-color-danger);
+  font-size: 0.7rem;
 }
 
 .pane {
@@ -171,6 +310,36 @@
   min-width: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* ── Messages ───────────────────────────────────────────────────── */
+
+/* A line of chat is an entry with two extra columns in front of it: when it was
+   said, and by whom. */
+.message {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.15rem var(--site-page-gutter);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.messageTime {
+  flex-shrink: 0;
+  color: var(--ifm-color-emphasis-400);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Fixed column, so a run of messages reads as a conversation rather than as a
+   ragged list. */
+.messageAuthor {
+  flex-shrink: 0;
+  width: 10ch;
+  overflow: hidden;
+  color: var(--ifm-color-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .input {
@@ -301,6 +470,12 @@
   cursor: default;
 }
 
+/* A toggle that is on, rather than a button that was just pressed. */
+.chromeOn {
+  border-color: var(--ifm-color-emphasis-300);
+  color: var(--ifm-color-primary);
+}
+
 .field {
   display: flex;
   flex: 1;
@@ -317,6 +492,13 @@
 }
 
 .promptSession {
+  color: var(--ifm-color-primary);
+  font-weight: 700;
+}
+
+/* What the focused pane is pointed at, so the prompt says where a line will go
+   before it is typed. */
+.promptTarget {
   color: var(--ifm-color-primary);
   font-weight: 700;
 }
@@ -398,6 +580,16 @@
   /* Columns this narrow are unreadable, so sessions stack instead. */
   .panes {
     flex-direction: column;
+  }
+
+  /* The rail keeps its place beside them, at the narrowest width a channel
+     name still reads at. */
+  .sidebar {
+    width: 132px;
+  }
+
+  .messageAuthor {
+    width: 7ch;
   }
 
   .pane + .pane {

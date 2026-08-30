@@ -5,6 +5,10 @@ import API_BASE, { apiFetch } from '@site/src/utils/api';
 import {fuzzyMatch} from '@site/src/utils/fuzzyMatch';
 import {COMMANDS, commandHaystack} from '@site/src/components/commands';
 import QuickNoteDialog from '@site/src/components/QuickNoteDialog';
+import ChatSidebar, {channelLabel} from './ChatSidebar';
+import ChatTranscript from './ChatTranscript';
+import useChat from './useChat';
+import {onOpenConversation} from './openConversation';
 import styles from './styles.module.css';
 
 const PROMPT = 'mochi';
@@ -13,6 +17,7 @@ const PROMPT = 'mochi';
    visits and clamped to something usable on any viewport. */
 const HEIGHT_KEY = 'mochi-cli-height';
 const COLLAPSED_KEY = 'mochi-cli-collapsed';
+const RAIL_KEY = 'mochi-cli-rail';
 const DEFAULT_HEIGHT = 320;
 const MIN_HEIGHT = 140;
 const maxHeight = () => Math.round(window.innerHeight * 0.8);
@@ -35,9 +40,13 @@ const CONTEXT_CHARS = 8000;
  * own in-flight request, so one can be waiting on a reply while you type into
  * another. The prompt row is shared and always talks to the focused session.
  *
- * Typing `/` opens completion over the shared registry in
- * src/components/commands.js; anything else is a chat turn against
- * POST /api/ai/complete, with that session's recent transcript as context.
+ * A pane is pointed at something, chosen in the rail on the left: the assistant,
+ * a channel, or a direct message. That target is per pane, not per window, so a
+ * split can hold a conversation beside the assistant and one prompt serves
+ * whichever pane has focus. Typing `/` opens completion over the shared registry
+ * in src/components/commands.js whatever the target is; anything else is either
+ * a chat turn against POST /api/ai/complete, with that session's recent
+ * transcript as context, or a message posted to the selected channel.
  */
 function CommandBarInner() {
   const routerHistory = useHistory();
@@ -46,9 +55,13 @@ function CommandBarInner() {
   const [dragging, setDragging] = useState(false);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
-  const [sessions, setSessions] = useState([{id: 1, entries: [], busy: false}]);
+  // `target` is null for the assistant, or {channelId, label} for a
+  // conversation. The label is a fallback for the moment between creating a
+  // channel and the directory listing it.
+  const [sessions, setSessions] = useState([{id: 1, entries: [], busy: false, target: null, sendError: null}]);
   const [activeId, setActiveId] = useState(1);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [railOpen, setRailOpen] = useState(true);
 
   const inputRef = useRef(null);
   const rowRef = useRef(null);
@@ -63,16 +76,24 @@ function CommandBarInner() {
 
   const active = sessions.find((s) => s.id === activeId) ?? sessions[0];
 
+  // Only the channels on screen are worth polling, and a channel open in two
+  // panes is still one conversation.
+  const openChannelIds = useMemo(
+    () => Array.from(new Set(sessions.map((s) => s.target?.channelId).filter(Boolean))),
+    [sessions],
+  );
+  const chat = useChat({openChannelIds, paused: collapsed});
+
+  const patchSession = useCallback((sessionId, patch) => {
+    setSessions((prev) => prev.map((s) => (s.id === sessionId ? {...s, ...patch} : s)));
+  }, []);
+
   const appendTo = useCallback((sessionId, kind, text) => {
     nextEntryId.current += 1;
     const entry = {id: nextEntryId.current, kind, text};
     setSessions((prev) => prev.map((s) => (
       s.id === sessionId ? {...s, entries: [...s.entries, entry]} : s
     )));
-  }, []);
-
-  const setBusy = useCallback((sessionId, busy) => {
-    setSessions((prev) => prev.map((s) => (s.id === sessionId ? {...s, busy} : s)));
   }, []);
 
   /* ── Geometry ─────────────────────────────────────────────────── */
@@ -96,6 +117,9 @@ function CommandBarInner() {
     let startHeight = DEFAULT_HEIGHT;
     try {
       startCollapsed = localStorage.getItem(COLLAPSED_KEY) === '1';
+      // Shown unless it has been closed, so the conversations are there to be
+      // found rather than behind a control nobody knows about.
+      setRailOpen(localStorage.getItem(RAIL_KEY) !== '0');
       const saved = Number.parseInt(localStorage.getItem(HEIGHT_KEY), 10);
       if (Number.isFinite(saved)) startHeight = clampHeight(saved);
     } catch {
@@ -136,6 +160,15 @@ function CommandBarInner() {
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [publishFootprint]);
+
+  const toggleRail = useCallback((next) => {
+    setRailOpen(next);
+    try {
+      localStorage.setItem(RAIL_KEY, next ? '1' : '0');
+    } catch {
+      /* non-fatal: the choice just will not persist */
+    }
+  }, []);
 
   const startDrag = useCallback((e) => {
     e.preventDefault();
@@ -179,7 +212,7 @@ function CommandBarInner() {
     nextSessionId.current += 1;
     sentRef.current[id] = [];
     recallRef.current[id] = -1;
-    setSessions((prev) => [...prev, {id, entries: [], busy: false}]);
+    setSessions((prev) => [...prev, {id, entries: [], busy: false, target: null, sendError: null}]);
     setActiveId(id);
     setCollapsedTo(false);
   }, [sessions.length, setCollapsedTo]);
@@ -215,13 +248,14 @@ function CommandBarInner() {
     setSelected(0);
   }, [query]);
 
-  // Keep every session pinned to its newest line, not just the focused one.
+  // Keep every session pinned to its newest line, not just the focused one, and
+  // whether that line was typed here or arrived from a poll.
   useEffect(() => {
     for (const s of sessions) {
       const el = transcriptRefs.current[s.id];
       if (el) el.scrollTop = el.scrollHeight;
     }
-  }, [sessions]);
+  }, [sessions, chat.conversation]);
 
   const runCommand = useCallback((cmd, sessionId) => {
     appendTo(sessionId, 'input', `/${cmd.name}`);
@@ -242,11 +276,62 @@ function CommandBarInner() {
     routerHistory.push(cmd.href);
   }, [appendTo, routerHistory, split]);
 
+  /* ── Targets ──────────────────────────────────────────────────── */
+
+  /** Point the focused pane at a conversation, or at the assistant with null. */
+  const retarget = useCallback((target) => {
+    patchSession(active.id, {target, sendError: null});
+    if (collapsed) setCollapsedTo(false);
+    else inputRef.current?.focus();
+  }, [active.id, patchSession, collapsed, setCollapsedTo]);
+
+  const selectChannel = useCallback(
+    (channelId, label) => retarget({channelId, label}),
+    [retarget],
+  );
+
+  const selectAssistant = useCallback(() => retarget(null), [retarget]);
+
+  // The people directory is a page, not a part of this component, so it asks
+  // rather than reaches in. A person arrives as a userId, which is a dm that
+  // may not exist yet; a channel arrives ready to open.
+  useEffect(() => onOpenConversation(async ({channelId, userId, label}) => {
+    try {
+      selectChannel(channelId ?? await chat.openDm(userId), label);
+    } catch {
+      // The directory reports its own failures; the CLI simply does not move.
+    }
+  }), [chat, selectChannel]);
+
+  /**
+   * The name of what a pane is pointed at. Read from the directory rather than
+   * from the pane, so a channel that has since been renamed, or a dm opened
+   * before its peer was known, is labelled with what is true now; the label
+   * stored on the target is the fallback for the moment before the directory
+   * has caught up.
+   */
+  const labelOf = useCallback((session) => {
+    if (!session.target) return null;
+    const channel = chat.channels.find((c) => c.id === session.target.channelId);
+    return channel ? channelLabel(channel) : session.target.label;
+  }, [chat.channels]);
+
   /* ── Chat ─────────────────────────────────────────────────────── */
+
+  /** Post to the pane's channel. */
+  const say = useCallback(async (text, sessionId, channelId) => {
+    patchSession(sessionId, {busy: true, sendError: null});
+    try {
+      await chat.send(channelId, text);
+      patchSession(sessionId, {busy: false});
+    } catch (err) {
+      patchSession(sessionId, {busy: false, sendError: err.message});
+    }
+  }, [chat, patchSession]);
 
   const ask = useCallback(async (text, sessionId, priorEntries) => {
     appendTo(sessionId, 'input', text);
-    setBusy(sessionId, true);
+    patchSession(sessionId, {busy: true});
     // Prior turns ride as `context` and the new line as `prompt`, which is the
     // shape the endpoint already composes into a single message.
     const context = priorEntries
@@ -269,9 +354,9 @@ function CommandBarInner() {
     } catch {
       appendTo(sessionId, 'error', 'could not reach the API server');
     } finally {
-      setBusy(sessionId, false);
+      patchSession(sessionId, {busy: false});
     }
-  }, [appendTo, setBusy]);
+  }, [appendTo, patchSession]);
 
   /* ── Input ────────────────────────────────────────────────────── */
 
@@ -292,8 +377,14 @@ function CommandBarInner() {
       }
       return;
     }
+    // A command works the same in every pane; a plain line goes wherever the
+    // pane is pointed.
+    if (active.target) {
+      say(text, sessionId, active.target.channelId);
+      return;
+    }
     ask(text, sessionId, active.entries);
-  }, [query, active, matches, selected, runCommand, appendTo, ask]);
+  }, [query, active, matches, selected, runCommand, appendTo, ask, say]);
 
   const stepRecall = useCallback((delta) => {
     const lines = sentRef.current[active.id] ?? [];
@@ -306,6 +397,10 @@ function CommandBarInner() {
   }, [active.id]);
 
   const handleKeyDown = useCallback((e) => {
+    // A keystroke that is driving an input method belongs to the input method.
+    // Enter picks a candidate and the arrows move between them, so reading them
+    // here would send half a composed word and shuffle the history doing it.
+    if (e.nativeEvent?.isComposing) return;
     const mod = e.metaKey || e.ctrlKey;
     if (mod && e.key === 'd') {
       e.preventDefault();
@@ -351,6 +446,11 @@ function CommandBarInner() {
 
   const busyElsewhere = sessions.some((s) => s.id !== active.id && s.busy);
 
+  const activeLabel = labelOf(active);
+  const placeholder = activeLabel
+    ? `message ${activeLabel}`
+    : (active.busy ? 'waiting for a reply…' : 'ask anything, or / for commands');
+
   return (
     <>
       <div
@@ -373,62 +473,97 @@ function CommandBarInner() {
             </div>
 
             <div className={styles.body} style={{height}}>
-              <div className={styles.panes}>
-                {sessions.map((session, i) => {
-                  const isActive = session.id === active.id;
-                  return (
-                    <section
-                      key={session.id}
-                      className={`${styles.pane} ${isActive ? styles.paneActive : ''}`}
-                      onMouseDown={() => setActiveId(session.id)}
-                      aria-label={`Session ${i + 1}`}
-                    >
-                      {sessions.length > 1 && (
-                        <header className={styles.paneHead}>
-                          <span className={styles.paneLabel}>
-                            session {i + 1}
-                            {session.busy && <span className={styles.paneBusy}> &middot; working</span>}
-                          </span>
-                          <button
-                            type="button"
-                            className={styles.paneClose}
-                            onClick={() => closeSession(session.id)}
-                            aria-label={`Close session ${i + 1}`}
-                            title="Close session"
-                          >
-                            &times;
-                          </button>
-                        </header>
-                      )}
+              <div className={styles.workspace}>
+                {railOpen && (
+                  <ChatSidebar
+                    chat={chat}
+                    activeChannelId={active.target?.channelId ?? null}
+                    onSelect={selectChannel}
+                    onSelectAssistant={selectAssistant}
+                    onBrowsePeople={() => routerHistory.push('/people')}
+                    onBrowseChannels={() => routerHistory.push('/channels')}
+                  />
+                )}
 
-                      <div
-                        className={styles.transcript}
-                        ref={(el) => {
-                          transcriptRefs.current[session.id] = el;
-                        }}
+                <div className={styles.panes}>
+                  {sessions.map((session, i) => {
+                    const isActive = session.id === active.id;
+                    const label = labelOf(session);
+                    // The header carries the pane's number, its target, or
+                    // both, and is worth the line only when it has something
+                    // to say: one pane on the assistant needs no caption.
+                    const heading = [sessions.length > 1 ? `session ${i + 1}` : null, label]
+                      .filter(Boolean)
+                      .join(' · ');
+                    const setTranscriptRef = (el) => { transcriptRefs.current[session.id] = el; };
+                    return (
+                      <section
+                        key={session.id}
+                        className={`${styles.pane} ${isActive ? styles.paneActive : ''}`}
+                        onMouseDown={() => setActiveId(session.id)}
+                        aria-label={heading || `Session ${i + 1}`}
                       >
-                        {session.entries.length === 0 && (
-                          <div className={styles.banner}>
-                            mochi cli &mdash; type to chat, <span className={styles.slash}>/</span> for commands,{' '}
-                            <kbd className={styles.kbd}>&#8984;D</kbd> to split,{' '}
-                            <kbd className={styles.kbd}>&#8984;L</kbd> to clear
+                        {heading && (
+                          <header className={styles.paneHead}>
+                            <span className={styles.paneLabel}>
+                              {heading}
+                              {session.busy && <span className={styles.paneBusy}> &middot; working</span>}
+                            </span>
+                            {sessions.length > 1 && (
+                              <button
+                                type="button"
+                                className={styles.paneClose}
+                                onClick={() => closeSession(session.id)}
+                                aria-label={`Close session ${i + 1}`}
+                                title="Close session"
+                              >
+                                &times;
+                              </button>
+                            )}
+                          </header>
+                        )}
+
+                        {session.target ? (
+                          <ChatTranscript
+                            conversation={chat.conversation(session.target.channelId)}
+                            label={label}
+                            innerRef={setTranscriptRef}
+                          />
+                        ) : (
+                          <div className={styles.transcript} ref={setTranscriptRef}>
+                            {session.entries.length === 0 && (
+                              <div className={styles.banner}>
+                                mochi cli &mdash; type to chat, <span className={styles.slash}>/</span> for commands,{' '}
+                                a conversation on the left to talk to someone,{' '}
+                                <kbd className={styles.kbd}>&#8984;D</kbd> to split,{' '}
+                                <kbd className={styles.kbd}>&#8984;L</kbd> to clear
+                              </div>
+                            )}
+                            {session.entries.map((entry) => (
+                              <div key={entry.id} className={`${styles.entry} ${styles[entry.kind]}`}>
+                                {entry.kind === 'input' && <span className={styles.entryMark}>&#9656;</span>}
+                                <span className={styles.entryText}>{entry.text}</span>
+                              </div>
+                            ))}
+                            {session.busy && (
+                              <div className={`${styles.entry} ${styles.system}`}>
+                                <span className={styles.entryText}>thinking&hellip;</span>
+                              </div>
+                            )}
                           </div>
                         )}
-                        {session.entries.map((entry) => (
-                          <div key={entry.id} className={`${styles.entry} ${styles[entry.kind]}`}>
-                            {entry.kind === 'input' && <span className={styles.entryMark}>&#9656;</span>}
-                            <span className={styles.entryText}>{entry.text}</span>
-                          </div>
-                        ))}
-                        {session.busy && (
-                          <div className={`${styles.entry} ${styles.system}`}>
-                            <span className={styles.entryText}>thinking&hellip;</span>
+
+                        {/* A refused message belongs under the conversation it
+                            was meant for, not in it: nothing was posted. */}
+                        {session.sendError && (
+                          <div className={`${styles.entry} ${styles.error}`}>
+                            <span className={styles.entryText}>{session.sendError}</span>
                           </div>
                         )}
-                      </div>
-                    </section>
-                  );
-                })}
+                      </section>
+                    );
+                  })}
+                </div>
               </div>
 
               {isCommand && (
@@ -477,6 +612,20 @@ function CommandBarInner() {
 
           <button
             type="button"
+            className={`${styles.chrome} ${railOpen ? styles.chromeOn : ''}`}
+            onClick={() => toggleRail(!railOpen)}
+            aria-pressed={railOpen}
+            aria-label={railOpen ? 'Hide the conversations' : 'Show the conversations'}
+            title={railOpen ? 'Hide conversations' : 'Show conversations'}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <line x1="9" y1="4" x2="9" y2="20" />
+            </svg>
+          </button>
+
+          <button
+            type="button"
             className={styles.chrome}
             onClick={split}
             disabled={sessions.length >= MAX_SESSIONS}
@@ -496,7 +645,8 @@ function CommandBarInner() {
                 <span className={styles.promptSession}>
                   :{sessions.findIndex((s) => s.id === active.id) + 1}
                 </span>
-              )}{' '}
+              )}
+              {activeLabel && <span className={styles.promptTarget}>:{activeLabel}</span>}{' '}
               <span className={styles.caret}>&#9656;</span>
             </span>
             <span className={styles.inputWrap}>
@@ -506,7 +656,7 @@ function CommandBarInner() {
                 className={styles.fieldInput}
                 type="text"
                 value={query}
-                placeholder={active.busy ? 'waiting for a reply…' : 'ask anything, or / for commands'}
+                placeholder={placeholder}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
                 onFocus={() => collapsed && setCollapsedTo(false)}

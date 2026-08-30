@@ -13,6 +13,7 @@
  */
 const crypto = require('crypto');
 const {db} = require('./db');
+const audit = require('./audit');
 
 const KINDS = Object.freeze(['public', 'private', 'dm']);
 
@@ -74,16 +75,23 @@ function visibleChannel(orgId, userId, channelId) {
 
 /**
  * The channels the caller can see: every public one in the organization, plus
- * the private ones and dms they belong to. Each carries its member count and
- * the caller's unread count.
+ * the private ones and dms they belong to. Each carries its member count, the
+ * caller's unread count, and, for a dm, the person on the other side.
+ *
+ * A dm has no name, so a list that returned only the row would have nothing to
+ * label it with. The peer joins here rather than being resolved by the caller
+ * because the alternative is one request per dm to find out whose it is.
  */
-function listChannels(orgId, userId) {
+function listChannels(orgId, userId, {includeArchived = false} = {}) {
   if (!isOrgMember(orgId, userId)) return [];
   return db
     .prepare(
+      // `userId` binds three times, in the order the placeholders appear: the
+      // unread count, the caller's membership, and the dm peer.
       `SELECT c.*,
               (SELECT COUNT(*) FROM channel_member m WHERE m.channelId = c.id) AS memberCount,
               (cm.userId IS NOT NULL) AS joined,
+              pu.id AS peerId, pu.username AS peerUsername, pu.name AS peerName,
               (SELECT COUNT(*) FROM message msg
                 WHERE msg.channelId = c.id
                   AND msg.deletedAt IS NULL
@@ -91,12 +99,18 @@ function listChannels(orgId, userId) {
                   AND msg.seq > COALESCE(cm.lastReadSeq, 0)) AS unread
          FROM channel c
          LEFT JOIN channel_member cm ON cm.channelId = c.id AND cm.userId = ?
+         -- Restricted to dms, which openDm gives exactly two members, so this
+         -- widens each row rather than multiplying it.
+         LEFT JOIN channel_member pm ON pm.channelId = c.id AND c.kind = 'dm' AND pm.userId != ?
+         LEFT JOIN "user" pu ON pu.id = pm.userId
         WHERE c.organizationId = ?
-          AND c.archivedAt IS NULL
+          -- An archived channel is out of the way, not gone. It stays out of
+          -- every list but the one that exists to bring it back.
+          AND (? OR c.archivedAt IS NULL)
           AND (c.kind = 'public' OR cm.userId IS NOT NULL)
         ORDER BY c.kind = 'dm', c.name COLLATE NOCASE, c.createdAt`,
     )
-    .all(userId, userId, orgId)
+    .all(userId, userId, userId, orgId, includeArchived ? 1 : 0)
     .map(row => ({...row, joined: Boolean(row.joined)}));
 }
 
@@ -143,6 +157,130 @@ function createChannel(orgId, userId, {name, topic = null, kind = 'public'}) {
   })();
 
   return {channel: db.prepare('SELECT * FROM channel WHERE id = ?').get(id)};
+}
+
+/**
+ * Whether `userId` may administer `channel`: rename it, set its topic, archive
+ * it, or remove people from it.
+ *
+ * Two ways to qualify. `manages` is the caller's standing in the organization,
+ * decided by org.canManage and passed in by the route rather than looked up
+ * here, so that "which roles manage people" has one definition in the codebase
+ * instead of one per module that asks. The other is having opened the channel:
+ * the person who made #design should not need an admin to rename it.
+ *
+ * Fails closed. A caller that forgets to pass `manages` gets the creator rule
+ * alone, which is the narrower of the two.
+ */
+function mayAdminister(channel, userId, manages) {
+  return Boolean(manages) || channel.createdBy === userId;
+}
+
+/**
+ * Rename a channel or change its topic.
+ *
+ * Both are optional and each is only touched when supplied, so setting a topic
+ * cannot silently rename anything. A dm has neither.
+ */
+function updateChannel(orgId, userId, channelId, {name, topic}, {manages = false} = {}) {
+  const channel = visibleChannel(orgId, userId, channelId);
+  if (!channel) return {error: 'not-found'};
+  if (channel.kind === 'dm') return {error: 'not-a-channel'};
+  if (!mayAdminister(channel, userId, manages)) return {error: 'not-channel-admin'};
+
+  let nextName = channel.name;
+  if (name !== undefined) {
+    nextName = normalizeName(name || '');
+    if (!nextName) return {error: 'invalid-name'};
+    if (nextName.length > MAX_NAME) return {error: 'name-too-long'};
+    const taken = db
+      .prepare('SELECT id FROM channel WHERE organizationId = ? AND name = ? AND id != ?')
+      .get(orgId, nextName, channelId);
+    if (taken) return {error: 'name-taken'};
+  }
+
+  let nextTopic = channel.topic;
+  if (topic !== undefined) {
+    // An empty topic is how you remove one, so '' means null rather than
+    // "leave it alone", which is what undefined means.
+    const text = topic === null ? '' : String(topic).trim();
+    if (text.length > MAX_TOPIC) return {error: 'topic-too-long'};
+    nextTopic = text || null;
+  }
+
+  db.prepare('UPDATE channel SET name = ?, topic = ? WHERE id = ?').run(nextName, nextTopic, channelId);
+  // A rename is recorded and a topic is not. Six months on, "who renamed
+  // #launch" is a real question and "who reworded its topic" is not.
+  if (nextName !== channel.name) {
+    audit.record({
+      orgId, action: 'channel.rename', actorId: userId,
+      targetLabel: `#${nextName}`, detail: {from: channel.name, to: nextName},
+    });
+  }
+  return {channel: db.prepare('SELECT * FROM channel WHERE id = ?').get(channelId)};
+}
+
+/**
+ * Archive a channel, or bring it back.
+ *
+ * Archiving is the reversible half of removing one: the channel leaves every
+ * list, nothing more can be said in it, and every word already said is still
+ * there to be read. It is what "delete this channel" almost always means, and
+ * unlike deleting it, being wrong about it costs nothing.
+ */
+function setArchived(orgId, userId, channelId, archived, {manages = false} = {}) {
+  const channel = visibleChannel(orgId, userId, channelId);
+  if (!channel) return {error: 'not-found'};
+  if (channel.kind === 'dm') return {error: 'not-a-channel'};
+  if (!mayAdminister(channel, userId, manages)) return {error: 'not-channel-admin'};
+  if (Boolean(channel.archivedAt) === archived) return {channel, changed: false};
+
+  db.prepare('UPDATE channel SET archivedAt = ? WHERE id = ?').run(archived ? now() : null, channelId);
+  audit.record({
+    orgId, action: archived ? 'channel.archive' : 'channel.unarchive',
+    actorId: userId, targetLabel: `#${channel.name}`,
+  });
+  return {channel: db.prepare('SELECT * FROM channel WHERE id = ?').get(channelId), changed: true};
+}
+
+/**
+ * Delete a channel and everything in it.
+ *
+ * The one operation here that destroys other people's work: the foreign keys
+ * cascade, so the membership and every message go with the row. Archiving is
+ * the answer to almost every reason for wanting this, which is why this asks
+ * for more than administering the channel. Only the organization's owners and
+ * admins can do it, creator or not.
+ */
+function deleteChannel(orgId, userId, channelId, {manages = false} = {}) {
+  const channel = visibleChannel(orgId, userId, channelId);
+  if (!channel) return {error: 'not-found'};
+  if (channel.kind === 'dm') return {error: 'not-a-channel'};
+  if (!manages) return {error: 'not-org-admin'};
+
+  const {n} = db.prepare('SELECT COUNT(*) AS n FROM message WHERE channelId = ?').get(channelId);
+  db.prepare('DELETE FROM channel WHERE id = ?').run(channelId);
+  // The audit row is all that is left of the channel, so it carries the size of
+  // what went with it.
+  audit.record({
+    orgId, action: 'channel.delete', actorId: userId,
+    targetLabel: `#${channel.name}`, detail: {messages: n, kind: channel.kind},
+  });
+  return {deleted: {id: channel.id, name: channel.name, messages: n}};
+}
+
+/** Remove someone else from a channel. Leaving your own is leaveChannel. */
+function removeChannelMember(orgId, userId, channelId, targetId, {manages = false} = {}) {
+  const channel = visibleChannel(orgId, userId, channelId);
+  if (!channel) return {error: 'not-found'};
+  if (channel.kind === 'dm') return {error: 'not-a-channel'};
+  if (!mayAdminister(channel, userId, manages)) return {error: 'not-channel-admin'};
+  if (targetId === userId) return {error: 'leave-instead'};
+
+  const {changes} = db
+    .prepare('DELETE FROM channel_member WHERE channelId = ? AND userId = ?')
+    .run(channelId, targetId);
+  return {removed: changes > 0};
 }
 
 /**
@@ -262,6 +400,10 @@ function listMessages(orgId, userId, channelId, {before = null, limit = DEFAULT_
 function postMessage(orgId, userId, channelId, body) {
   const channel = visibleChannel(orgId, userId, channelId);
   if (!channel) return {error: 'not-found'};
+  // Archived is read-only. Someone with the channel still open in a pane can
+  // otherwise keep talking into a room that has been closed, and nobody is
+  // coming back to read it.
+  if (channel.archivedAt) return {error: 'archived'};
   if (!isChannelMember(channelId, userId)) return {error: 'not-a-member'};
 
   const text = typeof body === 'string' ? body.trim() : '';
@@ -329,8 +471,9 @@ function markRead(orgId, userId, channelId) {
 module.exports = {
   KINDS, MAX_NAME, MAX_TOPIC, MAX_BODY, DEFAULT_LIMIT, MAX_LIMIT,
   normalizeName, dmKeyFor,
-  isOrgMember, isChannelMember, visibleChannel,
+  isOrgMember, isChannelMember, visibleChannel, mayAdminister,
   listChannels, listMembers, createChannel, openDm,
+  updateChannel, setArchived, deleteChannel, removeChannelMember,
   joinChannel, leaveChannel, addMember,
   listMessages, postMessage, deleteMessage, markRead,
 };

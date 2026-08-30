@@ -1,6 +1,7 @@
 import React, {useState, useEffect, useCallback} from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import Link from '@docusaurus/Link';
 
 import API_BASE, { apiFetch } from '@site/src/utils/api';
 import pageStyles from '@site/src/css/page.module.css';
@@ -76,12 +77,18 @@ function AdminDashboard() {
     setLoading(true);
     try {
       const [usersRes, meRes] = await Promise.all([
-        apiFetch(`${API_BASE}/api/users`).then(r => r.json()),
-        apiFetch(`${API_BASE}/api/users/me`).then(r => r.json()),
+        apiFetch(`${API_BASE}/api/users`),
+        apiFetch(`${API_BASE}/api/users/me`),
       ]);
-      setUsers(usersRes.users || {});
-      setMyRole(meRes.role || 'viewer');
-      setMyUserId(meRes.userId || null);
+      const usersBody = await usersRes.json();
+      const me = await meRes.json();
+      setMyRole(me.role || 'viewer');
+      setMyUserId(me.userId || null);
+      // Every account on the server is the site owner's view. Anyone else gets
+      // the reason rather than an empty table, which is what reading `.users`
+      // off a refusal used to render.
+      setUsers(usersRes.ok ? (usersBody.users || {}) : {});
+      if (!usersRes.ok) setError(usersBody.error || 'Could not load the account list.');
     } catch {
       setError('Failed to load user data. Is the editor server running?');
     } finally {
@@ -134,8 +141,14 @@ function AdminDashboard() {
   return (
     <div className={pageStyles.pageContainer}>
       <h1 style={{fontSize: '1.8rem', marginBottom: '0.5rem'}}>User Management</h1>
+      {/* Two different questions, and it is worth saying which this page
+          answers: site roles decide who may publish content, and they span
+          every account on the server. Who is in your organization, and what
+          they may do inside it, is /people. */}
       <p style={{color: 'var(--ifm-color-emphasis-600)', marginBottom: '2rem'}}>
-        Manage user roles and permissions. Your role: <RoleBadge role={myRole} />
+        Site-wide roles, for every account on this server. Your role: <RoleBadge role={myRole} />
+        {' · '}
+        <Link to="/people">People in your organization</Link>
       </p>
 
       {error && (

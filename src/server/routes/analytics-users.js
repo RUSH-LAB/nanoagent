@@ -66,6 +66,14 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
 
   // ── Users: list all ──
   if (req.method === 'GET' && pathname === '/api/users') {
+    // Every account on the server, with its email, across every organization.
+    // That is the site owner's view and nobody else's: a member of one
+    // organization has no business reading the address book of another, and
+    // this answered anyone with a session until it was closed. The roster a
+    // member is entitled to is their own organization's, at GET /api/org/members.
+    if (!isOwner(req.auth.userId)) {
+      return json(res, 403, {error: 'Only owners can list every account', code: 'not-owner'});
+    }
     // Keyed by id, the shape /admin already renders. The list comes from the
     // user table, so an account with no role assigned still appears, as a
     // viewer, which is how you give it one.

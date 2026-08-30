@@ -23,6 +23,14 @@ const ERRORS = Object.freeze({
   'not-joinable': [400, 'Only public channels can be joined'],
   'not-in-organization': [400, 'That user is not in this organization'],
   'cannot-leave-dm': [400, 'A direct message cannot be left'],
+  'not-a-channel': [400, 'A direct message is not a channel you administer'],
+  // Distinct from 'forbidden', which means "not in this organization". These
+  // two are for someone who is in it and still may not do this particular
+  // thing, and telling them they are not a member would simply be false.
+  'not-channel-admin': [403, "Only the channel's creator or an organization admin can change it"],
+  'not-org-admin': [403, 'Only an owner or admin of the organization can delete a channel'],
+  'archived': [409, 'This channel is archived, so it is read-only'],
+  'leave-instead': [400, 'Leave the channel rather than removing yourself from it'],
   'cannot-invite-to-dm': [400, 'A direct message takes exactly two people'],
   'self-dm': [400, 'You cannot message yourself'],
   'invalid-kind': [400, 'Channel kind must be public or private'],
@@ -35,35 +43,57 @@ const ERRORS = Object.freeze({
   'too-long': [400, 'Message is too long'],
 });
 
-/** Send a chat.js error result, or 500 if it is one this module has not met. */
+/**
+ * Send a chat.js error result, or 500 if it is one this module has not met.
+ *
+ * The chat.js code goes out alongside the sentence. A client that has to branch
+ * on which failure this was (the CLI joins a channel and retries when a post is
+ * refused for membership) would otherwise have to match on the prose, which is
+ * a string written for people and free to change.
+ */
 function sendError(json, res, code) {
   const mapped = ERRORS[code];
   if (!mapped) return json(res, 500, {error: `Unhandled chat error: ${code}`});
-  return json(res, mapped[0], {error: mapped[1]});
+  return json(res, mapped[0], {error: mapped[1], code});
 }
 
 // /api/chat/channels/:id and /api/chat/channels/:id/<action>. The id segment
 // excludes '/' so the action, when present, is always the fifth segment.
 const CHANNEL_RE = /^\/api\/chat\/channels\/([^/]+)(?:\/([a-z-]+))?$/;
+// One person in one channel: /api/chat/channels/:id/members/:userId. Matched
+// before CHANNEL_RE, whose action segment would otherwise stop at 'members'.
+const CHANNEL_MEMBER_RE = /^\/api\/chat\/channels\/([^/]+)\/members\/([^/]+)$/;
 const MESSAGE_RE = /^\/api\/chat\/messages\/([^/]+)$/;
 
 module.exports = async function chat_routes(req, res, url, pathname, ctx) {
-  const {json, readBody, rateLimit, chat} = ctx;
+  const {json, readBody, rateLimit, chat, org} = ctx;
 
   if (!pathname.startsWith('/api/chat/')) return;
 
   // Every handler below needs both, and neither can be supplied by the caller.
-  const {userId, orgId} = req.auth;
+  const {userId, orgId, orgRole} = req.auth;
   if (!orgId) {
     return json(res, 409, {
       error: 'No active organization. Create or select one first.',
+      code: 'no-organization',
       hint: 'POST /api/auth/organization/create, then /api/auth/organization/set-active',
     });
   }
 
+  // Whether the caller manages the organization. Decided once, by the module
+  // that owns that question, and handed to chat.js so it does not need a second
+  // opinion about which roles mean what.
+  const manages = org.canManage(orgRole);
+
   // ── Channels: list ──
+  // ?archived=1 adds the archived ones, which is the browse-and-restore view
+  // rather than the sidebar's.
   if (req.method === 'GET' && pathname === '/api/chat/channels') {
-    return json(res, 200, {channels: chat.listChannels(orgId, userId)});
+    const includeArchived = url.searchParams.get('archived') === '1';
+    return json(res, 200, {
+      channels: chat.listChannels(orgId, userId, {includeArchived}),
+      you: {userId, role: orgRole, canManage: manages},
+    });
   }
 
   // ── Channels: create ──
@@ -95,6 +125,15 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
     }
   }
 
+  // ── Remove someone else from a channel ──
+  const channelMemberMatch = CHANNEL_MEMBER_RE.exec(pathname);
+  if (channelMemberMatch && req.method === 'DELETE') {
+    const [, channelId, targetId] = channelMemberMatch;
+    const result = chat.removeChannelMember(orgId, userId, channelId, targetId, {manages});
+    if (result.error) return sendError(json, res, result.error);
+    return json(res, 200, {removed: result.removed});
+  }
+
   const channelMatch = CHANNEL_RE.exec(pathname);
   if (channelMatch) {
     const [, channelId, action] = channelMatch;
@@ -103,7 +142,45 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
     if (req.method === 'GET' && !action) {
       const channel = chat.visibleChannel(orgId, userId, channelId);
       if (!channel) return sendError(json, res, 'not-found');
-      return json(res, 200, {channel, members: chat.listMembers(channelId)});
+      return json(res, 200, {
+        channel,
+        members: chat.listMembers(channelId),
+        canAdminister: chat.mayAdminister(channel, userId, manages),
+      });
+    }
+
+    // ── Rename, or set the topic ──
+    if (req.method === 'PATCH' && !action) {
+      if (!rateLimit(`chat-edit:${userId}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+      try {
+        const body = await readBody(req);
+        // Only the keys actually sent are touched, so setting a topic cannot
+        // rename anything and vice versa.
+        const changes = {};
+        if ('name' in body) changes.name = body.name;
+        if ('topic' in body) changes.topic = body.topic;
+        if (Object.keys(changes).length === 0) return json(res, 400, {error: 'Nothing to change. Send a name, a topic, or both.'});
+        const result = chat.updateChannel(orgId, userId, channelId, changes, {manages});
+        if (result.error) return sendError(json, res, result.error);
+        return json(res, 200, {channel: result.channel});
+      } catch {
+        return json(res, 400, {error: 'Invalid request'});
+      }
+    }
+
+    // ── Archive, and bring back ──
+    if (req.method === 'POST' && (action === 'archive' || action === 'unarchive')) {
+      const result = chat.setArchived(orgId, userId, channelId, action === 'archive', {manages});
+      if (result.error) return sendError(json, res, result.error);
+      return json(res, 200, {channel: result.channel, changed: result.changed});
+    }
+
+    // ── Delete it, and everything said in it ──
+    if (req.method === 'DELETE' && !action) {
+      if (!rateLimit(`chat-delete:${userId}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+      const result = chat.deleteChannel(orgId, userId, channelId, {manages});
+      if (result.error) return sendError(json, res, result.error);
+      return json(res, 200, {deleted: result.deleted});
     }
 
     // ── History ──
@@ -180,4 +257,5 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
 
 module.exports.ERRORS = ERRORS;
 module.exports.CHANNEL_RE = CHANNEL_RE;
+module.exports.CHANNEL_MEMBER_RE = CHANNEL_MEMBER_RE;
 module.exports.MESSAGE_RE = MESSAGE_RE;

@@ -69,6 +69,30 @@ describe('isPublicPath', () => {
   }
 });
 
+// One unauthenticated read, matched by shape rather than by prefix. Somebody
+// following an invitation link has no session and cannot make an account with
+// the right address until they are told which address was invited; accepting
+// the invitation is a different path and still needs the session.
+describe('isPublicPath for an invitation link', () => {
+  it('lets the link itself be read', () => {
+    assert.equal(disabled.isPublicPath('/api/invite/inv_abc123'), true);
+  });
+
+  const GUARDED = [
+    '/api/invite/inv_abc123/accept',
+    '/api/invite/inv_abc123/anything',
+    '/api/invite',
+    '/api/invite/',
+    '/api/invitex/inv_abc123',
+    '/api/org/invitations/inv_abc123',
+  ];
+  for (const p of GUARDED) {
+    it(`still requires a session for ${p}`, () => {
+      assert.equal(disabled.isPublicPath(p), false);
+    });
+  }
+});
+
 describe('isSafeId', () => {
   it('accepts a generated Better Auth id', () => {
     assert.equal(disabled.isSafeId('vWm7Ls6392wGlXsU6kfwCyrfVx3Ng5T8'), true);
@@ -233,6 +257,56 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
     await assert.rejects(
       () => enabled.auth.api.signInUsername({body: {username: 'alice', password: 'not-the-password'}}),
     );
+  });
+
+  // These three use their own accounts rather than alice and bob, so that
+  // creating an organization here cannot change what the assertions above,
+  // which expect an account in none, resolve to.
+  const account = async (name) => {
+    const res = await enabled.auth.api.signUpEmail({
+      body: {email: `${name}@test.invalid`, password: 'correcthorsebattery', name, username: name},
+    });
+    return {id: res.user.id, token: res.token};
+  };
+  const signIn = async (name) => (await enabled.auth.api.signInEmail({
+    body: {email: `${name}@test.invalid`, password: 'correcthorsebattery'},
+  })).token;
+
+  // Better Auth leaves the active organization unset until something calls
+  // set-active, and everything under /api/chat needs one, so a session opens in
+  // the account's own organization rather than in none.
+  it('opens a new session in the account\'s organization', async () => {
+    const dana = await account('dana');
+    const org = await enabled.auth.api.createOrganization({
+      body: {name: 'Dana Co', slug: 'dana-co', userId: dana.id},
+    });
+    const result = await enabled.resolveIdentity(req({authorization: `Bearer ${await signIn('dana')}`}));
+    assert.equal(result.identity.orgId, org.id);
+    assert.equal(result.identity.orgRole, 'owner', 'with the role the membership gives');
+  });
+
+  // The hook fires only when a session is created, so a session issued before
+  // its account had an organization would otherwise stay in none for as long as
+  // it lives, answering 409 to every chat request until its owner happened to
+  // sign out and back in.
+  it('falls back to the organization for a session issued before it existed', async () => {
+    const erin = await account('erin');
+    const before = await enabled.resolveIdentity(req({authorization: `Bearer ${erin.token}`}));
+    assert.equal(before.identity.orgId, null, 'she had none when she signed up');
+
+    const org = await enabled.auth.api.createOrganization({
+      body: {name: 'Erin Co', slug: 'erin-co', userId: erin.id},
+    });
+    const after = await enabled.resolveIdentity(req({authorization: `Bearer ${erin.token}`}));
+    assert.equal(after.identity.orgId, org.id, 'the same token now resolves into it');
+    assert.equal(after.identity.orgRole, 'owner');
+  });
+
+  it('leaves a caller who belongs to no organization in none', async () => {
+    const frank = await account('frank');
+    const result = await enabled.resolveIdentity(req({authorization: `Bearer ${frank.token}`}));
+    assert.equal(result.identity.orgId, null, 'no organization is not the same as the wrong one');
+    assert.equal(result.identity.orgRole, null);
   });
 });
 
