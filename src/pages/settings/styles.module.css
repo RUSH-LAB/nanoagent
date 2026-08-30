@@ -1,0 +1,121 @@
+.heading {
+  font-size: 1.8rem;
+  margin-bottom: 1.5rem;
+}
+
+.placeholder {
+  padding: 40px;
+  text-align: center;
+  color: var(--ifm-color-emphasis-500);
+}
+
+.section {
+  margin-bottom: 2.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.section:last-child {
+  border-bottom: none;
+}
+
+.sectionTitle {
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+}
+
+/* Two columns on a roomy viewport, stacked pairs on a narrow one. */
+.account {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.5rem 1.5rem;
+  margin: 0 0 1.25rem;
+  font-size: 0.9rem;
+}
+
+.account dt {
+  font-weight: 600;
+  color: var(--ifm-color-emphasis-700);
+}
+
+.account dd {
+  margin: 0;
+}
+
+.account em {
+  color: var(--ifm-color-emphasis-500);
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 420px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.field select,
+.field input {
+  min-width: 160px;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 6px;
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+  font-size: 0.9rem;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.signOut {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 6px;
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.signOut:hover {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.status {
+  font-size: 0.85rem;
+  color: #166534;
+}
+
+.error {
+  font-size: 0.85rem;
+  color: #991b1b;
+}
+
+.muted {
+  font-size: 0.85rem;
+  color: var(--ifm-color-emphasis-500);
+}
+
+@media (max-width: 600px) {
+  .account {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+
+  .account dd {
+    margin-bottom: 0.6rem;
+  }
+
+  .field {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

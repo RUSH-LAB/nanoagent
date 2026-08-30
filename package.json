@@ -4,8 +4,7 @@
   "private": true,
   "scripts": {
     "docusaurus": "docusaurus",
-    "start": "DOCUSAURUS_NO_PERSISTENT_CACHE=true node src/server/index.js & docusaurus start",
-    "start:auth": "ENABLE_AUTH=true DOCUSAURUS_NO_PERSISTENT_CACHE=true node src/server/index.js & docusaurus start",
+    "start": "ENABLE_AUTH=true DOCUSAURUS_NO_PERSISTENT_CACHE=true node src/server/index.js & ENABLE_AUTH=true docusaurus start",
     "start:site": "DOCUSAURUS_NO_PERSISTENT_CACHE=true docusaurus start",
     "build": "docusaurus build",
     "build:auth": "ENABLE_AUTH=true docusaurus build",
@@ -21,18 +20,20 @@
     "test:server": "node src/server/index.js & sleep 2 && node tests/integration/test-api.mjs; kill %1",
     "test:all": "node --test 'tests/**/*.test.mjs' && node tests/integration/test-api.mjs && node tests/integration/test-api-extended.mjs",
     "write-translations": "docusaurus write-translations",
-    "write-heading-ids": "docusaurus write-heading-ids"
+    "write-heading-ids": "docusaurus write-heading-ids",
+    "start:noauth": "DOCUSAURUS_NO_PERSISTENT_CACHE=true node src/server/index.js & docusaurus start"
   },
   "dependencies": {
-    "@clerk/backend": "^3.16.13",
-    "@clerk/clerk-react": "^5.0.0",
     "@docusaurus/core": "^3.10.0",
     "@docusaurus/faster": "^3.10.0",
     "@docusaurus/preset-classic": "^3.10.0",
     "@easyops-cn/docusaurus-search-local": "^0.52.1",
     "@mdx-js/mdx": "^3.1.1",
     "@mdx-js/react": "^3.0.0",
+    "better-auth": "^1.7.2",
+    "better-sqlite3": "^12.11.1",
     "clsx": "^2.0.0",
+    "drizzle-orm": "^0.45.2",
     "js-yaml": "^4.1.1",
     "katex": "^0.16.25",
     "mafs": "^0.21.0",
@@ -44,7 +45,8 @@
   },
   "devDependencies": {
     "@docusaurus/module-type-aliases": "^3.10.0",
-    "@docusaurus/types": "^3.10.0"
+    "@docusaurus/types": "^3.10.0",
+    "drizzle-kit": "^0.31.10"
   },
   "browserslist": {
     "production": [

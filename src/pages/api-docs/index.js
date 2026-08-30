@@ -784,10 +784,12 @@ export default function ApiDocs() {
           </p>
           <p style={{color: '#9ca3af', fontSize: '0.85rem'}}>
             <strong>Authentication.</strong> With <code>ENABLE_AUTH=true</code>, every endpoint except{' '}
-            <code>/api/health</code>, <code>/api/feed/rss</code>, and <code>/api/feed/atom</code> requires a Clerk
-            session token, sent as <code>Authorization: Bearer &lt;token&gt;</code> or in the{' '}
-            <code>__session</code> cookie. A missing or invalid token is a <code>401</code>. Per-user endpoints read
-            the caller from that token; a <code>userId</code> in a query string or body is ignored.
+            <code>/api/health</code>, <code>/api/feed/rss</code>, <code>/api/feed/atom</code>, and{' '}
+            <code>/api/auth/*</code> requires a session token, sent as{' '}
+            <code>Authorization: Bearer &lt;token&gt;</code>. A missing or invalid token is a <code>401</code>.
+            Per-user endpoints read the caller from that token; a <code>userId</code> in a query string or body is
+            ignored. Sign up and sign in at <code>/api/auth/sign-up/email</code> and{' '}
+            <code>/api/auth/sign-in/username</code>; both return the token in a <code>set-auth-token</code> header.
           </p>
         </div>
 

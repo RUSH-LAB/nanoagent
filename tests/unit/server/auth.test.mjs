@@ -1,28 +1,37 @@
 /**
  * server/auth.js: the single place the API decides who is calling.
  *
- * The module reads ENABLE_AUTH and CLERK_SECRET_KEY once at load, so the cases
- * that need a different configuration reload it through a fresh require after
- * setting the environment, rather than trying to mutate a frozen decision.
+ * The enabled-mode cases are not mocked. They stand up a real Better Auth
+ * instance over a throwaway SQLite file, sign a real account up through the
+ * real endpoint, and hand the resulting token back to resolveIdentity. That is
+ * worth the few milliseconds: the thing most likely to break here is the wiring
+ * between Better Auth, the schema in migrations/, and the identity shape the
+ * handlers destructure, and none of that is exercised by a stub.
  *
- * Nothing here reaches the network. The enabled-mode cases use tokens that fail
- * local JWT parsing, so verifyToken rejects before it would fetch a JWKS.
+ * The module reads ENABLE_AUTH and DATABASE_FILE once at load, so cases that
+ * need a different configuration reload it through a fresh require.
  */
 import {describe, it, before, after} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 const AUTH_PATH = require.resolve('../../../src/server/auth.js');
+const DB_PATH = require.resolve('../../../src/server/db.js');
 
-/** Load a fresh copy of server/auth.js under the given environment. */
+/** Load a fresh copy of server/auth.js (and its db) under the given environment. */
 function loadAuth(env) {
-  const saved = {ENABLE_AUTH: process.env.ENABLE_AUTH, CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY};
+  const saved = {};
+  for (const k of ['ENABLE_AUTH', 'DATABASE_FILE', 'BETTER_AUTH_SECRET']) saved[k] = process.env[k];
   for (const [k, v] of Object.entries(env)) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }
   delete require.cache[AUTH_PATH];
+  delete require.cache[DB_PATH];
   try {
     return require('../../../src/server/auth.js');
   } finally {
@@ -31,111 +40,42 @@ function loadAuth(env) {
       else process.env[k] = v;
     }
     delete require.cache[AUTH_PATH];
+    delete require.cache[DB_PATH];
   }
 }
 
-const auth = loadAuth({ENABLE_AUTH: undefined, CLERK_SECRET_KEY: undefined});
 const req = headers => ({headers});
+const disabled = loadAuth({ENABLE_AUTH: undefined, DATABASE_FILE: undefined});
 
-describe('readToken', () => {
-  it('reads a bearer token from the Authorization header', () => {
-    assert.equal(auth.readToken(req({authorization: 'Bearer abc.def.ghi'})), 'abc.def.ghi');
-  });
-
-  it('trims surrounding whitespace on the header token', () => {
-    assert.equal(auth.readToken(req({authorization: 'Bearer   tok  '})), 'tok');
-  });
-
-  const NON_BEARER = [
-    ['a scheme that is not Bearer', {authorization: 'Basic abc'}],
-    ['a lowercase bearer scheme', {authorization: 'bearer abc'}],
-    ['an empty bearer value', {authorization: 'Bearer '}],
-    ['no headers at all', {}],
-  ];
-  for (const [name, headers] of NON_BEARER) {
-    it(`returns null for ${name}`, () => {
-      assert.equal(auth.readToken(req(headers)), null);
+describe('isPublicPath', () => {
+  for (const p of ['/api/health', '/api/feed/rss', '/api/feed/atom']) {
+    it(`treats ${p} as public, since its callers cannot hold a session`, () => {
+      assert.equal(disabled.isPublicPath(p), true);
     });
   }
 
-  it('falls back to the __session cookie', () => {
-    assert.equal(auth.readToken(req({cookie: 'other=1; __session=cookie-token; more=2'})), 'cookie-token');
-  });
-
-  it('url-decodes the cookie value', () => {
-    assert.equal(auth.readToken(req({cookie: '__session=a%2Bb'})), 'a+b');
-  });
-
-  it('prefers the header over the cookie', () => {
-    const headers = {authorization: 'Bearer from-header', cookie: '__session=from-cookie'};
-    assert.equal(auth.readToken(req(headers)), 'from-header');
-  });
-
-  it('falls through to the cookie when the header is not a bearer', () => {
-    const headers = {authorization: 'Basic nope', cookie: '__session=from-cookie'};
-    assert.equal(auth.readToken(req(headers)), 'from-cookie');
-  });
-
-  const NO_COOKIE = [
-    ['a cookie header without __session', '__sessions=x; other=1'],
-    ['a malformed cookie segment', 'novalue'],
-    ['an empty __session value', '__session='],
-  ];
-  for (const [name, cookie] of NO_COOKIE) {
-    it(`returns null for ${name}`, () => {
-      assert.equal(auth.readToken(req({cookie})), null);
+  // Gating sign-in behind sign-in would lock everybody out, so the whole Better
+  // Auth prefix is public and does its own authorization.
+  for (const p of ['/api/auth/sign-in/username', '/api/auth/sign-up/email', '/api/auth/get-session']) {
+    it(`treats ${p} as public, because that is where a caller goes to get a session`, () => {
+      assert.equal(disabled.isPublicPath(p), true);
     });
   }
 
-  it('is not confused by a cookie name that ends in __session', () => {
-    assert.equal(auth.readToken(req({cookie: 'not__session=x'})), null);
-  });
-});
-
-describe('identityFromClaims', () => {
-  it('reads a v2 token, whose organization is nested under `o`', () => {
-    const claims = {sub: 'user_1', sid: 'sess_1', v: 2, o: {id: 'org_1', rol: 'admin', slg: 'acme'}};
-    assert.deepEqual(auth.identityFromClaims(claims), {
-      userId: 'user_1', orgId: 'org_1', orgRole: 'admin', sessionId: 'sess_1',
+  for (const p of ['/api/users', '/api/users/me', '/api/logs', '/api/preferences', '/api/feed', '/api/authx', '/']) {
+    it(`treats ${p} as requiring a session`, () => {
+      assert.equal(disabled.isPublicPath(p), false);
     });
-  });
-
-  it('reads a v1 token, whose organization is spelled out at the top level', () => {
-    const claims = {sub: 'user_1', sid: 'sess_1', org_id: 'org_1', org_role: 'org:admin'};
-    assert.deepEqual(auth.identityFromClaims(claims), {
-      userId: 'user_1', orgId: 'org_1', orgRole: 'admin', sessionId: 'sess_1',
-    });
-  });
-
-  it('strips the org: prefix v1 uses and v2 does not, so the role reads the same either way', () => {
-    assert.equal(auth.identityFromClaims({sub: 'u', org_role: 'org:member'}).orgRole, 'member');
-    assert.equal(auth.identityFromClaims({sub: 'u', o: {rol: 'member'}}).orgRole, 'member');
-  });
-
-  it('nulls the organization for a personal-account token', () => {
-    assert.deepEqual(auth.identityFromClaims({sub: 'user_1'}), {
-      userId: 'user_1', orgId: null, orgRole: null, sessionId: null,
-    });
-  });
-
-  it('prefers the v2 nesting when a token somehow carries both', () => {
-    const claims = {sub: 'u', o: {id: 'org_v2', rol: 'admin'}, org_id: 'org_v1', org_role: 'org:member'};
-    const identity = auth.identityFromClaims(claims);
-    assert.deepEqual([identity.orgId, identity.orgRole], ['org_v2', 'admin']);
-  });
-
-  it('nulls a non-string role rather than passing it through', () => {
-    assert.equal(auth.identityFromClaims({sub: 'u', org_role: 7}).orgRole, null);
-  });
+  }
 });
 
 describe('isSafeId', () => {
-  it('accepts an ordinary Clerk id', () => {
-    assert.equal(auth.isSafeId('user_2abcDEF'), true);
+  it('accepts a generated Better Auth id', () => {
+    assert.equal(disabled.isSafeId('vWm7Ls6392wGlXsU6kfwCyrfVx3Ng5T8'), true);
   });
 
   it('accepts an id of exactly the 200 character limit', () => {
-    assert.equal(auth.isSafeId('u'.repeat(200)), true);
+    assert.equal(disabled.isSafeId('u'.repeat(200)), true);
   });
 
   const REJECTED = [
@@ -150,7 +90,7 @@ describe('isSafeId', () => {
   ];
   for (const [name, id] of REJECTED) {
     it(`rejects ${name}`, () => {
-      assert.equal(auth.isSafeId(id), false);
+      assert.equal(disabled.isSafeId(id), false);
     });
   }
 
@@ -158,104 +98,160 @@ describe('isSafeId', () => {
   // handlers' own-key guards, not this check, are what keep them honest.
   for (const id of ['toString', 'valueOf', 'hasOwnProperty']) {
     it(`accepts the inherited-but-harmless id ${JSON.stringify(id)}`, () => {
-      assert.equal(auth.isSafeId(id), true);
-    });
-  }
-});
-
-describe('isPublicPath', () => {
-  for (const p of ['/api/health', '/api/feed/rss', '/api/feed/atom']) {
-    it(`treats ${p} as public, since its callers cannot hold a session`, () => {
-      assert.equal(auth.isPublicPath(p), true);
-    });
-  }
-
-  for (const p of ['/api/users', '/api/users/me', '/api/logs', '/api/debug/memory', '/api/feed', '/']) {
-    it(`treats ${p} as requiring a session`, () => {
-      assert.equal(auth.isPublicPath(p), false);
+      assert.equal(disabled.isSafeId(id), true);
     });
   }
 });
 
 describe('resolveIdentity with ENABLE_AUTH unset', () => {
   it('reports itself disabled', () => {
-    assert.equal(auth.AUTH_ENABLED, false);
+    assert.equal(disabled.AUTH_ENABLED, false);
   });
 
   it('resolves every request to the development identity', async () => {
-    const result = await auth.resolveIdentity(req({}));
-    assert.deepEqual(result, {ok: true, identity: auth.DEV_IDENTITY});
+    const result = await disabled.resolveIdentity(req({}));
+    assert.deepEqual(result, {ok: true, identity: disabled.DEV_IDENTITY});
     assert.equal(result.identity.userId, 'dev-user');
   });
 
   it('ignores a token entirely rather than trying to verify it', async () => {
-    const result = await auth.resolveIdentity(req({authorization: 'Bearer garbage'}));
-    assert.deepEqual(result.identity, auth.DEV_IDENTITY);
+    const result = await disabled.resolveIdentity(req({authorization: 'Bearer garbage'}));
+    assert.deepEqual(result.identity, disabled.DEV_IDENTITY);
   });
 
   it('hands out a frozen identity, so a handler cannot rewrite the caller', () => {
-    assert.throws(() => { auth.DEV_IDENTITY.userId = 'someone-else'; }, TypeError);
+    assert.throws(() => { disabled.DEV_IDENTITY.userId = 'someone-else'; }, TypeError);
   });
 });
 
 describe('resolveIdentity with ENABLE_AUTH=true', () => {
   let enabled;
-  before(() => {
-    enabled = loadAuth({ENABLE_AUTH: 'true', CLERK_SECRET_KEY: 'sk_test_not_a_real_key'});
+  let dbFile;
+  let alice;   // {id, token}
+  let bob;
+
+  before(async () => {
+    dbFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-auth-')), 'test.db');
+    enabled = loadAuth({
+      ENABLE_AUTH: 'true',
+      DATABASE_FILE: dbFile,
+      BETTER_AUTH_SECRET: 'test-secret-'.padEnd(48, 'x'),
+    });
+
+    const signUp = async (username, email) => {
+      const res = await enabled.auth.api.signUpEmail({
+        body: {email, password: 'correcthorsebattery', name: username, username},
+        returnHeaders: true,
+      });
+      const body = res.response ?? res;
+      return {id: body.user.id, token: body.token};
+    };
+    alice = await signUp('alice', 'alice@test.invalid');
+    bob = await signUp('bob', 'bob@test.invalid');
+  });
+
+  after(() => {
+    for (const suffix of ['', '-wal', '-shm']) {
+      try { fs.rmSync(dbFile + suffix); } catch { /* already gone */ }
+    }
   });
 
   it('reports itself enabled', () => {
     assert.equal(enabled.AUTH_ENABLED, true);
   });
 
-  it('rejects a request with no token, without consulting Clerk', async () => {
+  it('created real rows in the SQL database', () => {
+    assert.ok(alice.id, 'alice has a generated id');
+    assert.ok(alice.token, 'sign-up returned a session token');
+    assert.notEqual(alice.id, bob.id, 'two accounts are two users');
+  });
+
+  it('resolves a valid bearer token to that account', async () => {
+    const result = await enabled.resolveIdentity(req({authorization: `Bearer ${alice.token}`}));
+    assert.equal(result.ok, true);
+    assert.equal(result.identity.userId, alice.id);
+    assert.equal(result.identity.orgId, null, 'no organization selected yet');
+    assert.equal(result.identity.orgRole, null);
+    assert.ok(result.identity.sessionId, 'carries the session id');
+  });
+
+  it('tells two signed-in callers apart', async () => {
+    const a = await enabled.resolveIdentity(req({authorization: `Bearer ${alice.token}`}));
+    const b = await enabled.resolveIdentity(req({authorization: `Bearer ${bob.token}`}));
+    assert.notEqual(a.identity.userId, b.identity.userId);
+    assert.equal(b.identity.userId, bob.id);
+  });
+
+  it('freezes the identity, so a handler cannot rewrite the caller', async () => {
+    const {identity} = await enabled.resolveIdentity(req({authorization: `Bearer ${alice.token}`}));
+    assert.throws(() => { identity.userId = bob.id; }, TypeError);
+  });
+
+  it('rejects a request with no token', async () => {
     assert.deepEqual(await enabled.resolveIdentity(req({})), {
-      ok: false, status: 401, error: 'Missing session token',
+      ok: false, status: 401, error: 'Not signed in',
     });
   });
 
-  // A token that is not a well-formed JWT fails local parsing, so verifyToken
-  // rejects before it would reach for a signing key over the network.
-  for (const token of ['garbage', 'a.b', 'not.a.jwt']) {
-    it(`rejects the unparseable token ${JSON.stringify(token)} as 401`, async () => {
+  const FORGED = ['garbage', 'a.b', 'Bearer', ''];
+  for (const token of FORGED) {
+    it(`rejects the forged token ${JSON.stringify(token)}`, async () => {
       const result = await enabled.resolveIdentity(req({authorization: `Bearer ${token}`}));
-      assert.deepEqual(result, {ok: false, status: 401, error: 'Invalid or expired session token'});
+      assert.equal(result.ok, false);
+      assert.equal(result.status, 401);
     });
   }
 
-  it('does not disclose why verification failed', async () => {
-    const result = await enabled.resolveIdentity(req({authorization: 'Bearer garbage'}));
-    // One flat message for every failure mode: an attacker learns nothing about
-    // which part of a forgery to correct.
-    assert.equal(result.error, 'Invalid or expired session token');
+  it('rejects a token belonging to a revoked session', async () => {
+    const {token, id} = await (async () => {
+      const res = await enabled.auth.api.signUpEmail({
+        body: {email: 'carol@test.invalid', password: 'correcthorsebattery', name: 'carol', username: 'carol'},
+      });
+      return {token: res.token, id: res.user.id};
+    })();
+
+    const before = await enabled.resolveIdentity(req({authorization: `Bearer ${token}`}));
+    assert.equal(before.identity.userId, id, 'the session works to begin with');
+
+    await enabled.auth.api.signOut({headers: {authorization: `Bearer ${token}`}});
+
+    const after = await enabled.resolveIdentity(req({authorization: `Bearer ${token}`}));
+    assert.equal(after.ok, false, 'the same token stops working once signed out');
+    assert.equal(after.status, 401);
   });
 
-  it('reads the token from the __session cookie too', async () => {
-    const result = await enabled.resolveIdentity(req({cookie: '__session=garbage'}));
-    assert.deepEqual(result, {ok: false, status: 401, error: 'Invalid or expired session token'});
+  it('signs in with a username and password', async () => {
+    const res = await enabled.auth.api.signInUsername({
+      body: {username: 'alice', password: 'correcthorsebattery'},
+    });
+    assert.ok(res.token, 'username sign-in issues a token');
+    const result = await enabled.resolveIdentity(req({authorization: `Bearer ${res.token}`}));
+    assert.equal(result.identity.userId, alice.id);
+  });
+
+  it('refuses the wrong password', async () => {
+    await assert.rejects(
+      () => enabled.auth.api.signInUsername({body: {username: 'alice', password: 'not-the-password'}}),
+    );
   });
 });
 
-describe('startup configuration', () => {
-  it('refuses to load with authentication on and no secret key', () => {
-    assert.throws(
-      () => loadAuth({ENABLE_AUTH: 'true', CLERK_SECRET_KEY: undefined}),
-      /ENABLE_AUTH=true requires CLERK_SECRET_KEY/,
-    );
+describe('orgRoleFor', () => {
+  it('returns null when the caller has no active organization', () => {
+    assert.equal(disabled.orgRoleFor('any-user', null), null);
   });
 
-  it('treats an empty secret key the same as a missing one', () => {
-    assert.throws(
-      () => loadAuth({ENABLE_AUTH: 'true', CLERK_SECRET_KEY: ''}),
-      /ENABLE_AUTH=true requires CLERK_SECRET_KEY/,
-    );
+  it('returns null rather than throwing when the membership is absent', () => {
+    assert.equal(disabled.orgRoleFor('nobody', 'no-such-org'), null);
   });
+});
 
+describe('ENABLE_AUTH parsing', () => {
   // Only the exact string 'true' turns authentication on, so a stray value can
   // never half-enable it.
   for (const value of ['1', 'yes', 'TRUE', 'false', '']) {
     it(`stays disabled for ENABLE_AUTH=${JSON.stringify(value)}`, () => {
-      assert.equal(loadAuth({ENABLE_AUTH: value, CLERK_SECRET_KEY: undefined}).AUTH_ENABLED, false);
+      assert.equal(loadAuth({ENABLE_AUTH: value}).AUTH_ENABLED, false);
     });
   }
 });

@@ -84,8 +84,9 @@ const config = {
   staticDirectories: ['src/static'],
 
   customFields: {
-    // The Clerk auth gate is off by default, in dev and in production builds.
-    // Set ENABLE_AUTH=true to turn it back on (used by `npm run start:auth`).
+    // Whether the sign-in gate is shown. The API server reads the same
+    // variable to decide whether it requires a session, so the two can never
+    // disagree. `npm start` sets it; `npm run start:noauth` does not.
     authEnabled: process.env.ENABLE_AUTH === 'true',
   },
 

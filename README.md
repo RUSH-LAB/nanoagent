@@ -32,30 +32,44 @@ npm install
 npm start        # starts API server (port 3001) + Docusaurus dev server (port 3000)
 ```
 
-Auth is disabled by default, in dev and in production builds. To enable the Clerk sign-in gate:
+`npm start` opens a sign-in screen. Create an account with a username, email, and password; it is
+stored in a local SQLite database at `var/data/mochi.db`, which the server creates on first run. No
+external service, no API keys, no configuration.
 
 ```bash
-export CLERK_SECRET_KEY=sk_...   # required whenever ENABLE_AUTH=true
-npm run start:auth               # dev server with auth
-npm run build:auth               # production build with auth
+npm start            # API + site, with the sign-in gate
+npm run start:noauth # no gate: every request is a fixed development user
 ```
 
-### Authentication
+## Authentication
 
-`ENABLE_AUTH` gates the site's sign-in screen and the API's identity check together.
+Accounts, sessions, and organizations live in the local SQL database and are managed by
+[Better Auth](https://better-auth.com). `ENABLE_AUTH` gates the site's sign-in screen and the API's
+identity check together, so the two can never disagree about whether a session is required.
 
-With it on, every endpoint except `/api/health`, `/api/feed/rss`, and `/api/feed/atom` requires a Clerk
-session token, sent as `Authorization: Bearer <token>` or in the `__session` cookie. The server verifies
-it with `@clerk/backend` and attaches `{userId, orgId, orgRole, sessionId}` to the request; a missing or
-invalid token is a `401` before any handler runs. The server refuses to start with auth on and no
-`CLERK_SECRET_KEY`, rather than falling open.
+| | `npm start` | `npm run start:noauth` |
+|---|---|---|
+| Sign-in screen | Shown | Skipped |
+| API identity | The signed-in account | A fixed `dev-user` |
+| Used by | Normal development | The test suites |
 
-With it off, every request resolves to a fixed development identity, so `npm start` and the test suite
-run without a Clerk account.
+**How a session travels.** Sign-up and sign-in return a token in a `set-auth-token` response header.
+The browser keeps it in `localStorage` and `apiFetch` in `src/utils/api.js` attaches it as
+`Authorization: Bearer <token>`. Tokens rather than cookies because the site runs on `:3000` and the
+API on `:3001`, and a browser will not send a cookie across origins without HTTPS.
 
-Either way, handlers read the caller only from the verified identity. A `userId` in a query string or
-request body is ignored, and browser code reaches the API through `apiFetch` in `src/utils/api.js`,
-which attaches the token. `src/server/auth.js` is the single place any of this is decided.
+**What is public.** Everything except `/api/health`, the two feeds, and `/api/auth/*` needs a valid
+session; anything else is a `401` before a handler runs. Handlers read the caller only from that
+session, so a `userId` in a query string or request body is ignored.
+
+**Schema.** `src/server/migrations/*.sql` is applied at startup and recorded, so a clean checkout works
+on the first `npm start`. `tests/unit/server/db-schema.test.mjs` fails if the committed schema drifts
+from what the installed Better Auth expects.
+
+**Secrets.** `BETTER_AUTH_SECRET` signs sessions. Set it in any real deployment; locally one is
+generated on first run and kept in `var/data/.auth-secret`, which git ignores.
+
+`src/server/auth.js` is the single place any of this is decided.
 
 ## Architecture
 
@@ -126,10 +140,10 @@ npm run test:all            # unit + integration tests
 | Site framework | Docusaurus 3 |
 | Frontend | React 19, Mafs (interactive math), KaTeX |
 | API server | Node.js (vanilla `http` module, no framework) |
-| Auth | Clerk |
+| Auth | Better Auth (local SQLite) |
 | Search | docusaurus-search-local |
 | Deployment | Vercel |
-| Data storage | JSON files |
+| Data storage | SQLite via better-sqlite3 (accounts, organizations); JSON files (app data) |
 | Math typesetting | remark-math + rehype-katex |
 | Code highlighting | Prism (with custom Lean 4 grammar) |
 
@@ -154,6 +168,7 @@ npm run test:all            # unit + integration tests
 | Content Search | `/content-search` | Advanced full-text search |
 | Tasks | `/tasks` | Task and goal tracking |
 | Stats | `/stats` | Site-wide statistics |
+| Settings | `/settings` | Your account and preferences |
 | Admin | `/admin` | Administration panel |
 | About | `/about` | About the project |
 | API Docs | `/api-docs` | Interactive API documentation |

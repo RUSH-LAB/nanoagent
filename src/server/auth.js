@@ -1,45 +1,107 @@
 /**
  * Server-side identity for the API.
  *
- * Until now every handler took the caller's identity from the request itself:
- * `?userId=` on a GET, `body.userId` on a POST, `body.requesterId` on the role
- * change. That is not authentication. Anyone could claim to be anyone, and the
- * owner-only role endpoint was one hand-written JSON field away from being
- * public. This module is the single place that answers "who is calling?", and
- * it answers from a Clerk session token, which the client cannot forge.
+ * Every per-user endpoint used to take its caller's identity from the request
+ * itself: `?userId=` on a GET, `body.userId` on a POST, `body.requesterId` on
+ * the role change. That is not authentication. This module is the single place
+ * that answers "who is calling?", and it answers from a session the server
+ * issued and stores, which the client cannot forge.
  *
- * Two modes, selected by ENABLE_AUTH so the server matches the site's own gate
- * in src/theme/Root.js:
+ * Accounts live in the local SQL database (see db.js). Better Auth owns the
+ * user, session, account, and verification tables, plus the organization,
+ * member, and invitation tables its organization plugin adds. Sign-up and
+ * sign-in are its own routes, mounted at /api/auth/* by server/index.js.
  *
- *   ENABLE_AUTH=true   Every non-public request must carry a valid Clerk
- *                      session token. A missing, expired, malformed, or
- *                      wrongly signed token is a 401 before any handler runs.
- *                      CLERK_SECRET_KEY is required; the server refuses to
- *                      start without it rather than falling open.
- *   anything else      Development. No token is expected and every request
- *                      resolves to DEV_IDENTITY, so `npm start` and the test
- *                      suite run without a Clerk account.
+ * Sessions travel as bearer tokens rather than cookies. In development the site
+ * is served from :3000 and this API from :3001, and a browser will not send a
+ * cookie across origins without HTTPS and SameSite=None. A token in an
+ * Authorization header has no such problem, and it is what src/utils/api.js
+ * already sends.
  *
- * The trust boundary is the same in both modes: handlers read identity only
- * from `req.auth`, never from the URL or the body. What ENABLE_AUTH changes is
- * who the server believes you are, never whether the client gets to decide.
+ * Two modes, selected by ENABLE_AUTH:
+ *
+ *   ENABLE_AUTH=true   Real sessions. Every non-public request must carry a
+ *                      valid one; anything else is a 401 before any handler
+ *                      runs. This is what `npm start` uses.
+ *   anything else      Every request resolves to DEV_IDENTITY. This is what the
+ *                      test suites use, so they need no login step.
+ *
+ * The trust boundary is identical either way: handlers read identity only from
+ * `req.auth`. ENABLE_AUTH changes who the server believes you are, never
+ * whether the client gets to decide.
  */
-const {verifyToken} = require('@clerk/backend');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const {betterAuth} = require('better-auth');
+const {fromNodeHeaders} = require('better-auth/node');
+const {bearer} = require('better-auth/plugins/bearer');
+const {username} = require('better-auth/plugins/username');
+const {organization} = require('better-auth/plugins/organization');
+const {db} = require('./db');
+const {DATA_DIR} = require('./paths');
 
 const AUTH_ENABLED = process.env.ENABLE_AUTH === 'true';
-const SECRET_KEY = process.env.CLERK_SECRET_KEY || '';
+const PORT = process.env.EDITOR_PORT || 3001;
 
-if (AUTH_ENABLED && !SECRET_KEY) {
-  throw new Error(
-    'ENABLE_AUTH=true requires CLERK_SECRET_KEY. Refusing to start with ' +
-    'authentication enabled but no way to verify session tokens.'
-  );
+/**
+ * The key that signs sessions. Set BETTER_AUTH_SECRET in any real deployment.
+ * Locally it is generated once and kept in var/, which git ignores: a secret
+ * that changed per restart would invalidate every session on every code reload,
+ * and a secret committed to the repo would be no secret at all.
+ */
+function resolveSecret() {
+  if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
+  const file = path.join(DATA_DIR, '.auth-secret');
+  try {
+    return fs.readFileSync(file, 'utf-8').trim();
+  } catch {
+    const generated = crypto.randomBytes(32).toString('hex');
+    fs.mkdirSync(DATA_DIR, {recursive: true});
+    fs.writeFileSync(file, generated, {mode: 0o600});
+    return generated;
+  }
 }
 
 /**
- * The identity every request carries in development. A stable id keeps the
- * JSON stores keyed consistently across restarts, which is what the old
- * `|| 'default'` fallbacks were reaching for.
+ * The Better Auth instance. server/index.js mounts `auth.handler` so the
+ * sign-up, sign-in, sign-out, and organization routes exist; this module calls
+ * `auth.api.getSession` to identify everyone else.
+ */
+const auth = betterAuth({
+  database: db,
+  secret: resolveSecret(),
+  baseURL: process.env.BETTER_AUTH_URL || `http://localhost:${PORT}`,
+  basePath: '/api/auth',
+  // The Docusaurus dev server and the production site are separate origins from
+  // this API, so both have to be named or Better Auth rejects their requests.
+  trustedOrigins: [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    ...(process.env.SITE_URL ? [process.env.SITE_URL] : []),
+  ],
+  emailAndPassword: {
+    enabled: true,
+    // No mail server is configured, so requiring verification would lock every
+    // new local account out of the app it just signed up for.
+    requireEmailVerification: false,
+    minPasswordLength: 8,
+  },
+  plugins: [
+    // Lets people sign in with a username as well as an email address.
+    username(),
+    // Organizations, memberships, roles, and invitations.
+    organization(),
+    // Issues the session as a token in a `set-auth-token` response header and
+    // accepts it back as `Authorization: Bearer`, so no cross-origin cookie is
+    // needed between :3000 and :3001.
+    bearer(),
+  ],
+});
+
+/**
+ * The identity every request carries when ENABLE_AUTH is off. A stable id keeps
+ * the JSON stores keyed consistently across restarts.
  */
 const DEV_IDENTITY = Object.freeze({
   userId: 'dev-user',
@@ -49,8 +111,9 @@ const DEV_IDENTITY = Object.freeze({
 });
 
 /**
- * Endpoints that stay reachable without a session, because the clients that
- * call them cannot hold one: uptime monitoring, and feed readers.
+ * Endpoints reachable without a session. Health and the feeds because their
+ * callers cannot hold one; /api/auth/* because that is where a caller goes to
+ * get one, and gating sign-in behind sign-in would lock everybody out.
  */
 const PUBLIC_PATHS = new Set([
   '/api/health',
@@ -58,12 +121,16 @@ const PUBLIC_PATHS = new Set([
   '/api/feed/atom',
 ]);
 
+/** Whether `pathname` may be served without a session. */
+function isPublicPath(pathname) {
+  return PUBLIC_PATHS.has(pathname) || pathname.startsWith('/api/auth/');
+}
+
 /**
- * Identities are used as object keys in the JSON stores, so an id that names a
- * prototype slot would write through to Object.prototype. Clerk ids are
- * `user_...`, so this can only fire on a forged or malformed token, but the
- * check lives here to hold for every store at once rather than at each of the
- * twenty-odd handlers that key on it.
+ * Identities key the JSON stores, so an id naming a prototype slot would write
+ * through to Object.prototype. Better Auth ids are generated, so this can only
+ * fire on a tampered database, but the check lives here to hold for every store
+ * at once rather than at each of the twenty-odd handlers that key on one.
  */
 const UNSAFE_IDS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -71,44 +138,24 @@ function isSafeId(id) {
   return typeof id === 'string' && id.length > 0 && id.length <= 200 && !UNSAFE_IDS.has(id);
 }
 
-/** The bearer token, from the Authorization header or Clerk's session cookie. */
-function readToken(req) {
-  const header = req.headers?.authorization || '';
-  if (header.startsWith('Bearer ')) {
-    const token = header.slice('Bearer '.length).trim();
-    if (token) return token;
-  }
-  // Same-origin deployments get the token as a cookie instead of a header.
-  const cookie = req.headers?.cookie;
-  if (!cookie) return null;
-  for (const part of cookie.split(';')) {
-    const eq = part.indexOf('=');
-    if (eq === -1) continue;
-    if (part.slice(0, eq).trim() === '__session') {
-      return decodeURIComponent(part.slice(eq + 1).trim()) || null;
-    }
-  }
-  return null;
-}
-
 /**
- * Flatten Clerk's session claims into the shape handlers consume.
- *
- * Version 2 session tokens nest the active organization under `o` with
- * abbreviated fields (`id`, `rol`, `slg`); version 1 spells them out at the top
- * level as `org_id` / `org_role`. Both are accepted so a Clerk-side token
- * version change cannot silently drop the organization. Roles are normalized to
- * their bare name, since v1 prefixes them with `org:` and v2 does not.
+ * The caller's role in their active organization, or null when they have not
+ * selected one. Better Auth keeps the active organization on the session and
+ * the role on the membership, so the role needs this one indexed lookup.
  */
-function identityFromClaims(claims) {
-  const org = claims.o || null;
-  const rawRole = org?.rol ?? claims.org_role ?? null;
-  return {
-    userId: claims.sub,
-    orgId: org?.id ?? claims.org_id ?? null,
-    orgRole: typeof rawRole === 'string' ? rawRole.replace(/^org:/, '') : null,
-    sessionId: claims.sid ?? null,
-  };
+function orgRoleFor(userId, orgId) {
+  if (!orgId) return null;
+  try {
+    const row = db
+      .prepare('SELECT role FROM member WHERE userId = ? AND organizationId = ? LIMIT 1')
+      .get(userId, orgId);
+    return row?.role ?? null;
+  } catch {
+    // The organization tables may not exist yet on a database created before
+    // the plugin was added. A missing role is not a reason to reject the
+    // request; it just means no organization permissions.
+    return null;
+  }
 }
 
 /**
@@ -119,36 +166,39 @@ function identityFromClaims(claims) {
 async function resolveIdentity(req) {
   if (!AUTH_ENABLED) return {ok: true, identity: DEV_IDENTITY};
 
-  const token = readToken(req);
-  if (!token) return {ok: false, status: 401, error: 'Missing session token'};
-
-  let claims;
+  let session;
   try {
-    claims = await verifyToken(token, {secretKey: SECRET_KEY});
+    session = await auth.api.getSession({headers: fromNodeHeaders(req.headers)});
   } catch {
-    // The failure reason (expired, bad signature, wrong issuer) is deliberately
-    // not echoed back; it tells an attacker which part of a forgery to fix.
-    return {ok: false, status: 401, error: 'Invalid or expired session token'};
+    return {ok: false, status: 401, error: 'Invalid or expired session'};
+  }
+  if (!session?.user?.id) {
+    return {ok: false, status: 401, error: 'Not signed in'};
   }
 
-  const identity = identityFromClaims(claims);
-  if (!isSafeId(identity.userId)) {
+  const userId = session.user.id;
+  if (!isSafeId(userId)) {
     return {ok: false, status: 401, error: 'Invalid session subject'};
   }
-  return {ok: true, identity: Object.freeze(identity)};
-}
 
-/** Whether `pathname` may be served without a session. */
-function isPublicPath(pathname) {
-  return PUBLIC_PATHS.has(pathname);
+  const orgId = session.session?.activeOrganizationId ?? null;
+  return {
+    ok: true,
+    identity: Object.freeze({
+      userId,
+      orgId,
+      orgRole: orgRoleFor(userId, orgId),
+      sessionId: session.session?.id ?? null,
+    }),
+  };
 }
 
 module.exports = {
+  auth,
   resolveIdentity,
   isPublicPath,
   isSafeId,
-  identityFromClaims,
-  readToken,
+  orgRoleFor,
   AUTH_ENABLED,
   DEV_IDENTITY,
   PUBLIC_PATHS,

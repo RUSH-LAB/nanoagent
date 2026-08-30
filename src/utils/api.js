@@ -4,30 +4,38 @@ const API_BASE = typeof window !== 'undefined' && window.location.hostname !== '
   : 'http://localhost:3001';
 
 /**
- * The current session token, or null.
+ * Where the session token is kept.
  *
- * Clerk exposes the token through the `useAuth()` hook, which only a component
- * may call, but the fetch helpers below are plain functions called from event
- * handlers and effects all over the tree. TokenBridge in src/theme/Root.js
- * closes that gap: it sits inside ClerkProvider, calls the hook, and parks the
- * getter here for `apiFetch` to await.
- *
- * Null until Clerk resolves, and null for good when the auth gate is off. In
- * both cases requests simply go out unauthenticated, which is what the server
- * expects when ENABLE_AUTH is unset.
+ * Declared here, the dependency-free module, and imported by ./authClient
+ * rather than the other way round: authClient already imports API_BASE from
+ * here, so the arrow points one way and there is exactly one spelling of the
+ * key. apiFetch and the auth client reading different keys would fail as a
+ * silent permanent 401, which is a bad thing to leave to a naming convention.
  */
-let getToken = null;
+export const TOKEN_KEY = 'mochi.session-token';
 
-/** Called once by TokenBridge. Pass null on unmount to clear a stale getter. */
-export function registerTokenGetter(fn) {
-  getToken = fn;
+/**
+ * The current session token, or null when signed out.
+ *
+ * Read at call time rather than captured, so a sign-in or sign-out during the
+ * page's life is picked up by the next request without re-registering anything.
+ * localStorage is absent during the static build and can throw when storage is
+ * disabled, hence the guards.
+ */
+function currentToken() {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Whether `input` addresses our own API, and may therefore carry the session
  * token. The client also talks to Semantic Scholar and other third parties, and
  * a bearer token attached to one of those requests would hand a stranger a live
- * Clerk session.
+ * session.
  */
 function isOwnApi(input) {
   const url = typeof input === 'string' ? input : input?.url;
@@ -38,25 +46,22 @@ function isOwnApi(input) {
 }
 
 /**
- * fetch, with the Clerk session token attached.
+ * fetch, with the session token attached.
  *
  * Use this for every call to our own API. The server derives the caller from
  * this token: an unauthenticated request is a 401 once ENABLE_AUTH is on, and
  * no `userId` in a query string or body will stand in for it.
  *
+ * Requests to /api/auth/* are the exception that proves the rule, and they go
+ * through the Better Auth client in ./authClient.js, not through here.
+ *
  * The signature matches fetch, so a call site changes only in name. Requests to
  * anywhere other than our API pass through untouched, without the token.
  */
 export async function apiFetch(input, init = {}) {
-  if (!isOwnApi(input) || !getToken) return fetch(input, init);
+  if (!isOwnApi(input)) return fetch(input, init);
 
-  let token = null;
-  try {
-    token = await getToken();
-  } catch {
-    // A getToken that throws (signed out mid-flight, Clerk not yet loaded)
-    // means no token, not a failed request: let the server decide.
-  }
+  const token = currentToken();
   if (!token) return fetch(input, init);
 
   return fetch(input, {

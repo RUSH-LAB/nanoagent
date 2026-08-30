@@ -15,7 +15,8 @@ const {
 } = require('./server-utils');
 
 const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
-const {resolveIdentity, isPublicPath} = require('./auth');
+const {auth, resolveIdentity, isPublicPath} = require('./auth');
+const {toNodeHandler} = require('better-auth/node');
 const PORT = process.env.EDITOR_PORT || 3001;
 const NOTES_FILE = dataFile('notes');
 const ANALYTICS_FILE = dataFile('analytics');
@@ -373,6 +374,10 @@ const routeModules = [
   require('./routes/stats'),
 ];
 
+// Built once: toNodeHandler wraps the Better Auth fetch handler for node's
+// http server, and rebuilding it per request would re-wrap on every call.
+const authHandler = toNodeHandler(auth);
+
 const server = http.createServer(async (req, res) => {
   req.setTimeout(30000);
   const reqId = ++requestCounter;
@@ -401,6 +406,19 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const pathname = url.pathname;
+
+  // ── Sign-up, sign-in, sign-out, organizations ──
+  // Better Auth owns everything under /api/auth/ and answers on its own. It
+  // runs before the identity gate below, because this is where a caller with no
+  // session goes to get one.
+  if (pathname.startsWith('/api/auth/')) {
+    res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    // The bearer plugin returns a new session token in this header, and a
+    // cross-origin caller cannot read a response header unless it is exposed.
+    res.setHeader('Access-Control-Expose-Headers', 'set-auth-token');
+    return authHandler(req, res);
+  }
 
   // ── Identity ──
   // Resolved once, before any handler runs, and attached to the request rather

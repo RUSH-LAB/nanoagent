@@ -152,7 +152,7 @@ const SHORTCUTS = [
 
 const TECH_STACK = [
   { name: 'Docusaurus', detail: 'Static site framework with docs, blog, and pages' },
-  { name: 'Clerk', detail: 'Authentication and user management' },
+  { name: 'Better Auth', detail: 'Authentication and user management, on the local SQL database' },
   { name: 'Node.js', detail: 'API server with 90+ endpoints (no Express)' },
   { name: 'KaTeX', detail: 'Fast LaTeX math rendering' },
   { name: 'Semantic Scholar', detail: 'Academic paper metadata and recommendations' },
