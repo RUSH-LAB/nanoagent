@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────
-// Integration tests for new features: Glossary, Flashcards, Tasks, Goals, Streak, Snapshots, Schedule
+// Integration tests for new features: Glossary, Flashcards, Tasks, Streak, Snapshots, Schedule
 // Usage:  node tests/integration/test-new-features.mjs
 // Requires the server running on http://localhost:3001
 // ─────────────────────────────────────────────────────────────
@@ -336,69 +336,6 @@ async function testTasks() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Goals (3 tests)
-// ────────────────────────────────────────────────────────────────
-
-let createdGoalId = null;
-
-async function testGoals() {
-  section('Goals (3 tests)');
-
-  // 1. Create goal
-  await test('POST /api/goals — create daily goal', async () => {
-    const {status, data} = await api('POST', '/api/goals', {
-      type: 'daily',
-      target: 500,
-      userId: TEST_USER_ID,
-    });
-    // Server returns 201 for goal creation
-    assertOk(status === 200 || status === 201, 'status is 200 or 201');
-    assertOk(data.id, 'has id');
-    assertEq(data.type, 'daily', 'type matches');
-    assertEq(data.target, 500, 'target matches');
-    assertEq(data.userId, TEST_USER_ID, 'userId matches');
-    assertOk(typeof data.baselineWords === 'number', 'has baselineWords');
-    assertOk(data.startDate, 'has startDate');
-    createdGoalId = data.id;
-  });
-
-  // 2. Get goals for user
-  await test('GET /api/goals?userId=... — fetch user goals', async () => {
-    const {status, data} = await api('GET', `/api/goals?userId=${encodeURIComponent(TEST_USER_ID)}`);
-    assertEq(status, 200, 'status');
-    assertOk(Array.isArray(data.goals), 'goals is array');
-    assertOk(data.goals.length >= 1, 'has at least one goal');
-    const found = data.goals.find(g => g.id === createdGoalId);
-    assertOk(found, 'found our goal');
-    assertEq(found.type, 'daily', 'type matches');
-    assertEq(found.target, 500, 'target matches');
-    assertOk(typeof found.currentWords === 'number', 'has currentWords');
-    assertOk(typeof found.wordsWritten === 'number', 'has wordsWritten');
-    assertOk(typeof found.progress === 'number', 'has progress');
-  });
-
-  // 3. Clean up — replace goal with itself then verify we can remove
-  //    (Goals don't have a DELETE endpoint, so we clean up by overwriting
-  //    with POST which replaces goals of the same type+userId)
-  await test('Cleanup — replace goal to verify overwrite behavior', async () => {
-    // POST a new goal with same type+userId replaces the old one
-    const {status, data} = await api('POST', '/api/goals', {
-      type: 'daily',
-      target: 1,
-      userId: TEST_USER_ID,
-    });
-    assertOk(status === 200 || status === 201, 'status');
-    // The old goal should be replaced
-    const {data: listData} = await api('GET', `/api/goals?userId=${encodeURIComponent(TEST_USER_ID)}`);
-    const oldGoal = listData.goals.find(g => g.id === createdGoalId);
-    assertOk(!oldGoal, 'old goal replaced');
-    assertEq(listData.goals.filter(g => g.type === 'daily').length, 1, 'only one daily goal');
-    // Store new id for final cleanup
-    createdGoalId = data.id;
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
 // Streak (3 tests)
 // ────────────────────────────────────────────────────────────────
 
@@ -607,9 +544,6 @@ async function runCleanup() {
     } catch { /* ignore */ }
   }
 
-  // Goals: no DELETE endpoint; the test user's goals are harmless
-  // (they use a unique userId that won't collide with real data)
-
   // Snapshots: try to delete leftover snapshot
   if (createdSnapshotId) {
     try {
@@ -636,14 +570,13 @@ async function runCleanup() {
 async function main() {
   console.log(`\n${BOLD}Mochi Lab — New Features Integration Tests${RESET}`);
   console.log(`${DIM}Target: ${BASE}${RESET}`);
-  console.log(`${DIM}Testing: Glossary, Flashcards, Tasks, Goals, Streak, Snapshots, Schedule (29 tests)${RESET}\n`);
+  console.log(`${DIM}Testing: Glossary, Flashcards, Tasks, Streak, Snapshots, Schedule (26 tests)${RESET}\n`);
 
   await preflight();
 
   await testGlossary();
   await testFlashcards();
   await testTasks();
-  await testGoals();
   await testStreak();
   await testSnapshots();
   await testSchedule();

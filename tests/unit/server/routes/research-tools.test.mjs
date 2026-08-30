@@ -20,7 +20,7 @@ const BIB = at('content/bibliography/references.yaml');
 const {
   tokenizeSearch, termFrequencies, buildSearchDoc, corpusStats,
   bm25Idf, bm25Score, rankDocuments, cleanBibtexValue,
-  ARXIV_ABS_RE, REC_ARXIV_ID_RE, REC_DOI_RE, BUILTIN_TEMPLATES,
+  ARXIV_ABS_RE, REC_ARXIV_ID_RE, REC_DOI_RE,
 } = routes;
 
 function fsCtx(files, over = {}) {
@@ -207,7 +207,7 @@ describe('cleanBibtexValue', () => {
   });
 });
 
-// ── Exported regexes and templates ────────────────────────────────────────
+// ── Exported regexes ──────────────────────────────────────────────────────
 
 describe('exported matchers', () => {
   it('ARXIV_ABS_RE is non-global and captures a loose id', () => {
@@ -230,31 +230,7 @@ describe('exported matchers', () => {
     assert.equal('https://doi.org/10.1000/xyz123'.match(REC_DOI_RE)[1], '10.1000/xyz123');
     assert.equal('https://example.com/paper'.match(REC_DOI_RE), null);
   });
-
-  it('BUILTIN_TEMPLATES is a frozen, stable five-entry array', () => {
-    assert.equal(Object.isFrozen(BUILTIN_TEMPLATES), true);
-    assert.equal(BUILTIN_TEMPLATES.length, 5);
-    assert.deepEqual(BUILTIN_TEMPLATES.map(t => t.id), ['blank', 'blog', 'research', 'math', 'tutorial']);
-    assert.strictEqual(loadRoute('research-tools').BUILTIN_TEMPLATES, BUILTIN_TEMPLATES);
-  });
 });
-
-describe('GET /api/templates', () => {
-  it('serves the shared instance with a one-hour cacheControl', async () => {
-    const r = await invoke(routes, {path: '/api/templates'});
-    assert.equal(r.status, 200);
-    assert.strictEqual(r.payload.templates, BUILTIN_TEMPLATES);
-    assert.deepEqual(r.replies[0].opts, {cacheControl: 'public, max-age=3600'});
-  });
-
-  it('returns the same reference on a back-to-back request', async () => {
-    const a = await invoke(routes, {path: '/api/templates'});
-    const b = await invoke(routes, {path: '/api/templates'});
-    assert.strictEqual(b.payload.templates, a.payload.templates);
-  });
-});
-
-// ── Preprint tracking ─────────────────────────────────────────────────────
 
 describe('GET /api/references/track', () => {
   const REFS = {plain: {title: 'Plain', venue: 'V'}, withUrl: {title: 'WithUrl', url: 'https://arxiv.org/abs/2301.12345'}};

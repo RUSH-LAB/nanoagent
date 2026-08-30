@@ -226,20 +226,4 @@ describe('route call sites forward the right cacheControl', () => {
     assert.deepEqual(captured.opts, { cacheControl: 'public, max-age=30' });
   });
 
-  it('GET /api/templates calls json with cacheControl public, max-age=3600', async () => {
-    const rtRoutes = require('../../../src/server/routes/research-tools.js');
-    let captured = null;
-    const ctx = {
-      path,
-      PROJECT_ROOT: '/fake/root',
-      json: (_res, status, data, opts) => { captured = { status, data, opts }; },
-    };
-    const url = new URL('http://localhost/api/templates');
-    await rtRoutes({ method: 'GET', headers: {} }, { writableEnded: false }, url, '/api/templates', ctx);
-    assert.ok(captured, 'json() must be called');
-    assert.equal(captured.status, 200);
-    assert.ok(Array.isArray(captured.data.templates));
-    assert.deepEqual(captured.data.templates.map(t => t.id), ['blank', 'blog', 'research', 'math', 'tutorial']);
-    assert.deepEqual(captured.opts, { cacheControl: 'public, max-age=3600' });
-  });
 });

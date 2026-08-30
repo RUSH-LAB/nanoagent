@@ -107,13 +107,12 @@ async function preflight() {
 
 const TEST_PREFIX = `__test_${Date.now()}`;
 const TEST_FILE = `content/posts/${TEST_PREFIX}_post.md`;
-const TEST_FILE_RENAMED = `content/posts/${TEST_PREFIX}_post_renamed.md`;
 const TEST_FILE_CONTENT = `---\ntitle: "Test Post"\ndate: 2025-01-01\n---\n\n# Test Post\n\nHello world. This is a test file for API integration tests.\n`;
 const TEST_NOTE_KEY = `${TEST_PREFIX}_note`;
 const TEST_REF_KEY = `${TEST_PREFIX}_ref`;
 
 // ────────────────────────────────────────────────────────────────
-// File CRUD (10 tests)
+// File CRUD (7 tests)
 // ────────────────────────────────────────────────────────────────
 
 async function testFileCRUD() {
@@ -158,30 +157,7 @@ async function testFileCRUD() {
     assertOk(readData.content.includes('Updated content'), 'content updated');
   });
 
-  // 5. File info
-  await test('File info', async () => {
-    const {status, data} = await api('GET', `/api/file/info?path=${encodeURIComponent(TEST_FILE)}`);
-    assertEq(status, 200, 'status');
-    assertOk(typeof data.size === 'number', 'has size');
-    assertOk(typeof data.wordCount === 'number', 'has wordCount');
-    assertOk(data.hasFrontmatter === true, 'has frontmatter');
-    assertOk(typeof data.mtime === 'string', 'has mtime');
-  });
-
-  // 6. Draft toggle
-  await test('Draft toggle', async () => {
-    const {status, data} = await api('POST', '/api/file/draft', {
-      path: TEST_FILE,
-      draft: true,
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.success, 'success');
-    // Verify
-    const {data: info} = await api('GET', `/api/file/info?path=${encodeURIComponent(TEST_FILE)}`);
-    assertEq(info.draft, true, 'draft is true');
-  });
-
-  // 7. Search files
+  // 5. Search files
   await test('Search files', async () => {
     const {status, data} = await api('GET', `/api/files/search?q=${encodeURIComponent(TEST_PREFIX)}`);
     assertEq(status, 200, 'status');
@@ -190,35 +166,16 @@ async function testFileCRUD() {
     assertOk(data.files.some(f => f.path.includes(TEST_PREFIX)), 'found our test file');
   });
 
-  // 8. Rename file
-  await test('Rename file', async () => {
-    const {status, data} = await api('POST', '/api/file/rename', {
-      oldPath: TEST_FILE,
-      newPath: TEST_FILE_RENAMED,
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.success, 'success');
-    // Update cleanup
-    cleanup.pop();
-    cleanup.push(() => safeDeleteFile(TEST_FILE_RENAMED));
-    // Verify old is gone
-    const {status: oldStatus} = await api('GET', `/api/file?path=${encodeURIComponent(TEST_FILE)}`);
-    assertEq(oldStatus, 404, 'old file gone');
-    // Verify new exists
-    const {status: newStatus} = await api('GET', `/api/file?path=${encodeURIComponent(TEST_FILE_RENAMED)}`);
-    assertEq(newStatus, 200, 'new file exists');
-  });
-
-  // 9. File move
+  // 6. File move
   await test('File move', async () => {
     const {status, data} = await api('POST', '/api/file/move', {
-      filePath: TEST_FILE_RENAMED,
+      filePath: TEST_FILE,
       targetDir: 'content/books',
     });
     assertEq(status, 200, 'status');
     assertOk(data.success, 'success');
-    // The moved file will have the basename of TEST_FILE_RENAMED
-    const movedPath = `content/books/${TEST_FILE_RENAMED.split('/').pop()}`;
+    // The moved file keeps the basename of TEST_FILE
+    const movedPath = `content/books/${TEST_FILE.split('/').pop()}`;
     cleanup.pop();
     cleanup.push(() => safeDeleteFile(movedPath));
     // Verify it is at the new location
@@ -226,10 +183,10 @@ async function testFileCRUD() {
     assertEq(readStatus, 200, 'moved file readable');
   });
 
-  // 10. Delete file (soft-delete to trash)
+  // 7. Delete file (soft-delete to trash)
   await test('Delete file (soft-delete)', async () => {
     // Figure out the current location after move
-    const movedPath = `content/books/${TEST_FILE_RENAMED.split('/').pop()}`;
+    const movedPath = `content/books/${TEST_FILE.split('/').pop()}`;
     const {status, data} = await api('DELETE', `/api/file?path=${encodeURIComponent(movedPath)}`);
     assertEq(status, 200, 'status');
     assertOk(data.success, 'success');
@@ -368,7 +325,7 @@ async function testReferences() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Misc (5 tests)
+// Misc (4 tests)
 // ────────────────────────────────────────────────────────────────
 
 async function testMisc() {
@@ -392,16 +349,7 @@ async function testMisc() {
     assertOk(typeof data.references === 'number', 'has references count');
   });
 
-  // 3. Templates
-  await test('Templates', async () => {
-    const {status, data} = await api('GET', '/api/templates');
-    assertEq(status, 200, 'status');
-    assertOk(Array.isArray(data.templates), 'templates is array');
-    assertOk(data.templates.length >= 1, 'has at least one template');
-    assertOk(data.templates.every(t => t.id && t.name && t.content), 'each template has id, name, content');
-  });
-
-  // 4. Pageview tracking
+  // 3. Pageview tracking
   await test('Pageview tracking', async () => {
     const {status, data} = await api('POST', '/api/analytics/pageview', {
       path: `/${TEST_PREFIX}/test-page`,
@@ -414,7 +362,7 @@ async function testMisc() {
     assertOk(analytics.pageviews[`/${TEST_PREFIX}/test-page`] >= 1, 'pageview counted');
   });
 
-  // 5. Full-text search
+  // 4. Full-text search
   await test('Full-text search', async () => {
     // Search for something that likely exists in any docusaurus site
     const {status, data} = await api('GET', '/api/search?q=the');

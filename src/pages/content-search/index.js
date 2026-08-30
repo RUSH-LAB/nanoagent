@@ -350,7 +350,7 @@ function SearchContent() {
                     transition: 'border-color 0.15s',
                   }}>
                     <Link
-                      to={`/editor?file=${encodeURIComponent(filePath)}`}
+                      to={toViewPath(filePath)}
                       style={{
                         fontWeight: 600,
                         fontSize: '0.95em',
@@ -360,33 +360,6 @@ function SearchContent() {
                     >
                       {highlightMatch(displayPath, debouncedQuery)}
                     </Link>
-                    <div style={{
-                      fontSize: '0.8em',
-                      color: 'var(--ifm-color-emphasis-500)',
-                      marginTop: '2px',
-                    }}>
-                      <Link
-                        to={toViewPath(filePath)}
-                        style={{
-                          color: 'var(--ifm-color-emphasis-500)',
-                          textDecoration: 'underline',
-                          textDecorationColor: 'var(--ifm-color-emphasis-300)',
-                        }}
-                      >
-                        View page
-                      </Link>
-                      {' | '}
-                      <Link
-                        to={`/editor?file=${encodeURIComponent(filePath)}`}
-                        style={{
-                          color: 'var(--ifm-color-emphasis-500)',
-                          textDecoration: 'underline',
-                          textDecorationColor: 'var(--ifm-color-emphasis-300)',
-                        }}
-                      >
-                        Edit
-                      </Link>
-                    </div>
                   </div>
                 );
               })}
@@ -428,7 +401,7 @@ function SearchContent() {
                     border: '1px solid var(--ifm-color-emphasis-200)',
                   }}>
                     <Link
-                      to={`/editor?file=${encodeURIComponent(filePath)}`}
+                      to={toViewPath(filePath)}
                       style={{
                         fontWeight: 600,
                         fontSize: '0.9em',

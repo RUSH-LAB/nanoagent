@@ -182,11 +182,6 @@ const CATEGORIES = [
         response: '{ "success": true, "trashPath": ".trash/content/docs/2025-01-15T10-30-00-000Z_example.md" }',
       },
       {
-        method: 'POST', path: '/api/file/rename', description: 'Rename or move a file to a new path.',
-        request: '{ "oldPath": "content/docs/old-name.md", "newPath": "content/docs/new-name.md" }',
-        response: '{ "success": true, "path": "content/docs/new-name.md" }',
-      },
-      {
         method: 'POST', path: '/api/file/move', description: 'Move a file to a different directory, keeping its filename.',
         request: '{ "filePath": "content/docs/example.md", "targetDir": "content/posts" }',
         response: '{ "success": true, "newPath": "content/posts/example.md" }',
@@ -195,31 +190,6 @@ const CATEGORIES = [
         method: 'GET', path: '/api/files/search', description: 'Search files by name or path.',
         request: 'Query: ?q=algebra',
         response: '{ "files": [{ "name": "algebra.md", "path": "content/docs/math/algebra.md" }] }',
-      },
-      {
-        method: 'GET', path: '/api/file/info', description: 'Get file metadata: size, word count, modification time, draft status.',
-        request: 'Query: ?path=content/docs/example.md',
-        response: '{ "path": "content/docs/example.md", "size": 1234, "mtime": "2025-01-15T10:30:00.000Z", "wordCount": 250, "hasFrontmatter": true, "draft": false }',
-      },
-      {
-        method: 'POST', path: '/api/file/draft', description: 'Toggle the draft status in a file\'s YAML frontmatter.',
-        request: '{ "path": "content/docs/example.md", "draft": true }',
-        response: '{ "success": true }',
-      },
-      {
-        method: 'GET', path: '/api/file/export', description: 'Export a file as raw Markdown or converted HTML for download.',
-        request: 'Query: ?path=content/docs/example.md&format=md  (format: "md" or "html")',
-        response: 'File download (Content-Disposition: attachment)',
-      },
-      {
-        method: 'GET', path: '/api/file/compare', description: 'Compare a file\'s content at two git commits (or one commit vs current working copy).',
-        request: 'Query: ?path=content/docs/example.md&hash1=abc1234&hash2=def5678  (hash2 can be "current")',
-        response: '{ "version1": { "hash": "abc1234", "content": "...", "date": "2025-01-10" }, "version2": { "hash": "def5678", "content": "...", "date": "2025-01-15" } }',
-      },
-      {
-        method: 'POST', path: '/api/upload', description: 'Upload an image file (PNG, JPG, GIF, SVG, WebP). Sends raw binary body.',
-        request: 'Query: ?name=photo.png&dir=static/img/uploads (dir optional)\nBody: raw image bytes',
-        response: '{ "success": true, "url": "/img/uploads/photo.png" }',
       },
       {
         method: 'POST', path: '/api/folder', description: 'Create a new directory under content/.',
@@ -239,15 +209,6 @@ const CATEGORIES = [
     icon: '🗑️',
     description: 'Manage soft-deleted files in the .trash/ directory.',
     endpoints: [
-      {
-        method: 'GET', path: '/api/trash', description: 'List all trashed files, sorted newest first.',
-        response: '{ "files": [{ "trashPath": ".trash/content/docs/...", "originalPath": "content/docs/example.md", "originalName": "example.md", "deletedAt": "2025-01-15T10:30:00.000Z" }] }',
-      },
-      {
-        method: 'POST', path: '/api/trash/restore', description: 'Restore a trashed file to its original location. Fails if a file already exists there.',
-        request: '{ "trashPath": ".trash/content/docs/2025-01-15T10-30-00-000Z_example.md" }',
-        response: '{ "success": true, "restoredPath": "content/docs/example.md" }',
-      },
       {
         method: 'DELETE', path: '/api/trash/empty', description: 'Permanently delete all trashed files.',
         response: '{ "success": true, "deleted": 5 }',
@@ -345,9 +306,9 @@ const CATEGORIES = [
   },
   {
     id: 'users',
-    title: 'Users & Presence',
+    title: 'Users',
     icon: '👥',
-    description: 'User management with role-based access control (owner/editor/viewer) and real-time editing presence.',
+    description: 'User management with role-based access control (owner/editor/viewer).',
     endpoints: [
       {
         method: 'GET', path: '/api/users', description: 'List all users and their roles.',
@@ -362,16 +323,6 @@ const CATEGORIES = [
         method: 'PUT', path: '/api/users/:id/role', description: 'Set a user\'s role. Only owners can change roles.',
         request: '{ "role": "editor", "email": "bob@example.com", "name": "Bob", "requesterId": "user_abc123" }',
         response: '{ "success": true, "user": { "role": "editor", "email": "bob@example.com", "name": "Bob", "addedAt": "..." } }',
-      },
-      {
-        method: 'POST', path: '/api/presence', description: 'Update the current user\'s editing presence for a file (heartbeat).',
-        request: '{ "filePath": "content/docs/example.md", "userId": "user_abc123", "userName": "Alice", "cursor": { "line": 10, "ch": 5 } }',
-        response: '{ "success": true }',
-      },
-      {
-        method: 'GET', path: '/api/presence', description: 'List users currently editing a specific file.',
-        request: 'Query: ?path=content/docs/example.md',
-        response: '{ "users": [{ "userId": "user_abc123", "userName": "Alice", "cursor": { "line": 10, "ch": 5 }, "lastSeen": 1705312200000 }] }',
       },
     ],
   },
@@ -392,7 +343,7 @@ const CATEGORIES = [
     id: 'misc',
     title: 'Miscellaneous',
     icon: '🔧',
-    description: 'Health checks, search, history, backlinks, graph, templates, notifications, and content statistics.',
+    description: 'Health checks, search, backlinks, graph, notifications, and content statistics.',
     endpoints: [
       {
         method: 'GET', path: '/api/health', description: 'Server health check. Returns uptime and memory usage.',
@@ -406,16 +357,6 @@ const CATEGORIES = [
         method: 'GET', path: '/api/search', description: 'Full-text search across all content files. Returns up to 50 results with context snippets.',
         request: 'Query: ?q=transformer',
         response: '{ "results": [{ "path": "content/docs/attention.md", "name": "attention.md", "snippet": "...the transformer architecture..." }] }',
-      },
-      {
-        method: 'GET', path: '/api/history', description: 'Get git commit history for a file (last 20 commits).',
-        request: 'Query: ?path=content/docs/example.md',
-        response: '{ "commits": [{ "hash": "abc1234", "author": "Alice", "date": "2025-01-15 10:30:00 -0500", "message": "Update example" }] }',
-      },
-      {
-        method: 'GET', path: '/api/history/diff', description: 'Get the git diff for a specific commit on a file.',
-        request: 'Query: ?path=content/docs/example.md&hash=abc1234',
-        response: '{ "diff": "--- a/content/docs/example.md\\n+++ b/content/docs/example.md\\n@@ -1,3 +1,4 @@..." }',
       },
       {
         method: 'GET', path: '/api/notes', description: 'Get scratch-pad notes. Optionally filter by key.',
@@ -435,10 +376,6 @@ const CATEGORIES = [
       {
         method: 'GET', path: '/api/graph', description: 'Build a link graph of all wiki-link connections between pages. Returns nodes and edges for visualization.',
         response: '{ "nodes": [{ "id": "docs/example", "path": "docs/example.md", "title": "Example", "category": "docs" }], "edges": [{ "source": "docs/intro", "target": "docs/example" }] }',
-      },
-      {
-        method: 'GET', path: '/api/templates', description: 'List available page templates (blank, blog, research, math, tutorial).',
-        response: '{ "templates": [{ "id": "blank", "name": "Blank Page", "content": "---\\ntitle: \\"Untitled\\"\\n..." }, ...] }',
       },
       {
         method: 'GET', path: '/api/perf', description: 'Server performance metrics: average, max, and p95 response times per endpoint.',
@@ -537,11 +474,6 @@ const CATEGORIES = [
     title: 'Bulk Operations',
     icon: '\u{1F4E6}',
     endpoints: [
-      {
-        method: 'POST', path: '/api/files/bulk', description: 'Bulk delete or move files. Action must be "delete" or "move".',
-        request: '{ "action": "move", "paths": ["content/docs/a.md", "content/docs/b.md"], "targetDir": "content/archive" }',
-        response: '{ "success": true, "processed": 2, "errors": [] }',
-      },
       {
         method: 'GET', path: '/api/files/recent', description: 'List recently modified files.',
         request: 'Query: ?limit=10 (max 50)',
@@ -706,29 +638,6 @@ const CATEGORIES = [
         method: 'DELETE', path: '/api/tasks', description: 'Delete a task by ID. Rate-limited to 30/min per IP.',
         request: '{ "id": "abc123" }',
         response: '{ "success": true }',
-      },
-    ],
-  },
-  {
-    id: 'goals',
-    title: 'Writing Goals',
-    icon: '\u{1F3AF}',
-    description: 'Daily and weekly word-count writing goals with progress tracking against a baseline.',
-    endpoints: [
-      {
-        method: 'POST', path: '/api/goals', description: 'Create or replace a writing goal. Computes a baseline word count from all content files. Rate-limited to 30/min per IP.',
-        request: '{ "type": "daily", "target": 500, "userId": "default" }\n\nValid types: "daily", "weekly"',
-        response: '{ "id": "goal_...", "type": "daily", "target": 500, "userId": "default", "startDate": "2025-01-15", "baselineWords": 125000, "createdAt": "..." }',
-      },
-      {
-        method: 'GET', path: '/api/goals', description: 'Get all goals for a user with current progress. Shows words written since goal creation and expiration status.',
-        request: 'Query: ?userId=default',
-        response: '{ "goals": [{ "id": "goal_...", "type": "daily", "target": 500, "currentWords": 125350, "wordsWritten": 350, "progress": 0.7, "isExpired": false, ... }] }',
-      },
-      {
-        method: 'PUT', path: '/api/goals', description: 'Update a goal\'s target word count. Rate-limited to 30/min per IP.',
-        request: '{ "id": "goal_...", "target": 750 }',
-        response: '{ "id": "goal_...", "type": "daily", "target": 750, ... }',
       },
     ],
   },

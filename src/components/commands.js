@@ -19,12 +19,6 @@ export const icons = {
       <line x1="10" y1="14" x2="21" y2="3" />
     </svg>
   ),
-  editor: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-    </svg>
-  ),
   book: (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
@@ -138,7 +132,6 @@ export const icons = {
 /* ── Commands ──────────────────────────────────────────────────── */
 export const COMMANDS = [
   // Tools
-  {id: 'editor', name: 'editor', category: 'Tools', icon: icons.editor, title: 'Editor', description: 'Rich-text and markdown authoring', href: '/editor'},
   {id: 'bibliography', name: 'bibliography', category: 'Tools', icon: icons.book, title: 'Bibliography', description: 'Browse and manage references', href: '/bibliography'},
   {id: 'recommendations', name: 'recommendations', category: 'Tools', icon: icons.star, title: 'Recommendations', description: 'Papers matched to your interests', href: '/recommendations'},
   {id: 'reading-lists', name: 'reading-lists', category: 'Tools', icon: icons.list, title: 'Reading Lists', description: 'Queue papers to read later', href: '/reading-lists'},

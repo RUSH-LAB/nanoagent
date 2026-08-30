@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────
 // End-to-end user workflow tests for Mochi Lab
-// Tests 4 complete user journeys (~23 tests total)
+// Tests 3 complete user journeys (12 tests total)
 // Usage:  node tests/integration/test-workflows.mjs
 // Requires the server running on http://localhost:3001
 // ─────────────────────────────────────────────────────────────
@@ -112,7 +112,7 @@ const TS = Date.now();
 const TEST_PREFIX = `wftest-${TS}`;
 
 // ════════════════════════════════════════════════════════════════
-// Journey 1: Researcher writes and publishes (8 steps)
+// Journey 1: Researcher writes and publishes (6 steps)
 // ════════════════════════════════════════════════════════════════
 
 async function journey1() {
@@ -135,23 +135,9 @@ async function journey1() {
     assertOk(data.success, 'file created');
   });
 
-  // Step 2: Set it as draft
-  step(2, 'Set post as draft');
-  await test('1.2 Mark as draft via POST /api/file/draft', async () => {
-    const {status, data} = await api('POST', '/api/file/draft', {
-      path: filePath,
-      draft: true,
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.success, 'draft set');
-    // Verify draft is set
-    const {data: info} = await api('GET', `/api/file/info?path=${encodeURIComponent(filePath)}`);
-    assertEq(info.draft, true, 'draft confirmed in file info');
-  });
-
-  // Step 3: Add rich content
-  step(3, 'Add rich content');
-  await test('1.3 Update content via PUT /api/file', async () => {
+  // Step 2: Add rich content
+  step(2, 'Add rich content');
+  await test('1.2 Update content via PUT /api/file', async () => {
     const {status, data} = await api('PUT', '/api/file', {
       path: filePath,
       content: richContent,
@@ -163,9 +149,9 @@ async function journey1() {
     assertOk(readData.content.includes('machine learning fundamentals'), 'rich content saved');
   });
 
-  // Step 4: Check quality score
-  step(4, 'Check quality score');
-  await test('1.4 Check quality via GET /api/file/quality', async () => {
+  // Step 3: Check quality score
+  step(3, 'Check quality score');
+  await test('1.3 Check quality via GET /api/file/quality', async () => {
     const {status, data} = await api('GET', `/api/file/quality?path=${encodeURIComponent(filePath)}`);
     assertEq(status, 200, 'status');
     assertOk(typeof data.score === 'number', 'has numeric score');
@@ -175,9 +161,9 @@ async function journey1() {
     assertOk(typeof data.breakdown === 'object', 'has breakdown object');
   });
 
-  // Step 5: Add a reference
-  step(5, 'Add a reference');
-  await test('1.5 Add reference via POST /api/references', async () => {
+  // Step 4: Add a reference
+  step(4, 'Add a reference');
+  await test('1.4 Add reference via POST /api/references', async () => {
     const {status, data} = await api('POST', '/api/references', {
       key: refKey,
       entry: {
@@ -192,9 +178,9 @@ async function journey1() {
     assertOk(data.success, 'reference added');
   });
 
-  // Step 6: Create a snapshot
-  step(6, 'Create a snapshot');
-  await test('1.6 Create snapshot via POST /api/snapshots', async () => {
+  // Step 5: Create a snapshot
+  step(5, 'Create a snapshot');
+  await test('1.5 Create snapshot via POST /api/snapshots', async () => {
     const {status, data} = await api('POST', '/api/snapshots', {
       path: filePath,
       name: 'pre-publish snapshot',
@@ -207,23 +193,9 @@ async function journey1() {
     snapshotId = data.snapshot.id;
   });
 
-  // Step 7: Publish (undraft)
-  step(7, 'Publish the post');
-  await test('1.7 Publish (undraft) via POST /api/file/draft', async () => {
-    const {status, data} = await api('POST', '/api/file/draft', {
-      path: filePath,
-      draft: false,
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.success, 'published');
-    // Verify draft is removed
-    const {data: info} = await api('GET', `/api/file/info?path=${encodeURIComponent(filePath)}`);
-    assertEq(info.draft, false, 'draft is false after publish');
-  });
-
-  // Step 8: Verify it appears in RSS feed
-  step(8, 'Verify post in RSS feed');
-  await test('1.8 Post appears in GET /api/feed/rss', async () => {
+  // Step 6: Verify it appears in RSS feed
+  step(6, 'Verify post in RSS feed');
+  await test('1.6 Post appears in GET /api/feed/rss', async () => {
     const {status, data} = await api('GET', '/api/feed/rss');
     assertEq(status, 200, 'status');
     assertOk(typeof data === 'string', 'RSS is text');
@@ -265,7 +237,7 @@ async function journey1() {
 // ════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════
-// Journey 3: Study session (5 steps)
+// Journey 3: Study session (4 steps)
 // ════════════════════════════════════════════════════════════════
 
 async function journey3() {
@@ -273,7 +245,6 @@ async function journey3() {
 
   const studyUserId = `${TEST_PREFIX}_student`;
   let cardId = null;
-  let goalId = null;
 
   // Step 1: Create a flashcard
   step(1, 'Create a flashcard');
@@ -343,35 +314,6 @@ async function journey3() {
     assertEq(streakData.dailyLog.length, 1, 'one daily entry');
   });
 
-  // Step 5: Check goals
-  step(5, 'Create and check a writing goal');
-  await test('3.5 Create and verify goal via POST/GET /api/goals', async () => {
-    // Create a daily goal
-    const {status: createStatus, data: createData} = await api('POST', '/api/goals', {
-      type: 'daily',
-      target: 500,
-      userId: studyUserId,
-    });
-    assertOk(createStatus === 200 || createStatus === 201, 'goal created');
-    assertOk(createData.id, 'goal has id');
-    assertEq(createData.type, 'daily', 'type is daily');
-    assertEq(createData.target, 500, 'target is 500');
-    goalId = createData.id;
-
-    // Verify the goal shows up with progress data
-    const {status: getStatus, data: getData} = await api('GET', `/api/goals?userId=${encodeURIComponent(studyUserId)}`);
-    assertEq(getStatus, 200, 'get status');
-    assertOk(Array.isArray(getData.goals), 'goals is array');
-    assertOk(getData.goals.length >= 1, 'has at least one goal');
-    const found = getData.goals.find(g => g.id === goalId);
-    assertOk(found, 'found our goal');
-    assertEq(found.type, 'daily', 'goal type matches');
-    assertEq(found.target, 500, 'goal target matches');
-    assertOk(typeof found.currentWords === 'number', 'has currentWords');
-    assertOk(typeof found.wordsWritten === 'number', 'has wordsWritten');
-    assertOk(typeof found.progress === 'number', 'has progress');
-  });
-
   // Cleanup
   console.log(`  ${DIM}Cleaning up Journey 3 test data...${RESET}`);
   let cleanCount = 0;
@@ -385,8 +327,7 @@ async function journey3() {
     } catch { cleanErrors++; }
   }
 
-  // Goals and streak data use unique userIds, so they won't collide.
-  // Goals don't have a DELETE endpoint; streak data is harmless with unique userId.
+  // Streak data uses a unique userId, so it is harmless and needs no cleanup.
 
   if (cleanErrors > 0) {
     log('!', YELLOW, `Journey 3 cleanup: ${cleanCount} ok, ${cleanErrors} errors`);
@@ -396,32 +337,26 @@ async function journey3() {
 }
 
 // ════════════════════════════════════════════════════════════════
-// Journey 4: Data management (4 steps)
+// Journey 4: Data management (2 steps)
 // ════════════════════════════════════════════════════════════════
 
 async function journey4() {
   section('Journey 4: Data management');
 
   const fileA = `content/posts/${TEST_PREFIX}_data_a.md`;
-  const fileB = `content/posts/${TEST_PREFIX}_data_b.md`;
-  const fileC = `content/posts/${TEST_PREFIX}_data_c.md`;
   const snapshotFile = `content/posts/${TEST_PREFIX}_snap_target.md`;
   const scheduleFile = `content/posts/${TEST_PREFIX}_sched_target.md`;
-  const bulkMoveDir = `content/posts/${TEST_PREFIX}_bulk_dest`;
 
   const contentTemplate = (title) =>
     `---\ntitle: "${title}"\ndate: 2025-07-01\ndraft: true\n---\n\nBody of ${title}.\n`;
 
   let snapshotId = null;
-  let trashPath = null;
   let scheduleEntry = null;
 
   // ── Seed files needed by multiple steps ──
   console.log(`  ${DIM}Seeding test files...${RESET}`);
   for (const [fp, title] of [
     [fileA, 'Data A'],
-    [fileB, 'Data B'],
-    [fileC, 'Data C'],
     [snapshotFile, 'Snapshot Target'],
     [scheduleFile, 'Schedule Target'],
   ]) {
@@ -500,89 +435,6 @@ async function journey4() {
     }
   });
 
-  // Step 3: Trash and restore flow
-  step(3, 'Delete a file to trash then restore it');
-  await test('4.3 Trash restore via DELETE /api/file + POST /api/trash/restore', async () => {
-    // Delete file A (moves it to .trash/)
-    const {status: delStatus, data: delData} = await api(
-      'DELETE',
-      `/api/file?path=${encodeURIComponent(fileA)}`,
-    );
-    assertEq(delStatus, 200, 'delete status');
-    assertOk(delData.success, 'file moved to trash');
-    assertOk(delData.trashPath, 'trashPath returned');
-    trashPath = delData.trashPath;
-
-    // Verify it shows up in the trash listing
-    const {status: trashListStatus, data: trashListData} = await api('GET', '/api/trash');
-    assertEq(trashListStatus, 200, 'trash list status');
-    assertOk(Array.isArray(trashListData.files), 'has files array');
-    const trashed = trashListData.files.find(f => f.trashPath === trashPath);
-    assertOk(trashed, 'our file is in the trash listing');
-
-    // Restore the file
-    const {status: restoreStatus, data: restoreData} = await api('POST', '/api/trash/restore', {
-      trashPath,
-    });
-    assertEq(restoreStatus, 200, 'restore status');
-    assertOk(restoreData.success, 'restore succeeded');
-    assertEq(restoreData.restoredPath, fileA, 'restored to original path');
-
-    // Verify the file is readable again at its original path
-    const {status: readStatus, data: readData} = await api(
-      'GET',
-      `/api/file?path=${encodeURIComponent(fileA)}`,
-    );
-    assertEq(readStatus, 200, 'read status after restore');
-    assertOk(readData.content.includes('Body of Data A'), 'content intact after restore');
-  });
-
-  // Step 4: Bulk file operations (move + delete)
-  step(4, 'Bulk move and bulk delete files');
-  await test('4.4 Bulk operations via POST /api/files/bulk', async () => {
-    // 4a: Bulk move fileB into a subdirectory
-    const {status: moveStatus, data: moveData} = await api('POST', '/api/files/bulk', {
-      action: 'move',
-      paths: [fileB],
-      targetDir: bulkMoveDir,
-    });
-    assertEq(moveStatus, 200, 'bulk move status');
-    assertOk(moveData.success, 'bulk move succeeded');
-    assertEq(moveData.processed, 1, 'processed 1 file');
-    assertOk(moveData.errors.length === 0, 'no errors on bulk move');
-
-    // Verify the moved file exists at the new location
-    const movedPath = `${bulkMoveDir}/${TEST_PREFIX}_data_b.md`;
-    const {status: movedRead} = await api(
-      'GET',
-      `/api/file?path=${encodeURIComponent(movedPath)}`,
-    );
-    assertEq(movedRead, 200, 'moved file is readable at new path');
-
-    // 4b: Bulk delete the moved file and fileC
-    const {status: delStatus, data: delData} = await api('POST', '/api/files/bulk', {
-      action: 'delete',
-      paths: [movedPath, fileC],
-    });
-    assertEq(delStatus, 200, 'bulk delete status');
-    assertOk(delData.success, 'bulk delete succeeded');
-    assertEq(delData.processed, 2, 'processed 2 files');
-    assertOk(delData.errors.length === 0, 'no errors on bulk delete');
-
-    // Verify both files are gone from their original locations
-    const {status: gone1} = await api(
-      'GET',
-      `/api/file?path=${encodeURIComponent(movedPath)}`,
-    );
-    assertOk(gone1 === 404, 'moved file no longer at target after bulk delete');
-
-    const {status: gone2} = await api(
-      'GET',
-      `/api/file?path=${encodeURIComponent(fileC)}`,
-    );
-    assertOk(gone2 === 404, 'fileC no longer exists after bulk delete');
-  });
-
   // Cleanup
   console.log(`  ${DIM}Cleaning up Journey 4 test data...${RESET}`);
   let cleanCount = 0;
@@ -613,10 +465,6 @@ async function journey4() {
     } catch { cleanErrors++; }
   }
 
-  // Trash is intentionally left un-emptied: "empty" is all-or-nothing, so
-  // emptying would delete unrelated data. The bulk-deleted files sit
-  // harmlessly in .trash/ with unique prefixes.
-
   if (cleanErrors > 0) {
     log('!', YELLOW, `Journey 4 cleanup: ${cleanCount} ok, ${cleanErrors} errors`);
   } else {
@@ -631,7 +479,7 @@ async function journey4() {
 async function main() {
   console.log(`\n${BOLD}Mochi Lab — End-to-End Workflow Tests${RESET}`);
   console.log(`${DIM}Target: ${BASE}${RESET}`);
-  console.log(`${DIM}Testing 4 user journeys (~23 tests)${RESET}`);
+  console.log(`${DIM}Testing 3 user journeys (12 tests)${RESET}`);
 
   await preflight();
 

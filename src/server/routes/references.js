@@ -294,35 +294,6 @@ module.exports = async function references_routes(req, res, url, pathname, ctx) 
     }
   }
 
-  // ── Draft toggle ──
-  if (req.method === 'POST' && pathname === '/api/file/draft') {
-    if (!rateLimit(`file-draft:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
-    try {
-      const body = await readBody(req);
-      const {path: filePath, draft} = body;
-      if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
-      if (typeof draft !== 'boolean') return json(res, 400, {error: 'draft must be a boolean'});
-      const fullPath = path.join(PROJECT_ROOT, filePath);
-      let content = fs.readFileSync(fullPath, 'utf-8');
-      const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/);
-      if (fmMatch) {
-        let fm = fmMatch[1];
-        if (/^draft:\s*.*/m.test(fm)) {
-          fm = fm.replace(/^draft:\s*.*/m, `draft: ${draft}`);
-        } else {
-          fm += `\ndraft: ${draft}`;
-        }
-        content = `---\n${fm}\n---\n` + content.slice(fmMatch[0].length);
-      } else {
-        content = `---\ndraft: ${draft}\n---\n` + content;
-      }
-      fs.writeFileSync(fullPath, content, 'utf-8');
-      return json(res, 200, {success: true});
-    } catch {
-      return json(res, 400, {error: 'Invalid request'});
-    }
-  }
-
   // ── AI writing assistant (v2 – /api/ai/complete) ──
   if (req.method === 'POST' && pathname === '/api/ai/complete') {
     if (!rateLimit(`ai-complete:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});

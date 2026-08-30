@@ -263,119 +263,10 @@ describe('PUT /api/users/:id/role', () => {
   });
 });
 
-// ── Presence ──────────────────────────────────────────────────────────────
-
-describe('POST /api/presence', () => {
-  const OK = {filePath: 'content/a.md', userId: 'u1', userName: 'Ada'};
-
-  it('returns 429 with the presence key and limit 120, reading no body', async () => {
-    let reads = 0;
-    const ctx = makeCtx({rateLimitAllow: false, readBody: async () => { reads++; return {}; }});
-    const r = await invoke(routes, {method: 'POST', path: '/api/presence', ctx});
-    assert.deepEqual([r.status, r.payload], [429, {error: 'Too many presence updates. Try again in a minute.'}]);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'presence:127.0.0.1', maxPerMinute: 120}]);
-    assert.equal(reads, 0);
-  });
-
-  const GUARDS = [
-    {name: 'an omitted filePath', body: {userId: 'u1'}, error: 'Missing filePath or userId'},
-    {name: 'an omitted userId', body: {filePath: 'a.md'}, error: 'Missing filePath or userId'},
-    {name: 'an empty-string filePath', body: {filePath: '', userId: 'u1'}, error: 'Missing filePath or userId'},
-    {name: 'a non-string filePath', body: {filePath: 7, userId: 'u1'}, error: 'filePath and userId must be strings'},
-    {name: 'a non-string userId', body: {filePath: 'a.md', userId: 7}, error: 'filePath and userId must be strings'},
-    // The type guard runs before the length guard, so a long array reports the type.
-    {name: 'an over-length array filePath', body: {filePath: new Array(600).fill('x'), userId: 'u1'}, error: 'filePath and userId must be strings'},
-    {name: 'a filePath over 500 characters', body: {filePath: 'p'.repeat(501), userId: 'u1'}, error: 'filePath or userId too long'},
-    {name: 'a userId over 100 characters', body: {filePath: 'a.md', userId: 'u'.repeat(101)}, error: 'filePath or userId too long'},
-    ...PROTO_KEYS.map(k => ({name: `the proto filePath ${JSON.stringify(k)}`, body: {filePath: k, userId: 'u1'}, error: 'Invalid filePath or userId'})),
-    ...PROTO_KEYS.map(k => ({name: `the proto userId ${JSON.stringify(k)}`, body: {filePath: 'a.md', userId: k}, error: 'Invalid filePath or userId'})),
-  ];
-  for (const {name, body, error} of GUARDS) {
-    it(`rejects ${name}`, async () => {
-      const ctx = makeCtx();
-      const r = await invoke(routes, {method: 'POST', path: '/api/presence', body, ctx});
-      assert.deepEqual([r.status, r.payload], [400, {error}]);
-      assert.deepEqual(ctx.presenceStore, {});
-      assert.equal(Object.prototype.polluted, undefined);
-    });
-  }
-
-  it('records a presence entry', async () => {
-    const ctx = makeCtx();
-    const r = await invoke(routes, {method: 'POST', path: '/api/presence', body: {...OK, cursor: {line: 3}}, ctx});
-    assert.deepEqual([r.status, r.payload], [200, {success: true}]);
-    const entry = ctx.presenceStore['content/a.md'].u1;
-    assert.equal(entry.userId, 'u1');
-    assert.equal(entry.userName, 'Ada');
-    assert.deepEqual(entry.cursor, {line: 3});
-    assert.equal(typeof entry.lastSeen, 'number');
-  });
-
-  it('defaults an omitted userName to Anonymous and a missing cursor to null', async () => {
-    const ctx = makeCtx();
-    await invoke(routes, {method: 'POST', path: '/api/presence', body: {filePath: 'a.md', userId: 'u1'}, ctx});
-    const entry = ctx.presenceStore['a.md'].u1;
-    assert.equal(entry.userName, 'Anonymous');
-    assert.equal(entry.cursor, null);
-  });
-
-  // hasOwnProperty/toString/valueOf are truthy inherited members that
-  // PROTO_KEYS does not screen, so a bare `if (!store[path])` check would skip
-  // the bucket init and write the record onto Object.prototype.
-  for (const filePath of INHERITED_KEYS) {
-    it(`stores the inherited filePath ${JSON.stringify(filePath)} as an own key`, async () => {
-      const ctx = makeCtx();
-      const r = await invoke(routes, {method: 'POST', path: '/api/presence', body: {filePath, userId: 'u1'}, ctx});
-      assert.equal(r.status, 200);
-      assert.ok(Object.hasOwn(ctx.presenceStore, filePath));
-      assert.equal(ctx.presenceStore[filePath].u1.userId, 'u1');
-      assert.equal(Object.prototype.u1, undefined, 'Object.prototype is untouched');
-    });
-  }
-
-  it('cleans stale presence after a successful write', async () => {
-    let cleans = 0;
-    const ctx = makeCtx({cleanStalePresence: () => { cleans++; }});
-    await invoke(routes, {method: 'POST', path: '/api/presence', body: OK, ctx});
-    assert.equal(cleans, 1);
-  });
-});
-
-describe('GET /api/presence', () => {
-  it('returns 400 for a missing path without cleaning stale presence', async () => {
-    let cleans = 0;
-    const ctx = makeCtx({cleanStalePresence: () => { cleans++; }});
-    const r = await invoke(routes, {path: '/api/presence', ctx});
-    assert.deepEqual([r.status, r.payload], [400, {error: 'Missing path param'}]);
-    assert.equal(cleans, 0);
-  });
-
-  it('returns the bucket values in insertion order, cleaning once', async () => {
-    let cleans = 0;
-    const presenceStore = {'a.md': {u1: {userId: 'u1'}, u2: {userId: 'u2'}}};
-    const ctx = makeCtx({presenceStore, cleanStalePresence: () => { cleans++; }});
-    const r = await invoke(routes, {path: '/api/presence', query: {path: 'a.md'}, ctx});
-    assert.deepEqual([r.status, r.payload], [200, {users: [{userId: 'u1'}, {userId: 'u2'}]}]);
-    assert.equal(cleans, 1);
-  });
-
-  // The read path does not own-key-guard, so an inherited key falls through the
-  // `|| {}` default to an empty list rather than leaking prototype members.
-  for (const path of ['absent.md', 'toString']) {
-    it(`returns an empty list for ${JSON.stringify(path)}`, async () => {
-      const r = await invoke(routes, {path: '/api/presence', query: {path}, ctx: makeCtx()});
-      assert.deepEqual([r.status, r.payload], [200, {users: []}]);
-    });
-  }
-});
-
-// Each body-reading handler wraps the read and the destructure of its result in
-// one try, whose catch returns a fixed 400 ahead of the first inner guard.
 describe('malformed-body outer catches', () => {
   const CASES = [
     {method: 'POST', path: '/api/analytics/pageview'},
     {method: 'PUT', path: '/api/users/u1/role'},
-    {method: 'POST', path: '/api/presence'},
   ];
   for (const {method, path: p} of CASES) {
     for (const [label, readBody] of [
@@ -387,7 +278,6 @@ describe('malformed-body outer catches', () => {
         const r = await invoke(routes, {method, path: p, ctx});
         assert.deepEqual([r.status, r.payload], [400, {error: 'Invalid request'}]);
         assert.deepEqual(ctx.calls.saveJSON, []);
-        assert.deepEqual(ctx.presenceStore, {});
       });
     }
   }

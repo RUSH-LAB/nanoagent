@@ -101,26 +101,6 @@ module.exports = async function files_routes(req, res, url, pathname, ctx) {
     }
   }
 
-  // ── Rename / Move file ──
-  if (req.method === 'POST' && pathname === '/api/file/rename') {
-    try {
-      const body = await readBody(req);
-      const {oldPath, newPath} = body;
-      if (!isValidFilePath(oldPath) || !isValidFilePath(newPath)) return json(res, 400, {error: 'Invalid path'});
-      const fullOld = path.join(PROJECT_ROOT, oldPath);
-      const fullNew = path.join(PROJECT_ROOT, newPath);
-      if (!fs.existsSync(fullOld)) return json(res, 404, {error: 'Source not found'});
-      if (fs.existsSync(fullNew)) return json(res, 409, {error: 'Target already exists'});
-      const dir = path.dirname(fullNew);
-      fs.mkdirSync(dir, {recursive: true});
-      fs.renameSync(fullOld, fullNew);
-      invalidateCache('search');
-      return json(res, 200, {success: true, path: newPath});
-    } catch {
-      return json(res, 400, {error: 'Failed to rename file: request body must be JSON with "oldPath" (string) and "newPath" (string) fields'});
-    }
-  }
-
   // ── List files ──
   if (req.method === 'GET' && pathname === '/api/files') {
     const dir = url.searchParams.get('dir') || 'content';
@@ -203,75 +183,6 @@ module.exports = async function files_routes(req, res, url, pathname, ctx) {
       return json(res, 200, stats, {cacheControl: 'public, max-age=30'});
     } catch {
       return json(res, 500, {error: 'Stats failed'});
-    }
-  }
-
-  // ── Image upload ──
-  if (req.method === 'POST' && pathname === '/api/upload') {
-    try {
-      const targetDir = url.searchParams.get('dir') || 'static/img/uploads';
-      const fileName = url.searchParams.get('name');
-      if (!fileName) return json(res, 400, {error: 'Missing file name'});
-      const ext = path.extname(fileName).toLowerCase();
-      if (!IMAGE_EXTS.includes(ext)) return json(res, 400, {error: 'Invalid image type'});
-
-      const normalized = path.normalize(targetDir);
-      if (normalized.startsWith('..') || path.isAbsolute(normalized)) return json(res, 400, {error: 'Invalid directory'});
-
-      const fullDir = path.resolve(PROJECT_ROOT, normalized);
-      if (!fullDir.startsWith(PROJECT_ROOT)) return json(res, 400, {error: 'Invalid directory'});
-      fs.mkdirSync(fullDir, {recursive: true});
-
-      const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const fullPath = path.join(fullDir, safeName);
-      if (!fullPath.startsWith(PROJECT_ROOT)) return json(res, 400, {error: 'Invalid path'});
-      const rawBody = await readRawBody(req);
-      fs.writeFileSync(fullPath, rawBody);
-      invalidateCache('search');
-
-      const publicPath = '/' + path.relative(path.join(PROJECT_ROOT, 'static'), fullPath).replace(/\\/g, '/');
-      return json(res, 200, {success: true, url: publicPath});
-    } catch {
-      return json(res, 500, {error: 'Upload failed'});
-    }
-  }
-
-  // ── Git history for a file ──
-  if (req.method === 'GET' && pathname === '/api/history') {
-    const filePath = url.searchParams.get('path');
-    if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
-    try {
-      const SEP = '\x1f';
-      const output = execFileSync('git', [
-        'log', `--format=%h${SEP}%an${SEP}%ai${SEP}%s`, '-20', '--', filePath,
-      ], {cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 5000});
-      const commits = output.trim().split('\n').reduce((acc, line) => {
-        if (!line) return acc;
-        const parts = line.split(SEP);
-        if (parts.length < 4) return acc;
-        acc.push({hash: parts[0], author: parts[1], date: parts[2], message: parts.slice(3).join(SEP)});
-        return acc;
-      }, []);
-      return json(res, 200, {commits});
-    } catch {
-      return json(res, 200, {commits: []});
-    }
-  }
-
-  // ── Git diff for a specific commit ──
-  if (req.method === 'GET' && pathname === '/api/history/diff') {
-    const filePath = url.searchParams.get('path');
-    const hash = url.searchParams.get('hash');
-    if (!isValidFilePath(filePath) || !hash || !/^[a-f0-9]{4,40}$/i.test(hash)) {
-      return json(res, 400, {error: 'Missing or invalid query parameters: "path" must be a valid file path and "hash" must be a 4-40 character hex string'});
-    }
-    try {
-      const diff = execFileSync('git', [
-        'diff', `${hash}~1..${hash}`, '--', filePath,
-      ], {cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 5000});
-      return json(res, 200, {diff});
-    } catch {
-      return json(res, 200, {diff: ''});
     }
   }
 

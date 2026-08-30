@@ -58,6 +58,10 @@
   --ifm-color-primary-lightest: #6b87bb;
   --ifm-code-font-size: 95%;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+  /* Gap between the navbar and the first line of a page. Docs, blog and
+     research all open at this height; see "Page top spacing" below for why the
+     theme's own two values disagree. */
+  --site-content-top: 2rem;
   /* Vertical offset when jumping to an anchored element; adjust to control vertical centering. */
   --anchor-scroll-margin: 30vh;
 }
@@ -120,6 +124,29 @@
     top: 0;
     bottom: auto;
     border-top: none;
+  }
+}
+
+/* ── Page top spacing ─────────────────────────────────────────────────────── */
+/* The theme disagrees with itself about how far below the navbar a page starts:
+   DocRoot's container ships `padding-top--md` (1rem) while BlogLayout's ships
+   `margin-vert--lg` (2rem), so a doc opened 1rem higher than a post. Both are
+   pinned to --site-content-top instead. The blog half is set on .blogContainer
+   in src/theme/BlogLayout/styles.module.css, where the utility class is simply
+   dropped; docs need the override here because the container belongs to the
+   theme.
+
+   Infima writes its spacing utilities as `!important` inside
+   `@layer docusaurus.infima`, and cascade layers invert for `!important`: a
+   layered `!important` outranks an unlayered one whatever the specificity, so
+   a plain override here would silently lose to `padding-top--md`. Re-opening
+   the same layer puts both declarations back on equal footing, where the extra
+   specificity below decides it. `styles.docItemWrapper` in DocRoot/Layout/Main
+   has no rule behind it in the theme's CSS module, so the parent <main> is the
+   only stable hook. */
+@layer docusaurus.infima {
+  [class*="docMainContainer"] > .container {
+    padding-top: var(--site-content-top) !important;
   }
 }
 

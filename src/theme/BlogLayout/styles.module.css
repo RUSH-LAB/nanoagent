@@ -1,4 +1,12 @@
 /* Blog layout: same reading column as docs, minus the chapter sidebar */
+
+/* The shared navbar-to-title gap; the docs half of the pair is pinned under
+   "Page top spacing" in src/css/custom.css. Unscoped, so it holds at every
+   width. The bottom stays on Infima's `padding-bottom--lg`, matching docs. */
+.blogContainer {
+  padding-top: var(--site-content-top);
+}
+
 @media (min-width: 997px) {
   /* The 4rem gutters sit inside the cap, and .row gives 1rem of each side
      back with its negative margins, so the net addition over the column sum

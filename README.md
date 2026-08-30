@@ -13,7 +13,6 @@ A research knowledge platform for writing, organizing, and exploring technical c
 - RSS/Atom feed generation
 
 **Knowledge Tools**
-- In-browser rich text editor (TipTap) with AI writing assistance and templates
 - Spaced-repetition flashcards and glossary management
 - Knowledge graph visualization and mind maps
 - Content recommendations and semantic search
@@ -21,7 +20,7 @@ A research knowledge platform for writing, organizing, and exploring technical c
 - Whiteboard for freeform visual note-taking
 
 **Collaboration & Analytics**
-- Real-time presence indicators and user sessions
+- User sessions and role-based access
 - Page view analytics, activity heatmaps, and content health reports
 - Task and goal tracking with productivity reports
 - Snapshot versioning and backup/restore
@@ -52,7 +51,7 @@ mochi-lab/
       authors.yml        #     Shared author map for both blog instances
     bibliography/        #   references.yaml, the citation source of truth
   src/                   # All first-party source
-    pages/               #   App pages (editor, graph, flashcards, ...)
+    pages/               #   App pages (graph, flashcards, bibliography, ...)
     components/          #   React components, one directory each
     theme/               #   Docusaurus theme overrides
     hooks/  contexts/    #   Shared React hooks and context
@@ -77,19 +76,19 @@ The platform runs two processes in parallel: a **Docusaurus static site** servin
 
 ## API Overview
 
-The API server exposes **205 REST endpoints** under `/api/*`. Major categories:
+The API server exposes **188 REST endpoints** under `/api/*`. Major categories:
 
 | Category | Endpoints | Description |
 |---|---|---|
-| File operations | 38 | CRUD, rename, move, drafts, quality analysis, targets |
+| File operations | 27 | CRUD, move, quality analysis, targets |
 | References | 37 | Bibliography, citations, enrichment, export, tracking |
 | Content analysis | 18 | Health, duplicates, freshness, topics, coverage, clusters |
 | Analytics & stats | 20 | Page views, heatmaps, dashboards, productivity reports |
 | Search | 8 | Full-text search, metadata search, find-and-replace |
 | Flashcards | 6 | Spaced-repetition review, deck management |
 | Notes | 4 | Personal keyed notes |
-| Collaboration | 6 | Presence, sessions, users |
-| Knowledge tools | 10 | Bookmarks, reading lists, glossary, templates, goals |
+| Collaboration | 4 | Sessions, users |
+| Knowledge tools | 6 | Bookmarks, reading lists, glossary |
 | Infrastructure | 10 | Health, backup, snapshots, logs, debug, perf |
 
 ## Testing
@@ -107,7 +106,7 @@ npm run test:all            # unit + integration tests
 | Layer | Technology |
 |---|---|
 | Site framework | Docusaurus 3 |
-| Frontend | React 19, TipTap editor, Mafs (interactive math), KaTeX |
+| Frontend | React 19, Mafs (interactive math), KaTeX |
 | API server | Node.js (vanilla `http` module, no framework) |
 | Auth | Clerk |
 | Search | docusaurus-search-local |
@@ -121,7 +120,6 @@ npm run test:all            # unit + integration tests
 | Page | Route | Description |
 |---|---|---|
 | Home | `/` | Landing page with feature overview |
-| Editor | `/editor` | Rich text editor with file tree and AI assistant |
 | Graph | `/graph` | Interactive knowledge graph of all content |
 | Bibliography | `/bibliography` | Reference manager with citation analytics |
 | Research | `/research` | Research paper summaries and notes |

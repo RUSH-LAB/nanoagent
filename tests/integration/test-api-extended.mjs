@@ -110,47 +110,6 @@ async function preflight() {
 
 const TEST_PREFIX = `__xtest_${Date.now()}`;
 const TEST_ANNOTATION_PAGE = `${TEST_PREFIX}/annotation-page`;
-
-// ────────────────────────────────────────────────────────────────
-// History & Versioning (3 tests)
-// ────────────────────────────────────────────────────────────────
-
-async function testHistory() {
-  section('History & Versioning');
-
-  // 1. GET /api/history — for a known file
-  await test('Get file history', async () => {
-    const {status, data} = await api('GET', `/api/history?path=${SAMPLE_DOC}`);
-    assertEq(status, 200, 'status');
-    assertOk(data.commits !== undefined, 'has commits field');
-    assertOk(Array.isArray(data.commits), 'commits is array');
-    if (data.commits.length > 0) {
-      const c = data.commits[0];
-      assertOk(typeof c.hash === 'string', 'commit has hash');
-      assertOk(typeof c.author === 'string', 'commit has author');
-      assertOk(typeof c.date === 'string', 'commit has date');
-      assertOk(typeof c.message === 'string', 'commit has message');
-    }
-  });
-
-  // 2. GET /api/history/diff — with a fabricated hash (should handle gracefully)
-  await test('Get history diff with fabricated hash', async () => {
-    const {status, data} = await api('GET', `/api/history/diff?path=${SAMPLE_DOC}&hash=abcdef1`);
-    // Server catches git errors and returns {diff: ''} with 200
-    assertOk(status === 200 || status === 400, 'status is 200 or 400');
-    if (status === 200) {
-      assertOk(typeof data.diff === 'string', 'diff is string');
-    }
-  });
-
-  // 3. GET /api/file/compare — missing params should return 400
-  await test('File compare with missing params returns 400', async () => {
-    const {status, data} = await api('GET', '/api/file/compare');
-    assertEq(status, 400, 'status');
-    assertOk(data.error, 'has error message');
-  });
-}
-
 // ────────────────────────────────────────────────────────────────
 // Bibliography Advanced (5 tests)
 // ────────────────────────────────────────────────────────────────
@@ -360,7 +319,7 @@ async function testStreak() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Misc (5 tests)
+// Misc (4 tests)
 // ────────────────────────────────────────────────────────────────
 
 async function testMisc() {
@@ -413,15 +372,6 @@ async function testMisc() {
     }
   });
 
-  // 5. POST /api/files/bulk with empty paths — should return 400
-  await test('Bulk operation with empty paths returns 400', async () => {
-    const {status, data} = await api('POST', '/api/files/bulk', {
-      action: 'delete',
-      paths: [],
-    });
-    assertEq(status, 400, 'status');
-    assertOk(data.error, 'has error message');
-  });
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -524,28 +474,6 @@ async function testSummaryDaily() {
     assertOk(typeof data.wordsWrittenToday === 'number', 'has wordsWrittenToday');
   });
 }
-
-// ────────────────────────────────────────────────────────────────
-// File Info: Enriched (1 test)
-// ────────────────────────────────────────────────────────────────
-
-async function testFileInfoEnriched() {
-  section('File Info: Enriched');
-
-  await test('File info returns enriched fields', async () => {
-    const {status, data} = await api('GET', `/api/file/info?path=${SAMPLE_DOC}`);
-    assertEq(status, 200, 'status');
-    assertOk(typeof data.detectedLanguage === 'string', 'has detectedLanguage');
-    assertOk(['english', 'chinese', 'mixed'].includes(data.detectedLanguage), 'detectedLanguage is valid');
-    assertOk(typeof data.hasMath === 'boolean', 'has hasMath');
-    assertOk(typeof data.citationCount === 'number', 'has citationCount');
-    assertOk(typeof data.hasCodeBlocks === 'boolean', 'has hasCodeBlocks');
-    assertOk(typeof data.imageCount === 'number', 'has imageCount');
-    assertOk(typeof data.wordCount === 'number', 'has wordCount');
-    assertOk(typeof data.size === 'number', 'has size');
-  });
-}
-
 // ────────────────────────────────────────────────────────────────
 // Lint (1 test)
 // ────────────────────────────────────────────────────────────────
@@ -984,31 +912,6 @@ async function testWordDiff() {
     assertOk(data.error, 'has error message');
   });
 }
-
-// ────────────────────────────────────────────────────────────────
-// PDF Export (2 tests)
-// ────────────────────────────────────────────────────────────────
-
-async function testPdfExport() {
-  section('PDF Export');
-
-  // 1. Returns HTML text with print styles
-  await test('PDF export returns HTML with print styles', async () => {
-    const {status, data} = await api('GET', `/api/file/export?path=${SAMPLE_DOC}&format=pdf`);
-    assertEq(status, 200, 'status');
-    assertOk(typeof data === 'string', 'response is text (HTML)');
-    assertOk(data.includes('<'), 'contains HTML tags');
-  });
-
-  // 2. Contains @page CSS rule
-  await test('PDF export contains @page CSS rule', async () => {
-    const {status, data} = await api('GET', `/api/file/export?path=${SAMPLE_DOC}&format=pdf`);
-    assertEq(status, 200, 'status');
-    assertOk(typeof data === 'string', 'response is text');
-    assertOk(data.includes('@page'), 'contains @page CSS rule');
-  });
-}
-
 // ────────────────────────────────────────────────────────────────
 // Citation Format (2 tests)
 // ────────────────────────────────────────────────────────────────
@@ -1958,8 +1861,6 @@ async function main() {
   console.log(`${DIM}Target: ${BASE}${RESET}\n`);
 
   await preflight();
-
-  await testHistory();
   await testBibliographyAdvanced();
   await testBookmarks();
   await testReadingLists();
@@ -1970,7 +1871,6 @@ async function main() {
   await testAnalyticsTopics();
   await testReferencesFormat();
   await testSummaryDaily();
-  await testFileInfoEnriched();
   await testLint();
   await testFileOutline();
   await testFilesRecent();
@@ -1996,7 +1896,6 @@ async function main() {
 
   await testSearchReplace();
   await testWordDiff();
-  await testPdfExport();
   await testCitationFormat();
   await testYearDistribution();
   await testByVenue();

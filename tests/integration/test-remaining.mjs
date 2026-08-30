@@ -578,35 +578,6 @@ async function testMetadataSearch() {
 async function testNotifications() {
   section('Notifications');
 }
-
-// ────────────────────────────────────────────────────────────────
-// Presence
-// ────────────────────────────────────────────────────────────────
-async function testPresence() {
-  section('Presence');
-
-  await test('POST /api/presence updates presence', async () => {
-    const {status, data} = await api('POST', '/api/presence', {
-      filePath: TEST_FILE_PATH,
-      userId: `user-${TEST_PREFIX}`,
-      userName: 'Test User',
-    });
-    assertEq(status, 200, 'status');
-    assertOk(data.success, 'success');
-  });
-
-  await test('GET /api/presence returns users for path', async () => {
-    const {status, data} = await api('GET', `/api/presence?path=${encodeURIComponent(TEST_FILE_PATH)}`);
-    assertEq(status, 200, 'status');
-    assertOk(Array.isArray(data.users), 'users is array');
-  });
-
-  await test('GET /api/presence missing path returns 400', async () => {
-    const {status} = await api('GET', '/api/presence');
-    assertEq(status, 400, 'status');
-  });
-}
-
 // ────────────────────────────────────────────────────────────────
 // Reading Lists Stats
 // ────────────────────────────────────────────────────────────────
@@ -1026,41 +997,6 @@ async function testCustomTemplates() {
     assertOk(data.success, 'success');
   });
 }
-
-// ────────────────────────────────────────────────────────────────
-// Trash
-// ────────────────────────────────────────────────────────────────
-async function testTrash() {
-  section('Trash');
-
-  await test('GET /api/trash returns trash items', async () => {
-    const {status, data} = await api('GET', '/api/trash');
-    assertEq(status, 200, 'status');
-    assertOk(Array.isArray(data.files), 'files is array');
-  });
-
-  // We won't test trash/restore or trash/empty as they could destroy data
-  // Just verify the endpoints accept proper requests
-  await test('POST /api/trash/restore with nonexistent item returns 404', async () => {
-    const {status} = await api('POST', '/api/trash/restore', {
-      trashPath: 'nonexistent-file.md',
-    });
-    assertOk(status === 404 || status === 400, 'status is 404 or 400');
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
-// Upload (validation only)
-// ────────────────────────────────────────────────────────────────
-async function testUpload() {
-  section('Upload');
-  // We test that the endpoint exists and validates input
-  await test('POST /api/upload without proper data returns error', async () => {
-    const {status} = await api('POST', '/api/upload', null);
-    assertOk(status === 400 || status === 415 || status === 500, `status is ${status}`);
-  });
-}
-
 // ────────────────────────────────────────────────────────────────
 // Users
 // ────────────────────────────────────────────────────────────────
@@ -1126,20 +1062,11 @@ async function testQuickNote() {
 // ────────────────────────────────────────────────────────────────
 async function testTrashEmpty() {
   section('Trash Empty');
-  // We just verify the endpoint exists and responds.
-  // Calling DELETE /api/trash/empty would destroy real data, so we only
-  // confirm the endpoint is reachable by checking the response status.
   await test('DELETE /api/trash/empty responds (endpoint exists)', async () => {
-    // This endpoint actually empties the trash, so we only call it if
-    // the trash is empty already.
-    const {data: trashData} = await api('GET', '/api/trash');
-    if (trashData.files && trashData.files.length === 0) {
-      const {status} = await api('DELETE', '/api/trash/empty');
-      assertEq(status, 200, 'status');
-    } else {
-      // Trash has items; skip actual deletion to avoid data loss
-      skip('DELETE /api/trash/empty', 'skipped: trash has items');
-    }
+    // GET /api/trash was removed with the editor, so there is no longer a way to
+    // check whether the trash is already empty. Calling DELETE unconditionally
+    // would destroy real data, so this stays a skip.
+    skip('DELETE /api/trash/empty', 'skipped: cannot verify the trash is empty');
   });
 }
 
@@ -1170,7 +1097,6 @@ async function main() {
   await testKnowledgeGaps();
   await testMetadataSearch();
   await testNotifications();
-  await testPresence();
   await testReadingListsStats();
   await testRecommendationsAdd();
   await testReferencesAnalysis();
@@ -1181,8 +1107,6 @@ async function main() {
   await testStudyPlan();
   await testTemplateVariables();
   await testCustomTemplates();
-  await testTrash();
-  await testUpload();
   await testUsers();
   await testWritingPrompts();
   await testAiComplete();

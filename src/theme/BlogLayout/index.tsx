@@ -11,14 +11,12 @@ export default function BlogLayout(props: Props): ReactNode {
 
   return (
     <Layout {...layoutProps}>
-      {/* The theme ships `margin-vert--lg` here, which drops the post title 2rem
-          below the navbar while DocRoot's container uses `padding-top--md`, 1rem.
-          Match the docs spacing so a post and a doc open at the same height. */}
+      {/* Top spacing is --site-content-top, applied through .blogContainer so
+          docs and posts open at the same height; see "Page top spacing" in
+          src/css/custom.css. The theme's own `margin-vert--lg` is dropped
+          because Infima's utilities are `!important` and would win. */}
       <div
-        className={clsx(
-          'container padding-top--md padding-bottom--lg',
-          styles.blogContainer,
-        )}>
+        className={clsx('container padding-bottom--lg', styles.blogContainer)}>
         <div className="row">
           <BlogSidebar sidebar={sidebar} />
           <main className={clsx('col', toc && styles.blogContentCol)}>

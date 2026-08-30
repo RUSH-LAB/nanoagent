@@ -251,26 +251,13 @@ function ContentTimeline() {
                       }} />
 
                       {/* Card */}
-                      <a
-                        href={`/editor?file=${encodeURIComponent(filePath)}`}
-                        aria-label={`Edit ${fileName}${wordCount > 0 ? `, ${wordCount.toLocaleString()} words` : ''}`}
+                      <div
                         style={{
                           display: 'block',
                           padding: '12px 16px',
                           borderRadius: '8px',
                           background: colors.bg,
                           border: '1px solid var(--ifm-color-emphasis-200, #e0e0e0)',
-                          textDecoration: 'none',
-                          color: 'inherit',
-                          transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.borderColor = colors.dot;
-                          e.currentTarget.style.boxShadow = `0 2px 8px rgba(0,0,0,0.06)`;
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.borderColor = 'var(--ifm-color-emphasis-200, #e0e0e0)';
-                          e.currentTarget.style.boxShadow = 'none';
                         }}
                       >
                         <div style={{
@@ -326,7 +313,7 @@ function ContentTimeline() {
                             )}
                           </div>
                         </div>
-                      </a>
+                      </div>
                     </div>
                   );
                 })}

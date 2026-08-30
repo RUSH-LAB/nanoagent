@@ -114,44 +114,6 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
     }
   }
 
-  // ── Presence: update own presence ──
-  if (req.method === 'POST' && pathname === '/api/presence') {
-    if (!rateLimit(`presence:${req.socket.remoteAddress}`, 120)) return json(res, 429, {error: 'Too many presence updates. Try again in a minute.'});
-    try {
-      const body = await readBody(req);
-      const {filePath: presencePath, userId, userName, cursor} = body;
-      if (!presencePath || !userId) return json(res, 400, {error: 'Missing filePath or userId'});
-      if (typeof presencePath !== 'string' || typeof userId !== 'string') return json(res, 400, {error: 'filePath and userId must be strings'});
-      if (presencePath.length > 500 || userId.length > 100) return json(res, 400, {error: 'filePath or userId too long'});
-      if (PROTO_KEYS.includes(presencePath) || PROTO_KEYS.includes(userId)) return json(res, 400, {error: 'Invalid filePath or userId'});
-      // Treat only an OWN key as an initialized bucket. A request-controlled
-      // filePath like `hasOwnProperty`/`toString`/`valueOf` (not screened by
-      // PROTO_KEYS) is a truthy inherited member, so the old bare check skipped
-      // this init and wrote the record onto Object.prototype instead of an own key.
-      if (!Object.hasOwn(presenceStore, presencePath)) presenceStore[presencePath] = {};
-      presenceStore[presencePath][userId] = {
-        userId: sanitizeText(userId),
-        userName: sanitizeText(userName) || 'Anonymous',
-        cursor: cursor || null,
-        lastSeen: Date.now(),
-      };
-      cleanStalePresence();
-      return json(res, 200, {success: true});
-    } catch {
-      return json(res, 400, {error: 'Invalid request'});
-    }
-  }
-
-  // ── Presence: list users editing a file ──
-  if (req.method === 'GET' && pathname === '/api/presence') {
-    const presencePath = url.searchParams.get('path');
-    if (!presencePath) return json(res, 400, {error: 'Missing path param'});
-    cleanStalePresence();
-    const entries = presenceStore[presencePath] || {};
-    const users = Object.values(entries);
-    return json(res, 200, {users});
-  }
-
 };
 
 // Set-role route matcher, exposed for direct unit testing (see

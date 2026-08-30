@@ -12,9 +12,8 @@ import path from 'node:path';
 // deliberately stands in for one.
 //
 // This is an add-only characterization test. It pins the CURRENT, correct
-// behavior of three create/update handlers (POST /api/snapshots, POST
-// /api/whiteboard, PUT /api/goals) so a future refactor cannot silently change
-// them. No source file is edited.
+// behavior of two create handlers (POST /api/snapshots, POST /api/whiteboard)
+// so a future refactor cannot silently change them. No source file is edited.
 const require = createRequire(import.meta.url);
 const routes = require('../../../../../src/server/routes/misc-tools.js');
 
@@ -24,7 +23,6 @@ const PROJECT_ROOT = '/proj';
 // instead of silently passing; the handler and the mock agree on each store path.
 const SNAPSHOTS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'snapshots.json');
 const WHITEBOARDS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'whiteboards.json');
-const GOALS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'goals.json');
 
 // Drive POST /api/snapshots (create) over a mocked ctx. rateLimit records each
 // call (key and limit) and returns the per-call toggle; readBody returns the
@@ -122,45 +120,6 @@ async function runWhiteboardCreate({
   const pathname = '/api/whiteboard';
   const url = new URL(`http://localhost${pathname}`);
   const req = { method: 'POST', socket: { remoteAddress: '127.0.0.1' } };
-  const res = { writableEnded: false };
-  await routes(req, res, url, pathname, ctx);
-  return { captured, saved, readBodyCount, loadJSONCount, rateLimitCalls };
-}
-
-// Drive PUT /api/goals (update target) over a mocked ctx. The handler reads
-// rateLimit, readBody, loadJSON, saveJSON, GOALS_FILE, and json; there is no
-// clock, randomness, filesystem walk, or network on any branch. loadJSON returns
-// a fresh deep copy keyed on GOALS_FILE.
-async function runGoalsUpdate({
-  body = {},
-  store = {},
-  rateLimitOk = true,
-  throwOnReadBody = false,
-} = {}) {
-  const saved = [];
-  const rateLimitCalls = [];
-  let readBodyCount = 0;
-  let loadJSONCount = 0;
-  let captured = null;
-  const ctx = {
-    rateLimit: (key, limit) => { rateLimitCalls.push({ key, limit }); return rateLimitOk; },
-    readBody: async () => {
-      readBodyCount++;
-      if (throwOnReadBody) throw new Error('readBody failed');
-      return body;
-    },
-    loadJSON: (fp) => {
-      loadJSONCount++;
-      if (fp === GOALS_FILE) return JSON.parse(JSON.stringify(store));
-      throw new Error(`unexpected loadJSON path: ${fp}`);
-    },
-    saveJSON: (fp, data) => { saved.push({ fp, data }); },
-    GOALS_FILE,
-    json: (_res, status, b) => { captured = { status, body: b }; },
-  };
-  const pathname = '/api/goals';
-  const url = new URL(`http://localhost${pathname}`);
-  const req = { method: 'PUT', socket: { remoteAddress: '127.0.0.1' } };
   const res = { writableEnded: false };
   await routes(req, res, url, pathname, ctx);
   return { captured, saved, readBodyCount, loadJSONCount, rateLimitCalls };
@@ -365,100 +324,6 @@ describe('POST /api/whiteboard (create) in routes/misc-tools.js', () => {
 
   it('an outer throw (readBody fails) returns 400 Invalid request, never loads or saves', async () => {
     const r = await runWhiteboardCreate({ throwOnReadBody: true, body: { id: 'b1', elements: [] } });
-    assert.equal(r.captured.status, 400);
-    assert.deepEqual(r.captured.body, { error: 'Invalid request' });
-    assert.equal(r.readBodyCount, 1);
-    assert.equal(r.loadJSONCount, 0);
-    assert.equal(r.saved.length, 0);
-  });
-});
-
-describe('PUT /api/goals (update target) in routes/misc-tools.js', () => {
-  it('a rate-limited update returns 429, never reads the body, loads, or saves, and uses the goals-update key with limit 30', async () => {
-    const r = await runGoalsUpdate({ rateLimitOk: false, body: { id: 'g1', target: 100 } });
-    assert.equal(r.captured.status, 429);
-    assert.deepEqual(r.captured.body, { error: 'Too many requests. Try again in a minute.' });
-    assert.equal(r.readBodyCount, 0);
-    assert.equal(r.loadJSONCount, 0);
-    assert.equal(r.saved.length, 0);
-    assert.deepEqual(r.rateLimitCalls[0], { key: 'goals-update:127.0.0.1', limit: 30 });
-  });
-
-  it('a missing id returns 400 Missing or invalid id, never loads or saves', async () => {
-    const r = await runGoalsUpdate({ body: { target: 100 } });
-    assert.equal(r.captured.status, 400);
-    assert.deepEqual(r.captured.body, { error: 'Missing or invalid id' });
-    assert.equal(r.loadJSONCount, 0);
-    assert.equal(r.saved.length, 0);
-  });
-
-  it('a store whose goals is not an array returns 404 No goals found, loads once, never saves', async () => {
-    const r = await runGoalsUpdate({ store: {}, body: { id: 'g1', target: 100 } });
-    assert.equal(r.captured.status, 404);
-    assert.deepEqual(r.captured.body, { error: 'No goals found' });
-    assert.equal(r.loadJSONCount, 1);
-    assert.equal(r.saved.length, 0);
-  });
-
-  it('an id absent from a present goals array returns 404 Goal not found, loads once, never saves', async () => {
-    const store = { goals: [{ id: 'g1', target: 500 }] };
-    const r = await runGoalsUpdate({ store, body: { id: 'nope', target: 100 } });
-    assert.equal(r.captured.status, 404);
-    assert.deepEqual(r.captured.body, { error: 'Goal not found' });
-    assert.equal(r.loadJSONCount, 1);
-    assert.equal(r.saved.length, 0);
-  });
-
-  it('updates the target of a matching goal for a positive number, returns 200 with the updated goal, saves once, leaves siblings untouched', async () => {
-    const store = { goals: [
-      { id: 'g1', type: 'daily', userId: 'default', target: 500, baselineWords: 0, startDate: '2026-01-01' },
-      { id: 'g2', type: 'weekly', userId: 'default', target: 3000, baselineWords: 10, startDate: '2026-01-01' },
-    ] };
-    const r = await runGoalsUpdate({ store, body: { id: 'g1', target: 1000 } });
-    assert.equal(r.captured.status, 200);
-    assert.equal(r.captured.body.id, 'g1');
-    assert.equal(r.captured.body.target, 1000);
-    assert.equal(r.loadJSONCount, 1);
-    assert.equal(r.saved.length, 1);
-    assert.equal(r.saved[0].fp, GOALS_FILE);
-    assert.equal(r.saved[0].data.goals[0].target, 1000);
-    assert.equal(r.saved[0].data.goals[1].target, 3000);
-    assert.deepEqual(r.rateLimitCalls[0], { key: 'goals-update:127.0.0.1', limit: 30 });
-  });
-
-  it('leaves the target unchanged when the new target is not a positive number, still returns 200 and saves once', async () => {
-    const store = { goals: [{ id: 'g1', type: 'daily', userId: 'default', target: 500, baselineWords: 0, startDate: '2026-01-01' }] };
-    const r = await runGoalsUpdate({ store, body: { id: 'g1', target: -5 } });
-    assert.equal(r.captured.status, 200);
-    // target > 0 is false for a negative number, so the stored target is preserved
-    // while the handler still persists and returns the goal.
-    assert.equal(r.captured.body.target, 500);
-    assert.equal(r.saved.length, 1);
-    assert.equal(r.saved[0].data.goals[0].target, 500);
-  });
-
-  it('a zero target is not positive, so the stored target is preserved while still returning 200 and saving once', async () => {
-    const store = { goals: [{ id: 'g1', type: 'daily', userId: 'default', target: 500, baselineWords: 0, startDate: '2026-01-01' }] };
-    const r = await runGoalsUpdate({ store, body: { id: 'g1', target: 0 } });
-    assert.equal(r.captured.status, 200);
-    // 0 > 0 is false, so the target is left untouched.
-    assert.equal(r.captured.body.target, 500);
-    assert.equal(r.saved.length, 1);
-    assert.equal(r.saved[0].data.goals[0].target, 500);
-  });
-
-  it('a numeric string target is rejected by the typeof guard, preserving the stored target with a 200 and one save', async () => {
-    const store = { goals: [{ id: 'g1', type: 'daily', userId: 'default', target: 500, baselineWords: 0, startDate: '2026-01-01' }] };
-    const r = await runGoalsUpdate({ store, body: { id: 'g1', target: '100' } });
-    assert.equal(r.captured.status, 200);
-    // typeof '100' !== 'number', so the numeric string never replaces the target.
-    assert.equal(r.captured.body.target, 500);
-    assert.equal(r.saved.length, 1);
-    assert.equal(r.saved[0].data.goals[0].target, 500);
-  });
-
-  it('an outer throw (readBody fails) returns 400 Invalid request, never loads or saves', async () => {
-    const r = await runGoalsUpdate({ throwOnReadBody: true, body: { id: 'g1', target: 100 } });
     assert.equal(r.captured.status, 400);
     assert.deepEqual(r.captured.body, { error: 'Invalid request' });
     assert.equal(r.readBodyCount, 1);

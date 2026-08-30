@@ -97,14 +97,11 @@ const linkCardStyle = {
 
 const FEATURES = [
   {
-    title: 'Writing & Editing',
+    title: 'Content & Rendering',
     items: [
-      'Rich TipTap editor with Markdown/MDX support',
       'LaTeX math rendering (KaTeX)',
       'Wiki-links ([[page]]) and citation references ([@key])',
       'Syntax highlighting for 20+ languages including Lean 4',
-      'File management with trash & restore',
-      'Draft mode and frontmatter editing',
     ],
   },
   {
@@ -121,10 +118,7 @@ const FEATURES = [
   {
     title: 'Collaboration',
     items: [
-      'Per-page comments system',
-      'Real-time editing presence indicators',
       'Role-based access control (owner/editor/viewer)',
-      'Git-backed version history with diffs',
       'Notification system for new activity',
     ],
   },
@@ -158,26 +152,22 @@ const SHORTCUTS = [
 
 const TECH_STACK = [
   { name: 'Docusaurus', detail: 'Static site framework with docs, blog, and pages' },
-  { name: 'TipTap', detail: 'Rich-text editor built on ProseMirror' },
   { name: 'Clerk', detail: 'Authentication and user management' },
-  { name: 'Node.js', detail: 'Editor server with 90+ API endpoints (no Express)' },
+  { name: 'Node.js', detail: 'API server with 90+ endpoints (no Express)' },
   { name: 'KaTeX', detail: 'Fast LaTeX math rendering' },
   { name: 'Semantic Scholar', detail: 'Academic paper metadata and recommendations' },
 ];
 
 const WHATS_NEW = [
-  { feature: 'Focus mode & split view editor' },
   { feature: 'Spaced repetition flashcards' },
   { feature: 'Knowledge graph & mindmap' },
   { feature: 'Content quality scoring' },
-  { feature: 'Collaborative annotations' },
   { feature: 'Writing streaks & goals' },
 ];
 
 const QUICK_LINKS = [
   { label: 'Research Papers', to: '/research', desc: 'Read and discuss research paper summaries' },
   { label: 'Blog', to: '/blog', desc: 'Posts on ideas, tutorials, and updates' },
-  { label: 'Editor', to: '/editor', desc: 'Rich-text editor for writing content' },
   { label: 'Bibliography', to: '/bibliography', desc: 'Browse and manage references' },
   { label: 'Knowledge Graph', to: '/graph', desc: 'Visualize page connections' },
   { label: 'Discover', to: '/recommendations', desc: 'AI-powered paper recommendations' },
@@ -213,9 +203,9 @@ export default function AboutPage() {
         <div style={{ marginBottom: '2.5rem' }}>
           <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>About Mochi Lab</h1>
           <p style={{ fontSize: '1.1rem', color: '#555', lineHeight: 1.7, maxWidth: '720px' }}>
-            Mochi Lab is a one-stop academic collaboration platform for writing, researching,
-            and organizing knowledge. It combines a rich content editor, automated bibliography
-            management, AI-powered discovery, and collaborative tools into a single, cohesive workspace.
+            Mochi Lab is a one-stop academic collaboration platform for researching and
+            organizing knowledge. It combines automated bibliography management, AI-powered
+            discovery, and collaborative tools into a single, cohesive workspace.
           </p>
         </div>
 

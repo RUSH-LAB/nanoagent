@@ -584,50 +584,6 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
     }
   }
 
-  // ── File compare: get content at two commits ──
-  if (req.method === 'GET' && pathname === '/api/file/compare') {
-    const filePath = url.searchParams.get('path');
-    const hash1 = url.searchParams.get('hash1');
-    const hash2 = url.searchParams.get('hash2');
-    if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
-    if (!hash1 || !/^[a-f0-9]{4,40}$/i.test(hash1)) return json(res, 400, {error: 'Invalid hash1'});
-    if (!hash2 || (hash2 !== 'current' && !/^[a-f0-9]{4,40}$/i.test(hash2))) {
-      return json(res, 400, {error: 'Invalid hash2'});
-    }
-    try {
-      const content1 = execFileSync('git', ['show', `${hash1}:${filePath}`], {
-        cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 5000,
-      });
-      const date1 = execFileSync('git', ['log', '-1', '--format=%ai', hash1], {
-        cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 5000,
-      }).trim();
-
-      let content2, date2, resolvedHash2;
-      if (hash2 === 'current') {
-        const fullPath = path.join(PROJECT_ROOT, filePath);
-        if (!fs.existsSync(fullPath)) return json(res, 404, {error: 'File not found'});
-        content2 = fs.readFileSync(fullPath, 'utf-8');
-        date2 = new Date().toISOString();
-        resolvedHash2 = 'current';
-      } else {
-        content2 = execFileSync('git', ['show', `${hash2}:${filePath}`], {
-          cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 5000,
-        });
-        date2 = execFileSync('git', ['log', '-1', '--format=%ai', hash2], {
-          cwd: PROJECT_ROOT, encoding: 'utf-8', timeout: 5000,
-        }).trim();
-        resolvedHash2 = hash2;
-      }
-
-      return json(res, 200, {
-        version1: {hash: hash1, content: content1, date: date1},
-        version2: {hash: resolvedHash2, content: content2, date: date2},
-      });
-    } catch {
-      return json(res, 500, {error: 'Failed to retrieve file versions'});
-    }
-  }
-
 };
 
 module.exports.numericParam = numericParam;
