@@ -101,6 +101,28 @@ function flatFiles(dir) {
 
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 
+/**
+ * The CORS header set for a request.
+ *
+ * The caller's own origin is echoed back rather than answering '*'. A browser
+ * rejects any credentialed response whose Allow-Origin is '*', and the auth
+ * client sends credentialed requests, so '*' meant the preflight failed and the
+ * real request was never sent: sign-in stored a working token and the session
+ * lookup silently never happened. Vary: Origin keeps a shared cache from
+ * handing one origin's response to another.
+ */
+function corsHeaders(req) {
+  const origin = req?.headers?.origin;
+  return {
+    'Access-Control-Allow-Origin': CORS_ORIGIN === '*' ? (origin || '*') : CORS_ORIGIN,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, PATCH, OPTIONS',
+    // Authorization so the preflight lets the session token through.
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Vary': 'Origin',
+  };
+}
+
 const crypto = require('crypto');
 
 // Send a JSON response with the standard header set. For a GET that returns 200
@@ -111,11 +133,7 @@ function json(res, status, data, opts) {
   const body = JSON.stringify(data);
   const headers = {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': CORS_ORIGIN,
-    'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, PATCH, OPTIONS',
-    // Authorization is listed so the preflight lets the session token through;
-    // without it every authenticated cross-origin call fails before it is sent.
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    ...corsHeaders(res.req),
     'X-API-Version': '1.0',
     'X-Powered-By': 'Mochi Lab',
   };
@@ -413,8 +431,9 @@ const server = http.createServer(async (req, res) => {
   // runs before the identity gate below, because this is where a caller with no
   // session goes to get one.
   if (pathname.startsWith('/api/auth/')) {
-    res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    for (const [name, value] of Object.entries(corsHeaders(req))) {
+      res.setHeader(name, value);
+    }
     // The bearer plugin returns a new session token in this header, and a
     // cross-origin caller cannot read a response header unless it is exposed.
     res.setHeader('Access-Control-Expose-Headers', 'set-auth-token');

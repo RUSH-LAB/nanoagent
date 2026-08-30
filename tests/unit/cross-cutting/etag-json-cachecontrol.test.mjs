@@ -21,20 +21,21 @@ const REPO_ROOT = path.join(__dirname, '..', '..', '..');
 // ── Load the REAL json() helper out of server/index.js without booting the server ──
 // server/index.js calls server.listen() unconditionally at module load and exports
 // nothing, so it cannot be require()'d from a unit test. Instead we lift the
-// exact source of the top-level `function json(...)` (whose closing brace is the
-// first line that begins with `}`) and instantiate it with the two module-scope
-// values it closes over: crypto and CORS_ORIGIN. This pins the helper's real
-// bytes rather than a reimplementation.
+// exact source of the top-level `function json(...)` and of `corsHeaders(...)`,
+// which it calls, and instantiate them with the module-scope values they close
+// over: crypto and CORS_ORIGIN. This pins the helpers' real bytes rather than a
+// reimplementation.
 const TEST_CORS_ORIGIN = '*';
-function loadJson(corsOrigin = TEST_CORS_ORIGIN) {
-  const src = readFileSync(path.join(REPO_ROOT, 'src/server/index.js'), 'utf-8');
+
+/** Lift one top-level `function <name>` out of server/index.js by brace balance. */
+function liftFunction(src, name) {
   const lines = src.split('\n');
-  const start = lines.findIndex(l => /^function json\b/.test(l));
-  assert.ok(start !== -1, 'server/index.js must define a top-level `function json`');
+  const start = lines.findIndex(l => new RegExp(`^function ${name}\\b`).test(l));
+  assert.ok(start !== -1, `server/index.js must define a top-level \`function ${name}\``);
   // Walk from the opening line, balancing braces, until the function closes. This
-  // is robust to indentation (the helper could move inside a block) and the json()
-  // body has no braces inside its strings or comments. Either way it fails loud (a
-  // failed assert or a SyntaxError from new Function), never silently.
+  // is robust to indentation and neither body has braces inside its strings or
+  // comments. Either way it fails loud (a failed assert or a SyntaxError from new
+  // Function), never silently.
   let depth = 0, opened = false, end = -1;
   for (let i = start; i < lines.length; i++) {
     for (const ch of lines[i]) {
@@ -43,9 +44,16 @@ function loadJson(corsOrigin = TEST_CORS_ORIGIN) {
     }
     if (opened && depth === 0) { end = i; break; }
   }
-  assert.ok(end !== -1, 'could not find the end of `function json` in server/index.js');
-  const fnSource = lines.slice(start, end + 1).join('\n');
-  const make = new Function('crypto', 'CORS_ORIGIN', `${fnSource}\nreturn json;`);
+  assert.ok(end !== -1, `could not find the end of \`function ${name}\` in server/index.js`);
+  return lines.slice(start, end + 1).join('\n');
+}
+
+function loadJson(corsOrigin = TEST_CORS_ORIGIN) {
+  const src = readFileSync(path.join(REPO_ROOT, 'src/server/index.js'), 'utf-8');
+  const make = new Function(
+    'crypto', 'CORS_ORIGIN',
+    `${liftFunction(src, 'corsHeaders')}\n${liftFunction(src, 'json')}\nreturn json;`,
+  );
   return make(crypto, corsOrigin);
 }
 
@@ -68,8 +76,10 @@ function mockRes(method, reqHeaders = {}) {
 const BASE_HEADER_KEYS = [
   'Content-Type',
   'Access-Control-Allow-Origin',
+  'Access-Control-Allow-Credentials',
   'Access-Control-Allow-Methods',
   'Access-Control-Allow-Headers',
+  'Vary',
   'X-API-Version',
   'X-Powered-By',
 ];
@@ -88,12 +98,15 @@ function legacyHandRolled(data, cacheControl, { corsOrigin = TEST_CORS_ORIGIN, i
   const etag = expectedEtag(data);
   const headers = {
     'Content-Type': 'application/json',
+    // Allow-Origin echoes the caller rather than answering '*': the auth client
+    // sends credentialed requests, and a browser rejects a credentialed
+    // response whose Allow-Origin is '*' before the caller ever sees it.
+    // Authorization is allowed so the preflight lets the session token through.
     'Access-Control-Allow-Origin': corsOrigin,
+    'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, PATCH, OPTIONS',
-    // Authorization joined the allowed request headers when the API started
-    // verifying Clerk session tokens (src/server/auth.js); the preflight has to
-    // permit the header the client now sends.
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Vary': 'Origin',
     'X-API-Version': '1.0',
     'X-Powered-By': 'Mochi Lab',
     'ETag': etag,
