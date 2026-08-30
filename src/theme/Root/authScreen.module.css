@@ -45,6 +45,56 @@
   color: #64748b;
 }
 
+/* The development shortcut. Visually the primary action when it is present,
+   since on a local machine it is the one anybody actually wants. */
+.rootButton {
+  padding: 0.65rem;
+  border: none;
+  border-radius: 8px;
+  background: #0f766e;
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rootButton:hover:not(:disabled) {
+  background: #0d5f59;
+}
+
+.rootButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.rootHint {
+  margin: 0.4rem 0 0;
+  text-align: center;
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+/* A rule with the word "or" sitting in a gap in the middle of it. */
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 1.1rem 0;
+  color: #94a3b8;
+  font-size: 0.78rem;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.divider span {
+  padding: 0 0.7rem;
+}
+
 .field {
   display: flex;
   flex-direction: column;

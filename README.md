@@ -32,20 +32,17 @@ npm install
 npm start        # starts API server (port 3001) + Docusaurus dev server (port 3000)
 ```
 
-`npm start` signs you in automatically as **root**, the owner account. Nothing to type, no keys to
-configure. The account is a real row in a local SQLite database at `var/data/mochi.db`, which the
-server creates on first run.
+`npm start` shows a sign-in screen with a **Sign in as root** button. One click, no password. Root is
+the owner account, a real row in a local SQLite database at `var/data/mochi.db` that the server creates
+on first run. No external service, no keys to configure.
 
 ```bash
-npm start            # API + site, signed in as root
+npm start            # API + site, with the one-click root sign-in
 npm run start:noauth # no gate at all: every request is a fixed development user
 ```
 
-To use the sign-in screen instead, sign out from `/settings`, or run without auto-login:
-
-```bash
-ENABLE_AUTH=true node src/server/index.js & ENABLE_AUTH=true npm run start:site
-```
+The same screen also takes an ordinary username or email and password, so you can create and use other
+accounts alongside root.
 
 ## Authentication
 
@@ -77,8 +74,8 @@ store, which is what gives `/admin` a first owner to act as. It is an ordinary a
 password is written to `var/data/.root-password` (git-ignored), so you can also sign in as root by
 hand, or set `ROOT_PASSWORD` / `ROOT_USERNAME` / `ROOT_EMAIL` to choose your own.
 
-**Auto-login is development-only, three times over.** `POST /api/dev-login` performs an ordinary
-password sign-in on your behalf, and refuses unless all of these hold:
+**The root shortcut is development-only, three times over.** The button calls `POST /api/dev-login`,
+which performs an ordinary password sign-in on your behalf and refuses unless all of these hold:
 
 | Guard | Failure |
 |---|---|
@@ -88,6 +85,10 @@ password sign-in on your behalf, and refuses unless all of these hold:
 
 There is no branch that skips authentication, so the session it returns is indistinguishable from one
 you typed a password for. `tests/unit/server/dev-auth.test.mjs` checks each guard on its own.
+
+An earlier version signed in with no click at all. To avoid an infinite reload it had to remember that
+it had already tried, and that memory outlived the session it tracked: wiping the database left tabs
+stuck on the form with no way to ask again. A button has no state to go stale.
 
 **Secrets.** `BETTER_AUTH_SECRET` signs sessions. Set it in any real deployment; locally one is
 generated on first run and kept in `var/data/.auth-secret`, which git ignores.

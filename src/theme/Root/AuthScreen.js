@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { authClient, setStoredToken } from '@site/src/utils/authClient';
+import API_BASE from '@site/src/utils/api';
 import styles from './authScreen.module.css';
 
 /**
@@ -13,8 +14,13 @@ import styles from './authScreen.module.css';
  * Sign-in accepts either a username or an email address in the same field, and
  * picks the endpoint by looking for an "@". That keeps one input where two
  * would only ask the user to classify their own credential.
+ *
+ * With `devAutoLogin` there is also a one-click sign-in as root. The server
+ * performs an ordinary password sign-in on our behalf and refuses unless it is
+ * outside production, explicitly enabled, and called from loopback, so the
+ * button is a shortcut past the keyboard rather than past authentication.
  */
-export default function AuthScreen() {
+export default function AuthScreen({ devAutoLogin = false }) {
   const [mode, setMode] = useState('signin');
   const [identifier, setIdentifier] = useState('');
   const [email, setEmail] = useState('');
@@ -25,6 +31,27 @@ export default function AuthScreen() {
   const [busy, setBusy] = useState(false);
 
   const signingIn = mode === 'signin';
+
+  async function signInAsRoot() {
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/dev-login`, { method: 'POST' });
+      const body = await res.json();
+      if (!res.ok || !body.token) {
+        throw new Error(body.error || 'Development sign-in was refused.');
+      }
+      setStoredToken(body.token);
+      window.location.reload();
+    } catch (err) {
+      setError(
+        err?.message?.includes('fetch')
+          ? 'Could not reach the API server on port 3001. Is it running?'
+          : err.message,
+      );
+      setBusy(false);
+    }
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -61,6 +88,23 @@ export default function AuthScreen() {
         <p className={styles.tagline}>
           {signingIn ? 'Sign in to continue' : 'Create an account'}
         </p>
+
+        {devAutoLogin && signingIn && (
+          <>
+            <button
+              type="button"
+              className={styles.rootButton}
+              onClick={signInAsRoot}
+              disabled={busy}
+            >
+              Sign in as root
+            </button>
+            <p className={styles.rootHint}>
+              Local development. No password needed.
+            </p>
+            <div className={styles.divider}><span>or</span></div>
+          </>
+        )}
 
         {signingIn ? (
           <label className={styles.field}>

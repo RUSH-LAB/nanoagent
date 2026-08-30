@@ -573,7 +573,7 @@ server.listen(PORT, async () => {
 
   const root = await rootReady;
   if (root) {
-    console.log(`  Auto-login: ON as "${root.username}" (owner)${root.created ? ', account created' : ''}`);
+    console.log(`  Dev sign-in: one click as "${root.username}" (owner)${root.created ? ', account created' : ''}`);
     console.log(`  Root password: ${root.passwordFile}`);
   }
   console.log('');
