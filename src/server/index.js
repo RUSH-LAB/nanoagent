@@ -17,6 +17,7 @@ const {
 const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
 const {auth, resolveIdentity, isPublicPath} = require('./auth');
 const {toNodeHandler} = require('better-auth/node');
+const {DEV_AUTOLOGIN, ensureRootUser, handleDevLogin, ROOT_USERNAME} = require('./dev-auth');
 const PORT = process.env.EDITOR_PORT || 3001;
 const NOTES_FILE = dataFile('notes');
 const ANALYTICS_FILE = dataFile('analytics');
@@ -420,17 +421,24 @@ const server = http.createServer(async (req, res) => {
     return authHandler(req, res);
   }
 
+  // ── Passwordless local sign-in ──
+  // Development only, and guarded again inside: the handler answers 404 unless
+  // DEV_AUTOLOGIN is set outside production, and 403 to anything off loopback.
+  if (req.method === 'POST' && pathname === '/api/dev-login') {
+    return handleDevLogin(req, res, auth, json);
+  }
+
   // ── Identity ──
   // Resolved once, before any handler runs, and attached to the request rather
   // than to `ctx`: `ctx` is a single module-level object shared by every
   // in-flight request, so an identity parked there would leak across
   // concurrent callers. Handlers read `req.auth` and nothing else; a `userId`
   // in a query string or body is now ignored wherever it still appears.
-  const auth = await resolveIdentity(req);
-  if (!auth.ok && pathname.startsWith('/api/') && !isPublicPath(pathname)) {
-    return json(res, auth.status, {error: auth.error});
+  const resolved = await resolveIdentity(req);
+  if (!resolved.ok && pathname.startsWith('/api/') && !isPublicPath(pathname)) {
+    return json(res, resolved.status, {error: resolved.error});
   }
-  req.auth = auth.ok ? auth.identity : null;
+  req.auth = resolved.ok ? resolved.identity : null;
 
   // ── Health check ──
   if (req.method === 'GET' && pathname === '/api/health') {
@@ -535,7 +543,15 @@ const _routeDiagnostics = (function analyzeRoutes() {
 
 ctx._routeDiagnostics = _routeDiagnostics;
 
-server.listen(PORT, () => {
+// Create the root account and make it an owner. Does nothing unless
+// DEV_AUTOLOGIN is on, so a production database never grows a well-known
+// account just because this module loaded.
+const rootReady = ensureRootUser(auth).catch(err => {
+  console.error(`\n  ${err.message}\n`);
+  return null;
+});
+
+server.listen(PORT, async () => {
   const startupNs = process.hrtime.bigint() - _startupTime;
   const startupMs = Number(startupNs / 1_000_000n);
   const memMB = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
@@ -553,7 +569,14 @@ server.listen(PORT, () => {
       console.log(`    ${d.route}: line ${d.firstLine} (active) -> line ${d.duplicateLine} (dead)`);
     }
   }
-  console.log(`  Debug endpoint: GET /api/debug/routes\n`);
+  console.log(`  Debug endpoint: GET /api/debug/routes`);
+
+  const root = await rootReady;
+  if (root) {
+    console.log(`  Auto-login: ON as "${root.username}" (owner)${root.created ? ', account created' : ''}`);
+    console.log(`  Root password: ${root.passwordFile}`);
+  }
+  console.log('');
 });
 
 process.on('SIGINT', () => {

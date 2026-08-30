@@ -88,6 +88,10 @@ const config = {
     // variable to decide whether it requires a session, so the two can never
     // disagree. `npm start` sets it; `npm run start:noauth` does not.
     authEnabled: process.env.ENABLE_AUTH === 'true',
+    // Whether the sign-in screen should sign itself in as root. Set by
+    // `npm start` only; the server enforces the same flag plus a loopback
+    // check, so a stray value here cannot grant a session by itself.
+    devAutoLogin: process.env.DEV_AUTOLOGIN === 'true' && process.env.NODE_ENV !== 'production',
   },
 
   future: {

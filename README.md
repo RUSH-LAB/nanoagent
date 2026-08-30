@@ -32,13 +32,19 @@ npm install
 npm start        # starts API server (port 3001) + Docusaurus dev server (port 3000)
 ```
 
-`npm start` opens a sign-in screen. Create an account with a username, email, and password; it is
-stored in a local SQLite database at `var/data/mochi.db`, which the server creates on first run. No
-external service, no API keys, no configuration.
+`npm start` signs you in automatically as **root**, the owner account. Nothing to type, no keys to
+configure. The account is a real row in a local SQLite database at `var/data/mochi.db`, which the
+server creates on first run.
 
 ```bash
-npm start            # API + site, with the sign-in gate
-npm run start:noauth # no gate: every request is a fixed development user
+npm start            # API + site, signed in as root
+npm run start:noauth # no gate at all: every request is a fixed development user
+```
+
+To use the sign-in screen instead, sign out from `/settings`, or run without auto-login:
+
+```bash
+ENABLE_AUTH=true node src/server/index.js & ENABLE_AUTH=true npm run start:site
 ```
 
 ## Authentication
@@ -65,6 +71,23 @@ session, so a `userId` in a query string or request body is ignored.
 **Schema.** `src/server/migrations/*.sql` is applied at startup and recorded, so a clean checkout works
 on the first `npm start`. `tests/unit/server/db-schema.test.mjs` fails if the committed schema drifts
 from what the installed Better Auth expects.
+
+**The root account.** `npm start` creates `root` if it is missing and makes it an owner in the role
+store, which is what gives `/admin` a first owner to act as. It is an ordinary account: the generated
+password is written to `var/data/.root-password` (git-ignored), so you can also sign in as root by
+hand, or set `ROOT_PASSWORD` / `ROOT_USERNAME` / `ROOT_EMAIL` to choose your own.
+
+**Auto-login is development-only, three times over.** `POST /api/dev-login` performs an ordinary
+password sign-in on your behalf, and refuses unless all of these hold:
+
+| Guard | Failure |
+|---|---|
+| `DEV_AUTOLOGIN=true`, set only by `npm start` | `404` |
+| `NODE_ENV` is not `production` | `404` |
+| The request came from loopback | `403` |
+
+There is no branch that skips authentication, so the session it returns is indistinguishable from one
+you typed a password for. `tests/unit/server/dev-auth.test.mjs` checks each guard on its own.
 
 **Secrets.** `BETTER_AUTH_SECRET` signs sessions. Set it in any real deployment; locally one is
 generated on first run and kept in `var/data/.auth-secret`, which git ignores.

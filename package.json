@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "docusaurus": "docusaurus",
-    "start": "ENABLE_AUTH=true DOCUSAURUS_NO_PERSISTENT_CACHE=true node src/server/index.js & ENABLE_AUTH=true docusaurus start",
+    "start": "ENABLE_AUTH=true DEV_AUTOLOGIN=true DOCUSAURUS_NO_PERSISTENT_CACHE=true node src/server/index.js & ENABLE_AUTH=true DEV_AUTOLOGIN=true docusaurus start",
     "start:site": "DOCUSAURUS_NO_PERSISTENT_CACHE=true docusaurus start",
     "build": "docusaurus build",
     "build:auth": "ENABLE_AUTH=true docusaurus build",
