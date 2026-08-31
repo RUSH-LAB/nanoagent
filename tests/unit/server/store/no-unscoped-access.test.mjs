@@ -41,7 +41,7 @@ const ROUTES_DIR = path.resolve(HERE, '../../../../src/server/routes');
 const MIGRATING = {
   'analysis-admin.js': ['streaks'],
   'analytics-users.js': ['analytics'],
-  'bookmarks-reading-lists.js': ['bookmarks', 'reading-lists'],
+  'bookmarks-reading-lists.js': ['reading-lists'],
   'comments-notes.js': ['notes'],
   'feeds.js': ['schedule'],
   'misc-tools.js': ['flashcards', 'snapshots', 'tasks', 'whiteboards'],

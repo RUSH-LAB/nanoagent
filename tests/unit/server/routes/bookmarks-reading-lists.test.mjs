@@ -10,14 +10,14 @@ import {beforeEach, describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, key} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, key, TEST_IDENTITY} from '../../_harness.mjs';
 
 const require = createRequire(import.meta.url);
 const bibliographyProvides = require('../../../../plugins/bibliography/server.js').provides;
 const {_resetReferencesCache} = require('../../../../plugins/bibliography/lib/references.js');
 
 const routes = loadRoute('bookmarks-reading-lists');
-const {COMMENTS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE} = FILES;
+const {COMMENTS_FILE, READING_LISTS_FILE} = FILES;
 // Fixtures live in the workspace's own tree, and the paths a request carries
 // are relative to it: `a.md`, never `content/mochi/a.md`.
 const at = rel => path.join(CONTENT_DIR, rel);
@@ -61,18 +61,56 @@ const INHERITED_KEYS = ['__proto__', 'constructor', 'toString'];
 
 // ── Bookmarks ─────────────────────────────────────────────────────────────
 
+/**
+ * Seed the bookmark collection of one scope directly, the way another member's
+ * requests would have. `ctx.scoped` is the store behind ctx, so what is written
+ * here is what the handler reads.
+ */
+const seedBookmarks = (ctx, scope, entries) => {
+  for (const entry of entries) ctx.scoped.collection('bookmarks').put(scope, entry.path, entry);
+};
+
+/** The scope a request with `auth` resolves to, as the handler will resolve it. */
+const scopeOf = (ctx, auth) => ctx.scopeFor({auth});
+
 describe('GET /api/bookmarks', () => {
   for (const [label, stored, expected] of [
-    ['a populated store', {bookmarks: [{path: '/a', title: 'A'}]}, [{path: '/a', title: 'A'}]],
-    ['a store with no bookmarks key', {}, []],
+    ['a populated store', [{path: '/a', title: 'A'}], [{path: '/a', title: 'A'}]],
+    ['an empty store', [], []],
   ]) {
     it(`returns the list for ${label}`, async () => {
-      const ctx = makeCtx({store: {[BOOKMARKS_FILE]: stored}});
+      const ctx = makeCtx();
+      seedBookmarks(ctx, scopeOf(ctx, TEST_IDENTITY), stored);
       const r = await invoke(routes, {path: '/api/bookmarks', ctx});
       assert.deepEqual([r.status, r.payload], [200, {bookmarks: expected}]);
       assert.deepEqual(ctx.calls.saveJSON, []);
     });
   }
+
+  // The reason bookmarks moved off a shared JSON file. Before this, one list
+  // was every list, and this case could not have been written.
+  it('shows one member nothing of another member\'s', async () => {
+    const ctx = makeCtx();
+    const ada = {...TEST_IDENTITY, userId: 'ada'};
+    const bob = {...TEST_IDENTITY, userId: 'bob'};
+    seedBookmarks(ctx, scopeOf(ctx, ada), [{path: '/shared-url', title: "Ada's"}]);
+
+    const mine = await invoke(routes, {path: '/api/bookmarks', ctx, auth: ada});
+    const theirs = await invoke(routes, {path: '/api/bookmarks', ctx, auth: bob});
+
+    assert.deepEqual(mine.payload.bookmarks, [{path: '/shared-url', title: "Ada's"}]);
+    assert.deepEqual(theirs.payload.bookmarks, []);
+  });
+
+  it('shows one workspace nothing of another workspace\'s', async () => {
+    const ctx = makeCtx();
+    const here = {...TEST_IDENTITY, userId: 'ada', orgId: 'lab'};
+    const there = {...TEST_IDENTITY, userId: 'ada', orgId: 'course'};
+    seedBookmarks(ctx, scopeOf(ctx, here), [{path: '/shared-url', title: 'Lab'}]);
+
+    const r = await invoke(routes, {path: '/api/bookmarks', ctx, auth: there});
+    assert.deepEqual(r.payload.bookmarks, [], 'the same account, the other workspace');
+  });
 });
 
 describe('POST /api/bookmarks', () => {
@@ -109,14 +147,18 @@ describe('POST /api/bookmarks', () => {
     assert.equal(r.payload.bookmark.title, '/a', 'sanitizeText blanks it, so the path is the fallback');
   });
 
-  it('adds a bookmark and saves once', async () => {
+  it('adds a bookmark, and it is there afterwards', async () => {
     const ctx = makeCtx();
     const r = await invoke(routes, {method: 'POST', path: '/api/bookmarks', body: {path: '/a', title: 'A Page'}, ctx});
     assert.equal(r.status, 200);
     const {addedAt, ...stable} = r.payload.bookmark;
     assert.deepEqual(stable, {path: '/a', title: 'A Page'});
     assert.equal(typeof addedAt, 'string');
-    assert.equal(ctx.calls.saveJSON.length, 1);
+    // Read it back through the handler rather than counting writes: what
+    // matters is that the caller's next GET sees it, in their scope.
+    const list = await invoke(routes, {path: '/api/bookmarks', ctx});
+    assert.deepEqual(list.payload.bookmarks.map(b => b.path), ['/a']);
+    assert.deepEqual(ctx.calls.saveJSON, [], 'no JSON file is touched any more');
   });
 
   for (const [label, title] of [['omitted', undefined], ['empty', '']]) {
@@ -126,13 +168,29 @@ describe('POST /api/bookmarks', () => {
     });
   }
 
-  // A duplicate echoes the whole array rather than the single new object.
+  // A duplicate echoes the whole list rather than the single new object, and
+  // leaves the title the first add gave it.
   it('is idempotent for a path already bookmarked', async () => {
     const bookmarks = [{path: '/a', title: 'A'}];
-    const ctx = makeCtx({store: {[BOOKMARKS_FILE]: {bookmarks}}});
+    const ctx = makeCtx();
+    seedBookmarks(ctx, scopeOf(ctx, TEST_IDENTITY), bookmarks);
     const r = await invoke(routes, {method: 'POST', path: '/api/bookmarks', body: {path: '/a'}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {success: true, bookmarks}]);
-    assert.deepEqual(ctx.calls.saveJSON, []);
+  });
+
+  // Same path, two members: the unique index is per owner, so neither add is
+  // the other's duplicate.
+  it('does not treat another member\'s bookmark of the same path as a duplicate', async () => {
+    const ctx = makeCtx();
+    const ada = {...TEST_IDENTITY, userId: 'ada'};
+    const bob = {...TEST_IDENTITY, userId: 'bob'};
+    seedBookmarks(ctx, scopeOf(ctx, ada), [{path: '/a', title: "Ada's"}]);
+
+    const r = await invoke(routes, {method: 'POST', path: '/api/bookmarks', body: {path: '/a', title: "Bob's"}, ctx, auth: bob});
+    assert.equal(r.payload.bookmark?.title, "Bob's", 'a fresh add, not an echo of the list');
+
+    const hers = await invoke(routes, {path: '/api/bookmarks', ctx, auth: ada});
+    assert.deepEqual(hers.payload.bookmarks, [{path: '/a', title: "Ada's"}], 'untouched');
   });
 });
 
@@ -147,23 +205,39 @@ describe('DELETE /api/bookmarks', () => {
   }
 
   for (const [label, stored] of [
-    ['a populated store', {bookmarks: [{path: '/other'}]}],
-    ['a store with no bookmarks array', {}],
+    ['a populated store', [{path: '/other'}]],
+    ['an empty store', []],
   ]) {
     it(`returns 404 for an absent path with ${label}`, async () => {
-      const ctx = makeCtx({store: {[BOOKMARKS_FILE]: stored}});
+      const ctx = makeCtx();
+      seedBookmarks(ctx, scopeOf(ctx, TEST_IDENTITY), stored);
       const r = await invoke(routes, {method: 'DELETE', path: '/api/bookmarks', body: {path: '/gone'}, ctx});
       assert.deepEqual([r.status, r.payload], [404, {error: 'Bookmark not found'}]);
-      assert.deepEqual(ctx.calls.saveJSON, []);
     });
   }
 
   it('removes the matching bookmark, keeping its siblings', async () => {
-    const ctx = makeCtx({store: {[BOOKMARKS_FILE]: {bookmarks: [{path: '/a'}, {path: '/b'}]}}});
+    const ctx = makeCtx();
+    seedBookmarks(ctx, scopeOf(ctx, TEST_IDENTITY), [{path: '/a'}, {path: '/b'}]);
     const r = await invoke(routes, {method: 'DELETE', path: '/api/bookmarks', body: {path: '/a'}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {success: true}]);
-    assert.deepEqual(ctx.store[BOOKMARKS_FILE].bookmarks.map(b => b.path), ['/b']);
-    assert.equal(ctx.calls.saveJSON.length, 1);
+    const left = await invoke(routes, {path: '/api/bookmarks', ctx});
+    assert.deepEqual(left.payload.bookmarks.map(b => b.path), ['/b']);
+  });
+
+  // The delete is scoped too, not just the read: a 404 rather than reaching
+  // across and removing the other member's row.
+  it('cannot delete another member\'s bookmark of the same path', async () => {
+    const ctx = makeCtx();
+    const ada = {...TEST_IDENTITY, userId: 'ada'};
+    const bob = {...TEST_IDENTITY, userId: 'bob'};
+    seedBookmarks(ctx, scopeOf(ctx, ada), [{path: '/a', title: "Ada's"}]);
+
+    const r = await invoke(routes, {method: 'DELETE', path: '/api/bookmarks', body: {path: '/a'}, ctx, auth: bob});
+    assert.deepEqual([r.status, r.payload], [404, {error: 'Bookmark not found'}]);
+
+    const hers = await invoke(routes, {path: '/api/bookmarks', ctx, auth: ada});
+    assert.deepEqual(hers.payload.bookmarks, [{path: '/a', title: "Ada's"}], 'still there');
   });
 });
 

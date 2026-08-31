@@ -90,7 +90,6 @@ const {DEV_AUTOLOGIN, ensureRootUser, handleDevLogin, ROOT_USERNAME} = require('
 const PORT = process.env.EDITOR_PORT || 3001;
 const NOTES_FILE = dataFile('notes');
 const ANALYTICS_FILE = dataFile('analytics');
-const BOOKMARKS_FILE = dataFile('bookmarks');
 const READING_LISTS_FILE = dataFile('reading-lists');
 const STREAKS_FILE = dataFile('streaks');
 const SNAPSHOTS_FILE = dataFile('snapshots');
@@ -537,17 +536,21 @@ let requestCounter = 0;
 
 // ── Shared context handed to every route module in server/routes/ ──
 const ctx = {
-  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
+  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
   roles,
   chat,
   org,
   ai,
-  // Where the per-workspace features keep their data. On ctx like every other
-  // dependency a route module needs, so a test drives a throwaway database
-  // rather than the real one. `scopeFor` is beside it because the two are only
-  // ever used together: a handler asks for the caller's scope and hands it to a
-  // collection, and there is no collection method that works without one.
-  store,
+  // Where the per-workspace features keep their data. The collection factory
+  // rather than the whole store module, because it is the only part of it a
+  // handler has any business with: the rest is how a store gets built, and a
+  // route does not build one. On ctx like every other dependency, so a test
+  // drives a throwaway database rather than the real one.
+  //
+  // `scopeFor` is beside it because the two are only ever used together: a
+  // handler asks for the caller's scope and hands it to a collection, and there
+  // is no collection method that works without one.
+  collection: store.collection,
   scopeFor,
   // What the installed plugins lend. ctx.references comes from the bibliography
   // plugin, and falls back to an empty one, because a core handler that reads

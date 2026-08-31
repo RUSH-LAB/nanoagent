@@ -50,7 +50,6 @@ export const PROJECT_ROOT = '/fake/root';
 
 const DATA_FILES = [
   'COMMENTS_FILE:comments', 'NOTES_FILE:notes', 'ANALYTICS_FILE:analytics',
-  'BOOKMARKS_FILE:bookmarks',
   'READING_LISTS_FILE:reading-lists', 'STREAKS_FILE:streaks',
   'ANNOTATIONS_FILE:annotations', 'SNAPSHOTS_FILE:snapshots',
   'SCHEDULE_FILE:schedule', 'WHITEBOARDS_FILE:whiteboards',
@@ -101,6 +100,47 @@ export function loadRoute(name) {
 /** Load any other real server module, e.g. loadServer('data-store'). */
 export function loadServer(name) {
   return require(`../../src/server/${name}.js`);
+}
+
+// ── The scoped store, in memory ───────────────────────────────────────────
+
+/**
+ * The workspace a route test acts in when its identity names none.
+ *
+ * TEST_IDENTITY carries a null orgId, the same as a real session belonging to
+ * an account in no workspace. The server resolves that to the primary
+ * organization; here it resolves to this, so a handler that reaches the store
+ * has somewhere to write without every suite having to provision a workspace.
+ */
+export const TEST_ORG_ID = 'test-org';
+
+/**
+ * A real store over a fresh in-memory database.
+ *
+ * The real one: the same module, the same prepared statements, the same
+ * migrations. What a route test would otherwise be asserting against is a fake
+ * whose scoping the test author wrote, which proves only that they believed the
+ * same thing twice.
+ *
+ * Foreign keys are off, so a suite can act as any organization and any account
+ * without seeding rows for them. The cascades those keys enforce are asserted
+ * where they belong, in tests/unit/server/store/scoping.test.mjs, against a
+ * real file database with them on.
+ */
+function makeScopedStore() {
+  const Database = require('better-sqlite3');
+  const fsNode = require('node:fs');
+  const db = new Database(':memory:');
+  // better-sqlite3 turns these on by default, unlike sqlite itself. Off here so
+  // a suite can act as any workspace and any account without provisioning rows
+  // in tables it is not testing; the cascades are covered in the store's own
+  // suite, against a real file database with them on.
+  db.pragma('foreign_keys = OFF');
+  const dir = nodePath.join(nodePath.dirname(require.resolve('../../src/server/db.js')), 'migrations');
+  for (const name of fsNode.readdirSync(dir).filter(f => f.endsWith('.sql')).sort()) {
+    db.exec(fsNode.readFileSync(nodePath.join(dir, name), 'utf-8'));
+  }
+  return require('../../src/server/store/index.js').createStore({db});
 }
 
 // ── In-memory fs ──────────────────────────────────────────────────────────
@@ -285,6 +325,10 @@ export function makeCtx(overrides = {}) {
     PROJECT_ROOT: root = PROJECT_ROOT,
     users = [],
     roles = makeRoles(users),
+    // A store of this suite's own, when it wants two ctxs sharing one database
+    // (two members of a workspace, say). Otherwise each ctx gets a fresh one,
+    // so suites cannot leak rows into each other.
+    scoped = makeScopedStore(),
     ...rest
   } = overrides;
 
@@ -442,11 +486,24 @@ export function makeCtx(overrides = {}) {
     PERF_MAX_ENDPOINTS: 200,
     _routeDiagnostics: null,
 
+    // The scoped data layer, exactly as server/index.js hands it over: the
+    // collection factory, and the function that turns a request into the scope
+    // every collection method requires.
+    collection: scoped.collection,
+    scopeFor: req => ({
+      orgId: req?.auth?.orgId || TEST_ORG_ID,
+      userId: req?.auth?.userId ?? null,
+    }),
+
     ...rest,
   };
 
   ctx.calls = calls;
   ctx.store = store;
+  // The store itself, for a suite that wants to seed or read rows directly
+  // rather than through a handler. Named apart from `ctx.store`, which is the
+  // JSON-file fixture the features are migrating off.
+  ctx.scoped = scoped;
   return ctx;
 }
 

@@ -16,13 +16,21 @@ const READING_LIST_EXPORT_RE = /^\/api\/reading-lists\/[^/]+\/export$/;
 
 module.exports = async function bookmarks_reading_lists_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
   } = ctx;
+
+  // ── Bookmarks ──
+  //
+  // Yours, within this workspace. The page path is the key, which is what the
+  // list-and-scan version was expressing when it refused a second bookmark of
+  // a path it already held; here the unique index says it instead. Listing is
+  // ordered by createdAt, which for an append-only collection is the insertion
+  // order the array had.
+  const bookmarks = collection('bookmarks');
 
   // ── Bookmarks: list all ──
   if (req.method === 'GET' && pathname === '/api/bookmarks') {
-    const data = loadJSON(BOOKMARKS_FILE);
-    return json(res, 200, {bookmarks: data.bookmarks || []});
+    return json(res, 200, {bookmarks: bookmarks.values(scopeFor(req))});
   }
 
   // ── Bookmarks: add ──
@@ -34,18 +42,18 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       if (!pagePath || typeof pagePath !== 'string') return json(res, 400, {error: 'Missing path'});
       if (pagePath.length > 500) return json(res, 400, {error: 'Path must be 500 characters or fewer'});
       if (title !== undefined && typeof title === 'string' && title.length > 500) return json(res, 400, {error: 'Title must be 500 characters or fewer'});
-      const data = loadJSON(BOOKMARKS_FILE);
-      if (!data.bookmarks) data.bookmarks = [];
-      if (data.bookmarks.some(b => b.path === pagePath)) {
-        return json(res, 200, {success: true, bookmarks: data.bookmarks});
+      const scope = scopeFor(req);
+      // Adding one you already have is not an error and does not move it; the
+      // caller gets the list back, as it always did.
+      if (bookmarks.has(scope, pagePath)) {
+        return json(res, 200, {success: true, bookmarks: bookmarks.values(scope)});
       }
       const bookmark = {
         path: sanitizeText(pagePath),
         title: sanitizeText(title) || pagePath,
         addedAt: new Date().toISOString(),
       };
-      data.bookmarks.push(bookmark);
-      saveJSON(BOOKMARKS_FILE, data);
+      bookmarks.put(scope, pagePath, bookmark);
       return json(res, 200, {success: true, bookmark});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -58,12 +66,9 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       const body = await readBody(req);
       const {path: pagePath} = body;
       if (!pagePath || typeof pagePath !== 'string') return json(res, 400, {error: 'Missing path'});
-      const data = loadJSON(BOOKMARKS_FILE);
-      if (!data.bookmarks) data.bookmarks = [];
-      const idx = data.bookmarks.findIndex(b => b.path === pagePath);
-      if (idx === -1) return json(res, 404, {error: 'Bookmark not found'});
-      data.bookmarks.splice(idx, 1);
-      saveJSON(BOOKMARKS_FILE, data);
+      if (!bookmarks.remove(scopeFor(req), pagePath)) {
+        return json(res, 404, {error: 'Bookmark not found'});
+      }
       return json(res, 200, {success: true});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
