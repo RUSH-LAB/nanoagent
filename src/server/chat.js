@@ -76,7 +76,8 @@ function visibleChannel(orgId, userId, channelId) {
 /**
  * The channels the caller can see: every public one in the organization, plus
  * the private ones and dms they belong to. Each carries its member count, the
- * caller's unread count, and, for a dm, the person on the other side.
+ * caller's unread count and how far they have read, and, for a dm, the person
+ * on the other side.
  *
  * A dm has no name, so a list that returned only the row would have nothing to
  * label it with. The peer joins here rather than being resolved by the caller
@@ -91,6 +92,11 @@ function listChannels(orgId, userId, {includeArchived = false} = {}) {
       `SELECT c.*,
               (SELECT COUNT(*) FROM channel_member m WHERE m.channelId = c.id) AS memberCount,
               (cm.userId IS NOT NULL) AS joined,
+              -- Where the caller stopped reading, and null when they have no
+              -- membership row. A transcript draws its "new messages" divider
+              -- from this; without it a client can count the unread messages
+              -- but has no way to say which one the divider goes above.
+              cm.lastReadSeq AS lastReadSeq,
               pu.id AS peerId, pu.username AS peerUsername, pu.name AS peerName,
               (SELECT COUNT(*) FROM message msg
                 WHERE msg.channelId = c.id

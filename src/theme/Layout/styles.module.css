@@ -42,6 +42,8 @@ body {
   display: flex;
   flex-direction: column;
   /* The CommandBar is fixed to the bottom of the viewport, so reserve its strip
-     or it would sit over the end of the page and the footer. */
+     or it would sit over the end of the page and the footer. It is mounted in
+     theme/Root, above the router, and this rule stays here because the selector
+     is the whole app and this is the stylesheet that dresses it. */
   padding-bottom: var(--site-cli-height);
 }

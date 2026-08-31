@@ -1,6 +1,6 @@
 import React, {useState} from 'react';
 import {copyLink} from '@site/src/utils/invite';
-import styles from './styles.module.css';
+import styles from './rail.module.css';
 
 /**
  * The CLI's left rail: everything you can be talking to.
@@ -22,8 +22,16 @@ export function channelLabel(channel) {
   return `@${channel.peerUsername || channel.peerName || 'someone'}`;
 }
 
-/** How a person is written before a dm with them exists. */
-export const personLabel = person => `@${person.username || person.name || person.email}`;
+/**
+ * How a person is written before a dm with them exists.
+ *
+ * The final fallback matters: a row with no username, no name and no email
+ * would otherwise read `@undefined` at whoever is looking. verbs.js keeps its
+ * own copy of this, spelled the same way, because that module has to stay
+ * loadable by `node --test` and this one is JSX. Not exported for the same
+ * reason; the two spellings must agree, not import each other.
+ */
+const personLabel = person => `@${person.username || person.name || person.email || 'someone'}`;
 
 /** Why there is nothing to show, said the way the rail says it. */
 const STATUS_NOTE = {

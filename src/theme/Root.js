@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import PageTracker from '@site/src/components/Analytics/PageTracker';
+import CommandBar from '@site/src/components/CommandBar';
 
 /**
  * The auth gate.
@@ -67,7 +68,12 @@ function AuthGate({ children, devAutoLogin }) {
   }, [authClient]);
 
   if (status === CHECKING) return <Hidden>{children}</Hidden>;
-  if (status === SIGNED_IN) return <>{children}</>;
+  // The CLI is mounted here rather than in Layout, which Docusaurus tears down
+  // and rebuilds on every navigation: a conversation you can walk away from is
+  // the difference between a window docked to the app and a widget stuck to the
+  // page. It sits beside the children rather than inside them, so the sign-in
+  // screen, which replaces the children, never carries it.
+  if (status === SIGNED_IN) return <>{children}<CommandBar /></>;
 
   return (
     <AuthScreen
@@ -86,6 +92,7 @@ export default function Root({ children }) {
     return (
       <>
         {children}
+        <CommandBar />
         <PageTracker />
       </>
     );

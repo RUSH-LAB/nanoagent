@@ -53,7 +53,7 @@ const DATA_FILES = [
   'BOOKMARKS_FILE:bookmarks',
   'READING_LISTS_FILE:reading-lists', 'STREAKS_FILE:streaks',
   'ANNOTATIONS_FILE:annotations', 'SNAPSHOTS_FILE:snapshots',
-  'SCHEDULES_FILE:schedules', 'WHITEBOARDS_FILE:whiteboards',
+  'SCHEDULE_FILE:schedule', 'WHITEBOARDS_FILE:whiteboards',
   'FLASHCARDS_FILE:flashcards', 'GLOSSARY_FILE:glossary', 'TASKS_FILE:tasks',
   'GOALS_FILE:goals', 'TARGETS_FILE:targets',
 ];
@@ -318,6 +318,14 @@ export function makeCtx(overrides = {}) {
         calls.ai.push(request);
         return {text: 'a completion'};
       },
+      // The streaming twin, which reports the same answer in two pieces so a
+      // suite can assert the frames without writing its own provider.
+      stream: async (request) => {
+        calls.ai.push(request);
+        request.onDelta?.('a ');
+        request.onDelta?.('completion');
+        return {text: 'a completion'};
+      },
       describe: () => ({available: true, provider: 'api', model: 'test-model'}),
     },
     PROJECT_ROOT: root,
@@ -339,6 +347,8 @@ export function makeCtx(overrides = {}) {
     // Real validators, parsers and limits.
     isValidFilePath: utils.isValidFilePath,
     isValidDir: utils.isValidDir,
+    // The real transform, not a stub: the feeds and the sitemap are assertions
+    // about the URLs this produces, so a stub would be asserting the stub.
     sanitizeText: utils.sanitizeText,
     parseBibtex: utils.parseBibtex,
     parseBibtexAuthors: utils.parseBibtexAuthors,
@@ -410,6 +420,33 @@ export function makeCtx(overrides = {}) {
 // ── invoke ────────────────────────────────────────────────────────────────
 
 /**
+ * The event methods a handler expects on a request or a response.
+ *
+ * Small on purpose: 'close' is the only event any handler here listens for, and
+ * it is how a streaming handler learns that the caller hung up. A suite calls
+ * `res.emit('close')` to be that caller.
+ */
+function emitter() {
+  const listeners = new Map();
+  return {
+    on(event, fn) {
+      if (!listeners.has(event)) listeners.set(event, []);
+      listeners.get(event).push(fn);
+      return this;
+    },
+    off(event, fn) {
+      listeners.set(event, (listeners.get(event) ?? []).filter(f => f !== fn));
+      return this;
+    },
+    emit(event, ...args) {
+      const list = [...(listeners.get(event) ?? [])];
+      for (const fn of list) fn(...args);
+      return list.length > 0;
+    },
+  };
+}
+
+/**
  * The identity server/index.js would have attached after verifying a session
  * token. Suites that do not care who is calling get this one; suites that do
  * pass their own via invoke's `auth` option.
@@ -452,6 +489,11 @@ export async function invoke(routes, opts = {}) {
     ctx = makeCtx(),
     headers = {},
     auth = TEST_IDENTITY,
+    // Called with the pair this invoke built, just before the handler runs. A
+    // suite that needs to act on the connection while the handler is still
+    // working (res.emit('close') for a caller who hung up) has no other way to
+    // reach it: invoke does not return until the handler is done.
+    onRequest,
     // A plugin's handler takes the narrow API from src/server/plugin-api.js,
     // not ctx. Pass the capabilities its plugin.json asks for and this builds
     // the same object the server would, out of the same ctx, so a suite proves
@@ -471,22 +513,44 @@ export async function invoke(routes, opts = {}) {
   // A few handlers (the RSS and Atom feeds, file downloads) stream a non-JSON
   // body straight through writeHead/end instead of calling json(). Record those
   // on res.written so a test can assert the status, headers and body.
+  //
+  // A streaming handler writes many times before it ends, so every chunk is
+  // recorded on res.writes as well. Note that writableEnded stays false through
+  // all of them, exactly as it does on a real ServerResponse: that is the
+  // property the dispatcher reads, and the reason a stream must await its work
+  // and call end() rather than return.
   const res = {
     writableEnded: false,
+    destroyed: false,
     statusCode: 200,
     written: null,
+    writes: [],
+    headers: {},
+    ...emitter(),
     writeHead(status, respHeaders) {
       this.statusCode = status;
       this.written = {status, headers: respHeaders, body: undefined};
       return this;
     },
+    write(chunk) {
+      this.writes.push(String(chunk));
+      return true;
+    },
+    setHeader(name, value) {
+      this.headers[name] = value;
+      return this;
+    },
+    flushHeaders() {},
     end(body) {
       if (this.written) this.written.body = body;
       this.writableEnded = true;
       return this;
     },
   };
-  const req = {method, url: pathname + search, headers, socket: {remoteAddress: '127.0.0.1'}, auth};
+  const req = {
+    method, url: pathname + search, headers, socket: {remoteAddress: '127.0.0.1'}, auth,
+    ...emitter(),
+  };
   res.req = req;
 
   if (ctx.readBody === DEFAULT_READ_BODY) {
@@ -506,6 +570,7 @@ export async function invoke(routes, opts = {}) {
   // cache tests deliberately do, so snapshot the length first and report only
   // the replies this call produced.
   const before = ctx.calls.json.length;
+  onRequest?.(req, res);
   let last = ctx;
   if (plugin) {
     const api = buildPluginApi({

@@ -19,52 +19,183 @@
 const DEFAULT_SYSTEM_PROMPT =
   'You are the assistant built into a personal research site, answering from a '
   + 'small command line at the bottom of the page. Be brief and concrete: a '
-  + 'sentence or two unless more is genuinely needed. Plain text, no markdown '
-  + 'headings, no preamble.';
+  + 'sentence or two unless more is genuinely needed. Light markdown is welcome '
+  + 'where it earns its place: a short heading, a list, a fenced code block. No '
+  + 'preamble.';
+
+const VALID_TYPES = ['continue', 'improve', 'explain', 'summarize'];
+
+const SYSTEM_PROMPTS = {
+  continue: 'You are a writing assistant. Continue the text naturally, matching the style and tone. Output only the continuation, no preamble.',
+  improve: 'You are an editing assistant. Improve the text for clarity, flow, and correctness while preserving the original meaning and tone. Output only the improved text, no preamble.',
+  explain: 'You are a teaching assistant. Explain the given text in simple, clear terms. Be concise but thorough.',
+  summarize: 'You are a summarization assistant. Provide a concise summary of the given text in 2-3 sentences.',
+};
+
+// How long a stream may go without a byte on the wire. server/index.js gives
+// every request `req.setTimeout(30000)` and registers no listener for it, so
+// node destroys the socket after thirty idle seconds; an answer that takes
+// longer than that to write would be cut off mid sentence. A comment line costs
+// nothing, is ignored by every SSE client, and resets the timer.
+const HEARTBEAT_MS = 10_000;
+
+/**
+ * The CORS header set, echoing the caller's origin the way server/index.js
+ * does. `json()` attaches these for every other reply in the codebase and is
+ * the only thing that does, so a handler writing its own head has to say it
+ * again or the browser discards the whole stream.
+ */
+function corsHeaders(req, corsOrigin) {
+  const origin = req?.headers?.origin;
+  return {
+    'Access-Control-Allow-Origin': corsOrigin === '*' ? (origin || '*') : corsOrigin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, PATCH, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Vary': 'Origin',
+  };
+}
+
+/**
+ * Turn a request body into the message the assistant is asked, or into the
+ * refusal to send back.
+ *
+ * Both endpoints run this: the streaming one must accept exactly what the
+ * buffered one accepts, and a second copy of these limits would drift the first
+ * time one of them changed. Throws on a body that is not an object, which is
+ * the generic-500 arm both handlers already catch.
+ *
+ * Returns `{error}` for a rejection, otherwise `{request}` ready for ai.
+ */
+function composeRequest(body, sanitizeText) {
+  const {prompt, context, type} = body;
+  if (!prompt || typeof prompt !== 'string') return {error: 'Missing or invalid prompt'};
+  if (prompt.length > 50000) return {error: 'Prompt must be 50000 characters or fewer'};
+  if (context !== undefined && typeof context !== 'string') return {error: 'context must be a string'};
+  if (context && context.length > 50000) return {error: 'Context must be 50000 characters or fewer'};
+  if (type !== undefined && typeof type !== 'string') return {error: 'type must be a string'};
+  if (type && type.length > 50) return {error: 'Type must be 50 characters or fewer'};
+  if (type && !VALID_TYPES.includes(type)) {
+    return {error: `Invalid type. Must be one of: ${VALID_TYPES.join(', ')}`};
+  }
+
+  const userContent = context
+    ? `Context:\n${sanitizeText(context)}\n\nText:\n${sanitizeText(prompt)}`
+    : sanitizeText(prompt);
+
+  return {
+    request: {
+      prompt: userContent,
+      system: (type && SYSTEM_PROMPTS[type]) || DEFAULT_SYSTEM_PROMPT,
+    },
+  };
+}
+
+/**
+ * Whether there is still a connection to write to. A caller who hung up mid
+ * answer leaves a destroyed response behind, and writing to one of those raises
+ * an error event on a request nobody is handling any more.
+ */
+function writable(res) {
+  return !res.writableEnded && !res.destroyed;
+}
+
+/**
+ * One server-sent event. The payload is JSON on a single `data:` line, so a
+ * newline inside the answer is an escape sequence rather than the end of the
+ * frame, which is the failure mode of sending prose raw.
+ */
+function sendEvent(res, event, data) {
+  if (!writable(res)) return;
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
 
 module.exports = async function ai_routes(req, res, url, pathname, ctx) {
-  const {json, readBody, rateLimit, sanitizeText, ai} = ctx;
+  const {json, readBody, rateLimit, sanitizeText, ai, CORS_ORIGIN} = ctx;
 
   // ── AI writing assistant (v2 – /api/ai/complete) ──
   if (req.method === 'POST' && pathname === '/api/ai/complete') {
     if (!rateLimit(`ai-complete:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
-      const body = await readBody(req);
-      const {prompt, context, type} = body;
-      if (!prompt || typeof prompt !== 'string') return json(res, 400, {error: 'Missing or invalid prompt'});
-      if (prompt.length > 50000) return json(res, 400, {error: 'Prompt must be 50000 characters or fewer'});
-      if (context !== undefined && typeof context !== 'string') return json(res, 400, {error: 'context must be a string'});
-      if (context && context.length > 50000) return json(res, 400, {error: 'Context must be 50000 characters or fewer'});
-      if (type !== undefined && typeof type !== 'string') return json(res, 400, {error: 'type must be a string'});
-      if (type && type.length > 50) return json(res, 400, {error: 'Type must be 50 characters or fewer'});
-      const validTypes = ['continue', 'improve', 'explain', 'summarize'];
-      if (type && !validTypes.includes(type)) {
-        return json(res, 400, {error: `Invalid type. Must be one of: ${validTypes.join(', ')}`});
-      }
-      const systemPrompts = {
-        continue: 'You are a writing assistant. Continue the text naturally, matching the style and tone. Output only the continuation, no preamble.',
-        improve: 'You are an editing assistant. Improve the text for clarity, flow, and correctness while preserving the original meaning and tone. Output only the improved text, no preamble.',
-        explain: 'You are a teaching assistant. Explain the given text in simple, clear terms. Be concise but thorough.',
-        summarize: 'You are a summarization assistant. Provide a concise summary of the given text in 2-3 sentences.',
-      };
-
-      let userContent = sanitizeText(prompt);
-      if (context) {
-        userContent = `Context:\n${sanitizeText(context)}\n\nText:\n${sanitizeText(prompt)}`;
-      }
+      const {error, request} = composeRequest(await readBody(req), sanitizeText);
+      if (error) return json(res, 400, {error});
 
       // Which model answers, and whether by HTTP or by the CLI on this machine,
       // is server/ai.js's business. This one composes the message and reports
       // whatever comes back.
-      const result = await ai.complete({
-        prompt: userContent,
-        system: (type && systemPrompts[type]) || DEFAULT_SYSTEM_PROMPT,
-      });
+      const result = await ai.complete(request);
       if (result.error) return json(res, result.status || 502, {error: result.error});
       return json(res, 200, {text: result.text});
     } catch {
       return json(res, 500, {error: 'AI request failed. Please try again later.'});
     }
+  }
+
+  // ── The same answer, written as it is composed (/api/ai/stream) ──
+  // The CLI at the foot of the page shows the reply arriving; five silent
+  // seconds while a local model starts up read as a hang.
+  if (req.method === 'POST' && pathname === '/api/ai/stream') {
+    // Keyed on the person, not the socket: this endpoint is behind the identity
+    // gate, and one office behind one address should not share a budget.
+    if (!rateLimit(`ai-stream:${req.auth?.userId}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+
+    let composed;
+    try {
+      composed = composeRequest(await readBody(req), sanitizeText);
+    } catch {
+      return json(res, 500, {error: 'AI request failed. Please try again later.'});
+    }
+    if (composed.error) return json(res, 400, {error: composed.error});
+
+    res.writeHead(200, {
+      ...corsHeaders(req, CORS_ORIGIN),
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      // Nginx buffers a proxied response by default, which would hold the whole
+      // answer back and deliver it at once, defeating the point of the endpoint.
+      'X-Accel-Buffering': 'no',
+    });
+    res.flushHeaders?.();
+
+    // A reader who closes the tab should not leave a Claude Code process
+    // running for nobody.
+    //
+    // The connection is watched through res and not req, which is measured
+    // rather than assumed: req emits its own 'close' as soon as the body has
+    // been read, one tick before this handler resumes, so a listener there is
+    // attached too late to ever hear anything. res emits 'close' when the
+    // connection actually goes, which is the question being asked.
+    const controller = new AbortController();
+    const onClose = () => controller.abort();
+    res.on('close', onClose);
+
+    const heartbeat = setInterval(() => {
+      if (writable(res)) res.write(': ping\n\n');
+    }, HEARTBEAT_MS);
+
+    try {
+      const result = await ai.stream({
+        ...composed.request,
+        signal: controller.signal,
+        onDelta: (text) => sendEvent(res, 'delta', {text}),
+      });
+      if (result.error) sendEvent(res, 'error', {error: result.error, status: result.status || 502});
+      else sendEvent(res, 'done', {text: result.text});
+    } catch {
+      sendEvent(res, 'error', {error: 'AI request failed. Please try again later.', status: 500});
+    } finally {
+      clearInterval(heartbeat);
+      // Dropped before the response is ended, because ending it emits the same
+      // 'close' and an abort then would be aimed at nothing.
+      res.off('close', onClose);
+      // Awaited to here, and ended here, because the dispatcher decides a
+      // handler answered by res.writableEnded, which res.write() does not set.
+      // Returning mid stream falls through to the 404 branch and throws
+      // ERR_HTTP_HEADERS_SENT onto a response the caller is still reading.
+      res.end();
+    }
+    return;
   }
 
   // ── Which provider is answering, and why not, when none is ──

@@ -323,6 +323,26 @@ describe('the channel list a sidebar draws', () => {
     assert.equal(rows[0].memberCount, 3);
   });
 
+  // The unread count says how many messages are waiting; only lastReadSeq says
+  // which one the "new messages" divider goes above. A public channel nobody
+  // joined has no membership row, so the field is null rather than zero, and
+  // the two cases mean different things: null is "never a member", zero is
+  // "a member who has read nothing".
+  it('carries how far the caller has read, and null when they never joined', () => {
+    const {channel} = chat.createChannel(ORG_A, ALICE, {name: 'general'});
+    const rowFor = who => chat.listChannels(ORG_A, who).find(c => c.id === channel.id);
+    assert.equal(rowFor(BOB).lastReadSeq, null, 'bob can see it but is not a member');
+
+    chat.joinChannel(ORG_A, BOB, channel.id);
+    assert.equal(rowFor(BOB).lastReadSeq, 0, 'joined, having read nothing');
+
+    chat.postMessage(ORG_A, ALICE, channel.id, 'one');
+    const {seq} = chat.postMessage(ORG_A, ALICE, channel.id, 'two').message;
+    assert.deepEqual(chat.markRead(ORG_A, BOB, channel.id), {marked: true, lastReadSeq: seq});
+    assert.equal(rowFor(BOB).lastReadSeq, seq, 'the mark the read returned');
+    assert.equal(rowFor(ALICE).lastReadSeq, seq, 'posting moves the poster\'s own mark');
+  });
+
 });
 
 // Renaming, archiving, deleting, and turning people out of a channel. Who may

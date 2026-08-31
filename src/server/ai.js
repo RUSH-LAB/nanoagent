@@ -20,7 +20,7 @@
  * reach the endpoint. That is fine when the caller is you on localhost and
  * unacceptable when it is the internet, so it refuses to start in production.
  */
-const {execFile} = require('child_process');
+const {execFile, spawn} = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -37,6 +37,36 @@ const MAX_TOKENS = 1024;
 /** The direct API answers in a second or two; the CLI spends five starting up. */
 const API_TIMEOUT_MS = 15_000;
 const CLI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS) || 60_000;
+
+/**
+ * How long a started stream may go silent before it counts as dead.
+ *
+ * The timeouts above bound how long the answer may take to begin, which is the
+ * wrong question once tokens are arriving: a long answer is not a stuck one.
+ * What a reader cannot sit through is silence, so the body gets its own budget
+ * and every chunk renews it.
+ *
+ * Both transports work this way, each renewing on the first thing it has that
+ * means the answer is under way: the API stream on every read from the socket,
+ * the CLI on every delta. The CLI cannot use its own first byte, because it
+ * prints a start-up record the instant it launches and thinking time follows
+ * that; counting it would cut the budget for a slow first word from the
+ * deadline above to this one.
+ */
+const STREAM_IDLE_MS = 30_000;
+
+/**
+ * The refusals both transports can produce, worded once. A caller distinguishes
+ * them by status, and a person reads the same sentence whichever provider
+ * answered.
+ */
+const TIMED_OUT = 'The AI request timed out. Please try again.';
+const CANCELLED = 'The AI request was cancelled.';
+const BUSY = 'The assistant is busy with another request. Try again in a moment.';
+const UPSTREAM_ERROR = 'The AI service returned an error. Please try again.';
+
+/** The status for a request the caller abandoned: nginx's, and no worse for it. */
+const CANCELLED_STATUS = 499;
 
 /** A reply larger than this is a runaway, not an answer. */
 const MAX_OUTPUT_BYTES = 1024 * 1024;
@@ -147,14 +177,14 @@ async function completeWithApi({prompt, system}) {
       signal: controller.signal,
     });
   } catch (err) {
-    if (err.name === 'AbortError') return {error: 'The AI request timed out. Please try again.', status: 504};
+    if (err.name === 'AbortError') return {error: TIMED_OUT, status: 504};
     return {error: 'Could not reach the AI service.', status: 502};
   } finally {
     clearTimeout(timer);
   }
 
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) return {error: 'The AI service returned an error. Please try again.', status: 502};
+  if (!response.ok) return {error: UPSTREAM_ERROR, status: 502};
   return {text: data.content?.[0]?.text || 'No response generated'};
 }
 
@@ -163,11 +193,17 @@ async function completeWithApi({prompt, system}) {
 /**
  * The command line, built in one place so the safety flags are visible
  * together and can be tested without running anything.
+ *
+ * `stream` swaps the single JSON reply for a record per event. The CLI refuses
+ * `stream-json` under `--print` without `--verbose`, and emits the partial
+ * message events a caller wants to show as they arrive only when asked to, so
+ * the three flags travel together.
  */
-function cliArgs({prompt, system}) {
+function cliArgs({prompt, system, stream = false}) {
   return [
     '--print', prompt,
-    '--output-format', 'json',
+    '--output-format', stream ? 'stream-json' : 'json',
+    ...(stream ? ['--include-partial-messages', '--verbose'] : []),
     '--model', CLI_MODEL,
     // Nothing this endpoint does should end up in the session history of the
     // person whose Claude Code this is.
@@ -202,7 +238,7 @@ function parseCliOutput(stdout) {
 
 function completeWithClaudeCode({prompt, system}) {
   if (running >= MAX_CONCURRENT_CLI) {
-    return Promise.resolve({error: 'The assistant is busy with another request. Try again in a moment.', status: 503});
+    return Promise.resolve({error: BUSY, status: 503});
   }
   running += 1;
   return new Promise((resolve) => {
@@ -220,12 +256,299 @@ function completeWithClaudeCode({prompt, system}) {
       },
       (err, stdout) => {
         running -= 1;
-        if (err && err.killed) return resolve({error: 'The AI request timed out. Please try again.', status: 504});
+        if (err && err.killed) return resolve({error: TIMED_OUT, status: 504});
         if (err && !stdout) return resolve({error: `The Claude CLI failed: ${err.message.split('\n')[0]}`, status: 502});
         resolve(parseCliOutput(stdout));
       },
     );
   });
+}
+
+/* ── Reading an answer as it is written ───────────────────────────── */
+
+/**
+ * Split an arriving byte stream into lines.
+ *
+ * Neither transport promises that a chunk ends on a line boundary: a JSON
+ * payload routinely lands split across two reads, and parsing half of one would
+ * silently drop the text it carried. Holding the remainder back until its
+ * newline turns up is the whole job. `end()` releases a last line that arrived
+ * without one.
+ */
+function createLineParser(onLine) {
+  let buffer = '';
+  return {
+    push(chunk) {
+      buffer += chunk;
+      let nl;
+      while ((nl = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, nl);
+        buffer = buffer.slice(nl + 1);
+        onLine(line.endsWith('\r') ? line.slice(0, -1) : line);
+      }
+    },
+    end() {
+      if (!buffer) return;
+      const last = buffer;
+      buffer = '';
+      onLine(last);
+    },
+  };
+}
+
+/**
+ * Server-sent events, reduced to the one field that matters. `event:` lines are
+ * ignored on purpose: the payload names its own type, so trusting the payload
+ * means one thing to parse rather than two to keep in step.
+ */
+function createSseParser(onPayload) {
+  return createLineParser((line) => {
+    if (!line.startsWith('data:')) return;
+    const raw = line.slice(5).trim();
+    if (!raw || raw === '[DONE]') return;
+    let payload;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    onPayload(payload);
+  });
+}
+
+/** The CLI's shape: one JSON record per line, anything unparseable skipped. */
+function createNdjsonParser(onRecord) {
+  return createLineParser((line) => {
+    const raw = line.trim();
+    if (!raw) return;
+    let record;
+    try {
+      record = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    onRecord(record);
+  });
+}
+
+/**
+ * The text a streamed record adds, or null when it adds none.
+ *
+ * Both providers carry the same `content_block_delta`; the CLI wraps it in a
+ * `stream_event` record, so unwrapping that first leaves one question to ask.
+ * A thinking delta has no `text`, which is why the field is checked rather
+ * than assumed.
+ */
+function streamEventText(record) {
+  const event = record?.type === 'stream_event' ? record.event : record;
+  if (event?.type !== 'content_block_delta') return null;
+  const text = event.delta?.text;
+  return typeof text === 'string' && text ? text : null;
+}
+
+async function streamWithApi({prompt, system, onDelta, signal}) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener('abort', abort, {once: true});
+
+  let timer = setTimeout(abort, API_TIMEOUT_MS);
+  // Each chunk buys another idle window: a stream still arriving is not stuck.
+  const renewIdle = () => {
+    clearTimeout(timer);
+    timer = setTimeout(abort, STREAM_IDLE_MS);
+  };
+  // An abort is the caller's if the caller's signal is the one that fired, and
+  // otherwise one of the timers above ran out. Same event, two different things
+  // to tell the person waiting.
+  const whyAborted = () => (signal?.aborted
+    ? {error: CANCELLED, status: CANCELLED_STATUS}
+    : {error: TIMED_OUT, status: 504});
+
+  try {
+    let response;
+    try {
+      response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: MAX_TOKENS,
+          stream: true,
+          messages: [{role: 'user', content: prompt}],
+          ...(system ? {system} : {}),
+        }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (err.name === 'AbortError') return whyAborted();
+      return {error: 'Could not reach the AI service.', status: 502};
+    }
+
+    if (!response.ok) return {error: UPSTREAM_ERROR, status: 502};
+    const reader = response.body?.getReader?.();
+    if (!reader) return {error: UPSTREAM_ERROR, status: 502};
+
+    let text = '';
+    const parser = createSseParser((payload) => {
+      const delta = streamEventText(payload);
+      if (delta === null) return;
+      text += delta;
+      onDelta?.(delta);
+    });
+
+    const decoder = new TextDecoder();
+    renewIdle();
+    try {
+      for (;;) {
+        const {value, done} = await reader.read();
+        if (done) break;
+        renewIdle();
+        parser.push(decoder.decode(value, {stream: true}));
+      }
+      parser.end();
+    } catch (err) {
+      if (err.name === 'AbortError') return whyAborted();
+      return {error: UPSTREAM_ERROR, status: 502};
+    }
+    return {text: text || 'No response generated'};
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
+  }
+}
+
+/**
+ * The same CLI run as the buffered path, read line by line instead of at the
+ * end. `spawn` rather than `execFile` because the point is to see stdout while
+ * it is still being written, which is exactly what execFile hides; the limits
+ * execFile applied for us (a deadline, a killed process, an output cap) are
+ * therefore applied here by hand.
+ *
+ * The deadline is the one that comes out a different shape. execFile's is wall
+ * clock because a buffered run can only be judged by how long the whole of it
+ * took, while a run someone is reading as it arrives can be given
+ * CLI_TIMEOUT_MS to produce its first word and STREAM_IDLE_MS between words
+ * after that. A cap on the total would end an answer that is still being
+ * written, which is the one failure a reader would call a bug.
+ */
+function streamWithClaudeCode({prompt, system, onDelta, signal}) {
+  if (running >= MAX_CONCURRENT_CLI) {
+    return Promise.resolve({error: BUSY, status: 503});
+  }
+  running += 1;
+
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(findCli(), cliArgs({prompt, system, stream: true}), {
+        cwd: workdir(),
+        // The CLI is interactive by nature and checks for a terminal; without
+        // this it can wait on one that is never coming.
+        env: {...process.env, CI: '1'},
+      });
+    } catch (err) {
+      // Nothing started, so give the slot straight back. A throw here would
+      // leak one of the two for the life of the process.
+      running -= 1;
+      resolve({error: `The Claude CLI failed: ${err.message.split('\n')[0]}`, status: 502});
+      return;
+    }
+
+    let settled = false;
+    let text = '';       // what the deltas built
+    let fallback = '';   // the final result record, in case no delta ever came
+    let bytes = 0;
+    let firstStderrLine = '';
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      running -= 1;
+      // A no-op once it has exited, and the only way to stop it when it has not.
+      child.kill('SIGKILL');
+      resolve(result);
+    };
+    // The budget to reach the first word, replaced by the idle budget from the
+    // first delta onwards, so a process that never speaks still fails and an
+    // answer still arriving is never cut off mid-sentence.
+    let timer = setTimeout(() => finish({error: TIMED_OUT, status: 504}), CLI_TIMEOUT_MS);
+    const renewIdle = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => finish({error: TIMED_OUT, status: 504}), STREAM_IDLE_MS);
+    };
+    const onAbort = () => finish({error: CANCELLED, status: CANCELLED_STATUS});
+    signal?.addEventListener('abort', onAbort, {once: true});
+
+    const parser = createNdjsonParser((record) => {
+      const delta = streamEventText(record);
+      if (delta !== null) {
+        renewIdle();
+        text += delta;
+        onDelta?.(delta);
+        return;
+      }
+      if (record.type !== 'result') return;
+      if (record.is_error || (record.subtype && record.subtype !== 'success')) {
+        finish({error: `The Claude CLI reported: ${record.subtype || 'an error'}`, status: 502});
+        return;
+      }
+      // Kept, not sent: if the run produced deltas this repeats them, and it is
+      // only ever used when it did not.
+      if (typeof record.result === 'string') fallback = record.result;
+    });
+
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      bytes += Buffer.byteLength(chunk);
+      if (bytes > MAX_OUTPUT_BYTES) {
+        finish({error: 'The AI response was too large to read.', status: 502});
+        return;
+      }
+      parser.push(chunk);
+    });
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => {
+      if (!firstStderrLine) firstStderrLine = String(chunk).trim().split('\n')[0] || '';
+    });
+
+    child.on('error', (err) => finish({error: `The Claude CLI failed: ${err.message.split('\n')[0]}`, status: 502}));
+    child.on('close', (code) => {
+      parser.end();
+      const answer = text || fallback;
+      if (answer) return finish({text: answer});
+      if (code !== 0) {
+        return finish({
+          error: `The Claude CLI did not return a result${firstStderrLine ? `: ${firstStderrLine.slice(0, 200)}` : '.'}`,
+          status: 502,
+        });
+      }
+      finish({text: 'No response generated'});
+    });
+  });
+}
+
+/**
+ * Answer `prompt` the same way `complete` does, calling `onDelta(chunk)` with
+ * each piece of text as it arrives and resolving to the whole of it.
+ *
+ * Returns `{text}` or `{error, status}` exactly like `complete`, and never
+ * throws, so a caller can hand the resolved value straight to the wire. `signal`
+ * aborts the provider, which is how a reader closing the page stops a CLI
+ * process that would otherwise run to completion for nobody.
+ */
+async function stream({prompt, system, onDelta, signal}) {
+  const {provider, error} = resolveProvider();
+  if (error) return {error, status: 503};
+  if (signal?.aborted) return {error: CANCELLED, status: CANCELLED_STATUS};
+  return provider === 'api'
+    ? streamWithApi({prompt, system, onDelta, signal})
+    : streamWithClaudeCode({prompt, system, onDelta, signal});
 }
 
 /**
@@ -254,6 +577,7 @@ function describe() {
 
 module.exports = {
   MODEL, CLI_MODEL, FORBIDDEN_TOOLS, MAX_CONCURRENT_CLI,
-  API_TIMEOUT_MS, CLI_TIMEOUT_MS,
+  API_TIMEOUT_MS, CLI_TIMEOUT_MS, STREAM_IDLE_MS,
   resolveProvider, cliArgs, parseCliOutput, findCli, describe, complete,
+  stream, createSseParser, createNdjsonParser, streamEventText,
 };

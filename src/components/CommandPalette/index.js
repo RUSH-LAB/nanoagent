@@ -10,7 +10,8 @@ export default function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
-  // Whatever the installed plugins offer. Not a list in this file any more.
+  // The site's own pages plus whatever the installed plugins offer, already
+  // grouped by category. Not a list in this file any more.
   const commands = useCommands();
   const inputRef = useRef(null);
   const resultsRef = useRef(null);
@@ -67,9 +68,11 @@ export default function CommandPalette() {
 
   const executeCommand = useCallback((cmd) => {
     close();
-    // Defer so the palette closes before the route swaps behind it. The bottom
-    // CommandBar owns the action commands (it hosts their dialogs), so here they
-    // only dismiss; navigation is the palette's job.
+    // Defer so the palette closes before the route swaps behind it. Navigation
+    // is all this launcher does: the commands that DO something are the CLI's
+    // verbs, which answer into its transcript and so are never listed here.
+    // useCommands already drops an entry with no href; this only says out loud
+    // that an hrefless one would be nothing to run.
     if (!cmd.href) return;
     requestAnimationFrame(() => history.push(cmd.href));
   }, [close, history]);

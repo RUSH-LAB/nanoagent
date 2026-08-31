@@ -221,7 +221,12 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
     if (req.method === 'POST' && action === 'read') {
       const result = chat.markRead(orgId, userId, channelId);
       if (result.error) return sendError(json, res, result.error);
-      return json(res, 200, {marked: result.marked});
+      // `lastReadSeq` is the mark that was set, and it travels back so the
+      // caller can move its divider without re-listing every channel. It comes
+      // back even when `marked` is false, because an un-joined public channel
+      // has no membership row to update and the client still needs the seq it
+      // would have been given.
+      return json(res, 200, {marked: result.marked, lastReadSeq: result.lastReadSeq});
     }
 
     // ── Invite someone into a private channel ──

@@ -1,0 +1,266 @@
+/**
+ * The assistant pane's own styles: everything an answer needs that a chat
+ * message does not.
+ *
+ * The primitives the two panes share (the pane box, the scroll box, the entry
+ * row, the keyboard cap, the jump pill) are in shared.module.css and are not
+ * repeated here. What is left is the shape of a turn with the assistant: the
+ * rendered markdown of a reply and the fenced code inside it, the caret that
+ * says an answer is still being written, and the status row under it that
+ * counts out a wait and offers the way out of one.
+ *
+ * Every rule stays inside this window's scale: the strip is a handful of lines
+ * tall, so the browser's default margins for a paragraph, a list or a heading
+ * would spend most of it on whitespace, and each of them is reset on purpose
+ * rather than by accident. The status row is held to the same scale for the
+ * same reason: it is one line of furniture under a transcript, not a toolbar.
+ */
+
+/* ── Rendered markdown ──────────────────────────────────────────── */
+
+/* Sits where the plain reply text used to, so it inherits the entry row's
+   font and has to survive the same narrow column. */
+.markdown {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Space between blocks, never before the first or after the last: a reply is
+   one entry in a list of entries and must not float in its row. */
+.markdown > * + * {
+  margin-top: 0.4rem;
+}
+
+/* Soft line breaks are meaningful in an answer, and the parser keeps them in
+   the span text, so the renderer has to honour them. */
+.paragraph {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+/* The assistant's headings are not the page's headings: they are marked up with
+   role and aria-level rather than h1 to h3, so the weight and the size are all
+   that distinguishes them here. */
+.heading {
+  margin: 0;
+  color: var(--ifm-heading-color);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.heading[data-level='1'] {
+  font-size: 0.92rem;
+}
+
+.heading[data-level='2'] {
+  font-size: 0.86rem;
+}
+
+.heading[data-level='3'] {
+  font-size: 0.82rem;
+  color: var(--ifm-color-emphasis-700);
+}
+
+/* A narrow indent: enough for the marker to read as a marker, not enough to
+   lose a column of an already narrow window. */
+.list {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.item {
+  white-space: pre-wrap;
+}
+
+.quote {
+  margin: 0;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--ifm-color-emphasis-300);
+  color: var(--ifm-color-emphasis-700);
+  white-space: pre-wrap;
+}
+
+.rule {
+  margin: 0.5rem 0;
+  border: 0;
+  border-top: 1px solid var(--ifm-color-emphasis-300);
+  background: none;
+}
+
+.inlineCode {
+  padding: 0.05rem 0.25rem;
+  border-radius: 3px;
+  background: var(--ifm-color-emphasis-200);
+  font-size: 0.95em;
+}
+
+.link {
+  color: var(--ifm-link-color);
+  text-decoration: underline;
+}
+
+.link:hover {
+  color: var(--ifm-link-hover-color);
+}
+
+/* ── Fenced code ────────────────────────────────────────────────── */
+
+/* Prism's colours arrive as inline styles from the theme object in
+   Markdown.js, and an inline style cannot follow the colour mode. The theme
+   names these custom properties instead, and the two blocks below are where
+   light and dark actually decide. */
+.codeBlock {
+  --cli-code-comment: #6a737d;
+  --cli-code-keyword: #d73a49;
+  --cli-code-string: #032f62;
+  --cli-code-number: #005cc5;
+  --cli-code-function: #6f42c1;
+  --cli-code-punctuation: #57606a;
+
+  overflow: hidden;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 4px;
+}
+
+[data-theme='dark'] .codeBlock {
+  --cli-code-comment: #8b949e;
+  --cli-code-keyword: #ff7b72;
+  --cli-code-string: #a5d6ff;
+  --cli-code-number: #79c0ff;
+  --cli-code-function: #d2a8ff;
+  --cli-code-punctuation: #8b949e;
+}
+
+.codeHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.1rem 0.4rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  background: var(--ifm-color-emphasis-100);
+}
+
+.codeLang {
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.68rem;
+}
+
+.copy {
+  padding: 0.1rem 0.25rem;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--ifm-color-emphasis-500);
+  font-family: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.copy:hover {
+  color: var(--ifm-color-primary);
+}
+
+.copy:focus-visible,
+.link:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 1px;
+}
+
+/* Long lines scroll rather than wrap: code that is rewrapped at forty columns
+   stops being readable as code. */
+.pre {
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+  overflow-x: auto;
+  background: var(--ifm-background-surface-color, var(--ifm-background-color));
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+/* ── The answer being written ───────────────────────────────────── */
+
+/* The caret rides at the end of the answer's last block rather than on a line
+   of its own, which is the difference between a reply still being typed and a
+   reply followed by something else. It is drawn with a pseudo element because
+   the markdown renderer builds the blocks and this file has no way into them:
+   the compound selector is how the streaming row reaches its own content. */
+.streaming .markdown > *:last-child::after {
+  content: '';
+  display: inline-block;
+  width: 0.45em;
+  height: 0.95em;
+  margin-left: 0.15em;
+  vertical-align: text-bottom;
+  background: var(--ifm-color-primary);
+  animation: caretBlink 1.05s steps(2, jump-none) infinite;
+}
+
+@keyframes caretBlink {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0.15;
+  }
+}
+
+/* The wait, and the way out of it. Padded to the entry row's gutter so it sits
+   in the same column as the transcript above it. */
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.15rem var(--site-page-gutter);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+/* The elapsed seconds are the reason this row exists: a local provider takes
+   whole seconds to begin, and a count that is visibly moving is the difference
+   between waiting and wondering. */
+.waiting {
+  color: var(--ifm-color-emphasis-500);
+  font-style: italic;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The window's only stop, and it sits with the pane it stops rather than in the
+   prompt row. Quiet until it is pointed at: it shares a line with a wait the
+   reader is being asked to be patient about, so it should not read as an alarm
+   until they have decided it is one. */
+.stop {
+  padding: 0 0.35rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 4px;
+  background: none;
+  color: var(--ifm-color-emphasis-600);
+  font-family: inherit;
+  font-size: 0.7rem;
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.stop:hover {
+  border-color: var(--ifm-color-danger);
+  color: var(--ifm-color-danger);
+}
+
+/* ── Focus and motion ───────────────────────────────────────────── */
+
+.stop:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 1px;
+}
+
+/* A blinking block in the corner of the eye is exactly what a reader who asked
+   for less motion asked to be spared. The caret still marks the end of what
+   has arrived; it simply holds still. */
+@media (prefers-reduced-motion: reduce) {
+  .streaming .markdown > *:last-child::after {
+    animation: none;
+    opacity: 0.6;
+  }
+}

@@ -1,0 +1,191 @@
+/**
+ * The rail: one column listing everything you can be talking to.
+ *
+ * Every rule here is written for a column about a dozen characters wide, which
+ * is the constraint the whole file exists for. A name that does not fit is
+ * clipped with an ellipsis rather than wrapped, because a wrapped channel name
+ * turns a scannable list into a paragraph, and the unread badge keeps its width
+ * so the names still line up under each other.
+ *
+ * The rail is a list of buttons, so it is the part of the window a keyboard
+ * walks through first. Every one of them carries the site's focus ring, a 2px
+ * outline in the primary colour under :focus-visible, matching
+ * src/components/CommandPalette and src/css/directory.module.css. Rows ring
+ * inward because they run the full width of a 180px column and an outward ring
+ * would be clipped by it.
+ */
+
+.sidebar {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  overflow-y: auto;
+  width: 180px;
+  padding: 0.35rem 0 0.5rem;
+  border-right: 1px solid var(--ifm-color-emphasis-200);
+}
+
+/* ── Section headers ────────────────────────────────────────────── */
+
+/* Section captions, and the one control that creates a channel. */
+.group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.6rem 0.15rem;
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* The caption has always been in the markup and never in this stylesheet, so
+   the header's two controls were spaced apart from each other by the row's
+   space-between rather than sitting together at its end. Letting the caption
+   take the slack puts the name at one end and the controls at the other, and
+   clips it rather than pushing a control out of the column. */
+.groupName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.groupAction {
+  padding: 0 0.2rem;
+  border: none;
+  background: none;
+  color: var(--ifm-color-emphasis-500);
+  font-family: inherit;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.groupAction:hover:not(:disabled) {
+  color: var(--ifm-color-primary);
+}
+
+.groupAction:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.groupAction:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 1px;
+}
+
+/* ── Conversations ──────────────────────────────────────────────── */
+
+.convo {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.16rem 0.6rem;
+  border: none;
+  background: none;
+  color: var(--ifm-font-color-base);
+  font-family: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.convo:hover {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.convoActive {
+  background: var(--ifm-color-emphasis-200);
+}
+
+/* The selected row and the focused row are different facts: one says what this
+   pane is pointed at, the other says where the keyboard is. The ring is drawn
+   over the background so both can be read at once. */
+.convo:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+}
+
+.convoMark {
+  flex-shrink: 0;
+  color: var(--ifm-color-emphasis-500);
+}
+
+.convoActive .convoMark {
+  color: var(--ifm-color-primary);
+}
+
+.convoName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.convoActive .convoName {
+  font-weight: 700;
+}
+
+.unread {
+  flex-shrink: 0;
+  padding: 0 0.35rem;
+  border-radius: 8px;
+  background: var(--ifm-color-primary);
+  color: var(--ifm-background-color);
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+/* ── The rail's own forms and notes ─────────────────────────────── */
+
+.newChannel {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.16rem 0.6rem;
+}
+
+.newChannelInput {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ifm-font-color-base);
+  font-family: inherit;
+  font-size: 0.78rem;
+  outline: none;
+}
+
+/* The borderless input drops the user-agent ring so it reads as one more line
+   of the rail. That is only honest while it is typed into by pointer; reached
+   by keyboard, it has to say where the caret went. */
+.newChannelInput:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 1px;
+}
+
+.sidebarNote {
+  margin: 0;
+  padding: 0.16rem 0.6rem;
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.7rem;
+}
+
+.sidebarFailure {
+  margin: 0;
+  padding: 0.16rem 0.6rem;
+  color: var(--ifm-color-danger);
+  font-size: 0.7rem;
+}
+
+@media (max-width: 768px) {
+  /* The rail keeps its place beside the panes, at the narrowest width a
+     channel name still reads at. */
+  .sidebar {
+    width: 132px;
+  }
+}

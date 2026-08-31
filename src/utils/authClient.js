@@ -60,6 +60,13 @@ export const authClient = createAuthClient({
 
 export const { useSession, signIn, signUp, signOut } = authClient;
 
+/* The CLI window's saved panes, written by useSessions in
+   src/components/CommandBar/useSessions.js. Signing out has to take it with the
+   token: the transcript holds what the previous reader typed and the names of
+   the conversations they had open, and on a shared browser the next person
+   would find both. */
+const CLI_SESSIONS_KEY = 'mochi-cli-sessions';
+
 /** Sign out both server-side and locally, then drop the stored token. */
 export async function signOutAndForget() {
   try {
@@ -68,5 +75,12 @@ export async function signOutAndForget() {
     // Clear regardless: a failed server round trip should still end the session
     // in this browser rather than leaving a token that looks valid.
     setStoredToken(null);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.removeItem(CLI_SESSIONS_KEY);
+      } catch {
+        // Storage disabled: there was nothing saved to forget.
+      }
+    }
   }
 }

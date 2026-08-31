@@ -1,0 +1,174 @@
+/**
+ * What a channel or direct message adds to a transcript row.
+ *
+ * A line of chat is the shared entry row (shared.module.css) with two extra
+ * columns in front of it: when it was said, and by whom. Only those columns,
+ * and the furniture that turns a list of them into a conversation, are
+ * described here, so the row's own box model is stated once and a chat pane
+ * and an assistant pane cannot drift apart.
+ *
+ * The furniture is deliberately quiet. A day rule and an unread mark both
+ * appear inside a window that is at most a few hundred pixels tall, so each of
+ * them is a hairline and a caption rather than a card: anything heavier reads
+ * as more important than the messages it is there to organise.
+ *
+ * The pane box and the jump button are not here. An assistant pane needs both
+ * as much as a conversation does, so they live in shared.module.css with the
+ * other primitives; this sheet only ever adds a chat's own furniture.
+ */
+
+/* ── Message columns ────────────────────────────────────────────── */
+
+.messageRow {
+  align-items: baseline;
+}
+
+/* An optimistic message: on screen, not yet acknowledged by the server. */
+.messagePending {
+  opacity: 0.55;
+}
+
+.messageTime {
+  flex-shrink: 0;
+  color: var(--ifm-color-emphasis-400);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Fixed column, so a run of messages reads as a conversation rather than as a
+   ragged list. It keeps its width when a grouped message empties it, which is
+   what lines the run up under its own first line. */
+.messageAuthor {
+  flex-shrink: 0;
+  width: 10ch;
+  overflow: hidden;
+  color: var(--ifm-color-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Delete ─────────────────────────────────────────────────────── */
+
+/* Present in the row at all times so the layout never shifts, and only visible
+   once the reader is either pointing at the row or has tabbed onto the button
+   itself. Armed, it says what it will do and stays visible while it waits. */
+.messageDelete {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0 0.3rem;
+  border: none;
+  border-radius: 4px;
+  opacity: 0;
+  background: none;
+  color: var(--ifm-color-emphasis-500);
+  font-family: inherit;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+
+.messageRow:hover .messageDelete,
+.messageDelete:focus-visible {
+  opacity: 1;
+}
+
+.messageDelete:hover {
+  color: var(--ifm-color-danger);
+}
+
+.messageDelete:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+}
+
+.messageDeleteArmed {
+  opacity: 1;
+  color: var(--ifm-color-danger);
+  font-weight: 700;
+}
+
+/* ── Day separators ─────────────────────────────────────────────── */
+
+/* A hairline out to both margins with the day sitting in it. */
+.separator {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem var(--site-page-gutter) 0.25rem;
+}
+
+.separator::before,
+.separator::after {
+  flex: 1;
+  height: 1px;
+  background: var(--ifm-color-emphasis-200);
+  content: '';
+}
+
+.separatorLabel {
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ── The unread mark ────────────────────────────────────────────── */
+
+/* Red, and the only red thing in a transcript that is not an error, because
+   its whole job is to be findable at a glance after a scroll. The caption sits
+   at the end of the rule rather than in the middle of it, so the rule itself
+   runs unbroken across the column the messages start in. */
+.unread {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem var(--site-page-gutter) 0.2rem;
+}
+
+.unread::before {
+  flex: 1;
+  height: 1px;
+  background: var(--ifm-color-danger);
+  content: '';
+}
+
+.unreadLabel {
+  color: var(--ifm-color-danger);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ── Refusals ───────────────────────────────────────────────────── */
+
+/* A delete the server would not do, said under the box so it is on screen
+   however far back the reader has scrolled. The jump button floats over this
+   corner of the pane, so the row keeps its width clear of it and wraps early
+   rather than running underneath it.
+
+   The class is written twice on purpose. The row it lands on also carries the
+   shared entry row, whose `padding` shorthand would otherwise win or lose on
+   the order the two stylesheets happen to take in the bundle; doubling the
+   selector settles it on specificity instead, and unlike naming an ancestor it
+   does not depend on which stylesheet the pane box is declared in. */
+.deleteError.deleteError {
+  padding-right: 6rem;
+}
+
+/* ── Narrow panes ───────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .messageAuthor {
+    width: 7ch;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .messageDelete {
+    transition: none;
+  }
+}
