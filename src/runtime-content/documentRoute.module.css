@@ -38,6 +38,54 @@
   list-style: none;
 }
 
+.blogCollection {
+  max-width: var(--site-content-width);
+}
+
+.blogList {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.blogCard {
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.blogCard:first-child {
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.blogCard a {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1.25rem 0;
+  color: var(--ifm-font-color-base);
+}
+
+.blogCard a:hover {
+  color: var(--ifm-color-primary);
+  text-decoration: none;
+}
+
+.blogCard .documentTitle {
+  color: var(--ifm-color-primary);
+  font-size: 1.25rem;
+}
+
+.blogDate,
+.blogTags {
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.78rem;
+}
+
+.blogDescription {
+  color: var(--ifm-color-emphasis-700);
+}
+
 .documentCard {
   min-width: 0;
 }
@@ -93,13 +141,21 @@
   margin-bottom: 1rem;
 }
 
-.docLayout {
+.documentLayout {
   display: grid;
-  grid-template-columns: minmax(11rem, 15rem) minmax(0, var(--site-prose-width)) minmax(9rem, 13rem);
   justify-content: center;
   gap: 2rem;
-  max-width: var(--site-page-width-wide);
   margin: 0 auto;
+}
+
+.docsLayout {
+  grid-template-columns: var(--site-doc-sidebar-width) minmax(0, var(--site-prose-width)) var(--site-toc-width);
+  max-width: var(--site-max-width);
+}
+
+.blogLayout {
+  grid-template-columns: minmax(0, var(--site-prose-width)) var(--site-toc-width);
+  max-width: var(--site-content-width);
 }
 
 .document {
@@ -121,6 +177,24 @@
   display: grid;
   gap: 0.15rem;
   margin-top: 0.55rem;
+}
+
+.docSidebar ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.docSidebar ul ul {
+  margin-left: 0.55rem;
+  border-left: 1px solid var(--ifm-color-emphasis-300);
+  padding-left: 0.35rem;
+}
+
+.docSidebar summary {
+  cursor: pointer;
+  padding: 0.3rem 0.45rem;
+  font-weight: 600;
 }
 
 .docSidebar a,
@@ -147,7 +221,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem 1rem;
-  margin-bottom: 0.5rem;
+  margin: -0.6rem 0 1.25rem;
   color: var(--ifm-color-emphasis-600);
   font-size: 0.82rem;
 }
@@ -190,8 +264,13 @@
 }
 
 @media (max-width: 1200px) {
-  .docLayout {
+  .docsLayout {
     grid-template-columns: minmax(10rem, 14rem) minmax(0, var(--site-prose-width));
+  }
+
+  .blogLayout {
+    grid-template-columns: minmax(0, var(--site-prose-width));
+    max-width: var(--site-prose-width);
   }
 
   .toc {
@@ -200,7 +279,7 @@
 }
 
 @media (max-width: 850px) {
-  .docLayout {
+  .documentLayout {
     grid-template-columns: minmax(0, 1fr);
   }
 

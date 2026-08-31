@@ -52,7 +52,18 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
   if (req.method === 'GET' && contentPath === '/api/content/tree') {
     try {
       permit('content:read');
-      return json(res, 200, {documents: await documents.list(scope)});
+      const includeFrontmatter = url.searchParams.get('include') === 'frontmatter';
+      const prefix = String(url.searchParams.get('prefix') || '').replace(/^\/+|\/+$/g, '');
+      const rows = includeFrontmatter ? await documents.snapshot(scope) : await documents.list(scope);
+      const filtered = prefix ? rows.filter(document => document.path.startsWith(`${prefix}/`)) : rows;
+      return json(res, 200, {documents: filtered.map(document => ({
+        id: document.id,
+        path: document.path,
+        title: document.title,
+        visibility: document.visibility,
+        updatedAt: document.updatedAt,
+        ...(includeFrontmatter ? {frontmatter: parseFrontmatter(document.markdown)} : {}),
+      }))});
     } catch (err) {
       return fail(json, res, err, 'Could not list the workspace');
     }

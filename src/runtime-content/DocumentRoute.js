@@ -50,6 +50,46 @@ function collectionFor(site, documentPath) {
     .sort((a, b) => b.pathPrefix.length - a.pathPrefix.length)[0] || null;
 }
 
+function sidebarTree(documents, prefix) {
+  const root = {folders: new Map(), documents: []};
+  for (const document of documents) {
+    const relative = document.path.slice(prefix.length).replace(/^\//, '');
+    const parts = relative.split('/');
+    let node = root;
+    for (const name of parts.slice(0, -1)) {
+      if (!node.folders.has(name)) node.folders.set(name, {name, folders: new Map(), documents: []});
+      node = node.folders.get(name);
+    }
+    node.documents.push(document);
+  }
+  return root;
+}
+
+function SidebarNodes({node, workspaceSlug, currentPath}) {
+  return (
+    <ul>
+      {[...node.folders.values()].sort((a, b) => a.name.localeCompare(b.name)).map(folder => (
+        <li key={folder.name}>
+          <details open>
+            <summary>{labelForDirectory(folder.name)}</summary>
+            <SidebarNodes node={folder} workspaceSlug={workspaceSlug} currentPath={currentPath} />
+          </details>
+        </li>
+      ))}
+      {[...node.documents].sort((a, b) => a.path.localeCompare(b.path)).map(item => (
+        <li key={item.id}>
+          <Link
+            className={item.path === currentPath ? styles.sidebarActive : undefined}
+            to={`/w/${encodeURIComponent(workspaceSlug)}/documents/${routeForDocument(item.path)}`}
+          >
+            {item.title}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function DocumentBody({workspaceSlug, documentPath}) {
   const [state, setState] = useState({status: LOADING});
 
@@ -77,10 +117,14 @@ function DocumentBody({workspaceSlug, documentPath}) {
           // Research is one: its articles live below posts/research/, so asking
           // for posts/research should show those articles rather than claim the
           // workspace has no content.
-          const treeRes = await apiFetch(
-            `${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/documents/tree`,
-          );
-          const treePayload = await treeRes.json().catch(() => ({}));
+          const [treeRes, siteRes] = await Promise.all([
+            apiFetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/documents/tree?prefix=${encodeURIComponent(documentPath)}&include=frontmatter`),
+            apiFetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/site`),
+          ]);
+          const [treePayload, sitePayload] = await Promise.all([
+            treeRes.json().catch(() => ({})),
+            siteRes.json().catch(() => ({})),
+          ]);
           if (cancelled) return;
           if (treeRes.ok) {
             const prefix = `${documentPath.replace(/\/+$/, '')}/`;
@@ -92,6 +136,8 @@ function DocumentBody({workspaceSlug, documentPath}) {
                 status: READY,
                 directory: documentPath,
                 documents: children,
+                site: siteRes.ok ? sitePayload.site : null,
+                workspaceId: workspace.id,
                 canEdit: workspace.role === 'owner' || workspace.role === 'editor',
               });
               return;
@@ -173,12 +219,14 @@ function DocumentBody({workspaceSlug, documentPath}) {
   }
 
   if (!documentPath || state.directory) {
-    const heading = state.directory ? labelForDirectory(state.directory) : 'Documents';
+    const directoryCollection = state.directory ? collectionFor(state.site, state.directory) : null;
+    const isBlogCollection = directoryCollection?.type === 'blog';
+    const heading = directoryCollection?.title || (state.directory ? labelForDirectory(state.directory) : 'Documents');
     const description = state.directory
-      ? `${state.documents.length} ${state.documents.length === 1 ? 'document' : 'documents'} in this collection`
+      ? directoryCollection?.description || `${state.documents.length} ${state.documents.length === 1 ? 'post' : 'posts'} in this collection`
       : `${state.documents.length} ${state.documents.length === 1 ? 'document' : 'documents'} in this workspace`;
     return (
-      <article className={styles.collection}>
+      <article className={`${styles.collection} ${isBlogCollection ? styles.blogCollection : ''}`}>
         <header className={styles.collectionHeader}>
           <div>
             <span className={styles.eyebrow}>{state.directory ? 'Collection' : 'Workspace library'}</span>
@@ -192,16 +240,29 @@ function DocumentBody({workspaceSlug, documentPath}) {
           ) : null}
         </header>
         {state.documents.length === 0 ? <p className={styles.empty}>This workspace has no documents yet.</p> : (
-          <ul className={styles.documentGrid}>
-            {state.documents.map(document => {
+          <ul className={isBlogCollection ? styles.blogList : styles.documentGrid}>
+            {[...state.documents].sort((a, b) => isBlogCollection
+              ? String(b.frontmatter?.date || b.updatedAt).localeCompare(String(a.frontmatter?.date || a.updatedAt))
+              : a.path.localeCompare(b.path)).map(document => {
               const route = routeForDocument(document.path);
               const relative = state.directory
                 ? document.path.slice(`${state.directory.replace(/\/+$/, '')}/`.length)
                 : document.path;
               return (
-                <li key={document.id} className={styles.documentCard}>
+                <li key={document.id} className={isBlogCollection ? styles.blogCard : styles.documentCard}>
                   <Link to={`/w/${encodeURIComponent(workspaceSlug)}/documents/${route}`}>
                     <span className={styles.documentTitle}>{document.title}</span>
+                    {isBlogCollection && document.frontmatter?.date ? (
+                      <time className={styles.blogDate} dateTime={document.frontmatter.date}>
+                        {new Date(document.frontmatter.date).toLocaleDateString()}
+                      </time>
+                    ) : null}
+                    {isBlogCollection && document.frontmatter?.description ? (
+                      <span className={styles.blogDescription}>{document.frontmatter.description}</span>
+                    ) : null}
+                    {isBlogCollection && document.frontmatter?.tags?.length ? (
+                      <span className={styles.blogTags}>{document.frontmatter.tags.join(' · ')}</span>
+                    ) : null}
                     <span className={styles.documentPath}>{relative.replace(/\.(md|mdx)$/, '')}</span>
                   </Link>
                 </li>
@@ -225,25 +286,22 @@ function DocumentBody({workspaceSlug, documentPath}) {
     : null;
   const headings = headingsOf(tree);
   const frontmatter = state.frontmatter || {};
+  const isBlog = collection?.type === 'blog';
   return (
-    <div className={styles.docLayout}>
-      {collectionDocuments.length > 1 ? (
+    <div className={`${styles.documentLayout} ${isBlog ? styles.blogLayout : styles.docsLayout}`}>
+      {!isBlog && collectionDocuments.length > 1 ? (
         <aside className={styles.docSidebar}>
           <strong>{collection?.title || 'Documents'}</strong>
           <nav>
-            {collectionDocuments.map(item => (
-              <Link
-                key={item.id}
-                className={item.path === document.path ? styles.sidebarActive : undefined}
-                to={`/w/${encodeURIComponent(workspaceSlug)}/documents/${routeForDocument(item.path)}`}
-              >
-                {item.title}
-              </Link>
-            ))}
+            <SidebarNodes
+              node={sidebarTree(collectionDocuments, collection?.pathPrefix || '')}
+              workspaceSlug={workspaceSlug}
+              currentPath={document.path}
+            />
           </nav>
         </aside>
       ) : null}
-      <article className={`${styles.document} theme-doc-markdown markdown`}>
+      <article className={`${styles.document} ${isBlog ? styles.blogDocument : styles.docsDocument} theme-doc-markdown markdown`}>
       {state.canEdit ? (
         <div className={styles.documentActions}>
           <Link
@@ -254,14 +312,14 @@ function DocumentBody({workspaceSlug, documentPath}) {
           </Link>
         </div>
       ) : null}
-      {collection?.type === 'blog' && (frontmatter.date || frontmatter.authors?.length || frontmatter.tags?.length) ? (
+      {document?.title ? <h1>{document.title}</h1> : null}
+      {isBlog && (frontmatter.date || frontmatter.authors?.length || frontmatter.tags?.length) ? (
         <div className={styles.blogMeta}>
           {frontmatter.date ? <time dateTime={frontmatter.date}>{new Date(frontmatter.date).toLocaleDateString()}</time> : null}
           {frontmatter.authors?.length ? <span>{frontmatter.authors.join(', ')}</span> : null}
           {frontmatter.tags?.length ? <span>{frontmatter.tags.join(' · ')}</span> : null}
         </div>
       ) : null}
-      {document?.title ? <h1>{document.title}</h1> : null}
       {frontmatter.description ? <p className={styles.description}>{frontmatter.description}</p> : null}
       <SafeDocument tree={tree} workspaceId={state.workspaceId} workspaceSlug={workspaceSlug} documentPath={document.path} />
       <nav className={styles.pager} aria-label="Document pagination">

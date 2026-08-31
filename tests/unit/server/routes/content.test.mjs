@@ -61,6 +61,19 @@ describe('GET /api/content/tree', () => {
     const r = await invoke(routes, {path: '/api/content/tree', ctx, auth: {...ada, orgId: 'course'}});
     assert.deepEqual(r.payload.documents, []);
   });
+
+  it('optionally returns safe frontmatter for one collection', async () => {
+    const ctx = withDocs([
+      {path: 'posts/blog/a.md', markdown: '---\ndate: 2026-08-01\ntags: [news]\n---\nA'},
+      {path: 'books/math/a.md', markdown: 'Math'},
+    ]);
+    const r = await invoke(routes, {
+      path: '/api/content/tree', query: {prefix: 'posts/blog', include: 'frontmatter'}, ctx, auth: ada,
+    });
+    assert.deepEqual(r.payload.documents.map(document => document.path), ['posts/blog/a.md']);
+    assert.deepEqual(r.payload.documents[0].frontmatter.tags, ['news']);
+    assert.equal('markdown' in r.payload.documents[0], false);
+  });
 });
 
 describe('explicit workspace document API', () => {
