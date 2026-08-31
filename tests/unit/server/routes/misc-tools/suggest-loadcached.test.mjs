@@ -5,11 +5,41 @@ import path from 'node:path';
 
 // misc-tools.js is CommonJS; load it the way the other route tests do.
 const require = createRequire(import.meta.url);
+const bibliographyProvides = createRequire(import.meta.url)('../../../../../plugins/bibliography/server.js').provides;
 const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js');
 // GET /api/suggest now reads references.yaml through the shared loadReferencesCached
 // memo (a module-level singleton); clear it between scenarios so each case
 // re-stats and re-reads deterministically.
-const { _resetReferencesCache } = require('../../../../../src/server/routes/references.js');
+const { _resetReferencesCache } = require('../../../../../plugins/bibliography/lib/references.js');
+
+// The bibliography plugin publishes a loader that asks for a reader, because the
+// plugin is not allowed to touch the filesystem itself. The server adapts that
+// reader into the (fs, path, root) call core handlers make: see
+// referencesForCore in src/server/index.js. This mirrors that adaptation, which
+// keeps the mutable fs mock below on the real memo path rather than beside it.
+function referencesForCore(provided) {
+  const readerFor = (fs, path, root) => {
+    const at = (relative) => path.join(root, 'content', relative);
+    return {
+      read(relative) {
+        try {
+          return fs.readFileSync(at(relative), 'utf-8');
+        } catch {
+          return null;
+        }
+      },
+      stat(relative) {
+        try {
+          const { mtimeMs, size } = fs.statSync(at(relative));
+          return { mtimeMs, size };
+        } catch {
+          return null;
+        }
+      },
+    };
+  };
+  return { ...provided, load: (fs, path, root) => provided.load(readerFor(fs, path, root)) };
+}
 
 const PROJECT_ROOT = '/fake/root';
 const REFS_PATH = path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml');
@@ -85,6 +115,9 @@ async function callSuggest(fs, text, extra = '') {
   const res = { writableEnded: false };
   let captured = null;
   const ctx = {
+    // The bibliography plugin lends its loader through ctx, exactly as
+    // server/plugins.js does in production, wrapped the way the server wraps it.
+    references: referencesForCore(bibliographyProvides.references),
     fs,
     path,
     PROJECT_ROOT,

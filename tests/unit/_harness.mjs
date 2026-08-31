@@ -30,6 +30,21 @@ const require = createRequire(import.meta.url);
 /** The real shared helpers, exposed so suites can assert against them. */
 export const utils = require('../../src/server/server-utils.js');
 
+/** Builds the narrow object a plugin's handler is handed. */
+const {buildPluginApi} = require('../../src/server/plugin-api.js');
+
+/**
+ * What the bibliography plugin lends the server, taken from the plugin itself
+ * rather than reimplemented here.
+ *
+ * A core handler's ctx really does carry this in production: server/plugins.js
+ * merges each plugin's `provides` onto ctx, and seven core handlers read the
+ * bibliography through it. Using the plugin's own object means a suite that
+ * seeds references.yaml into mockFs exercises the real loader, and a change to
+ * what the plugin provides fails here rather than silently in production.
+ */
+const bibliographyProvides = require('../../plugins/bibliography/server.js').provides;
+
 /** Stand-in repo root. Never touched on disk; only joined into paths. */
 export const PROJECT_ROOT = '/fake/root';
 
@@ -253,7 +268,7 @@ export function makeCtx(overrides = {}) {
     ...rest
   } = overrides;
 
-  const calls = {json: [], loadJSON: [], saveJSON: [], rateLimit: [], invalidateCache: [], cached: []};
+  const calls = {json: [], loadJSON: [], saveJSON: [], rateLimit: [], invalidateCache: [], cached: [], ai: []};
   const cache = {};
   const rateLimits = {};
   const presenceStore = {};
@@ -293,6 +308,18 @@ export function makeCtx(overrides = {}) {
   const ctx = {
     ...FILES,
     roles,
+    ...bibliographyProvides,
+    // The assistant, which in a route test is only ever a thing that was asked
+    // something. What it was asked is recorded in calls.ai. A test that needs a
+    // refusal replaces the whole object, as makeCtx does for every override:
+    // makeCtx({ai: {complete: async () => ({error: '...', status: 503})}}).
+    ai: {
+      complete: async (request) => {
+        calls.ai.push(request);
+        return {text: 'a completion'};
+      },
+      describe: () => ({available: true, provider: 'api', model: 'test-model'}),
+    },
     PROJECT_ROOT: root,
     PORT: 3001,
     TRASH_DIR: nodePath.join(root, 'var', 'trash'),
@@ -425,6 +452,11 @@ export async function invoke(routes, opts = {}) {
     ctx = makeCtx(),
     headers = {},
     auth = TEST_IDENTITY,
+    // A plugin's handler takes the narrow API from src/server/plugin-api.js,
+    // not ctx. Pass the capabilities its plugin.json asks for and this builds
+    // the same object the server would, out of the same ctx, so a suite proves
+    // the plugin works through the boundary rather than around it.
+    plugin = null,
   } = opts;
 
   const search = typeof query === 'string'
@@ -435,6 +467,7 @@ export async function invoke(routes, opts = {}) {
       })();
 
   const url = new URL(`http://localhost:3001${pathname}${search}`);
+
   // A few handlers (the RSS and Atom feeds, file downloads) stream a non-JSON
   // body straight through writeHead/end instead of calling json(). Record those
   // on res.written so a test can assert the status, headers and body.
@@ -473,7 +506,23 @@ export async function invoke(routes, opts = {}) {
   // cache tests deliberately do, so snapshot the length first and report only
   // the replies this call produced.
   const before = ctx.calls.json.length;
-  await routes(req, res, url, pathname, ctx);
+  let last = ctx;
+  if (plugin) {
+    const api = buildPluginApi({
+      name: plugin.name ?? 'test-plugin',
+      requires: plugin.requires ?? [],
+      ctx: {...ctx, pluginProvides: plugin.shared ?? {}},
+      req,
+    });
+    // A test replaces a capability by handing over a different one, the way the
+    // server hands over the real one. `fetch: () => ...` is how a suite pins
+    // what a plugin does with an upstream that is down. Passing a function
+    // instead receives the real capabilities, for the common case of wanting
+    // one method of one of them to misbehave and the rest to work.
+    const over = typeof plugin.capabilities === 'function' ? plugin.capabilities(api) : plugin.capabilities;
+    last = Object.assign(api, over ?? {});
+  }
+  await routes(req, res, url, pathname, last);
 
   const replies = ctx.calls.json.slice(before);
   const first = replies[0];

@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { mergeMetadataSources } = require('../../../../src/server/server-utils.js');
+const { mergeMetadataSources } = require('../../../../../plugins/bibliography/lib/bibtex.js');
 
 // Characterization test for the SOURCE-LEVEL non-object skip in
-// mergeMetadataSources (server/server-utils.js, the function around line 311).
+// mergeMetadataSources (plugins/bibliography/lib/bibtex.js, the function around
+// line 249).
 //
-// While building the `present` map (lines 322 to 324) the merge keeps a source
+// While building the `present` map (lines 259 to 262) the merge keeps a source
 // only when it is a plain object:
 //
 //   if (src && typeof src === 'object' && !Array.isArray(src)) present[name] = src;

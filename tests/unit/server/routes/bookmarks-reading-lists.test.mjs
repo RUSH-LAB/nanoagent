@@ -6,15 +6,52 @@
  * Consolidated from the twenty-seven per-branch suites that used to cover this
  * module.
  */
-import {describe, it} from 'node:test';
+import {beforeEach, describe, it} from 'node:test';
 import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
 import path from 'node:path';
 import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
+
+const require = createRequire(import.meta.url);
+const bibliographyProvides = require('../../../../plugins/bibliography/server.js').provides;
+const {_resetReferencesCache} = require('../../../../plugins/bibliography/lib/references.js');
 
 const routes = loadRoute('bookmarks-reading-lists');
 const {COMMENTS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE} = FILES;
 const at = rel => path.join(PROJECT_ROOT, rel);
 const BIB = at('content/bibliography/references.yaml');
+
+/**
+ * The bibliography plugin publishes a loader that asks for a reader, because
+ * the plugin is not allowed to touch the filesystem itself. The server adapts
+ * that reader into the (fs, path, root) call the core handlers make: see
+ * referencesForCore in src/server/index.js. This mirrors that adaptation, so
+ * the BibTeX export runs against the real loader over this suite's fixture fs
+ * rather than against a stub of it.
+ */
+function referencesForCore(provided) {
+  const readerFor = (fs, path, root) => {
+    const at = relative => path.join(root, 'content', relative);
+    return {
+      read(relative) {
+        try {
+          return fs.readFileSync(at(relative), 'utf-8');
+        } catch {
+          return null;
+        }
+      },
+      stat(relative) {
+        try {
+          const {mtimeMs, size} = fs.statSync(at(relative));
+          return {mtimeMs, size};
+        } catch {
+          return null;
+        }
+      },
+    };
+  };
+  return {...provided, load: (fs, path, root) => provided.load(readerFor(fs, path, root))};
+}
 
 /** Truthy inherited members that an own-key check must still reject. */
 const INHERITED_KEYS = ['__proto__', 'constructor', 'toString'];
@@ -447,39 +484,6 @@ describe('PATCH /api/reading-lists/:id/items (reorder)', () => {
   }
 });
 
-describe('GET /api/reading-lists/stats', () => {
-  it('aggregates totals, splits reference from doc and ranks popular items', async () => {
-    const store = {[READING_LISTS_FILE]: {lists: [
-      {id: 'l1', items: [{path: '/a', type: 'reference'}, {path: '/b', type: 'doc'}]},
-      {id: 'l2', items: [{path: '/a', type: 'reference'}, {path: '/c', type: 'reference'}]},
-      // A list with no items array contributes nothing.
-      {id: 'l3'},
-    ]}};
-    const r = await invoke(routes, {path: '/api/reading-lists/stats', ctx: makeCtx({store})});
-    assert.deepEqual(r.payload, {
-      totalLists: 3,
-      totalItems: 4,
-      // Anything not typed "reference" counts as a doc; the split is
-      // deliberately uneven so swapping the two counters would show.
-      docItems: 1,
-      referenceItems: 3,
-      popularItems: [{path: '/a', count: 2}, {path: '/b', count: 1}, {path: '/c', count: 1}],
-    });
-  });
-
-  it('zeroes every count for an empty store', async () => {
-    const r = await invoke(routes, {path: '/api/reading-lists/stats'});
-    assert.deepEqual(r.payload, {totalLists: 0, totalItems: 0, docItems: 0, referenceItems: 0, popularItems: []});
-  });
-
-  it('keeps only the top ten popular paths', async () => {
-    const items = Array.from({length: 15}, (_, i) => ({path: `/p${i}`}));
-    const store = {[READING_LISTS_FILE]: {lists: [{id: 'l1', items}]}};
-    const r = await invoke(routes, {path: '/api/reading-lists/stats', ctx: makeCtx({store})});
-    assert.equal(r.payload.popularItems.length, 10);
-  });
-});
-
 // ── Export ────────────────────────────────────────────────────────────────
 
 describe('GET /api/reading-lists/:id/export', () => {
@@ -563,8 +567,15 @@ describe('GET /api/reading-lists/:id/export', () => {
       let reads = 0;
       const base = mockFs(refs === null ? {} : {[BIB]: refs});
       const fs = {...base, readFileSync: p => { reads++; return base.readFileSync(p); }};
-      return {ctx: makeCtx({fs, store: list({items})}), reads: () => reads};
+      const references = referencesForCore(bibliographyProvides.references);
+      return {ctx: makeCtx({fs, references, store: list({items})}), reads: () => reads};
     };
+
+    // The loader memoizes on mtime and size, and every fixture here starts the
+    // mock clock at the same instant, so a warm memo would let one test serve
+    // the next one's export. Start each test cold, which also makes the memo
+    // test below prove the memo rather than observe an already-cached parse.
+    beforeEach(() => _resetReferencesCache());
 
     it('maps the venue field by entry type and joins authors with "and"', async () => {
       const items = [
@@ -642,35 +653,6 @@ describe('GET /api/reading-lists/:id/export', () => {
 });
 
 // ── Route matching ────────────────────────────────────────────────────────
-
-describe('exported route-match regexes', () => {
-  const {routeRegexes} = routes;
-
-  it('exports the three named patterns, each one shared stateless instance', () => {
-    assert.deepEqual(Object.keys(routeRegexes).sort(), ['READING_LIST_EXPORT_RE', 'READING_LIST_ITEMS_RE', 'READING_LIST_RE']);
-    for (const [name, re] of Object.entries(routeRegexes)) {
-      assert.equal(re.global, false, name);
-      assert.equal(re.sticky, false, name);
-      assert.strictEqual(loadRoute('bookmarks-reading-lists').routeRegexes[name], re, name);
-    }
-  });
-
-  const MATCHES = [
-    ['READING_LIST_RE', '/api/reading-lists/l1', true],
-    // The single-segment pattern must not swallow the subpaths.
-    ['READING_LIST_RE', '/api/reading-lists/l1/items', false],
-    ['READING_LIST_RE', '/api/reading-lists/l1/export', false],
-    ['READING_LIST_ITEMS_RE', '/api/reading-lists/l1/items', true],
-    ['READING_LIST_ITEMS_RE', '/api/reading-lists/l1', false],
-    ['READING_LIST_EXPORT_RE', '/api/reading-lists/l1/export', true],
-    ['READING_LIST_EXPORT_RE', '/api/reading-lists/l1/items', false],
-  ];
-  for (const [name, p, expected] of MATCHES) {
-    it(`${name} ${expected ? 'matches' : 'rejects'} ${p}`, () => {
-      assert.equal(routeRegexes[name].test(p), expected);
-    });
-  }
-});
 
 // Every body-reading handler wraps the read and the destructure of its result
 // in one try whose catch returns a fixed 400 ahead of the first inner guard.

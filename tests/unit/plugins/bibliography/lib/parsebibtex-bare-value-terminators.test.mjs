@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { parseBibtex } = require('../../../../src/server/server-utils.js');
+const { parseBibtex } = require('../../../../../plugins/bibliography/lib/bibtex.js');
 
 // Characterization tests for the bare-value scanner in parseBibtex
-// (server/server-utils.js, function at line 132; bare-value loop at line 197).
+// (plugins/bibliography/lib/bibtex.js, function at line 33; bare-value loop at line 98).
 // An unquoted, unbraced value stops at the first comma, closing brace, or
 // whitespace character. The existing suite only covers a single bare field that
 // terminates on the closing brace (@article{k1, year = 2023}); the comma and

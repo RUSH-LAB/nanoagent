@@ -2,16 +2,16 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'module';
 
-// Add-only characterization test. It loads the REAL server/server-utils.js via
+// Add-only characterization test. It loads the REAL bibliography lib via
 // createRequire and pins the currently-uncovered edge branches of the pure
 // function parseBibtexAuthors. The happy-path inputs are already covered by
-// tests/server-utils.test.mjs and tests/next-serverutils-authors-re-hoist.test.mjs,
+// bibtex.test.mjs and authors-re-hoist.test.mjs beside this file,
 // so this file pins only the empty-segment, bare-comma, leading/trailing
 // separator, and multi-comma edges. Every expected value below was captured by
 // running the real function (no hand-written goldens); it pins CURRENT behavior
 // and edits no source.
 const require = createRequire(import.meta.url);
-const { parseBibtexAuthors } = require('../../../../src/server/server-utils.js');
+const { parseBibtexAuthors } = require('../../../../../plugins/bibliography/lib/bibtex.js');
 
 describe('parseBibtexAuthors edge branches', () => {
   it('leading-comma segment ", John" keeps the trailing space from an empty last name', () => {

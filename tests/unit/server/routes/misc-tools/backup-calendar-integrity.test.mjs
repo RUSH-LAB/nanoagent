@@ -114,36 +114,6 @@ async function invokeBackup(loadJSON) {
   return cap.get();
 }
 
-describe('GET /api/backup', () => {
-  it('exports a nine-key bundle deep-equal to the mapped stores, plus an ISO exportedAt', async () => {
-    const r = await invokeBackup(okBackupLoad);
-    assert.equal(r.status, 200);
-
-    const { exportedAt, ...bundle } = r.payload;
-    assert.deepEqual(bundle, BACKUP_STORES);
-
-    // Key set and order: the nine store keys followed by exportedAt.
-    assert.deepEqual(Object.keys(r.payload), [
-      'notes', 'bookmarks', 'readingLists', 'glossary',
-      'flashcards', 'tasks', 'analytics', 'goals', 'streaks', 'exportedAt',
-    ]);
-
-    // exportedAt is an ISO timestamp string (assert its shape, never an instant).
-    assert.equal(typeof exportedAt, 'string');
-    assert.match(exportedAt, ISO_RE);
-  });
-
-  it('returns 500 "Backup export failed" with the error detail when a store load throws', async () => {
-    const loadJSON = (file) => {
-      if (file === BACKUP_FILES.NOTES_FILE) throw new Error('boom');
-      return okBackupLoad(file);
-    };
-    const r = await invokeBackup(loadJSON);
-    assert.equal(r.status, 500);
-    assert.deepEqual(r.payload, { error: 'Backup export failed', detail: 'boom' });
-  });
-});
-
 // ──────────────────────────── GET /api/calendar ────────────────────────────
 // The handler is wrapped in cached('calendar', 60000, fn). fn recursively walks
 // PROJECT_ROOT/content via readdirSync({withFileTypes:true}), reads files,

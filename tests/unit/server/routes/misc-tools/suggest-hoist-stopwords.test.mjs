@@ -5,9 +5,39 @@ import path from 'node:path';
 
 // misc-tools.js is CommonJS; load it the way the other route tests do.
 const require = createRequire(import.meta.url);
+const bibliographyProvides = createRequire(import.meta.url)('../../../../../plugins/bibliography/server.js').provides;
 const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
+
+// The bibliography plugin publishes a loader that asks for a reader, because the
+// plugin is not allowed to touch the filesystem itself. The server adapts that
+// reader into the (fs, path, root) call core handlers make: see
+// referencesForCore in src/server/index.js. This mirrors that adaptation so the
+// suite can feed its fixture fs to the real loader rather than to a stub of it.
+function referencesForCore(provided) {
+  const readerFor = (fs, path, root) => {
+    const at = (relative) => path.join(root, 'content', relative);
+    return {
+      read(relative) {
+        try {
+          return fs.readFileSync(at(relative), 'utf-8');
+        } catch {
+          return null;
+        }
+      },
+      stat(relative) {
+        try {
+          const { mtimeMs, size } = fs.statSync(at(relative));
+          return { mtimeMs, size };
+        } catch {
+          return null;
+        }
+      },
+    };
+  };
+  return { ...provided, load: (fs, path, root) => provided.load(readerFor(fs, path, root)) };
+}
 
 // Minimal fs stub. The GET /api/suggest handler only touches readFileSync
 // (references.yaml + each content page) and existsSync (the content dir guard),
@@ -73,6 +103,9 @@ const FLAT_FILES = [
 ];
 
 const ctx = {
+  // The bibliography plugin lends its loader through ctx, exactly as
+  // server/plugins.js does in production, wrapped the way the server wraps it.
+  references: referencesForCore(bibliographyProvides.references),
   fs: makeFs(FILE_MAP),
   path,
   PROJECT_ROOT,

@@ -7,19 +7,56 @@
  * module. The pure helpers (tokenizer, BM25 scorer, BibTeX escaper) are
  * exported, so they are exercised directly rather than through a request.
  */
-import {describe, it} from 'node:test';
+import {beforeEach, describe, it} from 'node:test';
 import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
 import path from 'node:path';
 import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
+
+const require = createRequire(import.meta.url);
+const bibliographyProvides = require('../../../../plugins/bibliography/server.js').provides;
+const {_resetReferencesCache} = require('../../../../plugins/bibliography/lib/references.js');
 
 const routes = loadRoute('research-tools');
 const {COMMENTS_FILE} = FILES;
 const at = rel => path.join(PROJECT_ROOT, rel);
 const BIB = at('content/bibliography/references.yaml');
 
+/**
+ * The bibliography plugin publishes a loader that asks for a reader, because
+ * the plugin is not allowed to touch the filesystem itself. The server adapts
+ * that reader into the (fs, path, root) call the core handlers make: see
+ * referencesForCore in src/server/index.js. This mirrors that adaptation, so
+ * GET /api/recommendations runs against the real loader over this suite's
+ * fixture fs rather than against a stub of it.
+ */
+function referencesForCore(provided) {
+  const readerFor = (fs, path, root) => {
+    const at = relative => path.join(root, 'content', relative);
+    return {
+      read(relative) {
+        try {
+          return fs.readFileSync(at(relative), 'utf-8');
+        } catch {
+          return null;
+        }
+      },
+      stat(relative) {
+        try {
+          const {mtimeMs, size} = fs.statSync(at(relative));
+          return {mtimeMs, size};
+        } catch {
+          return null;
+        }
+      },
+    };
+  };
+  return {...provided, load: (fs, path, root) => provided.load(readerFor(fs, path, root))};
+}
+
 const {
   tokenizeSearch, termFrequencies, buildSearchDoc, corpusStats,
-  bm25Idf, bm25Score, rankDocuments, cleanBibtexValue,
+  bm25Idf, bm25Score, rankDocuments,
   ARXIV_ABS_RE, REC_ARXIV_ID_RE, REC_DOI_RE,
 } = routes;
 
@@ -32,8 +69,15 @@ function fsCtx(files, over = {}) {
     readdirSync: (p, o) => { counts.readdir++; return base.readdirSync(p, o); },
     writeFileSync: (p, d) => { counts.write++; return base.writeFileSync(p, d); },
   };
-  return {ctx: makeCtx({fs, ...over}), counts, fs};
+  const references = referencesForCore(bibliographyProvides.references);
+  return {ctx: makeCtx({fs, references, ...over}), counts, fs};
 }
+
+// The loader memoizes on mtime and size, and every fixture starts the mock
+// clock at the same instant, so a warm memo would let one test serve the next
+// one's parse. Start each test cold, which also makes the memo test below
+// prove the memo rather than observe an already-cached parse.
+beforeEach(() => _resetReferencesCache());
 
 function bib(entries) {
   return Object.entries(entries).map(([key, e]) => {
@@ -175,38 +219,6 @@ describe('BM25 helpers', () => {
   });
 });
 
-// ── cleanBibtexValue ──────────────────────────────────────────────────────
-
-describe('cleanBibtexValue', () => {
-  const CASES = [
-    {name: 'ampersand, underscore and percent', input: 'A & B_c 50%', want: 'A \\& B\\_c 50\\%'},
-    {name: 'dollar, hash and braces', input: '$5 #1 {x}', want: '\\$5 \\#1 \\{x\\}'},
-    // Tilde and caret are accent commands on their own, so they take the
-    // explicit text forms rather than a bare backslash.
-    {name: 'tilde and caret as text commands', input: 'a~b c^d', want: 'a\\textasciitilde{}b c\\textasciicircum{}d'},
-    {name: 'a literal backslash', input: 'a\\b', want: 'a\\textbackslash{}b'},
-    // One regex pass over the original means an introduced backslash is never
-    // re-escaped by a later replacement.
-    {name: 'without double-escaping what it introduces', input: '&', want: '\\&'},
-    {name: 'several specials together', input: 'A&B_C%D$E#F{G}H~I^J', want: 'A\\&B\\_C\\%D\\$E\\#F\\{G\\}H\\textasciitilde{}I\\textasciicircum{}J'},
-    {name: 'collapsing whitespace runs and trimming', input: '  a   b\n\tc  ', want: 'a b c'},
-    {name: 'ordinary text untouched', input: 'Plain title here', want: 'Plain title here'},
-    {name: 'null coerced to empty', input: null, want: ''},
-    {name: 'undefined coerced to empty', input: undefined, want: ''},
-    {name: 'a number coerced to its digits', input: 2024, want: '2024'},
-  ];
-  for (const {name, input, want} of CASES) {
-    it(`escapes ${name}`, () => assert.equal(cleanBibtexValue(input), want));
-  }
-
-  it('produces a compile-safe field line for a messy value', () => {
-    // The braces in \\textasciitilde{} and friends are part of the escape, so
-    // this pins the whole output rather than scanning for bare specials.
-    const out = cleanBibtexValue('Cost & benefit: 50% of x_1 {sic} ~approx ^2 \\path');
-    assert.equal(out, 'Cost \\& benefit: 50\\% of x\\_1 \\{sic\\} \\textasciitilde{}approx \\textasciicircum{}2 \\textbackslash{}path');
-  });
-});
-
 // ── Exported regexes ──────────────────────────────────────────────────────
 
 describe('exported matchers', () => {
@@ -229,117 +241,6 @@ describe('exported matchers', () => {
     assert.equal(REC_DOI_RE.global, false);
     assert.equal('https://doi.org/10.1000/xyz123'.match(REC_DOI_RE)[1], '10.1000/xyz123');
     assert.equal('https://example.com/paper'.match(REC_DOI_RE), null);
-  });
-});
-
-describe('GET /api/references/track', () => {
-  const REFS = {plain: {title: 'Plain', venue: 'V'}, withUrl: {title: 'WithUrl', url: 'https://arxiv.org/abs/2301.12345'}};
-
-  for (const [label, query] of [['an omitted key', {}], ['an empty key', {key: ''}]]) {
-    it(`returns 400 for ${label}, touching no files`, async () => {
-      const {ctx, counts} = fsCtx({[BIB]: bib(REFS)});
-      const r = await invoke(routes, {path: '/api/references/track', query, ctx});
-      assert.deepEqual([r.status, r.payload], [400, {error: 'Missing key param'}]);
-      assert.equal(counts.read, 0);
-    });
-  }
-
-  it('returns 404 for a key absent from the bibliography', async () => {
-    const {ctx} = fsCtx({[BIB]: bib(REFS)});
-    const r = await invoke(routes, {path: '/api/references/track', query: {key: 'nope'}, ctx});
-    assert.deepEqual([r.status, r.payload], [404, {error: 'Reference not found'}]);
-  });
-
-  it('reports no arXiv id for an entry with neither an id nor an arXiv url', async () => {
-    const {ctx} = fsCtx({[BIB]: bib(REFS)});
-    const r = await invoke(routes, {path: '/api/references/track', query: {key: 'plain'}, ctx});
-    assert.deepEqual([r.status, r.payload], [200, {published: false, error: 'No arXiv ID found for this reference'}]);
-  });
-
-  it('memoizes the bibliography parse across two requests', async () => {
-    const {ctx, counts} = fsCtx({[BIB]: bib(REFS)});
-    await invoke(routes, {path: '/api/references/track', query: {key: 'plain'}, ctx});
-    const after = counts.read;
-    await invoke(routes, {path: '/api/references/track', query: {key: 'plain'}, ctx});
-    assert.equal(counts.read, after, 'the second lookup reuses the shared memo');
-  });
-
-  // The memo swallows a broken bibliography and returns {}, so the handler
-  // re-reads on an empty result to preserve the original 500.
-  const FALLBACKS = [
-    {name: 'a broken parse', files: {[BIB]: '\tnot: [valid'}, status: 500, error: 'Track check failed. Please try again later.'},
-    {name: 'a missing file', files: {}, status: 500, error: 'Track check failed. Please try again later.'},
-    {name: 'an empty but valid bibliography', files: {[BIB]: ''}, status: 404, error: 'Reference not found'},
-  ];
-  for (const {name, files, status, error} of FALLBACKS) {
-    it(`returns ${status} for ${name}`, async () => {
-      const {ctx} = fsCtx(files);
-      const r = await invoke(routes, {path: '/api/references/track', query: {key: 'plain'}, ctx});
-      assert.deepEqual([r.status, r.payload], [status, {error}]);
-    });
-  }
-});
-
-describe('POST /api/references/track', () => {
-  const REFS = {plain: {title: 'Plain', venue: 'V'}};
-
-  it('returns 429 with the track-ref key, never reading the body', async () => {
-    let reads = 0;
-    const ctx = makeCtx({rateLimitAllow: false, readBody: async () => { reads++; return {}; }});
-    const r = await invoke(routes, {method: 'POST', path: '/api/references/track', ctx});
-    assert.deepEqual([r.status, r.payload], [429, {error: 'Too many requests. Try again in a minute.'}]);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'track-ref:127.0.0.1', maxPerMinute: 10}]);
-    assert.equal(reads, 0);
-  });
-
-  const GUARDS = [
-    {name: 'an omitted key', body: {}, status: 400, error: 'Missing or invalid key'},
-    {name: 'a non-string key', body: {key: 7}, status: 400, error: 'Missing or invalid key'},
-    {name: 'a key absent from the bibliography', body: {key: 'nope'}, status: 404, error: 'Reference not found'},
-    {name: 'an entry with no arXiv id', body: {key: 'plain'}, status: 400, error: 'No arXiv ID found for this reference'},
-  ];
-  for (const {name, body, status, error} of GUARDS) {
-    it(`rejects ${name} without writing`, async () => {
-      const {ctx, counts} = fsCtx({[BIB]: bib(REFS)});
-      const r = await invoke(routes, {method: 'POST', path: '/api/references/track', body, ctx});
-      assert.deepEqual([r.status, r.payload], [status, {error}]);
-      assert.equal(counts.write, 0);
-    });
-  }
-
-  it('returns 500 when the bibliography read throws, before any write', async () => {
-    const base = mockFs({[BIB]: bib(REFS)});
-    let writes = 0;
-    const fs = {...base, readFileSync() { throw new Error('unreadable'); }, writeFileSync() { writes++; }};
-    const r = await invoke(routes, {method: 'POST', path: '/api/references/track', body: {key: 'plain'}, ctx: makeCtx({fs})});
-    assert.deepEqual([r.status, r.payload], [500, {error: 'Track update failed. Please try again later.'}]);
-    assert.equal(writes, 0);
-  });
-});
-
-describe('POST /api/references/track-all', () => {
-  it('returns 429 with the track-all key at limit 2, before any IO', async () => {
-    const {ctx, counts} = fsCtx({[BIB]: bib({a: {title: 'A'}})}, {rateLimitAllow: false});
-    const r = await invoke(routes, {method: 'POST', path: '/api/references/track-all', ctx});
-    assert.deepEqual([r.status, r.payload], [429, {error: 'Too many requests. Try again in a minute.'}]);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'track-all:127.0.0.1', maxPerMinute: 2}]);
-    assert.equal(counts.read, 0);
-  });
-
-  it('returns 500 when the bibliography read throws, before any write or network call', async () => {
-    const base = mockFs({[BIB]: bib({a: {title: 'A'}})});
-    let writes = 0;
-    const fs = {...base, readFileSync() { throw new Error('unreadable'); }, writeFileSync() { writes++; }};
-    const r = await invoke(routes, {method: 'POST', path: '/api/references/track-all', ctx: makeCtx({fs})});
-    assert.deepEqual([r.status, r.payload], [500, {error: 'Batch track failed. Please try again later.'}]);
-    assert.equal(writes, 0);
-  });
-
-  it('reports nothing checked when no entry carries an arXiv id', async () => {
-    const {ctx, counts} = fsCtx({[BIB]: bib({a: {title: 'A', venue: 'V'}})});
-    const r = await invoke(routes, {method: 'POST', path: '/api/references/track-all', ctx});
-    assert.deepEqual([r.status, r.payload], [200, {checked: 0, updated: 0, results: []}]);
-    assert.equal(counts.write, 0);
   });
 });
 
@@ -495,159 +396,6 @@ describe('POST /api/recommendations/add', () => {
 
 // ── BibTeX import ─────────────────────────────────────────────────────────
 
-describe('POST /api/references/import-bibtex', () => {
-  const ARTICLE = '@article{smith2020,\n  title = {A Paper},\n  author = {Ada Lovelace},\n  year = {2020},\n  journal = {Nature},\n  url = {http://x},\n  doi = {10.1/x},\n  pages = {1-10},\n  volume = {5}\n}';
-  const PROCEEDINGS = '@inproceedings{jones2021,\n  title = {Another},\n  booktitle = {NeurIPS},\n  year = {2021}\n}';
-
-  it('returns 429 without touching anything', async () => {
-    const {ctx, counts} = fsCtx({[BIB]: ''}, {rateLimitAllow: false});
-    const r = await invoke(routes, {method: 'POST', path: '/api/references/import-bibtex', ctx});
-    assert.equal(r.status, 429);
-    assert.deepEqual([counts.read, counts.write], [0, 0]);
-  });
-
-  const GUARDS = [
-    {name: 'an omitted bibtex field', body: {}, error: 'Missing bibtex string'},
-    {name: 'a non-string bibtex field', body: {bibtex: 7}, error: 'Missing bibtex string'},
-    {name: 'input larger than 500KB', body: {bibtex: 'x'.repeat(500001)}, error: 'BibTeX input too large (max 500KB)'},
-  ];
-  for (const {name, body, error} of GUARDS) {
-    it(`rejects ${name}`, async () => {
-      const {ctx, counts} = fsCtx({[BIB]: ''});
-      const r = await invoke(routes, {method: 'POST', path: '/api/references/import-bibtex', body, ctx});
-      assert.deepEqual([r.status, r.payload], [400, {error}]);
-      assert.equal(counts.write, 0);
-    });
-  }
-
-  it('adds an article, writing once and invalidating stats', async () => {
-    const {ctx, counts, fs} = fsCtx({[BIB]: ''});
-    const r = await invoke(routes, {method: 'POST', path: '/api/references/import-bibtex', body: {bibtex: ARTICLE}, ctx});
-    assert.deepEqual([r.status, r.payload], [200, {added: 1, skipped: 0, errors: []}]);
-    assert.equal(counts.write, 1);
-    assert.deepEqual(ctx.calls.invalidateCache, ['stats']);
-    const written = fs.readFileSync(BIB);
-    for (const token of ['smith2020', 'A Paper', 'Nature', '10.1/x', '1-10']) assert.ok(written.includes(token), token);
-  });
-
-  it('maps the entry type and takes the venue from booktitle', async () => {
-    const {ctx, fs} = fsCtx({[BIB]: ''});
-    await invoke(routes, {method: 'POST', path: '/api/references/import-bibtex', body: {bibtex: PROCEEDINGS}, ctx});
-    const written = fs.readFileSync(BIB);
-    assert.ok(written.includes('inproceedings'));
-    assert.ok(written.includes('NeurIPS'));
-  });
-
-  it('prefers journal over booktitle when an entry carries both', async () => {
-    const both = '@article{both2022,\n  title = {Both},\n  journal = {Nature},\n  booktitle = {NeurIPS}\n}';
-    const {ctx, fs} = fsCtx({[BIB]: ''});
-    await invoke(routes, {method: 'POST', path: '/api/references/import-bibtex', body: {bibtex: both}, ctx});
-    const written = fs.readFileSync(BIB);
-    assert.ok(written.includes('Nature'));
-    assert.equal(written.includes('NeurIPS'), false);
-  });
-
-  it('skips an entry whose key already exists while still adding the new one', async () => {
-    const {ctx} = fsCtx({[BIB]: bib({smith2020: {title: 'Existing'}})});
-    const r = await invoke(routes, {method: 'POST', path: '/api/references/import-bibtex', body: {bibtex: `${ARTICLE}\n\n${PROCEEDINGS}`}, ctx});
-    assert.deepEqual(r.payload, {added: 1, skipped: 1, errors: []});
-  });
-
-  it('writes nothing when every entry is a duplicate', async () => {
-    const {ctx, counts} = fsCtx({[BIB]: bib({smith2020: {title: 'Existing'}})});
-    const r = await invoke(routes, {method: 'POST', path: '/api/references/import-bibtex', body: {bibtex: ARTICLE}, ctx});
-    assert.deepEqual(r.payload, {added: 0, skipped: 1, errors: []});
-    assert.equal(counts.write, 0);
-    assert.deepEqual(ctx.calls.invalidateCache, []);
-  });
-
-  it('still imports when the existing bibliography is malformed YAML', async () => {
-    const {ctx} = fsCtx({[BIB]: '\tnot: [valid'});
-    const r = await invoke(routes, {method: 'POST', path: '/api/references/import-bibtex', body: {bibtex: ARTICLE}, ctx});
-    assert.deepEqual(r.payload, {added: 1, skipped: 0, errors: []});
-  });
-
-  it('returns a prefixed 400 when the parser throws', async () => {
-    const {ctx} = fsCtx({[BIB]: ''}, {parseBibtex() { throw new Error('bad bibtex'); }});
-    const r = await invoke(routes, {method: 'POST', path: '/api/references/import-bibtex', body: {bibtex: ARTICLE}, ctx});
-    assert.equal(r.status, 400);
-    assert.ok(r.payload.error.startsWith('BibTeX import failed: '));
-  });
-});
-
-// ── BibTeX export ─────────────────────────────────────────────────────────
-
-describe('GET /api/references/export', () => {
-  const REFS = {
-    art: {type: 'article', title: 'An Article', author: ['Ada Lovelace', 'Grace Hopper'], year: 2020, venue: 'Nature', doi: '10.1/x', volume: '5', pages: '1-10'},
-    proc: {type: 'inproceedings', title: 'A Paper', venue: 'NeurIPS', url: 'http://x'},
-    book: {type: 'book', title: 'A Book', venue: 'Some Press'},
-    typeless: {title: 'No Type', venue: 'Somewhere'},
-    weird: {type: 'phdthesis', title: 'A Thesis', venue: 'A University'},
-  };
-
-  it('emits one entry per reference, mapping the venue field by type', async () => {
-    const {ctx} = fsCtx({[BIB]: bib(REFS)});
-    const r = await invoke(routes, {path: '/api/references/export', ctx});
-    const body = r.written.body;
-    assert.ok(body.includes('@article{art,'));
-    assert.ok(body.includes('  journal = {Nature}'));
-    assert.ok(body.includes('  author = {Ada Lovelace and Grace Hopper}'));
-    assert.ok(body.includes('  volume = {5}'));
-    assert.ok(body.includes('  pages = {1-10}'));
-    assert.ok(body.includes('@inproceedings{proc,'));
-    assert.ok(body.includes('  booktitle = {NeurIPS}'));
-    assert.ok(body.includes('  howpublished = {Some Press}'), 'a book uses howpublished');
-    // An unknown type passes through verbatim; a missing one defaults to misc.
-    assert.ok(body.includes('@phdthesis{weird,'));
-    assert.ok(body.includes('@misc{typeless,'));
-  });
-
-  it('sends the BibTeX content type and attachment headers', async () => {
-    const {ctx} = fsCtx({[BIB]: bib(REFS)});
-    const r = await invoke(routes, {path: '/api/references/export', ctx});
-    assert.deepEqual(r.written.headers, {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Content-Disposition': 'attachment; filename="references.bib"',
-      'Access-Control-Allow-Origin': '*',
-      'Cache-Control': 'no-cache',
-    });
-  });
-
-  it('escapes LaTeX specials in every field', async () => {
-    const {ctx} = fsCtx({[BIB]: bib({k: {type: 'misc', title: 'Cost & 50% of x_1'}})});
-    const r = await invoke(routes, {path: '/api/references/export', ctx});
-    assert.ok(r.written.body.includes('title = {Cost \\& 50\\% of x\\_1}'));
-  });
-
-  it('memoizes the parse across two exports', async () => {
-    const {ctx, counts} = fsCtx({[BIB]: bib(REFS)});
-    await invoke(routes, {path: '/api/references/export', ctx});
-    const after = counts.read;
-    await invoke(routes, {path: '/api/references/export', ctx});
-    assert.equal(counts.read, after);
-  });
-
-  it('returns an empty bib for an empty but valid bibliography', async () => {
-    const {ctx} = fsCtx({[BIB]: ''});
-    const r = await invoke(routes, {path: '/api/references/export', ctx});
-    assert.equal(r.written.status, 200);
-    assert.equal(r.written.body, '\n');
-  });
-
-  // The catch composes err.message into the reply, so both failure shapes are
-  // the same prefixed 500.
-  for (const [label, files] of [['a broken parse', {[BIB]: '\tnot: [valid'}], ['a missing file', {}]]) {
-    it(`returns a prefixed 500 for ${label}`, async () => {
-      const {ctx} = fsCtx(files);
-      const r = await invoke(routes, {path: '/api/references/export', ctx});
-      assert.equal(r.status, 500);
-      assert.ok(r.payload.error.startsWith('Export failed: '));
-      assert.equal(r.written, null);
-    });
-  }
-});
-
 // ── Search ────────────────────────────────────────────────────────────────
 
 describe('GET /api/search', () => {
@@ -764,86 +512,3 @@ describe('GET /api/search', () => {
 });
 
 // ── Search and replace ────────────────────────────────────────────────────
-
-describe('POST /api/search/replace', () => {
-  const TREE = {
-    [at('content/a.md')]: 'foo bar foo',
-    [at('content/sub/b.md')]: 'foo once',
-    [at('content/c.md')]: 'nothing here',
-    [at('content/_skip.md')]: 'foo skipped',
-    [at('content/notes.txt')]: 'foo skipped',
-  };
-
-  it('returns 429 without touching the filesystem', async () => {
-    const {ctx, counts} = fsCtx(TREE, {rateLimitAllow: false});
-    const r = await invoke(routes, {method: 'POST', path: '/api/search/replace', ctx});
-    assert.equal(r.status, 429);
-    assert.deepEqual([counts.readdir, counts.write], [0, 0]);
-  });
-
-  const GUARDS = [
-    {name: 'an omitted search', body: {replace: 'x'}, error: 'Missing search string'},
-    {name: 'an empty search', body: {search: '', replace: 'x'}, error: 'Missing search string'},
-    {name: 'a non-string search', body: {search: 7, replace: 'x'}, error: 'Missing search string'},
-    {name: 'a search one over the text cap', body: {search: 's'.repeat(10001), replace: 'x'}, error: 'Search string too long'},
-    {name: 'an omitted replace', body: {search: 'foo'}, error: 'Missing replace string'},
-    {name: 'a non-string replace', body: {search: 'foo', replace: 7}, error: 'Missing replace string'},
-    {name: 'a replace one over the text cap', body: {search: 'foo', replace: 'r'.repeat(10001)}, error: 'Replace string too long'},
-    {name: 'a non-boolean dryRun', body: {search: 'foo', replace: 'x', dryRun: 'yes'}, error: 'dryRun must be a boolean'},
-  ];
-  for (const {name, body, error} of GUARDS) {
-    it(`rejects ${name} without touching the filesystem`, async () => {
-      const {ctx, counts} = fsCtx(TREE);
-      const r = await invoke(routes, {method: 'POST', path: '/api/search/replace', body, ctx});
-      assert.deepEqual([r.status, r.payload], [400, {error}]);
-      assert.deepEqual([counts.readdir, counts.write], [0, 0]);
-    });
-  }
-
-  // The caps are exclusive, so a string of exactly MAX_TEXT_LENGTH passes.
-  it('accepts a search and replace of exactly the text cap', async () => {
-    const {ctx} = fsCtx(TREE);
-    const r = await invoke(routes, {method: 'POST', path: '/api/search/replace', body: {search: 's'.repeat(10000), replace: 'r'.repeat(10000), dryRun: true}, ctx});
-    assert.equal(r.status, 200);
-  });
-
-  it('reports occurrences without writing on a dry run', async () => {
-    const {ctx, counts, fs} = fsCtx(TREE);
-    const r = await invoke(routes, {method: 'POST', path: '/api/search/replace', body: {search: 'foo', replace: 'baz', dryRun: true}, ctx});
-    assert.equal(r.status, 200);
-    assert.equal(r.payload.dryRun, true);
-    assert.equal(r.payload.filesChanged, 2);
-    assert.equal(r.payload.totalOccurrences, 3);
-    assert.equal(r.payload.totalOccurrences, r.payload.changes.reduce((s, c) => s + c.occurrences, 0));
-    assert.equal(counts.write, 0);
-    assert.equal(fs.readFileSync(at('content/a.md')), 'foo bar foo');
-  });
-
-  it('rewrites each matching file on a real run', async () => {
-    const {ctx, counts, fs} = fsCtx(TREE);
-    const r = await invoke(routes, {method: 'POST', path: '/api/search/replace', body: {search: 'foo', replace: 'baz'}, ctx});
-    assert.equal(r.payload.dryRun, false);
-    assert.equal(r.payload.totalOccurrences, 3);
-    assert.equal(counts.write, 2, 'only the matching files are written');
-    assert.equal(fs.readFileSync(at('content/a.md')), 'baz bar baz');
-    assert.equal(fs.readFileSync(at('content/sub/b.md')), 'baz once');
-    // Underscore files and other extensions are skipped by the walk.
-    assert.equal(fs.readFileSync(at('content/_skip.md')), 'foo skipped');
-    assert.deepEqual(ctx.calls.invalidateCache, ['search']);
-  });
-
-  it('reports a zero total when nothing matches', async () => {
-    const {ctx, counts} = fsCtx(TREE);
-    const r = await invoke(routes, {method: 'POST', path: '/api/search/replace', body: {search: 'nomatch', replace: 'x'}, ctx});
-    assert.deepEqual([r.payload.filesChanged, r.payload.totalOccurrences, r.payload.changes], [0, 0, []]);
-    assert.equal(counts.write, 0);
-  });
-
-  it('returns 400 when the body cannot be read, with no filesystem IO', async () => {
-    const {ctx, counts} = fsCtx(TREE, {readBody: async () => { throw new Error('bad json'); }});
-    const r = await invoke(routes, {method: 'POST', path: '/api/search/replace', ctx});
-    assert.deepEqual([r.status, r.payload], [400, {error: 'Invalid request'}]);
-    assert.deepEqual([counts.readdir, counts.write], [0, 0]);
-  });
-});
-

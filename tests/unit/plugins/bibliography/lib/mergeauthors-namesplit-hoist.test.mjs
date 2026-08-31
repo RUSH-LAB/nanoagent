@@ -4,11 +4,13 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { mergeMetadataSources } = require('../../../../src/server/server-utils.js');
+const { mergeMetadataSources } = require('../../../../../plugins/bibliography/lib/bibtex.js');
 
-// mergeAuthorLists is internal (only mergeMetadataSources is exported), so it is
-// exercised here through mergeMetadataSources, whose author union runs the merge
-// over the present sources in the fixed order ['crossref', 'dblp', 'semanticScholar'].
+// mergeAuthorLists is a helper of the bibliography's metadata merge
+// (plugins/bibliography/lib/bibtex.js), so it is exercised here through
+// mergeMetadataSources, the entry point the plugin's enrich and metadata
+// endpoints actually call. Its author union runs the merge over the present
+// sources in the fixed order ['crossref', 'dblp', 'semanticScholar'].
 //
 // This guards the loop-invariant hoist of splitAuthorName(name) out of the
 // per-author findIndex scan. The hoist must stay behavior-preserving: the merged
@@ -60,7 +62,7 @@ describe('mergeAuthorLists name-split hoist (via mergeMetadataSources)', () => {
   it('hoists the incoming name parse to a single const pName = splitAuthorName(name)', () => {
     // Source-slice guard: the incoming name is parsed once, and the old inline
     // per-probe re-parse callback is gone.
-    const src = readFileSync(new URL('../../../../src/server/server-utils.js', import.meta.url), 'utf8');
+    const src = readFileSync(new URL('../../../../../plugins/bibliography/lib/bibtex.js', import.meta.url), 'utf8');
     assert.ok(
       src.includes('const pName = splitAuthorName(name)'),
       'expected mergeAuthorLists to hoist the name parse into `const pName = splitAuthorName(name)`',

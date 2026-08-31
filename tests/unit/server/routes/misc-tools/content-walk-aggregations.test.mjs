@@ -130,88 +130,6 @@ function isoForAge(ageDays) {
   return new Date(NOW - ageDays * DAY).toISOString();
 }
 
-describe('GET /api/content-freshness', () => {
-  it('scores freshness buckets, sorts by age descending, tallies counts over all files, and skips hidden, underscore, and non-content files', async () => {
-    const fs = buildMockFs(CONTENT_DIR, {
-      'fresh-post.md': agedFile('---\ntitle: Fresh Post\n---\nword1 word2 word3', 3),
-      'recent-note.mdx': agedFile('one two three four five', 20),
-      sub: {
-        'aging.md': agedFile('alpha beta', 60),
-      },
-      'stale.md': agedFile('---\ntitle: "Stale One"\n---\nsolo', 120),
-      '_ignored.md': agedFile('underscore prefixed, skipped', 5),
-      'notes.txt': agedFile('wrong extension, skipped', 5),
-      '.hidden': {
-        'secret.md': agedFile('inside a hidden directory, never recursed', 5),
-      },
-    });
-
-    const { status, payload } = await runHandler('/api/content-freshness', { fs });
-
-    assert.equal(status, 200);
-    assert.deepEqual(payload, {
-      files: [
-        { path: 'content/stale.md', title: 'Stale One', ageDays: 120, wordCount: 6, lastModified: isoForAge(120), freshness: 'stale' },
-        { path: 'content/sub/aging.md', title: 'aging', ageDays: 60, wordCount: 2, lastModified: isoForAge(60), freshness: 'aging' },
-        { path: 'content/recent-note.mdx', title: 'recent-note', ageDays: 20, wordCount: 5, lastModified: isoForAge(20), freshness: 'recent' },
-        { path: 'content/fresh-post.md', title: 'Fresh Post', ageDays: 3, wordCount: 8, lastModified: isoForAge(3), freshness: 'fresh' },
-      ],
-      counts: { fresh: 1, recent: 1, aging: 1, stale: 1 },
-      totalFiles: 4,
-    });
-  });
-
-  it('caps the files list at 50 while counts and totalFiles cover the full set', async () => {
-    const tree = {};
-    for (let i = 0; i < 60; i++) {
-      tree[`f${i}.md`] = agedFile(`body number ${i}`, 1);
-    }
-    const fs = buildMockFs(CONTENT_DIR, tree);
-
-    const { status, payload } = await runHandler('/api/content-freshness', { fs });
-
-    assert.equal(status, 200);
-    assert.equal(payload.files.length, 50);
-    assert.equal(payload.totalFiles, 60);
-    assert.deepEqual(payload.counts, { fresh: 60, recent: 0, aging: 0, stale: 0 });
-    assert.ok(payload.files.every(f => f.freshness === 'fresh'));
-  });
-
-  it('pins the freshness bucket thresholds at the exact 7, 30, and 90 day boundaries', async () => {
-    // The bucket rule is ageDays <= 7 ? fresh : <= 30 ? recent : <= 90 ? aging : stale.
-    // Probing each boundary and the day past it locks the inclusive <= edges, so a
-    // future <= to < flip would change a label and fail this assertion.
-    const fs = buildMockFs(CONTENT_DIR, {
-      'b07.md': agedFile('seven', 7),
-      'b08.md': agedFile('eight', 8),
-      'b30.md': agedFile('thirty', 30),
-      'b31.md': agedFile('thirty one', 31),
-      'b90.md': agedFile('ninety', 90),
-      'b91.md': agedFile('ninety one', 91),
-    });
-
-    const { status, payload } = await runHandler('/api/content-freshness', { fs });
-
-    assert.equal(status, 200);
-    assert.deepEqual(payload.files.map(f => [f.ageDays, f.freshness]), [
-      [91, 'stale'],
-      [90, 'aging'],
-      [31, 'aging'],
-      [30, 'recent'],
-      [8, 'recent'],
-      [7, 'fresh'],
-    ]);
-    assert.deepEqual(payload.counts, { fresh: 1, recent: 2, aging: 2, stale: 1 });
-    assert.equal(payload.totalFiles, 6);
-  });
-
-  it('returns 500 when the content scan throws', async () => {
-    const { status, payload } = await runHandler('/api/content-freshness', { fs: throwingFs });
-    assert.equal(status, 500);
-    assert.deepEqual(payload, { error: 'Freshness scoring failed' });
-  });
-});
-
 describe('GET /api/content-duplicates', () => {
   it('groups files whose titles match case-insensitively, keeping the first title and both paths, and excludes singletons', async () => {
     const fs = buildMockFs(CONTENT_DIR, {
@@ -343,12 +261,10 @@ describe('content-walk cache wrapping', () => {
     const recordingCached = (key, ttl, fn) => { calls.push({ key, ttl }); return fn(); };
     const fs = buildMockFs(CONTENT_DIR, {});
 
-    await runHandler('/api/content-freshness', { fs, cached: recordingCached });
     await runHandler('/api/content-duplicates', { fs, cached: recordingCached });
     await runHandler('/api/stats/timeline', { fs, cached: recordingCached });
 
     assert.deepEqual(calls, [
-      { key: 'content-freshness', ttl: 60000 },
       { key: 'content-duplicates', ttl: 60000 },
       { key: 'stats:timeline', ttl: 60000 },
     ]);

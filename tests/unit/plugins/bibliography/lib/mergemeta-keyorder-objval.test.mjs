@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { mergeMetadataSources } = require('../../../../src/server/server-utils.js');
+const { mergeMetadataSources } = require('../../../../../plugins/bibliography/lib/bibtex.js');
 
 // Characterization test for two aspects of mergeMetadataSources
-// (server/server-utils.js, the function around lines 311 to 362) that the
-// existing suites leave unpinned:
+// (plugins/bibliography/lib/bibtex.js, the function around lines 249 to 300)
+// that the existing suites leave unpinned:
 //
 //   1. The OUTPUT KEY ORDER. The merged record's keys follow the source
 //      precedence union (crossref fields first, then the new dblp fields, then
@@ -15,7 +15,7 @@ const { mergeMetadataSources } = require('../../../../src/server/server-utils.js
 //      The sibling suites compare values with deepStrictEqual, which does NOT
 //      verify own-key insertion order, so the order is asserted here directly
 //      with `Object.keys(result)`.
-//   2. The OBJECT-VALUED field branch. hasValue (line 327) treats a plain object
+//   2. The OBJECT-VALUED field branch. hasValue (line 265) treats a plain object
 //      as a real value, so an object field is kept, and it fills through an empty
 //      higher-precedence value (an empty string is not a value) from a
 //      lower-precedence source.
@@ -24,7 +24,7 @@ const { mergeMetadataSources } = require('../../../../src/server/server-utils.js
 // guessed. mergeMetadataSources is pure and deterministic (no clock, randomness,
 // network, or filesystem), so these goldens are stable. The real output is the
 // source of truth: if it ever differs, the real output wins.
-describe('server-utils mergeMetadataSources key order and object values', () => {
+describe('bibtex mergeMetadataSources key order and object values', () => {
   it('orders output keys by source precedence union (crossref, then dblp, then semanticScholar)', () => {
     // crossref contributes title and year, dblp adds venue and pages, and
     // semanticScholar adds tldr. The union keeps each field at its first

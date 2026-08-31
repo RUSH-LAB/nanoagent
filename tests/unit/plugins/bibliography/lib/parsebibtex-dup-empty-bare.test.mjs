@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { parseBibtex } = require('../../../../src/server/server-utils.js');
+const { parseBibtex } = require('../../../../../plugins/bibliography/lib/bibtex.js');
 
 // Characterization tests for two so far unpinned branches of the field parser in
-// parseBibtex (server/server-utils.js, function at line 132).
+// parseBibtex (plugins/bibliography/lib/bibtex.js, function at line 33).
 //
 //   1. Duplicate field names. The field loop assigns `fields[name] = value`
 //      (line 201) with no guard, so a repeated field silently overwrites the
@@ -20,7 +20,7 @@ const { parseBibtex } = require('../../../../src/server/server-utils.js');
 // field name or an empty bare value. Every expected value below was captured by
 // running the real parseBibtex, so these pin current behavior rather than an
 // assumed contract.
-describe('server-utils parseBibtex duplicate fields and empty bare values', () => {
+describe('bibliography lib parseBibtex duplicate fields and empty bare values', () => {
   it('overwrites a duplicate field so the last write wins (full result)', () => {
     const input = '@article{k, title = {First}, title = {Second}}';
     const expected = [

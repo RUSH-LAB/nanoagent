@@ -5,9 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { mergeMetadataSources } = require('../../../../src/server/server-utils.js');
+const { mergeMetadataSources } = require('../../../../../plugins/bibliography/lib/bibtex.js');
 
-const SRC_PATH = fileURLToPath(new URL('../../../../src/server/server-utils.js', import.meta.url));
+const SRC_PATH = fileURLToPath(new URL('../../../../../plugins/bibliography/lib/bibtex.js', import.meta.url));
 const PROTO_SET = "new Set(['__proto__', 'constructor', 'prototype'])";
 
 describe('mergeMetadataSources proto-key Set hoist', () => {

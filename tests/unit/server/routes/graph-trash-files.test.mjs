@@ -237,7 +237,6 @@ describe('rate-limit gates on the mutation handlers', () => {
     {method: 'POST', path: '/api/folder', key: 'create-folder:', limit: 20},
     {method: 'DELETE', path: '/api/folder', key: 'del-folder:', limit: 10},
     {method: 'POST', path: '/api/file/move', key: 'file-move:', limit: 20},
-    {method: 'POST', path: '/api/export/bundle', key: 'export-bundle:', limit: 10},
   ];
   for (const {method, path: p, key, limit} of GATES) {
     it(`${method} ${p} returns 429 with key "${key}" and limit ${limit}, before readBody`, async () => {
@@ -345,72 +344,12 @@ describe('POST /api/file/move', () => {
 
 // ── File info ─────────────────────────────────────────────────────────────
 
-describe('POST /api/export/bundle', () => {
-  const TREE = {
-    [at('content/one.md')]: fm({title: 'First & <Best>'}, '\nBody one.\n'),
-    [at('content/two.md')]: 'Body two, no front matter.\n',
-  };
-
-  const GUARDS = [
-    {name: 'an absent paths array', body: {}, error: 'Missing paths array'},
-    {name: 'an empty paths array', body: {paths: []}, error: 'Missing paths array'},
-    {name: 'a paths array over fifty entries', body: {paths: new Array(51).fill('content/one.md')}, error: 'paths exceeds maximum length of 50'},
-    {name: 'a non-string element', body: {paths: ['content/one.md', 7]}, error: 'All paths must be strings'},
-    {name: 'a non-string format', body: {paths: ['content/one.md'], format: 7}, error: 'format must be a string'},
-    {name: 'an unsupported format', body: {paths: ['content/one.md'], format: 'pdf'}, error: 'format must be md or html'},
-  ];
-  for (const {name, body, error} of GUARDS) {
-    it(`rejects ${name}`, async () => {
-      const {ctx} = fsCtx(TREE);
-      const r = await invoke(routes, {method: 'POST', path: '/api/export/bundle', body, ctx});
-      assert.deepEqual([r.status, r.payload], [400, {error}]);
-      assert.equal(r.written, null);
-    });
-  }
-
-  it('renders markdown by default, joining sections with a rule', async () => {
-    const {ctx} = fsCtx(TREE);
-    const r = await invoke(routes, {method: 'POST', path: '/api/export/bundle', body: {paths: ['content/one.md', 'content/two.md']}, ctx});
-    assert.equal(r.written.status, 200);
-    assert.deepEqual(r.written.headers, {
-      'Content-Type': 'text/markdown; charset=utf-8',
-      'Content-Disposition': 'attachment; filename="bundle.md"',
-      'Access-Control-Allow-Origin': '*',
-    });
-    assert.equal(r.written.body, '# First & <Best>\n\nBody one.\n\n---\n\n# two\n\nBody two, no front matter.');
-  });
-
-  it('renders html with the escape asymmetry the two branches apply', async () => {
-    const {ctx} = fsCtx(TREE);
-    const r = await invoke(routes, {method: 'POST', path: '/api/export/bundle', body: {paths: ['content/one.md', 'content/two.md'], format: 'html'}, ctx});
-    assert.equal(r.written.headers['Content-Type'], 'text/html; charset=utf-8');
-    assert.equal(r.written.headers['Content-Disposition'], 'attachment; filename="bundle.html"');
-    // The title escapes & and < but not >; the content escapes < and > but not &.
-    assert.ok(r.written.body.includes('<h1>First &amp; &lt;Best></h1>'));
-    assert.ok(r.written.body.includes('<hr>'), 'sections are joined by a rule');
-  });
-
-  it('skips an invalid or unreadable path without failing the bundle', async () => {
-    const {ctx} = fsCtx(TREE);
-    const paths = ['../escape.md', 'content/gone.md', 'content/two.md'];
-    const r = await invoke(routes, {method: 'POST', path: '/api/export/bundle', body: {paths}, ctx});
-    assert.equal(r.written.body, '# two\n\nBody two, no front matter.');
-  });
-
-  it('returns 400 from the outer catch when the body cannot be read', async () => {
-    const {ctx} = fsCtx(TREE, {readBody: async () => { throw new Error('bad json'); }});
-    const r = await invoke(routes, {method: 'POST', path: '/api/export/bundle', ctx});
-    assert.deepEqual([r.status, r.payload], [400, {error: 'Bundle export failed'}]);
-  });
-});
-
 // ── Single-file export ────────────────────────────────────────────────────
 
 describe('malformed-body outer catches', () => {
   const CASES = [
     {method: 'POST', path: '/api/folder', error: 'Invalid request'},
     {method: 'POST', path: '/api/file/move', error: 'Invalid request'},
-    {method: 'POST', path: '/api/export/bundle', error: 'Bundle export failed'},
   ];
   for (const {method, path: p, error} of CASES) {
     for (const [label, readBody] of [

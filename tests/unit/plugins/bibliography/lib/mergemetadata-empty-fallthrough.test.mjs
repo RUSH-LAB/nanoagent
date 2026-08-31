@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { mergeMetadataSources } = require('../../../../src/server/server-utils.js');
+const { mergeMetadataSources } = require('../../../../../plugins/bibliography/lib/bibtex.js');
 
 // Characterization test for the empty-value fall-through in mergeMetadataSources
-// (server/server-utils.js). The internal `hasValue` helper treats null/undefined,
-// an empty or whitespace-only string, and an empty array as "absent", so the
-// field-precedence loop skips that source and fills the field from the next source
-// that holds a real value. When every source is empty for a field, the field is
-// omitted from the merged output entirely. Boolean false, the number 0, and a
-// non-empty array are all "present" and are kept.
+// (plugins/bibliography/lib/bibtex.js). The internal `hasValue` helper treats
+// null/undefined, an empty or whitespace-only string, and an empty array as
+// "absent", so the field-precedence loop skips that source and fills the field
+// from the next source that holds a real value. When every source is empty for a
+// field, the field is omitted from the merged output entirely. Boolean false, the
+// number 0, and a non-empty array are all "present" and are kept.
 //
 // Source precedence (highest first) is CrossRef, then DBLP, then Semantic Scholar
 // for every field except `doi` (CrossRef, DBLP, Semantic Scholar) and `venue`

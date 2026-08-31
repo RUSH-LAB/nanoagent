@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { mergeMetadataSources } = require('../../../../src/server/server-utils.js');
+const { mergeMetadataSources } = require('../../../../../plugins/bibliography/lib/bibtex.js');
 
-// Characterization test for how mergeMetadataSources (server/server-utils.js,
-// the function around lines 311 to 360) treats source field names that collide
-// with an Object.prototype member.
+// Characterization test for how mergeMetadataSources
+// (plugins/bibliography/lib/bibtex.js, the function around lines 249 to 300)
+// treats source field names that collide with an Object.prototype member.
 //
-// The forbidden set METADATA_FORBIDDEN_FIELDS (line 16) is exactly three names:
+// The forbidden set METADATA_FORBIDDEN_FIELDS (line 153) is exactly three names:
 // __proto__, constructor, and prototype. Those are skipped on the merge path.
 // Every other name, including member names like `valueOf` and `toString`, is an
 // ordinary field: it is collected and kept in the merged output under normal

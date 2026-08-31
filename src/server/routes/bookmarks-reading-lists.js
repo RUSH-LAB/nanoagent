@@ -15,7 +15,7 @@ const READING_LIST_EXPORT_RE = /^\/api\/reading-lists\/[^/]+\/export$/;
 
 module.exports = async function bookmarks_reading_lists_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── Bookmarks: list all ──
@@ -235,34 +235,6 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
     }
   }
 
-  // ── Reading Lists: stats ──
-  if (req.method === 'GET' && pathname === '/api/reading-lists/stats') {
-    const data = loadJSON(READING_LISTS_FILE);
-    const lists = data.lists || [];
-    let totalItems = 0, docItems = 0, refItems = 0;
-    const itemCounts = {};
-    for (const list of lists) {
-      const items = list.items || [];
-      totalItems += items.length;
-      for (const item of items) {
-        if (item.type === 'reference') refItems++;
-        else docItems++;
-        itemCounts[item.path] = (itemCounts[item.path] || 0) + 1;
-      }
-    }
-    const popular = Object.entries(itemCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([path, count]) => ({path, count}));
-    return json(res, 200, {
-      totalLists: lists.length,
-      totalItems,
-      docItems,
-      referenceItems: refItems,
-      popularItems: popular,
-    });
-  }
-
   // ── Reading Lists: reorder items ──
   if (req.method === 'PATCH' && READING_LIST_ITEMS_RE.test(pathname)) {
     try {
@@ -307,13 +279,11 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
         // Reuse the canonical exporter's escaper so reading-list BibTeX compiles
         // even when a value carries a LaTeX special (& % _ $ # { } ~ ^ or a
         // backslash). Non circular: research-tools does not require this module.
-        const {cleanBibtexValue} = require('./research-tools');
         // Share the mtime and size aware references.yaml memo used by every other
         // references handler instead of re-reading and re-parsing the bibliography
         // on each export. It returns {} on a missing or broken file, preserving
         // the prior `let refs = {}; try { ... } catch {}` empty-export fallback.
-        const {loadReferencesCached} = require('./references');
-        const refs = loadReferencesCached(fs, path, PROJECT_ROOT);
+        const refs = ctx.references.load(fs, path, PROJECT_ROOT);
         const lines = [];
         for (const item of (list.items || [])) {
           if (item.type !== 'reference') continue;
@@ -323,16 +293,16 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
           const authors = (entry.author || []).join(' and ');
           const bibtexType = entry.type || 'misc';
           const fields = [];
-          fields.push(`  title = {${cleanBibtexValue(entry.title || '')}}`);
-          if (authors) fields.push(`  author = {${cleanBibtexValue(authors)}}`);
-          if (entry.year) fields.push(`  year = {${cleanBibtexValue(entry.year)}}`);
+          fields.push(`  title = {${ctx.references.cleanBibtexValue(entry.title || '')}}`);
+          if (authors) fields.push(`  author = {${ctx.references.cleanBibtexValue(authors)}}`);
+          if (entry.year) fields.push(`  year = {${ctx.references.cleanBibtexValue(entry.year)}}`);
           if (entry.venue) {
-            if (bibtexType === 'inproceedings') fields.push(`  booktitle = {${cleanBibtexValue(entry.venue)}}`);
-            else if (bibtexType === 'article') fields.push(`  journal = {${cleanBibtexValue(entry.venue)}}`);
-            else fields.push(`  howpublished = {${cleanBibtexValue(entry.venue)}}`);
+            if (bibtexType === 'inproceedings') fields.push(`  booktitle = {${ctx.references.cleanBibtexValue(entry.venue)}}`);
+            else if (bibtexType === 'article') fields.push(`  journal = {${ctx.references.cleanBibtexValue(entry.venue)}}`);
+            else fields.push(`  howpublished = {${ctx.references.cleanBibtexValue(entry.venue)}}`);
           }
-          if (entry.url) fields.push(`  url = {${cleanBibtexValue(entry.url)}}`);
-          if (entry.doi) fields.push(`  doi = {${cleanBibtexValue(entry.doi)}}`);
+          if (entry.url) fields.push(`  url = {${ctx.references.cleanBibtexValue(entry.url)}}`);
+          if (entry.doi) fields.push(`  doi = {${ctx.references.cleanBibtexValue(entry.doi)}}`);
           lines.push(`@${bibtexType}{${key},\n${fields.join(',\n')}\n}`);
         }
         const bibtex = lines.join('\n\n') + '\n';

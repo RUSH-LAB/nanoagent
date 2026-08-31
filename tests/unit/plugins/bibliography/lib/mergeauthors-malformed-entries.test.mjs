@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { mergeMetadataSources } = require('../../../../src/server/server-utils.js');
+const { mergeMetadataSources } = require('../../../../../plugins/bibliography/lib/bibtex.js');
 
 // Characterization test for the malformed-author skip branches of
-// mergeMetadataSources (server/server-utils.js), which drive the internal
-// mergeAuthorLists helper:
+// mergeMetadataSources (plugins/bibliography/lib/bibtex.js), which drive the
+// internal mergeAuthorLists helper:
 //
 //   • the non-array guard
 //       const list = Array.isArray(src.authors) ? src.authors : [];

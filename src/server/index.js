@@ -10,8 +10,8 @@ const path = require('path');
 const {URL} = require('url');
 const {execFileSync} = require('child_process');
 const {
-  isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors,
-  mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH,
+  isValidFilePath, isValidDir, sanitizeText,
+  ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH,
 } = require('./server-utils');
 
 const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
@@ -21,6 +21,61 @@ const {auth, resolveIdentity, isPublicPath} = require('./auth');
 const roles = require('./roles');
 const chat = require('./chat');
 const org = require('./org');
+const ai = require('./ai');
+const {loadServerPlugins, collectProvides, asRouteModule} = require('./plugins');
+// The tools in plugins/, each contributing its endpoints and whatever it lends
+// the rest of the server. Loaded here, above ctx, because ctx spreads what they
+// provide and the route list spreads their handlers.
+const serverPlugins = loadServerPlugins();
+const providedByPlugins = collectProvides(serverPlugins);
+
+/**
+ * What a core handler sees when it asks for the bibliography and no plugin is
+ * providing one. An empty bibliography rather than a crash: a citation graph
+ * with nothing in it is the right answer when there is nothing in it, and the
+ * startup banner says which plugins loaded.
+ */
+const NO_REFERENCES = Object.freeze({
+  load: () => ({}),
+  buildCitation: () => '',
+  cleanBibtexValue: value => String(value ?? ''),
+});
+
+/**
+ * Adapt a plugin's reader-shaped loader to the (fs, path, root) call the core
+ * handlers make.
+ *
+ * The plugin cannot touch the filesystem, so it asks for `read` and `stat` and
+ * lets whoever calls it supply them. Core has fs, and its tests supply a mock
+ * one, so the adaptation belongs here rather than in the plugin.
+ */
+function referencesForCore(provided) {
+  if (!provided) return NO_REFERENCES;
+  const readerFor = (fs, path, root) => {
+    const at = relative => path.join(root, 'content', relative);
+    return {
+      read(relative) {
+        try {
+          return fs.readFileSync(at(relative), 'utf-8');
+        } catch {
+          return null;
+        }
+      },
+      stat(relative) {
+        try {
+          const {mtimeMs, size} = fs.statSync(at(relative));
+          return {mtimeMs, size};
+        } catch {
+          return null;
+        }
+      },
+    };
+  };
+  return {
+    ...provided,
+    load: (fs, path, root) => provided.load(readerFor(fs, path, root)),
+  };
+}
 const {toNodeHandler} = require('better-auth/node');
 const {DEV_AUTOLOGIN, ensureRootUser, handleDevLogin, ROOT_USERNAME} = require('./dev-auth');
 const PORT = process.env.EDITOR_PORT || 3001;
@@ -374,10 +429,16 @@ let requestCounter = 0;
 
 // ── Shared context handed to every route module in server/routes/ ──
 const ctx = {
-  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
+  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
   roles,
   chat,
   org,
+  ai,
+  // What the installed plugins lend. ctx.references comes from the bibliography
+  // plugin, and falls back to an empty one, because a core handler that reads
+  // the bibliography must survive the plugin being removed.
+  ...providedByPlugins,
+  references: referencesForCore(providedByPlugins.references),
   _routeDiagnostics: null,
 };
 
@@ -385,13 +446,9 @@ const routeModules = [
   require('./routes/files'),
   require('./routes/comments-notes'),
   require('./routes/feeds'),
-  require('./routes/references'),
   require('./routes/analytics-users'),
   require('./routes/research-tools'),
   require('./routes/graph-trash-files'),
-  require('./routes/content-analysis-a'),
-  require('./routes/content-analysis-b'),
-  require('./routes/content-analysis-c'),
   require('./routes/study-knowledge'),
   require('./routes/file-tools'),
   require('./routes/bookmarks-reading-lists'),
@@ -400,6 +457,11 @@ const routeModules = [
   require('./routes/stats'),
   require('./routes/chat'),
   require('./routes/org'),
+  require('./routes/ai'),
+  // Plugin endpoints run after the core ones. A plugin extends the site; it
+  // does not get to shadow the routes the site is made of. Each is wrapped so
+  // that what reaches it is the narrow plugin API, never this ctx.
+  ...serverPlugins.map(p => asRouteModule(p, () => providedByPlugins)),
 ];
 
 // Built once: toNodeHandler wraps the Better Auth fetch handler for node's
@@ -598,6 +660,11 @@ server.listen(PORT, async () => {
     }
   }
   console.log(`  Debug endpoint: GET /api/debug/routes`);
+
+  const assistant = ai.describe();
+  console.log(assistant.available
+    ? `  Assistant: ${assistant.provider} (${assistant.model})`
+    : `  Assistant: unavailable. ${assistant.reason}`);
 
   const root = await rootReady;
   if (root) {

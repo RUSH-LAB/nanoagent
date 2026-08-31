@@ -20,7 +20,7 @@ const EXPORT_TITLE_RE = /^title:\s*["']?(.+?)["']?\s*$/m;
 
 module.exports = async function graph_trash_files_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, parseBibtex, parseBibtexAuthors, mapBibtexEntryType, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── Graph: wiki link connections between all pages ──
@@ -274,46 +274,6 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       return json(res, 200, {success: true, newPath});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
-    }
-  }
-
-  // ── Bundle export: combine multiple files into one document ──
-  if (req.method === 'POST' && pathname === '/api/export/bundle') {
-    if (!rateLimit(`export-bundle:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
-    try {
-      const body = await readBody(req);
-      const {paths, format} = body;
-      if (!Array.isArray(paths) || paths.length === 0) return json(res, 400, {error: 'Missing paths array'});
-      if (paths.length > 50) return json(res, 400, {error: 'paths exceeds maximum length of 50'});
-      if (!paths.every(p => typeof p === 'string')) return json(res, 400, {error: 'All paths must be strings'});
-      if (format !== undefined && typeof format !== 'string') return json(res, 400, {error: 'format must be a string'});
-      const outputFormat = format || 'md';
-      if (!['md', 'html'].includes(outputFormat)) return json(res, 400, {error: 'format must be md or html'});
-      const sections = [];
-      for (const filePath of paths.slice(0, 20)) {
-        if (!isValidFilePath(filePath)) continue;
-        try {
-          let content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
-          let title = path.basename(filePath, path.extname(filePath));
-          const fmMatch = content.match(EXPORT_FM_RE);
-          if (fmMatch) {
-            const tm = fmMatch[1].match(EXPORT_TITLE_RE);
-            if (tm) title = tm[1];
-            content = content.slice(fmMatch[0].length);
-          }
-          sections.push({title, content: content.trim(), path: filePath});
-        } catch {}
-      }
-      if (outputFormat === 'md') {
-        const md = sections.map(s => `# ${s.title}\n\n${s.content}`).join('\n\n---\n\n');
-        res.writeHead(200, {'Content-Type': 'text/markdown; charset=utf-8', 'Content-Disposition': 'attachment; filename="bundle.md"', 'Access-Control-Allow-Origin': CORS_ORIGIN});
-        return res.end(md);
-      }
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Bundle Export</title><style>body{max-width:800px;margin:0 auto;padding:2rem;font-family:sans-serif;line-height:1.6}h1{border-bottom:2px solid #333;padding-bottom:8px}hr{margin:3rem 0}</style></head><body>${sections.map(s => `<h1>${s.title.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</h1>\n${s.content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}`).join('<hr>')}</body></html>`;
-      res.writeHead(200, {'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': 'attachment; filename="bundle.html"', 'Access-Control-Allow-Origin': CORS_ORIGIN});
-      return res.end(html);
-    } catch {
-      return json(res, 400, {error: 'Bundle export failed'});
     }
   }
 
