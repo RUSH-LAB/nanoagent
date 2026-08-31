@@ -1,29 +1,67 @@
-/** Transactional email through a deployment-provided HTTPS webhook. */
-async function sendMail({to, template, subject, url, data = {}}) {
-  const endpoint = process.env.MAIL_WEBHOOK_URL;
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function messageHtml({subject, url}) {
+  const safeSubject = escapeHtml(subject);
+  const safeUrl = escapeHtml(url);
+  return `<p>${safeSubject}</p><p><a href="${safeUrl}">${safeSubject}</a></p>`;
+}
+
+/** Transactional email through Resend or a deployment-provided HTTPS webhook. */
+async function sendMail({to, template, subject, url, data = {}}, {env = process.env, fetchImpl = fetch} = {}) {
+  if (env.RESEND_API_KEY || env.MAIL_FROM) {
+    if (!env.RESEND_API_KEY || !env.MAIL_FROM) {
+      throw new Error('RESEND_API_KEY and MAIL_FROM must be configured together');
+    }
+    const response = await fetchImpl('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      },
+      body: JSON.stringify({
+        from: env.MAIL_FROM,
+        to: [to],
+        subject,
+        html: messageHtml({subject, url}),
+        text: `${subject}\n\n${url}`,
+        tags: [{name: 'template', value: template}],
+      }),
+    });
+    if (!response.ok) throw new Error(`Resend delivery failed (${response.status})`);
+    return {delivered: true, provider: 'resend'};
+  }
+
+  const endpoint = env.MAIL_WEBHOOK_URL;
   if (!endpoint) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('MAIL_WEBHOOK_URL is required to send account email');
+    if (env.NODE_ENV === 'production') {
+      throw new Error('RESEND_API_KEY/MAIL_FROM or MAIL_WEBHOOK_URL is required to send account email');
     }
     return {delivered: false, development: true};
   }
 
   const target = new URL(endpoint);
-  if (target.protocol !== 'https:' && process.env.NODE_ENV === 'production') {
+  if (target.protocol !== 'https:' && env.NODE_ENV === 'production') {
     throw new Error('MAIL_WEBHOOK_URL must use HTTPS in production');
   }
-  const response = await fetch(target, {
+  const response = await fetchImpl(target, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(process.env.MAIL_WEBHOOK_TOKEN
-        ? {Authorization: `Bearer ${process.env.MAIL_WEBHOOK_TOKEN}`}
+      ...(env.MAIL_WEBHOOK_TOKEN
+        ? {Authorization: `Bearer ${env.MAIL_WEBHOOK_TOKEN}`}
         : {}),
     },
     body: JSON.stringify({to, template, subject, url, data}),
   });
   if (!response.ok) throw new Error(`Mail delivery failed (${response.status})`);
-  return {delivered: true};
+  return {delivered: true, provider: 'webhook'};
 }
 
-module.exports = {sendMail};
+module.exports = {sendMail, escapeHtml, messageHtml};

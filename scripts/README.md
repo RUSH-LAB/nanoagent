@@ -36,6 +36,8 @@ Manual verification, repair, or cleanup commands:
 
 - `verify-object-storage.mjs` performs a self-cleaning upload, metadata,
   download, and delete probe against configured S3/R2 storage.
+- `verify-mail.mjs` sends one explicitly addressed deployment-test email using
+  the configured Resend or webhook provider.
 - `clean-test-bibliography.mjs` removes known integration-test bibliography
   records and creates a backup before writing. It is a dry run unless `--apply`
   is supplied.

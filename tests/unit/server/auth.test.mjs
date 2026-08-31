@@ -356,8 +356,24 @@ describe('productionAuthError', () => {
   it('requires transactional email in production', () => {
     assert.match(
       disabled.productionAuthError({NODE_ENV: 'production', ENABLE_AUTH: 'true'}),
-      /MAIL_WEBHOOK_URL/,
+      /RESEND_API_KEY.*MAIL_FROM.*MAIL_WEBHOOK_URL/,
     );
+  });
+
+  it('requires both Resend settings when either is present', () => {
+    assert.match(
+      disabled.productionAuthError({...configured, MAIL_WEBHOOK_URL: undefined, RESEND_API_KEY: 're_test'}),
+      /RESEND_API_KEY and MAIL_FROM/,
+    );
+  });
+
+  it('accepts direct Resend delivery instead of a webhook', () => {
+    assert.equal(disabled.productionAuthError({
+      ...configured,
+      MAIL_WEBHOOK_URL: undefined,
+      RESEND_API_KEY: 're_test',
+      MAIL_FROM: 'Mochi <mail@example.test>',
+    }), null);
   });
 
   it('requires an explicit strong session secret in production', () => {

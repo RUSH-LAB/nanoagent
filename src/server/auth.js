@@ -76,9 +76,14 @@ function productionAuthError(env = process.env) {
       + 'so every request would resolve to the shared development identity and no '
       + 'sign-in would be required. Set ENABLE_AUTH=true.';
   }
-  if (!env.MAIL_WEBHOOK_URL) {
-    return 'Refusing to start: production authentication requires MAIL_WEBHOOK_URL '
-      + 'for verification, password-reset, and invitation email.';
+  const resendConfigured = Boolean(env.RESEND_API_KEY && env.MAIL_FROM);
+  const webhookConfigured = Boolean(env.MAIL_WEBHOOK_URL);
+  if ((env.RESEND_API_KEY || env.MAIL_FROM) && !resendConfigured) {
+    return 'Refusing to start: RESEND_API_KEY and MAIL_FROM must be configured together.';
+  }
+  if (!resendConfigured && !webhookConfigured) {
+    return 'Refusing to start: production authentication requires either '
+      + 'RESEND_API_KEY with MAIL_FROM, or MAIL_WEBHOOK_URL, for account email.';
   }
   if (!env.BETTER_AUTH_SECRET || env.BETTER_AUTH_SECRET.length < 32) {
     return 'Refusing to start: production requires BETTER_AUTH_SECRET with at least 32 characters.';

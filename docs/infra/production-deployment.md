@@ -28,6 +28,17 @@ The probe writes one random object below `_mochi-health/`, verifies its bytes
 and metadata, deletes it, and confirms deletion. It never reads or modifies a
 business asset.
 
+For account email, verify `mochi-lab.org` in Resend, configure
+`RESEND_API_KEY`, `MAIL_FROM`, and `MAIL_TEST_TO`, then send one deployment
+probe:
+
+```bash
+npm run mail:verify
+```
+
+`MAIL_TEST_TO` is used only by this command. The application sends verification,
+password-reset, and invitation messages to their actual recipients.
+
 ## Release sequence
 
 1. Back up the legacy database, content tree, and uploaded objects.

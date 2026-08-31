@@ -16,7 +16,7 @@ the cutover in staging, and deploy one verified application image.
 - [x] All 153 Markdown files and 740 bibliography records match the database.
 - [x] Unit, HTTP integration, PostgreSQL, and production-build checks pass.
 - [ ] Production PostgreSQL is provisioned separately from development.
-- [ ] Production object storage is provisioned and upload/delete is verified.
+- [x] Production object storage is provisioned and upload/delete is verified.
 - [ ] Transactional email is configured for verification, reset, and invites.
 - [ ] An HTTPS application origin and secret configuration are selected.
 - [ ] The production cutover and rollback rehearsal is complete.
@@ -27,7 +27,8 @@ the cutover in staging, and deploy one verified application image.
    `test:postgres` at it.
 2. Provision an S3/R2-compatible bucket, configure the five
    `OBJECT_STORAGE_*` values, and run `npm run object-storage:verify`.
-3. Configure an HTTPS mail webhook and token.
+3. Verify `mochi-lab.org` in Resend, configure `RESEND_API_KEY` and `MAIL_FROM`,
+   then run `npm run mail:verify`.
 4. Configure the application host from `.env.production.example`, including a
    new production-only `BETTER_AUTH_SECRET`.
 5. Take a fresh SQLite and object backup, then freeze legacy writes.
