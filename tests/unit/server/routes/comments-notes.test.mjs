@@ -8,10 +8,24 @@
  */
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
-import {loadRoute, makeCtx, invoke, FILES} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, TEST_IDENTITY} from '../../_harness.mjs';
 
 const routes = loadRoute('comments-notes');
-const {NOTES_FILE} = FILES;
+
+/**
+ * Write notes into one account's collection, as PUT /api/notes would leave
+ * them. The store behind ctx, so the handler reads exactly what is seeded.
+ */
+const seedNotes = (ctx, entries, auth = TEST_IDENTITY) => {
+  const scope = ctx.scopeFor({auth});
+  const notes = ctx.scoped.collection('notes');
+  for (const [key, value] of Object.entries(entries)) notes.put(scope, key, value);
+  return ctx;
+};
+
+/** One account's notes, as the store holds them. */
+const storedNotes = (ctx, auth = TEST_IDENTITY) =>
+  ctx.scoped.collection('notes').entries(ctx.scopeFor({auth}));
 
 /** The three keys the module refuses as a store key (its frozen PROTO_KEYS). */
 const PROTO_KEYS = ['__proto__', 'constructor', 'prototype'];
@@ -24,7 +38,7 @@ describe('GET /api/notes', () => {
   const NOTES = {a: {content: 'one', title: 'A'}, b: {content: 'two', title: 'B'}};
 
   it('returns the whole store when no key is given', async () => {
-    const r = await invoke(routes, {path: '/api/notes', ctx: makeCtx({store: {[NOTES_FILE]: NOTES}})});
+    const r = await invoke(routes, {path: '/api/notes', ctx: seedNotes(makeCtx(), NOTES)});
     assert.deepEqual([r.status, r.payload], [200, {notes: NOTES}]);
   });
 
@@ -34,18 +48,18 @@ describe('GET /api/notes', () => {
   });
 
   it('treats an empty-string key as absent and takes the list-all branch', async () => {
-    const r = await invoke(routes, {path: '/api/notes', query: {key: ''}, ctx: makeCtx({store: {[NOTES_FILE]: NOTES}})});
+    const r = await invoke(routes, {path: '/api/notes', query: {key: ''}, ctx: seedNotes(makeCtx(), NOTES)});
     assert.deepEqual(r.payload, {notes: NOTES});
   });
 
   it('returns the note for a real key', async () => {
-    const r = await invoke(routes, {path: '/api/notes', query: {key: 'a'}, ctx: makeCtx({store: {[NOTES_FILE]: NOTES}})});
+    const r = await invoke(routes, {path: '/api/notes', query: {key: 'a'}, ctx: seedNotes(makeCtx(), NOTES)});
     assert.deepEqual([r.status, r.payload], [200, {note: NOTES.a}]);
   });
 
   for (const key of [...INHERITED_KEYS, 'absent']) {
     it(`returns a null note for the non-own key ${JSON.stringify(key)}`, async () => {
-      const r = await invoke(routes, {path: '/api/notes', query: {key}, ctx: makeCtx({store: {[NOTES_FILE]: NOTES}})});
+      const r = await invoke(routes, {path: '/api/notes', query: {key}, ctx: seedNotes(makeCtx(), NOTES)});
       assert.deepEqual([r.status, r.payload], [200, {note: null}]);
     });
   }
@@ -89,7 +103,7 @@ describe('PUT /api/notes', () => {
   it('defaults an omitted title to the key', async () => {
     const ctx = makeCtx();
     await invoke(routes, {method: 'PUT', path: '/api/notes', body: {key: 'k', content: 'body'}, ctx});
-    const saved = ctx.store[NOTES_FILE].k;
+    const saved = storedNotes(ctx).k;
     assert.equal(saved.title, 'k');
     assert.equal(saved.content, 'body');
     assert.ok(saved.updatedAt);
@@ -98,7 +112,7 @@ describe('PUT /api/notes', () => {
   it('stores an explicit title', async () => {
     const ctx = makeCtx();
     await invoke(routes, {method: 'PUT', path: '/api/notes', body: {key: 'k', content: 'body', title: 'My Note'}, ctx});
-    assert.equal(ctx.store[NOTES_FILE].k.title, 'My Note');
+    assert.equal(storedNotes(ctx).k.title, 'My Note');
   });
 });
 
@@ -120,7 +134,7 @@ describe('DELETE /api/notes', () => {
 
   for (const key of ['toString', 'valueOf', 'absent']) {
     it(`returns 404 rather than a false success for the non-own key ${JSON.stringify(key)}`, async () => {
-      const ctx = makeCtx({store: {[NOTES_FILE]: {real: {content: 'c'}}}});
+      const ctx = seedNotes(makeCtx(), {real: {content: 'c'}});
       const r = await invoke(routes, {method: 'DELETE', path: '/api/notes', body: {key}, ctx});
       assert.deepEqual([r.status, r.payload], [404, {error: 'Note not found'}]);
       assert.deepEqual(ctx.calls.saveJSON, []);
@@ -132,11 +146,11 @@ describe('notes round trip', () => {
   it('saves, reads back, then deletes a note', async () => {
     const ctx = makeCtx();
     await invoke(routes, {method: 'PUT', path: '/api/notes', body: {key: 'k', content: 'body', title: 'T'}, ctx});
-    const read = await invoke(routes, {path: '/api/notes', query: {key: 'k'}, ctx: makeCtx({store: ctx.store})});
+    const read = await invoke(routes, {path: '/api/notes', query: {key: 'k'}, ctx});
     assert.equal(read.payload.note.content, 'body');
-    const del = await invoke(routes, {method: 'DELETE', path: '/api/notes', body: {key: 'k'}, ctx: makeCtx({store: ctx.store})});
+    const del = await invoke(routes, {method: 'DELETE', path: '/api/notes', body: {key: 'k'}, ctx});
     assert.deepEqual([del.status, del.payload], [200, {success: true}]);
-    assert.deepEqual(Object.keys(ctx.store[NOTES_FILE]), []);
+    assert.deepEqual(Object.keys(storedNotes(ctx)), []);
   });
 });
 

@@ -115,10 +115,18 @@ function createStore({db = defaultDb, now = () => new Date().toISOString()} = {}
   const OWNER = `coalesce("ownerId", '') = coalesce(?, '')`;
 
   const statements = {
+    // Ties on createdAt are broken by rowid, the order the rows were written,
+    // and not by the key, which for generated ids is a random string. Two items
+    // created in the same millisecond do that, and creating several at once is
+    // ordinary: a deck of flashcards added in one sitting came back in an order
+    // that depended on which random suffix sorted lower. Same tie, and the same
+    // fix, as the membership ordering in ../auth.js and ../audit.js.
+    //
+    // An upsert keeps its original rowid, so editing an item does not move it.
     list: db.prepare(
       `SELECT "key", "value", "createdAt", "updatedAt" FROM store_item
         WHERE "organizationId" = ? AND "domain" = ? AND ${OWNER}
-        ORDER BY "createdAt", "key"`,
+        ORDER BY "createdAt", "rowid"`,
     ),
     get: db.prepare(
       `SELECT "value" FROM store_item

@@ -49,10 +49,10 @@ const bibliographyProvides = require('../../plugins/bibliography/server.js').pro
 export const PROJECT_ROOT = '/fake/root';
 
 const DATA_FILES = [
-  'COMMENTS_FILE:comments', 'NOTES_FILE:notes', 'READING_LISTS_FILE:reading-lists',
+  'COMMENTS_FILE:comments', 'READING_LISTS_FILE:reading-lists',
   'ANNOTATIONS_FILE:annotations', 'SNAPSHOTS_FILE:snapshots',
   'SCHEDULE_FILE:schedule', 'WHITEBOARDS_FILE:whiteboards',
-  'FLASHCARDS_FILE:flashcards', 'GLOSSARY_FILE:glossary', 'TASKS_FILE:tasks',
+  'TASKS_FILE:tasks',
 ];
 
 /**

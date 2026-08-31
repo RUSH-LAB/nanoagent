@@ -40,10 +40,8 @@ const ROUTES_DIR = path.resolve(HERE, '../../../../src/server/routes');
  */
 const MIGRATING = {
   'bookmarks-reading-lists.js': ['reading-lists'],
-  'comments-notes.js': ['notes'],
   'feeds.js': ['schedule'],
-  'misc-tools.js': ['flashcards', 'schedule', 'snapshots', 'tasks', 'whiteboards'],
-  'study-knowledge.js': ['flashcards', 'glossary', 'preferences', 'quicknotes'],
+  'misc-tools.js': ['schedule', 'snapshots', 'tasks', 'whiteboards'],
 };
 
 /** The ctx name a domain's JSON file is passed under: notes -> NOTES_FILE. */

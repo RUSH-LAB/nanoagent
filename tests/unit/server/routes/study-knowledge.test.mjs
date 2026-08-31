@@ -19,18 +19,35 @@ const routes = loadRoute('study-knowledge');
 // The memo belongs to the bibliography plugin now, and so does resetting it.
 const bibliographyLib = createRequire(import.meta.url)('../../../../plugins/bibliography/lib/references.js');
 const {LINKSUGGEST_WIKI_RE, QUICKNOTES_TITLE_RE, QUICKNOTES_DATE_RE, QUICKNOTES_BODY_RE, FRONTMATTER_TITLE_RE} = routes;
-const {FLASHCARDS_FILE, GLOSSARY_FILE, READING_LISTS_FILE} = FILES;
+const {READING_LISTS_FILE} = FILES;
 const at = rel => path.join(PROJECT_ROOT, rel);
 // Content lives in the workspace's own tree, and the paths a request carries
 // are relative to it: `posts/blog/x.md`, never `content/mochi/posts/blog/x.md`.
 const atContent = rel => path.join(CONTENT_DIR, rel);
 const BIB = atContent('bibliography/references.yaml');
 const RQ_FILE = at('var/data/research-questions.json');
-const QUICKNOTES_FILE = at('var/data/quicknotes.json');
 const PINS_FILE = at('var/data/pins.json');
-const PREFS_FILE = at('var/data/preferences.json');
 const REVIEWS_FILE = at('var/data/reviews.json');
 const TEMPLATES_FILE = at('var/data/custom-templates.json');
+
+/**
+ * Seed a scoped collection, as the handlers' own writes would leave it.
+ *
+ * `rows` is either a list, keyed by each item's `id`, or an object of key to
+ * value. Written through ctx's own store, so a fixture cannot drift from what
+ * the handler reads.
+ */
+function seed(ctx, domain, rows, auth = TEST_IDENTITY) {
+  const scope = ctx.scopeFor({auth});
+  const coll = ctx.scoped.collection(domain);
+  const pairs = Array.isArray(rows) ? rows.map(r => [r.id, r]) : Object.entries(rows);
+  for (const [key, value] of pairs) coll.put(scope, key, value);
+  return ctx;
+}
+
+/** What a scope holds in `domain`, oldest first. */
+const stored = (ctx, domain, auth = TEST_IDENTITY) =>
+  ctx.scoped.collection(domain).values(ctx.scopeFor({auth}));
 
 const PROTO_KEYS = ['__proto__', 'constructor', 'prototype'];
 const INHERITED_KEYS = ['toString', 'valueOf', 'hasOwnProperty'];
@@ -116,7 +133,7 @@ describe('POST /api/flashcards', () => {
       interval: 1, easeFactor: 2.5, repetitions: 0, nextReview: today,
     });
     assert.match(id, /^fc_\d+_[a-z0-9]+$/);
-    assert.deepEqual(ctx.store[FLASHCARDS_FILE][UID], [r.payload.card]);
+    assert.deepEqual(stored(ctx, 'flashcards'), [r.payload.card]);
   });
 
   it('caps the tag list at ten and nulls an omitted sourcePath', async () => {
@@ -126,12 +143,16 @@ describe('POST /api/flashcards', () => {
     assert.equal(r.payload.card.sourcePath, null);
   });
 
+  // An inherited key is a legal userId. It used to key a JavaScript object, so
+  // the deck init had to be an own-key check; it is a bound SQL parameter now,
+  // and what matters is that the card comes back to its own account.
   for (const userId of INHERITED_KEYS) {
-    it(`stores the inherited userId ${JSON.stringify(userId)} as an own key`, async () => {
+    it(`stores a card for the inherited userId ${JSON.stringify(userId)}`, async () => {
       const ctx = makeCtx();
       const r = await invoke(routes, {method: 'POST', path: '/api/flashcards', body: OK, ctx, auth: asUser(userId)});
       assert.equal(r.status, 200);
-      assert.ok(Object.hasOwn(ctx.store[FLASHCARDS_FILE], userId));
+      assert.deepEqual(stored(ctx, 'flashcards', asUser(userId)), [r.payload.card]);
+      assert.deepEqual(stored(ctx, 'flashcards'), [], 'and onto nobody else');
     });
   }
 });
@@ -145,27 +166,28 @@ describe('GET /api/flashcards and /due', () => {
     {id: 'today', nextReview: today},
     {id: 'future', nextReview: tomorrow},
   ];
-  const store = () => ({[FLASHCARDS_FILE]: {[UID]: CARDS, alice: [{id: 'a', nextReview: today}]}});
+  const ctxWith = () =>
+    seed(seed(makeCtx(), 'flashcards', CARDS), 'flashcards', [{id: 'a', nextReview: today}], asUser('alice'));
 
   it('lists a user cards with the total', async () => {
-    const r = await invoke(routes, {path: '/api/flashcards', ctx: makeCtx({store: store()})});
+    const r = await invoke(routes, {path: '/api/flashcards', ctx: ctxWith()});
     assert.deepEqual([r.status, r.payload.total], [200, 3]);
     assert.deepEqual(r.payload.cards.map(c => c.id), ['past', 'today', 'future']);
   });
 
   it('reads the signed-in user, not a userId in the query', async () => {
-    const r = await invoke(routes, {path: '/api/flashcards', query: {userId: 'alice'}, ctx: makeCtx({store: store()})});
+    const r = await invoke(routes, {path: '/api/flashcards', query: {userId: 'alice'}, ctx: ctxWith()});
     assert.deepEqual(r.payload.cards.map(c => c.id), ['past', 'today', 'future']);
   });
 
   it('reads a different caller\'s own cards', async () => {
-    const r = await invoke(routes, {path: '/api/flashcards', ctx: makeCtx({store: store()}), auth: asUser('alice')});
+    const r = await invoke(routes, {path: '/api/flashcards', ctx: ctxWith(), auth: asUser('alice')});
     assert.deepEqual(r.payload.cards.map(c => c.id), ['a']);
   });
 
   // The due filter is inclusive of today.
   it('returns only cards due today or earlier', async () => {
-    const r = await invoke(routes, {path: '/api/flashcards/due', ctx: makeCtx({store: store()})});
+    const r = await invoke(routes, {path: '/api/flashcards/due', ctx: ctxWith()});
     assert.deepEqual(r.payload.cards.map(c => c.id), ['past', 'today']);
     assert.equal(r.payload.dueCount, 2);
   });
@@ -173,7 +195,7 @@ describe('GET /api/flashcards and /due', () => {
   for (const p of ['/api/flashcards', '/api/flashcards/due']) {
     for (const userId of [...INHERITED_KEYS, 'absent']) {
       it(`${p} returns an empty list for the non-own user ${JSON.stringify(userId)}`, async () => {
-        const r = await invoke(routes, {path: p, ctx: makeCtx({store: store()}), auth: asUser(userId)});
+        const r = await invoke(routes, {path: p, ctx: ctxWith(), auth: asUser(userId)});
         assert.deepEqual(r.payload.cards, []);
       });
     }
@@ -182,7 +204,7 @@ describe('GET /api/flashcards and /due', () => {
 
 describe('POST /api/flashcards/review', () => {
   const card = over => ({id: 'c1', interval: 1, easeFactor: 2.5, repetitions: 0, nextReview: '2020-01-01', ...over});
-  const store = over => ({[FLASHCARDS_FILE]: {[UID]: [card(over)]}});
+  const ctxWith = over => seed(makeCtx(), 'flashcards', [card(over)]);
 
   it('returns 429 with the fc-review key', async () => {
     const ctx = makeCtx({rateLimitAllow: false});
@@ -203,7 +225,7 @@ describe('POST /api/flashcards/review', () => {
   ];
   for (const {name, body, error} of GUARDS) {
     it(`rejects ${name} without saving`, async () => {
-      const ctx = makeCtx({store: store()});
+      const ctx = ctxWith();
       const r = await invoke(routes, {method: 'POST', path: '/api/flashcards/review', body, ctx});
       assert.deepEqual([r.status, r.payload], [400, {error}]);
       assert.deepEqual(ctx.calls.saveJSON, []);
@@ -211,7 +233,7 @@ describe('POST /api/flashcards/review', () => {
   }
 
   it('returns 404 for an unknown card', async () => {
-    const r = await invoke(routes, {method: 'POST', path: '/api/flashcards/review', body: {cardId: 'nope', quality: 4}, ctx: makeCtx({store: store()})});
+    const r = await invoke(routes, {method: 'POST', path: '/api/flashcards/review', body: {cardId: 'nope', quality: 4}, ctx: ctxWith()});
     assert.deepEqual([r.status, r.payload], [404, {error: 'Card not found'}]);
   });
 
@@ -227,7 +249,7 @@ describe('POST /api/flashcards/review', () => {
   ];
   for (const {name, card: over, quality, interval, repetitions} of LADDER) {
     it(`applies ${name}`, async () => {
-      const ctx = makeCtx({store: store(over)});
+      const ctx = ctxWith(over);
       const r = await invoke(routes, {method: 'POST', path: '/api/flashcards/review', body: {cardId: 'c1', quality}, ctx});
       assert.equal(r.status, 200);
       assert.deepEqual([r.payload.card.interval, r.payload.card.repetitions], [interval, repetitions]);
@@ -235,23 +257,23 @@ describe('POST /api/flashcards/review', () => {
       expected.setDate(expected.getDate() + interval);
       assert.equal(r.payload.card.nextReview, expected.toISOString().slice(0, 10));
       assert.ok(r.payload.card.lastReviewed);
-      assert.equal(ctx.calls.saveJSON.length, 1);
+      assert.deepEqual(stored(ctx, 'flashcards'), [r.payload.card], 'the reviewed card is what is kept');
     });
   }
 
   it('adjusts the ease factor by the SM-2 formula, flooring it at 1.3', async () => {
-    const perfect = await invoke(routes, {method: 'POST', path: '/api/flashcards/review', body: {cardId: 'c1', quality: 5}, ctx: makeCtx({store: store()})});
+    const perfect = await invoke(routes, {method: 'POST', path: '/api/flashcards/review', body: {cardId: 'c1', quality: 5}, ctx: ctxWith()});
     assert.equal(perfect.payload.card.easeFactor, 2.6);
-    const floored = await invoke(routes, {method: 'POST', path: '/api/flashcards/review', body: {cardId: 'c1', quality: 0}, ctx: makeCtx({store: store({easeFactor: 1.3})})});
+    const floored = await invoke(routes, {method: 'POST', path: '/api/flashcards/review', body: {cardId: 'c1', quality: 0}, ctx: ctxWith({easeFactor: 1.3})});
     assert.equal(floored.payload.card.easeFactor, 1.3);
   });
 });
 
 describe('DELETE /api/flashcards', () => {
-  const store = () => ({[FLASHCARDS_FILE]: {[UID]: [{id: 'c1'}, {id: 'c2'}]}});
+  const ctxWith = () => seed(makeCtx(), 'flashcards', [{id: 'c1'}, {id: 'c2'}]);
 
   it('rejects a missing cardId', async () => {
-    const ctx = makeCtx({store: store()});
+    const ctx = ctxWith();
     const r = await invoke(routes, {method: 'DELETE', path: '/api/flashcards', body: {}, ctx});
     assert.deepEqual([r.status, r.payload], [400, {error: 'Missing cardId'}]);
     assert.deepEqual(ctx.calls.saveJSON, []);
@@ -259,21 +281,21 @@ describe('DELETE /api/flashcards', () => {
 
   for (const userId of [...INHERITED_KEYS, 'absent']) {
     it(`returns 404 for the non-own user ${JSON.stringify(userId)}`, async () => {
-      const r = await invoke(routes, {method: 'DELETE', path: '/api/flashcards', body: {cardId: 'c1'}, ctx: makeCtx({store: store()}), auth: asUser(userId)});
+      const r = await invoke(routes, {method: 'DELETE', path: '/api/flashcards', body: {cardId: 'c1'}, ctx: ctxWith(), auth: asUser(userId)});
       assert.deepEqual([r.status, r.payload], [404, {error: 'Card not found'}]);
     });
   }
 
   it('returns 404 for an unknown card id', async () => {
-    const r = await invoke(routes, {method: 'DELETE', path: '/api/flashcards', body: {cardId: 'nope'}, ctx: makeCtx({store: store()})});
+    const r = await invoke(routes, {method: 'DELETE', path: '/api/flashcards', body: {cardId: 'nope'}, ctx: ctxWith()});
     assert.deepEqual([r.status, r.payload], [404, {error: 'Card not found'}]);
   });
 
   it('removes the matching card, keeping its siblings', async () => {
-    const ctx = makeCtx({store: store()});
+    const ctx = ctxWith();
     const r = await invoke(routes, {method: 'DELETE', path: '/api/flashcards', body: {cardId: 'c1'}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {success: true}]);
-    assert.deepEqual(ctx.store[FLASHCARDS_FILE][UID].map(c => c.id), ['c2']);
+    assert.deepEqual(stored(ctx, 'flashcards').map(c => c.id), ['c2']);
   });
 });
 
@@ -290,13 +312,13 @@ describe('GET /api/glossary', () => {
   ];
 
   it('returns every term sorted alphabetically', async () => {
-    const r = await invoke(routes, {path: '/api/glossary', ctx: makeCtx({store: {[GLOSSARY_FILE]: {terms: TERMS}}})});
+    const r = await invoke(routes, {path: '/api/glossary', ctx: seed(makeCtx(), 'glossary', TERMS)});
     assert.deepEqual([r.status, r.payload.total], [200, 2]);
     assert.deepEqual(r.payload.terms.map(t => t.term), ['Alpha', 'Zeta']);
   });
 
   it('filters on the term or the definition, case-insensitively', async () => {
-    const ctx = () => makeCtx({store: {[GLOSSARY_FILE]: {terms: TERMS}}});
+    const ctx = () => seed(makeCtx(), 'glossary', TERMS);
     const byTerm = await invoke(routes, {path: '/api/glossary', query: {q: 'ALPHA'}, ctx: ctx()});
     assert.deepEqual(byTerm.payload.terms.map(t => t.id), ['g1']);
     const byDef = await invoke(routes, {path: '/api/glossary', query: {q: 'quantum'}, ctx: ctx()});
@@ -337,7 +359,7 @@ describe('POST /api/glossary', () => {
   }
 
   it('returns 409 for a term that already exists, matched case-insensitively', async () => {
-    const ctx = makeCtx({store: {[GLOSSARY_FILE]: {terms: [{id: 'g1', term: 'ENTROPY'}]}}});
+    const ctx = seed(makeCtx(), 'glossary', [{id: 'g1', term: 'ENTROPY'}]);
     const r = await invoke(routes, {method: 'POST', path: '/api/glossary', body: OK, ctx});
     assert.deepEqual([r.status, r.payload], [409, {error: 'Term already exists'}]);
     assert.deepEqual(ctx.calls.saveJSON, []);
@@ -364,13 +386,13 @@ describe('POST /api/glossary', () => {
 
 describe('DELETE /api/glossary', () => {
   const CASES = [
-    {name: 'a missing id', body: {}, store: {terms: []}, status: 400, error: 'Missing id'},
-    {name: 'a store with no terms key', body: {id: 'g1'}, store: {}, status: 404, error: 'Term not found'},
-    {name: 'an unknown id', body: {id: 'nope'}, store: {terms: [{id: 'g1'}]}, status: 404, error: 'Term not found'},
+    {name: 'a missing id', body: {}, terms: [], status: 400, error: 'Missing id'},
+    {name: 'an empty glossary', body: {id: 'g1'}, terms: [], status: 404, error: 'Term not found'},
+    {name: 'an unknown id', body: {id: 'nope'}, terms: [{id: 'g1'}], status: 404, error: 'Term not found'},
   ];
-  for (const {name, body, store, status, error} of CASES) {
+  for (const {name, body, terms, status, error} of CASES) {
     it(`rejects ${name} without saving`, async () => {
-      const ctx = makeCtx({store: {[GLOSSARY_FILE]: store}});
+      const ctx = seed(makeCtx(), 'glossary', terms);
       const r = await invoke(routes, {method: 'DELETE', path: '/api/glossary', body, ctx});
       assert.deepEqual([r.status, r.payload], [status, {error}]);
       assert.deepEqual(ctx.calls.saveJSON, []);
@@ -378,10 +400,10 @@ describe('DELETE /api/glossary', () => {
   }
 
   it('removes the matching term', async () => {
-    const ctx = makeCtx({store: {[GLOSSARY_FILE]: {terms: [{id: 'g1'}, {id: 'g2'}]}}});
+    const ctx = seed(makeCtx(), 'glossary', [{id: 'g1'}, {id: 'g2'}]);
     const r = await invoke(routes, {method: 'DELETE', path: '/api/glossary', body: {id: 'g1'}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {success: true}]);
-    assert.deepEqual(ctx.store[GLOSSARY_FILE].terms.map(t => t.id), ['g2']);
+    assert.deepEqual(stored(ctx, 'glossary').map(t => t.id), ['g2']);
   });
 });
 
@@ -398,7 +420,7 @@ describe('GET /api/quicknotes', () => {
   ];
 
   it('returns the stored notes newest first', async () => {
-    const ctx = makeCtx({store: {[QUICKNOTES_FILE]: {[UID]: JSON_NOTES}}, fs: mockFs({})});
+    const ctx = seed(makeCtx({fs: mockFs({})}), 'quicknotes', JSON_NOTES);
     const r = await invoke(routes, {path: '/api/quicknotes', ctx});
     assert.equal(r.status, 200);
     assert.deepEqual(r.payload.map(n => n.id), ['n2', 'n1']);
@@ -406,7 +428,7 @@ describe('GET /api/quicknotes', () => {
 
   for (const userId of [...INHERITED_KEYS, 'absent']) {
     it(`returns nothing for the non-own user ${JSON.stringify(userId)}`, async () => {
-      const ctx = makeCtx({store: {[QUICKNOTES_FILE]: {[UID]: JSON_NOTES}}, fs: mockFs({})});
+      const ctx = seed(makeCtx({fs: mockFs({})}), 'quicknotes', JSON_NOTES);
       const r = await invoke(routes, {path: '/api/quicknotes', ctx, auth: asUser(userId)});
       assert.deepEqual(r.payload, []);
     });
@@ -442,7 +464,7 @@ describe('GET /api/quicknotes', () => {
   });
 
   it('returns only the stored notes when the blog directory is absent', async () => {
-    const ctx = makeCtx({store: {[QUICKNOTES_FILE]: {[UID]: JSON_NOTES}}, fs: mockFs({})});
+    const ctx = seed(makeCtx({fs: mockFs({})}), 'quicknotes', JSON_NOTES);
     const r = await invoke(routes, {path: '/api/quicknotes', ctx});
     assert.equal(r.payload.length, 2);
   });
@@ -476,7 +498,7 @@ describe('POST and DELETE /api/quicknotes', () => {
     assert.equal(r.status, 200);
     assert.equal(r.payload.note.color, '#fef3c7');
     assert.match(r.payload.note.id, /^qn_\d+_[a-z0-9]+$/);
-    assert.deepEqual(ctx.store[QUICKNOTES_FILE][UID], [r.payload.note]);
+    assert.deepEqual(stored(ctx, 'quicknotes'), [r.payload.note]);
   });
 
   // Only a hex colour of three to eight digits is accepted.
@@ -490,29 +512,30 @@ describe('POST and DELETE /api/quicknotes', () => {
 
   it('POST caps a user history at the most recent two hundred notes', async () => {
     const existing = Array.from({length: 200}, (_, i) => ({id: `n${i}`}));
-    const ctx = makeCtx({store: {[QUICKNOTES_FILE]: {[UID]: existing}}});
+    const ctx = seed(makeCtx(), 'quicknotes', existing);
     await invoke(routes, {method: 'POST', path: '/api/quicknotes', body: {text: 't'}, ctx});
-    const saved = ctx.store[QUICKNOTES_FILE][UID];
+    const saved = stored(ctx, 'quicknotes');
     assert.equal(saved.length, 200);
-    assert.equal(saved[0].id, 'n1');
+    assert.equal(saved[0].id, 'n1', 'the oldest is dropped, not the newest');
   });
 
   for (const userId of INHERITED_KEYS) {
-    it(`POST stores the inherited userId ${JSON.stringify(userId)} as an own key`, async () => {
+    it(`POST stores a note for the inherited userId ${JSON.stringify(userId)}`, async () => {
       const ctx = makeCtx();
-      await invoke(routes, {method: 'POST', path: '/api/quicknotes', body: {text: 't'}, ctx, auth: asUser(userId)});
-      assert.ok(Object.hasOwn(ctx.store[QUICKNOTES_FILE], userId));
+      const r = await invoke(routes, {method: 'POST', path: '/api/quicknotes', body: {text: 't'}, ctx, auth: asUser(userId)});
+      assert.deepEqual(stored(ctx, 'quicknotes', asUser(userId)), [r.payload.note]);
+      assert.deepEqual(stored(ctx, 'quicknotes'), [], 'and onto nobody else');
     });
   }
 
   const DELETE_CASES = [
-    {name: 'a missing id', body: {}, stored: {[UID]: [{id: 'n1'}]}, status: 400, error: 'Missing id'},
-    {name: 'a caller with no notes', body: {id: 'n1'}, stored: {someone_else: [{id: 'n1'}]}, status: 404, error: 'Note not found'},
-    {name: 'an unknown id', body: {id: 'nope'}, stored: {[UID]: [{id: 'n1'}]}, status: 404, error: 'Note not found'},
+    {name: 'a missing id', body: {}, mine: [{id: 'n1'}], theirs: [], status: 400, error: 'Missing id'},
+    {name: 'a caller with no notes', body: {id: 'n1'}, mine: [], theirs: [{id: 'n1'}], status: 404, error: 'Note not found'},
+    {name: 'an unknown id', body: {id: 'nope'}, mine: [{id: 'n1'}], theirs: [], status: 404, error: 'Note not found'},
   ];
-  for (const {name, body, stored, status, error} of DELETE_CASES) {
+  for (const {name, body, mine, theirs, status, error} of DELETE_CASES) {
     it(`DELETE rejects ${name}`, async () => {
-      const ctx = makeCtx({store: {[QUICKNOTES_FILE]: stored}});
+      const ctx = seed(seed(makeCtx(), 'quicknotes', mine), 'quicknotes', theirs, asUser('someone_else'));
       const r = await invoke(routes, {method: 'DELETE', path: '/api/quicknotes', body, ctx});
       assert.deepEqual([r.status, r.payload], [status, {error}]);
       assert.deepEqual(ctx.calls.saveJSON, []);
@@ -520,10 +543,10 @@ describe('POST and DELETE /api/quicknotes', () => {
   }
 
   it('DELETE removes the matching note', async () => {
-    const ctx = makeCtx({store: {[QUICKNOTES_FILE]: {[UID]: [{id: 'n1'}, {id: 'n2'}]}}});
+    const ctx = seed(makeCtx(), 'quicknotes', [{id: 'n1'}, {id: 'n2'}]);
     const r = await invoke(routes, {method: 'DELETE', path: '/api/quicknotes', body: {id: 'n1'}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {success: true}]);
-    assert.deepEqual(ctx.store[QUICKNOTES_FILE][UID].map(n => n.id), ['n2']);
+    assert.deepEqual(stored(ctx, 'quicknotes').map(n => n.id), ['n2']);
   });
 });
 
@@ -561,21 +584,23 @@ describe('quicknotes parser regexes', () => {
 // ── Preferences ───────────────────────────────────────────────────────────
 
 describe('/api/preferences', () => {
-  const PREFS = {alice: {theme: 'dark'}};
+  /** Alice's settings, as PUT /api/preferences would have left them. */
+  const withAlicePrefs = (prefs = {theme: 'dark'}) =>
+    seed(makeCtx(), 'preferences', {settings: prefs}, asUser('alice'));
 
   it('GET returns the stored preferences for the signed-in user', async () => {
-    const r = await invoke(routes, {path: '/api/preferences', ctx: makeCtx({store: {[PREFS_FILE]: PREFS}}), auth: asUser('alice')});
+    const r = await invoke(routes, {path: '/api/preferences', ctx: withAlicePrefs(), auth: asUser('alice')});
     assert.deepEqual([r.status, r.payload], [200, {preferences: {theme: 'dark'}}]);
   });
 
   it('GET ignores a userId in the query', async () => {
-    const r = await invoke(routes, {path: '/api/preferences', query: {userId: 'alice'}, ctx: makeCtx({store: {[PREFS_FILE]: PREFS}})});
+    const r = await invoke(routes, {path: '/api/preferences', query: {userId: 'alice'}, ctx: withAlicePrefs()});
     assert.deepEqual([r.status, r.payload], [200, {preferences: {}}]);
   });
 
   for (const userId of [...INHERITED_KEYS, 'absent']) {
     it(`GET returns an empty object for the non-own user ${JSON.stringify(userId)}`, async () => {
-      const r = await invoke(routes, {path: '/api/preferences', ctx: makeCtx({store: {[PREFS_FILE]: PREFS}}), auth: asUser(userId)});
+      const r = await invoke(routes, {path: '/api/preferences', ctx: withAlicePrefs(), auth: asUser(userId)});
       assert.deepEqual([r.status, r.payload], [200, {preferences: {}}]);
     });
   }
@@ -606,7 +631,7 @@ describe('/api/preferences', () => {
   }
 
   it('PUT merges the supplied keys and stamps updatedAt', async () => {
-    const ctx = makeCtx({store: {[PREFS_FILE]: {alice: {theme: 'dark', keep: 'me'}}}});
+    const ctx = withAlicePrefs({theme: 'dark', keep: 'me'});
     const r = await invoke(routes, {method: 'PUT', path: '/api/preferences', body: {preferences: {theme: 'light', size: 14}}, ctx, auth: asUser('alice')});
     assert.equal(r.status, 200);
     assert.deepEqual([r.payload.preferences.theme, r.payload.preferences.size, r.payload.preferences.keep], ['light', 14, 'me']);
@@ -620,13 +645,23 @@ describe('/api/preferences', () => {
   });
 
   for (const userId of INHERITED_KEYS) {
-    it(`PUT writes the inherited userId ${JSON.stringify(userId)} as an own key`, async () => {
+    it(`PUT writes settings for the inherited userId ${JSON.stringify(userId)}`, async () => {
       const ctx = makeCtx();
       const r = await invoke(routes, {method: 'PUT', path: '/api/preferences', body: {preferences: {a: 1}}, ctx, auth: asUser(userId)});
       assert.equal(r.status, 200);
-      assert.ok(Object.hasOwn(ctx.store[PREFS_FILE], userId));
+      const back = await invoke(routes, {path: '/api/preferences', ctx, auth: asUser(userId)});
+      assert.equal(back.payload.preferences.a, 1);
+      const other = await invoke(routes, {path: '/api/preferences', ctx});
+      assert.deepEqual(other.payload.preferences, {}, 'and onto nobody else');
     });
   }
+
+  it('keeps two members of a workspace on separate settings', async () => {
+    const ctx = makeCtx();
+    await invoke(routes, {method: 'PUT', path: '/api/preferences', body: {preferences: {theme: 'dark'}}, ctx, auth: asUser('ada')});
+    const his = await invoke(routes, {path: '/api/preferences', ctx, auth: asUser('bob')});
+    assert.deepEqual(his.payload.preferences, {});
+  });
 });
 
 // ── Bookmark folders ──────────────────────────────────────────────────────

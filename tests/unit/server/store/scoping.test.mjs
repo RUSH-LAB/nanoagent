@@ -225,6 +225,22 @@ describe('the operations themselves', () => {
     assert.equal(lists.get(adaLab, 'queue'), undefined);
   });
 
+  // Everything written in one test is written in one millisecond, which is what
+  // makes this the case worth pinning: with createdAt tied, the order has to
+  // come from the order of writing and not from how the keys happen to sort.
+  it('lists in the order written, not in key order', () => {
+    const cards = store.collection('flashcards');
+    for (const key of ['zebra', 'apple', 'mango']) cards.put(adaCourse, key, {key});
+    assert.deepEqual(cards.list(adaCourse).map(i => i.key), ['zebra', 'apple', 'mango']);
+  });
+
+  it('keeps an edited item in its place rather than moving it to the end', () => {
+    const cards = store.collection('flashcards');
+    for (const key of ['one', 'two', 'three']) cards.put(bobLab, key, {n: 1});
+    cards.put(bobLab, 'one', {n: 2});
+    assert.deepEqual(cards.list(bobLab).map(i => i.key), ['one', 'two', 'three']);
+  });
+
   it('update() on a missing key sees undefined rather than throwing', () => {
     const lists = store.collection('reading-lists');
     lists.update(adaLab, 'fresh', current => ({seeded: current === undefined}));
