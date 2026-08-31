@@ -14,7 +14,7 @@
  *
  * Always available: respond, stream, readBody, rateLimit, caller, shared,
  * sanitize. Everything else is a capability the manifest has to ask for —
- * "cache", "content:read", "content:write", "network", "storage" — and one that
+ * "cache", "content:read", "network", "storage" — and one that
  * was not asked for is simply absent, so reaching for it fails loudly here
  * rather than quietly acquiring reach nobody granted.
  */

@@ -7,9 +7,9 @@
  * the real, `lake build`-checked source instead of a copy pasted into MDX that
  * can silently drift from it.
  *
- * Nothing here invokes Lean. Verification stays a human step
- * (`cd plugins/lean-proofs/proofs && lake build`) so the site still builds on a
- * machine with no Lean toolchain installed.
+ * The build half does not invoke Lean, so the static site can still build on a
+ * machine without the toolchain. CI and `npm run proofs:check` verify the whole
+ * project, while server.js verifies workbench drafts on demand.
  */
 
 const fs = require('fs');
@@ -36,6 +36,9 @@ const DECL_RE = /^(?:\s*--[^\n]*\n)*\s*(theorem|lemma|def|abbrev|instance|exampl
  */
 function parseDeclarations(source, file) {
   const body = source.replace(FILE_HEADER_RE, '');
+  const imports = body.split(/\r?\n/)
+    .filter(line => /^\s*(?:prelude|import)\b/.test(line))
+    .map(line => line.trim());
   const found = [];
   let anonymous = 0;
 
@@ -50,17 +53,32 @@ function parseDeclarations(source, file) {
       name: declared || `${kind}-${anonymous}`,
       kind,
       file,
-      source: text,
+      source: [...imports, text].join('\n\n'),
     });
   }
   return found;
 }
 
-module.exports = function leanProofsPlugin(context, options = {}) {
+function listLeanFiles(dir, root = dir) {
+  const files = [];
+  for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+    if (entry.name.startsWith('.') || entry.name === 'lake-packages') continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...listLeanFiles(full, root));
+    else if (entry.name.endsWith('.lean')) files.push(path.relative(root, full));
+  }
+  return files;
+}
+
+module.exports = function leanProofsPlugin(_context, options = {}) {
   const dir = path.resolve(__dirname, options.dir ?? 'proofs');
 
   return {
     name: PLUGIN_NAME,
+
+    getClientModules() {
+      return [require.resolve('./client/prism-lean4.js')];
+    },
 
     /** Editing a proof should reload the pages that show it. */
     getPathsToWatch() {
@@ -70,7 +88,7 @@ module.exports = function leanProofsPlugin(context, options = {}) {
     async loadContent() {
       let names;
       try {
-        names = fs.readdirSync(dir).filter((f) => f.endsWith('.lean'));
+        names = listLeanFiles(dir);
       } catch {
         return {proofs: {}, files: []};
       }
@@ -96,10 +114,27 @@ module.exports = function leanProofsPlugin(context, options = {}) {
     },
 
     async contentLoaded({content, actions}) {
-      actions.setGlobalData(content);
+      actions.setGlobalData({
+        ...content,
+        command: {
+          id: PLUGIN_NAME,
+          name: PLUGIN_NAME,
+          category: 'Tools',
+          icon: 'book',
+          title: 'Lean Proofs',
+          description: 'Write an informal proof, formalize it, and verify it with Lean',
+          href: '/lean-proofs',
+        },
+      });
+      actions.addRoute({
+        path: '/lean-proofs',
+        exact: true,
+        component: require.resolve('./components/Workbench.js'),
+      });
     },
   };
 };
 
 module.exports.parseDeclarations = parseDeclarations;
+module.exports.listLeanFiles = listLeanFiles;
 module.exports.PLUGIN_NAME = PLUGIN_NAME;

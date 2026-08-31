@@ -2,5 +2,6 @@
   "title": "Wiki Links",
   "description": "The [[page]] and [[page|Display Text]] markdown syntax",
   "enabled": true,
+  "runtimeRemark": true,
   "options": {}
 }

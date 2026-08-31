@@ -3,10 +3,9 @@
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 //
-// Chat: channels, direct messages, and messages. Everything is scoped to the
-// caller's ACTIVE organization, taken from req.auth.orgId, which comes from the
-// verified session. There is no organization id in any path or body, so a
-// caller cannot address another tenant's channels by naming one.
+// Chat: channels, direct messages, and messages. Everything is scoped by the
+// RequestContext resolved from the explicit workspace URL and verified
+// membership. The session's active organization is never an authority.
 //
 // The organization itself is Better Auth's: creating one, listing them,
 // switching the active one, inviting and removing members all live under
@@ -27,8 +26,8 @@ const ERRORS = Object.freeze({
   // Distinct from 'forbidden', which means "not in this organization". These
   // two are for someone who is in it and still may not do this particular
   // thing, and telling them they are not a member would simply be false.
-  'not-channel-admin': [403, "Only the channel's creator or an organization admin can change it"],
-  'not-org-admin': [403, 'Only an owner or admin of the organization can delete a channel'],
+  'not-channel-admin': [403, "Only the channel's creator or workspace owner can change it"],
+  'not-org-admin': [403, 'Only the workspace owner can delete a channel'],
   'archived': [409, 'This channel is archived, so it is read-only'],
   'leave-instead': [400, 'Leave the channel rather than removing yourself from it'],
   'cannot-invite-to-dm': [400, 'A direct message takes exactly two people'],
@@ -70,19 +69,11 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
 
   if (!pathname.startsWith('/api/chat/')) return;
 
-  // Every handler below needs both, and neither can be supplied by the caller.
-  const {userId, orgId, orgRole} = req.auth;
-  if (!orgId) {
-    return json(res, 409, {
-      error: 'No active organization. Create or select one first.',
-      code: 'no-organization',
-      hint: 'POST /api/auth/organization/create, then /api/auth/organization/set-active',
-    });
-  }
+  if (!req.context) return json(res, 404, {error: 'Workspace not found'});
+  const {userId, role: orgRole} = req.context;
 
-  // Whether the caller manages the organization. Decided once, by the module
-  // that owns that question, and handed to chat.js so it does not need a second
-  // opinion about which roles mean what.
+  // Used only in the response model. The contextual chat service independently
+  // derives management authority from RequestContext for every write.
   const manages = org.canManage(orgRole);
 
   // ── Channels: list ──
@@ -91,17 +82,18 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
   if (req.method === 'GET' && pathname === '/api/chat/channels') {
     const includeArchived = url.searchParams.get('archived') === '1';
     return json(res, 200, {
-      channels: chat.listChannels(orgId, userId, {includeArchived}),
+      channels: await chat.listChannels(req.context, {includeArchived}),
       you: {userId, role: orgRole, canManage: manages},
     });
   }
 
   // ── Channels: create ──
   if (req.method === 'POST' && pathname === '/api/chat/channels') {
+    if (!['owner', 'editor'].includes(orgRole)) return json(res, 403, {error: 'Only workspace editors can create channels'});
     if (!rateLimit(`chat-create:${userId}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const {name, topic, kind} = await readBody(req);
-      const result = chat.createChannel(orgId, userId, {name, topic, kind});
+      const result = await chat.createChannel(req.context, {name, topic, kind});
       if (result.error) return sendError(json, res, result.error);
       return json(res, 200, {channel: result.channel});
     } catch {
@@ -117,7 +109,7 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
       if (!otherUserId || typeof otherUserId !== 'string') {
         return json(res, 400, {error: 'Missing or invalid userId'});
       }
-      const result = chat.openDm(orgId, userId, otherUserId);
+      const result = await chat.openDm(req.context, otherUserId);
       if (result.error) return sendError(json, res, result.error);
       return json(res, 200, {channel: result.channel, created: result.created});
     } catch {
@@ -129,7 +121,7 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
   const channelMemberMatch = CHANNEL_MEMBER_RE.exec(pathname);
   if (channelMemberMatch && req.method === 'DELETE') {
     const [, channelId, targetId] = channelMemberMatch;
-    const result = chat.removeChannelMember(orgId, userId, channelId, targetId, {manages});
+    const result = await chat.removeChannelMember(req.context, channelId, targetId);
     if (result.error) return sendError(json, res, result.error);
     return json(res, 200, {removed: result.removed});
   }
@@ -140,12 +132,12 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
 
     // ── One channel, with its members ──
     if (req.method === 'GET' && !action) {
-      const channel = chat.visibleChannel(orgId, userId, channelId);
+      const channel = await chat.visibleChannel(req.context, channelId);
       if (!channel) return sendError(json, res, 'not-found');
       return json(res, 200, {
         channel,
-        members: chat.listMembers(channelId),
-        canAdminister: chat.mayAdminister(channel, userId, manages),
+        members: await chat.listMembers(req.context, channelId),
+        canAdminister: chat.mayAdminister(req.context, channel),
       });
     }
 
@@ -160,7 +152,7 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
         if ('name' in body) changes.name = body.name;
         if ('topic' in body) changes.topic = body.topic;
         if (Object.keys(changes).length === 0) return json(res, 400, {error: 'Nothing to change. Send a name, a topic, or both.'});
-        const result = chat.updateChannel(orgId, userId, channelId, changes, {manages});
+        const result = await chat.updateChannel(req.context, channelId, changes);
         if (result.error) return sendError(json, res, result.error);
         return json(res, 200, {channel: result.channel});
       } catch {
@@ -170,7 +162,7 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
 
     // ── Archive, and bring back ──
     if (req.method === 'POST' && (action === 'archive' || action === 'unarchive')) {
-      const result = chat.setArchived(orgId, userId, channelId, action === 'archive', {manages});
+      const result = await chat.setArchived(req.context, channelId, action === 'archive');
       if (result.error) return sendError(json, res, result.error);
       return json(res, 200, {channel: result.channel, changed: result.changed});
     }
@@ -178,14 +170,14 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
     // ── Delete it, and everything said in it ──
     if (req.method === 'DELETE' && !action) {
       if (!rateLimit(`chat-delete:${userId}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
-      const result = chat.deleteChannel(orgId, userId, channelId, {manages});
+      const result = await chat.deleteChannel(req.context, channelId);
       if (result.error) return sendError(json, res, result.error);
       return json(res, 200, {deleted: result.deleted});
     }
 
     // ── History ──
     if (req.method === 'GET' && action === 'messages') {
-      const result = chat.listMessages(orgId, userId, channelId, {
+      const result = await chat.listMessages(req.context, channelId, {
         before: url.searchParams.get('before'),
         limit: url.searchParams.get('limit'),
       });
@@ -198,7 +190,7 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
       if (!rateLimit(`chat-post:${userId}`, 120)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       try {
         const {body} = await readBody(req);
-        const result = chat.postMessage(orgId, userId, channelId, body);
+        const result = await chat.postMessage(req.context, channelId, body);
         if (result.error) return sendError(json, res, result.error);
         return json(res, 200, {message: result.message});
       } catch {
@@ -207,19 +199,19 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
     }
 
     if (req.method === 'POST' && action === 'join') {
-      const result = chat.joinChannel(orgId, userId, channelId);
+      const result = await chat.joinChannel(req.context, channelId);
       if (result.error) return sendError(json, res, result.error);
       return json(res, 200, {channel: result.channel, joined: result.joined});
     }
 
     if (req.method === 'POST' && action === 'leave') {
-      const result = chat.leaveChannel(orgId, userId, channelId);
+      const result = await chat.leaveChannel(req.context, channelId);
       if (result.error) return sendError(json, res, result.error);
       return json(res, 200, {left: result.left});
     }
 
     if (req.method === 'POST' && action === 'read') {
-      const result = chat.markRead(orgId, userId, channelId);
+      const result = await chat.markRead(req.context, channelId);
       if (result.error) return sendError(json, res, result.error);
       // `lastReadSeq` is the mark that was set, and it travels back so the
       // caller can move its divider without re-listing every channel. It comes
@@ -236,7 +228,7 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
         if (!inviteeId || typeof inviteeId !== 'string') {
           return json(res, 400, {error: 'Missing or invalid userId'});
         }
-        const result = chat.addMember(orgId, userId, channelId, inviteeId);
+        const result = await chat.addMember(req.context, channelId, inviteeId);
         if (result.error) return sendError(json, res, result.error);
         return json(res, 200, {added: result.added});
       } catch {
@@ -248,7 +240,7 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
   // ── Delete one of your own messages ──
   const messageMatch = MESSAGE_RE.exec(pathname);
   if (messageMatch && req.method === 'DELETE') {
-    const result = chat.deleteMessage(orgId, userId, messageMatch[1]);
+    const result = await chat.deleteMessage(req.context, messageMatch[1]);
     if (result.error) {
       // A message you did not write reads as 'forbidden' from chat.js, but the
       // channel-shaped wording in ERRORS would be confusing here.

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {createApiClient} from './api-client.mjs';
 // ─────────────────────────────────────────────────────────────
 // Comprehensive API integration tests for the Mochi Lab editor server
 // Usage:  node tests/integration/test-api.mjs
@@ -42,29 +43,7 @@ function section(title) {
 }
 
 // ── Helpers ──
-async function api(method, path, body, opts = {}) {
-  const url = path.startsWith('http') ? path : `${BASE}${path}`;
-  const init = {method, headers: {}};
-  if (body !== undefined && body !== null) {
-    if (typeof body === 'string' || body instanceof Buffer) {
-      init.body = body;
-    } else {
-      init.headers['Content-Type'] = 'application/json';
-      init.body = JSON.stringify(body);
-    }
-  }
-  if (opts.headers) Object.assign(init.headers, opts.headers);
-  if (opts.signal) init.signal = opts.signal;
-  const res = await fetch(url, init);
-  const contentType = res.headers.get('content-type') || '';
-  let data;
-  if (contentType.includes('application/json')) {
-    data = await res.json();
-  } else {
-    data = await res.text();
-  }
-  return {status: res.status, data, headers: res.headers};
-}
+const api = createApiClient(BASE);
 
 function assertEq(actual, expected, label) {
   if (actual !== expected) throw new Error(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
@@ -106,7 +85,7 @@ async function preflight() {
 // ────────────────────────────────────────────────────────────────
 
 const TEST_PREFIX = `__test_${Date.now()}`;
-const TEST_FILE = `content/posts/${TEST_PREFIX}_post.md`;
+const TEST_FILE = `posts/${TEST_PREFIX}_post.md`;
 const TEST_FILE_CONTENT = `---\ntitle: "Test Post"\ndate: 2025-01-01\n---\n\n# Test Post\n\nHello world. This is a test file for API integration tests.\n`;
 const TEST_NOTE_KEY = `${TEST_PREFIX}_note`;
 const TEST_REF_KEY = `${TEST_PREFIX}_ref`;
@@ -127,11 +106,11 @@ async function testFileCRUD() {
 
   // 2. Create file
   await test('Create file', async () => {
-    const {status, data} = await api('POST', '/api/file', {
+    const {status, data} = await api('POST', '/api/documents', {
       path: TEST_FILE,
-      content: TEST_FILE_CONTENT,
+      markdown: TEST_FILE_CONTENT,
     });
-    assertEq(status, 200, 'status');
+    assertEq(status, 201, 'status');
     assertOk(data.success, 'success');
     cleanup.push(() => safeDeleteFile(TEST_FILE));
   });
@@ -146,9 +125,9 @@ async function testFileCRUD() {
   // 4. Update file
   await test('Update file', async () => {
     const updatedContent = TEST_FILE_CONTENT.replace('Hello world', 'Updated content');
-    const {status, data} = await api('PUT', '/api/file', {
+    const {status, data} = await api('PUT', '/api/documents', {
       path: TEST_FILE,
-      content: updatedContent,
+      markdown: updatedContent,
     });
     assertEq(status, 200, 'status');
     assertOk(data.success, 'success');
@@ -168,14 +147,14 @@ async function testFileCRUD() {
 
   // 6. File move
   await test('File move', async () => {
-    const {status, data} = await api('POST', '/api/file/move', {
-      filePath: TEST_FILE,
-      targetDir: 'content/books',
+    const movedPath = `books/${TEST_FILE.split('/').pop()}`;
+    const {status, data} = await api('POST', '/api/documents/move', {
+      from: TEST_FILE,
+      to: movedPath,
     });
     assertEq(status, 200, 'status');
     assertOk(data.success, 'success');
     // The moved file keeps the basename of TEST_FILE
-    const movedPath = `content/books/${TEST_FILE.split('/').pop()}`;
     cleanup.pop();
     cleanup.push(() => safeDeleteFile(movedPath));
     // Verify it is at the new location
@@ -186,11 +165,11 @@ async function testFileCRUD() {
   // 7. Delete file (soft-delete to trash)
   await test('Delete file (soft-delete)', async () => {
     // Figure out the current location after move
-    const movedPath = `content/books/${TEST_FILE.split('/').pop()}`;
-    const {status, data} = await api('DELETE', `/api/file?path=${encodeURIComponent(movedPath)}`);
+    const movedPath = `books/${TEST_FILE.split('/').pop()}`;
+    const {status, data} = await api('DELETE', '/api/documents', {path: movedPath});
     assertEq(status, 200, 'status');
     assertOk(data.success, 'success');
-    assertOk(typeof data.trashPath === 'string', 'has trashPath');
+    assertEq(data.success, true, 'document was soft-deleted');
     // Remove the now-stale cleanup; add trash cleanup instead
     cleanup.pop();
     cleanup.push(() => emptyTrashIfNeeded());
@@ -290,11 +269,7 @@ async function testReferences() {
     });
     assertOk(status === 200 || status === 201, 'status 200 or 201');
     assertOk(data.success, 'success');
-    cleanup.push(async () => {
-      // References don't have a delete endpoint; we rely on the fact
-      // that the key is unique enough not to conflict.
-      // A more thorough cleanup could re-write references.yaml.
-    });
+    cleanup.push(() => api('DELETE', `/api/references/${encodeURIComponent(TEST_REF_KEY)}`));
   });
 
   // 3. Export BibTeX
@@ -321,6 +296,7 @@ async function testReferences() {
     // Verify it exists now
     const {data: refs} = await api('GET', '/api/references');
     assertOk(refs.references[`${TEST_PREFIX}_import`], 'imported reference exists');
+    cleanup.push(() => api('DELETE', `/api/references/${encodeURIComponent(`${TEST_PREFIX}_import`)}`));
   });
 }
 
@@ -390,15 +366,12 @@ async function testSecurity() {
     assertOk(data.error, 'has error');
   });
 
-  // 2. Prototype pollution blocked
+  // 2. Prototype-shaped ids cannot bypass platform authorization.
   await test('Prototype pollution blocked', async () => {
-    // The target user id still comes from the URL, so the server still rejects
-    // a prototype name there. The requester is the session subject now, so the
-    // body has nothing to say about who is asking.
     const {status} = await api('PUT', '/api/users/__proto__/role', {
-      role: 'owner',
+      role: 'admin',
     });
-    assertEq(status, 400, 'status should be 400 for __proto__');
+    assertOk(status === 400 || status === 403, 'unsafe target is rejected');
   });
 
   // 3. Auth bypass blocked (role change by a non-owner)
@@ -407,11 +380,11 @@ async function testSecurity() {
     // is now inert: the caller is whoever the session token says, and the
     // development identity holds no owner record.
     const {status, data} = await api('PUT', '/api/users/someuser/role', {
-      role: 'owner',
+      role: 'admin',
       requesterId: 'nonexistent-user',
     });
     assertEq(status, 403, 'status should be 403');
-    assertOk(data.error.includes('owner'), 'error mentions owner requirement');
+    assertOk(data.error.includes('platform administrator'), 'error mentions platform administrator requirement');
   });
 
   // 4. Body size limit
@@ -421,15 +394,15 @@ async function testSecurity() {
     // verify the limit exists by checking server behavior on a normal request.
     // A true test would send >10MB but that's slow. We test the logic path
     // by confirming a valid request works and that the constant is 10MB.
-    const {status} = await api('POST', '/api/file', {
-      path: 'content/should-not-exist.md',
-      content: 'x'.repeat(1000),
+    const {status} = await api('POST', '/api/documents', {
+      path: 'should-not-exist.md',
+      markdown: 'x'.repeat(1000),
     });
     // The file gets created (or 409 if exists), proving body parsing works
-    assertOk(status === 200 || status === 409, 'body parsed correctly');
+    assertOk(status === 201 || status === 409, 'body parsed correctly');
     // Clean up if it was created
-    if (status === 200) {
-      await api('DELETE', '/api/file?path=content/should-not-exist.md');
+    if (status === 201) {
+      await api('DELETE', '/api/documents', {path: 'should-not-exist.md'});
     }
   });
 
@@ -451,7 +424,7 @@ async function testSecurity() {
 
 async function safeDeleteFile(filePath) {
   try {
-    await api('DELETE', `/api/file?path=${encodeURIComponent(filePath)}`);
+    await api('DELETE', '/api/documents', {path: filePath});
   } catch { /* ignore */ }
 }
 
@@ -474,7 +447,8 @@ async function runCleanup() {
     }
   }
 
-  // Also clean up notes and references we created (they persist in JSON/YAML)
+  // Notes still have no delete API. Bibliography records are removed through
+  // the cleanup callbacks registered as soon as each test creates one.
   // Notes: remove our test key from notes.json
   try {
     const {data} = await api('GET', '/api/notes');

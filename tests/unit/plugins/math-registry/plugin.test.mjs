@@ -1,6 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'module';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -42,6 +44,24 @@ describe('math-registry plugin', () => {
       },
     });
     assert.deepEqual(globalData, testContent);
+  });
+
+  it('does not discover workspace content during an application build', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'math-workspaces-'));
+    try {
+      for (const [workspace, body] of [
+        ['mochi', '<Theorem id="same">Primary.</Theorem>'],
+        ['acme', '<Lemma id="same">Other.</Lemma>'],
+      ]) {
+        const dir = path.join(root, 'content', workspace, 'books', 'math');
+        fs.mkdirSync(dir, {recursive: true});
+        fs.writeFileSync(path.join(dir, '1-intro.md'), body);
+      }
+      const data = await mathRegistryPlugin({siteDir: root}, {books: ['math']}).loadContent();
+      assert.deepEqual(data, {primary: {}, scopes: []});
+    } finally {
+      fs.rmSync(root, {recursive: true, force: true});
+    }
   });
 });
 

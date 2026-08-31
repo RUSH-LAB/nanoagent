@@ -17,7 +17,6 @@
  * somebody may not read should not be a row that reached the process.
  */
 const crypto = require('crypto');
-const {db: defaultDb} = require('./db');
 
 /** Raised when a caller has no workspace to read or write content in. */
 class NoWorkspaceError extends Error {
@@ -41,7 +40,8 @@ const VISIBILITIES = Object.freeze(['org', 'private']);
 const MAX_PATH_LENGTH = 400;
 
 function checkPath(value) {
-  const path = String(value ?? '');
+  const input = String(value ?? '');
+  const path = input.startsWith('content/') ? input.slice('content/'.length) : input;
   if (!path || path.length > MAX_PATH_LENGTH) {
     throw new TypeError(`A document path must be 1 to ${MAX_PATH_LENGTH} characters`);
   }
@@ -51,10 +51,10 @@ function checkPath(value) {
   return path;
 }
 
-function orgOf(scope) {
-  const orgId = scope?.orgId;
-  if (!orgId || typeof orgId !== 'string') throw new NoWorkspaceError();
-  return orgId;
+function workspaceOf(context) {
+  const workspaceId = context?.workspaceId;
+  if (!workspaceId || typeof workspaceId !== 'string') throw new NoWorkspaceError();
+  return workspaceId;
 }
 
 /**
@@ -81,7 +81,7 @@ function titleOf(markdown, path) {
  * drive a throwaway database, and so the eventual Postgres connection is an
  * argument rather than a rewrite. Same shape as store's createStore.
  */
-function createDocuments({db = defaultDb, now = () => new Date().toISOString(), newId = () => crypto.randomUUID()} = {}) {
+function createDocuments({db = require('./db').db, now = () => new Date().toISOString(), newId = () => crypto.randomUUID()} = {}) {
   // A caller sees a document if it belongs to their workspace AND either it is
   // visible to the workspace or they are the one who made it. Written once and
   // reused, because a read that got it wrong would be the whole point of the
@@ -112,6 +112,12 @@ function createDocuments({db = defaultDb, now = () => new Date().toISOString(), 
     setVisibility: db.prepare('UPDATE document SET "visibility" = ?, "updatedAt" = ? WHERE "id" = ?'),
     move: db.prepare('UPDATE document SET "path" = ?, "title" = ?, "updatedAt" = ? WHERE "id" = ?'),
     softDelete: db.prepare('UPDATE document SET "deletedAt" = ? WHERE "id" = ?'),
+    countDeleted: db.prepare(
+      'SELECT COUNT(*) AS count FROM document WHERE "organizationId" = ? AND "deletedAt" IS NOT NULL',
+    ),
+    purgeDeleted: db.prepare(
+      'DELETE FROM document WHERE "organizationId" = ? AND "deletedAt" IS NOT NULL',
+    ),
 
     nextSeq: db.prepare('SELECT COALESCE(MAX("seq"), 0) + 1 AS seq FROM document_version WHERE "documentId" = ?'),
     addVersion: db.prepare(
@@ -129,12 +135,17 @@ function createDocuments({db = defaultDb, now = () => new Date().toISOString(), 
 
   /** Every document in scope the caller may read, without their bodies. */
   function list(scope) {
-    return statements.list.all(orgOf(scope), scope?.userId ?? null);
+    return statements.list.all(workspaceOf(scope), scope?.userId ?? null);
+  }
+
+  /** All visible document metadata and bodies in one scoped query. */
+  function snapshot(scope) {
+    return list(scope).map(row => get(scope, row.path)).filter(Boolean);
   }
 
   /** One document by path, with its body, or undefined. */
   function get(scope, path) {
-    return statements.get.get(orgOf(scope), scope?.userId ?? null, checkPath(path)) ?? undefined;
+    return statements.get.get(workspaceOf(scope), scope?.userId ?? null, checkPath(path)) ?? undefined;
   }
 
   /**
@@ -164,7 +175,7 @@ function createDocuments({db = defaultDb, now = () => new Date().toISOString(), 
 
   /** One document by id, with its body, or undefined. */
   function getById(scope, id) {
-    return statements.getById.get(orgOf(scope), scope?.userId ?? null, id) ?? undefined;
+    return statements.getById.get(workspaceOf(scope), scope?.userId ?? null, id) ?? undefined;
   }
 
   /**
@@ -172,12 +183,12 @@ function createDocuments({db = defaultDb, now = () => new Date().toISOString(), 
    * would also do; asking first is what makes the message about the path.
    */
   function create(scope, {path, markdown = '', visibility = 'org'}) {
-    const orgId = orgOf(scope);
+    const workspaceId = workspaceOf(scope);
     const clean = checkPath(path);
     if (!VISIBILITIES.includes(visibility)) {
       throw new TypeError(`Not a visibility: ${visibility}`);
     }
-    if (statements.pathTaken.get(orgId, clean)) {
+    if (statements.pathTaken.get(workspaceId, clean)) {
       const taken = new Error(`A document already exists at ${clean}`);
       taken.status = 409;
       taken.code = 'path-taken';
@@ -186,7 +197,7 @@ function createDocuments({db = defaultDb, now = () => new Date().toISOString(), 
     const at = now();
     const id = newId();
     statements.insert.run(
-      id, orgId, clean, titleOf(markdown, clean), markdown, visibility, scope?.userId ?? null, at, at,
+      id, workspaceId, clean, titleOf(markdown, clean), markdown, visibility, scope?.userId ?? null, at, at,
     );
     return {id, path: clean, title: titleOf(markdown, clean), visibility, createdAt: at, updatedAt: at};
   }
@@ -229,11 +240,11 @@ function createDocuments({db = defaultDb, now = () => new Date().toISOString(), 
 
   /** Move a document to another path in the same workspace. */
   function move(scope, from, to) {
-    const orgId = orgOf(scope);
+    const workspaceId = workspaceOf(scope);
     const current = get(scope, from);
     if (!current) return undefined;
     const clean = checkPath(to);
-    if (statements.pathTaken.get(orgId, clean)) {
+    if (statements.pathTaken.get(workspaceId, clean)) {
       const taken = new Error(`A document already exists at ${clean}`);
       taken.status = 409;
       taken.code = 'path-taken';
@@ -252,6 +263,14 @@ function createDocuments({db = defaultDb, now = () => new Date().toISOString(), 
     return true;
   }
 
+  /** Permanently remove only this workspace's already-soft-deleted documents. */
+  function emptyTrash(scope) {
+    const workspaceId = workspaceOf(scope);
+    const count = statements.countDeleted.get(workspaceId).count;
+    statements.purgeDeleted.run(workspaceId);
+    return count;
+  }
+
   /** A document's history, newest first, without the bodies. */
   function versions(scope, path) {
     const current = get(scope, path);
@@ -267,7 +286,7 @@ function createDocuments({db = defaultDb, now = () => new Date().toISOString(), 
   }
 
   return {
-    list, get, getById, resolve, create, save, setVisibility, move, remove,
+    list, snapshot, get, getById, resolve, create, save, setVisibility, move, remove, emptyTrash,
     versions, version, titleOf, db,
   };
 }

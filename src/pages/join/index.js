@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import Link from '@docusaurus/Link';
 import API_BASE, {apiFetch} from '@site/src/utils/api';
+import {loadWorkspaces} from '@site/src/utils/workspaces';
 import pageStyles from '@site/src/css/page.module.css';
 import dir from '@site/src/css/directory.module.css';
 import styles from './styles.module.css';
@@ -38,6 +39,7 @@ function Join() {
   const [status, setStatus] = useState('loading');
   const [message, setMessage] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [joinedWorkspace, setJoinedWorkspace] = useState(null);
 
   const id = typeof window === 'undefined'
     ? null
@@ -75,7 +77,9 @@ function Join() {
     setBusy(true);
     setMessage(null);
     try {
-      await call(`/api/invite/${encodeURIComponent(id)}/accept`, {method: 'POST'});
+      const joined = await call(`/api/invite/${encodeURIComponent(id)}/accept`, {method: 'POST'});
+      const {workspaces} = await loadWorkspaces({fresh: true});
+      setJoinedWorkspace(workspaces.find(workspace => workspace.id === joined.organizationId) ?? null);
       setStatus('joined');
     } catch (err) {
       setMessage(err.message);
@@ -102,7 +106,9 @@ function Join() {
         <h1 className={dir.title}>You are in {invitation.organization}</h1>
         <p className={dir.note}>
           Open the command bar at the bottom of any page to start talking, or see{' '}
-          <Link to="/people">who else is here</Link>.
+          <Link to={joinedWorkspace
+            ? `/w/${encodeURIComponent(joinedWorkspace.slug)}/people`
+            : '/people'}>who else is here</Link>.
         </p>
       </div>
     );

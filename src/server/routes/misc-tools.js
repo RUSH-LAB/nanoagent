@@ -4,7 +4,7 @@
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 
 const { numericParam } = require('../server-utils');
-const {DATA_SEGS, dataFileSegs} = require('../paths');
+const {dataFileSegs} = require('../paths');
 
 // Object keys that must never be used as property names (prototype-pollution guard).
 const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
@@ -58,14 +58,14 @@ const SNAPSHOT_LIMIT = 10;
 
 module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, documents, requireWorkspacePermission, _routeDiagnostics
   } = ctx;
 
   // ── Content duplicate detection ──
   if (req.method === 'GET' && pathname === '/api/content-duplicates') {
     try {
-      const duplicates = cached(cacheKey(req.auth?.orgId, 'content-duplicates'), 60000, () => {
-        const contentDir = contentRootFor(req.auth?.orgId);
+      const duplicates = cached(cacheKey(req.context?.workspaceId, 'content-duplicates'), 60000, () => {
+        const contentDir = contentRootFor(req.context?.workspaceId);
         const files = [];
         function collectFiles(dir) {
           for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -83,7 +83,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
                   if (titleMatch) title = titleMatch[1];
                 }
                 files.push({
-                  path: path.relative(contentRootFor(req.auth?.orgId), fullPath),
+                  path: path.relative(contentRootFor(req.context?.workspaceId), fullPath),
                   title,
                   titleLower: title.toLowerCase().trim(),
                 });
@@ -112,8 +112,8 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   // ── Content health check ──
   if (req.method === 'GET' && pathname === '/api/content-health') {
     try {
-      const health = cached(cacheKey(req.auth?.orgId, 'content-health'), 60000, () => {
-        const contentDir = contentRootFor(req.auth?.orgId);
+      const health = cached(cacheKey(req.context?.workspaceId, 'content-health'), 60000, () => {
+        const contentDir = contentRootFor(req.context?.workspaceId);
         const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
         const pages = new Map();
         const allLinks = [];
@@ -126,7 +126,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
             if (entry.isDirectory()) {
               scanHealth(fullPath);
             } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              const relPath = path.relative(contentRootFor(req.auth?.orgId), fullPath);
+              const relPath = path.relative(contentRootFor(req.context?.workspaceId), fullPath);
               let id = relPath.replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
               if (id.endsWith('/index')) id = id.slice(0, -6);
               const content = fs.readFileSync(fullPath, 'utf-8');
@@ -209,24 +209,27 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       const {path: filePath, name} = body;
       if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
       if (!name || typeof name !== 'string') return json(res, 400, {error: 'Name is required'});
-      const fullPath = path.join(contentRootFor(req.auth?.orgId), filePath);
-      if (!fs.existsSync(fullPath)) return json(res, 404, {error: 'File not found'});
+      if (!req.context) return json(res, 404, {error: 'Workspace not found'});
+      if (req.context && requireWorkspacePermission) requireWorkspacePermission(req.context, 'content:edit');
+      const scope = scopeFor(req);
+      const document = await documents.get(scope, filePath);
+      if (!document) return json(res, 404, {error: 'File not found'});
     // The workspace's: a saved version of one of its pages is the group's,
     // like the page. One row per file, holding that file's recent versions.
       const snapshots = collection('snapshots');
-      const content = fs.readFileSync(fullPath, 'utf-8');
       const snapshot = {
         id: crypto.randomUUID(),
         name: sanitizeText(name).slice(0, 200),
-        content,
+        content: document.markdown,
         createdAt: new Date().toISOString(),
       };
       // One row per file, holding that file's most recent SNAPSHOT_LIMIT
       // versions. The path is the key, which is what `snapshots[filePath]` was.
-      snapshots.update(scopeFor(req), filePath, kept =>
+      await snapshots.update(scope, filePath, kept =>
         [...(Array.isArray(kept) ? kept : []), snapshot].slice(-SNAPSHOT_LIMIT));
       return json(res, 200, {success: true, snapshot: {id: snapshot.id, name: snapshot.name, createdAt: snapshot.createdAt}});
-    } catch {
+    } catch (error) {
+      if (error?.status) return json(res, error.status, {error: error.message, ...(error.code ? {code: error.code} : {})});
       return json(res, 400, {error: 'Invalid request'});
     }
   }
@@ -238,7 +241,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   if (req.method === 'GET' && pathname === '/api/snapshots') {
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
-    const kept = collection('snapshots').get(scopeFor(req), filePath) ?? [];
+    const kept = await collection('snapshots').get(scopeFor(req), filePath) ?? [];
     return json(res, 200, {snapshots: kept.map(s => ({id: s.id, name: s.name, createdAt: s.createdAt}))});
   }
 
@@ -250,15 +253,18 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       const {path: filePath, snapshotId} = body;
       if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
       if (!snapshotId || typeof snapshotId !== 'string') return json(res, 400, {error: 'snapshotId is required'});
-      const fullPath = path.join(contentRootFor(req.auth?.orgId), filePath);
-      if (!fs.existsSync(fullPath)) return json(res, 404, {error: 'File not found'});
-      const kept = collection('snapshots').get(scopeFor(req), filePath) ?? [];
+      if (!req.context) return json(res, 404, {error: 'Workspace not found'});
+      requireWorkspacePermission(req.context, 'content:edit');
+      const scope = scopeFor(req);
+      if (!await documents.get(scope, filePath)) return json(res, 404, {error: 'File not found'});
+      const kept = await collection('snapshots').get(scope, filePath) ?? [];
       const snapshot = kept.find(s => s.id === snapshotId);
       if (!snapshot) return json(res, 404, {error: 'Snapshot not found'});
-      fs.writeFileSync(fullPath, snapshot.content, 'utf-8');
-      invalidateCache(cacheKey(req.auth?.orgId, 'search'));
+      await documents.save(scope, filePath, snapshot.content);
+      invalidateCache(cacheKey(req.context.workspaceId, ''));
       return json(res, 200, {success: true, restored: {id: snapshot.id, name: snapshot.name}});
-    } catch {
+    } catch (error) {
+      if (error?.status) return json(res, error.status, {error: error.message, ...(error.code ? {code: error.code} : {})});
       return json(res, 400, {error: 'Invalid request'});
     }
   }
@@ -267,21 +273,22 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   if (req.method === 'DELETE' && pathname === '/api/snapshots') {
     if (!rateLimit(`snapshots-delete:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
+      if (req.context && requireWorkspacePermission) requireWorkspacePermission(req.context, 'content:edit');
       const body = await readBody(req);
       const {path: filePath, snapshotId} = body;
       if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
       if (!snapshotId || typeof snapshotId !== 'string') return json(res, 400, {error: 'snapshotId is required'});
       const snapshots = collection('snapshots');
       const scope = scopeFor(req);
-      const kept = snapshots.get(scope, filePath);
+      const kept = await snapshots.get(scope, filePath);
       if (!kept) return json(res, 404, {error: 'No snapshots for this file'});
       const idx = kept.findIndex(s => s.id === snapshotId);
       if (idx === -1) return json(res, 404, {error: 'Snapshot not found'});
       kept.splice(idx, 1);
       // The last snapshot of a file takes the row with it, so the file reads
       // back as having none rather than as having an empty list.
-      if (kept.length === 0) snapshots.remove(scope, filePath);
-      else snapshots.put(scope, filePath, kept);
+      if (kept.length === 0) await snapshots.remove(scope, filePath);
+      else await snapshots.put(scope, filePath, kept);
       return json(res, 200, {success: true});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -296,6 +303,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     if (req.method === 'POST') {
       if (!rateLimit(`whiteboard:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       try {
+        if (req.context && requireWorkspacePermission) requireWorkspacePermission(req.context, 'content:edit');
         const body = await readBody(req);
         const {id, elements} = body;
         if (!id || typeof id !== 'string') return json(res, 400, {error: 'Missing id'});
@@ -311,7 +319,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
           color: /^#[0-9a-fA-F]{3,8}$/.test(el.color) ? el.color : '#fef3c7',
         }));
         const board = {id: safeId, elements: safeElements, updatedAt: new Date().toISOString()};
-        whiteboards.put(scopeFor(req), safeId, board);
+        await whiteboards.put(scopeFor(req), safeId, board);
         return json(res, 200, {success: true, whiteboard: board});
       } catch {
         return json(res, 400, {error: 'Invalid request'});
@@ -320,7 +328,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     if (req.method === 'GET') {
       const id = url.searchParams.get('id');
       if (id) {
-        const board = whiteboards.get(scopeFor(req), id);
+        const board = await whiteboards.get(scopeFor(req), id);
         if (!board) return json(res, 404, {error: 'Whiteboard not found'});
         return json(res, 200, {whiteboard: board});
       }
@@ -328,15 +336,16 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     }
     if (req.method === 'DELETE') {
       if (!rateLimit(`whiteboard-del:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+      if (req.context && requireWorkspacePermission) requireWorkspacePermission(req.context, 'content:edit');
       const id = url.searchParams.get('id');
       if (!id) return json(res, 400, {error: 'Missing id parameter'});
-      if (!whiteboards.remove(scopeFor(req), id)) return json(res, 404, {error: 'Whiteboard not found'});
+      if (!await whiteboards.remove(scopeFor(req), id)) return json(res, 404, {error: 'Whiteboard not found'});
       return json(res, 200, {success: true});
     }
   }
 
   if (req.method === 'GET' && pathname === '/api/whiteboards') {
-    const list = collection('whiteboards').values(scopeFor(req))
+    const list = (await collection('whiteboards').values(scopeFor(req)))
       .map(wb => ({id: wb.id, elementCount: (wb.elements || []).length, updatedAt: wb.updatedAt}));
     return json(res, 200, {whiteboards: list});
   }
@@ -347,7 +356,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   // here and no way to name another account's cards.
   if (req.method === 'GET' && pathname === '/api/flashcards/review') {
     const today = new Date().toISOString().slice(0, 10);
-    const cards = collection('flashcards').values(scopeFor(req)).filter(c => c.nextReview <= today);
+    const cards = (await collection('flashcards').values(scopeFor(req))).filter(c => c.nextReview <= today);
     cards.sort((a, b) => (a.nextReview || '').localeCompare(b.nextReview || ''));
     return json(res, 200, {cards, count: cards.length});
   }
@@ -359,12 +368,12 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     try {
       // The mindmap tree is a pure function of this one file's content, so memoize
       // the whole payload keyed by path for the TTL while the json() write below
-      // still runs on every request. Mirrors cached(cacheKey(req.auth?.orgId, 'filequality:'+path),30000)
+      // still runs on every request. The key includes the verified workspace id.
       // in this file. The readFileSync stays INSIDE the closure, so a missing file still
       // throws into the outer catch and the 404 is never cached (cached stores
       // nothing when fn throws).
-      const result = cached(cacheKey(req.auth?.orgId, 'filemindmap:' + filePath), 30000, () => {
-        let md = fs.readFileSync(path.join(contentRootFor(req.auth?.orgId), filePath), 'utf-8');
+      const result = cached(cacheKey(req.context?.workspaceId, 'filemindmap:' + filePath), 30000, () => {
+        let md = fs.readFileSync(path.join(contentRootFor(req.context?.workspaceId), filePath), 'utf-8');
         // Strip frontmatter
         md = md.replace(/^---\n[\s\S]*?\n---\n?/, '');
         // Parse headings
@@ -414,14 +423,14 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
-        tasks.put(scopeFor(req), task.id, task);
+        await tasks.put(scopeFor(req), task.id, task);
         return json(res, 201, {success: true, task});
       } catch {
         return json(res, 400, {error: 'Invalid request'});
       }
     }
     if (req.method === 'GET') {
-      const mine = tasks.values(scopeFor(req));
+      const mine = await tasks.values(scopeFor(req));
       // Single pass: bucket each task by status in source order. A status other
       // than todo/doing/done lands in no bucket; counts derive from bucket lengths.
       const grouped = {todo: [], doing: [], done: []};
@@ -439,14 +448,14 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         const {id, status, title, description, priority} = body;
         if (!id || typeof id !== 'string') return json(res, 400, {error: 'Missing id'});
         const scope = scopeFor(req);
-        const task = tasks.get(scope, id);
+        const task = await tasks.get(scope, id);
         if (!task) return json(res, 404, {error: 'Task not found'});
         if (status !== undefined && TASK_STATUSES.includes(status)) task.status = status;
         if (title !== undefined && typeof title === 'string' && title.trim()) task.title = sanitizeText(title.trim()).slice(0, 200);
         if (description !== undefined) task.description = sanitizeText(String(description).trim()).slice(0, 2000);
         if (priority !== undefined && TASK_PRIORITIES.includes(priority)) task.priority = priority;
         task.updatedAt = new Date().toISOString();
-        tasks.put(scope, id, task);
+        await tasks.put(scope, id, task);
         return json(res, 200, {success: true, task});
       } catch {
         return json(res, 400, {error: 'Invalid request'});
@@ -458,7 +467,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         const body = await readBody(req);
         const {id} = body;
         if (!id || typeof id !== 'string') return json(res, 400, {error: 'Missing id'});
-        if (!tasks.remove(scopeFor(req), id)) return json(res, 404, {error: 'Task not found'});
+        if (!await tasks.remove(scopeFor(req), id)) return json(res, 404, {error: 'Task not found'});
         return json(res, 200, {success: true});
       } catch {
         return json(res, 400, {error: 'Invalid request'});
@@ -480,7 +489,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     });
   }
 
-  // ── Quick Note: fast capture to markdown file ──
+  // ── Quick Note: fast capture to a document row ──
   if (req.method === 'POST' && pathname === '/api/quicknote') {
     if (!rateLimit(`quicknote:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
@@ -492,6 +501,9 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       if (text.length > MAX_TEXT_LENGTH) {
         return json(res, 400, {error: 'Text too long'});
       }
+      if (!req.context) return json(res, 404, {error: 'Workspace not found'});
+      requireWorkspacePermission(req.context, 'content:create');
+      const scope = scopeFor(req);
 
       const now = new Date();
       const datePrefix = now.toISOString().slice(0, 10); // YYYY-MM-DD
@@ -515,22 +527,8 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       }
 
       const filename = `${datePrefix}-${slug}.md`;
-      const blogDir = path.join(contentRootFor(req.auth?.orgId), 'posts', 'blog');
-      const filePath = path.join(blogDir, filename);
-
-      // Ensure blog directory exists
-      if (!fs.existsSync(blogDir)) {
-        fs.mkdirSync(blogDir, {recursive: true});
-      }
-
-      // Avoid overwriting existing files
-      let finalPath = filePath;
+      let relativePath = `posts/blog/${filename}`;
       let finalFilename = filename;
-      if (fs.existsSync(filePath)) {
-        const suffix = `_${Date.now().toString(36)}`;
-        finalFilename = `${datePrefix}-${slug}${suffix}.md`;
-        finalPath = path.join(blogDir, finalFilename);
-      }
 
       const frontmatterTitle = cleanTitle || `Quick Note ${datePrefix}`;
       const content = [
@@ -546,49 +544,60 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         '',
       ].join('\n');
 
-      fs.writeFileSync(finalPath, content, 'utf-8');
-      const relativePath = path.relative(contentRootFor(req.auth?.orgId), finalPath);
+      // Concurrent captures can choose the same human-readable filename before
+      // either insert becomes visible. Treat the unique constraint as the
+      // arbiter and retry with an opaque suffix instead of dropping a note.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        if (attempt > 0) {
+          const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+          finalFilename = `${datePrefix}-${slug}_${suffix}.md`;
+          relativePath = `posts/blog/${finalFilename}`;
+        }
+        try {
+          await documents.create(scope, {path: relativePath, markdown: content});
+          break;
+        } catch (error) {
+          if (error?.code !== 'path-taken' || attempt === 4) throw error;
+        }
+      }
+      invalidateCache(cacheKey(req.context.workspaceId, ''));
       return json(res, 200, {success: true, path: relativePath, filename: finalFilename});
     } catch (err) {
+      if (err?.status) return json(res, err.status, {error: err.message, ...(err.code ? {code: err.code} : {})});
       return json(res, 400, {error: 'Invalid request'});
     }
   }
 
   if (req.method === 'GET' && pathname === '/api/quicknote') {
     try {
+      if (!req.context) return json(res, 404, {error: 'Workspace not found'});
+      requireWorkspacePermission(req.context, 'content:read');
+      const scope = scopeFor(req);
       // Param-free deterministic scan: memoize on a 60s window so repeated
       // requests do not re-walk content/posts/blog. A thrown scan propagates out
       // of cached() before anything is stored, so the outer catch below still
       // returns the empty 200 and that failure is never cached.
-      const result = cached(cacheKey(req.auth?.orgId, 'quicknote-list'), 60000, () => {
-        const blogDir = path.join(contentRootFor(req.auth?.orgId), 'posts', 'blog');
-        if (!fs.existsSync(blogDir)) {
-          return {notes: [], total: 0};
-        }
-        const files = fs.readdirSync(blogDir)
-          .filter(f => f.endsWith('.md'))
-          .sort((a, b) => b.localeCompare(a)); // newest first by filename (date-prefixed)
+      const result = await cached(cacheKey(req.context.workspaceId, 'quicknote-list'), 60000, async () => {
+        const rows = (await documents.list(scope))
+          .filter(document => /^posts\/blog\/[^/]+\.md$/.test(document.path))
+          .sort((a, b) => b.path.localeCompare(a.path));
 
         const notes = [];
-        for (const file of files) {
+        for (const row of rows) {
           if (notes.length >= 10) break;
-          try {
-            const raw = fs.readFileSync(path.join(blogDir, file), 'utf-8');
-            // Check if it's a quick note (has quick-note tag)
-            if (!raw.includes('quick-note')) continue;
-            // Extract title from frontmatter
-            const titleMatch = raw.match(/^title:\s*"?(.+?)"?\s*$/m);
-            const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
-            // Extract body (after frontmatter)
-            const bodyMatch = raw.match(/---\s*\n[\s\S]*?\n---\s*\n([\s\S]*)/);
-            notes.push({
-              filename: file,
-              title: titleMatch ? titleMatch[1] : file,
-              date: dateMatch ? dateMatch[1] : null,
-              preview: bodyMatch ? bodyMatch[1].trim().slice(0, 200) : '',
-              path: `posts/blog/${file}`,
-            });
-          } catch {}
+          const raw = (await documents.get(scope, row.path))?.markdown ?? '';
+          if (!raw.includes('quick-note')) continue;
+          const file = row.path.split('/').pop();
+          const titleMatch = raw.match(/^title:\s*"?(.+?)"?\s*$/m);
+          const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
+          const bodyMatch = raw.match(/---\s*\n[\s\S]*?\n---\s*\n([\s\S]*)/);
+          notes.push({
+            filename: file,
+            title: titleMatch ? titleMatch[1] : file,
+            date: dateMatch ? dateMatch[1] : null,
+            preview: bodyMatch ? bodyMatch[1].trim().slice(0, 200) : '',
+            path: row.path,
+          });
         }
         return {notes, total: notes.length};
       });
@@ -605,13 +614,13 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     try {
       // The quality score is a pure function of this one file's content, so
       // memoize the whole payload keyed by path for the TTL while the json() write
-      // below still runs on every request. Mirrors cached(cacheKey(req.auth?.orgId, 'filestyle:'+path),30000)
-      // in content-analysis-b.js and cached(cacheKey(req.auth?.orgId, 'fileinfo:'+path),30000) in
+      // below still runs on every request. The cache key includes the verified
+      // workspace id, like the related file-analysis caches.
       // graph-trash-files.js. The readFileSync stays INSIDE the closure, so a
       // missing file still throws into the outer catch and the 404 is never cached
       // (cached stores nothing when fn throws).
-      const result = cached(cacheKey(req.auth?.orgId, 'filequality:' + filePath), 30000, () => {
-        const content = fs.readFileSync(path.join(contentRootFor(req.auth?.orgId), filePath), 'utf-8');
+      const result = cached(cacheKey(req.context?.workspaceId, 'filequality:' + filePath), 30000, () => {
+        const content = fs.readFileSync(path.join(contentRootFor(req.context?.workspaceId), filePath), 'utf-8');
         const suggestions = [];
 
         // 1. Word count score (max 25)
@@ -726,10 +735,11 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         .filter(w => w.length > 2 && !SUGGEST_STOP_WORDS.has(w));
       if (keywords.length === 0) return json(res, 200, {references: [], pages: []});
 
-      // 1. Search references.yaml for matching titles/authors
+      // 1. Search this workspace's database-backed bibliography.
       const matchedRefs = [];
       try {
-        const refs = ctx.references.load(fs, path, contentRootFor(req.auth?.orgId));
+        const records = ctx.references.openPapers?.(collection, scopeFor(req));
+        const refs = records ? await records.entries() : {};
         for (const [key, entry] of Object.entries(refs)) {
           const title = (entry.title || '').toLowerCase();
           const authors = (Array.isArray(entry.author) ? entry.author.join(' ') : (entry.author || '')).toLowerCase();
@@ -742,18 +752,18 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
             matchedRefs.push({key, title: entry.title || key, relevance});
           }
         }
-      } catch { /* references.yaml missing or invalid */ }
+      } catch { /* bibliography unavailable */ }
       matchedRefs.sort((a, b) => b.relevance - a.relevance);
 
       // 2. Search content files for matching headings
       const matchedPages = [];
       try {
-        const contentDir = contentRootFor(req.auth?.orgId);
+        const contentDir = contentRootFor(req.context?.workspaceId);
         if (fs.existsSync(contentDir)) {
           const mdFiles = flatFiles(contentDir).filter(f => f.name.endsWith('.md') || f.name.endsWith('.mdx'));
           for (const file of mdFiles) {
             try {
-              const content = fs.readFileSync(path.join(contentRootFor(req.auth?.orgId), file.path), 'utf-8');
+              const content = fs.readFileSync(path.join(contentRootFor(req.context?.workspaceId), file.path), 'utf-8');
               // Extract title from frontmatter or first heading
               let pageTitle = '';
               const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -794,43 +804,41 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
 
   // ── Data integrity validation ──
   if (req.method === 'GET' && pathname === '/api/integrity') {
+    if (!req.context) return json(res, 404, {error: 'Workspace not found'});
+    requireWorkspacePermission(req.context, 'content:read');
     const checks = [];
-    const dataDir = path.join(PROJECT_ROOT, ...DATA_SEGS);
+    const scope = scopeFor(req);
 
-    // 1. Verify all data/*.json files are valid JSON
+    // 1. Verify document paths are unique in the scoped read model.
     try {
-      const jsonFiles = fs.readdirSync(dataDir).filter(f => f.endsWith('.json'));
-      const invalid = [];
-      for (const file of jsonFiles) {
-        try {
-          JSON.parse(fs.readFileSync(path.join(dataDir, file), 'utf-8'));
-        } catch (e) {
-          invalid.push({file, error: e.message});
-        }
-      }
+      const rows = await documents.list(scope);
+      const unique = new Set(rows.map(row => row.path));
       checks.push({
-        name: 'json_validity',
-        passed: invalid.length === 0,
-        details: invalid.length === 0
-          ? `All ${jsonFiles.length} JSON files are valid`
-          : `${invalid.length} invalid JSON file(s): ${invalid.map(i => i.file).join(', ')}`,
+        name: 'document_paths',
+        passed: unique.size === rows.length,
+        details: unique.size === rows.length
+          ? `${rows.length} document path(s) are unique in this workspace`
+          : 'Duplicate live document paths were returned',
       });
     } catch (e) {
-      checks.push({name: 'json_validity', passed: false, details: `Cannot read data directory: ${e.message}`});
+      checks.push({name: 'document_paths', passed: false, details: `Cannot read documents: ${e.message}`});
     }
 
-    // 2. Check references.yaml is valid YAML
+    // 2. Verify bibliography records are structured database values.
     try {
-      const yaml = require('js-yaml');
-      const refPath = path.join(contentRootFor(req.auth?.orgId), 'bibliography', 'references.yaml');
-      if (fs.existsSync(refPath)) {
-        yaml.load(fs.readFileSync(refPath, 'utf-8'));
-        checks.push({name: 'yaml_validity', passed: true, details: 'references.yaml is valid YAML'});
-      } else {
-        checks.push({name: 'yaml_validity', passed: true, details: 'references.yaml not found (optional)'});
-      }
+      const refs = await collection('plugin:bibliography:papers').entries(scope);
+      const invalid = Object.entries(refs)
+        .filter(([, entry]) => !entry || typeof entry !== 'object' || typeof entry.title !== 'string')
+        .map(([key]) => key);
+      checks.push({
+        name: 'reference_records',
+        passed: invalid.length === 0,
+        details: invalid.length === 0
+          ? `${Object.keys(refs).length} reference record(s) are valid`
+          : `Invalid reference record(s): ${invalid.join(', ')}`,
+      });
     } catch (e) {
-      checks.push({name: 'yaml_validity', passed: false, details: `references.yaml is invalid: ${e.message}`});
+      checks.push({name: 'reference_records', passed: false, details: `Cannot read references: ${e.message}`});
     }
 
     // 3. Verify no orphaned snapshot entries (snapshots for deleted files)
@@ -839,9 +847,8 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       // to be a global store checked against one organization's files, so every
       // other organization's paths counted as orphans here.
       const orphaned = [];
-      for (const {key: filePath, value: kept} of collection('snapshots').list(scopeFor(req))) {
-        const fullPath = path.join(contentRootFor(req.auth?.orgId), filePath);
-        if (!fs.existsSync(fullPath)) {
+      for (const {key: filePath, value: kept} of await collection('snapshots').list(scopeFor(req))) {
+        if (!await documents.get(scope, filePath)) {
           orphaned.push({file: filePath, count: kept.length});
         }
       }
@@ -881,8 +888,8 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   // ── Content calendar (publishing planner) ──
   if (req.method === 'GET' && pathname === '/api/calendar') {
     try {
-      const calendar = cached(cacheKey(req.auth?.orgId, 'calendar'), 60000, () => {
-        const contentDir = contentRootFor(req.auth?.orgId);
+      const calendar = await cached(cacheKey(req.context?.workspaceId, 'calendar'), 60000, async () => {
+        const contentDir = contentRootFor(req.context?.workspaceId);
         const byMonth = {};
 
         function scan(dir) {
@@ -914,7 +921,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
               const month = date.slice(0, 7);
               if (!byMonth[month]) byMonth[month] = [];
               byMonth[month].push({
-                path: path.relative(contentRootFor(req.auth?.orgId), fp),
+                path: path.relative(contentRootFor(req.context?.workspaceId), fp),
                 title,
                 date,
                 wordCount,
@@ -930,7 +937,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         // spelled right it would have been every workspace's schedule on one
         // workspace's calendar. It is this workspace's schedule, through the
         // store, like everything else.
-        for (const item of collection('schedule').values(scopeFor(req))) {
+        for (const item of await collection('schedule').values(scopeFor(req))) {
           if (!item.publishAt) continue;
           const pubDate = item.publishAt.slice(0, 10);
           const month = pubDate.slice(0, 7);

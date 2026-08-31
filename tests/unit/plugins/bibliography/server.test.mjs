@@ -18,13 +18,15 @@ import path from 'node:path';
 import https from 'node:https';
 import {EventEmitter} from 'node:events';
 import {createRequire} from 'node:module';
-import {makeCtx, invoke, mockFs, PROJECT_ROOT, CONTENT_DIR, key} from '../../_harness.mjs';
+import {makeCtx, invoke, mockFs, PROJECT_ROOT, CONTENT_DIR, key, TEST_IDENTITY} from '../../_harness.mjs';
 
 const require = createRequire(import.meta.url);
 // A plugin's server module is loaded by path, not by loadRoute: it is not in
 // src/server/routes, which is the point of the exercise.
 const routes = require('../../../../plugins/bibliography/server.js');
 const manifest = require('../../../../plugins/bibliography/plugin.json');
+const yaml = require('js-yaml');
+const {paperForStorage} = require('../../../../plugins/bibliography/lib/protocol.js');
 
 /**
  * What the server hands this plugin, built from its own manifest so the suite
@@ -50,6 +52,18 @@ const brokenContent = over => ({
   ...BIBLIOGRAPHY,
   capabilities: api => ({content: {...api.content, ...over}}),
 });
+const brokenPaperRecords = over => ({
+  ...BIBLIOGRAPHY,
+  capabilities: api => {
+    const records = api.records;
+    return {records: {
+      collection(name) {
+        const collection = records.collection(name);
+        return name === 'papers' ? {...collection, ...over} : collection;
+      },
+    }};
+  },
+});
 const {numericParam} = routes;
 const {loadReferences, buildCitation, _resetReferencesCache, cleanBibtexValue} =
   require('../../../../plugins/bibliography/lib/references.js');
@@ -60,6 +74,10 @@ const {loadReferences, buildCitation, _resetReferencesCache, cleanBibtexValue} =
 // another's.
 const BIB = path.join(CONTENT_DIR, 'bibliography', 'references.yaml');
 
+function storedPapers(ctx) {
+  return ctx.scoped.collection('plugin:bibliography:papers').entries(ctx.scopeFor({auth: TEST_IDENTITY}));
+}
+
 function fsCtx(files, over = {}) {
   const base = mockFs(files);
   const counts = {read: 0, write: 0, stat: 0};
@@ -69,7 +87,15 @@ function fsCtx(files, over = {}) {
     writeFileSync: (p, d) => { counts.write++; return base.writeFileSync(p, d); },
     statSync: p => { counts.stat++; return base.statSync(p); },
   };
-  return {ctx: makeCtx({fs, ...over}), counts, fs};
+  const ctx = makeCtx({fs, ...over});
+  try {
+    const parsed = files[BIB] == null ? {} : (yaml.load(files[BIB]) || {});
+    const papers = ctx.scoped.collection('plugin:bibliography:papers');
+    for (const [citationKey, entry] of Object.entries(parsed)) {
+      papers.put(ctx.scopeFor({auth: TEST_IDENTITY}), citationKey, paperForStorage(entry));
+    }
+  } catch { /* malformed legacy fixture means no imported database rows */ }
+  return {ctx, counts, fs};
 }
 
 function bib(entries) {
@@ -277,9 +303,8 @@ describe('POST /api/references', () => {
   });
 
   const GUARDS = [
-    {name: 'an omitted key', body: {entry: {}}, error: 'Missing key or entry'},
-    // The !entry guard fires before the type checks.
-    {name: 'a null entry', body: {key: 'k', entry: null}, error: 'Missing key or entry'},
+    {name: 'an omitted entry', body: {}, error: 'Missing entry'},
+    {name: 'a null entry', body: {key: 'k', entry: null}, error: 'Missing entry'},
     {name: 'a non-string key', body: {key: 7, entry: {title: 'T'}}, error: 'Invalid key'},
     {name: 'a key over 200 characters', body: {key: 'k'.repeat(201), entry: {title: 'T'}}, error: 'Invalid key'},
     {name: 'a non-object entry', body: {key: 'k', entry: 'not an object'}, error: 'Invalid entry'},
@@ -297,47 +322,63 @@ describe('POST /api/references', () => {
     const {ctx, counts} = fsCtx({[BIB]: bib({new2024: {title: 'Existing'}})});
     const r = await invoke(routes, {plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references', body: OK, ctx});
     assert.deepEqual([r.status, r.payload], [409, {error: 'Key already exists'}]);
-    assert.ok(counts.read > 0);
+    assert.equal(counts.read, 0, 'the live duplicate check does not read legacy YAML');
     assert.equal(counts.write, 0);
   });
 
-  // js-yaml parses an empty document to null, so the `|| {}` fallback applies
-  // and a __proto__ key still collides with the inherited member.
-  it('returns 409 for a __proto__ key against an empty bibliography', async () => {
+  it('rejects a prototype-polluting citation key', async () => {
     const {ctx, counts} = fsCtx({[BIB]: ''});
     const r = await invoke(routes, {plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references', body: {key: '__proto__', entry: {title: 'T'}}, ctx});
-    assert.deepEqual([r.status, r.payload], [409, {error: 'Key already exists'}]);
+    assert.deepEqual([r.status, r.payload], [400, {error: 'Invalid key'}]);
     assert.equal(counts.write, 0);
   });
 
   it('writes the entry then invalidates stats', async () => {
     const {ctx, counts, fs} = fsCtx({[BIB]: ''});
     const r = await invoke(routes, {plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references', body: OK, ctx});
-    assert.deepEqual([r.status, r.payload], [201, {success: true}]);
-    assert.equal(counts.write, 1);
+    assert.equal(r.status, 201);
+    assert.equal(r.payload.success, true);
+    assert.equal(r.payload.key, 'new2024');
+    assert.equal(r.payload.entry.schema, 'mochi.paper/1');
+    assert.equal(counts.write, 0);
     // The write capability drops the server's content-derived caches; the
     // plugin never names them.
-    assert.deepEqual(ctx.calls.invalidateCache, [key('stats'), key('search')]);
-    assert.ok(fs.readFileSync(BIB).includes('new2024'));
+    assert.ok(ctx.calls.invalidateCache.includes(key('stats')));
+    assert.ok(ctx.calls.invalidateCache.includes(key('search')));
+    assert.equal(storedPapers(ctx).new2024.title, 'A New Paper');
   });
 
   it('slices string fields to 5000 characters and arrays to 50 entries of 500', async () => {
-    const {ctx, fs} = fsCtx({[BIB]: ''});
+    const {ctx} = fsCtx({[BIB]: ''});
     const entry = {title: 't'.repeat(6000), author: Array.from({length: 60}, () => 'a'.repeat(600)), year: 2024, flag: true};
     await invoke(routes, {plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references', body: {key: 'k', entry}, ctx});
-    const yaml = (await import('js-yaml')).default;
-    const written = yaml.load(fs.readFileSync(BIB));
+    const written = storedPapers(ctx);
     assert.equal(written.k.title.length, 5000);
     assert.equal(written.k.author.length, 50);
     assert.equal(written.k.author[0].length, 500);
-    // Non-string, non-array values pass through untouched.
-    assert.deepEqual([written.k.year, written.k.flag], [2024, true]);
+    // Only protocol fields are retained.
+    assert.equal(written.k.year, 2024);
+    assert.equal(written.k.flag, undefined);
   });
 
-  it('returns 400 without writing when the existing bibliography is malformed', async () => {
+  it('generates a citation key when the caller omits one', async () => {
+    const {ctx} = fsCtx({[BIB]: ''});
+    const r = await invoke(routes, {
+      plugin: BIBLIOGRAPHY,
+      method: 'POST',
+      path: '/api/references',
+      body: {entry: {title: 'A New Paper', author: ['Ada Lovelace'], year: 2024}},
+      ctx,
+    });
+    assert.equal(r.status, 201);
+    assert.equal(r.payload.key, 'lovelace2024');
+  });
+
+  it('creates from the database even when the legacy mirror is malformed', async () => {
     const {ctx, counts} = fsCtx({[BIB]: '\tnot: [valid'});
     const r = await invoke(routes, {plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references', body: OK, ctx});
-    assert.deepEqual([r.status, r.payload], [400, {error: 'Invalid request'}]);
+    assert.equal(r.status, 201);
+    assert.equal(r.payload.key, 'new2024');
     assert.equal(counts.write, 0);
   });
 });
@@ -385,6 +426,11 @@ describe('GET /api/metadata/search', () => {
     assert.equal(r.payload.merged.year, 2017);
     // The merge strips the source discriminator.
     assert.equal('source' in r.payload.merged, false);
+    assert.equal(r.payload.paper.schema, 'mochi.paper/1');
+    assert.equal(r.payload.paper.source.type, 'doi');
+    assert.equal(r.payload.paper.source.provider, 'crossref');
+    assert.equal(r.payload.paper.officialUrl, 'https://doi.org/10.1/x');
+    assert.equal(r.payload.paper.pdfUrl, 'https://arxiv.org/pdf/1706.03762.pdf');
   });
 
   it('deduplicates authors across name formats, keeping the fuller spelling', async () => {
@@ -456,7 +502,8 @@ describe('GET /api/references/enrich', () => {
     const r = await invoke(routes, {plugin, path: '/api/references/enrich', query: {key: 'withTitle'}, ctx});
     assert.equal(r.status, 200);
     assert.equal(r.payload.key, 'withTitle');
-    assert.deepEqual(r.payload.current, REFS.withTitle);
+    assert.equal(r.payload.current.title, REFS.withTitle.title);
+    assert.equal(r.payload.current.schema, 'mochi.paper/1');
     assert.equal(r.payload.sources.semanticScholar.tldr, 'summary');
     assert.equal(r.payload.sources.crossref.publisher, 'Pub');
     assert.deepEqual(r.payload.sources.dblp.authors, ['Ada Lovelace']);
@@ -471,10 +518,11 @@ describe('GET /api/references/enrich', () => {
     assert.deepEqual(r.payload.sources, {semanticScholar: null, crossref: null, dblp: null});
   });
 
-  it('returns 500 when the loader itself throws', async () => {
+  it('is unaffected when the retired legacy mirror is unreadable', async () => {
     const {ctx} = fsCtx({[BIB]: bib(REFS)});
     const r = await invoke(routes, {plugin: brokenContent({read() { throw new Error('boom'); }}), path: '/api/references/enrich', query: {key: 'withTitle'}, ctx});
-    assert.deepEqual(r.replies, [{status: 500, payload: {error: 'Enrichment failed. Please try again later.'}, opts: undefined}]);
+    assert.equal(r.status, 200);
+    assert.equal(r.payload.current.title, 'A Paper');
   });
 });
 
@@ -519,7 +567,7 @@ describe('POST /api/references/enrich', () => {
     assert.equal('notAllowed' in r.payload.entry, false);
     // A null value is skipped, so the existing year survives.
     assert.equal(r.payload.entry.year, 2000);
-    assert.equal(counts.write, 1);
+    assert.equal(counts.write, 0);
   });
 
   it('slices string fields to 5000 characters and arrays to 50 entries of 500', async () => {
@@ -547,11 +595,76 @@ describe('POST /api/references/enrich', () => {
 
 // Moved here with the handler, out of the feeds route suite.
 describe('GET /api/references', () => {
-  it('serves the parsed references through the shared memo', async () => {
-    const fs = mockFs({[BIB]: 'smith2020:\n  title: A Paper\n'});
-    const r = await invoke(routes, {plugin: BIBLIOGRAPHY, path: '/api/references', ctx: makeCtx({fs})});
+  it('serves normalized references from scoped database records', async () => {
+    const {ctx} = fsCtx({[BIB]: 'smith2020:\n  title: A Paper\n'});
+    const r = await invoke(routes, {plugin: BIBLIOGRAPHY, path: '/api/references', ctx});
     assert.equal(r.status, 200);
-    assert.deepEqual(r.payload.references.smith2020, {title: 'A Paper'});
+    assert.equal(r.payload.references.smith2020.title, 'A Paper');
+    assert.equal(r.payload.references.smith2020.schema, 'mochi.paper/1');
+    assert.deepEqual(r.payload.references.smith2020.tags, []);
+    assert.equal(r.payload.references.smith2020.source.type, 'manual');
+  });
+
+  it('serves a small sorted window for the library page', async () => {
+    const {ctx} = fsCtx({[BIB]: bib({
+      old: {title: 'Old systems paper', year: 2020, tags: ['systems']},
+      newest: {title: 'Newest systems paper', year: 2025, tags: ['systems', 'favorite']},
+      middle: {title: 'Middle learning paper', year: 2023, tags: ['ml']},
+    })});
+    const first = await invoke(routes, {
+      plugin: BIBLIOGRAPHY,
+      path: '/api/references',
+      query: {limit: 1},
+      ctx,
+    });
+    assert.deepEqual(Object.keys(first.payload.references), ['newest']);
+    assert.equal(first.payload.total, 3);
+    assert.equal(first.payload.libraryTotal, 3);
+    assert.equal(first.payload.hasMore, true);
+    assert.deepEqual(first.payload.tags, ['favorite', 'ml', 'systems']);
+
+    const filtered = await invoke(routes, {
+      plugin: BIBLIOGRAPHY,
+      path: '/api/references',
+      query: {limit: 40, q: 'paper', tag: 'systems'},
+      ctx,
+    });
+    assert.deepEqual(Object.keys(filtered.payload.references), ['newest', 'old']);
+    assert.equal(filtered.payload.total, 2);
+    assert.equal(filtered.payload.hasMore, false);
+  });
+
+  it('serves a compact aggregate for dashboards', async () => {
+    const {ctx} = fsCtx({[BIB]: bib({
+      article: {title: 'Article', type: 'article', year: 2024},
+      book: {title: 'Book', type: 'book', year: 2024},
+      misc: {title: 'Undated'},
+    })});
+    const r = await invoke(routes, {
+      plugin: BIBLIOGRAPHY,
+      path: '/api/references',
+      query: {summary: 1},
+      ctx,
+    });
+    assert.deepEqual(r.payload, {
+      total: 3,
+      byType: {article: 1, book: 1, misc: 1},
+      byYear: {2024: 2},
+    });
+  });
+
+  it('serves one paper without transferring the whole library', async () => {
+    const {ctx} = fsCtx({[BIB]: bib({
+      wanted: {title: 'Wanted Paper'},
+      other: {title: 'Other Paper'},
+    })});
+    const found = await invoke(routes, {plugin: BIBLIOGRAPHY, path: '/api/references/item/wanted', ctx});
+    assert.equal(found.status, 200);
+    assert.equal(found.payload.entry.title, 'Wanted Paper');
+    assert.equal(found.payload.entry.key, 'wanted');
+
+    const missing = await invoke(routes, {plugin: BIBLIOGRAPHY, path: '/api/references/item/missing', ctx});
+    assert.deepEqual([missing.status, missing.payload], [404, {error: 'Reference not found'}]);
   });
 
   // Any stat, read or parse failure yields {}, so a missing or corrupt file
@@ -567,6 +680,51 @@ describe('GET /api/references', () => {
       assert.deepEqual([r.status, r.payload], [200, {references: {}}]);
     });
   }
+});
+
+describe('PATCH /api/references/:key', () => {
+  const REFS = {
+    paper2024: {
+      title: 'A Paper',
+      author: ['Ada Lovelace'],
+      year: 2024,
+      url: 'https://example.test/paper',
+    },
+  };
+
+  it('updates tags and the two paper links through the protocol', async () => {
+    const {ctx, fs} = fsCtx({[BIB]: bib(REFS)});
+    const r = await invoke(routes, {
+      plugin: BIBLIOGRAPHY,
+      method: 'PATCH',
+      path: '/api/references/paper2024',
+      body: {
+        tags: ['Theory', ' theory ', 'Read next'],
+        officialUrl: 'https://doi.org/10.1/paper',
+        pdfUrl: 'https://example.test/paper.pdf',
+      },
+      ctx,
+    });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.payload.entry.tags, ['Theory', 'Read next']);
+    assert.equal(r.payload.entry.officialUrl, 'https://doi.org/10.1/paper');
+    assert.equal(r.payload.entry.pdfUrl, 'https://example.test/paper.pdf');
+    const saved = storedPapers(ctx);
+    assert.equal(saved.paper2024.schema, 'mochi.paper/1');
+    assert.deepEqual(saved.paper2024.tags, ['Theory', 'Read next']);
+  });
+
+  it('returns 404 for a missing paper', async () => {
+    const {ctx} = fsCtx({[BIB]: bib(REFS)});
+    const r = await invoke(routes, {
+      plugin: BIBLIOGRAPHY,
+      method: 'PATCH',
+      path: '/api/references/missing',
+      body: {tags: ['x']},
+      ctx,
+    });
+    assert.deepEqual([r.status, r.payload], [404, {error: 'Reference not found'}]);
+  });
 });
 
 // Moved here with the handler, out of the misc-tools suite.
@@ -740,8 +898,8 @@ describe('GET /api/references/track', () => {
   // The memo swallows a broken bibliography and returns {}, so the handler
   // re-reads on an empty result to preserve the original 500.
   const FALLBACKS = [
-    {name: 'a broken parse', files: {[BIB]: '\tnot: [valid'}, status: 500, error: 'Track check failed. Please try again later.'},
-    {name: 'a missing file', files: {}, status: 500, error: 'Track check failed. Please try again later.'},
+    {name: 'a broken parse', files: {[BIB]: '\tnot: [valid'}, status: 404, error: 'Reference not found'},
+    {name: 'a missing file', files: {}, status: 404, error: 'Reference not found'},
     {name: 'an empty but valid bibliography', files: {[BIB]: ''}, status: 404, error: 'Reference not found'},
   ];
   for (const {name, files, status, error} of FALLBACKS) {
@@ -785,17 +943,17 @@ describe('POST /api/references/track', () => {
     const plugin = sourcedBy(() => ({venue: 'NeurIPS', year: 2023, externalIds: {DOI: '10.1/x'}}));
     const r = await invoke(routes, {plugin, method: 'POST', path: '/api/references/track', body: {key: 'withUrl'}, ctx});
     assert.equal(r.status, 200);
-    assert.equal(counts.write, 1);
-    const written = fs.readFileSync(BIB);
+    assert.equal(counts.write, 0);
+    const written = JSON.stringify(storedPapers(ctx));
     assert.ok(written.includes('NeurIPS'), 'the venue is written back');
   });
 
-  it('returns 500 when the bibliography read throws, before any write', async () => {
+  it('treats an unreadable legacy mirror as an empty initial database', async () => {
     const base = mockFs({[BIB]: bib(REFS)});
     let writes = 0;
     const fs = {...base, readFileSync() { throw new Error('unreadable'); }, writeFileSync() { writes++; }};
     const r = await invoke(routes, {plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references/track', body: {key: 'plain'}, ctx: makeCtx({fs})});
-    assert.deepEqual([r.status, r.payload], [500, {error: 'Track update failed. Please try again later.'}]);
+    assert.deepEqual([r.status, r.payload], [404, {error: 'Reference not found'}]);
     assert.equal(writes, 0);
   });
 });
@@ -809,12 +967,12 @@ describe('POST /api/references/track-all', () => {
     assert.equal(counts.read, 0);
   });
 
-  it('returns 500 when the bibliography read throws, before any write or network call', async () => {
+  it('treats an unreadable legacy mirror as an empty initial database', async () => {
     const base = mockFs({[BIB]: bib({a: {title: 'A'}})});
     let writes = 0;
     const fs = {...base, readFileSync() { throw new Error('unreadable'); }, writeFileSync() { writes++; }};
     const r = await invoke(routes, {plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references/track-all', ctx: makeCtx({fs})});
-    assert.deepEqual([r.status, r.payload], [500, {error: 'Batch track failed. Please try again later.'}]);
+    assert.deepEqual([r.status, r.payload], [200, {checked: 0, updated: 0, results: []}]);
     assert.equal(writes, 0);
   });
 
@@ -869,27 +1027,28 @@ describe('POST /api/references/import-bibtex', () => {
     const {ctx, counts, fs} = fsCtx({[BIB]: ''});
     const r = await invoke(routes, {plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references/import-bibtex', body: {bibtex: ARTICLE}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {added: 1, skipped: 0, errors: []}]);
-    assert.equal(counts.write, 1);
+    assert.equal(counts.write, 0);
     // The write capability drops the server's content-derived caches; the
     // plugin never names them.
-    assert.deepEqual(ctx.calls.invalidateCache, [key('stats'), key('search')]);
-    const written = fs.readFileSync(BIB);
+    assert.ok(ctx.calls.invalidateCache.includes(key('stats')));
+    assert.ok(ctx.calls.invalidateCache.includes(key('search')));
+    const written = JSON.stringify(storedPapers(ctx));
     for (const token of ['smith2020', 'A Paper', 'Nature', '10.1/x', '1-10']) assert.ok(written.includes(token), token);
   });
 
   it('maps the entry type and takes the venue from booktitle', async () => {
-    const {ctx, fs} = fsCtx({[BIB]: ''});
+    const {ctx} = fsCtx({[BIB]: ''});
     await invoke(routes, {plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references/import-bibtex', body: {bibtex: PROCEEDINGS}, ctx});
-    const written = fs.readFileSync(BIB);
+    const written = JSON.stringify(storedPapers(ctx));
     assert.ok(written.includes('inproceedings'));
     assert.ok(written.includes('NeurIPS'));
   });
 
   it('prefers journal over booktitle when an entry carries both', async () => {
     const both = '@article{both2022,\n  title = {Both},\n  journal = {Nature},\n  booktitle = {NeurIPS}\n}';
-    const {ctx, fs} = fsCtx({[BIB]: ''});
+    const {ctx} = fsCtx({[BIB]: ''});
     await invoke(routes, {plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references/import-bibtex', body: {bibtex: both}, ctx});
-    const written = fs.readFileSync(BIB);
+    const written = JSON.stringify(storedPapers(ctx));
     assert.ok(written.includes('Nature'));
     assert.equal(written.includes('NeurIPS'), false);
   });
@@ -902,6 +1061,8 @@ describe('POST /api/references/import-bibtex', () => {
 
   it('writes nothing when every entry is a duplicate', async () => {
     const {ctx, counts} = fsCtx({[BIB]: bib({smith2020: {title: 'Existing'}})});
+    await invoke(routes, {plugin: BIBLIOGRAPHY, path: '/api/references', ctx});
+    ctx.calls.invalidateCache.length = 0;
     const r = await invoke(routes, {plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references/import-bibtex', body: {bibtex: ARTICLE}, ctx});
     assert.deepEqual(r.payload, {added: 0, skipped: 1, errors: []});
     assert.equal(counts.write, 0);
@@ -914,14 +1075,13 @@ describe('POST /api/references/import-bibtex', () => {
     assert.deepEqual(r.payload, {added: 1, skipped: 0, errors: []});
   });
 
-  // parseBibtex is the plugin's own module rather than something ctx hands it,
-  // so the catch is pinned through the other thing inside the try that can fail.
-  it('returns a prefixed 400 when the write throws', async () => {
+  it('reports a per-entry error when the record write throws', async () => {
     const {ctx} = fsCtx({[BIB]: ''});
-    const plugin = brokenContent({write() { throw new Error('disk full'); }});
+    const plugin = brokenPaperRecords({put() { throw new Error('database unavailable'); }});
     const r = await invoke(routes, {plugin, method: 'POST', path: '/api/references/import-bibtex', body: {bibtex: ARTICLE}, ctx});
-    assert.equal(r.status, 400);
-    assert.ok(r.payload.error.startsWith('BibTeX import failed: '));
+    assert.equal(r.status, 200);
+    assert.equal(r.payload.added, 0);
+    assert.match(r.payload.errors[0].error, /database unavailable/);
   });
 });
 
@@ -947,7 +1107,7 @@ describe('GET /api/references/export', () => {
     assert.ok(body.includes('  pages = {1-10}'));
     assert.ok(body.includes('@inproceedings{proc,'));
     assert.ok(body.includes('  booktitle = {NeurIPS}'));
-    assert.ok(body.includes('  howpublished = {Some Press}'), 'a book uses howpublished');
+    assert.ok(body.includes('  publisher = {Some Press}'), 'a book uses publisher');
     // An unknown type passes through verbatim; a missing one defaults to misc.
     assert.ok(body.includes('@phdthesis{weird,'));
     assert.ok(body.includes('@misc{typeless,'));
@@ -985,15 +1145,14 @@ describe('GET /api/references/export', () => {
     assert.equal(r.written.body, '\n');
   });
 
-  // The catch composes err.message into the reply, so both failure shapes are
-  // the same prefixed 500.
+  // Once records are authoritative, a missing or malformed legacy mirror is
+  // simply an empty initial import and export still succeeds.
   for (const [label, files] of [['a broken parse', {[BIB]: '\tnot: [valid'}], ['a missing file', {}]]) {
     it(`returns a prefixed 500 for ${label}`, async () => {
       const {ctx} = fsCtx(files);
       const r = await invoke(routes, {plugin: BIBLIOGRAPHY, path: '/api/references/export', ctx});
-      assert.equal(r.status, 500);
-      assert.ok(r.payload.error.startsWith('Export failed: '));
-      assert.equal(r.written, null);
+      assert.equal(r.written.status, 200);
+      assert.equal(r.written.body, '\n');
     });
   }
 });

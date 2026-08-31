@@ -22,8 +22,8 @@ const LIMIT = 50;
 
 /** What a person is called, for a label that has to survive their account. */
 function labelForUser(userId) {
-  const user = db.prepare('SELECT username, name, email FROM "user" WHERE id = ?').get(userId);
-  return user?.username || user?.name || user?.email || 'someone';
+  const user = db.prepare('SELECT name, email FROM "user" WHERE id = ?').get(userId);
+  return user?.name || user?.email || 'someone';
 }
 
 /**

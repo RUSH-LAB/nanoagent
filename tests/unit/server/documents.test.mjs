@@ -55,9 +55,9 @@ after(() => {
   fs.rmSync(dir, {recursive: true, force: true});
 });
 
-const adaLab = {orgId: 'org-lab', userId: 'ada'};
-const bobLab = {orgId: 'org-lab', userId: 'bob'};
-const adaCourse = {orgId: 'org-course', userId: 'ada'};
+const adaLab = {workspaceId: 'org-lab', userId: 'ada'};
+const bobLab = {workspaceId: 'org-lab', userId: 'bob'};
+const adaCourse = {workspaceId: 'org-course', userId: 'ada'};
 
 /** A path nothing else in this file uses, so cases cannot collide. */
 let counter = 0;
@@ -87,7 +87,7 @@ describe('the workspace boundary', () => {
   });
 
   it('refuses a caller with no workspace, with the status the API sends', () => {
-    const err = thrown(() => documents.list({orgId: null, userId: 'ada'}));
+    const err = thrown(() => documents.list({workspaceId: null, userId: 'ada'}));
     assert.equal(err.code, 'no-workspace');
     assert.equal(err.status, 409);
   });
@@ -152,6 +152,13 @@ describe('visibility', () => {
 });
 
 describe('paths', () => {
+  it('normalizes the retired content/ root at the repository boundary', () => {
+    const created = documents.create(adaLab, {path: 'content/posts/example.md', markdown: 'body'});
+    assert.equal(created.path, 'posts/example.md');
+    assert.equal(documents.get(adaLab, 'content/posts/example.md').path, 'posts/example.md');
+    assert.equal(documents.get(adaLab, 'posts/example.md').markdown, 'body');
+  });
+
   it('refuses one that climbs out of the workspace', () => {
     for (const bad of ['../secrets.md', 'a/../../b.md', '/etc/passwd', 'a\\b.md', '']) {
       assert.throws(() => documents.create(adaLab, {path: bad}), TypeError, JSON.stringify(bad));
@@ -265,7 +272,7 @@ describe('what the database does when its subjects go', () => {
     const at = '2026-01-01T00:00:00.000Z';
     db.prepare('INSERT INTO "user" (id,name,email,emailVerified,createdAt,updatedAt) VALUES (?,?,?,0,?,?)')
       .run('cleo', 'Cleo', 'cleo@example.test', at, at);
-    const cleo = {orgId: 'org-lab', userId: 'cleo'};
+    const cleo = {workspaceId: 'org-lab', userId: 'cleo'};
     const p = freshPath();
     documents.create(cleo, {path: p, markdown: 'the lab documentation'});
 
@@ -280,7 +287,7 @@ describe('what the database does when its subjects go', () => {
     const at = '2026-01-01T00:00:00.000Z';
     db.prepare('INSERT INTO organization (id,name,slug,createdAt) VALUES (?,?,?,?)')
       .run('org-temp', 'Temp', 'temp', at);
-    documents.create({orgId: 'org-temp', userId: 'ada'}, {path: 'a.md', markdown: 'x'});
+    documents.create({workspaceId: 'org-temp', userId: 'ada'}, {path: 'a.md', markdown: 'x'});
     db.prepare('DELETE FROM organization WHERE id = ?').run('org-temp');
     assert.equal(
       db.prepare('SELECT COUNT(*) AS n FROM document WHERE "organizationId" = ?').get('org-temp').n,

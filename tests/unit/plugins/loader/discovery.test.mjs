@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url);
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const {listPlugins, loadBuildPlugins, loadRemarkPlugins} = require('../../../../plugins/loader');
+const {listPlugins, loadBuildPlugins, loadRemarkPlugins, writeClientComponentRegistry} = require('../../../../plugins/loader');
 const {loadServerPlugins, collectProvides} = require('../../../../src/server/plugins');
 const {API_VERSION} = require('../../../../src/server/plugin-api');
 
@@ -46,6 +46,7 @@ before(() => {
       'index.js': 'module.exports = (ctx, opts) => ({name: "alpha", opts});',
       'server.js': 'module.exports = function alphaRoutes() {}; module.exports.provides = {alphaData: 1};',
       'remark.js': 'module.exports = () => (tree) => { tree.touchedBy = "alpha"; };',
+      'client.js': 'export const components = {Alpha: () => null};',
     },
   });
   makePlugin('_template', {files: {'index.js': EXPORTS_FN}});
@@ -133,6 +134,9 @@ describe('plugins/loader: discovery', () => {
     assert.equal(beta.manifest.enabled, true);
     assert.deepEqual(beta.manifest.options, {});
     assert.equal(beta.manifest.description, '');
+    assert.deepEqual(beta.manifest.commands, []);
+    assert.deepEqual(beta.manifest.safeComponents, {});
+    assert.equal(beta.manifest.runtimeRemark, false);
   });
 });
 
@@ -153,6 +157,16 @@ describe('plugins/loader: the build half', () => {
   });
 });
 
+describe('plugins/loader: the browser component registry', () => {
+  it('generates explicit top-level imports instead of a recursive webpack scan', () => {
+    const target = writeClientComponentRegistry(root);
+    const source = fs.readFileSync(target, 'utf8');
+    assert.match(source, /import \* as client0 from "\.\/alpha\/client\.js"/);
+    assert.doesNotMatch(source, /require\.context/);
+    assert.doesNotMatch(source, /beta\/client\.js/);
+  });
+});
+
 describe('plugins/loader: the markdown half', () => {
   it('returns only the plugins with a remark.js, as bare factories', () => {
     const {result} = quietly(() => loadRemarkPlugins(root));
@@ -160,6 +174,24 @@ describe('plugins/loader: the markdown half', () => {
     const tree = {};
     result[0]()(tree);
     assert.equal(tree.touchedBy, 'alpha');
+  });
+});
+
+describe('plugins/loader: runtime Markdown and components', () => {
+  it('loads only remark plugins that explicitly opt into runtime documents', () => {
+    const manifest = path.join(root, 'alpha', 'plugin.json');
+    const original = fs.readFileSync(manifest, 'utf8');
+    fs.writeFileSync(manifest, JSON.stringify({
+      title: 'alpha', runtimeRemark: true, safeComponents: {Alpha: {name: 'string'}},
+      apiVersion: API_VERSION, requires: ['cache'],
+    }));
+    try {
+      const {loadRuntimeRemarkPlugins, loadSafeComponents} = require('../../../../plugins/loader');
+      assert.equal(loadRuntimeRemarkPlugins(root).length, 1);
+      assert.deepEqual(loadSafeComponents(root), {Alpha: {name: 'string'}});
+    } finally {
+      fs.writeFileSync(manifest, original);
+    }
   });
 });
 
@@ -219,15 +251,14 @@ describe('src/server/plugins: the API half, on the same discovery', () => {
 });
 
 describe('the plugins this site actually has', () => {
-  it('is the five directories under plugins/, each filling the slots it declares', () => {
+  it('is the four optional tools under plugins/, each filling the slots it declares', () => {
     const found = Object.fromEntries(
       listPlugins().map(p => [p.name, Object.keys(p.slots).sort()]),
     );
     assert.deepEqual(found, {
       'bibliography': ['build', 'remark', 'server'],
-      'lean-proofs': ['build'],
+      'lean-proofs': ['build', 'remark', 'server'],
       'math-registry': ['build'],
-      'runtime-content': ['build'],
       'wiki-links': ['remark'],
     });
   });

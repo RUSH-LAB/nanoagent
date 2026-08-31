@@ -28,11 +28,11 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
     // `?? null` where the file version asked Object.hasOwn: a key naming a
     // prototype slot is a row that is either there or not, and an absent one
     // reads back as undefined rather than as something inherited.
-    if (key) return json(res, 200, {note: notes.get(scope, key) ?? null});
+    if (key) return json(res, 200, {note: await notes.get(scope, key) ?? null});
     // A plain object, because that is what the payload has always been and the
     // clients index it directly. entries() hands back a prototype-less one so
     // that a key like `__proto__` stays data on the way through.
-    return json(res, 200, {notes: {...notes.entries(scope)}});
+    return json(res, 200, {notes: {...await notes.entries(scope)}});
   }
 
   // ── Notes: save ──
@@ -47,7 +47,7 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
       if (PROTO_KEYS.includes(key)) return json(res, 400, {error: 'Invalid key'});
       if (title !== undefined && typeof title !== 'string') return json(res, 400, {error: 'title must be a string'});
       if (title && title.length > 500) return json(res, 400, {error: 'Title must be 500 characters or fewer'});
-      notes.put(scopeFor(req), key, {
+      await notes.put(scopeFor(req), key, {
         content: sanitizeText(content),
         title: sanitizeText(title) || key,
         updatedAt: new Date().toISOString(),
@@ -65,7 +65,7 @@ module.exports = async function comments_notes_routes(req, res, url, pathname, c
       const {key} = body;
       if (!key || typeof key !== 'string') return json(res, 400, {error: 'Missing or invalid key'});
       if (PROTO_KEYS.includes(key)) return json(res, 400, {error: 'Invalid key'});
-      if (!notes.remove(scopeFor(req), key)) return json(res, 404, {error: 'Note not found'});
+      if (!await notes.remove(scopeFor(req), key)) return json(res, 404, {error: 'Note not found'});
       return json(res, 200, {success: true});
     } catch {
       return json(res, 400, {error: 'Failed to delete note: request body must be JSON with "key" (string) identifying the note to delete'});

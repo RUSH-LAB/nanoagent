@@ -13,7 +13,7 @@ import {describe, it, beforeEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import path from 'node:path';
-import {loadRoute, loadServer, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, TEST_IDENTITY} from '../../_harness.mjs';
+import {loadRoute, loadServer, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, TEST_IDENTITY, TEST_ORG_ID} from '../../_harness.mjs';
 
 const routes = loadRoute('study-knowledge');
 // The memo belongs to the bibliography plugin now, and so does resetting it.
@@ -57,6 +57,9 @@ const INHERITED_KEYS = ['toString', 'valueOf', 'hasOwnProperty'];
 // started deriving identity from the token.
 const UID = TEST_IDENTITY.userId;
 const asUser = userId => ({...TEST_IDENTITY, userId});
+const workspaceContext = userId => ({
+  userId, workspaceId: TEST_ORG_ID, membershipId: `member:${userId}`, role: 'viewer',
+});
 
 const fm = (fields, body = '') =>
   `---\n${Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n')}\n---\n${body}`;
@@ -420,7 +423,7 @@ describe('GET /api/quicknotes', () => {
 
   it('returns the stored notes newest first', async () => {
     const ctx = seed(makeCtx({fs: mockFs({})}), 'quicknotes', JSON_NOTES);
-    const r = await invoke(routes, {path: '/api/quicknotes', ctx});
+    const r = await invoke(routes, {path: '/api/quicknotes', ctx, requestContext: workspaceContext(UID)});
     assert.equal(r.status, 200);
     assert.deepEqual(r.payload.map(n => n.id), ['n2', 'n1']);
   });
@@ -428,7 +431,7 @@ describe('GET /api/quicknotes', () => {
   for (const userId of [...INHERITED_KEYS, 'absent']) {
     it(`returns nothing for the non-own user ${JSON.stringify(userId)}`, async () => {
       const ctx = seed(makeCtx({fs: mockFs({})}), 'quicknotes', JSON_NOTES);
-      const r = await invoke(routes, {path: '/api/quicknotes', ctx, auth: asUser(userId)});
+      const r = await invoke(routes, {path: '/api/quicknotes', ctx, auth: asUser(userId), requestContext: workspaceContext(userId)});
       assert.deepEqual(r.payload, []);
     });
   }
@@ -442,7 +445,13 @@ describe('GET /api/quicknotes', () => {
       [blog('notes.txt')]: 'quick-note but wrong extension',
     };
     const ctx = makeCtx({fs: mockFs(files)});
-    const r = await invoke(routes, {path: '/api/quicknotes', ctx});
+    for (const [fullPath, markdown] of Object.entries(files)) {
+      if (!fullPath.endsWith('.md')) continue;
+      ctx.documents.create({workspaceId: TEST_ORG_ID, userId: UID}, {
+        path: path.relative(CONTENT_DIR, fullPath).replace(/\\/g, '/'), markdown,
+      });
+    }
+    const r = await invoke(routes, {path: '/api/quicknotes', ctx, requestContext: workspaceContext(UID)});
     assert.deepEqual(r.payload.map(n => n.id), ['2026-02-01-second.md', '2026-01-01-first.md']);
     assert.deepEqual(r.payload[0], {
       id: '2026-02-01-second.md',
@@ -458,13 +467,18 @@ describe('GET /api/quicknotes', () => {
     const files = {};
     for (let i = 0; i < 60; i++) files[atContent(`posts/blog/2026-01-${String(i + 1).padStart(2, '0')}-n.md`)] = `${fm({title: `N${i}`, tags: '[quick-note]'})}\nbody\n`;
     const ctx = makeCtx({fs: mockFs(files)});
-    const r = await invoke(routes, {path: '/api/quicknotes', ctx});
+    for (const [fullPath, markdown] of Object.entries(files)) {
+      ctx.documents.create({workspaceId: TEST_ORG_ID, userId: UID}, {
+        path: path.relative(CONTENT_DIR, fullPath).replace(/\\/g, '/'), markdown,
+      });
+    }
+    const r = await invoke(routes, {path: '/api/quicknotes', ctx, requestContext: workspaceContext(UID)});
     assert.equal(r.payload.length, 50);
   });
 
   it('returns only the stored notes when the blog directory is absent', async () => {
     const ctx = seed(makeCtx({fs: mockFs({})}), 'quicknotes', JSON_NOTES);
-    const r = await invoke(routes, {path: '/api/quicknotes', ctx});
+    const r = await invoke(routes, {path: '/api/quicknotes', ctx, requestContext: workspaceContext(UID)});
     assert.equal(r.payload.length, 2);
   });
 });
@@ -584,8 +598,11 @@ describe('quicknotes parser regexes', () => {
 
 describe('/api/preferences', () => {
   /** Alice's settings, as PUT /api/preferences would have left them. */
-  const withAlicePrefs = (prefs = {theme: 'dark'}) =>
-    seed(makeCtx(), 'preferences', {settings: prefs}, asUser('alice'));
+  const withAlicePrefs = (prefs = {theme: 'dark'}) => {
+    const ctx = makeCtx();
+    ctx.preferences.set('alice', prefs);
+    return ctx;
+  };
 
   it('GET returns the stored preferences for the signed-in user', async () => {
     const r = await invoke(routes, {path: '/api/preferences', ctx: withAlicePrefs(), auth: asUser('alice')});

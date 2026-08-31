@@ -1,87 +1,169 @@
 /**
- * Compiling a document at request time instead of at build time.
+ * Parse user-authored content into a small, inert render tree.
  *
- * Docusaurus compiles every page's MDX once, into a static bundle, before
- * anybody has asked for anything. That is why a new workspace has no pages
- * until the site restarts, why a private page cannot be private, and why build
- * time grows with the number of workspaces: there is no point in that pipeline
- * at which a reader is known.
- *
- * The moat is not the pipeline. It is MDX plus the component library: the
- * theorem environments, the Lean proofs, the interactive figures, KaTeX, the
- * citations. All of that is a compiler and a set of React components, and
- * neither needs to run at build time. This module runs the compiler when a
- * document is asked for, against the caller's session, and hands the result to
- * the same components.
- *
- * ── What it compiles to ─────────────────────────────────────────────────────
- *
- * `outputFormat: 'function-body'`, which is a string of JavaScript that takes a
- * JSX runtime and returns the component. Not a module, so the browser needs no
- * bundler and no import map to run it; the client passes in its own React
- * runtime and its own component registry, which is what keeps `<Theorem>`
- * meaning the site's Theorem rather than whatever the document says.
- *
- * The plugin list is the same one the build uses, taken from plugins/loader.js
- * and the two math plugins rather than written out again, so a page rendered
- * this way and the same page rendered by the build cannot disagree about what
- * the syntax means. Node 24 can require() an ES module, which is what makes
- * that list reachable from CommonJS at all.
- *
- * ── The cache ───────────────────────────────────────────────────────────────
- *
- * Compilation is the expensive part and its input never changes without the
- * document changing, so the result is memoized on the document's id and its
- * updatedAt. A save moves updatedAt and the next read misses; nothing else
- * does, so a page that is read a thousand times compiles once.
+ * User content must never become JavaScript in the signed-in origin. This
+ * module therefore returns data, not a function body. The client renders only
+ * the node types and component names explicitly allowed below.
  */
-const {compile} = require('@mdx-js/mdx');
-const remarkMath = require('remark-math');
-const rehypeKatex = require('rehype-katex');
-const {loadRemarkPlugins} = require('../../plugins/loader');
+const {unified} = require('unified');
+const remarkParse = require('remark-parse').default;
+const remarkMdx = require('remark-mdx').default;
+const remarkMath = require('remark-math').default;
+const remarkGfm = require('remark-gfm').default;
+const katex = require('katex');
+const {loadRuntimeRemarkPlugins, loadSafeComponents} = require('../../plugins/loader');
 
-/**
- * The plugin itself out of what require() gave back.
- *
- * These two are ES modules. Node 24 will require() one, which is what makes
- * them reachable from here at all, but what it hands back is the namespace
- * object and the plugin is its default export. unified calls what it is given,
- * so passing the namespace fails inside the compiler with "attacher.call is not
- * a function", which names neither the plugin nor the reason.
- */
-const attacher = mod => mod?.default ?? mod;
+const CORE_SAFE_COMPONENTS = Object.freeze({
+  VectorPlayground: {}, LinearTransformDemo: {}, GradientDescentDemo: {}, EigenDemo: {},
+  RiemannSumDemo: {}, DistributionExplorer: {}, Surface3DDemo: {},
+});
 
-/**
- * The plugin chain, built once.
- *
- * remark-math runs first so that math is parsed out of the tree before any
- * plugin's syntax walks its text nodes, which is the same ordering, and the
- * same reason, as docusaurus.config.js.
- */
-const REMARK_PLUGINS = [[attacher(remarkMath), {strict: false}], ...loadRemarkPlugins()];
+const ALLOWED_COMPONENT_PROPS = Object.freeze({
+  ...loadSafeComponents(),
+  ...CORE_SAFE_COMPONENTS,
+});
 
-/**
- * KaTeX, with the \eqref macro the blog instances configure. The build gives
- * that macro to blogs and not to books; here every document gets it, because
- * which of two plugin instances a page happened to be served by is not a
- * property of the page and was never meant to be one.
- */
-const REHYPE_PLUGINS = [[attacher(rehypeKatex), {
-  strict: false,
-  trust: true,
-  fleqn: false,
-  macros: {'\\eqref': '\\href{###1}{(\\text{#1})}'},
-}]];
-
-/** How many compiled documents to hold. Roughly a large workspace's worth. */
 const MAX_CACHE_ENTRIES = 500;
-
-/**
- * Compiled bodies, keyed by document id and the updatedAt they were compiled
- * from, so a stale entry is not reachable rather than merely unlikely.
- * Bounded with the same least-recently-used eviction as ./data-store.
- */
+const MAX_NODES = 20_000;
 const cache = new Map();
+const parser = unified()
+  .use(remarkParse)
+  .use(remarkMdx)
+  .use(remarkMath)
+  .use(remarkGfm);
+for (const plugin of loadRuntimeRemarkPlugins()) parser.use(plugin);
+
+function renderError(message, node) {
+  const line = node?.position?.start?.line;
+  const column = node?.position?.start?.column;
+  const error = new Error(`${message}${line ? ` (${line}:${column})` : ''}`);
+  error.code = 'unsafe-markdown';
+  return error;
+}
+
+function safeUrl(value, node) {
+  const url = String(value ?? '').trim();
+  if (!url || url.startsWith('//') || url.includes('\\')) throw renderError('Unsafe URL', node);
+  if (/^(?:https?:|mailto:)/i.test(url) || url.startsWith('/') || url.startsWith('#')) return url;
+  throw renderError('Only http, https, mailto, root-relative, and anchor URLs are allowed', node);
+}
+
+function componentProps(node) {
+  const schema = ALLOWED_COMPONENT_PROPS[node.name];
+  if (!schema) throw renderError(`Component <${node.name || '?'}> is not allowed`, node);
+  const props = {};
+  for (const attribute of node.attributes ?? []) {
+    const type = schema[attribute.name];
+    if (attribute.type !== 'mdxJsxAttribute' || !attribute.name || !type) {
+      throw renderError(`Attribute on <${node.name}> is not allowed`, attribute);
+    }
+    if (attribute.value !== null && typeof attribute.value !== 'string') {
+      throw renderError(`Expressions are not allowed in <${node.name}>`, attribute);
+    }
+    const value = attribute.value === null ? true : attribute.value;
+    if (type === 'number') {
+      const number = Number(value);
+      if (!Number.isFinite(number)) throw renderError(`${attribute.name} on <${node.name}> must be numeric`, node);
+      props[attribute.name] = number;
+    } else if (type === 'boolean') {
+      if (value !== true && !['true', 'false'].includes(value)) {
+        throw renderError(`${attribute.name} on <${node.name}> must be true or false`, node);
+      }
+      props[attribute.name] = value === true || value === 'true';
+    } else if (type === 'stringOrBoolean') {
+      props[attribute.name] = value;
+    } else if (type === 'string' && typeof value === 'string') {
+      props[attribute.name] = value;
+    } else {
+      throw renderError(`${attribute.name} on <${node.name}> must be ${type}`, node);
+    }
+  }
+  return props;
+}
+
+function stripFrontmatter(markdown) {
+  return String(markdown ?? '').replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
+}
+
+function sanitizeTree(root) {
+  let count = 0;
+  const cleanChildren = node => (node.children ?? []).map(clean);
+
+  function clean(node) {
+    if (++count > MAX_NODES) throw renderError(`Document exceeds ${MAX_NODES} render nodes`, node);
+    switch (node.type) {
+      case 'root': return {type: 'root', children: cleanChildren(node)};
+      case 'text': return {type: 'text', value: String(node.value ?? '')};
+      case 'paragraph': return {type: 'paragraph', children: cleanChildren(node)};
+      case 'heading': return {type: 'heading', depth: Math.min(Math.max(node.depth || 1, 1), 6), children: cleanChildren(node)};
+      case 'emphasis': return {type: 'emphasis', children: cleanChildren(node)};
+      case 'strong': return {type: 'strong', children: cleanChildren(node)};
+      case 'delete': return {type: 'delete', children: cleanChildren(node)};
+      case 'blockquote': return {type: 'blockquote', children: cleanChildren(node)};
+      case 'thematicBreak': return {type: 'thematicBreak'};
+      case 'break': return {type: 'break'};
+      case 'inlineCode': return {type: 'inlineCode', value: String(node.value ?? '')};
+      case 'code': return {
+        type: 'code', value: String(node.value ?? ''),
+        lang: typeof node.lang === 'string' ? node.lang.slice(0, 40) : null,
+      };
+      case 'link': return {
+        type: 'link', url: safeUrl(node.url, node),
+        title: typeof node.title === 'string' ? node.title : null,
+        children: cleanChildren(node),
+      };
+      case 'image': return {
+        type: 'image', url: safeUrl(node.url, node), alt: String(node.alt ?? ''),
+        title: typeof node.title === 'string' ? node.title : null,
+      };
+      case 'list': return {
+        type: 'list', ordered: Boolean(node.ordered), start: Number(node.start) || 1,
+        children: cleanChildren(node),
+      };
+      case 'listItem': return {
+        type: 'listItem', checked: typeof node.checked === 'boolean' ? node.checked : null,
+        children: cleanChildren(node),
+      };
+      case 'table': return {type: 'table', align: node.align ?? [], children: cleanChildren(node)};
+      case 'tableRow': return {type: 'tableRow', children: cleanChildren(node)};
+      case 'tableCell': return {type: 'tableCell', children: cleanChildren(node)};
+      case 'math':
+      case 'inlineMath': {
+        const display = node.type === 'math';
+        return {
+          type: 'math', display, tex: String(node.value ?? ''),
+          html: katex.renderToString(String(node.value ?? ''), {
+            displayMode: display, throwOnError: false, strict: 'warn', trust: false,
+          }),
+        };
+      }
+      case 'mdxJsxFlowElement':
+      case 'mdxJsxTextElement':
+        return {
+          type: 'component', name: node.name, props: componentProps(node),
+          children: cleanChildren(node),
+        };
+      case 'mdxjsEsm':
+        throw renderError('import and export are not allowed in workspace documents', node);
+      case 'mdxFlowExpression':
+      case 'mdxTextExpression':
+        throw renderError('JavaScript expressions are not allowed in workspace documents', node);
+      case 'html':
+        throw renderError('Raw HTML is not allowed in workspace documents', node);
+      case 'definition':
+        return {type: 'empty'};
+      default:
+        throw renderError(`Markdown node ${node.type} is not allowed`, node);
+    }
+  }
+
+  return clean(root);
+}
+
+async function compileMarkdown(markdown) {
+  const tree = parser.parse(stripFrontmatter(markdown));
+  return sanitizeTree(await parser.run(tree));
+}
 
 function cacheGet(key) {
   const hit = cache.get(key);
@@ -98,53 +180,26 @@ function cacheSet(key, value) {
   while (cache.size > MAX_CACHE_ENTRIES) cache.delete(cache.keys().next().value);
 }
 
-/**
- * Compile `markdown` to a function body.
- *
- * Rejects with the compiler's own error, which names the line, so a document
- * with broken MDX reports what is wrong with it rather than a blank page.
- */
-async function compileMarkdown(markdown) {
-  const compiled = await compile(String(markdown ?? ''), {
-    outputFormat: 'function-body',
-    development: false,
-    remarkPlugins: REMARK_PLUGINS,
-    rehypePlugins: REHYPE_PLUGINS,
-  });
-  return String(compiled);
-}
-
-/**
- * The compiled body of a document, from the cache when it has not changed.
- *
- * Takes the document rather than a path, because the caller has already read it
- * through the scoped layer and reading it again here would be a second chance
- * to get the scoping wrong.
- */
 async function compileDocument(document) {
   const key = `${document.id}@${document.updatedAt}`;
   const hit = cacheGet(key);
   if (hit !== undefined) return hit;
-  const code = await compileMarkdown(document.markdown);
-  cacheSet(key, code);
-  return code;
+  const tree = await compileMarkdown(document.markdown);
+  cacheSet(key, tree);
+  return tree;
 }
 
-/** Diagnostics and test hooks. Routes do not use these. */
-function _cacheSize() {
-  return cache.size;
-}
-
-function _clearCache() {
-  cache.clear();
-}
+function _cacheSize() { return cache.size; }
+function _clearCache() { cache.clear(); }
 
 module.exports = {
   compileMarkdown,
   compileDocument,
-  REMARK_PLUGINS,
-  REHYPE_PLUGINS,
+  sanitizeTree,
+  safeUrl,
+  ALLOWED_COMPONENT_PROPS,
   MAX_CACHE_ENTRIES,
+  MAX_NODES,
   _cacheSize,
   _clearCache,
 };

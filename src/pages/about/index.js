@@ -166,8 +166,8 @@ const WHATS_NEW = [
 ];
 
 const QUICK_LINKS = [
-  { label: 'Research Papers', to: '/research', desc: 'Read and discuss research paper summaries' },
-  { label: 'Blog', to: '/blog', desc: 'Posts on ideas, tutorials, and updates' },
+  { label: 'Research Papers', to: '/documents/posts/research', desc: 'Read and discuss research paper summaries' },
+  { label: 'Blog', to: '/documents/posts/blog', desc: 'Posts on ideas, tutorials, and updates' },
   { label: 'Bibliography', to: '/bibliography', desc: 'Browse and manage references' },
   { label: 'Knowledge Graph', to: '/graph', desc: 'Visualize page connections' },
   { label: 'Discover', to: '/recommendations', desc: 'AI-powered paper recommendations' },

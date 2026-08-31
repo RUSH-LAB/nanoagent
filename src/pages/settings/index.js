@@ -1,11 +1,15 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import Link from '@docusaurus/Link';
+import {useLocation} from '@docusaurus/router';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import pageStyles from '@site/src/css/page.module.css';
 import { useColorMode } from '@docusaurus/theme-common';
 import API_BASE, { apiFetch } from '@site/src/utils/api';
-import { loadWorkspaces, switchWorkspace, createWorkspace } from '@site/src/utils/workspaces';
+import {
+  loadWorkspaces, switchWorkspace, createWorkspace, workspaceSlugFromPath,
+} from '@site/src/utils/workspaces';
 import styles from './styles.module.css';
 
 /**
@@ -30,6 +34,8 @@ const THEMES = [
 function SettingsApp() {
   const { authClient, signOutAndForget } = require('@site/src/utils/authClient');
   const { setColorMode } = useColorMode();
+  const location = useLocation();
+  const workspaceSlug = workspaceSlugFromPath(location.pathname);
 
   const [session, setSession] = useState(null);
   const [prefs, setPrefs] = useState(null);
@@ -59,8 +65,10 @@ function SettingsApp() {
     loadWorkspaces()
       .then((d) => {
         if (cancelled) return;
-        setWorkspaces(d.memberships || []);
-        setActiveId(d.activeId ?? null);
+        const memberships = d.workspaces || d.memberships || [];
+        setWorkspaces(memberships);
+        setActiveId(memberships.find(workspace => workspace.slug === workspaceSlug)?.id
+          ?? d.defaultWorkspaceId ?? d.activeId ?? null);
       })
       .catch(() => { if (!cancelled) setWorkspaces(null); });
 
@@ -70,7 +78,7 @@ function SettingsApp() {
       .catch(() => { if (!cancelled) setError('Could not load your settings. Is the API server running?'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [authClient]);
+  }, [authClient, workspaceSlug]);
 
   /**
    * Run one of the workspace writes. Both reload the page on success, from
@@ -115,16 +123,23 @@ function SettingsApp() {
   }
 
   const user = session?.user;
+  const activeWorkspace = Array.isArray(workspaces)
+    ? workspaces.find(workspace => workspace.id === activeId)
+    : null;
 
   return (
-    <div className={pageStyles.pageContainer}>
-      <h1 className={styles.heading}>Settings</h1>
+    <div className={`${pageStyles.pageContainer} ${pageStyles.wide}`}>
+      <header className={styles.pageHeader}>
+        <span className={styles.eyebrow}>Settings</span>
+        <h1 className={styles.heading}>{activeWorkspace?.name ?? 'Your workspace'}</h1>
+        <p>Manage your account, workspace access, and appearance.</p>
+      </header>
 
+      <div className={styles.settingsGrid}>
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>Account</h2>
         {user ? (
           <dl className={styles.account}>
-            <dt>Username</dt><dd>{user.username || <em>not set</em>}</dd>
             <dt>Email</dt><dd>{user.email}</dd>
             <dt>Display name</dt><dd>{user.name || <em>not set</em>}</dd>
             <dt>User ID</dt><dd><code>{user.id}</code></dd>
@@ -147,7 +162,17 @@ function SettingsApp() {
       </section>
 
       <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Workspaces</h2>
+        <div className={styles.sectionTitleRow}>
+          <div>
+            <h2 className={styles.sectionTitle}>Organizations</h2>
+            <p className={styles.muted}>Switching changes the content and people you see.</p>
+          </div>
+          {activeWorkspace && (
+            <Link className={styles.peopleLink} to={`/w/${encodeURIComponent(activeWorkspace.slug)}/people`}>
+              Manage people
+            </Link>
+          )}
+        </div>
 
         {workspaces === undefined ? (
           <p className={styles.muted}>Loading your workspaces...</p>
@@ -161,22 +186,25 @@ function SettingsApp() {
         ) : (
           <ul className={styles.workspaces}>
             {workspaces.map((workspace) => (
-              <li key={workspace.id} className={styles.workspace}>
-                <span>
+              <li key={workspace.id} className={`${styles.workspace} ${workspace.id === activeId ? styles.workspaceActive : ''}`}>
+                <span className={styles.workspaceMark} aria-hidden="true">
+                  {workspace.name.trim().charAt(0).toUpperCase() || 'W'}
+                </span>
+                <span className={styles.workspaceIdentity}>
                   <strong>{workspace.name}</strong>
                   <em className={styles.muted}>
-                    {' '}{workspace.role}, {workspace.memberCount}{' '}
-                    {workspace.memberCount === 1 ? 'person' : 'people'}
+                    {workspace.role} · {workspace.memberCount}{' '}
+                    {workspace.memberCount === 1 ? 'member' : 'members'}
                   </em>
                 </span>
                 {workspace.id === activeId ? (
-                  <span className={styles.muted}>Current</span>
+                  <span className={styles.currentBadge}>Current</span>
                 ) : (
                   <button
                     type="button"
                     className={styles.signOut}
                     disabled={switching}
-                    onClick={() => workspaceAction(() => switchWorkspace(workspace.id))}
+                    onClick={() => workspaceAction(() => switchWorkspace(workspace))}
                   >
                     Switch to this
                   </button>
@@ -187,7 +215,7 @@ function SettingsApp() {
         )}
 
         <form
-          className={styles.field}
+          className={styles.createWorkspace}
           onSubmit={(e) => {
             e.preventDefault();
             // No slug: left out, the server derives one from the name and
@@ -195,12 +223,12 @@ function SettingsApp() {
             workspaceAction(() => createWorkspace({ name: newWorkspace }));
           }}
         >
-          <span>New workspace</span>
+          <span className={styles.createLabel}>Create organization</span>
           <input
             type="text"
             value={newWorkspace}
             onChange={(e) => setNewWorkspace(e.target.value)}
-            placeholder="Name"
+            placeholder="Organization name"
             minLength={2}
             maxLength={60}
             required
@@ -217,10 +245,10 @@ function SettingsApp() {
         {workspaceError && <p className={styles.error} role="alert">{workspaceError}</p>}
 
         <p className={styles.muted}>
-          Channels, direct messages, and the people directory all belong to the
-          current workspace. Published pages are shared across all of them.
+          You can also switch organizations directly from the logo in the top-left corner.
         </p>
       </section>
+      </div>
 
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>Preferences</h2>

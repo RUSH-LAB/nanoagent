@@ -11,6 +11,18 @@ const METHOD_COLORS = {
   PATCH: {bg: '#f3e8ff', color: '#6b21a8', border: '#d8b4fe'},
 };
 
+const GLOBAL_API_PATHS = new Set([
+  '/api/health', '/api/workspaces', '/api/preferences', '/api/users',
+  '/api/users/me', '/api/logs', '/api/perf', '/api/debug/memory',
+  '/api/debug/routes',
+]);
+
+function publicApiPath(path) {
+  if (path.startsWith('/api/workspaces/')) return path.replace('/api/workspaces/:id', '/api/workspaces/:workspaceId');
+  if (GLOBAL_API_PATHS.has(path) || /^\/api\/users\/[^/]+\/role$/.test(path)) return path;
+  return `/api/workspaces/:workspaceId${path.slice('/api'.length)}`;
+}
+
 function MethodBadge({method}) {
   const colors = METHOD_COLORS[method] || METHOD_COLORS.GET;
   return (
@@ -44,7 +56,7 @@ function EndpointRow({method, path, description, request, response}) {
       </td>
       <td style={{padding: '10px 12px', verticalAlign: 'top'}}>
         <code style={{fontSize: '0.85rem', background: 'var(--ifm-code-background, #f5f5f5)', padding: '2px 6px', borderRadius: '3px'}}>
-          {path}
+          {publicApiPath(path)}
         </code>
       </td>
       <td style={{padding: '10px 12px', verticalAlign: 'top'}}>
@@ -152,54 +164,54 @@ function CategorySection({id, title, icon, description, endpoints}) {
 const CATEGORIES = [
   {
     id: 'files',
-    title: 'Files',
+    title: 'Documents',
     icon: '📄',
-    description: 'CRUD operations for markdown/MDX content files under the content/ directory.',
+    description: 'Workspace-scoped Markdown document operations backed by the database.',
     endpoints: [
       {
-        method: 'GET', path: '/api/files', description: 'List file tree. Returns nested directory structure under content/.',
-        request: 'Query: ?dir=content (optional, defaults to "content")',
-        response: '{ "files": [{ "name": "intro.md", "path": "content/intro.md", "type": "file" }, { "name": "docs", "path": "content/docs", "type": "directory", "children": [...] }] }',
+        method: 'GET', path: '/api/files', description: 'List the virtual document tree assembled from database rows.',
+        request: 'Query: ?dir=docs (optional, defaults to the workspace root)',
+        response: '{ "files": [{ "name": "intro.md", "path": "intro.md", "type": "file" }, { "name": "docs", "path": "docs", "type": "directory", "children": [...] }] }',
       },
       {
         method: 'GET', path: '/api/file', description: 'Read a single file\'s content.',
-        request: 'Query: ?path=content/docs/example.md',
+        request: 'Query: ?path=docs/example.md',
         response: '{ "content": "---\\ntitle: ...\\n---\\n\\n# Example\\n..." }',
       },
       {
-        method: 'POST', path: '/api/file', description: 'Create a new file. Fails if file already exists.',
-        request: '{ "path": "content/docs/new-page.md", "content": "---\\ntitle: New Page\\n---\\n" }',
-        response: '{ "success": true, "path": "content/docs/new-page.md" }',
+        method: 'POST', path: '/api/workspaces/:id/documents', description: 'Create a new document. Fails if its workspace-relative path already exists.',
+        request: '{ "path": "docs/new-page.md", "markdown": "---\\ntitle: New Page\\n---\\n" }',
+        response: '{ "success": true, "document": { "path": "docs/new-page.md" } }',
       },
       {
-        method: 'PUT', path: '/api/file', description: 'Update an existing file\'s content. Fails if file does not exist.',
-        request: '{ "path": "content/docs/example.md", "content": "updated content..." }',
+        method: 'PUT', path: '/api/workspaces/:id/documents', description: 'Update an existing document and retain the previous version.',
+        request: '{ "path": "docs/example.md", "markdown": "updated content..." }',
         response: '{ "success": true }',
       },
       {
-        method: 'DELETE', path: '/api/file', description: 'Soft-delete a file by moving it to the .trash/ directory with a timestamp prefix.',
-        request: 'Query: ?path=content/docs/example.md',
-        response: '{ "success": true, "trashPath": ".trash/content/docs/2025-01-15T10-30-00-000Z_example.md" }',
+        method: 'DELETE', path: '/api/workspaces/:id/documents', description: 'Soft-delete a document.',
+        request: '{ "path": "docs/example.md" }',
+        response: '{ "success": true }',
       },
       {
-        method: 'POST', path: '/api/file/move', description: 'Move a file to a different directory, keeping its filename.',
-        request: '{ "filePath": "content/docs/example.md", "targetDir": "content/posts" }',
-        response: '{ "success": true, "newPath": "content/posts/example.md" }',
+        method: 'POST', path: '/api/workspaces/:id/documents/move', description: 'Move a document to another workspace-relative path.',
+        request: '{ "from": "docs/example.md", "to": "posts/example.md" }',
+        response: '{ "success": true, "document": { "path": "posts/example.md" } }',
       },
       {
         method: 'GET', path: '/api/files/search', description: 'Search files by name or path.',
         request: 'Query: ?q=algebra',
-        response: '{ "files": [{ "name": "algebra.md", "path": "content/docs/math/algebra.md" }] }',
+        response: '{ "files": [{ "name": "algebra.md", "path": "docs/math/algebra.md" }] }',
       },
       {
-        method: 'POST', path: '/api/folder', description: 'Create a new directory under content/.',
-        request: '{ "path": "content/docs/new-section" }',
-        response: '{ "success": true, "path": "content/docs/new-section" }',
+        method: 'POST', path: '/api/folder', description: 'Validate a virtual document-path prefix. Empty directories are not persisted.',
+        request: '{ "path": "docs/new-section" }',
+        response: '{ "success": true, "path": "docs/new-section", "virtual": true }',
       },
       {
-        method: 'DELETE', path: '/api/folder', description: 'Delete an empty directory. Fails if the directory contains files.',
-        request: '{ "path": "content/docs/empty-section" }',
-        response: '{ "success": true }',
+        method: 'DELETE', path: '/api/folder', description: 'Validate removal of an empty virtual prefix. Fails while documents use it.',
+        request: '{ "path": "docs/empty-section" }',
+        response: '{ "success": true, "virtual": true }',
       },
     ],
   },
@@ -207,7 +219,7 @@ const CATEGORIES = [
     id: 'trash',
     title: 'Trash',
     icon: '🗑️',
-    description: 'Manage soft-deleted files in the .trash/ directory.',
+    description: 'Manage soft-deleted workspace document rows.',
     endpoints: [
       {
         method: 'DELETE', path: '/api/trash/empty', description: 'Permanently delete all trashed files.',
@@ -219,14 +231,14 @@ const CATEGORIES = [
     id: 'references',
     title: 'References & Bibliography',
     icon: '📚',
-    description: 'Manage the references.yaml bibliography, enrich entries from academic APIs, track preprints, and import/export BibTeX.',
+    description: 'Manage the workspace bibliography stored in PostgreSQL, enrich entries from academic APIs, track preprints, and import/export BibTeX.',
     endpoints: [
       {
-        method: 'GET', path: '/api/references', description: 'Get all references from references.yaml.',
+        method: 'GET', path: '/api/references', description: 'Get all references in this workspace.',
         response: '{ "references": { "vaswani2017": { "type": "article", "title": "Attention Is All You Need", "author": [...], "year": 2017, "venue": "NeurIPS" }, ... } }',
       },
       {
-        method: 'POST', path: '/api/references', description: 'Add a new reference entry. Fails if the key already exists.',
+        method: 'POST', path: '/api/references', description: 'Add a workspace reference entry. Fails if the key already exists.',
         request: '{ "key": "smith2024", "entry": { "type": "article", "title": "...", "author": ["John Smith"], "year": 2024 } }',
         response: '{ "success": true }',
       },
@@ -236,7 +248,7 @@ const CATEGORIES = [
         response: '{ "key": "vaswani2017", "current": { ... }, "sources": { "semanticScholar": { "title": "...", "citationCount": 90000, ... }, "crossref": { ... }, "dblp": { ... } } }',
       },
       {
-        method: 'POST', path: '/api/references/enrich', description: 'Apply enriched metadata fields to a reference in references.yaml.',
+        method: 'POST', path: '/api/references/enrich', description: 'Apply enriched metadata fields to a workspace reference.',
         request: '{ "key": "vaswani2017", "fields": { "doi": "10.5555/...", "citationCount": 90000 } }',
         response: '{ "success": true, "entry": { ... } }',
       },
@@ -255,7 +267,7 @@ const CATEGORIES = [
         response: '{ "checked": 15, "updated": 3, "results": [{ "key": "smith2024", "published": true, "venue": "NeurIPS 2024" }, ...] }',
       },
       {
-        method: 'POST', path: '/api/references/import-bibtex', description: 'Parse a BibTeX string and import entries into references.yaml. Skips duplicate keys. Rate-limited to 5/min.',
+        method: 'POST', path: '/api/references/import-bibtex', description: 'Parse a BibTeX string and import workspace reference rows. Skips duplicate keys. Rate-limited to 5/min.',
         request: '{ "bibtex": "@article{smith2024,\\n  title = {Example},\\n  author = {John Smith},\\n  year = {2024}\\n}" }',
         response: '{ "added": 3, "skipped": 1, "errors": [] }',
       },
@@ -316,7 +328,7 @@ const CATEGORIES = [
       },
       {
         method: 'GET', path: '/api/users/me', description: 'Get the signed-in user\'s id, organization, and role. Returns "viewer" for a user with no stored record.',
-        request: 'No parameters: the caller is the subject of the session token.',
+        request: 'No parameters: the caller is the subject of the verified session cookie.',
         response: '{ "role": "owner", "email": "alice@example.com", "name": "Alice" }',
       },
       {
@@ -356,7 +368,7 @@ const CATEGORIES = [
       {
         method: 'GET', path: '/api/search', description: 'Full-text search across all content files. Returns up to 50 results with context snippets.',
         request: 'Query: ?q=transformer',
-        response: '{ "results": [{ "path": "content/docs/attention.md", "name": "attention.md", "snippet": "...the transformer architecture..." }] }',
+        response: '{ "results": [{ "path": "docs/attention.md", "name": "attention.md", "snippet": "...the transformer architecture..." }] }',
       },
       {
         method: 'GET', path: '/api/notes', description: 'Get scratch-pad notes. Optionally filter by key.',
@@ -370,8 +382,8 @@ const CATEGORIES = [
       },
       {
         method: 'GET', path: '/api/backlinks', description: 'Find all pages that link to a given page via wiki-links ([[page]]) or citation references ([@key]).',
-        request: 'Query: ?path=content/docs/example.md',
-        response: '{ "backlinks": [{ "sourcePath": "content/docs/intro.md", "sourceTitle": "Introduction", "linkType": "wikilink" }] }',
+        request: 'Query: ?path=docs/example.md',
+        response: '{ "backlinks": [{ "sourcePath": "docs/intro.md", "sourceTitle": "Introduction", "linkType": "wikilink" }] }',
       },
       {
         method: 'GET', path: '/api/graph', description: 'Build a link graph of all wiki-link connections between pages. Returns nodes and edges for visualization.',
@@ -383,16 +395,16 @@ const CATEGORIES = [
       },
       {
         method: 'GET', path: '/api/calendar', description: 'Content calendar: all pages grouped by month with word counts, draft status, and scheduled publications. Cached for 60 seconds.',
-        response: '{ "months": [{ "month": "2025-01", "files": [{ "path": "content/docs/intro.md", "title": "Introduction", "date": "2025-01-15", "wordCount": 500, "draft": false }] }] }',
+        response: '{ "months": [{ "month": "2025-01", "files": [{ "path": "docs/intro.md", "title": "Introduction", "date": "2025-01-15", "wordCount": 500, "draft": false }] }] }',
       },
       {
         method: 'GET', path: '/api/integrity', description: 'Data integrity validation: checks JSON file validity, YAML validity, and orphaned snapshots.',
-        response: '{ "status": "healthy", "checks": [{ "name": "json_validity", "passed": true, "details": "All 8 JSON files are valid" }, { "name": "yaml_validity", "passed": true, "details": "references.yaml is valid YAML" }, ...] }',
+        response: '{ "status": "healthy", "checks": [{ "name": "document_paths", "passed": true }, { "name": "reference_records", "passed": true }, { "name": "orphaned_snapshots", "passed": true }] }',
       },
       {
         method: 'GET', path: '/api/suggest', description: 'Get contextual suggestions for references and wiki-link targets based on text being typed.',
         request: 'Query: ?text=transformer+attention&limit=5',
-        response: '{ "references": [{ "key": "vaswani2017", "title": "Attention Is All You Need", "relevance": 3 }], "pages": [{ "path": "content/docs/attention.md", "title": "Attention Mechanisms", "relevance": 2 }] }',
+        response: '{ "references": [{ "key": "vaswani2017", "title": "Attention Is All You Need", "relevance": 3 }], "pages": [{ "path": "docs/attention.md", "title": "Attention Mechanisms", "relevance": 2 }] }',
       },
     ],
   },
@@ -437,17 +449,17 @@ const CATEGORIES = [
       },
       {
         method: 'POST', path: '/api/reading-lists/:id/items', description: 'Add an item to a reading list.',
-        request: '{ "path": "content/docs/paper.md", "title": "Paper Title", "type": "doc" }',
+        request: '{ "path": "docs/paper.md", "title": "Paper Title", "type": "doc" }',
         response: '{ "success": true, "list": { ... } }',
       },
       {
         method: 'DELETE', path: '/api/reading-lists/:id/items', description: 'Remove an item from a reading list.',
-        request: '{ "path": "content/docs/paper.md" }',
+        request: '{ "path": "docs/paper.md" }',
         response: '{ "success": true, "list": { ... } }',
       },
       {
         method: 'PATCH', path: '/api/reading-lists/:id/items', description: 'Reorder an item within a reading list.',
-        request: '{ "path": "content/docs/paper.md", "direction": "up" }',
+        request: '{ "path": "docs/paper.md", "direction": "up" }',
         response: '{ "success": true, "list": { ... } }',
       },
     ],
@@ -477,7 +489,7 @@ const CATEGORIES = [
       {
         method: 'GET', path: '/api/files/recent', description: 'List recently modified files.',
         request: 'Query: ?limit=10 (max 50)',
-        response: '{ "files": [{ "name": "intro.md", "path": "content/docs/intro.md", "mtime": 1705123456000 }] }',
+        response: '{ "files": [{ "name": "intro.md", "path": "docs/intro.md", "mtime": 1705123456000 }] }',
       },
       {
         method: 'GET', path: '/api/analytics/topics', description: 'Extract top 50 content keywords/topics from all markdown files.',
@@ -492,22 +504,22 @@ const CATEGORIES = [
     endpoints: [
       {
         method: 'GET', path: '/api/file/keywords', description: 'Extract top 20 keywords from a file.',
-        request: 'Query: ?path=content/docs/intro.md',
+        request: 'Query: ?path=docs/intro.md',
         response: '{ "keywords": [{ "word": "transformer", "count": 12 }], "totalWords": 500 }',
       },
       {
         method: 'GET', path: '/api/file/readability', description: 'Get readability metrics for a file (Flesch-Kincaid grade, reading time, etc.).',
-        request: 'Query: ?path=content/docs/intro.md',
+        request: 'Query: ?path=docs/intro.md',
         response: '{ "wordCount": 500, "sentenceCount": 25, "avgWordsPerSentence": 20, "fleschKincaidGrade": 12.5, "readingLevel": "Advanced", "readingTimeMinutes": 3 }',
       },
       {
         method: 'GET', path: '/api/file/related', description: 'Get pages related to a file by shared tags and content similarity.',
-        request: 'Query: ?path=content/docs/intro.md',
-        response: '{ "related": [{ "path": "content/docs/overview.md", "title": "Overview", "score": 7.5 }] }',
+        request: 'Query: ?path=docs/intro.md',
+        response: '{ "related": [{ "path": "docs/overview.md", "title": "Overview", "score": 7.5 }] }',
       },
       {
         method: 'GET', path: '/api/file/lint', description: 'Lint a markdown file for common issues (missing title, empty headings, unclosed code blocks).',
-        request: 'Query: ?path=content/docs/intro.md',
+        request: 'Query: ?path=docs/intro.md',
         response: '{ "issues": [{ "line": 5, "severity": "warning", "message": "Empty heading" }], "issueCount": 1 }',
       },
       {
@@ -536,8 +548,8 @@ const CATEGORIES = [
       },
       {
         method: 'GET', path: '/api/file/quality', description: 'Compute a 0-100 quality score for a file based on word count, frontmatter, headings, citations, media, and readability.',
-        request: 'Query: ?path=content/docs/example.md',
-        response: '{ "path": "content/docs/example.md", "score": 72, "level": "good", "breakdown": { "words": { "score": 20, "max": 25, "wordCount": 650 }, "structure": { "score": 30, "max": 35 }, "citations": { "score": 6, "max": 10, "count": 3 }, "media": { "score": 8, "max": 10 }, "readability": { "score": 8, "max": 10 } }, "suggestions": ["Add citations [@key] to reference sources"] }',
+        request: 'Query: ?path=docs/example.md',
+        response: '{ "path": "docs/example.md", "score": 72, "level": "good", "breakdown": { "words": { "score": 20, "max": 25, "wordCount": 650 }, "structure": { "score": 30, "max": 35 }, "citations": { "score": 6, "max": 10, "count": 3 }, "media": { "score": 8, "max": 10 }, "readability": { "score": 8, "max": 10 } }, "suggestions": ["Add citations [@key] to reference sources"] }',
       },
     ],
   },
@@ -561,7 +573,7 @@ const CATEGORIES = [
     endpoints: [
       {
         method: 'POST', path: '/api/flashcards', description: 'Create a new flashcard. Rate-limited to 30/min per IP.',
-        request: '{ "front": "What is attention?", "back": "A mechanism for weighting input relevance.", "tags": ["ml", "transformers"], "sourcePath": "content/docs/attention.md" }',
+        request: '{ "front": "What is attention?", "back": "A mechanism for weighting input relevance.", "tags": ["ml", "transformers"], "sourcePath": "docs/attention.md" }',
         response: '{ "success": true, "card": { "id": "fc_...", "front": "...", "back": "...", "tags": [...], "sourcePath": "...", "interval": 1, "easeFactor": 2.5, "repetitions": 0, "nextReview": "2025-01-15", "createdAt": "..." } }',
       },
       {
@@ -649,22 +661,22 @@ const CATEGORIES = [
     endpoints: [
       {
         method: 'POST', path: '/api/snapshots', description: 'Create a named snapshot of a file\'s current content. Rate-limited to 30/min per IP.',
-        request: '{ "path": "content/docs/example.md", "name": "Before major rewrite" }',
+        request: '{ "path": "docs/example.md", "name": "Before major rewrite" }',
         response: '{ "success": true, "snapshot": { "id": "uuid", "name": "Before major rewrite", "createdAt": "..." } }',
       },
       {
         method: 'GET', path: '/api/snapshots', description: 'List all snapshots for a file.',
-        request: 'Query: ?path=content/docs/example.md',
+        request: 'Query: ?path=docs/example.md',
         response: '{ "snapshots": [{ "id": "uuid", "name": "Before major rewrite", "createdAt": "..." }] }',
       },
       {
         method: 'POST', path: '/api/snapshots/restore', description: 'Restore a file to a previous snapshot\'s content. Rate-limited to 30/min per IP.',
-        request: '{ "path": "content/docs/example.md", "snapshotId": "uuid" }',
+        request: '{ "path": "docs/example.md", "snapshotId": "uuid" }',
         response: '{ "success": true, "restored": { "id": "uuid", "name": "Before major rewrite" } }',
       },
       {
         method: 'DELETE', path: '/api/snapshots', description: 'Delete a specific snapshot. Rate-limited to 30/min per IP.',
-        request: '{ "path": "content/docs/example.md", "snapshotId": "uuid" }',
+        request: '{ "path": "docs/example.md", "snapshotId": "uuid" }',
         response: '{ "success": true }',
       },
     ],
@@ -677,12 +689,12 @@ const CATEGORIES = [
     endpoints: [
       {
         method: 'POST', path: '/api/schedule', description: 'Schedule a file for publication at a future date. An optional note can be attached. Each call adds a new scheduled item.',
-        request: '{ "path": "content/docs/upcoming.md", "publishAt": "2025-02-01T09:00:00Z", "note": "Launch announcement" }',
-        response: '{ "success": true, "item": { "id": "sched_...", "path": "content/docs/upcoming.md", "publishAt": "2025-02-01T09:00:00Z", "note": "Launch announcement", "createdAt": "...", "status": "scheduled" } }',
+        request: '{ "path": "docs/upcoming.md", "publishAt": "2025-02-01T09:00:00Z", "note": "Launch announcement" }',
+        response: '{ "success": true, "item": { "id": "sched_...", "path": "docs/upcoming.md", "publishAt": "2025-02-01T09:00:00Z", "note": "Launch announcement", "createdAt": "...", "status": "scheduled" } }',
       },
       {
         method: 'GET', path: '/api/schedule', description: 'List all scheduled items sorted by publish date. Past-due scheduled items are reported as due. Includes counts of upcoming and due items.',
-        response: '{ "items": [{ "id": "sched_...", "path": "content/docs/upcoming.md", "publishAt": "2025-02-01T09:00:00Z", "note": "", "createdAt": "...", "status": "scheduled" }], "upcoming": 1, "due": 0 }',
+        response: '{ "items": [{ "id": "sched_...", "path": "docs/upcoming.md", "publishAt": "2025-02-01T09:00:00Z", "note": "", "createdAt": "...", "status": "scheduled" }], "upcoming": 1, "due": 0 }',
       },
       {
         method: 'DELETE', path: '/api/schedule', description: 'Cancel a scheduled item by its id.',
@@ -698,13 +710,13 @@ const CATEGORIES = [
     description: 'Fast-capture notes saved as draft blog posts with the quick-note tag. Also supports JSON-backed scratchpad notes.',
     endpoints: [
       {
-        method: 'POST', path: '/api/quicknote', description: 'Create a quick note as a markdown file in content/posts/blog/. Auto-generates a date-prefixed filename. Rate-limited to 20/min per IP.',
+        method: 'POST', path: '/api/quicknote', description: 'Create a quick-note document under posts/blog/. Auto-generates a date-prefixed path. Rate-limited to 20/min per IP.',
         request: '{ "text": "Interesting idea about attention heads...", "title": "Attention Head Hypothesis" }',
-        response: '{ "success": true, "path": "content/posts/blog/2025-01-15-attention-head-hypothesis.md", "filename": "2025-01-15-attention-head-hypothesis.md" }',
+        response: '{ "success": true, "path": "posts/blog/2025-01-15-attention-head-hypothesis.md", "filename": "2025-01-15-attention-head-hypothesis.md" }',
       },
       {
         method: 'GET', path: '/api/quicknote', description: 'List the 10 most recent quick notes (blog posts tagged quick-note), newest first.',
-        response: '{ "notes": [{ "filename": "2025-01-15-attention-head-hypothesis.md", "title": "Attention Head Hypothesis", "date": "2025-01-15", "preview": "Interesting idea about...", "path": "content/posts/blog/2025-01-15-attention-head-hypothesis.md" }], "total": 3 }',
+        response: '{ "notes": [{ "filename": "2025-01-15-attention-head-hypothesis.md", "title": "Attention Head Hypothesis", "date": "2025-01-15", "preview": "Interesting idea about...", "path": "posts/blog/2025-01-15-attention-head-hypothesis.md" }], "total": 3 }',
       },
       {
         method: 'GET', path: '/api/quicknotes', description: 'List the signed-in user\'s JSON-backed quick notes plus blog quick notes, sorted newest first.',
@@ -784,12 +796,11 @@ export default function ApiDocs() {
           </p>
           <p style={{color: '#9ca3af', fontSize: '0.85rem'}}>
             <strong>Authentication.</strong> With <code>ENABLE_AUTH=true</code>, every endpoint except{' '}
-            <code>/api/health</code>, <code>/api/feed/rss</code>, <code>/api/feed/atom</code>, and{' '}
-            <code>/api/auth/*</code> requires a session token, sent as{' '}
-            <code>Authorization: Bearer &lt;token&gt;</code>. A missing or invalid token is a <code>401</code>.
-            Per-user endpoints read the caller from that token; a <code>userId</code> in a query string or body is
-            ignored. Sign up and sign in at <code>/api/auth/sign-up/email</code> and{' '}
-            <code>/api/auth/sign-in/username</code>; both return the token in a <code>set-auth-token</code> header.
+            <code>/api/health</code>, invitation previews, and <code>/api/auth/*</code> requires a Better Auth{' '}
+            session carried by a same-origin HttpOnly cookie. A missing or invalid session is a <code>401</code>.
+            Every workspace endpoint shown below includes the explicit <code>/api/workspaces/:workspaceId</code> prefix and
+            revalidate membership on the server. Sign up and sign in with email at{' '}
+            <code>/api/auth/sign-up/email</code> and <code>/api/auth/sign-in/email</code>.
           </p>
         </div>
 
@@ -809,7 +820,7 @@ export default function ApiDocs() {
           <p><strong>Error responses</strong> follow the format: <code>{'{ "error": "Error message" }'}</code></p>
           <p><strong>Rate limiting</strong> returns HTTP 429 with <code>{'{ "error": "Too many requests. Try again in a minute." }'}</code></p>
           <p><strong>ETag caching</strong> is enabled for all GET endpoints. Responses include an <code>ETag</code> header; send <code>If-None-Match</code> to receive 304 Not Modified.</p>
-          <p><strong>CORS</strong> is enabled for all origins by default (configurable via <code>CORS_ORIGIN</code> env var). Max request body size: 10 MB.</p>
+          <p><strong>CORS</strong> echoes origins only in local development. Production defaults to <code>SITE_URL</code> and may be overridden with <code>CORS_ORIGIN</code>. Max request body size: 10 MB.</p>
         </footer>
       </main>
       </ErrorBoundary>

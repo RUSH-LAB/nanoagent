@@ -60,9 +60,9 @@ after(() => {
 
 // The four scopes every case below is drawn from. They differ pairwise in one
 // field, which is what makes a failure name the predicate that is missing.
-const adaLab = {orgId: 'org-lab', userId: 'ada'};
-const bobLab = {orgId: 'org-lab', userId: 'bob'};
-const adaCourse = {orgId: 'org-course', userId: 'ada'};
+const adaLab = {workspaceId: 'org-lab', userId: 'ada'};
+const bobLab = {workspaceId: 'org-lab', userId: 'bob'};
+const adaCourse = {workspaceId: 'org-course', userId: 'ada'};
 
 /** The error `run` threw, so a case can assert on its code and status. */
 function thrown(run) {
@@ -155,20 +155,20 @@ describe('an org-shared domain', () => {
 describe('a scope that cannot be honoured', () => {
   it('refuses a caller with no workspace, with the status the API sends', () => {
     const bookmarks = store.collection('bookmarks');
-    const err = thrown(() => bookmarks.list({orgId: null, userId: 'ada'}));
+    const err = thrown(() => bookmarks.list({workspaceId: null, userId: 'ada'}));
     assert.equal(err.code, 'no-workspace');
     assert.equal(err.status, 409, 'nowhere to put it is not the same as not allowed');
   });
 
   it('refuses a per-user domain with no signed-in user', () => {
-    const err = thrown(() => store.collection('bookmarks').list({orgId: 'org-lab'}));
+    const err = thrown(() => store.collection('bookmarks').list({workspaceId: 'org-lab'}));
     assert.equal(err.code, 'no-identity');
     assert.equal(err.status, 401);
   });
 
   it('serves an org-shared domain without a user, which the public feeds need', () => {
     const glossary = store.collection('glossary');
-    assert.doesNotThrow(() => glossary.list({orgId: 'org-lab'}));
+    assert.doesNotThrow(() => glossary.list({workspaceId: 'org-lab'}));
   });
 
   // Every write path validates too, not just the reads: a store that checked
@@ -291,7 +291,7 @@ describe('what the database does when its subjects go', () => {
     const at = '2026-01-01T00:00:00.000Z';
     db.prepare('INSERT INTO "user" (id,name,email,emailVerified,createdAt,updatedAt) VALUES (?,?,?,0,?,?)')
       .run('cleo', 'Cleo', 'cleo@example.test', at, at);
-    const cleo = {orgId: 'org-lab', userId: 'cleo'};
+    const cleo = {workspaceId: 'org-lab', userId: 'cleo'};
 
     store.collection('bookmarks').put(cleo, '/gone', {title: 'private'});
     store.collection('glossary').put(cleo, 'stays', {definition: 'the workspace\'s'});
@@ -314,7 +314,7 @@ describe('what the database does when its subjects go', () => {
     const at = '2026-01-01T00:00:00.000Z';
     db.prepare('INSERT INTO organization (id,name,slug,createdAt) VALUES (?,?,?,?)')
       .run('org-temp', 'Temp', 'temp', at);
-    const scope = {orgId: 'org-temp', userId: 'ada'};
+    const scope = {workspaceId: 'org-temp', userId: 'ada'};
     store.collection('tasks').put(scope, 't', {x: 1});
     store.collection('glossary').put(scope, 'g', {x: 2});
 

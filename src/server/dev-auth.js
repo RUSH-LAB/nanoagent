@@ -48,21 +48,23 @@ const ROOT_ORG_SLUG = process.env.ROOT_ORG_SLUG || 'mochi';
 const ROOT_CHANNEL = 'general';
 
 /**
- * A second, empty workspace, so that the switcher in the navbar has somewhere
+ * A second workspace, so that the switcher in the navbar has somewhere
  * to switch to on a machine where only root has ever signed in.
  *
  * A fixture rather than a feature. Switching workspaces is the one part of the
  * product that cannot be seen at all until you belong to two, and provisioning
  * the second by hand every time the database is recreated is the sort of chore
- * that ends with the feature going untested. It is created empty on purpose:
- * the point of switching is that the page changes, which is only visible when
- * the two sides do not look alike.
+ * that ends with the feature going untested. Better Auth's lifecycle hook gives
+ * it the same immediately usable defaults as every other new workspace.
  *
  * Dev-only, like everything else in this module: ensureRootUser returns before
  * reaching it unless DEV_AUTOLOGIN is on and this is not production.
  */
 const DEMO_ORG_NAME = process.env.DEMO_ORG_NAME || 'Hello World';
 const DEMO_ORG_SLUG = process.env.DEMO_ORG_SLUG || 'hello-world';
+
+const DEV_USER_ID = 'dev-user';
+const DEV_USER_EMAIL = 'dev-user@mochi.local';
 
 /** Where the generated root password is kept, so you can also sign in by hand. */
 const ROOT_PASSWORD_FILE = path.join(DATA_DIR, '.root-password');
@@ -96,16 +98,16 @@ function rootPassword() {
 }
 
 /**
- * Make `userId` an owner, unless they already are. Returns whether anything
+ * Make `userId` a platform administrator, unless they already are. Returns whether anything
  * changed, which the startup banner reports.
  *
- * Writes to the user_role table, whose foreign key ties the role to a real
+ * Writes to platform_admin, whose foreign key ties the role to a real
  * account. The previous JSON store had no such link, so recreating the database
  * left the old entry behind and /admin listed owners that did not exist.
  */
-function grantOwner(userId) {
-  if (getRole(userId) === 'owner') return false;
-  return setRole(userId, 'owner');
+function grantPlatformAdmin(userId) {
+  if (getRole(userId) === 'admin') return false;
+  return setRole(userId, 'admin');
 }
 
 /**
@@ -162,7 +164,6 @@ async function ensureRootWorkspace(auth, userId) {
     });
     if (error) return {orgId: organization.id, name: organization.name, created: true, error};
   }
-  require('./org').ensureContentRoot(ROOT_ORG_SLUG);
   return {orgId: organization.id, name: organization.name, channel: ROOT_CHANNEL, created: true};
 }
 
@@ -192,9 +193,6 @@ async function ensureDemoWorkspace(auth, userId) {
   } catch (err) {
     return {error: err.message};
   }
-  // Its own content tree, empty, which is the point: switching to it should
-  // visibly change the page rather than show the same books under a new name.
-  require('./org').ensureContentRoot(DEMO_ORG_SLUG);
   return {orgId: organization?.id ?? null, name: DEMO_ORG_NAME};
 }
 
@@ -214,7 +212,7 @@ async function ensureRootUser(auth) {
 
   try {
     const result = await auth.api.signUpEmail({
-      body: {email: ROOT_EMAIL, password, name: ROOT_NAME, username: ROOT_USERNAME},
+      body: {email: ROOT_EMAIL, password, name: ROOT_NAME},
     });
     userId = result.user.id;
     created = true;
@@ -234,16 +232,75 @@ async function ensureRootUser(auth) {
     }
   }
 
-  const grantedOwner = grantOwner(userId);
+  const grantedPlatformAdmin = grantPlatformAdmin(userId);
   // Root's own workspace first, so that it is the oldest membership and
   // therefore the one a new session opens in. The fixture is the second entry
   // in the switcher, not the place you land.
   const workspace = await ensureRootWorkspace(auth, userId);
   const demo = await ensureDemoWorkspace(auth, userId);
   return {
-    userId, username: ROOT_USERNAME, email: ROOT_EMAIL, created, grantedOwner,
+    userId, username: ROOT_USERNAME, email: ROOT_EMAIL, created, grantedPlatformAdmin,
     workspace, demo, passwordFile: ROOT_PASSWORD_FILE,
   };
+}
+
+/**
+ * Provision the fixed identity used when authentication is disabled.
+ *
+ * The no-auth mode is only for local development and integration tests, but it
+ * still goes through the real workspace resolver. Giving that identity an
+ * ordinary owner membership keeps the request boundary identical to
+ * production instead of adding a membership bypass that could drift into a
+ * deployed configuration.
+ */
+function ensureDevelopmentWorkspace() {
+  const at = new Date().toISOString();
+  let workspace;
+  db.transaction(() => {
+    db.prepare(
+      `INSERT OR IGNORE INTO "user"
+         (id, name, email, emailVerified, createdAt, updatedAt)
+       VALUES (?, ?, ?, 1, ?, ?)`,
+    ).run(DEV_USER_ID, 'Development User', DEV_USER_EMAIL, at, at);
+
+    workspace = db.prepare(
+      `SELECT id, name, slug FROM organization
+        WHERE status = 'active'
+        ORDER BY CASE WHEN slug = ? THEN 0 ELSE 1 END, createdAt, rowid
+        LIMIT 1`,
+    ).get(ROOT_ORG_SLUG);
+
+    if (!workspace) {
+      let slug = ROOT_ORG_SLUG;
+      if (db.prepare('SELECT 1 FROM organization WHERE slug = ?').get(slug)) slug = `${ROOT_ORG_SLUG}-dev`;
+      const id = crypto.randomUUID();
+      db.prepare(
+        `INSERT INTO organization (id, name, slug, createdAt, status, createdBy)
+         VALUES (?, ?, ?, ?, 'active', ?)`,
+      ).run(id, ROOT_ORG_NAME, slug, at, DEV_USER_ID);
+      workspace = {id, name: ROOT_ORG_NAME, slug};
+    }
+
+    const membership = db.prepare(
+      'SELECT id FROM member WHERE organizationId = ? AND userId = ?',
+    ).get(workspace.id, DEV_USER_ID);
+    if (!membership) {
+      db.prepare(
+        `INSERT INTO member (id, organizationId, userId, role, createdAt)
+         VALUES (?, ?, ?, 'owner', ?)`,
+      ).run(crypto.randomUUID(), workspace.id, DEV_USER_ID, at);
+    }
+    db.prepare(
+      `INSERT OR IGNORE INTO workspace_settings (organizationId, value, updatedAt)
+       VALUES (?, '{}', ?)`,
+    ).run(workspace.id, at);
+  })();
+
+  const channel = db.prepare(
+    'SELECT id FROM channel WHERE organizationId = ? AND name = ?',
+  ).get(workspace.id, ROOT_CHANNEL);
+  if (!channel) chat.createChannel(workspace.id, DEV_USER_ID, {name: ROOT_CHANNEL});
+  return workspace;
 }
 
 /**
@@ -277,8 +334,11 @@ async function handleDevLogin(req, res, auth, json) {
   try {
     const result = await auth.api.signInEmail({
       body: {email: ROOT_EMAIL, password: rootPassword()},
+      returnHeaders: true,
     });
-    return json(res, 200, {token: result.token, user: result.user});
+    const cookies = result.headers?.getSetCookie?.() ?? [];
+    if (cookies.length && typeof res.setHeader === 'function') res.setHeader('Set-Cookie', cookies);
+    return json(res, 200, {user: result.response.user});
   } catch (err) {
     return json(res, 500, {error: `Development sign-in failed: ${err.message}`});
   }
@@ -296,10 +356,11 @@ module.exports = {
   DEMO_ORG_NAME,
   DEMO_ORG_SLUG,
   rootPassword,
-  grantOwner,
+  grantPlatformAdmin,
   ensureRootWorkspace,
   ensureDemoWorkspace,
   ensureRootUser,
+  ensureDevelopmentWorkspace,
   isLoopback,
   handleDevLogin,
 };

@@ -19,8 +19,8 @@ module.exports = async function stats_routes(req, res, url, pathname, ctx) {
 
   if (req.method === 'GET' && pathname === '/api/stats/timeline') {
     try {
-      const timeline = cached(cacheKey(req.auth?.orgId, 'stats:timeline'), 60000, () => {
-        const contentDir = contentRootFor(req.auth?.orgId);
+      const timeline = cached(cacheKey(req.context?.workspaceId, 'stats:timeline'), 60000, () => {
+        const contentDir = contentRootFor(req.context?.workspaceId);
         const byMonth = {};
         function scanTimeline(dir) {
           for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {

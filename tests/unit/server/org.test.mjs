@@ -30,12 +30,12 @@ let auth;
 let chat;
 let org;
 
-/** Accounts, keyed by username: {id, token}. */
+/** Accounts, keyed by test label: {id, cookie}. */
 const who = {};
 let orgId;
 let otherOrgId;
 
-const headersFor = name => ({authorization: `Bearer ${who[name].token}`});
+const headersFor = name => ({cookie: who[name].cookie});
 
 const signUp = async (username) => {
   const res = await auth.api.signUpEmail({
@@ -43,10 +43,13 @@ const signUp = async (username) => {
       email: `${username}@test.invalid`,
       password: 'correcthorsebattery',
       name: username,
-      username,
     },
+    returnHeaders: true,
   });
-  return {id: res.user.id, token: res.token};
+  return {
+    id: res.response.user.id,
+    cookie: res.headers.getSetCookie()[0].split(';')[0],
+  };
 };
 
 before(async () => {
@@ -75,13 +78,13 @@ before(async () => {
     }
   }
 
-  // Ada owns the organization, Bo administers it, Cal is an ordinary member,
+  // Ada owns the workspace, Bea edits it, Cal is a viewer,
   // and Dev is in a different one entirely.
   for (const name of ['ada', 'bea', 'cal', 'dev']) who[name] = await signUp(name);
   orgId = (await auth.api.createOrganization({body: {name: 'Team', slug: 'team', userId: who.ada.id}})).id;
   otherOrgId = (await auth.api.createOrganization({body: {name: 'Other', slug: 'other', userId: who.dev.id}})).id;
-  await auth.api.addMember({body: {userId: who.bea.id, organizationId: orgId, role: 'admin'}});
-  await auth.api.addMember({body: {userId: who.cal.id, organizationId: orgId, role: 'member'}});
+  await auth.api.addMember({body: {userId: who.bea.id, organizationId: orgId, role: 'editor'}});
+  await auth.api.addMember({body: {userId: who.cal.id, organizationId: orgId, role: 'viewer'}});
 });
 
 after(() => {
@@ -91,17 +94,17 @@ after(() => {
 /** Roles and audit are per-test state; membership is set up once above. */
 beforeEach(() => {
   db.exec('DELETE FROM org_audit');
-  db.prepare('UPDATE member SET role = ? WHERE organizationId = ? AND userId = ?').run('admin', orgId, who.bea.id);
-  db.prepare('UPDATE member SET role = ? WHERE organizationId = ? AND userId = ?').run('member', orgId, who.cal.id);
+  db.prepare('UPDATE member SET role = ? WHERE organizationId = ? AND userId = ?').run('editor', orgId, who.bea.id);
+  db.prepare('UPDATE member SET role = ? WHERE organizationId = ? AND userId = ?').run('viewer', orgId, who.cal.id);
 });
 
 const memberIdOf = name => org.listMembers(orgId, who.ada.id).find(m => m.id === who[name].id).memberId;
 
 describe('canManage', () => {
-  for (const role of ['owner', 'admin', 'owner,member', 'member, admin']) {
+  for (const role of ['owner', 'owner,viewer']) {
     it(`lets ${JSON.stringify(role)} manage people`, () => assert.equal(org.canManage(role), true));
   }
-  for (const role of ['member', 'guest', '', null, undefined]) {
+  for (const role of ['editor', 'viewer', 'viewer,editor', 'guest', '', null, undefined]) {
     it(`does not let ${JSON.stringify(role)} manage people`, () => assert.equal(org.canManage(role), false));
   }
 });
@@ -115,7 +118,7 @@ describe('the roster', () => {
 
   it('carries the role and the date each membership began', () => {
     const bea = org.listMembers(orgId, who.ada.id).find(r => r.username === 'bea');
-    assert.equal(bea.role, 'admin');
+    assert.equal(bea.role, 'editor');
     assert.ok(bea.joinedAt, 'joined at a time');
     assert.ok(bea.memberId && bea.memberId !== bea.id, 'the membership is not the account');
   });
@@ -149,21 +152,21 @@ describe('the roster', () => {
 describe('changing a role', () => {
   it('promotes a member, and writes down who did it', async () => {
     const result = await org.setMemberRole({
-      headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: memberIdOf('cal'), role: 'admin',
+      headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: memberIdOf('cal'), role: 'editor',
     });
     assert.equal(result.changed, true);
-    assert.equal(result.member.role, 'admin');
+    assert.equal(result.member.role, 'editor');
 
     const [event] = org.listAudit(orgId);
     assert.equal(event.action, 'member.role');
     assert.equal(event.actorLabel, 'ada');
     assert.equal(event.targetLabel, 'cal');
-    assert.deepEqual(event.detail, {from: 'member', to: 'admin'});
+    assert.deepEqual(event.detail, {from: 'viewer', to: 'editor'});
   });
 
   it('reports no change, and records nothing, when the role is already that', async () => {
     const result = await org.setMemberRole({
-      headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: memberIdOf('bea'), role: 'admin',
+      headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: memberIdOf('bea'), role: 'editor',
     });
     assert.equal(result.changed, false);
     assert.equal(org.listAudit(orgId).length, 0, 'nothing happened, so nothing is recorded');
@@ -181,7 +184,7 @@ describe('changing a role', () => {
       .prepare('SELECT id FROM member WHERE organizationId = ? AND userId = ?')
       .get(otherOrgId, who.dev.id);
     const result = await org.setMemberRole({
-      headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: devMembership.id, role: 'admin',
+      headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: devMembership.id, role: 'editor',
     });
     assert.equal(result.error, 'not-found');
   });
@@ -191,13 +194,13 @@ describe('changing a role', () => {
   // refactor that forwarded the server's instead would pass every other test.
   it('refuses an ordinary member trying to promote anybody, including themselves', async () => {
     await assert.rejects(() => org.setMemberRole({
-      headers: headersFor('cal'), orgId, actorId: who.cal.id, memberId: memberIdOf('cal'), role: 'admin',
+      headers: headersFor('cal'), orgId, actorId: who.cal.id, memberId: memberIdOf('cal'), role: 'editor',
     }));
-    assert.equal(org.listMembers(orgId, who.ada.id).find(r => r.username === 'cal').role, 'member');
+    assert.equal(org.listMembers(orgId, who.ada.id).find(r => r.username === 'cal').role, 'viewer');
     assert.equal(org.listAudit(orgId).length, 0, 'a refused change is not an audited one');
   });
 
-  it('refuses an admin trying to make anyone an owner', async () => {
+  it('refuses an editor trying to make anyone an owner', async () => {
     await assert.rejects(() => org.setMemberRole({
       headers: headersFor('bea'), orgId, actorId: who.bea.id, memberId: memberIdOf('cal'), role: 'owner',
     }));
@@ -205,7 +208,7 @@ describe('changing a role', () => {
 
   it('refuses the last owner demoting themselves, which would leave nobody in charge', async () => {
     await assert.rejects(() => org.setMemberRole({
-      headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: memberIdOf('ada'), role: 'member',
+      headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: memberIdOf('ada'), role: 'viewer',
     }));
     assert.equal(org.listMembers(orgId, who.ada.id).find(r => r.you).role, 'owner');
   });
@@ -213,7 +216,7 @@ describe('changing a role', () => {
 
 describe('removing someone', () => {
   it('takes their membership and their place in the channels, and leaves what they said', async () => {
-    const {channel} = chat.createChannel(orgId, who.ada.id, {name: 'general'});
+    const {channel} = chat.createChannel(orgId, who.ada.id, {name: 'departures'});
     chat.joinChannel(orgId, who.cal.id, channel.id);
     chat.postMessage(orgId, who.cal.id, channel.id, 'still here after I am gone');
 
@@ -234,7 +237,7 @@ describe('removing someone', () => {
     assert.equal(event.targetLabel, 'cal');
 
     // Put them back for the tests that follow, membership being shared setup.
-    await auth.api.addMember({body: {userId: who.cal.id, organizationId: orgId, role: 'member'}});
+    await auth.api.addMember({body: {userId: who.cal.id, organizationId: orgId, role: 'viewer'}});
     db.exec('DELETE FROM message; DELETE FROM channel_member; DELETE FROM channel;');
   });
 
@@ -253,7 +256,7 @@ describe('removing someone', () => {
     assert.equal(chat.isChannelMember(mine.id, who.cal.id), false);
     assert.equal(chat.isChannelMember(theirs.id, who.cal.id), true, 'the other organization is untouched');
 
-    await auth.api.addMember({body: {userId: who.cal.id, organizationId: orgId, role: 'member'}});
+    await auth.api.addMember({body: {userId: who.cal.id, organizationId: orgId, role: 'viewer'}});
     db.exec('DELETE FROM message; DELETE FROM channel_member; DELETE FROM channel;');
   });
 
@@ -289,7 +292,7 @@ describe('inviting', () => {
 
   beforeEach(() => { db.exec('DELETE FROM invitation'); });
 
-  it('creates an invitation an admin can see, with who sent it', async () => {
+  it('creates an invitation an owner can see, with who sent it', async () => {
     const {invitation} = await org.invite({headers: headersFor('ada'), orgId, actorId: who.ada.id, email: invited});
     assert.equal(invitation.email, invited);
     assert.equal(invitation.organization, 'Team');
@@ -298,7 +301,7 @@ describe('inviting', () => {
     const [pending] = org.listInvitations(orgId);
     assert.deepEqual(
       [pending.email, pending.role, pending.invitedBy, pending.expired],
-      [invited, 'member', 'ada', false],
+      [invited, 'viewer', 'ada', false],
     );
     const [event] = org.listAudit(orgId);
     assert.deepEqual([event.action, event.actorLabel, event.targetLabel], ['member.invite', 'ada', invited]);
@@ -317,7 +320,7 @@ describe('inviting', () => {
     );
   });
 
-  it('refuses an ordinary member, and an admin inviting an owner', async () => {
+  it('refuses a viewer, and an editor inviting an owner', async () => {
     await assert.rejects(() => org.invite({headers: headersFor('cal'), orgId, actorId: who.cal.id, email: invited}));
     await assert.rejects(() => org.invite({
       headers: headersFor('bea'), orgId, actorId: who.bea.id, email: invited, role: 'owner',
@@ -350,9 +353,13 @@ describe('inviting', () => {
   it('is accepted only by the account it was addressed to', async () => {
     const gil = await (async () => {
       const res = await auth.api.signUpEmail({
-        body: {email: invited, password: 'correcthorsebattery', name: 'gil', username: 'gil'},
+        body: {email: invited, password: 'correcthorsebattery', name: 'gil'},
+        returnHeaders: true,
       });
-      return {id: res.user.id, token: res.token};
+      return {
+        id: res.response.user.id,
+        cookie: res.headers.getSetCookie()[0].split(';')[0],
+      };
     })();
     who.gil = gil;
 
@@ -383,59 +390,20 @@ describe('inviting', () => {
   });
 });
 
-describe('creating an account outright', () => {
-  it('makes a real account, puts it in the organization, and records it', async () => {
-    const result = await org.createAccount({
-      orgId, actorId: who.ada.id, username: 'hana', password: 'correcthorsebattery', name: 'Hana',
-    });
-    assert.equal(result.user.username, 'hana');
-    assert.equal(result.user.email, 'hana@mochi.local', 'an address is invented when none is given');
-
-    const row = org.listMembers(orgId, who.ada.id).find(m => m.username === 'hana');
-    assert.equal(row.role, 'member');
-    assert.equal(org.listAudit(orgId)[0].action, 'member.create');
-
-    // It is an ordinary account: the password works.
-    const signedIn = await auth.api.signInUsername({body: {username: 'hana', password: 'correcthorsebattery'}});
-    assert.ok(signedIn.token);
-
-    db.prepare('DELETE FROM member WHERE organizationId = ? AND userId = ?').run(orgId, result.user.id);
-    db.prepare('DELETE FROM "user" WHERE id = ?').run(result.user.id);
-  });
-
-  const REJECTED = [
-    ['a username of two characters', {username: 'jo', password: 'correcthorsebattery'}, 'invalid-username'],
-    ['a username with a space', {username: 'jo ann', password: 'correcthorsebattery'}, 'invalid-username'],
-    ['a password of seven characters', {username: 'jonas', password: 'sevench'}, 'weak-password'],
-    ['an unknown role', {username: 'jonas', password: 'correcthorsebattery', role: 'wizard'}, 'invalid-role'],
-  ];
-  for (const [name, body, error] of REJECTED) {
-    it(`rejects ${name}`, async () => {
-      assert.equal((await org.createAccount({orgId, actorId: who.ada.id, ...body})).error, error);
-    });
-  }
-
-  it('reports the reason when the name is taken, rather than a bare failure', async () => {
-    const result = await org.createAccount({orgId, actorId: who.ada.id, username: 'cal', password: 'correcthorsebattery'});
-    assert.equal(result.error, 'signup-failed');
-    assert.ok(result.reason, 'and says what Better Auth said');
-  });
-});
-
 describe('the audit log', () => {
   // Two changes can land in the same millisecond, and they did: ordering by the
   // id to break the tie put them in the order of two random strings.
   it('reads newest first and is scoped to one organization', async () => {
-    await org.setMemberRole({headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: memberIdOf('cal'), role: 'admin'});
-    await org.setMemberRole({headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: memberIdOf('cal'), role: 'member'});
+    await org.setMemberRole({headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: memberIdOf('cal'), role: 'editor'});
+    await org.setMemberRole({headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: memberIdOf('cal'), role: 'viewer'});
 
     const events = org.listAudit(orgId);
-    assert.deepEqual(events.map(e => e.detail.to), ['member', 'admin'], 'newest first');
+    assert.deepEqual(events.map(e => e.detail.to), ['viewer', 'editor'], 'newest first');
     assert.deepEqual(org.listAudit(otherOrgId), [], 'another organization sees none of it');
   });
 
   it('caps what it returns however much is asked for', async () => {
-    await org.setMemberRole({headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: memberIdOf('cal'), role: 'admin'});
+    await org.setMemberRole({headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: memberIdOf('cal'), role: 'editor'});
     assert.equal(org.listAudit(orgId, 10_000).length <= org.AUDIT_LIMIT, true);
     assert.equal(org.listAudit(orgId, 'nonsense').length >= 1, true, 'a bad limit falls back to the default');
   });
@@ -443,7 +411,7 @@ describe('the audit log', () => {
   // An audit row is evidence about an account, so deleting the account must
   // neither delete the evidence nor be blocked by it.
   it('outlives the accounts it names', async () => {
-    await org.setMemberRole({headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: memberIdOf('cal'), role: 'admin'});
+    await org.setMemberRole({headers: headersFor('ada'), orgId, actorId: who.ada.id, memberId: memberIdOf('cal'), role: 'editor'});
     db.prepare('DELETE FROM "user" WHERE id = ?').run(who.cal.id);
 
     const [event] = org.listAudit(orgId);
@@ -451,7 +419,7 @@ describe('the audit log', () => {
     assert.equal(event.targetLabel, 'cal', 'the name it happened to stays');
 
     who.cal = await signUp('cal');
-    await auth.api.addMember({body: {userId: who.cal.id, organizationId: orgId, role: 'member'}});
+    await auth.api.addMember({body: {userId: who.cal.id, organizationId: orgId, role: 'viewer'}});
   });
 });
 
@@ -525,7 +493,7 @@ describe('what you belong to', () => {
     const [bea] = org.listMemberships(who.bea.id);
     assert.equal(ada.slug, 'team');
     assert.equal(ada.role, 'owner');
-    assert.equal(bea.role, 'admin', 'the same organization, a different membership');
+    assert.equal(bea.role, 'editor', 'the same organization, a different membership');
   });
 
   it('counts the people in each', () => {
@@ -543,7 +511,7 @@ describe('what you belong to', () => {
   // about which one comes first.
   it('breaks a same-millisecond tie by insertion order, not by a random id', async () => {
     const twin = await signUp('twin');
-    const headers = {authorization: `Bearer ${twin.token}`};
+    const headers = {cookie: twin.cookie};
     await org.createWorkspace({headers, actorId: twin.id, name: 'Twin One'});
     await org.createWorkspace({headers, actorId: twin.id, name: 'Twin Two'});
     // Force the tie, rather than hoping the wall clock produces one.
@@ -560,7 +528,7 @@ describe('creating a workspace', () => {
     fresh = await signUp(`fresh${db.prepare('SELECT COUNT(*) AS n FROM "user"').get().n}`);
   });
 
-  const headers = () => ({authorization: `Bearer ${fresh.token}`});
+  const headers = () => ({cookie: fresh.cookie});
 
   it('makes the caller its owner and opens a #general in it', async () => {
     const {organization, channel} = await org.createWorkspace({
@@ -584,10 +552,20 @@ describe('creating a workspace', () => {
     assert.deepEqual(org.listMemberships(fresh.id).map(o => o.name), ['From Nothing']);
   });
 
-  it('makes the new workspace the session\'s active one, so nothing has to choose next', async () => {
+  it('does not mutate session workspace authority', async () => {
+    const before = await auth.api.getSession({headers: headers()});
     const {organization} = await org.createWorkspace({headers: headers(), actorId: fresh.id, name: 'Active One'});
-    const session = db.prepare('SELECT activeOrganizationId FROM session WHERE token = ?').get(fresh.token);
-    assert.equal(session.activeOrganizationId, organization.id);
+    const session = await auth.api.getSession({headers: headers()});
+    assert.equal(session.session.activeOrganizationId, before.session.activeOrganizationId);
+    assert.notEqual(session.session.activeOrganizationId, organization.id);
+  });
+
+  it('creates default settings in the same operation', async () => {
+    const {organization} = await org.createWorkspace({headers: headers(), actorId: fresh.id, name: 'Configured'});
+    assert.deepEqual(
+      db.prepare('SELECT value FROM workspace_settings WHERE organizationId = ?').get(organization.id),
+      {value: '{}'},
+    );
   });
 
   it('numbers a derived slug rather than refusing, because nobody chose it', async () => {
@@ -661,43 +639,20 @@ describe('creating a workspace', () => {
     assert.equal(event.targetLabel, 'Recorded');
     assert.equal(event.detail.slug, 'recorded');
   });
-});
 
-describe('switching workspace', () => {
-  it('moves the session, which is where every other read takes it from', async () => {
-    const before = db.prepare('SELECT activeOrganizationId FROM session WHERE token = ?').get(who.ada.token);
-    const {organization} = await org.createWorkspace({
-      headers: headersFor('ada'), actorId: who.ada.id, name: 'Somewhere Else',
-    });
-    assert.notEqual(before.activeOrganizationId, organization.id);
+  it('queues object keys before hard deletion cascades asset metadata', async () => {
+    const {organization} = await org.createWorkspace({headers: headers(), actorId: fresh.id, name: 'Disposable'});
+    db.prepare(`insert into asset
+      (id, organizationId, objectKey, contentType, byteSize, sha256, createdBy, createdAt)
+      values (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run('asset-delete-test', organization.id, `${organization.id}/assets/file`, 'text/plain', 3, 'a'.repeat(64), fresh.id, new Date().toISOString());
 
-    const result = await org.setActiveWorkspace({
-      headers: headersFor('ada'), userId: who.ada.id, organizationId: orgId,
-    });
-    assert.equal(result.organizationId, orgId);
-    assert.equal(
-      db.prepare('SELECT activeOrganizationId FROM session WHERE token = ?').get(who.ada.token).activeOrganizationId,
-      orgId,
+    assert.equal(org.deleteWorkspace({workspaceId: organization.id, userId: fresh.id}), true);
+    assert.equal(db.prepare('select count(*) as n from organization where id = ?').get(organization.id).n, 0);
+    assert.equal(db.prepare('select count(*) as n from asset where organizationId = ?').get(organization.id).n, 0);
+    assert.deepEqual(
+      db.prepare('select workspaceId, objectKey from object_deletion where workspaceId = ?').get(organization.id),
+      {workspaceId: organization.id, objectKey: `${organization.id}/assets/file`},
     );
   });
-
-  // Refused here rather than by the plugin only so that a workspace you are not
-  // in reads as "no such workspace" instead of as an internal phrasing.
-  it('refuses a workspace the caller is not in', async () => {
-    const result = await org.setActiveWorkspace({
-      headers: headersFor('ada'), userId: who.ada.id, organizationId: otherOrgId,
-    });
-    assert.equal(result.error, 'not-a-member');
-  });
-
-  for (const [why, organizationId] of [
-    ['an id that does not exist', 'org_nonexistent'],
-    ['no id at all', undefined],
-    ['a prototype slot', '__proto__'],
-  ]) {
-    it(`refuses ${why}`, async () => {
-      const result = await org.setActiveWorkspace({headers: headersFor('ada'), userId: who.ada.id, organizationId});
-      assert.equal(result.error, 'not-a-member');
-    });
-  }
 });

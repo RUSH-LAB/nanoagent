@@ -5,37 +5,21 @@ import Link from '@docusaurus/Link';
 
 import API_BASE, { apiFetch } from '@site/src/utils/api';
 import pageStyles from '@site/src/css/page.module.css';
+import styles from './styles.module.css';
 
 const ROLE_DESCRIPTIONS = {
-  owner: 'Full access — can manage users, edit content, and configure the site.',
-  editor: 'Can edit and publish content, but cannot manage user roles.',
-  viewer: 'Read-only access. Cannot edit or publish content.',
-};
-
-const ROLE_COLORS = {
-  owner: {bg: '#fef3c7', color: '#92400e', border: '#fcd34d'},
-  editor: {bg: '#dbeafe', color: '#1e40af', border: '#93c5fd'},
-  viewer: {bg: '#f3f4f6', color: '#6b7280', border: '#d1d5db'},
+  admin: 'Internal platform operations. Does not grant workspace access.',
+  user: 'No platform privileges; workspace access comes only from membership.',
 };
 
 function RoleBadge({role}) {
-  const colors = ROLE_COLORS[role] || ROLE_COLORS.viewer;
-  return (
-    <span style={{
-      display: 'inline-block',
-      padding: '2px 8px',
-      borderRadius: '4px',
-      fontSize: '0.75rem',
-      fontWeight: 600,
-      textTransform: 'uppercase',
-      letterSpacing: '0.5px',
-      background: colors.bg,
-      color: colors.color,
-      border: `1px solid ${colors.border}`,
-    }}>
-      {role}
-    </span>
-  );
+  return <span className={`${styles.roleBadge} ${styles[`role_${role}`] ?? ''}`}>{role}</span>;
+}
+
+function formatUptime(value) {
+  if (value == null) return '—';
+  const seconds = Math.floor(value);
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
 
 function AdminDashboard() {
@@ -48,6 +32,7 @@ function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [contentHealth, setContentHealth] = useState(null);
   const [statusLoading, setStatusLoading] = useState(false);
+  const [query, setQuery] = useState('');
   // Who the server says we are. The page used to invent this locally, as a
   // hardcoded {id: 'admin'} whenever the auth gate was on, and then post that id
   // back as the requester of a role change. Identity is the server's answer now,
@@ -82,7 +67,7 @@ function AdminDashboard() {
       ]);
       const usersBody = await usersRes.json();
       const me = await meRes.json();
-      setMyRole(me.role || 'viewer');
+      setMyRole(me.role || 'user');
       setMyUserId(me.userId || null);
       // Every account on the server is the site owner's view. Anyone else gets
       // the reason rather than an empty table, which is what reading `.users`
@@ -128,353 +113,105 @@ function AdminDashboard() {
   }, [users, loadData]);
 
   if (loading) {
-    return (
-      <div style={{padding: 40, textAlign: 'center', color: 'var(--ifm-color-emphasis-500)'}}>
-        Loading...
-      </div>
-    );
+    return <div className={styles.loading}>Loading accounts…</div>;
   }
 
-  const isOwner = myRole === 'owner';
+  const isAdmin = myRole === 'admin';
   const userEntries = Object.entries(users);
+  const shownUsers = userEntries.filter(([uid, user]) => (
+    `${uid} ${user.name ?? ''} ${user.email ?? ''} ${user.role ?? ''}`
+      .toLowerCase()
+      .includes(query.trim().toLowerCase())
+  ));
+  const adminCount = userEntries.filter(([, user]) => user.role === 'admin').length;
 
   return (
-    <div className={pageStyles.pageContainer}>
-      <h1 style={{fontSize: '1.8rem', marginBottom: '0.5rem'}}>User Management</h1>
-      {/* Two different questions, and it is worth saying which this page
-          answers: site roles decide who may publish content, and they span
-          every account on the server. Who is in your organization, and what
-          they may do inside it, is /people. */}
-      <p style={{color: 'var(--ifm-color-emphasis-600)', marginBottom: '2rem'}}>
-        Site-wide roles, for every account on this server. Your role: <RoleBadge role={myRole} />
-        {' · '}
-        <Link to="/people">People in your organization</Link>
-      </p>
-
-      {error && (
-        <div style={{
-          padding: '10px 16px',
-          background: 'rgba(239, 68, 68, 0.08)',
-          color: '#dc2626',
-          borderRadius: 8,
-          fontSize: '0.9rem',
-          marginBottom: '1rem',
-          border: '1px solid rgba(239, 68, 68, 0.15)',
-        }}>
-          {error}
+    <div className={`${pageStyles.pageContainer} ${pageStyles.wide}`}>
+      <header className={styles.pageHeader}>
+        <div>
+          <span className={styles.eyebrow}>Platform administration</span>
+          <h1>User management</h1>
+          <p>Manage server-wide access separately from organization membership.</p>
         </div>
-      )}
+        <Link className={styles.workspaceLink} to="/people">Open organization members <span aria-hidden="true">→</span></Link>
+      </header>
 
-      {success && (
-        <div style={{
-          padding: '10px 16px',
-          background: 'rgba(34, 197, 94, 0.08)',
-          color: '#16a34a',
-          borderRadius: 8,
-          fontSize: '0.9rem',
-          marginBottom: '1rem',
-          border: '1px solid rgba(34, 197, 94, 0.15)',
-        }}>
-          {success}
-        </div>
-      )}
+      {error && <div className={`${styles.notice} ${styles.noticeError}`} role="alert">{error}</div>}
+      {success && <div className={`${styles.notice} ${styles.noticeSuccess}`} role="status">{success}</div>}
 
-      {/* Role descriptions */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '1rem',
-        marginBottom: '2rem',
-      }}>
-        {Object.entries(ROLE_DESCRIPTIONS).map(([role, desc]) => (
-          <div key={role} style={{
-            padding: '1rem',
-            borderRadius: 8,
-            border: '1px solid var(--ifm-color-emphasis-200)',
-            background: 'var(--ifm-background-surface-color)',
-          }}>
-            <div style={{marginBottom: '0.5rem'}}>
-              <RoleBadge role={role} />
-            </div>
-            <p style={{fontSize: '0.85rem', color: 'var(--ifm-color-emphasis-600)', margin: 0}}>
-              {desc}
-            </p>
-          </div>
-        ))}
-      </div>
+      <section className={styles.summary} aria-label="Platform summary">
+        <div><strong>{userEntries.length}</strong><span>Accounts</span></div>
+        <div><strong>{adminCount}</strong><span>Administrators</span></div>
+        <div><strong className={health?.status === 'ok' ? styles.good : styles.bad}>{health?.status === 'ok' ? 'Online' : 'Check'}</strong><span>Server</span></div>
+        <div><strong>{stats?.totalFiles ?? '—'}</strong><span>Documents</span></div>
+      </section>
 
-      {/* System Status */}
-      <div style={{marginBottom: '2rem'}}>
-        <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem'}}>
-          <h2 style={{fontSize: '1.3rem', margin: 0}}>System Status</h2>
-          <button
-            onClick={loadStatus}
-            disabled={statusLoading}
-            style={{
-              padding: '6px 14px',
-              borderRadius: 6,
-              border: '1px solid var(--ifm-color-emphasis-300)',
-              background: 'var(--ifm-background-surface-color)',
-              color: 'var(--ifm-font-color-base)',
-              fontSize: '0.82rem',
-              fontWeight: 500,
-              cursor: statusLoading ? 'not-allowed' : 'pointer',
-              opacity: statusLoading ? 0.6 : 1,
-            }}
-          >
-            {statusLoading ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-          gap: '1rem',
-        }}>
-          {/* Server Status */}
-          <div style={{
-            padding: '1rem',
-            borderRadius: 8,
-            border: '1px solid var(--ifm-color-emphasis-200)',
-            background: 'var(--ifm-background-surface-color)',
-          }}>
-            <div style={{fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--ifm-color-emphasis-500)', marginBottom: '0.4rem'}}>
-              Server Status
-            </div>
-            <div style={{
-              fontSize: '1.2rem',
-              fontWeight: 700,
-              color: health?.status === 'ok' ? '#16a34a' : '#dc2626',
-            }}>
-              {health ? (health.status === 'ok' ? 'OK' : 'DOWN') : '--'}
-            </div>
+      <section className={styles.card}>
+        <div className={styles.cardHeader}>
+          <div>
+            <h2>Accounts</h2>
+            <p>Your platform role is <RoleBadge role={myRole} />. Organization roles are managed from People.</p>
           </div>
-          {/* Uptime */}
-          <div style={{
-            padding: '1rem',
-            borderRadius: 8,
-            border: '1px solid var(--ifm-color-emphasis-200)',
-            background: 'var(--ifm-background-surface-color)',
-          }}>
-            <div style={{fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--ifm-color-emphasis-500)', marginBottom: '0.4rem'}}>
-              Uptime
-            </div>
-            <div style={{fontSize: '1.2rem', fontWeight: 700, color: 'var(--ifm-font-color-base)'}}>
-              {health?.uptime != null ? (() => {
-                const s = Math.floor(health.uptime);
-                const h = Math.floor(s / 3600);
-                const m = Math.floor((s % 3600) / 60);
-                const sec = s % 60;
-                return `${h}h ${m}m ${sec}s`;
-              })() : '--'}
-            </div>
-          </div>
-          {/* Memory */}
-          <div style={{
-            padding: '1rem',
-            borderRadius: 8,
-            border: '1px solid var(--ifm-color-emphasis-200)',
-            background: 'var(--ifm-background-surface-color)',
-          }}>
-            <div style={{fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--ifm-color-emphasis-500)', marginBottom: '0.4rem'}}>
-              Memory
-            </div>
-            <div style={{fontSize: '1.2rem', fontWeight: 700, color: 'var(--ifm-font-color-base)'}}>
-              {health?.memory != null ? `${(health.memory / 1024 / 1024).toFixed(1)} MB` : '--'}
-            </div>
-          </div>
-          {/* Total Files */}
-          <div style={{
-            padding: '1rem',
-            borderRadius: 8,
-            border: '1px solid var(--ifm-color-emphasis-200)',
-            background: 'var(--ifm-background-surface-color)',
-          }}>
-            <div style={{fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--ifm-color-emphasis-500)', marginBottom: '0.4rem'}}>
-              Total Files
-            </div>
-            <div style={{fontSize: '1.2rem', fontWeight: 700, color: 'var(--ifm-font-color-base)'}}>
-              {stats?.totalFiles != null ? stats.totalFiles : '--'}
-            </div>
-          </div>
-          {/* Total Words */}
-          <div style={{
-            padding: '1rem',
-            borderRadius: 8,
-            border: '1px solid var(--ifm-color-emphasis-200)',
-            background: 'var(--ifm-background-surface-color)',
-          }}>
-            <div style={{fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--ifm-color-emphasis-500)', marginBottom: '0.4rem'}}>
-              Total Words
-            </div>
-            <div style={{fontSize: '1.2rem', fontWeight: 700, color: 'var(--ifm-font-color-base)'}}>
-              {stats?.totalWords != null ? stats.totalWords.toLocaleString() : '--'}
-            </div>
-          </div>
-          {/* References */}
-          <div style={{
-            padding: '1rem',
-            borderRadius: 8,
-            border: '1px solid var(--ifm-color-emphasis-200)',
-            background: 'var(--ifm-background-surface-color)',
-          }}>
-            <div style={{fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--ifm-color-emphasis-500)', marginBottom: '0.4rem'}}>
-              References
-            </div>
-            <div style={{fontSize: '1.2rem', fontWeight: 700, color: 'var(--ifm-font-color-base)'}}>
-              {stats?.references != null ? stats.references : '--'}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Content Health */}
-      {contentHealth && (
-        <div style={{
-          border: '1px solid var(--ifm-color-emphasis-200)',
-          borderRadius: 8,
-          padding: '16px 20px',
-          marginBottom: '1.5rem',
-        }}>
-          <h3 style={{margin: '0 0 12px', fontSize: '1rem', fontWeight: 600}}>Content Health</h3>
-          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '12px', marginBottom: '16px'}}>
-            <div style={{textAlign: 'center'}}>
-              <div style={{fontSize: '1.5rem', fontWeight: 700, color: 'var(--ifm-color-primary)'}}>{contentHealth.totalPages}</div>
-              <div style={{fontSize: '0.8rem', color: 'var(--ifm-color-emphasis-600)'}}>Total Pages</div>
-            </div>
-            <div style={{textAlign: 'center'}}>
-              <div style={{fontSize: '1.5rem', fontWeight: 700, color: contentHealth.brokenLinkCount > 0 ? '#ef4444' : '#22c55e'}}>{contentHealth.brokenLinkCount}</div>
-              <div style={{fontSize: '0.8rem', color: 'var(--ifm-color-emphasis-600)'}}>Broken Links</div>
-            </div>
-            <div style={{textAlign: 'center'}}>
-              <div style={{fontSize: '1.5rem', fontWeight: 700, color: 'var(--ifm-color-emphasis-700)'}}>{contentHealth.orphanPageCount}</div>
-              <div style={{fontSize: '0.8rem', color: 'var(--ifm-color-emphasis-600)'}}>Orphan Pages</div>
-            </div>
-            <div style={{textAlign: 'center'}}>
-              <div style={{fontSize: '1.5rem', fontWeight: 700, color: contentHealth.draftCount > 0 ? '#f59e0b' : 'var(--ifm-color-emphasis-700)'}}>{contentHealth.draftCount}</div>
-              <div style={{fontSize: '0.8rem', color: 'var(--ifm-color-emphasis-600)'}}>Drafts</div>
-            </div>
-          </div>
-          {contentHealth.brokenLinks && contentHealth.brokenLinks.length > 0 && (
-            <div style={{fontSize: '0.85rem'}}>
-              <div style={{fontWeight: 600, marginBottom: 6, color: '#ef4444'}}>Broken Wiki Links:</div>
-              {contentHealth.brokenLinks.map((link, i) => (
-                <div key={i} style={{padding: '4px 0', color: 'var(--ifm-color-emphasis-600)', fontSize: '0.82rem'}}>
-                  <code>{link.source}</code> links to <code>[[{link.target}]]</code>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Users table */}
-      <div style={{
-        border: '1px solid var(--ifm-color-emphasis-200)',
-        borderRadius: 8,
-        overflow: 'hidden',
-        overflowX: 'auto',
-        WebkitOverflowScrolling: 'touch',
-      }}>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr 120px 140px',
-          padding: '10px 16px',
-          background: 'var(--ifm-color-emphasis-100)',
-          fontWeight: 600,
-          fontSize: '0.82rem',
-          color: 'var(--ifm-color-emphasis-700)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.5px',
-          minWidth: '500px',
-        }}>
-          <span>Name</span>
-          <span>Email</span>
-          <span>Role</span>
-          <span>Actions</span>
+          <input
+            className={styles.search}
+            type="search"
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+            placeholder="Search accounts"
+            aria-label="Search accounts"
+          />
         </div>
 
-        {userEntries.length === 0 ? (
-          <div style={{padding: '2rem', textAlign: 'center', color: 'var(--ifm-color-emphasis-400)', fontSize: '0.9rem'}}>
-            No users registered yet. Users will appear here when their roles are assigned.
+        <div className={styles.roleGuide}>
+          {Object.entries(ROLE_DESCRIPTIONS).map(([role, description]) => (
+            <span key={role}><RoleBadge role={role} /> {description}</span>
+          ))}
+        </div>
+
+        <div className={styles.userTable}>
+          <div className={styles.tableHead}>
+            <span>User</span><span>Email</span><span>Access</span><span>Change role</span>
           </div>
-        ) : (
-          userEntries.map(([uid, userData]) => (
-            <div
-              key={uid}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr 120px 140px',
-                padding: '12px 16px',
-                borderTop: '1px solid var(--ifm-color-emphasis-100)',
-                alignItems: 'center',
-                fontSize: '0.9rem',
-                minWidth: '500px',
-              }}
-            >
-              <span style={{
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}>
-                {userData.name || uid}
-                {uid === myUserId && (
-                  <span style={{
-                    marginLeft: 6,
-                    fontSize: '0.7rem',
-                    color: 'var(--ifm-color-emphasis-400)',
-                  }}>(you)</span>
-                )}
+          {shownUsers.length === 0 ? (
+            <p className={styles.empty}>{userEntries.length ? `No accounts match “${query}”.` : 'No accounts yet.'}</p>
+          ) : shownUsers.map(([uid, userData]) => (
+            <div className={styles.userRow} key={uid}>
+              <span className={styles.userIdentity}>
+                <i aria-hidden="true">{(userData.name || userData.email || '?').charAt(0).toUpperCase()}</i>
+                <span><strong>{userData.name || uid}</strong>{uid === myUserId && <small>You</small>}</span>
               </span>
-              <span style={{
-                color: 'var(--ifm-color-emphasis-600)',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                fontSize: '0.85rem',
-              }}>
-                {userData.email || '--'}
-              </span>
+              <span className={styles.email}>{userData.email || '—'}</span>
               <span><RoleBadge role={userData.role} /></span>
               <span>
-                {isOwner && uid !== myUserId ? (
-                  <select
-                    value={userData.role}
-                    onChange={(e) => handleRoleChange(uid, e.target.value)}
-                    style={{
-                      padding: '4px 8px',
-                      borderRadius: 4,
-                      border: '1px solid var(--ifm-color-emphasis-300)',
-                      background: 'var(--ifm-background-color)',
-                      color: 'var(--ifm-font-color-base)',
-                      fontSize: '0.82rem',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <option value="owner">Owner</option>
-                    <option value="editor">Editor</option>
-                    <option value="viewer">Viewer</option>
+                {isAdmin && uid !== myUserId ? (
+                  <select className={styles.roleSelect} value={userData.role} onChange={event => handleRoleChange(uid, event.target.value)}>
+                    <option value="admin">Administrator</option>
+                    <option value="user">User</option>
                   </select>
-                ) : (
-                  <span style={{fontSize: '0.8rem', color: 'var(--ifm-color-emphasis-400)'}}>
-                    {uid === myUserId ? '--' : 'No access'}
-                  </span>
-                )}
+                ) : <span className={styles.locked}>{uid === myUserId ? 'Current account' : 'Admin only'}</span>}
               </span>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+        {!isAdmin && <p className={styles.permissionNote}>Only platform administrators can change platform roles.</p>}
+      </section>
 
-      {!isOwner && (
-        <p style={{
-          marginTop: '1.5rem',
-          fontSize: '0.85rem',
-          color: 'var(--ifm-color-emphasis-500)',
-          textAlign: 'center',
-        }}>
-          Only owners can change user roles. Contact an owner to request role changes.
-        </p>
-      )}
+      <section className={styles.card}>
+        <div className={styles.cardHeader}>
+          <div><h2>System health</h2><p>Runtime and content diagnostics.</p></div>
+          <button className={styles.refresh} type="button" onClick={loadStatus} disabled={statusLoading}>
+            {statusLoading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+        <div className={styles.healthGrid}>
+          <div><span>Status</span><strong className={health?.status === 'ok' ? styles.good : styles.bad}>{health?.status === 'ok' ? 'Healthy' : 'Unavailable'}</strong></div>
+          <div><span>Uptime</span><strong>{formatUptime(health?.uptime)}</strong></div>
+          <div><span>Memory</span><strong>{health?.memory != null ? `${(health.memory / 1024 / 1024).toFixed(1)} MB` : '—'}</strong></div>
+          <div><span>Words</span><strong>{stats?.totalWords?.toLocaleString() ?? '—'}</strong></div>
+          <div><span>References</span><strong>{stats?.references ?? '—'}</strong></div>
+          <div><span>Broken links</span><strong className={contentHealth?.brokenLinkCount ? styles.bad : styles.good}>{contentHealth?.brokenLinkCount ?? '—'}</strong></div>
+        </div>
+      </section>
     </div>
   );
 }

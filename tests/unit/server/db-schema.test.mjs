@@ -80,11 +80,11 @@ describe('server/migrations matches the installed better-auth', () => {
     assert.ok(onDisk.length > 0, 'there is at least one migration');
   });
 
-  it('creates the role table, tied to the user table by foreign key', () => {
-    const cols = db.prepare('PRAGMA table_info(user_role)').all().map(c => c.name);
-    assert.deepEqual(cols.sort(), ['addedAt', 'role', 'userId']);
+  it('creates the platform administrator table, tied to the user table by foreign key', () => {
+    const cols = db.prepare('PRAGMA table_info(platform_admin)').all().map(c => c.name);
+    assert.deepEqual(cols.sort(), ['addedAt', 'userId']);
 
-    const fks = db.prepare('PRAGMA foreign_key_list(user_role)').all();
+    const fks = db.prepare('PRAGMA foreign_key_list(platform_admin)').all();
     assert.equal(fks.length, 1, 'exactly one foreign key');
     assert.equal(fks[0].table, 'user');
     // The cascade is the point: it is what makes an orphan role impossible,
@@ -95,10 +95,10 @@ describe('server/migrations matches the installed better-auth', () => {
   it('deletes a role along with its user', () => {
     db.prepare('INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?,?,?,?,?,?)')
       .run('cascade-test', 'X', 'x@test.invalid', 0, 0, 0);
-    db.prepare('INSERT INTO user_role (userId, role, addedAt) VALUES (?,?,?)')
-      .run('cascade-test', 'owner', '2026-01-01T00:00:00.000Z');
+    db.prepare('INSERT INTO platform_admin (userId, addedAt) VALUES (?,?)')
+      .run('cascade-test', '2026-01-01T00:00:00.000Z');
     db.prepare('DELETE FROM "user" WHERE id = ?').run('cascade-test');
-    const left = db.prepare('SELECT COUNT(*) AS n FROM user_role WHERE userId = ?').get('cascade-test').n;
+    const left = db.prepare('SELECT COUNT(*) AS n FROM platform_admin WHERE userId = ?').get('cascade-test').n;
     assert.equal(left, 0, 'the role went with the user');
   });
 

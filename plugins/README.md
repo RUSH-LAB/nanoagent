@@ -23,6 +23,7 @@ plugin that fills none is inert but legal.
 | `index.js` | The build half: a Docusaurus plugin factory. Pages, global data, the command | `docusaurus.config.js` |
 | `server.js` | The API half: endpoints, and what it lends the rest of the server | `src/server/plugins.js` |
 | `remark.js` | Markdown syntax, added to the chain every content page is parsed with | `docusaurus.config.js` |
+| `client.js` | Browser-side MDX components exported as `components` | `plugins/client-components.js` |
 | `components/`, `lib/`, anything else | The plugin's own business | The plugin |
 
 Discovery is alphabetical by directory name, and therefore stable. It matters in
@@ -41,7 +42,10 @@ console and skipped, so one broken tool never costs the whole site.
   "description": "One line about what this tool is for",
   "enabled": true,
   "apiVersion": 1,
-  "requires": ["cache", "storage"],
+  "requires": ["cache", "storage", "ai", "process"],
+  "commands": ["lake"],
+  "runtimeRemark": true,
+  "safeComponents": {"ExampleWidget": {"name": "string", "open": "boolean"}},
   "options": {"dir": "content/reading"}
 }
 ```
@@ -54,7 +58,14 @@ and `requires` are the server half's half of the bargain and are covered under
 [What a plugin is handed](#what-a-plugin-is-handed); a plugin that is only pages
 and markdown declares neither.
 
-## The four extension points
+`safeComponents` is the request-time Markdown contract. It names only the
+components and static prop types (`string`, `boolean`, `number`, or
+`stringOrBoolean`) that untrusted workspace documents may render.
+`runtimeRemark: true` opts a remark extension into that same constrained parser.
+`commands` is required with the `process` capability and is the executable
+allowlist for that plugin.
+
+## The extension points
 
 **A page.** `index.js` registers it with `addRoute`, pointing at a component in
 the plugin's own `components/`:
@@ -87,6 +98,10 @@ extends the site, it does not get to shadow the routes the site is made of.
 `remark-math`, so math is already out of the tree. See
 `bibliography/remark.js` (`[@key]`) and `wiki-links/remark.js` (`[[page]]`).
 
+**MDX components.** `client.js` exports a `components` object. The browser
+registry discovers these modules and merges them into the site's MDX component
+map, so a plugin owns its renderer without adding an import under `src/`.
+
 ### Lending data to the rest of the server
 
 `server.js` may also export `provides`, merged into what every plugin sees as
@@ -116,10 +131,13 @@ Always there: `respond`, `stream`, `readBody`, `rateLimit`, `caller`, `shared`,
 | `requires` | Grants |
 |---|---|
 | `cache` | `cache`, `invalidateCache`, keyed under the plugin's own name |
-| `content:read` | `content.read`, `content.list`, `content.exists`, inside `content/` only |
-| `content:write` | the above plus `content.write`, which drops the server's content-derived caches for you |
+| `content:read` | async `content.read`, `content.list`, `content.stat`, `content.exists`, and `content.walk` over database documents in the verified workspace |
 | `network` | `fetch`, with a timeout, refusing calls back into this server |
 | `storage` | `storage.read`/`storage.write`, in the plugin's own corner of `var/` |
+| `records` | workspace-scoped collections namespaced to the plugin |
+| `blobs` | workspace-scoped asset metadata and S3/R2-compatible object storage plus bounded raw request bodies |
+| `ai` | `ai.complete` and `ai.describe`, using the site's configured provider |
+| `process` | `exec`, restricted to declared `commands` and a cwd inside the plugin |
 
 A capability the manifest did not ask for is simply absent, so reaching for one
 fails on that plugin's first request rather than quietly acquiring reach nobody
@@ -130,9 +148,10 @@ granted. `apiVersion` is the promise the server makes back: declare the version
 {"title": "Reading List", "apiVersion": 1, "requires": ["cache", "storage"]}
 ```
 
-`remark.js` is the one import: `#markdown`, the markdown-AST walker. In
-`index.js`, take the repo root from `context.siteDir` rather than resolving from
-`__dirname`, so the plugin survives being moved.
+Remark plugins may use `plugins/_shared/markdown`, which belongs to the plugin
+host rather than to `src`. In `index.js`, take the repo root from
+`context.siteDir` rather than resolving from `__dirname`, so the plugin survives
+being moved.
 
 ## Testing
 

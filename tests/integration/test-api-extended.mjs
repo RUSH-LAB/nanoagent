@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {createApiClient} from './api-client.mjs';
 // ─────────────────────────────────────────────────────────────
 // Extended API integration tests for the Mochi Lab editor server
 // Covers endpoints NOT tested by test-api.mjs
@@ -8,7 +9,7 @@
 
 const BASE = process.env.API_URL || 'http://localhost:3001';
 // Sample document path exercised across the endpoint tests below.
-const SAMPLE_DOC = 'content/books/math/0-intro.md';
+const SAMPLE_DOC = 'books/math/0-intro.md';
 
 // ── Colors ──
 const GREEN = '\x1b[32m';
@@ -45,29 +46,7 @@ function section(title) {
 }
 
 // ── Helpers ──
-async function api(method, path, body, opts = {}) {
-  const url = path.startsWith('http') ? path : `${BASE}${path}`;
-  const init = {method, headers: {}};
-  if (body !== undefined && body !== null) {
-    if (typeof body === 'string' || body instanceof Buffer) {
-      init.body = body;
-    } else {
-      init.headers['Content-Type'] = 'application/json';
-      init.body = JSON.stringify(body);
-    }
-  }
-  if (opts.headers) Object.assign(init.headers, opts.headers);
-  if (opts.signal) init.signal = opts.signal;
-  const res = await fetch(url, init);
-  const contentType = res.headers.get('content-type') || '';
-  let data;
-  if (contentType.includes('application/json')) {
-    data = await res.json();
-  } else {
-    data = await res.text();
-  }
-  return {status: res.status, data, headers: res.headers};
-}
+const api = createApiClient(BASE);
 
 function assertEq(actual, expected, label) {
   if (actual !== expected) throw new Error(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
@@ -964,10 +943,8 @@ async function testQuickNotes() {
   await test('List quick notes contains test note', async () => {
     const {status, data} = await api('GET', `/api/quicknotes`);
     assertEq(status, 200, 'status');
-    assertOk(Array.isArray(data.notes), 'notes is array');
-    assertOk(typeof data.total === 'number', 'total is number');
-    assertOk(data.total >= 1, 'total >= 1');
-    const found = data.notes.find(n => n.id === createdQuickNoteId);
+    assertOk(Array.isArray(data), 'notes is array');
+    const found = data.find(n => n.id === createdQuickNoteId);
     assertOk(found, 'found our test note');
     assertEq(found.text, `Test note ${TEST_PREFIX}`, 'text matches');
   });
@@ -982,7 +959,7 @@ async function testQuickNotes() {
     assertOk(data.success, 'success');
     // Verify it is gone
     const {data: listData} = await api('GET', `/api/quicknotes`);
-    assertOk(!listData.notes.some(n => n.id === createdQuickNoteId), 'note removed');
+    assertOk(!listData.some(n => n.id === createdQuickNoteId), 'note removed');
   });
 }
 

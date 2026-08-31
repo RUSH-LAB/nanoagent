@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import {useHistory} from '@docusaurus/router';
 import API_BASE, { apiFetch } from '@site/src/utils/api';
 import { contentPathToUrl } from '@site/src/utils/paths';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
@@ -125,6 +126,7 @@ function computeLayout(nodes, edges, width, height) {
 }
 
 function GraphVisualization() {
+  const history = useHistory();
   const [graphData, setGraphData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -258,8 +260,8 @@ function GraphVisualization() {
   // contentPathToUrl accepts alongside the content/-prefixed kind.
   const handleNodeClick = useCallback((node) => {
     const url = contentPathToUrl(node.path);
-    if (url) window.location.href = url;
-  }, []);
+    if (url) history.push(url);
+  }, [history]);
 
   // Determine if a node/edge is highlighted
   const isConnected = useCallback((nodeId) => {

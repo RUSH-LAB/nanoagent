@@ -1,7 +1,9 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import {useLocation} from '@docusaurus/router';
 import API_BASE, {apiFetch} from '@site/src/utils/api';
+import {loadWorkspaces, workspaceSlugFromPath} from '@site/src/utils/workspaces';
 import {openConversation} from '@site/src/components/CommandBar/openConversation';
 import pageStyles from '@site/src/css/page.module.css';
 import dir from '@site/src/css/directory.module.css';
@@ -22,12 +24,12 @@ import styles from './styles.module.css';
  * whatever this page chose to render.
  */
 
-const ROLES = ['owner', 'admin', 'member'];
+const ROLES = ['owner', 'editor', 'viewer'];
 
 const ROLE_NOTE = {
   owner: 'Everything, including making other owners.',
-  admin: 'Manage people and channels.',
-  member: 'Read and post.',
+  editor: 'Create, edit, and publish workspace content.',
+  viewer: 'Read content and participate in comments.',
 };
 
 /** The letter in the circle, and a stable colour for it. */
@@ -91,6 +93,7 @@ async function call(path, init) {
 /** Why the page has nothing to show, in the words it will say. */
 const BLOCKED = {
   401: 'Sign in to see who is here.',
+  404: 'This workspace does not exist, or you are not a member.',
   409: 'You are not in an organization yet.',
 };
 
@@ -121,6 +124,9 @@ function sentenceFor(event) {
 }
 
 function People() {
+  const location = useLocation();
+  const workspaceSlug = workspaceSlugFromPath(location.pathname);
+  const [workspaceId, setWorkspaceId] = useState(null);
   const [organization, setOrganization] = useState(null);
   const [members, setMembers] = useState([]);
   const [invitations, setInvitations] = useState([]);
@@ -135,7 +141,16 @@ function People() {
 
   const load = useCallback(async () => {
     try {
-      const [org, roster] = await Promise.all([call('/api/org'), call('/api/org/members')]);
+      const {workspaces} = await loadWorkspaces();
+      const selected = workspaces.find(workspace => workspace.slug === workspaceSlug);
+      if (!selected) {
+        const error = new Error('This workspace does not exist, or you are not a member.');
+        error.status = 404;
+        throw error;
+      }
+      const root = `/api/workspaces/${encodeURIComponent(selected.id)}`;
+      const [org, roster] = await Promise.all([call(root), call(`${root}/members`)]);
+      setWorkspaceId(selected.id);
       setOrganization(org.organization);
       setMembers(roster.members);
       setYou(roster.you);
@@ -144,8 +159,8 @@ function People() {
       // guaranteed refusals per visit.
       if (roster.you.canManage) {
         const [{events}, {invitations: pending}] = await Promise.all([
-          call('/api/org/audit?limit=10'),
-          call('/api/org/invitations'),
+          call(`${root}/audit?limit=10`),
+          call(`${root}/invitations`),
         ]);
         setAudit(events);
         setInvitations(pending);
@@ -154,7 +169,12 @@ function People() {
       setStatus('blocked');
       setMessage({kind: 'error', text: BLOCKED[err.status] || err.message});
     }
-  }, []);
+  }, [workspaceSlug]);
+
+  const workspaceCall = useCallback((suffix, init) => {
+    if (!workspaceId) throw new Error('Workspace is still loading');
+    return call(`/api/workspaces/${encodeURIComponent(workspaceId)}${suffix}`, init);
+  }, [workspaceId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -174,12 +194,12 @@ function People() {
 
   const changeRole = (person, role) => act(
     person,
-    () => call(`/api/org/members/${person.memberId}/role`, {
+    () => workspaceCall(`/members/${person.memberId}/role`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({role}),
     }),
-    `${person.username} is now ${role === 'admin' ? 'an' : 'a'} ${role}.`,
+    `${person.username} is now ${role === 'editor' ? 'an' : 'a'} ${role}.`,
   );
 
   const remove = (person) => {
@@ -192,7 +212,7 @@ function People() {
     if (!sure) return;
     act(
       person,
-      () => call(`/api/org/members/${person.memberId}`, {method: 'DELETE'}),
+      () => workspaceCall(`/members/${person.memberId}`, {method: 'DELETE'}),
       `${person.username} is no longer in ${organization?.name}.`,
     );
   };
@@ -209,7 +229,7 @@ function People() {
   const withdraw = async (invitation) => {
     setMessage(null);
     try {
-      await call(`/api/org/invitations/${invitation.id}`, {method: 'DELETE'});
+      await workspaceCall(`/invitations/${invitation.id}`, {method: 'DELETE'});
       setMessage({kind: 'ok', text: `The invitation to ${invitation.email} is withdrawn.`});
       await load();
     } catch (err) {
@@ -235,18 +255,17 @@ function People() {
   }
 
   const canManage = Boolean(you?.canManage);
-  // Creating an account outright means choosing its password, so it is the
-  // owner's to do and not every manager's. The server decides the same way.
-  const isOwner = String(you?.role ?? '').split(',').some(r => r.trim() === 'owner');
-
+  const ownerCount = members.filter(person => person.role === 'owner').length;
+  const editorCount = members.filter(person => person.role === 'editor').length;
   return (
-    <div className={pageStyles.pageContainer}>
+    <div className={`${pageStyles.pageContainer} ${pageStyles.wide}`}>
       <header className={dir.head}>
         <div>
-          <h1 className={dir.title}>People</h1>
+          <span className={styles.eyebrow}>{organization?.name ?? 'Workspace'}</span>
+          <h1 className={dir.title}>People &amp; access</h1>
           <p className={dir.note}>
-            {`${members.length} ${members.length === 1 ? 'person' : 'people'} in ${organization?.name ?? 'this organization'}. `}
-            {canManage ? 'You can change roles and remove people.' : `Your role here is ${you?.role ?? 'member'}.`}
+            Manage membership and permissions for this workspace.
+            {!canManage && ` Your role is ${you?.role ?? 'viewer'}.`}
           </p>
         </div>
         <span className={styles.headTools}>
@@ -273,8 +292,7 @@ function People() {
 
       {adding && canManage && (
         <AddPeople
-          call={call}
-          canCreateAccounts={isOwner}
+          call={workspaceCall}
           onResult={setMessage}
           onChanged={load}
           onClose={() => setAdding(false)}
@@ -285,7 +303,40 @@ function People() {
         <p className={message.kind === 'error' ? dir.error : dir.ok} role="status">{message.text}</p>
       )}
 
-      <ul className={dir.list}>
+      <section className={styles.overview} aria-label="Workspace membership summary">
+        <div className={styles.metric}>
+          <span className={styles.metricValue}>{members.length}</span>
+          <span className={styles.metricLabel}>Members</span>
+        </div>
+        <div className={styles.metric}>
+          <span className={styles.metricValue}>{ownerCount}</span>
+          <span className={styles.metricLabel}>{ownerCount === 1 ? 'Owner' : 'Owners'}</span>
+        </div>
+        <div className={styles.metric}>
+          <span className={styles.metricValue}>{editorCount}</span>
+          <span className={styles.metricLabel}>{editorCount === 1 ? 'Editor' : 'Editors'}</span>
+        </div>
+        <div className={styles.metric}>
+          <span className={styles.metricValue}>{invitations.length}</span>
+          <span className={styles.metricLabel}>Pending invites</span>
+        </div>
+      </section>
+
+      <section className={styles.directorySection}>
+        <div className={styles.sectionHeading}>
+          <div>
+            <h2 className={dir.subtitle}>Members</h2>
+            <p className={dir.note}>{shown.length} shown</p>
+          </div>
+          <div className={styles.roleKey} aria-label="Workspace roles">
+            {ROLES.map(role => (
+              <span key={role} title={ROLE_NOTE[role]}>
+                <i className={`${styles.roleDot} ${styles[`dot_${role}`]}`} />{role}
+              </span>
+            ))}
+          </div>
+        </div>
+      <ul className={`${dir.list} ${styles.memberList}`}>
         {shown.map((person) => (
           <li key={person.memberId} className={dir.row}>
             <Avatar person={person} />
@@ -346,11 +397,12 @@ function People() {
         ))}
         {shown.length === 0 && <li className={dir.note}>Nobody matches “{query}”.</li>}
       </ul>
+      </section>
 
       {invitations.length > 0 && (
         <section className={styles.invitations}>
           <h2 className={dir.subtitle}>Invited, not here yet</h2>
-          <ul className={dir.list}>
+          <ul className={`${dir.list} ${styles.memberList}`}>
             {invitations.map(invitation => (
               <li key={invitation.id} className={dir.row}>
                 <span className={styles.avatar} style={{'--avatar-hue': hueOf(invitation.email)}} aria-hidden="true">

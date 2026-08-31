@@ -32,6 +32,7 @@ export const utils = require('../../src/server/server-utils.js');
 
 /** Builds the narrow object a plugin's handler is handed. */
 const {buildPluginApi} = require('../../src/server/plugin-api.js');
+const workspaceContext = require('../../src/server/workspace-context.js');
 
 /**
  * What the bibliography plugin lends the server, taken from the plugin itself
@@ -135,7 +136,7 @@ export const TEST_ORG_ID = 'test-org';
  */
 export function newStore() {
   const scoped = makeScopedStore();
-  const scope = {orgId: TEST_ORG_ID, userId: 'test-user'};
+  const scope = {workspaceId: TEST_ORG_ID, userId: 'test-user', membershipId: 'test-member', role: 'owner'};
 
   // Reads and writes, counted. The suites this exists for assert that a
   // rejected request never touched the store at all, which was a loadJSON call
@@ -188,7 +189,7 @@ export function newStore() {
  * Shared by the store and the document layer, which are two modules over the
  * same schema, so a suite that drives both drives one database.
  */
-function migratedDatabase() {
+export function migratedDatabase() {
   const Database = require('better-sqlite3');
   const fsNode = require('node:fs');
   const db = new Database(':memory:');
@@ -387,8 +388,8 @@ export function makeRoles(seed = []) {
     users.set(u.id, {id: u.id, username: u.username, email: u.email, name: u.name, createdAt: u.createdAt ?? 0});
     if (u.role) assigned.set(u.id, {role: u.role, addedAt: u.addedAt ?? '2026-01-01T00:00:00.000Z'});
   }
-  const ROLES = ['owner', 'editor', 'viewer'];
-  const DEFAULT_ROLE = 'viewer';
+  const ROLES = ['admin', 'user'];
+  const DEFAULT_ROLE = 'user';
   const api = {
     ROLES,
     DEFAULT_ROLE,
@@ -407,8 +408,8 @@ export function makeRoles(seed = []) {
       role: assigned.get(u.id)?.role ?? DEFAULT_ROLE,
       addedAt: assigned.get(u.id)?.addedAt,
     })),
-    isOwner: userId => api.getRole(userId) === 'owner',
-    ownerCount: () => [...assigned.values()].filter(r => r.role === 'owner').length,
+    isAdmin: userId => api.getRole(userId) === 'admin',
+    adminCount: () => [...assigned.values()].filter(r => r.role === 'admin').length,
   };
   return api;
 }
@@ -434,6 +435,9 @@ export function makeCtx(overrides = {}) {
   const sharedDb = scoped && documents ? null : migratedDatabase();
   const scopedStore = scoped ?? makeScopedStore(sharedDb);
   const documentLayer = documents ?? makeDocuments(sharedDb);
+  const preferenceLayer = require('../../src/server/preferences.js').createPreferences({db: sharedDb});
+  const workspaceSettingsLayer = require('../../src/server/workspace-settings.js').createWorkspaceSettings({db: sharedDb});
+  const assetLayer = require('../../src/server/assets.js').createAssets({db: sharedDb});
 
   const calls = {json: [], loadJSON: [], saveJSON: [], rateLimit: [], invalidateCache: [], cached: [], ai: []};
   const cache = {};
@@ -593,14 +597,24 @@ export function makeCtx(overrides = {}) {
     // collection factory, and the function that turns a request into the scope
     // every collection method requires.
     collection: scopedStore.collection,
-    scopeFor: req => ({
-      orgId: req?.auth?.orgId || TEST_ORG_ID,
-      userId: req?.auth?.userId ?? null,
-    }),
+    scopeFor: req => req?.context
+      ? workspaceContext.storageScope(req.context)
+      : {
+          workspaceId: req?.auth?.orgId || TEST_ORG_ID,
+          userId: req?.auth?.userId ?? null,
+          membershipId: null,
+          role: null,
+        },
+    storageScope: workspaceContext.storageScope,
+    normalizeWorkspaceRole: workspaceContext.normalizeWorkspaceRole,
+    requireWorkspacePermission: workspaceContext.requirePermission,
     // Content as rows, and the compiler that renders one. The compiler is the
     // real one: it is the site's own plugin chain, and a stub of it would let a
     // handler pass while rendering nothing the site would recognise.
     documents: documentLayer,
+    preferences: preferenceLayer,
+    workspaceSettings: workspaceSettingsLayer,
+    assets: assetLayer,
     compileDocument: doc => require('../../src/server/mdx.js').compileMarkdown(doc.markdown),
 
     ...rest,
@@ -687,6 +701,7 @@ export async function invoke(routes, opts = {}) {
     ctx = makeCtx(),
     headers = {},
     auth = TEST_IDENTITY,
+    requestContext = null,
     // Called with the pair this invoke built, just before the handler runs. A
     // suite that needs to act on the connection while the handler is still
     // working (res.emit('close') for a caller who hung up) has no other way to
@@ -747,6 +762,10 @@ export async function invoke(routes, opts = {}) {
   };
   const req = {
     method, url: pathname + search, headers, socket: {remoteAddress: '127.0.0.1'}, auth,
+    context: requestContext,
+    workspacePath: requestContext
+      ? pathname.replace(/^\/api\/workspaces\/[^/]+/, '') || '/'
+      : undefined,
     ...emitter(),
   };
   res.req = req;
@@ -776,11 +795,23 @@ export async function invoke(routes, opts = {}) {
   onRequest?.(req, res);
   let last = ctx;
   if (plugin) {
+    const fallbackScope = !req.context && req.auth?.userId && typeof ctx.scopeFor === 'function'
+      ? ctx.scopeFor(req)
+      : null;
+    const pluginReq = req.context || !fallbackScope?.workspaceId ? req : {
+      ...req,
+      context: {
+        userId: fallbackScope.userId,
+        workspaceId: fallbackScope.workspaceId,
+        membershipId: 'test-membership',
+        role: req.auth.orgRole ?? 'owner',
+      },
+    };
     const api = buildPluginApi({
       name: plugin.name ?? 'test-plugin',
       requires: plugin.requires ?? [],
       ctx: {...ctx, pluginProvides: plugin.shared ?? {}},
-      req,
+      req: pluginReq,
     });
     // A test replaces a capability by handing over a different one, the way the
     // server hands over the real one. `fetch: () => ...` is how a suite pins

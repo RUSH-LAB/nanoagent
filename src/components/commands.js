@@ -189,12 +189,12 @@ export const PAGE_COMMANDS = [
   {id: 'channels', name: 'channels', category: 'Tools', icon: icons.layers, title: 'Channels', description: 'Browse, rename, and archive channels', href: '/channels'},
 
   // Content
-  {id: 'research', name: 'research', category: 'Content', icon: icons.pages, title: 'Research', description: 'Research paper summaries', href: '/research'},
-  {id: 'blog', name: 'blog', category: 'Content', icon: icons.pages, title: 'Blog', description: 'Posts on ideas and updates', href: '/blog'},
-  {id: 'survey', name: 'survey', category: 'Content', icon: icons.book, title: 'Survey', description: 'Literature review chapters', href: '/survey/intro'},
-  {id: 'math', name: 'math', category: 'Content', icon: icons.book, title: 'Math', description: 'Mathematics textbook', href: '/math/intro'},
-  {id: 'programming', name: 'programming', category: 'Content', icon: icons.book, title: 'Programming', description: 'Programming textbook', href: '/programming/intro'},
-  {id: 'builder', name: 'builder', category: 'Content', icon: icons.book, title: 'Builder', description: 'Notes on building this site', href: '/builder/intro'},
+  {id: 'research', name: 'research', category: 'Content', icon: icons.pages, title: 'Research', description: 'Research paper summaries', href: '/documents/posts/research'},
+  {id: 'blog', name: 'blog', category: 'Content', icon: icons.pages, title: 'Blog', description: 'Posts on ideas and updates', href: '/documents/posts/blog'},
+  {id: 'survey', name: 'survey', category: 'Content', icon: icons.book, title: 'Survey', description: 'Literature review chapters', href: '/documents/books/survey/intro'},
+  {id: 'math', name: 'math', category: 'Content', icon: icons.book, title: 'Math', description: 'Mathematics textbook', href: '/documents/books/math/0-intro'},
+  {id: 'programming', name: 'programming', category: 'Content', icon: icons.book, title: 'Programming', description: 'Programming textbook', href: '/documents/books/programming/0-intro'},
+  {id: 'builder', name: 'builder', category: 'Content', icon: icons.book, title: 'Builder', description: 'Notes on building this site', href: '/documents/books/builder/0-intro'},
   {id: 'timeline', name: 'timeline', category: 'Content', icon: icons.clock, title: 'Timeline', description: 'Recent content activity', href: '/timeline'},
 
   // Insights

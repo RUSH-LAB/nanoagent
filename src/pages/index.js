@@ -20,12 +20,12 @@ function HomepageHeader() {
         <div className={styles.buttons}>
           <Link
             className="button button--secondary button--lg margin-right--md"
-            to="/research">
+            to="/documents/posts/research">
             <Translate>Research</Translate>
           </Link>
           <Link
             className="button button--secondary button--lg"
-            to="/blog">
+            to="/documents/posts/blog">
             <Translate>Blog</Translate>
           </Link>
         </div>

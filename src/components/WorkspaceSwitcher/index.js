@@ -5,6 +5,7 @@ import NavbarLogo from '@theme/Navbar/Logo';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import { useThemeConfig } from '@docusaurus/theme-common';
+import { useLocation } from '@docusaurus/router';
 import { useClickOutside } from '@site/src/hooks/useClickOutside';
 import { loadWorkspaces, switchWorkspace } from '@site/src/utils/workspaces';
 import styles from './styles.module.css';
@@ -47,6 +48,7 @@ export default function WorkspaceSwitcher() {
   const { siteConfig } = useDocusaurusContext();
   const { navbar } = useThemeConfig();
   const authEnabled = siteConfig.customFields?.authEnabled;
+  const location = useLocation();
 
   const [workspaces, setWorkspaces] = useState(null);
   const [activeId, setActiveId] = useState(null);
@@ -81,22 +83,22 @@ export default function WorkspaceSwitcher() {
     return () => { cancelled = true; };
   }, [authEnabled]);
 
-  const active = workspaces?.find((w) => w.id === activeId);
+  const routeSlug = /^\/w\/([^/]+)/.exec(location.pathname)?.[1];
+  const active = workspaces?.find((w) => w.slug === routeSlug)
+    ?? workspaces?.find((w) => w.id === activeId);
 
   // Nothing to name yet, or nothing to name at all. The stock logo, untouched.
   if (!active) return <NavbarLogo />;
 
-  async function choose(id) {
-    if (id === activeId) {
+  async function choose(workspace) {
+    if (workspace.slug === active?.slug) {
       setOpen(false);
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      // Reloads the page on success: the active workspace is a property of the
-      // session, and every other panel on screen is reading from the old one.
-      await switchWorkspace(id);
+      await switchWorkspace(workspace);
     } catch (err) {
       setError(err.message);
       setBusy(false);
@@ -111,14 +113,18 @@ export default function WorkspaceSwitcher() {
         onClick={() => setOpen((wasOpen) => !wasOpen)}
         aria-expanded={open}
         aria-haspopup="menu"
-        title={`${active.name}. Switch workspace`}
+        title={`${active.name} — switch workspace`}
+        aria-label={`Current workspace: ${active.name}. Switch workspace`}
       >
         {navbar.logo && (
           <div className="navbar__logo">
             <img src={logoUrl} alt="" className={styles.logo} />
           </div>
         )}
-        <b className={clsx('navbar__title', 'text--truncate', styles.name)}>{active.name}</b>
+        <span className={styles.identity}>
+          <b className={clsx('navbar__title', 'text--truncate', styles.name)}>{active.name}</b>
+          <span className={styles.context}>Workspace</span>
+        </span>
         <svg className={styles.caret} viewBox="0 0 10 6" width="10" height="6" aria-hidden="true">
           <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
@@ -132,11 +138,13 @@ export default function WorkspaceSwitcher() {
               key={workspace.id}
               type="button"
               role="menuitem"
-              className={clsx(styles.option, workspace.id === activeId && styles.current)}
+              className={clsx(styles.option, workspace.id === active.id && styles.current)}
               disabled={busy}
-              onClick={() => choose(workspace.id)}
+              onClick={() => choose(workspace)}
             >
-              <span className={styles.slot}>{workspace.id === activeId && <Check />}</span>
+              <span className={styles.workspaceMark} aria-hidden="true">
+                {workspace.name.trim().charAt(0).toUpperCase() || 'W'}
+              </span>
               <span className={styles.label}>
                 <span className={styles.optionName}>{workspace.name}</span>
                 <span className={styles.meta}>
@@ -144,6 +152,7 @@ export default function WorkspaceSwitcher() {
                   {workspace.memberCount === 1 ? 'person' : 'people'}
                 </span>
               </span>
+              <span className={styles.slot}>{workspace.id === active.id && <Check />}</span>
             </button>
           ))}
 
@@ -152,11 +161,11 @@ export default function WorkspaceSwitcher() {
           <div className={styles.footer}>
             {/* Creating and leaving both live on the settings page, which has
                 room to explain them. This is the switcher, not the manager. */}
-            <Link className={styles.manage} to="/settings" onClick={() => setOpen(false)}>
-              Manage workspaces
+            <Link className={styles.manage} to={`/w/${active.slug}/people`} onClick={() => setOpen(false)}>
+              People
             </Link>
-            <Link className={styles.manage} to="/people" onClick={() => setOpen(false)}>
-              Invite people
+            <Link className={styles.manage} to={`/w/${active.slug}/settings`} onClick={() => setOpen(false)}>
+              Workspace settings <span aria-hidden="true">→</span>
             </Link>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useHistory} from '@docusaurus/router';
 import {useCommands} from '@site/src/components/commands';
+import {scopeWorkspacePath} from '@site/src/utils/workspaces';
 import AssistantTranscript from './AssistantTranscript';
 import ChatSidebar, {channelLabel} from './ChatSidebar';
 import ChatTranscript from './ChatTranscript';
@@ -317,7 +318,10 @@ export default function Shell() {
     chat,
     assistant,
     commands,
-    navigate: (href) => routerHistory.push(href),
+    navigate: (href) => routerHistory.push(scopeWorkspacePath(
+      href,
+      typeof window === 'undefined' ? '' : window.location.pathname,
+    )),
     say: (text) => (session.target ? say(text, session.id, session.target.channelId) : undefined),
     note: (text) => sessions.append(session.id, 'system', text),
     fail: (text) => sessions.append(session.id, 'error', text),
@@ -441,8 +445,14 @@ export default function Shell() {
                   activeChannelId={active.target?.channelId ?? null}
                   onSelect={selectChannel}
                   onSelectAssistant={selectAssistant}
-                  onBrowsePeople={() => routerHistory.push('/people')}
-                  onBrowseChannels={() => routerHistory.push('/channels')}
+                  onBrowsePeople={() => routerHistory.push(scopeWorkspacePath(
+                    '/people',
+                    typeof window === 'undefined' ? '' : window.location.pathname,
+                  ))}
+                  onBrowseChannels={() => routerHistory.push(scopeWorkspacePath(
+                    '/channels',
+                    typeof window === 'undefined' ? '' : window.location.pathname,
+                  ))}
                 />
               )}
 

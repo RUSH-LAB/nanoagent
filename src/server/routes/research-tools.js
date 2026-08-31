@@ -126,17 +126,9 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
     if (!rateLimit(`recommendations:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const https = require('https');
-      // Serve the parsed bibliography from the shared, mtime + size aware memo
-      // instead of re-reading and re-parsing references.yaml on every request.
-      const refs = ctx.references.load(fs, path, contentRootFor(req.auth?.orgId));
-      // ctx.references.load swallows a missing or unparseable bibliography and
-      // returns {}. Preserve the original 500-on-failure response by reproducing
-      // that read only when the memoized parse is empty; the populated happy path
-      // is served entirely from the memo and never re-reads or re-parses.
-      if (Object.keys(refs).length === 0) {
-        const yaml = require('js-yaml');
-        yaml.load(fs.readFileSync(path.join(contentRootFor(req.auth?.orgId), 'bibliography', 'references.yaml'), 'utf8'));
-      }
+      const paperRecords = ctx.references.openPapers?.(collection, scopeFor(req));
+      if (!paperRecords) return json(res, 503, {error: 'Bibliography plugin is unavailable'});
+      const refs = await paperRecords.entries();
 
       function extractRecPaperId(entry) {
         if (entry.paperId) return entry.paperId;
@@ -232,9 +224,12 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
 
   // ── Recommendations: add a recommended paper to bibliography ──
   if (req.method === 'POST' && pathname === '/api/recommendations/add') {
+    const workspaceRole = req.context?.role ?? null;
+    if (workspaceRole && !['owner', 'editor', 'admin'].includes(workspaceRole)) {
+      return json(res, 403, {error: 'You do not have permission to add papers'});
+    }
     if (!rateLimit(`add-rec:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
-      const yaml = require('js-yaml');
       const body = await readBody(req);
       const { title, authors, year, venue, url: paperUrl, arxivId } = body;
       if (!title || typeof title !== 'string') return json(res, 400, { error: 'Missing or invalid title' });
@@ -255,8 +250,11 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       const yearStr = year || 'unknown';
       const baseKey = `${lastName}${yearStr}`;
 
-      const bibPath = path.join(contentRootFor(req.auth?.orgId), 'bibliography', 'references.yaml');
-      const refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
+      const paperRecords = ctx.references.openPapers?.(collection, scopeFor(req));
+      if (!paperRecords || typeof ctx.references.paperForStorage !== 'function') {
+        return json(res, 503, {error: 'Bibliography plugin is unavailable'});
+      }
+      const refs = await paperRecords.entries();
 
       // titleSlug depends only on `title` (a guaranteed non-empty string by the
       // L489 guard) and the loop never mutates it, so compute it once before the
@@ -281,9 +279,17 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       else if (arxivId) entry.url = `https://arxiv.org/abs/${sanitizeText(arxivId)}`;
       if (arxivId) entry.arxivId = sanitizeText(arxivId);
 
-      refs[finalKey] = entry;
-      fs.writeFileSync(bibPath, yaml.dump(refs, { lineWidth: -1 }), 'utf-8');
-      invalidateCache(cacheKey(req.auth?.orgId, 'stats'));
+      await paperRecords.put(finalKey, ctx.references.paperForStorage({
+        ...entry,
+        source: {
+          type: arxivId ? 'arxiv' : paperUrl ? 'url' : 'manual',
+          id: arxivId || paperUrl || null,
+          url: paperUrl || (arxivId ? `https://arxiv.org/abs/${sanitizeText(arxivId)}` : null),
+          provider: 'recommendations',
+        },
+        officialUrl: paperUrl || (arxivId ? `https://arxiv.org/abs/${sanitizeText(arxivId)}` : null),
+      }));
+      invalidateCache(cacheKey(req.context?.workspaceId, 'stats'));
 
       return json(res, 201, { key: finalKey, success: true });
     } catch (err) {
@@ -299,8 +305,8 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
     try {
       // Cached index: each doc carries its term-frequency map and length, plus
       // corpus-wide BM25 statistics (N, average length, per-term doc frequency).
-      const {docs: searchIndex, stats} = cached(cacheKey(req.auth?.orgId, 'search:index'), 60000, () => {
-        const contentDir = contentRootFor(req.auth?.orgId);
+      const {docs: searchIndex, stats} = cached(cacheKey(req.context?.workspaceId, 'search:index'), 60000, () => {
+        const contentDir = contentRootFor(req.context?.workspaceId);
         const docs = [];
         function indexDir(dir) {
           for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -317,7 +323,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
                 // which would double the index's resident string footprint.
                 const tokens = tokenizeSearch(content);
                 docs.push({
-                  path: path.relative(contentRootFor(req.auth?.orgId), fullPath),
+                  path: path.relative(contentRootFor(req.context?.workspaceId), fullPath),
                   name: entry.name,
                   words: new Set(tokens),
                   tf: termFrequencies(tokens),

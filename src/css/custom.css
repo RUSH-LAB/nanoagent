@@ -47,8 +47,8 @@
   );
   --ifm-container-width: var(--site-max-width);
   --ifm-container-width-xl: var(--site-max-width);
-  --ifm-font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
-  --ifm-heading-font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  --ifm-font-family-base: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ifm-heading-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   /* Type scale, matched to docs.sglang.io: 16px body on 1.75 leading, a
      compact 30 / 24 / 20px heading ramp, and 14px for the navigation chrome.
      Infima's own ramp is half again as large and inflates h1–h3 a second time
@@ -273,51 +273,6 @@ html {
   font-weight: var(--ifm-heading-font-weight);
 }
 
-/* ── Math block dark mode ──────────────────────────────────────────────────── */
-[data-theme='dark'] .math-block--theorem,
-[data-theme='dark'] .math-block--lemma,
-[data-theme='dark'] .math-block--proposition,
-[data-theme='dark'] .math-block--corollary {
-  background-color: #1e2a3a !important;
-  border-color: #3a4a5c !important;
-}
-
-[data-theme='dark'] .math-block--definition {
-  background-color: #1a2e1a !important;
-  border-color: #2e4a2e !important;
-}
-
-[data-theme='dark'] .math-block--remark {
-  background-color: #2e2a1a !important;
-  border-color: #4a4428 !important;
-}
-
-[data-theme='dark'] .math-block--example {
-  background-color: #261e30 !important;
-  border-color: #3e3050 !important;
-}
-
-[data-theme='dark'] .math-block--proof {
-  border-left-color: #555 !important;
-}
-
-[data-theme='dark'] .math-block--lean-proof {
-  border-left-color: #60a5fa !important;
-}
-
-[data-theme='dark'] .math-block--lean-proof button {
-  color: #60a5fa !important;
-}
-
-/* Algorithm dark mode */
-[data-theme='dark'] .numbered-algorithm {
-  border-color: #3a4a5c !important;
-}
-
-[data-theme='dark'] .numbered-algorithm > div:first-child {
-  border-bottom-color: #3a4a5c !important;
-}
-
 /* ── Citation system styles ──────────────────────────────────────────────── */
 .citation-link {
   text-decoration: none;
@@ -352,33 +307,6 @@ html {
 /* ── Tables: render as a table box, not a scrollable block ──────────────────────────────────────── */
 table {
   display: table !important;
-}
-
-/* Remove paragraph margin inside figures so caption sits close to content */
-.numbered-figure p {
-  margin-bottom: 0 !important;
-}
-
-/* Column alignment overrides */
-.numbered-table--cols-center th,
-.numbered-table--cols-center td {
-  text-align: center !important;
-}
-
-.numbered-table--cols-left th,
-.numbered-table--cols-left td {
-  text-align: left !important;
-}
-
-.numbered-table--cols-right th,
-.numbered-table--cols-right td {
-  text-align: right !important;
-}
-
-/* ── Figure & Table caption dark mode ────────────────────────────────────── */
-[data-theme='dark'] .numbered-figure figcaption,
-[data-theme='dark'] .numbered-table > div:first-child {
-  color: #aaa !important;
 }
 
 /* ── Sidebar chapter numbers (inline superscript) ────────────────────────── */
@@ -445,83 +373,6 @@ li > input[type="checkbox"]:checked {
 [data-theme='dark'] li > input[type="checkbox"]:checked {
   background: #3b82f6;
   border-color: #3b82f6;
-}
-
-/* ── Lean code runner ──────────────────────────────────────────────────────── */
-.lean-runner {
-  position: relative;
-}
-
-.lean-run-btn {
-  position: absolute;
-  top: 10px;
-  right: 56px;
-  padding: 4px 10px;
-  border: none;
-  border-radius: 4px;
-  background: rgba(74, 158, 255, 0.9);
-  color: #fff;
-  cursor: pointer;
-  font-size: 0.75rem;
-  font-weight: 600;
-  font-family: inherit;
-  z-index: 1;
-  opacity: 0;
-  transition: opacity 0.15s, background 0.15s;
-}
-
-.lean-runner:hover .lean-run-btn,
-.lean-run-btn--active {
-  opacity: 1 !important;
-}
-
-.lean-run-btn:hover {
-  background: rgba(74, 158, 255, 1);
-}
-
-.lean-run-btn--active {
-  background: #6b7280;
-}
-
-.lean-run-btn--active:hover {
-  background: #4b5563;
-}
-
-.lean-playground {
-  margin-top: 0.5em;
-  margin-bottom: 1em;
-}
-
-.lean-playground-info {
-  font-size: 0.8rem;
-  color: #888;
-  margin-bottom: 0.4em;
-}
-
-.lean-playground-info a {
-  color: #4a9eff;
-}
-
-.lean-playground-frame {
-  width: 100%;
-  height: 460px;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-}
-
-[data-theme='dark'] .lean-playground-frame {
-  border-color: #3a4a5c;
-}
-
-/* ── Wiki link styles ────────────────────────────────────────────────────── */
-.wikilink {
-  color: var(--ifm-color-primary);
-  text-decoration: none;
-  border-bottom: 1px dashed var(--ifm-color-primary-lighter);
-  padding-bottom: 1px;
-}
-.wikilink:hover {
-  border-bottom-style: solid;
 }
 
 /* ── Print-friendly styles ─────────────────────────────────────────────────── */
@@ -596,18 +447,6 @@ li > input[type="checkbox"]:checked {
   code,
   .prism-code,
   .katex-display,
-  .math-block--theorem,
-  .math-block--lemma,
-  .math-block--proposition,
-  .math-block--corollary,
-  .math-block--definition,
-  .math-block--remark,
-  .math-block--example,
-  .math-block--proof,
-  .math-block--lean-proof,
-  .numbered-algorithm,
-  .numbered-figure,
-  .numbered-table,
   table,
   blockquote {
     page-break-inside: avoid;
@@ -640,8 +479,6 @@ li > input[type="checkbox"]:checked {
   select,
   textarea,
   form,
-  .lean-run-btn,
-  .lean-playground,
   [class*="toggleButton"],
   [class*="collapsibleContent"] > button {
     display: none !important;

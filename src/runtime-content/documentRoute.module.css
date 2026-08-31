@@ -1,0 +1,84 @@
+.collection {
+  max-width: var(--site-page-width-wide);
+  margin: 0 auto;
+}
+
+.collectionHeader {
+  margin-bottom: 1.75rem;
+}
+
+.collectionHeader h1 {
+  margin: 0.2rem 0 0.35rem;
+  font-size: clamp(1.8rem, 4vw, 2.35rem);
+}
+
+.collectionHeader p {
+  margin: 0;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.eyebrow {
+  color: var(--ifm-color-primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.documentGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 0.8rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.documentCard {
+  min-width: 0;
+}
+
+.documentCard a {
+  display: flex;
+  min-height: 6.5rem;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 12px;
+  background: var(--ifm-background-surface-color);
+  color: var(--ifm-font-color-base);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.documentCard a:hover {
+  border-color: var(--ifm-color-primary-light);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.documentTitle {
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.documentPath {
+  overflow: hidden;
+  color: var(--ifm-color-emphasis-500);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  padding: 2rem;
+  border: 1px dashed var(--ifm-color-emphasis-300);
+  border-radius: 12px;
+  color: var(--ifm-color-emphasis-600);
+  text-align: center;
+}

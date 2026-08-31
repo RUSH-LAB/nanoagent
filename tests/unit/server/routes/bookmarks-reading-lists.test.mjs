@@ -6,56 +6,20 @@
  * Consolidated from the twenty-seven per-branch suites that used to cover this
  * module.
  */
-import {beforeEach, describe, it} from 'node:test';
+import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, key, TEST_IDENTITY} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, FILES, CONTENT_DIR, key, TEST_IDENTITY} from '../../_harness.mjs';
 
 const require = createRequire(import.meta.url);
-const bibliographyProvides = require('../../../../plugins/bibliography/server.js').provides;
-const {_resetReferencesCache} = require('../../../../plugins/bibliography/lib/references.js');
+const yaml = require('js-yaml');
 
 const routes = loadRoute('bookmarks-reading-lists');
 const {COMMENTS_FILE} = FILES;
 // Fixtures live in the workspace's own tree, and the paths a request carries
 // are relative to it: `a.md`, never `content/mochi/a.md`.
 const at = rel => path.join(CONTENT_DIR, rel);
-const BIB = at('bibliography/references.yaml');
-
-/**
- * The bibliography plugin publishes a loader that asks for a reader, because
- * the plugin is not allowed to touch the filesystem itself. The server adapts
- * that reader into the (fs, path, contentRoot) call the core handlers make: see
- * referencesForCore in src/server/index.js. The root handed over is the calling
- * organization's content root, so the reader joins straight onto it. This
- * mirrors that adaptation, so the BibTeX export runs against the real loader
- * over this suite's fixture fs rather than against a stub of it.
- */
-function referencesForCore(provided) {
-  const readerFor = (fs, path, contentRoot) => {
-    const at = relative => path.join(contentRoot, relative);
-    return {
-      read(relative) {
-        try {
-          return fs.readFileSync(at(relative), 'utf-8');
-        } catch {
-          return null;
-        }
-      },
-      stat(relative) {
-        try {
-          const {mtimeMs, size} = fs.statSync(at(relative));
-          return {mtimeMs, size};
-        } catch {
-          return null;
-        }
-      },
-    };
-  };
-  return {...provided, load: (fs, path, root) => provided.load(readerFor(fs, path, root))};
-}
-
 /** Truthy inherited members that an own-key check must still reject. */
 const INHERITED_KEYS = ['__proto__', 'constructor', 'toString'];
 
@@ -660,18 +624,15 @@ describe('GET /api/reading-lists/:id/export', () => {
     ].join('\n');
 
     const bibCtx = (items, refs = REFS) => {
-      let reads = 0;
-      const base = mockFs(refs === null ? {} : {[BIB]: refs});
-      const fs = {...base, readFileSync: p => { reads++; return base.readFileSync(p); }};
-      const references = referencesForCore(bibliographyProvides.references);
-      return {ctx: list({items}, {fs, references}), reads: () => reads};
+      const ctx = list({items});
+      let parsed = {};
+      try { parsed = refs === null ? {} : (yaml.load(refs) || {}); } catch { /* empty database fixture */ }
+      const papers = ctx.scoped.collection('plugin:bibliography:papers');
+      for (const [citationKey, entry] of Object.entries(parsed)) {
+        papers.put(scopeOf(ctx, TEST_IDENTITY), citationKey, entry);
+      }
+      return {ctx};
     };
-
-    // The loader memoizes on mtime and size, and every fixture here starts the
-    // mock clock at the same instant, so a warm memo would let one test serve
-    // the next one's export. Start each test cold, which also makes the memo
-    // test below prove the memo rather than observe an already-cached parse.
-    beforeEach(() => _resetReferencesCache());
 
     it('maps the venue field by entry type and joins authors with "and"', async () => {
       const items = [
@@ -728,8 +689,8 @@ describe('GET /api/reading-lists/:id/export', () => {
 
     for (const [label, items, refs] of [
       ['no reference resolves', [{path: '/a-doc', type: 'doc'}], REFS],
-      ['references.yaml is missing', [{path: 'article2021', type: 'reference'}], null],
-      ['references.yaml is malformed', [{path: 'article2021', type: 'reference'}], '\tbroken: ['],
+      ['the reference database is empty', [{path: 'article2021', type: 'reference'}], null],
+      ['the fixture contains no valid records', [{path: 'article2021', type: 'reference'}], '\tbroken: ['],
     ]) {
       it(`emits a lone newline when ${label}`, async () => {
         const {ctx} = bibCtx(items, refs);
@@ -738,12 +699,11 @@ describe('GET /api/reading-lists/:id/export', () => {
       });
     }
 
-    it('memoizes the bibliography parse across two exports', async () => {
-      const {ctx, reads} = bibCtx([{path: 'article2021', type: 'reference'}]);
-      await invoke(routes, {path: EXPORT, query: {format: 'bibtex'}, ctx});
-      const after = reads();
-      await invoke(routes, {path: EXPORT, query: {format: 'bibtex'}, ctx});
-      assert.equal(reads(), after, 'the second export reuses the shared memo');
+    it('reads the same scoped database records on repeated exports', async () => {
+      const {ctx} = bibCtx([{path: 'article2021', type: 'reference'}]);
+      const first = await invoke(routes, {path: EXPORT, query: {format: 'bibtex'}, ctx});
+      const second = await invoke(routes, {path: EXPORT, query: {format: 'bibtex'}, ctx});
+      assert.equal(second.written.body, first.written.body);
     });
   });
 });

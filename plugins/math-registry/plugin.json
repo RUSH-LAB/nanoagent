@@ -1,18 +1,24 @@
 {
   "title": "Math Registry",
-  "description": "Numbers the <Type id=\"...\"> blocks in the math books and publishes the manifest <Ref> reads",
+  "description": "Owns numbered mathematical environments and cross-references across every workspace",
   "enabled": true,
-  "options": {
-    "contentDirs": [
-      {
-        "dir": "content/mochi/books/math",
-        "routeBase": "math"
-      },
-      {
-        "dir": "content/mochi/books/builder",
-        "routeBase": "builder"
-      }
-    ],
-    "_note": "Paths are the primary workspace's. The manifest is a flat id keyspace, so a second workspace's blocks would collide with these rather than sit beside them; per-workspace numbering needs that keyspace namespaced first."
+  "options": {},
+  "safeComponents": {
+    "Theorem": {"id": "string", "name": "string"},
+    "Lemma": {"id": "string", "name": "string"},
+    "Proposition": {"id": "string", "name": "string"},
+    "Corollary": {"id": "string", "name": "string"},
+    "Definition": {"id": "string", "name": "string"},
+    "Remark": {"id": "string", "name": "string"},
+    "Example": {"id": "string", "name": "string"},
+    "Proof": {},
+    "Equation": {"id": "string"},
+    "Figure": {"id": "string", "caption": "string"},
+    "Table": {"id": "string", "caption": "string", "columns": "string"},
+    "Code": {"id": "string", "caption": "string"},
+    "Algorithm": {"id": "string", "caption": "string"},
+    "Section": {"number": "number"},
+    "Ref": {"id": "string"},
+    "PageRef": {"path": "string", "label": "stringOrBoolean", "category": "string"}
   }
 }

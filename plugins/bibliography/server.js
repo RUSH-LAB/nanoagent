@@ -8,15 +8,20 @@
  * built from the capabilities plugin.json asks for. Nothing here can read a
  * file outside content/, run a process, or see the server's internals.
  *
- * `provides` is the other half of the contract. Core handlers answer questions
- * about the bibliography and need to read references.yaml to do it. Rather than
- * each one reaching into this directory with a relative require, the server
- * hangs what this publishes onto ctx, so those modules ask ctx for bibliography
- * data and degrade honestly when no plugin is providing any.
+ * `provides` is the other half of the contract. Core handlers consume the
+ * bibliography through this boundary without reaching into plugin files.
  */
 const {numericParam} = require('#plugin-api');
-const {BIB_FILE, loadReferences, readReferencesText, buildCitation, cleanBibtexValue} = require('./lib/references');
+const crypto = require('crypto');
+const {buildCitation, cleanBibtexValue} = require('./lib/references');
 const {parseBibtex, parseBibtexAuthors, mapBibtexEntryType, mergeMetadataSources} = require('./lib/bibtex');
+const {
+  normalizePaper,
+  paperForStorage,
+  validatePaper,
+  citationKeyFor,
+  paperToBibtex,
+} = require('./lib/protocol');
 
 // Single frozen fallback for author-less entries in GET /api/references/by-author.
 // The array is only iterated (never mutated or retained), so one shared instance
@@ -39,6 +44,29 @@ async function askCatalogue(fetchExternal, target) {
   }
 }
 
+function sanitizePaperInput(entry, sanitize) {
+  const clean = {};
+  const strings = ['schema', 'type', 'title', 'venue', 'doi', 'arxivId', 'officialUrl', 'pdfUrl', 'volume', 'issue', 'pages', 'publisher'];
+  for (const field of strings) {
+    if (typeof entry[field] === 'string') clean[field] = sanitize(entry[field]).slice(0, 5000);
+    else if (entry[field] != null) clean[field] = entry[field];
+  }
+  if (entry.year != null) clean.year = entry.year;
+  clean.author = Array.isArray(entry.author)
+    ? entry.author.slice(0, 50).map(value => sanitize(String(value)).slice(0, 500))
+    : entry.author;
+  clean.tags = Array.isArray(entry.tags)
+    ? entry.tags.slice(0, 50).map(value => sanitize(String(value)).slice(0, 80))
+    : [];
+  if (entry.source && typeof entry.source === 'object' && !Array.isArray(entry.source)) {
+    clean.source = {};
+    for (const field of ['type', 'id', 'url', 'provider']) {
+      if (typeof entry.source[field] === 'string') clean.source[field] = sanitize(entry.source[field]).slice(0, 2000);
+    }
+  }
+  return clean;
+}
+
 // Multi-citation regex for the GET /api/references/reading-order topological
 // scan, compiled once at module load instead of rebuilt on every request. Like
 // GRAPH_WIKI_RE this shared /g regex is module state, so the handler resets
@@ -57,42 +85,63 @@ const READING_ORDER_CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
 // handlers. Core has its own copy in routes/research-tools.js for the same job
 // on a different input; a plugin owns its patterns rather than borrowing them.
 const ARXIV_ABS_RE = /arxiv\.org\/abs\/([\d.]+)/;
+function openPaperRecords(collection, scope) {
+  const source = collection('plugin:bibliography:papers');
+  return Object.freeze({
+    entries: () => source.entries(scope),
+    get: key => source.get(scope, key),
+    has: key => source.has(scope, key),
+    put: (key, value) => source.put(scope, key, value),
+    remove: key => source.remove(scope, key),
+  });
+}
 
 module.exports = async function bibliography_routes(req, res, url, pathname, api) {
   const {
-    respond, stream, readBody, rateLimit, cache,
-    // Granted by "content:write" in plugin.json: references.yaml is a content
-    // file, and this plugin is the only thing that writes it.
-    content,
+    respond, stream, readBody, readBytes, rateLimit, cache,
     // Granted by "network": the enrichment and metadata endpoints ask three
     // public catalogues about a paper. This used to be require('https') and a
     // shelled-out curl.
     fetch: fetchExternal,
     sanitize,
+    records,
+    blobs,
+    content,
+    caller,
   } = api;
+
+  const paperRecords = records.collection('papers');
+  const annotationRecords = records.collection('annotations');
+  const fileRecords = records.collection('files');
+  const canManagePapers = ['owner', 'editor'].includes(caller.role);
+  const canDeletePapers = caller.role === 'owner';
+
+  async function readPapers() {
+    return paperRecords.entries();
+  }
 
   // ── References: add entry ──
   if (req.method === 'POST' && pathname === '/api/references') {
+    if (!canManagePapers) return respond(res, 403, {error: 'You do not have permission to add papers'});
     if (!rateLimit(`add-ref:${req.socket.remoteAddress}`, 20)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
-      const yaml = require('js-yaml');
       const body = await readBody();
-      const {key, entry} = body;
-      if (!key || !entry) return respond(res, 400, {error: 'Missing key or entry'});
-      if (typeof key !== 'string' || key.length > 200) return respond(res, 400, {error: 'Invalid key'});
+      const {key: requestedKey, entry} = body || {};
+      if (!entry) return respond(res, 400, {error: 'Missing entry'});
+      if (requestedKey != null && (typeof requestedKey !== 'string' || requestedKey.length > 200)) return respond(res, 400, {error: 'Invalid key'});
       if (typeof entry !== 'object') return respond(res, 400, {error: 'Invalid entry'});
-      // Sanitize string fields within the entry object
-      const sanitizedEntry = {};
-      for (const [field, value] of Object.entries(entry)) {
-        if (typeof value === 'string') sanitizedEntry[field] = sanitize(value).slice(0, 5000);
-        else if (Array.isArray(value)) sanitizedEntry[field] = value.slice(0, 50).map(v => typeof v === 'string' ? sanitize(v).slice(0, 500) : v);
-        else sanitizedEntry[field] = value;
+      const sanitizedEntry = sanitizePaperInput(entry, sanitize);
+      const {paper, errors} = validatePaper(sanitizedEntry);
+      if (errors.length) return respond(res, 400, {error: errors.join('; ')});
+      const refs = await readPapers();
+      const key = requestedKey || citationKeyFor(paper, Object.keys(refs));
+      if (!/^[\w.-]+$/.test(key) || ['__proto__', 'constructor', 'prototype'].includes(key)) {
+        return respond(res, 400, {error: 'Invalid key'});
       }
-      const refs = yaml.load(readReferencesText(content)) || {};
-      if (refs[key]) return respond(res, 409, {error: 'Key already exists'});
-      refs[key] = sanitizedEntry;
-      content.write(BIB_FILE, yaml.dump(refs, {lineWidth: -1}));
-      return respond(res, 201, {success: true});
+      if (Object.prototype.hasOwnProperty.call(refs, key)) return respond(res, 409, {error: 'Key already exists'});
+      const stored = paperForStorage(paper);
+      await paperRecords.put(key, stored);
+      return respond(res, 201, {success: true, key, entry: normalizePaper(key, stored)});
     } catch {
       return respond(res, 400, {error: 'Invalid request'});
     }
@@ -192,7 +241,25 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
         dblp: topRecord('dblp'),
       });
 
-      return respond(res, 200, {results, merged});
+      const sourceHit = results.find(result => result.source === 'crossref' && result.doi)
+        || results.find(result => result.doi)
+        || results.find(result => result.arxivId)
+        || results[0]
+        || {};
+      const paper = normalizePaper(null, {
+        ...merged,
+        type: merged.type || 'article',
+        author: merged.authors,
+        source: {
+          type: merged.doi ? 'doi' : merged.arxivId ? 'arxiv' : sourceHit.url ? 'url' : 'manual',
+          id: merged.doi || merged.arxivId || sourceHit.url || null,
+          url: merged.doi ? `https://doi.org/${merged.doi}` : merged.arxivId ? `https://arxiv.org/abs/${merged.arxivId}` : sourceHit.url,
+          provider: sourceHit.source || null,
+        },
+        officialUrl: merged.doi ? `https://doi.org/${merged.doi}` : merged.arxivId ? `https://arxiv.org/abs/${merged.arxivId}` : sourceHit.url,
+      });
+
+      return respond(res, 200, {results, merged, paper});
     } catch {
       return respond(res, 500, {error: 'Metadata search failed'});
     }
@@ -204,11 +271,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
     if (!citationKey) return respond(res, 400, {error: 'Missing key param'});
 
     try {
-      const refs = loadReferences(content);
-      // The memo answers a missing or broken bibliography with {}, which reads
-      // as "no such reference" when it means "no bibliography". Re-read only in
-      // that case, so the 500 survives and the populated path never re-parses.
-      if (Object.keys(refs).length === 0) readReferencesText(content);
+      const refs = await readPapers();
       const entry = refs[citationKey];
       if (!entry) return respond(res, 404, {error: `Reference "${citationKey}" not found`});
 
@@ -306,16 +369,16 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
 
   // ── References: enrich (POST - apply enriched data to references.yaml) ──
   if (req.method === 'POST' && pathname === '/api/references/enrich') {
+    if (!canManagePapers) return respond(res, 403, {error: 'You do not have permission to edit papers'});
     if (!rateLimit(`enrich-ref:${req.socket.remoteAddress}`, 10)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
-      const yaml = require('js-yaml');
       const body = await readBody();
       const {key: citationKey, fields} = body;
       if (!citationKey || typeof citationKey !== 'string') return respond(res, 400, {error: 'Missing or invalid key'});
       if (citationKey.length > 200) return respond(res, 400, {error: 'Key too long'});
       if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return respond(res, 400, {error: 'Missing fields object'});
 
-      const refs = yaml.load(readReferencesText(content)) || {};
+      const refs = await readPapers();
       if (!refs[citationKey]) return respond(res, 404, {error: `Reference "${citationKey}" not found`});
 
       // Merge the selected fields into the existing reference
@@ -328,8 +391,9 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
         }
       }
 
-      content.write(BIB_FILE, yaml.dump(refs, {lineWidth: -1}));
-      return respond(res, 200, {success: true, entry: refs[citationKey]});
+      const stored = paperForStorage(refs[citationKey]);
+      await paperRecords.put(citationKey, stored);
+      return respond(res, 200, {success: true, entry: normalizePaper(citationKey, stored)});
     } catch (err) {
       return respond(res, 400, {error: 'Invalid request: ' + err.message});
     }
@@ -346,39 +410,292 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
       // references.js does not require this module. Any stat, read, or parse
       // failure yields {}, matching the catch below, so a missing or corrupt
       // file still serves {references: {}}.
-      const refs = loadReferences(content);
-      return respond(res, 200, {references: refs});
+      const refs = await readPapers();
+      const papers = Object.fromEntries(
+        Object.entries(refs).map(([key, entry]) => [key, normalizePaper(key, entry)]),
+      );
+
+      if (url.searchParams.get('summary') === '1') {
+        const byType = {};
+        const byYear = {};
+        for (const paper of Object.values(papers)) {
+          const type = paper.type || 'misc';
+          byType[type] = (byType[type] || 0) + 1;
+          if (paper.year) byYear[paper.year] = (byYear[paper.year] || 0) + 1;
+        }
+        return respond(res, 200, {total: Object.keys(papers).length, byType, byYear});
+      }
+
+      // The library page asks for a bounded window. Sending and rendering the
+      // entire organization library made a 740-paper collection pay for almost
+      // 400 KB of JSON and hundreds of React trees before the first useful
+      // row appeared. Keep the no-query response intact for existing API
+      // consumers, while the UI gets a small, searchable page.
+      if (url.searchParams.has('limit')) {
+        const limit = Math.max(1, numericParam(url.searchParams.get('limit'), 40, 100));
+        const offset = Math.max(0, numericParam(url.searchParams.get('offset'), 0, Number.MAX_SAFE_INTEGER));
+        const query = (url.searchParams.get('q') || '').trim().toLocaleLowerCase();
+        const tag = url.searchParams.get('tag') || '';
+        const all = Object.entries(papers);
+        const tags = [...new Set(all.flatMap(([, paper]) => paper.tags || []))]
+          .sort((a, b) => a.localeCompare(b));
+        const matches = all
+          .filter(([, paper]) => !tag || (paper.tags || []).includes(tag))
+          .filter(([key, paper]) => !query || [
+            key,
+            paper.title,
+            paper.venue,
+            ...(paper.author || []),
+            ...(paper.tags || []),
+          ].some(value => String(value || '').toLocaleLowerCase().includes(query)))
+          .sort(([, a], [, b]) =>
+            (b.year || 0) - (a.year || 0)
+            || String(a.title || '').localeCompare(String(b.title || '')),
+          );
+        const page = matches.slice(offset, offset + limit);
+        return respond(res, 200, {
+          references: Object.fromEntries(page),
+          tags,
+          total: matches.length,
+          libraryTotal: all.length,
+          offset,
+          limit,
+          hasMore: offset + page.length < matches.length,
+        });
+      }
+      return respond(res, 200, {references: papers});
     } catch {
       return respond(res, 200, {references: {}});
+    }
+  }
+
+  const paperPath = /^\/api\/references\/([^/]+)$/.exec(pathname);
+  const paperItemPath = /^\/api\/references\/item\/([^/]+)$/.exec(pathname);
+  const pdfPath = /^\/api\/references\/([^/]+)\/pdf$/.exec(pathname);
+  const annotationsPath = /^\/api\/references\/([^/]+)\/annotations$/.exec(pathname);
+  const annotationPath = /^\/api\/reference-annotations\/([^/]+)$/.exec(pathname);
+  const decodeKey = encoded => {
+    try { return decodeURIComponent(encoded); } catch { return ''; }
+  };
+
+  // A paper detail page needs one row, not the entire organization library.
+  if (req.method === 'GET' && paperItemPath) {
+    const citationKey = decodeKey(paperItemPath[1]);
+    const paper = citationKey ? paperRecords.get(citationKey) : null;
+    if (!paper) return respond(res, 404, {error: 'Reference not found'});
+    return respond(res, 200, {entry: normalizePaper(citationKey, paper)});
+  }
+
+  // ── References: remove one paper and its organization-visible annotations ──
+  if (req.method === 'DELETE' && paperPath) {
+    if (!canDeletePapers) return respond(res, 403, {error: 'Only a workspace owner may delete papers'});
+    const citationKey = decodeKey(paperPath[1]);
+    if (!citationKey || !await paperRecords.has(citationKey)) return respond(res, 404, {error: 'Reference not found'});
+    for (const item of await annotationRecords.list()) {
+      if (item.value?.paperKey === citationKey) await annotationRecords.remove(item.key);
+    }
+    const file = await fileRecords.get(citationKey);
+    if (file?.blobKey) await blobs.remove(file.blobKey);
+    await fileRecords.remove(citationKey);
+    await paperRecords.remove(citationKey);
+    return respond(res, 200, {success: true});
+  }
+
+  // ── PDFs: upload and serve the managed file for a paper ──
+  if (req.method === 'POST' && pdfPath) {
+    if (!canManagePapers) return respond(res, 403, {error: 'You do not have permission to upload PDFs'});
+    const citationKey = decodeKey(pdfPath[1]);
+    if (!citationKey || !await paperRecords.has(citationKey)) return respond(res, 404, {error: 'Reference not found'});
+    try {
+      const bytes = await readBytes();
+      if (!Buffer.isBuffer(bytes) || bytes.length < 5 || bytes.subarray(0, 5).toString() !== '%PDF-') {
+        return respond(res, 400, {error: 'The uploaded file is not a PDF'});
+      }
+      const saved = await blobs.put(bytes, '.pdf');
+      const file = {
+        id: crypto.randomUUID(),
+        paperKey: citationKey,
+        blobKey: saved.key,
+        sha256: saved.sha256,
+        byteSize: saved.size,
+        mimeType: 'application/pdf',
+        originalName: sanitize(req.headers['x-file-name'] || 'paper.pdf').slice(0, 255),
+        createdBy: caller.userId,
+        createdAt: new Date().toISOString(),
+      };
+      await fileRecords.put(citationKey, file);
+      const paper = await paperRecords.get(citationKey);
+      await paperRecords.put(citationKey, paperForStorage({
+        ...paper,
+        pdfUrl: `/api/references/${encodeURIComponent(citationKey)}/pdf`,
+      }));
+      return respond(res, 201, {success: true, file, pdfUrl: `/api/references/${encodeURIComponent(citationKey)}/pdf`});
+    } catch (err) {
+      return respond(res, err.status || 400, {error: err.message || 'PDF upload failed'});
+    }
+  }
+
+  if (req.method === 'GET' && pdfPath) {
+    const citationKey = decodeKey(pdfPath[1]);
+    const file = citationKey ? await fileRecords.get(citationKey) : null;
+    if (!file) return respond(res, 404, {error: 'PDF not found'});
+    const bytes = await blobs.read(file.blobKey);
+    if (!bytes) return respond(res, 404, {error: 'PDF file is missing'});
+    const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range || '');
+    if (range) {
+      const start = Number(range[1]);
+      const requestedEnd = range[2] ? Number(range[2]) : bytes.length - 1;
+      const end = Math.min(requestedEnd, bytes.length - 1);
+      if (!Number.isInteger(start) || start < 0 || start > end) {
+        return stream(res, {status: 416, headers: {'Content-Range': `bytes */${bytes.length}`}, body: Buffer.alloc(0)});
+      }
+      const body = bytes.subarray(start, end + 1);
+      return stream(res, {
+        status: 206,
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Length': String(body.length),
+          'Content-Range': `bytes ${start}-${end}/${bytes.length}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Disposition': `inline; filename="${file.originalName || 'paper.pdf'}"`,
+        },
+        body,
+      });
+    }
+    return stream(res, {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Length': String(bytes.length),
+        'Accept-Ranges': 'bytes',
+        'Content-Disposition': `inline; filename="${file.originalName || 'paper.pdf'}"`,
+      },
+      body: bytes,
+    });
+  }
+
+  // ── Shared PDF annotations ──
+  if (req.method === 'GET' && annotationsPath) {
+    const citationKey = decodeKey(annotationsPath[1]);
+    if (!citationKey || !await paperRecords.has(citationKey)) return respond(res, 404, {error: 'Reference not found'});
+    const annotations = (await annotationRecords.values())
+      .filter(annotation => annotation.paperKey === citationKey)
+      .sort((a, b) => a.page - b.page || a.createdAt.localeCompare(b.createdAt));
+    return respond(res, 200, {annotations});
+  }
+
+  if (req.method === 'POST' && annotationsPath) {
+    const citationKey = decodeKey(annotationsPath[1]);
+    if (!citationKey || !await paperRecords.has(citationKey)) return respond(res, 404, {error: 'Reference not found'});
+    try {
+      const body = await readBody();
+      const page = Number.parseInt(body?.page, 10);
+      const note = sanitize(body?.body || '').slice(0, 20_000);
+      const quote = sanitize(body?.quote || '').slice(0, 5_000);
+      if (!Number.isInteger(page) || page < 1 || page > 100_000) return respond(res, 400, {error: 'A valid PDF page is required'});
+      if (!note && !quote) return respond(res, 400, {error: 'An annotation needs a note or quoted text'});
+      const id = crypto.randomUUID();
+      const annotation = {
+        id,
+        paperKey: citationKey,
+        fileId: (await fileRecords.get(citationKey))?.id || null,
+        authorId: caller.userId,
+        visibility: 'org',
+        page,
+        quote,
+        body: note,
+        color: /^#[0-9a-f]{6}$/i.test(body?.color || '') ? body.color : '#f5c542',
+        rects: Array.isArray(body?.rects) ? body.rects.slice(0, 100) : [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await annotationRecords.put(id, annotation);
+      return respond(res, 201, {annotation});
+    } catch (err) {
+      return respond(res, 400, {error: err.message || 'Invalid annotation'});
+    }
+  }
+
+  if ((req.method === 'PATCH' || req.method === 'DELETE') && annotationPath) {
+    const id = decodeKey(annotationPath[1]);
+    const annotation = id ? await annotationRecords.get(id) : null;
+    if (!annotation) return respond(res, 404, {error: 'Annotation not found'});
+    const mayEdit = annotation.authorId === caller.userId || caller.role === 'owner';
+    if (!mayEdit) return respond(res, 403, {error: 'Only the annotation author or a workspace owner may change it'});
+    if (req.method === 'DELETE') {
+      await annotationRecords.remove(id);
+      return respond(res, 200, {success: true});
+    }
+    try {
+      const body = await readBody();
+      const page = body?.page == null ? annotation.page : Number.parseInt(body.page, 10);
+      if (!Number.isInteger(page) || page < 1 || page > 100_000) return respond(res, 400, {error: 'A valid PDF page is required'});
+      const next = {
+        ...annotation,
+        page,
+        quote: body?.quote == null ? annotation.quote : sanitize(body.quote).slice(0, 5_000),
+        body: body?.body == null ? annotation.body : sanitize(body.body).slice(0, 20_000),
+        color: /^#[0-9a-f]{6}$/i.test(body?.color || '') ? body.color : annotation.color,
+        updatedAt: new Date().toISOString(),
+      };
+      if (!next.quote && !next.body) return respond(res, 400, {error: 'An annotation needs a note or quoted text'});
+      await annotationRecords.put(id, next);
+      return respond(res, 200, {annotation: next});
+    } catch (err) {
+      return respond(res, 400, {error: err.message || 'Invalid annotation'});
+    }
+  }
+
+  // ── References: update one protocol record ──
+  if (req.method === 'PATCH' && paperPath) {
+    if (!canManagePapers) return respond(res, 403, {error: 'You do not have permission to edit papers'});
+    if (!rateLimit(`update-ref:${req.socket.remoteAddress}`, 30)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    const encodedKey = paperPath[1];
+    let citationKey;
+    try {
+      citationKey = decodeURIComponent(encodedKey);
+    } catch {
+      return respond(res, 400, {error: 'Invalid citation key'});
+    }
+    if (!citationKey || citationKey.includes('/') || citationKey.length > 200) {
+      return respond(res, 400, {error: 'Invalid citation key'});
+    }
+    try {
+      const body = await readBody();
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return respond(res, 400, {error: 'Invalid paper'});
+      const refs = await readPapers();
+      if (!Object.prototype.hasOwnProperty.call(refs, citationKey)) return respond(res, 404, {error: 'Reference not found'});
+      const sanitized = sanitizePaperInput({...refs[citationKey], ...body}, sanitize);
+      const {paper, errors} = validatePaper(sanitized);
+      if (errors.length) return respond(res, 400, {error: errors.join('; ')});
+      const stored = paperForStorage(paper);
+      await paperRecords.put(citationKey, stored);
+      return respond(res, 200, {success: true, entry: normalizePaper(citationKey, stored)});
+    } catch (err) {
+      return respond(res, 400, {error: `Invalid request: ${err.message}`});
     }
   }
 
   // ── from server/routes/analysis-admin.js ──
   if (req.method === 'GET' && pathname === '/api/references/network') {
     try {
-      const network = cache('citation-network', 60000, () => {
+      const network = await cache('citation-network', 60000, async () => {
         // Serve the parsed bibliography from the shared, mtime plus size aware memo
         // instead of re-reading and re-parsing references.yaml on every request.
         // loadReferences swallows a missing or unparseable bibliography and
         // returns {}; reproduce the original parse only when the memo is empty so a
         // genuinely broken or missing file still throws to the catch (500), while a
         // legitimately empty file falls through with refs = {} exactly as before.
-        const refs = loadReferences(content);
-        if (Object.keys(refs).length === 0) {
-          const yaml = require('js-yaml');
-          yaml.load(readReferencesText(content));
-        }
+        const refs = await readPapers();
         const CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
         const citedIn = {};
         const coCitations = {};
 
-        // content.walk already skips dotfiles and underscore drafts and returns
-        // content-relative paths, so the recursion, the extension filter and the
-        // path arithmetic this used to do are all the capability's job now.
-        function scanCitations() {
-          for (const pagePath of content.walk('.', {extensions: ['.md', '.mdx']})) {
+        // The capability reads database documents through the verified request
+        // context; it never falls back to the legacy workspace filesystem.
+        async function scanCitations() {
+          for (const pagePath of await content.walk('.', {extensions: ['.md', '.mdx']})) {
             try {
-              const text = content.read(pagePath);
+              const text = await content.read(pagePath);
               if (text == null) continue;
               CITE_RE.lastIndex = 0;
               const pageCites = new Set();
@@ -404,7 +721,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
             } catch {}
           }
         }
-        scanCitations();
+        await scanCitations();
 
         const mostCited = Object.entries(citedIn)
           .map(([key, pages]) => ({key, title: refs[key]?.title || key, count: pages.length, pages}))
@@ -436,7 +753,8 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
         };
       });
       return respond(res, 200, network);
-    } catch {
+    } catch (error) {
+      console.error('[bibliography] citation network analysis failed:', error);
       return respond(res, 500, {error: 'Citation network analysis failed'});
     }
   }
@@ -448,15 +766,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
     try {
       // Serve the parsed bibliography from the shared, mtime + size aware memo
       // instead of re-reading and re-parsing references.yaml on every request.
-      const refs = loadReferences(content);
-      // loadReferences swallows a missing or unparseable bibliography and
-      // returns {}. Preserve the original 500-on-failure response by reproducing
-      // that read only when the memoized parse is empty; the populated happy path
-      // is served entirely from the memo and never re-reads or re-parses.
-      if (Object.keys(refs).length === 0) {
-        const yaml = require('js-yaml');
-        yaml.load(readReferencesText(content));
-      }
+      const refs = await readPapers();
       const entry = refs[key];
       if (!entry) return respond(res, 404, {error: 'Reference not found'});
 
@@ -489,14 +799,14 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
   }
 
   if (req.method === 'POST' && pathname === '/api/references/track') {
+    if (!canManagePapers) return respond(res, 403, {error: 'You do not have permission to edit papers'});
     if (!rateLimit(`track-ref:${req.socket.remoteAddress}`, 10)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
-      const yaml = require('js-yaml');
       const body = await readBody();
       const {key} = body;
       if (!key || typeof key !== 'string') return respond(res, 400, {error: 'Missing or invalid key'});
 
-      const refs = yaml.load(readReferencesText(content)) || {};
+      const refs = await readPapers();
       const entry = refs[key];
       if (!entry) return respond(res, 404, {error: 'Reference not found'});
 
@@ -522,7 +832,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
         }
       }
 
-      content.write(BIB_FILE, yaml.dump(refs, {lineWidth: -1}));
+      await paperRecords.put(key, paperForStorage(entry));
       return respond(res, 200, {
         success: true,
         published: !isArxiv,
@@ -536,10 +846,10 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
   }
 
   if (req.method === 'POST' && pathname === '/api/references/track-all') {
+    if (!canManagePapers) return respond(res, 403, {error: 'You do not have permission to edit papers'});
     if (!rateLimit(`track-all:${req.socket.remoteAddress}`, 2)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
-      const yaml = require('js-yaml');
-      const refs = yaml.load(readReferencesText(content)) || {};
+      const refs = await readPapers();
 
       const fetchS2 = arxivId => askCatalogue(
         fetchExternal,
@@ -594,7 +904,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
 
       // Save updated references
       if (updatedCount > 0) {
-        content.write(BIB_FILE, yaml.dump(refs, {lineWidth: -1}));
+        for (const {key} of toCheck) await paperRecords.put(key, paperForStorage(refs[key]));
       }
 
       return respond(res, 200, {checked: toCheck.length, updated: updatedCount, results});
@@ -604,21 +914,16 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
   }
 
   if (req.method === 'POST' && pathname === '/api/references/import-bibtex') {
+    if (!canManagePapers) return respond(res, 403, {error: 'You do not have permission to import papers'});
     if (!rateLimit(`import-bibtex:${req.socket.remoteAddress}`, 5)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
-      const yaml = require('js-yaml');
       const body = await readBody();
       const {bibtex} = body;
       if (!bibtex || typeof bibtex !== 'string') return respond(res, 400, {error: 'Missing bibtex string'});
       if (bibtex.length > 500000) return respond(res, 400, {error: 'BibTeX input too large (max 500KB)'});
 
       const parsed = parseBibtex(bibtex);
-      let refs;
-      try {
-        refs = yaml.load(readReferencesText(content)) || {};
-      } catch {
-        refs = {};
-      }
+      const refs = await readPapers();
 
       let added = 0;
       let skipped = 0;
@@ -631,31 +936,26 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
             continue;
           }
 
-          const entry = {
+          const entry = paperForStorage({
             type: mapBibtexEntryType(entryType),
             title: sanitize(fields.title || ''),
             author: parseBibtexAuthors(fields.author),
             year: fields.year ? parseInt(fields.year, 10) || null : null,
-          };
-
-          // Venue: journal for articles, booktitle for proceedings
-          const venue = fields.journal || fields.booktitle || '';
-          if (venue) entry.venue = sanitize(venue);
-
-          if (fields.url) entry.url = fields.url;
-          if (fields.doi) entry.doi = fields.doi;
-          if (fields.pages) entry.pages = fields.pages;
-          if (fields.volume) entry.volume = fields.volume;
+            venue: fields.journal || fields.booktitle || '',
+            doi: fields.doi,
+            officialUrl: fields.url,
+            volume: fields.volume,
+            pages: fields.pages,
+            source: {type: 'bibtex', id: citationKey, provider: 'import'},
+            tags: [],
+          });
 
           refs[citationKey] = entry;
+          await paperRecords.put(citationKey, entry);
           added++;
         } catch (err) {
           errors.push({key: citationKey, error: err.message});
         }
-      }
-
-      if (added > 0) {
-        content.write(BIB_FILE, yaml.dump(refs, {lineWidth: -1}));
       }
 
       return respond(res, 200, {added, skipped, errors});
@@ -668,37 +968,8 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
     try {
       // Serve the parsed bibliography from the shared, mtime + size aware memo
       // instead of re-reading and re-parsing references.yaml on every request.
-      const refs = loadReferences(content);
-      // loadReferences swallows a missing or unparseable bibliography and
-      // returns {}. Preserve the original 500-on-failure response by reproducing
-      // that read only when the memoized parse is empty; the populated happy path
-      // is served entirely from the memo and never re-reads or re-parses.
-      if (Object.keys(refs).length === 0) {
-        const yaml = require('js-yaml');
-        yaml.load(readReferencesText(content));
-      }
-      const lines = [];
-      for (const [key, entry] of Object.entries(refs)) {
-        const authors = (entry.author || []).join(' and ');
-        // The BibTeX entry type is the reference type verbatim; recognized types
-        // (article, inproceedings, book) and unknown ones alike pass through, and
-        // a missing type defaults to 'misc'.
-        const bibtexType = entry.type || 'misc';
-        const fields = [];
-        fields.push(`  title = {${cleanBibtexValue(entry.title || '')}}`);
-        if (authors) fields.push(`  author = {${cleanBibtexValue(authors)}}`);
-        if (entry.year) fields.push(`  year = {${cleanBibtexValue(entry.year)}}`);
-        if (entry.venue) {
-          if (bibtexType === 'inproceedings') fields.push(`  booktitle = {${cleanBibtexValue(entry.venue)}}`);
-          else if (bibtexType === 'article') fields.push(`  journal = {${cleanBibtexValue(entry.venue)}}`);
-          else fields.push(`  howpublished = {${cleanBibtexValue(entry.venue)}}`);
-        }
-        if (entry.url) fields.push(`  url = {${cleanBibtexValue(entry.url)}}`);
-        if (entry.doi) fields.push(`  doi = {${cleanBibtexValue(entry.doi)}}`);
-        if (entry.volume) fields.push(`  volume = {${cleanBibtexValue(entry.volume)}}`);
-        if (entry.pages) fields.push(`  pages = {${cleanBibtexValue(entry.pages)}}`);
-        lines.push(`@${bibtexType}{${key},\n${fields.join(',\n')}\n}`);
-      }
+      const refs = await readPapers();
+      const lines = Object.entries(refs).map(([key, entry]) => paperToBibtex(key, entry));
       const bibtex = lines.join('\n\n') + '\n';
       res.writeHead(200, {
         'Content-Type': 'text/plain; charset=utf-8',
@@ -714,13 +985,16 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
 };
 
 /**
- * What this plugin lends the rest of the server: the bibliography, parsed and
- * memoized. Reaches the core modules as ctx.references, where the server wraps
- * `load` with a reader built from fs so a core handler can keep calling it the
- * way it always has.
+ * What this plugin lends the rest of the server. Live paper data stays behind
+ * the scoped records capability; the filesystem is not a runtime source.
  */
 module.exports.provides = {
-  references: {load: loadReferences, buildCitation, cleanBibtexValue, FILE: BIB_FILE},
+  references: {
+    buildCitation,
+    cleanBibtexValue,
+    openPapers: openPaperRecords,
+    paperForStorage,
+  },
 };
 
 module.exports.numericParam = numericParam;

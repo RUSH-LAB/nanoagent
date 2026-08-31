@@ -3,10 +3,9 @@
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 //
-// The organization you are in: who is in it, what they may do, and what has
-// been done. Scoped to the caller's ACTIVE organization from req.auth.orgId,
-// which comes from the verified session, so as with chat there is no
-// organization id in any path or body for a caller to substitute.
+// The workspace named by the URL: who is in it, what they may do, and what has
+// been done. RequestContext has already joined that immutable workspace id to
+// the signed-in user's membership.
 //
 // The writes here delegate to Better Auth, which owns the rules about who may
 // change whom. This module owns the reads, the audit row, and the translation
@@ -48,6 +47,10 @@ function sendRefusal(json, res, err) {
 module.exports = async function org_routes(req, res, url, pathname, ctx) {
   const {json, readBody, rateLimit, org} = ctx;
 
+  const orgPath = req.context && req.workspacePath
+    ? `/api/org${req.workspacePath === '/' ? '' : req.workspacePath}`
+    : pathname;
+
   // ── An invitation link, before its holder has signed in ──
   // The only unauthenticated read in this module. It answers for a pending
   // invitation and nothing else: an expired or withdrawn one is a 404, the same
@@ -55,7 +58,7 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
   // organization has been in touch with an address.
   const inviteRead = INVITE_READ_RE.exec(pathname);
   if (inviteRead && req.method === 'GET') {
-    const invitation = org.invitationForLink(inviteRead[1]);
+    const invitation = await org.invitationForLink(inviteRead[1]);
     if (!invitation || invitation.status !== 'pending' || invitation.expired) {
       return json(res, 404, {error: 'This invitation is not valid any more', code: 'invitation-not-found'});
     }
@@ -76,8 +79,8 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
     if (!req.auth?.userId) return json(res, 401, {error: 'Sign in to accept an invitation'});
     if (!rateLimit(`invite-accept:${req.auth.userId}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
-      const result = await org.acceptInvitation({
-        headers: req.headers, actorId: req.auth.userId, invitationId: inviteAccept[1],
+      const result = await org.acceptInvitation(req.auth, {
+        headers: req.headers, invitationId: inviteAccept[1],
       });
       if (result.error === 'not-found') return json(res, 404, {error: 'This invitation is not valid any more', code: 'invitation-not-found'});
       return json(res, 200, {joined: true, organizationId: result.organizationId});
@@ -86,20 +89,22 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
     }
   }
 
-  if (pathname !== '/api/org' && !pathname.startsWith('/api/org/')) return;
+  if (orgPath !== '/api/org' && !orgPath.startsWith('/api/org/')) return;
 
-  const {userId, orgId, orgRole} = req.auth;
+  const userId = req.context?.userId ?? req.auth.userId;
+  const orgId = req.context?.workspaceId ?? null;
+  const orgRole = req.context?.role ?? null;
 
   // ── The three that answer before you are in one ──
   // Everything below the guard needs an active organization. These are how you
   // come to have one, so they run above it: listing what you belong to, making
   // a workspace, and moving between them.
 
-  if (req.method === 'GET' && pathname === '/api/org/memberships') {
-    return json(res, 200, {memberships: org.listMemberships(userId), activeId: orgId});
+  if (req.method === 'GET' && orgPath === '/api/org/memberships') {
+    return json(res, 200, {memberships: await org.listMemberships(req.auth), activeId: orgId});
   }
 
-  if (req.method === 'POST' && pathname === '/api/org') {
+  if (req.method === 'POST' && orgPath === '/api/org') {
     if (!rateLimit(`org-create:${userId}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     let body;
     try {
@@ -108,29 +113,12 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
       return json(res, 400, {error: 'Invalid request'});
     }
     try {
-      const result = await org.createWorkspace({headers: req.headers, actorId: userId, name: body.name, slug: body.slug});
+      const result = await org.createWorkspace(req.auth, {headers: req.headers, name: body.name, slug: body.slug});
       if (result.error === 'invalid-name') return json(res, 400, {error: 'A workspace name is 2 to 60 characters', code: 'invalid-name'});
       if (result.error === 'invalid-slug') return json(res, 400, {error: 'A short name is 2 to 40 characters, using lowercase letters, digits, and inner dashes', code: 'invalid-slug'});
       if (result.error === 'slug-taken') return json(res, 409, {error: 'That short name is taken', code: 'slug-taken'});
       if (result.error === 'not-created') return json(res, 500, {error: 'The organization service could not create that workspace'});
       return json(res, 201, {organization: result.organization, channel: result.channel});
-    } catch (err) {
-      return sendRefusal(json, res, err);
-    }
-  }
-
-  if (req.method === 'POST' && pathname === '/api/org/active') {
-    if (!rateLimit(`org-active:${userId}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
-    let body;
-    try {
-      body = await readBody(req);
-    } catch {
-      return json(res, 400, {error: 'Invalid request'});
-    }
-    try {
-      const result = await org.setActiveWorkspace({headers: req.headers, userId, organizationId: body.organizationId});
-      if (result.error === 'not-a-member') return json(res, 404, {error: 'No such workspace, or you are not in it', code: 'not-a-member'});
-      return json(res, 200, {activeId: result.organizationId});
     } catch (err) {
       return sendRefusal(json, res, err);
     }
@@ -152,29 +140,29 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
   const manages = org.canManage(orgRole);
 
   // ── The organization, and who you are in it ──
-  if (req.method === 'GET' && pathname === '/api/org') {
-    const organization = org.getOrganization(orgId, userId);
+  if (req.method === 'GET' && orgPath === '/api/org') {
+    const organization = await org.getOrganization(req.context);
     if (!organization) return json(res, 404, {error: 'Organization not found'});
     return json(res, 200, {organization, you: {userId, role: orgRole, canManage: manages}});
   }
 
   // ── The roster ──
-  if (req.method === 'GET' && pathname === '/api/org/members') {
+  if (req.method === 'GET' && orgPath === '/api/org/members') {
     return json(res, 200, {
-      members: org.listMembers(orgId, userId),
+      members: await org.listMembers(req.context),
       you: {userId, role: orgRole, canManage: manages},
     });
   }
 
   // ── Invitations outstanding ──
-  if (req.method === 'GET' && pathname === '/api/org/invitations') {
-    if (!manages) return json(res, 403, {error: 'Only an owner or admin can see the invitations'});
-    return json(res, 200, {invitations: org.listInvitations(orgId)});
+  if (req.method === 'GET' && orgPath === '/api/org/invitations') {
+    if (!manages) return json(res, 403, {error: 'Only the workspace owner can see invitations'});
+    return json(res, 200, {invitations: await org.listInvitations(req.context)});
   }
 
   // ── Invite an address ──
-  if (req.method === 'POST' && pathname === '/api/org/invitations') {
-    if (!manages) return json(res, 403, {error: 'Only an owner or admin can invite people'});
+  if (req.method === 'POST' && orgPath === '/api/org/invitations') {
+    if (!manages) return json(res, 403, {error: 'Only the workspace owner can invite people'});
     if (!rateLimit(`org-invite:${userId}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     let body;
     try {
@@ -183,7 +171,7 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
       return json(res, 400, {error: 'Invalid request'});
     }
     try {
-      const result = await org.invite({headers: req.headers, orgId, actorId: userId, email: body.email, role: body.role});
+      const result = await org.invite(req.context, {headers: req.headers, email: body.email, role: body.role});
       if (result.error === 'invalid-email') return json(res, 400, {error: 'An email address is required', code: 'invalid-email'});
       if (result.error === 'invalid-role') return json(res, 400, {error: `Role must be one of ${org.ROLES.join(', ')}`, code: 'invalid-role'});
       return json(res, 200, {invitation: result.invitation});
@@ -193,12 +181,12 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
   }
 
   // ── Withdraw one ──
-  const invitationMatch = INVITATION_RE.exec(pathname);
+  const invitationMatch = INVITATION_RE.exec(orgPath);
   if (invitationMatch && req.method === 'DELETE') {
-    if (!manages) return json(res, 403, {error: 'Only an owner or admin can withdraw an invitation'});
+    if (!manages) return json(res, 403, {error: 'Only the workspace owner can withdraw an invitation'});
     try {
-      const result = await org.cancelInvitation({
-        headers: req.headers, orgId, actorId: userId, invitationId: invitationMatch[1],
+      const result = await org.cancelInvitation(req.context, {
+        headers: req.headers, invitationId: invitationMatch[1],
       });
       if (result.error === 'not-found') return json(res, 404, {error: 'No such invitation', code: 'not-found'});
       return json(res, 200, {cancelled: result.cancelled});
@@ -207,43 +195,19 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
     }
   }
 
-  // ── Create an account outright ──
-  // Owners only, and not because admins are less trusted: whoever does this
-  // chooses the password, so they can sign in as the account afterwards. That
-  // is a different kind of power from managing people, and it belongs to
-  // whoever owns the organization.
-  if (req.method === 'POST' && pathname === '/api/org/members') {
-    if (!org.canManage(orgRole) || !String(orgRole ?? '').split(',').some(r => r.trim() === 'owner')) {
-      return json(res, 403, {error: 'Only an owner can create an account directly', code: 'not-owner'});
-    }
-    if (!rateLimit(`org-create-account:${userId}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
-    let body;
-    try {
-      body = await readBody(req);
-    } catch {
-      return json(res, 400, {error: 'Invalid request'});
-    }
-    const result = await org.createAccount({orgId, actorId: userId, ...body});
-    if (result.error === 'invalid-username') return json(res, 400, {error: 'A username is 3 to 32 characters, using letters, digits, dot, dash, or underscore', code: 'invalid-username'});
-    if (result.error === 'weak-password') return json(res, 400, {error: 'A password of at least 8 characters is required', code: 'weak-password'});
-    if (result.error === 'invalid-role') return json(res, 400, {error: `Role must be one of ${org.ROLES.join(', ')}`, code: 'invalid-role'});
-    if (result.error === 'signup-failed') return json(res, 409, {error: result.reason, code: 'signup-failed'});
-    return json(res, 200, {user: result.user, role: result.role});
-  }
-
   // ── What has been done to it ──
-  if (req.method === 'GET' && pathname === '/api/org/audit') {
-    if (!manages) return json(res, 403, {error: 'Only an owner or admin can read the audit log'});
-    return json(res, 200, {events: org.listAudit(orgId, url.searchParams.get('limit'))});
+  if (req.method === 'GET' && orgPath === '/api/org/audit') {
+    if (!manages) return json(res, 403, {error: 'Only the workspace owner can read the audit log'});
+    return json(res, 200, {events: await org.listAudit(req.context, url.searchParams.get('limit'))});
   }
 
-  const match = MEMBER_RE.exec(pathname);
+  const match = MEMBER_RE.exec(orgPath);
   if (match) {
     const [, memberId, action] = match;
 
     // ── Change someone's role ──
     if (req.method === 'POST' && action === 'role') {
-      if (!manages) return json(res, 403, {error: 'Only an owner or admin can change roles'});
+      if (!manages) return json(res, 403, {error: 'Only the workspace owner can change roles'});
       if (!rateLimit(`org-role:${userId}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       let role;
       try {
@@ -252,7 +216,7 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
         return json(res, 400, {error: 'Invalid request'});
       }
       try {
-        const result = await org.setMemberRole({headers: req.headers, orgId, actorId: userId, memberId, role});
+        const result = await org.setMemberRole(req.context, {headers: req.headers, memberId, role});
         if (result.error === 'invalid-role') return json(res, 400, {error: `Role must be one of ${org.ROLES.join(', ')}`, code: 'invalid-role'});
         if (result.error === 'not-found') return json(res, 404, {error: 'No such member of this organization', code: 'not-found'});
         return json(res, 200, {member: result.member, changed: result.changed});
@@ -263,10 +227,10 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
 
     // ── Remove someone from the organization ──
     if (req.method === 'DELETE' && !action) {
-      if (!manages) return json(res, 403, {error: 'Only an owner or admin can remove people'});
+      if (!manages) return json(res, 403, {error: 'Only the workspace owner can remove people'});
       if (!rateLimit(`org-remove:${userId}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       try {
-        const result = await org.removeMember({headers: req.headers, orgId, actorId: userId, memberId});
+        const result = await org.removeMember(req.context, {headers: req.headers, memberId});
         if (result.error === 'not-found') return json(res, 404, {error: 'No such member of this organization', code: 'not-found'});
         return json(res, 200, {removed: {userId: result.removed.userId, username: result.removed.username}});
       } catch (err) {

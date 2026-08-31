@@ -1,8 +1,0 @@
-{
-  "title": "Runtime Content",
-  "description": "Serves a workspace's pages from the database, compiled per request, under /w",
-  "enabled": true,
-  "options": {
-    "routeBasePath": "w"
-  }
-}

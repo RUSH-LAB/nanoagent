@@ -5,7 +5,6 @@ import path from 'node:path';
 
 // misc-tools.js is CommonJS; load it the way the other route tests do.
 const require = createRequire(import.meta.url);
-const bibliographyProvides = createRequire(import.meta.url)('../../../../../plugins/bibliography/server.js').provides;
 const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
@@ -13,34 +12,6 @@ const PROJECT_ROOT = '/proj';
 // one organization's tree under content/, and reports page paths relative to it.
 const CONTENT_DIR = path.join(PROJECT_ROOT, 'content', 'mochi');
 
-// The bibliography plugin publishes a loader that asks for a reader, because the
-// plugin is not allowed to touch the filesystem itself. The server adapts that
-// reader into the (fs, path, contentRoot) call core handlers make: see
-// referencesForCore in src/server/index.js. This mirrors that adaptation so the
-// suite can feed its fixture fs to the real loader rather than to a stub of it.
-function referencesForCore(provided) {
-  const readerFor = (fs, path, contentRoot) => {
-    const at = (relative) => path.join(contentRoot, relative);
-    return {
-      read(relative) {
-        try {
-          return fs.readFileSync(at(relative), 'utf-8');
-        } catch {
-          return null;
-        }
-      },
-      stat(relative) {
-        try {
-          const { mtimeMs, size } = fs.statSync(at(relative));
-          return { mtimeMs, size };
-        } catch {
-          return null;
-        }
-      },
-    };
-  };
-  return { ...provided, load: (fs, path, root) => provided.load(readerFor(fs, path, root)) };
-}
 
 // Minimal fs stub. The GET /api/suggest handler only touches readFileSync
 // (references.yaml + each content page) and existsSync (the content dir guard),
@@ -106,9 +77,13 @@ const FLAT_FILES = [
 ];
 
 const ctx = {
-  // The bibliography plugin lends its loader through ctx, exactly as
-  // server/plugins.js does in production, wrapped the way the server wraps it.
-  references: referencesForCore(bibliographyProvides.references),
+  references: {openPapers: () => ({entries: () => ({
+    transformer2017: {title: 'Attention Is All You Need', author: ['Ashish Vaswani']},
+    thedecoy: {title: 'The The The', author: ['The Author']},
+    cooking: {title: 'Quantum Cooking', author: ['Some One']},
+  })})},
+  collection() {},
+  scopeFor: () => ({workspaceId: 'workspace-1', userId: 'user-1'}),
   fs: makeFs(FILE_MAP),
   path,
   PROJECT_ROOT,

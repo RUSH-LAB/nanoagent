@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {createApiClient} from './api-client.mjs';
 // ─────────────────────────────────────────────────────────────
 // Integration tests for new features: Glossary, Flashcards, Tasks, Streak, Snapshots, Schedule
 // Usage:  node tests/integration/test-new-features.mjs
@@ -38,29 +39,7 @@ function section(title) {
 }
 
 // ── Helpers ──
-async function api(method, path, body, opts = {}) {
-  const url = path.startsWith('http') ? path : `${BASE}${path}`;
-  const init = {method, headers: {}};
-  if (body !== undefined && body !== null) {
-    if (typeof body === 'string' || body instanceof Buffer) {
-      init.body = body;
-    } else {
-      init.headers['Content-Type'] = 'application/json';
-      init.body = JSON.stringify(body);
-    }
-  }
-  if (opts.headers) Object.assign(init.headers, opts.headers);
-  if (opts.signal) init.signal = opts.signal;
-  const res = await fetch(url, init);
-  const contentType = res.headers.get('content-type') || '';
-  let data;
-  if (contentType.includes('application/json')) {
-    data = await res.json();
-  } else {
-    data = await res.text();
-  }
-  return {status: res.status, data, headers: res.headers};
-}
+const api = createApiClient(BASE);
 
 function assertEq(actual, expected, label) {
   if (actual !== expected) throw new Error(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
@@ -396,11 +375,11 @@ async function testSnapshots() {
 
   // Setup: create a test file via the file-create API
   await test('Setup — create test file for snapshots', async () => {
-    const {status, data} = await api('POST', '/api/file', {
+    const {status, data} = await api('POST', '/api/documents', {
       path: TEST_SNAPSHOT_PATH,
-      content: '# Snapshot Test\n\nThis is a test file for snapshot tests.',
+      markdown: '# Snapshot Test\n\nThis is a test file for snapshot tests.',
     });
-    assertEq(status, 200, 'status');
+    assertEq(status, 201, 'status');
     assertOk(data.success, 'file created');
   });
 
@@ -448,7 +427,7 @@ async function testSnapshots() {
 
   // 4. Cleanup: delete the test file
   await test('Cleanup — remove test file', async () => {
-    const {status} = await api('DELETE', `/api/file?path=${encodeURIComponent(TEST_SNAPSHOT_PATH)}`);
+    const {status} = await api('DELETE', '/api/documents', {path: TEST_SNAPSHOT_PATH});
     assertEq(status, 200, 'status');
   });
 }

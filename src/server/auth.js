@@ -7,16 +7,16 @@
  * that answers "who is calling?", and it answers from a session the server
  * issued and stores, which the client cannot forge.
  *
- * Accounts live in the local SQL database (see db.js). Better Auth owns the
- * user, session, account, and verification tables, plus the organization,
- * member, and invitation tables its organization plugin adds. Sign-up and
- * sign-in are its own routes, mounted at /api/auth/* by server/index.js.
+ * Accounts live in the selected database. Better Auth owns user, session,
+ * account, verification, organization, membership, and invitation records in
+ * both SQLite and PostgreSQL. PostgreSQL schema aliases expose the latter as
+ * workspace, workspace_member, and workspace_invitation.
+ * Sign-up and sign-in are mounted at /api/auth/* by server/index.js.
  *
- * Sessions travel as bearer tokens rather than cookies. In development the site
- * is served from :3000 and this API from :3001, and a browser will not send a
- * cookie across origins without HTTPS and SameSite=None. A token in an
- * Authorization header has no such problem, and it is what src/utils/api.js
- * already sends.
+ * Browser sessions travel in Better Auth's HttpOnly cookie. The development
+ * site and API use different localhost ports but are the same site; credentialed
+ * fetches and the explicit CORS policy carry the cookie without exposing it to
+ * JavaScript.
  *
  * Two modes, selected by ENABLE_AUTH:
  *
@@ -35,14 +35,21 @@ const path = require('path');
 const crypto = require('crypto');
 const {betterAuth} = require('better-auth');
 const {fromNodeHeaders} = require('better-auth/node');
-const {bearer} = require('better-auth/plugins/bearer');
-const {username} = require('better-auth/plugins/username');
 const {organization} = require('better-auth/plugins/organization');
-const {db} = require('./db');
+const postgres = require('./postgres/database');
+const db = postgres.enabled ? null : require('./db').db;
 const {DATA_DIR} = require('./paths');
+const {sendMail} = require('./mail');
+const {
+  organizationOptions, workspaceAccessControl, workspaceRoles, postgresCoreSchema,
+} = require('./workspace-auth');
+const {createWorkspaceProvisioning} = require('./workspace-provisioning');
 
 const AUTH_ENABLED = process.env.ENABLE_AUTH === 'true';
 const PORT = process.env.EDITOR_PORT || 3001;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+const workspaceProvisioning = createWorkspaceProvisioning({postgres, sqliteDb: db});
 
 /**
  * Why a production server may not start, or null when it may.
@@ -64,11 +71,28 @@ const PORT = process.env.EDITOR_PORT || 3001;
  */
 function productionAuthError(env = process.env) {
   if (env.NODE_ENV !== 'production') return null;
-  if (env.ENABLE_AUTH === 'true') return null;
-  return 'Refusing to start: NODE_ENV is production but ENABLE_AUTH is not "true", '
-    + 'so every request would resolve to the shared development identity and no '
-    + 'sign-in would be required. Set ENABLE_AUTH=true, or unset NODE_ENV to run '
-    + 'this as a development server.';
+  if (env.ENABLE_AUTH !== 'true') {
+    return 'Refusing to start: NODE_ENV is production but ENABLE_AUTH is not "true", '
+      + 'so every request would resolve to the shared development identity and no '
+      + 'sign-in would be required. Set ENABLE_AUTH=true.';
+  }
+  if (!env.MAIL_WEBHOOK_URL) {
+    return 'Refusing to start: production authentication requires MAIL_WEBHOOK_URL '
+      + 'for verification, password-reset, and invitation email.';
+  }
+  if (!env.BETTER_AUTH_SECRET || env.BETTER_AUTH_SECRET.length < 32) {
+    return 'Refusing to start: production requires BETTER_AUTH_SECRET with at least 32 characters.';
+  }
+  if (!env.SITE_URL || !/^https:\/\//i.test(env.SITE_URL)) {
+    return 'Refusing to start: production requires an HTTPS SITE_URL for same-origin session cookies.';
+  }
+  if (!env.DATABASE_URL) {
+    return 'Refusing to start: production requires DATABASE_URL so authentication and business data use PostgreSQL.';
+  }
+  if (!env.DATABASE_MIGRATION_URL) {
+    return 'Refusing to start: production requires DATABASE_MIGRATION_URL with a separate schema-owner role.';
+  }
+  return null;
 }
 
 /**
@@ -108,7 +132,20 @@ function resolveSecret() {
  * session opened in came down to which random id sorted lower. Same tie, and
  * the same fix, as the audit log in ./audit.
  */
-function firstOrganizationOf(userId) {
+async function firstOrganizationOf(userId) {
+  if (postgres.enabled) {
+    try {
+      const {withRequestContext} = require('./postgres/client');
+      return await withRequestContext(postgres.pool, {userId, workspaceId: null}, async client => {
+        const row = (await client.query(
+          'select workspace_id from workspace_member where user_id = $1 order by created_at, id limit 1', [userId],
+        )).rows[0];
+        return row?.workspace_id ?? null;
+      });
+    } catch {
+      return null;
+    }
+  }
   try {
     const row = db
       .prepare('SELECT organizationId FROM member WHERE userId = ? ORDER BY createdAt, rowid LIMIT 1')
@@ -127,9 +164,12 @@ function firstOrganizationOf(userId) {
  * `auth.api.getSession` to identify everyone else.
  */
 const auth = betterAuth({
-  database: db,
+  // Better Auth recognizes pg.Pool directly and builds its own Kysely adapter.
+  // Passing an already-created Kysely instance is not a supported input shape.
+  database: postgres.enabled ? postgres.pool : db,
+  ...(postgres.enabled ? postgresCoreSchema : {}),
   secret: resolveSecret(),
-  baseURL: process.env.BETTER_AUTH_URL || `http://localhost:${PORT}`,
+  baseURL: process.env.BETTER_AUTH_URL || process.env.SITE_URL || `http://localhost:${PORT}`,
   basePath: '/api/auth',
   // The Docusaurus dev server and the production site are separate origins from
   // this API, so both have to be named or Better Auth rejects their requests.
@@ -140,10 +180,24 @@ const auth = betterAuth({
   ],
   emailAndPassword: {
     enabled: true,
-    // No mail server is configured, so requiring verification would lock every
-    // new local account out of the app it just signed up for.
-    requireEmailVerification: false,
+    requireEmailVerification: IS_PRODUCTION,
     minPasswordLength: 8,
+    sendResetPassword: ({user, url}) => sendMail({
+      to: user.email,
+      template: 'password-reset',
+      subject: 'Reset your Mochi Lab password',
+      url,
+    }),
+  },
+  emailVerification: {
+    sendOnSignUp: IS_PRODUCTION,
+    autoSignInAfterVerification: true,
+    sendVerificationEmail: ({user, url}) => sendMail({
+      to: user.email,
+      template: 'email-verification',
+      subject: 'Verify your Mochi Lab email',
+      url,
+    }),
   },
   // Every session opens in an organization when the account has one. Written
   // as the session row is created rather than patched afterwards, so there is
@@ -151,22 +205,32 @@ const auth = betterAuth({
   databaseHooks: {
     session: {
       create: {
-        before(session) {
-          const orgId = firstOrganizationOf(session.userId);
+        async before(session) {
+          const orgId = await firstOrganizationOf(session.userId);
           return orgId ? {data: {...session, activeOrganizationId: orgId}} : undefined;
         },
       },
     },
   },
   plugins: [
-    // Lets people sign in with a username as well as an email address.
-    username(),
-    // Organizations, memberships, roles, and invitations.
-    organization(),
-    // Issues the session as a token in a `set-auth-token` response header and
-    // accepts it back as `Authorization: Bearer`, so no cross-origin cookie is
-    // needed between :3000 and :3001.
-    bearer(),
+    // Better Auth is the sole organization/member/invitation lifecycle engine
+    // in both SQLite and PostgreSQL. The PostgreSQL option aliases its logical
+    // models onto Mochi's workspace-named control-plane tables.
+    organization(organizationOptions({
+      postgresEnabled: postgres.enabled,
+      isProduction: IS_PRODUCTION,
+      hooks: workspaceProvisioning.hooks,
+      sendInvitationEmail: ({id, email, role, organization: invitedWorkspace}) => {
+        const site = process.env.SITE_URL || `http://localhost:3000`;
+        return sendMail({
+          to: email,
+          template: 'workspace-invitation',
+          subject: `Invitation to join ${invitedWorkspace.name}`,
+          url: `${site.replace(/\/$/, '')}/join?i=${encodeURIComponent(id)}`,
+          data: {workspace: invitedWorkspace.name, role},
+        });
+      },
+    })),
   ],
 });
 
@@ -182,14 +246,12 @@ const DEV_IDENTITY = Object.freeze({
 });
 
 /**
- * Endpoints reachable without a session. Health and the feeds because their
- * callers cannot hold one; /api/auth/* because that is where a caller goes to
- * get one, and gating sign-in behind sign-in would lock everybody out.
+ * Endpoints reachable without a session. Health is public, and /api/auth/* is
+ * where a caller goes to get a session. Workspace feeds live below an explicit
+ * workspace URL and use the same membership boundary as other workspace data.
  */
 const PUBLIC_PATHS = new Set([
   '/api/health',
-  '/api/feed/rss',
-  '/api/feed/atom',
 ]);
 
 /**
@@ -230,6 +292,17 @@ function isSafeId(id) {
  */
 function orgRoleFor(userId, orgId) {
   if (!orgId) return null;
+  if (postgres.enabled) {
+    try {
+      const {withRequestContext} = require('./postgres/client');
+      return withRequestContext(postgres.pool, {userId, workspaceId: orgId}, async client =>
+        (await client.query(
+          'select role from workspace_member where user_id = $1 and workspace_id = $2 limit 1', [userId, orgId],
+        )).rows[0]?.role ?? null);
+    } catch {
+      return null;
+    }
+  }
   try {
     const row = db
       .prepare('SELECT role FROM member WHERE userId = ? AND organizationId = ? LIMIT 1')
@@ -271,13 +344,13 @@ async function resolveIdentity(req) {
   // sessions issued before an account had an organization are still out there
   // holding a null, and they would each be one silent 409 from every chat
   // endpoint until their owner happened to sign out and back in.
-  const orgId = session.session?.activeOrganizationId ?? firstOrganizationOf(userId);
+  const orgId = session.session?.activeOrganizationId ?? await firstOrganizationOf(userId);
   return {
     ok: true,
     identity: Object.freeze({
       userId,
       orgId,
-      orgRole: orgRoleFor(userId, orgId),
+      orgRole: await orgRoleFor(userId, orgId),
       sessionId: session.session?.id ?? null,
     }),
   };
@@ -294,4 +367,6 @@ module.exports = {
   DEV_IDENTITY,
   PUBLIC_PATHS,
   PUBLIC_PATTERNS,
+  workspaceAccessControl,
+  workspaceRoles,
 };

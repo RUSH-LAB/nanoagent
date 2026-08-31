@@ -23,20 +23,18 @@
  * new account otherwise signs in successfully and finds that every page which
  * belongs to an organization has nothing to show it.
  */
-const fs = require('fs');
-const path = require('path');
+const crypto = require('crypto');
 const {fromNodeHeaders} = require('better-auth/node');
-const {contentDirFor, PRIMARY_ORG_SLUG} = require('./paths');
+const {PRIMARY_ORG_SLUG} = require('./paths');
 const {db} = require('./db');
 const {auth} = require('./auth');
 const audit = require('./audit');
-const chat = require('./chat');
 
-/** Organization roles, most privileged first. Better Auth's own set. */
-const ROLES = Object.freeze(['owner', 'admin', 'member']);
+/** Workspace roles, most privileged first. */
+const ROLES = Object.freeze(['owner', 'editor', 'viewer']);
 
 /** The roles that may manage other people. */
-const MANAGER_ROLES = Object.freeze(['owner', 'admin']);
+const MANAGER_ROLES = Object.freeze(['owner']);
 
 /**
  * Whether `role` may manage membership.
@@ -51,7 +49,7 @@ function canManage(role) {
 
 /** What a person is called, for a label that has to survive their account. */
 function labelFor(user) {
-  return user?.username || user?.name || user?.email || 'someone';
+  return user?.name || user?.email || 'someone';
 }
 
 /** The organization itself, or null when the caller is not in it. */
@@ -62,7 +60,7 @@ function getOrganization(orgId, userId) {
               (SELECT COUNT(*) FROM member m WHERE m.organizationId = o.id) AS memberCount
          FROM organization o
          JOIN member m ON m.organizationId = o.id AND m.userId = ?
-        WHERE o.id = ?`,
+        WHERE o.id = ? AND o.status = 'active'`,
     )
     .get(userId, orgId);
   return row ?? null;
@@ -87,7 +85,7 @@ function listMembers(orgId, viewerId) {
   return db
     .prepare(
       `SELECT m.id AS memberId, m.role, m.createdAt AS joinedAt,
-              u.id, u.username, u.name, u.email,
+              u.id, COALESCE(u.name, u.email) AS username, u.name, u.email,
               (SELECT c.id FROM channel c
                  JOIN channel_member mine ON mine.channelId = c.id AND mine.userId = ?
                  JOIN channel_member theirs ON theirs.channelId = c.id
@@ -97,7 +95,7 @@ function listMembers(orgId, viewerId) {
          FROM member m
          JOIN "user" u ON u.id = m.userId
         WHERE m.organizationId = ?
-        ORDER BY u.username COLLATE NOCASE, u.id`,
+        ORDER BY COALESCE(u.name, u.email) COLLATE NOCASE, u.id`,
     )
     .all(viewerId, orgId, orgId)
     .map(row => ({...row, you: row.id === viewerId}));
@@ -107,7 +105,8 @@ function listMembers(orgId, viewerId) {
 function findMember(orgId, memberId) {
   return db
     .prepare(
-      `SELECT m.id AS memberId, m.role, m.userId, u.username, u.name, u.email
+      `SELECT m.id AS memberId, m.role, m.userId,
+              COALESCE(u.name, u.email) AS username, u.name, u.email
          FROM member m JOIN "user" u ON u.id = m.userId
         WHERE m.id = ? AND m.organizationId = ?`,
     )
@@ -232,29 +231,6 @@ function allOrganizations() {
 }
 
 /**
- * Give a new workspace the directories its content lives in.
- *
- * `books` and `posts` because those are the two the build looks for, and an
- * empty one costs nothing while a missing one makes the first save fail on a
- * directory rather than on anything the person did. Best-effort: a workspace
- * whose folders could not be created is still a workspace, and the first write
- * creates them anyway via mkdirSync in the file handler.
- */
-function ensureContentRoot(slug) {
-  if (!slug) return null;
-  const root = contentDirFor(slug);
-  try {
-    for (const dir of ['books', 'posts']) {
-      fs.mkdirSync(path.join(root, dir), {recursive: true});
-    }
-    return root;
-  } catch (err) {
-    console.error(`Could not create the content directories for ${slug}: ${err.message}`);
-    return null;
-  }
-}
-
-/**
  * `base`, or the first numbered variant of it that is free.
  *
  * Only used for a slug we derived. A slug somebody typed is a choice, and
@@ -293,7 +269,7 @@ function listMemberships(userId) {
               (SELECT COUNT(*) FROM member m2 WHERE m2.organizationId = o.id) AS memberCount
          FROM member m
          JOIN organization o ON o.id = m.organizationId
-        WHERE m.userId = ?
+        WHERE m.userId = ? AND o.status = 'active'
         ORDER BY m.createdAt, m.rowid`,
     )
     .all(userId);
@@ -302,11 +278,8 @@ function listMemberships(userId) {
 /**
  * Create a workspace with the caller as its owner, and open a #general in it.
  *
- * Better Auth creates the organization, the owner membership, and makes it the
- * session's active one, all in the call below; passing the caller's headers is
- * what makes the new owner them rather than the server. What this adds is the
- * first channel, so the workspace opens on somewhere to talk, and the audit row
- * that says where the organization came from.
+ * The organization, owner membership, and default settings are one database
+ * transaction. The URL, not activeOrganizationId, selects it afterwards.
  *
  * The channel is best-effort on purpose. A workspace that exists without a
  * #general is recoverable in one click; a create that reports failure after
@@ -327,30 +300,16 @@ async function createWorkspace({headers, actorId, name, slug}) {
   const free = chosen ? (slugTaken(chosen) ? null : chosen) : availableSlug(wanted);
   if (!free) return {error: 'slug-taken'};
 
+  // Server-side creation names the authenticated actor explicitly. Better Auth
+  // owns the organization and owner-membership writes; its lifecycle hook
+  // provisions Mochi's settings and #general resources idempotently.
   const organization = await auth.api.createOrganization({
-    body: {name: clean, slug: free},
-    headers: fromNodeHeaders(headers),
-  });
-  if (!organization?.id) return {error: 'not-created'};
-
-  const {error: channelError} = chat.createChannel(organization.id, actorId, {
-    name: FIRST_CHANNEL,
-    topic: 'Everything, to start with',
-  });
-
-  // Somewhere to write, before anyone restarts the site. The editor and the
-  // file tree work against this the moment the workspace exists; the rendered
-  // pages do not appear until Docusaurus next starts, because it fixes its
-  // plugin list from the directories present at boot.
-  ensureContentRoot(organization.slug);
-
-  audit.record({
-    orgId: organization.id,
-    action: 'org.create',
-    actorId,
-    targetId: actorId,
-    targetLabel: clean,
-    detail: {slug: free},
+    body: {
+      name: clean,
+      slug: free,
+      userId: actorId,
+      keepCurrentActiveOrganization: true,
+    },
   });
 
   return {
@@ -361,29 +320,28 @@ async function createWorkspace({headers, actorId, name, slug}) {
       role: 'owner',
       memberCount: 1,
     },
-    channel: channelError ? null : FIRST_CHANNEL,
+    channel: FIRST_CHANNEL,
   };
 }
 
-/**
- * Make one of the caller's organizations the active one for this session.
- *
- * Membership is checked by Better Auth against the forwarded session, not here,
- * for the same reason as every other write in this module: one answer to the
- * question of who belongs where. The membership read below is only so that a
- * workspace the caller is not in reads as "no such workspace" rather than as
- * the plugin's internal phrasing.
- */
-async function setActiveWorkspace({headers, userId, organizationId}) {
-  const id = String(organizationId ?? '');
-  if (!db.prepare('SELECT 1 FROM member WHERE organizationId = ? AND userId = ?').get(id, userId)) {
-    return {error: 'not-a-member'};
-  }
-  await auth.api.setActiveOrganization({
-    body: {organizationId: id},
-    headers: fromNodeHeaders(headers),
-  });
-  return {organizationId: id};
+function archiveWorkspace(context) {
+  const changed = db.prepare(
+    "UPDATE organization SET status = 'archived', archivedAt = ? WHERE id = ? AND status = 'active'",
+  ).run(new Date().toISOString(), context.workspaceId).changes;
+  slugForOrg.forget(context.workspaceId);
+  return changed > 0;
+}
+
+function deleteWorkspace(context) {
+  slugForOrg.forget(context.workspaceId);
+  return db.transaction(() => {
+    const assets = db.prepare('SELECT objectKey FROM asset WHERE organizationId = ?').all(context.workspaceId);
+    const enqueue = db.prepare(`INSERT OR IGNORE INTO object_deletion
+      (id, workspaceId, objectKey, requestedAt) VALUES (?, ?, ?, ?)`);
+    const at = new Date().toISOString();
+    for (const asset of assets) enqueue.run(crypto.randomUUID(), context.workspaceId, asset.objectKey, at);
+    return db.prepare('DELETE FROM organization WHERE id = ?').run(context.workspaceId).changes > 0;
+  })();
 }
 
 /* ── Invitations ──────────────────────────────────────────────────── */
@@ -394,7 +352,7 @@ function listInvitations(orgId) {
   return db
     .prepare(
       `SELECT i.id, i.email, i.role, i.status, i.expiresAt, i.inviterId,
-              u.username AS inviterUsername, u.name AS inviterName
+              u.name AS inviterUsername, u.name AS inviterName
          FROM invitation i
          LEFT JOIN "user" u ON u.id = i.inviterId
         WHERE i.organizationId = ? AND i.status = 'pending'
@@ -424,7 +382,7 @@ function invitationForLink(invitationId) {
     .prepare(
       `SELECT i.id, i.email, i.role, i.status, i.expiresAt, i.organizationId,
               o.name AS organizationName,
-              u.username AS inviterUsername, u.name AS inviterName
+              u.name AS inviterUsername, u.name AS inviterName
          FROM invitation i
          JOIN organization o ON o.id = i.organizationId
          LEFT JOIN "user" u ON u.id = i.inviterId
@@ -452,7 +410,7 @@ function invitationForLink(invitationId) {
  * feature than Slack's, and an honest one; configuring `sendInvitationEmail`
  * later makes the same row arrive by post without changing anything here.
  */
-async function invite({headers, orgId, actorId, email, role = 'member'}) {
+async function invite({headers, orgId, actorId, email, role = 'viewer'}) {
   if (!ROLES.includes(role)) return {error: 'invalid-role'};
   const clean = String(email ?? '').trim().toLowerCase();
   if (!clean) return {error: 'invalid-email'};
@@ -502,47 +460,10 @@ async function acceptInvitation({headers, actorId, invitationId}) {
     action: 'member.join',
     actorId,
     targetId: actorId,
-    targetLabel: labelFor(db.prepare('SELECT username, name, email FROM "user" WHERE id = ?').get(actorId)),
+    targetLabel: labelFor(db.prepare('SELECT name, email FROM "user" WHERE id = ?').get(actorId)),
     detail: {invitedBy: before.invitedBy, role: before.role},
   });
   return {member: result?.member ?? null, organizationId: before.organizationId};
-}
-
-/**
- * Create an account and put it straight into the organization.
- *
- * Not something Slack has, and not something a hosted product should: whoever
- * does this chooses the password, so they know it. It exists because this one
- * runs on a laptop, where the reason to add a person is usually to have a
- * second person to test with, and the alternative is a script.
- *
- * Restricted to owners by the route, and written down like every other way
- * somebody gets in.
- */
-async function createAccount({orgId, actorId, username, password, email, name, role = 'member'}) {
-  if (!ROLES.includes(role)) return {error: 'invalid-role'};
-  const handle = String(username ?? '').trim().toLowerCase();
-  if (!/^[a-z0-9_.-]{3,32}$/.test(handle)) return {error: 'invalid-username'};
-  if (String(password ?? '').length < 8) return {error: 'weak-password'};
-
-  const address = String(email ?? '').trim().toLowerCase() || `${handle}@mochi.local`;
-  let created;
-  try {
-    created = await auth.api.signUpEmail({
-      body: {email: address, password, name: String(name ?? '').trim() || handle, username: handle},
-    });
-  } catch (err) {
-    // An address or handle already taken is the ordinary case here, and the
-    // message Better Auth gives says which.
-    return {error: 'signup-failed', reason: err?.body?.message || err.message};
-  }
-
-  await auth.api.addMember({body: {userId: created.user.id, organizationId: orgId, role}});
-  audit.record({
-    orgId, action: 'member.create', actorId,
-    targetId: created.user.id, targetLabel: handle, detail: {role},
-  });
-  return {user: {id: created.user.id, username: handle, email: address}, role};
 }
 
 /* ── Writes, delegated ────────────────────────────────────────────── */
@@ -619,10 +540,8 @@ module.exports = {
   listAudit: audit.list,
   canManage, labelFor,
   slugify, slugTaken, availableSlug, slugForOrg, primaryOrgId, allOrganizations,
-  ensureContentRoot,
-  listMemberships, createWorkspace, setActiveWorkspace,
+  listMemberships, createWorkspace, archiveWorkspace, deleteWorkspace,
   getOrganization, listMembers, findMember,
   listInvitations, invitationForLink, invite, cancelInvitation, acceptInvitation,
-  createAccount,
   setMemberRole, removeMember,
 };

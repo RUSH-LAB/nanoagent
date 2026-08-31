@@ -66,13 +66,13 @@ const escapeFeedXml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, requireWorkspacePermission, _routeDiagnostics
   } = ctx;
 
   // ── RSS feed of recent content updates ──
   if (req.method === 'GET' && pathname === '/api/feed/rss') {
     try {
-      const items = cached(cacheKey(req.auth?.orgId, 'feed-items'), 60000, () => scanFeedItems(fs, path, contentRootFor(req.auth?.orgId), ALLOWED_EXTS));
+      const items = cached(cacheKey(req.context?.workspaceId, 'feed-items'), 60000, () => scanFeedItems(fs, path, contentRootFor(req.context?.workspaceId), ALLOWED_EXTS));
       const recent = items.slice(0, 20);
       const rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -107,6 +107,7 @@ ${recent.map(item => `<item>
 
   if (req.method === 'POST' && pathname === '/api/schedule') {
     try {
+      if (req.context && requireWorkspacePermission) requireWorkspacePermission(req.context, 'content:publish');
       const body = await readBody(req);
       const {path: filePath, publishAt, note} = body;
       if (!filePath || typeof filePath !== 'string') return json(res, 400, {error: 'Missing or invalid path'});
@@ -117,10 +118,11 @@ ${recent.map(item => `<item>
         path: sanitizeText(filePath),
         publishAt: sanitizeText(publishAt),
         note: note ? sanitizeText(note) : '',
+        createdBy: req.context?.userId ?? req.auth?.userId ?? null,
         createdAt: new Date().toISOString(),
         status: 'scheduled',
       };
-      schedule.put(scopeFor(req), item.id, item);
+      await schedule.put(scopeFor(req), item.id, item);
       return json(res, 200, {success: true, item});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -128,7 +130,7 @@ ${recent.map(item => `<item>
   }
 
   if (req.method === 'GET' && pathname === '/api/schedule') {
-    const items = schedule.values(scopeFor(req)).sort((a, b) => a.publishAt.localeCompare(b.publishAt));
+    const items = (await schedule.values(scopeFor(req))).sort((a, b) => a.publishAt.localeCompare(b.publishAt));
     const now = new Date().toISOString();
     for (const item of items) {
       if (item.status === 'scheduled' && item.publishAt <= now) {
@@ -149,11 +151,12 @@ ${recent.map(item => `<item>
 
   if (req.method === 'DELETE' && pathname === '/api/schedule') {
     try {
+      if (req.context && requireWorkspacePermission) requireWorkspacePermission(req.context, 'content:publish');
       const body = await readBody(req);
       const {id} = body;
       if (!id) return json(res, 400, {error: 'Missing id'});
       if (typeof id !== 'string') return json(res, 404, {error: 'Scheduled item not found'});
-      if (!schedule.remove(scopeFor(req), id)) {
+      if (!await schedule.remove(scopeFor(req), id)) {
         return json(res, 404, {error: 'Scheduled item not found'});
       }
       return json(res, 200, {success: true});
@@ -165,7 +168,7 @@ ${recent.map(item => `<item>
   // ── Atom feed of recent content updates ──
   if (req.method === 'GET' && pathname === '/api/feed/atom') {
     try {
-      const items = cached(cacheKey(req.auth?.orgId, 'feed-items'), 60000, () => scanFeedItems(fs, path, contentRootFor(req.auth?.orgId), ALLOWED_EXTS));
+      const items = cached(cacheKey(req.context?.workspaceId, 'feed-items'), 60000, () => scanFeedItems(fs, path, contentRootFor(req.context?.workspaceId), ALLOWED_EXTS));
       const recent = items.slice(0, 20);
       const atom = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -194,8 +197,8 @@ ${recent.map(item => `<entry>
   if (req.method === 'GET' && pathname === '/api/activity-heatmap') {
     try {
       const days = numericParam(url.searchParams.get('days'), 365, 365);
-      const heatmap = cached(cacheKey(req.auth?.orgId, 'activity-heatmap'), 60000, () => {
-        const contentDir = contentRootFor(req.auth?.orgId);
+      const heatmap = cached(cacheKey(req.context?.workspaceId, 'activity-heatmap'), 60000, () => {
+        const contentDir = contentRootFor(req.context?.workspaceId);
         const activity = {};
         function scanActivity(dir) {
           for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -233,8 +236,8 @@ ${recent.map(item => `<entry>
       // The thunk builds and returns the url list; the XML is rendered from the
       // cached list below, so the emitted document is byte identical to before and
       // only the redundant per-request walk is removed.
-      const urls = cached(cacheKey(req.auth?.orgId, 'sitemap-xml'), 60000, () => {
-        const contentDir = contentRootFor(req.auth?.orgId);
+      const urls = cached(cacheKey(req.context?.workspaceId, 'sitemap-xml'), 60000, () => {
+        const contentDir = contentRootFor(req.context?.workspaceId);
         const collected = [];
         function scanSitemap(dir) {
           for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {

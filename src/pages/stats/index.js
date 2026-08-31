@@ -57,7 +57,7 @@ function StatsDashboard() {
 
     Promise.all([
       fetchJSON('/api/stats').catch(() => null),
-      fetchJSON('/api/references').catch(() => null),
+      fetchJSON('/api/references?summary=1').catch(() => null),
       fetchJSON('/api/analytics/topics').catch(() => null),
       fetchJSON('/api/analytics/orphans').catch(() => null),
       fetchJSON('/api/analytics/duplicates').catch(() => null),
@@ -135,13 +135,7 @@ function StatsDashboard() {
   const totalFiles = stats?.totalFiles || 0;
   const totalWords = stats?.totalWords || 0;
 
-  // References can be an object (key -> entry) or have a length property
-  const refEntries = references
-    ? Array.isArray(references)
-      ? references
-      : Object.entries(references)
-    : [];
-  const totalRefs = refEntries.length;
+  const totalRefs = references?.total || 0;
 
 
   // By-directory breakdown
@@ -163,16 +157,8 @@ function StatsDashboard() {
   const recentList = recentFiles?.files || (Array.isArray(recentFiles) ? recentFiles : []);
 
   // Reference type & year breakdowns
-  const refsByType = {};
-  const refsByYear = {};
-  for (const item of refEntries) {
-    const entry = Array.isArray(item) ? item[1] : item;
-    const type = entry.type || 'misc';
-    refsByType[type] = (refsByType[type] || 0) + 1;
-    if (entry.year) {
-      refsByYear[entry.year] = (refsByYear[entry.year] || 0) + 1;
-    }
-  }
+  const refsByType = references?.byType || {};
+  const refsByYear = references?.byYear || {};
   const typeSorted = Object.entries(refsByType).sort((a, b) => b[1] - a[1]);
   const maxTypeCount = typeSorted.length > 0 ? typeSorted[0][1] : 1;
 

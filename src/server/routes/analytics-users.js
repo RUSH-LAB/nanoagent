@@ -30,9 +30,8 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
     appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
   } = ctx;
 
-  // Site-wide roles (owner/editor/viewer), backed by the user_role table. Not
-  // the organization roles Better Auth manages.
-  const {getRole, setRole, listUsers, isOwner, isValidRole, ROLES, ownerCount} = ctx.roles;
+  // Platform administration is independent of workspace membership.
+  const {getRole, setRole, listUsers, isAdmin, isValidRole, ROLES, adminCount} = ctx.roles;
 
   // ── Analytics ──
   //
@@ -58,8 +57,8 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
       // this is the busiest write in the product, one per page load, and a
       // read-modify-write over a shared value loses counts whenever two land
       // together. update() is a transaction, so the increment is not a race.
-      analytics.update(scope, COUNT_KEY + safePath, n => (typeof n === 'number' ? n : 0) + 1);
-      analytics.update(scope, RECENT_KEY, list => [
+      await analytics.update(scope, COUNT_KEY + safePath, n => (typeof n === 'number' ? n : 0) + 1);
+      await analytics.update(scope, RECENT_KEY, list => [
         {
           path: safePath,
           referrer: referrer ? sanitizeText(referrer) : null,
@@ -76,7 +75,7 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
 
   // ── Analytics: get stats ──
   if (req.method === 'GET' && pathname === '/api/analytics') {
-    const stored = analytics.entries(scopeFor(req));
+    const stored = await analytics.entries(scopeFor(req));
     // Rebuilt into the {path: count} map the clients render. A plain object
     // literal rather than a prototype-less one because that is what the payload
     // has always been; the write path refuses the three keys that would make
@@ -98,14 +97,14 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
     // organization has no business reading the address book of another, and
     // this answered anyone with a session until it was closed. The roster a
     // member is entitled to is their own organization's, at GET /api/org/members.
-    if (!isOwner(req.auth.userId)) {
-      return json(res, 403, {error: 'Only owners can list every account', code: 'not-owner'});
+    if (!await isAdmin(req.auth.userId)) {
+      return json(res, 403, {error: 'Only platform administrators can list every account', code: 'not-platform-admin'});
     }
     // Keyed by id, the shape /admin already renders. The list comes from the
     // user table, so an account with no role assigned still appears, as a
     // viewer, which is how you give it one.
     const users = Object.fromEntries(
-      listUsers().map(u => [u.id, {
+      (await listUsers()).map(u => [u.id, {
         role: u.role,
         email: u.email,
         name: u.name,
@@ -118,10 +117,10 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
 
   // ── Users: get current user's role ──
   if (req.method === 'GET' && pathname === '/api/users/me') {
-    // The caller is whoever the session token says they are. The old
+    // The caller is whoever the verified session says they are. The old
     // `?userId=` form let anyone read anyone's role by asking for it.
     const {userId, orgId, orgRole} = req.auth;
-    return json(res, 200, {userId, orgId, orgRole, role: getRole(userId)});
+    return json(res, 200, {userId, orgId, orgRole, role: await getRole(userId)});
   }
 
   // ── Users: set role ──
@@ -136,17 +135,17 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
       // The requester is the session holder. It used to be `body.requesterId`,
       // so granting yourself ownership was a matter of naming an existing owner
       // in the JSON you posted.
-      if (!isOwner(req.auth.userId)) {
-        return json(res, 403, {error: 'Only owners can change roles'});
+      if (!await isAdmin(req.auth.userId)) {
+        return json(res, 403, {error: 'Only platform administrators can change platform roles'});
       }
-      // Demoting the last owner would leave nobody able to promote anyone, and
+      // Removing the last administrator would leave nobody able to restore one.
       // no way back short of editing the database by hand.
-      if (role !== 'owner' && getRole(userId) === 'owner' && ownerCount() <= 1) {
-        return json(res, 409, {error: 'Cannot demote the last owner'});
+      if (role !== 'admin' && await getRole(userId) === 'admin' && await adminCount() <= 1) {
+        return json(res, 409, {error: 'Cannot remove the last platform administrator'});
       }
       // Email and name belong to the account, not the role, so they are no
       // longer writable here; the role table holds only the role.
-      if (!setRole(userId, role)) return json(res, 404, {error: 'No such user'});
+      if (!await setRole(userId, role)) return json(res, 404, {error: 'No such user'});
       return json(res, 200, {success: true, user: {userId, role}});
     } catch {
       return json(res, 400, {error: 'Invalid request'});

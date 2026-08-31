@@ -10,10 +10,11 @@
 
 # Misc
 .DS_Store
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env
+.env.*
+!.env.postgres.remote.example
+!.env.production.example
+.env.postgres.local
 
 npm-debug.log*
 yarn-debug.log*
@@ -33,4 +34,4 @@ raw/
 
 # Loop scaffolding and per-cycle records written by the next/moon fleets
 /progress
-
+.neon

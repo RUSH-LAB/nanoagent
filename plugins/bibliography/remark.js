@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
 const { applyTextReplacements } = require('#markdown');
+const {normalizePaper} = require('./lib/protocol');
 
 // references.yaml is large (~250KB) and remarkCite() loads it once per content
 // file, so a build with ~300 content files used to re-read and re-parse the
@@ -28,8 +29,7 @@ const { applyTextReplacements } = require('#markdown');
 // without a restart because any edit changes the mtime (and size), which misses
 // the cache and forces a fresh read and parse. Tracking size alongside mtime
 // also catches a same-millisecond rewrite that mtime alone would miss. Mirrors
-// loadReferencesCached (server/routes/references.js) and loadJSON
-// (server/data-store.js).
+// loadReferencesCached (server/routes/references.js).
 //
 // The stat is best effort: if statSync throws (a missing file, or a test that
 // stubs an fs without it) the cache is skipped and the read below still runs,
@@ -127,8 +127,8 @@ function processTextNode(node, citedKeys, file, bibliography) {
     const citationParts = [];
 
     for (const key of rawKeys) {
-      const entry = bibliography[key];
-      if (!entry) {
+      const rawEntry = bibliography[key];
+      if (!rawEntry) {
         if (file) {
           file.message(`Unknown citation key: ${key}`, node);
         }
@@ -139,6 +139,7 @@ function processTextNode(node, citedKeys, file, bibliography) {
         continue;
       }
 
+      const entry = normalizePaper(key, rawEntry);
       citedKeys.add(key);
       const label = `${formatInlineAuthors(entry.author)}, ${entry.year || MISSING_YEAR}`;
       citationParts.push({
@@ -190,15 +191,15 @@ function buildReferencesSection(citedKeys, bibliography) {
   });
 
   const items = sorted.map((key) => {
-    const entry = bibliography[key];
+    const entry = normalizePaper(key, bibliography[key]);
     const refText = formatReference(key, entry);
     const children = [];
 
     // Reference text (with optional link)
-    if (entry.url) {
+    if (entry.officialUrl) {
       children.push({
         type: 'link',
-        url: entry.url,
+        url: entry.officialUrl,
         children: [{ type: 'text', value: refText }],
       });
     } else {

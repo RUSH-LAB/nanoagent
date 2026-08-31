@@ -39,7 +39,7 @@ function loadServerPlugins(dir = PLUGINS_DIR) {
   for (const plugin of listPlugins(dir)) {
     const routes = requireSlot(plugin, 'server');
     if (!routes) continue;
-    const {apiVersion, requires} = plugin.manifest;
+    const {apiVersion, requires, commands} = plugin.manifest;
     if (apiVersion !== API_VERSION) {
       console.error(
         `[plugins] ${plugin.name}/server.js declares apiVersion ${apiVersion ?? 'none'}, `
@@ -47,7 +47,7 @@ function loadServerPlugins(dir = PLUGINS_DIR) {
       );
       continue;
     }
-    loaded.push({name: plugin.name, routes, requires, provides: routes.provides ?? {}});
+    loaded.push({name: plugin.name, dir: plugin.dir, routes, requires, commands, provides: routes.provides ?? {}});
   }
   return loaded;
 }
@@ -63,7 +63,9 @@ function asRouteModule(plugin, getProvides) {
   const handler = async function plugin_routes(req, res, url, pathname, ctx) {
     return plugin.routes(req, res, url, pathname, buildPluginApi({
       name: plugin.name,
+      dir: plugin.dir,
       requires: plugin.requires,
+      commands: plugin.commands,
       ctx: {...ctx, pluginProvides: getProvides()},
       req,
     }));

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { authClient, setStoredToken } from '@site/src/utils/authClient';
+import {authClient} from '@site/src/utils/authClient';
 import API_BASE from '@site/src/utils/api';
 import styles from './authScreen.module.css';
 
@@ -11,9 +11,8 @@ import styles from './authScreen.module.css';
  * the router: at this point Docusaurus has not decided what page you are on, so
  * there is nowhere to navigate to.
  *
- * Sign-in accepts either a username or an email address in the same field, and
- * picks the endpoint by looking for an "@". That keeps one input where two
- * would only ask the user to classify their own credential.
+ * Accounts use an email address and password. Display names are optional and
+ * are not credentials.
  *
  * With `devAutoLogin` there is also a one-click sign-in as root. The server
  * performs an ordinary password sign-in on our behalf and refuses unless it is
@@ -22,9 +21,7 @@ import styles from './authScreen.module.css';
  */
 export default function AuthScreen({ devAutoLogin = false, unreachable = null }) {
   const [mode, setMode] = useState('signin');
-  const [identifier, setIdentifier] = useState('');
   const [email, setEmail] = useState('');
-  const [username, setUsername] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
@@ -36,12 +33,14 @@ export default function AuthScreen({ devAutoLogin = false, unreachable = null })
     setError(null);
     setBusy(true);
     try {
-      const res = await fetch(`${API_BASE}/api/dev-login`, { method: 'POST' });
+      const res = await fetch(`${API_BASE}/api/dev-login`, {
+        method: 'POST',
+        credentials: 'include',
+      });
       const body = await res.json();
-      if (!res.ok || !body.token) {
+      if (!res.ok) {
         throw new Error(body.error || 'Development sign-in was refused.');
       }
-      setStoredToken(body.token);
       window.location.reload();
     } catch (err) {
       setError(
@@ -59,19 +58,13 @@ export default function AuthScreen({ devAutoLogin = false, unreachable = null })
     setBusy(true);
     try {
       const result = signingIn
-        ? identifier.includes('@')
-          ? await authClient.signIn.email({ email: identifier, password })
-          : await authClient.signIn.username({ username: identifier, password })
-        : await authClient.signUp.email({ email, password, name: name || username, username });
+        ? await authClient.signIn.email({email, password})
+        : await authClient.signUp.email({email, password, name: name || email.split('@')[0]});
 
       if (result?.error) {
         setError(result.error.message || 'Something went wrong. Please try again.');
         return;
       }
-      // The client's onSuccess hook stores the token, but a full reload is the
-      // simplest way to re-run every page's data fetch as the new user rather
-      // than leaving stale unauthenticated results on screen.
-      if (result?.data?.token) setStoredToken(result.data.token);
       window.location.reload();
     } catch (err) {
       setError(err?.message || 'Could not reach the API server. Is it running on port 3001?');
@@ -106,42 +99,19 @@ export default function AuthScreen({ devAutoLogin = false, unreachable = null })
           </>
         )}
 
-        {signingIn ? (
-          <label className={styles.field}>
-            <span>Username or email</span>
-            <input
-              type="text"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              autoComplete="username"
-              autoFocus
-              required
-            />
-          </label>
-        ) : (
-          <>
-            <label className={styles.field}>
-              <span>Username</span>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
-                minLength={3}
-                autoFocus
-                required
-              />
-            </label>
-            <label className={styles.field}>
-              <span>Email</span>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-                required
-              />
-            </label>
+        <label className={styles.field}>
+          <span>Email</span>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
+            autoFocus
+            required
+          />
+        </label>
+
+        {!signingIn && (
             <label className={styles.field}>
               <span>Display name <em>(optional)</em></span>
               <input
@@ -151,7 +121,6 @@ export default function AuthScreen({ devAutoLogin = false, unreachable = null })
                 autoComplete="name"
               />
             </label>
-          </>
         )}
 
         <label className={styles.field}>

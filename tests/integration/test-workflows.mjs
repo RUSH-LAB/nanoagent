@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {createApiClient} from './api-client.mjs';
 // ─────────────────────────────────────────────────────────────
 // End-to-end user workflow tests for Mochi Lab
 // Tests 3 complete user journeys (12 tests total)
@@ -45,29 +46,7 @@ function step(n, label) {
 }
 
 // ── Helpers ──
-async function api(method, path, body, opts = {}) {
-  const url = path.startsWith('http') ? path : `${BASE}${path}`;
-  const init = {method, headers: {}};
-  if (body !== undefined && body !== null) {
-    if (typeof body === 'string' || body instanceof Buffer) {
-      init.body = body;
-    } else {
-      init.headers['Content-Type'] = 'application/json';
-      init.body = JSON.stringify(body);
-    }
-  }
-  if (opts.headers) Object.assign(init.headers, opts.headers);
-  if (opts.signal) init.signal = opts.signal;
-  const res = await fetch(url, init);
-  const contentType = res.headers.get('content-type') || '';
-  let data;
-  if (contentType.includes('application/json')) {
-    data = await res.json();
-  } else {
-    data = await res.text();
-  }
-  return {status: res.status, data, headers: res.headers};
-}
+const api = createApiClient(BASE);
 
 function assertEq(actual, expected, label) {
   if (actual !== expected) throw new Error(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
@@ -126,21 +105,21 @@ async function journey1() {
 
   // Step 1: Create a new blog post
   step(1, 'Create a new blog post');
-  await test('1.1 Create blog post via POST /api/file', async () => {
-    const {status, data} = await api('POST', '/api/file', {
+  await test('1.1 Create blog post via document API', async () => {
+    const {status, data} = await api('POST', '/api/documents', {
       path: filePath,
-      content: initialContent,
+      markdown: initialContent,
     });
-    assertEq(status, 200, 'status');
+    assertEq(status, 201, 'status');
     assertOk(data.success, 'file created');
   });
 
   // Step 2: Add rich content
   step(2, 'Add rich content');
-  await test('1.2 Update content via PUT /api/file', async () => {
-    const {status, data} = await api('PUT', '/api/file', {
+  await test('1.2 Update content via document API', async () => {
+    const {status, data} = await api('PUT', '/api/documents', {
       path: filePath,
-      content: richContent,
+      markdown: richContent,
     });
     assertEq(status, 200, 'status');
     assertOk(data.success, 'content updated');
@@ -218,12 +197,14 @@ async function journey1() {
 
   // Delete the test file
   try {
-    await api('DELETE', `/api/file?path=${encodeURIComponent(filePath)}`);
+    await api('DELETE', '/api/documents', {path: filePath});
     cleanCount++;
   } catch { cleanErrors++; }
 
-  // Note: references don't have a DELETE endpoint, but the key is unique
-  // and harmless. We leave it to avoid complicating cleanup.
+  try {
+    await api('DELETE', `/api/references/${encodeURIComponent(refKey)}`);
+    cleanCount++;
+  } catch { cleanErrors++; }
 
   if (cleanErrors > 0) {
     log('!', YELLOW, `Journey 1 cleanup: ${cleanCount} ok, ${cleanErrors} errors`);
@@ -358,7 +339,7 @@ async function journey4() {
     [snapshotFile, 'Snapshot Target'],
     [scheduleFile, 'Schedule Target'],
   ]) {
-    await api('POST', '/api/file', {path: fp, content: contentTemplate(title)});
+    await api('POST', '/api/documents', {path: fp, markdown: contentTemplate(title)});
   }
 
   // Step 1: Snapshot restore
@@ -375,9 +356,9 @@ async function journey4() {
 
     // Modify the file so it differs from the snapshot
     const modifiedContent = contentTemplate('Snapshot Target') + '\nExtra paragraph added after snapshot.\n';
-    const {status: updateStatus} = await api('PUT', '/api/file', {
+    const {status: updateStatus} = await api('PUT', '/api/documents', {
       path: snapshotFile,
-      content: modifiedContent,
+      markdown: modifiedContent,
     });
     assertEq(updateStatus, 200, 'file updated');
 
@@ -458,7 +439,7 @@ async function journey4() {
   // Remove seeded/restored files
   for (const fp of [fileA, snapshotFile, scheduleFile]) {
     try {
-      await api('DELETE', `/api/file?path=${encodeURIComponent(fp)}`);
+      await api('DELETE', '/api/documents', {path: fp});
       cleanCount++;
     } catch { cleanErrors++; }
   }

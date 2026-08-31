@@ -8,12 +8,14 @@
  */
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import path from 'node:path';
+import {EventEmitter} from 'node:events';
 import {createRequire} from 'node:module';
 import {mockFs, PROJECT_ROOT} from '../../_harness.mjs';
 
 const require = createRequire(import.meta.url);
-const {API_VERSION, CAPABILITIES, buildPluginApi, within} =
+const {API_VERSION, CAPABILITIES, buildPluginApi, processCapability, within} =
   require('../../../../src/server/plugin-api.js');
 
 const at = rel => path.join(PROJECT_ROOT, rel);
@@ -35,6 +37,28 @@ const inContent = rel => path.join(CONTENT_DIR, rel);
 function serverCtx(files = {}) {
   const calls = {json: [], cached: [], invalidateCache: [], rateLimit: []};
   const fs = mockFs(files);
+  const domains = new Map();
+  const collection = domain => {
+    if (!domains.has(domain)) domains.set(domain, new Map());
+    const values = domains.get(domain);
+    return {
+      list: () => [...values].map(([key, value]) => ({key, value})),
+      values: () => [...values.values()],
+      entries: () => Object.fromEntries(values),
+      get: (_scope, key) => values.get(key),
+      has: (_scope, key) => values.has(key),
+      put: (_scope, key, value) => { values.set(key, structuredClone(value)); return value; },
+      update: (_scope, key, transform) => {
+        const next = transform(values.get(key));
+        if (next === undefined) values.delete(key); else values.set(key, structuredClone(next));
+        return next;
+      },
+      remove: (_scope, key) => values.delete(key),
+      clear: () => { const count = values.size; values.clear(); return count; },
+      count: () => values.size,
+      replaceAll: (_scope, object) => { values.clear(); for (const [key, value] of Object.entries(object || {})) values.set(key, structuredClone(value)); },
+    };
+  };
   return {
     calls,
     fs,
@@ -50,15 +74,35 @@ function serverCtx(files = {}) {
       sanitizeText: s => String(s).trim(),
       json: (res, status, payload) => { calls.json.push({status, payload}); res.writableEnded = true; },
       readBody: async req => req.body,
+      readRawBody: async req => Buffer.from(req.body || ''),
+      documents: {
+        snapshot: async scope => {
+          const root = ORG_ROOT(scope.workspaceId);
+          return [...fs._files.entries()]
+            .filter(([file]) => file.startsWith(`${root}${path.sep}`))
+            .map(([file, markdown]) => ({
+              path: path.relative(root, file).split(path.sep).join('/'),
+              markdown,
+              updatedAt: '2026-08-31T00:00:00.000Z',
+            }));
+        },
+      },
+      collection,
+      scopeFor: req => req?.context ?? null,
       cached: (key, ttl, compute) => { calls.cached.push({key, ttl}); return compute(); },
       invalidateCache: key => calls.invalidateCache.push(key),
       rateLimit: (key, perMinute) => { calls.rateLimit.push({key, perMinute}); return true; },
       pluginProvides: {references: {load: () => ({})}},
+      ai: {complete: async request => ({text: request.prompt}), describe: () => ({available: true})},
     },
   };
 }
 
-const REQ = {socket: {remoteAddress: '127.0.0.1'}, auth: {userId: 'u1', orgId: 'o1', orgRole: 'admin'}};
+const REQ = {
+  socket: {remoteAddress: '127.0.0.1'},
+  auth: {userId: 'u1', orgId: 'o1', orgRole: 'admin'},
+  context: {userId: 'u1', workspaceId: 'o1', membershipId: 'm1', role: 'editor'},
+};
 
 function apiFor(requires, files = {}, name = 'demo') {
   const {ctx, calls, fs} = serverCtx(files);
@@ -93,14 +137,23 @@ describe('the always-there surface', () => {
 
   it('reports the caller from the verified session, never from the request body', () => {
     const {api} = apiFor([]);
-    assert.deepEqual({...api.caller}, {userId: 'u1', orgId: 'o1', orgRole: 'admin'});
+    assert.deepEqual({...api.caller}, {userId: 'u1', workspaceId: 'o1', role: 'editor'});
     assert.throws(() => { api.caller.userId = 'someone-else'; }, TypeError);
   });
 
   it('reports a null caller for an unauthenticated request rather than throwing', () => {
     const {ctx} = serverCtx();
     const api = buildPluginApi({name: 'demo', requires: [], ctx, req: {socket: {}}});
-    assert.deepEqual({...api.caller}, {userId: null, orgId: null, orgRole: null});
+    assert.deepEqual({...api.caller}, {userId: null, workspaceId: null, role: null});
+  });
+
+  it('never turns a session active organization into plugin authority', () => {
+    const {ctx} = serverCtx();
+    const api = buildPluginApi({
+      name: 'demo', requires: [], ctx,
+      req: {socket: {}, auth: {userId: 'u1', orgId: 'stale-workspace', orgRole: 'owner'}},
+    });
+    assert.deepEqual({...api.caller}, {userId: null, workspaceId: null, role: null});
   });
 
   it('sees what other plugins publish, and nothing else of the server', () => {
@@ -121,7 +174,7 @@ describe('the always-there surface', () => {
 describe('capability gating', () => {
   it('omits every capability for a plugin that asks for none', () => {
     const {api} = apiFor([]);
-    for (const absent of ['cache', 'invalidateCache', 'content', 'fetch', 'storage']) {
+    for (const absent of ['ai', 'blobs', 'cache', 'invalidateCache', 'content', 'exec', 'fetch', 'readBytes', 'records', 'storage']) {
       assert.equal(api[absent], undefined, `${absent} was granted without being asked for`);
     }
   });
@@ -141,10 +194,15 @@ describe('capability gating', () => {
     assert.equal(api.content.write, undefined);
   });
 
-  it('treats content:write as including the read half', () => {
-    const {api} = apiFor(['content:write']);
-    assert.equal(typeof api.content.read, 'function');
-    assert.equal(typeof api.content.write, 'function');
+  it('does not implement the retired content:write capability', () => {
+    const original = console.error;
+    console.error = () => {};
+    try {
+      const {api} = apiFor(['content:write']);
+      assert.equal(api.content, undefined);
+    } finally {
+      console.error = original;
+    }
   });
 
   it('names an unknown capability on the console rather than granting it', () => {
@@ -163,7 +221,7 @@ describe('capability gating', () => {
 
   it('lists every capability the surface implements', () => {
     assert.deepEqual([...CAPABILITIES],
-      ['cache', 'content:read', 'content:write', 'network', 'storage']);
+      ['ai', 'blobs', 'cache', 'content:read', 'network', 'process', 'records', 'storage']);
     assert.throws(() => { CAPABILITIES.push('root'); }, TypeError);
   });
 
@@ -171,8 +229,49 @@ describe('capability gating', () => {
     const {api, calls} = apiFor(['cache']);
     assert.equal(api.cache('graph', 60000, () => 'computed'), 'computed');
     api.invalidateCache('graph');
-    assert.deepEqual(calls.cached, [{key: 'demo:graph', ttl: 60000}]);
-    assert.deepEqual(calls.invalidateCache, ['demo:graph']);
+    assert.deepEqual(calls.cached, [{key: 'demo:o1:graph', ttl: 60000}]);
+    assert.deepEqual(calls.invalidateCache, ['demo:o1:graph']);
+  });
+
+  it('grants the AI provider without exposing the server AI object', async () => {
+    const {api} = apiFor(['ai']);
+    assert.deepEqual(await api.ai.complete({prompt: 'hello'}), {text: 'hello'});
+    assert.deepEqual(api.ai.describe(), {available: true});
+  });
+});
+
+describe('the process capability', () => {
+  function fakeSpawn(record, result = {code: 0, stdout: 'ok', stderr: ''}) {
+    return (command, args, options) => {
+      record.push({command, args, options, input: ''});
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.stdin = {end: input => { record[0].input = input; }};
+      child.kill = () => {};
+      queueMicrotask(() => {
+        if (result.stdout) child.stdout.emit('data', result.stdout);
+        if (result.stderr) child.stderr.emit('data', result.stderr);
+        child.emit('close', result.code);
+      });
+      return child;
+    };
+  }
+
+  it('runs only a declared command inside the plugin directory', async () => {
+    const calls = [];
+    const pluginDir = path.join(PROJECT_ROOT, 'plugins', 'lean-proofs');
+    const exec = processCapability(pluginDir, ['lake'], fakeSpawn(calls));
+    const result = await exec('lake', ['env', 'lean', '--stdin'], {cwd: 'proofs', input: '#check Nat'});
+    assert.equal(result.ok, true);
+    assert.equal(calls[0].options.cwd, path.join(pluginDir, 'proofs'));
+    assert.equal(calls[0].input, '#check Nat');
+    await assert.rejects(() => exec('sh', ['-c', 'anything']), /not declared/);
+  });
+
+  it('refuses a working directory outside the plugin', async () => {
+    const exec = processCapability(path.join(PROJECT_ROOT, 'plugins', 'demo'), ['lake'], fakeSpawn([]));
+    await assert.rejects(() => exec('lake', [], {cwd: '../../'}), /outside/);
   });
 });
 
@@ -186,21 +285,21 @@ describe('the content capability', () => {
     [at('secrets.env')]: 'TOKEN=hunter2',
   };
 
-  it('reads a file inside the caller\'s workspace', () => {
+  it('reads a database document inside the caller\'s workspace', async () => {
     const {api} = apiFor(['content:read'], FILES);
-    assert.equal(api.content.read('notes/one.md'), 'first');
+    assert.equal(await api.content.read('notes/one.md'), 'first');
   });
 
-  it('answers a missing file with null rather than an exception', () => {
+  it('answers a missing document with null rather than an exception', async () => {
     const {api} = apiFor(['content:read'], FILES);
-    assert.equal(api.content.read('notes/absent.md'), null);
-    assert.equal(api.content.exists('notes/absent.md'), false);
-    assert.equal(api.content.stat('notes/absent.md'), null);
+    assert.equal(await api.content.read('notes/absent.md'), null);
+    assert.equal(await api.content.exists('notes/absent.md'), false);
+    assert.equal(await api.content.stat('notes/absent.md'), null);
   });
 
-  it('reports size and mtime, which is what a memo needs', () => {
+  it('reports size and mtime from document metadata', async () => {
     const {api} = apiFor(['content:read'], FILES);
-    const stat = api.content.stat('notes/one.md');
+    const stat = await api.content.stat('notes/one.md');
     assert.equal(stat.size, 5);
     assert.equal(typeof stat.mtimeMs, 'number');
   });
@@ -214,82 +313,64 @@ describe('the content capability', () => {
     '/etc/passwd',
   ];
   for (const escape of ESCAPES) {
-    it(`refuses to read ${escape}`, () => {
+    it(`refuses to read ${escape}`, async () => {
       const {api} = apiFor(['content:read'], FILES);
-      assert.throws(() => api.content.read(escape), /outside the directory this plugin may use/);
-    });
-    it(`refuses to write ${escape}`, () => {
-      const {api, fs} = apiFor(['content:write'], FILES);
-      assert.throws(() => api.content.write(escape, 'owned'), /outside the directory this plugin may use/);
-      assert.equal(fs._files.get(at('secrets.env')), 'TOKEN=hunter2');
+      await assert.rejects(() => api.content.read(escape), /outside the directory this plugin may use/);
     });
   }
 
-  it('roots the capability at the caller\'s workspace, not at the content tree', () => {
+  it('binds the repository query to the caller\'s verified workspace', async () => {
     // One ctx, two callers. The same relative path means a different file for
     // each, and neither of them can spell the other's.
     const {ctx} = serverCtx(FILES);
     const mine = buildPluginApi({name: 'demo', requires: ['content:read'], ctx, req: REQ});
     const theirs = buildPluginApi({
       name: 'demo', requires: ['content:read'], ctx,
-      req: {...REQ, auth: {...REQ.auth, orgId: 'o2'}},
+      req: {
+        ...REQ,
+        auth: {...REQ.auth, orgId: 'o2'},
+        context: {...REQ.context, workspaceId: 'o2', membershipId: 'm2'},
+      },
     });
-    assert.equal(mine.content.read('notes/one.md'), 'first');
-    assert.equal(theirs.content.read('notes/one.md'), null);
-    assert.equal(theirs.content.read('notes/other.md'), 'another workspace');
-    assert.equal(mine.content.read('notes/other.md'), null);
+    assert.equal(await mine.content.read('notes/one.md'), 'first');
+    assert.equal(await theirs.content.read('notes/one.md'), null);
+    assert.equal(await theirs.content.read('notes/other.md'), 'another workspace');
+    assert.equal(await mine.content.read('notes/other.md'), null);
   });
 
-  it('cannot reach the neighbouring workspace, even named exactly', () => {
+  it('cannot reach the neighbouring workspace, even named exactly', async () => {
     // The other tree is one level up and its name is no secret. What refuses
     // the reach is that a relative path cannot leave the root at all, which is
     // the same guard that refuses the escapes above.
-    const {api, fs} = apiFor(['content:write'], FILES);
+    const {api, fs} = apiFor(['content:read'], FILES);
     const theirFile = '../acme/notes/other.md';
-    assert.throws(() => api.content.read(theirFile), /outside the directory this plugin may use/);
-    assert.throws(() => api.content.write(theirFile, 'owned'), /outside the directory this plugin may use/);
+    await assert.rejects(() => api.content.read(theirFile), /outside the directory this plugin may use/);
+    assert.equal(api.content.write, undefined);
     assert.equal(fs._files.get(path.join(ORG_ROOT('o2'), 'notes/other.md')), 'another workspace');
   });
 
-  it('falls back to the primary workspace when the server names no root', () => {
-    // A ctx with no contentRootFor is not something the server builds, but the
-    // fallback is what keeps a plugin working under one, so it is pinned to the
-    // primary organization rather than to the whole content tree.
+  it('does not need a legacy content root', async () => {
     const {ctx} = serverCtx(FILES);
     delete ctx.contentRootFor;
     const api = buildPluginApi({name: 'demo', requires: ['content:read'], ctx, req: REQ});
-    assert.equal(api.content.read('notes/one.md'), 'first');
+    assert.equal(await api.content.read('notes/one.md'), 'first');
   });
 
-  it('walks the caller\'s workspace recursively, skipping drafts and filtering by extension', () => {
+  it('walks the caller\'s workspace recursively, skipping drafts and filtering by extension', async () => {
     const {api} = apiFor(['content:read'], FILES);
-    // Underscore-prefixed drafts and the .txt are both gone; order is whatever
-    // the filesystem lists, which is why the pair is compared sorted.
-    assert.deepEqual(api.content.walk('.', {extensions: ['.md', '.mdx']}).sort(),
+    assert.deepEqual((await api.content.walk('.', {extensions: ['.md', '.mdx']})).sort(),
       ['notes/deep/two.mdx', 'notes/one.md']);
   });
 
-  it('walks everything when no extensions are named', () => {
+  it('walks everything when no extensions are named', async () => {
     const {api} = apiFor(['content:read'], FILES);
-    assert.deepEqual(api.content.walk('notes').sort(),
+    assert.deepEqual((await api.content.walk('notes')).sort(),
       ['notes/deep/two.mdx', 'notes/one.md', 'notes/three.txt']);
   });
 
-  it('writes inside content/, creating the directory it needs', () => {
-    const {api, fs} = apiFor(['content:write'], FILES);
-    api.content.write('fresh/dir/new.md', 'written');
-    assert.equal(fs._files.get(inContent('fresh/dir/new.md')), 'written');
-  });
-
-  it('drops the caches the server derives from content, which the plugin never names', () => {
-    const {api, calls} = apiFor(['content:write'], FILES);
-    api.content.write('notes/one.md', 'edited');
-    assert.deepEqual(calls.invalidateCache, ['stats', 'search']);
-  });
-
-  it('refuses a write larger than the cap, leaving the file alone', () => {
-    const {api, fs} = apiFor(['content:write'], FILES);
-    assert.throws(() => api.content.write('notes/one.md', 'x'.repeat(5 * 1024 * 1024 + 1)), /too large/);
+  it('never exposes a content writer', () => {
+    const {api, fs} = apiFor(['content:read'], FILES);
+    assert.equal(api.content.write, undefined);
     assert.equal(fs._files.get(inContent('notes/one.md')), 'first');
   });
 
@@ -334,6 +415,44 @@ describe('the storage capability', () => {
     const {api, fs} = apiFor(['storage']);
     fs._files.set(at('var/plugins/demo/state.json'), 'not json at all');
     assert.equal(api.storage.read('state', 'fallback'), 'fallback');
+  });
+});
+
+describe('the records capability', () => {
+  it('binds plugin collections to the verified workspace scope', () => {
+    const {api} = apiFor(['records']);
+    const papers = api.records.collection('papers');
+    papers.put('paper-1', {title: 'One'});
+    assert.deepEqual(papers.get('paper-1'), {title: 'One'});
+    assert.deepEqual(papers.entries(), {'paper-1': {title: 'One'}});
+  });
+
+  it('refuses collection names that could escape their namespace', () => {
+    const {api} = apiFor(['records']);
+    assert.throws(() => api.records.collection('../other'), /invalid record collection/);
+  });
+});
+
+describe('the blobs capability', () => {
+  it('returns an opaque asset id while storing content-addressed bytes below the workspace prefix', async () => {
+    const {api, fs} = apiFor(['blobs']);
+    const bytes = Buffer.from('%PDF-test');
+    const stored = await api.blobs.put(bytes, '.pdf');
+    const digest = crypto.createHash('sha256').update(bytes).digest('hex');
+    assert.match(stored.key, /^[a-f0-9-]{36}$/);
+    assert.equal(stored.sha256, digest);
+    assert.deepEqual([...fs._files.keys()].filter(file => file.endsWith(`${digest}.pdf`)), [
+      path.join(PROJECT_ROOT, 'var', 'objects', 'o1', 'assets', stored.key, `${digest}.pdf`),
+    ]);
+    assert.equal((await api.blobs.read(stored.key)).toString(), '%PDF-test');
+    assert.equal(api.blobs.provider, 'local');
+  });
+
+  it('exposes the raw request body only with blob access', async () => {
+    const {ctx} = serverCtx();
+    const req = {...REQ, body: '%PDF-body'};
+    const api = buildPluginApi({name: 'demo', requires: ['blobs'], ctx, req});
+    assert.equal((await api.readBytes()).toString(), '%PDF-body');
   });
 });
 

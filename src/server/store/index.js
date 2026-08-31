@@ -26,11 +26,11 @@
  * what they hold. Content is deliberately not one of them: it needs versions
  * and full-text search, so it gets real columns of its own.
  */
-const {db: defaultDb} = require('../db');
 const {isDomain, isPerUser, DOMAIN_NAMES} = require('./domains');
 
 /**
- * A scope names one workspace and one person: `{orgId, userId}`.
+ * A scope is the verified RequestContext: `{workspaceId, userId,
+ * membershipId, role}`.
  *
  * Both come from `req.auth`, which comes from the verified session. Nothing in
  * a request can influence either, which is the same rule content isolation
@@ -69,14 +69,14 @@ class NoIdentityError extends Error {
  * be serving whichever request built it last.
  */
 function columnsFor(domain, scope) {
-  const orgId = scope?.orgId;
-  if (!orgId || typeof orgId !== 'string') throw new NoWorkspaceError();
+  const workspaceId = scope?.workspaceId;
+  if (!workspaceId || typeof workspaceId !== 'string') throw new NoWorkspaceError();
 
-  if (!isPerUser(domain)) return {orgId, ownerId: null};
+  if (!isPerUser(domain)) return {workspaceId, ownerId: null};
 
   const userId = scope?.userId;
   if (!userId || typeof userId !== 'string') throw new NoIdentityError(domain);
-  return {orgId, ownerId: userId};
+  return {workspaceId, ownerId: userId};
 }
 
 /**
@@ -105,7 +105,7 @@ function checkKey(key) {
  * `now` is injectable for the same reason: a test that asserts on updatedAt
  * should not be asserting on the clock.
  */
-function createStore({db = defaultDb, now = () => new Date().toISOString()} = {}) {
+function createStore({db = require('../db').db, now = () => new Date().toISOString()} = {}) {
   // Prepared once. better-sqlite3 caches the plan, and these run on every
   // request that touches any of the thirteen features.
   //
@@ -170,8 +170,8 @@ function createStore({db = defaultDb, now = () => new Date().toISOString()} = {}
 
       /** Every item in scope, oldest first, as `{key, value, createdAt, updatedAt}`. */
       list(scope) {
-        const {orgId, ownerId} = columnsFor(domain, scope);
-        return statements.list.all(orgId, domain, ownerId).map(row => ({
+        const {workspaceId, ownerId} = columnsFor(domain, scope);
+        return statements.list.all(workspaceId, domain, ownerId).map(row => ({
           key: row.key,
           value: JSON.parse(row.value),
           createdAt: row.createdAt,
@@ -193,8 +193,8 @@ function createStore({db = defaultDb, now = () => new Date().toISOString()} = {}
 
       /** One item's value, or undefined. */
       get(scope, key) {
-        const {orgId, ownerId} = columnsFor(domain, scope);
-        const row = statements.get.get(orgId, domain, ownerId, checkKey(key));
+        const {workspaceId, ownerId} = columnsFor(domain, scope);
+        const row = statements.get.get(workspaceId, domain, ownerId, checkKey(key));
         return row ? JSON.parse(row.value) : undefined;
       },
 
@@ -205,12 +205,12 @@ function createStore({db = defaultDb, now = () => new Date().toISOString()} = {}
 
       /** Insert or replace, returning the value stored. */
       put(scope, key, value) {
-        const {orgId, ownerId} = columnsFor(domain, scope);
+        const {workspaceId, ownerId} = columnsFor(domain, scope);
         if (value === undefined) {
           throw new TypeError('Cannot store undefined; use remove() to delete an item');
         }
         const at = now();
-        statements.put.run(orgId, ownerId, domain, checkKey(key), JSON.stringify(value), at, at);
+        statements.put.run(workspaceId, ownerId, domain, checkKey(key), JSON.stringify(value), at, at);
         return value;
       },
 
@@ -235,20 +235,20 @@ function createStore({db = defaultDb, now = () => new Date().toISOString()} = {}
 
       /** Delete one item. True when there was one. */
       remove(scope, key) {
-        const {orgId, ownerId} = columnsFor(domain, scope);
-        return statements.remove.run(orgId, domain, ownerId, checkKey(key)).changes > 0;
+        const {workspaceId, ownerId} = columnsFor(domain, scope);
+        return statements.remove.run(workspaceId, domain, ownerId, checkKey(key)).changes > 0;
       },
 
       /** Delete everything in scope. Returns how many rows went. */
       clear(scope) {
-        const {orgId, ownerId} = columnsFor(domain, scope);
-        return statements.clear.run(orgId, domain, ownerId).changes;
+        const {workspaceId, ownerId} = columnsFor(domain, scope);
+        return statements.clear.run(workspaceId, domain, ownerId).changes;
       },
 
       /** How many items are in scope. */
       count(scope) {
-        const {orgId, ownerId} = columnsFor(domain, scope);
-        return statements.count.get(orgId, domain, ownerId).n;
+        const {workspaceId, ownerId} = columnsFor(domain, scope);
+        return statements.count.get(workspaceId, domain, ownerId).n;
       },
 
       /** Replace the whole collection with `object`, atomically. */

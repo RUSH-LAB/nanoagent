@@ -1,1202 +1,351 @@
-import React, { useState, useEffect } from 'react';
+import React, {useEffect, useState} from 'react';
 import Layout from '@theme/Layout';
-import Head from '@docusaurus/Head';
 import Link from '@docusaurus/Link';
-import { usePluginData } from '@docusaurus/useGlobalData';
-import { useLocation } from '@docusaurus/router';
-import API_BASE, { apiFetch } from '@site/src/utils/api';
-import { S2_PAPER_SEARCH } from '@site/src/utils/semanticScholar';
+import {useLocation} from '@docusaurus/router';
+import API_BASE, {apiFetch} from '@site/src/utils/api';
 
-const BUTTON_BASE = {
-  padding: '4px 14px',
-  fontSize: '0.85em',
-  borderRadius: '4px',
+const panel = {
+  border: '1px solid var(--ifm-color-emphasis-200)',
+  borderRadius: 12,
+  background: 'var(--ifm-background-surface-color)',
+  padding: 18,
+};
+
+const button = {
   border: '1px solid var(--ifm-color-emphasis-300)',
-  background: 'var(--ifm-color-emphasis-0)',
+  borderRadius: 7,
+  background: 'var(--ifm-background-color)',
   color: 'var(--ifm-font-color-base)',
   cursor: 'pointer',
-  fontWeight: 500,
+  font: 'inherit',
+  fontSize: 14,
+  fontWeight: 600,
+  padding: '7px 12px',
+  textDecoration: 'none',
 };
 
-export default function BibliographyItem() {
-  const { references } = usePluginData('bibliography');
-  const location = useLocation();
-  const key = location.pathname.replace(/^\/bibliography\//, '').replace(/\/$/, '');
-  const entry = references[key];
-
-  if (!entry) {
-    return (
-      <Layout title="Reference Not Found">
-        <div style={{ padding: '2rem', maxWidth: '800px', margin: '0 auto' }}>
-          <h1>Reference Not Found</h1>
-          <p>
-            No reference found for key <code>{key}</code>.
-          </p>
-          <Link to="/bibliography">← Back to Bibliography</Link>
-        </div>
-      </Layout>
-    );
-  }
-
-  const pageTitle = `${entry.title} | Mochi Lab Bibliography`;
-  const pageDescription = `${entry.author.join(', ')} (${entry.year}). ${entry.venue}. Cited as [@${key}]`;
-
-  const jsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'ScholarlyArticle',
-    name: entry.title,
-    author: entry.author.map((name) => ({ '@type': 'Person', name })),
-    datePublished: String(entry.year),
-    publisher: entry.venue,
-    ...(entry.url && { url: entry.url }),
-    ...(entry.doi && { sameAs: `https://doi.org/${entry.doi}` }),
-  };
-
-  return (
-    <Layout title={pageTitle} description={pageDescription}>
-      <Head>
-        <meta property="og:title" content={pageTitle} />
-        <meta property="og:description" content={pageDescription} />
-        <meta property="og:type" content="article" />
-        <meta name="twitter:card" content="summary" />
-        <meta name="twitter:title" content={pageTitle} />
-        <meta name="twitter:description" content={pageDescription} />
-        <meta name="citation_title" content={entry.title} />
-        {entry.author.map((author, i) => (
-          <meta key={i} name="citation_author" content={author} />
-        ))}
-        <meta name="citation_publication_date" content={String(entry.year)} />
-        {entry.venue && <meta name="citation_journal_title" content={entry.venue} />}
-        {entry.doi && <meta name="citation_doi" content={entry.doi} />}
-        <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
-      </Head>
-      <div style={{ padding: '2rem', maxWidth: '800px', margin: '0 auto' }}>
-        <Link
-          to="/bibliography"
-          style={{ display: 'inline-block', marginBottom: '1.5rem' }}
-        >
-          ← Back to Bibliography
-        </Link>
-
-        <h1>{entry.title}</h1>
-
-        <div style={{ marginBottom: '1.5rem' }}>
-          <p style={{ margin: '4px 0' }}>
-            <strong>Authors:</strong> {entry.author.join(', ')}
-          </p>
-          <p style={{ margin: '4px 0' }}>
-            <strong>Year:</strong> {entry.year}
-          </p>
-          <p style={{ margin: '4px 0' }}>
-            <strong>Venue:</strong> {entry.venue}
-          </p>
-          <p style={{ margin: '4px 0' }}>
-            <strong>Type:</strong>{' '}
-            <span
-              style={{
-                background: 'var(--ifm-color-emphasis-100)',
-                padding: '2px 8px',
-                borderRadius: '4px',
-                fontSize: '0.85em',
-              }}
-            >
-              {entry.type}
-            </span>
-          </p>
-          {entry.url && (
-            <p style={{ margin: '4px 0' }}>
-              <strong>URL:</strong>{' '}
-              <a href={entry.url} target="_blank" rel="noopener noreferrer">
-                {entry.url}
-              </a>
-            </p>
-          )}
-          {entry.doi && (
-            <p style={{ margin: '4px 0' }}>
-              <strong>DOI:</strong>{' '}
-              <a
-                href={`https://doi.org/${entry.doi}`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {entry.doi}
-              </a>
-            </p>
-          )}
-          {entry.arxivId && (
-            <p style={{ margin: '4px 0' }}>
-              <strong>arXiv:</strong>{' '}
-              <a
-                href={`https://arxiv.org/abs/${entry.arxivId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {entry.arxivId}
-              </a>
-            </p>
-          )}
-          <CopyCitation citationKey={key} />
-          <CitationCount entry={entry} bibKey={key} />
-        </div>
-
-        <EnrichSection bibKey={key} entry={entry} />
-        <PublicationTracker entry={entry} bibKey={key} />
-        <RawFilesSection entry={entry} bibKey={key} />
-        <BibtexSection bibtex={entry.bibtex} />
-        <NotesSection notes={entry.notes} bibKey={key} />
-        <RelatedPapers title={entry.title} />
-      </div>
-    </Layout>
-  );
-}
-
-function CopyCitation({ citationKey }) {
-  const [copied, setCopied] = useState(false);
-  const text = `[@${citationKey}]`;
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
-
-  return (
-    <p style={{ margin: '4px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <strong>Cite as:</strong> <code>{text}</code>
-      <button
-        onClick={handleCopy}
-        title="Copy citation key"
-        style={{
-          padding: '1px 8px',
-          fontSize: '0.8em',
-          borderRadius: '4px',
-          border: '1px solid var(--ifm-color-emphasis-300)',
-          background: copied
-            ? 'var(--ifm-color-success-contrast-background)'
-            : 'var(--ifm-color-emphasis-0)',
-          color: copied
-            ? 'var(--ifm-color-success-dark)'
-            : 'var(--ifm-font-color-base)',
-          cursor: 'pointer',
-          fontWeight: 500,
-          transition: 'background 0.15s, color 0.15s',
-        }}
-      >
-        {copied ? 'Copied!' : 'Copy'}
-      </button>
-    </p>
-  );
-}
-
-function CitationCount({ entry, bibKey }) {
-  const [count, setCount] = useState(entry.citationCount ?? null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  const handleFetch = () => {
-    setLoading(true);
-    setError(null);
-    apiFetch(`${ENRICH_API}?key=${encodeURIComponent(bibKey)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) {
-          setError(data.error);
-        } else {
-          const c = data.sources?.semanticScholar?.citationCount;
-          if (c != null) {
-            setCount(c);
-          } else {
-            setError('No citation data available');
-          }
-        }
-      })
-      .catch((err) => setError('Failed to fetch: ' + err.message))
-      .finally(() => setLoading(false));
-  };
-
-  if (count != null) {
-    return (
-      <p style={{ margin: '4px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-        <strong style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style={{ opacity: 0.7 }}>
-            <rect x="1" y="10" width="3" height="5" rx="0.5" />
-            <rect x="5.5" y="6" width="3" height="9" rx="0.5" />
-            <rect x="10" y="2" width="3" height="13" rx="0.5" />
-          </svg>
-          Citations:
-        </strong>{' '}
-        {count.toLocaleString()}
-      </p>
-    );
-  }
-
-  return (
-    <p style={{ margin: '4px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <strong>Citations:</strong>
-      <button
-        onClick={handleFetch}
-        disabled={loading}
-        style={{
-          padding: '1px 8px',
-          fontSize: '0.8em',
-          borderRadius: '4px',
-          border: '1px solid var(--ifm-color-emphasis-300)',
-          background: 'var(--ifm-color-emphasis-0)',
-          color: 'var(--ifm-font-color-base)',
-          cursor: loading ? 'default' : 'pointer',
-          opacity: loading ? 0.6 : 1,
-          fontWeight: 500,
-        }}
-      >
-        {loading ? 'Fetching...' : 'Fetch citation count'}
-      </button>
-      {error && (
-        <span style={{ fontSize: '0.8em', color: 'var(--ifm-color-danger-dark)' }}>{error}</span>
-      )}
-    </p>
-  );
-}
-
-const ENRICH_API = `${API_BASE}/api/references/enrich`;
-
-const SOURCE_LABELS = {
-  semanticScholar: 'Semantic Scholar',
-  crossref: 'CrossRef',
-  dblp: 'DBLP',
-};
-
-const SOURCE_COLORS = {
-  semanticScholar: '#4A90D9',
-  crossref: '#2EAE4A',
-  dblp: '#E8A83E',
-};
-
-const FIELD_LABELS = {
-  title: 'Title',
-  authors: 'Authors',
-  year: 'Year',
-  venue: 'Venue',
-  doi: 'DOI',
-  arxivId: 'arXiv ID',
-  url: 'URL',
-  publisher: 'Publisher',
-  volume: 'Volume',
-  issue: 'Issue',
-  pages: 'Pages',
-  citationCount: 'Citations',
-  referenceCount: 'References',
-  tldr: 'TL;DR',
-};
-
-function EnrichSection({ bibKey, entry }) {
-  const [enrichData, setEnrichData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [selectedFields, setSelectedFields] = useState({});
+function TagEditor({paper, onSaved}) {
+  const [value, setValue] = useState((paper.tags || []).join(', '));
+  const [officialUrl, setOfficialUrl] = useState(paper.officialUrl || '');
+  const [pdfUrl, setPdfUrl] = useState(paper.pdfUrl || '');
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [message, setMessage] = useState('');
 
-  const handleEnrich = () => {
-    setLoading(true);
-    setError(null);
-    setEnrichData(null);
-    setSelectedFields({});
-    setSaved(false);
-    apiFetch(`${ENRICH_API}?key=${encodeURIComponent(bibKey)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) {
-          setError(data.error);
-        } else {
-          setEnrichData(data);
-          setExpanded(true);
-        }
-      })
-      .catch((err) => setError('Failed to fetch enrichment data: ' + err.message))
-      .finally(() => setLoading(false));
-  };
+  useEffect(() => {
+    setValue((paper.tags || []).join(', '));
+    setOfficialUrl(paper.officialUrl || '');
+    setPdfUrl(paper.pdfUrl || '');
+  }, [paper]);
 
-  const toggleField = (source, field, value) => {
-    const fieldKey = `${source}:${field}`;
-    setSelectedFields((prev) => {
-      const next = { ...prev };
-      if (next[fieldKey]) {
-        delete next[fieldKey];
-      } else {
-        next[fieldKey] = { field, value, source };
-      }
-      return next;
-    });
-  };
-
-  const handleApply = () => {
-    const fields = {};
-    for (const { field, value } of Object.values(selectedFields)) {
-      // For 'authors' field, map to 'author' which is what references.yaml uses
-      const yamlField = field === 'authors' ? 'author' : field;
-      fields[yamlField] = value;
-    }
-    if (Object.keys(fields).length === 0) return;
-
+  const save = async event => {
+    event.preventDefault();
     setSaving(true);
-    setSaved(false);
-    setError(null);
-    apiFetch(ENRICH_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: bibKey, fields }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) {
-          setError(data.error);
-        } else {
-          setSaved(true);
-          setSelectedFields({});
-          setTimeout(() => setSaved(false), 3000);
-        }
-      })
-      .catch((err) => setError('Failed to apply enrichment: ' + err.message))
-      .finally(() => setSaving(false));
+    setMessage('');
+    try {
+      const response = await apiFetch(`${API_BASE}/api/references/${encodeURIComponent(paper.key)}`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          tags: value.split(',').map(tag => tag.trim()).filter(Boolean),
+          officialUrl: officialUrl.trim(),
+          pdfUrl: pdfUrl.trim(),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not save paper');
+      onSaved(data.entry);
+      setMessage('Saved');
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setSaving(false);
+    }
   };
-
-
-  // Fields to display from enrichment sources, in FIELD_LABELS order (single source of truth).
-  const displayFields = Object.keys(FIELD_LABELS);
-
-  const formatFieldValue = (value) => {
-    if (value == null) return null;
-    if (Array.isArray(value)) return value.join(', ');
-    return String(value);
-  };
-
-  const fieldLabel = (field) => FIELD_LABELS[field] || field;
 
   return (
-    <div style={{ marginBottom: '2rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '0.5rem' }}>
-        <h2 style={{ margin: 0 }}>Enrich Metadata</h2>
-        <button
-          onClick={enrichData && expanded ? () => setExpanded(!expanded) : handleEnrich}
-          disabled={loading}
-          style={{ ...BUTTON_BASE, opacity: loading ? 0.6 : 1 }}
-        >
-          {loading ? 'Fetching...' : enrichData && expanded ? 'Collapse' : enrichData ? 'Expand' : 'Enrich'}
+    <form onSubmit={save} style={{...panel, display: 'grid', gap: 13}}>
+      <h2 style={{fontSize: 19, margin: 0}}>Organize and link</h2>
+      <label>
+        <span style={{display: 'block', fontSize: 13, fontWeight: 700, marginBottom: 4}}>Tags</span>
+        <input
+          value={value}
+          onChange={event => setValue(event.target.value)}
+          placeholder="transformers, survey, read-next"
+          style={{width: '100%', border: '1px solid var(--ifm-color-emphasis-300)', borderRadius: 7, padding: '8px 10px', font: 'inherit'}}
+        />
+      </label>
+      <label>
+        <span style={{display: 'block', fontSize: 13, fontWeight: 700, marginBottom: 4}}>Official paper URL</span>
+        <input
+          type="url"
+          value={officialUrl}
+          onChange={event => setOfficialUrl(event.target.value)}
+          placeholder="https://doi.org/..."
+          style={{width: '100%', border: '1px solid var(--ifm-color-emphasis-300)', borderRadius: 7, padding: '8px 10px', font: 'inherit'}}
+        />
+      </label>
+      <label>
+        <span style={{display: 'block', fontSize: 13, fontWeight: 700, marginBottom: 4}}>PDF URL</span>
+        <input
+          value={pdfUrl}
+          onChange={event => setPdfUrl(event.target.value)}
+          placeholder="https://.../paper.pdf"
+          style={{width: '100%', border: '1px solid var(--ifm-color-emphasis-300)', borderRadius: 7, padding: '8px 10px', font: 'inherit'}}
+        />
+      </label>
+      <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
+        <button type="submit" disabled={saving} style={{...button, background: 'var(--ifm-color-primary)', color: '#fff'}}>
+          {saving ? 'Saving…' : 'Save'}
         </button>
-        {saved && (
-          <span style={{ color: 'var(--ifm-color-success-dark)', fontSize: '0.85em', fontWeight: 500 }}>
-            Applied
-          </span>
-        )}
+        {message ? <span style={{fontSize: 13, color: message === 'Saved' ? 'var(--ifm-color-success)' : 'var(--ifm-color-danger)'}}>{message}</span> : null}
       </div>
-
-      {error && (
-        <div style={{
-          color: 'var(--ifm-color-danger-dark)',
-          background: 'var(--ifm-color-danger-contrast-background)',
-          border: '1px solid var(--ifm-color-danger-dark)',
-          borderRadius: '4px',
-          padding: '0.5rem 1rem',
-          fontSize: '0.85em',
-          marginBottom: '0.75rem',
-        }}>
-          {error}
-        </div>
-      )}
-
-      {enrichData && expanded && (
-        <div style={{
-          border: '1px solid var(--ifm-color-emphasis-200)',
-          borderRadius: '6px',
-          overflow: 'hidden',
-        }}>
-          {/* Summary stats bar */}
-          {enrichData.sources.semanticScholar && (
-            <div style={{
-              display: 'flex',
-              gap: '16px',
-              padding: '0.75rem 1rem',
-              background: 'var(--ifm-color-emphasis-100)',
-              borderBottom: '1px solid var(--ifm-color-emphasis-200)',
-              fontSize: '0.9em',
-              flexWrap: 'wrap',
-            }}>
-              {enrichData.sources.semanticScholar.citationCount != null && (
-                <span><strong>Citations:</strong> {enrichData.sources.semanticScholar.citationCount}</span>
-              )}
-              {enrichData.sources.semanticScholar.referenceCount != null && (
-                <span><strong>References:</strong> {enrichData.sources.semanticScholar.referenceCount}</span>
-              )}
-              {enrichData.sources.semanticScholar.tldr && (
-                <div style={{ flexBasis: '100%' }}>
-                  <strong>TL;DR:</strong>{' '}
-                  <span style={{ fontStyle: 'italic' }}>{enrichData.sources.semanticScholar.tldr}</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Source columns */}
-          {Object.entries(enrichData.sources).map(([sourceKey, sourceData]) => {
-            if (!sourceData) return null;
-            return (
-              <div key={sourceKey} style={{
-                borderBottom: '1px solid var(--ifm-color-emphasis-200)',
-              }}>
-                <div style={{
-                  padding: '0.5rem 1rem',
-                  background: `${SOURCE_COLORS[sourceKey]}15`,
-                  borderBottom: '1px solid var(--ifm-color-emphasis-200)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}>
-                  <span style={{
-                    display: 'inline-block',
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    background: SOURCE_COLORS[sourceKey],
-                  }} />
-                  <strong style={{ fontSize: '0.9em' }}>{SOURCE_LABELS[sourceKey]}</strong>
-                </div>
-                <div style={{ padding: '0.5rem 1rem' }}>
-                  {displayFields.map((field) => {
-                    const value = sourceData[field];
-                    const formatted = formatFieldValue(value);
-                    if (!formatted) return null;
-
-                    const fieldKey = `${sourceKey}:${field}`;
-                    const isSelected = !!selectedFields[fieldKey];
-
-                    // Compare with current entry value
-                    const currentField = field === 'authors' ? 'author' : field;
-                    const currentValue = entry[currentField];
-                    const currentFormatted = formatFieldValue(currentValue);
-                    const isDifferent = currentFormatted !== formatted;
-                    const isNew = currentValue == null || currentValue === '';
-
-                    // Only show fields that are new or different
-                    if (!isDifferent && !isNew) return null;
-
-                    return (
-                      <div
-                        key={fieldKey}
-                        onClick={() => toggleField(sourceKey, field, value)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          gap: '8px',
-                          padding: '4px 0',
-                          cursor: 'pointer',
-                          borderRadius: '3px',
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => {}}
-                          style={{ marginTop: '3px', cursor: 'pointer' }}
-                        />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{
-                            fontSize: '0.8em',
-                            fontWeight: 600,
-                            color: 'var(--ifm-color-emphasis-600)',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.5px',
-                          }}>
-                            {fieldLabel(field)}
-                            {isNew && (
-                              <span style={{
-                                marginLeft: '6px',
-                                fontSize: '0.85em',
-                                fontWeight: 500,
-                                color: 'var(--ifm-color-success-dark)',
-                                textTransform: 'none',
-                                letterSpacing: 'normal',
-                              }}>
-                                (new)
-                              </span>
-                            )}
-                            {isDifferent && !isNew && (
-                              <span style={{
-                                marginLeft: '6px',
-                                fontSize: '0.85em',
-                                fontWeight: 500,
-                                color: 'var(--ifm-color-warning-dark)',
-                                textTransform: 'none',
-                                letterSpacing: 'normal',
-                              }}>
-                                (differs)
-                              </span>
-                            )}
-                          </span>
-                          <div style={{
-                            fontSize: '0.9em',
-                            wordBreak: 'break-word',
-                            color: 'var(--ifm-font-color-base)',
-                          }}>
-                            {field === 'tldr' ? (
-                              <em>{formatted}</em>
-                            ) : formatted}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-
-          {/* No data indicator */}
-          {!enrichData.sources.semanticScholar && !enrichData.sources.crossref && !enrichData.sources.dblp && (
-            <div style={{
-              padding: '1rem',
-              textAlign: 'center',
-              color: 'var(--ifm-color-emphasis-600)',
-              fontStyle: 'italic',
-            }}>
-              No enrichment data found from any source.
-            </div>
-          )}
-
-          {/* Apply button */}
-          {Object.keys(selectedFields).length > 0 && (
-            <div style={{
-              padding: '0.75rem 1rem',
-              borderTop: '1px solid var(--ifm-color-emphasis-200)',
-              background: 'var(--ifm-color-emphasis-100)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-            }}>
-              <button
-                onClick={handleApply}
-                disabled={saving}
-                style={{
-                  ...BUTTON_BASE,
-                  background: 'var(--ifm-color-primary)',
-                  color: 'var(--ifm-color-white)',
-                  border: '1px solid var(--ifm-color-primary)',
-                  opacity: saving ? 0.6 : 1,
-                }}
-              >
-                {saving ? 'Applying...' : `Apply ${Object.keys(selectedFields).length} field${Object.keys(selectedFields).length > 1 ? 's' : ''}`}
-              </button>
-              <span style={{ fontSize: '0.85em', color: 'var(--ifm-color-emphasis-600)' }}>
-                Selected fields will be saved to references.yaml
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+    </form>
   );
 }
 
-const TRACK_API = `${API_BASE}/api/references/track`;
+function PdfViewer({url, title, page}) {
+  const [source, setSource] = useState(url);
+  const [error, setError] = useState('');
 
-function PublicationTracker({ entry, bibKey }) {
-  const [status, setStatus] = useState(null);
-  const [checking, setChecking] = useState(false);
-  const [updating, setUpdating] = useState(false);
-  const [error, setError] = useState(null);
-
-  const hasArxiv = !!entry.arxivId;
-
-  if (!hasArxiv) return null;
-
-  const isPreprint = !entry.publishedVenue && (
-    !entry.venue || entry.venue === 'arXiv' || entry.venue === 'ArXiv'
-  );
-
-  const handleCheck = () => {
-    setChecking(true);
-    setError(null);
-    apiFetch(`${TRACK_API}?key=${encodeURIComponent(bibKey)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error && !data.published) {
-          setError(data.error);
-        } else {
-          setStatus(data);
-        }
+  useEffect(() => {
+    let objectUrl = null;
+    let cancelled = false;
+    if (!url || !url.startsWith('/api/')) {
+      setSource(url);
+      return undefined;
+    }
+    setSource(null);
+    setError('');
+    apiFetch(`${API_BASE}${url}`)
+      .then(async response => {
+        if (!response.ok) throw new Error('Could not load the managed PDF');
+        objectUrl = URL.createObjectURL(await response.blob());
+        if (!cancelled) setSource(objectUrl);
       })
-      .catch((err) => setError('Failed to check: ' + err.message))
-      .finally(() => setChecking(false));
-  };
+      .catch(err => { if (!cancelled) setError(err.message); });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url]);
 
-  const handleUpdate = () => {
-    setUpdating(true);
-    setError(null);
-    apiFetch(TRACK_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: bibKey }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) {
-          setError(data.error);
-        } else {
-          setStatus(data);
-        }
-      })
-      .catch((err) => setError('Failed to update: ' + err.message))
-      .finally(() => setUpdating(false));
-  };
-
-  const badgeStyle = (published) => ({
-    display: 'inline-block',
-    padding: '3px 10px',
-    borderRadius: '12px',
-    fontSize: '0.85em',
-    fontWeight: 600,
-    background: published
-      ? 'var(--ifm-color-success-contrast-background)'
-      : 'var(--ifm-color-warning-contrast-background)',
-    color: published
-      ? 'var(--ifm-color-success-dark)'
-      : 'var(--ifm-color-warning-dark)',
-    border: `1px solid ${published ? 'var(--ifm-color-success-dark)' : 'var(--ifm-color-warning-dark)'}`,
-  });
-
+  if (!url) {
+    return (
+      <section style={{...panel, textAlign: 'center', color: 'var(--ifm-color-emphasis-600)'}}>
+        No PDF is linked yet. Add a PDF URL above.
+      </section>
+    );
+  }
 
   return (
-    <div style={{ marginBottom: '2rem' }}>
-      <h2>Publication Status</h2>
-      <div style={{
-        border: '1px solid var(--ifm-color-emphasis-200)',
-        borderRadius: '6px',
-        padding: '1rem',
-      }}>
-        {/* Current status */}
-        <div style={{ marginBottom: '0.75rem' }}>
-          {entry.publishedVenue ? (
-            <span style={badgeStyle(true)}>Published: {entry.publishedVenue}</span>
-          ) : isPreprint ? (
-            <span style={badgeStyle(false)}>Preprint (arXiv)</span>
-          ) : (
-            <span style={badgeStyle(true)}>{entry.venue}</span>
-          )}
-        </div>
-
-        {/* Check result */}
-        {status && (
-          <div style={{
-            background: 'var(--ifm-color-emphasis-100)',
-            borderRadius: '4px',
-            padding: '0.75rem',
-            marginBottom: '0.75rem',
-            fontSize: '0.9em',
-          }}>
-            {status.published ? (
-              <>
-                <p style={{ margin: '0 0 4px 0', fontWeight: 600, color: 'var(--ifm-color-success-dark)' }}>
-                  Published at a venue
-                </p>
-                <p style={{ margin: '2px 0' }}><strong>Venue:</strong> {status.venue}</p>
-                {status.doi && (
-                  <p style={{ margin: '2px 0' }}>
-                    <strong>DOI:</strong>{' '}
-                    <a href={`https://doi.org/${status.doi}`} target="_blank" rel="noopener noreferrer">
-                      {status.doi}
-                    </a>
-                  </p>
-                )}
-                {status.journal?.name && (
-                  <p style={{ margin: '2px 0' }}><strong>Journal:</strong> {status.journal.name}</p>
-                )}
-              </>
-            ) : (
-              <p style={{ margin: 0, color: 'var(--ifm-color-emphasis-600)' }}>
-                No formal publication found yet. Still a preprint.
-              </p>
-            )}
-          </div>
-        )}
-
-        {error && (
-          <div style={{
-            color: 'var(--ifm-color-danger-dark)',
-            background: 'var(--ifm-color-danger-contrast-background)',
-            border: '1px solid var(--ifm-color-danger-dark)',
-            borderRadius: '4px',
-            padding: '0.5rem 1rem',
-            fontSize: '0.85em',
-            marginBottom: '0.75rem',
-          }}>
-            {error}
-          </div>
-        )}
-
-        {/* Actions */}
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <button
-            onClick={handleCheck}
-            disabled={checking}
-            style={{ ...BUTTON_BASE, opacity: checking ? 0.6 : 1 }}
-          >
-            {checking ? 'Checking...' : 'Check Now'}
-          </button>
-          {status?.published && !status?.tracked && (
-            <button
-              onClick={handleUpdate}
-              disabled={updating}
-              style={{
-                ...BUTTON_BASE,
-                background: 'var(--ifm-color-primary)',
-                color: 'var(--ifm-color-white)',
-                border: '1px solid var(--ifm-color-primary)',
-                opacity: updating ? 0.6 : 1,
-              }}
-            >
-              {updating ? 'Saving...' : 'Save Venue to Reference'}
-            </button>
-          )}
-        </div>
+    <section id="paper-pdf" style={{...panel, padding: 0, overflow: 'hidden'}}>
+      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 14px', borderBottom: '1px solid var(--ifm-color-emphasis-200)'}}>
+        <strong>Paper PDF</strong>
+        {source ? <a href={source} target="_blank" rel="noreferrer" style={button}>Open PDF</a> : null}
       </div>
-    </div>
+      {error ? <p role="alert" style={{padding: 16, color: 'var(--ifm-color-danger)'}}>{error}</p> : null}
+      <iframe
+        src={source ? `${source}#page=${page || 1}` : undefined}
+        title={`PDF: ${title}`}
+        style={{border: 0, display: 'block', width: '100%', height: '72vh', minHeight: 560}}
+      />
+    </section>
   );
 }
 
-function RawFilesSection({ entry, bibKey }) {
-  const { hasPdf, hasLatex, notFound, pdfUrl, sourceUrl } = entry.raw;
+function PdfUpload({paper, onUploaded}) {
+  const [uploading, setUploading] = useState(false);
+  const [message, setMessage] = useState('');
 
-  const linkStyle = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '6px',
-    background: 'var(--ifm-color-success-contrast-background)',
-    color: 'var(--ifm-color-success-dark)',
-    padding: '6px 14px',
-    borderRadius: '6px',
-    fontSize: '0.9em',
-    textDecoration: 'none',
-    fontWeight: 600,
+  const upload = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setUploading(true);
+    setMessage('');
+    try {
+      const response = await apiFetch(`${API_BASE}/api/references/${encodeURIComponent(paper.key)}/pdf`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/pdf', 'X-File-Name': encodeURIComponent(file.name)},
+        body: file,
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not upload PDF');
+      onUploaded({...paper, pdfUrl: data.pdfUrl});
+      setMessage('PDF saved to this workspace');
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
-    <div style={{ marginBottom: '2rem' }}>
-      <h2>Raw Files</h2>
-      {hasPdf || hasLatex ? (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-          {hasPdf && (
-            <a href={pdfUrl} style={linkStyle} target="_blank" rel="noopener noreferrer">
-              ⬇ PDF
-            </a>
-          )}
-          {hasLatex && (
-            <a href={sourceUrl} style={linkStyle} download>
-              ⬇ LaTeX Source (.tar.gz)
-            </a>
-          )}
-        </div>
-      ) : notFound ? (
-        <div
-          style={{
-            border: '1px solid var(--ifm-color-warning-dark)',
-            background: 'var(--ifm-color-warning-contrast-background)',
-            color: 'var(--ifm-color-warning-contrast-foreground)',
-            borderRadius: '6px',
-            padding: '1rem',
-            whiteSpace: 'pre-wrap',
-            fontSize: '0.9em',
-            lineHeight: 1.5,
-          }}
-        >
-          {notFound}
-        </div>
-      ) : (
-        <p style={{ color: 'var(--ifm-color-emphasis-600)', fontStyle: 'italic' }}>
-          No raw files yet. Drop files into <code>raw/bibliography/{bibKey}/</code>.
-        </p>
-      )}
-    </div>
+    <section style={panel}>
+      <h2 style={{fontSize: 19, marginTop: 0}}>Workspace PDF</h2>
+      <p style={{fontSize: 14, color: 'var(--ifm-color-emphasis-700)'}}>
+        Upload a PDF so everyone in this workspace can open and annotate the same file.
+      </p>
+      <label style={{...button, display: 'inline-block'}}>
+        {uploading ? 'Uploading…' : 'Upload PDF'}
+        <input type="file" accept="application/pdf,.pdf" disabled={uploading} onChange={upload} style={{display: 'none'}} />
+      </label>
+      {message ? <p style={{fontSize: 13, marginBottom: 0}}>{message}</p> : null}
+    </section>
   );
 }
 
-function BibtexSection({ bibtex }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(bibtex).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
-
-  return (
-    <div style={{ marginBottom: '2rem' }}>
-      <h2>BibTeX</h2>
-      <div style={{ position: 'relative' }}>
-        <pre
-          style={{
-            padding: '1rem',
-            borderRadius: '4px',
-            background: 'var(--ifm-color-emphasis-100)',
-            overflow: 'auto',
-          }}
-        >
-          <code>{bibtex}</code>
-        </pre>
-        <button
-          onClick={handleCopy}
-          style={{
-            position: 'absolute',
-            top: '8px',
-            right: '8px',
-            padding: '4px 10px',
-            fontSize: '0.8em',
-            borderRadius: '4px',
-            border: '1px solid var(--ifm-color-emphasis-300)',
-            background: 'var(--ifm-color-emphasis-0)',
-            color: 'var(--ifm-font-color-base)',
-            cursor: 'pointer',
-          }}
-        >
-          {copied ? 'Copied!' : 'Copy'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-const NOTES_API = `${API_BASE}/api/notes`;
-
-function NotesSection({ notes: staticNotes, bibKey }) {
-  const [content, setContent] = useState(staticNotes || '');
-  const [editing, setEditing] = useState(false);
+function Annotations({paper, onSelectPage}) {
+  const [annotations, setAnnotations] = useState([]);
+  const [page, setPage] = useState(1);
+  const [quote, setQuote] = useState('');
+  const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch(`${NOTES_API}?key=${encodeURIComponent(bibKey)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (cancelled) return;
-        if (data.note && data.note.content != null) {
-          setContent(data.note.content);
-        }
+    apiFetch(`${API_BASE}/api/references/${encodeURIComponent(paper.key)}/annotations`)
+      .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not load annotations');
+        if (!cancelled) setAnnotations(data.annotations || []);
       })
-      .catch((err) => {
-        if (!cancelled) {
-          setError('Failed to load notes from server.');
-          console.error('Notes fetch error:', err);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      .catch(err => { if (!cancelled) setError(err.message); });
     return () => { cancelled = true; };
-  }, [bibKey]);
+  }, [paper.key]);
 
-  const handleSave = () => {
+  const add = async event => {
+    event.preventDefault();
+    if (!quote.trim() && !note.trim()) return;
     setSaving(true);
-    setSaved(false);
-    setError(null);
-    apiFetch(NOTES_API, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: bibKey, content }),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`Server responded ${res.status}`);
-        return res.json();
-      })
-      .then(() => {
-        setSaved(true);
-        setEditing(false);
-        setTimeout(() => setSaved(false), 2500);
-      })
-      .catch((err) => {
-        setError('Failed to save notes.');
-        console.error('Notes save error:', err);
-      })
-      .finally(() => setSaving(false));
-  };
-
-  const handleCancel = () => {
-    setEditing(false);
-    setError(null);
-    // Re-fetch to reset content to server state
-    apiFetch(`${NOTES_API}?key=${encodeURIComponent(bibKey)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.note && data.note.content != null) {
-          setContent(data.note.content);
-        }
+    setError('');
+    try {
+      const response = await apiFetch(`${API_BASE}/api/references/${encodeURIComponent(paper.key)}/annotations`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({page, quote, body: note}),
       });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not save annotation');
+      setAnnotations(current => [...current, data.annotation].sort((a, b) => a.page - b.page));
+      setQuote('');
+      setNote('');
+      onSelectPage(page);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
   };
-
 
   return (
-    <div style={{ marginBottom: '2rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '0.5rem' }}>
-        <h2 style={{ margin: 0 }}>Notes</h2>
-        {!editing && !loading && (
-          <button
-            onClick={() => setEditing(true)}
-            style={BUTTON_BASE}
-          >
-            Edit
+    <section style={{...panel, marginTop: 18}}>
+      <h2 style={{fontSize: 19, marginTop: 0}}>Workspace annotations</h2>
+      <p style={{fontSize: 14, color: 'var(--ifm-color-emphasis-700)'}}>
+        Page-linked notes are visible to everyone in this workspace.
+      </p>
+      <form onSubmit={add} style={{display: 'grid', gap: 9, marginBottom: 18}}>
+        <label>
+          <span style={{fontSize: 13, fontWeight: 700}}>Page</span>
+          <input type="number" min="1" value={page} onChange={event => setPage(Number(event.target.value))} style={{display: 'block', width: 100, border: '1px solid var(--ifm-color-emphasis-300)', borderRadius: 7, padding: '7px 9px'}} />
+        </label>
+        <textarea value={quote} onChange={event => setQuote(event.target.value)} placeholder="Quoted text (optional)" rows={2} style={{border: '1px solid var(--ifm-color-emphasis-300)', borderRadius: 7, padding: '8px 10px', font: 'inherit'}} />
+        <textarea value={note} onChange={event => setNote(event.target.value)} placeholder="Add a note" rows={3} style={{border: '1px solid var(--ifm-color-emphasis-300)', borderRadius: 7, padding: '8px 10px', font: 'inherit'}} />
+        <button type="submit" disabled={saving || (!quote.trim() && !note.trim())} style={{...button, justifySelf: 'start'}}>
+          {saving ? 'Saving…' : 'Add annotation'}
+        </button>
+      </form>
+      {error ? <p role="alert" style={{color: 'var(--ifm-color-danger)'}}>{error}</p> : null}
+      <div style={{display: 'grid', gap: 8}}>
+        {annotations.map(annotation => (
+          <button key={annotation.id} onClick={() => onSelectPage(annotation.page)} style={{...panel, cursor: 'pointer', textAlign: 'left', color: 'inherit'}}>
+            <strong>Page {annotation.page}</strong>
+            {annotation.quote ? <blockquote style={{margin: '7px 0', fontSize: 14}}>{annotation.quote}</blockquote> : null}
+            {annotation.body ? <div style={{fontSize: 14}}>{annotation.body}</div> : null}
           </button>
-        )}
-        {saved && (
-          <span
-            style={{
-              color: 'var(--ifm-color-success-dark)',
-              fontSize: '0.85em',
-              fontWeight: 500,
-            }}
-          >
-            Saved
-          </span>
-        )}
+        ))}
+        {!annotations.length ? <span style={{fontSize: 14, color: 'var(--ifm-color-emphasis-600)'}}>No annotations yet.</span> : null}
       </div>
-
-      {error && (
-        <div
-          style={{
-            color: 'var(--ifm-color-danger-dark)',
-            background: 'var(--ifm-color-danger-contrast-background)',
-            border: '1px solid var(--ifm-color-danger-dark)',
-            borderRadius: '4px',
-            padding: '0.5rem 1rem',
-            fontSize: '0.85em',
-            marginBottom: '0.75rem',
-          }}
-        >
-          {error}
-        </div>
-      )}
-
-      {loading ? (
-        <p style={{ color: 'var(--ifm-color-emphasis-600)', fontStyle: 'italic' }}>
-          Loading notes...
-        </p>
-      ) : editing ? (
-        <div>
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            style={{
-              width: '100%',
-              minHeight: '200px',
-              padding: '1rem',
-              border: '1px solid var(--ifm-color-emphasis-300)',
-              borderRadius: '4px',
-              fontFamily: 'var(--ifm-font-family-base)',
-              fontSize: '0.95em',
-              lineHeight: 1.6,
-              resize: 'vertical',
-              background: 'var(--ifm-color-emphasis-0)',
-              color: 'var(--ifm-font-color-base)',
-            }}
-            placeholder="Write your notes here..."
-          />
-          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              style={{
-                ...BUTTON_BASE,
-                background: 'var(--ifm-color-primary)',
-                color: 'var(--ifm-color-white)',
-                border: '1px solid var(--ifm-color-primary)',
-                opacity: saving ? 0.6 : 1,
-              }}
-            >
-              {saving ? 'Saving...' : 'Save'}
-            </button>
-            <button
-              onClick={handleCancel}
-              disabled={saving}
-              style={BUTTON_BASE}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : content ? (
-        <div
-          style={{
-            border: '1px solid var(--ifm-color-emphasis-300)',
-            borderRadius: '4px',
-            padding: '1rem',
-            whiteSpace: 'pre-wrap',
-            fontFamily: 'var(--ifm-font-family-base)',
-            lineHeight: 1.6,
-          }}
-        >
-          {content}
-        </div>
-      ) : (
-        <p style={{ color: 'var(--ifm-color-emphasis-600)', fontStyle: 'italic' }}>
-          No notes yet. Click Edit to add notes for this reference.
-        </p>
-      )}
-    </div>
+    </section>
   );
 }
 
-function RelatedPapers({ title }) {
-  const [results, setResults] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [addingIdx, setAddingIdx] = useState(null);
-  const [addedSet, setAddedSet] = useState(new Set());
+export default function BibliographyItem() {
+  const location = useLocation();
+  const bibliographyPath = /^\/w\/[^/]+/.exec(location.pathname)?.[0]
+    ? `${/^\/w\/[^/]+/.exec(location.pathname)[0]}/bibliography`
+    : '/bibliography';
+  const key = decodeURIComponent(location.pathname.split('/bibliography/')[1]?.replace(/\/$/, '') || '');
+  const [paper, setPaper] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [pdfPage, setPdfPage] = useState(1);
 
-  const handleSearch = () => {
-    setLoading(true);
-    setError(null);
-    setResults(null);
-    const url =
-      S2_PAPER_SEARCH + '?query=' +
-      encodeURIComponent(title) +
-      '&limit=5&fields=title,authors,year,venue,url';
-    fetch(url)
-      .then((res) => {
-        if (!res.ok) throw new Error(`Semantic Scholar returned ${res.status}`);
-        return res.json();
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch(`${API_BASE}/api/references/item/${encodeURIComponent(key)}`)
+      .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not load paper');
+        if (!cancelled) {
+          const found = data.entry;
+          if (!found) throw new Error('Paper not found');
+          setPaper({...found, key});
+        }
       })
-      .then((data) => {
-        setResults(data.data || []);
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  };
+      .catch(err => { if (!cancelled) setError(err.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [key]);
 
-  const handleAdd = (paper, idx) => {
-    setAddingIdx(idx);
-    const ref = {
-      title: paper.title,
-      author: (paper.authors || []).map((a) => a.name),
-      year: paper.year,
-      venue: paper.venue || '',
-      url: paper.url || '',
-    };
-    apiFetch(`${API_BASE}/api/references`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(ref),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`Server returned ${res.status}`);
-        return res.json();
-      })
-      .then(() => {
-        setAddedSet((prev) => new Set(prev).add(idx));
-      })
-      .catch((err) => {
-        setError('Failed to add: ' + err.message);
-      })
-      .finally(() => setAddingIdx(null));
-  };
-
+  const copyCitation = () => navigator.clipboard?.writeText(`[@${key}]`);
 
   return (
-    <div style={{ marginBottom: '2rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '0.5rem' }}>
-        <h2 style={{ margin: 0 }}>Related Papers</h2>
-        <button
-          onClick={handleSearch}
-          disabled={loading}
-          style={{ ...BUTTON_BASE, opacity: loading ? 0.6 : 1 }}
-        >
-          {loading ? 'Searching...' : 'Find Related Papers'}
-        </button>
-      </div>
-
-      {error && (
-        <div style={{
-          color: 'var(--ifm-color-danger-dark)',
-          background: 'var(--ifm-color-danger-contrast-background)',
-          border: '1px solid var(--ifm-color-danger-dark)',
-          borderRadius: '4px',
-          padding: '0.5rem 1rem',
-          fontSize: '0.85em',
-          marginBottom: '0.75rem',
-        }}>
-          {error}
-        </div>
-      )}
-
-      {loading && (
-        <p style={{ color: 'var(--ifm-color-emphasis-600)', fontStyle: 'italic' }}>
-          Loading...
-        </p>
-      )}
-
-      {results && results.length === 0 && (
-        <p style={{ color: 'var(--ifm-color-emphasis-600)', fontStyle: 'italic' }}>
-          No related papers found.
-        </p>
-      )}
-
-      {results && results.length > 0 && (
-        <div style={{
-          border: '1px solid var(--ifm-color-emphasis-200)',
-          borderRadius: '6px',
-          overflow: 'hidden',
-        }}>
-          {results.map((paper, idx) => (
-            <div
-              key={idx}
-              style={{
-                padding: '0.75rem 1rem',
-                borderBottom: idx < results.length - 1 ? '1px solid var(--ifm-color-emphasis-200)' : 'none',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                gap: '12px',
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: '0.95em', marginBottom: '2px' }}>
-                  {paper.url ? (
-                    <a href={paper.url} target="_blank" rel="noopener noreferrer">
-                      {paper.title}
-                    </a>
-                  ) : (
-                    paper.title
-                  )}
-                </div>
-                <div style={{ fontSize: '0.85em', color: 'var(--ifm-color-emphasis-700)' }}>
-                  {(paper.authors || []).map((a) => a.name).join(', ')}
-                  {paper.year && <span> ({paper.year})</span>}
-                </div>
+    <Layout title={paper?.title || 'Paper'} description={paper ? `${paper.title} — bibliography paper` : 'Bibliography paper'}>
+      <main className="container margin-vert--lg" style={{maxWidth: 1100}}>
+        <Link to={bibliographyPath}>← Bibliography</Link>
+        {loading ? <p>Loading paper…</p> : null}
+        {error ? <div style={{...panel, marginTop: 20}}><h1>Paper unavailable</h1><p>{error}</p></div> : null}
+        {paper ? (
+          <>
+            <header style={{margin: '20px 0 22px'}}>
+              <h1 style={{marginBottom: 8}}>{paper.title}</h1>
+              <p style={{fontSize: 17, color: 'var(--ifm-color-emphasis-700)', margin: '0 0 6px'}}>
+                {(paper.author || []).join(', ') || 'Unknown authors'}
+              </p>
+              <p style={{margin: 0, color: 'var(--ifm-color-emphasis-600)'}}>
+                {[paper.venue, paper.year].filter(Boolean).join(' · ')}
+              </p>
+              <div style={{display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14}}>
+                <button onClick={copyCitation} style={{...button, background: 'var(--ifm-color-primary)', color: '#fff'}}>
+                  Copy [@{key}]
+                </button>
+                {paper.officialUrl ? <a href={paper.officialUrl} target="_blank" rel="noreferrer" style={button}>Official paper</a> : null}
+                {paper.pdfUrl ? <a href="#paper-pdf" style={button}>View PDF</a> : null}
               </div>
-              <button
-                onClick={() => handleAdd(paper, idx)}
-                disabled={addingIdx === idx || addedSet.has(idx)}
-                style={{
-                  ...BUTTON_BASE,
-                  flexShrink: 0,
-                  fontSize: '0.8em',
-                  padding: '2px 10px',
-                  background: addedSet.has(idx)
-                    ? 'var(--ifm-color-success-contrast-background)'
-                    : 'var(--ifm-color-emphasis-0)',
-                  color: addedSet.has(idx)
-                    ? 'var(--ifm-color-success-dark)'
-                    : 'var(--ifm-font-color-base)',
-                  opacity: addingIdx === idx ? 0.6 : 1,
-                }}
-              >
-                {addedSet.has(idx) ? 'Added' : addingIdx === idx ? 'Adding...' : 'Add to Bibliography'}
-              </button>
+            </header>
+
+            <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: 18, alignItems: 'start'}}>
+              <div style={{display: 'grid', gap: 18}}>
+                <section style={panel}>
+                  <h2 style={{fontSize: 19, marginTop: 0}}>Source</h2>
+                  <dl style={{margin: 0}}>
+                    <dt style={{fontWeight: 700}}>Type</dt>
+                    <dd style={{margin: '0 0 9px'}}>{paper.source?.type || 'manual'}</dd>
+                    {paper.source?.id ? <><dt style={{fontWeight: 700}}>Identifier</dt><dd style={{margin: '0 0 9px', overflowWrap: 'anywhere'}}>{paper.source.id}</dd></> : null}
+                    {paper.source?.provider ? <><dt style={{fontWeight: 700}}>Provider</dt><dd style={{margin: 0}}>{paper.source.provider}</dd></> : null}
+                  </dl>
+                </section>
+                <TagEditor paper={paper} onSaved={setPaper} />
+                <PdfUpload paper={paper} onUploaded={setPaper} />
+              </div>
+              <PdfViewer url={paper.pdfUrl} title={paper.title} page={pdfPage} />
             </div>
-          ))}
-        </div>
-      )}
-    </div>
+            <Annotations paper={paper} onSelectPage={setPdfPage} />
+          </>
+        ) : null}
+      </main>
+    </Layout>
   );
 }

@@ -15,10 +15,13 @@
  *
  *   always        respond, readBody, rateLimit, caller, shared
  *   "cache"       cache, invalidateCache
- *   "content:read"   content.read, content.list
- *   "content:write"  content.write  (implies content:read)
+ *   "content:read"   read-only database document view: content.read/list/stat/walk
  *   "network"     fetch
- *   "storage"     storage.read, storage.write, scoped to this plugin alone
+ *   "storage"     storage.read/storage.write, scoped to this plugin alone
+ *   "records"     organization-scoped SQLite collections owned by the plugin
+ *   "blobs"       organization-scoped binary files owned by the plugin
+ *   "ai"          the configured completion provider
+ *   "process"     declared executables, rooted inside the plugin directory
  *
  * A capability the manifest did not ask for is simply absent, so a plugin that
  * reaches for one fails loudly on its own first request rather than quietly
@@ -29,93 +32,96 @@
  */
 const fs = require('fs');
 const path = require('path');
-const {PROJECT_ROOT, CONTENT_DIR, VAR_DIR, PRIMARY_ORG_SLUG} = require('./paths');
+const crypto = require('crypto');
+const {spawn} = require('child_process');
+const {PROJECT_ROOT, VAR_DIR} = require('./paths');
 const {numericParam, within} = require('./server-utils');
+const {localObjectStorage} = require('./object-storage');
 
 /** The surface this file currently implements. */
 const API_VERSION = 1;
 
-const CAPABILITIES = Object.freeze(['cache', 'content:read', 'content:write', 'network', 'storage']);
-
-/** Text longer than this is not a field value, it is an accident or an attack. */
-const MAX_WRITE_BYTES = 5 * 1024 * 1024;
+const CAPABILITIES = Object.freeze([
+  'ai', 'blobs', 'cache', 'content:read', 'network',
+  'process', 'records', 'storage',
+]);
 
 
 /**
- * Read and write files under content/, and nothing else.
+ * Read the caller's database-backed documents, and nothing else.
  *
- * The filesystem and the root come from the server's ctx rather than from a
- * `require('fs')` here, so that whatever the server considers the filesystem to
- * be is what a plugin sees: the real one in production, and the in-memory one a
- * test injects. The plugin still cannot reach either directly.
+ * This deliberately does not accept a filesystem root. Runtime documents have
+ * one source of truth, so plugins must see the same repository and verified
+ * RequestContext as core routes. Every method is async because the production
+ * repository is PostgreSQL even though the local adapter can answer
+ * synchronously.
  */
-function contentCapability(writable, {fs, CONTENT_DIR, onWrite}) {
-  const read = (relative) => {
-    try {
-      return fs.readFileSync(within(CONTENT_DIR, relative, 'path'), 'utf-8');
-    } catch (err) {
-      if (err.code === 'ENOENT') return null;
-      throw err;
+function contentCapability({documents, scope}) {
+  if (!documents || !scope?.workspaceId || !scope?.userId) {
+    throw new Error('the server does not provide scoped documents');
+  }
+
+  let snapshot;
+  const rows = async () => {
+    if (!snapshot) {
+      snapshot = Promise.resolve(
+        documents.snapshot
+          ? documents.snapshot(scope)
+          : Promise.resolve(documents.list(scope)).then(async listed => Promise.all(
+            listed.map(row => Promise.resolve(documents.get(scope, row.path))),
+          )),
+      ).then(values => values.filter(Boolean));
     }
+    return snapshot;
   };
-  const list = (relative = '.') => {
-    try {
-      return fs.readdirSync(within(CONTENT_DIR, relative, 'path'), {withFileTypes: true})
-        .map(e => ({name: e.name, directory: e.isDirectory()}));
-    } catch {
-      return [];
+  const clean = (relative, {directory = false} = {}) => {
+    const value = String(relative ?? (directory ? '.' : ''));
+    if (directory && (value === '' || value === '.')) return '';
+    if (!value || value.startsWith('/') || value.includes('\\') || value.split('/').includes('..')) {
+      throw new Error(`path resolves outside the directory this plugin may use: ${value}`);
     }
+    return value.replace(/^\.\//, '').replace(/\/$/, '');
   };
-  /**
-   * Size and modification time, or null when the file is not there.
-   *
-   * A read capability that cannot tell you whether a file changed forces every
-   * caller to re-read and re-parse it; the bibliography memoizes a 250 KB YAML
-   * on exactly this.
-   */
-  const stat = (relative) => {
-    try {
-      const {mtimeMs, size} = fs.statSync(within(CONTENT_DIR, relative, 'path'));
-      return {mtimeMs, size};
-    } catch {
-      return null;
+  const read = async relative => {
+    const wanted = clean(relative);
+    return (await rows()).find(row => row.path === wanted)?.markdown ?? null;
+  };
+  const list = async (relative = '.') => {
+    const directory = clean(relative, {directory: true});
+    const prefix = directory ? `${directory}/` : '';
+    const entries = new Map();
+    for (const row of await rows()) {
+      if (!row.path.startsWith(prefix)) continue;
+      const remainder = row.path.slice(prefix.length);
+      if (!remainder) continue;
+      const [name, ...rest] = remainder.split('/');
+      entries.set(name, {name, directory: rest.length > 0});
     }
+    return [...entries.values()];
+  };
+  const stat = async relative => {
+    const wanted = clean(relative);
+    const row = (await rows()).find(item => item.path === wanted);
+    if (!row) return null;
+    return {mtimeMs: Date.parse(row.updatedAt) || 0, size: Buffer.byteLength(String(row.markdown ?? ''), 'utf8')};
+  };
+  const walk = async (relative = '.', {extensions = null} = {}) => {
+    const directory = clean(relative, {directory: true});
+    const prefix = directory ? `${directory}/` : '';
+    return (await rows())
+      .map(row => row.path)
+      .filter(documentPath => documentPath.startsWith(prefix))
+      .filter(documentPath => documentPath.slice(prefix.length).split('/').every(name => !name.startsWith('.') && !name.startsWith('_')))
+      .filter(documentPath => !extensions || extensions.some(extension => documentPath.endsWith(extension)));
   };
 
-  /**
-   * Every file under `relative`, depth first, as content-relative paths.
-   * Dotfiles and underscore-prefixed drafts are skipped, matching the site's
-   * own walk, and `extensions` narrows it to the ones worth reading.
-   */
-  const walk = (relative = '.', {extensions = null} = {}) => {
-    const out = [];
-    const visit = (rel) => {
-      for (const entry of list(rel)) {
-        if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-        const child = rel === '.' ? entry.name : `${rel}/${entry.name}`;
-        if (entry.directory) visit(child);
-        else if (!extensions || extensions.some(e => entry.name.endsWith(e))) out.push(child);
-      }
-    };
-    visit(relative);
-    return out;
-  };
-
-  const api = {read, list, stat, walk, exists: rel => fs.existsSync(within(CONTENT_DIR, rel, 'path'))};
-  if (!writable) return Object.freeze(api);
-
-  api.write = (relative, text) => {
-    const target = within(CONTENT_DIR, relative, 'path');
-    const body = String(text);
-    if (Buffer.byteLength(body) > MAX_WRITE_BYTES) throw new Error('content write is too large');
-    fs.mkdirSync(path.dirname(target), {recursive: true});
-    fs.writeFileSync(target, body, 'utf-8');
-    // The server caches things it derives from content, and only the server
-    // knows which. A plugin that writes should not have to name them, and
-    // should not be able to reach for any other key to do it.
-    onWrite();
-  };
-  return Object.freeze(api);
+  return Object.freeze({
+    read,
+    list,
+    stat,
+    walk,
+    exists: async relative => (await stat(relative)) !== null,
+  });
 }
 
 /**
@@ -148,6 +154,82 @@ function storageCapability(name, {fs, VAR_DIR}) {
   });
 }
 
+/** Workspace-scoped JSON records backed by the selected database store. */
+function recordsCapability(name, {collection, scope, onWrite = () => {}}) {
+  if (typeof collection !== 'function' || !scope) {
+    throw new Error('the server does not provide scoped records');
+  }
+  const collectionFor = raw => {
+    const local = String(raw || '').trim();
+    if (!/^[a-z][a-z0-9-]{0,63}$/.test(local)) throw new Error('invalid record collection');
+    const source = collection(`plugin:${name}:${local}`);
+    return Object.freeze({
+      list: () => source.list(scope),
+      values: () => source.values(scope),
+      entries: () => source.entries(scope),
+      get: key => source.get(scope, key),
+      has: key => source.has(scope, key),
+      put: (key, value) => { const result = source.put(scope, key, value); onWrite(); return result; },
+      update: (key, transform) => { const result = source.update(scope, key, transform); onWrite(); return result; },
+      remove: key => { const result = source.remove(scope, key); if (result) onWrite(); return result; },
+      clear: () => { const result = source.clear(scope); if (result) onWrite(); return result; },
+      count: () => source.count(scope),
+      replaceAll: object => { const result = source.replaceAll(scope, object); onWrite(); return result; },
+    });
+  };
+  return Object.freeze({collection: collectionFor});
+}
+
+/** Organization-scoped binary storage for PDFs and other plugin artifacts. */
+function blobsCapability(name, {fs, VAR_DIR, orgId, userId, objectStorage, assets}) {
+  if (!orgId) {
+    const error = new Error('This action needs an active workspace');
+    error.status = 409;
+    error.code = 'no-workspace';
+    throw error;
+  }
+  const safeOrg = String(orgId).replace(/[^\w.-]/g, '_');
+  const root = path.join(VAR_DIR, 'objects');
+  const storage = objectStorage ?? localObjectStorage({root, files: fs});
+  const prefix = `${safeOrg}/assets/`;
+  const context = {workspaceId: orgId, userId};
+  const transient = new Map();
+  const metadata = async key => assets ? await assets.get(context, key) : transient.get(String(key)) ?? null;
+  return Object.freeze({
+    provider: storage.provider,
+    async put(bytes, extension = '') {
+      const body = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+      const sha256 = crypto.createHash('sha256').update(body).digest('hex');
+      const suffix = /^\.[a-z0-9]{1,10}$/i.test(extension) ? extension.toLowerCase() : '';
+      const id = crypto.randomUUID();
+      const objectKey = `${prefix}${id}/${sha256}${suffix}`;
+      const contentType = suffix === '.pdf' ? 'application/pdf' : 'application/octet-stream';
+      await storage.put(objectKey, body, contentType);
+      if (assets) await assets.create(context, {id, objectKey, contentType, byteSize: body.length, sha256});
+      else transient.set(id, {id, objectKey, contentType, byteSize: body.length, sha256});
+      return {key: id, sha256, size: body.length};
+    },
+    async read(key) {
+      const asset = await metadata(key);
+      return asset ? storage.get(asset.objectKey) : null;
+    },
+    async stat(key) {
+      const asset = await metadata(key);
+      return asset ? storage.stat(asset.objectKey) : null;
+    },
+    async remove(key) {
+      const asset = await metadata(key);
+      if (!asset) return false;
+      const removed = await storage.remove(asset.objectKey);
+      if (removed) {
+        if (assets) await assets.remove(context, key);
+        else transient.delete(String(key));
+      }
+      return removed;
+    },
+  });
+}
+
 /**
  * Outbound HTTP, which is `fetch` with a timeout attached.
  *
@@ -176,6 +258,48 @@ function networkCapability({timeoutMs = 10_000} = {}) {
   };
 }
 
+/** A bounded subprocess rooted inside the requesting plugin's directory. */
+function processCapability(pluginDir, commands, spawnImpl = spawn) {
+  const allowed = new Set(commands);
+  return async function execute(command, args = [], options = {}) {
+    if (!allowed.has(command)) throw new Error(`command "${command}" is not declared by this plugin`);
+    if (!Array.isArray(args) || args.some(arg => typeof arg !== 'string')) throw new Error('command arguments must be strings');
+    const cwd = within(pluginDir, options.cwd || '.', 'cwd');
+    const timeoutMs = Math.min(Math.max(Number(options.timeoutMs) || 30_000, 100), 180_000);
+    const maxBytes = Math.min(Math.max(Number(options.maxBytes) || 1024 * 1024, 1024), 2 * 1024 * 1024);
+
+    return new Promise(resolve => {
+      let stdout = '';
+      let stderr = '';
+      let settled = false;
+      let timedOut = false;
+      let timer;
+      const detached = process.platform !== 'win32';
+      const child = spawnImpl(command, args, {cwd, detached, stdio: ['pipe', 'pipe', 'pipe']});
+      const finish = result => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+      const append = (current, chunk) => (current + String(chunk)).slice(0, maxBytes);
+      child.stdout?.on('data', chunk => { stdout = append(stdout, chunk); });
+      child.stderr?.on('data', chunk => { stderr = append(stderr, chunk); });
+      child.on('error', error => finish({ok: false, code: null, stdout, stderr: error.message, timedOut}));
+      child.on('close', code => finish({ok: code === 0 && !timedOut, code, stdout, stderr, timedOut}));
+      timer = setTimeout(() => {
+        timedOut = true;
+        if (detached && child.pid) {
+          try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+        } else {
+          child.kill('SIGKILL');
+        }
+      }, timeoutMs);
+      child.stdin?.end(String(options.input ?? ''));
+    });
+  };
+}
+
 /**
  * Build one plugin's API.
  *
@@ -183,13 +307,17 @@ function networkCapability({timeoutMs = 10_000} = {}) {
  * what the installed plugins publish for each other, which is how the seven core
  * handlers and any plugin reach the bibliography without requiring its files.
  */
-function buildPluginApi({name, requires = [], ctx, req}) {
+function buildPluginApi({name, dir, requires = [], commands = [], ctx, req}) {
   const asked = new Set(requires);
   const unknown = [...asked].filter(c => !CAPABILITIES.includes(c));
   if (unknown.length) {
     console.error(`[plugins] ${name} asks for unknown capabilities: ${unknown.join(', ')}`);
   }
 
+  // Workspace authority must come from the URL-resolved RequestContext. The
+  // session's activeOrganizationId is only a navigation preference and must
+  // never silently scope a plugin request.
+  const requestScope = req?.context ?? null;
   const api = {
     /** The plugin's own name, for log lines and cache keys. */
     name,
@@ -218,9 +346,9 @@ function buildPluginApi({name, requires = [], ctx, req}) {
 
     /** Who is asking, as the verified session says. Never what they claim. */
     caller: Object.freeze({
-      userId: req?.auth?.userId ?? null,
-      orgId: req?.auth?.orgId ?? null,
-      orgRole: req?.auth?.orgRole ?? null,
+      userId: req?.context?.userId ?? null,
+      workspaceId: requestScope?.workspaceId ?? null,
+      role: req?.context?.role ?? null,
     }),
 
     /** What the other installed plugins publish. */
@@ -232,9 +360,10 @@ function buildPluginApi({name, requires = [], ctx, req}) {
   };
 
   if (asked.has('cache')) {
-    // Keys are namespaced for the same reason the rate limiter's are.
-    api.cache = (key, ttlMs, compute) => ctx.cached(`${name}:${key}`, ttlMs, compute);
-    api.invalidateCache = key => ctx.invalidateCache(`${name}:${key}`);
+    // Derived plugin data belongs to both the plugin and the active workspace.
+    const prefix = `${name}:${api.caller.workspaceId ?? 'public'}:`;
+    api.cache = (key, ttlMs, compute) => ctx.cached(`${prefix}${key}`, ttlMs, compute);
+    api.invalidateCache = key => ctx.invalidateCache(`${prefix}${key}`);
   }
   // Where the plugin's two directories are, according to the server. A test
   // that moves PROJECT_ROOT moves them with it.
@@ -244,32 +373,53 @@ function buildPluginApi({name, requires = [], ctx, req}) {
     onWrite: () => {
       // Scoped to the workspace whose file was written, so one plugin write
       // does not drop every other organization's derived caches.
-      ctx.invalidateCache(ctx.cacheKey ? ctx.cacheKey(req?.auth?.orgId, 'stats') : 'stats');
-      ctx.invalidateCache(ctx.cacheKey ? ctx.cacheKey(req?.auth?.orgId, 'search') : 'search');
+      ctx.invalidateCache(ctx.cacheKey ? ctx.cacheKey(requestScope?.workspaceId, 'stats') : 'stats');
+      ctx.invalidateCache(ctx.cacheKey ? ctx.cacheKey(requestScope?.workspaceId, 'search') : 'search');
     },
-    // The caller's workspace, not the whole content tree. A plugin holding
-    // content:read sees one organization's files and cannot name another's,
-    // because `within` resolves every relative path it is given inside this
-    // root and the root comes from the verified session rather than the
-    // request. That makes the bibliography plugin per-workspace for free: its
-    // BIB_FILE is the relative 'bibliography/references.yaml'.
-    CONTENT_DIR: ctx.contentRootFor
-      ? ctx.contentRootFor(req?.auth?.orgId)
-      : path.join(root, 'content', PRIMARY_ORG_SLUG),
     VAR_DIR: root === PROJECT_ROOT ? VAR_DIR : path.join(root, 'var'),
   };
 
-  if (asked.has('content:read') || asked.has('content:write')) {
-    api.content = contentCapability(asked.has('content:write'), files);
-  }
+  if (asked.has('content:read')) api.content = contentCapability({
+    documents: ctx.documents,
+    scope: requestScope,
+  });
   if (asked.has('network')) api.fetch = networkCapability();
   if (asked.has('storage')) api.storage = storageCapability(name, files);
+  const recordScope = asked.has('records') || asked.has('blobs') ? requestScope : null;
+  if (asked.has('records')) {
+    api.records = recordsCapability(name, {
+      collection: ctx.collection,
+      scope: recordScope,
+      onWrite: files.onWrite,
+    });
+  }
+  if (asked.has('blobs')) {
+    api.blobs = blobsCapability(name, {
+      fs: files.fs,
+      VAR_DIR: files.VAR_DIR,
+      orgId: recordScope.workspaceId,
+      userId: recordScope.userId,
+      objectStorage: ctx.objectStorage,
+      assets: ctx.assets,
+    });
+    api.readBytes = () => ctx.readRawBody(req);
+  }
+  if (asked.has('ai')) {
+    api.ai = Object.freeze({
+      complete: request => ctx.ai.complete(request),
+      describe: () => ctx.ai.describe(),
+    });
+  }
+  if (asked.has('process')) {
+    api.exec = processCapability(dir, commands, ctx.spawn ?? spawn);
+  }
 
   return api;
 }
 
 module.exports = {
-  API_VERSION, CAPABILITIES, buildPluginApi, PROJECT_ROOT,
+  API_VERSION, CAPABILITIES, buildPluginApi, processCapability,
+  recordsCapability, blobsCapability, PROJECT_ROOT,
   /** Re-exported where it used to live, for the plugins that import it. */
   within,
   /**

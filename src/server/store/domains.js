@@ -46,7 +46,6 @@ const DOMAINS = Object.freeze({
   // app set up. Neither reached ctx through a named constant, which is how they
   // went unlisted here at first: both are built inline from dataFileSegs().
   quicknotes: {owner: 'user'},
-  preferences: {owner: 'user'},
 
   // ── The workspace's, shared by every member ─────────────────────────────
   // The lab's vocabulary. One definition of a term, or it is not a glossary.
@@ -66,7 +65,8 @@ const DOMAIN_NAMES = Object.freeze(Object.keys(DOMAINS));
 
 /** Whether `domain` is one this store knows how to scope. */
 function isDomain(domain) {
-  return Object.prototype.hasOwnProperty.call(DOMAINS, domain);
+  return Object.prototype.hasOwnProperty.call(DOMAINS, domain)
+    || (typeof domain === 'string' && domain.startsWith('plugin:'));
 }
 
 /**
@@ -77,6 +77,10 @@ function isPerUser(domain) {
   if (!isDomain(domain)) {
     throw new Error(`Unknown store domain: ${domain}. Add it to server/store/domains.js.`);
   }
+  // Plugin collections are collaborative workspace data. A plugin never gets
+  // to choose an owner column or organization id; the host binds both and
+  // keeps plugin data under a namespace derived from the plugin directory.
+  if (domain.startsWith('plugin:')) return false;
   return DOMAINS[domain].owner === 'user';
 }
 

@@ -1,9 +1,30 @@
-import React, { useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import { useLocation } from '@docusaurus/router';
 import PageTracker from '@site/src/components/Analytics/PageTracker';
-import CommandBar from '@site/src/components/CommandBar';
+
+const CommandBar = lazy(() => import('@site/src/components/CommandBar'));
+const AuthScreen = lazy(() => import('@site/src/theme/Root/AuthScreen'));
+const OnboardingScreen = lazy(() => import('@site/src/theme/Root/OnboardingScreen'));
+
+function Deferred({children}) {
+  return <Suspense fallback={null}>{children}</Suspense>;
+}
+
+function IdleCommandBar() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const show = () => setReady(true);
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(show, {timeout: 1000});
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(show, 150);
+    return () => window.clearTimeout(id);
+  }, []);
+  return ready ? <Deferred><CommandBar /></Deferred> : null;
+}
 
 /**
  * The auth gate.
@@ -14,22 +35,19 @@ import CommandBar from '@site/src/components/CommandBar';
  * same flag the API server reads, so the two can never disagree about whether
  * a session is required.
  *
- * The session is fetched with `authClient.getSession()` rather than the
- * `useSession()` hook. The hook silently never issued the request: signing in
- * stored a working token, the page reloaded, `apiFetch` authenticated with that
- * token, and yet no GET /api/auth/get-session ever reached the server, so the
- * gate concluded nobody was signed in and showed the form again. One explicit
- * call, one piece of state, and a failure that says so.
+ * The workspace list doubles as the session probe: it is already protected by
+ * the server's identity gate and returns the verified user id. That keeps cold
+ * startup to one request instead of fetching a session and then memberships.
  *
  * Signing in is not the whole of arriving. Channels, direct messages, the people
  * directory, and invitations all belong to an organization, and an account in
  * none of them would be let through to find every one of those answering 409.
- * So the gate asks a second question after the first, and an empty answer sends
- * you to OnboardingScreen to create a workspace or open an invitation.
+ * An empty workspace answer sends the user to OnboardingScreen to create a
+ * workspace or open an invitation.
  *
- * Children stay mounted but hidden while the session resolves, rather than
- * being withheld: the search indexer reads them during the static build, and
- * unmounting would also throw away scroll position on every reload.
+ * Children remain visible while that short request resolves. Protected data is
+ * never in the static shell and still comes only from authenticated APIs, so
+ * first paint need not wait on the network.
  */
 
 /** What the gate knows about the session, and how it found out. */
@@ -56,22 +74,10 @@ function isUngated(pathname) {
   return UNGATED.some((page) => pathname === page || pathname.startsWith(`${page}/`));
 }
 
-function Hidden({ children }) {
-  return (
-    <div style={{ visibility: 'hidden', position: 'absolute', width: 0, height: 0, overflow: 'hidden' }}>
-      {children}
-    </div>
-  );
-}
-
 function AuthGate({ children, devAutoLogin }) {
-  // Required lazily, inside BrowserOnly, because the auth client reaches for
-  // localStorage and would run during the static build otherwise.
-  const { authClient, signOutAndForget } = require('@site/src/utils/authClient');
+  // Required lazily, inside BrowserOnly, because workspace discovery reads the
+  // authenticated API and should never run during the static build.
   const { loadWorkspaces } = require('@site/src/utils/workspaces');
-  const AuthScreen = require('@site/src/theme/Root/AuthScreen').default;
-  const OnboardingScreen = require('@site/src/theme/Root/OnboardingScreen').default;
-
   const [status, setStatus] = useState(CHECKING);
   const [detail, setDetail] = useState(null);
   const [user, setUser] = useState(null);
@@ -80,52 +86,56 @@ function AuthGate({ children, devAutoLogin }) {
 
   useEffect(() => {
     let cancelled = false;
-    authClient
-      .getSession()
-      .then(async (result) => {
+    // /api/workspaces is already behind the server's session gate. It answers
+    // both "who is signed in?" and "where can they go?", avoiding a second
+    // Better Auth request on every cold application load.
+    loadWorkspaces({fresh: true})
+      .then((workspaceData) => {
         if (cancelled) return;
-        if (!result?.data?.user) {
-          setStatus(SIGNED_OUT);
-          return;
-        }
-        setUser(result.data.user);
+        setUser({id: workspaceData.userId});
         // Asked before the site is shown rather than after, so nobody sees a
         // workspace's worth of empty pages first. A failure here counts as
         // "has one": the workspace screen is for an account that provably has
         // none, and showing it because a request failed would strand somebody
         // whose workspace is fine.
-        try {
-          const {memberships} = await loadWorkspaces();
-          if (!cancelled) setWorkspaces(memberships?.length ?? 1);
-        } catch {
-          if (!cancelled) setWorkspaces(1);
-        }
-        if (!cancelled) setStatus(SIGNED_IN);
+        setWorkspaces(workspaceData?.memberships?.length ?? 1);
+        setStatus(SIGNED_IN);
       })
       .catch((err) => {
         if (cancelled) return;
+        if (err?.status === 401) {
+          setStatus(SIGNED_OUT);
+          return;
+        }
         // A network failure is not the same as being signed out, and telling
         // someone to sign in when the API server is down wastes their time.
         setStatus(UNREACHABLE);
         setDetail(err?.message || 'The API server did not respond.');
       });
     return () => { cancelled = true; };
-  }, [authClient]);
+  }, []);
 
   // The router's location, not window's. Leaving /join is a client-side route
   // change, and a pathname read from window during one render would still say
   // /join on the next.
   const ungated = isUngated(useLocation().pathname);
 
-  if (status === CHECKING) return <Hidden>{children}</Hidden>;
+  // The static shell is safe to paint immediately: protected data only arrives
+  // from authenticated API calls. Keeping it visible avoids a blank first
+  // screen while the short session check completes.
+  if (status === CHECKING) return <>{children}</>;
 
   if (status === SIGNED_IN) {
     if (workspaces === 0 && !ungated) {
       return (
-        <OnboardingScreen
-          user={user}
-          onSignOut={() => signOutAndForget().then(() => window.location.reload())}
-        />
+        <Deferred>
+          <OnboardingScreen
+            user={user}
+            onSignOut={() => import('@site/src/utils/authClient')
+              .then(({signOutAndForget}) => signOutAndForget())
+              .then(() => window.location.reload())}
+          />
+        </Deferred>
       );
     }
     // The CLI is mounted here rather than in Layout, which Docusaurus tears
@@ -134,16 +144,18 @@ function AuthGate({ children, devAutoLogin }) {
     // stuck to the page. It sits beside the children rather than inside them,
     // so the screens that replace the children never carry it, and it waits
     // for a workspace, because every request it makes needs one.
-    return <>{children}{workspaces === 0 ? null : <CommandBar />}</>;
+    return <>{children}{workspaces === 0 ? null : <IdleCommandBar />}</>;
   }
 
   if (ungated) return <>{children}</>;
 
   return (
-    <AuthScreen
-      devAutoLogin={devAutoLogin}
-      unreachable={status === UNREACHABLE ? detail : null}
-    />
+    <Deferred>
+      <AuthScreen
+        devAutoLogin={devAutoLogin}
+        unreachable={status === UNREACHABLE ? detail : null}
+      />
+    </Deferred>
   );
 }
 
@@ -156,7 +168,7 @@ export default function Root({ children }) {
     return (
       <>
         {children}
-        <CommandBar />
+        <IdleCommandBar />
         <PageTracker />
       </>
     );

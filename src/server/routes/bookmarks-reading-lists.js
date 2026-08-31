@@ -30,7 +30,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
 
   // ── Bookmarks: list all ──
   if (req.method === 'GET' && pathname === '/api/bookmarks') {
-    return json(res, 200, {bookmarks: bookmarks.values(scopeFor(req))});
+    return json(res, 200, {bookmarks: await bookmarks.values(scopeFor(req))});
   }
 
   // ── Bookmarks: add ──
@@ -45,15 +45,15 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       const scope = scopeFor(req);
       // Adding one you already have is not an error and does not move it; the
       // caller gets the list back, as it always did.
-      if (bookmarks.has(scope, pagePath)) {
-        return json(res, 200, {success: true, bookmarks: bookmarks.values(scope)});
+      if (await bookmarks.has(scope, pagePath)) {
+        return json(res, 200, {success: true, bookmarks: await bookmarks.values(scope)});
       }
       const bookmark = {
         path: sanitizeText(pagePath),
         title: sanitizeText(title) || pagePath,
         addedAt: new Date().toISOString(),
       };
-      bookmarks.put(scope, pagePath, bookmark);
+      await bookmarks.put(scope, pagePath, bookmark);
       return json(res, 200, {success: true, bookmark});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -66,7 +66,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       const body = await readBody(req);
       const {path: pagePath} = body;
       if (!pagePath || typeof pagePath !== 'string') return json(res, 400, {error: 'Missing path'});
-      if (!bookmarks.remove(scopeFor(req), pagePath)) {
+      if (!await bookmarks.remove(scopeFor(req), pagePath)) {
         return json(res, 404, {error: 'Bookmark not found'});
       }
       return json(res, 200, {success: true});
@@ -77,7 +77,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
 
   // ── Analytics: content topics/keywords ──
   if (req.method === 'GET' && pathname === '/api/analytics/topics') {
-    const topics = cached(cacheKey(req.auth?.orgId, 'analytics:topics'), 60000, () => {
+    const topics = cached(cacheKey(req.context?.workspaceId, 'analytics:topics'), 60000, () => {
       const STOP_WORDS = new Set([
         'the','a','an','is','are','was','were','be','been','being','have','has','had',
         'do','does','did','will','would','could','should','may','might','shall','can',
@@ -91,7 +91,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
         'which','who','whom','if',
       ]);
 
-      const contentDir = contentRootFor(req.auth?.orgId);
+      const contentDir = contentRootFor(req.context?.workspaceId);
       const freq = {};
 
       function scanMarkdown(dir) {
@@ -143,7 +143,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
 
   // ── Reading Lists: list all ──
   if (req.method === 'GET' && pathname === '/api/reading-lists') {
-    return json(res, 200, {lists: readingLists.values(scopeFor(req))});
+    return json(res, 200, {lists: await readingLists.values(scopeFor(req))});
   }
 
   // ── Reading Lists: create ──
@@ -165,7 +165,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      readingLists.put(scopeFor(req), list.id, list);
+      await readingLists.put(scopeFor(req), list.id, list);
       return json(res, 200, {success: true, list});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -177,7 +177,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
     try {
       const parts = pathname.split('/');
       const listId = decodeURIComponent(parts[3]);
-      if (!readingLists.remove(scopeFor(req), listId)) {
+      if (!await readingLists.remove(scopeFor(req), listId)) {
         return json(res, 404, {error: 'Reading list not found'});
       }
       return json(res, 200, {success: true});
@@ -199,7 +199,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       if (title !== undefined && typeof title === 'string' && title.length > 500) return json(res, 400, {error: 'Title must be 500 characters or fewer'});
       const itemType = (type === 'reference' || type === 'doc') ? type : 'doc';
       const scope = scopeFor(req);
-      const list = readingLists.get(scope, listId);
+      const list = await readingLists.get(scope, listId);
       if (!list) return json(res, 404, {error: 'Reading list not found'});
       if (list.items.some(item => item.path === itemPath)) {
         return json(res, 200, {success: true, message: 'Item already in list'});
@@ -211,7 +211,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
         addedAt: new Date().toISOString(),
       });
       list.updatedAt = new Date().toISOString();
-      readingLists.put(scope, listId, list);
+      await readingLists.put(scope, listId, list);
       return json(res, 200, {success: true, list});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -227,13 +227,13 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       const {path: itemPath} = body;
       if (!itemPath || typeof itemPath !== 'string') return json(res, 400, {error: 'Missing path'});
       const scope = scopeFor(req);
-      const list = readingLists.get(scope, listId);
+      const list = await readingLists.get(scope, listId);
       if (!list) return json(res, 404, {error: 'Reading list not found'});
       const idx = list.items.findIndex(item => item.path === itemPath);
       if (idx === -1) return json(res, 404, {error: 'Item not found in list'});
       list.items.splice(idx, 1);
       list.updatedAt = new Date().toISOString();
-      readingLists.put(scope, listId, list);
+      await readingLists.put(scope, listId, list);
       return json(res, 200, {success: true, list});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -250,7 +250,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       if (!itemPath || typeof itemPath !== 'string') return json(res, 400, {error: 'Missing path'});
       if (direction !== 'up' && direction !== 'down') return json(res, 400, {error: 'direction must be "up" or "down"'});
       const scope = scopeFor(req);
-      const list = readingLists.get(scope, listId);
+      const list = await readingLists.get(scope, listId);
       if (!list) return json(res, 404, {error: 'Reading list not found'});
       const idx = list.items.findIndex(item => item.path === itemPath);
       if (idx === -1) return json(res, 404, {error: 'Item not found in list'});
@@ -260,7 +260,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       }
       [list.items[idx], list.items[swapIdx]] = [list.items[swapIdx], list.items[idx]];
       list.updatedAt = new Date().toISOString();
-      readingLists.put(scope, listId, list);
+      await readingLists.put(scope, listId, list);
       return json(res, 200, {success: true, list});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -272,20 +272,16 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
     try {
       const parts = pathname.split('/');
       const listId = decodeURIComponent(parts[3]);
-      const list = readingLists.get(scopeFor(req), listId);
+      const list = await readingLists.get(scopeFor(req), listId);
       if (!list) return json(res, 404, {error: 'Reading list not found'});
       const format = url.searchParams.get('format') || 'md';
       const safeName = list.name.replace(/[^a-zA-Z0-9_-]/g, '_');
 
       if (format === 'bibtex') {
-        // Reuse the canonical exporter's escaper so reading-list BibTeX compiles
-        // even when a value carries a LaTeX special (& % _ $ # { } ~ ^ or a
-        // backslash). Non circular: research-tools does not require this module.
-        // Share the mtime and size aware references.yaml memo used by every other
-        // references handler instead of re-reading and re-parsing the bibliography
-        // on each export. It returns {} on a missing or broken file, preserving
-        // the prior `let refs = {}; try { ... } catch {}` empty-export fallback.
-        const refs = ctx.references.load(fs, path, contentRootFor(req.auth?.orgId));
+        // Live bibliography data is workspace-scoped database state. The YAML
+        // reader exists only for one-time legacy import and must not become a
+        // second source of truth for exports.
+        const refs = await collection('plugin:bibliography:papers').entries(scopeFor(req));
         const lines = [];
         for (const item of (list.items || [])) {
           if (item.type !== 'reference') continue;

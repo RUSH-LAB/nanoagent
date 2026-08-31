@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { renderPlugin, toCamel, toTitle } from '../../../../scripts/new-plugin.mjs';
+import { renderPlugin, toCamel, toTitle } from '../../../../scripts/dev/create-plugin.mjs';
 
 const require = createRequire(import.meta.url);
 const fs = require('fs');
@@ -36,7 +36,7 @@ after(() => {
   fs.rmSync(root, {recursive: true, force: true});
 });
 
-describe('scripts/new-plugin: the names it derives', () => {
+describe('scripts/dev/create-plugin: the names it derives', () => {
   it('turns a kebab-case directory name into an identifier and a title', () => {
     assert.equal(toCamel('reading-list'), 'readingList');
     assert.equal(toTitle('reading-list'), 'Reading List');

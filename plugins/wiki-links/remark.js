@@ -11,7 +11,7 @@
  * Paths like [[path/to/page]] become href="/path/to/page".
  */
 
-const { applyTextReplacements } = require('#markdown');
+const {applyTextReplacements} = require('../_shared/markdown');
 
 // Regex to match [[page]] or [[page|Display Text]]
 const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;

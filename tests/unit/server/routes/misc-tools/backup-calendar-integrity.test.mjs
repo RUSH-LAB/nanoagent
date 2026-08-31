@@ -251,60 +251,32 @@ describe('GET /api/calendar', () => {
 });
 
 // ─────────────────────────── GET /api/integrity ────────────────────────────
-// The handler always returns 200 {status, checks}. status is 'healthy' when
-// every check passed, else 'issues'. checks is four entries in fixed order:
-// json_validity, yaml_validity, orphaned_snapshots. A failing
-// sub-check is captured as passed:false; there is no top-level 500.
+// The handler validates the scoped database state rather than the retired JSON
+// and YAML mirrors. A failing sub-check is captured as passed:false; there is no
+// top-level 500.
+const CHECK_NAMES = ['document_paths', 'reference_records', 'orphaned_snapshots'];
 
-const CHECK_NAMES = ['json_validity', 'yaml_validity', 'orphaned_snapshots'];
-const VALID_YAML = 'key1:\n  title: Hello\n  year: 2020\n';
-// js-yaml rejects this unterminated flow collection with a YAMLException.
-const INVALID_YAML = 'key: [a, b';
-
-// In-memory fs for integrity. data/*.json are served by readdirSync (returning
-// bare filename strings, the way this handler calls it) plus readFileSync; the
-// workspace's own references.yaml is served when refsYaml is provided;
-// existsSync reports true only for refPath (when present) and for the listed
-// existing paths, which are relative to the workspace's content root.
-function makeIntegrityFs({ dataFiles = {}, refsYaml, existingPaths = [] }) {
-  const dataDir = path.join(PROJECT_ROOT, 'var', 'data');
-  const refPath = path.join(CONTENT_DIR, 'bibliography', 'references.yaml');
-  const existing = new Set(existingPaths);
-  const enoent = (p) => { const e = new Error(`ENOENT: ${p}`); e.code = 'ENOENT'; return e; };
-  return {
-    readdirSync(dir) {
-      if (dir === dataDir) return Object.keys(dataFiles);
-      throw enoent(dir);
-    },
-    readFileSync(fp) {
-      if (fp === refPath) {
-        if (refsYaml === undefined) throw enoent(fp);
-        return refsYaml;
-      }
-      const rel = path.relative(dataDir, fp);
-      if (Object.prototype.hasOwnProperty.call(dataFiles, rel)) return dataFiles[rel];
-      throw enoent(fp);
-    },
-    existsSync(fp) {
-      if (fp === refPath) return refsYaml !== undefined;
-      return existing.has(path.relative(CONTENT_DIR, fp));
-    },
-  };
-}
-
-async function invokeIntegrity({ fs, loadJSON, snapshots = {} }) {
+async function invokeIntegrity({documents = ['exists.md'], references = {}, snapshots = {}} = {}) {
   const cap = makeCapture();
+  const scoped = newStore().seed('snapshots', snapshots);
+  for (const [citationKey, entry] of Object.entries(references)) {
+    scoped.scoped.collection('plugin:bibliography:papers').put(
+      {workspaceId: 'test-org', userId: 'test-user'}, citationKey, entry,
+    );
+  }
   const ctx = {
-    fs, path, PROJECT_ROOT, contentRootFor: () => CONTENT_DIR, loadJSON,
-    COMMENTS_FILE: 'COMMENTS',
-    // The orphan check reads this workspace's snapshots, one row per file, and
-    // compares each against this workspace's tree. It used to read a store
-    // shared by every organization and compare it against one organization's
-    // files, so another workspace's paths all counted as orphans.
-    ...newStore().seed('snapshots', snapshots).ctxFields,
+    ...scoped.ctxFields,
+    documents: {
+      list: () => documents.map(path => ({path})),
+      get: (_scope, requested) => documents.includes(requested) ? {path: requested} : undefined,
+    },
+    requireWorkspacePermission() {},
     json: cap.json,
   };
-  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
+  const req = {
+    method: 'GET', socket: {remoteAddress: '127.0.0.1'},
+    context: {userId: 'test-user', workspaceId: 'test-org', membershipId: 'm1', role: 'owner'},
+  };
   await miscToolsRoutes(req, cap.res, new URL('http://localhost/api/integrity'), '/api/integrity', ctx);
   return cap.get();
 }
@@ -312,75 +284,43 @@ async function invokeIntegrity({ fs, loadJSON, snapshots = {} }) {
 const byName = (checks) => Object.fromEntries(checks.map((c) => [c.name, c]));
 
 describe('GET /api/integrity', () => {
-  // A snapshot and a comment whose target file exists, so both orphan checks pass.
-  const healthyLoad = (file) =>
-    file === 'SNAPSHOTS' ? { 'exists.md': [{ id: 's1' }] } : { 'exists.md': [{ text: 'hi' }] };
-
   it('reports status "healthy" with all three named checks passed for valid inputs', async () => {
-    const fs = makeIntegrityFs({
-      dataFiles: { 'comments.json': '{}', 'notes.json': '[1,2,3]' },
-      refsYaml: VALID_YAML,
-      existingPaths: ['exists.md'],
+    const r = await invokeIntegrity({
+      references: {key1: {title: 'Hello', year: 2020}},
+      snapshots: {'exists.md': [{id: 's1'}]},
     });
-    const r = await invokeIntegrity({ fs, loadJSON: healthyLoad });
     assert.equal(r.status, 200);
     assert.equal(r.payload.status, 'healthy');
     assert.deepEqual(r.payload.checks.map((c) => c.name), CHECK_NAMES);
     assert.deepEqual(r.payload.checks, [
-      { name: 'json_validity', passed: true, details: 'All 2 JSON files are valid' },
-      { name: 'yaml_validity', passed: true, details: 'references.yaml is valid YAML' },
-      { name: 'orphaned_snapshots', passed: true, details: 'No orphaned snapshots' },
+      {name: 'document_paths', passed: true, details: '1 document path(s) are unique in this workspace'},
+      {name: 'reference_records', passed: true, details: '1 reference record(s) are valid'},
+      {name: 'orphaned_snapshots', passed: true, details: 'No orphaned snapshots'},
     ]);
   });
 
-  it('flags json_validity and returns status "issues" for a malformed data/*.json file', async () => {
-    const fs = makeIntegrityFs({
-      dataFiles: { 'good.json': '{}', 'bad.json': '{not json' },
-      refsYaml: VALID_YAML,
-      existingPaths: ['exists.md'],
-    });
-    const r = await invokeIntegrity({ fs, loadJSON: healthyLoad });
+  it('flags duplicate document paths', async () => {
+    const r = await invokeIntegrity({documents: ['same.md', 'same.md']});
     assert.equal(r.status, 200);
     assert.equal(r.payload.status, 'issues');
-    assert.deepEqual(r.payload.checks.map((c) => c.name), CHECK_NAMES);
     const checks = byName(r.payload.checks);
-    assert.deepEqual(checks.json_validity, {
-      name: 'json_validity', passed: false, details: '1 invalid JSON file(s): bad.json',
-    });
-    // The other three checks remain healthy.
-    assert.equal(checks.yaml_validity.passed, true);
-    assert.equal(checks.orphaned_snapshots.passed, true);
+    assert.equal(checks.document_paths.passed, false);
   });
 
-  it('flags yaml_validity for an invalid references.yaml', async () => {
-    const fs = makeIntegrityFs({
-      dataFiles: { 'comments.json': '{}' },
-      refsYaml: INVALID_YAML,
-      existingPaths: ['exists.md'],
+  it('flags malformed reference records', async () => {
+    const r = await invokeIntegrity({
+      references: {broken: {year: 2020}},
     });
-    const r = await invokeIntegrity({ fs, loadJSON: healthyLoad });
     assert.equal(r.status, 200);
     assert.equal(r.payload.status, 'issues');
     const checks = byName(r.payload.checks);
-    assert.equal(checks.yaml_validity.passed, false);
-    // The exception text carries parser internals, so pin only the stable prefix.
-    assert.ok(
-      checks.yaml_validity.details.startsWith('references.yaml is invalid'),
-      'yaml_validity details report the invalid file',
-    );
-    assert.equal(checks.json_validity.passed, true);
+    assert.equal(checks.reference_records.passed, false);
+    assert.match(checks.reference_records.details, /broken/);
   });
 
   it('flags orphaned_snapshots when a snapshot target file no longer exists', async () => {
-    const fs = makeIntegrityFs({
-      dataFiles: { 'comments.json': '{}' },
-      refsYaml: VALID_YAML,
-      existingPaths: [],
-    });
-    // The snapshot target deleted.md is absent from existingPaths.
     const r = await invokeIntegrity({
-      fs,
-      loadJSON: healthyLoad,
+      documents: [],
       snapshots: { 'deleted.md': [{ id: 's1' }, { id: 's2' }] },
     });
     assert.equal(r.status, 200);

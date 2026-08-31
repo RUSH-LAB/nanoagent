@@ -96,7 +96,7 @@ describe('every route module', () => {
   // registry cannot silently empty this check.
   const ALL = [
     'bookmarks', 'flashcards', 'streaks', 'tasks', 'reading-lists', 'notes',
-    'quicknotes', 'preferences',
+    'quicknotes',
     'glossary', 'schedule', 'whiteboards', 'analytics', 'snapshots',
   ];
 
@@ -118,6 +118,30 @@ describe('every route module', () => {
   it('checks every domain the registry declares', () => {
     assert.deepEqual([...ALL].sort(), [...DOMAIN_NAMES].sort());
   });
+
+  for (const {name, body} of BODIES) {
+    it(`${name} never scopes from the session active organization`, () => {
+      const uses = body.match(/req\.auth\??\.(?:orgId|orgRole)/g) ?? [];
+      if (name === 'workspaces.js') {
+        assert.deepEqual(uses, ['req.auth?.orgId'], 'the session workspace may appear once, only as the default navigation target');
+      } else {
+        assert.deepEqual(uses, [], `${name} uses session workspace state. Resolve workspace authority from the URL into req.context instead.`);
+      }
+    });
+  }
+});
+
+describe('context-only collaboration services', () => {
+  for (const name of ['chat.js', 'org.js', 'workspaces.js']) {
+    const {body} = BODIES.find(route => route.name === name);
+    it(`${name} does not pass raw tenant and actor ids to a domain method`, () => {
+      assert.doesNotMatch(
+        body,
+        /\b(?:chat|org)\.[A-Za-z]+\(\s*(?:orgId|workspaceId|userId)\b/,
+        `${name} must pass RequestContext to workspace domain services.`,
+      );
+    });
+  }
 });
 
 describe('the database itself', () => {

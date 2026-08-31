@@ -153,15 +153,15 @@ describe('GET /api/analytics', () => {
 // is the last of them. A member wanting to know who they work with reads their
 // own organization's roster at GET /api/org/members instead.
 describe('GET /api/users', () => {
-  const OWNER = {id: 'u1', username: 'ann', email: 'ann@x', name: 'Ann', role: 'owner'};
-  const ACCOUNTS = [OWNER, {id: 'u2', username: 'bo', email: 'bo@x', name: 'Bo', role: 'viewer'}];
+  const OWNER = {id: 'u1', username: 'ann', email: 'ann@x', name: 'Ann', role: 'admin'};
+  const ACCOUNTS = [OWNER, {id: 'u2', username: 'bo', email: 'bo@x', name: 'Bo', role: 'user'}];
   const asOwner = {...TEST_IDENTITY, userId: OWNER.id};
 
   it('lists every account with its role, keyed by id', async () => {
     const r = await invoke(routes, {path: '/api/users', ctx: makeCtx({users: ACCOUNTS}), auth: asOwner});
     assert.equal(r.status, 200);
     assert.deepEqual(Object.keys(r.payload.users).sort(), ['u1', 'u2']);
-    assert.equal(r.payload.users.u1.role, 'owner');
+    assert.equal(r.payload.users.u1.role, 'admin');
     assert.equal(r.payload.users.u2.username, 'bo');
   });
 
@@ -170,7 +170,7 @@ describe('GET /api/users', () => {
   it('reports an account with no assigned role as a viewer', async () => {
     const ctx = makeCtx({users: [OWNER, {id: 'u3', username: 'cy', email: 'cy@x', name: 'Cy'}]});
     const r = await invoke(routes, {path: '/api/users', ctx, auth: asOwner});
-    assert.equal(r.payload.users.u3.role, 'viewer');
+    assert.equal(r.payload.users.u3.role, 'user');
   });
 
   // There is no answering this with nothing at all any more: a role belongs to
@@ -183,13 +183,13 @@ describe('GET /api/users', () => {
   it('refuses anyone who is not an owner, without naming a single account', async () => {
     const r = await invoke(routes, {path: '/api/users', ctx: makeCtx({users: ACCOUNTS})});
     assert.equal(r.status, 403);
-    assert.equal(r.payload.code, 'not-owner');
+    assert.equal(r.payload.code, 'not-platform-admin');
     assert.equal(r.payload.users, undefined);
   });
 });
 
 describe('GET /api/users/me', () => {
-  const ACCOUNTS = [{id: 'u1', username: 'ed', email: 'e@x', name: 'Ed', role: 'editor'}];
+  const ACCOUNTS = [{id: 'u1', username: 'ed', email: 'e@x', name: 'Ed', role: 'user'}];
   const asUser = userId => ({...TEST_IDENTITY, userId});
 
   it('answers for the session subject, not for a userId in the query', async () => {
@@ -198,7 +198,7 @@ describe('GET /api/users/me', () => {
     // Signed in as TEST_IDENTITY, who holds no role, so naming a real editor in
     // the query buys the caller nothing.
     assert.deepEqual([r.status, r.payload], [200, {
-      userId: TEST_IDENTITY.userId, orgId: null, orgRole: null, role: 'viewer',
+      userId: TEST_IDENTITY.userId, orgId: null, orgRole: null, role: 'user',
     }]);
   });
 
@@ -206,7 +206,7 @@ describe('GET /api/users/me', () => {
     const ctx = makeCtx({users: ACCOUNTS});
     const r = await invoke(routes, {path: '/api/users/me', ctx, auth: asUser('u1')});
     assert.deepEqual([r.status, r.payload], [200, {
-      userId: 'u1', orgId: null, orgRole: null, role: 'editor',
+      userId: 'u1', orgId: null, orgRole: null, role: 'user',
     }]);
   });
 
@@ -218,7 +218,7 @@ describe('GET /api/users/me', () => {
 
   it('falls back to viewer for an account with no role', async () => {
     const r = await invoke(routes, {path: '/api/users/me', ctx: makeCtx({users: ACCOUNTS}), auth: asUser('nobody')});
-    assert.equal(r.payload.role, 'viewer');
+    assert.equal(r.payload.role, 'user');
   });
 });
 
@@ -255,8 +255,8 @@ describe('PUT /api/users/:id/role', () => {
   // the harness signs requests as.
   const withOwner = (extra = []) => makeCtx({
     users: [
-      {id: BOSS, username: 'boss', email: 'boss@x', name: 'Boss', role: 'owner'},
-      {id: 'u1', username: 'one', email: 'one@x', name: 'One', role: 'viewer'},
+      {id: BOSS, username: 'boss', email: 'boss@x', name: 'Boss', role: 'admin'},
+      {id: 'u1', username: 'one', email: 'one@x', name: 'One', role: 'user'},
       ...extra,
     ],
   });
@@ -268,12 +268,12 @@ describe('PUT /api/users/:id/role', () => {
     assert.deepEqual(ctx.calls.rateLimit, [{key: 'set-role:127.0.0.1', maxPerMinute: 10}]);
   });
 
-  const ROLE_ERR = 'Invalid role. Must be owner, editor, viewer';
+  const ROLE_ERR = 'Invalid role. Must be admin, user';
   const BAD_ROLES = [
     ['a missing role', {}],
     ['a non-string role', {role: 7}],
     ['an empty-string role', {role: ''}],
-    ['an out-of-list role', {role: 'admin'}],
+    ['an out-of-list role', {role: 'owner'}],
     // The allow-list is case-sensitive.
     ['a wrong-case role', {role: 'Owner'}],
   ];
@@ -282,32 +282,32 @@ describe('PUT /api/users/:id/role', () => {
       const ctx = withOwner();
       const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body, ctx});
       assert.deepEqual([r.status, r.payload], [400, {error: ROLE_ERR}]);
-      assert.equal(ctx.roles.getRole('u1'), 'viewer', 'the role is unchanged');
+      assert.equal(ctx.roles.getRole('u1'), 'user', 'the role is unchanged');
     });
   }
 
   it('rejects a non-owner with 403', async () => {
-    const ctx = makeCtx({users: [{id: BOSS, role: 'editor'}, {id: 'u1', role: 'viewer'}]});
-    const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body: {role: 'owner'}, ctx});
-    assert.deepEqual([r.status, r.payload], [403, {error: 'Only owners can change roles'}]);
-    assert.equal(ctx.roles.getRole('u1'), 'viewer');
+    const ctx = makeCtx({users: [{id: BOSS, role: 'user'}, {id: 'u1', role: 'user'}]});
+    const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body: {role: 'admin'}, ctx});
+    assert.deepEqual([r.status, r.payload], [403, {error: 'Only platform administrators can change platform roles'}]);
+    assert.equal(ctx.roles.getRole('u1'), 'user');
   });
 
   it('ignores a requesterId in the body naming a real owner', async () => {
     // The old handler read the requester straight out of the posted JSON, so
     // this body alone was enough to promote yourself.
     const ctx = makeCtx({users: [
-      {id: 'owner1', role: 'owner'},
-      {id: BOSS, role: 'editor'},
-      {id: 'u1', role: 'viewer'},
+      {id: 'owner1', role: 'admin'},
+      {id: BOSS, role: 'user'},
+      {id: 'u1', role: 'user'},
     ]});
-    const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body: {role: 'owner', requesterId: 'owner1'}, ctx});
-    assert.deepEqual([r.status, r.payload], [403, {error: 'Only owners can change roles'}]);
+    const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body: {role: 'admin', requesterId: 'owner1'}, ctx});
+    assert.deepEqual([r.status, r.payload], [403, {error: 'Only platform administrators can change platform roles'}]);
   });
 
   it('rejects a role for a user who does not exist', async () => {
     const ctx = withOwner();
-    const r = await invoke(routes, {method: 'PUT', path: '/api/users/ghost/role', body: {role: 'editor'}, ctx});
+    const r = await invoke(routes, {method: 'PUT', path: '/api/users/ghost/role', body: {role: 'user'}, ctx});
     assert.deepEqual([r.status, r.payload], [404, {error: 'No such user'}]);
   });
 
@@ -315,26 +315,26 @@ describe('PUT /api/users/:id/role', () => {
   // way back short of editing the database by hand.
   it('refuses to demote the last owner', async () => {
     const ctx = withOwner();
-    const r = await invoke(routes, {method: 'PUT', path: `/api/users/${BOSS}/role`, body: {role: 'viewer'}, ctx});
-    assert.deepEqual([r.status, r.payload], [409, {error: 'Cannot demote the last owner'}]);
-    assert.equal(ctx.roles.getRole(BOSS), 'owner');
+    const r = await invoke(routes, {method: 'PUT', path: `/api/users/${BOSS}/role`, body: {role: 'user'}, ctx});
+    assert.deepEqual([r.status, r.payload], [409, {error: 'Cannot remove the last platform administrator'}]);
+    assert.equal(ctx.roles.getRole(BOSS), 'admin');
   });
 
   it('allows demoting an owner while another remains', async () => {
-    const ctx = withOwner([{id: 'u2', username: 'two', email: 'two@x', name: 'Two', role: 'owner'}]);
-    const r = await invoke(routes, {method: 'PUT', path: '/api/users/u2/role', body: {role: 'viewer'}, ctx});
+    const ctx = withOwner([{id: 'u2', username: 'two', email: 'two@x', name: 'Two', role: 'admin'}]);
+    const r = await invoke(routes, {method: 'PUT', path: '/api/users/u2/role', body: {role: 'user'}, ctx});
     assert.equal(r.status, 200);
-    assert.equal(ctx.roles.getRole('u2'), 'viewer');
+    assert.equal(ctx.roles.getRole('u2'), 'user');
   });
 
   it('promotes a user and reports the new role', async () => {
     const ctx = withOwner();
-    const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body: {role: 'editor'}, ctx});
-    assert.deepEqual([r.status, r.payload], [200, {success: true, user: {userId: 'u1', role: 'editor'}}]);
-    assert.equal(ctx.roles.getRole('u1'), 'editor');
+    const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body: {role: 'admin'}, ctx});
+    assert.deepEqual([r.status, r.payload], [200, {success: true, user: {userId: 'u1', role: 'admin'}}]);
+    assert.equal(ctx.roles.getRole('u1'), 'admin');
   });
 
-  for (const role of ['owner', 'editor', 'viewer']) {
+  for (const role of ['admin', 'user']) {
     it(`accepts the valid role ${JSON.stringify(role)}`, async () => {
       const ctx = withOwner();
       const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, body: {role}, ctx});

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import {useHistory} from '@docusaurus/router';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE, { apiFetch } from '@site/src/utils/api';
 import { contentPathToUrl } from '@site/src/utils/paths';
@@ -51,6 +52,7 @@ function layoutTree(root, width, height) {
 }
 
 function MindmapContent() {
+  const history = useHistory();
   const [files, setFiles] = useState([]);
   const [filesLoading, setFilesLoading] = useState(true);
   const [filesError, setFilesError] = useState(null);
@@ -127,8 +129,8 @@ function MindmapContent() {
     const url = contentPathToUrl(selected);
     if (!url) return;
     const slug = text.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
-    window.location.href = `${url}#${slug}`;
-  }, [selected]);
+    history.push(`${url}#${slug}`);
+  }, [history, selected]);
 
   const { nodes, edges } = tree ? layoutTree(tree, dims.w, dims.h) : { nodes: [], edges: [] };
 

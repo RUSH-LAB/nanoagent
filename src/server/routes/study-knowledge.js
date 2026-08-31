@@ -51,7 +51,7 @@ const QUICKNOTES_LIMIT = 200;
 
 module.exports = async function study_knowledge_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, documents, requireWorkspacePermission, preferences: userPreferences, _routeDiagnostics
   } = ctx;
 
   // ── Spaced repetition flashcards ──
@@ -87,7 +87,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
         nextReview: new Date().toISOString().slice(0, 10),
         createdAt: new Date().toISOString(),
       };
-      flashcards.put(scopeFor(req), card.id, card);
+      await flashcards.put(scopeFor(req), card.id, card);
       return json(res, 200, {success: true, card});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -95,13 +95,13 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   }
 
   if (req.method === 'GET' && pathname === '/api/flashcards') {
-    const cards = flashcards.values(scopeFor(req));
+    const cards = await flashcards.values(scopeFor(req));
     return json(res, 200, {cards, total: cards.length});
   }
 
   if (req.method === 'GET' && pathname === '/api/flashcards/due') {
     const today = new Date().toISOString().slice(0, 10);
-    const cards = flashcards.values(scopeFor(req)).filter(c => c.nextReview <= today);
+    const cards = (await flashcards.values(scopeFor(req))).filter(c => c.nextReview <= today);
     return json(res, 200, {cards, dueCount: cards.length});
   }
 
@@ -120,7 +120,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       // The card id is the row key now, so finding it is a lookup rather than a
       // scan of this account's deck, and a card belonging to somebody else is
       // not absent-after-filtering, it is simply not in scope.
-      const card = flashcards.get(scope, cardId);
+      const card = await flashcards.get(scope, cardId);
       if (!card) return json(res, 404, {error: 'Card not found'});
       if (q >= 3) {
         if (card.repetitions === 0) card.interval = 1;
@@ -136,7 +136,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       next.setDate(next.getDate() + card.interval);
       card.nextReview = next.toISOString().slice(0, 10);
       card.lastReviewed = new Date().toISOString();
-      flashcards.put(scope, cardId, card);
+      await flashcards.put(scope, cardId, card);
       return json(res, 200, {success: true, card});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -150,7 +150,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       const {userId: uid} = req.auth;
       if (!cardId) return json(res, 400, {error: 'Missing cardId'});
       if (typeof cardId !== 'string') return json(res, 404, {error: 'Card not found'});
-      if (!flashcards.remove(scopeFor(req), cardId)) return json(res, 404, {error: 'Card not found'});
+      if (!await flashcards.remove(scopeFor(req), cardId)) return json(res, 404, {error: 'Card not found'});
       return json(res, 200, {success: true});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -166,7 +166,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
 
   if (req.method === 'GET' && pathname === '/api/glossary') {
     const query = (url.searchParams.get('q') || '').toLowerCase();
-    let terms = glossary.values(scopeFor(req));
+    let terms = await glossary.values(scopeFor(req));
     if (query) terms = terms.filter(t => t.term.toLowerCase().includes(query) || t.definition.toLowerCase().includes(query));
     terms.sort((a, b) => a.term.localeCompare(b.term));
     return json(res, 200, {terms, total: terms.length});
@@ -175,6 +175,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   if (req.method === 'POST' && pathname === '/api/glossary') {
     if (!rateLimit(`glossary:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
+      if (req.context && requireWorkspacePermission) requireWorkspacePermission(req.context, 'content:edit');
       const body = await readBody(req);
       const {term, definition, relatedTerms, references} = body;
       if (!term || typeof term !== 'string') return json(res, 400, {error: 'Missing or invalid term'});
@@ -187,7 +188,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       // uniqueness rule is on the term compared case-insensitively, which is a
       // different question from whether that exact string is a key.
       const termLower = term.toLowerCase();
-      if (glossary.values(scope).some(t => t.term.toLowerCase() === termLower)) {
+      if ((await glossary.values(scope)).some(t => t.term.toLowerCase() === termLower)) {
         return json(res, 409, {error: 'Term already exists'});
       }
       const entry = {
@@ -198,7 +199,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
         references: Array.isArray(references) ? references.slice(0, 10).map(r => sanitizeText(String(r))) : [],
         createdAt: new Date().toISOString(),
       };
-      glossary.put(scope, entry.id, entry);
+      await glossary.put(scope, entry.id, entry);
       return json(res, 200, {success: true, entry});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -207,11 +208,12 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
 
   if (req.method === 'DELETE' && pathname === '/api/glossary') {
     try {
+      if (req.context && requireWorkspacePermission) requireWorkspacePermission(req.context, 'content:edit');
       const body = await readBody(req);
       const {id} = body;
       if (!id) return json(res, 400, {error: 'Missing id'});
       if (typeof id !== 'string') return json(res, 404, {error: 'Term not found'});
-      if (!glossary.remove(scopeFor(req), id)) return json(res, 404, {error: 'Term not found'});
+      if (!await glossary.remove(scopeFor(req), id)) return json(res, 404, {error: 'Term not found'});
       return json(res, 200, {success: true});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -226,34 +228,33 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   const quicknotes = collection('quicknotes');
 
   if (req.method === 'GET' && pathname === '/api/quicknotes') {
-    const jsonNotes = quicknotes.values(scopeFor(req)).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    if (!req.context) return json(res, 404, {error: 'Workspace not found'});
+    requireWorkspacePermission(req.context, 'content:read');
+    const scope = scopeFor(req);
+    const jsonNotes = (await quicknotes.values(scope)).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 
-    // Also include filesystem-based quick notes from content/posts/blog/
-    const blogDir = path.join(contentRootFor(req.auth?.orgId), 'posts', 'blog');
+    // Also include quick-note documents from this workspace.
     let blogNotes = [];
     try {
-      if (fs.existsSync(blogDir)) {
-        const files = fs.readdirSync(blogDir)
-          .filter(f => f.endsWith('.md'))
-          .sort((a, b) => b.localeCompare(a));
-        for (const file of files) {
-          if (blogNotes.length >= 50) break;
-          try {
-            const raw = fs.readFileSync(path.join(blogDir, file), 'utf-8');
-            if (!raw.includes('quick-note')) continue;
-            const titleMatch = raw.match(QUICKNOTES_TITLE_RE);
-            const dateMatch = file.match(QUICKNOTES_DATE_RE);
-            const bodyMatch = raw.match(QUICKNOTES_BODY_RE);
-            blogNotes.push({
-              id: file,
-              text: bodyMatch ? bodyMatch[1].trim().slice(0, 200) : '',
-              title: titleMatch ? titleMatch[1] : file,
-              date: dateMatch ? dateMatch[1] : null,
-              path: `posts/blog/${file}`,
-              source: 'blog',
-            });
-          } catch {}
-        }
+      const rows = (await documents.list(scope))
+        .filter(document => /^posts\/blog\/[^/]+\.md$/.test(document.path))
+        .sort((a, b) => b.path.localeCompare(a.path));
+      for (const row of rows) {
+        if (blogNotes.length >= 50) break;
+        const raw = (await documents.get(scope, row.path))?.markdown ?? '';
+        if (!raw.includes('quick-note')) continue;
+        const file = row.path.split('/').pop();
+        const titleMatch = raw.match(QUICKNOTES_TITLE_RE);
+        const dateMatch = file.match(QUICKNOTES_DATE_RE);
+        const bodyMatch = raw.match(QUICKNOTES_BODY_RE);
+        blogNotes.push({
+          id: file,
+          text: bodyMatch ? bodyMatch[1].trim().slice(0, 200) : '',
+          title: titleMatch ? titleMatch[1] : file,
+          date: dateMatch ? dateMatch[1] : null,
+          path: row.path,
+          source: 'blog',
+        });
       }
     } catch {}
 
@@ -277,13 +278,13 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      quicknotes.put(scope, note.id, note);
+      await quicknotes.put(scope, note.id, note);
       // The scratchpad keeps the most recent QUICKNOTES_LIMIT and drops the
       // rest, as the array slice did. list() is oldest first, so the ones to
       // drop are at the front.
-      const all = quicknotes.list(scope);
+      const all = await quicknotes.list(scope);
       for (const stale of all.slice(0, Math.max(0, all.length - QUICKNOTES_LIMIT))) {
-        quicknotes.remove(scope, stale.key);
+        await quicknotes.remove(scope, stale.key);
       }
       return json(res, 200, {success: true, note});
     } catch {
@@ -298,7 +299,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       const {userId: uid} = req.auth;
       if (!id) return json(res, 400, {error: 'Missing id'});
       if (typeof id !== 'string') return json(res, 404, {error: 'Note not found'});
-      if (!quicknotes.remove(scopeFor(req), id)) return json(res, 404, {error: 'Note not found'});
+      if (!await quicknotes.remove(scopeFor(req), id)) return json(res, 404, {error: 'Note not found'});
       return json(res, 200, {success: true});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -309,11 +310,8 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   //
   // Yours, and one row: a settings object is read and written whole, so there
   // is nothing to gain from splitting it and a lost update to avoid by not.
-  const preferencesStore = collection('preferences');
-  const PREFERENCES_KEY = 'settings';
-
   if (req.method === 'GET' && pathname === '/api/preferences') {
-    return json(res, 200, {preferences: preferencesStore.get(scopeFor(req), PREFERENCES_KEY) ?? {}});
+    return json(res, 200, {preferences: await userPreferences.get(req.auth?.userId)});
   }
 
   if (req.method === 'PUT' && pathname === '/api/preferences') {
@@ -331,16 +329,11 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
       // A merge, not a replace: a client sending one setting keeps the others.
       // Read, merge and write in one transaction, so two tabs saving different
       // settings at once do not each drop the other's.
-      const merged = preferencesStore.update(scopeFor(req), PREFERENCES_KEY, current => {
-        const next = {...(current ?? {})};
-        for (const [key, value] of Object.entries(preferences)) {
-          if (!DANGEROUS_PREFERENCE_KEYS.has(key)) {
-            next[key] = typeof value === 'string' ? sanitizeText(value).slice(0, 5000) : value;
-          }
-        }
-        next.updatedAt = new Date().toISOString();
-        return next;
-      });
+      const clean = {};
+      for (const [key, value] of Object.entries(preferences)) {
+        clean[key] = typeof value === 'string' ? sanitizeText(value).slice(0, 5000) : value;
+      }
+      const merged = await userPreferences.merge(safeUserId, clean);
       return json(res, 200, {success: true, preferences: merged});
     } catch {
       return json(res, 400, {error: 'Invalid request'});

@@ -146,6 +146,33 @@ describe('handleDevLogin refuses', () => {
   });
 });
 
+describe('the no-auth development identity', () => {
+  it('gets a real owner membership without bypassing workspace authorization', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-dev-identity-'));
+    try {
+      const {devAuth, db} = load({
+        DATABASE_FILE: path.join(dir, 'development.db'),
+        BETTER_AUTH_SECRET: 'test-secret-'.padEnd(48, 'd'),
+      }, {withAuth: true});
+      const first = devAuth.ensureDevelopmentWorkspace();
+      const second = devAuth.ensureDevelopmentWorkspace();
+      assert.equal(second.id, first.id, 'provisioning is idempotent');
+      assert.deepEqual(
+        db.prepare('SELECT role FROM member WHERE organizationId = ? AND userId = ?')
+          .get(first.id, 'dev-user'),
+        {role: 'owner'},
+      );
+      assert.equal(
+        db.prepare('SELECT COUNT(*) AS n FROM channel WHERE organizationId = ? AND name = ?')
+          .get(first.id, devAuth.ROOT_CHANNEL).n,
+        1,
+      );
+    } finally {
+      try { fs.rmSync(dir, {recursive: true, force: true}); } catch { /* already gone */ }
+    }
+  });
+});
+
 describe('the root account', () => {
   let dir;
   let devAuth;
@@ -193,15 +220,15 @@ describe('the root account', () => {
     assert.ok(result.token, 'root is an ordinary account with a working password');
   });
 
-  it('grants root the owner role, in the database', async () => {
+  it('grants root the platform administrator role', async () => {
     const report = await devAuth.ensureRootUser(auth);
-    assert.equal(roles.getRole(report.userId), 'owner', 'root is the first owner');
+    assert.equal(roles.getRole(report.userId), 'admin');
   });
 
-  it('reports no change when root is already an owner', async () => {
+  it('reports no change when root is already a platform administrator', async () => {
     await devAuth.ensureRootUser(auth);
     const again = await devAuth.ensureRootUser(auth);
-    assert.equal(again.grantedOwner, false);
+    assert.equal(again.grantedPlatformAdmin, false);
   });
 
   // The role is a foreign key to the user table now, so deleting the account
@@ -209,19 +236,22 @@ describe('the root account', () => {
   // owners accumulated for a root that only ever existed once.
   it('leaves no orphan role behind when the account is deleted', async () => {
     const report = await devAuth.ensureRootUser(auth);
-    assert.equal(roles.getRole(report.userId), 'owner');
+    assert.equal(roles.getRole(report.userId), 'admin');
     db.prepare('DELETE FROM "user" WHERE id = ?').run(report.userId);
-    assert.equal(roles.getRole(report.userId), 'viewer', 'the role went with the user');
-    assert.equal(roles.ownerCount(), 0, 'and left no owner row behind');
+    assert.equal(roles.getRole(report.userId), 'user', 'the role went with the user');
+    assert.equal(roles.adminCount(), 0, 'and left no administrator row behind');
   });
 
   it('hands out a session to a loopback caller', async () => {
     await devAuth.ensureRootUser(auth);
     const {calls, json} = capture();
-    await devAuth.handleDevLogin(reqFrom('127.0.0.1'), {}, auth, json);
+    const headers = {};
+    const res = {setHeader: (name, value) => { headers[name] = value; }};
+    await devAuth.handleDevLogin(reqFrom('127.0.0.1'), res, auth, json);
     assert.equal(calls[0].status, 200);
-    assert.ok(calls[0].body.token, 'returns a usable session token');
-    assert.equal(calls[0].body.user.username, 'root');
+    assert.equal('token' in calls[0].body, false, 'the session is not readable by JavaScript');
+    assert.match(headers['Set-Cookie'][0], /HttpOnly/, 'the session is an HttpOnly cookie');
+    assert.equal(calls[0].body.user.name, devAuth.ROOT_NAME);
   });
 
   it('creates nothing at all when auto-login is off', async () => {
@@ -246,7 +276,8 @@ describe('the root account', () => {
   it('provisions the workspace once, not on every start', async () => {
     const again = await devAuth.ensureRootUser(auth);
     assert.equal(again.workspace.created, false, 'the workspace was already there');
-    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM channel').get().n, 1);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM channel').get().n, 2,
+      'root and demo each keep exactly one lifecycle-provisioned channel');
   });
 
   // The whole point of provisioning it: the one-click sign-in lands somewhere
@@ -254,17 +285,18 @@ describe('the root account', () => {
   it('signs root in to that workspace, not the empty second one', async () => {
     await devAuth.ensureRootUser(auth);
     const {calls, json} = capture();
-    await devAuth.handleDevLogin(reqFrom('127.0.0.1'), {}, auth, json);
+    const headers = {};
+    const res = {setHeader: (name, value) => { headers[name] = value; }};
+    await devAuth.handleDevLogin(reqFrom('127.0.0.1'), res, auth, json);
 
     const session = await auth.api.getSession({
-      headers: {authorization: `Bearer ${calls[0].body.token}`},
+      headers: {cookie: headers['Set-Cookie'][0].split(';')[0]},
     });
     assert.equal(session.session.activeOrganizationId, orgIdOf(devAuth.ROOT_ORG_SLUG));
   });
 
-  // The fixture that gives the navbar switcher something to switch to. Empty on
-  // purpose: switching is only visible when the two sides do not look alike.
-  describe('the second, empty workspace', () => {
+  // The fixture that gives the navbar switcher something to switch to.
+  describe('the second workspace', () => {
     it('exists, with root as its owner', async () => {
       const {userId, demo} = await devAuth.ensureRootUser(auth);
       assert.equal(demo.name, devAuth.DEMO_ORG_NAME);
@@ -274,12 +306,12 @@ describe('the root account', () => {
       assert.equal(membership.role, 'owner');
     });
 
-    it('has no channels, so switching to it visibly changes the page', async () => {
+    it('is immediately usable with its lifecycle-provisioned channel', async () => {
       await devAuth.ensureRootUser(auth);
       const channels = db
         .prepare('SELECT COUNT(*) AS n FROM channel WHERE organizationId = ?')
         .get(orgIdOf(devAuth.DEMO_ORG_SLUG));
-      assert.equal(channels.n, 0);
+      assert.equal(channels.n, 1);
     });
 
     it('leaves root in two workspaces, which is what the switcher needs', async () => {

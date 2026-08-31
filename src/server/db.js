@@ -1,23 +1,12 @@
 /**
  * The local SQL database.
  *
- * One SQLite file under var/data/, alongside the JSON stores it will eventually
- * replace. SQLite because it needs no server, no container, and no install: the
- * driver is a library and the database is a file, so `npm start` works on a
- * clean checkout.
+ * One SQLite file under var/data/ for local development and isolated tests.
+ * Production selects the PostgreSQL repositories whenever DATABASE_URL is set;
+ * this file is deliberately not loaded on that path.
  *
- * The obvious question is why not Postgres, given the multi-tenant plan wants
- * row-level security to enforce organization isolation in the database rather
- * than in a few hundred hand-written WHERE clauses. The answer is sequencing,
- * not preference. RLS is a Postgres feature and it is the right end state, and
- * this file is the seam where that swap happens.
- *
- * What carries the isolation until then is ./store, which is the only module
- * allowed to reach this one for tenant-scoped data. Every query it runs is
- * scoped by construction rather than by the caller remembering to say so, which
- * is the same guarantee RLS gives, made in the application instead of the
- * database. When Postgres arrives, that layer does not come out; it becomes the
- * inner of two locks.
+ * Local isolation is carried by the same scoped repository boundary used by
+ * PostgreSQL. Production additionally enforces it with row-level security.
  *
  * WAL mode lets the API server read while another connection writes, which
  * matters because the Docusaurus dev server and the API run side by side.
@@ -57,11 +46,15 @@ function migrate() {
     : [];
 
   const record = db.prepare('INSERT INTO _migrations (name, appliedAt) VALUES (?, ?)');
+  const alreadyApplied = db.prepare('SELECT 1 FROM _migrations WHERE name = ?');
   for (const name of pending) {
     const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, name), 'utf-8');
     // better-sqlite3 runs exec() and the INSERT in one transaction, so a
     // migration that throws partway leaves no record and no partial schema.
     db.transaction(() => {
+      // Another server process may have applied it after `pending` was read.
+      // Recheck while holding SQLite's write transaction before executing DDL.
+      if (alreadyApplied.get(name)) return;
       db.exec(sql);
       record.run(name, new Date().toISOString());
     })();

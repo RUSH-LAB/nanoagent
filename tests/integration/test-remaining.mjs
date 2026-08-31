@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {createApiClient} from './api-client.mjs';
 // ─────────────────────────────────────────────────────────────
 // Tests for previously uncovered endpoints in the Mochi Lab server
 // Usage:  node tests/integration/test-remaining.mjs
@@ -29,29 +30,7 @@ function fail(name, detail) { failed++; log('✗', RED, name, detail); }
 function skip(name, detail) { skipped++; log('-', YELLOW, name, detail); }
 function section(title) { console.log(`\n${BOLD}${title}${RESET}`); }
 
-async function api(method, path, body, opts = {}) {
-  const url = path.startsWith('http') ? path : `${BASE}${path}`;
-  const init = {method, headers: {}};
-  if (body !== undefined && body !== null) {
-    if (typeof body === 'string' || body instanceof Buffer) {
-      init.body = body;
-    } else {
-      init.headers['Content-Type'] = 'application/json';
-      init.body = JSON.stringify(body);
-    }
-  }
-  if (opts.headers) Object.assign(init.headers, opts.headers);
-  if (opts.signal) init.signal = opts.signal;
-  const res = await fetch(url, init);
-  const contentType = res.headers.get('content-type') || '';
-  let data;
-  if (contentType.includes('application/json')) {
-    data = await res.json();
-  } else {
-    data = await res.text();
-  }
-  return {status: res.status, data, headers: res.headers};
-}
+const api = createApiClient(BASE);
 
 function assertEq(actual, expected, label) {
   if (actual !== expected) throw new Error(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
@@ -150,6 +129,7 @@ async function testRecommendationsAdd() {
     });
     assertOk(status === 200 || status === 201, 'status is 200 or 201');
     assertOk(data.success || data.key, 'has success or key');
+    if (data.key) await api('DELETE', `/api/references/${encodeURIComponent(data.key)}`);
   });
 }
 
@@ -173,9 +153,9 @@ async function testSitemap() {
 async function testUsers() {
   section('Users');
 
-  await test('GET /api/users returns users list', async () => {
+  await test('GET /api/users is limited to platform administrators', async () => {
     const {status, data} = await api('GET', '/api/users');
-    assertEq(status, 200, 'status');
+    assertEq(status, 403, 'status');
     assertOk(typeof data === 'object', 'response is object');
   });
 
@@ -195,8 +175,8 @@ async function testAiComplete() {
     const {status} = await api('POST', '/api/ai/complete', {
       prompt: 'test',
     });
-    // Without an API key, expect 400 or 500
-    assertOk(status === 400 || status === 500 || status === 401 || status === 403 || status === 200, `status is ${status}`);
+    // Providers report missing credentials/configuration as a gateway failure.
+    assertOk([400, 401, 403, 500, 502].includes(status), `status is ${status}`);
   });
 }
 

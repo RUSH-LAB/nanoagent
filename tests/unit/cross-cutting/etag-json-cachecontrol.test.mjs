@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { key } from '../_harness.mjs';
+import { key, makeCtx, TEST_ORG_ID } from '../_harness.mjs';
 
 // Pins the behavior of the `json()` Cache-Control consolidation:
 //   - server/index.js `json(res, status, data, opts)` overrides Cache-Control only on
@@ -227,21 +227,24 @@ describe('json() reproduces the old hand-rolled blocks byte-for-byte', () => {
 // call. This pins that each call site forwards the correct cacheControl and body
 // shape, without depending on a running server or the filesystem.
 describe('route call sites forward the right cacheControl', () => {
-  it('GET /api/stats calls json with cacheControl public, max-age=30', async () => {
+  it('GET /api/stats calls json with a workspace-private 30 second cache', async () => {
     const filesRoutes = require('../../../src/server/routes/files.js');
     const FAKE_STATS = { totalFiles: 7, totalWords: 1234, references: 5, byDirectory: {} };
     let captured = null;
-    const ctx = {
+    const ctx = makeCtx({
       cacheKey: (_orgId, name) => key(name), // the handler scopes its key to the workspace
       cached: (_key, _ttl, _fn) => FAKE_STATS, // bypass the content-dir walk
       json: (_res, status, data, opts) => { captured = { status, data, opts }; },
-    };
+    });
     const url = new URL('http://localhost/api/stats');
-    await filesRoutes({ method: 'GET', headers: {} }, { writableEnded: false }, url, '/api/stats', ctx);
+    await filesRoutes({
+      method: 'GET', headers: {},
+      context: {userId: 'test-user', workspaceId: TEST_ORG_ID, membershipId: 'member-1', role: 'owner'},
+    }, { writableEnded: false }, url, '/api/stats', ctx);
     assert.ok(captured, 'json() must be called');
     assert.equal(captured.status, 200);
     assert.deepEqual(captured.data, FAKE_STATS);
-    assert.deepEqual(captured.opts, { cacheControl: 'public, max-age=30' });
+    assert.deepEqual(captured.opts, { cacheControl: 'private, max-age=30' });
   });
 
 });

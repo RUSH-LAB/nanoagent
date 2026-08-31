@@ -15,22 +15,42 @@ const {
 } = require('./server-utils');
 
 const {PROJECT_ROOT, PRIMARY_ORG_SLUG, contentDirFor, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
-const {auth, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
+const {auth, resolveIdentity, isPublicPath, productionAuthError, AUTH_ENABLED} = require('./auth');
+const {
+  createWorkspaceContextResolver, matchWorkspaceApiPath, storageScope,
+  workspaceDispatchPath,
+  isGlobalApiPath,
+  normalizeWorkspaceRole, requirePermission: requireWorkspacePermission,
+} = require('./workspace-context');
+const postgresDatabase = require('./postgres/database');
+const postgresServices = postgresDatabase.enabled ? require('./postgres/services') : null;
+const {contextualChat, contextualOrg} = require('./context-services');
 // Site-wide roles, on ctx like every other dependency a route module needs, so
 // a test can substitute an in-memory implementation instead of a real database.
-const roles = require('./roles');
-const chat = require('./chat');
-const org = require('./org');
+const roles = postgresServices?.roles ?? require('./roles');
+const chat = contextualChat(postgresServices?.chat ?? require('./chat'));
+const org = contextualOrg(postgresServices?.org ?? require('./org'));
 const ai = require('./ai');
 // The per-workspace data layer. See server/store/index.js: the only way a route
 // module is allowed to reach the thirteen features' data, because it is the
 // only way that applies the organization and the owner without being asked to.
-const store = require('./store');
+const store = postgresServices?.store ?? require('./store');
 // Content as rows, and the compiler that renders one when it is asked for.
 // Both on ctx rather than required by the route, for the same reason as
 // everything else here: a test substitutes them.
-const documents = require('./documents');
+const documents = postgresServices?.documents ?? require('./documents');
+const preferences = postgresServices?.preferences ?? require('./preferences');
+const workspaceSettings = postgresServices?.workspaceSettings ?? require('./workspace-settings');
+const {createObjectStorage} = require('./object-storage');
+const {createObjectDeletionQueue, drainObjectDeletions} = require('./object-deletions');
+const {serveStaticSite} = require('./static-site');
+const {createDocumentFilesystem} = require('./document-filesystem');
+const objectStorage = createObjectStorage();
+const assets = postgresServices?.assets ?? require('./assets');
+const objectDeletions = postgresServices?.objectDeletions
+  ?? createObjectDeletionQueue({db: require('./db').db});
 const {compileDocument} = require('./mdx');
+const workspaceContexts = postgresServices?.workspaceContexts ?? createWorkspaceContextResolver();
 const {loadServerPlugins, collectProvides, asRouteModule} = require('./plugins');
 // The tools in plugins/, each contributing its endpoints and whatever it lends
 // the rest of the server. Loaded here, above ctx, because ctx spreads what they
@@ -45,53 +65,20 @@ const providedByPlugins = collectProvides(serverPlugins);
  * startup banner says which plugins loaded.
  */
 const NO_REFERENCES = Object.freeze({
-  load: () => ({}),
   buildCitation: () => '',
   cleanBibtexValue: value => String(value ?? ''),
+  openPapers: () => null,
+  paperForStorage: value => value,
 });
-
-/**
- * Adapt a plugin's reader-shaped loader to the (fs, path, root) call the core
- * handlers make.
- *
- * The plugin cannot touch the filesystem, so it asks for `read` and `stat` and
- * lets whoever calls it supply them. Core has fs, and its tests supply a mock
- * one, so the adaptation belongs here rather than in the plugin.
- *
- * `root` is now the caller's own content root rather than the repository root,
- * because a bibliography belongs to a workspace: two research groups do not
- * share one references.yaml, and the plugin's relative `bibliography/
- * references.yaml` resolves inside whichever tree it is given.
- */
-function referencesForCore(provided) {
-  if (!provided) return NO_REFERENCES;
-  const readerFor = (fs, path, contentRoot) => {
-    const at = relative => path.join(contentRoot, relative);
-    return {
-      read(relative) {
-        try {
-          return fs.readFileSync(at(relative), 'utf-8');
-        } catch {
-          return null;
-        }
-      },
-      stat(relative) {
-        try {
-          const {mtimeMs, size} = fs.statSync(at(relative));
-          return {mtimeMs, size};
-        } catch {
-          return null;
-        }
-      },
-    };
-  };
-  return {
-    ...provided,
-    load: (fs, path, root) => provided.load(readerFor(fs, path, root)),
-  };
-}
 const {toNodeHandler} = require('better-auth/node');
-const {DEV_AUTOLOGIN, ensureRootUser, handleDevLogin, ROOT_USERNAME} = require('./dev-auth');
+const developmentAuth = postgresDatabase.enabled ? {
+  DEV_AUTOLOGIN: false,
+  ensureRootUser: async () => null,
+  ensureDevelopmentWorkspace: () => null,
+  handleDevLogin: (_req, res, _auth, send) => send(res, 404, {error: 'Development login is unavailable with PostgreSQL'}),
+  ROOT_USERNAME: 'root',
+} : require('./dev-auth');
+const {DEV_AUTOLOGIN, ensureRootUser, ensureDevelopmentWorkspace, handleDevLogin, ROOT_USERNAME} = developmentAuth;
 const PORT = process.env.EDITOR_PORT || 3001;
 
 // ── Access log file setup ──
@@ -128,17 +115,12 @@ function hasAllowedExt(name) {
 /**
  * The absolute content root of one organization.
  *
- * A function of the caller's organization rather than a constant on ctx,
- * because ctx is one object shared by every in-flight request and a root parked
- * there would be whichever request wrote it last. The organization comes from
- * `req.auth`, which comes from the verified session, so a handler calls this
- * with `req.auth.orgId` and cannot be handed another workspace's tree.
- *
- * Falls back to the primary organization when there is no session at all, which
- * is the case for the two public feeds and for the whole server when
- * ENABLE_AUTH is off (the tests, and `npm run start:noauth`).
+ * A function of the explicit, verified workspace id rather than a constant on
+ * ctx, because ctx is shared by every in-flight request. In live requests the
+ * id always comes from RequestContext, never from activeOrganizationId.
  */
 function orgSlugFor(orgId) {
+  if (postgresDatabase.enabled) return orgId;
   return org.slugForOrg(orgId) || PRIMARY_ORG_SLUG;
 }
 
@@ -147,23 +129,25 @@ function contentRootFor(orgId) {
 }
 
 /**
- * The workspace and person a handler's store calls act as: `{orgId, userId}`.
+ * The workspace and person a handler's store calls act as RequestContext.
  *
  * Built from `req.auth` and from nothing else, which is what makes it not
  * forgeable: there is no query parameter or body field it consults, so a client
  * has no way to express somebody else. The same rule, and the same reason, as
  * contentRootFor above.
  *
- * A caller with no active workspace falls back to the primary one, which is
- * what the public feeds need and what keeps the whole server working with
- * ENABLE_AUTH off. When the primary workspace does not exist either, the scope
- * carries a null and server/store raises the 409 rather than this guessing.
+ * The primary workspace fallback exists only in the explicitly unauthenticated
+ * local-development mode. Authenticated requests must already have the
+ * RequestContext resolved from their URL.
  */
 function scopeFor(req) {
+  if (req?.context) return storageScope(req.context);
   const auth = req?.auth;
   return {
-    orgId: auth?.orgId || org.primaryOrgId(),
+    workspaceId: !AUTH_ENABLED ? org.primaryOrgId() : null,
     userId: auth?.userId ?? null,
+    membershipId: null,
+    role: null,
   };
 }
 
@@ -183,7 +167,7 @@ function scopeFor(req) {
  * line up.
  */
 function cacheKey(orgId, name) {
-  return `org:${orgSlugFor(orgId)}:${name}`;
+  return `workspace:${orgId || 'none'}:${name}`;
 }
 
 /**
@@ -231,7 +215,41 @@ function flatFiles(dir, base = dir) {
   return result;
 }
 
-const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+function walkDirWith(files, dir, base = dir) {
+  const result = [];
+  for (const entry of files.readdirSync(dir, {withFileTypes: true})) {
+    if (entry.name.startsWith('.')) continue;
+    const fullPath = path.join(dir, entry.name);
+    const relPath = path.relative(base, fullPath);
+    if (entry.isDirectory()) {
+      result.push({name: entry.name, path: relPath, type: 'directory', children: walkDirWith(files, fullPath, base)});
+    } else if (hasAllowedExt(entry.name)) {
+      const stat = files.statSync(fullPath);
+      result.push({name: entry.name, path: relPath, type: 'file', mtime: stat.mtimeMs, size: stat.size});
+    }
+  }
+  return result;
+}
+
+function flatFilesWith(files, dir, base = dir) {
+  const result = [];
+  function walk(current) {
+    for (const entry of files.readdirSync(current, {withFileTypes: true})) {
+      if (entry.name.startsWith('.')) continue;
+      const fullPath = path.join(current, entry.name);
+      const relPath = path.relative(base, fullPath);
+      if (entry.isDirectory()) walk(fullPath);
+      else if (hasAllowedExt(entry.name)) result.push({name: entry.name, path: relPath});
+    }
+  }
+  walk(dir);
+  return result;
+}
+
+// Production is same-origin by default. Development keeps the permissive
+// origin echo because the Docusaurus and API dev servers use different ports.
+const CORS_ORIGIN = process.env.CORS_ORIGIN
+  || (process.env.NODE_ENV === 'production' ? process.env.SITE_URL : '*');
 
 /**
  * The CORS header set for a request.
@@ -249,7 +267,7 @@ function corsHeaders(req) {
     'Access-Control-Allow-Origin': CORS_ORIGIN === '*' ? (origin || '*') : CORS_ORIGIN,
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, PATCH, OPTIONS',
-    // Authorization so the preflight lets the session token through.
+    // Keep Authorization for non-browser tooling; browser sessions use cookies.
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Vary': 'Origin',
   };
@@ -313,10 +331,6 @@ function readRawBody(req) {
   });
 }
 
-// JSON persistence: atomic writes + an mtime/size aware read cache.
-// See server/data-store.js. Routes call these unchanged via the ctx object.
-const {loadJSON, saveJSON} = require('./data-store');
-
 // ── Simple TTL cache for expensive endpoints ──
 const cache = {};
 const MAX_CACHE_ENTRIES = 200;
@@ -332,6 +346,11 @@ function cached(key, ttlMs, fn) {
   }
   const data = fn();
   cache[key] = {data, time: Date.now()};
+  if (data && typeof data.then === 'function') {
+    data.catch(() => {
+      if (cache[key]?.data === data) delete cache[key];
+    });
+  }
   return data;
 }
 
@@ -366,7 +385,8 @@ function cleanStalePresence() {
   }
 }
 
-setInterval(cleanStalePresence, 30000);
+const presenceCleanupTimer = setInterval(cleanStalePresence, 30000);
+presenceCleanupTimer.unref?.();
 
 // ── In-memory rate limiter ──
 const rateLimits = {};
@@ -398,7 +418,7 @@ function rateLimit(key, maxPerMinute) {
   return true;
 }
 
-setInterval(() => {
+const cacheCleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const key of Object.keys(rateLimits)) {
     rateLimits[key] = rateLimits[key].filter(t => now - t < 60000);
@@ -422,6 +442,22 @@ setInterval(() => {
     }
   }
 }, 60000);
+cacheCleanupTimer.unref?.();
+
+let objectCleanupRunning = false;
+async function cleanPendingObjects() {
+  if (objectCleanupRunning) return {processed: 0, removed: 0, failed: 0};
+  objectCleanupRunning = true;
+  try {
+    return await drainObjectDeletions(objectDeletions, objectStorage);
+  } finally {
+    objectCleanupRunning = false;
+  }
+}
+const objectCleanupTimer = setInterval(() => {
+  cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));
+}, 60000);
+objectCleanupTimer.unref?.();
 
 // ── Scheduled publishing checker (runs every 60s) ──
 //
@@ -435,13 +471,9 @@ setInterval(() => {
 // The defect worth naming is the third: it joined `schedule.path` onto the repo
 // root and wrote to it, with no validation. That field arrives from the body of
 // POST /api/schedule, where it is passed through sanitizeText, which strips
-// control characters and does not care about `../`. Had either of the other two
-// bugs ever been fixed on its own, this loop would have been an
-// arbitrary-file-write primitive reachable by any signed-in caller. The check
-// below is the same isValidFilePath every file handler already uses, and the
-// root it resolves against is the owning workspace's content tree, not the
-// repository, which is the fourth thing that was wrong once content moved to
-// one directory per organization.
+// control characters and does not care about `../`. The path check remains at
+// this boundary even though publishing now updates a document row rather than
+// resolving a filesystem path.
 //
 // The loop belongs to no caller, so it cannot take a scope from a request. It
 // asks every workspace what it has due, in turn, and acts inside each one: the
@@ -450,23 +482,22 @@ setInterval(() => {
 // Published items keep their row with status 'published', rather than being
 // dropped, so that GET /api/schedule can still account for them; that endpoint
 // already models an item's life as a status rather than as presence in a list.
-setInterval(() => {
+const scheduledPublishingTimer = setInterval(async () => {
   const now = new Date();
-  for (const {id: orgId} of org.allOrganizations()) {
+  for (const {id: workspaceId, ownerId = null} of await org.allOrganizations()) {
     // The schedule is the workspace's, so the scope needs no user. A workspace
     // with nothing scheduled costs one indexed read and no further work.
-    const scope = {orgId, userId: null};
+    const scope = {workspaceId, userId: ownerId, membershipId: null, role: 'owner', kind: 'system'};
     let due;
     try {
-      due = store.collection('schedule').list(scope)
+      due = (await store.collection('schedule').list(scope))
         .filter(({value}) => value.status !== 'published' && new Date(value.publishAt) <= now);
     } catch (err) {
-      console.error(`[schedule] Could not read the schedule of ${orgId}:`, err.message);
+      console.error(`[schedule] Could not read the schedule of ${workspaceId}:`, err.message);
       continue;
     }
     if (due.length === 0) continue;
 
-    const contentRoot = contentRootFor(orgId);
     let published = 0;
     for (const {key, value: schedule} of due) {
       try {
@@ -474,12 +505,19 @@ setInterval(() => {
           console.error(`[schedule] Refusing ${schedule.path}: not a content path`);
           continue;
         }
-        const fullPath = path.join(contentRoot, schedule.path);
-        if (!fs.existsSync(fullPath)) {
+        const documentScope = {
+          workspaceId,
+          userId: schedule.createdBy ?? ownerId,
+          membershipId: null,
+          role: 'editor',
+          kind: 'system',
+        };
+        const document = await documents.get(documentScope, schedule.path);
+        if (!document) {
           console.log(`[schedule] Skipping ${schedule.path}: file not found`);
           continue;
         }
-        let content = fs.readFileSync(fullPath, 'utf-8');
+        let content = document.markdown;
         const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/);
         if (fmMatch) {
           let fm = fmMatch[1];
@@ -492,8 +530,8 @@ setInterval(() => {
         } else {
           content = '---\ndraft: false\n---\n' + content;
         }
-        fs.writeFileSync(fullPath, content, 'utf-8');
-        store.collection('schedule').put(scope, key, {
+        await documents.save(documentScope, schedule.path, content);
+        await store.collection('schedule').put(scope, key, {
           ...schedule,
           status: 'published',
           publishedAt: now.toISOString(),
@@ -509,11 +547,11 @@ setInterval(() => {
       // That workspace's frontmatter changed, so anything derived from its tree
       // is one publish behind. Its caches only: another workspace's search index
       // is not stale because this one published.
-      invalidateCache(cacheKey(orgId, 'search'));
-      invalidateCache(cacheKey(orgId, 'stats'));
+      invalidateCache(cacheKey(workspaceId, ''));
     }
   }
 }, 60000);
+scheduledPublishingTimer.unref?.();
 
 // ── Performance metrics: in-memory response time tracking (last 100 per endpoint) ──
 const perfMetrics = {}; // { '/api/foo': [ms, ms, ...] }
@@ -548,7 +586,7 @@ let requestCounter = 0;
 
 // ── Shared context handed to every route module in server/routes/ ──
 const ctx = {
-  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
+  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
   roles,
   chat,
   org,
@@ -564,17 +602,27 @@ const ctx = {
   // is no collection method that works without one.
   collection: store.collection,
   scopeFor,
+  storageScope,
+  normalizeWorkspaceRole,
+  requireWorkspacePermission,
   documents,
+  preferences,
+  workspaceSettings,
+  objectStorage,
+  cleanPendingObjects,
+  assets,
   compileDocument,
   // What the installed plugins lend. ctx.references comes from the bibliography
   // plugin, and falls back to an empty one, because a core handler that reads
   // the bibliography must survive the plugin being removed.
   ...providedByPlugins,
-  references: referencesForCore(providedByPlugins.references),
+  references: providedByPlugins.references || NO_REFERENCES,
   _routeDiagnostics: null,
 };
 
+const workspaceRoutes = require('./routes/workspaces');
 const routeModules = [
+  require('./routes/workspace-settings'),
   // Content from the database, compiled per request. Ahead of ./routes/files,
   // which is the same content read off disk, because /api/content is the path
   // that knows who is asking.
@@ -633,6 +681,12 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const pathname = url.pathname;
 
+  // A production process serves the Docusaurus application shell and API from
+  // one origin, so the session cookie never has to be exposed to JavaScript.
+  if (pathname !== '/api' && !pathname.startsWith('/api/') && process.env.NODE_ENV === 'production') {
+    if (serveStaticSite(req, res, {root: path.join(PROJECT_ROOT, 'build')})) return;
+  }
+
   // ── Sign-up, sign-in, sign-out, organizations ──
   // Better Auth owns everything under /api/auth/ and answers on its own. It
   // runs before the identity gate below, because this is where a caller with no
@@ -641,9 +695,6 @@ const server = http.createServer(async (req, res) => {
     for (const [name, value] of Object.entries(corsHeaders(req))) {
       res.setHeader(name, value);
     }
-    // The bearer plugin returns a new session token in this header, and a
-    // cross-origin caller cannot read a response header unless it is exposed.
-    res.setHeader('Access-Control-Expose-Headers', 'set-auth-token');
     return authHandler(req, res);
   }
 
@@ -665,6 +716,32 @@ const server = http.createServer(async (req, res) => {
     return json(res, resolved.status, {error: resolved.error});
   }
   req.auth = resolved.ok ? resolved.identity : null;
+
+  // Operational diagnostics are platform-wide rather than workspace data.
+  // In authenticated deployments they belong to the separate platform-admin
+  // role and never follow a workspace owner/editor role.
+  if (AUTH_ENABLED && ['/api/logs', '/api/perf', '/api/debug/memory', '/api/debug/routes'].includes(pathname)) {
+    if (!await roles.isAdmin(req.auth?.userId)) {
+      return json(res, 403, {error: 'Only platform administrators can view operational diagnostics'});
+    }
+  }
+
+  // The path names the workspace. Membership is rechecked for every scoped
+  // request; activeOrganizationId is not consulted here.
+  const workspaceRequest = matchWorkspaceApiPath(pathname);
+  if (workspaceRequest) {
+    const requestContext = await workspaceContexts.byId(req.auth?.userId, workspaceRequest.workspaceId);
+    if (!requestContext) return json(res, 404, {error: 'Workspace not found'});
+    req.context = requestContext;
+    req.workspacePath = workspaceRequest.workspacePath;
+  }
+
+  // All business APIs are workspace scoped unless they are explicitly listed
+  // as account/platform/pre-authentication endpoints. This closes the last
+  // route by which activeOrganizationId could silently choose authorization.
+  if (pathname.startsWith('/api/') && !workspaceRequest && !isGlobalApiPath(pathname)) {
+    return json(res, 404, {error: 'Workspace not found'});
+  }
 
   // ── Health check ──
   if (req.method === 'GET' && pathname === '/api/health') {
@@ -698,9 +775,37 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // User-global workspace discovery and the workspace root retain their public
+  // path. Every nested workspace endpoint is translated only after the
+  // membership check above, so existing handlers cannot accidentally accept an
+  // unverified workspace id.
+  await workspaceRoutes(req, res, url, pathname, ctx);
+  if (res.writableEnded) return;
+
+  const dispatchPathname = workspaceRequest
+    ? workspaceDispatchPath(workspaceRequest.workspacePath)
+    : pathname;
+
+  // Legacy analysis handlers still use synchronous fs-shaped traversal. Give
+  // them a request-local, read-only view over document rows so production has
+  // one content source while those algorithms are migrated incrementally.
+  const routeCtx = req.context
+    ? await (async () => {
+        const root = contentRootFor(req.context.workspaceId);
+        const snapshot = documents.snapshot ? await documents.snapshot(scopeFor(req)) : null;
+        const scopedFs = createDocumentFilesystem({files: fs, documents, context: req.context, root, snapshot});
+        return {
+          ...ctx,
+          fs: scopedFs,
+          walkDir: (dir, base = dir) => walkDirWith(scopedFs, dir, base),
+          flatFiles: (dir, base = dir) => flatFilesWith(scopedFs, dir, base),
+        };
+      })()
+    : ctx;
+
   // ── Domain route modules (see server/routes/). First to send a response wins. ──
   for (const route of routeModules) {
-    await route(req, res, url, pathname, ctx);
+    await route(req, res, url, dispatchPathname, routeCtx);
     if (res.writableEnded) return;
   }
 
@@ -784,8 +889,9 @@ const rootReady = ensureRootUser(auth).catch(err => {
   console.error(`\n  ${err.message}\n`);
   return null;
 });
+const developmentWorkspace = !AUTH_ENABLED ? ensureDevelopmentWorkspace() : null;
 
-server.listen(PORT, async () => {
+postgresDatabase.ready.then(() => server.listen(PORT, async () => {
   const startupNs = process.hrtime.bigint() - _startupTime;
   const startupMs = Number(startupNs / 1_000_000n);
   const memMB = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
@@ -811,6 +917,10 @@ server.listen(PORT, async () => {
     : `  Assistant: unavailable. ${assistant.reason}`);
 
   const root = await rootReady;
+  cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));
+  if (developmentWorkspace) {
+    console.log(`  Development workspace: "${developmentWorkspace.name}" (${developmentWorkspace.slug})`);
+  }
   if (root) {
     console.log(`  Dev sign-in: one click as "${root.username}" (owner)${root.created ? ', account created' : ''}`);
     console.log(`  Root password: ${root.passwordFile}`);
@@ -821,21 +931,67 @@ server.listen(PORT, async () => {
     else if (demo?.name) console.log(`  Second workspace: "${demo.name}", empty, to switch to from the navbar`);
   }
   console.log('');
+})).catch(error => {
+  console.error(`\n  PostgreSQL startup failed: ${error.message}\n`);
+  process.exitCode = 1;
 });
 
-process.on('SIGINT', () => {
+let shutdownPromise = null;
+
+function shutdown(exitCode = 0) {
+  if (shutdownPromise) return shutdownPromise;
+  clearInterval(presenceCleanupTimer);
+  clearInterval(cacheCleanupTimer);
+  clearInterval(objectCleanupTimer);
+  clearInterval(scheduledPublishingTimer);
+
+  shutdownPromise = new Promise(resolve => {
+    const finish = async () => {
+      try {
+        await postgresDatabase.close();
+      } catch (error) {
+        console.error('Database shutdown failed:', error.message);
+        exitCode = 1;
+      }
+      resolve();
+      process.exit(exitCode);
+    };
+
+    if (!server.listening) {
+      void finish();
+      return;
+    }
+
+    const forceTimer = setTimeout(() => server.closeAllConnections?.(), 10_000);
+    forceTimer.unref?.();
+    server.close(error => {
+      clearTimeout(forceTimer);
+      if (error) {
+        console.error('HTTP shutdown failed:', error.message);
+        exitCode = 1;
+      }
+      void finish();
+    });
+    server.closeIdleConnections?.();
+  });
+  return shutdownPromise;
+}
+
+process.once('SIGINT', () => {
   console.log('\nShutting down...');
-  server.close(() => process.exit(0));
+  void shutdown(0);
 });
 
-process.on('SIGTERM', () => {
-  server.close(() => process.exit(0));
+process.once('SIGTERM', () => {
+  void shutdown(0);
 });
 
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught exception:', err.message);
+process.once('uncaughtException', err => {
+  console.error('Uncaught exception:', err);
+  void shutdown(1);
 });
 
-process.on('unhandledRejection', (reason) => {
+process.once('unhandledRejection', reason => {
   console.error('Unhandled rejection:', reason);
+  void shutdown(1);
 });

@@ -21,72 +21,44 @@ const EXPORT_TITLE_RE = /^title:\s*["']?(.+?)["']?\s*$/m;
 
 module.exports = async function graph_trash_files_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, documents, requireWorkspacePermission, _routeDiagnostics
   } = ctx;
 
   // ── Graph: wiki link connections between all pages ──
   if (req.method === 'GET' && pathname === '/api/graph') {
     try {
+      if (!req.context) return json(res, 404, {error: 'Workspace not found'});
+      requireWorkspacePermission(req.context, 'content:read');
+      const scope = scopeFor(req);
       // Param-free, deterministic scan (the exact sibling of the already-cached
       // GET /api/graph/export): memoize the whole {nodes, edges} computation under
       // one static key for the TTL while the json() write runs on every request.
-      const result = cached(cacheKey(req.auth?.orgId, 'graph-data'), 60000, () => {
-        const contentDir = contentRootFor(req.auth?.orgId);
+      const result = await cached(cacheKey(req.context.workspaceId, 'graph-data'), 60000, async () => {
         const nodes = [];
         const edges = [];
         const nodeMap = {};
 
-        // Collect all markdown/mdx files
-        function collectGraphFiles(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-            const fullPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              collectGraphFiles(fullPath);
-            } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              const relPath = path.relative(contentRootFor(req.auth?.orgId), fullPath);
-              // Build a route-like id: strip extension, strip trailing /index
-              let id = relPath.replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
-              if (id.endsWith('/index')) id = id.slice(0, -6);
-
-              // Extract title from frontmatter or first heading
-              const content = fs.readFileSync(fullPath, 'utf-8');
-              // Strip the extension once; the title seed and the equality guard below reuse it.
-              const strippedName = entry.name.replace(/\.(mdx?|md)$/, '');
-              let title = strippedName;
-              const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-              if (fmMatch) {
-                const titleMatch = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
-                if (titleMatch) title = titleMatch[1];
-              }
-              if (title === strippedName) {
-                const headingMatch = content.match(/^#\s+(.+)$/m);
-                if (headingMatch) title = headingMatch[1];
-              }
-
-              // Determine directory category
-              const parts = relPath.split(path.sep);
-              let category = parts.length > 1 ? parts[0] : '';
-              // For books/X and posts/X, use X as the category
-              if ((category === 'books' || category === 'posts') && parts.length > 2) {
-                category = parts[1];
-              }
-
-              const node = {id, path: relPath, title, category};
-              nodes.push(node);
-              nodeMap[id] = node;
-
-              // Extract wiki links
-              WIKI_LINK_RE.lastIndex = 0;
-              let match;
-              while ((match = WIKI_LINK_RE.exec(content)) !== null) {
-                const target = match[1].trim();
-                edges.push({source: id, target});
-              }
-            }
+        for (const row of await documents.list(scope)) {
+          const fileName = row.path.split('/').pop();
+          if (fileName.startsWith('.') || fileName.startsWith('_') || !ALLOWED_EXTS.some(ext => fileName.endsWith(ext))) continue;
+          const content = (await documents.get(scope, row.path))?.markdown ?? '';
+          let id = row.path.replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
+          if (id.endsWith('/index')) id = id.slice(0, -6);
+          const strippedName = row.path.split('/').pop().replace(/\.(mdx?|md)$/, '');
+          let title = row.title;
+          if (title === strippedName) title = content.match(/^#\s+(.+)$/m)?.[1] ?? title;
+          const parts = row.path.split('/');
+          let category = parts.length > 1 ? parts[0] : '';
+          if ((category === 'books' || category === 'posts') && parts.length > 2) category = parts[1];
+          const node = {id, path: row.path, title, category};
+          nodes.push(node);
+          nodeMap[id] = node;
+          WIKI_LINK_RE.lastIndex = 0;
+          let match;
+          while ((match = WIKI_LINK_RE.exec(content)) !== null) {
+            edges.push({source: id, target: match[1].trim()});
           }
         }
-        collectGraphFiles(contentDir);
 
         // Resolve edge targets: wiki links use route paths
         // Keep only edges where target matches a known node id (own key of nodeMap)
@@ -109,6 +81,7 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       });
       return json(res, 200, result);
     } catch (err) {
+      if (err?.status) return json(res, err.status, {error: err.message, ...(err.code ? {code: err.code} : {})});
       return json(res, 500, {error: 'Graph generation failed: ' + err.message});
     }
   }
@@ -117,19 +90,12 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
   if (req.method === 'DELETE' && pathname === '/api/trash/empty') {
     if (!rateLimit(`trash-empty:${req.socket.remoteAddress}`, 2)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
-      if (!fs.existsSync(TRASH_DIR)) return json(res, 200, {success: true, deleted: 0});
-      let deleted = 0;
-      function countFiles(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.isDirectory()) countFiles(path.join(dir, entry.name));
-          else deleted++;
-        }
-      }
-      countFiles(TRASH_DIR);
-      fs.rmSync(TRASH_DIR, {recursive: true, force: true});
+      if (!req.context) return json(res, 404, {error: 'Workspace not found'});
+      requireWorkspacePermission(req.context, 'content:delete');
+      const deleted = await documents.emptyTrash(scopeFor(req));
       return json(res, 200, {success: true, deleted});
-    } catch {
-      return json(res, 500, {error: 'Failed to empty trash'});
+    } catch (error) {
+      return json(res, error.status || 500, {error: error.status ? error.message : 'Failed to empty trash'});
     }
   }
 
@@ -138,8 +104,10 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
     const targetPath = url.searchParams.get('path');
     if (!targetPath) return json(res, 400, {error: 'Missing path param'});
     try {
-      const backlinks = cached(cacheKey(req.auth?.orgId, `backlinks:${targetPath}`), 60000, () => {
-      const contentDir = contentRootFor(req.auth?.orgId);
+      if (!req.context) return json(res, 404, {error: 'Workspace not found'});
+      requireWorkspacePermission(req.context, 'content:read');
+      const scope = scopeFor(req);
+      const backlinks = await cached(cacheKey(req.context.workspaceId, `backlinks:${targetPath}`), 60000, async () => {
       const result = [];
 
       // Derive possible link targets from the file path
@@ -163,51 +131,35 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
         return null;
       }
 
-      function scanDir(dir) {
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (entry.name.startsWith('.')) continue;
-          const fullPath = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            scanDir(fullPath);
-          } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-            const sourcePath = path.relative(contentRootFor(req.auth?.orgId), fullPath);
-            // Don't report self-links
-            if (sourcePath === targetPath) continue;
-            try {
-              const content = fs.readFileSync(fullPath, 'utf-8');
-              const sourceTitle = extractTitle(content) || entry.name;
-
-              // Check wiki links [[page]]
-              let match;
-              wikiLinkRe.lastIndex = 0;
-              while ((match = wikiLinkRe.exec(content)) !== null) {
-                const linkTarget = match[1].split('|')[0].trim(); // handle [[page|alias]]
-                // Match if the link target equals the basename, or the full path without extension
-                if (linkTarget === baseName || linkTarget === withoutExt ||
-                    linkTarget === withoutExtNoDocs) {
-                  result.push({sourcePath, sourceTitle, linkType: 'wikilink'});
-                  break;
-                }
-              }
-
-              citationRe.lastIndex = 0;
-              while ((match = citationRe.exec(content)) !== null) {
-                const citedKey = match[1].trim();
-                if (citedKey === baseName || citedKey === withoutExt) {
-                  result.push({sourcePath, sourceTitle, linkType: 'citation'});
-                  break;
-                }
-              }
-            } catch {}
+      for (const row of await documents.list(scope)) {
+        const sourcePath = row.path;
+        const fileName = sourcePath.split('/').pop();
+        if (sourcePath === targetPath || fileName.startsWith('.') || !ALLOWED_EXTS.some(ext => fileName.endsWith(ext))) continue;
+        const content = (await documents.get(scope, sourcePath))?.markdown ?? '';
+        const sourceTitle = extractTitle(content) || row.title;
+        let match;
+        wikiLinkRe.lastIndex = 0;
+        while ((match = wikiLinkRe.exec(content)) !== null) {
+          const linkTarget = match[1].split('|')[0].trim();
+          if (linkTarget === baseName || linkTarget === withoutExt || linkTarget === withoutExtNoDocs) {
+            result.push({sourcePath, sourceTitle, linkType: 'wikilink'});
+            break;
+          }
+        }
+        citationRe.lastIndex = 0;
+        while ((match = citationRe.exec(content)) !== null) {
+          const citedKey = match[1].trim();
+          if (citedKey === baseName || citedKey === withoutExt) {
+            result.push({sourcePath, sourceTitle, linkType: 'citation'});
+            break;
           }
         }
       }
-
-      scanDir(contentDir);
       return result;
       });
       return json(res, 200, {backlinks});
-    } catch {
+    } catch (error) {
+      if (error?.status) return json(res, error.status, {error: error.message, ...(error.code ? {code: error.code} : {})});
       return json(res, 500, {error: 'Backlinks scan failed'});
     }
   }
@@ -219,11 +171,13 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       const body = await readBody(req);
       const {path: dirPath} = body;
       if (!isValidDir(dirPath)) return json(res, 400, {error: 'Invalid path'});
-      const fullPath = path.join(contentRootFor(req.auth?.orgId), dirPath);
-      if (fs.existsSync(fullPath)) return json(res, 409, {error: 'Directory already exists'});
-      fs.mkdirSync(fullPath, {recursive: true});
-      return json(res, 201, {success: true, path: dirPath});
-    } catch {
+      if (!req.context) return json(res, 404, {error: 'Workspace not found'});
+      requireWorkspacePermission(req.context, 'content:create');
+      // Database document paths imply directories; there is no empty folder row
+      // and therefore no filesystem operation to perform.
+      return json(res, 201, {success: true, path: dirPath, virtual: true});
+    } catch (error) {
+      if (error?.status) return json(res, error.status, {error: error.message, ...(error.code ? {code: error.code} : {})});
       return json(res, 400, {error: 'Invalid request'});
     }
   }
@@ -235,48 +189,18 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       const body = await readBody(req);
       const {path: dirPath} = body;
       if (!isValidDir(dirPath)) return json(res, 400, {error: 'Invalid path'});
-      const normalized = path.normalize(dirPath);
+      if (!req.context) return json(res, 404, {error: 'Workspace not found'});
+      requireWorkspacePermission(req.context, 'content:delete');
+      const normalized = String(dirPath).replace(/\\/g, '/').replace(/\/+$/, '');
       if (normalized === '' || normalized === '.') return json(res, 400, {error: 'Cannot delete the root content directory'});
-      const fullPath = path.join(contentRootFor(req.auth?.orgId), normalized);
-      if (!fs.existsSync(fullPath)) return json(res, 404, {error: 'Directory not found'});
-      const stat = fs.statSync(fullPath);
-      if (!stat.isDirectory()) return json(res, 400, {error: 'Path is not a directory'});
-      const entries = fs.readdirSync(fullPath);
-      if (entries.length > 0) return json(res, 400, {error: 'Directory is not empty'});
-      fs.rmdirSync(fullPath);
-      return json(res, 200, {success: true});
+      const exists = (await documents.list(scopeFor(req))).some(document => document.path.startsWith(`${normalized}/`));
+      if (exists) return json(res, 400, {error: 'Directory is not empty'});
+      return json(res, 200, {success: true, virtual: true});
     } catch (err) {
       if (err.message === 'Invalid JSON') return json(res, 400, {error: 'Invalid request'});
+      if (err?.status) return json(res, err.status, {error: err.message, ...(err.code ? {code: err.code} : {})});
       return json(res, 500, {error: 'Delete failed'});
     }
   }
 
-  // ── File: move to a different directory ──
-  if (req.method === 'POST' && pathname === '/api/file/move') {
-    if (!rateLimit(`file-move:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
-    try {
-      const body = await readBody(req);
-      const {filePath, targetDir} = body;
-      if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid file path'});
-      if (!isValidDir(targetDir)) return json(res, 400, {error: 'Invalid target directory'});
-      const fullSource = path.join(contentRootFor(req.auth?.orgId), filePath);
-      if (!fs.existsSync(fullSource)) return json(res, 404, {error: 'Source file not found'});
-      const baseName = path.basename(filePath);
-      const newPath = path.join(targetDir, baseName);
-      if (!isValidFilePath(newPath)) return json(res, 400, {error: 'Resulting path is invalid'});
-      const fullTarget = path.join(contentRootFor(req.auth?.orgId), newPath);
-      if (fs.existsSync(fullTarget)) return json(res, 409, {error: 'A file already exists at the target location'});
-      const fullTargetDir = path.join(contentRootFor(req.auth?.orgId), targetDir);
-      fs.mkdirSync(fullTargetDir, {recursive: true});
-      fs.renameSync(fullSource, fullTarget);
-      // A move changes only a file's path, not the file count, so drop the cached
-      // flat search list; the content stats stay valid (mirrors files.js rename).
-      invalidateCache(cacheKey(req.auth?.orgId, 'search'));
-      return json(res, 200, {success: true, newPath});
-    } catch {
-      return json(res, 400, {error: 'Invalid request'});
-    }
-  }
-
 };
-

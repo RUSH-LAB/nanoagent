@@ -1,8 +1,8 @@
 {
   "title": "Bibliography",
-  "description": "Browse and manage references: pages, an API, and the [@key] citation syntax",
+  "description": "Papers with a standard citation schema, provenance, official links, PDFs, tags, and [@key] citations",
   "enabled": true,
   "apiVersion": 1,
-  "requires": ["cache", "content:write", "network"],
+  "requires": ["blobs", "cache", "content:read", "network", "records"],
   "options": {}
 }

@@ -15,6 +15,8 @@ import SearchBar from '@theme/SearchBar';
 import NavbarMobileSidebarToggle from '@theme/Navbar/MobileSidebar/Toggle';
 import NavbarSearch from '@theme/Navbar/Search';
 import WorkspaceSwitcher from '@site/src/components/WorkspaceSwitcher';
+import {useLocation} from '@docusaurus/router';
+import {workspaceSlugFromPath} from '@site/src/utils/workspaces';
 
 import styles from './styles.module.css';
 
@@ -74,9 +76,21 @@ function NavbarContentLayout({
 
 export default function NavbarContent(): ReactNode {
   const mobileSidebar = useNavbarMobileSidebar();
+  const location = useLocation();
 
   const items = useNavbarItems();
-  const [leftItems, rightItems] = splitNavbarItems(items);
+  const workspaceSlug = workspaceSlugFromPath(location.pathname);
+  const hasConcreteWorkspace = workspaceSlug && !workspaceSlug.startsWith(':');
+  // Content links in the config are deliberately workspace-neutral so the
+  // static build can render them. Once a workspace is present in the URL,
+  // keep it in every navbar destination instead of falling back to the user's
+  // default workspace through the legacy /documents redirect.
+  const scopedItems = hasConcreteWorkspace
+    ? items.map(item => typeof item.to === 'string' && item.to.startsWith('/documents')
+      ? {...item, to: `/w/${encodeURIComponent(workspaceSlug)}${item.to}`}
+      : item)
+    : items;
+  const [leftItems, rightItems] = splitNavbarItems(scopedItems);
 
   const searchBarItem = items.find((item) => item.type === 'search');
 

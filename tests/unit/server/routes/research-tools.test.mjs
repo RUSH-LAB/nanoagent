@@ -11,11 +11,12 @@ import {beforeEach, describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, key} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, TEST_ORG_ID, key} from '../../_harness.mjs';
 
 const require = createRequire(import.meta.url);
 const bibliographyProvides = require('../../../../plugins/bibliography/server.js').provides;
 const {_resetReferencesCache} = require('../../../../plugins/bibliography/lib/references.js');
+const yaml = require('js-yaml');
 
 const routes = loadRoute('research-tools');
 const {COMMENTS_FILE} = FILES;
@@ -73,7 +74,22 @@ function fsCtx(files, over = {}) {
     writeFileSync: (p, d) => { counts.write++; return base.writeFileSync(p, d); },
   };
   const references = referencesForCore(bibliographyProvides.references);
-  return {ctx: makeCtx({fs, references, ...over}), counts, fs};
+  const ctx = makeCtx({fs, references, ...over});
+  try {
+    const parsed = files[BIB] == null ? {} : (yaml.load(files[BIB]) || {});
+    const papers = ctx.scoped.collection('plugin:bibliography:papers');
+    for (const [citationKey, entry] of Object.entries(parsed)) {
+      papers.put({workspaceId: TEST_ORG_ID, userId: 'test-user'}, citationKey, entry);
+    }
+  } catch { /* malformed legacy fixture means an empty database */ }
+  return {ctx, counts, fs};
+}
+
+function storedPapers(ctx) {
+  return ctx.scoped.collection('plugin:bibliography:papers').entries({
+    workspaceId: TEST_ORG_ID,
+    userId: 'test-user',
+  });
 }
 
 // The loader memoizes on mtime and size, and every fixture starts the mock
@@ -273,17 +289,16 @@ describe('GET /api/recommendations', () => {
   });
 
   const FALLBACKS = [
-    {name: 'a broken parse', files: {[BIB]: '\tnot: [valid'}, status: 500},
-    {name: 'a missing file', files: {}, status: 500},
-    {name: 'an empty but valid bibliography', files: {[BIB]: ''}, status: 200},
+    {name: 'a broken legacy import fixture', files: {[BIB]: '\tnot: [valid'}, status: 200},
+    {name: 'a missing legacy file', files: {}, status: 200},
+    {name: 'an empty bibliography database', files: {[BIB]: ''}, status: 200},
   ];
   for (const {name, files, status} of FALLBACKS) {
     it(`returns ${status} for ${name}`, async () => {
       const {ctx} = fsCtx(files);
       const r = await invoke(routes, {method: 'GET', path: '/api/recommendations', ctx});
       assert.equal(r.status, status);
-      if (status === 500) assert.deepEqual(r.payload, {error: 'Failed to fetch recommendations. Please try again later.'});
-      else assert.deepEqual(r.payload, {recommendations: []});
+      assert.deepEqual(r.payload, {recommendations: []});
     });
   }
 
@@ -320,6 +335,25 @@ describe('POST /api/recommendations/add', () => {
     assert.equal(reads, 0);
   });
 
+  it('does not let a workspace viewer add a paper', async () => {
+    const {ctx} = empty();
+    const r = await invoke(routes, {
+      method: 'POST',
+      path: '/api/recommendations/add',
+      body: OK,
+      requestContext: {
+        workspaceId: TEST_ORG_ID,
+        workspaceSlug: 'test',
+        membershipId: 'membership-viewer',
+        userId: 'viewer',
+        role: 'viewer',
+      },
+      ctx,
+    });
+    assert.deepEqual([r.status, r.payload], [403, {error: 'You do not have permission to add papers'}]);
+    assert.equal(Object.keys(storedPapers(ctx)).length, 0);
+  });
+
   const GUARDS = [
     {name: 'an omitted title', body: {}, error: 'Missing or invalid title'},
     {name: 'a non-string title', body: {title: 7}, error: 'Missing or invalid title'},
@@ -345,19 +379,19 @@ describe('POST /api/recommendations/add', () => {
   }
 
   it('writes the entry, invalidates stats and returns the key', async () => {
-    const {ctx, counts, fs} = empty();
+    const {ctx, counts} = empty();
     const r = await invoke(routes, {method: 'POST', path: '/api/recommendations/add', body: OK, ctx});
     assert.deepEqual([r.status, r.payload], [201, {key: 'lovelace2024', success: true}]);
-    assert.equal(counts.write, 1);
+    assert.equal(counts.write, 0);
     assert.deepEqual(ctx.calls.invalidateCache, [key('stats')]);
-    assert.ok(fs.readFileSync(BIB).includes('lovelace2024'));
+    assert.equal(storedPapers(ctx).lovelace2024.title, 'A New Paper');
   });
 
   it('derives the url from an arxivId when no url is given', async () => {
-    const {ctx, fs} = empty();
+    const {ctx} = empty();
     await invoke(routes, {method: 'POST', path: '/api/recommendations/add', body: {...OK, arxivId: '2301.12345'}, ctx});
-    const written = fs.readFileSync(BIB);
-    assert.ok(written.includes('https://arxiv.org/abs/2301.12345'));
+    assert.equal(storedPapers(ctx).lovelace2024.officialUrl, 'https://arxiv.org/abs/2301.12345');
+    assert.equal(storedPapers(ctx).lovelace2024.source.type, 'arxiv');
   });
 
   // The key is firstAuthorLastName + year, then the title slug, then a counter.
@@ -386,14 +420,14 @@ describe('POST /api/recommendations/add', () => {
     assert.equal(r.payload.key, 'unknownunknown');
   });
 
-  it('returns a prefixed 400 when the stored bibliography cannot be parsed', async () => {
+  it('still saves to the database when the legacy bibliography cannot be read', async () => {
     const base = mockFs({[BIB]: bib({})});
     const fs = {...base, readFileSync() { throw new Error('disk on fire'); }};
     const ctx = makeCtx({fs});
     const r = await invoke(routes, {method: 'POST', path: '/api/recommendations/add', body: OK, ctx});
-    assert.equal(r.status, 400);
-    assert.ok(r.payload.error.startsWith('Invalid request: '));
-    assert.deepEqual(ctx.calls.invalidateCache, []);
+    assert.equal(r.status, 201);
+    assert.equal(storedPapers(ctx).lovelace2024.title, 'A New Paper');
+    assert.deepEqual(ctx.calls.invalidateCache, [key('stats')]);
   });
 });
 

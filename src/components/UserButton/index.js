@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import Link from '@docusaurus/Link';
+import {useLocation} from '@docusaurus/router';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import {workspaceSlugFromPath} from '@site/src/utils/workspaces';
 import styles from './styles.module.css';
 
 /**
@@ -31,6 +33,10 @@ export default function UserButton({ mobile = false }) {
   const { siteConfig } = useDocusaurusContext();
   const authEnabled = siteConfig.customFields?.authEnabled;
   const [user, setUser] = useState(null);
+  const workspaceSlug = workspaceSlugFromPath(useLocation().pathname);
+  const settingsPath = workspaceSlug && !workspaceSlug.startsWith(':')
+    ? `/w/${encodeURIComponent(workspaceSlug)}/settings`
+    : '/settings';
 
   useEffect(() => {
     if (!authEnabled) return undefined;
@@ -51,7 +57,7 @@ export default function UserButton({ mobile = false }) {
   // bare circle would read as a bullet with no meaning.
   if (mobile) {
     return (
-      <Link className="menu__link" to="/settings">
+      <Link className="menu__link" to={settingsPath}>
         {user ? `Signed in as ${label}` : 'Account'}
       </Link>
     );
@@ -60,7 +66,7 @@ export default function UserButton({ mobile = false }) {
   return (
     <Link
       className={styles.button}
-      to="/settings"
+      to={settingsPath}
       title={user ? `Signed in as ${label}` : 'Account and settings'}
       aria-label={user ? `Account: ${label}` : 'Account'}
     >

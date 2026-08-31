@@ -1,398 +1,129 @@
 /**
- * server/routes/files.js: file read/write/create/delete/rename, listing,
- * search, content stats, image upload, and git history.
- *
- * Consolidated from the eleven per-branch suites that used to cover this
- * module. Each case drives the real handler through the shared harness, so no
- * server boots and no real file is touched.
+ * The legacy file-shaped API is now a compatibility view over document rows.
+ * It must preserve old response shapes without touching the content tree.
  */
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, PROJECT_ROOT, CONTENT_DIR, key} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, TEST_ORG_ID} from '../../_harness.mjs';
 
 const routes = loadRoute('files');
-// Fixtures live in the workspace's own tree, and the paths a request carries
-// are relative to it: `books/x.md`, never `content/mochi/books/x.md`.
-const at = rel => path.join(CONTENT_DIR, rel);
+const ownerContext = Object.freeze({
+  userId: 'test-user', workspaceId: TEST_ORG_ID, membershipId: 'member-1', role: 'owner',
+});
+const viewerContext = Object.freeze({...ownerContext, role: 'viewer'});
 
-/** An fs whose every method counts the call and throws, proving a branch reaches no IO. */
-function tripwireFs() {
-  const calls = {n: 0, names: []};
-  const fs = new Proxy({}, {
-    get: (_t, prop) => () => {
-      calls.n++;
-      calls.names.push(String(prop));
-      throw new Error(`fs.${String(prop)} must not run on this path`);
-    },
-  });
-  return {fs, calls};
-}
+const request = options => invoke(routes, {...options, requestContext: options?.requestContext ?? ownerContext});
+const seed = (ctx, docs) => {
+  const scope = {workspaceId: TEST_ORG_ID, userId: 'test-user'};
+  for (const document of docs) ctx.documents.create(scope, document);
+};
 
-/** An fs whose existsSync answers a predicate and whose mutations only count. */
-function countingFs(existsSync, throwOn = null) {
-  const calls = {existsSync: 0, mkdirSync: 0, writeFileSync: 0, renameSync: 0};
-  const args = {};
-  const step = name => (...a) => {
-    calls[name]++;
-    args[name] = a;
-    if (throwOn === name) throw new Error(`${name} failed`);
-  };
-  return {
-    calls,
-    args,
-    fs: {
-      existsSync(p) { calls.existsSync++; return existsSync(p); },
-      mkdirSync: step('mkdirSync'),
-      writeFileSync: step('writeFileSync'),
-      renameSync: step('renameSync'),
-    },
-  };
-}
-
-describe('GET /api/file (read)', () => {
-  it('rejects an invalid path without reading', async () => {
-    const {fs, calls} = tripwireFs();
-    const r = await invoke(routes, {path: '/api/file', query: {path: '../bad'}, ctx: makeCtx({fs})});
-    assert.deepEqual([r.status, r.payload], [400, {error: 'Invalid path'}]);
-    assert.equal(calls.n, 0);
+describe('file compatibility boundary', () => {
+  it('refuses an unscoped URL instead of using the session active workspace', async () => {
+    const response = await invoke(routes, {path: '/api/file', query: {path: 'a.md'}, ctx: makeCtx()});
+    assert.deepEqual([response.status, response.payload], [404, {error: 'Workspace not found'}]);
   });
 
-  it('returns the content, read as utf-8 from the path joined under PROJECT_ROOT', async () => {
-    let read;
-    const fs = {readFileSync: (p, enc) => { read = [p, enc]; return 'file body text'; }};
-    const r = await invoke(routes, {path: '/api/file', query: {path: 'ok.md'}, ctx: makeCtx({fs})});
-    assert.deepEqual([r.status, r.payload], [200, {content: 'file body text'}]);
-    assert.deepEqual(read, [at('ok.md'), 'utf-8']);
-  });
-
-  it('returns 404 when the read throws', async () => {
-    const fs = {readFileSync() { throw new Error('ENOENT'); }};
-    const r = await invoke(routes, {path: '/api/file', query: {path: 'missing.md'}, ctx: makeCtx({fs})});
-    assert.deepEqual([r.status, r.payload], [404, {error: 'File not found'}]);
+  it('returns 404 for a document in a different workspace', async () => {
+    const ctx = makeCtx();
+    ctx.documents.create({workspaceId: 'another-workspace', userId: 'test-user'}, {path: 'secret.md', markdown: 'hidden'});
+    const response = await request({path: '/api/file', query: {path: 'secret.md'}, ctx});
+    assert.deepEqual([response.status, response.payload], [404, {error: 'File not found'}]);
   });
 });
 
-describe('GET /api/files (list)', () => {
-  it('rejects an invalid directory without walking', async () => {
-    let walks = 0;
-    const ctx = makeCtx({isValidDir: () => false, walkDir: () => { walks++; return []; }});
-    const r = await invoke(routes, {path: '/api/files', query: {dir: '../bad'}, ctx});
-    assert.deepEqual([r.status, r.payload], [400, {error: 'Invalid directory'}]);
-    assert.equal(walks, 0);
+describe('GET /api/file', () => {
+  it('validates paths before reading', async () => {
+    const response = await request({path: '/api/file', query: {path: '../bad'}, ctx: makeCtx()});
+    assert.deepEqual([response.status, response.payload], [400, {error: 'Invalid path'}]);
   });
 
-  it('walks the directory joined under PROJECT_ROOT and returns the list', async () => {
-    let walkArg;
-    const files = [{name: 'a.md', path: 'a.md'}, {name: 'b.md', path: 'b.md'}];
-    const ctx = makeCtx({isValidDir: () => true, walkDir: p => { walkArg = p; return files; }});
-    const r = await invoke(routes, {path: '/api/files', query: {dir: ''}, ctx});
-    assert.deepEqual([r.status, r.payload], [200, {files}]);
-    assert.equal(walkArg, at(''));
-  });
-
-  it('returns an empty list for an empty directory', async () => {
-    const ctx = makeCtx({isValidDir: () => true, walkDir: () => []});
-    const r = await invoke(routes, {path: '/api/files', query: {dir: ''}, ctx});
-    assert.deepEqual([r.status, r.payload], [200, {files: []}]);
-  });
-
-  it('returns 404 when the walk throws', async () => {
-    const ctx = makeCtx({isValidDir: () => true, walkDir() { throw new Error('ENOENT'); }});
-    const r = await invoke(routes, {path: '/api/files', query: {dir: ''}, ctx});
-    assert.deepEqual([r.status, r.payload], [404, {error: 'Directory not found'}]);
+  it('reads document markdown from the database', async () => {
+    const ctx = makeCtx();
+    seed(ctx, [{path: 'books/a.md', markdown: '# A'}]);
+    const response = await request({path: '/api/file', query: {path: 'books/a.md'}, ctx});
+    assert.deepEqual([response.status, response.payload], [200, {content: '# A'}]);
   });
 });
 
-// The three mutation handlers open with a per-route rate-limit gate as their
-// first statement, before any body read, query parse, validation or IO.
-describe('rate-limit gates on /api/file', () => {
-  const GATES = [
-    {method: 'POST', key: 'file-create:', limit: 30},
-    {method: 'DELETE', key: 'file-delete:', limit: 30},
-    {method: 'PUT', key: 'file-write:', limit: 60},
-  ];
-  for (const {method, key, limit} of GATES) {
-    it(`${method} returns 429 with key "${key}" and limit ${limit}, before any body read or IO`, async () => {
-      const {fs, calls} = tripwireFs();
-      let bodyReads = 0;
-      const ctx = makeCtx({
-        fs,
-        rateLimitAllow: false,
-        readBody: async () => { bodyReads++; throw new Error('readBody reached past the gate'); },
-        isValidFilePath() { throw new Error('isValidFilePath reached past the gate'); },
-        invalidateCache() { throw new Error('invalidateCache reached past the gate'); },
-      });
-      const r = await invoke(routes, {method, path: '/api/file', ctx});
-      assert.deepEqual([r.status, r.payload], [429, {error: 'Too many requests. Try again in a minute.'}]);
-      assert.deepEqual(ctx.calls.rateLimit, [{key: key + '127.0.0.1', maxPerMinute: limit}]);
-      assert.equal(bodyReads, 0);
-      assert.equal(calls.n, 0);
+describe('retired /api/file mutations', () => {
+  for (const method of ['POST', 'PUT', 'DELETE']) {
+    it(`${method} is not handled by the read-only compatibility route`, async () => {
+      const ctx = makeCtx();
+      seed(ctx, [{path: 'a.md', markdown: 'one'}]);
+      const response = await request({method, path: '/api/file', body: {path: 'a.md', content: 'two'}, ctx});
+      assert.equal(response.status, undefined);
+      assert.equal(ctx.documents.get({workspaceId: TEST_ORG_ID, userId: 'test-user'}, 'a.md').markdown, 'one');
     });
   }
 });
 
-// PUT and POST share the same body contract and the same three content guards,
-// differing only in the existence branch and the outer-catch wording.
-describe('PUT and POST /api/file body guards', () => {
-  const SHARED = [
-    {name: 'invalid path', body: {path: '../bad', content: 'x'}, status: 400, error: 'Invalid path'},
-    {name: 'non-string content', body: {path: 'ok.md', content: 123}, status: 400, error: 'Content must be a string'},
-    {name: 'content over 50000 chars', body: {path: 'ok.md', content: 'a'.repeat(50001)}, status: 400, error: 'Content must be 50000 characters or fewer'},
-  ];
-  for (const method of ['PUT', 'POST']) {
-    for (const {name, body, status, error} of SHARED) {
-      it(`${method} rejects ${name} without writing`, async () => {
-        const {fs, calls} = countingFs(() => method === 'PUT');
-        const r = await invoke(routes, {method, path: '/api/file', body, ctx: makeCtx({fs})});
-        assert.deepEqual([r.status, r.payload], [status, {error}]);
-        assert.equal(calls.writeFileSync, 0);
-      });
-    }
-  }
-
-  it('accepts exactly 50000 characters, clearing the length guard', async () => {
-    // Exactly 50000 clears `length > 50000`, so PUT proceeds to the existence
-    // check; existsSync false surfaces as the 404, proving the boundary passed.
-    const {fs, calls} = countingFs(() => false);
-    const body = {path: 'ok.md', content: 'a'.repeat(50000)};
-    const r = await invoke(routes, {method: 'PUT', path: '/api/file', body, ctx: makeCtx({fs})});
-    assert.deepEqual([r.status, r.payload], [404, {error: 'File not found'}]);
-    assert.equal(calls.writeFileSync, 0);
-  });
-});
-
-describe('PUT /api/file (write)', () => {
-  it('returns 404 when the target does not exist and never writes', async () => {
-    const {fs, calls} = countingFs(() => false);
-    const body = {path: 'missing.md', content: 'hello'};
-    const r = await invoke(routes, {method: 'PUT', path: '/api/file', body, ctx: makeCtx({fs})});
-    assert.deepEqual([r.status, r.payload], [404, {error: 'File not found'}]);
-    assert.equal(calls.writeFileSync, 0);
+describe('GET /api/files', () => {
+  it('builds the old nested tree shape from document rows', async () => {
+    const ctx = makeCtx();
+    seed(ctx, [
+      {path: 'root.md', markdown: 'root'},
+      {path: 'books/math/a.md', markdown: 'a'},
+      {path: 'books/math/b.mdx', markdown: 'b'},
+    ]);
+    const response = await request({path: '/api/files', ctx});
+    assert.equal(response.status, 200);
+    assert.equal(response.payload.files[0].path, 'books');
+    assert.equal(response.payload.files[0].children[0].children.length, 2);
+    assert.equal(response.payload.files[1].path, 'root.md');
   });
 
-  it('writes once and invalidates only the search cache', async () => {
-    const {fs, calls, args} = countingFs(() => true);
-    const ctx = makeCtx({fs});
-    const body = {path: 'ok.md', content: 'new body text'};
-    const r = await invoke(routes, {method: 'PUT', path: '/api/file', body, ctx});
-    // No `path` field, unlike the POST create reply.
-    assert.deepEqual([r.status, r.payload], [200, {success: true}]);
-    assert.equal(calls.writeFileSync, 1);
-    assert.deepEqual(args.writeFileSync, [at('ok.md'), 'new body text', 'utf-8']);
-    assert.deepEqual(ctx.calls.invalidateCache, [key('search')]);
+  it('lists a subtree and returns 404 for a missing directory', async () => {
+    const ctx = makeCtx();
+    seed(ctx, [{path: 'books/a.md', markdown: 'a'}]);
+    const found = await request({path: '/api/files', query: {dir: 'books'}, ctx});
+    assert.deepEqual(found.payload.files.map(file => file.path), ['books/a.md']);
+    const missing = await request({path: '/api/files', query: {dir: 'missing'}, ctx});
+    assert.equal(missing.status, 404);
   });
-});
-
-describe('POST /api/file (create)', () => {
-  it('returns 409 when the target already exists and never writes', async () => {
-    const {fs, calls} = countingFs(() => true);
-    const body = {path: 'exists.md', content: 'x'};
-    const r = await invoke(routes, {method: 'POST', path: '/api/file', body, ctx: makeCtx({fs})});
-    assert.deepEqual([r.status, r.payload], [409, {error: 'File already exists'}]);
-    assert.equal(calls.writeFileSync, 0);
-  });
-
-  it('creates the file and invalidates both the stats and search caches', async () => {
-    const {fs, calls} = countingFs(() => false);
-    const ctx = makeCtx({fs});
-    const body = {path: 'new.md', content: 'hello'};
-    const r = await invoke(routes, {method: 'POST', path: '/api/file', body, ctx});
-    assert.deepEqual([r.status, r.payload], [200, {success: true, path: 'new.md'}]);
-    assert.equal(calls.writeFileSync, 1);
-    assert.deepEqual(ctx.calls.invalidateCache, [key('stats'), key('search')]);
-  });
-});
-
-describe('DELETE /api/file (move to trash)', () => {
-  it('rejects an invalid path', async () => {
-    const {fs, calls} = countingFs(() => true);
-    const r = await invoke(routes, {method: 'DELETE', path: '/api/file', query: {path: '../bad'}, ctx: makeCtx({fs})});
-    assert.deepEqual([r.status, r.payload], [400, {error: 'Invalid path'}]);
-    assert.equal(calls.renameSync, 0);
-  });
-
-  it('returns 404 when the file is missing, attempting no move', async () => {
-    const {fs, calls} = countingFs(() => false);
-    const ctx = makeCtx({fs});
-    const r = await invoke(routes, {method: 'DELETE', path: '/api/file', query: {path: 'missing.md'}, ctx});
-    assert.deepEqual([r.status, r.payload], [404, {error: 'File not found'}]);
-    assert.deepEqual([calls.mkdirSync, calls.renameSync], [0, 0]);
-    assert.deepEqual(ctx.calls.invalidateCache, []);
-  });
-
-  it('moves the file to trash and invalidates the search cache', async () => {
-    const {fs, calls} = countingFs(() => true);
-    const ctx = makeCtx({fs});
-    const r = await invoke(routes, {method: 'DELETE', path: '/api/file', query: {path: 'old.md'}, ctx});
-    assert.equal(r.status, 200);
-    assert.equal(r.payload.success, true);
-    assert.match(r.payload.trashPath, /^var\/trash\/mochi\/.*_old\.md$/);
-    assert.equal(calls.renameSync, 1);
-    assert.deepEqual(ctx.calls.invalidateCache, [key('search')]);
-  });
-
-  // The catch has no error binding, so both mutation seams yield one fixed body
-  // with no err.message leak, and the success projection never fires.
-  const TRASH_500 = {error: 'Failed to move file to trash: the file may be locked or the trash directory is not writable'};
-  for (const seam of ['mkdirSync', 'renameSync']) {
-    it(`returns the same 500 when fs.${seam} throws`, async () => {
-      const {fs, calls} = countingFs(() => true, seam);
-      const ctx = makeCtx({fs});
-      const r = await invoke(routes, {method: 'DELETE', path: '/api/file', query: {path: 'note.md'}, ctx});
-      assert.deepEqual(r.replies, [{status: 500, payload: TRASH_500, opts: undefined}]);
-      assert.equal(calls.renameSync, seam === 'mkdirSync' ? 0 : 1);
-      assert.deepEqual(ctx.calls.invalidateCache, []);
-    });
-  }
-});
-
-describe('malformed-body outer catches', () => {
-  const CASES = [
-    {method: 'POST', path: '/api/file', error: 'Failed to create file: request body must be JSON with "path" (string) and "content" (string) fields'},
-    {method: 'PUT', path: '/api/file', error: 'Failed to update file: request body must be JSON with "path" (string) and "content" (string) fields'},
-  ];
-  for (const {method, path: p, error} of CASES) {
-    for (const [label, readBody] of [
-      ['readBody rejects', async () => { throw new Error('bad json'); }],
-      ['readBody resolves null', async () => null],
-    ]) {
-      it(`${method} ${p} returns its fixed 400 when ${label}, before any fs IO`, async () => {
-        const {fs, calls} = tripwireFs();
-        const r = await invoke(routes, {method, path: p, ctx: makeCtx({fs, readBody})});
-        assert.deepEqual([r.status, r.payload], [400, {error}]);
-        assert.equal(calls.n, 0);
-      });
-    }
-  }
 });
 
 describe('GET /api/files/search', () => {
-  // alpha carries a front-matter title; beta has none, so its title falls back
-  // to the filename minus extension. beta's later `---` fence is not
-  // front-matter, which pins the FRONTMATTER_RE `^` anchor: a regex matching a
-  // fence anywhere would wrongly surface "Not The Real Title".
-  const FILES = [
-    {name: 'alpha-note.md', path: 'alpha-note.md'},
-    {name: 'beta-note.md', path: 'beta-note.md'},
-    {name: 'gamma-doc.md', path: 'sub/gamma-doc.md'},
-  ];
-  const CONTENTS = {
-    [at('alpha-note.md')]: '---\ntitle: Alpha Title\n---\n\nBody text for alpha.\n',
-    [at('beta-note.md')]: 'Intro paragraph.\n---\ntitle: Not The Real Title\n---\nMore body.\n',
-    [at('sub/gamma-doc.md')]: '---\ntitle: Gamma Title\n---\n\nBody text for gamma.\n',
-  };
-
-  function searchCtx(over = {}) {
-    const counts = {flatFiles: 0};
-    const ctx = makeCtx({
-      flatFiles: () => { counts.flatFiles++; return FILES; },
-      fs: mockFs(CONTENTS),
-      ...over,
-    });
-    return {ctx, counts};
-  }
-
-  it('surfaces the front-matter title, falling back to the filename', async () => {
-    const {ctx} = searchCtx();
-    const r = await invoke(routes, {path: '/api/files/search', query: {q: 'note'}, ctx});
-    assert.equal(r.status, 200);
-    assert.deepEqual(r.payload, {
-      files: [
-        {name: 'alpha-note.md', path: 'alpha-note.md', title: 'Alpha Title'},
-        {name: 'beta-note.md', path: 'beta-note.md', title: 'beta-note'},
-      ],
-    });
-  });
-
-  it('walks once and serves a different query from the cached list', async () => {
-    const {ctx, counts} = searchCtx();
-    await invoke(routes, {path: '/api/files/search', query: {q: 'note'}, ctx});
-    assert.equal(counts.flatFiles, 1);
-    const second = await invoke(routes, {path: '/api/files/search', query: {q: 'gamma'}, ctx});
-    assert.equal(counts.flatFiles, 1, 'the repeat search reuses the cached list');
-    assert.deepEqual(second.replies.at(-1).payload.files, [
-      {name: 'gamma-doc.md', path: 'sub/gamma-doc.md', title: 'Gamma Title'},
+  it('searches path and derived title without reading the filesystem', async () => {
+    const ctx = makeCtx();
+    seed(ctx, [
+      {path: 'notes/alpha.md', markdown: '---\ntitle: Special Result\n---\nbody'},
+      {path: 'notes/beta.md', markdown: 'body'},
     ]);
-    assert.deepEqual(ctx.calls.cached, [key('search:list'), key('search:list')]);
-  });
-
-  it('returns the full cached list verbatim for an empty query', async () => {
-    const {ctx, counts} = searchCtx();
-    const r = await invoke(routes, {path: '/api/files/search', query: {q: ''}, ctx});
-    assert.deepEqual([r.status, r.payload], [200, {files: FILES}]);
-    assert.equal(counts.flatFiles, 1);
-  });
-
-  it('passes the cache key "search:list" with a 30000 ms TTL', async () => {
-    let seen;
-    const {ctx} = searchCtx({cached: (key, ttl, fn) => { seen = [key, ttl]; return fn(); }});
-    await invoke(routes, {path: '/api/files/search', query: {q: 'note'}, ctx});
-    assert.deepEqual(seen, [key('search:list'), 30000]);
-  });
-
-  it('returns 500 and caches nothing when the walk throws', async () => {
-    // cached() runs fn before it stores, so a throwing walk leaves the key
-    // unset and the next search retries rather than serving an error.
-    const {ctx} = searchCtx({flatFiles() { throw new Error('ENOENT'); }});
-    const r = await invoke(routes, {path: '/api/files/search', query: {q: 'note'}, ctx});
-    assert.deepEqual([r.status, r.payload], [500, {error: 'Search failed'}]);
-    assert.deepEqual(Object.keys(ctx.cache), []);
-  });
-
-  it('exports SEARCH_TITLE_RE as one shared, stateless instance', async () => {
-    const {SEARCH_TITLE_RE} = routes;
-    const CANONICAL = /^title:\s*["']?(.+?)["']?\s*$/m;
-    assert.ok(SEARCH_TITLE_RE instanceof RegExp);
-    assert.equal(SEARCH_TITLE_RE.source, CANONICAL.source);
-    assert.equal(SEARCH_TITLE_RE.flags, 'm');
-    // No /g and no /y, so it carries no lastIndex between requests.
-    assert.equal(SEARCH_TITLE_RE.global, false);
-    assert.equal(SEARCH_TITLE_RE.sticky, false);
-    assert.strictEqual(loadRoute('files').SEARCH_TITLE_RE, SEARCH_TITLE_RE);
-
-    // The module-scope regexes therefore give identical back-to-back results.
-    const first = await invoke(routes, {path: '/api/files/search', query: {q: 'note'}, ctx: searchCtx().ctx});
-    const second = await invoke(routes, {path: '/api/files/search', query: {q: 'note'}, ctx: searchCtx().ctx});
-    assert.deepEqual(second.payload, first.payload);
+    const byTitle = await request({path: '/api/files/search', query: {q: 'special'}, ctx});
+    assert.deepEqual(byTitle.payload.files.map(file => file.path), ['notes/alpha.md']);
+    const all = await request({path: '/api/files/search', query: {q: ''}, ctx});
+    assert.equal(all.payload.files.length, 2);
   });
 });
 
 describe('GET /api/stats', () => {
-  it('memoizes the scan under "content-stats" and sends a 30 s cacheControl', async () => {
-    const STATS = {totalFiles: 7, totalWords: 1234, references: 5, byDirectory: {}};
-    const ctx = makeCtx({cached: () => STATS});
-    const r = await invoke(routes, {path: '/api/stats', ctx});
-    assert.deepEqual(r.replies, [{status: 200, payload: STATS, opts: {cacheControl: 'public, max-age=30'}}]);
-  });
-
-  // The whole scan runs inside one try whose first failable step is the memo
-  // call, so a throw from the memo layer and a throw from inside the closure
-  // both land in the same catch.
-  const SUCCESS_KEYS = ['totalFiles', 'totalWords', 'references', 'byDirectory'];
-  const SEAMS = [
-    {
-      name: 'the cached() memo call itself throws (the closure never runs)',
-      over: {cached() { throw new Error('cache layer unavailable'); }, fs: {readdirSync() { throw new Error('unreached'); }}},
-      walked: false,
-    },
-    {
-      name: 'the scan closure throws on its first readdirSync',
-      over: {cached: (_k, _t, fn) => fn(), fs: {readdirSync() { throw new Error('content dir unreadable'); }}},
-      walked: true,
-    },
-  ];
-  for (const {name, over, walked} of SEAMS) {
-    it(`returns 500 Stats failed when ${name}`, async () => {
-      let readdirCalls = 0;
-      const fs = {readdirSync: (...a) => { readdirCalls++; return over.fs.readdirSync(...a); }, readFileSync: () => ''};
-      const ctx = makeCtx({...over, fs});
-      const r = await invoke(routes, {path: '/api/stats', ctx});
-      assert.deepEqual(r.replies, [{status: 500, payload: {error: 'Stats failed'}, opts: undefined}]);
-      assert.equal(readdirCalls > 0, walked);
-      for (const key of SUCCESS_KEYS) {
-        assert.equal(r.replies.some(x => x.payload && key in x.payload), false, `no reply carries "${key}"`);
-      }
+  it('counts document rows, words, directories, and scoped references', async () => {
+    const ctx = makeCtx();
+    seed(ctx, [
+      {path: 'books/a.md', markdown: 'one two three'},
+      {path: 'root.md', markdown: 'four'},
+    ]);
+    ctx.collection('plugin:bibliography:papers').put({workspaceId: TEST_ORG_ID, userId: 'test-user'}, 'ref-1', {title: 'Paper'});
+    const response = await request({path: '/api/stats', ctx});
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.payload, {
+      totalFiles: 2,
+      totalWords: 4,
+      references: 1,
+      byDirectory: {books: {files: 1, words: 3}, '(root)': {files: 1, words: 1}},
     });
-  }
+    assert.equal(response.replies[0].opts.cacheControl, 'private, max-age=30');
+  });
+});
+
+describe('tree helpers', () => {
+  it('export deterministic pure helpers for nested compatibility responses', () => {
+    const tree = routes.documentTree([
+      {path: 'a/b.md', updatedAt: '2026-08-31T00:00:00.000Z'},
+      {path: 'c.md', updatedAt: 'invalid'},
+    ]);
+    assert.deepEqual(routes.directoryContents(tree, 'a').map(item => item.path), ['a/b.md']);
+    assert.equal(tree[1].mtime, 0);
+  });
 });

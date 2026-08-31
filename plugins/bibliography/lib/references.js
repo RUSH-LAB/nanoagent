@@ -13,6 +13,7 @@
  * holding fs, and neither this file nor the plugin needs the filesystem.
  */
 const yaml = require('js-yaml');
+const {cleanBibtexValue} = require('./protocol');
 
 /** Where the bibliography lives, relative to content/. */
 const BIB_FILE = 'bibliography/references.yaml';
@@ -81,36 +82,6 @@ function buildCitation(style, {authors, year, title, venue}) {
   return `${authorStr}. "${title}." ${venue || ''} (${year}).`;
 }
 
-// ── Clean BibTeX field-value escaping ──
-// LaTeX reserves a handful of characters; emitted unescaped inside a BibTeX field
-// value they break compilation or mis-render. Map each special character to the
-// escape that yields the literal glyph. `~` and `^` are accent commands on their
-// own, so they take the explicit \textasciitilde{} / \textasciicircum{} forms
-// rather than a bare backslash, and `\` becomes \textbackslash{}.
-const BIBTEX_LATEX_ESCAPES = {
-  '\\': '\\textbackslash{}',
-  '&': '\\&',
-  '%': '\\%',
-  '$': '\\$',
-  '#': '\\#',
-  '_': '\\_',
-  '{': '\\{',
-  '}': '\\}',
-  '~': '\\textasciitilde{}',
-  '^': '\\textasciicircum{}',
-};
-
-// Escape LaTeX special characters in a BibTeX field VALUE and collapse internal
-// runs of whitespace to single spaces (trimming the ends) for clean output. One
-// regex pass over the original string rewrites every special character at once,
-// so a backslash introduced by one escape is never re-escaped by another.
-function cleanBibtexValue(value) {
-  return String(value == null ? '' : value)
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/[\\&%$#_{}~^]/g, ch => BIBTEX_LATEX_ESCAPES[ch]);
-}
-
 /**
  * The bibliography as text, or a throw when the file is not there.
  *
@@ -131,4 +102,3 @@ function _resetReferencesCache() {
 }
 
 module.exports = {BIB_FILE, loadReferences, readReferencesText, _resetReferencesCache, buildCitation, cleanBibtexValue};
-

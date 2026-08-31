@@ -77,8 +77,8 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
       // the closure, so a missing file still throws here and propagates to the outer
       // catch (the 404 is never cached). Mirrors the /api/file/dependencies and
       // /api/file/related caches in this module.
-      const result = cached(cacheKey(req.auth?.orgId, 'filelint:' + filePath), 30000, () => {
-        const content = fs.readFileSync(path.join(contentRootFor(req.auth?.orgId), filePath), 'utf-8');
+      const result = cached(cacheKey(req.context?.workspaceId, 'filelint:' + filePath), 30000, () => {
+        const content = fs.readFileSync(path.join(contentRootFor(req.context?.workspaceId), filePath), 'utf-8');
         const issues = [];
         const lines = content.split('\n');
         const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
@@ -125,7 +125,7 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      let text = fs.readFileSync(path.join(contentRootFor(req.auth?.orgId), filePath), 'utf-8');
+      let text = fs.readFileSync(path.join(contentRootFor(req.context?.workspaceId), filePath), 'utf-8');
       text = text.replace(KEYWORDS_FRONTMATTER_RE, '');
       text = text.replace(KEYWORDS_FENCE_RE, '').replace(KEYWORDS_INLINE_CODE_RE, '');
       text = text.replace(KEYWORDS_LINK_RE, '$1');
@@ -170,8 +170,8 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
       // content file. The source-file readFileSync stays inside the closure, so a
       // missing source file still throws here and propagates to the outer catch
       // (the 404 is never cached). Mirrors the /api/file/dependencies cache above.
-      const result = cached(cacheKey(req.auth?.orgId, 'related:' + filePath), 30000, () => {
-        const fullPath = path.join(contentRootFor(req.auth?.orgId), filePath);
+      const result = cached(cacheKey(req.context?.workspaceId, 'related:' + filePath), 30000, () => {
+        const fullPath = path.join(contentRootFor(req.context?.workspaceId), filePath);
         const content = fs.readFileSync(fullPath, 'utf-8');
         const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
         const sourceTags = new Set();
@@ -183,7 +183,7 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
         }
         let plainText = content.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ');
         const sourceWords = new Set(plainText.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !RELATED_STOP_WORDS.has(w)));
-        const contentDir = contentRootFor(req.auth?.orgId);
+        const contentDir = contentRootFor(req.context?.workspaceId);
         const candidates = [];
         function scanRelated(dir) {
           for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -191,7 +191,7 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
             const fp = path.join(dir, entry.name);
             if (entry.isDirectory()) { scanRelated(fp); continue; }
             if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-            const rel = path.relative(contentRootFor(req.auth?.orgId), fp);
+            const rel = path.relative(contentRootFor(req.context?.workspaceId), fp);
             if (rel === filePath) continue;
             try {
               const c = fs.readFileSync(fp, 'utf-8');
@@ -230,7 +230,7 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      let text = fs.readFileSync(path.join(contentRootFor(req.auth?.orgId), filePath), 'utf-8');
+      let text = fs.readFileSync(path.join(contentRootFor(req.context?.workspaceId), filePath), 'utf-8');
       text = text.replace(KEYWORDS_FRONTMATTER_RE, '').replace(KEYWORDS_FENCE_RE, '').replace(KEYWORDS_INLINE_CODE_RE, '');
       text = text.replace(KEYWORDS_LINK_RE, '$1').replace(KEYWORDS_HEADING_RE, '');
       text = text.replace(KEYWORDS_PUNCT_RE, ' ').replace(KEYWORDS_HTML_RE, '');

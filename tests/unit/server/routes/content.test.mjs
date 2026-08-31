@@ -63,6 +63,40 @@ describe('GET /api/content/tree', () => {
   });
 });
 
+describe('explicit workspace document API', () => {
+  const context = Object.freeze({
+    userId: 'ada', workspaceId: 'lab', membershipId: 'membership-1', role: 'editor',
+  });
+
+  it('uses the workspace from RequestContext rather than the session active organization', async () => {
+    const ctx = withDocs([{path: 'books/a.md', markdown: 'lab'}], {...ada, orgId: 'lab'});
+    const r = await invoke(routes, {
+      path: '/api/workspaces/lab/documents',
+      query: {path: 'books/a.md'},
+      ctx,
+      auth: {...ada, orgId: 'some-other-workspace'},
+      requestContext: context,
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.payload.markdown, 'lab');
+  });
+
+  it('lets a viewer read but not create content', async () => {
+    const viewer = {...context, role: 'viewer'};
+    const ctx = withDocs([{path: 'a.md', markdown: 'readable'}], {...ada, orgId: 'lab'});
+    assert.equal((await invoke(routes, {
+      path: '/api/workspaces/lab/documents', query: {path: 'a.md'}, ctx, requestContext: viewer,
+    })).status, 200);
+
+    const created = await invoke(routes, {
+      method: 'POST', path: '/api/workspaces/lab/documents',
+      body: {path: 'b.md', markdown: 'forbidden'}, ctx, requestContext: viewer,
+    });
+    assert.equal(created.status, 403);
+    assert.equal(created.payload.code, 'workspace-permission-denied');
+  });
+});
+
 describe('GET /api/content', () => {
   it('compiles the document with the site\'s own plugin chain', async () => {
     const ctx = withDocs([{
@@ -72,11 +106,10 @@ describe('GET /api/content', () => {
     const r = await at(ctx, 'books/math.md');
     assert.equal(r.status, 200);
     assert.equal(r.payload.document.title, 'Math');
-    // KaTeX ran, so the math is markup rather than a dollar sign; and the
-    // component survived compilation rather than being escaped into text.
-    assert.match(r.payload.code, /katex/, 'rehype-katex ran');
-    assert.match(r.payload.code, /Theorem/, 'the component is still a component');
-    assert.match(r.payload.code, /"use strict"/, 'a function body, not a module');
+    const rendered = JSON.stringify(r.payload.tree);
+    assert.match(rendered, /katex/, 'KaTeX produced inert markup');
+    assert.match(rendered, /Theorem/, 'the allowlisted component remains data');
+    assert.equal('code' in r.payload, false, 'the response carries no executable JavaScript');
   });
 
   it('returns the markdown too, which is what the editor wants', async () => {
@@ -128,6 +161,19 @@ describe('POST /api/content', () => {
     assert.equal((await at(ctx, 'new.md')).payload.markdown, '# fresh');
   });
 
+  it('invalidates every derived cache for the workspace', async () => {
+    const ctx = makeCtx();
+    const requestContext = Object.freeze({
+      userId: 'ada', workspaceId: 'lab', membershipId: 'membership-1', role: 'editor',
+    });
+    const made = await invoke(routes, {
+      method: 'POST', path: '/api/workspaces/lab/documents',
+      body: {path: 'posts/new.md', markdown: '# fresh'}, ctx, auth: ada, requestContext,
+    });
+    assert.equal(made.status, 201);
+    assert.deepEqual(ctx.calls.invalidateCache, ['org:mochi:']);
+  });
+
   it('refuses a path that is taken, saying which', async () => {
     const ctx = withDocs([{path: 'taken.md', markdown: 'x'}]);
     const r = await invoke(routes, {
@@ -159,13 +205,13 @@ describe('PUT /api/content', () => {
 
   it('recompiles rather than serving what it compiled before', async () => {
     const ctx = withDocs([{path: 'a.md', markdown: '# one'}]);
-    const before = (await at(ctx, 'a.md')).payload.code;
+    const before = (await at(ctx, 'a.md')).payload.tree;
     await invoke(routes, {
       method: 'PUT', path: '/api/content', body: {path: 'a.md', markdown: '# two'}, ctx, auth: ada,
     });
-    const after = (await at(ctx, 'a.md')).payload.code;
-    assert.notEqual(before, after, 'a save is a new compilation');
-    assert.match(after, /two/);
+    const after = (await at(ctx, 'a.md')).payload.tree;
+    assert.notDeepEqual(before, after, 'a save is a new parse');
+    assert.match(JSON.stringify(after), /two/);
   });
 
   it('cannot save a page the caller may not read', async () => {

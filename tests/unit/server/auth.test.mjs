@@ -45,24 +45,25 @@ function loadAuth(env) {
 }
 
 const req = headers => ({headers});
+const cookieFrom = result => result.headers.getSetCookie()[0].split(';')[0];
 const disabled = loadAuth({ENABLE_AUTH: undefined, DATABASE_FILE: undefined});
 
 describe('isPublicPath', () => {
-  for (const p of ['/api/health', '/api/feed/rss', '/api/feed/atom']) {
-    it(`treats ${p} as public, since its callers cannot hold a session`, () => {
+  for (const p of ['/api/health']) {
+    it(`treats ${p} as public`, () => {
       assert.equal(disabled.isPublicPath(p), true);
     });
   }
 
   // Gating sign-in behind sign-in would lock everybody out, so the whole Better
   // Auth prefix is public and does its own authorization.
-  for (const p of ['/api/auth/sign-in/username', '/api/auth/sign-up/email', '/api/auth/get-session']) {
+  for (const p of ['/api/auth/sign-in/email', '/api/auth/sign-up/email', '/api/auth/get-session']) {
     it(`treats ${p} as public, because that is where a caller goes to get a session`, () => {
       assert.equal(disabled.isPublicPath(p), true);
     });
   }
 
-  for (const p of ['/api/users', '/api/users/me', '/api/logs', '/api/preferences', '/api/feed', '/api/authx', '/']) {
+  for (const p of ['/api/users', '/api/users/me', '/api/logs', '/api/preferences', '/api/feed', '/api/feed/rss', '/api/feed/atom', '/api/workspaces/ws/feed/rss', '/api/authx', '/']) {
     it(`treats ${p} as requiring a session`, () => {
       assert.equal(disabled.isPublicPath(p), false);
     });
@@ -151,7 +152,7 @@ describe('resolveIdentity with ENABLE_AUTH unset', () => {
 describe('resolveIdentity with ENABLE_AUTH=true', () => {
   let enabled;
   let dbFile;
-  let alice;   // {id, token}
+  let alice;   // {id, cookie}
   let bob;
 
   before(async () => {
@@ -164,11 +165,11 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
 
     const signUp = async (username, email) => {
       const res = await enabled.auth.api.signUpEmail({
-        body: {email, password: 'correcthorsebattery', name: username, username},
+        body: {email, password: 'correcthorsebattery', name: username},
         returnHeaders: true,
       });
       const body = res.response ?? res;
-      return {id: body.user.id, token: body.token};
+      return {id: body.user.id, cookie: cookieFrom(res)};
     };
     alice = await signUp('alice', 'alice@test.invalid');
     bob = await signUp('bob', 'bob@test.invalid');
@@ -186,12 +187,12 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
 
   it('created real rows in the SQL database', () => {
     assert.ok(alice.id, 'alice has a generated id');
-    assert.ok(alice.token, 'sign-up returned a session token');
+    assert.match(alice.cookie, /^better-auth\.session_token=/, 'sign-up set a session cookie');
     assert.notEqual(alice.id, bob.id, 'two accounts are two users');
   });
 
-  it('resolves a valid bearer token to that account', async () => {
-    const result = await enabled.resolveIdentity(req({authorization: `Bearer ${alice.token}`}));
+  it('resolves a valid HttpOnly cookie to that account', async () => {
+    const result = await enabled.resolveIdentity(req({cookie: alice.cookie}));
     assert.equal(result.ok, true);
     assert.equal(result.identity.userId, alice.id);
     assert.equal(result.identity.orgId, null, 'no organization selected yet');
@@ -200,14 +201,14 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
   });
 
   it('tells two signed-in callers apart', async () => {
-    const a = await enabled.resolveIdentity(req({authorization: `Bearer ${alice.token}`}));
-    const b = await enabled.resolveIdentity(req({authorization: `Bearer ${bob.token}`}));
+    const a = await enabled.resolveIdentity(req({cookie: alice.cookie}));
+    const b = await enabled.resolveIdentity(req({cookie: bob.cookie}));
     assert.notEqual(a.identity.userId, b.identity.userId);
     assert.equal(b.identity.userId, bob.id);
   });
 
   it('freezes the identity, so a handler cannot rewrite the caller', async () => {
-    const {identity} = await enabled.resolveIdentity(req({authorization: `Bearer ${alice.token}`}));
+    const {identity} = await enabled.resolveIdentity(req({cookie: alice.cookie}));
     assert.throws(() => { identity.userId = bob.id; }, TypeError);
   });
 
@@ -219,43 +220,39 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
 
   const FORGED = ['garbage', 'a.b', 'Bearer', ''];
   for (const token of FORGED) {
-    it(`rejects the forged token ${JSON.stringify(token)}`, async () => {
-      const result = await enabled.resolveIdentity(req({authorization: `Bearer ${token}`}));
+    it(`rejects the forged cookie ${JSON.stringify(token)}`, async () => {
+      const result = await enabled.resolveIdentity(req({cookie: `better-auth.session_token=${token}`}));
       assert.equal(result.ok, false);
       assert.equal(result.status, 401);
     });
   }
 
   it('rejects a token belonging to a revoked session', async () => {
-    const {token, id} = await (async () => {
+    const {cookie, id} = await (async () => {
       const res = await enabled.auth.api.signUpEmail({
-        body: {email: 'carol@test.invalid', password: 'correcthorsebattery', name: 'carol', username: 'carol'},
+        body: {email: 'carol@test.invalid', password: 'correcthorsebattery', name: 'carol'},
+        returnHeaders: true,
       });
-      return {token: res.token, id: res.user.id};
+      return {cookie: cookieFrom(res), id: res.response.user.id};
     })();
 
-    const before = await enabled.resolveIdentity(req({authorization: `Bearer ${token}`}));
+    const before = await enabled.resolveIdentity(req({cookie}));
     assert.equal(before.identity.userId, id, 'the session works to begin with');
 
-    await enabled.auth.api.signOut({headers: {authorization: `Bearer ${token}`}});
+    await enabled.auth.api.signOut({headers: {cookie}});
 
-    const after = await enabled.resolveIdentity(req({authorization: `Bearer ${token}`}));
+    const after = await enabled.resolveIdentity(req({cookie}));
     assert.equal(after.ok, false, 'the same token stops working once signed out');
     assert.equal(after.status, 401);
   });
 
-  it('signs in with a username and password', async () => {
-    const res = await enabled.auth.api.signInUsername({
-      body: {username: 'alice', password: 'correcthorsebattery'},
-    });
-    assert.ok(res.token, 'username sign-in issues a token');
-    const result = await enabled.resolveIdentity(req({authorization: `Bearer ${res.token}`}));
-    assert.equal(result.identity.userId, alice.id);
+  it('does not expose username sign-in', () => {
+    assert.equal(enabled.auth.api.signInUsername, undefined);
   });
 
   it('refuses the wrong password', async () => {
     await assert.rejects(
-      () => enabled.auth.api.signInUsername({body: {username: 'alice', password: 'not-the-password'}}),
+      () => enabled.auth.api.signInEmail({body: {email: 'alice@test.invalid', password: 'not-the-password'}}),
     );
   });
 
@@ -264,13 +261,18 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
   // which expect an account in none, resolve to.
   const account = async (name) => {
     const res = await enabled.auth.api.signUpEmail({
-      body: {email: `${name}@test.invalid`, password: 'correcthorsebattery', name, username: name},
+      body: {email: `${name}@test.invalid`, password: 'correcthorsebattery', name},
+      returnHeaders: true,
     });
-    return {id: res.user.id, token: res.token};
+    return {id: res.response.user.id, cookie: cookieFrom(res)};
   };
-  const signIn = async (name) => (await enabled.auth.api.signInEmail({
-    body: {email: `${name}@test.invalid`, password: 'correcthorsebattery'},
-  })).token;
+  const signIn = async (name) => {
+    const result = await enabled.auth.api.signInEmail({
+      body: {email: `${name}@test.invalid`, password: 'correcthorsebattery'},
+      returnHeaders: true,
+    });
+    return cookieFrom(result);
+  };
 
   // Better Auth leaves the active organization unset until something calls
   // set-active, and everything under /api/chat needs one, so a session opens in
@@ -280,7 +282,7 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
     const org = await enabled.auth.api.createOrganization({
       body: {name: 'Dana Co', slug: 'dana-co', userId: dana.id},
     });
-    const result = await enabled.resolveIdentity(req({authorization: `Bearer ${await signIn('dana')}`}));
+    const result = await enabled.resolveIdentity(req({cookie: await signIn('dana')}));
     assert.equal(result.identity.orgId, org.id);
     assert.equal(result.identity.orgRole, 'owner', 'with the role the membership gives');
   });
@@ -291,20 +293,20 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
   // sign out and back in.
   it('falls back to the organization for a session issued before it existed', async () => {
     const erin = await account('erin');
-    const before = await enabled.resolveIdentity(req({authorization: `Bearer ${erin.token}`}));
+    const before = await enabled.resolveIdentity(req({cookie: erin.cookie}));
     assert.equal(before.identity.orgId, null, 'she had none when she signed up');
 
     const org = await enabled.auth.api.createOrganization({
       body: {name: 'Erin Co', slug: 'erin-co', userId: erin.id},
     });
-    const after = await enabled.resolveIdentity(req({authorization: `Bearer ${erin.token}`}));
+    const after = await enabled.resolveIdentity(req({cookie: erin.cookie}));
     assert.equal(after.identity.orgId, org.id, 'the same token now resolves into it');
     assert.equal(after.identity.orgRole, 'owner');
   });
 
   it('leaves a caller who belongs to no organization in none', async () => {
     const frank = await account('frank');
-    const result = await enabled.resolveIdentity(req({authorization: `Bearer ${frank.token}`}));
+    const result = await enabled.resolveIdentity(req({cookie: frank.cookie}));
     assert.equal(result.identity.orgId, null, 'no organization is not the same as the wrong one');
     assert.equal(result.identity.orgRole, null);
   });
@@ -331,6 +333,15 @@ describe('ENABLE_AUTH parsing', () => {
 });
 
 describe('productionAuthError', () => {
+  const configured = {
+    NODE_ENV: 'production',
+    ENABLE_AUTH: 'true',
+    MAIL_WEBHOOK_URL: 'https://mail.example.test/send',
+    BETTER_AUTH_SECRET: 'production-test-secret'.padEnd(48, 'x'),
+    SITE_URL: 'https://mochi.example.test',
+    DATABASE_URL: 'postgres://app:secret@db/mochi',
+    DATABASE_MIGRATION_URL: 'postgres://owner:secret@db/mochi',
+  };
   // The same values as above: a production server may only start on the exact
   // string that turns authentication on, because every other value leaves
   // resolveIdentity returning DEV_IDENTITY to everybody.
@@ -342,8 +353,31 @@ describe('productionAuthError', () => {
     });
   }
 
-  it('permits production once ENABLE_AUTH is true', () => {
-    assert.equal(disabled.productionAuthError({NODE_ENV: 'production', ENABLE_AUTH: 'true'}), null);
+  it('requires transactional email in production', () => {
+    assert.match(
+      disabled.productionAuthError({NODE_ENV: 'production', ENABLE_AUTH: 'true'}),
+      /MAIL_WEBHOOK_URL/,
+    );
+  });
+
+  it('requires an explicit strong session secret in production', () => {
+    assert.match(disabled.productionAuthError({...configured, BETTER_AUTH_SECRET: undefined}), /BETTER_AUTH_SECRET/);
+  });
+
+  it('requires an HTTPS same-origin site URL in production', () => {
+    assert.match(disabled.productionAuthError({...configured, SITE_URL: 'http://example.test'}), /HTTPS SITE_URL/);
+  });
+
+  it('requires a separate PostgreSQL migration connection in production', () => {
+    assert.match(disabled.productionAuthError({
+      ...configured,
+      DATABASE_MIGRATION_URL: undefined,
+      DATABASE_URL: 'postgres://app:secret@db/mochi',
+    }), /DATABASE_MIGRATION_URL/);
+  });
+
+  it('permits production once authentication and email are configured', () => {
+    assert.equal(disabled.productionAuthError(configured), null);
   });
 
   // Development is the case where running without authentication is the point:

@@ -97,7 +97,7 @@ function listChannels(orgId, userId, {includeArchived = false} = {}) {
               -- from this; without it a client can count the unread messages
               -- but has no way to say which one the divider goes above.
               cm.lastReadSeq AS lastReadSeq,
-              pu.id AS peerId, pu.username AS peerUsername, pu.name AS peerName,
+              pu.id AS peerId, COALESCE(pu.name, pu.email) AS peerUsername, pu.name AS peerName,
               (SELECT COUNT(*) FROM message msg
                 WHERE msg.channelId = c.id
                   AND msg.deletedAt IS NULL
@@ -124,11 +124,11 @@ function listChannels(orgId, userId, {includeArchived = false} = {}) {
 function listMembers(channelId) {
   return db
     .prepare(
-      `SELECT u.id, u.username, u.name, u.email, m.joinedAt
+      `SELECT u.id, COALESCE(u.name, u.email) AS username, u.name, u.email, m.joinedAt
          FROM channel_member m
          JOIN "user" u ON u.id = m.userId
         WHERE m.channelId = ?
-        ORDER BY u.username COLLATE NOCASE`,
+        ORDER BY COALESCE(u.name, u.email) COLLATE NOCASE`,
     )
     .all(channelId);
 }
@@ -386,7 +386,7 @@ function listMessages(orgId, userId, channelId, {before = null, limit = DEFAULT_
   const rows = db
     .prepare(
       `SELECT m.id, m.seq, m.channelId, m.userId, m.body, m.createdAt, m.editedAt, m.deletedAt,
-              u.username, u.name
+              COALESCE(u.name, u.email) AS username, u.name
          FROM message m
          JOIN "user" u ON u.id = m.userId
         WHERE m.channelId = ?
@@ -434,7 +434,7 @@ function postMessage(orgId, userId, channelId, body) {
   const message = db
     .prepare(
       `SELECT m.id, m.seq, m.channelId, m.userId, m.body, m.createdAt, m.editedAt, m.deletedAt,
-              u.username, u.name
+              COALESCE(u.name, u.email) AS username, u.name
          FROM message m JOIN "user" u ON u.id = m.userId WHERE m.id = ?`,
     )
     .get(id);

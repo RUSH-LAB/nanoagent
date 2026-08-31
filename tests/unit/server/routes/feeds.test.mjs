@@ -242,7 +242,9 @@ describe('POST /api/schedule', () => {
     const r = await invoke(routes, {method: 'POST', path: '/api/schedule', body: OK, ctx});
     assert.equal(r.status, 200);
     const {id, createdAt, ...stable} = r.payload.item;
-    assert.deepEqual(stable, {path: 'a.md', publishAt: OK.publishAt, note: '', status: 'scheduled'});
+    assert.deepEqual(stable, {
+      path: 'a.md', publishAt: OK.publishAt, note: '', createdBy: TEST_IDENTITY.userId, status: 'scheduled',
+    });
     assert.match(id, /^sched_\d+_[a-z0-9]+$/);
     assert.deepEqual(storedSchedule(ctx), [r.payload.item]);
   });

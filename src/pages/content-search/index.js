@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
 import BrowserOnly from '@docusaurus/BrowserOnly';
-import { usePluginData } from '@docusaurus/useGlobalData';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE, { apiFetch } from '@site/src/utils/api';
 import {useDebounce} from '@site/src/hooks/useDebounce';
@@ -27,7 +26,6 @@ function highlightMatch(text, query) {
 }
 
 function SearchContent() {
-  const { references } = usePluginData('bibliography');
   const params = new URLSearchParams(window.location.search);
   const initialQuery = params.get('q') || '';
 
@@ -38,8 +36,10 @@ function SearchContent() {
   // Results state
   const [fileResults, setFileResults] = useState([]);
   const [contentResults, setContentResults] = useState([]);
+  const [refResults, setRefResults] = useState([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [loadingContent, setLoadingContent] = useState(false);
+  const [loadingRefs, setLoadingRefs] = useState(false);
   const [errorFiles, setErrorFiles] = useState(null);
   const [errorContent, setErrorContent] = useState(null);
 
@@ -59,57 +59,59 @@ function SearchContent() {
     if (!debouncedQuery.trim()) {
       setFileResults([]);
       setContentResults([]);
+      setRefResults([]);
       setErrorFiles(null);
       setErrorContent(null);
       return;
     }
 
     const encoded = encodeURIComponent(debouncedQuery.trim());
+    const controller = new AbortController();
+    const {signal} = controller;
 
     // Search files
     setLoadingFiles(true);
     setErrorFiles(null);
-    apiFetch(`${API_BASE}/api/files/search?q=${encoded}`)
+    apiFetch(`${API_BASE}/api/files/search?q=${encoded}`, {signal})
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then((data) => setFileResults(data.files || data || []))
-      .catch((err) => setErrorFiles(err.message))
-      .finally(() => setLoadingFiles(false));
+      .then((data) => { if (!signal.aborted) setFileResults(data.files || data || []); })
+      .catch((err) => { if (!signal.aborted) setErrorFiles(err.message); })
+      .finally(() => { if (!signal.aborted) setLoadingFiles(false); });
 
     // Full-text search
     setLoadingContent(true);
     setErrorContent(null);
-    apiFetch(`${API_BASE}/api/search?q=${encoded}`)
+    apiFetch(`${API_BASE}/api/search?q=${encoded}`, {signal})
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then((data) => setContentResults(data.results || data || []))
-      .catch((err) => setErrorContent(err.message))
-      .finally(() => setLoadingContent(false));
-  }, [debouncedQuery]);
+      .then((data) => { if (!signal.aborted) setContentResults(data.results || data || []); })
+      .catch((err) => { if (!signal.aborted) setErrorContent(err.message); })
+      .finally(() => { if (!signal.aborted) setLoadingContent(false); });
 
-  // Filter references client-side
-  const refResults = useMemo(() => {
-    if (!debouncedQuery.trim()) return [];
-    const q = debouncedQuery.toLowerCase();
-    return Object.entries(references || {}).filter(([key, entry]) => {
-      return (
-        key.toLowerCase().includes(q) ||
-        (entry.title || '').toLowerCase().includes(q) ||
-        (entry.author || []).some((a) => a.toLowerCase().includes(q))
-      );
-    });
-  }, [references, debouncedQuery]);
+    setLoadingRefs(true);
+    apiFetch(`${API_BASE}/api/references?limit=20&q=${encoded}`, {signal})
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((data) => setRefResults(Object.entries(data.references || {})))
+      .catch(() => { if (!signal.aborted) setRefResults([]); })
+      .finally(() => { if (!signal.aborted) setLoadingRefs(false); });
+
+    return () => controller.abort();
+  }, [debouncedQuery]);
 
   // Focus input on mount
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  const isLoading = loadingFiles || loadingContent;
+  const isLoading = loadingFiles || loadingContent || loadingRefs;
   const hasQuery = debouncedQuery.trim().length > 0;
   const hasResults = fileResults.length > 0 || contentResults.length > 0 || refResults.length > 0;
   const totalResults = fileResults.length + contentResults.length + refResults.length;

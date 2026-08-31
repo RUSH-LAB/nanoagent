@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {createApiClient} from './api-client.mjs';
 // ─────────────────────────────────────────────────────────────
 // Stress & resilience tests for the Mochi Lab editor server
 // Usage:  node tests/integration/test-resilience.mjs
@@ -42,29 +43,7 @@ function section(title) {
 }
 
 // ── Helpers ──
-async function api(method, path, body, opts = {}) {
-  const url = path.startsWith('http') ? path : `${BASE}${path}`;
-  const init = {method, headers: {}};
-  if (body !== undefined && body !== null) {
-    if (typeof body === 'string' || body instanceof Buffer) {
-      init.body = body;
-    } else {
-      init.headers['Content-Type'] = 'application/json';
-      init.body = JSON.stringify(body);
-    }
-  }
-  if (opts.headers) Object.assign(init.headers, opts.headers);
-  if (opts.signal) init.signal = opts.signal;
-  const res = await fetch(url, init);
-  const contentType = res.headers.get('content-type') || '';
-  let data;
-  if (contentType.includes('application/json')) {
-    data = await res.json();
-  } else {
-    data = await res.text();
-  }
-  return {status: res.status, data, headers: res.headers};
-}
+const api = createApiClient(BASE);
 
 function assertEq(actual, expected, label) {
   if (actual !== expected) throw new Error(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
@@ -112,18 +91,18 @@ async function testConcurrentWrites() {
 
   await test('5 parallel PUT requests to same file', async () => {
     // Create the file first
-    const {status: createStatus} = await api('POST', '/api/file', {
+    const {status: createStatus} = await api('POST', '/api/documents', {
       path: TEST_FILE,
-      content: TEST_FILE_CONTENT,
+      markdown: TEST_FILE_CONTENT,
     });
-    assertEq(createStatus, 200, 'create status');
-    cleanup.push(() => api('DELETE', `/api/file?path=${encodeURIComponent(TEST_FILE)}`));
+    assertEq(createStatus, 201, 'create status');
+    cleanup.push(() => api('DELETE', '/api/documents', {path: TEST_FILE}));
 
     // Fire 5 parallel writes
     const writes = Array.from({length: 5}, (_, i) =>
-      api('PUT', '/api/file', {
+      api('PUT', '/api/documents', {
         path: TEST_FILE,
-        content: `---\ntitle: "Resilience Test"\n---\n\nWrite number ${i}\n`,
+        markdown: `---\ntitle: "Resilience Test"\n---\n\nWrite number ${i}\n`,
       })
     );
     const results = await Promise.all(writes);
@@ -253,15 +232,15 @@ async function testConcurrentReadWrite() {
     // Ensure the test file exists
     const {status: checkStatus} = await api('GET', `/api/file?path=${encodeURIComponent(TEST_FILE)}`);
     if (checkStatus === 404) {
-      await api('POST', '/api/file', {path: TEST_FILE, content: TEST_FILE_CONTENT});
+      await api('POST', '/api/documents', {path: TEST_FILE, markdown: TEST_FILE_CONTENT});
     }
 
     // Fire 3 writes and 5 reads simultaneously
     const ops = [
       ...Array.from({length: 3}, (_, i) =>
-        api('PUT', '/api/file', {
+        api('PUT', '/api/documents', {
           path: TEST_FILE,
-          content: `---\ntitle: "Resilience Test"\n---\n\nConcurrent write ${i}\n`,
+          markdown: `---\ntitle: "Resilience Test"\n---\n\nConcurrent write ${i}\n`,
         }).then(r => ({type: 'write', status: r.status}))
       ),
       ...Array.from({length: 5}, () =>
@@ -350,16 +329,14 @@ async function main() {
 
   await preflight();
 
-  await testConcurrentWrites();    // 1
-  await testRapidComments();       // 2
-  await testLargePayload();        // 3
-  await testUnicodeStress();       // 4
-  await testEmptyStrings();        // 5
-  await testNullValues();          // 6
-  await testLongPaths();           // 7
-  await testSpecialCharsInQuery(); // 8
-  await testConcurrentReadWrite(); // 9
-  await testRateLimit();           // 10
+  await testConcurrentWrites();
+  await testUnicodeStress();
+  await testEmptyStrings();
+  await testNullValues();
+  await testLongPaths();
+  await testSpecialCharsInQuery();
+  await testConcurrentReadWrite();
+  await testRateLimit();
 
   await runCleanup();
 

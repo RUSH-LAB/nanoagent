@@ -1,7 +1,11 @@
 import React from 'react';
 import Layout from '@theme/Layout';
 import { usePluginData } from '@docusaurus/useGlobalData';
-import API_BASE, { apiFetch } from '@site/src/utils/api';
+
+const API_BASE = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+  ? ''
+  : 'http://localhost:3001';
+const pluginFetch = (path, init = {}) => fetch(`${API_BASE}${path}`, {...init, credentials: 'include'});
 
 /**
  * __TITLE__: the page the command opens.
@@ -18,7 +22,7 @@ export default function __CAMEL__Page() {
 
   React.useEffect(() => {
     let cancelled = false;
-    apiFetch(`${API_BASE}/api/__NAME__/items`)
+    pluginFetch('/api/__NAME__/items')
       .then((res) => res.json())
       .then((data) => { if (!cancelled) setItems(data.items); })
       .catch(() => { if (!cancelled) setItems([]); });

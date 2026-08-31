@@ -68,6 +68,15 @@ async function runSnapshotsCreate({
       existsSync: () => { existsSyncCount++; return fileExists; },
       readFileSync: () => { readFileCount++; return fileContent; },
     },
+    documents: {
+      get: () => {
+        existsSyncCount++;
+        if (!fileExists) return undefined;
+        readFileCount++;
+        return {markdown: fileContent};
+      },
+    },
+    requireWorkspacePermission: () => true,
     path,
     PROJECT_ROOT,
     contentRootFor: () => CONTENT_DIR,
@@ -75,7 +84,10 @@ async function runSnapshotsCreate({
   };
   const pathname = '/api/snapshots';
   const url = new URL(`http://localhost${pathname}`);
-  const req = { method: 'POST', socket: { remoteAddress: '127.0.0.1' } };
+  const req = {
+    method: 'POST', socket: { remoteAddress: '127.0.0.1' },
+    context: {userId: 'test-user', workspaceId: 'test-org', membershipId: 'member-1', role: 'owner'},
+  };
   const res = { writableEnded: false };
   await routes(req, res, url, pathname, ctx);
   return {

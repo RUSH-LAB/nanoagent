@@ -206,86 +206,74 @@ function buildHierarchy(contentDir, routeBase) {
   return result;
 }
 
-module.exports = function mathRegistryPlugin(_context, opts = {}) {
-  // The repo root: this file lives two levels down, in plugins/math-registry/.
-  // Relative `contentDirs` from plugin.json are resolved against it.
-  const projectRoot = path.resolve(__dirname, '..', '..');
-  const contentDirs = opts.contentDirs || [
-    { dir: opts.mathDir || path.resolve(projectRoot, 'math'), routeBase: opts.routeBase || 'math' },
-  ];
+function scanDirectories(contentDirs, projectRoot) {
+  const manifest = {};
+  const seenIds = new Set();
+  let totalBlocks = 0;
+  let totalFiles = 0;
+
+  for (const {dir: dirSpec, routeBase} of contentDirs) {
+    const absDir = path.isAbsolute(dirSpec) ? dirSpec : path.resolve(projectRoot, dirSpec);
+    if (!fs.existsSync(absDir)) {
+      console.warn(`[math-registry] Directory not found: ${absDir}`);
+      continue;
+    }
+
+    const hierarchy = buildHierarchy(absDir, routeBase);
+    totalFiles += hierarchy.length;
+    const chapterCounters = {};
+
+    for (const {filePath, prefix, chapter, page, raw: carriedRaw} of hierarchy) {
+      const raw = typeof carriedRaw === 'string' ? carriedRaw : fs.readFileSync(filePath, 'utf8');
+      const fileCounters = {};
+      if (!chapterCounters[chapter]) chapterCounters[chapter] = {};
+
+      let match;
+      TAG_RE.lastIndex = 0;
+      while ((match = TAG_RE.exec(raw)) !== null) {
+        const type = match[1];
+        const id = match[2];
+        if (seenIds.has(id)) console.warn(`[math-registry] Duplicate ID "${id}" in ${filePath}`);
+        seenIds.add(id);
+
+        let displayNumber;
+        if (PER_CHAPTER_TYPES.has(type)) {
+          const key = chapterCounterKey(type);
+          chapterCounters[chapter][key] = (chapterCounters[chapter][key] || 0) + 1;
+          displayNumber = `${chapter}.${chapterCounters[chapter][key]}`;
+        } else {
+          fileCounters[type] = (fileCounters[type] || 0) + 1;
+          displayNumber = `${prefix}.${fileCounters[type]}`;
+        }
+        manifest[id] = {type, number: displayNumber, page};
+        totalBlocks++;
+      }
+    }
+  }
+  return {manifest, totalBlocks, totalFiles};
+}
+
+module.exports = function mathRegistryPlugin(context = {}, opts = {}) {
+  const projectRoot = context.siteDir || path.resolve(__dirname, '..', '..');
+  const explicitContentDirs = Array.isArray(opts.contentDirs) ? opts.contentDirs : null;
 
   return {
     name: 'math-registry',
 
     async loadContent() {
-      const manifest = {};
-      const seenIds = new Set();
-      let totalBlocks = 0;
-      let totalFiles = 0;
-
-      for (const { dir: dirSpec, routeBase } of contentDirs) {
-        const absDir = path.isAbsolute(dirSpec) ? dirSpec : path.resolve(projectRoot, dirSpec);
-
-        if (!fs.existsSync(absDir)) {
-          console.warn(`[math-registry] Directory not found: ${absDir}`);
-          continue;
-        }
-
-        const hierarchy = buildHierarchy(absDir, routeBase);
-        totalFiles += hierarchy.length;
-
-        // Per-chapter counters for theorem-like (shared), Figure, Table, Code, Algorithm (each own).
-        // These span all files within a chapter → "chapter.N" numbering.
-        const chapterCounters = {}; // { chapterNum: { _theoremLike: N, Figure: N, ... } }
-
-        for (const { filePath, prefix, chapter, page, raw: carriedRaw } of hierarchy) {
-          // Reuse the text getFilePosition already read for non-index files; index
-          // files (and any whose earlier read failed) carry no raw, so read them here.
-          const raw = typeof carriedRaw === 'string' ? carriedRaw : fs.readFileSync(filePath, 'utf8');
-
-          // Per-file counter for Equation only → "prefix.N" (dense, needs section precision)
-          const fileCounters = {};
-
-          // Ensure chapter-level counters exist
-          if (!chapterCounters[chapter]) chapterCounters[chapter] = {};
-
-          let match;
-          TAG_RE.lastIndex = 0;
-          while ((match = TAG_RE.exec(raw)) !== null) {
-            const type = match[1];
-            const id = match[2];
-
-            if (seenIds.has(id)) {
-              console.warn(`[math-registry] Duplicate ID "${id}" in ${filePath}`);
-            }
-            seenIds.add(id);
-
-            let displayNumber;
-            if (PER_CHAPTER_TYPES.has(type)) {
-              // Per-chapter: theorem-like shares '_theoremLike', others use own key
-              const key = chapterCounterKey(type);
-              chapterCounters[chapter][key] = (chapterCounters[chapter][key] || 0) + 1;
-              displayNumber = `${chapter}.${chapterCounters[chapter][key]}`;
-            } else {
-              // Equation: per-file counter → prefix.N
-              fileCounters[type] = (fileCounters[type] || 0) + 1;
-              displayNumber = `${prefix}.${fileCounters[type]}`;
-            }
-
-            manifest[id] = { type, number: displayNumber, page };
-            totalBlocks++;
-          }
-        }
+      if (explicitContentDirs) {
+        const result = scanDirectories(explicitContentDirs, projectRoot);
+        if (result.totalBlocks) console.log(`[math-registry] Registered ${result.totalBlocks} math blocks across ${result.totalFiles} files`);
+        return result.manifest;
       }
 
-      if (totalBlocks > 0) {
-        console.log(`[math-registry] Registered ${totalBlocks} math blocks across ${totalFiles} files`);
-      }
-
-      return manifest;
+      // Runtime documents are database rows and cannot be enumerated safely at
+      // build time. Explicit directories remain available for fixture/tooling
+      // use, but the application build deliberately has no workspace scan.
+      return {primary: {}, scopes: []};
     },
 
-    async contentLoaded({ content, actions }) {
+    async contentLoaded({content, actions}) {
       actions.setGlobalData(content);
     },
   };

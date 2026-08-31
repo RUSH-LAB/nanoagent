@@ -11,7 +11,18 @@
  * ([[page]]) for the two worked examples. Delete this file if the tool adds no
  * syntax, which most tools do not.
  */
-const { applyTextReplacements } = require('#markdown');
+function applyTextReplacements(tree, replace) {
+  const visit = node => {
+    if (!node?.children || ['code', 'inlineCode', 'link'].includes(node.type)) return;
+    const next = [];
+    for (const child of node.children) {
+      if (child.type === 'text') next.push(...(replace(child) || [child]));
+      else { visit(child); next.push(child); }
+    }
+    node.children = next;
+  };
+  visit(tree);
+}
 
 module.exports = function remark__CAMEL__() {
   return (tree, file) => {
