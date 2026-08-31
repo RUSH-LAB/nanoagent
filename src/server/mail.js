@@ -13,6 +13,17 @@ function messageHtml({subject, url}) {
   return `<p>${safeSubject}</p><p><a href="${safeUrl}">${safeSubject}</a></p>`;
 }
 
+async function deliveryError(response, provider) {
+  let detail = '';
+  try {
+    const body = await response.json();
+    detail = body?.message || body?.error?.message || body?.name || '';
+  } catch {
+    // Some webhook providers return an empty or non-JSON error response.
+  }
+  return new Error(`${provider} delivery failed (${response.status})${detail ? `: ${detail}` : ''}`);
+}
+
 /** Transactional email through Resend or a deployment-provided HTTPS webhook. */
 async function sendMail({to, template, subject, url, data = {}}, {env = process.env, fetchImpl = fetch} = {}) {
   if (env.RESEND_API_KEY || env.MAIL_FROM) {
@@ -34,7 +45,7 @@ async function sendMail({to, template, subject, url, data = {}}, {env = process.
         tags: [{name: 'template', value: template}],
       }),
     });
-    if (!response.ok) throw new Error(`Resend delivery failed (${response.status})`);
+    if (!response.ok) throw await deliveryError(response, 'Resend');
     return {delivered: true, provider: 'resend'};
   }
 
@@ -60,8 +71,8 @@ async function sendMail({to, template, subject, url, data = {}}, {env = process.
     },
     body: JSON.stringify({to, template, subject, url, data}),
   });
-  if (!response.ok) throw new Error(`Mail delivery failed (${response.status})`);
+  if (!response.ok) throw await deliveryError(response, 'Mail');
   return {delivered: true, provider: 'webhook'};
 }
 
-module.exports = {sendMail, escapeHtml, messageHtml};
+module.exports = {sendMail, escapeHtml, messageHtml, deliveryError};

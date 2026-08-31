@@ -48,4 +48,18 @@ describe('transactional mail', () => {
     );
     assert.equal(messageHtml({subject: '<b>x</b>', url: 'https://example.test/?a=1&b=2'}).includes('<b>'), false);
   });
+
+  it('includes the provider error message without exposing credentials', async () => {
+    await assert.rejects(
+      sendMail({to: 'a@example.test', template: 'test', subject: 'x', url: 'https://example.test'}, {
+        env: {RESEND_API_KEY: 're_secret', MAIL_FROM: 'Mochi <mail@example.test>'},
+        fetchImpl: async () => ({
+          ok: false,
+          status: 403,
+          async json() { return {message: 'The example.test domain is not verified'}; },
+        }),
+      }),
+      error => error.message.includes('domain is not verified') && !error.message.includes('re_secret'),
+    );
+  });
 });
