@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { newStore } from '../../../_harness.mjs';
 import path from 'node:path';
 
 // misc-tools.js is CommonJS; load the real module via createRequire the way the
@@ -21,8 +22,6 @@ const PROJECT_ROOT = '/proj';
 // Data-file constants handed to each handler through ctx. The mocked loadJSON
 // answers only for the matching path, so a stray read surfaces as a thrown error
 // instead of silently passing; the handler and the mock agree on each store path.
-const SNAPSHOTS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'snapshots.json');
-const WHITEBOARDS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'whiteboards.json');
 // The path a snapshot request carries is relative to the caller's own content
 // root, which the session resolves to one organization's tree under content/.
 const CONTENT_DIR = path.join(PROJECT_ROOT, 'content', 'mochi');
@@ -47,14 +46,13 @@ async function runSnapshotsCreate({
   fileContent = 'file body',
   throwOnReadBody = false,
 } = {}) {
-  const saved = [];
   const rateLimitCalls = [];
   let readBodyCount = 0;
-  let loadJSONCount = 0;
   let randomUUIDCount = 0;
   let existsSyncCount = 0;
   let readFileCount = 0;
   let captured = null;
+  const scoped = newStore().seed('snapshots', store);
   const ctx = {
     rateLimit: (key, limit) => { rateLimitCalls.push({ key, limit }); return rateLimitOk; },
     readBody: async () => {
@@ -64,12 +62,7 @@ async function runSnapshotsCreate({
     },
     isValidFilePath: () => validPath,
     sanitizeText: (s) => s,
-    loadJSON: (fp) => {
-      loadJSONCount++;
-      if (fp === SNAPSHOTS_FILE) return JSON.parse(JSON.stringify(store));
-      throw new Error(`unexpected loadJSON path: ${fp}`);
-    },
-    saveJSON: (fp, data) => { saved.push({ fp, data }); },
+    ...scoped.ctxFields,
     crypto: { randomUUID: () => { randomUUIDCount++; return 'uuid-1'; } },
     fs: {
       existsSync: () => { existsSyncCount++; return fileExists; },
@@ -78,7 +71,6 @@ async function runSnapshotsCreate({
     path,
     PROJECT_ROOT,
     contentRootFor: () => CONTENT_DIR,
-    SNAPSHOTS_FILE,
     json: (_res, status, b) => { captured = { status, body: b }; },
   };
   const pathname = '/api/snapshots';
@@ -86,7 +78,12 @@ async function runSnapshotsCreate({
   const req = { method: 'POST', socket: { remoteAddress: '127.0.0.1' } };
   const res = { writableEnded: false };
   await routes(req, res, url, pathname, ctx);
-  return { captured, saved, readBodyCount, loadJSONCount, randomUUIDCount, existsSyncCount, readFileCount, rateLimitCalls };
+  return {
+    captured, readBodyCount, randomUUIDCount, existsSyncCount, readFileCount,
+    rateLimitCalls, store: scoped,
+    loadJSONCount: scoped.calls.reads,
+    saved: scoped.calls.writes,
+  };
 }
 
 // Drive POST /api/whiteboard (create) over a mocked ctx. The success path reads
@@ -99,11 +96,10 @@ async function runWhiteboardCreate({
   rateLimitOk = true,
   throwOnReadBody = false,
 } = {}) {
-  const saved = [];
   const rateLimitCalls = [];
   let readBodyCount = 0;
-  let loadJSONCount = 0;
   let captured = null;
+  const scoped = newStore().seed('whiteboards', store);
   const ctx = {
     rateLimit: (key, limit) => { rateLimitCalls.push({ key, limit }); return rateLimitOk; },
     readBody: async () => {
@@ -112,13 +108,7 @@ async function runWhiteboardCreate({
       return body;
     },
     sanitizeText: (s) => s,
-    loadJSON: (fp) => {
-      loadJSONCount++;
-      if (fp === WHITEBOARDS_FILE) return JSON.parse(JSON.stringify(store));
-      throw new Error(`unexpected loadJSON path: ${fp}`);
-    },
-    saveJSON: (fp, data) => { saved.push({ fp, data }); },
-    WHITEBOARDS_FILE,
+    ...scoped.ctxFields,
     json: (_res, status, b) => { captured = { status, body: b }; },
   };
   const pathname = '/api/whiteboard';
@@ -126,7 +116,11 @@ async function runWhiteboardCreate({
   const req = { method: 'POST', socket: { remoteAddress: '127.0.0.1' } };
   const res = { writableEnded: false };
   await routes(req, res, url, pathname, ctx);
-  return { captured, saved, readBodyCount, loadJSONCount, rateLimitCalls };
+  return {
+    captured, readBodyCount, rateLimitCalls, store: scoped,
+    loadJSONCount: scoped.calls.reads,
+    saved: scoped.calls.writes,
+  };
 }
 
 describe('POST /api/snapshots (create) in routes/misc-tools.js', () => {
@@ -210,9 +204,8 @@ describe('POST /api/snapshots (create) in routes/misc-tools.js', () => {
     assert.equal(r.readFileCount, 1);
     assert.equal(r.randomUUIDCount, 1);
     assert.equal(r.saved.length, 1);
-    assert.equal(r.saved[0].fp, SNAPSHOTS_FILE);
     // The stored snapshot keeps the full content for a later restore.
-    const stored = r.saved[0].data['a.md'];
+    const stored = r.store.read('snapshots')['a.md'];
     assert.equal(stored.length, 1);
     assert.equal(stored[0].id, 'uuid-1');
     assert.equal(stored[0].name, 'My Snapshot');
@@ -229,7 +222,7 @@ describe('POST /api/snapshots (create) in routes/misc-tools.js', () => {
       fileContent: 'fresh',
     });
     assert.equal(r.captured.status, 200);
-    const stored = r.saved[0].data['a.md'];
+    const stored = r.store.read('snapshots')['a.md'];
     assert.equal(stored.length, 10);
     // old-0 is dropped; the window keeps old-1 through old-9 followed by the new
     // snapshot at the end.
@@ -242,7 +235,7 @@ describe('POST /api/snapshots (create) in routes/misc-tools.js', () => {
     const r = await runSnapshotsCreate({ body: { path: 'a.md', name: 'n'.repeat(250) }, store: {}, fileContent: 'body' });
     assert.equal(r.captured.status, 200);
     assert.equal(r.captured.body.snapshot.name.length, 200);
-    assert.equal(r.saved[0].data['a.md'][0].name.length, 200);
+    assert.equal(r.store.read('snapshots')['a.md'][0].name.length, 200);
   });
 
   it('an outer throw (readBody fails) returns 400 Invalid request, never loads, saves, or reads the random id', async () => {
@@ -306,11 +299,12 @@ describe('POST /api/whiteboard (create) in routes/misc-tools.js', () => {
       { type: 'note', x: 5, y: 6, w: 200, h: 120, text: 'hi', color: '#abc' },
       { type: 'note', x: 0, y: 0, w: 160, h: 100, text: '', color: '#fef3c7' },
     ]);
-    assert.equal(r.loadJSONCount, 1);
+    // A create writes without reading: the file version had to load every board
+    // on the machine to add one, and the row upserts on its own key.
+    assert.equal(r.loadJSONCount, 0);
     assert.equal(r.saved.length, 1);
-    assert.equal(r.saved[0].fp, WHITEBOARDS_FILE);
     // The persisted record is the same object that is returned, keyed by the id.
-    assert.deepEqual(r.saved[0].data['board-x'], wb);
+    assert.deepEqual(r.store.read('whiteboards')['board-x'], wb);
     assert.deepEqual(r.rateLimitCalls[0], { key: 'whiteboard:127.0.0.1', limit: 60 });
   });
 

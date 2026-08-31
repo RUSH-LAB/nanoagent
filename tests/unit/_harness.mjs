@@ -50,9 +50,7 @@ export const PROJECT_ROOT = '/fake/root';
 
 const DATA_FILES = [
   'COMMENTS_FILE:comments',
-  'ANNOTATIONS_FILE:annotations', 'SNAPSHOTS_FILE:snapshots',
-  'SCHEDULE_FILE:schedule', 'WHITEBOARDS_FILE:whiteboards',
-  'TASKS_FILE:tasks',
+  'ANNOTATIONS_FILE:annotations',
 ];
 
 /**
@@ -126,6 +124,64 @@ export const TEST_ORG_ID = 'test-org';
  * where they belong, in tests/unit/server/store/scoping.test.mjs, against a
  * real file database with them on.
  */
+/**
+ * A store and the scope to use it with, for a suite that builds its own ctx
+ * rather than calling makeCtx.
+ *
+ * Several route suites hand-roll a minimal ctx on purpose, to prove a handler
+ * touches nothing but the fields it is given. Those still need the two store
+ * fields when the handler under test reaches a store, and they need to seed it;
+ * this hands over both halves at once.
+ */
+export function newStore() {
+  const scoped = makeScopedStore();
+  const scope = {orgId: TEST_ORG_ID, userId: 'test-user'};
+
+  // Reads and writes, counted. The suites this exists for assert that a
+  // rejected request never touched the store at all, which was a loadJSON call
+  // count before and is this now.
+  const calls = {reads: 0, writes: []};
+  const READS = ['list', 'values', 'entries', 'get', 'has', 'count'];
+  const WRITES = ['put', 'remove', 'clear', 'replaceAll'];
+  function counted(domain) {
+    const real = scoped.collection(domain);
+    const wrapped = {...real};
+    for (const name of READS) {
+      wrapped[name] = (...args) => { calls.reads++; return real[name](...args); };
+    }
+    for (const name of WRITES) {
+      wrapped[name] = (...args) => { calls.writes.push({domain, op: name}); return real[name](...args); };
+    }
+    // update() is both, and calls the collection's own get and put internally,
+    // so it is counted once here rather than twice through the wrappers.
+    wrapped.update = (...args) => {
+      calls.reads++;
+      calls.writes.push({domain, op: 'update'});
+      return real.update(...args);
+    };
+    return wrapped;
+  }
+
+  return {
+    scoped,
+    scope,
+    /** How many times a handler read the store, and every write it made. */
+    calls,
+    /** The two ctx fields, ready to spread. */
+    ctxFields: {collection: counted, scopeFor: () => scope},
+    /** Seed one domain from a `key -> value` object. */
+    seed(domain, rows) {
+      const coll = scoped.collection(domain);
+      for (const [key, value] of Object.entries(rows ?? {})) coll.put(scope, key, value);
+      return this;
+    },
+    /** Read one domain back as `key -> value`. */
+    read(domain) {
+      return {...scoped.collection(domain).entries(scope)};
+    },
+  };
+}
+
 function makeScopedStore() {
   const Database = require('better-sqlite3');
   const fsNode = require('node:fs');

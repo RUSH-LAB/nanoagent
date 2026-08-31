@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { newStore } from '../../../_harness.mjs';
 import { key } from '../../../_harness.mjs';
 
 // misc-tools.js is CommonJS; load the real module via createRequire the way the
@@ -43,12 +44,11 @@ async function runRoute({
 } = {}) {
   const writes = [];
   const invalidations = [];
-  const saved = [];
   const existsChecks = [];
   const rateLimitCalls = [];
   let readBodyCount = 0;
-  let loadJSONCount = 0;
   let captured = null;
+  const scoped = newStore().seed('snapshots', store);
   const ctx = {
     rateLimit: (key, limit) => { rateLimitCalls.push({ key, limit }); return rateLimitOk; },
     readBody: async () => {
@@ -57,12 +57,7 @@ async function runRoute({
       return body;
     },
     isValidFilePath: () => validPath,
-    loadJSON: (fp) => {
-      loadJSONCount++;
-      if (fp === SNAPSHOTS_FILE) return JSON.parse(JSON.stringify(store));
-      throw new Error(`unexpected loadJSON path: ${fp}`);
-    },
-    saveJSON: (fp, data) => { saved.push({ fp, data }); },
+    ...scoped.ctxFields,
     fs: {
       existsSync: (fp) => { existsChecks.push(fp); return fileExists; },
       writeFileSync: (fp, data, enc) => { writes.push({ fp, data, enc }); },
@@ -80,7 +75,14 @@ async function runRoute({
   const req = { method: 'POST', socket: { remoteAddress: '127.0.0.1' } };
   const res = { writableEnded: false };
   await routes(req, res, url, pathname, ctx);
-  return { captured, writes, invalidations, saved, existsChecks, readBodyCount, loadJSONCount, rateLimitCalls };
+  return {
+    captured, writes, invalidations, existsChecks, readBodyCount, rateLimitCalls,
+    // The store's own tallies, standing in for the loadJSON and saveJSON
+    // call counts these cases used to assert on.
+    get loadJSONCount() { return scoped.calls.reads; },
+    get saved() { return scoped.calls.writes; },
+    store: scoped,
+  };
 }
 
 describe('POST /api/snapshots/restore rate limit', () => {

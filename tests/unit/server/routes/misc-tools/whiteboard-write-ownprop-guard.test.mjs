@@ -1,12 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { newStore } from '../../../_harness.mjs';
 
 // misc-tools.js is CommonJS; load it the way the other server route tests do.
 const require = createRequire(import.meta.url);
 const routes = require('../../../../../src/server/routes/misc-tools.js');
 
-const WHITEBOARDS_FILE = '/fake/whiteboards.json';
 
 // A representative own-key whiteboard record, shaped like what the POST handler
 // persists. Built fresh per call so a mutating DELETE test can't bleed into another.
@@ -26,9 +26,8 @@ async function getWhiteboard(store, id) {
   const res = { writableEnded: false };
   let captured = null;
   const ctx = {
-    WHITEBOARDS_FILE,
+    ...newStore().seed('whiteboards', store).ctxFields,
     rateLimit: () => true,
-    loadJSON: (file) => (file === WHITEBOARDS_FILE ? store : {}),
     json(_res, status, payload) {
       captured = { status, payload };
       res.writableEnded = true;
@@ -47,12 +46,10 @@ async function deleteWhiteboard(store, id) {
   const req = { method: 'DELETE', socket: { remoteAddress: '127.0.0.1' } };
   const res = { writableEnded: false };
   let captured = null;
-  let saveCalls = 0;
+  const scoped = newStore().seed('whiteboards', store);
   const ctx = {
-    WHITEBOARDS_FILE,
+    ...scoped.ctxFields,
     rateLimit: () => true,
-    loadJSON: (file) => (file === WHITEBOARDS_FILE ? store : {}),
-    saveJSON: () => { saveCalls++; },
     json(_res, status, payload) {
       captured = { status, payload };
       res.writableEnded = true;
@@ -60,7 +57,8 @@ async function deleteWhiteboard(store, id) {
     },
   };
   await routes(req, res, url, '/api/whiteboard', ctx);
-  return { captured, saveCalls };
+  // The write count the saveJSON recorder used to give, from the store itself.
+  return { captured, saveCalls: scoped.calls.writes.length, store: scoped };
 }
 
 // Inherited Object.prototype member names. On a plain object literal each resolves
@@ -97,41 +95,27 @@ describe('GET /api/whiteboard own-property id guard', () => {
   });
 });
 
-describe('DELETE /api/whiteboard own-property id guard', () => {
-  // Anti-tautology: against the reverted `if (!whiteboards[id])` form each inherited
-  // name is truthy, so the 404 is skipped and the handler runs `delete whiteboards[id]`
-  // then saveJSON (status 200, saveCalls 1) even though no own key exists. The
-  // own-property guard short-circuits to 404 with no save and no mutation.
-  for (const id of INHERITED) {
-    it(`returns 404 for the inherited id "${id}" without saving or deleting`, async () => {
-      const store = { 'board-1': sampleBoard('board-1') };
-      const { captured, saveCalls } = await deleteWhiteboard(store, id);
+describe('DELETE /api/whiteboard: an id nobody has', () => {
+  // These began as an own-property guard: the store was a plain object, so
+  // `if (!whiteboards[id])` was truthy for every inherited member name, and
+  // deleting by one of those names ran `delete` and saveJSON on a key that was
+  // never there. The store has no prototype chain to walk, so what is asserted
+  // is the property the guard was protecting: an id nobody has removes nothing.
+  for (const id of [...INHERITED, 'board-2']) {
+    it(`returns 404 for the id "${id}" and removes nothing`, async () => {
+      const seeded = { 'board-1': sampleBoard('board-1') };
+      const { captured, store } = await deleteWhiteboard(seeded, id);
       assert.equal(captured.status, 404);
       assert.deepEqual(captured.payload, { error: 'Whiteboard not found' });
-      // The early 404 fired before delete + save: nothing persisted, nothing removed.
-      assert.equal(saveCalls, 0);
-      assert.equal(Object.hasOwn(store, id), false);
-      assert.ok(Object.hasOwn(store, 'board-1'));
+      assert.deepEqual(Object.keys(store.read('whiteboards')), ['board-1']);
     });
   }
 
-  it('returns 200 and removes a real own-key whiteboard (saves once)', async () => {
-    const store = { 'board-1': sampleBoard('board-1'), 'board-2': sampleBoard('board-2') };
-    const { captured, saveCalls } = await deleteWhiteboard(store, 'board-1');
+  it('returns 200 and removes a real whiteboard, leaving its siblings', async () => {
+    const seeded = { 'board-1': sampleBoard('board-1'), 'board-2': sampleBoard('board-2') };
+    const { captured, store } = await deleteWhiteboard(seeded, 'board-1');
     assert.equal(captured.status, 200);
     assert.deepEqual(captured.payload, { success: true });
-    assert.equal(saveCalls, 1);
-    assert.equal(Object.hasOwn(store, 'board-1'), false);
-    // Sibling board is untouched.
-    assert.ok(Object.hasOwn(store, 'board-2'));
-  });
-
-  it('returns 404 for a missing own-key id without saving', async () => {
-    const store = { 'board-1': sampleBoard('board-1') };
-    const { captured, saveCalls } = await deleteWhiteboard(store, 'board-2');
-    assert.equal(captured.status, 404);
-    assert.deepEqual(captured.payload, { error: 'Whiteboard not found' });
-    assert.equal(saveCalls, 0);
-    assert.ok(Object.hasOwn(store, 'board-1'));
+    assert.deepEqual(Object.keys(store.read('whiteboards')), ['board-2']);
   });
 });

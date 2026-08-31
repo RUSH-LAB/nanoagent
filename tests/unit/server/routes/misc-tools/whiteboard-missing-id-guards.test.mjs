@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { newStore } from '../../../_harness.mjs';
 
 // misc-tools.js is CommonJS; load the real module via createRequire the way the
 // sibling whiteboard guard suites do (next-whiteboard-write-ownprop-guard.test.mjs
@@ -18,7 +19,6 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const routes = require('../../../../../src/server/routes/misc-tools.js');
 
-const WHITEBOARDS_FILE = '/fake/whiteboards.json';
 
 // A representative own-key whiteboard record, shaped like what the POST handler
 // persists. A no-id request never keys into the store, so a populated store only
@@ -36,13 +36,10 @@ async function getWhiteboardNoId(store) {
   const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
   const res = { writableEnded: false };
   let captured = null;
-  let loadCalls = 0;
-  let saveCalls = 0;
+  const scoped = newStore().seed('whiteboards', store);
   const ctx = {
-    WHITEBOARDS_FILE,
+    ...scoped.ctxFields,
     rateLimit: () => true,
-    loadJSON: (file) => { loadCalls++; return file === WHITEBOARDS_FILE ? store : {}; },
-    saveJSON: () => { saveCalls++; },
     json(_res, status, payload) {
       captured = { status, payload };
       res.writableEnded = true;
@@ -50,7 +47,7 @@ async function getWhiteboardNoId(store) {
     },
   };
   await routes(req, res, url, '/api/whiteboard', ctx);
-  return { captured, loadCalls, saveCalls };
+  return {captured, loadCalls: scoped.calls.reads, saveCalls: scoped.calls.writes.length, store: scoped};
 }
 
 // DELETE /api/whiteboard with NO id query parameter over a fully mocked ctx. The
@@ -62,14 +59,11 @@ async function deleteWhiteboardNoId(store, { rateLimitOk = true } = {}) {
   const req = { method: 'DELETE', socket: { remoteAddress: '127.0.0.1' } };
   const res = { writableEnded: false };
   let captured = null;
-  let loadCalls = 0;
-  let saveCalls = 0;
+  const scoped = newStore().seed('whiteboards', store);
   const rateLimitCalls = [];
   const ctx = {
-    WHITEBOARDS_FILE,
+    ...scoped.ctxFields,
     rateLimit: (key, limit) => { rateLimitCalls.push({ key, limit }); return rateLimitOk; },
-    loadJSON: (file) => { loadCalls++; return file === WHITEBOARDS_FILE ? store : {}; },
-    saveJSON: () => { saveCalls++; },
     json(_res, status, payload) {
       captured = { status, payload };
       res.writableEnded = true;
@@ -77,7 +71,11 @@ async function deleteWhiteboardNoId(store, { rateLimitOk = true } = {}) {
     },
   };
   await routes(req, res, url, '/api/whiteboard', ctx);
-  return { captured, loadCalls, saveCalls, rateLimitCalls };
+  return {
+    captured, rateLimitCalls, store: scoped,
+    loadCalls: scoped.calls.reads,
+    saveCalls: scoped.calls.writes.length,
+  };
 }
 
 describe('GET /api/whiteboard missing-id guard in routes/misc-tools.js', () => {
@@ -86,9 +84,9 @@ describe('GET /api/whiteboard missing-id guard in routes/misc-tools.js', () => {
     const { captured, loadCalls, saveCalls } = await getWhiteboardNoId(store);
     assert.equal(captured.status, 400);
     assert.deepEqual(captured.payload, { error: 'Missing id parameter. Use GET /api/whiteboards to list all.' });
-    // The GET branch loads the store before it tests the id, so the read still
-    // happens, but a missing id never writes anything back.
-    assert.equal(loadCalls, 1);
+    // The id is tested before the store is reached now, where the file version
+    // loaded first and only then looked at the id. Neither reads nor writes.
+    assert.equal(loadCalls, 0);
     assert.equal(saveCalls, 0);
   });
 });

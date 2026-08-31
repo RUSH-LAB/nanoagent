@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { newStore } from '../../../_harness.mjs';
 
 // misc-tools.js is CommonJS; load the real module via createRequire the way the
 // sibling task suites do (next-tasks-single-pass-group.test.mjs and
@@ -37,11 +38,11 @@ async function runTasks({
   rateLimitOk = true,
   throwOnReadBody = false,
 } = {}) {
-  const saved = [];
   const rateLimitCalls = [];
   let readBodyCount = 0;
-  let loadJSONCount = 0;
   let captured = null;
+  // One row per task, keyed by id, seeded from what the JSON fixture held.
+  const scoped = newStore().seed('tasks', Object.fromEntries((store.tasks ?? []).map(t => [t.id, t])));
   const ctx = {
     rateLimit: (key, limit) => { rateLimitCalls.push({ key, limit }); return rateLimitOk; },
     readBody: async () => {
@@ -49,13 +50,7 @@ async function runTasks({
       if (throwOnReadBody) throw new Error('readBody failed');
       return body;
     },
-    loadJSON: (fp) => {
-      loadJSONCount++;
-      if (fp === TASKS_FILE) return JSON.parse(JSON.stringify(store));
-      throw new Error(`unexpected loadJSON path: ${fp}`);
-    },
-    saveJSON: (fp, data) => { saved.push({ fp, data }); },
-    TASKS_FILE,
+    ...scoped.ctxFields,
     json: (_res, status, b) => { captured = { status, body: b }; },
   };
   const pathname = '/api/tasks';
@@ -63,7 +58,13 @@ async function runTasks({
   const req = { method, socket: { remoteAddress: '127.0.0.1' } };
   const res = { writableEnded: false };
   await routes(req, res, url, pathname, ctx);
-  return { captured, saved, readBodyCount, loadJSONCount, rateLimitCalls };
+  return {
+    captured, readBodyCount, rateLimitCalls, store: scoped,
+    // The store's own tallies, standing in for the loadJSON and saveJSON call
+    // counts these cases were written against.
+    loadJSONCount: scoped.calls.reads,
+    saved: scoped.calls.writes,
+  };
 }
 
 describe('POST /api/tasks guard branches in routes/misc-tools.js', () => {
@@ -204,20 +205,22 @@ describe('DELETE /api/tasks guard branches in routes/misc-tools.js', () => {
     assert.equal(r.saved.length, 0);
   });
 
-  it('an id absent from an empty store returns 404 Task not found, loads once, never saves', async () => {
+  // The delete is the lookup: the handler asks the store to remove the id and
+  // reads the 404 off the fact that no row matched, where the file version
+  // searched an array first. So what these assert is that nothing went, rather
+  // than that no write was attempted.
+  it('an id absent from an empty store returns 404 Task not found and removes nothing', async () => {
     const r = await runTasks({ method: 'DELETE', store: { tasks: [] }, body: { id: 'ghost' } });
     assert.equal(r.captured.status, 404);
     assert.deepEqual(r.captured.body, { error: 'Task not found' });
-    assert.equal(r.loadJSONCount, 1, 'the store is loaded before the id is sought');
-    assert.equal(r.saved.length, 0);
+    assert.deepEqual(r.store.read('tasks'), {});
   });
 
-  it('an id absent from a non-empty store returns 404 Task not found, loads once, never saves', async () => {
+  it('an id absent from a non-empty store returns 404 Task not found and removes nothing', async () => {
     const r = await runTasks({ method: 'DELETE', store: { tasks: [{ id: 'other' }] }, body: { id: 'ghost' } });
     assert.equal(r.captured.status, 404);
     assert.deepEqual(r.captured.body, { error: 'Task not found' });
-    assert.equal(r.loadJSONCount, 1);
-    assert.equal(r.saved.length, 0);
+    assert.deepEqual(Object.keys(r.store.read('tasks')), ['other'], 'the other task survives');
   });
 
   it('an outer throw (readBody fails) returns 400 Invalid request, never loads or saves', async () => {

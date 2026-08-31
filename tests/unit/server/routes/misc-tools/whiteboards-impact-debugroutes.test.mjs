@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { newStore } from '../../../_harness.mjs';
 import path from 'node:path';
 
 // misc-tools.js is CommonJS; load the real module the way the sibling route tests
@@ -11,7 +12,6 @@ import path from 'node:path';
 const require = createRequire(import.meta.url);
 const routes = require('../../../../../src/server/routes/misc-tools.js');
 
-const WHITEBOARDS_FILE = '/fake/whiteboards.json';
 const PROJECT_ROOT = '/fake/root';
 const ALLOWED_EXTS = ['.md', '.mdx'];
 
@@ -27,8 +27,7 @@ async function listWhiteboards(store) {
   const res = { writableEnded: false };
   let captured = null;
   const ctx = {
-    WHITEBOARDS_FILE,
-    loadJSON: (file) => (file === WHITEBOARDS_FILE ? store : {}),
+    ...newStore().seed('whiteboards', store).ctxFields,
     json(_res, status, payload) {
       captured = { status, payload };
       res.writableEnded = true;

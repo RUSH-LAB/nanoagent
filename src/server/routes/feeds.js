@@ -66,7 +66,7 @@ const escapeFeedXml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, TASKS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
   } = ctx;
 
   // ── RSS feed of recent content updates ──
@@ -99,6 +99,12 @@ ${recent.map(item => `<item>
   }
 
   // ── Content scheduling ──
+  //
+  // The workspace's calendar, one row per scheduled item, keyed by its id. A
+  // reading group meets once, not once per member, which is what makes this
+  // shared where a task list is not.
+  const schedule = collection('schedule');
+
   if (req.method === 'POST' && pathname === '/api/schedule') {
     try {
       const body = await readBody(req);
@@ -106,8 +112,6 @@ ${recent.map(item => `<item>
       if (!filePath || typeof filePath !== 'string') return json(res, 400, {error: 'Missing or invalid path'});
       if (!publishAt || typeof publishAt !== 'string') return json(res, 400, {error: 'Missing or invalid publishAt'});
       if (note !== undefined && typeof note !== 'string') return json(res, 400, {error: 'note must be a string'});
-      const schedule = loadJSON(SCHEDULE_FILE);
-      if (!schedule.items) schedule.items = [];
       const item = {
         id: `sched_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         path: sanitizeText(filePath),
@@ -116,8 +120,7 @@ ${recent.map(item => `<item>
         createdAt: new Date().toISOString(),
         status: 'scheduled',
       };
-      schedule.items.push(item);
-      saveJSON(SCHEDULE_FILE, schedule);
+      schedule.put(scopeFor(req), item.id, item);
       return json(res, 200, {success: true, item});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -125,8 +128,7 @@ ${recent.map(item => `<item>
   }
 
   if (req.method === 'GET' && pathname === '/api/schedule') {
-    const schedule = loadJSON(SCHEDULE_FILE);
-    const items = (schedule.items || []).sort((a, b) => a.publishAt.localeCompare(b.publishAt));
+    const items = schedule.values(scopeFor(req)).sort((a, b) => a.publishAt.localeCompare(b.publishAt));
     const now = new Date().toISOString();
     for (const item of items) {
       if (item.status === 'scheduled' && item.publishAt <= now) {
@@ -150,12 +152,10 @@ ${recent.map(item => `<item>
       const body = await readBody(req);
       const {id} = body;
       if (!id) return json(res, 400, {error: 'Missing id'});
-      const schedule = loadJSON(SCHEDULE_FILE);
-      if (!schedule.items) return json(res, 404, {error: 'Not found'});
-      const idx = schedule.items.findIndex(i => i.id === id);
-      if (idx === -1) return json(res, 404, {error: 'Scheduled item not found'});
-      schedule.items.splice(idx, 1);
-      saveJSON(SCHEDULE_FILE, schedule);
+      if (typeof id !== 'string') return json(res, 404, {error: 'Scheduled item not found'});
+      if (!schedule.remove(scopeFor(req), id)) {
+        return json(res, 404, {error: 'Scheduled item not found'});
+      }
       return json(res, 200, {success: true});
     } catch {
       return json(res, 400, {error: 'Invalid request'});

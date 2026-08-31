@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { newStore } from '../../../_harness.mjs';
 
 // misc-tools.js is CommonJS; load it the way the other route tests do.
 const require = createRequire(import.meta.url);
@@ -19,13 +20,11 @@ const CANON_PRIORITIES = ['low', 'medium', 'high'];
 // without real disk writes.
 async function postTask({ title = 'My task', description, status, priority } = {}) {
   let captured = null;
-  let saved = null;
+  const scoped = newStore();
   const ctx = {
-    TASKS_FILE: 'tasks.json',
+    ...scoped.ctxFields,
     rateLimit: () => true,
     readBody: async () => ({ title, description, status, priority }),
-    loadJSON: () => ({ tasks: [] }),
-    saveJSON: (_fp, data) => { saved = data; },
     sanitizeText: (s) => s,
     json: (_res, code, body) => { captured = { status: code, body }; },
   };
@@ -33,22 +32,21 @@ async function postTask({ title = 'My task', description, status, priority } = {
   const res = { writableEnded: false };
   const url = new URL('http://localhost/api/tasks');
   await miscRoutes(req, res, url, '/api/tasks', ctx);
-  return { captured, saved };
+  // What `saved` recorded: the store's contents after the write, in the shape
+  // the file version persisted, so the cases below read the same.
+  return { captured, saved: { tasks: Object.values(scoped.read('tasks')) } };
 }
 
 // Drive PUT /api/tasks against a single existing task. `existing` seeds the stored
 // task; the mocked ctx mutates it in place exactly as the real handler does.
 async function putTask({ id = 't1', status, title, description, priority } = {}, existing = {}) {
   let captured = null;
-  let saved = null;
   const stored = { id: 't1', title: 'Seed', description: '', status: 'todo', priority: 'medium', ...existing };
-  const data = { tasks: [stored] };
+  const scoped = newStore().seed('tasks', { t1: stored });
   const ctx = {
-    TASKS_FILE: 'tasks.json',
+    ...scoped.ctxFields,
     rateLimit: () => true,
     readBody: async () => ({ id, status, title, description, priority }),
-    loadJSON: () => data,
-    saveJSON: (_fp, d) => { saved = d; },
     sanitizeText: (s) => s,
     json: (_res, code, body) => { captured = { status: code, body }; },
   };
@@ -56,7 +54,13 @@ async function putTask({ id = 't1', status, title, description, priority } = {},
   const res = { writableEnded: false };
   const url = new URL('http://localhost/api/tasks');
   await miscRoutes(req, res, url, '/api/tasks', ctx);
-  return { captured, saved, stored };
+  // `stored` was mutated in place by the file version; the store keeps its own
+  // copy, so the case reads back what the handler actually persisted.
+  return {
+    captured,
+    saved: { tasks: Object.values(scoped.read('tasks')) },
+    stored: scoped.read('tasks').t1 ?? stored,
+  };
 }
 
 describe('TASK_STATUSES / TASK_PRIORITIES (hoisted to frozen module scope in misc-tools.js)', () => {

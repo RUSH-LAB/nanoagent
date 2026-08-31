@@ -13,7 +13,17 @@ import {loadRoute, makeCtx, invoke, mockFs, PROJECT_ROOT, CONTENT_DIR, TEST_IDEN
 
 const routes = loadRoute('feeds');
 const SESSIONS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'sessions.json');
-const SCHEDULE_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'schedule.json');
+/** A ctx whose schedule holds these items, one row each, keyed by id. */
+const withSchedule = (items = []) => {
+  const ctx = makeCtx();
+  const scope = ctx.scopeFor({auth: TEST_IDENTITY});
+  for (const it of items) ctx.scoped.collection('schedule').put(scope, it.id, it);
+  return ctx;
+};
+
+/** The workspace's schedule, as the store holds it. */
+const storedSchedule = ctx =>
+  ctx.scoped.collection('schedule').values(ctx.scopeFor({auth: TEST_IDENTITY}));
 // Content fixtures live in the workspace's own tree, and the paths the scan
 // reports are relative to it: `books/math/x.md`, never `content/mochi/...`.
 const at = rel => path.join(CONTENT_DIR, rel);
@@ -234,15 +244,14 @@ describe('POST /api/schedule', () => {
     const {id, createdAt, ...stable} = r.payload.item;
     assert.deepEqual(stable, {path: 'a.md', publishAt: OK.publishAt, note: '', status: 'scheduled'});
     assert.match(id, /^sched_\d+_[a-z0-9]+$/);
-    assert.equal(ctx.calls.saveJSON.length, 1);
-    assert.deepEqual(ctx.store[SCHEDULE_FILE].items, [r.payload.item]);
+    assert.deepEqual(storedSchedule(ctx), [r.payload.item]);
   });
 
   it('stores a supplied note and appends to an existing list', async () => {
-    const ctx = makeCtx({store: {[SCHEDULE_FILE]: {items: [{id: 'old'}]}}});
+    const ctx = withSchedule([{id: 'old'}]);
     const r = await invoke(routes, {method: 'POST', path: '/api/schedule', body: {...OK, note: 'ship it'}, ctx});
     assert.equal(r.payload.item.note, 'ship it');
-    assert.deepEqual(ctx.store[SCHEDULE_FILE].items.map(i => i.id), ['old', r.payload.item.id]);
+    assert.deepEqual(storedSchedule(ctx).map(i => i.id), ['old', r.payload.item.id]);
   });
 });
 
@@ -250,12 +259,12 @@ describe('GET /api/schedule', () => {
   const item = (id, publishAt, status = 'scheduled') => ({id, publishAt, status});
 
   it('sorts by publishAt, promotes past-due items and tallies both buckets', async () => {
-    const store = {[SCHEDULE_FILE]: {items: [
+    const ctx = withSchedule([
       item('future', '2999-01-01T00:00:00.000Z'),
       item('past', '2000-01-01T00:00:00.000Z'),
       item('done', '2000-01-01T00:00:00.000Z', 'published'),
-    ]}};
-    const r = await invoke(routes, {path: '/api/schedule', ctx: makeCtx({store})});
+    ]);
+    const r = await invoke(routes, {path: '/api/schedule', ctx});
     assert.equal(r.status, 200);
     // The sort is stable, so the two items sharing a publishAt keep their
     // original relative order.
@@ -265,35 +274,35 @@ describe('GET /api/schedule', () => {
     assert.deepEqual([r.payload.upcoming, r.payload.due], [1, 1]);
   });
 
-  for (const [label, stored] of [['an empty items list', {items: []}], ['no items key', {}]]) {
-    it(`reports zero upcoming and due for ${label}`, async () => {
-      const r = await invoke(routes, {path: '/api/schedule', ctx: makeCtx({store: {[SCHEDULE_FILE]: stored}})});
-      assert.deepEqual([r.status, r.payload], [200, {items: [], upcoming: 0, due: 0}]);
-    });
-  }
+  it('reports zero upcoming and due for an empty schedule', async () => {
+    const r = await invoke(routes, {path: '/api/schedule', ctx: withSchedule()});
+    assert.deepEqual([r.status, r.payload], [200, {items: [], upcoming: 0, due: 0}]);
+  });
 });
 
 describe('DELETE /api/schedule', () => {
+  // The 'Not found' wording belonged to the missing-items-key branch, which a
+  // row-per-item store has no equivalent of: an empty schedule and one holding
+  // other people's items are the same thing to a delete by id.
   const CASES = [
-    {name: 'a missing id', body: {}, store: {items: []}, status: 400, error: 'Missing id'},
-    {name: 'a schedule with no items key', body: {id: 'x'}, store: {}, status: 404, error: 'Not found'},
-    {name: 'an id absent from items', body: {id: 'x'}, store: {items: [{id: 'other'}]}, status: 404, error: 'Scheduled item not found'},
+    {name: 'a missing id', body: {}, items: [], status: 400, error: 'Missing id'},
+    {name: 'an id against an empty schedule', body: {id: 'x'}, items: [], status: 404, error: 'Scheduled item not found'},
+    {name: 'an id absent from the schedule', body: {id: 'x'}, items: [{id: 'other'}], status: 404, error: 'Scheduled item not found'},
   ];
-  for (const {name, body, store, status, error} of CASES) {
-    it(`rejects ${name} without saving`, async () => {
-      const ctx = makeCtx({store: {[SCHEDULE_FILE]: store}});
+  for (const {name, body, items, status, error} of CASES) {
+    it(`rejects ${name}, removing nothing`, async () => {
+      const ctx = withSchedule(items);
       const r = await invoke(routes, {method: 'DELETE', path: '/api/schedule', body, ctx});
       assert.deepEqual([r.status, r.payload], [status, {error}]);
-      assert.deepEqual(ctx.calls.saveJSON, []);
+      assert.deepEqual(storedSchedule(ctx).map(i => i.id), items.map(i => i.id));
     });
   }
 
-  it('removes the matching item and saves once', async () => {
-    const ctx = makeCtx({store: {[SCHEDULE_FILE]: {items: [{id: 'a'}, {id: 'b'}]}}});
+  it('removes the matching item, keeping its siblings', async () => {
+    const ctx = withSchedule([{id: 'a'}, {id: 'b'}]);
     const r = await invoke(routes, {method: 'DELETE', path: '/api/schedule', body: {id: 'a'}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {success: true}]);
-    assert.deepEqual(ctx.store[SCHEDULE_FILE].items.map(i => i.id), ['b']);
-    assert.equal(ctx.calls.saveJSON.length, 1);
+    assert.deepEqual(storedSchedule(ctx).map(i => i.id), ['b']);
   });
 });
 

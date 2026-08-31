@@ -3,21 +3,26 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { newStore } from '../../_harness.mjs';
 
 /**
  * The 60-second scheduled-publishing loop in server/index.js.
  *
- * It had never run. It read var/data/schedules.json while the API writes
- * var/data/schedule.json, so every tick loaded {} and returned; and it expected
- * a bare array where the API writes {items: [...]}, so fixing only the filename
- * would still have done nothing. The tests below pin all three halves of the
- * repair: the store it reads, the shape it reads, and the path check.
+ * It had never run: it read a filename the API did not write, in a shape the
+ * API did not write, so every tick did nothing. What the tests below pin is the
+ * repair, and the two things the repair had to get right beyond reading the
+ * data at all.
  *
- * The path check is the one that matters. The loop joins `schedule.path` onto
- * the repo root and writes to it, and that field comes from the body of POST
- * /api/schedule, where it is only passed through sanitizeText. Had either of
- * the other two bugs been fixed alone, this would have been an arbitrary-file
- * -write primitive for any signed-in caller.
+ * The path check is the first. The loop resolves `schedule.path` and writes to
+ * it, and that field comes from the body of POST /api/schedule, where it is
+ * only passed through sanitizeText. Without the check this is an
+ * arbitrary-file-write primitive for any signed-in caller.
+ *
+ * The workspace is the second. The loop belongs to no caller, so it takes no
+ * scope from a request; it walks every organization and acts inside each one.
+ * A path resolves against that workspace's content root, and the caches it
+ * drops are that workspace's, so one lab publishing does not clear another's
+ * search index.
  *
  * server/index.js calls server.listen() at load and exports nothing, so, as in
  * the sibling source-lift tests here, the callback's real bytes are lifted out
@@ -28,8 +33,10 @@ import path from 'node:path';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, '..', '..', '..', '..');
 const SOURCE = readFileSync(path.join(REPO_ROOT, 'src/server/index.js'), 'utf-8');
-const SCHEDULE_FILE = '/fake/root/var/data/schedule.json';
 const PROJECT_ROOT = '/fake/root';
+/** Two workspaces, so a case can prove the loop keeps them apart. */
+const ORGS = [{id: 'org-lab', slug: 'lab'}, {id: 'org-course', slug: 'course'}];
+const rootOf = orgId => `${PROJECT_ROOT}/content/${ORGS.find(o => o.id === orgId).slug}`;
 
 /**
  * Lift the `setInterval(() => { ... }, 60000)` callback that follows the
@@ -59,8 +66,8 @@ function liftPublisher() {
     .replace(/,\s*60000\);\s*$/, ');');
 
   return new Function(
-    'loadJSON', 'saveJSON', 'isValidFilePath', 'invalidateCache',
-    'path', 'fs', 'PROJECT_ROOT', 'SCHEDULE_FILE', 'console',
+    'org', 'store', 'isValidFilePath', 'invalidateCache', 'cacheKey',
+    'contentRootFor', 'path', 'fs', 'console',
     body,
   );
 }
@@ -70,43 +77,59 @@ const publisherSource = liftPublisher();
 /** The real validator, so the guard under test is the one that ships. */
 import { isValidFilePath } from '../../../../src/server/server-utils.js';
 
-function harness({items = [], files = {}} = {}) {
-  const store = {items};
+/**
+ * Drive one tick.
+ *
+ * `items` are scheduled in the first workspace unless a case says otherwise;
+ * `byOrg` schedules per workspace, for the isolation cases. The store is the
+ * real one over a throwaway database, so what the loop reads and writes back is
+ * what the API would have.
+ */
+function harness({items = [], byOrg, files = {}} = {}) {
+  const scheduled = byOrg ?? {[ORGS[0].id]: items};
   const disk = new Map(Object.entries(files));
-  const saved = [];
   const logged = [];
   const invalidated = [];
 
+  const scoped = newStore();
+  for (const [orgId, rows] of Object.entries(scheduled)) {
+    const scope = {orgId, userId: null};
+    rows.forEach((row, i) => scoped.scoped.collection('schedule').put(scope, row.id ?? `s${i}`, row));
+  }
+  const writes = [];
+  const collection = name => {
+    const real = scoped.scoped.collection(name);
+    return {...real, put: (scope, key, value) => { writes.push({scope, key, value}); return real.put(scope, key, value); }};
+  };
+
   const run = publisherSource(
-    key => (key === SCHEDULE_FILE ? JSON.parse(JSON.stringify(store)) : {}),
-    (key, value) => saved.push({key, value}),
+    {allOrganizations: () => ORGS},
+    {collection},
     isValidFilePath,
     pattern => invalidated.push(pattern),
+    (orgId, name) => `org:${orgId}:${name}`,
+    rootOf,
     path.posix,
     {
       existsSync: p => disk.has(p),
       readFileSync: p => disk.get(p),
       writeFileSync: (p, data) => disk.set(p, data),
     },
-    PROJECT_ROOT,
-    SCHEDULE_FILE,
     {log: (...a) => logged.push(a.join(' ')), error: (...a) => logged.push(a.join(' '))},
   );
 
   run();
-  return {disk, saved, logged, invalidated};
+  return {disk, saved: writes, logged, invalidated, store: scoped};
 }
 
 const PAST = '2000-01-01T00:00:00.000Z';
 const FUTURE = '2999-01-01T00:00:00.000Z';
-const CONTENT = 'content/posts/blog/scheduled.md';
-const ON_DISK = `${PROJECT_ROOT}/${CONTENT}`;
+// Workspace-relative, which is what a request carries and what the row holds.
+const CONTENT = 'posts/blog/scheduled.md';
+const ON_DISK = `${rootOf(ORGS[0].id)}/${CONTENT}`;
 
 describe('the scheduled-publishing loop', () => {
-  it('reads the store the API actually writes, and its {items} shape', () => {
-    // Both halves of the original defect at once: with the old filename the
-    // load returned {}, and with the old bare-array read `store.items` would
-    // have been undefined.
+  it('reads the store the API actually writes', () => {
     const {disk} = harness({
       items: [{path: CONTENT, publishAt: PAST, status: 'scheduled'}],
       files: {[ON_DISK]: '---\ndraft: true\n---\nbody\n'},
@@ -155,9 +178,8 @@ describe('the scheduled-publishing loop', () => {
       files: {[ON_DISK]: '---\ndraft: true\n---\nbody\n'},
     });
     assert.equal(saved.length, 1);
-    const [item] = saved[0].value.items;
-    assert.equal(item.status, 'published');
-    assert.ok(item.publishedAt, 'and records when');
+    assert.equal(saved[0].value.status, 'published');
+    assert.ok(saved[0].value.publishedAt, 'and records when');
   });
 
   it('does not publish the same item twice', () => {
@@ -174,7 +196,7 @@ describe('the scheduled-publishing loop', () => {
       items: [{path: CONTENT, publishAt: PAST, status: 'scheduled'}],
       files: {[ON_DISK]: '---\ndraft: true\n---\nbody\n'},
     });
-    assert.deepEqual(published.invalidated, ['search', 'stats']);
+    assert.deepEqual(published.invalidated, ['org:org-lab:search', 'org:org-lab:stats']);
 
     const quiet = harness({items: [{path: CONTENT, publishAt: FUTURE, status: 'scheduled'}]});
     assert.deepEqual(quiet.invalidated, []);
@@ -203,7 +225,7 @@ describe('the scheduled-publishing loop', () => {
     ['a file the content tree would not serve', 'content/books/math/.env'],
   ]) {
     it(`refuses ${why}, and writes nothing`, () => {
-      const resolved = path.posix.join(PROJECT_ROOT, escape);
+      const resolved = path.posix.join(rootOf(ORGS[0].id), escape);
       assert.equal(isValidFilePath(escape), false, 'the fixture must really be out of bounds');
       const {disk, saved, logged} = harness({
         items: [{path: escape, publishAt: PAST, status: 'scheduled'}],
@@ -216,22 +238,47 @@ describe('the scheduled-publishing loop', () => {
   }
 
   it('accepts an ordinary content path, so the guard is not refusing everything', () => {
+    const at = `${rootOf(ORGS[0].id)}/books/math/0-intro.md`;
     const {disk} = harness({
-      items: [{path: 'content/books/math/0-intro.md', publishAt: PAST, status: 'scheduled'}],
-      files: {[`${PROJECT_ROOT}/content/books/math/0-intro.md`]: '---\ndraft: true\n---\nx\n'},
+      items: [{path: 'books/math/0-intro.md', publishAt: PAST, status: 'scheduled'}],
+      files: {[at]: '---\ndraft: true\n---\nx\n'},
     });
-    assert.match(disk.get(`${PROJECT_ROOT}/content/books/math/0-intro.md`), /^draft: false$/m);
+    assert.match(disk.get(at), /^draft: false$/m);
   });
 
   it('skips a scheduled file that is no longer there, without failing the tick', () => {
+    const at = `${rootOf(ORGS[0].id)}/books/math/0-intro.md`;
     const {saved, logged} = harness({
       items: [
         {path: CONTENT, publishAt: PAST, status: 'scheduled'},
-        {path: 'content/books/math/0-intro.md', publishAt: PAST, status: 'scheduled'},
+        {path: 'books/math/0-intro.md', publishAt: PAST, status: 'scheduled'},
       ],
-      files: {[`${PROJECT_ROOT}/content/books/math/0-intro.md`]: '---\ndraft: true\n---\nx\n'},
+      files: {[at]: '---\ndraft: true\n---\nx\n'},
     });
     assert.ok(logged.some(l => l.includes('file not found')));
     assert.equal(saved.length, 1, 'and still publishes the sibling that is there');
+  });
+
+  // The loop serves every workspace, and the same relative path means a
+  // different file in each. Before content moved to one tree per organization
+  // this resolved against the repository root, so a path scheduled anywhere
+  // reached one file for everybody.
+  it('resolves each workspace\'s path against that workspace\'s content root', () => {
+    const labFile = `${rootOf('org-lab')}/${CONTENT}`;
+    const courseFile = `${rootOf('org-course')}/${CONTENT}`;
+    const {disk, invalidated} = harness({
+      byOrg: {
+        'org-lab': [{path: CONTENT, publishAt: PAST, status: 'scheduled'}],
+        'org-course': [{path: CONTENT, publishAt: FUTURE, status: 'scheduled'}],
+      },
+      files: {
+        [labFile]: '---\ndraft: true\n---\nlab\n',
+        [courseFile]: '---\ndraft: true\n---\ncourse\n',
+      },
+    });
+    assert.match(disk.get(labFile), /^draft: false$/m, 'the due one publishes');
+    assert.match(disk.get(courseFile), /^draft: true$/m, 'the other workspace is untouched');
+    assert.deepEqual(invalidated, ['org:org-lab:search', 'org:org-lab:stats'],
+      'and only the publishing workspace loses its derived caches');
   });
 });

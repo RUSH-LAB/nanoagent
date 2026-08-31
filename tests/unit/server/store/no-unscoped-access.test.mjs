@@ -11,37 +11,26 @@
  * is unusual and is the point: what is being asserted is that a certain kind of
  * code is absent, and absence is not observable by calling anything.
  *
- * MIGRATING is the list of what has not moved yet, and it is a countdown. Every
- * feature that moves onto the store deletes its line. The test fails in both
- * directions on purpose:
+ * This began as a countdown. Thirteen features kept their data in a JSON file
+ * each, and a MIGRATING list here recorded which had not moved yet, failing in
+ * both directions so that neither reaching around the layer nor leaving a stale
+ * exemption behind could pass unnoticed.
  *
- *   - a route touching a store not listed for it is a regression, someone
- *     reaching around the layer;
- *   - a line still listed for a route that no longer touches it is a stale
- *     exemption, which is how an allowlist quietly stops meaning anything.
- *
- * When MIGRATING is empty the loop over it asserts nothing and the two blocks
- * below it become absolute. Deleting the constant at that point is the last
- * step of the migration, and this comment is the note to do it.
+ * They have all moved, so the list is gone and what is left is the rule it was
+ * counting down to: no route module opens any of these stores as a file, and
+ * none prepares SQL of its own.
  */
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
+
+const {DOMAIN_NAMES} = createRequire(import.meta.url)('../../../../src/server/store/domains.js');
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROUTES_DIR = path.resolve(HERE, '../../../../src/server/routes');
-
-/**
- * Route module -> the store domains it still reads and writes as a JSON file.
- *
- * Ordered by how entangled each one is, which is the order they should move in.
- */
-const MIGRATING = {
-  'feeds.js': ['schedule'],
-  'misc-tools.js': ['schedule', 'snapshots', 'tasks', 'whiteboards'],
-};
 
 /** The ctx name a domain's JSON file is passed under: notes -> NOTES_FILE. */
 const constantFor = domain => `${domain.toUpperCase().replaceAll('-', '_')}_FILE`;
@@ -102,27 +91,7 @@ function domainsUsedBy(name, domains) {
   );
 }
 
-describe('the per-workspace stores a route may still open as a file', () => {
-  it('finds every route module the exemption list names', () => {
-    const present = new Set(BODIES.map(r => r.name));
-    for (const name of Object.keys(MIGRATING)) {
-      assert.ok(present.has(name), `${name} is exempted but no longer exists; drop its line`);
-    }
-  });
-
-  for (const [name, domains] of Object.entries(MIGRATING)) {
-    it(`${name} still opens exactly ${domains.join(', ')}`, () => {
-      assert.deepEqual(
-        domainsUsedBy(name, domains).sort(),
-        [...domains].sort(),
-        `${name} no longer touches all of these. Delete the ones it has migrated `
-          + 'from MIGRATING; an exemption nobody needs is one nobody notices going stale.',
-      );
-    });
-  }
-});
-
-describe('everything not exempted', () => {
+describe('every route module', () => {
   // The domains, spelled here rather than imported, so that renaming one in the
   // registry cannot silently empty this check.
   const ALL = [
@@ -132,9 +101,8 @@ describe('everything not exempted', () => {
   ];
 
   for (const {name} of BODIES) {
-    const exempt = MIGRATING[name] ?? [];
-    it(`${name} opens no store it is not exempted for`, () => {
-      const unexpected = domainsUsedBy(name, ALL).filter(d => !exempt.includes(d));
+    it(`${name} opens none of them as a file`, () => {
+      const unexpected = domainsUsedBy(name, ALL);
       assert.deepEqual(
         unexpected,
         [],
@@ -144,6 +112,12 @@ describe('everything not exempted', () => {
       );
     });
   }
+
+  // The registry and the list above have to name the same things, or a domain
+  // added to one and not the other is a store nothing here forbids opening.
+  it('checks every domain the registry declares', () => {
+    assert.deepEqual([...ALL].sort(), [...DOMAIN_NAMES].sort());
+  });
 });
 
 describe('the database itself', () => {

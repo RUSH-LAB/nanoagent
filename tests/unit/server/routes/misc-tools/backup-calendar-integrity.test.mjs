@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { newStore } from '../../../_harness.mjs';
 import path from 'node:path';
 import { key } from '../../../_harness.mjs';
 
@@ -72,9 +73,8 @@ function makeMemoCached() {
 // contents; an object value is a directory. JS preserves insertion order for
 // these non-integer keys, so directory listings are deterministic. statSync
 // returns a fixed mtime so the no-date fallback stays clock-independent.
-function makeCalendarFs(tree, schedules) {
+function makeCalendarFs(tree) {
   const contentDir = CONTENT_DIR;
-  const schedulePath = path.join(PROJECT_ROOT, 'var', 'data', 'schedule.json');
   const counts = { readdirSync: 0, readFileSync: 0, statSync: 0, existsSync: 0 };
   function nodeAt(absPath) {
     const rel = path.relative(contentDir, absPath);
@@ -96,17 +96,12 @@ function makeCalendarFs(tree, schedules) {
     },
     readFileSync(file) {
       counts.readFileSync++;
-      if (file === schedulePath) {
-        if (schedules === undefined) throw enoent(file);
-        return JSON.stringify(schedules);
-      }
       const node = nodeAt(file);
       if (typeof node !== 'string') throw enoent(file);
       return node;
     },
-    existsSync(p) {
+    existsSync() {
       counts.existsSync++;
-      if (p === schedulePath) return schedules !== undefined;
       return false;
     },
     statSync() {
@@ -149,11 +144,14 @@ const EXPECTED_CALENDAR = [
   },
 ];
 
-async function invokeCalendar({ fs, cached }) {
+async function invokeCalendar({ fs, cached, schedule = [] }) {
   const cap = makeCapture();
   const ctx = {
     fs, path, PROJECT_ROOT, contentRootFor: () => CONTENT_DIR,
     ALLOWED_EXTS: ['.md', '.mdx'], cached, cacheKey: (_orgId, name) => key(name), json: cap.json,
+    // The calendar folds in this workspace's scheduled publications. It used to
+    // read them from a file it named itself, so they were every workspace's.
+    ...newStore().seed('schedule', Object.fromEntries(schedule.map((it, i) => [`s${i}`, it]))).ctxFields,
   };
   const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
   await miscToolsRoutes(req, cap.res, new URL('http://localhost/api/calendar'), '/api/calendar', ctx);
@@ -162,24 +160,23 @@ async function invokeCalendar({ fs, cached }) {
 
 describe('GET /api/calendar', () => {
   it('groups dated content files by month with correct path/title/date/wordCount/draft', async () => {
-    // schedules is absent here, so existsSync(schedulePath) is false and nothing
-    // is folded in: the result is purely the walked content tree.
-    const { fs } = makeCalendarFs(buildCalendarTree(), undefined);
+    // Nothing is scheduled here, so the result is purely the walked tree.
+    const { fs } = makeCalendarFs(buildCalendarTree());
     const { cached } = makePassThroughCached();
     const r = await invokeCalendar({ fs, cached });
     assert.equal(r.status, 200);
     assert.deepEqual(r.payload, { months: EXPECTED_CALENDAR });
   });
 
-  it('includes var/data/schedule.json entries when the schedule store exists (existsSync true)', async () => {
-    // The {items: [...]} shape is the one the scheduling API writes, and each
-    // item's path is already relative to the workspace's content root.
-    const schedules = {
-      items: [{ publishAt: '2024-03-01T09:00:00Z', path: 'blog/future.md', note: 'Future Post', status: 'planned' }],
-    };
-    const { fs } = makeCalendarFs(buildCalendarTree(), schedules);
+  it('folds in this workspace\'s scheduled publications', async () => {
+    // Each item's path is already relative to the workspace's content root,
+    // which is what the scheduling API stores.
+    const schedule = [
+      { publishAt: '2024-03-01T09:00:00Z', path: 'blog/future.md', note: 'Future Post', status: 'planned' },
+    ];
+    const { fs } = makeCalendarFs(buildCalendarTree());
     const { cached } = makePassThroughCached();
-    const r = await invokeCalendar({ fs, cached });
+    const r = await invokeCalendar({ fs, cached, schedule });
     assert.equal(r.status, 200);
     assert.deepEqual(r.payload, {
       months: [
@@ -202,7 +199,7 @@ describe('GET /api/calendar', () => {
 
   it('falls back to statSync mtime when a file has no date frontmatter', async () => {
     const tree = { 'no-date.md': ['---', 'title: No Date', '---', '', 'body text here.', ''].join('\n') };
-    const { fs, counts } = makeCalendarFs(tree, undefined);
+    const { fs, counts } = makeCalendarFs(tree);
     const { cached } = makePassThroughCached();
     const r = await invokeCalendar({ fs, cached });
     assert.equal(r.status, 200);
@@ -217,7 +214,7 @@ describe('GET /api/calendar', () => {
   });
 
   it('routes through cached("calendar", 60000) and serves a repeat from cache with no re-walk', async () => {
-    const { fs, counts } = makeCalendarFs(buildCalendarTree(), undefined);
+    const { fs, counts } = makeCalendarFs(buildCalendarTree());
     const { cached, store, calls } = makeMemoCached();
 
     const first = await invokeCalendar({ fs, cached });
@@ -295,11 +292,16 @@ function makeIntegrityFs({ dataFiles = {}, refsYaml, existingPaths = [] }) {
   };
 }
 
-async function invokeIntegrity({ fs, loadJSON }) {
+async function invokeIntegrity({ fs, loadJSON, snapshots = {} }) {
   const cap = makeCapture();
   const ctx = {
     fs, path, PROJECT_ROOT, contentRootFor: () => CONTENT_DIR, loadJSON,
-    SNAPSHOTS_FILE: 'SNAPSHOTS', COMMENTS_FILE: 'COMMENTS',
+    COMMENTS_FILE: 'COMMENTS',
+    // The orphan check reads this workspace's snapshots, one row per file, and
+    // compares each against this workspace's tree. It used to read a store
+    // shared by every organization and compare it against one organization's
+    // files, so another workspace's paths all counted as orphans.
+    ...newStore().seed('snapshots', snapshots).ctxFields,
     json: cap.json,
   };
   const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
@@ -376,9 +378,11 @@ describe('GET /api/integrity', () => {
       existingPaths: [],
     });
     // The snapshot target deleted.md is absent from existingPaths.
-    const loadJSON = (file) =>
-      file === 'SNAPSHOTS' ? { 'deleted.md': [{ id: 's1' }, { id: 's2' }] } : {};
-    const r = await invokeIntegrity({ fs, loadJSON });
+    const r = await invokeIntegrity({
+      fs,
+      loadJSON: healthyLoad,
+      snapshots: { 'deleted.md': [{ id: 's1' }, { id: 's2' }] },
+    });
     assert.equal(r.status, 200);
     assert.equal(r.payload.status, 'issues');
     const checks = byName(r.payload.checks);

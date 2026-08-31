@@ -52,9 +52,13 @@ const BATCH_BLANK_LINES_RE = /\n{3,}/g;
 const TASK_STATUSES = Object.freeze(['todo', 'doing', 'done']);
 const TASK_PRIORITIES = Object.freeze(['low', 'medium', 'high']);
 
+// How many versions of one file the snapshot store keeps. The oldest beyond
+// this are dropped on each save, as the array slice did before the store.
+const SNAPSHOT_LIMIT = 10;
+
 module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, SNAPSHOTS_FILE, WHITEBOARDS_FILE, TASKS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
   } = ctx;
 
   // ── Content duplicate detection ──
@@ -207,20 +211,20 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       if (!name || typeof name !== 'string') return json(res, 400, {error: 'Name is required'});
       const fullPath = path.join(contentRootFor(req.auth?.orgId), filePath);
       if (!fs.existsSync(fullPath)) return json(res, 404, {error: 'File not found'});
+    // The workspace's: a saved version of one of its pages is the group's,
+    // like the page. One row per file, holding that file's recent versions.
+      const snapshots = collection('snapshots');
       const content = fs.readFileSync(fullPath, 'utf-8');
-      const snapshots = loadJSON(SNAPSHOTS_FILE);
-      if (!snapshots[filePath]) snapshots[filePath] = [];
       const snapshot = {
         id: crypto.randomUUID(),
         name: sanitizeText(name).slice(0, 200),
         content,
         createdAt: new Date().toISOString(),
       };
-      snapshots[filePath].push(snapshot);
-      if (snapshots[filePath].length > 10) {
-        snapshots[filePath] = snapshots[filePath].slice(-10);
-      }
-      saveJSON(SNAPSHOTS_FILE, snapshots);
+      // One row per file, holding that file's most recent SNAPSHOT_LIMIT
+      // versions. The path is the key, which is what `snapshots[filePath]` was.
+      snapshots.update(scopeFor(req), filePath, kept =>
+        [...(Array.isArray(kept) ? kept : []), snapshot].slice(-SNAPSHOT_LIMIT));
       return json(res, 200, {success: true, snapshot: {id: snapshot.id, name: snapshot.name, createdAt: snapshot.createdAt}});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -228,12 +232,14 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   }
 
   // ── List snapshots for a file ──
+  //
+  // Snapshots belong to the workspace: a saved version of one of its pages is
+  // the group's, like the page. One row per file, holding that file's versions.
   if (req.method === 'GET' && pathname === '/api/snapshots') {
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
-    const snapshots = loadJSON(SNAPSHOTS_FILE);
-    const fileSnapshots = (snapshots[filePath] || []).map(s => ({id: s.id, name: s.name, createdAt: s.createdAt}));
-    return json(res, 200, {snapshots: fileSnapshots});
+    const kept = collection('snapshots').get(scopeFor(req), filePath) ?? [];
+    return json(res, 200, {snapshots: kept.map(s => ({id: s.id, name: s.name, createdAt: s.createdAt}))});
   }
 
   // ── Restore file from snapshot ──
@@ -246,9 +252,8 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       if (!snapshotId || typeof snapshotId !== 'string') return json(res, 400, {error: 'snapshotId is required'});
       const fullPath = path.join(contentRootFor(req.auth?.orgId), filePath);
       if (!fs.existsSync(fullPath)) return json(res, 404, {error: 'File not found'});
-      const snapshots = loadJSON(SNAPSHOTS_FILE);
-      const fileSnapshots = snapshots[filePath] || [];
-      const snapshot = fileSnapshots.find(s => s.id === snapshotId);
+      const kept = collection('snapshots').get(scopeFor(req), filePath) ?? [];
+      const snapshot = kept.find(s => s.id === snapshotId);
       if (!snapshot) return json(res, 404, {error: 'Snapshot not found'});
       fs.writeFileSync(fullPath, snapshot.content, 'utf-8');
       invalidateCache(cacheKey(req.auth?.orgId, 'search'));
@@ -266,13 +271,17 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       const {path: filePath, snapshotId} = body;
       if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
       if (!snapshotId || typeof snapshotId !== 'string') return json(res, 400, {error: 'snapshotId is required'});
-      const snapshots = loadJSON(SNAPSHOTS_FILE);
-      if (!snapshots[filePath]) return json(res, 404, {error: 'No snapshots for this file'});
-      const idx = snapshots[filePath].findIndex(s => s.id === snapshotId);
+      const snapshots = collection('snapshots');
+      const scope = scopeFor(req);
+      const kept = snapshots.get(scope, filePath);
+      if (!kept) return json(res, 404, {error: 'No snapshots for this file'});
+      const idx = kept.findIndex(s => s.id === snapshotId);
       if (idx === -1) return json(res, 404, {error: 'Snapshot not found'});
-      snapshots[filePath].splice(idx, 1);
-      if (snapshots[filePath].length === 0) delete snapshots[filePath];
-      saveJSON(SNAPSHOTS_FILE, snapshots);
+      kept.splice(idx, 1);
+      // The last snapshot of a file takes the row with it, so the file reads
+      // back as having none rather than as having an empty list.
+      if (kept.length === 0) snapshots.remove(scope, filePath);
+      else snapshots.put(scope, filePath, kept);
       return json(res, 200, {success: true});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -280,7 +289,10 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   }
 
   // ── Whiteboard ──
+  // The workspace's: a board nobody else can open is not a whiteboard.
   if (pathname === '/api/whiteboard') {
+    const whiteboards = collection('whiteboards');
+
     if (req.method === 'POST') {
       if (!rateLimit(`whiteboard:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       try {
@@ -298,20 +310,19 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
           text: sanitizeText(String(el.text || '')).slice(0, 1000),
           color: /^#[0-9a-fA-F]{3,8}$/.test(el.color) ? el.color : '#fef3c7',
         }));
-        const whiteboards = loadJSON(WHITEBOARDS_FILE);
-        whiteboards[safeId] = {id: safeId, elements: safeElements, updatedAt: new Date().toISOString()};
-        saveJSON(WHITEBOARDS_FILE, whiteboards);
-        return json(res, 200, {success: true, whiteboard: whiteboards[safeId]});
+        const board = {id: safeId, elements: safeElements, updatedAt: new Date().toISOString()};
+        whiteboards.put(scopeFor(req), safeId, board);
+        return json(res, 200, {success: true, whiteboard: board});
       } catch {
         return json(res, 400, {error: 'Invalid request'});
       }
     }
     if (req.method === 'GET') {
       const id = url.searchParams.get('id');
-      const whiteboards = loadJSON(WHITEBOARDS_FILE);
       if (id) {
-        if (!Object.hasOwn(whiteboards, id)) return json(res, 404, {error: 'Whiteboard not found'});
-        return json(res, 200, {whiteboard: whiteboards[id]});
+        const board = whiteboards.get(scopeFor(req), id);
+        if (!board) return json(res, 404, {error: 'Whiteboard not found'});
+        return json(res, 200, {whiteboard: board});
       }
       return json(res, 400, {error: 'Missing id parameter. Use GET /api/whiteboards to list all.'});
     }
@@ -319,17 +330,14 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       if (!rateLimit(`whiteboard-del:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       const id = url.searchParams.get('id');
       if (!id) return json(res, 400, {error: 'Missing id parameter'});
-      const whiteboards = loadJSON(WHITEBOARDS_FILE);
-      if (!Object.hasOwn(whiteboards, id)) return json(res, 404, {error: 'Whiteboard not found'});
-      delete whiteboards[id];
-      saveJSON(WHITEBOARDS_FILE, whiteboards);
+      if (!whiteboards.remove(scopeFor(req), id)) return json(res, 404, {error: 'Whiteboard not found'});
       return json(res, 200, {success: true});
     }
   }
 
   if (req.method === 'GET' && pathname === '/api/whiteboards') {
-    const whiteboards = loadJSON(WHITEBOARDS_FILE);
-    const list = Object.values(whiteboards).map(wb => ({id: wb.id, elementCount: (wb.elements || []).length, updatedAt: wb.updatedAt}));
+    const list = collection('whiteboards').values(scopeFor(req))
+      .map(wb => ({id: wb.id, elementCount: (wb.elements || []).length, updatedAt: wb.updatedAt}));
     return json(res, 200, {whiteboards: list});
   }
 
@@ -384,7 +392,11 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   }
 
   // ── Tasks (Kanban) ──
+  // Yours. A shared board is what the whiteboard above is for; this is the
+  // list of what one person means to get done.
   if (pathname === '/api/tasks') {
+    const tasks = collection('tasks');
+
     if (req.method === 'POST') {
       if (!rateLimit(`tasks:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       try {
@@ -393,8 +405,6 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         if (!title || typeof title !== 'string' || !title.trim()) return json(res, 400, {error: 'Missing title'});
         const safeStatus = TASK_STATUSES.includes(status) ? status : 'todo';
         const safePriority = TASK_PRIORITIES.includes(priority) ? priority : 'medium';
-        const data = loadJSON(TASKS_FILE);
-        if (!data.tasks) data.tasks = [];
         const task = {
           id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
           title: sanitizeText(title.trim()).slice(0, 200),
@@ -404,25 +414,23 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
-        data.tasks.push(task);
-        saveJSON(TASKS_FILE, data);
+        tasks.put(scopeFor(req), task.id, task);
         return json(res, 201, {success: true, task});
       } catch {
         return json(res, 400, {error: 'Invalid request'});
       }
     }
     if (req.method === 'GET') {
-      const data = loadJSON(TASKS_FILE);
-      const tasks = data.tasks || [];
+      const mine = tasks.values(scopeFor(req));
       // Single pass: bucket each task by status in source order. A status other
       // than todo/doing/done lands in no bucket; counts derive from bucket lengths.
       const grouped = {todo: [], doing: [], done: []};
-      for (const t of tasks) {
+      for (const t of mine) {
         if (t.status === 'todo') grouped.todo.push(t);
         else if (t.status === 'doing') grouped.doing.push(t);
         else if (t.status === 'done') grouped.done.push(t);
       }
-      return json(res, 200, {tasks, grouped, counts: {todo: grouped.todo.length, doing: grouped.doing.length, done: grouped.done.length}});
+      return json(res, 200, {tasks: mine, grouped, counts: {todo: grouped.todo.length, doing: grouped.doing.length, done: grouped.done.length}});
     }
     if (req.method === 'PUT') {
       if (!rateLimit(`tasks:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
@@ -430,16 +438,15 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         const body = await readBody(req);
         const {id, status, title, description, priority} = body;
         if (!id || typeof id !== 'string') return json(res, 400, {error: 'Missing id'});
-        const data = loadJSON(TASKS_FILE);
-        if (!data.tasks) data.tasks = [];
-        const task = data.tasks.find(t => t.id === id);
+        const scope = scopeFor(req);
+        const task = tasks.get(scope, id);
         if (!task) return json(res, 404, {error: 'Task not found'});
         if (status !== undefined && TASK_STATUSES.includes(status)) task.status = status;
         if (title !== undefined && typeof title === 'string' && title.trim()) task.title = sanitizeText(title.trim()).slice(0, 200);
         if (description !== undefined) task.description = sanitizeText(String(description).trim()).slice(0, 2000);
         if (priority !== undefined && TASK_PRIORITIES.includes(priority)) task.priority = priority;
         task.updatedAt = new Date().toISOString();
-        saveJSON(TASKS_FILE, data);
+        tasks.put(scope, id, task);
         return json(res, 200, {success: true, task});
       } catch {
         return json(res, 400, {error: 'Invalid request'});
@@ -451,12 +458,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         const body = await readBody(req);
         const {id} = body;
         if (!id || typeof id !== 'string') return json(res, 400, {error: 'Missing id'});
-        const data = loadJSON(TASKS_FILE);
-        if (!data.tasks) data.tasks = [];
-        const idx = data.tasks.findIndex(t => t.id === id);
-        if (idx === -1) return json(res, 404, {error: 'Task not found'});
-        data.tasks.splice(idx, 1);
-        saveJSON(TASKS_FILE, data);
+        if (!tasks.remove(scopeFor(req), id)) return json(res, 404, {error: 'Task not found'});
         return json(res, 200, {success: true});
       } catch {
         return json(res, 400, {error: 'Invalid request'});
@@ -833,12 +835,14 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
 
     // 3. Verify no orphaned snapshot entries (snapshots for deleted files)
     try {
-      const snapshots = loadJSON(SNAPSHOTS_FILE);
+      // This workspace's snapshots against this workspace's tree; the two used
+      // to be a global store checked against one organization's files, so every
+      // other organization's paths counted as orphans here.
       const orphaned = [];
-      for (const filePath of Object.keys(snapshots)) {
+      for (const {key: filePath, value: kept} of collection('snapshots').list(scopeFor(req))) {
         const fullPath = path.join(contentRootFor(req.auth?.orgId), filePath);
         if (!fs.existsSync(fullPath)) {
-          orphaned.push({file: filePath, count: snapshots[filePath].length});
+          orphaned.push({file: filePath, count: kept.length});
         }
       }
       checks.push({
@@ -921,30 +925,25 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         }
         scan(contentDir);
 
-        // Include scheduled publications. This named schedules.json, which has
-        // never existed; the store the API writes is schedule.json, so the
-        // calendar has always shown an empty schedule.
-        const schedulesPath = path.join(PROJECT_ROOT, ...dataFileSegs('schedule'));
-        if (fs.existsSync(schedulesPath)) {
-          try {
-            const schedData = JSON.parse(fs.readFileSync(schedulesPath, 'utf-8'));
-            const items = Array.isArray(schedData) ? schedData : (schedData.items || []);
-            for (const item of items) {
-              if (!item.publishAt) continue;
-              const pubDate = item.publishAt.slice(0, 10);
-              const month = pubDate.slice(0, 7);
-              if (!byMonth[month]) byMonth[month] = [];
-              byMonth[month].push({
-                path: item.path || '',
-                title: item.note || item.path || 'Scheduled',
-                date: pubDate,
-                wordCount: 0,
-                draft: false,
-                scheduled: true,
-                status: item.status || 'scheduled',
-              });
-            }
-          } catch {}
+        // Include scheduled publications. This read a file it built the path
+        // to itself, named schedules.json, which has never existed; and even
+        // spelled right it would have been every workspace's schedule on one
+        // workspace's calendar. It is this workspace's schedule, through the
+        // store, like everything else.
+        for (const item of collection('schedule').values(scopeFor(req))) {
+          if (!item.publishAt) continue;
+          const pubDate = item.publishAt.slice(0, 10);
+          const month = pubDate.slice(0, 7);
+          if (!byMonth[month]) byMonth[month] = [];
+          byMonth[month].push({
+            path: item.path || '',
+            title: item.note || item.path || 'Scheduled',
+            date: pubDate,
+            wordCount: 0,
+            draft: false,
+            scheduled: true,
+            status: item.status || 'scheduled',
+          });
         }
 
         // Sort months and files within each month

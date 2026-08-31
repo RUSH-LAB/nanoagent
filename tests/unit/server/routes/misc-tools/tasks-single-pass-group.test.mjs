@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { newStore } from '../../../_harness.mjs';
 import path from 'node:path';
 
 // misc-tools.js is CommonJS; load it the way the other server route tests do.
@@ -12,10 +13,12 @@ const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js'
 // each task by status in one pass, and derives counts from the bucket lengths.
 async function getTasks(store) {
   let captured = null;
+  // The tasks store holds one row per task, keyed by id, in the caller's scope.
+  // Seeded from the same array the JSON fixture used to be.
+  const seeded = Object.fromEntries((store.tasks ?? []).map(t => [t.id, t]));
   const ctx = {
     path,
-    TASKS_FILE: '/tmp/next-tasks-single-pass-group-test/tasks.json',
-    loadJSON: () => store,
+    ...newStore().seed('tasks', seeded).ctxFields,
     json: (_res, status, body) => { captured = { status, body }; return captured; },
   };
   const url = new URL('http://localhost/api/tasks');
@@ -101,11 +104,14 @@ describe('GET /api/tasks single-pass grouping', () => {
     });
   });
 
-  it('preserves task object identity inside the buckets (no copying)', async () => {
-    const todoTask = { id: 'x', status: 'todo' };
-    const r = await getTasks({ tasks: [todoTask] });
+  // Within one response the buckets hold the same objects the flat list does,
+  // rather than copies. Identity with the seed is no longer the way to say that
+  // (the store hands back its own parse of each row), but identity between the
+  // two views of it in the payload is the property the grouping pass has to keep.
+  it('puts the same objects in the buckets as in the flat list, not copies', async () => {
+    const r = await getTasks({ tasks: [{ id: 'x', status: 'todo' }] });
     assert.equal(r.status, 200);
-    assert.equal(r.body.grouped.todo[0], todoTask);
+    assert.equal(r.body.grouped.todo[0], r.body.tasks[0]);
   });
 
   it('drops only the unknown-status tasks, never the known ones', async () => {

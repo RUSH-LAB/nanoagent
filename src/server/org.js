@@ -219,6 +219,19 @@ primaryOrgId.forget = () => {
 };
 
 /**
+ * Every workspace on this server, oldest first.
+ *
+ * The one read that belongs to no caller. Background work serves all of them
+ * and has no session to scope itself by: the scheduled-publish loop in
+ * server/index.js runs once a minute for the whole machine and has to ask each
+ * workspace what it has due. Not memoized, because unlike a slug the answer
+ * changes whenever somebody creates one.
+ */
+function allOrganizations() {
+  return db.prepare('SELECT id, slug, name FROM organization ORDER BY createdAt, rowid').all();
+}
+
+/**
  * Give a new workspace the directories its content lives in.
  *
  * `books` and `posts` because those are the two the build looks for, and an
@@ -605,7 +618,8 @@ module.exports = {
   AUDIT_LIMIT: audit.LIMIT,
   listAudit: audit.list,
   canManage, labelFor,
-  slugify, slugTaken, availableSlug, slugForOrg, primaryOrgId, ensureContentRoot,
+  slugify, slugTaken, availableSlug, slugForOrg, primaryOrgId, allOrganizations,
+  ensureContentRoot,
   listMemberships, createWorkspace, setActiveWorkspace,
   getOrganization, listMembers, findMember,
   listInvitations, invitationForLink, invite, cancelInvitation, acceptInvitation,

@@ -88,10 +88,6 @@ function referencesForCore(provided) {
 const {toNodeHandler} = require('better-auth/node');
 const {DEV_AUTOLOGIN, ensureRootUser, handleDevLogin, ROOT_USERNAME} = require('./dev-auth');
 const PORT = process.env.EDITOR_PORT || 3001;
-const SNAPSHOTS_FILE = dataFile('snapshots');
-const SCHEDULE_FILE = dataFile('schedule');
-const WHITEBOARDS_FILE = dataFile('whiteboards');
-const TASKS_FILE = dataFile('tasks');
 
 // ── Access log file setup ──
 
@@ -425,75 +421,92 @@ setInterval(() => {
 // ── Scheduled publishing checker (runs every 60s) ──
 //
 // This had never run. It read var/data/schedules.json, and the store the API
-// writes is var/data/schedule.json, so loadJSON returned {} on every tick for
-// as long as the loop has existed. It also expected a bare array where the API
-// writes {items: [...]}, so correcting only the filename would have left it
+// wrote was var/data/schedule.json, so loadJSON returned {} on every tick for
+// as long as the loop had existed. It also expected a bare array where the API
+// wrote {items: [...]}, so correcting only the filename would have left it
 // doing nothing, and correcting only the shape would have left it reading a
 // file that is not there.
 //
-// The third defect is the one worth naming: it joined `schedule.path` onto the
-// repo root and wrote to it, with no validation. That field arrives from the
-// body of POST /api/schedule, where it is passed through sanitizeText, which
-// strips control characters and does not care about `../`. Had either of the
-// other two bugs ever been fixed on its own, this loop would have been an
+// The defect worth naming is the third: it joined `schedule.path` onto the repo
+// root and wrote to it, with no validation. That field arrives from the body of
+// POST /api/schedule, where it is passed through sanitizeText, which strips
+// control characters and does not care about `../`. Had either of the other two
+// bugs ever been fixed on its own, this loop would have been an
 // arbitrary-file-write primitive reachable by any signed-in caller. The check
-// below is the same isValidFilePath every file handler already uses.
+// below is the same isValidFilePath every file handler already uses, and the
+// root it resolves against is the owning workspace's content tree, not the
+// repository, which is the fourth thing that was wrong once content moved to
+// one directory per organization.
+//
+// The loop belongs to no caller, so it cannot take a scope from a request. It
+// asks every workspace what it has due, in turn, and acts inside each one: the
+// paths, the caches it drops and the rows it updates are all that workspace's.
 //
 // Published items keep their row with status 'published', rather than being
 // dropped, so that GET /api/schedule can still account for them; that endpoint
 // already models an item's life as a status rather than as presence in a list.
 setInterval(() => {
-  try {
-    const store = loadJSON(SCHEDULE_FILE);
-    const items = Array.isArray(store.items) ? store.items : [];
-    if (items.length === 0) return;
-    const now = new Date();
-    let changed = false;
-    for (const schedule of items) {
-      if (schedule.status === 'published') continue;
-      if (new Date(schedule.publishAt) <= now) {
-        try {
-          if (!isValidFilePath(schedule.path)) {
-            console.error(`[schedule] Refusing ${schedule.path}: not a content path`);
-            continue;
-          }
-          const fullPath = path.join(PROJECT_ROOT, schedule.path);
-          if (!fs.existsSync(fullPath)) {
-            console.log(`[schedule] Skipping ${schedule.path}: file not found`);
-            continue;
-          }
-          let content = fs.readFileSync(fullPath, 'utf-8');
-          const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/);
-          if (fmMatch) {
-            let fm = fmMatch[1];
-            if (/^draft:\s*.*/m.test(fm)) {
-              fm = fm.replace(/^draft:\s*.*/m, 'draft: false');
-            } else {
-              fm += '\ndraft: false';
-            }
-            content = `---\n${fm}\n---\n` + content.slice(fmMatch[0].length);
-          } else {
-            content = '---\ndraft: false\n---\n' + content;
-          }
-          fs.writeFileSync(fullPath, content, 'utf-8');
-          schedule.status = 'published';
-          schedule.publishedAt = now.toISOString();
-          changed = true;
-          console.log(`[schedule] Published ${schedule.path} (was scheduled for ${schedule.publishAt})`);
-        } catch (err) {
-          console.error(`[schedule] Failed to publish ${schedule.path}:`, err.message);
+  const now = new Date();
+  for (const {id: orgId} of org.allOrganizations()) {
+    // The schedule is the workspace's, so the scope needs no user. A workspace
+    // with nothing scheduled costs one indexed read and no further work.
+    const scope = {orgId, userId: null};
+    let due;
+    try {
+      due = store.collection('schedule').list(scope)
+        .filter(({value}) => value.status !== 'published' && new Date(value.publishAt) <= now);
+    } catch (err) {
+      console.error(`[schedule] Could not read the schedule of ${orgId}:`, err.message);
+      continue;
+    }
+    if (due.length === 0) continue;
+
+    const contentRoot = contentRootFor(orgId);
+    let published = 0;
+    for (const {key, value: schedule} of due) {
+      try {
+        if (!isValidFilePath(schedule.path)) {
+          console.error(`[schedule] Refusing ${schedule.path}: not a content path`);
+          continue;
         }
+        const fullPath = path.join(contentRoot, schedule.path);
+        if (!fs.existsSync(fullPath)) {
+          console.log(`[schedule] Skipping ${schedule.path}: file not found`);
+          continue;
+        }
+        let content = fs.readFileSync(fullPath, 'utf-8');
+        const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/);
+        if (fmMatch) {
+          let fm = fmMatch[1];
+          if (/^draft:\s*.*/m.test(fm)) {
+            fm = fm.replace(/^draft:\s*.*/m, 'draft: false');
+          } else {
+            fm += '\ndraft: false';
+          }
+          content = `---\n${fm}\n---\n` + content.slice(fmMatch[0].length);
+        } else {
+          content = '---\ndraft: false\n---\n' + content;
+        }
+        fs.writeFileSync(fullPath, content, 'utf-8');
+        store.collection('schedule').put(scope, key, {
+          ...schedule,
+          status: 'published',
+          publishedAt: now.toISOString(),
+        });
+        published++;
+        console.log(`[schedule] Published ${schedule.path} (was scheduled for ${schedule.publishAt})`);
+      } catch (err) {
+        console.error(`[schedule] Failed to publish ${schedule.path}:`, err.message);
       }
     }
-    if (changed) {
-      saveJSON(SCHEDULE_FILE, {...store, items});
-      // The file's frontmatter changed, so anything derived from the tree is
-      // now one publish behind.
-      invalidateCache('search');
-      invalidateCache('stats');
+
+    if (published > 0) {
+      // That workspace's frontmatter changed, so anything derived from its tree
+      // is one publish behind. Its caches only: another workspace's search index
+      // is not stale because this one published.
+      invalidateCache(cacheKey(orgId, 'search'));
+      invalidateCache(cacheKey(orgId, 'stats'));
     }
-  } catch (err) {
-    console.error('[schedule] Checker error:', err.message);
   }
 }, 60000);
 
@@ -530,7 +543,7 @@ let requestCounter = 0;
 
 // ── Shared context handed to every route module in server/routes/ ──
 const ctx = {
-  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, TASKS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
+  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
   roles,
   chat,
   org,

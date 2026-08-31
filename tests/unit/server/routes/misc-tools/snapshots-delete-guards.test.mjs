@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { newStore } from '../../../_harness.mjs';
 
 // misc-tools.js is CommonJS; load the real module via createRequire the way the
 // sibling write-guard suite does (next-misc-filetarget-write-guards.test.mjs) so
@@ -34,11 +35,10 @@ async function runRoute({
   validPath = true,
   throwOnReadBody = false,
 } = {}) {
-  const saved = [];
   const rateLimitCalls = [];
   let readBodyCount = 0;
-  let loadJSONCount = 0;
   let captured = null;
+  const scoped = newStore().seed('snapshots', store);
   const ctx = {
     rateLimit: (key, limit) => { rateLimitCalls.push({ key, limit }); return rateLimitOk; },
     readBody: async () => {
@@ -47,12 +47,7 @@ async function runRoute({
       return body;
     },
     isValidFilePath: () => validPath,
-    loadJSON: (fp) => {
-      loadJSONCount++;
-      if (fp === SNAPSHOTS_FILE) return JSON.parse(JSON.stringify(store));
-      throw new Error(`unexpected loadJSON path: ${fp}`);
-    },
-    saveJSON: (fp, data) => { saved.push({ fp, data }); },
+    ...scoped.ctxFields,
     path,
     PROJECT_ROOT,
     SNAPSHOTS_FILE,
@@ -63,7 +58,14 @@ async function runRoute({
   const req = { method: 'DELETE', socket: { remoteAddress: '127.0.0.1' } };
   const res = { writableEnded: false };
   await routes(req, res, url, pathname, ctx);
-  return { captured, saved, readBodyCount, loadJSONCount, rateLimitCalls };
+  return {
+    captured, readBodyCount, rateLimitCalls,
+    // The store's own tallies, standing in for the loadJSON and saveJSON
+    // call counts these cases used to assert on.
+    get loadJSONCount() { return scoped.calls.reads; },
+    get saved() { return scoped.calls.writes; },
+    store: scoped,
+  };
 }
 
 describe('DELETE /api/snapshots rate limit', () => {
@@ -154,37 +156,30 @@ describe('DELETE /api/snapshots not-found branches', () => {
 });
 
 describe('DELETE /api/snapshots success and persistence', () => {
-  it('deleting one of several snapshots returns 200, saves once, and retains the key with the survivors', async () => {
-    const store = { 'content/a.md': [{ id: 's1' }, { id: 's2' }] };
-    const { captured, saved, loadJSONCount } = await runRoute({
-      store,
+  it('deleting one of several snapshots returns 200, writes once, and keeps the row with the survivors', async () => {
+    const { captured, saved, store } = await runRoute({
+      store: { 'content/a.md': [{ id: 's1' }, { id: 's2' }] },
       body: { path: 'content/a.md', snapshotId: 's1' },
     });
     assert.equal(captured.status, 200);
     assert.deepEqual(captured.body, { success: true });
-    assert.equal(loadJSONCount, 1);
-    assert.equal(saved.length, 1);
-    assert.equal(saved[0].fp, SNAPSHOTS_FILE);
-    // s1 is spliced out; the key survives because s2 remains.
-    assert.equal(Object.hasOwn(saved[0].data, 'content/a.md'), true);
-    assert.deepEqual(saved[0].data, { 'content/a.md': [{ id: 's2' }] });
-    // The deep-copy seed isolates the recorded save from the input store, so the
-    // caller's seed is observably untouched by the in-place splice.
-    assert.deepEqual(store, { 'content/a.md': [{ id: 's1' }, { id: 's2' }] });
+    assert.equal(saved.length, 1, 'one write');
+    assert.deepEqual(saved[0], { domain: 'snapshots', op: 'put' }, 'an update, not a delete');
+    // s1 is dropped; the file's row survives because s2 remains.
+    assert.deepEqual(store.read('snapshots'), { 'content/a.md': [{ id: 's2' }] });
   });
 
-  it('deleting the last snapshot returns 200, saves once, and drops the now-empty key', async () => {
-    const { captured, saved } = await runRoute({
+  it('deleting the last snapshot returns 200, writes once, and drops the now-empty row', async () => {
+    const { captured, saved, store } = await runRoute({
       store: { 'content/a.md': [{ id: 's1' }] },
       body: { path: 'content/a.md', snapshotId: 's1' },
     });
     assert.equal(captured.status, 200);
     assert.deepEqual(captured.body, { success: true });
     assert.equal(saved.length, 1);
-    // The array empties after the splice, so the key is deleted entirely rather
-    // than left holding an empty array.
-    assert.equal(Object.hasOwn(saved[0].data, 'content/a.md'), false);
-    assert.deepEqual(saved[0].data, {});
+    // The list empties, so the row goes rather than being left holding [].
+    assert.deepEqual(saved[0], { domain: 'snapshots', op: 'remove' });
+    assert.deepEqual(store.read('snapshots'), {});
   });
 });
 
