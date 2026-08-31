@@ -1,9 +1,8 @@
-# Workspace architecture convergence plan
+# Completed: workspace architecture convergence
 
-Status: implemented in the repository and covered by an in-process PostgreSQL
-RLS acceptance suite. Production cutover still requires a deployment database,
-object-storage credentials, backup, migration dry run, and the staging RLS
-probe against the real runtime and owner roles.
+Status: completed on 2026-08-31. This is an implementation record, not an
+active plan. Remaining deployment work is tracked in
+[`../production-readiness.md`](../production-readiness.md).
 
 ## Acceptance evidence
 
@@ -193,8 +192,10 @@ There is no long-lived dual-write period:
 4. Import and verify the same report against the destination.
 5. Switch reads and writes once.
 6. Retain backups and a documented rollback window.
-7. Delete `/api/file`, filesystem content discovery, SQLite production storage,
-   JSON business stores, and per-workspace Docusaurus compilation.
+7. Delete legacy `/api/file` write operations, filesystem content discovery,
+   SQLite production storage, JSON business stores, and per-workspace
+   Docusaurus compilation. Scoped database-backed `/api/file` read aliases may
+   remain temporarily for client compatibility.
 
 The repository includes a deliberately one-way importer. It is a dry run unless
 `--apply` is present, compares SHA-256 hashes, and refuses conflicting rows
