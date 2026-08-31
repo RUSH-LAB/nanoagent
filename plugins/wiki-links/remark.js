@@ -1,0 +1,76 @@
+/**
+ * wiki-links: [[page]] notation, as markdown syntax any page can use.
+ *
+ * A plugin with only a remark half. It owns no pages, serves no endpoints and
+ * reads no data of its own; plugins/loader.js finds this file and adds it to
+ * the site's remark chain, which is all it needs to exist.
+ *
+ * Syntax: [[page]] or [[page|Display Text]] in markdown text nodes.
+ * Renders as <a href="/page">page</a> or <a href="/page">Display Text</a>.
+ *
+ * Paths like [[path/to/page]] become href="/path/to/page".
+ */
+
+const { applyTextReplacements } = require('#markdown');
+
+// Regex to match [[page]] or [[page|Display Text]]
+const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+
+/**
+ * Process a single text node, splitting it into text + wiki link nodes.
+ * Returns an array of nodes to replace the original text node, or null
+ * if no wiki links were found.
+ */
+function processTextNode(node) {
+  const text = node.value;
+  if (!WIKI_LINK_RE.test(text)) return null;
+
+  const result = [];
+  let lastIndex = 0;
+  WIKI_LINK_RE.lastIndex = 0;
+
+  let match;
+  while ((match = WIKI_LINK_RE.exec(text)) !== null) {
+    // Add preceding text
+    if (match.index > lastIndex) {
+      result.push({ type: 'text', value: text.slice(lastIndex, match.index) });
+    }
+
+    const page = match[1].trim();
+    // Default display text is the last path segment (e.g., "math/intro" → "intro")
+    const defaultDisplay = page.split('/').pop();
+    const displayText = match[2] ? match[2].trim() : defaultDisplay;
+    const href = '/' + page;
+
+    result.push({
+      type: 'link',
+      url: href,
+      data: {
+        hProperties: { className: ['wikilink'] },
+      },
+      children: [{ type: 'text', value: displayText }],
+    });
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add trailing text
+  if (lastIndex < text.length) {
+    result.push({ type: 'text', value: text.slice(lastIndex) });
+  }
+
+  return result;
+}
+
+/**
+ * The remark plugin function.
+ */
+function remarkWikiLinks() {
+  return (tree) => {
+    // The shared helper collects replacements first, then applies them, so the
+    // tree is not mutated during traversal.
+    applyTextReplacements(tree, (node) => processTextNode(node));
+  };
+}
+
+module.exports = remarkWikiLinks;

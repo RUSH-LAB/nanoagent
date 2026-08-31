@@ -1,0 +1,11 @@
+{
+  "title": "Math Registry",
+  "description": "Numbers the <Type id=\"...\"> blocks in the math books and publishes the manifest <Ref> reads",
+  "enabled": true,
+  "options": {
+    "contentDirs": [
+      {"dir": "content/books/math", "routeBase": "math"},
+      {"dir": "content/books/builder", "routeBase": "builder"}
+    ]
+  }
+}

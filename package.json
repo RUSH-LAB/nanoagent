@@ -2,7 +2,12 @@
   "name": "rush-lab-archive",
   "version": "0.0.0",
   "private": true,
+  "imports": {
+    "#plugin-api": "./src/server/plugin-api.js",
+    "#markdown": "./src/utils/visitText.js"
+  },
   "scripts": {
+    "new:plugin": "node scripts/new-plugin.mjs",
     "docusaurus": "docusaurus",
     "start": "ENABLE_AUTH=true DEV_AUTOLOGIN=true DOCUSAURUS_NO_PERSISTENT_CACHE=true node src/server/index.js & ENABLE_AUTH=true DEV_AUTOLOGIN=true docusaurus start",
     "start:site": "DOCUSAURUS_NO_PERSISTENT_CACHE=true docusaurus start",

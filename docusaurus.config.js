@@ -2,17 +2,20 @@ import {themes as prismThemes} from 'prism-react-renderer';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
-const remarkCite = require('./plugins/remark-cite');
-const remarkWikiLinks = require('./plugins/remark-wiki-links');
+// The tools in plugins/, discovered rather than listed: see plugins/loader.js
+// and plugins/README.md. Nothing below names a plugin, which is what makes
+// adding one a matter of adding a directory.
+const { loadBuildPlugins, loadRemarkPlugins } = require('./plugins/loader');
 
 // ── Shared plugin configs ──────────────────────────────────────────────────
 const BOOKS_DIR = 'content/books';
 const POSTS_DIR = 'content/posts';
 
+// remark-math runs first so math is parsed out of the tree before any plugin's
+// syntax walks its text nodes.
 const defaultRemarkPlugins = [
   [require('remark-math'), { strict: false }],
-  remarkCite,
-  remarkWikiLinks,
+  ...loadRemarkPlugins(),
 ];
 
 const defaultRehypePlugins = [
@@ -144,9 +147,10 @@ const config = {
   ],
 
   plugins: [
-    // Serves the Lake project's declarations so <LeanProof name="..."> can
-    // render the real, lake-checked source.
-    './plugins/lean-proofs',
+    // Every plugin's build half, in alphabetical order, configured by its own
+    // plugin.json rather than from here.
+    ...loadBuildPlugins(),
+
     // Local search
     [
       '@easyops-cn/docusaurus-search-local',
@@ -185,18 +189,6 @@ const config = {
       sidebarTitle: 'Recent Papers',
       showReadingTime: true,
     }),
-
-    // Custom plugins
-    require('./plugins/docusaurus-plugin-bibliography'),
-    [
-      require('./plugins/docusaurus-plugin-math-registry'),
-      {
-        contentDirs: [
-          { dir: `${BOOKS_DIR}/math`, routeBase: 'math' },
-          { dir: `${BOOKS_DIR}/builder`, routeBase: 'builder' },
-        ],
-      },
-    ],
   ],
 
   headTags: [

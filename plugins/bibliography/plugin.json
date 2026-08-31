@@ -1,0 +1,8 @@
+{
+  "title": "Bibliography",
+  "description": "Browse and manage references: pages, an API, and the [@key] citation syntax",
+  "enabled": true,
+  "apiVersion": 1,
+  "requires": ["cache", "content:write", "network"],
+  "options": {}
+}

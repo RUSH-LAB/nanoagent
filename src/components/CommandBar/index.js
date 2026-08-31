@@ -3,8 +3,7 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import {useHistory} from '@docusaurus/router';
 import API_BASE, { apiFetch } from '@site/src/utils/api';
 import {fuzzyMatch} from '@site/src/utils/fuzzyMatch';
-import {COMMANDS, commandHaystack} from '@site/src/components/commands';
-import QuickNoteDialog from '@site/src/components/QuickNoteDialog';
+import {useCommands, commandHaystack} from '@site/src/components/commands';
 import ChatSidebar, {channelLabel} from './ChatSidebar';
 import ChatTranscript from './ChatTranscript';
 import useChat from './useChat';
@@ -60,7 +59,6 @@ function CommandBarInner() {
   // channel and the directory listing it.
   const [sessions, setSessions] = useState([{id: 1, entries: [], busy: false, target: null, sendError: null}]);
   const [activeId, setActiveId] = useState(1);
-  const [noteOpen, setNoteOpen] = useState(false);
   const [railOpen, setRailOpen] = useState(true);
 
   const inputRef = useRef(null);
@@ -83,6 +81,8 @@ function CommandBarInner() {
     [sessions],
   );
   const chat = useChat({openChannelIds, paused: collapsed});
+  // Whatever the installed plugins offer. Not a list in this file any more.
+  const commands = useCommands();
 
   const patchSession = useCallback((sessionId, patch) => {
     setSessions((prev) => prev.map((s) => (s.id === sessionId ? {...s, ...patch} : s)));
@@ -236,12 +236,12 @@ function CommandBarInner() {
   const matches = useMemo(() => {
     if (!isCommand) return [];
     const q = query.slice(1).trim();
-    if (!q) return COMMANDS;
-    return COMMANDS
+    if (!q) return commands;
+    return commands
       .map((cmd) => ({...cmd, ...fuzzyMatch(q, commandHaystack(cmd))}))
       .filter((cmd) => cmd.match)
       .sort((a, b) => b.score - a.score);
-  }, [isCommand, query]);
+  }, [isCommand, query, commands]);
 
   // Any edit re-ranks the list, so put the cursor back on the best match.
   useEffect(() => {
@@ -257,24 +257,15 @@ function CommandBarInner() {
     }
   }, [sessions, chat.conversation]);
 
+  // Every command is somewhere to go. Splitting and clearing were commands too
+  // until the registry was cut back: both have a key of their own, one has a
+  // button in the row beside the prompt, and the banner names them, so a third
+  // way to reach either was a line in a menu rather than a feature.
   const runCommand = useCallback((cmd, sessionId) => {
     appendTo(sessionId, 'input', `/${cmd.name}`);
-    if (cmd.action === 'quick-note') {
-      appendTo(sessionId, 'system', 'opening the quick-note composer');
-      setNoteOpen(true);
-      return;
-    }
-    if (cmd.action === 'split') {
-      split();
-      return;
-    }
-    if (cmd.action === 'clear') {
-      setSessions((prev) => prev.map((s) => (s.id === sessionId ? {...s, entries: []} : s)));
-      return;
-    }
     appendTo(sessionId, 'system', `opening ${cmd.title}`);
     routerHistory.push(cmd.href);
-  }, [appendTo, routerHistory, split]);
+  }, [appendTo, routerHistory]);
 
   /* ── Targets ──────────────────────────────────────────────────── */
 
@@ -691,8 +682,6 @@ function CommandBarInner() {
           </span>
         </div>
       </div>
-
-      <QuickNoteDialog open={noteOpen} onClose={() => setNoteOpen(false)} />
     </>
   );
 }

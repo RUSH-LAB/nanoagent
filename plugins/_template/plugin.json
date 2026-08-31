@@ -1,0 +1,8 @@
+{
+  "title": "__TITLE__",
+  "description": "One line about what this tool is for",
+  "enabled": true,
+  "apiVersion": 1,
+  "requires": [],
+  "options": {}
+}

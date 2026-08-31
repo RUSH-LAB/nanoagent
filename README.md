@@ -155,9 +155,16 @@ mochi-lab/
       routes/            #     Handlers by domain (files, references, feeds, ...)
       server-utils.js    #     Shared helpers (validation, bibtex, caching)
       paths.js           #     Every path the server derives from the repo root
-  plugins/               # Docusaurus plugins
+      plugin-api.js      #     #plugin-api: what a plugin may import
+  plugins/               # One directory per tool, discovered not listed
+    README.md            #   The plugin contract
+    loader.js            #   What a plugin is, and how the site finds it
+    _template/           #   Scaffold: npm run new:plugin -- <name>
+    bibliography/        #   Pages, API, and the [@key] citation syntax
     lean-proofs/         #   Serves the Lake project in proofs/ as global data
-    bibliography/  math-registry/  remark-cite/  remark-wiki-links/
+    math-registry/       #   Numbers the math books' theorem blocks
+    wiki-links/          #   The [[page]] syntax
+  scripts/               # Repo tooling (new-plugin.mjs)
   tests/
     unit/                #   Mirrors the source tree
     integration/         #   HTTP suites against a running server
@@ -166,22 +173,31 @@ mochi-lab/
 
 The platform runs two processes in parallel: a **Docusaurus static site** serving content pages, and a **Node.js HTTP API server** providing data persistence and backend features.
 
+Every tool on the site is a plugin: one directory under `plugins/` holding its
+pages, its endpoints, and any markdown syntax it adds. Nothing lists them, both
+processes discover them, so adding a tool is adding a directory —
+`npm run new:plugin -- <name>` scaffolds one. The contract is written down in
+[`plugins/README.md`](plugins/README.md).
+
 ## API Overview
 
-The API server exposes **188 REST endpoints** under `/api/*`. Major categories:
+The API server exposes **77 REST endpoints** under `/api/*`. Major categories:
 
 | Category | Endpoints | Description |
 |---|---|---|
-| File operations | 27 | CRUD, move, quality analysis, targets |
-| References | 37 | Bibliography, citations, enrichment, export, tracking |
-| Content analysis | 18 | Health, duplicates, freshness, topics, coverage, clusters |
-| Analytics & stats | 20 | Page views, heatmaps, dashboards, productivity reports |
-| Search | 8 | Full-text search, metadata search, find-and-replace |
-| Flashcards | 6 | Spaced-repetition review, deck management |
-| Notes | 4 | Personal keyed notes |
-| Collaboration | 4 | Sessions, users |
-| Knowledge tools | 6 | Bookmarks, reading lists, glossary |
-| Infrastructure | 10 | Health, backup, snapshots, logs, debug, perf |
+| Study & knowledge | 16 | Flashcards, glossary, notes, tasks, schedule, reading lists, bookmarks, whiteboards |
+| Files & folders | 13 | CRUD, move, keywords, quality, readability, mindmap, search, trash |
+| Analytics & stats | 11 | Page views, topics, orphans, duplicates, timeline, heatmap, streak, perf |
+| Content & search | 9 | Health, duplicates, lint, backlinks, graph, integrity, tags, search, suggest |
+| References | 8 | Bibliography, enrichment, export, BibTeX import, tracking, metadata lookup |
+| Workspace | 8 | Organizations, members, invitations, audit, chat channels, DMs, users |
+| Infrastructure | 7 | Health, logs, snapshots, restore, debug routes and memory |
+| Feeds | 3 | RSS, Atom, sitemap |
+| AI | 2 | Completion and provider status |
+
+The References row is served by the bibliography plugin rather than by core
+(see [`plugins/README.md`](plugins/README.md)); the rest live in
+`src/server/routes/`.
 
 ## Testing
 

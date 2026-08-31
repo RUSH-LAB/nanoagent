@@ -1,0 +1,8 @@
+{
+  "title": "Lean Proofs",
+  "description": "Serves the Lake project in proofs/ as global data, so <LeanProof> renders checked source",
+  "enabled": true,
+  "options": {
+    "dir": "proofs"
+  }
+}

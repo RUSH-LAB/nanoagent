@@ -1,7 +1,7 @@
 import React, {useState, useEffect, useRef, useMemo, useCallback} from 'react';
 import {useHistory} from '@docusaurus/router';
 import {fuzzyMatch} from '@site/src/utils/fuzzyMatch';
-import {icons, COMMANDS, commandHaystack} from '@site/src/components/commands';
+import {icons, useCommands, commandHaystack} from '@site/src/components/commands';
 import styles from './styles.module.css';
 
 /* ── Component ─────────────────────────────────────────────────── */
@@ -10,6 +10,8 @@ export default function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  // Whatever the installed plugins offer. Not a list in this file any more.
+  const commands = useCommands();
   const inputRef = useRef(null);
   const resultsRef = useRef(null);
 
@@ -37,15 +39,15 @@ export default function CommandPalette() {
 
   /* Filtered results with fuzzy matching */
   const results = useMemo(() => {
-    if (!query.trim()) return COMMANDS;
-    return COMMANDS
+    if (!query.trim()) return commands;
+    return commands
       .map(cmd => ({
         ...cmd,
         ...fuzzyMatch(query, commandHaystack(cmd)),
       }))
       .filter(cmd => cmd.match)
       .sort((a, b) => b.score - a.score);
-  }, [query]);
+  }, [query, commands]);
 
   /* Reset selection when query changes */
   useEffect(() => {
