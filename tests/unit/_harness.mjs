@@ -182,7 +182,13 @@ export function newStore() {
   };
 }
 
-function makeScopedStore() {
+/**
+ * A fresh in-memory database with every migration applied.
+ *
+ * Shared by the store and the document layer, which are two modules over the
+ * same schema, so a suite that drives both drives one database.
+ */
+function migratedDatabase() {
   const Database = require('better-sqlite3');
   const fsNode = require('node:fs');
   const db = new Database(':memory:');
@@ -195,7 +201,29 @@ function makeScopedStore() {
   for (const name of fsNode.readdirSync(dir).filter(f => f.endsWith('.sql')).sort()) {
     db.exec(fsNode.readFileSync(nodePath.join(dir, name), 'utf-8'));
   }
+  return db;
+}
+
+function makeScopedStore(db = migratedDatabase()) {
   return require('../../src/server/store/index.js').createStore({db});
+}
+
+/**
+ * The document layer over a throwaway database.
+ *
+ * Ids are sequential rather than random, so a case can assert on one, and the
+ * clock is a counter, so ordering assertions do not depend on how fast the test
+ * runs. Both are constructor arguments on the real module rather than a stub of
+ * it: what these suites are testing is its SQL.
+ */
+function makeDocuments(db = migratedDatabase()) {
+  let ids = 0;
+  let ticks = 0;
+  return require('../../src/server/documents.js').createDocuments({
+    db,
+    newId: () => `doc-${++ids}`,
+    now: () => `2026-01-01T00:00:${String(++ticks).padStart(2, '0')}.000Z`,
+  });
 }
 
 // ── In-memory fs ──────────────────────────────────────────────────────────
@@ -315,6 +343,19 @@ export function mockFs(tree = {}, overrides = {}) {
 const DEFAULT_READ_BODY = Symbol('defaultReadBody');
 
 /**
+ * Marks a readBody invoke() installed itself, so a later invoke() over the same
+ * ctx may replace it.
+ *
+ * Without this, only the first request through a ctx got its own body: the
+ * sentinel was gone by the second, so every later call replayed the first
+ * one's. That was invisible while every case built a fresh ctx per request, and
+ * became wrong the moment a suite shared one, which a route backed by a
+ * database has to do to see its own writes. A suite's own readBody carries no
+ * mark and is still left alone.
+ */
+const INSTALLED_BODY = Symbol('installedReadBody');
+
+/**
  * Build a production shaped ctx.
  *
  * Recognised options, all optional:
@@ -383,9 +424,16 @@ export function makeCtx(overrides = {}) {
     // A store of this suite's own, when it wants two ctxs sharing one database
     // (two members of a workspace, say). Otherwise each ctx gets a fresh one,
     // so suites cannot leak rows into each other.
-    scoped = makeScopedStore(),
+    scoped = undefined,
+    documents = undefined,
     ...rest
   } = overrides;
+
+  // One database behind both, so a suite driving content and a store sees them
+  // as one workspace rather than two.
+  const sharedDb = scoped && documents ? null : migratedDatabase();
+  const scopedStore = scoped ?? makeScopedStore(sharedDb);
+  const documentLayer = documents ?? makeDocuments(sharedDb);
 
   const calls = {json: [], loadJSON: [], saveJSON: [], rateLimit: [], invalidateCache: [], cached: [], ai: []};
   const cache = {};
@@ -544,11 +592,16 @@ export function makeCtx(overrides = {}) {
     // The scoped data layer, exactly as server/index.js hands it over: the
     // collection factory, and the function that turns a request into the scope
     // every collection method requires.
-    collection: scoped.collection,
+    collection: scopedStore.collection,
     scopeFor: req => ({
       orgId: req?.auth?.orgId || TEST_ORG_ID,
       userId: req?.auth?.userId ?? null,
     }),
+    // Content as rows, and the compiler that renders one. The compiler is the
+    // real one: it is the site's own plugin chain, and a stub of it would let a
+    // handler pass while rendering nothing the site would recognise.
+    documents: documentLayer,
+    compileDocument: doc => require('../../src/server/mdx.js').compileMarkdown(doc.markdown),
 
     ...rest,
   };
@@ -558,7 +611,7 @@ export function makeCtx(overrides = {}) {
   // The store itself, for a suite that wants to seed or read rows directly
   // rather than through a handler. Named apart from `ctx.store`, which is the
   // JSON-file fixture the features are migrating off.
-  ctx.scoped = scoped;
+  ctx.scoped = scopedStore;
   return ctx;
 }
 
@@ -698,17 +751,22 @@ export async function invoke(routes, opts = {}) {
   };
   res.req = req;
 
-  if (ctx.readBody === DEFAULT_READ_BODY) {
-    ctx.readBody = async () => {
+  if (ctx.readBody === DEFAULT_READ_BODY || ctx.readBody?.[INSTALLED_BODY]) {
+    const readBody = async () => {
       if (typeof body === 'string') {
         try { return JSON.parse(body); } catch { throw new Error('Invalid JSON'); }
       }
       if (body === undefined) throw new Error('Invalid JSON');
       return structuredClone(body);
     };
+    readBody[INSTALLED_BODY] = true;
+    ctx.readBody = readBody;
   }
-  if (ctx.readRawBody === DEFAULT_READ_BODY) {
-    ctx.readRawBody = async () => Buffer.from(typeof body === 'string' ? body : JSON.stringify(body ?? ''));
+  if (ctx.readRawBody === DEFAULT_READ_BODY || ctx.readRawBody?.[INSTALLED_BODY]) {
+    const readRawBody = async () =>
+      Buffer.from(typeof body === 'string' ? body : JSON.stringify(body ?? ''));
+    readRawBody[INSTALLED_BODY] = true;
+    ctx.readRawBody = readRawBody;
   }
 
   // ctx.calls.json accumulates across every invoke sharing this ctx, which the

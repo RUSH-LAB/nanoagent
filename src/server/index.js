@@ -26,6 +26,11 @@ const ai = require('./ai');
 // module is allowed to reach the thirteen features' data, because it is the
 // only way that applies the organization and the owner without being asked to.
 const store = require('./store');
+// Content as rows, and the compiler that renders one when it is asked for.
+// Both on ctx rather than required by the route, for the same reason as
+// everything else here: a test substitutes them.
+const documents = require('./documents');
+const {compileDocument} = require('./mdx');
 const {loadServerPlugins, collectProvides, asRouteModule} = require('./plugins');
 // The tools in plugins/, each contributing its endpoints and whatever it lends
 // the rest of the server. Loaded here, above ctx, because ctx spreads what they
@@ -559,6 +564,8 @@ const ctx = {
   // is no collection method that works without one.
   collection: store.collection,
   scopeFor,
+  documents,
+  compileDocument,
   // What the installed plugins lend. ctx.references comes from the bibliography
   // plugin, and falls back to an empty one, because a core handler that reads
   // the bibliography must survive the plugin being removed.
@@ -568,6 +575,10 @@ const ctx = {
 };
 
 const routeModules = [
+  // Content from the database, compiled per request. Ahead of ./routes/files,
+  // which is the same content read off disk, because /api/content is the path
+  // that knows who is asking.
+  require('./routes/content'),
   require('./routes/files'),
   require('./routes/comments-notes'),
   require('./routes/feeds'),
