@@ -11,5 +11,6 @@ The documentation is organized by purpose:
 Start with the [product north star](product/north-star.md), then read the
 [platform architecture](infra/platform-architecture.md). For database setup on
 a new machine, follow the [Neon Postgres guide](infra/neon-postgres-setup.md).
+For releases, use the [production deployment runbook](infra/production-deployment.md).
 The current work queue is the
 [production-readiness plan](plans/production-readiness.md).

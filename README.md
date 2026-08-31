@@ -51,7 +51,7 @@ Production requires `BETTER_AUTH_SECRET`, `SITE_URL`, `DATABASE_URL`, a
 separate-owner `DATABASE_MIGRATION_URL`, `MAIL_WEBHOOK_URL`, and the
 `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_BUCKET`,
 `OBJECT_STORAGE_ACCESS_KEY_ID`, and `OBJECT_STORAGE_SECRET_ACCESS_KEY` values.
-See [`docs/production-deployment.md`](docs/production-deployment.md) for the
+See [`docs/infra/production-deployment.md`](docs/infra/production-deployment.md) for the
 container, migration, verification, and rollback checklist.
 
 The same screen supports ordinary email/password accounts alongside root.

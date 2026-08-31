@@ -38,7 +38,7 @@ the cutover in staging, and deploy one verified application image.
 8. Run `npm run db:postgres:verify` in staging and complete the browser smoke
    tests for sign-in, workspace creation, invitations, assets, and isolation.
 9. Build and deploy the container described in
-   [`../production-deployment.md`](../production-deployment.md).
+   [`../infra/production-deployment.md`](../infra/production-deployment.md).
 10. Switch traffic, monitor authentication and object-deletion failures, and
     retain the coordinated database/object backup for the rollback window.
 
@@ -47,4 +47,4 @@ the cutover in staging, and deploy one verified application image.
 Production is ready only when HTTPS, email, object storage, database backups,
 RLS verification, migration hashes, and cross-workspace browser tests all pass.
 The detailed command sequence and rollback procedure live in the
-[production deployment runbook](../production-deployment.md).
+[production deployment runbook](../infra/production-deployment.md).
