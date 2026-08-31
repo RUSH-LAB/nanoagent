@@ -21,7 +21,7 @@ speed, and developer workflow are improved.
 
 ### 1. Startup and reliability
 
-- Provide one reliable command for starting and stopping the local PostgreSQL
+- [x] Provide one reliable command for starting and stopping the local PostgreSQL
   API and Docusaurus frontend together.
 - Keep actionable startup errors for database, authentication, R2, and email.
 - Prevent build/dev-server cache collisions.

@@ -44,8 +44,11 @@ Manual verification, repair, or cleanup commands:
 
 ## `dev/`
 
-Developer-only generators. `create-plugin.mjs` implements
-`npm run new:plugin -- <name>`.
+Developer workflow commands:
+
+- `start-local.mjs` starts the API and site as one supervised process group for
+  SQLite, PostgreSQL, or no-auth development.
+- `create-plugin.mjs` implements `npm run new:plugin -- <name>`.
 
 ## Tests and workflows
 

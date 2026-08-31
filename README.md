@@ -43,6 +43,7 @@ the owner account, a real row in the local development database at
 
 ```bash
 npm start            # API + site, with the one-click root sign-in
+npm run start:postgres # API + site using .env.postgres.local
 npm run start:noauth # no gate at all: every request is a fixed development user
 npm run build && npm run start:production # one-origin production shell + API
 ```
@@ -101,7 +102,8 @@ npm run db:postgres:setup
 npm run test:postgres
 ```
 
-Then run `npm run start:postgres:api` and `npm run start:site` in two terminals.
+Run `npm run start:postgres` to start both processes together. The separate
+`start:postgres:api` and `start:site` commands remain available for debugging.
 The complete hosted setup and clean-machine checklist is documented in
 [`docs/infra/neon-postgres-setup.md`](docs/infra/neon-postgres-setup.md).
 

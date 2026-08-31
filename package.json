@@ -24,7 +24,8 @@
     "proofs:check": "cd plugins/lean-proofs/proofs && lake build",
     "proofs:test": "node --test 'tests/unit/plugins/lean-proofs/**/*.test.mjs' && npm run proofs:check",
     "docusaurus": "docusaurus",
-    "start": "ENABLE_AUTH=true DEV_AUTOLOGIN=true node src/server/index.js & ENABLE_AUTH=true DEV_AUTOLOGIN=true docusaurus start",
+    "start": "node scripts/dev/start-local.mjs",
+    "start:postgres": "node scripts/dev/start-local.mjs --postgres",
     "start:site": "ENABLE_AUTH=true DEV_AUTOLOGIN=false docusaurus start --no-open",
     "start:production": "NODE_ENV=production ENABLE_AUTH=true node src/server/index.js",
     "build": "docusaurus build",
@@ -42,7 +43,7 @@
     "test:all": "npm test && npm run test:integration:all",
     "write-translations": "docusaurus write-translations",
     "write-heading-ids": "docusaurus write-heading-ids",
-    "start:noauth": "node src/server/index.js & docusaurus start"
+    "start:noauth": "node scripts/dev/start-local.mjs --no-auth"
   },
   "dependencies": {
     "@docusaurus/core": "^3.10.0",
