@@ -11,6 +11,7 @@ import crypto from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {createRequire} from 'node:module';
 import net from 'node:net';
+import {fileURLToPath} from 'node:url';
 
 const require = createRequire(import.meta.url);
 const {createPool, migrate, grantRuntimeAccess, assertRuntimeRoleIsNotOwner} = require('../../../src/server/postgres/client.js');
@@ -22,6 +23,7 @@ if (!process.env.DATABASE_URL || !process.env.DATABASE_MIGRATION_URL) {
 
 const migrationPool = createPool({...process.env, DATABASE_URL: process.env.DATABASE_MIGRATION_URL}, {max: 2});
 const runtimePool = createPool(process.env, {max: 2});
+const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const token = crypto.randomUUID().replace(/-/g, '');
 const availablePort = () => new Promise((resolve, reject) => {
   const probe = net.createServer();
@@ -102,7 +104,7 @@ try {
   await assertRuntimeRoleIsNotOwner(runtimePool);
 
   server = spawn(process.execPath, ['src/server/index.js'], {
-    cwd: new URL('..', import.meta.url),
+    cwd: repositoryRoot,
     env: {
       ...process.env,
       NODE_ENV: 'test',
