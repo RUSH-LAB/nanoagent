@@ -8,10 +8,16 @@
  *
  * The obvious question is why not Postgres, given the multi-tenant plan wants
  * row-level security to enforce organization isolation in the database rather
- * than in 188 hand-written WHERE clauses. The answer is sequencing, not
- * preference. RLS is a Postgres feature and it is the right end state; this file
- * is the seam where that swap happens, and keeping every query in Drizzle keeps
- * the rest of the code dialect-agnostic in the meantime.
+ * than in a few hundred hand-written WHERE clauses. The answer is sequencing,
+ * not preference. RLS is a Postgres feature and it is the right end state, and
+ * this file is the seam where that swap happens.
+ *
+ * What carries the isolation until then is ./store, which is the only module
+ * allowed to reach this one for tenant-scoped data. Every query it runs is
+ * scoped by construction rather than by the caller remembering to say so, which
+ * is the same guarantee RLS gives, made in the application instead of the
+ * database. When Postgres arrives, that layer does not come out; it becomes the
+ * inner of two locks.
  *
  * WAL mode lets the API server read while another connection writes, which
  * matters because the Docusaurus dev server and the API run side by side.

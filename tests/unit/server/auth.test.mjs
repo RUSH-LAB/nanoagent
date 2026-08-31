@@ -329,3 +329,34 @@ describe('ENABLE_AUTH parsing', () => {
     });
   }
 });
+
+describe('productionAuthError', () => {
+  // The same values as above: a production server may only start on the exact
+  // string that turns authentication on, because every other value leaves
+  // resolveIdentity returning DEV_IDENTITY to everybody.
+  for (const value of ['1', 'yes', 'TRUE', 'false', '', undefined]) {
+    it(`refuses production with ENABLE_AUTH=${JSON.stringify(value)}`, () => {
+      const error = disabled.productionAuthError({NODE_ENV: 'production', ENABLE_AUTH: value});
+      assert.ok(error, 'a production server without authentication must not start');
+      assert.match(error, /ENABLE_AUTH/, 'the refusal has to name the variable to set');
+    });
+  }
+
+  it('permits production once ENABLE_AUTH is true', () => {
+    assert.equal(disabled.productionAuthError({NODE_ENV: 'production', ENABLE_AUTH: 'true'}), null);
+  });
+
+  // Development is the case where running without authentication is the point:
+  // the test suites and `npm run start:noauth` both do it deliberately.
+  for (const nodeEnv of [undefined, 'development', 'test']) {
+    it(`permits NODE_ENV=${JSON.stringify(nodeEnv)} without authentication`, () => {
+      assert.equal(disabled.productionAuthError({NODE_ENV: nodeEnv}), null);
+    });
+  }
+
+  it('reads process.env when called with no argument', () => {
+    // Whatever the suite runs under, the default-argument path must agree with
+    // passing that same environment explicitly. This is what index.js calls.
+    assert.equal(disabled.productionAuthError(), disabled.productionAuthError(process.env));
+  });
+});

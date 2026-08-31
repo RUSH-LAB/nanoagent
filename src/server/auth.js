@@ -45,6 +45,33 @@ const AUTH_ENABLED = process.env.ENABLE_AUTH === 'true';
 const PORT = process.env.EDITOR_PORT || 3001;
 
 /**
+ * Why a production server may not start, or null when it may.
+ *
+ * The two modes below are a development convenience that becomes a hole the
+ * moment the process is reachable by anyone else. With ENABLE_AUTH off,
+ * resolveIdentity hands every caller DEV_IDENTITY without looking at the
+ * request: not a weak session, no session, and the same one for everybody. The
+ * failure is silent, because a server in that state serves every page
+ * correctly to whoever asks.
+ *
+ * So it is refused rather than warned about. The check is deliberately narrow:
+ * it fires only when NODE_ENV says production, which is the one context where
+ * the answer is never "the author is running the tests". Everything else about
+ * how the server is deployed is somebody else's judgement.
+ *
+ * Pure, and takes the environment as an argument, so the refusal is testable
+ * without spawning a process and setting real variables.
+ */
+function productionAuthError(env = process.env) {
+  if (env.NODE_ENV !== 'production') return null;
+  if (env.ENABLE_AUTH === 'true') return null;
+  return 'Refusing to start: NODE_ENV is production but ENABLE_AUTH is not "true", '
+    + 'so every request would resolve to the shared development identity and no '
+    + 'sign-in would be required. Set ENABLE_AUTH=true, or unset NODE_ENV to run '
+    + 'this as a development server.';
+}
+
+/**
  * The key that signs sessions. Set BETTER_AUTH_SECRET in any real deployment.
  * Locally it is generated once and kept in var/, which git ignores: a secret
  * that changed per restart would invalidate every session on every code reload,
@@ -259,6 +286,7 @@ async function resolveIdentity(req) {
 module.exports = {
   auth,
   resolveIdentity,
+  productionAuthError,
   isPublicPath,
   isSafeId,
   orgRoleFor,

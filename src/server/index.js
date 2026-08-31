@@ -15,7 +15,7 @@ const {
 } = require('./server-utils');
 
 const {PROJECT_ROOT, PRIMARY_ORG_SLUG, contentDirFor, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
-const {auth, resolveIdentity, isPublicPath} = require('./auth');
+const {auth, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
 // Site-wide roles, on ctx like every other dependency a route module needs, so
 // a test can substitute an in-memory implementation instead of a real database.
 const roles = require('./roles');
@@ -717,6 +717,14 @@ const _routeDiagnostics = (function analyzeRoutes() {
 })();
 
 ctx._routeDiagnostics = _routeDiagnostics;
+
+// Before the socket opens, not after: a server that authenticates nobody
+// should never have accepted the first request. See productionAuthError.
+const _authRefusal = productionAuthError();
+if (_authRefusal) {
+  console.error(`\n  ${_authRefusal}\n`);
+  process.exit(1);
+}
 
 // Create the root account and make it an owner. Does nothing unless
 // DEV_AUTOLOGIN is on, so a production database never grows a well-known
