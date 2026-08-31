@@ -33,10 +33,14 @@ const yaml = require('js-yaml');
 // key so the transform takes the cited path. This read uses the real fs before
 // any spy is installed and does not touch the plugin's module-level cache (it is
 // our own call to yaml.load, not loadBibliography()).
+// Content is one tree per organization, and the build renders the primary one,
+// so the slug is resolved exactly as remark.js resolves it.
+const PRIMARY_ORG = process.env.ROOT_ORG_SLUG || 'mochi';
 const bibPath = path.resolve(
   path.dirname(require.resolve('../../../../plugins/bibliography/remark')),
   '..', '..',
   'content',
+  PRIMARY_ORG,
   'bibliography',
   'references.yaml',
 );

@@ -21,6 +21,15 @@
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
 }
 
+/* A group of fields and its button, for the screens whose card holds more than
+   one form. On the sign-in screen the card is itself the form, and its own flex
+   column already stretches the inputs and the button to full width; a nested
+   form is an ordinary block and would leave the button sized to its label. */
+.stack {
+  display: flex;
+  flex-direction: column;
+}
+
 .logo {
   width: 64px;
   height: 64px;

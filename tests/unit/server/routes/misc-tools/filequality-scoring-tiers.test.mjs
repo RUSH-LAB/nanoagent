@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import os from 'node:os';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { key } from '../../../_harness.mjs';
 
 // server/routes/misc-tools.js is CommonJS; load the REAL module via createRequire the
 // way the sibling route suites do (tests/next-misc-filequality-cache.test.mjs). These
@@ -44,62 +45,62 @@ const READ0 = 'ab. cd. ef. gh. ij. kl.';
 
 const FIXTURES = [
   // Word-count ladder: pure body, no frontmatter / headings / citations / media.
-  { name: 'words_1000', rel: 'content/quality/words_1000.md', content: body(100, 10) + '\n' },
-  { name: 'words_500',  rel: 'content/quality/words_500.md',  content: body(50, 10) + '\n' },
-  { name: 'words_200',  rel: 'content/quality/words_200.md',  content: body(20, 10) + '\n' },
-  { name: 'words_100',  rel: 'content/quality/words_100.md',  content: body(10, 10) + '\n' },
-  { name: 'words_50',   rel: 'content/quality/words_50.md',   content: body(5, 10) + '\n' },
+  { name: 'words_1000', rel: 'quality/words_1000.md', content: body(100, 10) + '\n' },
+  { name: 'words_500',  rel: 'quality/words_500.md',  content: body(50, 10) + '\n' },
+  { name: 'words_200',  rel: 'quality/words_200.md',  content: body(20, 10) + '\n' },
+  { name: 'words_100',  rel: 'quality/words_100.md',  content: body(10, 10) + '\n' },
+  { name: 'words_50',   rel: 'quality/words_50.md',   content: body(5, 10) + '\n' },
 
   // Frontmatter field detection (small body so the other dimensions stay constant).
-  { name: 'fm_title_only', rel: 'content/quality/fm_title_only.md', content: FM_TITLE + body(5, 10) + '\n' },
-  { name: 'fm_date_only',  rel: 'content/quality/fm_date_only.md',  content: FM_DATE + body(5, 10) + '\n' },
-  { name: 'fm_neither',    rel: 'content/quality/fm_neither.md',    content: FM_NEITHER + body(5, 10) + '\n' },
+  { name: 'fm_title_only', rel: 'quality/fm_title_only.md', content: FM_TITLE + body(5, 10) + '\n' },
+  { name: 'fm_date_only',  rel: 'quality/fm_date_only.md',  content: FM_DATE + body(5, 10) + '\n' },
+  { name: 'fm_neither',    rel: 'quality/fm_neither.md',    content: FM_NEITHER + body(5, 10) + '\n' },
 
   // Heading ladder (full frontmatter + a 500-word body so words is fixed at 20).
-  { name: 'hd_5',        rel: 'content/quality/hd_5.md',        content: FM_FULL + HEADINGS_5 + '\n\n' + body(50, 10) + '\n' },
-  { name: 'hd_3',        rel: 'content/quality/hd_3.md',        content: FM_FULL + HEADINGS_3 + '\n\n' + body(50, 10) + '\n' },
-  { name: 'hd_2_multi',  rel: 'content/quality/hd_2_multi.md',  content: FM_FULL + HEADINGS_2 + '\n\n' + body(50, 10) + '\n' },
-  { name: 'hd_1_h1only', rel: 'content/quality/hd_1_h1only.md', content: FM_FULL + HEADINGS_1 + '\n\n' + body(50, 10) + '\n' },
+  { name: 'hd_5',        rel: 'quality/hd_5.md',        content: FM_FULL + HEADINGS_5 + '\n\n' + body(50, 10) + '\n' },
+  { name: 'hd_3',        rel: 'quality/hd_3.md',        content: FM_FULL + HEADINGS_3 + '\n\n' + body(50, 10) + '\n' },
+  { name: 'hd_2_multi',  rel: 'quality/hd_2_multi.md',  content: FM_FULL + HEADINGS_2 + '\n\n' + body(50, 10) + '\n' },
+  { name: 'hd_1_h1only', rel: 'quality/hd_1_h1only.md', content: FM_FULL + HEADINGS_1 + '\n\n' + body(50, 10) + '\n' },
 
   // Citations: partial (min formula) and capped.
-  { name: 'cit_partial', rel: 'content/quality/cit_partial.md', content: FM_FULL + body(50, 10) + '\n' + cites(3) + '\n' },
-  { name: 'cit_cap',     rel: 'content/quality/cit_cap.md',     content: FM_FULL + body(50, 10) + '\n' + cites(6) + '\n' },
+  { name: 'cit_partial', rel: 'quality/cit_partial.md', content: FM_FULL + body(50, 10) + '\n' + cites(3) + '\n' },
+  { name: 'cit_cap',     rel: 'quality/cit_cap.md',     content: FM_FULL + body(50, 10) + '\n' + cites(6) + '\n' },
 
   // Media: image points, image cap, code-block contribution, and the code suggestion.
-  { name: 'media_img_partial',  rel: 'content/quality/media_img_partial.md',  content: FM_FULL + body(50, 10) + '\n' + imgs(2) + '\n' },
-  { name: 'media_img_cap',      rel: 'content/quality/media_img_cap.md',      content: FM_FULL + body(50, 10) + '\n' + imgs(4) + '\n' },
-  { name: 'media_code_contrib', rel: 'content/quality/media_code_contrib.md', content: FM_FULL + body(50, 10) + '\n' + imgs(1) + '\n' + code(2) + '\n' },
-  { name: 'code_suggest',       rel: 'content/quality/code_suggest.md',       content: FM_FULL + body(50, 10) + ' algorithm.\n' },
+  { name: 'media_img_partial',  rel: 'quality/media_img_partial.md',  content: FM_FULL + body(50, 10) + '\n' + imgs(2) + '\n' },
+  { name: 'media_img_cap',      rel: 'quality/media_img_cap.md',      content: FM_FULL + body(50, 10) + '\n' + imgs(4) + '\n' },
+  { name: 'media_code_contrib', rel: 'quality/media_code_contrib.md', content: FM_FULL + body(50, 10) + '\n' + imgs(1) + '\n' + code(2) + '\n' },
+  { name: 'code_suggest',       rel: 'quality/code_suggest.md',       content: FM_FULL + body(50, 10) + ' algorithm.\n' },
 
   // Readability ladder (full frontmatter + a body of controlled sentence length).
-  { name: 'read_8', rel: 'content/quality/read_8.md', content: FM_FULL + body(30, 18) + '\n' },
-  { name: 'read_5', rel: 'content/quality/read_5.md', content: FM_FULL + body(24, 23) + '\n' },
-  { name: 'read_2', rel: 'content/quality/read_2.md', content: FM_FULL + body(20, 30) + '\n' },
-  { name: 'read_0', rel: 'content/quality/read_0.md', content: FM_FULL + READ0 + '\n' },
+  { name: 'read_8', rel: 'quality/read_8.md', content: FM_FULL + body(30, 18) + '\n' },
+  { name: 'read_5', rel: 'quality/read_5.md', content: FM_FULL + body(24, 23) + '\n' },
+  { name: 'read_2', rel: 'quality/read_2.md', content: FM_FULL + body(20, 30) + '\n' },
+  { name: 'read_0', rel: 'quality/read_0.md', content: FM_FULL + READ0 + '\n' },
 
   // Everything high: the excellent level and the empty-suggestions case.
-  { name: 'excellent_max', rel: 'content/quality/excellent_max.md',
+  { name: 'excellent_max', rel: 'quality/excellent_max.md',
     content: FM_FULL + HEADINGS_5 + '\n\n' + body(100, 10) + '\n' + cites(6) + '\n' + imgs(4) + '\n' + code(2) + '\n' },
 
   // Boundary-tightening fixtures: pin the LOW side of cutoffs that the adjacent
   // fixtures leave loose, using just-below-threshold values.
   // 999 words is one short of the 1000 cutoff, so words still scores 20 (not 25).
-  { name: 'words_999', rel: 'content/quality/words_999.md', content: body(99, 10) + ' ' + sentence(9) + '\n' },
+  { name: 'words_999', rel: 'quality/words_999.md', content: body(99, 10) + ' ' + sentence(9) + '\n' },
   // Score exactly 80 (25+15+20+0+10+10): the inclusive edge of the excellent level.
-  { name: 'excellent_min', rel: 'content/quality/excellent_min.md',
+  { name: 'excellent_min', rel: 'quality/excellent_min.md',
     content: FM_FULL + HEADINGS_5 + '\n\n' + body(100, 10) + '\n' + imgs(4) + '\n' },
   // Score exactly 79 (one image fewer, media 9): just below the excellent cutoff, so good.
-  { name: 'good_max', rel: 'content/quality/good_max.md',
+  { name: 'good_max', rel: 'quality/good_max.md',
     content: FM_FULL + HEADINGS_5 + '\n\n' + body(100, 10) + '\n' + imgs(3) + '\n' },
   // Average sentence length exactly 15: the inclusive top edge of the readability ladder.
-  { name: 'read_15', rel: 'content/quality/read_15.md', content: FM_FULL + body(34, 15) + '\n' },
+  { name: 'read_15', rel: 'quality/read_15.md', content: FM_FULL + body(34, 15) + '\n' },
   // Three code fences, no images: media = min(10, min(5, 3*2)) = 5, pinning the code cap of 5.
-  { name: 'media_code_cap', rel: 'content/quality/media_code_cap.md', content: FM_FULL + body(50, 10) + '\n' + code(3) + '\n' },
+  { name: 'media_code_cap', rel: 'quality/media_code_cap.md', content: FM_FULL + body(50, 10) + '\n' + code(3) + '\n' },
 ];
 
 const GOLDENS = {
   "words_1000": {
-    "path": "content/quality/words_1000.md",
+    "path": "quality/words_1000.md",
     "score": 35,
     "level": "needs-improvement",
     "breakdown": {
@@ -145,7 +146,7 @@ const GOLDENS = {
     ]
   },
   "words_500": {
-    "path": "content/quality/words_500.md",
+    "path": "quality/words_500.md",
     "score": 30,
     "level": "needs-improvement",
     "breakdown": {
@@ -191,7 +192,7 @@ const GOLDENS = {
     ]
   },
   "words_200": {
-    "path": "content/quality/words_200.md",
+    "path": "quality/words_200.md",
     "score": 25,
     "level": "needs-improvement",
     "breakdown": {
@@ -238,7 +239,7 @@ const GOLDENS = {
     ]
   },
   "words_100": {
-    "path": "content/quality/words_100.md",
+    "path": "quality/words_100.md",
     "score": 20,
     "level": "needs-improvement",
     "breakdown": {
@@ -285,7 +286,7 @@ const GOLDENS = {
     ]
   },
   "words_50": {
-    "path": "content/quality/words_50.md",
+    "path": "quality/words_50.md",
     "score": 15,
     "level": "minimal",
     "breakdown": {
@@ -332,7 +333,7 @@ const GOLDENS = {
     ]
   },
   "fm_title_only": {
-    "path": "content/quality/fm_title_only.md",
+    "path": "quality/fm_title_only.md",
     "score": 25,
     "level": "needs-improvement",
     "breakdown": {
@@ -379,7 +380,7 @@ const GOLDENS = {
     ]
   },
   "fm_date_only": {
-    "path": "content/quality/fm_date_only.md",
+    "path": "quality/fm_date_only.md",
     "score": 25,
     "level": "needs-improvement",
     "breakdown": {
@@ -426,7 +427,7 @@ const GOLDENS = {
     ]
   },
   "fm_neither": {
-    "path": "content/quality/fm_neither.md",
+    "path": "quality/fm_neither.md",
     "score": 20,
     "level": "needs-improvement",
     "breakdown": {
@@ -474,7 +475,7 @@ const GOLDENS = {
     ]
   },
   "hd_5": {
-    "path": "content/quality/hd_5.md",
+    "path": "quality/hd_5.md",
     "score": 65,
     "level": "good",
     "breakdown": {
@@ -518,7 +519,7 @@ const GOLDENS = {
     ]
   },
   "hd_3": {
-    "path": "content/quality/hd_3.md",
+    "path": "quality/hd_3.md",
     "score": 60,
     "level": "good",
     "breakdown": {
@@ -562,7 +563,7 @@ const GOLDENS = {
     ]
   },
   "hd_2_multi": {
-    "path": "content/quality/hd_2_multi.md",
+    "path": "quality/hd_2_multi.md",
     "score": 55,
     "level": "adequate",
     "breakdown": {
@@ -606,7 +607,7 @@ const GOLDENS = {
     ]
   },
   "hd_1_h1only": {
-    "path": "content/quality/hd_1_h1only.md",
+    "path": "quality/hd_1_h1only.md",
     "score": 55,
     "level": "adequate",
     "breakdown": {
@@ -651,7 +652,7 @@ const GOLDENS = {
     ]
   },
   "cit_partial": {
-    "path": "content/quality/cit_partial.md",
+    "path": "quality/cit_partial.md",
     "score": 51,
     "level": "adequate",
     "breakdown": {
@@ -695,7 +696,7 @@ const GOLDENS = {
     ]
   },
   "cit_cap": {
-    "path": "content/quality/cit_cap.md",
+    "path": "quality/cit_cap.md",
     "score": 55,
     "level": "adequate",
     "breakdown": {
@@ -739,7 +740,7 @@ const GOLDENS = {
     ]
   },
   "media_img_partial": {
-    "path": "content/quality/media_img_partial.md",
+    "path": "quality/media_img_partial.md",
     "score": 51,
     "level": "adequate",
     "breakdown": {
@@ -783,7 +784,7 @@ const GOLDENS = {
     ]
   },
   "media_img_cap": {
-    "path": "content/quality/media_img_cap.md",
+    "path": "quality/media_img_cap.md",
     "score": 55,
     "level": "adequate",
     "breakdown": {
@@ -827,7 +828,7 @@ const GOLDENS = {
     ]
   },
   "media_code_contrib": {
-    "path": "content/quality/media_code_contrib.md",
+    "path": "quality/media_code_contrib.md",
     "score": 52,
     "level": "adequate",
     "breakdown": {
@@ -871,7 +872,7 @@ const GOLDENS = {
     ]
   },
   "code_suggest": {
-    "path": "content/quality/code_suggest.md",
+    "path": "quality/code_suggest.md",
     "score": 45,
     "level": "adequate",
     "breakdown": {
@@ -917,7 +918,7 @@ const GOLDENS = {
     ]
   },
   "read_8": {
-    "path": "content/quality/read_8.md",
+    "path": "quality/read_8.md",
     "score": 43,
     "level": "adequate",
     "breakdown": {
@@ -962,7 +963,7 @@ const GOLDENS = {
     ]
   },
   "read_5": {
-    "path": "content/quality/read_5.md",
+    "path": "quality/read_5.md",
     "score": 40,
     "level": "adequate",
     "breakdown": {
@@ -1007,7 +1008,7 @@ const GOLDENS = {
     ]
   },
   "read_2": {
-    "path": "content/quality/read_2.md",
+    "path": "quality/read_2.md",
     "score": 37,
     "level": "needs-improvement",
     "breakdown": {
@@ -1053,7 +1054,7 @@ const GOLDENS = {
     ]
   },
   "read_0": {
-    "path": "content/quality/read_0.md",
+    "path": "quality/read_0.md",
     "score": 20,
     "level": "needs-improvement",
     "breakdown": {
@@ -1099,7 +1100,7 @@ const GOLDENS = {
     ]
   },
   "excellent_max": {
-    "path": "content/quality/excellent_max.md",
+    "path": "quality/excellent_max.md",
     "score": 90,
     "level": "excellent",
     "breakdown": {
@@ -1140,7 +1141,7 @@ const GOLDENS = {
     "suggestions": []
   },
   "words_999": {
-    "path": "content/quality/words_999.md",
+    "path": "quality/words_999.md",
     "score": 30,
     "level": "needs-improvement",
     "breakdown": {
@@ -1186,7 +1187,7 @@ const GOLDENS = {
     ]
   },
   "excellent_min": {
-    "path": "content/quality/excellent_min.md",
+    "path": "quality/excellent_min.md",
     "score": 80,
     "level": "excellent",
     "breakdown": {
@@ -1229,7 +1230,7 @@ const GOLDENS = {
     ]
   },
   "good_max": {
-    "path": "content/quality/good_max.md",
+    "path": "quality/good_max.md",
     "score": 79,
     "level": "good",
     "breakdown": {
@@ -1272,7 +1273,7 @@ const GOLDENS = {
     ]
   },
   "read_15": {
-    "path": "content/quality/read_15.md",
+    "path": "quality/read_15.md",
     "score": 45,
     "level": "adequate",
     "breakdown": {
@@ -1317,7 +1318,7 @@ const GOLDENS = {
     ]
   },
   "media_code_cap": {
-    "path": "content/quality/media_code_cap.md",
+    "path": "quality/media_code_cap.md",
     "score": 50,
     "level": "adequate",
     "breakdown": {
@@ -1364,18 +1365,24 @@ const GOLDENS = {
 };
 
 describe('GET /api/file/quality (scoring tiers, level, suggestions characterization)', () => {
-  // The handler reads exactly one file via fs.readFileSync(path.join(PROJECT_ROOT,
-  // filePath)); PROJECT_ROOT is a real mkdtemp dir (unique, isolated) and the read is
-  // served from an in-memory map keyed by that absolute path, so the suite is hermetic.
+  // The handler reads exactly one file via fs.readFileSync(path.join(contentRoot,
+  // filePath)), where contentRoot is the caller's own workspace under content/ and
+  // the requested path is relative to it. PROJECT_ROOT is a real mkdtemp dir (unique,
+  // isolated) and the read is served from an in-memory map keyed by that absolute
+  // path, so the suite is hermetic.
   let ROOT;
-  before(() => { ROOT = mkdtempSync(path.join(os.tmpdir(), 'filequality-tiers-')); });
+  let CONTENT_DIR;
+  before(() => {
+    ROOT = mkdtempSync(path.join(os.tmpdir(), 'filequality-tiers-'));
+    CONTENT_DIR = path.join(ROOT, 'content', 'mochi');
+  });
   after(() => { rmSync(ROOT, { recursive: true, force: true }); });
 
   // Drive the real handler with a pass-through cached (the exact pre-cache code path),
   // an fs whose readFileSync is keyed by the one absolute path, isValidFilePath true,
   // and a captured json().
   async function invoke(rel, content) {
-    const abs = path.join(ROOT, rel);
+    const abs = path.join(CONTENT_DIR, rel);
     const fs = {
       readFileSync(fp) {
         if (fp === abs) return content;
@@ -1387,8 +1394,9 @@ describe('GET /api/file/quality (scoring tiers, level, suggestions characterizat
     const res = { writableEnded: false };
     let captured = null;
     const ctx = {
-      fs, path, PROJECT_ROOT: ROOT, isValidFilePath: () => true,
+      fs, path, PROJECT_ROOT: ROOT, contentRootFor: () => CONTENT_DIR, isValidFilePath: () => true,
       cached: (_k, _t, fn) => fn(),
+      cacheKey: (_orgId, name) => key(name),
       json(_res, status, payload) { captured = { status, payload }; res.writableEnded = true; return captured; },
     };
     await routes(req, res, url, '/api/file/quality', ctx);

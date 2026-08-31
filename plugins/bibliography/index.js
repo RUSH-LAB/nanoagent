@@ -81,7 +81,13 @@ function extractArxivId(url) {
 
 module.exports = function bibliographyPlugin() {
   const projectDir = path.resolve(__dirname, '..', '..');
-  const bibPath = path.join(projectDir, 'content', 'bibliography', 'references.yaml');
+  const PRIMARY_ORG = process.env.ROOT_ORG_SLUG || 'mochi';
+  // The primary workspace's bibliography. The routes this plugin adds are a
+  // flat /bibliography/<key> keyspace, so two workspaces cannot both publish
+  // `vaswani2017`; serving every workspace's needs that namespaced first. The
+  // SERVER half of this plugin is already per-workspace: it reads a relative
+  // path through the content capability, which is rooted per organization.
+  const bibPath = path.join(projectDir, 'content', PRIMARY_ORG, 'bibliography', 'references.yaml');
   const notesDir = path.join(projectDir, 'notes');
   const rawDir = path.join(projectDir, 'raw', 'bibliography');
 

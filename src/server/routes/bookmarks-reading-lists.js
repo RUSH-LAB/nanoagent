@@ -13,9 +13,10 @@ const READING_LIST_RE = /^\/api\/reading-lists\/[^/]+$/;
 const READING_LIST_ITEMS_RE = /^\/api\/reading-lists\/[^/]+\/items$/;
 const READING_LIST_EXPORT_RE = /^\/api\/reading-lists\/[^/]+\/export$/;
 
+
 module.exports = async function bookmarks_reading_lists_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── Bookmarks: list all ──
@@ -71,7 +72,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
 
   // ── Analytics: content topics/keywords ──
   if (req.method === 'GET' && pathname === '/api/analytics/topics') {
-    const topics = cached('analytics:topics', 60000, () => {
+    const topics = cached(cacheKey(req.auth?.orgId, 'analytics:topics'), 60000, () => {
       const STOP_WORDS = new Set([
         'the','a','an','is','are','was','were','be','been','being','have','has','had',
         'do','does','did','will','would','could','should','may','might','shall','can',
@@ -85,7 +86,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
         'which','who','whom','if',
       ]);
 
-      const contentDir = path.join(PROJECT_ROOT, 'content');
+      const contentDir = contentRootFor(req.auth?.orgId);
       const freq = {};
 
       function scanMarkdown(dir) {
@@ -283,7 +284,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
         // references handler instead of re-reading and re-parsing the bibliography
         // on each export. It returns {} on a missing or broken file, preserving
         // the prior `let refs = {}; try { ... } catch {}` empty-export fallback.
-        const refs = ctx.references.load(fs, path, PROJECT_ROOT);
+        const refs = ctx.references.load(fs, path, contentRootFor(req.auth?.orgId));
         const lines = [];
         for (const item of (list.items || [])) {
           if (item.type !== 'reference') continue;

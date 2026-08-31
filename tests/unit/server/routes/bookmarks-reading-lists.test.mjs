@@ -10,7 +10,7 @@ import {beforeEach, describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, key} from '../../_harness.mjs';
 
 const require = createRequire(import.meta.url);
 const bibliographyProvides = require('../../../../plugins/bibliography/server.js').provides;
@@ -18,20 +18,23 @@ const {_resetReferencesCache} = require('../../../../plugins/bibliography/lib/re
 
 const routes = loadRoute('bookmarks-reading-lists');
 const {COMMENTS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE} = FILES;
-const at = rel => path.join(PROJECT_ROOT, rel);
-const BIB = at('content/bibliography/references.yaml');
+// Fixtures live in the workspace's own tree, and the paths a request carries
+// are relative to it: `a.md`, never `content/mochi/a.md`.
+const at = rel => path.join(CONTENT_DIR, rel);
+const BIB = at('bibliography/references.yaml');
 
 /**
  * The bibliography plugin publishes a loader that asks for a reader, because
  * the plugin is not allowed to touch the filesystem itself. The server adapts
- * that reader into the (fs, path, root) call the core handlers make: see
- * referencesForCore in src/server/index.js. This mirrors that adaptation, so
- * the BibTeX export runs against the real loader over this suite's fixture fs
- * rather than against a stub of it.
+ * that reader into the (fs, path, contentRoot) call the core handlers make: see
+ * referencesForCore in src/server/index.js. The root handed over is the calling
+ * organization's content root, so the reader joins straight onto it. This
+ * mirrors that adaptation, so the BibTeX export runs against the real loader
+ * over this suite's fixture fs rather than against a stub of it.
  */
 function referencesForCore(provided) {
-  const readerFor = (fs, path, root) => {
-    const at = relative => path.join(root, 'content', relative);
+  const readerFor = (fs, path, contentRoot) => {
+    const at = relative => path.join(contentRoot, relative);
     return {
       read(relative) {
         try {
@@ -179,7 +182,7 @@ describe('GET /api/analytics/topics', () => {
       '[label](http://example.com)',
       '<span>html</span>',
     ].join('\n');
-    const ctx = makeCtx({fs: mockFs({[at('content/a.md')]: doc})});
+    const ctx = makeCtx({fs: mockFs({[at('a.md')]: doc})});
     const r = await invoke(routes, {path: '/api/analytics/topics', ctx});
     assert.equal(r.status, 200);
     const counts = Object.fromEntries(r.payload.topics.map(t => [t.word, t.count]));
@@ -190,7 +193,7 @@ describe('GET /api/analytics/topics', () => {
   });
 
   it('still filters stop words when they outnumber every content word', async () => {
-    const ctx = makeCtx({fs: mockFs({[at('content/a.md')]: `${'the and but or '.repeat(20)} quantum`})});
+    const ctx = makeCtx({fs: mockFs({[at('a.md')]: `${'the and but or '.repeat(20)} quantum`})});
     const r = await invoke(routes, {path: '/api/analytics/topics', ctx});
     assert.deepEqual(r.payload.topics, [{word: 'quantum', count: 1}]);
   });
@@ -203,7 +206,7 @@ describe('GET /api/analytics/topics', () => {
   it('caps the list at fifty entries', async () => {
     const words = Array.from({length: 60}, (_, i) => 'w' + String.fromCharCode(97 + Math.floor(i / 26)) + String.fromCharCode(97 + (i % 26)));
     const body = words.map((w, i) => Array(i + 1).fill(w).join(' ')).join(' ');
-    const ctx = makeCtx({fs: mockFs({[at('content/a.md')]: body})});
+    const ctx = makeCtx({fs: mockFs({[at('a.md')]: body})});
     const r = await invoke(routes, {path: '/api/analytics/topics', ctx});
     assert.equal(r.payload.topics.length, 50);
   });
@@ -211,11 +214,11 @@ describe('GET /api/analytics/topics', () => {
   it('memoizes under "analytics:topics" with a 60000 ms TTL and reuses the result', async () => {
     let seen;
     let walks = 0;
-    const base = mockFs({[at('content/a.md')]: 'quantum quantum'});
+    const base = mockFs({[at('a.md')]: 'quantum quantum'});
     const fs = {...base, readdirSync: (p, o) => { walks++; return base.readdirSync(p, o); }};
     const ctx = makeCtx({fs, cached: (key, ttl, fn) => { seen = [key, ttl]; return ctx.cache[key] ?? (ctx.cache[key] = fn()); }});
     await invoke(routes, {path: '/api/analytics/topics', ctx});
-    assert.deepEqual(seen, ['analytics:topics', 60000]);
+    assert.deepEqual(seen, [key('analytics:topics'), 60000]);
     const after = walks;
     await invoke(routes, {path: '/api/analytics/topics', ctx});
     assert.equal(walks, after, 'the factory runs once');

@@ -9,10 +9,12 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, PROJECT_ROOT} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, PROJECT_ROOT, CONTENT_DIR, key} from '../../_harness.mjs';
 
 const routes = loadRoute('files');
-const at = rel => path.join(PROJECT_ROOT, rel);
+// Fixtures live in the workspace's own tree, and the paths a request carries
+// are relative to it: `books/x.md`, never `content/mochi/books/x.md`.
+const at = rel => path.join(CONTENT_DIR, rel);
 
 /** An fs whose every method counts the call and throws, proving a branch reaches no IO. */
 function tripwireFs() {
@@ -59,14 +61,14 @@ describe('GET /api/file (read)', () => {
   it('returns the content, read as utf-8 from the path joined under PROJECT_ROOT', async () => {
     let read;
     const fs = {readFileSync: (p, enc) => { read = [p, enc]; return 'file body text'; }};
-    const r = await invoke(routes, {path: '/api/file', query: {path: 'content/ok.md'}, ctx: makeCtx({fs})});
+    const r = await invoke(routes, {path: '/api/file', query: {path: 'ok.md'}, ctx: makeCtx({fs})});
     assert.deepEqual([r.status, r.payload], [200, {content: 'file body text'}]);
-    assert.deepEqual(read, [at('content/ok.md'), 'utf-8']);
+    assert.deepEqual(read, [at('ok.md'), 'utf-8']);
   });
 
   it('returns 404 when the read throws', async () => {
     const fs = {readFileSync() { throw new Error('ENOENT'); }};
-    const r = await invoke(routes, {path: '/api/file', query: {path: 'content/missing.md'}, ctx: makeCtx({fs})});
+    const r = await invoke(routes, {path: '/api/file', query: {path: 'missing.md'}, ctx: makeCtx({fs})});
     assert.deepEqual([r.status, r.payload], [404, {error: 'File not found'}]);
   });
 });
@@ -82,22 +84,22 @@ describe('GET /api/files (list)', () => {
 
   it('walks the directory joined under PROJECT_ROOT and returns the list', async () => {
     let walkArg;
-    const files = [{name: 'a.md', path: 'content/a.md'}, {name: 'b.md', path: 'content/b.md'}];
+    const files = [{name: 'a.md', path: 'a.md'}, {name: 'b.md', path: 'b.md'}];
     const ctx = makeCtx({isValidDir: () => true, walkDir: p => { walkArg = p; return files; }});
-    const r = await invoke(routes, {path: '/api/files', query: {dir: 'content'}, ctx});
+    const r = await invoke(routes, {path: '/api/files', query: {dir: ''}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {files}]);
-    assert.equal(walkArg, at('content'));
+    assert.equal(walkArg, at(''));
   });
 
   it('returns an empty list for an empty directory', async () => {
     const ctx = makeCtx({isValidDir: () => true, walkDir: () => []});
-    const r = await invoke(routes, {path: '/api/files', query: {dir: 'content'}, ctx});
+    const r = await invoke(routes, {path: '/api/files', query: {dir: ''}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {files: []}]);
   });
 
   it('returns 404 when the walk throws', async () => {
     const ctx = makeCtx({isValidDir: () => true, walkDir() { throw new Error('ENOENT'); }});
-    const r = await invoke(routes, {path: '/api/files', query: {dir: 'content'}, ctx});
+    const r = await invoke(routes, {path: '/api/files', query: {dir: ''}, ctx});
     assert.deepEqual([r.status, r.payload], [404, {error: 'Directory not found'}]);
   });
 });
@@ -135,8 +137,8 @@ describe('rate-limit gates on /api/file', () => {
 describe('PUT and POST /api/file body guards', () => {
   const SHARED = [
     {name: 'invalid path', body: {path: '../bad', content: 'x'}, status: 400, error: 'Invalid path'},
-    {name: 'non-string content', body: {path: 'content/ok.md', content: 123}, status: 400, error: 'Content must be a string'},
-    {name: 'content over 50000 chars', body: {path: 'content/ok.md', content: 'a'.repeat(50001)}, status: 400, error: 'Content must be 50000 characters or fewer'},
+    {name: 'non-string content', body: {path: 'ok.md', content: 123}, status: 400, error: 'Content must be a string'},
+    {name: 'content over 50000 chars', body: {path: 'ok.md', content: 'a'.repeat(50001)}, status: 400, error: 'Content must be 50000 characters or fewer'},
   ];
   for (const method of ['PUT', 'POST']) {
     for (const {name, body, status, error} of SHARED) {
@@ -153,7 +155,7 @@ describe('PUT and POST /api/file body guards', () => {
     // Exactly 50000 clears `length > 50000`, so PUT proceeds to the existence
     // check; existsSync false surfaces as the 404, proving the boundary passed.
     const {fs, calls} = countingFs(() => false);
-    const body = {path: 'content/ok.md', content: 'a'.repeat(50000)};
+    const body = {path: 'ok.md', content: 'a'.repeat(50000)};
     const r = await invoke(routes, {method: 'PUT', path: '/api/file', body, ctx: makeCtx({fs})});
     assert.deepEqual([r.status, r.payload], [404, {error: 'File not found'}]);
     assert.equal(calls.writeFileSync, 0);
@@ -163,7 +165,7 @@ describe('PUT and POST /api/file body guards', () => {
 describe('PUT /api/file (write)', () => {
   it('returns 404 when the target does not exist and never writes', async () => {
     const {fs, calls} = countingFs(() => false);
-    const body = {path: 'content/missing.md', content: 'hello'};
+    const body = {path: 'missing.md', content: 'hello'};
     const r = await invoke(routes, {method: 'PUT', path: '/api/file', body, ctx: makeCtx({fs})});
     assert.deepEqual([r.status, r.payload], [404, {error: 'File not found'}]);
     assert.equal(calls.writeFileSync, 0);
@@ -172,20 +174,20 @@ describe('PUT /api/file (write)', () => {
   it('writes once and invalidates only the search cache', async () => {
     const {fs, calls, args} = countingFs(() => true);
     const ctx = makeCtx({fs});
-    const body = {path: 'content/ok.md', content: 'new body text'};
+    const body = {path: 'ok.md', content: 'new body text'};
     const r = await invoke(routes, {method: 'PUT', path: '/api/file', body, ctx});
     // No `path` field, unlike the POST create reply.
     assert.deepEqual([r.status, r.payload], [200, {success: true}]);
     assert.equal(calls.writeFileSync, 1);
-    assert.deepEqual(args.writeFileSync, [at('content/ok.md'), 'new body text', 'utf-8']);
-    assert.deepEqual(ctx.calls.invalidateCache, ['search']);
+    assert.deepEqual(args.writeFileSync, [at('ok.md'), 'new body text', 'utf-8']);
+    assert.deepEqual(ctx.calls.invalidateCache, [key('search')]);
   });
 });
 
 describe('POST /api/file (create)', () => {
   it('returns 409 when the target already exists and never writes', async () => {
     const {fs, calls} = countingFs(() => true);
-    const body = {path: 'content/exists.md', content: 'x'};
+    const body = {path: 'exists.md', content: 'x'};
     const r = await invoke(routes, {method: 'POST', path: '/api/file', body, ctx: makeCtx({fs})});
     assert.deepEqual([r.status, r.payload], [409, {error: 'File already exists'}]);
     assert.equal(calls.writeFileSync, 0);
@@ -194,11 +196,11 @@ describe('POST /api/file (create)', () => {
   it('creates the file and invalidates both the stats and search caches', async () => {
     const {fs, calls} = countingFs(() => false);
     const ctx = makeCtx({fs});
-    const body = {path: 'content/new.md', content: 'hello'};
+    const body = {path: 'new.md', content: 'hello'};
     const r = await invoke(routes, {method: 'POST', path: '/api/file', body, ctx});
-    assert.deepEqual([r.status, r.payload], [200, {success: true, path: 'content/new.md'}]);
+    assert.deepEqual([r.status, r.payload], [200, {success: true, path: 'new.md'}]);
     assert.equal(calls.writeFileSync, 1);
-    assert.deepEqual(ctx.calls.invalidateCache, ['stats', 'search']);
+    assert.deepEqual(ctx.calls.invalidateCache, [key('stats'), key('search')]);
   });
 });
 
@@ -213,7 +215,7 @@ describe('DELETE /api/file (move to trash)', () => {
   it('returns 404 when the file is missing, attempting no move', async () => {
     const {fs, calls} = countingFs(() => false);
     const ctx = makeCtx({fs});
-    const r = await invoke(routes, {method: 'DELETE', path: '/api/file', query: {path: 'content/missing.md'}, ctx});
+    const r = await invoke(routes, {method: 'DELETE', path: '/api/file', query: {path: 'missing.md'}, ctx});
     assert.deepEqual([r.status, r.payload], [404, {error: 'File not found'}]);
     assert.deepEqual([calls.mkdirSync, calls.renameSync], [0, 0]);
     assert.deepEqual(ctx.calls.invalidateCache, []);
@@ -222,12 +224,12 @@ describe('DELETE /api/file (move to trash)', () => {
   it('moves the file to trash and invalidates the search cache', async () => {
     const {fs, calls} = countingFs(() => true);
     const ctx = makeCtx({fs});
-    const r = await invoke(routes, {method: 'DELETE', path: '/api/file', query: {path: 'content/old.md'}, ctx});
+    const r = await invoke(routes, {method: 'DELETE', path: '/api/file', query: {path: 'old.md'}, ctx});
     assert.equal(r.status, 200);
     assert.equal(r.payload.success, true);
-    assert.match(r.payload.trashPath, /^var\/trash\/content\/.*_old\.md$/);
+    assert.match(r.payload.trashPath, /^var\/trash\/mochi\/.*_old\.md$/);
     assert.equal(calls.renameSync, 1);
-    assert.deepEqual(ctx.calls.invalidateCache, ['search']);
+    assert.deepEqual(ctx.calls.invalidateCache, [key('search')]);
   });
 
   // The catch has no error binding, so both mutation seams yield one fixed body
@@ -237,7 +239,7 @@ describe('DELETE /api/file (move to trash)', () => {
     it(`returns the same 500 when fs.${seam} throws`, async () => {
       const {fs, calls} = countingFs(() => true, seam);
       const ctx = makeCtx({fs});
-      const r = await invoke(routes, {method: 'DELETE', path: '/api/file', query: {path: 'content/note.md'}, ctx});
+      const r = await invoke(routes, {method: 'DELETE', path: '/api/file', query: {path: 'note.md'}, ctx});
       assert.deepEqual(r.replies, [{status: 500, payload: TRASH_500, opts: undefined}]);
       assert.equal(calls.renameSync, seam === 'mkdirSync' ? 0 : 1);
       assert.deepEqual(ctx.calls.invalidateCache, []);
@@ -271,14 +273,14 @@ describe('GET /api/files/search', () => {
   // front-matter, which pins the FRONTMATTER_RE `^` anchor: a regex matching a
   // fence anywhere would wrongly surface "Not The Real Title".
   const FILES = [
-    {name: 'alpha-note.md', path: 'content/alpha-note.md'},
-    {name: 'beta-note.md', path: 'content/beta-note.md'},
-    {name: 'gamma-doc.md', path: 'content/sub/gamma-doc.md'},
+    {name: 'alpha-note.md', path: 'alpha-note.md'},
+    {name: 'beta-note.md', path: 'beta-note.md'},
+    {name: 'gamma-doc.md', path: 'sub/gamma-doc.md'},
   ];
   const CONTENTS = {
-    [at('content/alpha-note.md')]: '---\ntitle: Alpha Title\n---\n\nBody text for alpha.\n',
-    [at('content/beta-note.md')]: 'Intro paragraph.\n---\ntitle: Not The Real Title\n---\nMore body.\n',
-    [at('content/sub/gamma-doc.md')]: '---\ntitle: Gamma Title\n---\n\nBody text for gamma.\n',
+    [at('alpha-note.md')]: '---\ntitle: Alpha Title\n---\n\nBody text for alpha.\n',
+    [at('beta-note.md')]: 'Intro paragraph.\n---\ntitle: Not The Real Title\n---\nMore body.\n',
+    [at('sub/gamma-doc.md')]: '---\ntitle: Gamma Title\n---\n\nBody text for gamma.\n',
   };
 
   function searchCtx(over = {}) {
@@ -297,8 +299,8 @@ describe('GET /api/files/search', () => {
     assert.equal(r.status, 200);
     assert.deepEqual(r.payload, {
       files: [
-        {name: 'alpha-note.md', path: 'content/alpha-note.md', title: 'Alpha Title'},
-        {name: 'beta-note.md', path: 'content/beta-note.md', title: 'beta-note'},
+        {name: 'alpha-note.md', path: 'alpha-note.md', title: 'Alpha Title'},
+        {name: 'beta-note.md', path: 'beta-note.md', title: 'beta-note'},
       ],
     });
   });
@@ -310,9 +312,9 @@ describe('GET /api/files/search', () => {
     const second = await invoke(routes, {path: '/api/files/search', query: {q: 'gamma'}, ctx});
     assert.equal(counts.flatFiles, 1, 'the repeat search reuses the cached list');
     assert.deepEqual(second.replies.at(-1).payload.files, [
-      {name: 'gamma-doc.md', path: 'content/sub/gamma-doc.md', title: 'Gamma Title'},
+      {name: 'gamma-doc.md', path: 'sub/gamma-doc.md', title: 'Gamma Title'},
     ]);
-    assert.deepEqual(ctx.calls.cached, ['search:list', 'search:list']);
+    assert.deepEqual(ctx.calls.cached, [key('search:list'), key('search:list')]);
   });
 
   it('returns the full cached list verbatim for an empty query', async () => {
@@ -326,7 +328,7 @@ describe('GET /api/files/search', () => {
     let seen;
     const {ctx} = searchCtx({cached: (key, ttl, fn) => { seen = [key, ttl]; return fn(); }});
     await invoke(routes, {path: '/api/files/search', query: {q: 'note'}, ctx});
-    assert.deepEqual(seen, ['search:list', 30000]);
+    assert.deepEqual(seen, [key('search:list'), 30000]);
   });
 
   it('returns 500 and caches nothing when the walk throws', async () => {

@@ -28,11 +28,10 @@ const LINT_HEADING_PREFIX_RE = /^#{1,6}\s+/;
 // and the dashboard reference count) so none re-parses the ~251 KB file on every
 // request. Defined in references.js next to the other reference handlers; ctx
 // does not supply it, so require it here at module scope.
-const {DATA_SEGS, REFERENCES_SEGS} = require('../paths');
 
 module.exports = async function analysis_admin_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── Writing Streak Tracker ──
@@ -145,7 +144,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
       // deterministic for a given content state. The slice and the try/catch 500
       // path stay outside the cache, so errors are never cached.
       const sorted = cached('files-recent:' + (includeStats ? 'stats' : 'plain'), 30000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const contentDir = contentRootFor(req.auth?.orgId);
         const files = [];
         function walkRecent(dir) {
           for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -155,7 +154,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
               walkRecent(fullPath);
             } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
               const stat = fs.statSync(fullPath);
-              const relPath = path.relative(PROJECT_ROOT, fullPath);
+              const relPath = path.relative(contentRootFor(req.auth?.orgId), fullPath);
               const fileInfo = {name: entry.name, path: relPath, mtime: stat.mtimeMs};
               if (includeStats) {
                 try {
@@ -187,8 +186,8 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
   // ── Content Duplication Detection ──
   if (req.method === 'GET' && pathname === '/api/analytics/duplicates') {
     try {
-      const duplicates = cached('analytics:duplicates', 60000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
+      const duplicates = cached(cacheKey(req.auth?.orgId, 'analytics:duplicates'), 60000, () => {
+        const contentDir = contentRootFor(req.auth?.orgId);
         const fingerprints = []; // [{path, name, words: Set}]
 
         function scanFiles(dir) {
@@ -214,7 +213,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
                 const allWords = text.toLowerCase().split(/\s+/).filter(w => w.length > 0);
                 const first100 = allWords.slice(0, 100);
                 if (first100.length < 5) continue; // skip very short files
-                const relPath = path.relative(PROJECT_ROOT, fullPath);
+                const relPath = path.relative(contentRootFor(req.auth?.orgId), fullPath);
                 fingerprints.push({path: relPath, name: entry.name, words: new Set(first100)});
               } catch { /* skip unreadable */ }
             }
@@ -266,8 +265,8 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
   // ── Orphan Pages Detection ──
   if (req.method === 'GET' && pathname === '/api/analytics/orphans') {
     try {
-      const orphans = cached('analytics:orphans', 60000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
+      const orphans = cached(cacheKey(req.auth?.orgId, 'analytics:orphans'), 60000, () => {
+        const contentDir = contentRootFor(req.auth?.orgId);
         const allPages = []; // [{path, name, fullPath}]
         const linkedTargets = new Set(); // set of basenames and relative paths that are linked to
 
@@ -280,7 +279,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
             if (entry.isDirectory()) {
               collectPages(fullPath);
             } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              const relPath = path.relative(PROJECT_ROOT, fullPath);
+              const relPath = path.relative(contentRootFor(req.auth?.orgId), fullPath);
               allPages.push({path: relPath, name: entry.name, fullPath});
             }
           }
@@ -331,7 +330,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
         const result = [];
         for (const page of allPages) {
           const baseName = path.basename(page.path, path.extname(page.path));
-          const relFromContent = path.relative('content', page.path).replace(/\\/g, '/');
+          const relFromContent = page.path.replace(/\\/g, '/');
           const withoutExt = relFromContent.replace(/\.(md|mdx)$/, '');
           const withoutExtNoDocs = withoutExt.replace(/^docs\//, '');
 
@@ -374,8 +373,8 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
   // ── Tags: list all tags with counts ──
   if (req.method === 'GET' && pathname === '/api/tags') {
     try {
-      const tags = cached('all-tags', 30000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
+      const tags = cached(cacheKey(req.auth?.orgId, 'all-tags'), 30000, () => {
+        const contentDir = contentRootFor(req.auth?.orgId);
         const tagCounts = {};
         function scanTags(dir) {
           for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -415,8 +414,8 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
   // ── Bulk content lint ──
   if (req.method === 'GET' && pathname === '/api/content-lint') {
     try {
-      const report = cached('content-lint', 60000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
+      const report = cached(cacheKey(req.auth?.orgId, 'content-lint'), 60000, () => {
+        const contentDir = contentRootFor(req.auth?.orgId);
         const fileIssues = [];
         let totalIssues = 0;
         const severityCounts = {error: 0, warning: 0, info: 0};
@@ -447,7 +446,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
             const fp = path.join(dir, entry.name);
             if (entry.isDirectory()) { scanLint(fp); continue; }
             if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              try { lintFile(fp, path.relative(PROJECT_ROOT, fp)); } catch {}
+              try { lintFile(fp, path.relative(contentRootFor(req.auth?.orgId), fp)); } catch {}
             }
           }
         }

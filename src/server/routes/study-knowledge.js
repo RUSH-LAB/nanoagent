@@ -6,7 +6,7 @@
 // Shared YAML front-matter matcher for the leading `---` block of a content
 // file. It is non-global and used only with String.prototype.match, so it
 // holds no lastIndex state and one shared instance is safe across handlers.
-const {REFERENCES_SEGS, dataFileSegs} = require('../paths');
+const {dataFileSegs} = require('../paths');
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/;
 
@@ -47,7 +47,7 @@ const DANGEROUS_PREFERENCE_KEYS = new Set(['__proto__', 'constructor', 'prototyp
 
 module.exports = async function study_knowledge_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── Spaced repetition flashcards ──
@@ -222,7 +222,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
     const jsonNotes = (Object.hasOwn(data, userId) ? data[userId] : []).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 
     // Also include filesystem-based quick notes from content/posts/blog/
-    const blogDir = path.join(PROJECT_ROOT, 'content', 'posts', 'blog');
+    const blogDir = path.join(contentRootFor(req.auth?.orgId), 'posts', 'blog');
     let blogNotes = [];
     try {
       if (fs.existsSync(blogDir)) {
@@ -242,7 +242,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
               text: bodyMatch ? bodyMatch[1].trim().slice(0, 200) : '',
               title: titleMatch ? titleMatch[1] : file,
               date: dateMatch ? dateMatch[1] : null,
-              path: `content/posts/blog/${file}`,
+              path: `posts/blog/${file}`,
               source: 'blog',
             });
           } catch {}

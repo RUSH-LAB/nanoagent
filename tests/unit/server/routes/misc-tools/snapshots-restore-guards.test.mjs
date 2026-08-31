@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { key } from '../../../_harness.mjs';
 
 // misc-tools.js is CommonJS; load the real module via createRequire the way the
 // sibling snapshot-delete suite does (next-snapshots-delete-guards.test.mjs) so
@@ -18,6 +19,9 @@ const PROJECT_ROOT = '/proj';
 // instead of silently passing; the same constant is handed to the handler
 // through ctx, so the guard and the handler agree on the store path.
 const SNAPSHOTS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'snapshots.json');
+// The path a restore request carries is relative to the caller's own content
+// root, which the session resolves to one organization's tree under content/.
+const CONTENT_DIR = path.join(PROJECT_ROOT, 'content', 'mochi');
 
 // Drive POST /api/snapshots/restore over a mocked ctx. rateLimit records every
 // call (key and limit) and returns the per-call toggle, so a rate-limited
@@ -64,8 +68,10 @@ async function runRoute({
       writeFileSync: (fp, data, enc) => { writes.push({ fp, data, enc }); },
     },
     invalidateCache: (key) => { invalidations.push(key); },
+    cacheKey: (_orgId, name) => key(name),
     path,
     PROJECT_ROOT,
+    contentRootFor: () => CONTENT_DIR,
     SNAPSHOTS_FILE,
     json: (_res, status, b) => { captured = { status, body: b }; },
   };
@@ -81,7 +87,7 @@ describe('POST /api/snapshots/restore rate limit', () => {
   it('a rate-limited restore returns 429, never reads the body, never loads, never writes, never invalidates, and uses the snapshots-restore key with limit 30', async () => {
     const { captured, writes, invalidations, readBodyCount, loadJSONCount, rateLimitCalls } = await runRoute({
       rateLimitOk: false,
-      body: { path: 'content/a.md', snapshotId: 's1' },
+      body: { path: 'a.md', snapshotId: 's1' },
     });
     assert.equal(captured.status, 429);
     assert.deepEqual(captured.body, { error: 'Too many requests. Try again in a minute.' });
@@ -119,7 +125,7 @@ describe('POST /api/snapshots/restore path validation', () => {
 
 describe('POST /api/snapshots/restore snapshotId validation', () => {
   it('a missing snapshotId returns 400 snapshotId is required, reads the body, never loads, never writes', async () => {
-    const { captured, writes, invalidations, existsChecks, readBodyCount, loadJSONCount } = await runRoute({ body: { path: 'content/a.md' } });
+    const { captured, writes, invalidations, existsChecks, readBodyCount, loadJSONCount } = await runRoute({ body: { path: 'a.md' } });
     assert.equal(captured.status, 400);
     assert.deepEqual(captured.body, { error: 'snapshotId is required' });
     assert.equal(readBodyCount, 1, 'the body is read before snapshotId is validated');
@@ -132,7 +138,7 @@ describe('POST /api/snapshots/restore snapshotId validation', () => {
   it('a non-string snapshotId (42) returns 400 snapshotId is required, reads the body, never loads, never writes', async () => {
     // 42 is truthy so it clears the falsy check, but typeof 42 !== 'string'
     // trips the dedicated type guard. A numeric snapshotId is never coerced.
-    const { captured, writes, invalidations, existsChecks, readBodyCount, loadJSONCount } = await runRoute({ body: { path: 'content/a.md', snapshotId: 42 } });
+    const { captured, writes, invalidations, existsChecks, readBodyCount, loadJSONCount } = await runRoute({ body: { path: 'a.md', snapshotId: 42 } });
     assert.equal(captured.status, 400);
     assert.deepEqual(captured.body, { error: 'snapshotId is required' });
     assert.equal(readBodyCount, 1, 'the body is read before snapshotId is validated');
@@ -146,18 +152,18 @@ describe('POST /api/snapshots/restore snapshotId validation', () => {
 describe('POST /api/snapshots/restore file existence', () => {
   it('a target file absent on disk returns 404 File not found before the store is loaded, never writes, never invalidates', async () => {
     // The existence check precedes the store load, so a missing file short
-    // circuits with loadJSON uncalled. The probed path is the project-root join
+    // circuits with loadJSON uncalled. The probed path is the content-root join
     // of the requested path.
     const { captured, writes, invalidations, loadJSONCount, existsChecks } = await runRoute({
       fileExists: false,
-      body: { path: 'content/a.md', snapshotId: 's1' },
+      body: { path: 'a.md', snapshotId: 's1' },
     });
     assert.equal(captured.status, 404);
     assert.deepEqual(captured.body, { error: 'File not found' });
     assert.equal(loadJSONCount, 0, 'the existence check runs before the store load');
     assert.equal(writes.length, 0);
     assert.equal(invalidations.length, 0);
-    assert.deepEqual(existsChecks, [path.join(PROJECT_ROOT, 'content/a.md')]);
+    assert.deepEqual(existsChecks, [path.join(CONTENT_DIR, 'a.md')]);
   });
 });
 
@@ -167,8 +173,8 @@ describe('POST /api/snapshots/restore snapshot lookup', () => {
     // .find returns undefined. A sibling key is present to show the lookup is
     // keyed on the requested path, not on an empty store.
     const { captured, writes, invalidations, loadJSONCount } = await runRoute({
-      store: { 'content/other.md': [{ id: 'x1', name: 'other', content: 'X' }] },
-      body: { path: 'content/a.md', snapshotId: 's1' },
+      store: { 'other.md': [{ id: 'x1', name: 'other', content: 'X' }] },
+      body: { path: 'a.md', snapshotId: 's1' },
     });
     assert.equal(captured.status, 404);
     assert.deepEqual(captured.body, { error: 'Snapshot not found' });
@@ -179,8 +185,8 @@ describe('POST /api/snapshots/restore snapshot lookup', () => {
 
   it('a present file whose key holds no matching id returns 404 Snapshot not found, loads once, never writes', async () => {
     const { captured, writes, invalidations, loadJSONCount } = await runRoute({
-      store: { 'content/a.md': [{ id: 's1', name: 'one', content: 'A' }, { id: 's2', name: 'two', content: 'B' }] },
-      body: { path: 'content/a.md', snapshotId: 'nope' },
+      store: { 'a.md': [{ id: 's1', name: 'one', content: 'A' }, { id: 's2', name: 'two', content: 'B' }] },
+      body: { path: 'a.md', snapshotId: 'nope' },
     });
     assert.equal(captured.status, 404);
     assert.deepEqual(captured.body, { error: 'Snapshot not found' });
@@ -197,14 +203,14 @@ describe('POST /api/snapshots/restore success', () => {
     // the matched snapshot content, not the first entry. The response echoes the
     // id and name only; the content never leaks back to the caller.
     const store = {
-      'content/a.md': [
+      'a.md': [
         { id: 's1', name: 'first draft', content: 'FIRST BODY', createdAt: '2024-01-01T00:00:00.000Z' },
         { id: 's2', name: 'second draft', content: 'SECOND BODY', createdAt: '2024-02-02T00:00:00.000Z' },
       ],
     };
     const { captured, writes, invalidations, saved, loadJSONCount } = await runRoute({
       store,
-      body: { path: 'content/a.md', snapshotId: 's2' },
+      body: { path: 'a.md', snapshotId: 's2' },
     });
     assert.equal(captured.status, 200);
     assert.deepEqual(captured.body, { success: true, restored: { id: 's2', name: 'second draft' } });
@@ -214,14 +220,14 @@ describe('POST /api/snapshots/restore success', () => {
     // The file is written exactly once with the matched snapshot content and utf-8 encoding.
     assert.equal(loadJSONCount, 1);
     assert.equal(writes.length, 1);
-    assert.deepEqual(writes[0], { fp: path.join(PROJECT_ROOT, 'content/a.md'), data: 'SECOND BODY', enc: 'utf-8' });
-    // The search cache is invalidated exactly once with the 'search' key.
-    assert.deepEqual(invalidations, ['search']);
+    assert.deepEqual(writes[0], { fp: path.join(CONTENT_DIR, 'a.md'), data: 'SECOND BODY', enc: 'utf-8' });
+    // The search cache is invalidated exactly once with the workspace's 'search' key.
+    assert.deepEqual(invalidations, [key('search')]);
     // Restore writes the file but never persists the snapshot store, unlike the
     // create and delete handlers that call saveJSON.
     assert.equal(saved.length, 0);
     // The handler only reads the store, so the caller's seed is left intact.
-    assert.deepEqual(store['content/a.md'].map((s) => s.id), ['s1', 's2']);
+    assert.deepEqual(store['a.md'].map((s) => s.id), ['s1', 's2']);
   });
 });
 
@@ -229,7 +235,7 @@ describe('POST /api/snapshots/restore outer catch', () => {
   it('an outer throw (readBody fails) returns 400 Invalid request, never loads, never writes, never invalidates', async () => {
     const { captured, writes, invalidations, loadJSONCount, readBodyCount, rateLimitCalls } = await runRoute({
       throwOnReadBody: true,
-      body: { path: 'content/a.md', snapshotId: 's1' },
+      body: { path: 'a.md', snapshotId: 's1' },
     });
     assert.equal(captured.status, 400);
     assert.deepEqual(captured.body, { error: 'Invalid request' });

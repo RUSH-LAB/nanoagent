@@ -1,0 +1,154 @@
+/* The workspace switcher, standing where the site brand used to.
+
+   It keeps the theme's own .navbar__brand, .navbar__logo, and .navbar__title
+   classes so that its height, gaps, and truncation match the navbar exactly.
+   What is here is only the difference between a link and a menu button. */
+
+.wrapper {
+  position: relative;
+  padding: 0;
+}
+
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.4rem;
+  /* No margin reset: .navbar__brand's own margin-right is the gap between the
+     brand and the first nav link, and it sits outside the hover background. */
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.trigger:hover {
+  background: var(--ifm-color-emphasis-200);
+}
+
+.logo {
+  height: 2rem;
+  width: 2rem;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.name {
+  max-width: 11rem;
+}
+
+.caret {
+  flex: none;
+  opacity: 0.6;
+}
+
+/* The menu. Positioned against .wrapper rather than the navbar, so it hangs
+   from the button whatever the logo's width turns out to be. */
+.menu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  z-index: calc(var(--ifm-z-index-fixed) + 1);
+  min-width: 16rem;
+  padding: 0.4rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 10px;
+  background: var(--ifm-background-surface-color);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+
+.heading {
+  margin: 0.2rem 0.5rem 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.option:hover:not(:disabled) {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.option:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* A fixed slot for the tick, so the names line up whether or not one is there. */
+.slot {
+  display: flex;
+  flex: none;
+  width: 14px;
+  color: var(--ifm-color-primary);
+}
+
+.check {
+  display: block;
+}
+
+.label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.optionName {
+  font-size: 0.9rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.current .optionName {
+  color: var(--ifm-color-primary);
+}
+
+.meta {
+  font-size: 0.75rem;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.error {
+  margin: 0.3rem 0.5rem 0;
+  font-size: 0.78rem;
+  color: #991b1b;
+}
+
+.footer {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.5rem 0.2rem;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.manage {
+  font-size: 0.8rem;
+}
+
+/* Phones: the navbar is already tight, so the workspace name gives way to the
+   logo and the caret rather than pushing the menu toggle off the row. */
+@media (max-width: 600px) {
+  .name {
+    display: none;
+  }
+}

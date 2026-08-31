@@ -9,15 +9,18 @@ const bibliographyProvides = createRequire(import.meta.url)('../../../../../plug
 const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
+// The handler scans the caller's own workspace, which the session resolves to
+// one organization's tree under content/, and reports page paths relative to it.
+const CONTENT_DIR = path.join(PROJECT_ROOT, 'content', 'mochi');
 
 // The bibliography plugin publishes a loader that asks for a reader, because the
 // plugin is not allowed to touch the filesystem itself. The server adapts that
-// reader into the (fs, path, root) call core handlers make: see
+// reader into the (fs, path, contentRoot) call core handlers make: see
 // referencesForCore in src/server/index.js. This mirrors that adaptation so the
 // suite can feed its fixture fs to the real loader rather than to a stub of it.
 function referencesForCore(provided) {
-  const readerFor = (fs, path, root) => {
-    const at = (relative) => path.join(root, 'content', relative);
+  const readerFor = (fs, path, contentRoot) => {
+    const at = (relative) => path.join(contentRoot, relative);
     return {
       read(relative) {
         try {
@@ -79,27 +82,27 @@ const REFS_YAML = [
 ].join('\n');
 
 const FILE_MAP = {
-  [path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml')]: REFS_YAML,
-  [path.join(PROJECT_ROOT, 'content', 'transformers.md')]:
+  [path.join(CONTENT_DIR, 'bibliography', 'references.yaml')]: REFS_YAML,
+  [path.join(CONTENT_DIR, 'transformers.md')]:
     '---\ntitle: Transformer Models\n---\n# Transformer Models\n## Attention Mechanism\nBody text.\n',
-  [path.join(PROJECT_ROOT, 'content', 'attention-notes.md')]:
+  [path.join(CONTENT_DIR, 'attention-notes.md')]:
     '---\ntitle: Attention Notes\n---\n# Attention Notes\nSome content.\n',
-  [path.join(PROJECT_ROOT, 'content', 'the-decoy.md')]:
+  [path.join(CONTENT_DIR, 'the-decoy.md')]:
     '---\ntitle: The The The\n---\n# The The The\n',
-  [path.join(PROJECT_ROOT, 'content', 'cooking.md')]:
+  [path.join(CONTENT_DIR, 'cooking.md')]:
     '---\ntitle: Quantum Cooking\n---\n# Recipes\n',
 };
 
-// flatFiles returns {name, path} entries with path relative to PROJECT_ROOT; the
-// handler joins each onto PROJECT_ROOT before reading. The non-markdown entry is
+// flatFiles returns {name, path} entries with path relative to the content root;
+// the handler joins each onto that root before reading. The non-markdown entry is
 // here to confirm the handler's .md/.mdx filter skips it (the stub would throw on
 // a read since it is absent from FILE_MAP).
 const FLAT_FILES = [
-  { name: 'transformers.md', path: 'content/transformers.md' },
-  { name: 'attention-notes.md', path: 'content/attention-notes.md' },
-  { name: 'the-decoy.md', path: 'content/the-decoy.md' },
-  { name: 'cooking.md', path: 'content/cooking.md' },
-  { name: 'readme.txt', path: 'content/readme.txt' },
+  { name: 'transformers.md', path: 'transformers.md' },
+  { name: 'attention-notes.md', path: 'attention-notes.md' },
+  { name: 'the-decoy.md', path: 'the-decoy.md' },
+  { name: 'cooking.md', path: 'cooking.md' },
+  { name: 'readme.txt', path: 'readme.txt' },
 ];
 
 const ctx = {
@@ -109,6 +112,7 @@ const ctx = {
   fs: makeFs(FILE_MAP),
   path,
   PROJECT_ROOT,
+  contentRootFor: () => CONTENT_DIR,
   flatFiles: () => FLAT_FILES,
 };
 
@@ -146,8 +150,8 @@ describe('GET /api/suggest (SUGGEST_STOP_WORDS hoisted to module scope)', () => 
     // attention-notes.md matches one (relevance 1) and follows. The ordering pins
     // the relevance sort, and the readme.txt entry confirms the .md/.mdx filter.
     assert.deepEqual(r.payload.pages, [
-      { path: 'content/transformers.md', title: 'Transformer Models', relevance: 3 },
-      { path: 'content/attention-notes.md', title: 'Attention Notes', relevance: 1 },
+      { path: 'transformers.md', title: 'Transformer Models', relevance: 3 },
+      { path: 'attention-notes.md', title: 'Attention Notes', relevance: 1 },
     ]);
   });
 
@@ -158,7 +162,7 @@ describe('GET /api/suggest (SUGGEST_STOP_WORDS hoisted to module scope)', () => 
     // Were "the" treated as a keyword, both decoys would score and appear; their
     // absence proves the hoisted SUGGEST_STOP_WORDS set is still applied.
     assert.ok(!refKeys.includes('thedecoy'), 'a "the"-only reference is excluded');
-    assert.ok(!pagePaths.includes('content/the-decoy.md'), 'a "the"-only page is excluded');
+    assert.ok(!pagePaths.includes('the-decoy.md'), 'a "the"-only page is excluded');
   });
 
   it('returns no suggestions when every word is a stop word', async () => {
@@ -181,7 +185,7 @@ describe('GET /api/suggest (SUGGEST_STOP_WORDS hoisted to module scope)', () => 
     assert.equal(r.status, 200);
     // Two pages qualify, but limit=1 keeps only the top-ranked one.
     assert.deepEqual(r.payload.pages, [
-      { path: 'content/transformers.md', title: 'Transformer Models', relevance: 3 },
+      { path: 'transformers.md', title: 'Transformer Models', relevance: 3 },
     ]);
     assert.equal(r.payload.references.length, 1);
   });

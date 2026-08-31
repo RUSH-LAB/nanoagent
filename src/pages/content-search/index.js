@@ -6,6 +6,7 @@ import { usePluginData } from '@docusaurus/useGlobalData';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE, { apiFetch } from '@site/src/utils/api';
 import {useDebounce} from '@site/src/hooks/useDebounce';
+import { contentPathToUrl, displayPagePath } from '@site/src/utils/paths';
 import pageStyles from '@site/src/css/page.module.css';
 
 function highlightMatch(text, query) {
@@ -113,15 +114,7 @@ function SearchContent() {
   const hasResults = fileResults.length > 0 || contentResults.length > 0 || refResults.length > 0;
   const totalResults = fileResults.length + contentResults.length + refResults.length;
 
-  // Derive a friendly display path from a file path
-  const toViewPath = useCallback((filePath) => {
-    // Strip leading content/ or similar prefixes and .md/.mdx extension
-    let p = filePath.replace(/^content\//, '').replace(/\.mdx?$/, '');
-    // Strip the leading posts/ and books/ prefixes
-    p = p.replace(/^posts\//, '');
-    p = p.replace(/^books\//, '');
-    return '/' + p;
-  }, []);
+  const toViewPath = contentPathToUrl;
 
   return (
     <div className={pageStyles.pageContainer}>
@@ -340,7 +333,7 @@ function SearchContent() {
               </h2>
               {fileResults.map((file) => {
                 const filePath = typeof file === 'string' ? file : file.path || file.name || '';
-                const displayPath = filePath.replace(/^content\//, '').replace(/\.mdx?$/, '');
+                const displayPath = displayPagePath(filePath);
                 return (
                   <div key={filePath} style={{
                     padding: '10px 14px',
@@ -392,7 +385,7 @@ function SearchContent() {
               {contentResults.map((result, idx) => {
                 const filePath = result.file || result.path || '';
                 const snippet = result.snippet || result.context || result.content || '';
-                const displayPath = filePath.replace(/^content\//, '').replace(/\.mdx?$/, '');
+                const displayPath = displayPagePath(filePath);
                 return (
                   <div key={`${filePath}-${idx}`} style={{
                     padding: '10px 14px',

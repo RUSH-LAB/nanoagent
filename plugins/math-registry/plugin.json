@@ -4,8 +4,15 @@
   "enabled": true,
   "options": {
     "contentDirs": [
-      {"dir": "content/books/math", "routeBase": "math"},
-      {"dir": "content/books/builder", "routeBase": "builder"}
-    ]
+      {
+        "dir": "content/mochi/books/math",
+        "routeBase": "math"
+      },
+      {
+        "dir": "content/mochi/books/builder",
+        "routeBase": "builder"
+      }
+    ],
+    "_note": "Paths are the primary workspace's. The manifest is a flat id keyspace, so a second workspace's blocks would collide with these rather than sit beside them; per-workspace numbering needs that keyspace namespaced first."
   }
 }

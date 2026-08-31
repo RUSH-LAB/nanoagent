@@ -18,7 +18,7 @@ import path from 'node:path';
 import https from 'node:https';
 import {EventEmitter} from 'node:events';
 import {createRequire} from 'node:module';
-import {makeCtx, invoke, mockFs, PROJECT_ROOT} from '../../_harness.mjs';
+import {makeCtx, invoke, mockFs, PROJECT_ROOT, CONTENT_DIR, key} from '../../_harness.mjs';
 
 const require = createRequire(import.meta.url);
 // A plugin's server module is loaded by path, not by loadRoute: it is not in
@@ -53,8 +53,12 @@ const brokenContent = over => ({
 const {numericParam} = routes;
 const {loadReferences, buildCitation, _resetReferencesCache, cleanBibtexValue} =
   require('../../../../plugins/bibliography/lib/references.js');
-const at = rel => path.join(PROJECT_ROOT, rel);
-const BIB = at('content/bibliography/references.yaml');
+// The plugin asks its content capability for the relative path
+// 'bibliography/references.yaml', and that capability is rooted at the caller's
+// own workspace rather than at the whole content tree, so the fixture lives in
+// that workspace: one bibliography per organization, and no request can name
+// another's.
+const BIB = path.join(CONTENT_DIR, 'bibliography', 'references.yaml');
 
 function fsCtx(files, over = {}) {
   const base = mockFs(files);
@@ -313,7 +317,7 @@ describe('POST /api/references', () => {
     assert.equal(counts.write, 1);
     // The write capability drops the server's content-derived caches; the
     // plugin never names them.
-    assert.deepEqual(ctx.calls.invalidateCache, ['stats', 'search']);
+    assert.deepEqual(ctx.calls.invalidateCache, [key('stats'), key('search')]);
     assert.ok(fs.readFileSync(BIB).includes('new2024'));
   });
 
@@ -543,8 +547,6 @@ describe('POST /api/references/enrich', () => {
 
 // Moved here with the handler, out of the feeds route suite.
 describe('GET /api/references', () => {
-  const BIB = at('content/bibliography/references.yaml');
-
   it('serves the parsed references through the shared memo', async () => {
     const fs = mockFs({[BIB]: 'smith2020:\n  title: A Paper\n'});
     const r = await invoke(routes, {plugin: BIBLIOGRAPHY, path: '/api/references', ctx: makeCtx({fs})});
@@ -870,7 +872,7 @@ describe('POST /api/references/import-bibtex', () => {
     assert.equal(counts.write, 1);
     // The write capability drops the server's content-derived caches; the
     // plugin never names them.
-    assert.deepEqual(ctx.calls.invalidateCache, ['stats', 'search']);
+    assert.deepEqual(ctx.calls.invalidateCache, [key('stats'), key('search')]);
     const written = fs.readFileSync(BIB);
     for (const token of ['smith2020', 'A Paper', 'Nature', '10.1/x', '1-10']) assert.ok(written.includes(token), token);
   });

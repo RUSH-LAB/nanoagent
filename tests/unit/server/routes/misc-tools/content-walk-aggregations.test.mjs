@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { key } from '../../../_harness.mjs';
 
 // misc-tools.js is CommonJS; load the real module the way the sibling route tests
 // do (mirrors tests/next-statsdir-cache.test.mjs and
@@ -27,7 +28,9 @@ const routes = async (req, res, url, pathname, ctx) => {
 // so a future refactor cannot silently change it. No source file is touched.
 
 const PROJECT_ROOT = '/virtual-root';
-const CONTENT_DIR = path.join(PROJECT_ROOT, 'content');
+// Each handler walks the caller's own content tree, which the session resolves
+// to one organization's root, and reports paths relative to it.
+const CONTENT_DIR = path.join(PROJECT_ROOT, 'content', 'mochi');
 const ALLOWED_EXTS = ['.md', '.mdx'];
 const DAY = 86400000;
 
@@ -108,8 +111,10 @@ async function runHandler(pathname, { fs, cached = passThroughCached }) {
   const ctx = {
     fs, path,
     PROJECT_ROOT,
+    contentRootFor: () => CONTENT_DIR,
     ALLOWED_EXTS,
     cached,
+    cacheKey: (_orgId, name) => key(name),
     json: (_res, status, payload) => { captured = { status, payload }; res.writableEnded = true; },
   };
   await routes(req, res, url, pathname, ctx);
@@ -145,7 +150,7 @@ describe('GET /api/content-duplicates', () => {
     assert.equal(status, 200);
     assert.deepEqual(payload, {
       duplicates: [
-        { title: 'Getting Started', files: ['content/intro.md', 'content/sub/start.md'] },
+        { title: 'Getting Started', files: ['intro.md', 'sub/start.md'] },
       ],
       count: 1,
     });
@@ -163,7 +168,7 @@ describe('GET /api/content-duplicates', () => {
     assert.equal(status, 200);
     assert.deepEqual(payload, {
       duplicates: [
-        { title: 'guide', files: ['content/guide.md', 'content/GUIDE.mdx'] },
+        { title: 'guide', files: ['guide.md', 'GUIDE.mdx'] },
       ],
       count: 1,
     });
@@ -265,8 +270,8 @@ describe('content-walk cache wrapping', () => {
     await runHandler('/api/stats/timeline', { fs, cached: recordingCached });
 
     assert.deepEqual(calls, [
-      { key: 'content-duplicates', ttl: 60000 },
-      { key: 'stats:timeline', ttl: 60000 },
+      { key: key('content-duplicates'), ttl: 60000 },
+      { key: key('stats:timeline'), ttl: 60000 },
     ]);
   });
 });

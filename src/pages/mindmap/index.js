@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import API_BASE, { apiFetch } from '@site/src/utils/api';
+import { contentPathToUrl } from '@site/src/utils/paths';
 import pageStyles from '@site/src/css/page.module.css';
 
 const DEPTH_COLORS = ['#6366f1', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444'];
@@ -119,12 +120,14 @@ function MindmapContent() {
     fetchMindmap(val);
   };
 
+  // The heading text becomes the anchor, the same way Docusaurus slugifies one.
+  // The page part used to be built here as `/docs/${page}`, and `/docs` is not a
+  // route base this site has, so every node on this page led nowhere.
   const handleNodeClick = useCallback((text) => {
+    const url = contentPathToUrl(selected);
+    if (!url) return;
     const slug = text.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
-    if (selected) {
-      const page = selected.replace(/^content\//, '').replace(/\.(md|mdx)$/, '');
-      window.location.href = `/docs/${page}#${slug}`;
-    }
+    window.location.href = `${url}#${slug}`;
   }, [selected]);
 
   const { nodes, edges } = tree ? layoutTree(tree, dims.w, dims.h) : { nodes: [], edges: [] };

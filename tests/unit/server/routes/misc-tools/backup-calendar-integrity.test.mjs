@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { key } from '../../../_harness.mjs';
 
 // misc-tools.js is CommonJS; load the REAL module via createRequire the way the
 // sibling route tests do (next-content-health-pageids-hoist.test.mjs and
@@ -14,6 +15,10 @@ const require = createRequire(import.meta.url);
 const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
+// Content is one tree per organization, and the organization comes from the
+// session rather than the request, so both handlers below act on this
+// workspace's root and report paths relative to it.
+const CONTENT_DIR = path.join(PROJECT_ROOT, 'content', 'mochi');
 // new Date().toISOString() shape, e.g. 2026-06-13T13:27:33.584Z.
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
@@ -116,18 +121,19 @@ async function invokeBackup(loadJSON) {
 
 // ──────────────────────────── GET /api/calendar ────────────────────────────
 // The handler is wrapped in cached('calendar', 60000, fn). fn recursively walks
-// PROJECT_ROOT/content via readdirSync({withFileTypes:true}), reads files,
-// filters by ALLOWED_EXTS, and builds a {month, files} grouping. A file's date
-// comes from frontmatter; lacking a date: line it falls back to statSync().mtime.
-// It also folds in data/schedules.json when existsSync(schedulesPath) is true.
+// the workspace's content root via readdirSync({withFileTypes:true}), reads
+// files, filters by ALLOWED_EXTS, and builds a {month, files} grouping. A file's
+// date comes from frontmatter; lacking a date: line it falls back to
+// statSync().mtime. It also folds in var/data/schedule.json, the store the
+// scheduling API writes, when existsSync(schedulePath) is true.
 
 // Counting in-memory fs over a virtual content tree. A string value is a file's
 // contents; an object value is a directory. JS preserves insertion order for
 // these non-integer keys, so directory listings are deterministic. statSync
 // returns a fixed mtime so the no-date fallback stays clock-independent.
 function makeCalendarFs(tree, schedules) {
-  const contentDir = path.join(PROJECT_ROOT, 'content');
-  const schedulesPath = path.join(PROJECT_ROOT, 'var', 'data', 'schedules.json');
+  const contentDir = CONTENT_DIR;
+  const schedulePath = path.join(PROJECT_ROOT, 'var', 'data', 'schedule.json');
   const counts = { readdirSync: 0, readFileSync: 0, statSync: 0, existsSync: 0 };
   function nodeAt(absPath) {
     const rel = path.relative(contentDir, absPath);
@@ -149,7 +155,7 @@ function makeCalendarFs(tree, schedules) {
     },
     readFileSync(file) {
       counts.readFileSync++;
-      if (file === schedulesPath) {
+      if (file === schedulePath) {
         if (schedules === undefined) throw enoent(file);
         return JSON.stringify(schedules);
       }
@@ -159,7 +165,7 @@ function makeCalendarFs(tree, schedules) {
     },
     existsSync(p) {
       counts.existsSync++;
-      if (p === schedulesPath) return schedules !== undefined;
+      if (p === schedulePath) return schedules !== undefined;
       return false;
     },
     statSync() {
@@ -190,21 +196,24 @@ const EXPECTED_CALENDAR = [
   {
     month: '2024-01',
     files: [
-      { path: 'content/blog/post-b.md', title: 'Post B', date: '2024-01-03', wordCount: 3, draft: true },
-      { path: 'content/blog/post-a.md', title: 'Post A', date: '2024-01-15', wordCount: 5, draft: false },
+      { path: 'blog/post-b.md', title: 'Post B', date: '2024-01-03', wordCount: 3, draft: true },
+      { path: 'blog/post-a.md', title: 'Post A', date: '2024-01-15', wordCount: 5, draft: false },
     ],
   },
   {
     month: '2024-02',
     files: [
-      { path: 'content/research/paper.md', title: 'Paper', date: '2024-02-20', wordCount: 4, draft: false },
+      { path: 'research/paper.md', title: 'Paper', date: '2024-02-20', wordCount: 4, draft: false },
     ],
   },
 ];
 
 async function invokeCalendar({ fs, cached }) {
   const cap = makeCapture();
-  const ctx = { fs, path, PROJECT_ROOT, ALLOWED_EXTS: ['.md', '.mdx'], cached, json: cap.json };
+  const ctx = {
+    fs, path, PROJECT_ROOT, contentRootFor: () => CONTENT_DIR,
+    ALLOWED_EXTS: ['.md', '.mdx'], cached, cacheKey: (_orgId, name) => key(name), json: cap.json,
+  };
   const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
   await miscToolsRoutes(req, cap.res, new URL('http://localhost/api/calendar'), '/api/calendar', ctx);
   return cap.get();
@@ -212,7 +221,7 @@ async function invokeCalendar({ fs, cached }) {
 
 describe('GET /api/calendar', () => {
   it('groups dated content files by month with correct path/title/date/wordCount/draft', async () => {
-    // schedules is absent here, so existsSync(schedulesPath) is false and nothing
+    // schedules is absent here, so existsSync(schedulePath) is false and nothing
     // is folded in: the result is purely the walked content tree.
     const { fs } = makeCalendarFs(buildCalendarTree(), undefined);
     const { cached } = makePassThroughCached();
@@ -221,9 +230,11 @@ describe('GET /api/calendar', () => {
     assert.deepEqual(r.payload, { months: EXPECTED_CALENDAR });
   });
 
-  it('includes data/schedules.json entries when the schedules file exists (existsSync true)', async () => {
+  it('includes var/data/schedule.json entries when the schedule store exists (existsSync true)', async () => {
+    // The {items: [...]} shape is the one the scheduling API writes, and each
+    // item's path is already relative to the workspace's content root.
     const schedules = {
-      items: [{ publishAt: '2024-03-01T09:00:00Z', path: 'content/blog/future.md', note: 'Future Post', status: 'planned' }],
+      items: [{ publishAt: '2024-03-01T09:00:00Z', path: 'blog/future.md', note: 'Future Post', status: 'planned' }],
     };
     const { fs } = makeCalendarFs(buildCalendarTree(), schedules);
     const { cached } = makePassThroughCached();
@@ -235,7 +246,7 @@ describe('GET /api/calendar', () => {
         {
           month: '2024-03',
           files: [{
-            path: 'content/blog/future.md',
+            path: 'blog/future.md',
             title: 'Future Post',
             date: '2024-03-01',
             wordCount: 0,
@@ -258,7 +269,7 @@ describe('GET /api/calendar', () => {
     assert.deepEqual(r.payload, {
       months: [{
         month: '2020-05',
-        files: [{ path: 'content/no-date.md', title: 'No Date', date: '2020-05-10', wordCount: 3, draft: false }],
+        files: [{ path: 'no-date.md', title: 'No Date', date: '2020-05-10', wordCount: 3, draft: false }],
       }],
     });
     assert.equal(counts.statSync, 1, 'the no-date file consulted statSync exactly once');
@@ -276,7 +287,7 @@ describe('GET /api/calendar', () => {
     const afterFirst = { readdirSync: counts.readdirSync, readFileSync: counts.readFileSync };
 
     // The cache key and TTL are exactly what the handler passes.
-    assert.equal(calls[0].key, 'calendar');
+    assert.equal(calls[0].key, key('calendar'));
     assert.equal(calls[0].ttl, 60000);
 
     const second = await invokeCalendar({ fs, cached });
@@ -313,12 +324,13 @@ const VALID_YAML = 'key1:\n  title: Hello\n  year: 2020\n';
 const INVALID_YAML = 'key: [a, b';
 
 // In-memory fs for integrity. data/*.json are served by readdirSync (returning
-// bare filename strings, the way this handler calls it) plus readFileSync;
-// references.yaml is served when refsYaml is provided; existsSync reports true
-// only for refPath (when present) and for the listed existing relative paths.
+// bare filename strings, the way this handler calls it) plus readFileSync; the
+// workspace's own references.yaml is served when refsYaml is provided;
+// existsSync reports true only for refPath (when present) and for the listed
+// existing paths, which are relative to the workspace's content root.
 function makeIntegrityFs({ dataFiles = {}, refsYaml, existingPaths = [] }) {
   const dataDir = path.join(PROJECT_ROOT, 'var', 'data');
-  const refPath = path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml');
+  const refPath = path.join(CONTENT_DIR, 'bibliography', 'references.yaml');
   const existing = new Set(existingPaths);
   const enoent = (p) => { const e = new Error(`ENOENT: ${p}`); e.code = 'ENOENT'; return e; };
   return {
@@ -337,7 +349,7 @@ function makeIntegrityFs({ dataFiles = {}, refsYaml, existingPaths = [] }) {
     },
     existsSync(fp) {
       if (fp === refPath) return refsYaml !== undefined;
-      return existing.has(path.relative(PROJECT_ROOT, fp));
+      return existing.has(path.relative(CONTENT_DIR, fp));
     },
   };
 }
@@ -345,7 +357,7 @@ function makeIntegrityFs({ dataFiles = {}, refsYaml, existingPaths = [] }) {
 async function invokeIntegrity({ fs, loadJSON }) {
   const cap = makeCapture();
   const ctx = {
-    fs, path, PROJECT_ROOT, loadJSON,
+    fs, path, PROJECT_ROOT, contentRootFor: () => CONTENT_DIR, loadJSON,
     SNAPSHOTS_FILE: 'SNAPSHOTS', COMMENTS_FILE: 'COMMENTS',
     json: cap.json,
   };
@@ -359,13 +371,13 @@ const byName = (checks) => Object.fromEntries(checks.map((c) => [c.name, c]));
 describe('GET /api/integrity', () => {
   // A snapshot and a comment whose target file exists, so both orphan checks pass.
   const healthyLoad = (file) =>
-    file === 'SNAPSHOTS' ? { 'content/exists.md': [{ id: 's1' }] } : { 'content/exists.md': [{ text: 'hi' }] };
+    file === 'SNAPSHOTS' ? { 'exists.md': [{ id: 's1' }] } : { 'exists.md': [{ text: 'hi' }] };
 
   it('reports status "healthy" with all three named checks passed for valid inputs', async () => {
     const fs = makeIntegrityFs({
       dataFiles: { 'comments.json': '{}', 'notes.json': '[1,2,3]' },
       refsYaml: VALID_YAML,
-      existingPaths: ['content/exists.md'],
+      existingPaths: ['exists.md'],
     });
     const r = await invokeIntegrity({ fs, loadJSON: healthyLoad });
     assert.equal(r.status, 200);
@@ -382,7 +394,7 @@ describe('GET /api/integrity', () => {
     const fs = makeIntegrityFs({
       dataFiles: { 'good.json': '{}', 'bad.json': '{not json' },
       refsYaml: VALID_YAML,
-      existingPaths: ['content/exists.md'],
+      existingPaths: ['exists.md'],
     });
     const r = await invokeIntegrity({ fs, loadJSON: healthyLoad });
     assert.equal(r.status, 200);
@@ -401,7 +413,7 @@ describe('GET /api/integrity', () => {
     const fs = makeIntegrityFs({
       dataFiles: { 'comments.json': '{}' },
       refsYaml: INVALID_YAML,
-      existingPaths: ['content/exists.md'],
+      existingPaths: ['exists.md'],
     });
     const r = await invokeIntegrity({ fs, loadJSON: healthyLoad });
     assert.equal(r.status, 200);
@@ -422,15 +434,15 @@ describe('GET /api/integrity', () => {
       refsYaml: VALID_YAML,
       existingPaths: [],
     });
-    // The snapshot target content/deleted.md is absent from existingPaths.
+    // The snapshot target deleted.md is absent from existingPaths.
     const loadJSON = (file) =>
-      file === 'SNAPSHOTS' ? { 'content/deleted.md': [{ id: 's1' }, { id: 's2' }] } : {};
+      file === 'SNAPSHOTS' ? { 'deleted.md': [{ id: 's1' }, { id: 's2' }] } : {};
     const r = await invokeIntegrity({ fs, loadJSON });
     assert.equal(r.status, 200);
     assert.equal(r.payload.status, 'issues');
     const checks = byName(r.payload.checks);
     assert.deepEqual(checks.orphaned_snapshots, {
-      name: 'orphaned_snapshots', passed: false, details: '1 orphaned snapshot(s): content/deleted.md (2)',
+      name: 'orphaned_snapshots', passed: false, details: '1 orphaned snapshot(s): deleted.md (2)',
     });
   });
 

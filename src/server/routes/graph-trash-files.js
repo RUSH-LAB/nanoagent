@@ -18,9 +18,10 @@ const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 const EXPORT_FM_RE = /^---\n([\s\S]*?)\n---\n?/;
 const EXPORT_TITLE_RE = /^title:\s*["']?(.+?)["']?\s*$/m;
 
+
 module.exports = async function graph_trash_files_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── Graph: wiki link connections between all pages ──
@@ -29,8 +30,8 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       // Param-free, deterministic scan (the exact sibling of the already-cached
       // GET /api/graph/export): memoize the whole {nodes, edges} computation under
       // one static key for the TTL while the json() write runs on every request.
-      const result = cached('graph-data', 60000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
+      const result = cached(cacheKey(req.auth?.orgId, 'graph-data'), 60000, () => {
+        const contentDir = contentRootFor(req.auth?.orgId);
         const nodes = [];
         const edges = [];
         const nodeMap = {};
@@ -43,7 +44,7 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
             if (entry.isDirectory()) {
               collectGraphFiles(fullPath);
             } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              const relPath = path.relative(path.join(PROJECT_ROOT, 'content'), fullPath);
+              const relPath = path.relative(contentRootFor(req.auth?.orgId), fullPath);
               // Build a route-like id: strip extension, strip trailing /index
               let id = relPath.replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
               if (id.endsWith('/index')) id = id.slice(0, -6);
@@ -137,14 +138,14 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
     const targetPath = url.searchParams.get('path');
     if (!targetPath) return json(res, 400, {error: 'Missing path param'});
     try {
-      const backlinks = cached(`backlinks:${targetPath}`, 60000, () => {
-      const contentDir = path.join(PROJECT_ROOT, 'content');
+      const backlinks = cached(cacheKey(req.auth?.orgId, `backlinks:${targetPath}`), 60000, () => {
+      const contentDir = contentRootFor(req.auth?.orgId);
       const result = [];
 
       // Derive possible link targets from the file path
-      // e.g. "content/docs/math/algebra.md" => match [[algebra]], [[math/algebra]], etc.
+      // e.g. "books/math/algebra.md" => match [[algebra]], [[math/algebra]], etc.
       const baseName = path.basename(targetPath, path.extname(targetPath));
-      const relFromContent = path.relative('content', targetPath).replace(/\\/g, '/');
+      const relFromContent = targetPath.replace(/\\/g, '/');
       const withoutExt = relFromContent.replace(/\.(md|mdx)$/, '');
       const withoutExtNoDocs = withoutExt.replace(/^docs\//, '');
 
@@ -169,7 +170,7 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
           if (entry.isDirectory()) {
             scanDir(fullPath);
           } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-            const sourcePath = path.relative(PROJECT_ROOT, fullPath);
+            const sourcePath = path.relative(contentRootFor(req.auth?.orgId), fullPath);
             // Don't report self-links
             if (sourcePath === targetPath) continue;
             try {
@@ -217,8 +218,8 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
     try {
       const body = await readBody(req);
       const {path: dirPath} = body;
-      if (!isValidDir(dirPath)) return json(res, 400, {error: 'Invalid path. Must start with content/'});
-      const fullPath = path.join(PROJECT_ROOT, dirPath);
+      if (!isValidDir(dirPath)) return json(res, 400, {error: 'Invalid path'});
+      const fullPath = path.join(contentRootFor(req.auth?.orgId), dirPath);
       if (fs.existsSync(fullPath)) return json(res, 409, {error: 'Directory already exists'});
       fs.mkdirSync(fullPath, {recursive: true});
       return json(res, 201, {success: true, path: dirPath});
@@ -233,10 +234,10 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
     try {
       const body = await readBody(req);
       const {path: dirPath} = body;
-      if (!isValidDir(dirPath)) return json(res, 400, {error: 'Invalid path. Must start with content/'});
+      if (!isValidDir(dirPath)) return json(res, 400, {error: 'Invalid path'});
       const normalized = path.normalize(dirPath);
-      if (normalized === 'content') return json(res, 400, {error: 'Cannot delete the root content directory'});
-      const fullPath = path.join(PROJECT_ROOT, normalized);
+      if (normalized === '' || normalized === '.') return json(res, 400, {error: 'Cannot delete the root content directory'});
+      const fullPath = path.join(contentRootFor(req.auth?.orgId), normalized);
       if (!fs.existsSync(fullPath)) return json(res, 404, {error: 'Directory not found'});
       const stat = fs.statSync(fullPath);
       if (!stat.isDirectory()) return json(res, 400, {error: 'Path is not a directory'});
@@ -257,20 +258,20 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       const body = await readBody(req);
       const {filePath, targetDir} = body;
       if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid file path'});
-      if (!isValidDir(targetDir)) return json(res, 400, {error: 'Invalid target directory. Must start with content/'});
-      const fullSource = path.join(PROJECT_ROOT, filePath);
+      if (!isValidDir(targetDir)) return json(res, 400, {error: 'Invalid target directory'});
+      const fullSource = path.join(contentRootFor(req.auth?.orgId), filePath);
       if (!fs.existsSync(fullSource)) return json(res, 404, {error: 'Source file not found'});
       const baseName = path.basename(filePath);
       const newPath = path.join(targetDir, baseName);
       if (!isValidFilePath(newPath)) return json(res, 400, {error: 'Resulting path is invalid'});
-      const fullTarget = path.join(PROJECT_ROOT, newPath);
+      const fullTarget = path.join(contentRootFor(req.auth?.orgId), newPath);
       if (fs.existsSync(fullTarget)) return json(res, 409, {error: 'A file already exists at the target location'});
-      const fullTargetDir = path.join(PROJECT_ROOT, targetDir);
+      const fullTargetDir = path.join(contentRootFor(req.auth?.orgId), targetDir);
       fs.mkdirSync(fullTargetDir, {recursive: true});
       fs.renameSync(fullSource, fullTarget);
       // A move changes only a file's path, not the file count, so drop the cached
       // flat search list; the content stats stay valid (mirrors files.js rename).
-      invalidateCache('search');
+      invalidateCache(cacheKey(req.auth?.orgId, 'search'));
       return json(res, 200, {success: true, newPath});
     } catch {
       return json(res, 400, {error: 'Invalid request'});

@@ -1,5 +1,6 @@
 import React, {useState, useEffect} from 'react';
 import API_BASE, { apiFetch } from '@site/src/utils/api';
+import { contentPathToUrl } from '@site/src/utils/paths';
 
 const styles = {
   container: {
@@ -62,14 +63,6 @@ const styles = {
   },
 };
 
-function sourcePathToUrl(sourcePath) {
-  // Convert content path like "content/docs/math/algebra.md" to "/docs/math/algebra"
-  return '/' + sourcePath
-    .replace(/^content\//, '')
-    .replace(/\.(md|mdx)$/, '')
-    .replace(/\/index$/, '');
-}
-
 export default function Backlinks({filePath}) {
   const [backlinks, setBacklinks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -120,7 +113,7 @@ export default function Backlinks({filePath}) {
         <ul style={styles.list}>
           {backlinks.map((bl, i) => (
             <li key={`${bl.sourcePath}-${bl.linkType}-${i}`} style={styles.item}>
-              <a href={sourcePathToUrl(bl.sourcePath)} style={styles.link}>
+              <a href={contentPathToUrl(bl.sourcePath)} style={styles.link}>
                 {bl.sourceTitle}
               </a>
               <span style={styles.badge}>{bl.linkType}</span>

@@ -2,20 +2,24 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { key } from '../../../_harness.mjs';
 
 // misc-tools.js is CommonJS; load it via createRequire the way the sibling per-path
 // cache suites do (next-content-b-filemicro-cache.test.mjs) and reuse the same
 // ctx-mocking shape. GET /api/file/quality now wraps its whole computation in
-// cached('filequality:' + filePath, 30000, fn); these tests drive that wrap
+// cached(cacheKey(orgId, 'filequality:' + filePath), 30000, fn); these tests drive that wrap
 // directly with a counting fs and a memoizing cached, no network and no server.
 const require = createRequire(import.meta.url);
 const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
+// The path a request carries is relative to the caller's own content root, which
+// the session resolves to one organization's tree under content/.
+const CONTENT_DIR = path.join(PROJECT_ROOT, 'content', 'mochi');
 
 // In-memory fs stub that returns a single file's content keyed by absolute path and
 // counts how often the handler touches disk. The handler reads exactly one file
-// (fs.readFileSync(path.join(PROJECT_ROOT, filePath))) and never walks a directory,
+// (fs.readFileSync(path.join(contentRootFor(orgId), filePath))) and never walks a directory,
 // so the stub only needs readFileSync. The counter lets a test prove a cache hit
 // performs no fresh read while the first call provably hits disk.
 function makeCountingFs(absFileMap) {
@@ -70,8 +74,10 @@ async function invoke(filePath, { fs, cached, isValidFilePath = () => true }) {
     fs,
     path,
     PROJECT_ROOT,
+    contentRootFor: () => CONTENT_DIR,
     isValidFilePath,
     cached,
+    cacheKey: (_orgId, name) => key(name),
     json(_res, status, payload) { captured = { status, payload }; res.writableEnded = true; return captured; },
   };
   await routes(req, res, url, pathname, ctx);
@@ -80,8 +86,8 @@ async function invoke(filePath, { fs, cached, isValidFilePath = () => true }) {
 
 // ── fixtures ──
 
-const QUALITY_REL = 'content/quality-sample.md';
-const QUALITY_ABS = path.join(PROJECT_ROOT, QUALITY_REL);
+const QUALITY_REL = 'quality-sample.md';
+const QUALITY_ABS = path.join(CONTENT_DIR, QUALITY_REL);
 
 // A document with frontmatter (title + date), one H1 and one H2, and a plain body.
 // After the frontmatter strip the body splits into 24 whitespace tokens, so
@@ -107,8 +113,8 @@ const QUALITY_EXPECTED_HEADINGS = { h1: 1, h2: 1, h3: 0 };
 
 // A second, clearly different file so the per-path cache keys are provably
 // independent (different wordCount, two distinct cache entries).
-const QUALITY_REL_2 = 'content/quality-other.md';
-const QUALITY_ABS_2 = path.join(PROJECT_ROOT, QUALITY_REL_2);
+const QUALITY_REL_2 = 'quality-other.md';
+const QUALITY_ABS_2 = path.join(CONTENT_DIR, QUALITY_REL_2);
 const QUALITY_SAMPLE_2 = `---
 title: Other Doc
 date: 2026-03-03
@@ -151,7 +157,7 @@ describe('GET /api/file/quality (cached("filequality:" + path, 30000))', () => {
     assert.equal(JSON.stringify(second.payload), JSON.stringify(first.payload));
     assert.equal(counts.readFileSync, 1, 'cached repeat must not read the file again');
     assert.equal(store.size, 1, 'one cache entry for the per-path key');
-    assert.ok(store.has('filequality:' + QUALITY_REL), 'cache key is filequality:<path>');
+    assert.ok(store.has(key('filequality:' + QUALITY_REL)), 'cache key is the workspace-scoped filequality:<path>');
   });
 
   it('keys the cache per path so distinct paths get distinct entries', async () => {
@@ -163,8 +169,8 @@ describe('GET /api/file/quality (cached("filequality:" + path, 30000))', () => {
     assert.equal(a.status, 200);
     assert.equal(b.status, 200);
     assert.equal(store.size, 2, 'two paths produce two cache entries');
-    assert.ok(store.has('filequality:' + QUALITY_REL));
-    assert.ok(store.has('filequality:' + QUALITY_REL_2));
+    assert.ok(store.has(key('filequality:' + QUALITY_REL)));
+    assert.ok(store.has(key('filequality:' + QUALITY_REL_2)));
     // Distinct content, so the per-path entries are not cross-contaminated.
     assert.equal(a.payload.breakdown.words.wordCount, QUALITY_EXPECTED_WORDS);
     assert.equal(b.payload.breakdown.words.wordCount, QUALITY_EXPECTED_WORDS_2);
@@ -179,7 +185,7 @@ describe('GET /api/file/quality (cached("filequality:" + path, 30000))', () => {
     const { cached, calls } = makeCached();
     await invoke(QUALITY_REL, { fs, cached });
     assert.ok(calls.length >= 1, 'the handler routes through cached()');
-    assert.equal(calls[0].key, 'filequality:' + QUALITY_REL);
+    assert.equal(calls[0].key, key('filequality:' + QUALITY_REL));
     assert.equal(calls[0].ttl, 30000);
   });
 

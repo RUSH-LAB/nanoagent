@@ -72,11 +72,19 @@ function resolveSecret() {
  * would otherwise land in a workspace of nothing until the client thought to
  * choose. Nobody signing in has expressed a preference yet; their first
  * organization is the least surprising stand-in, and switching is one call.
+ *
+ * The tie is broken by rowid, which is the order the rows were written, and not
+ * by the member id, which is a random string. Two memberships created in the
+ * same millisecond compare equal on `createdAt`, and joining two workspaces in
+ * one operation does exactly that: provisioning a machine made root's own
+ * workspace and a second one within the same tick, and which of the two a fresh
+ * session opened in came down to which random id sorted lower. Same tie, and
+ * the same fix, as the audit log in ./audit.
  */
 function firstOrganizationOf(userId) {
   try {
     const row = db
-      .prepare('SELECT organizationId FROM member WHERE userId = ? ORDER BY createdAt, id LIMIT 1')
+      .prepare('SELECT organizationId FROM member WHERE userId = ? ORDER BY createdAt, rowid LIMIT 1')
       .get(userId);
     return row?.organizationId ?? null;
   } catch {

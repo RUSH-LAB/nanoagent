@@ -10,12 +10,14 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, key} from '../../_harness.mjs';
 
 const routes = loadRoute('file-tools');
 
 const VERSIONS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'versions.json');
-const at = rel => path.join(PROJECT_ROOT, rel);
+// Fixtures live in the workspace's own tree, and the paths a request carries
+// are relative to it: `a.md`, never `content/mochi/a.md`.
+const at = rel => path.join(CONTENT_DIR, rel);
 
 const fm = (fields, body = '') =>
   `---\n${Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n')}\n---\n\n${body}`;
@@ -46,7 +48,7 @@ describe('per-path guard and cache contract', () => {
     {path: '/api/file/keywords'},
     {path: '/api/file/readability'},
   ];
-  const DOC = {[at('content/a.md')]: fm({title: 'A'}, 'Some body text here.'), [at('content/b.md')]: 'Other body text here.'};
+  const DOC = {[at('a.md')]: fm({title: 'A'}, 'Some body text here.'), [at('b.md')]: 'Other body text here.'};
 
   for (const {path: p, prefix} of [...CACHED, ...UNCACHED]) {
     it(`${p} rejects an invalid path before any read`, async () => {
@@ -59,7 +61,7 @@ describe('per-path guard and cache contract', () => {
 
     it(`${p} returns 404 when the source cannot be read`, async () => {
       const {ctx} = fsCtx(DOC);
-      const r = await invoke(routes, {path: p, query: {path: 'content/missing.md'}, ctx});
+      const r = await invoke(routes, {path: p, query: {path: 'missing.md'}, ctx});
       assert.deepEqual([r.status, r.payload], [404, {error: 'File not found'}]);
     });
   }
@@ -69,25 +71,25 @@ describe('per-path guard and cache contract', () => {
       let seen;
       // suggest-tags nests an inner all-tags-set memo, so record the first key only.
       const {ctx} = fsCtx(DOC, {cached: (key, ttl, fn) => { seen ??= [key, ttl]; return fn(); }});
-      await invoke(routes, {path: p, query: {path: 'content/a.md'}, ctx});
-      assert.deepEqual(seen, [`${prefix}content/a.md`, 30000]);
+      await invoke(routes, {path: p, query: {path: 'a.md'}, ctx});
+      assert.deepEqual(seen, [key(`${prefix}a.md`), 30000]);
     });
 
     it(`${p} serves a repeat request from cache and keys each path separately`, async () => {
       const {ctx, counts} = fsCtx(DOC);
-      await invoke(routes, {path: p, query: {path: 'content/a.md'}, ctx});
+      await invoke(routes, {path: p, query: {path: 'a.md'}, ctx});
       const afterFirst = counts.read;
-      await invoke(routes, {path: p, query: {path: 'content/a.md'}, ctx});
+      await invoke(routes, {path: p, query: {path: 'a.md'}, ctx});
       assert.equal(counts.read, afterFirst, 'the repeat request is served from cache');
-      await invoke(routes, {path: p, query: {path: 'content/b.md'}, ctx});
+      await invoke(routes, {path: p, query: {path: 'b.md'}, ctx});
       assert.ok(counts.read > afterFirst, 'a distinct path is a distinct cache entry');
     });
 
     it(`${p} does not cache the 404 for a missing file`, async () => {
       const {ctx, counts} = fsCtx(DOC);
-      await invoke(routes, {path: p, query: {path: 'content/gone.md'}, ctx});
+      await invoke(routes, {path: p, query: {path: 'gone.md'}, ctx});
       const afterFirst = counts.read;
-      await invoke(routes, {path: p, query: {path: 'content/gone.md'}, ctx});
+      await invoke(routes, {path: p, query: {path: 'gone.md'}, ctx});
       assert.ok(counts.read > afterFirst, 'the error path stays outside the cache, so the next request retries');
     });
   }
@@ -101,8 +103,8 @@ describe('per-path guard and cache contract', () => {
 
 describe('GET /api/file/lint', () => {
   const lint = async doc => {
-    const {ctx} = fsCtx({[at('content/doc.md')]: doc});
-    const r = await invoke(routes, {path: '/api/file/lint', query: {path: 'content/doc.md'}, ctx});
+    const {ctx} = fsCtx({[at('doc.md')]: doc});
+    const r = await invoke(routes, {path: '/api/file/lint', query: {path: 'doc.md'}, ctx});
     return r.payload;
   };
 
@@ -179,8 +181,8 @@ describe('GET /api/file/keywords', () => {
       '[link text](http://example.com)',
       '<span>html</span>',
     ].join('\n'));
-    const {ctx} = fsCtx({[at('content/doc.md')]: doc});
-    const r = await invoke(routes, {path: '/api/file/keywords', query: {path: 'content/doc.md'}, ctx});
+    const {ctx} = fsCtx({[at('doc.md')]: doc});
+    const r = await invoke(routes, {path: '/api/file/keywords', query: {path: 'doc.md'}, ctx});
     assert.equal(r.status, 200);
     const counts = Object.fromEntries(r.payload.keywords.map(k => [k.word, k.count]));
     assert.equal(counts.quantum, 3, 'the fenced occurrence is stripped before counting');
@@ -195,8 +197,8 @@ describe('GET /api/file/keywords', () => {
     // these names are letters only.
     const name = i => 'w' + String.fromCharCode(97 + Math.floor(i / 26)) + String.fromCharCode(97 + (i % 26));
     const words = Array.from({length: 30}, (_, i) => Array(i + 1).fill(name(i)).join(' ')).join(' ');
-    const {ctx} = fsCtx({[at('content/doc.md')]: words});
-    const r = await invoke(routes, {path: '/api/file/keywords', query: {path: 'content/doc.md'}, ctx});
+    const {ctx} = fsCtx({[at('doc.md')]: words});
+    const r = await invoke(routes, {path: '/api/file/keywords', query: {path: 'doc.md'}, ctx});
     assert.equal(r.payload.keywords.length, 20);
     const counts = r.payload.keywords.map(k => k.count);
     assert.deepEqual(counts, [...counts].sort((a, b) => b - a));
@@ -230,8 +232,8 @@ describe('keyword strip regexes exported from the module', () => {
   it('produces identical output on back-to-back requests and after a poisoned lastIndex', async () => {
     const doc = fm({title: 'T'}, 'alpha beta alpha gamma alpha beta');
     const run = async () => {
-      const {ctx} = fsCtx({[at('content/doc.md')]: doc});
-      const r = await invoke(routes, {path: '/api/file/keywords', query: {path: 'content/doc.md'}, ctx});
+      const {ctx} = fsCtx({[at('doc.md')]: doc});
+      const r = await invoke(routes, {path: '/api/file/keywords', query: {path: 'doc.md'}, ctx});
       return r.payload;
     };
     const first = await run();
@@ -245,8 +247,8 @@ describe('keyword strip regexes exported from the module', () => {
 
 describe('GET /api/file/readability', () => {
   const read = async doc => {
-    const {ctx} = fsCtx({[at('content/doc.md')]: doc});
-    const r = await invoke(routes, {path: '/api/file/readability', query: {path: 'content/doc.md'}, ctx});
+    const {ctx} = fsCtx({[at('doc.md')]: doc});
+    const r = await invoke(routes, {path: '/api/file/readability', query: {path: 'doc.md'}, ctx});
     return r.payload;
   };
 
@@ -331,34 +333,34 @@ describe('GET /api/file/readability', () => {
 
 describe('GET /api/file/related', () => {
   const TREE = {
-    [at('content/source.md')]: fm({title: 'Source', tags: '[alpha, beta]'}, 'quantum entanglement decoherence measurement'),
-    [at('content/sharesTag.md')]: fm({title: 'Shares Tag', tags: '[alpha]'}, 'completely different subject matter'),
-    [at('content/sharesWords.md')]: fm({title: 'Shares Words'}, 'quantum entanglement decoherence measurement'),
-    [at('content/stopwords.md')]: fm({title: 'Stop Words'}, 'the a an is are was were been have from with that this'),
-    [at('content/unrelated.md')]: fm({title: 'Unrelated'}, 'gardening horticulture botany greenhouse'),
+    [at('source.md')]: fm({title: 'Source', tags: '[alpha, beta]'}, 'quantum entanglement decoherence measurement'),
+    [at('sharesTag.md')]: fm({title: 'Shares Tag', tags: '[alpha]'}, 'completely different subject matter'),
+    [at('sharesWords.md')]: fm({title: 'Shares Words'}, 'quantum entanglement decoherence measurement'),
+    [at('stopwords.md')]: fm({title: 'Stop Words'}, 'the a an is are was were been have from with that this'),
+    [at('unrelated.md')]: fm({title: 'Unrelated'}, 'gardening horticulture botany greenhouse'),
   };
 
   it('ranks by tag and word overlap, excluding the source and unrelated files', async () => {
     const {ctx} = fsCtx(TREE);
-    const r = await invoke(routes, {path: '/api/file/related', query: {path: 'content/source.md'}, ctx});
+    const r = await invoke(routes, {path: '/api/file/related', query: {path: 'source.md'}, ctx});
     assert.equal(r.status, 200);
     const paths = r.payload.related.map(x => x.path);
-    assert.ok(paths.includes('content/sharesTag.md'));
-    assert.ok(paths.includes('content/sharesWords.md'));
-    assert.equal(paths.includes('content/source.md'), false, 'the source never relates to itself');
-    assert.equal(paths.includes('content/unrelated.md'), false);
+    assert.ok(paths.includes('sharesTag.md'));
+    assert.ok(paths.includes('sharesWords.md'));
+    assert.equal(paths.includes('source.md'), false, 'the source never relates to itself');
+    assert.equal(paths.includes('unrelated.md'), false);
     // Shared stop words alone never score, so a stop-word-only file is dropped.
-    assert.equal(paths.includes('content/stopwords.md'), false);
+    assert.equal(paths.includes('stopwords.md'), false);
     // A shared tag is worth 5 and word overlap at most 5, so the tag match leads.
-    assert.equal(paths[0], 'content/sharesTag.md');
+    assert.equal(paths[0], 'sharesTag.md');
     assert.deepEqual(r.payload.related.map(x => x.score), [...r.payload.related.map(x => x.score)].sort((a, b) => b - a));
   });
 
   it('caps the related list at ten', async () => {
-    const many = {[at('content/source.md')]: fm({title: 'S', tags: '[alpha]'}, 'shared vocabulary here')};
-    for (let i = 0; i < 15; i++) many[at(`content/r${i}.md`)] = fm({title: `R${i}`, tags: '[alpha]'}, 'shared vocabulary here');
+    const many = {[at('source.md')]: fm({title: 'S', tags: '[alpha]'}, 'shared vocabulary here')};
+    for (let i = 0; i < 15; i++) many[at(`r${i}.md`)] = fm({title: `R${i}`, tags: '[alpha]'}, 'shared vocabulary here');
     const {ctx} = fsCtx(many);
-    const r = await invoke(routes, {path: '/api/file/related', query: {path: 'content/source.md'}, ctx});
+    const r = await invoke(routes, {path: '/api/file/related', query: {path: 'source.md'}, ctx});
     assert.equal(r.payload.related.length, 10);
   });
 });

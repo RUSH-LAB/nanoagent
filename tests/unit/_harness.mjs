@@ -69,6 +69,27 @@ export const FILES = Object.fromEntries(
   })
 );
 
+/**
+ * The workspace every suite acts as, and its content root.
+ *
+ * Content is one tree per organization now, so a fixture lives at
+ * `${CONTENT_DIR}/books/math/x.md` and the path a request carries is the
+ * `books/math/x.md` part: the organization comes from the session, never from
+ * the wire, so there is nowhere in a request to put one.
+ */
+export const ORG_SLUG = 'mochi';
+export const CONTENT_DIR = nodePath.join(PROJECT_ROOT, 'content', ORG_SLUG);
+
+/** A fixture path inside that tree: at('books/math/x.md'). */
+export const at = (...parts) => nodePath.join(CONTENT_DIR, ...parts);
+
+/**
+ * A cache key as the server builds it. Every cached value is derived from one
+ * workspace's content, so every key carries the workspace: bare keys served one
+ * organization's search index to another.
+ */
+export const key = name => `org:${ORG_SLUG}:${name}`;
+
 export const TRASH_DIR = nodePath.join(PROJECT_ROOT, 'var', 'trash');
 export const LOGS_DIR = nodePath.join(PROJECT_ROOT, 'var', 'logs');
 export const ACCESS_LOG = nodePath.join(LOGS_DIR, 'access.log');
@@ -276,14 +297,17 @@ export function makeCtx(overrides = {}) {
 
   const hasAllowedExt = name => utils.ALLOWED_EXTS.some(ext => name.endsWith(ext));
 
-  function walkDir(dir) {
+  // (dir, base = dir), matching server/index.js: paths come back relative to
+  // the base, which is the caller's content root, so what a listing returns is
+  // what the read endpoint will accept back.
+  function walkDir(dir, base = dir) {
     const result = [];
     for (const entry of ctx.fs.readdirSync(dir, {withFileTypes: true})) {
       if (entry.name.startsWith('.')) continue;
       const fullPath = nodePath.join(dir, entry.name);
-      const relPath = nodePath.relative(root, fullPath);
+      const relPath = nodePath.relative(base, fullPath);
       if (entry.isDirectory()) {
-        result.push({name: entry.name, path: relPath, type: 'directory', children: walkDir(fullPath)});
+        result.push({name: entry.name, path: relPath, type: 'directory', children: walkDir(fullPath, base)});
       } else if (hasAllowedExt(entry.name)) {
         const stat = ctx.fs.statSync(fullPath);
         result.push({name: entry.name, path: relPath, type: 'file', mtime: stat.mtimeMs, size: stat.size});
@@ -292,14 +316,14 @@ export function makeCtx(overrides = {}) {
     return result;
   }
 
-  function flatFiles(dir) {
+  function flatFiles(dir, base = dir) {
     const result = [];
     (function walk(d) {
       for (const entry of ctx.fs.readdirSync(d, {withFileTypes: true})) {
         if (entry.name.startsWith('.')) continue;
         const fullPath = nodePath.join(d, entry.name);
         if (entry.isDirectory()) walk(fullPath);
-        else if (hasAllowedExt(entry.name)) result.push({name: entry.name, path: nodePath.relative(root, fullPath)});
+        else if (hasAllowedExt(entry.name)) result.push({name: entry.name, path: nodePath.relative(base, fullPath)});
       }
     })(dir);
     return result;
@@ -329,6 +353,14 @@ export function makeCtx(overrides = {}) {
       describe: () => ({available: true, provider: 'api', model: 'test-model'}),
     },
     PROJECT_ROOT: root,
+    /**
+     * The caller's content root. Ignores the organization id in production
+     * only in the sense that these suites all act as one workspace; a suite
+     * that needs two overrides this to tell them apart.
+     */
+    orgSlugFor: () => ORG_SLUG,
+    cacheKey: (orgId, name) => `org:${ORG_SLUG}:${name}`,
+    contentRootFor: () => nodePath.join(root, 'content', ORG_SLUG),
     PORT: 3001,
     TRASH_DIR: nodePath.join(root, 'var', 'trash'),
     LOGS_DIR: nodePath.join(root, 'var', 'logs'),
@@ -347,8 +379,10 @@ export function makeCtx(overrides = {}) {
     // Real validators, parsers and limits.
     isValidFilePath: utils.isValidFilePath,
     isValidDir: utils.isValidDir,
+    resolveContentPath: utils.resolveContentPath,
     // The real transform, not a stub: the feeds and the sitemap are assertions
     // about the URLs this produces, so a stub would be asserting the stub.
+    contentPathToUrl: utils.contentPathToUrl,
     sanitizeText: utils.sanitizeText,
     parseBibtex: utils.parseBibtex,
     parseBibtexAuthors: utils.parseBibtexAuthors,

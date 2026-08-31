@@ -11,13 +11,16 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, TEST_IDENTITY} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, TEST_IDENTITY} from '../../_harness.mjs';
 
 const routes = loadRoute('analysis-admin');
 const {STREAKS_FILE, ANNOTATIONS_FILE, ANALYTICS_FILE, COMMENTS_FILE} = FILES;
-const at = rel => path.join(PROJECT_ROOT, rel);
-const BIB = at('content/bibliography/references.yaml');
-const TRASH_DIR = at('var/trash');
+// Fixtures live in the workspace's own tree, and the paths a request carries
+// are relative to it: `f0.md`, never `content/mochi/f0.md`.
+const at = rel => path.join(CONTENT_DIR, rel);
+const BIB = at('bibliography/references.yaml');
+// The trash is one tree per server, not per organization root.
+const TRASH_DIR = path.join(PROJECT_ROOT, 'var', 'trash');
 
 const INHERITED_KEYS = ['toString', 'valueOf', 'hasOwnProperty'];
 
@@ -202,8 +205,8 @@ describe('POST /api/streak', () => {
 describe('GET /api/files/recent', () => {
   // mockFs stamps increasing mtimes, so the last declared file is newest.
   const TREE = Object.fromEntries([
-    ...Array.from({length: 5}, (_, i) => [at(`content/f${i}.md`), fm({title: `T${i}`}, `body ${i}`)]),
-    [at('content/.hidden.md'), 'x'],
+    ...Array.from({length: 5}, (_, i) => [at(`f${i}.md`), fm({title: `T${i}`}, `body ${i}`)]),
+    [at('.hidden.md'), 'x'],
   ]);
 
   it('lists the most recently modified first', async () => {
@@ -232,7 +235,7 @@ describe('GET /api/files/recent', () => {
   }
 
   it('caps the page at the fifty-entry slice bound', async () => {
-    const many = Object.fromEntries(Array.from({length: 60}, (_, i) => [at(`content/p${i}.md`), 'x']));
+    const many = Object.fromEntries(Array.from({length: 60}, (_, i) => [at(`p${i}.md`), 'x']));
     const {ctx} = fsCtx(many);
     const r = await invoke(routes, {path: '/api/files/recent', query: {limit: '999'}, ctx});
     assert.equal(r.payload.files.length, 50);

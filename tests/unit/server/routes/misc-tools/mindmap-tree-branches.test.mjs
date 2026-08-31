@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { key } from '../../../_harness.mjs';
 
 // Characterization test for the GET /api/file/mindmap handler in
 // server/routes/misc-tools.js. The sibling suite next-misc-mindmap-cache.test.mjs
@@ -20,9 +21,12 @@ const require = createRequire(import.meta.url);
 const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
+// The path a request carries is relative to the caller's own content root, which
+// the session resolves to one organization's tree under content/.
+const CONTENT_DIR = path.join(PROJECT_ROOT, 'content', 'mochi');
 
 // Drive GET /api/file/mindmap with a mocked ctx for a single file whose content is
-// `body`, keyed (as the handler reads it) by path.join(PROJECT_ROOT, filePath). The
+// `body`, keyed (as the handler reads it) by path.join(CONTENT_DIR, filePath). The
 // pass-through cached() runs fn() inline, so what is captured is exactly the inner
 // transform's output. Returns the { status, payload } handed to json().
 async function invoke(filePath, body) {
@@ -30,7 +34,7 @@ async function invoke(filePath, body) {
   const url = new URL(`http://localhost${pathname}?path=${encodeURIComponent(filePath)}`);
   const req = { method: 'GET' };
   const res = { writableEnded: false };
-  const absPath = path.join(PROJECT_ROOT, filePath);
+  const absPath = path.join(CONTENT_DIR, filePath);
   let captured = null;
   const ctx = {
     fs: {
@@ -41,8 +45,10 @@ async function invoke(filePath, body) {
     },
     path,
     PROJECT_ROOT,
+    contentRootFor: () => CONTENT_DIR,
     isValidFilePath: () => true,
     cached: (_k, _t, fn) => fn(),
+    cacheKey: (_orgId, name) => key(name),
     json(_res, status, payload) { captured = { status, payload }; res.writableEnded = true; return captured; },
   };
   await routes(req, res, url, pathname, ctx);
@@ -64,7 +70,7 @@ describe('GET /api/file/mindmap tree branches (characterization)', () => {
   // inline code (`), and a bracketed token has every one of those markers stripped
   // and the remainder trimmed. The four words survive in order, single-spaced.
   it('strips markdown markers (** _ ` [ ]) from heading text', async () => {
-    const rel = 'content/cleanup-sample.md';
+    const rel = 'cleanup-sample.md';
     const body = '# **Bold** _italic_ `code` [bracket]\n\nBody text.\n';
     const r = await invoke(rel, body);
     assert.equal(r.status, 200);
@@ -90,7 +96,7 @@ describe('GET /api/file/mindmap tree branches (characterization)', () => {
   // matches (the fifth # sits where \s+ expects whitespace). Level four nests under
   // level three; level five is absent from the tree entirely.
   it('caps headings at level four and drops level five', async () => {
-    const rel = 'content/levels-sample.md';
+    const rel = 'levels-sample.md';
     const body = '# Level One\n## Level Two\n### Level Three\n#### Level Four\n##### Level Five\n';
     const r = await invoke(rel, body);
     assert.equal(r.status, 200);
@@ -134,7 +140,7 @@ describe('GET /api/file/mindmap tree branches (characterization)', () => {
   // ### C. `deep` (level 3) jumps in under A (no level 2 precedes it). B (level 2)
   // pops `deep` and lands as A's second child. C (level 3) nests under B.
   it('dedents on shallower headings and resumes siblings after a level jump', async () => {
-    const rel = 'content/dedent-sample.md';
+    const rel = 'dedent-sample.md';
     const body = '# A\n### deep\n## B\n### C\n';
     const r = await invoke(rel, body);
     assert.equal(r.status, 200);
@@ -173,7 +179,7 @@ describe('GET /api/file/mindmap tree branches (characterization)', () => {
   // file (and a prose-only file with no headings) yields a childless root.
   it('titles the root from the basename and yields empty children for a headingless body', async () => {
     // Frontmatter-only, nested directories, .md extension.
-    const fmRel = 'content/notes/sub/deep-note.md';
+    const fmRel = 'notes/sub/deep-note.md';
     const fmBody = '---\ntitle: Empty\ndate: 2026-01-01\n---\n';
     const fm = await invoke(fmRel, fmBody);
     assert.equal(fm.status, 200);
@@ -182,7 +188,7 @@ describe('GET /api/file/mindmap tree branches (characterization)', () => {
     assert.deepEqual(fm.payload.root.children, []);
 
     // Prose-only (no headings), nested directories, .mdx extension.
-    const proseRel = 'content/notes/sub/prose-note.mdx';
+    const proseRel = 'notes/sub/prose-note.mdx';
     const proseBody = 'Just prose, no headings here.\n\nAnother paragraph.\n';
     const prose = await invoke(proseRel, proseBody);
     assert.equal(prose.status, 200);

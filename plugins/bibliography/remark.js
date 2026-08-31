@@ -36,7 +36,10 @@ const { applyTextReplacements } = require('#markdown');
 // preserving the exact fallback for a missing or broken file (console.warn then
 // return {}). remark-cite only reads bibliography[key] and never mutates it, so
 // the shared cached object is returned directly with no defensive deep copy.
-const bibPath = path.resolve(__dirname, '..', '..', 'content', 'bibliography', 'references.yaml');
+// Build-time, and the build renders the primary workspace's citations; see
+// the note in ./index.js about the flat key namespace.
+const PRIMARY_ORG = process.env.ROOT_ORG_SLUG || 'mochi';
+const bibPath = path.resolve(__dirname, '..', '..', 'content', PRIMARY_ORG, 'bibliography', 'references.yaml');
 let bibCache = null; // {mtimeMs, size, data} or null when uncached
 
 function loadBibliography() {

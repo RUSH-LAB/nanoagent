@@ -67,6 +67,33 @@
   font-size: 0.9rem;
 }
 
+/* One row per workspace: what it is on the left, what you can do about it on
+   the right. Same max-width as .field, so the section reads as one column. */
+.workspaces {
+  max-width: 420px;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.workspace {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  font-size: 0.9rem;
+}
+
+.workspace:last-child {
+  border-bottom: none;
+}
+
+.workspace em {
+  font-style: normal;
+}
+
 .checkbox {
   display: flex;
   align-items: center;

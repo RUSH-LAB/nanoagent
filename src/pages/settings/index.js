@@ -5,6 +5,7 @@ import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import pageStyles from '@site/src/css/page.module.css';
 import { useColorMode } from '@docusaurus/theme-common';
 import API_BASE, { apiFetch } from '@site/src/utils/api';
+import { loadWorkspaces, switchWorkspace, createWorkspace } from '@site/src/utils/workspaces';
 import styles from './styles.module.css';
 
 /**
@@ -32,10 +33,19 @@ function SettingsApp() {
 
   const [session, setSession] = useState(null);
   const [prefs, setPrefs] = useState(null);
+  // undefined until the request answers, then the list, or null if it failed.
+  // Three states rather than two, so a slow load does not read as a failed one.
+  const [workspaces, setWorkspaces] = useState(undefined);
+  const [activeId, setActiveId] = useState(null);
+  const [newWorkspace, setNewWorkspace] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [switching, setSwitching] = useState(false);
   const [status, setStatus] = useState(null);
   const [error, setError] = useState(null);
+  // Its own, because the preferences error renders in the section below and a
+  // failed switch reported down there would look like a failed theme change.
+  const [workspaceError, setWorkspaceError] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,6 +56,14 @@ function SettingsApp() {
       .then((r) => { if (!cancelled) setSession(r?.data ?? null); })
       .catch(() => { /* the account section simply stays empty */ });
 
+    loadWorkspaces()
+      .then((d) => {
+        if (cancelled) return;
+        setWorkspaces(d.memberships || []);
+        setActiveId(d.activeId ?? null);
+      })
+      .catch(() => { if (!cancelled) setWorkspaces(null); });
+
     apiFetch(`${API_BASE}/api/preferences`)
       .then((r) => r.json())
       .then((d) => { if (!cancelled) setPrefs(d.preferences || {}); })
@@ -53,6 +71,22 @@ function SettingsApp() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [authClient]);
+
+  /**
+   * Run one of the workspace writes. Both reload the page on success, from
+   * within src/utils/workspaces, so there is nothing to do here but report a
+   * refusal and hand the buttons back.
+   */
+  const workspaceAction = useCallback(async (write) => {
+    setSwitching(true);
+    setWorkspaceError(null);
+    try {
+      await write();
+    } catch (err) {
+      setWorkspaceError(err.message);
+      setSwitching(false);
+    }
+  }, []);
 
   const save = useCallback(async (patch) => {
     setSaving(true);
@@ -110,6 +144,82 @@ function SettingsApp() {
             Sign out
           </button>
         )}
+      </section>
+
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>Workspaces</h2>
+
+        {workspaces === undefined ? (
+          <p className={styles.muted}>Loading your workspaces...</p>
+        ) : workspaces === null ? (
+          <p className={styles.muted}>Could not load your workspaces.</p>
+        ) : workspaces.length === 0 ? (
+          <p className={styles.muted}>
+            You are not in a workspace yet. Create one below, or follow an
+            invitation link somebody sends you.
+          </p>
+        ) : (
+          <ul className={styles.workspaces}>
+            {workspaces.map((workspace) => (
+              <li key={workspace.id} className={styles.workspace}>
+                <span>
+                  <strong>{workspace.name}</strong>
+                  <em className={styles.muted}>
+                    {' '}{workspace.role}, {workspace.memberCount}{' '}
+                    {workspace.memberCount === 1 ? 'person' : 'people'}
+                  </em>
+                </span>
+                {workspace.id === activeId ? (
+                  <span className={styles.muted}>Current</span>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.signOut}
+                    disabled={switching}
+                    onClick={() => workspaceAction(() => switchWorkspace(workspace.id))}
+                  >
+                    Switch to this
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <form
+          className={styles.field}
+          onSubmit={(e) => {
+            e.preventDefault();
+            // No slug: left out, the server derives one from the name and
+            // numbers it if that is already taken.
+            workspaceAction(() => createWorkspace({ name: newWorkspace }));
+          }}
+        >
+          <span>New workspace</span>
+          <input
+            type="text"
+            value={newWorkspace}
+            onChange={(e) => setNewWorkspace(e.target.value)}
+            placeholder="Name"
+            minLength={2}
+            maxLength={60}
+            required
+          />
+          <button
+            type="submit"
+            className={styles.signOut}
+            disabled={switching || newWorkspace.trim().length < 2}
+          >
+            Create
+          </button>
+        </form>
+
+        {workspaceError && <p className={styles.error} role="alert">{workspaceError}</p>}
+
+        <p className={styles.muted}>
+          Channels, direct messages, and the people directory all belong to the
+          current workspace. Published pages are shared across all of them.
+        </p>
       </section>
 
       <section className={styles.section}>

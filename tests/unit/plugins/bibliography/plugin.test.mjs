@@ -17,7 +17,10 @@ const pluginDir = path.dirname(
   require.resolve('../../../../plugins/bibliography'),
 );
 const projectDir = path.resolve(pluginDir, '..', '..');
-const bibPath = path.join(projectDir, 'content', 'bibliography', 'references.yaml');
+// Content is one tree per organization; the build renders the primary one, so
+// the slug is resolved the same way the plugin resolves it.
+const PRIMARY_ORG = process.env.ROOT_ORG_SLUG || 'mochi';
+const bibPath = path.join(projectDir, 'content', PRIMARY_ORG, 'bibliography', 'references.yaml');
 const rawBib = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
 
 // Pick keys with known characteristics for targeted tests

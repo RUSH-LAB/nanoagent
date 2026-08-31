@@ -43,9 +43,26 @@ const ROOT_EMAIL = process.env.ROOT_EMAIL || 'root@mochi.local';
 const ROOT_NAME = process.env.ROOT_NAME || 'Root';
 
 /** The organization root starts in, and the one channel inside it. */
-const ROOT_ORG_NAME = process.env.ROOT_ORG_NAME || 'Mochi';
+const ROOT_ORG_NAME = process.env.ROOT_ORG_NAME || 'Mochi Lab';
 const ROOT_ORG_SLUG = process.env.ROOT_ORG_SLUG || 'mochi';
 const ROOT_CHANNEL = 'general';
+
+/**
+ * A second, empty workspace, so that the switcher in the navbar has somewhere
+ * to switch to on a machine where only root has ever signed in.
+ *
+ * A fixture rather than a feature. Switching workspaces is the one part of the
+ * product that cannot be seen at all until you belong to two, and provisioning
+ * the second by hand every time the database is recreated is the sort of chore
+ * that ends with the feature going untested. It is created empty on purpose:
+ * the point of switching is that the page changes, which is only visible when
+ * the two sides do not look alike.
+ *
+ * Dev-only, like everything else in this module: ensureRootUser returns before
+ * reaching it unless DEV_AUTOLOGIN is on and this is not production.
+ */
+const DEMO_ORG_NAME = process.env.DEMO_ORG_NAME || 'Hello World';
+const DEMO_ORG_SLUG = process.env.DEMO_ORG_SLUG || 'hello-world';
 
 /** Where the generated root password is kept, so you can also sign in by hand. */
 const ROOT_PASSWORD_FILE = path.join(DATA_DIR, '.root-password');
@@ -145,7 +162,40 @@ async function ensureRootWorkspace(auth, userId) {
     });
     if (error) return {orgId: organization.id, name: organization.name, created: true, error};
   }
+  require('./org').ensureContentRoot(ROOT_ORG_SLUG);
   return {orgId: organization.id, name: organization.name, channel: ROOT_CHANNEL, created: true};
+}
+
+/**
+ * Make sure the empty second workspace exists and that root is in it.
+ *
+ * Keyed on the slug rather than on whether root has one, because unlike
+ * ensureRootWorkspace this is not a starting point that gets imposed once: it
+ * is a fixture, and a fixture that quietly stops existing the moment you make a
+ * workspace of your own would be no use. Root is added as owner so it can be
+ * renamed, invited into, or deleted like any other.
+ *
+ * Best-effort in the same way as everything else here. A failure means the
+ * switcher has one entry instead of two, which is a duller local machine, not a
+ * broken one.
+ */
+async function ensureDemoWorkspace(auth, userId) {
+  let organization = db.prepare('SELECT id, name FROM organization WHERE slug = ?').get(DEMO_ORG_SLUG);
+  try {
+    if (!organization) {
+      organization = await auth.api.createOrganization({
+        body: {name: DEMO_ORG_NAME, slug: DEMO_ORG_SLUG, userId},
+      });
+    } else if (!db.prepare('SELECT 1 FROM member WHERE organizationId = ? AND userId = ?').get(organization.id, userId)) {
+      await auth.api.addMember({body: {userId, organizationId: organization.id, role: 'owner'}});
+    }
+  } catch (err) {
+    return {error: err.message};
+  }
+  // Its own content tree, empty, which is the point: switching to it should
+  // visibly change the page rather than show the same books under a new name.
+  require('./org').ensureContentRoot(DEMO_ORG_SLUG);
+  return {orgId: organization?.id ?? null, name: DEMO_ORG_NAME};
 }
 
 /**
@@ -185,10 +235,14 @@ async function ensureRootUser(auth) {
   }
 
   const grantedOwner = grantOwner(userId);
+  // Root's own workspace first, so that it is the oldest membership and
+  // therefore the one a new session opens in. The fixture is the second entry
+  // in the switcher, not the place you land.
   const workspace = await ensureRootWorkspace(auth, userId);
+  const demo = await ensureDemoWorkspace(auth, userId);
   return {
     userId, username: ROOT_USERNAME, email: ROOT_EMAIL, created, grantedOwner,
-    workspace, passwordFile: ROOT_PASSWORD_FILE,
+    workspace, demo, passwordFile: ROOT_PASSWORD_FILE,
   };
 }
 
@@ -239,9 +293,12 @@ module.exports = {
   ROOT_ORG_NAME,
   ROOT_ORG_SLUG,
   ROOT_CHANNEL,
+  DEMO_ORG_NAME,
+  DEMO_ORG_SLUG,
   rootPassword,
   grantOwner,
   ensureRootWorkspace,
+  ensureDemoWorkspace,
   ensureRootUser,
   isLoopback,
   handleDevLogin,

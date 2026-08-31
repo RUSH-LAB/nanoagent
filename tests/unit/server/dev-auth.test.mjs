@@ -229,37 +229,97 @@ describe('the root account', () => {
     assert.equal(await off.ensureRootUser(auth), null);
   });
 
+  /** The id of the organization with `slug`, whichever of the two it is. */
+  const orgIdOf = slug => db.prepare('SELECT id FROM organization WHERE slug = ?').get(slug)?.id;
+
   // Chat is scoped to an organization and Better Auth creates none, so without
   // this a fresh database answers 409 to every chat endpoint and the CLI opens
   // on an empty rail.
   it('gives root an organization with a #general in it', async () => {
-    const {userId} = await devAuth.ensureRootUser(auth);
-    const memberships = db.prepare('SELECT organizationId FROM member WHERE userId = ?').all(userId);
-    assert.equal(memberships.length, 1);
+    await devAuth.ensureRootUser(auth);
     const channels = db
       .prepare('SELECT name, kind FROM channel WHERE organizationId = ?')
-      .all(memberships[0].organizationId);
+      .all(orgIdOf(devAuth.ROOT_ORG_SLUG));
     assert.deepEqual(channels, [{name: devAuth.ROOT_CHANNEL, kind: 'public'}]);
   });
 
   it('provisions the workspace once, not on every start', async () => {
     const again = await devAuth.ensureRootUser(auth);
     assert.equal(again.workspace.created, false, 'the workspace was already there');
-    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM organization').get().n, 1);
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM channel').get().n, 1);
   });
 
   // The whole point of provisioning it: the one-click sign-in lands somewhere
-  // with something in it.
-  it('signs root in to that workspace', async () => {
-    const {userId} = await devAuth.ensureRootUser(auth);
+  // with something in it, and lands in root's own rather than in the fixture.
+  it('signs root in to that workspace, not the empty second one', async () => {
+    await devAuth.ensureRootUser(auth);
     const {calls, json} = capture();
     await devAuth.handleDevLogin(reqFrom('127.0.0.1'), {}, auth, json);
 
     const session = await auth.api.getSession({
       headers: {authorization: `Bearer ${calls[0].body.token}`},
     });
-    const {organizationId} = db.prepare('SELECT organizationId FROM member WHERE userId = ?').get(userId);
-    assert.equal(session.session.activeOrganizationId, organizationId);
+    assert.equal(session.session.activeOrganizationId, orgIdOf(devAuth.ROOT_ORG_SLUG));
+  });
+
+  // The fixture that gives the navbar switcher something to switch to. Empty on
+  // purpose: switching is only visible when the two sides do not look alike.
+  describe('the second, empty workspace', () => {
+    it('exists, with root as its owner', async () => {
+      const {userId, demo} = await devAuth.ensureRootUser(auth);
+      assert.equal(demo.name, devAuth.DEMO_ORG_NAME);
+      const membership = db
+        .prepare('SELECT role FROM member WHERE organizationId = ? AND userId = ?')
+        .get(orgIdOf(devAuth.DEMO_ORG_SLUG), userId);
+      assert.equal(membership.role, 'owner');
+    });
+
+    it('has no channels, so switching to it visibly changes the page', async () => {
+      await devAuth.ensureRootUser(auth);
+      const channels = db
+        .prepare('SELECT COUNT(*) AS n FROM channel WHERE organizationId = ?')
+        .get(orgIdOf(devAuth.DEMO_ORG_SLUG));
+      assert.equal(channels.n, 0);
+    });
+
+    it('leaves root in two workspaces, which is what the switcher needs', async () => {
+      const {userId} = await devAuth.ensureRootUser(auth);
+      // Ordered the way listMemberships and firstOrganizationOf order it. Both
+      // break the same-millisecond tie on rowid, because the ids are random and
+      // provisioning both workspaces takes less than a millisecond.
+      const slugs = db
+        .prepare(
+          `SELECT o.slug FROM member m JOIN organization o ON o.id = m.organizationId
+            WHERE m.userId = ? ORDER BY m.createdAt, m.rowid`,
+        )
+        .all(userId)
+        .map(r => r.slug);
+      assert.deepEqual(slugs, [devAuth.ROOT_ORG_SLUG, devAuth.DEMO_ORG_SLUG],
+        'root\'s own first, so a new session opens there');
+    });
+
+    // Unlike the root workspace, this one is keyed on its slug rather than on
+    // whether root has any organization: a fixture that disappears as soon as
+    // you make a workspace of your own would be no use.
+    it('is created once however many times the server starts', async () => {
+      await devAuth.ensureRootUser(auth);
+      await devAuth.ensureRootUser(auth);
+      const count = db
+        .prepare('SELECT COUNT(*) AS n FROM organization WHERE slug = ?')
+        .get(devAuth.DEMO_ORG_SLUG);
+      assert.equal(count.n, 1);
+    });
+
+    it('takes root back in if the membership was removed but the workspace kept', async () => {
+      const {userId} = await devAuth.ensureRootUser(auth);
+      const demoId = orgIdOf(devAuth.DEMO_ORG_SLUG);
+      db.prepare('DELETE FROM member WHERE organizationId = ? AND userId = ?').run(demoId, userId);
+
+      await devAuth.ensureRootUser(auth);
+      assert.ok(
+        db.prepare('SELECT 1 FROM member WHERE organizationId = ? AND userId = ?').get(demoId, userId),
+        'and does not fail on the unique slug trying to make a second one',
+      );
+    });
   });
 });

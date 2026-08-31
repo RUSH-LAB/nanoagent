@@ -4,15 +4,28 @@
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 
 const { numericParam } = require('../server-utils');
-const {dataFileSegs} = require('../paths');
 
-// Walk content/ once into the {title, date, path, mtime} list the RSS and Atom
-// feeds share, sorted by mtime descending. Each feed handler wraps this in
+/**
+ * The `slug` line of a frontmatter block, or null.
+ *
+ * A blog post's address is its slug, and the slug is nowhere in its path:
+ * `posts/research/swarms.md` is served at `/research/eisi`. Anything emitting a
+ * link to a post therefore has to read the frontmatter, which is why this is
+ * shared by the feed scan and the sitemap scan rather than living in one.
+ */
+function frontmatterSlug(frontmatter) {
+  const match = frontmatter.match(/^slug:\s*["']?(.+?)["']?\s*$/m);
+  return match ? match[1] : null;
+}
+
+/** Whether a content-relative path is a blog post, and so has a slug to read. */
+const isPost = relPath => relPath.startsWith('posts/');
+
+// Walk content/ once into the {title, date, path, slug, mtime} list the RSS and
+// Atom feeds share, sorted by mtime descending. Each feed handler wraps this in
 // cached('feed-items'), so the tree is scanned once per cache window instead of
-// once per RSS request plus once per Atom request. The produced item shape and
-// sort order match the two walks this replaces, so each feed's XML is unchanged.
-function scanFeedItems(fs, path, PROJECT_ROOT, ALLOWED_EXTS) {
-  const contentDir = path.join(PROJECT_ROOT, 'content');
+// once per RSS request plus once per Atom request.
+function scanFeedItems(fs, path, contentDir, ALLOWED_EXTS) {
   const items = [];
   function scan(dir) {
     for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -26,13 +39,15 @@ function scanFeedItems(fs, path, PROJECT_ROOT, ALLOWED_EXTS) {
         const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
         let title = entry.name.replace(/\.(mdx?|md)$/, '');
         let date = stat.mtime.toISOString();
+        let slug = null;
         if (fmMatch) {
           const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
           if (tm) title = tm[1];
           const dm = fmMatch[1].match(/^date:\s*["']?(\d{4}-\d{2}-\d{2})/m);
           if (dm) date = dm[1] + 'T00:00:00Z';
+          slug = frontmatterSlug(fmMatch[1]);
         }
-        items.push({title, date, path: path.relative(PROJECT_ROOT, fp), mtime: stat.mtimeMs});
+        items.push({title, date, path: path.relative(contentDir, fp), slug, mtime: stat.mtimeMs});
       } catch {}
     }
   }
@@ -51,13 +66,13 @@ const escapeFeedXml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── RSS feed of recent content updates ──
   if (req.method === 'GET' && pathname === '/api/feed/rss') {
     try {
-      const items = cached('feed-items', 60000, () => scanFeedItems(fs, path, PROJECT_ROOT, ALLOWED_EXTS));
+      const items = cached(cacheKey(req.auth?.orgId, 'feed-items'), 60000, () => scanFeedItems(fs, path, contentRootFor(req.auth?.orgId), ALLOWED_EXTS));
       const recent = items.slice(0, 20);
       const rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -67,7 +82,7 @@ module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
 <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
 ${recent.map(item => `<item>
 <title>${escapeFeedXml(item.title)}</title>
-<link>/${escapeFeedXml(item.path.replace(/^content\//, '').replace(/\.(md|mdx)$/, ''))}</link>
+<link>${escapeFeedXml(contentPathToUrl(item.path, {slug: item.slug}))}</link>
 <pubDate>${new Date(item.date).toUTCString()}</pubDate>
 </item>`).join('\n')}
 </channel>
@@ -91,7 +106,6 @@ ${recent.map(item => `<item>
       if (!filePath || typeof filePath !== 'string') return json(res, 400, {error: 'Missing or invalid path'});
       if (!publishAt || typeof publishAt !== 'string') return json(res, 400, {error: 'Missing or invalid publishAt'});
       if (note !== undefined && typeof note !== 'string') return json(res, 400, {error: 'note must be a string'});
-      const SCHEDULE_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('schedule'));
       const schedule = loadJSON(SCHEDULE_FILE);
       if (!schedule.items) schedule.items = [];
       const item = {
@@ -111,7 +125,6 @@ ${recent.map(item => `<item>
   }
 
   if (req.method === 'GET' && pathname === '/api/schedule') {
-    const SCHEDULE_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('schedule'));
     const schedule = loadJSON(SCHEDULE_FILE);
     const items = (schedule.items || []).sort((a, b) => a.publishAt.localeCompare(b.publishAt));
     const now = new Date().toISOString();
@@ -137,7 +150,6 @@ ${recent.map(item => `<item>
       const body = await readBody(req);
       const {id} = body;
       if (!id) return json(res, 400, {error: 'Missing id'});
-      const SCHEDULE_FILE = path.join(PROJECT_ROOT, ...dataFileSegs('schedule'));
       const schedule = loadJSON(SCHEDULE_FILE);
       if (!schedule.items) return json(res, 404, {error: 'Not found'});
       const idx = schedule.items.findIndex(i => i.id === id);
@@ -153,7 +165,7 @@ ${recent.map(item => `<item>
   // ── Atom feed of recent content updates ──
   if (req.method === 'GET' && pathname === '/api/feed/atom') {
     try {
-      const items = cached('feed-items', 60000, () => scanFeedItems(fs, path, PROJECT_ROOT, ALLOWED_EXTS));
+      const items = cached(cacheKey(req.auth?.orgId, 'feed-items'), 60000, () => scanFeedItems(fs, path, contentRootFor(req.auth?.orgId), ALLOWED_EXTS));
       const recent = items.slice(0, 20);
       const atom = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -162,7 +174,7 @@ ${recent.map(item => `<item>
 <id>urn:mochi-lab:feed</id>
 ${recent.map(item => `<entry>
 <title>${escapeFeedXml(item.title)}</title>
-<link href="/${item.path.replace(/^content\//, '').replace(/\.(md|mdx)$/, '')}"/>
+<link href="${escapeFeedXml(contentPathToUrl(item.path, {slug: item.slug}))}"/>
 <updated>${item.date}</updated>
 <id>urn:mochi-lab:${escapeFeedXml(item.path)}</id>
 </entry>`).join('\n')}
@@ -182,8 +194,8 @@ ${recent.map(item => `<entry>
   if (req.method === 'GET' && pathname === '/api/activity-heatmap') {
     try {
       const days = numericParam(url.searchParams.get('days'), 365, 365);
-      const heatmap = cached('activity-heatmap', 60000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
+      const heatmap = cached(cacheKey(req.auth?.orgId, 'activity-heatmap'), 60000, () => {
+        const contentDir = contentRootFor(req.auth?.orgId);
         const activity = {};
         function scanActivity(dir) {
           for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -213,7 +225,6 @@ ${recent.map(item => `<entry>
     }
   }
 
-
   // ── XML Sitemap ──
   if (req.method === 'GET' && pathname === '/api/sitemap.xml') {
     try {
@@ -222,8 +233,8 @@ ${recent.map(item => `<entry>
       // The thunk builds and returns the url list; the XML is rendered from the
       // cached list below, so the emitted document is byte identical to before and
       // only the redundant per-request walk is removed.
-      const urls = cached('sitemap-xml', 60000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
+      const urls = cached(cacheKey(req.auth?.orgId, 'sitemap-xml'), 60000, () => {
+        const contentDir = contentRootFor(req.auth?.orgId);
         const collected = [];
         function scanSitemap(dir) {
           for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -232,10 +243,24 @@ ${recent.map(item => `<entry>
             if (entry.isDirectory()) { scanSitemap(fp); continue; }
             if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
             const stat = fs.statSync(fp);
-            let urlPath = '/' + path.relative(path.join(PROJECT_ROOT, 'content'), fp)
-              .replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
-            if (urlPath.endsWith('/index')) urlPath = urlPath.slice(0, -6);
-            collected.push({loc: urlPath, lastmod: stat.mtime.toISOString().slice(0, 10)});
+            // Content-relative first, with separators normalised for Windows,
+            // then the shared rule. The copy that used to be here stripped the
+            // extension and /index but neither the books/ and posts/ levels nor
+            // a chapter's ordering prefix, so every <loc> in the sitemap named a
+            // page that does not exist.
+            const relPath = path.relative(contentDir, fp).replace(/\\/g, '/');
+            // Only a post has a slug, and only a post is worth the extra read.
+            let slug = null;
+            if (isPost(relPath)) {
+              try {
+                const fm = fs.readFileSync(fp, 'utf-8').match(/^---\n([\s\S]*?)\n---/);
+                if (fm) slug = frontmatterSlug(fm[1]);
+              } catch { /* unreadable: fall back to the filename */ }
+            }
+            collected.push({
+              loc: contentPathToUrl(relPath, {slug}),
+              lastmod: stat.mtime.toISOString().slice(0, 10),
+            });
           }
         }
         scanSitemap(contentDir);

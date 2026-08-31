@@ -2,20 +2,24 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { key } from '../../../_harness.mjs';
 
 // misc-tools.js is CommonJS; load it via createRequire the way the sibling per-path
 // cache suites do (next-misc-filequality-cache.test.mjs) and reuse the same
 // ctx-mocking shape. GET /api/file/mindmap now wraps its whole computation in
-// cached('filemindmap:' + filePath, 30000, fn); these tests drive that wrap
+// cached(cacheKey(orgId, 'filemindmap:' + filePath), 30000, fn); these tests drive that wrap
 // directly with a counting fs and a memoizing cached, no network and no server.
 const require = createRequire(import.meta.url);
 const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
+// The path a request carries is relative to the caller's own content root, which
+// the session resolves to one organization's tree under content/.
+const CONTENT_DIR = path.join(PROJECT_ROOT, 'content', 'mochi');
 
 // In-memory fs stub that returns a single file's content keyed by absolute path and
 // counts how often the handler touches disk. The handler reads exactly one file
-// (fs.readFileSync(path.join(PROJECT_ROOT, filePath))) and never walks a directory,
+// (fs.readFileSync(path.join(contentRootFor(orgId), filePath))) and never walks a directory,
 // so the stub only needs readFileSync. The counter lets a test prove a cache hit
 // performs no fresh read while the first call provably hits disk.
 function makeCountingFs(absFileMap) {
@@ -70,8 +74,10 @@ async function invoke(filePath, { fs, cached, isValidFilePath = () => true }) {
     fs,
     path,
     PROJECT_ROOT,
+    contentRootFor: () => CONTENT_DIR,
     isValidFilePath,
     cached,
+    cacheKey: (_orgId, name) => key(name),
     json(_res, status, payload) { captured = { status, payload }; res.writableEnded = true; return captured; },
   };
   await routes(req, res, url, pathname, ctx);
@@ -80,8 +86,8 @@ async function invoke(filePath, { fs, cached, isValidFilePath = () => true }) {
 
 // ── fixtures ──
 
-const MINDMAP_REL = 'content/mindmap-sample.md';
-const MINDMAP_ABS = path.join(PROJECT_ROOT, MINDMAP_REL);
+const MINDMAP_REL = 'mindmap-sample.md';
+const MINDMAP_ABS = path.join(CONTENT_DIR, MINDMAP_REL);
 
 // A document with frontmatter (title + date), one H1, two H2s, and one nested H3.
 // After the frontmatter strip the handler keeps only the #{1,4} heading lines, so
@@ -110,8 +116,8 @@ Leaf text under b one.
 
 // A second, clearly different file so the per-path cache keys are provably
 // independent: a single H1 and no nesting, distinct from the sample's deep tree.
-const MINDMAP_REL_2 = 'content/mindmap-other.md';
-const MINDMAP_ABS_2 = path.join(PROJECT_ROOT, MINDMAP_REL_2);
+const MINDMAP_REL_2 = 'mindmap-other.md';
+const MINDMAP_ABS_2 = path.join(CONTENT_DIR, MINDMAP_REL_2);
 const MINDMAP_SAMPLE_2 = `---
 title: Other Mindmap
 date: 2026-03-03
@@ -159,7 +165,7 @@ describe('GET /api/file/mindmap (cached("filemindmap:" + path, 30000))', () => {
     assert.equal(JSON.stringify(second.payload), JSON.stringify(first.payload));
     assert.equal(counts.readFileSync, 1, 'cached repeat must not read the file again');
     assert.equal(store.size, 1, 'one cache entry for the per-path key');
-    assert.ok(store.has('filemindmap:' + MINDMAP_REL), 'cache key is filemindmap:<path>');
+    assert.ok(store.has(key('filemindmap:' + MINDMAP_REL)), 'cache key is the workspace-scoped filemindmap:<path>');
   });
 
   it('keys the cache per path so distinct paths get distinct entries', async () => {
@@ -171,8 +177,8 @@ describe('GET /api/file/mindmap (cached("filemindmap:" + path, 30000))', () => {
     assert.equal(a.status, 200);
     assert.equal(b.status, 200);
     assert.equal(store.size, 2, 'two paths produce two cache entries');
-    assert.ok(store.has('filemindmap:' + MINDMAP_REL));
-    assert.ok(store.has('filemindmap:' + MINDMAP_REL_2));
+    assert.ok(store.has(key('filemindmap:' + MINDMAP_REL)));
+    assert.ok(store.has(key('filemindmap:' + MINDMAP_REL_2)));
     // Distinct content, so the per-path entries are not cross-contaminated.
     assert.equal(a.payload.root.text, 'mindmap-sample');
     assert.equal(b.payload.root.text, 'mindmap-other');
@@ -188,7 +194,7 @@ describe('GET /api/file/mindmap (cached("filemindmap:" + path, 30000))', () => {
     const { cached, calls } = makeCached();
     await invoke(MINDMAP_REL, { fs, cached });
     assert.ok(calls.length >= 1, 'the handler routes through cached()');
-    assert.equal(calls[0].key, 'filemindmap:' + MINDMAP_REL);
+    assert.equal(calls[0].key, key('filemindmap:' + MINDMAP_REL));
     assert.equal(calls[0].ttl, 30000);
   });
 

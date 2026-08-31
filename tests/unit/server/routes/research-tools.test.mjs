@@ -11,7 +11,7 @@ import {beforeEach, describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, key} from '../../_harness.mjs';
 
 const require = createRequire(import.meta.url);
 const bibliographyProvides = require('../../../../plugins/bibliography/server.js').provides;
@@ -19,20 +19,23 @@ const {_resetReferencesCache} = require('../../../../plugins/bibliography/lib/re
 
 const routes = loadRoute('research-tools');
 const {COMMENTS_FILE} = FILES;
-const at = rel => path.join(PROJECT_ROOT, rel);
-const BIB = at('content/bibliography/references.yaml');
+// Fixtures live in the workspace's own tree, and the paths a request carries
+// are relative to it: `focused.md`, never `content/mochi/focused.md`.
+const at = rel => path.join(CONTENT_DIR, rel);
+const BIB = at('bibliography/references.yaml');
 
 /**
  * The bibliography plugin publishes a loader that asks for a reader, because
  * the plugin is not allowed to touch the filesystem itself. The server adapts
- * that reader into the (fs, path, root) call the core handlers make: see
- * referencesForCore in src/server/index.js. This mirrors that adaptation, so
- * GET /api/recommendations runs against the real loader over this suite's
- * fixture fs rather than against a stub of it.
+ * that reader into the (fs, path, contentRoot) call the core handlers make: see
+ * referencesForCore in src/server/index.js. The root handed over is the calling
+ * organization's content root, so the reader joins straight onto it. This
+ * mirrors that adaptation, so GET /api/recommendations runs against the real
+ * loader over this suite's fixture fs rather than against a stub of it.
  */
 function referencesForCore(provided) {
-  const readerFor = (fs, path, root) => {
-    const at = relative => path.join(root, 'content', relative);
+  const readerFor = (fs, path, contentRoot) => {
+    const at = relative => path.join(contentRoot, relative);
     return {
       read(relative) {
         try {
@@ -346,7 +349,7 @@ describe('POST /api/recommendations/add', () => {
     const r = await invoke(routes, {method: 'POST', path: '/api/recommendations/add', body: OK, ctx});
     assert.deepEqual([r.status, r.payload], [201, {key: 'lovelace2024', success: true}]);
     assert.equal(counts.write, 1);
-    assert.deepEqual(ctx.calls.invalidateCache, ['stats']);
+    assert.deepEqual(ctx.calls.invalidateCache, [key('stats')]);
     assert.ok(fs.readFileSync(BIB).includes('lovelace2024'));
   });
 
@@ -402,13 +405,13 @@ describe('GET /api/search', () => {
   // Declared worst-first so the walk order is the reverse of the score order,
   // which makes the ranking sort observable.
   const TREE = {
-    [at('content/buried.md')]: `${'filler '.repeat(200)} quantum ${'filler '.repeat(200)} entanglement`,
-    [at('content/split.md')]: `quantum ${'filler '.repeat(20)}entanglement`,
-    [at('content/focused.md')]: 'quantum quantum quantum entanglement',
-    [at('content/other.md')]: 'gardening horticulture botany',
-    [at('content/.hidden.md')]: 'quantum entanglement',
+    [at('buried.md')]: `${'filler '.repeat(200)} quantum ${'filler '.repeat(200)} entanglement`,
+    [at('split.md')]: `quantum ${'filler '.repeat(20)}entanglement`,
+    [at('focused.md')]: 'quantum quantum quantum entanglement',
+    [at('other.md')]: 'gardening horticulture botany',
+    [at('.hidden.md')]: 'quantum entanglement',
     // Carries only the first term of a two-term query.
-    [at('content/half.md')]: 'quantum alone',
+    [at('half.md')]: 'quantum alone',
   };
 
   for (const [label, query] of [['no q param', {}], ['an empty q', {q: ''}], ['a whitespace-only q', {q: '   '}]]) {
@@ -426,27 +429,27 @@ describe('GET /api/search', () => {
     assert.equal(r.status, 200);
     const paths = r.payload.results.map(x => x.path);
     // half.md carries the single query term too, so it ranks with the rest.
-    assert.deepEqual(paths, ['content/focused.md', 'content/half.md', 'content/split.md', 'content/buried.md']);
+    assert.deepEqual(paths, ['focused.md', 'half.md', 'split.md', 'buried.md']);
     const scores = r.payload.results.map(x => x.score);
     assert.deepEqual(scores, [...scores].sort((a, b) => b - a));
-    assert.equal(paths.includes('content/.hidden.md'), false, 'dot files are not indexed');
+    assert.equal(paths.includes('.hidden.md'), false, 'dot files are not indexed');
   });
 
   it('requires every query term to match, excluding a partial match', async () => {
     const {ctx} = fsCtx(TREE);
     const r = await invoke(routes, {path: '/api/search', query: {q: 'quantum entanglement'}, ctx});
     const paths = r.payload.results.map(x => x.path);
-    assert.equal(paths.includes('content/half.md'), false, 'one of two terms is not enough');
-    assert.ok(paths.includes('content/focused.md'));
+    assert.equal(paths.includes('half.md'), false, 'one of two terms is not enough');
+    assert.ok(paths.includes('focused.md'));
   });
 
   it('tokenizes a hyphenated query into the terms the index holds', async () => {
-    const files = {[at('content/gpt.md')]: 'the gpt 4 model', [at('content/plain.md')]: 'nothing relevant'};
+    const files = {[at('gpt.md')]: 'the gpt 4 model', [at('plain.md')]: 'nothing relevant'};
     const {ctx} = fsCtx(files);
     // The old whitespace gate kept "gpt-4" as one word, which no indexed token
     // could contain; tokenizing the query splits it into terms the index holds.
     const r = await invoke(routes, {path: '/api/search', query: {q: 'gpt-4'}, ctx});
-    assert.deepEqual(r.payload.results.map(x => x.path), ['content/gpt.md']);
+    assert.deepEqual(r.payload.results.map(x => x.path), ['gpt.md']);
   });
 
   it('returns no results for an all-punctuation query rather than everything', async () => {
@@ -463,22 +466,22 @@ describe('GET /api/search', () => {
 
   it('centres the snippet on an exact phrase match, else shows the opening', async () => {
     const files = {
-      [at('content/phrase.md')]: `${'lead '.repeat(30)}exact phrase here${' tail'.repeat(30)}`,
-      [at('content/apart.md')]: `${'exact '.repeat(2)}${'filler '.repeat(60)}phrase`,
+      [at('phrase.md')]: `${'lead '.repeat(30)}exact phrase here${' tail'.repeat(30)}`,
+      [at('apart.md')]: `${'exact '.repeat(2)}${'filler '.repeat(60)}phrase`,
     };
     const {ctx} = fsCtx(files);
     const phrase = await invoke(routes, {path: '/api/search', query: {q: 'exact phrase'}, ctx});
     const byPath = Object.fromEntries(phrase.payload.results.map(x => [x.path, x.snippet]));
     // The window is 50 characters either side, which is ten "lead " repeats.
-    assert.ok(byPath['content/phrase.md'].includes(`${'lead '.repeat(10)}exact phrase here`));
-    assert.ok(byPath['content/phrase.md'].startsWith('...'), 'a mid-document match is elided on both sides');
+    assert.ok(byPath['phrase.md'].includes(`${'lead '.repeat(10)}exact phrase here`));
+    assert.ok(byPath['phrase.md'].startsWith('...'), 'a mid-document match is elided on both sides');
     // The words match individually but not as a phrase, so the opening is shown.
-    assert.ok(byPath['content/apart.md'].startsWith('exact exact filler'));
-    assert.ok(byPath['content/apart.md'].endsWith('...'));
+    assert.ok(byPath['apart.md'].startsWith('exact exact filler'));
+    assert.ok(byPath['apart.md'].endsWith('...'));
   });
 
   it('caps the result list at fifty', async () => {
-    const files = Object.fromEntries(Array.from({length: 60}, (_, i) => [at(`content/p${i}.md`), 'quantum']));
+    const files = Object.fromEntries(Array.from({length: 60}, (_, i) => [at(`p${i}.md`), 'quantum']));
     const {ctx} = fsCtx(files);
     const r = await invoke(routes, {path: '/api/search', query: {q: 'quantum'}, ctx});
     assert.equal(r.payload.results.length, 50);
@@ -488,7 +491,7 @@ describe('GET /api/search', () => {
     let seen;
     const {ctx, counts} = fsCtx(TREE, {cached: (k, t, fn) => { seen = [k, t]; return ctx.cache[k] ?? (ctx.cache[k] = fn()); }});
     await invoke(routes, {path: '/api/search', query: {q: 'quantum'}, ctx});
-    assert.deepEqual(seen, ['search:index', 60000]);
+    assert.deepEqual(seen, [key('search:index'), 60000]);
     const after = counts.readdir;
     await invoke(routes, {path: '/api/search', query: {q: 'entanglement'}, ctx});
     assert.equal(counts.readdir, after, 'the second query reuses the index');

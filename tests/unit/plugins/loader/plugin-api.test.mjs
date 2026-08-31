@@ -19,6 +19,16 @@ const {API_VERSION, CAPABILITIES, buildPluginApi, within} =
 const at = rel => path.join(PROJECT_ROOT, rel);
 
 /**
+ * Content is one tree per organization, so "the directory a content capability
+ * covers" is the caller's own workspace rather than the whole content tree. Two
+ * workspaces here: the one REQ belongs to, and a neighbour, so a test can ask
+ * what happens when a plugin reaches for the other.
+ */
+const ORG_ROOT = orgId => path.join(PROJECT_ROOT, 'content', orgId === 'o2' ? 'acme' : 'mochi');
+const CONTENT_DIR = ORG_ROOT('o1');
+const inContent = rel => path.join(CONTENT_DIR, rel);
+
+/**
  * A stand-in for the server's ctx: the handful of fields the API reads, each
  * recording what the plugin did with it.
  */
@@ -31,6 +41,10 @@ function serverCtx(files = {}) {
     ctx: {
       fs,
       PROJECT_ROOT,
+      // The server resolves the caller's workspace from the verified session
+      // and hands it over the same way; a plugin never sees the organization
+      // id, only the root it produced.
+      contentRootFor: ORG_ROOT,
       CORS_ORIGIN: 'https://example.test',
       MAX_TEXT_LENGTH: 100,
       sanitizeText: s => String(s).trim(),
@@ -164,14 +178,15 @@ describe('capability gating', () => {
 
 describe('the content capability', () => {
   const FILES = {
-    [at('content/notes/one.md')]: 'first',
-    [at('content/notes/_draft.md')]: 'skipped',
-    [at('content/notes/deep/two.mdx')]: 'second',
-    [at('content/notes/three.txt')]: 'not markdown',
+    [inContent('notes/one.md')]: 'first',
+    [inContent('notes/_draft.md')]: 'skipped',
+    [inContent('notes/deep/two.mdx')]: 'second',
+    [inContent('notes/three.txt')]: 'not markdown',
+    [path.join(ORG_ROOT('o2'), 'notes/other.md')]: 'another workspace',
     [at('secrets.env')]: 'TOKEN=hunter2',
   };
 
-  it('reads a file inside content/', () => {
+  it('reads a file inside the caller\'s workspace', () => {
     const {api} = apiFor(['content:read'], FILES);
     assert.equal(api.content.read('notes/one.md'), 'first');
   });
@@ -190,9 +205,11 @@ describe('the content capability', () => {
     assert.equal(typeof stat.mtimeMs, 'number');
   });
 
+  // Each of these resolves outside the workspace; the first two name the repo
+  // root's own secrets.env, which is two levels above an organization's tree.
   const ESCAPES = [
-    '../secrets.env',
-    'notes/../../secrets.env',
+    '../../secrets.env',
+    'notes/../../../secrets.env',
     'notes/../../../../etc/passwd',
     '/etc/passwd',
   ];
@@ -208,7 +225,43 @@ describe('the content capability', () => {
     });
   }
 
-  it('walks content/ recursively, skipping drafts and filtering by extension', () => {
+  it('roots the capability at the caller\'s workspace, not at the content tree', () => {
+    // One ctx, two callers. The same relative path means a different file for
+    // each, and neither of them can spell the other's.
+    const {ctx} = serverCtx(FILES);
+    const mine = buildPluginApi({name: 'demo', requires: ['content:read'], ctx, req: REQ});
+    const theirs = buildPluginApi({
+      name: 'demo', requires: ['content:read'], ctx,
+      req: {...REQ, auth: {...REQ.auth, orgId: 'o2'}},
+    });
+    assert.equal(mine.content.read('notes/one.md'), 'first');
+    assert.equal(theirs.content.read('notes/one.md'), null);
+    assert.equal(theirs.content.read('notes/other.md'), 'another workspace');
+    assert.equal(mine.content.read('notes/other.md'), null);
+  });
+
+  it('cannot reach the neighbouring workspace, even named exactly', () => {
+    // The other tree is one level up and its name is no secret. What refuses
+    // the reach is that a relative path cannot leave the root at all, which is
+    // the same guard that refuses the escapes above.
+    const {api, fs} = apiFor(['content:write'], FILES);
+    const theirFile = '../acme/notes/other.md';
+    assert.throws(() => api.content.read(theirFile), /outside the directory this plugin may use/);
+    assert.throws(() => api.content.write(theirFile, 'owned'), /outside the directory this plugin may use/);
+    assert.equal(fs._files.get(path.join(ORG_ROOT('o2'), 'notes/other.md')), 'another workspace');
+  });
+
+  it('falls back to the primary workspace when the server names no root', () => {
+    // A ctx with no contentRootFor is not something the server builds, but the
+    // fallback is what keeps a plugin working under one, so it is pinned to the
+    // primary organization rather than to the whole content tree.
+    const {ctx} = serverCtx(FILES);
+    delete ctx.contentRootFor;
+    const api = buildPluginApi({name: 'demo', requires: ['content:read'], ctx, req: REQ});
+    assert.equal(api.content.read('notes/one.md'), 'first');
+  });
+
+  it('walks the caller\'s workspace recursively, skipping drafts and filtering by extension', () => {
     const {api} = apiFor(['content:read'], FILES);
     // Underscore-prefixed drafts and the .txt are both gone; order is whatever
     // the filesystem lists, which is why the pair is compared sorted.
@@ -225,7 +278,7 @@ describe('the content capability', () => {
   it('writes inside content/, creating the directory it needs', () => {
     const {api, fs} = apiFor(['content:write'], FILES);
     api.content.write('fresh/dir/new.md', 'written');
-    assert.equal(fs._files.get(at('content/fresh/dir/new.md')), 'written');
+    assert.equal(fs._files.get(inContent('fresh/dir/new.md')), 'written');
   });
 
   it('drops the caches the server derives from content, which the plugin never names', () => {
@@ -237,7 +290,7 @@ describe('the content capability', () => {
   it('refuses a write larger than the cap, leaving the file alone', () => {
     const {api, fs} = apiFor(['content:write'], FILES);
     assert.throws(() => api.content.write('notes/one.md', 'x'.repeat(5 * 1024 * 1024 + 1)), /too large/);
-    assert.equal(fs._files.get(at('content/notes/one.md')), 'first');
+    assert.equal(fs._files.get(inContent('notes/one.md')), 'first');
   });
 
   it('is frozen, so a plugin cannot widen its own capability', () => {

@@ -14,12 +14,12 @@ const { _resetReferencesCache } = require('../../../../../plugins/bibliography/l
 
 // The bibliography plugin publishes a loader that asks for a reader, because the
 // plugin is not allowed to touch the filesystem itself. The server adapts that
-// reader into the (fs, path, root) call core handlers make: see
+// reader into the (fs, path, contentRoot) call core handlers make: see
 // referencesForCore in src/server/index.js. This mirrors that adaptation, which
 // keeps the mutable fs mock below on the real memo path rather than beside it.
 function referencesForCore(provided) {
-  const readerFor = (fs, path, root) => {
-    const at = (relative) => path.join(root, 'content', relative);
+  const readerFor = (fs, path, contentRoot) => {
+    const at = (relative) => path.join(contentRoot, relative);
     return {
       read(relative) {
         try {
@@ -42,7 +42,10 @@ function referencesForCore(provided) {
 }
 
 const PROJECT_ROOT = '/fake/root';
-const REFS_PATH = path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml');
+// The bibliography belongs to one organization, so it sits inside that
+// workspace's content root rather than beside every other workspace's.
+const CONTENT_DIR = path.join(PROJECT_ROOT, 'content', 'mochi');
+const REFS_PATH = path.join(CONTENT_DIR, 'bibliography', 'references.yaml');
 
 // Two-entry bibliography. For the query "attention transformer" only the first
 // entry matches (its title carries "attention"); the second overlaps no keyword,
@@ -121,6 +124,7 @@ async function callSuggest(fs, text, extra = '') {
     fs,
     path,
     PROJECT_ROOT,
+    contentRootFor: () => CONTENT_DIR,
     flatFiles: () => [],
     json(_res, status, payload) { captured = { status, payload }; res.writableEnded = true; return captured; },
   };

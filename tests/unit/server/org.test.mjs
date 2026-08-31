@@ -51,8 +51,16 @@ const signUp = async (username) => {
 
 before(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-org-'));
-  const saved = {DATABASE_FILE: process.env.DATABASE_FILE, BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET};
+  const saved = {
+    DATABASE_FILE: process.env.DATABASE_FILE,
+    BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
+    CONTENT_ROOT: process.env.CONTENT_ROOT,
+  };
   process.env.DATABASE_FILE = path.join(dir, 'org.db');
+  // Creating a workspace creates its content directories. Without this they
+  // would be created in the repository being tested, one per workspace the
+  // suite makes, and the build would then generate plugin instances for them.
+  process.env.CONTENT_ROOT = path.join(dir, 'content');
   process.env.BETTER_AUTH_SECRET = 'org-test-secret-'.padEnd(48, 'x');
   for (const m of MODULES) delete require.cache[require.resolve(m)];
   try {
@@ -445,4 +453,251 @@ describe('the audit log', () => {
     who.cal = await signUp('cal');
     await auth.api.addMember({body: {userId: who.cal.id, organizationId: orgId, role: 'member'}});
   });
+});
+
+describe('deriving a slug', () => {
+  for (const [name, expected] of [
+    ['Acme Research Group', 'acme-research-group'],
+    ['  Spaces   Everywhere  ', 'spaces-everywhere'],
+    ['Café Noir', 'cafe-noir'],
+    ['C++ & Friends!', 'c-friends'],
+    ['---leading and trailing---', 'leading-and-trailing'],
+  ]) {
+    it(`turns ${JSON.stringify(name)} into ${JSON.stringify(expected)}`, () => {
+      assert.equal(org.slugify(name), expected);
+    });
+  }
+
+  // NFKD decomposes the accent into a combining mark, which the non-ASCII sweep
+  // then drops. Without it "Café" would have become "caf".
+  it('keeps the letter under an accent rather than dropping it', () => {
+    assert.equal(org.slugify('Café'), 'cafe');
+  });
+
+  it('reduces a name with no ASCII form to nothing, rather than to a guess', () => {
+    assert.equal(org.slugify('研究组'), '');
+    assert.equal(org.SLUG_RE.test(''), false, 'which the caller is then asked to replace');
+  });
+
+  it('stays inside the length the slug rule allows', () => {
+    const derived = org.slugify('a'.repeat(80));
+    assert.equal(derived.length, 40);
+    assert.equal(org.SLUG_RE.test(derived), true);
+  });
+});
+
+describe('a free slug', () => {
+  it('is the one asked for when nothing holds it', () => {
+    assert.equal(org.availableSlug('unheld'), 'unheld');
+  });
+
+  it('is numbered from 2 when it is taken', () => {
+    assert.equal(org.slugTaken('team'), true);
+    assert.equal(org.availableSlug('team'), 'team-2');
+  });
+
+  it('keeps counting past the first variant', async () => {
+    await auth.api.createOrganization({body: {name: 'Team 2', slug: 'team-2', userId: who.ada.id}});
+    assert.equal(org.availableSlug('team'), 'team-3');
+    db.prepare('DELETE FROM organization WHERE slug = ?').run('team-2');
+  });
+
+  // The suffix has to fit, so the stem is trimmed to make room rather than the
+  // result overflowing the 40 characters the slug rule allows.
+  it('trims the stem so a numbered variant still fits', async () => {
+    const long = 'b'.repeat(40);
+    await auth.api.createOrganization({body: {name: 'Long', slug: long, userId: who.ada.id}});
+    const next = org.availableSlug(long);
+    assert.equal(next, `${'b'.repeat(37)}-2`);
+    assert.equal(org.SLUG_RE.test(next), true);
+    db.prepare('DELETE FROM organization WHERE slug = ?').run(long);
+  });
+});
+
+describe('what you belong to', () => {
+  it('is empty for an account in no organization, which is what the gate reads', async () => {
+    who.eve = await signUp('eve');
+    assert.deepEqual(org.listMemberships(who.eve.id), []);
+  });
+
+  it('carries the role held in each, not one role for the account', () => {
+    const [ada] = org.listMemberships(who.ada.id);
+    const [bea] = org.listMemberships(who.bea.id);
+    assert.equal(ada.slug, 'team');
+    assert.equal(ada.role, 'owner');
+    assert.equal(bea.role, 'admin', 'the same organization, a different membership');
+  });
+
+  it('counts the people in each', () => {
+    const [ada] = org.listMemberships(who.ada.id);
+    assert.equal(ada.memberCount, org.listMembers(orgId, who.ada.id).length);
+  });
+
+  it('shows only your own, never everyone\'s', () => {
+    assert.deepEqual(org.listMemberships(who.dev.id).map(o => o.slug), ['other']);
+  });
+
+  // Joining two workspaces in one operation puts both memberships in the same
+  // millisecond, and the ids are random strings, so breaking the tie on the id
+  // left this list and the session's active workspace disagreeing at random
+  // about which one comes first.
+  it('breaks a same-millisecond tie by insertion order, not by a random id', async () => {
+    const twin = await signUp('twin');
+    const headers = {authorization: `Bearer ${twin.token}`};
+    await org.createWorkspace({headers, actorId: twin.id, name: 'Twin One'});
+    await org.createWorkspace({headers, actorId: twin.id, name: 'Twin Two'});
+    // Force the tie, rather than hoping the wall clock produces one.
+    db.prepare('UPDATE member SET createdAt = ? WHERE userId = ?').run('2026-01-01T00:00:00.000Z', twin.id);
+
+    assert.deepEqual(org.listMemberships(twin.id).map(o => o.name), ['Twin One', 'Twin Two']);
+  });
+});
+
+describe('creating a workspace', () => {
+  let fresh;
+
+  beforeEach(async () => {
+    fresh = await signUp(`fresh${db.prepare('SELECT COUNT(*) AS n FROM "user"').get().n}`);
+  });
+
+  const headers = () => ({authorization: `Bearer ${fresh.token}`});
+
+  it('makes the caller its owner and opens a #general in it', async () => {
+    const {organization, channel} = await org.createWorkspace({
+      headers: headers(), actorId: fresh.id, name: 'Fresh Lab',
+    });
+    assert.equal(organization.slug, 'fresh-lab');
+    assert.equal(organization.role, 'owner');
+    assert.equal(organization.memberCount, 1);
+    assert.equal(channel, org.FIRST_CHANNEL);
+
+    const channels = chat.listChannels(organization.id, fresh.id);
+    assert.deepEqual(channels.map(c => c.name), ['general'],
+      'a workspace with nowhere to talk is the 409 this exists to avoid');
+  });
+
+  // The whole point of the screen this serves: an account with nothing goes
+  // straight from nothing to somewhere it can work.
+  it('takes an account from no workspace to one', async () => {
+    assert.deepEqual(org.listMemberships(fresh.id), []);
+    await org.createWorkspace({headers: headers(), actorId: fresh.id, name: 'From Nothing'});
+    assert.deepEqual(org.listMemberships(fresh.id).map(o => o.name), ['From Nothing']);
+  });
+
+  it('makes the new workspace the session\'s active one, so nothing has to choose next', async () => {
+    const {organization} = await org.createWorkspace({headers: headers(), actorId: fresh.id, name: 'Active One'});
+    const session = db.prepare('SELECT activeOrganizationId FROM session WHERE token = ?').get(fresh.token);
+    assert.equal(session.activeOrganizationId, organization.id);
+  });
+
+  it('numbers a derived slug rather than refusing, because nobody chose it', async () => {
+    const first = await org.createWorkspace({headers: headers(), actorId: fresh.id, name: 'Twice Over'});
+    const second = await org.createWorkspace({headers: headers(), actorId: fresh.id, name: 'Twice Over'});
+    assert.equal(first.organization.slug, 'twice-over');
+    assert.equal(second.organization.slug, 'twice-over-2');
+  });
+
+  // A typed slug is a choice, and quietly handing back a different one would be
+  // worse than saying it is taken.
+  it('refuses a chosen slug that is taken rather than altering it', async () => {
+    const result = await org.createWorkspace({
+      headers: headers(), actorId: fresh.id, name: 'Collides', slug: 'team',
+    });
+    assert.equal(result.error, 'slug-taken');
+    assert.deepEqual(org.listMemberships(fresh.id), [], 'and creates nothing');
+  });
+
+  it('accepts a chosen slug that is free', async () => {
+    const {organization} = await org.createWorkspace({
+      headers: headers(), actorId: fresh.id, name: 'Chosen', slug: 'my-own-short-name',
+    });
+    assert.equal(organization.slug, 'my-own-short-name');
+  });
+
+  for (const [why, body] of [
+    ['a name of one character', {name: 'x'}],
+    ['a name that is only spaces', {name: '   '}],
+    ['a name past 60 characters', {name: 'x'.repeat(61)}],
+    ['no name at all', {}],
+  ]) {
+    it(`refuses ${why}`, async () => {
+      const result = await org.createWorkspace({headers: headers(), actorId: fresh.id, ...body});
+      assert.equal(result.error, 'invalid-name');
+    });
+  }
+
+  for (const [why, slug] of [
+    ['a slug with a space', 'two words'],
+    ['a slug with a slash', 'a/b'],
+    ['a leading dash', '-lead'],
+    ['a trailing dash', 'trail-'],
+    ['a single character', 'x'],
+  ]) {
+    it(`refuses ${why}`, async () => {
+      const result = await org.createWorkspace({headers: headers(), actorId: fresh.id, name: 'Fine Name', slug});
+      assert.equal(result.error, 'invalid-slug', slug);
+    });
+  }
+
+  // Case is not one of the ways above to get a slug wrong. The field is
+  // lowercased first, exactly as a URL would be, and only then held to the rule.
+  it('lowercases a chosen slug rather than refusing it', async () => {
+    const {organization} = await org.createWorkspace({
+      headers: headers(), actorId: fresh.id, name: 'Shouted', slug: 'SHOUTED',
+    });
+    assert.equal(organization.slug, 'shouted');
+  });
+
+  it('asks for a slug when the name yields none', async () => {
+    const result = await org.createWorkspace({headers: headers(), actorId: fresh.id, name: '研究组'});
+    assert.equal(result.error, 'invalid-slug');
+  });
+
+  it('writes down where the organization came from', async () => {
+    const {organization} = await org.createWorkspace({headers: headers(), actorId: fresh.id, name: 'Recorded'});
+    const [event] = org.listAudit(organization.id);
+    assert.equal(event.action, 'org.create');
+    assert.equal(event.actorId, fresh.id);
+    assert.equal(event.targetLabel, 'Recorded');
+    assert.equal(event.detail.slug, 'recorded');
+  });
+});
+
+describe('switching workspace', () => {
+  it('moves the session, which is where every other read takes it from', async () => {
+    const before = db.prepare('SELECT activeOrganizationId FROM session WHERE token = ?').get(who.ada.token);
+    const {organization} = await org.createWorkspace({
+      headers: headersFor('ada'), actorId: who.ada.id, name: 'Somewhere Else',
+    });
+    assert.notEqual(before.activeOrganizationId, organization.id);
+
+    const result = await org.setActiveWorkspace({
+      headers: headersFor('ada'), userId: who.ada.id, organizationId: orgId,
+    });
+    assert.equal(result.organizationId, orgId);
+    assert.equal(
+      db.prepare('SELECT activeOrganizationId FROM session WHERE token = ?').get(who.ada.token).activeOrganizationId,
+      orgId,
+    );
+  });
+
+  // Refused here rather than by the plugin only so that a workspace you are not
+  // in reads as "no such workspace" instead of as an internal phrasing.
+  it('refuses a workspace the caller is not in', async () => {
+    const result = await org.setActiveWorkspace({
+      headers: headersFor('ada'), userId: who.ada.id, organizationId: otherOrgId,
+    });
+    assert.equal(result.error, 'not-a-member');
+  });
+
+  for (const [why, organizationId] of [
+    ['an id that does not exist', 'org_nonexistent'],
+    ['no id at all', undefined],
+    ['a prototype slot', '__proto__'],
+  ]) {
+    it(`refuses ${why}`, async () => {
+      const result = await org.setActiveWorkspace({headers: headersFor('ada'), userId: who.ada.id, organizationId});
+      assert.equal(result.error, 'not-a-member');
+    });
+  }
 });

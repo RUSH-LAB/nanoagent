@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { key } from '../../../_harness.mjs';
 
 // misc-tools.js is CommonJS; load the real module via createRequire the way the
 // sibling route suites do (next-healthsummary-500 / next-engagement-error500 /
@@ -11,7 +12,8 @@ import path from 'node:path';
 // It pins that handler's OUTER CATCH. The whole content-tree health scan and the
 // success projection run inside one try (handler opens at misc-tools.js:371, try
 // at :372). The try's first failable step is the memoized scan call
-// `cached('content-health', 60000, fn)` (around misc-tools.js:373); any throw from
+// `cached(cacheKey(orgId, 'content-health'), 60000, fn)` (around misc-tools.js:373);
+// any throw from
 // that call, or from inside the fn closure it wraps, lands in the catch (around
 // misc-tools.js:457) which returns
 // `json(res, 500, {error: 'Content health check failed'})` (around :458). The
@@ -21,6 +23,9 @@ const require = createRequire(import.meta.url);
 const routes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/virtual-root';
+// The scan walks the caller's own content tree, which the session resolves to
+// one organization's root under content/.
+const CONTENT_DIR = path.join(PROJECT_ROOT, 'content', 'mochi');
 
 // The exact reply the outer catch emits, captured in the {status, body} shape used
 // by the json() stub below.
@@ -40,7 +45,8 @@ const SUCCESS_KEYS = [
 
 // A cached() that throws synchronously, modelling a failure of the memo layer
 // itself: the scan closure is never invoked, so the throw at the
-// cached('content-health', …) call (around misc-tools.js:373) lands directly in the
+// cached(cacheKey(orgId, 'content-health'), …) call (around misc-tools.js:373) lands
+// directly in the
 // outer catch.
 function throwingCached() {
   return () => { throw new Error('cache layer unavailable'); };
@@ -91,9 +97,11 @@ async function runContentHealth({ cached, fs }) {
   const ctx = {
     json(_res, status, payload) { const r = { status, body: payload }; replies.push(r); return r; },
     cached(key, ttl, fn) { cachedCalls.push([key, ttl]); return cached(key, ttl, fn); },
+    cacheKey: (_orgId, name) => key(name),
     fs,
     path,
     PROJECT_ROOT,
+    contentRootFor: () => CONTENT_DIR,
     ALLOWED_EXTS: ['.md', '.mdx'],
   };
   const pathname = '/api/content-health';
@@ -115,8 +123,8 @@ describe('GET /api/content-health outer catch returns 500 Content health check f
     assert.deepStrictEqual(replies[0], GOLDEN_500);
 
     // The throw originates at the one memo call the handler reaches for this route:
-    // cached('content-health', 60000, fn) (around misc-tools.js:373).
-    assert.deepStrictEqual(cachedCalls, [['content-health', 60000]]);
+    // cached(cacheKey(orgId, 'content-health'), 60000, fn) (around misc-tools.js:373).
+    assert.deepStrictEqual(cachedCalls, [[key('content-health'), 60000]]);
 
     // cached threw before invoking the closure, so the content tree was never walked.
     assert.equal(fs.readdirCalls, 0, 'the scan closure never ran (no readdirSync)');
@@ -147,7 +155,7 @@ describe('GET /api/content-health outer catch returns 500 Content health check f
     // hits the throwing readdirSync; the throw escapes the closure (the try/catch
     // sits OUTSIDE cached) and lands in the SAME outer catch as the cached-throw
     // path above.
-    assert.deepStrictEqual(cachedCalls, [['content-health', 60000]]);
+    assert.deepStrictEqual(cachedCalls, [[key('content-health'), 60000]]);
     assert.ok(fs.readdirCalls > 0, 'the scan closure entered and walked the content dir');
     assert.equal(replies.length, 1);
     assert.deepStrictEqual(replies[0], GOLDEN_500);

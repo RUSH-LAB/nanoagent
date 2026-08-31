@@ -52,28 +52,31 @@ function extractFn(src, name) {
 
 // Lift hasAllowedExt + walkDir + flatFiles together so they share one scope (the
 // two walkers reference the helper, and walkDir recurses into itself). Inject the
-// four module-scope values they close over: fs, path, PROJECT_ROOT, ALLOWED_EXTS.
-function liftWalkers(fs, projectRoot) {
+// three module-scope values they close over: fs, path, ALLOWED_EXTS. The walkers
+// take their root as the `base` argument now, so there is no PROJECT_ROOT left
+// for them to close over.
+function liftWalkers(fs) {
   const src = readFileSync(path.join(REPO_ROOT, 'src/server/index.js'), 'utf-8');
   const hasAllowedExtSrc = extractFn(src, 'hasAllowedExt');
   const walkDirSrc = extractFn(src, 'walkDir');
   const flatFilesSrc = extractFn(src, 'flatFiles');
   const combined = [hasAllowedExtSrc, walkDirSrc, flatFilesSrc].join('\n\n');
   const make = new Function(
-    'fs', 'path', 'PROJECT_ROOT', 'ALLOWED_EXTS',
+    'fs', 'path', 'ALLOWED_EXTS',
     `${combined}\nreturn { hasAllowedExt, walkDir, flatFiles };`,
   );
   return {
     hasAllowedExtSrc, walkDirSrc, flatFilesSrc,
-    fns: make(fs, path, projectRoot, ALLOWED_EXTS),
+    fns: make(fs, path, ALLOWED_EXTS),
   };
 }
 
-// In-memory fixture rooted at PROJECT_ROOT/content. Covers every branch: allowed
-// .md / .mdx files, a disallowed extension, an extensionless file, a hidden file,
-// a hidden directory, and two levels of nested subdirectories.
+// In-memory fixture rooted at one organization's content tree. Covers every
+// branch: allowed .md / .mdx files, a disallowed extension, an extensionless
+// file, a hidden file, a hidden directory, and two levels of nested
+// subdirectories.
 const PROJECT_ROOT = '/fake/root';
-const CONTENT = path.join(PROJECT_ROOT, 'content');
+const CONTENT = path.join(PROJECT_ROOT, 'content', 'mochi');
 const SUB = path.join(CONTENT, 'sub');
 const NESTED = path.join(SUB, 'nested');
 
@@ -122,7 +125,7 @@ function makeFakeFs() {
 }
 
 describe('server/index.js hasAllowedExt hoist (source shape)', () => {
-  const { hasAllowedExtSrc, walkDirSrc, flatFilesSrc } = liftWalkers(makeFakeFs(), PROJECT_ROOT);
+  const { hasAllowedExtSrc, walkDirSrc, flatFilesSrc } = liftWalkers(makeFakeFs());
 
   it('declares a module-scope helper with the exact suffix predicate', () => {
     assert.match(hasAllowedExtSrc, /^function hasAllowedExt\(name\) \{/m);
@@ -143,7 +146,7 @@ describe('server/index.js hasAllowedExt hoist (source shape)', () => {
 });
 
 describe('server/index.js walkDir / flatFiles behavior over a fixture', () => {
-  const { fns } = liftWalkers(makeFakeFs(), PROJECT_ROOT);
+  const { fns } = liftWalkers(makeFakeFs());
   const { hasAllowedExt, walkDir, flatFiles } = fns;
 
   it('hasAllowedExt accepts only the allowed extensions', () => {
@@ -154,16 +157,20 @@ describe('server/index.js walkDir / flatFiles behavior over a fixture', () => {
     assert.equal(hasAllowedExt('weird.md.bak'), false);
   });
 
+  // Every path is relative to `base`, which defaults to the directory being
+  // walked. Called on the caller's content root, as GET /api/files calls it,
+  // that makes the wire paths `books/math/0-intro.md` with no organization in
+  // them: a request has nowhere to name another workspace's tree.
   it('walkDir returns the nested tree with only allowed files, skipping dotfiles', () => {
     assert.deepEqual(walkDir(CONTENT), [
-      { name: 'a.md', path: 'content/a.md', type: 'file', mtime: 111, size: 11 },
-      { name: 'b.mdx', path: 'content/b.mdx', type: 'file', mtime: 222, size: 22 },
+      { name: 'a.md', path: 'a.md', type: 'file', mtime: 111, size: 11 },
+      { name: 'b.mdx', path: 'b.mdx', type: 'file', mtime: 222, size: 22 },
       {
-        name: 'sub', path: 'content/sub', type: 'directory', children: [
-          { name: 'd.md', path: 'content/sub/d.md', type: 'file', mtime: 333, size: 33 },
+        name: 'sub', path: 'sub', type: 'directory', children: [
+          { name: 'd.md', path: 'sub/d.md', type: 'file', mtime: 333, size: 33 },
           {
-            name: 'nested', path: 'content/sub/nested', type: 'directory', children: [
-              { name: 'f.mdx', path: 'content/sub/nested/f.mdx', type: 'file', mtime: 444, size: 44 },
+            name: 'nested', path: 'sub/nested', type: 'directory', children: [
+              { name: 'f.mdx', path: 'sub/nested/f.mdx', type: 'file', mtime: 444, size: 44 },
             ],
           },
         ],
@@ -173,10 +180,34 @@ describe('server/index.js walkDir / flatFiles behavior over a fixture', () => {
 
   it('flatFiles returns every allowed file flattened in depth-first order', () => {
     assert.deepEqual(flatFiles(CONTENT), [
-      { name: 'a.md', path: 'content/a.md' },
-      { name: 'b.mdx', path: 'content/b.mdx' },
-      { name: 'd.md', path: 'content/sub/d.md' },
-      { name: 'f.mdx', path: 'content/sub/nested/f.mdx' },
+      { name: 'a.md', path: 'a.md' },
+      { name: 'b.mdx', path: 'b.mdx' },
+      { name: 'd.md', path: 'sub/d.md' },
+      { name: 'f.mdx', path: 'sub/nested/f.mdx' },
+    ]);
+  });
+
+  // A subdirectory listing keeps reporting against the content root rather than
+  // against the subdirectory, which is the whole reason `base` is a separate
+  // argument: recursion passes it down unchanged, so `sub/nested/f.mdx` reads
+  // the same whether the walk started at the root or one level in.
+  it('walkDir and flatFiles report paths relative to an explicit base', () => {
+    assert.deepEqual(walkDir(SUB, CONTENT), [
+      { name: 'd.md', path: 'sub/d.md', type: 'file', mtime: 333, size: 33 },
+      {
+        name: 'nested', path: 'sub/nested', type: 'directory', children: [
+          { name: 'f.mdx', path: 'sub/nested/f.mdx', type: 'file', mtime: 444, size: 44 },
+        ],
+      },
+    ]);
+    assert.deepEqual(flatFiles(SUB, CONTENT), [
+      { name: 'd.md', path: 'sub/d.md' },
+      { name: 'f.mdx', path: 'sub/nested/f.mdx' },
+    ]);
+    // Without a base, the same walk is relative to the subdirectory itself.
+    assert.deepEqual(flatFiles(SUB), [
+      { name: 'd.md', path: 'd.md' },
+      { name: 'f.mdx', path: 'nested/f.mdx' },
     ]);
   });
 

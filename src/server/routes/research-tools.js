@@ -5,7 +5,6 @@
 // document-frequency scoring with document-length normalization. Lexical ranking
 // only — no embeddings, vectors, cosine similarity, or semantic retrieval (see
 // .claude/CONSTRAINTS.md).
-const {REFERENCES_SEGS} = require('../paths');
 
 const BM25_K1 = 1.5;  // term-frequency saturation point
 const BM25_B = 0.75;  // document-length normalization strength
@@ -116,7 +115,7 @@ const REC_DOI_RE = /doi\.org\/(10\.\d{4,}\/[^\s]+)/;
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 module.exports = async function research_tools_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── Preprint tracking: check single reference ──
@@ -129,14 +128,14 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       const https = require('https');
       // Serve the parsed bibliography from the shared, mtime + size aware memo
       // instead of re-reading and re-parsing references.yaml on every request.
-      const refs = ctx.references.load(fs, path, PROJECT_ROOT);
+      const refs = ctx.references.load(fs, path, contentRootFor(req.auth?.orgId));
       // ctx.references.load swallows a missing or unparseable bibliography and
       // returns {}. Preserve the original 500-on-failure response by reproducing
       // that read only when the memoized parse is empty; the populated happy path
       // is served entirely from the memo and never re-reads or re-parses.
       if (Object.keys(refs).length === 0) {
         const yaml = require('js-yaml');
-        yaml.load(fs.readFileSync(path.join(PROJECT_ROOT, ...REFERENCES_SEGS), 'utf8'));
+        yaml.load(fs.readFileSync(path.join(contentRootFor(req.auth?.orgId), 'bibliography', 'references.yaml'), 'utf8'));
       }
 
       function extractRecPaperId(entry) {
@@ -256,7 +255,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
       const yearStr = year || 'unknown';
       const baseKey = `${lastName}${yearStr}`;
 
-      const bibPath = path.join(PROJECT_ROOT, ...REFERENCES_SEGS);
+      const bibPath = path.join(contentRootFor(req.auth?.orgId), 'bibliography', 'references.yaml');
       const refs = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
 
       // titleSlug depends only on `title` (a guaranteed non-empty string by the
@@ -284,7 +283,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
 
       refs[finalKey] = entry;
       fs.writeFileSync(bibPath, yaml.dump(refs, { lineWidth: -1 }), 'utf-8');
-      invalidateCache('stats');
+      invalidateCache(cacheKey(req.auth?.orgId, 'stats'));
 
       return json(res, 201, { key: finalKey, success: true });
     } catch (err) {
@@ -300,8 +299,8 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
     try {
       // Cached index: each doc carries its term-frequency map and length, plus
       // corpus-wide BM25 statistics (N, average length, per-term doc frequency).
-      const {docs: searchIndex, stats} = cached('search:index', 60000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
+      const {docs: searchIndex, stats} = cached(cacheKey(req.auth?.orgId, 'search:index'), 60000, () => {
+        const contentDir = contentRootFor(req.auth?.orgId);
         const docs = [];
         function indexDir(dir) {
           for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -318,7 +317,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
                 // which would double the index's resident string footprint.
                 const tokens = tokenizeSearch(content);
                 docs.push({
-                  path: path.relative(PROJECT_ROOT, fullPath),
+                  path: path.relative(contentRootFor(req.auth?.orgId), fullPath),
                   name: entry.name,
                   words: new Set(tokens),
                   tf: termFrequencies(tokens),

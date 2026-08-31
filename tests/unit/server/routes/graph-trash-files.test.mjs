@@ -9,11 +9,15 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, PROJECT_ROOT} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, PROJECT_ROOT, CONTENT_DIR, key} from '../../_harness.mjs';
 
 const routes = loadRoute('graph-trash-files');
-const at = rel => path.join(PROJECT_ROOT, rel);
-const TRASH_DIR = at('var/trash');
+// Fixtures live in the workspace's own tree, and the paths a request carries
+// are relative to it: `books/math/x.md`, never `content/mochi/books/math/x.md`.
+const at = rel => path.join(CONTENT_DIR, rel);
+// The trash is one tree per server, not per organization root, so it is joined
+// under the repo root rather than under the content root.
+const TRASH_DIR = path.join(PROJECT_ROOT, 'var', 'trash');
 
 const fm = (fields, body = '') =>
   `---\n${Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n')}\n---\n${body}`;
@@ -34,15 +38,15 @@ function fsCtx(files, over = {}) {
 
 describe('GET /api/graph', () => {
   const TREE = {
-    [at('content/books/math/algebra.md')]: fm({title: 'Algebra'}, 'links [[books/math/calculus]] and [[calculus]] and [[nowhere]]'),
-    [at('content/books/math/calculus.md')]: '# Calculus Heading\n\nno front matter',
+    [at('books/math/algebra.md')]: fm({title: 'Algebra'}, 'links [[books/math/calculus]] and [[calculus]] and [[nowhere]]'),
+    [at('books/math/calculus.md')]: '# Calculus Heading\n\nno front matter',
     // "math" is a substring of books/math/algebra but is neither its suffix nor
     // its "/"-prefixed suffix, so the endsWith fallback must not resolve it.
-    [at('content/posts/blog/hello.md')]: 'plain body [[math]] and [[nothing-here]]',
-    [at('content/guide/index.md')]: fm({title: 'Guide'}, 'aliased [[algebra|see algebra]]'),
-    [at('content/_draft.md')]: '[[algebra]]',
-    [at('content/.hidden.md')]: '[[algebra]]',
-    [at('content/notes.txt')]: '[[algebra]]',
+    [at('posts/blog/hello.md')]: 'plain body [[math]] and [[nothing-here]]',
+    [at('guide/index.md')]: fm({title: 'Guide'}, 'aliased [[algebra|see algebra]]'),
+    [at('_draft.md')]: '[[algebra]]',
+    [at('.hidden.md')]: '[[algebra]]',
+    [at('notes.txt')]: '[[algebra]]',
   };
 
   it('builds route-like ids, titles and categories for every node', async () => {
@@ -90,7 +94,7 @@ describe('GET /api/graph', () => {
   // Object member must not resolve to Object.prototype.
   for (const target of ['constructor', 'toString', 'hasOwnProperty']) {
     it(`drops a wiki link naming the inherited member ${JSON.stringify(target)}`, async () => {
-      const {ctx} = fsCtx({[at('content/a.md')]: `[[${target}]]`});
+      const {ctx} = fsCtx({[at('a.md')]: `[[${target}]]`});
       const r = await invoke(routes, {path: '/api/graph', ctx});
       assert.deepEqual(r.payload.edges, []);
     });
@@ -100,7 +104,7 @@ describe('GET /api/graph', () => {
     let seen;
     const {ctx} = fsCtx(TREE, {cached: (key, ttl, fn) => { seen = [key, ttl]; return fn(); }});
     await invoke(routes, {path: '/api/graph', ctx});
-    assert.deepEqual(seen, ['graph-data', 60000]);
+    assert.deepEqual(seen, [key('graph-data'), 60000]);
   });
 
   it('serves an identical payload from cache without re-scanning', async () => {
@@ -168,25 +172,27 @@ describe('DELETE /api/trash/empty', () => {
 
 describe('GET /api/backlinks', () => {
   const TREE = {
-    [at('content/docs/math/algebra.md')]: fm({title: 'Algebra'}, 'self [[algebra]]'),
-    [at('content/bare.md')]: '# Bare\n\nlinks [[algebra]]',
-    [at('content/full.md')]: '# Full\n\nlinks [[docs/math/algebra]]',
-    [at('content/nodocs.md')]: '# NoDocs\n\nlinks [[math/algebra]]',
-    [at('content/cited.md')]: '# Cited\n\ncites [@algebra]',
-    [at('content/near.md')]: '# Near\n\nlinks [[algebraic]]',
-    [at('content/other.md')]: '# Other\n\nlinks [[other/topic]]',
+    [at('docs/math/algebra.md')]: fm({title: 'Algebra'}, 'self [[algebra]]'),
+    [at('bare.md')]: '# Bare\n\nlinks [[algebra]]',
+    [at('full.md')]: '# Full\n\nlinks [[docs/math/algebra]]',
+    [at('nodocs.md')]: '# NoDocs\n\nlinks [[math/algebra]]',
+    [at('cited.md')]: '# Cited\n\ncites [@algebra]',
+    [at('near.md')]: '# Near\n\nlinks [[algebraic]]',
+    [at('other.md')]: '# Other\n\nlinks [[other/topic]]',
   };
-  const TARGET = 'content/docs/math/algebra.md';
+  // The target arrives already relative to the content root, so the handler
+  // derives its link forms from it as-is rather than stripping a prefix.
+  const TARGET = 'docs/math/algebra.md';
 
   it('matches all three link forms plus the citation, excluding self and near misses', async () => {
     const {ctx} = fsCtx(TREE);
     const r = await invoke(routes, {path: '/api/backlinks', query: {path: TARGET}, ctx});
     assert.equal(r.status, 200);
     assert.deepEqual(r.payload.backlinks.map(b => [b.sourcePath, b.linkType]).sort(), [
-      ['content/bare.md', 'wikilink'],
-      ['content/cited.md', 'citation'],
-      ['content/full.md', 'wikilink'],
-      ['content/nodocs.md', 'wikilink'],
+      ['bare.md', 'wikilink'],
+      ['cited.md', 'citation'],
+      ['full.md', 'wikilink'],
+      ['nodocs.md', 'wikilink'],
     ]);
   });
 
@@ -194,7 +200,7 @@ describe('GET /api/backlinks', () => {
     const {ctx} = fsCtx(TREE);
     const r = await invoke(routes, {path: '/api/backlinks', query: {path: TARGET}, ctx});
     const byPath = Object.fromEntries(r.payload.backlinks.map(b => [b.sourcePath, b.sourceTitle]));
-    assert.equal(byPath['content/bare.md'], 'Bare');
+    assert.equal(byPath['bare.md'], 'Bare');
   });
 
   it('returns 400 when the path param is missing, before any memo call', async () => {
@@ -208,7 +214,7 @@ describe('GET /api/backlinks', () => {
     let seen;
     const {ctx} = fsCtx(TREE, {cached: (key, ttl, fn) => { seen = [key, ttl]; return fn(); }});
     await invoke(routes, {path: '/api/backlinks', query: {path: TARGET}, ctx});
-    assert.deepEqual(seen, [`backlinks:${TARGET}`, 60000]);
+    assert.deepEqual(seen, [key(`backlinks:${TARGET}`), 60000]);
   });
 
   it('returns identical results back to back', async () => {
@@ -251,34 +257,41 @@ describe('rate-limit gates on the mutation handlers', () => {
 });
 
 describe('POST /api/folder (create)', () => {
-  it('rejects a path outside content/ before any mkdir', async () => {
-    const {ctx} = fsCtx({});
-    const r = await invoke(routes, {method: 'POST', path: '/api/folder', body: {path: 'elsewhere/x'}, ctx});
-    assert.deepEqual([r.status, r.payload], [400, {error: 'Invalid path. Must start with content/'}]);
-    assert.equal(ctx.fs.existsSync(at('elsewhere/x')), false);
+  // A path is org-relative now, so "outside the content tree" no longer means a
+  // missing `content/` prefix; it means one that climbs out of the org's root.
+  it('rejects a path escaping the content root before any mkdir', async () => {
+    let mkdirs = 0;
+    const base = mockFs({});
+    const ctx = makeCtx({fs: {...base, mkdirSync: () => { mkdirs++; }}});
+    const r = await invoke(routes, {method: 'POST', path: '/api/folder', body: {path: '../elsewhere/x'}, ctx});
+    assert.deepEqual([r.status, r.payload], [400, {error: 'Invalid path'}]);
+    assert.equal(mkdirs, 0);
   });
 
   it('returns 409 when the directory already exists', async () => {
-    const {ctx} = fsCtx({[at('content/existing/a.md')]: 'x'});
-    const r = await invoke(routes, {method: 'POST', path: '/api/folder', body: {path: 'content/existing'}, ctx});
+    const {ctx} = fsCtx({[at('existing/a.md')]: 'x'});
+    const r = await invoke(routes, {method: 'POST', path: '/api/folder', body: {path: 'existing'}, ctx});
     assert.deepEqual([r.status, r.payload], [409, {error: 'Directory already exists'}]);
   });
 
   it('creates a fresh directory', async () => {
     const {ctx} = fsCtx({});
-    const r = await invoke(routes, {method: 'POST', path: '/api/folder', body: {path: 'content/fresh'}, ctx});
-    assert.deepEqual([r.status, r.payload], [201, {success: true, path: 'content/fresh'}]);
-    assert.equal(ctx.fs.existsSync(at('content/fresh')), true);
+    const r = await invoke(routes, {method: 'POST', path: '/api/folder', body: {path: 'fresh'}, ctx});
+    assert.deepEqual([r.status, r.payload], [201, {success: true, path: 'fresh'}]);
+    assert.equal(ctx.fs.existsSync(at('fresh')), true);
   });
 });
 
 describe('DELETE /api/folder (delete empty)', () => {
+  // The root guard fires on the org-relative name of the content root itself,
+  // which is the empty path or ".", not on the literal string "content".
   const GUARDS = [
-    {name: 'a path outside content/', body: {path: 'elsewhere'}, files: {}, status: 400, error: 'Invalid path. Must start with content/'},
-    {name: 'the root content directory', body: {path: 'content'}, files: {}, status: 400, error: 'Cannot delete the root content directory'},
-    {name: 'a directory that does not exist', body: {path: 'content/gone'}, files: {}, status: 404, error: 'Directory not found'},
-    {name: 'a path that is a file', body: {path: 'content/a.md'}, files: {[at('content/a.md')]: 'x'}, status: 400, error: 'Path is not a directory'},
-    {name: 'a directory that is not empty', body: {path: 'content/full'}, files: {[at('content/full/a.md')]: 'x'}, status: 400, error: 'Directory is not empty'},
+    {name: 'a path escaping the content root', body: {path: '../elsewhere'}, files: {}, status: 400, error: 'Invalid path'},
+    {name: 'the root content directory named as ""', body: {path: ''}, files: {}, status: 400, error: 'Cannot delete the root content directory'},
+    {name: 'the root content directory named as "."', body: {path: '.'}, files: {}, status: 400, error: 'Cannot delete the root content directory'},
+    {name: 'a directory that does not exist', body: {path: 'gone'}, files: {}, status: 404, error: 'Directory not found'},
+    {name: 'a path that is a file', body: {path: 'a.md'}, files: {[at('a.md')]: 'x'}, status: 400, error: 'Path is not a directory'},
+    {name: 'a directory that is not empty', body: {path: 'full'}, files: {[at('full/a.md')]: 'x'}, status: 400, error: 'Directory is not empty'},
   ];
   for (const {name, body, files, status, error} of GUARDS) {
     it(`rejects ${name}`, async () => {
@@ -290,10 +303,10 @@ describe('DELETE /api/folder (delete empty)', () => {
 
   it('removes an empty directory', async () => {
     const base = mockFs({});
-    base.mkdirSync(at('content/empty'));
-    const r = await invoke(routes, {method: 'DELETE', path: '/api/folder', body: {path: 'content/empty'}, ctx: makeCtx({fs: base})});
+    base.mkdirSync(at('empty'));
+    const r = await invoke(routes, {method: 'DELETE', path: '/api/folder', body: {path: 'empty'}, ctx: makeCtx({fs: base})});
     assert.deepEqual([r.status, r.payload], [200, {success: true}]);
-    assert.equal(base.existsSync(at('content/empty')), false);
+    assert.equal(base.existsSync(at('empty')), false);
   });
 
   it('returns 400 rather than 500 when the body is not valid JSON', async () => {
@@ -304,41 +317,41 @@ describe('DELETE /api/folder (delete empty)', () => {
 
   it('returns 500 when the removal itself throws', async () => {
     const base = mockFs({});
-    base.mkdirSync(at('content/empty'));
+    base.mkdirSync(at('empty'));
     const fs = {...base, rmdirSync() { throw new Error('EACCES'); }};
-    const r = await invoke(routes, {method: 'DELETE', path: '/api/folder', body: {path: 'content/empty'}, ctx: makeCtx({fs})});
+    const r = await invoke(routes, {method: 'DELETE', path: '/api/folder', body: {path: 'empty'}, ctx: makeCtx({fs})});
     assert.deepEqual([r.status, r.payload], [500, {error: 'Delete failed'}]);
   });
 });
 
 describe('POST /api/file/move', () => {
   const GUARDS = [
-    {name: 'an invalid source path', body: {filePath: '../escape.md', targetDir: 'content/dest'}, status: 400, error: 'Invalid file path'},
-    {name: 'a target directory outside content/', body: {filePath: 'content/a.md', targetDir: 'elsewhere'}, status: 400, error: 'Invalid target directory. Must start with content/'},
-    {name: 'a missing source file', body: {filePath: 'content/gone.md', targetDir: 'content/dest'}, status: 404, error: 'Source file not found'},
+    {name: 'an invalid source path', body: {filePath: '../escape.md', targetDir: 'dest'}, status: 400, error: 'Invalid file path'},
+    {name: 'a target directory escaping the content root', body: {filePath: 'a.md', targetDir: '../elsewhere'}, status: 400, error: 'Invalid target directory'},
+    {name: 'a missing source file', body: {filePath: 'gone.md', targetDir: 'dest'}, status: 404, error: 'Source file not found'},
   ];
   for (const {name, body, status, error} of GUARDS) {
     it(`rejects ${name}`, async () => {
-      const {ctx} = fsCtx({[at('content/a.md')]: 'x'});
+      const {ctx} = fsCtx({[at('a.md')]: 'x'});
       const r = await invoke(routes, {method: 'POST', path: '/api/file/move', body, ctx});
       assert.deepEqual([r.status, r.payload], [status, {error}]);
     });
   }
 
   it('returns 409 when a file already exists at the target', async () => {
-    const {ctx} = fsCtx({[at('content/a.md')]: 'x', [at('content/dest/a.md')]: 'y'});
-    const r = await invoke(routes, {method: 'POST', path: '/api/file/move', body: {filePath: 'content/a.md', targetDir: 'content/dest'}, ctx});
+    const {ctx} = fsCtx({[at('a.md')]: 'x', [at('dest/a.md')]: 'y'});
+    const r = await invoke(routes, {method: 'POST', path: '/api/file/move', body: {filePath: 'a.md', targetDir: 'dest'}, ctx});
     assert.deepEqual([r.status, r.payload], [409, {error: 'A file already exists at the target location'}]);
   });
 
   it('moves the file and clears only the search cache', async () => {
-    const {ctx} = fsCtx({[at('content/a.md')]: 'x'});
-    const r = await invoke(routes, {method: 'POST', path: '/api/file/move', body: {filePath: 'content/a.md', targetDir: 'content/dest'}, ctx});
-    assert.deepEqual([r.status, r.payload], [200, {success: true, newPath: 'content/dest/a.md'}]);
-    assert.equal(ctx.fs.existsSync(at('content/dest/a.md')), true);
-    assert.equal(ctx.fs.existsSync(at('content/a.md')), false);
+    const {ctx} = fsCtx({[at('a.md')]: 'x'});
+    const r = await invoke(routes, {method: 'POST', path: '/api/file/move', body: {filePath: 'a.md', targetDir: 'dest'}, ctx});
+    assert.deepEqual([r.status, r.payload], [200, {success: true, newPath: 'dest/a.md'}]);
+    assert.equal(ctx.fs.existsSync(at('dest/a.md')), true);
+    assert.equal(ctx.fs.existsSync(at('a.md')), false);
     // A move changes only a path, not the file count, so the content stats stay valid.
-    assert.deepEqual(ctx.calls.invalidateCache, ['search']);
+    assert.deepEqual(ctx.calls.invalidateCache, [key('search')]);
   });
 });
 

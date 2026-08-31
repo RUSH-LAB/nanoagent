@@ -11,12 +11,12 @@ const { numericParam } = miscToolsRoutes;
 
 // The bibliography plugin publishes a loader that asks for a reader, because the
 // plugin is not allowed to touch the filesystem itself. The server adapts that
-// reader into the (fs, path, root) call core handlers make: see
+// reader into the (fs, path, contentRoot) call core handlers make: see
 // referencesForCore in src/server/index.js. This mirrors that adaptation so the
 // suite can feed its fixture fs to the real loader rather than to a stub of it.
 function referencesForCore(provided) {
-  const readerFor = (fs, path, root) => {
-    const at = (relative) => path.join(root, 'content', relative);
+  const readerFor = (fs, path, contentRoot) => {
+    const at = (relative) => path.join(contentRoot, relative);
     return {
       read(relative) {
         try {
@@ -79,17 +79,19 @@ describe('GET /api/suggest limit guard', () => {
     `ref${i}:\n  title: "Elephant study ${i}"\n  author: "Author ${i}"`,
   ).join('\n');
 
-  // content tree: 25 markdown pages whose H1 heading carries the keyword.
-  const contentDir = path.join(PROJECT_ROOT, 'content');
+  // content tree: 25 markdown pages whose H1 heading carries the keyword. They
+  // live in the caller's own workspace, which the session resolves to one
+  // organization's tree under content/, and are listed relative to that root.
+  const contentDir = path.join(PROJECT_ROOT, 'content', 'mochi');
   const pageFiles = Array.from({ length: ENTRY_COUNT }, (_, i) => ({
     name: `page-${i}.md`,
-    path: `content/page-${i}.md`,
+    path: `page-${i}.md`,
   }));
 
   const fileContents = new Map();
-  fileContents.set(path.join(PROJECT_ROOT, 'content', 'bibliography', 'references.yaml'), refsYaml);
+  fileContents.set(path.join(contentDir, 'bibliography', 'references.yaml'), refsYaml);
   for (const f of pageFiles) {
-    fileContents.set(path.join(PROJECT_ROOT, f.path), `# Elephant page ${f.name}\n`);
+    fileContents.set(path.join(contentDir, f.path), `# Elephant page ${f.name}\n`);
   }
 
   const fs = {
@@ -109,6 +111,7 @@ describe('GET /api/suggest limit guard', () => {
     fs,
     path,
     PROJECT_ROOT,
+    contentRootFor: () => contentDir,
     flatFiles: dir => (dir === contentDir ? pageFiles : []),
   };
   const callSuggest = search =>

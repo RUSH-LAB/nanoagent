@@ -10,11 +10,11 @@ const path = require('path');
 const {URL} = require('url');
 const {execFileSync} = require('child_process');
 const {
-  isValidFilePath, isValidDir, sanitizeText,
+  isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText,
   ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH,
 } = require('./server-utils');
 
-const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
+const {PROJECT_ROOT, PRIMARY_ORG_SLUG, contentDirFor, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
 const {auth, resolveIdentity, isPublicPath} = require('./auth');
 // Site-wide roles, on ctx like every other dependency a route module needs, so
 // a test can substitute an in-memory implementation instead of a real database.
@@ -48,11 +48,16 @@ const NO_REFERENCES = Object.freeze({
  * The plugin cannot touch the filesystem, so it asks for `read` and `stat` and
  * lets whoever calls it supply them. Core has fs, and its tests supply a mock
  * one, so the adaptation belongs here rather than in the plugin.
+ *
+ * `root` is now the caller's own content root rather than the repository root,
+ * because a bibliography belongs to a workspace: two research groups do not
+ * share one references.yaml, and the plugin's relative `bibliography/
+ * references.yaml` resolves inside whichever tree it is given.
  */
 function referencesForCore(provided) {
   if (!provided) return NO_REFERENCES;
-  const readerFor = (fs, path, root) => {
-    const at = relative => path.join(root, 'content', relative);
+  const readerFor = (fs, path, contentRoot) => {
+    const at = relative => path.join(contentRoot, relative);
     return {
       read(relative) {
         try {
@@ -85,7 +90,7 @@ const BOOKMARKS_FILE = dataFile('bookmarks');
 const READING_LISTS_FILE = dataFile('reading-lists');
 const STREAKS_FILE = dataFile('streaks');
 const SNAPSHOTS_FILE = dataFile('snapshots');
-const SCHEDULES_FILE = dataFile('schedules');
+const SCHEDULE_FILE = dataFile('schedule');
 const WHITEBOARDS_FILE = dataFile('whiteboards');
 const FLASHCARDS_FILE = dataFile('flashcards');
 const GLOSSARY_FILE = dataFile('glossary');
@@ -124,14 +129,64 @@ function hasAllowedExt(name) {
   return ALLOWED_EXTS.some(ext => name.endsWith(ext));
 }
 
-function walkDir(dir) {
+/**
+ * The absolute content root of one organization.
+ *
+ * A function of the caller's organization rather than a constant on ctx,
+ * because ctx is one object shared by every in-flight request and a root parked
+ * there would be whichever request wrote it last. The organization comes from
+ * `req.auth`, which comes from the verified session, so a handler calls this
+ * with `req.auth.orgId` and cannot be handed another workspace's tree.
+ *
+ * Falls back to the primary organization when there is no session at all, which
+ * is the case for the two public feeds and for the whole server when
+ * ENABLE_AUTH is off (the tests, and `npm run start:noauth`).
+ */
+function orgSlugFor(orgId) {
+  return org.slugForOrg(orgId) || PRIMARY_ORG_SLUG;
+}
+
+function contentRootFor(orgId) {
+  return contentDirFor(orgSlugFor(orgId));
+}
+
+/**
+ * A cache key belonging to one organization.
+ *
+ * Every derived thing the server caches is derived from one workspace's
+ * content: the search index, the graph, the stats, the feeds, the per-file
+ * analyses. The keys used to be bare, which was correct while there was one
+ * tree and became a cross-tenant read the moment there were two, silently and
+ * with a sixty-second memory. The per-file keys leak the same way, because
+ * `books/math/0-intro.md` is now a path that exists in more than one workspace.
+ *
+ * The `org:` prefix is not decoration. invalidateCache matches by substring, so
+ * a bare `<slug>:` prefix would let the pattern for a workspace called `lab`
+ * also clear one called `mochi-lab`; with `org:` in front, the delimiter has to
+ * line up.
+ */
+function cacheKey(orgId, name) {
+  return `org:${orgSlugFor(orgId)}:${name}`;
+}
+
+/**
+ * The file tree under `dir`, with every path relative to `base`.
+ *
+ * `base` is the caller's content root, so the paths that go out on the wire are
+ * `books/math/0-intro.md` and never `content/mochi/books/math/0-intro.md`. That
+ * is the whole of the isolation story for content: with no organization in the
+ * wire format, a request has nowhere to put one, so asking for another
+ * workspace's file is not a thing a client can express rather than a thing the
+ * server has to remember to refuse.
+ */
+function walkDir(dir, base = dir) {
   const result = [];
   for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
     if (entry.name.startsWith('.')) continue;
     const fullPath = path.join(dir, entry.name);
-    const relPath = path.relative(PROJECT_ROOT, fullPath);
+    const relPath = path.relative(base, fullPath);
     if (entry.isDirectory()) {
-      result.push({name: entry.name, path: relPath, type: 'directory', children: walkDir(fullPath)});
+      result.push({name: entry.name, path: relPath, type: 'directory', children: walkDir(fullPath, base)});
     } else if (hasAllowedExt(entry.name)) {
       const stat = fs.statSync(fullPath);
       result.push({name: entry.name, path: relPath, type: 'file', mtime: stat.mtimeMs, size: stat.size});
@@ -140,13 +195,14 @@ function walkDir(dir) {
   return result;
 }
 
-function flatFiles(dir) {
+/** The same tree, flattened to files, likewise relative to `base`. */
+function flatFiles(dir, base = dir) {
   const result = [];
   function walk(d) {
     for (const entry of fs.readdirSync(d, {withFileTypes: true})) {
       if (entry.name.startsWith('.')) continue;
       const fullPath = path.join(d, entry.name);
-      const relPath = path.relative(PROJECT_ROOT, fullPath);
+      const relPath = path.relative(base, fullPath);
       if (entry.isDirectory()) {
         walk(fullPath);
       } else if (hasAllowedExt(entry.name)) {
@@ -351,16 +407,40 @@ setInterval(() => {
 }, 60000);
 
 // ── Scheduled publishing checker (runs every 60s) ──
+//
+// This had never run. It read var/data/schedules.json, and the store the API
+// writes is var/data/schedule.json, so loadJSON returned {} on every tick for
+// as long as the loop has existed. It also expected a bare array where the API
+// writes {items: [...]}, so correcting only the filename would have left it
+// doing nothing, and correcting only the shape would have left it reading a
+// file that is not there.
+//
+// The third defect is the one worth naming: it joined `schedule.path` onto the
+// repo root and wrote to it, with no validation. That field arrives from the
+// body of POST /api/schedule, where it is passed through sanitizeText, which
+// strips control characters and does not care about `../`. Had either of the
+// other two bugs ever been fixed on its own, this loop would have been an
+// arbitrary-file-write primitive reachable by any signed-in caller. The check
+// below is the same isValidFilePath every file handler already uses.
+//
+// Published items keep their row with status 'published', rather than being
+// dropped, so that GET /api/schedule can still account for them; that endpoint
+// already models an item's life as a status rather than as presence in a list.
 setInterval(() => {
   try {
-    const loaded = loadJSON(SCHEDULES_FILE);
-    const schedules = Array.isArray(loaded) ? loaded : [];
-    if (schedules.length === 0) return;
+    const store = loadJSON(SCHEDULE_FILE);
+    const items = Array.isArray(store.items) ? store.items : [];
+    if (items.length === 0) return;
     const now = new Date();
-    const remaining = [];
-    for (const schedule of schedules) {
+    let changed = false;
+    for (const schedule of items) {
+      if (schedule.status === 'published') continue;
       if (new Date(schedule.publishAt) <= now) {
         try {
+          if (!isValidFilePath(schedule.path)) {
+            console.error(`[schedule] Refusing ${schedule.path}: not a content path`);
+            continue;
+          }
           const fullPath = path.join(PROJECT_ROOT, schedule.path);
           if (!fs.existsSync(fullPath)) {
             console.log(`[schedule] Skipping ${schedule.path}: file not found`);
@@ -380,16 +460,21 @@ setInterval(() => {
             content = '---\ndraft: false\n---\n' + content;
           }
           fs.writeFileSync(fullPath, content, 'utf-8');
+          schedule.status = 'published';
+          schedule.publishedAt = now.toISOString();
+          changed = true;
           console.log(`[schedule] Published ${schedule.path} (was scheduled for ${schedule.publishAt})`);
         } catch (err) {
           console.error(`[schedule] Failed to publish ${schedule.path}:`, err.message);
         }
-      } else {
-        remaining.push(schedule);
       }
     }
-    if (remaining.length !== schedules.length) {
-      saveJSON(SCHEDULES_FILE, remaining);
+    if (changed) {
+      saveJSON(SCHEDULE_FILE, {...store, items});
+      // The file's frontmatter changed, so anything derived from the tree is
+      // now one publish behind.
+      invalidateCache('search');
+      invalidateCache('stats');
     }
   } catch (err) {
     console.error('[schedule] Checker error:', err.message);
@@ -429,7 +514,7 @@ let requestCounter = 0;
 
 // ── Shared context handed to every route module in server/routes/ ──
 const ctx = {
-  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULES_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
+  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
   roles,
   chat,
   org,
@@ -670,9 +755,11 @@ server.listen(PORT, async () => {
   if (root) {
     console.log(`  Dev sign-in: one click as "${root.username}" (owner)${root.created ? ', account created' : ''}`);
     console.log(`  Root password: ${root.passwordFile}`);
-    const {workspace} = root;
+    const {workspace, demo} = root;
     if (workspace?.error) console.log(`  Workspace: none (${workspace.error})`);
     else if (workspace?.created) console.log(`  Workspace: "${workspace.name}" ready, with #${workspace.channel}`);
+    if (demo?.error) console.log(`  Second workspace: none (${demo.error})`);
+    else if (demo?.name) console.log(`  Second workspace: "${demo.name}", empty, to switch to from the navbar`);
   }
   console.log('');
 });

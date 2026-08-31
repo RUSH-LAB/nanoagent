@@ -7,9 +7,103 @@ import {themes as prismThemes} from 'prism-react-renderer';
 // adding one a matter of adding a directory.
 const { loadBuildPlugins, loadRemarkPlugins } = require('./plugins/loader');
 
+const fs = require('fs');
+const nodePath = require('path');
+
+// ── Organizations ──────────────────────────────────────────────────────────
+//
+// Content is one tree per workspace: content/<org slug>/{books,posts}. The
+// plugin list below is generated from whichever of those directories exist on
+// disk, rather than written out, so adding a workspace is adding a directory.
+//
+// The primary organization keeps the bare routes. `content/mochi/books/math`
+// serves /math, exactly as `content/books/math` did, which is what lets 181
+// files keep linking to each other through a move that would otherwise have
+// rewritten every URL on the site. Every other workspace is served under its
+// own slug: content/hello-world/books/math serves /hello-world/math.
+//
+// The consequence worth knowing: a workspace created while the site is running
+// has no pages until the site restarts, because Docusaurus fixes its plugin
+// list at startup. The API, the editor, and the file tree see it immediately.
+const PRIMARY_ORG = process.env.ROOT_ORG_SLUG || 'mochi';
+const CONTENT_ROOT = 'content';
+
+/** The workspace slugs with a content tree, primary first. */
+function organizationSlugs() {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(CONTENT_ROOT, {withFileTypes: true})
+      .filter(e => e.isDirectory() && !e.name.startsWith('.'))
+      .map(e => e.name);
+  } catch {
+    // No content at all is a checkout that has not been set up, not an error
+    // worth failing the build over; the primary org's plugins simply find
+    // nothing and Docusaurus says so per plugin.
+    return [PRIMARY_ORG];
+  }
+  return [PRIMARY_ORG, ...entries.filter(name => name !== PRIMARY_ORG).sort()];
+}
+
+/** Where one workspace's books and posts live, and where they are served. */
+function spaceFor(slug) {
+  return {
+    slug,
+    booksDir: `${CONTENT_ROOT}/${slug}/books`,
+    postsDir: `${CONTENT_ROOT}/${slug}/posts`,
+    // The primary workspace owns the bare routes; the rest are namespaced.
+    routePrefix: slug === PRIMARY_ORG ? '' : `${slug}/`,
+    // Plugin ids must be unique across the whole site, and two workspaces can
+    // both have a book called math.
+    idPrefix: slug === PRIMARY_ORG ? '' : `${slug}-`,
+  };
+}
+
+const SPACES = organizationSlugs().map(spaceFor);
+const PRIMARY = SPACES[0];
+
+const exists = p => fs.existsSync(nodePath.join(p));
+
+/** Every book directory that exists, across every workspace. */
+const BOOKS = SPACES.flatMap(space =>
+  (() => {
+    try {
+      return fs.readdirSync(space.booksDir, {withFileTypes: true})
+        .filter(e => e.isDirectory())
+        .map(e => ({space, name: e.name}));
+    } catch {
+      return [];
+    }
+  })(),
+);
+
+/** Every blog directory that exists, with the titling the two known ones use. */
+const BLOG_TITLES = {
+  blog: {title: 'Blog', description: 'Blog posts', sidebarTitle: 'All Posts'},
+  research: {
+    title: 'Research Papers',
+    description: 'Collection of research paper summaries and discussions',
+    sidebarTitle: 'Recent Papers',
+    showReadingTime: true,
+  },
+};
+
+const BLOGS = SPACES.flatMap(space =>
+  (() => {
+    try {
+      return fs.readdirSync(space.postsDir, {withFileTypes: true})
+        .filter(e => e.isDirectory())
+        .map(e => ({space, name: e.name}));
+    } catch {
+      return [];
+    }
+  })(),
+);
+
 // ── Shared plugin configs ──────────────────────────────────────────────────
-const BOOKS_DIR = 'content/books';
-const POSTS_DIR = 'content/posts';
+// The primary workspace's directories, for the preset, which takes exactly one
+// docs instance and must therefore be the primary org's `programming`.
+const BOOKS_DIR = PRIMARY.booksDir;
+const POSTS_DIR = PRIMARY.postsDir;
 
 // remark-math runs first so math is parsed out of the tree before any plugin's
 // syntax walks its text nodes.
@@ -37,13 +131,14 @@ const defaultRehypePluginsWithEqref = [
   }],
 ];
 
-function makeDocsPlugin(id, name) {
+/** One book of one workspace: `{space, name}` from BOOKS. */
+function makeDocsPlugin({space, name}) {
   return [
     '@docusaurus/plugin-content-docs',
     {
-      id,
-      path: `${BOOKS_DIR}/${name}`,
-      routeBasePath: name,
+      id: `${space.idPrefix}${name}`,
+      path: `${space.booksDir}/${name}`,
+      routeBasePath: `${space.routePrefix}${name}`,
       // The breadcrumb bar's last crumb repeats the page title that the
       // <h1> right below it already carries.
       breadcrumbs: false,
@@ -53,19 +148,37 @@ function makeDocsPlugin(id, name) {
   ];
 }
 
-function makeBlogPlugin(id, name, {title, description, sidebarTitle, showReadingTime = false}) {
+/**
+ * One blog of one workspace: `{space, name}` from BLOGS.
+ *
+ * `authorsMapPath` is resolved against this plugin's own `path`, so `../` lands
+ * on `content/<slug>/posts/authors.yml`: each workspace names its own authors,
+ * which is the only sensible reading of an author list once there is more than
+ * one research group on the machine.
+ *
+ * A workspace whose blog has no authors.yml would fail the build on the first
+ * post that names an author, so a missing one is left unset rather than
+ * pointing at a file that is not there.
+ */
+function makeBlogPlugin({space, name}) {
+  const titles = BLOG_TITLES[name] ?? {
+    title: name.charAt(0).toUpperCase() + name.slice(1),
+    description: `${name} posts`,
+    sidebarTitle: 'Recent Posts',
+  };
+  const authorsMap = exists(`${space.postsDir}/authors.yml`);
   return [
     '@docusaurus/plugin-content-blog',
     {
-      id,
-      path: `${POSTS_DIR}/${name}`,
-      routeBasePath: name,
-      showReadingTime,
-      blogTitle: title,
-      blogDescription: description,
-      blogSidebarTitle: sidebarTitle,
+      id: `${space.idPrefix}${name}`,
+      path: `${space.postsDir}/${name}`,
+      routeBasePath: `${space.routePrefix}${name}`,
+      showReadingTime: titles.showReadingTime ?? false,
+      blogTitle: titles.title,
+      blogDescription: titles.description,
+      blogSidebarTitle: titles.sidebarTitle,
       blogSidebarCount: 0,
-      authorsMapPath: '../authors.yml',
+      ...(authorsMap ? {authorsMapPath: '../authors.yml'} : {}),
       feedOptions: { type: ['rss', 'atom'], xslt: true },
       onInlineTags: 'warn',
       onInlineAuthors: 'warn',
@@ -159,10 +272,14 @@ const config = {
         indexBlog: true,
         indexDocs: true,
         indexPages: false,
-        docsRouteBasePath: ['/programming', '/math', '/builder', '/survey'],
-        docsDir: [`${BOOKS_DIR}/programming`, `${BOOKS_DIR}/math`, `${BOOKS_DIR}/builder`, `${BOOKS_DIR}/survey`],
-        blogDir: [`${POSTS_DIR}/blog`, `${POSTS_DIR}/research`],
-        blogRouteBasePath: ['/blog', '/research'],
+        // Generated from the same lists the plugins are, so a workspace cannot
+        // be built and left out of search, or indexed under a route that moved.
+        // These four arrays are positional: each docsDir must line up with the
+        // docsRouteBasePath at the same index.
+        docsRouteBasePath: BOOKS.map(b => `/${b.space.routePrefix}${b.name}`),
+        docsDir: BOOKS.map(b => `${b.space.booksDir}/${b.name}`),
+        blogDir: BLOGS.map(b => `${b.space.postsDir}/${b.name}`),
+        blogRouteBasePath: BLOGS.map(b => `/${b.space.routePrefix}${b.name}`),
         searchBarShortcut: true,
         searchBarShortcutHint: true,
         highlightSearchTermsOnTargetPage: true,
@@ -172,23 +289,14 @@ const config = {
       },
     ],
 
-    // Docs plugins
-    makeDocsPlugin('survey', 'survey'),
-    makeDocsPlugin('builder', 'builder'),
-    makeDocsPlugin('math', 'math'),
-
-    // Blog plugins
-    makeBlogPlugin('blog', 'blog', {
-      title: 'Blog',
-      description: 'Blog posts',
-      sidebarTitle: 'All Posts',
-    }),
-    makeBlogPlugin('research', 'research', {
-      title: 'Research Papers',
-      description: 'Collection of research paper summaries and discussions',
-      sidebarTitle: 'Recent Papers',
-      showReadingTime: true,
-    }),
+    // One docs instance per book per workspace, and one blog instance per blog
+    // per workspace, from whatever is on disk. `programming` of the primary
+    // workspace is excluded because the classic preset above already declares
+    // it, and two instances on one directory collide on their route.
+    ...BOOKS
+      .filter(b => !(b.space === PRIMARY && b.name === 'programming'))
+      .map(makeDocsPlugin),
+    ...BLOGS.map(makeBlogPlugin),
   ],
 
   headTags: [

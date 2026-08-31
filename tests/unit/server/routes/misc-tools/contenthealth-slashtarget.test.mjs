@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { key } from '../../../_harness.mjs';
 
 // misc-tools.js is CommonJS; load it via createRequire the way the sibling route
 // tests do (next-content-health-pageids-hoist.test.mjs, next-quicknote-cache.test.mjs)
@@ -16,6 +17,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MISC_TOOLS_PATH = path.join(__dirname, '..', '..', '..', '..', '..', 'src', 'server', 'routes', 'misc-tools.js');
 
 const PROJECT_ROOT = '/proj';
+// Content is one tree per organization, and the organization comes from the
+// session rather than the request, so the handler scans this workspace's root
+// and emits page ids relative to it.
+const ORG_SLUG = 'mochi';
+const CONTENT_DIR = path.join(PROJECT_ROOT, 'content', ORG_SLUG);
 
 // ── Why this hoist is behavior-preserving ───────────────────────────────────
 // Inside `for (const link of allLinks)`, `target` is fixed for the whole
@@ -34,7 +40,7 @@ const PROJECT_ROOT = '/proj';
 // exact `pageIds.has` hit, a suffix-only `.some`/`.find` fallback, and a genuinely
 // broken link, so all three code paths the hoist touches are covered.
 
-// In-memory content tree under <PROJECT_ROOT>/content. A string value is a file's
+// In-memory content tree under the workspace's content root. A string value is a file's
 // contents; an object value is a directory. JS preserves insertion order for these
 // non-integer keys, so directory listings (and thus Set insertion order) are
 // deterministic: guide/ then concepts/ then index.md, and within each directory
@@ -100,7 +106,7 @@ function buildContentTree() {
 // called with {withFileTypes:true}) and readFileSync are exercised by the handler;
 // the counters let a test prove a cache hit performs no fresh disk walk.
 function makeFs(tree) {
-  const contentDir = path.join(PROJECT_ROOT, 'content');
+  const contentDir = CONTENT_DIR;
   const counts = { readdirSync: 0, readFileSync: 0 };
   function nodeAt(absPath) {
     const rel = path.relative(contentDir, absPath);
@@ -176,8 +182,10 @@ async function invoke({ fs, cached }) {
     fs,
     path,
     PROJECT_ROOT,
+    contentRootFor: () => CONTENT_DIR,
     ALLOWED_EXTS: ['.md', '.mdx'],
     cached,
+    cacheKey: (_orgId, name) => key(name),
     json(_res, status, payload) {
       captured = { status, payload };
       res.writableEnded = true;
@@ -269,7 +277,7 @@ describe('GET /api/content-health (slashTarget hoisted once per link)', () => {
     const afterFirst = { readdirSync: counts.readdirSync, readFileSync: counts.readFileSync };
 
     // Cache key and TTL are exactly as the handler passes them.
-    assert.equal(calls[0].key, 'content-health');
+    assert.equal(calls[0].key, key('content-health'));
     assert.equal(calls[0].ttl, 60000);
 
     const second = await invoke({ fs, cached });

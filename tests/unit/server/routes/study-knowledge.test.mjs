@@ -13,7 +13,7 @@ import {describe, it, beforeEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import path from 'node:path';
-import {loadRoute, loadServer, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, TEST_IDENTITY} from '../../_harness.mjs';
+import {loadRoute, loadServer, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, TEST_IDENTITY} from '../../_harness.mjs';
 
 const routes = loadRoute('study-knowledge');
 // The memo belongs to the bibliography plugin now, and so does resetting it.
@@ -21,7 +21,10 @@ const bibliographyLib = createRequire(import.meta.url)('../../../../plugins/bibl
 const {LINKSUGGEST_WIKI_RE, QUICKNOTES_TITLE_RE, QUICKNOTES_DATE_RE, QUICKNOTES_BODY_RE, FRONTMATTER_TITLE_RE} = routes;
 const {FLASHCARDS_FILE, GLOSSARY_FILE, READING_LISTS_FILE, BOOKMARKS_FILE, ANALYTICS_FILE} = FILES;
 const at = rel => path.join(PROJECT_ROOT, rel);
-const BIB = at('content/bibliography/references.yaml');
+// Content lives in the workspace's own tree, and the paths a request carries
+// are relative to it: `posts/blog/x.md`, never `content/mochi/posts/blog/x.md`.
+const atContent = rel => path.join(CONTENT_DIR, rel);
+const BIB = atContent('bibliography/references.yaml');
 const RQ_FILE = at('var/data/research-questions.json');
 const QUICKNOTES_FILE = at('var/data/quicknotes.json');
 const PINS_FILE = at('var/data/pins.json');
@@ -105,11 +108,11 @@ describe('POST /api/flashcards', () => {
   it('creates a card with the SM-2 starting schedule', async () => {
     const ctx = makeCtx();
     const today = new Date().toISOString().slice(0, 10);
-    const r = await invoke(routes, {method: 'POST', path: '/api/flashcards', body: {...OK, tags: ['a', 'b'], sourcePath: 'content/x.md'}, ctx});
+    const r = await invoke(routes, {method: 'POST', path: '/api/flashcards', body: {...OK, tags: ['a', 'b'], sourcePath: 'x.md'}, ctx});
     assert.equal(r.status, 200);
     const {id, createdAt, ...stable} = r.payload.card;
     assert.deepEqual(stable, {
-      front: 'Q', back: 'A', tags: ['a', 'b'], sourcePath: 'content/x.md',
+      front: 'Q', back: 'A', tags: ['a', 'b'], sourcePath: 'x.md',
       interval: 1, easeFactor: 2.5, repetitions: 0, nextReview: today,
     });
     assert.match(id, /^fc_\d+_[a-z0-9]+$/);
@@ -410,7 +413,7 @@ describe('GET /api/quicknotes', () => {
   }
 
   it('appends blog-sourced notes tagged quick-note, newest filename first', async () => {
-    const blog = rel => at(`content/posts/blog/${rel}`);
+    const blog = rel => atContent(`posts/blog/${rel}`);
     const files = {
       [blog('2026-02-01-second.md')]: `${fm({title: 'Second', tags: '[quick-note]'})}\nSecond body\n`,
       [blog('2026-01-01-first.md')]: `${fm({title: 'First', tags: '[quick-note]'})}\nFirst body\n`,
@@ -425,14 +428,14 @@ describe('GET /api/quicknotes', () => {
       text: 'Second body',
       title: 'Second',
       date: '2026-02-01',
-      path: 'content/posts/blog/2026-02-01-second.md',
+      path: 'posts/blog/2026-02-01-second.md',
       source: 'blog',
     });
   });
 
   it('caps the blog notes at fifty', async () => {
     const files = {};
-    for (let i = 0; i < 60; i++) files[at(`content/posts/blog/2026-01-${String(i + 1).padStart(2, '0')}-n.md`)] = `${fm({title: `N${i}`, tags: '[quick-note]'})}\nbody\n`;
+    for (let i = 0; i < 60; i++) files[atContent(`posts/blog/2026-01-${String(i + 1).padStart(2, '0')}-n.md`)] = `${fm({title: `N${i}`, tags: '[quick-note]'})}\nbody\n`;
     const ctx = makeCtx({fs: mockFs(files)});
     const r = await invoke(routes, {path: '/api/quicknotes', ctx});
     assert.equal(r.payload.length, 50);

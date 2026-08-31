@@ -2,13 +2,18 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { key } from '../../../_harness.mjs';
 
 // misc-tools.js is CommonJS; load it the way the other server route tests do.
 const require = createRequire(import.meta.url);
 const miscToolsRoutes = require('../../../../../src/server/routes/misc-tools.js');
 
 const PROJECT_ROOT = '/fake/root';
-const BLOG_DIR = path.join(PROJECT_ROOT, 'content', 'posts', 'blog');
+// Quick notes land in the caller's own workspace, which the session resolves to
+// one organization's tree under content/; the paths the handler emits are
+// relative to that root, so `posts/blog/<file>`.
+const CONTENT_DIR = path.join(PROJECT_ROOT, 'content', 'mochi');
+const BLOG_DIR = path.join(CONTENT_DIR, 'posts', 'blog');
 
 // A quick-note markdown body shaped the way POST /api/quicknote writes them:
 // YAML frontmatter carrying the quick-note tag, a blank line, then the body.
@@ -109,7 +114,9 @@ async function invoke({ fs, cached }) {
     fs,
     path,
     PROJECT_ROOT,
+    contentRootFor: () => CONTENT_DIR,
     cached,
+    cacheKey: (_orgId, name) => key(name),
     json(_res, status, payload) {
       captured = { status, payload };
       res.writableEnded = true;
@@ -147,7 +154,7 @@ describe('GET /api/quicknote cached scan', () => {
       title: 'Note 2026-01-12',
       date: '2026-01-12',
       preview: 'Body 12',
-      path: 'content/posts/blog/2026-01-12-note.md',
+      path: 'posts/blog/2026-01-12-note.md',
     });
     assert.equal(r.payload.notes[9].filename, '2026-01-03-note.md');
 
@@ -171,9 +178,9 @@ describe('GET /api/quicknote cached scan', () => {
     assert.equal(second.status, 200);
     assert.equal(fs._counts.readdirSync, afterFirst.readdirSync, 'no repeat readdirSync on cache hit');
     assert.equal(fs._counts.readFileSync, afterFirst.readFileSync, 'no repeat readFileSync on cache hit');
-    assert.deepEqual(Object.keys(cached.runs), ['quicknote-list'], 'memoized under the quicknote-list key only');
-    assert.equal(cached.runs['quicknote-list'], 1, 'scan thunk ran exactly once across both requests');
-    assert.equal(cached.ttls['quicknote-list'], 60000, 'memoized on the 60s window');
+    assert.deepEqual(Object.keys(cached.runs), [key('quicknote-list')], 'memoized under the quicknote-list key only');
+    assert.equal(cached.runs[key('quicknote-list')], 1, 'scan thunk ran exactly once across both requests');
+    assert.equal(cached.ttls[key('quicknote-list')], 60000, 'memoized on the 60s window');
     assert.equal(
       JSON.stringify(second.payload),
       JSON.stringify(first.payload),
@@ -192,7 +199,7 @@ describe('GET /api/quicknote cached scan', () => {
 
     const second = await invoke({ fs, cached });
     assert.deepEqual(second.payload, { notes: [], total: 0 });
-    assert.equal(cached.runs['quicknote-list'], 1, 'the empty result is memoized too');
+    assert.equal(cached.runs[key('quicknote-list')], 1, 'the empty result is memoized too');
   });
 
   it('a thrown scan returns the empty 200 and is never cached', async () => {
@@ -210,7 +217,7 @@ describe('GET /api/quicknote cached scan', () => {
 
     const second = await invoke({ fs, cached });
     assert.deepEqual(second.payload, { notes: [], total: 0 });
-    assert.equal(cached.runs['quicknote-list'], 2, 'a failed scan re-runs (never cached)');
+    assert.equal(cached.runs[key('quicknote-list')], 2, 'a failed scan re-runs (never cached)');
 
     // Direct proof that nothing was stored on the throws: once the scan can
     // succeed, the next request recomputes and returns the real payload instead
@@ -219,6 +226,6 @@ describe('GET /api/quicknote cached scan', () => {
     const third = await invoke({ fs, cached });
     assert.equal(third.status, 200);
     assert.equal(third.payload.notes.length, 10, 'recovers real data after the failures, so no empty result was cached');
-    assert.equal(cached.runs['quicknote-list'], 3, 'the now-successful scan ran again, confirming the throws stored nothing');
+    assert.equal(cached.runs[key('quicknote-list')], 3, 'the now-successful scan ran again, confirming the throws stored nothing');
   });
 });

@@ -23,6 +23,9 @@ const PROJECT_ROOT = '/proj';
 // instead of silently passing; the handler and the mock agree on each store path.
 const SNAPSHOTS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'snapshots.json');
 const WHITEBOARDS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'whiteboards.json');
+// The path a snapshot request carries is relative to the caller's own content
+// root, which the session resolves to one organization's tree under content/.
+const CONTENT_DIR = path.join(PROJECT_ROOT, 'content', 'mochi');
 
 // Drive POST /api/snapshots (create) over a mocked ctx. rateLimit records each
 // call (key and limit) and returns the per-call toggle; readBody returns the
@@ -74,6 +77,7 @@ async function runSnapshotsCreate({
     },
     path,
     PROJECT_ROOT,
+    contentRootFor: () => CONTENT_DIR,
     SNAPSHOTS_FILE,
     json: (_res, status, b) => { captured = { status, body: b }; },
   };
@@ -127,7 +131,7 @@ async function runWhiteboardCreate({
 
 describe('POST /api/snapshots (create) in routes/misc-tools.js', () => {
   it('a rate-limited create returns 429, never reads the body, loads, saves, or reads the random id, and uses the snapshots key with limit 30', async () => {
-    const r = await runSnapshotsCreate({ rateLimitOk: false, body: { path: 'content/a.md', name: 'x' } });
+    const r = await runSnapshotsCreate({ rateLimitOk: false, body: { path: 'a.md', name: 'x' } });
     assert.equal(r.captured.status, 429);
     assert.deepEqual(r.captured.body, { error: 'Too many requests. Try again in a minute.' });
     assert.equal(r.readBodyCount, 0, 'the rate-limit guard returns before readBody');
@@ -154,7 +158,7 @@ describe('POST /api/snapshots (create) in routes/misc-tools.js', () => {
   });
 
   it('a missing name with a valid path returns 400 Name is required, never checks the file, loads, saves, or reads the random id', async () => {
-    const r = await runSnapshotsCreate({ validPath: true, body: { path: 'content/a.md' } });
+    const r = await runSnapshotsCreate({ validPath: true, body: { path: 'a.md' } });
     assert.equal(r.captured.status, 400);
     assert.deepEqual(r.captured.body, { error: 'Name is required' });
     assert.equal(r.readBodyCount, 1, 'the body is read before the name is validated');
@@ -167,7 +171,7 @@ describe('POST /api/snapshots (create) in routes/misc-tools.js', () => {
   it('a non-string name (42) returns 400 Name is required, never checks the file, loads, or saves', async () => {
     // 42 is truthy so it clears the falsy check, but typeof 42 !== 'string' trips
     // the dedicated type guard; a numeric name is never coerced into a snapshot.
-    const r = await runSnapshotsCreate({ validPath: true, body: { path: 'content/a.md', name: 42 } });
+    const r = await runSnapshotsCreate({ validPath: true, body: { path: 'a.md', name: 42 } });
     assert.equal(r.captured.status, 400);
     assert.deepEqual(r.captured.body, { error: 'Name is required' });
     assert.equal(r.readBodyCount, 1);
@@ -177,7 +181,7 @@ describe('POST /api/snapshots (create) in routes/misc-tools.js', () => {
   });
 
   it('a valid path and name whose file is absent returns 404 File not found, checks existence once, never loads, saves, or reads the random id', async () => {
-    const r = await runSnapshotsCreate({ validPath: true, fileExists: false, body: { path: 'content/a.md', name: 'x' } });
+    const r = await runSnapshotsCreate({ validPath: true, fileExists: false, body: { path: 'a.md', name: 'x' } });
     assert.equal(r.captured.status, 404);
     assert.deepEqual(r.captured.body, { error: 'File not found' });
     assert.equal(r.existsSyncCount, 1, 'existence is checked before the store is loaded');
@@ -188,7 +192,7 @@ describe('POST /api/snapshots (create) in routes/misc-tools.js', () => {
 
   it('creates a snapshot: 200 with {success, snapshot:{id,name,createdAt}}, omits the file content, stores it, saves once, stubs the id, and uses the snapshots key', async () => {
     const r = await runSnapshotsCreate({
-      body: { path: 'content/a.md', name: 'My Snapshot' },
+      body: { path: 'a.md', name: 'My Snapshot' },
       store: {},
       fileContent: 'hello world',
     });
@@ -208,7 +212,7 @@ describe('POST /api/snapshots (create) in routes/misc-tools.js', () => {
     assert.equal(r.saved.length, 1);
     assert.equal(r.saved[0].fp, SNAPSHOTS_FILE);
     // The stored snapshot keeps the full content for a later restore.
-    const stored = r.saved[0].data['content/a.md'];
+    const stored = r.saved[0].data['a.md'];
     assert.equal(stored.length, 1);
     assert.equal(stored[0].id, 'uuid-1');
     assert.equal(stored[0].name, 'My Snapshot');
@@ -220,12 +224,12 @@ describe('POST /api/snapshots (create) in routes/misc-tools.js', () => {
   it('caps the stored snapshot list at the last 10, dropping the oldest', async () => {
     const existing = Array.from({ length: 10 }, (_, i) => ({ id: `old-${i}`, name: `n${i}`, content: 'c', createdAt: '2026-01-01T00:00:00.000Z' }));
     const r = await runSnapshotsCreate({
-      body: { path: 'content/a.md', name: 'newest' },
-      store: { 'content/a.md': existing },
+      body: { path: 'a.md', name: 'newest' },
+      store: { 'a.md': existing },
       fileContent: 'fresh',
     });
     assert.equal(r.captured.status, 200);
-    const stored = r.saved[0].data['content/a.md'];
+    const stored = r.saved[0].data['a.md'];
     assert.equal(stored.length, 10);
     // old-0 is dropped; the window keeps old-1 through old-9 followed by the new
     // snapshot at the end.
@@ -235,14 +239,14 @@ describe('POST /api/snapshots (create) in routes/misc-tools.js', () => {
   });
 
   it('clamps the stored and returned snapshot name to 200 characters', async () => {
-    const r = await runSnapshotsCreate({ body: { path: 'content/a.md', name: 'n'.repeat(250) }, store: {}, fileContent: 'body' });
+    const r = await runSnapshotsCreate({ body: { path: 'a.md', name: 'n'.repeat(250) }, store: {}, fileContent: 'body' });
     assert.equal(r.captured.status, 200);
     assert.equal(r.captured.body.snapshot.name.length, 200);
-    assert.equal(r.saved[0].data['content/a.md'][0].name.length, 200);
+    assert.equal(r.saved[0].data['a.md'][0].name.length, 200);
   });
 
   it('an outer throw (readBody fails) returns 400 Invalid request, never loads, saves, or reads the random id', async () => {
-    const r = await runSnapshotsCreate({ throwOnReadBody: true, body: { path: 'content/a.md', name: 'x' } });
+    const r = await runSnapshotsCreate({ throwOnReadBody: true, body: { path: 'a.md', name: 'x' } });
     assert.equal(r.captured.status, 400);
     assert.deepEqual(r.captured.body, { error: 'Invalid request' });
     assert.equal(r.readBodyCount, 1);

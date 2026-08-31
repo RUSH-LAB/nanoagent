@@ -13,8 +13,8 @@ import NavbarItem, {type Props as NavbarItemConfig} from '@theme/NavbarItem';
 import NavbarColorModeToggle from '@theme/Navbar/ColorModeToggle';
 import SearchBar from '@theme/SearchBar';
 import NavbarMobileSidebarToggle from '@theme/Navbar/MobileSidebar/Toggle';
-import NavbarLogo from '@theme/Navbar/Logo';
 import NavbarSearch from '@theme/Navbar/Search';
+import WorkspaceSwitcher from '@site/src/components/WorkspaceSwitcher';
 
 import styles from './styles.module.css';
 
@@ -85,7 +85,10 @@ export default function NavbarContent(): ReactNode {
       left={
         <>
           {!mobileSidebar.disabled && <NavbarMobileSidebarToggle />}
-          <NavbarLogo />
+          {/* Where NavbarLogo used to be. The switcher renders exactly that
+              until it knows which workspace you are in, and falls back to it
+              for good when there is no session to ask about. */}
+          <WorkspaceSwitcher />
           <NavbarItems items={leftItems} />
         </>
       }

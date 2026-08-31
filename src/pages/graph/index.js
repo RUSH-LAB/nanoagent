@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import API_BASE, { apiFetch } from '@site/src/utils/api';
+import { contentPathToUrl } from '@site/src/utils/paths';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import pageStyles from '@site/src/css/page.module.css';
 
@@ -253,20 +254,11 @@ function GraphVisualization() {
     isPanning.current = false;
   }, []);
 
-  // Node click handler
+  // Node click handler. Node paths arrive content-relative, which
+  // contentPathToUrl accepts alongside the content/-prefixed kind.
   const handleNodeClick = useCallback((node) => {
-    // Determine URL from node path
-    const parts = node.path.split('/');
-    let url;
-    if (parts[0] === 'books' || parts[0] === 'posts') {
-      // books/math/foo.md -> /math/foo, posts/blog/foo.md -> /blog/foo
-      url = '/' + parts.slice(1).join('/').replace(/\.mdx?$/, '');
-    } else {
-      url = '/' + node.path.replace(/\.mdx?$/, '');
-    }
-    // Strip trailing /index
-    if (url.endsWith('/index')) url = url.slice(0, -6);
-    window.location.href = url;
+    const url = contentPathToUrl(node.path);
+    if (url) window.location.href = url;
   }, []);
 
   // Determine if a node/edge is highlighted

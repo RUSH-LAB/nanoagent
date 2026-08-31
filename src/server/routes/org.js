@@ -89,11 +89,58 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
   if (pathname !== '/api/org' && !pathname.startsWith('/api/org/')) return;
 
   const {userId, orgId, orgRole} = req.auth;
+
+  // ── The three that answer before you are in one ──
+  // Everything below the guard needs an active organization. These are how you
+  // come to have one, so they run above it: listing what you belong to, making
+  // a workspace, and moving between them.
+
+  if (req.method === 'GET' && pathname === '/api/org/memberships') {
+    return json(res, 200, {memberships: org.listMemberships(userId), activeId: orgId});
+  }
+
+  if (req.method === 'POST' && pathname === '/api/org') {
+    if (!rateLimit(`org-create:${userId}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    let body;
+    try {
+      body = await readBody(req);
+    } catch {
+      return json(res, 400, {error: 'Invalid request'});
+    }
+    try {
+      const result = await org.createWorkspace({headers: req.headers, actorId: userId, name: body.name, slug: body.slug});
+      if (result.error === 'invalid-name') return json(res, 400, {error: 'A workspace name is 2 to 60 characters', code: 'invalid-name'});
+      if (result.error === 'invalid-slug') return json(res, 400, {error: 'A short name is 2 to 40 characters, using lowercase letters, digits, and inner dashes', code: 'invalid-slug'});
+      if (result.error === 'slug-taken') return json(res, 409, {error: 'That short name is taken', code: 'slug-taken'});
+      if (result.error === 'not-created') return json(res, 500, {error: 'The organization service could not create that workspace'});
+      return json(res, 201, {organization: result.organization, channel: result.channel});
+    } catch (err) {
+      return sendRefusal(json, res, err);
+    }
+  }
+
+  if (req.method === 'POST' && pathname === '/api/org/active') {
+    if (!rateLimit(`org-active:${userId}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    let body;
+    try {
+      body = await readBody(req);
+    } catch {
+      return json(res, 400, {error: 'Invalid request'});
+    }
+    try {
+      const result = await org.setActiveWorkspace({headers: req.headers, userId, organizationId: body.organizationId});
+      if (result.error === 'not-a-member') return json(res, 404, {error: 'No such workspace, or you are not in it', code: 'not-a-member'});
+      return json(res, 200, {activeId: result.organizationId});
+    } catch (err) {
+      return sendRefusal(json, res, err);
+    }
+  }
+
   if (!orgId) {
     return json(res, 409, {
       error: 'No active organization. Create or select one first.',
       code: 'no-organization',
-      hint: 'POST /api/auth/organization/create, then /api/auth/organization/set-active',
+      hint: 'POST /api/org to make one, or follow an invitation link',
     });
   }
 

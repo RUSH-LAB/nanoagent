@@ -4,7 +4,7 @@
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 
 const { numericParam } = require('../server-utils');
-const {DATA_SEGS, REFERENCES_SEGS, dataFileSegs} = require('../paths');
+const {DATA_SEGS, dataFileSegs} = require('../paths');
 
 // Object keys that must never be used as property names (prototype-pollution guard).
 const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
@@ -54,14 +54,14 @@ const TASK_PRIORITIES = Object.freeze(['low', 'medium', 'high']);
 
 module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, isValidFilePath, isValidDir, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, _routeDiagnostics
   } = ctx;
 
   // ── Content duplicate detection ──
   if (req.method === 'GET' && pathname === '/api/content-duplicates') {
     try {
-      const duplicates = cached('content-duplicates', 60000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
+      const duplicates = cached(cacheKey(req.auth?.orgId, 'content-duplicates'), 60000, () => {
+        const contentDir = contentRootFor(req.auth?.orgId);
         const files = [];
         function collectFiles(dir) {
           for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
@@ -79,7 +79,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
                   if (titleMatch) title = titleMatch[1];
                 }
                 files.push({
-                  path: path.relative(PROJECT_ROOT, fullPath),
+                  path: path.relative(contentRootFor(req.auth?.orgId), fullPath),
                   title,
                   titleLower: title.toLowerCase().trim(),
                 });
@@ -108,8 +108,8 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   // ── Content health check ──
   if (req.method === 'GET' && pathname === '/api/content-health') {
     try {
-      const health = cached('content-health', 60000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
+      const health = cached(cacheKey(req.auth?.orgId, 'content-health'), 60000, () => {
+        const contentDir = contentRootFor(req.auth?.orgId);
         const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
         const pages = new Map();
         const allLinks = [];
@@ -122,7 +122,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
             if (entry.isDirectory()) {
               scanHealth(fullPath);
             } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              const relPath = path.relative(path.join(PROJECT_ROOT, 'content'), fullPath);
+              const relPath = path.relative(contentRootFor(req.auth?.orgId), fullPath);
               let id = relPath.replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
               if (id.endsWith('/index')) id = id.slice(0, -6);
               const content = fs.readFileSync(fullPath, 'utf-8');
@@ -205,7 +205,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       const {path: filePath, name} = body;
       if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
       if (!name || typeof name !== 'string') return json(res, 400, {error: 'Name is required'});
-      const fullPath = path.join(PROJECT_ROOT, filePath);
+      const fullPath = path.join(contentRootFor(req.auth?.orgId), filePath);
       if (!fs.existsSync(fullPath)) return json(res, 404, {error: 'File not found'});
       const content = fs.readFileSync(fullPath, 'utf-8');
       const snapshots = loadJSON(SNAPSHOTS_FILE);
@@ -244,14 +244,14 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       const {path: filePath, snapshotId} = body;
       if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
       if (!snapshotId || typeof snapshotId !== 'string') return json(res, 400, {error: 'snapshotId is required'});
-      const fullPath = path.join(PROJECT_ROOT, filePath);
+      const fullPath = path.join(contentRootFor(req.auth?.orgId), filePath);
       if (!fs.existsSync(fullPath)) return json(res, 404, {error: 'File not found'});
       const snapshots = loadJSON(SNAPSHOTS_FILE);
       const fileSnapshots = snapshots[filePath] || [];
       const snapshot = fileSnapshots.find(s => s.id === snapshotId);
       if (!snapshot) return json(res, 404, {error: 'Snapshot not found'});
       fs.writeFileSync(fullPath, snapshot.content, 'utf-8');
-      invalidateCache('search');
+      invalidateCache(cacheKey(req.auth?.orgId, 'search'));
       return json(res, 200, {success: true, restored: {id: snapshot.id, name: snapshot.name}});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -351,12 +351,12 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     try {
       // The mindmap tree is a pure function of this one file's content, so memoize
       // the whole payload keyed by path for the TTL while the json() write below
-      // still runs on every request. Mirrors cached('filequality:'+path,30000)
+      // still runs on every request. Mirrors cached(cacheKey(req.auth?.orgId, 'filequality:'+path),30000)
       // in this file. The readFileSync stays INSIDE the closure, so a missing file still
       // throws into the outer catch and the 404 is never cached (cached stores
       // nothing when fn throws).
-      const result = cached('filemindmap:' + filePath, 30000, () => {
-        let md = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+      const result = cached(cacheKey(req.auth?.orgId, 'filemindmap:' + filePath), 30000, () => {
+        let md = fs.readFileSync(path.join(contentRootFor(req.auth?.orgId), filePath), 'utf-8');
         // Strip frontmatter
         md = md.replace(/^---\n[\s\S]*?\n---\n?/, '');
         // Parse headings
@@ -513,7 +513,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       }
 
       const filename = `${datePrefix}-${slug}.md`;
-      const blogDir = path.join(PROJECT_ROOT, 'content', 'posts', 'blog');
+      const blogDir = path.join(contentRootFor(req.auth?.orgId), 'posts', 'blog');
       const filePath = path.join(blogDir, filename);
 
       // Ensure blog directory exists
@@ -545,7 +545,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       ].join('\n');
 
       fs.writeFileSync(finalPath, content, 'utf-8');
-      const relativePath = path.relative(PROJECT_ROOT, finalPath);
+      const relativePath = path.relative(contentRootFor(req.auth?.orgId), finalPath);
       return json(res, 200, {success: true, path: relativePath, filename: finalFilename});
     } catch (err) {
       return json(res, 400, {error: 'Invalid request'});
@@ -558,8 +558,8 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       // requests do not re-walk content/posts/blog. A thrown scan propagates out
       // of cached() before anything is stored, so the outer catch below still
       // returns the empty 200 and that failure is never cached.
-      const result = cached('quicknote-list', 60000, () => {
-        const blogDir = path.join(PROJECT_ROOT, 'content', 'posts', 'blog');
+      const result = cached(cacheKey(req.auth?.orgId, 'quicknote-list'), 60000, () => {
+        const blogDir = path.join(contentRootFor(req.auth?.orgId), 'posts', 'blog');
         if (!fs.existsSync(blogDir)) {
           return {notes: [], total: 0};
         }
@@ -584,7 +584,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
               title: titleMatch ? titleMatch[1] : file,
               date: dateMatch ? dateMatch[1] : null,
               preview: bodyMatch ? bodyMatch[1].trim().slice(0, 200) : '',
-              path: `content/posts/blog/${file}`,
+              path: `posts/blog/${file}`,
             });
           } catch {}
         }
@@ -603,13 +603,13 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     try {
       // The quality score is a pure function of this one file's content, so
       // memoize the whole payload keyed by path for the TTL while the json() write
-      // below still runs on every request. Mirrors cached('filestyle:'+path,30000)
-      // in content-analysis-b.js and cached('fileinfo:'+path,30000) in
+      // below still runs on every request. Mirrors cached(cacheKey(req.auth?.orgId, 'filestyle:'+path),30000)
+      // in content-analysis-b.js and cached(cacheKey(req.auth?.orgId, 'fileinfo:'+path),30000) in
       // graph-trash-files.js. The readFileSync stays INSIDE the closure, so a
       // missing file still throws into the outer catch and the 404 is never cached
       // (cached stores nothing when fn throws).
-      const result = cached('filequality:' + filePath, 30000, () => {
-        const content = fs.readFileSync(path.join(PROJECT_ROOT, filePath), 'utf-8');
+      const result = cached(cacheKey(req.auth?.orgId, 'filequality:' + filePath), 30000, () => {
+        const content = fs.readFileSync(path.join(contentRootFor(req.auth?.orgId), filePath), 'utf-8');
         const suggestions = [];
 
         // 1. Word count score (max 25)
@@ -727,7 +727,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       // 1. Search references.yaml for matching titles/authors
       const matchedRefs = [];
       try {
-        const refs = ctx.references.load(fs, path, PROJECT_ROOT);
+        const refs = ctx.references.load(fs, path, contentRootFor(req.auth?.orgId));
         for (const [key, entry] of Object.entries(refs)) {
           const title = (entry.title || '').toLowerCase();
           const authors = (Array.isArray(entry.author) ? entry.author.join(' ') : (entry.author || '')).toLowerCase();
@@ -746,12 +746,12 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       // 2. Search content files for matching headings
       const matchedPages = [];
       try {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
+        const contentDir = contentRootFor(req.auth?.orgId);
         if (fs.existsSync(contentDir)) {
           const mdFiles = flatFiles(contentDir).filter(f => f.name.endsWith('.md') || f.name.endsWith('.mdx'));
           for (const file of mdFiles) {
             try {
-              const content = fs.readFileSync(path.join(PROJECT_ROOT, file.path), 'utf-8');
+              const content = fs.readFileSync(path.join(contentRootFor(req.auth?.orgId), file.path), 'utf-8');
               // Extract title from frontmatter or first heading
               let pageTitle = '';
               const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -820,7 +820,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     // 2. Check references.yaml is valid YAML
     try {
       const yaml = require('js-yaml');
-      const refPath = path.join(PROJECT_ROOT, ...REFERENCES_SEGS);
+      const refPath = path.join(contentRootFor(req.auth?.orgId), 'bibliography', 'references.yaml');
       if (fs.existsSync(refPath)) {
         yaml.load(fs.readFileSync(refPath, 'utf-8'));
         checks.push({name: 'yaml_validity', passed: true, details: 'references.yaml is valid YAML'});
@@ -836,7 +836,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       const snapshots = loadJSON(SNAPSHOTS_FILE);
       const orphaned = [];
       for (const filePath of Object.keys(snapshots)) {
-        const fullPath = path.join(PROJECT_ROOT, filePath);
+        const fullPath = path.join(contentRootFor(req.auth?.orgId), filePath);
         if (!fs.existsSync(fullPath)) {
           orphaned.push({file: filePath, count: snapshots[filePath].length});
         }
@@ -877,8 +877,8 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   // ── Content calendar (publishing planner) ──
   if (req.method === 'GET' && pathname === '/api/calendar') {
     try {
-      const calendar = cached('calendar', 60000, () => {
-        const contentDir = path.join(PROJECT_ROOT, 'content');
+      const calendar = cached(cacheKey(req.auth?.orgId, 'calendar'), 60000, () => {
+        const contentDir = contentRootFor(req.auth?.orgId);
         const byMonth = {};
 
         function scan(dir) {
@@ -910,7 +910,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
               const month = date.slice(0, 7);
               if (!byMonth[month]) byMonth[month] = [];
               byMonth[month].push({
-                path: path.relative(PROJECT_ROOT, fp),
+                path: path.relative(contentRootFor(req.auth?.orgId), fp),
                 title,
                 date,
                 wordCount,
@@ -921,8 +921,10 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         }
         scan(contentDir);
 
-        // Include scheduled publications from data/schedules.json
-        const schedulesPath = path.join(PROJECT_ROOT, ...dataFileSegs('schedules'));
+        // Include scheduled publications. This named schedules.json, which has
+        // never existed; the store the API writes is schedule.json, so the
+        // calendar has always shown an empty schedule.
+        const schedulesPath = path.join(PROJECT_ROOT, ...dataFileSegs('schedule'));
         if (fs.existsSync(schedulesPath)) {
           try {
             const schedData = JSON.parse(fs.readFileSync(schedulesPath, 'utf-8'));

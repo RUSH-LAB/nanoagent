@@ -16,11 +16,21 @@
  * with the channel administration in ./chat, and it is written here inside each
  * write rather than by each caller, because a trail a caller can forget to
  * leave is not one.
+ *
+ * It also owns the beginning. Creating a workspace and moving between them are
+ * the two things somebody does before they are in an organization at all, so
+ * they are the only functions here that do not take one; they exist because a
+ * new account otherwise signs in successfully and finds that every page which
+ * belongs to an organization has nothing to show it.
  */
+const fs = require('fs');
+const path = require('path');
 const {fromNodeHeaders} = require('better-auth/node');
+const {contentDirFor} = require('./paths');
 const {db} = require('./db');
 const {auth} = require('./auth');
 const audit = require('./audit');
+const chat = require('./chat');
 
 /** Organization roles, most privileged first. Better Auth's own set. */
 const ROLES = Object.freeze(['owner', 'admin', 'member']);
@@ -102,6 +112,230 @@ function findMember(orgId, memberId) {
         WHERE m.id = ? AND m.organizationId = ?`,
     )
     .get(memberId, orgId) ?? null;
+}
+
+/* ── Starting one, and moving between them ────────────────────────── */
+
+/**
+ * The channel a new workspace opens with.
+ *
+ * An organization with no channels answers every chat read with an empty list
+ * and offers a new arrival nothing to click, which reads as a broken product
+ * rather than an empty one. The same reasoning, and the same channel name, as
+ * the root workspace in ./dev-auth.
+ */
+const FIRST_CHANNEL = 'general';
+
+/**
+ * What a slug may look like: 2 to 40 characters of lowercase letters, digits,
+ * and inner dashes. It goes in URLs and gets read back out of them, so no
+ * leading or trailing dash and nothing that needs escaping.
+ */
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$/;
+
+/**
+ * A slug derived from a workspace name, for the common case where nobody wants
+ * to think about one.
+ *
+ * NFKD first, so an accented letter decomposes into a plain one plus a
+ * combining mark and the mark is what gets dropped: "Café" becomes "cafe"
+ * rather than "caf". A name in a script with no ASCII form reduces to nothing,
+ * and the caller is asked for a slug instead of being given a meaningless one.
+ */
+function slugify(name) {
+  return String(name ?? '')
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+/, '')
+    .slice(0, 40)
+    .replace(/-+$/, '');
+}
+
+/** Whether any organization already answers to this slug. */
+function slugTaken(slug) {
+  return Boolean(db.prepare('SELECT 1 FROM organization WHERE slug = ?').get(slug));
+}
+
+/**
+ * The slug of `orgId`, which is the name of its content directory.
+ *
+ * Memoized because every request that touches a file asks for it, and the
+ * answer cannot change: nothing in the product renames an organization, and if
+ * something ever does it will have to move the directory too, at which point
+ * this cache is the smallest of its problems. A miss is a single indexed lookup
+ * on a primary key, so the memo is about not making it per file rather than
+ * about the cost of one.
+ */
+const slugCache = new Map();
+
+function slugForOrg(orgId) {
+  if (!orgId) return null;
+  if (slugCache.has(orgId)) return slugCache.get(orgId);
+  const row = db.prepare('SELECT slug FROM organization WHERE id = ?').get(orgId);
+  const slug = row?.slug ?? null;
+  // Only a hit is remembered. A miss means the organization is not there yet,
+  // which during provisioning is a moment rather than a fact.
+  if (slug) slugCache.set(orgId, slug);
+  return slug;
+}
+
+/** For the tests, and for anything that does eventually learn to rename. */
+slugForOrg.forget = orgId => (orgId ? slugCache.delete(orgId) : slugCache.clear());
+
+/**
+ * Give a new workspace the directories its content lives in.
+ *
+ * `books` and `posts` because those are the two the build looks for, and an
+ * empty one costs nothing while a missing one makes the first save fail on a
+ * directory rather than on anything the person did. Best-effort: a workspace
+ * whose folders could not be created is still a workspace, and the first write
+ * creates them anyway via mkdirSync in the file handler.
+ */
+function ensureContentRoot(slug) {
+  if (!slug) return null;
+  const root = contentDirFor(slug);
+  try {
+    for (const dir of ['books', 'posts']) {
+      fs.mkdirSync(path.join(root, dir), {recursive: true});
+    }
+    return root;
+  } catch (err) {
+    console.error(`Could not create the content directories for ${slug}: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * `base`, or the first numbered variant of it that is free.
+ *
+ * Only used for a slug we derived. A slug somebody typed is a choice, and
+ * quietly giving them a different one is worse than telling them it is taken.
+ * Returns null if even the variants are exhausted, which needs 99 workspaces
+ * with the same name and is a refusal rather than a hundredth guess.
+ */
+function availableSlug(base) {
+  if (!slugTaken(base)) return base;
+  for (let n = 2; n < 100; n++) {
+    const candidate = `${base.slice(0, 37).replace(/-+$/, '')}-${n}`;
+    if (!slugTaken(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Every organization the caller belongs to, oldest membership first, with the
+ * role they hold in each.
+ *
+ * The one read that does not take an organization id, because it is what the
+ * caller asks before they have one: the sign-up gate uses an empty answer to
+ * decide that somebody needs to create or join a workspace, and the switcher
+ * uses a non-empty one to offer the rest.
+ *
+ * Ties on `createdAt` are broken by rowid, the order the rows were written, so
+ * that this list opens with the same workspace a fresh session does. Two
+ * memberships can share a millisecond, and the ids are random strings, so
+ * ordering by one would have put the switcher's first entry and the session's
+ * active workspace in disagreement at random. Same tie as ./audit.
+ */
+function listMemberships(userId) {
+  return db
+    .prepare(
+      `SELECT o.id, o.name, o.slug, m.role, m.createdAt AS joinedAt,
+              (SELECT COUNT(*) FROM member m2 WHERE m2.organizationId = o.id) AS memberCount
+         FROM member m
+         JOIN organization o ON o.id = m.organizationId
+        WHERE m.userId = ?
+        ORDER BY m.createdAt, m.rowid`,
+    )
+    .all(userId);
+}
+
+/**
+ * Create a workspace with the caller as its owner, and open a #general in it.
+ *
+ * Better Auth creates the organization, the owner membership, and makes it the
+ * session's active one, all in the call below; passing the caller's headers is
+ * what makes the new owner them rather than the server. What this adds is the
+ * first channel, so the workspace opens on somewhere to talk, and the audit row
+ * that says where the organization came from.
+ *
+ * The channel is best-effort on purpose. A workspace that exists without a
+ * #general is recoverable in one click; a create that reports failure after
+ * having created the organization is not.
+ */
+async function createWorkspace({headers, actorId, name, slug}) {
+  const clean = String(name ?? '').trim().replace(/\s+/g, ' ');
+  if (clean.length < 2 || clean.length > 60) return {error: 'invalid-name'};
+
+  const chosen = String(slug ?? '').trim().toLowerCase();
+  const wanted = chosen || slugify(clean);
+  if (!SLUG_RE.test(wanted)) return {error: 'invalid-slug'};
+
+  // Numbered only when we derived it. A typed one that is taken is refused, and
+  // refused here rather than by Better Auth, whose "Organization already exists"
+  // is about the organization when what is taken is only its short name. The
+  // plugin still checks, so this is the better sentence and not the guarantee.
+  const free = chosen ? (slugTaken(chosen) ? null : chosen) : availableSlug(wanted);
+  if (!free) return {error: 'slug-taken'};
+
+  const organization = await auth.api.createOrganization({
+    body: {name: clean, slug: free},
+    headers: fromNodeHeaders(headers),
+  });
+  if (!organization?.id) return {error: 'not-created'};
+
+  const {error: channelError} = chat.createChannel(organization.id, actorId, {
+    name: FIRST_CHANNEL,
+    topic: 'Everything, to start with',
+  });
+
+  // Somewhere to write, before anyone restarts the site. The editor and the
+  // file tree work against this the moment the workspace exists; the rendered
+  // pages do not appear until Docusaurus next starts, because it fixes its
+  // plugin list from the directories present at boot.
+  ensureContentRoot(organization.slug);
+
+  audit.record({
+    orgId: organization.id,
+    action: 'org.create',
+    actorId,
+    targetId: actorId,
+    targetLabel: clean,
+    detail: {slug: free},
+  });
+
+  return {
+    organization: {
+      id: organization.id,
+      name: organization.name,
+      slug: organization.slug,
+      role: 'owner',
+      memberCount: 1,
+    },
+    channel: channelError ? null : FIRST_CHANNEL,
+  };
+}
+
+/**
+ * Make one of the caller's organizations the active one for this session.
+ *
+ * Membership is checked by Better Auth against the forwarded session, not here,
+ * for the same reason as every other write in this module: one answer to the
+ * question of who belongs where. The membership read below is only so that a
+ * workspace the caller is not in reads as "no such workspace" rather than as
+ * the plugin's internal phrasing.
+ */
+async function setActiveWorkspace({headers, userId, organizationId}) {
+  const id = String(organizationId ?? '');
+  if (!db.prepare('SELECT 1 FROM member WHERE organizationId = ? AND userId = ?').get(id, userId)) {
+    return {error: 'not-a-member'};
+  }
+  await auth.api.setActiveOrganization({
+    body: {organizationId: id},
+    headers: fromNodeHeaders(headers),
+  });
+  return {organizationId: id};
 }
 
 /* ── Invitations ──────────────────────────────────────────────────── */
@@ -331,11 +565,13 @@ async function removeMember({headers, orgId, actorId, memberId}) {
 }
 
 module.exports = {
-  ROLES, MANAGER_ROLES,
+  ROLES, MANAGER_ROLES, SLUG_RE, FIRST_CHANNEL,
   /** The audit is its own module; these are here so callers need one import. */
   AUDIT_LIMIT: audit.LIMIT,
   listAudit: audit.list,
   canManage, labelFor,
+  slugify, slugTaken, availableSlug, slugForOrg, ensureContentRoot,
+  listMemberships, createWorkspace, setActiveWorkspace,
   getOrganization, listMembers, findMember,
   listInvitations, invitationForLink, invite, cancelInvitation, acceptInvitation,
   createAccount,

@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { key } from '../_harness.mjs';
 
 // Pins the behavior of the `json()` Cache-Control consolidation:
 //   - server/index.js `json(res, status, data, opts)` overrides Cache-Control only on
@@ -231,6 +232,7 @@ describe('route call sites forward the right cacheControl', () => {
     const FAKE_STATS = { totalFiles: 7, totalWords: 1234, references: 5, byDirectory: {} };
     let captured = null;
     const ctx = {
+      cacheKey: (_orgId, name) => key(name), // the handler scopes its key to the workspace
       cached: (_key, _ttl, _fn) => FAKE_STATS, // bypass the content-dir walk
       json: (_res, status, data, opts) => { captured = { status, data, opts }; },
     };

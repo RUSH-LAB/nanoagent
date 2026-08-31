@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import { useLocation } from '@docusaurus/router';
 import PageTracker from '@site/src/components/Analytics/PageTracker';
 import CommandBar from '@site/src/components/CommandBar';
 
@@ -20,6 +21,12 @@ import CommandBar from '@site/src/components/CommandBar';
  * gate concluded nobody was signed in and showed the form again. One explicit
  * call, one piece of state, and a failure that says so.
  *
+ * Signing in is not the whole of arriving. Channels, direct messages, the people
+ * directory, and invitations all belong to an organization, and an account in
+ * none of them would be let through to find every one of those answering 409.
+ * So the gate asks a second question after the first, and an empty answer sends
+ * you to OnboardingScreen to create a workspace or open an invitation.
+ *
  * Children stay mounted but hidden while the session resolves, rather than
  * being withheld: the search indexer reads them during the static build, and
  * unmounting would also throw away scroll position on every reload.
@@ -30,6 +37,24 @@ const CHECKING = 'checking';
 const SIGNED_IN = 'signed-in';
 const SIGNED_OUT = 'signed-out';
 const UNREACHABLE = 'unreachable';
+
+/**
+ * The one page that has to render outside the gate.
+ *
+ * An invitation link is followed by somebody who has no account yet, and often
+ * no idea which address to make one with. /join is written for exactly that
+ * visitor: it reads the invitation without a session and says which workspace,
+ * who sent it, and which address it names. Behind the gate, every invitation
+ * link led to the sign-in form instead, which is the one place the answer is not.
+ *
+ * It is also exempt from the workspace check, because it is how somebody with no
+ * workspace gets one.
+ */
+const UNGATED = ['/join'];
+
+function isUngated(pathname) {
+  return UNGATED.some((page) => pathname === page || pathname.startsWith(`${page}/`));
+}
 
 function Hidden({ children }) {
   return (
@@ -42,20 +67,40 @@ function Hidden({ children }) {
 function AuthGate({ children, devAutoLogin }) {
   // Required lazily, inside BrowserOnly, because the auth client reaches for
   // localStorage and would run during the static build otherwise.
-  const { authClient } = require('@site/src/utils/authClient');
+  const { authClient, signOutAndForget } = require('@site/src/utils/authClient');
+  const { loadWorkspaces } = require('@site/src/utils/workspaces');
   const AuthScreen = require('@site/src/theme/Root/AuthScreen').default;
+  const OnboardingScreen = require('@site/src/theme/Root/OnboardingScreen').default;
 
   const [status, setStatus] = useState(CHECKING);
   const [detail, setDetail] = useState(null);
+  const [user, setUser] = useState(null);
+  // null until asked, then the number of workspaces this account belongs to.
+  const [workspaces, setWorkspaces] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
     authClient
       .getSession()
-      .then((result) => {
+      .then(async (result) => {
         if (cancelled) return;
-        if (result?.data?.user) setStatus(SIGNED_IN);
-        else setStatus(SIGNED_OUT);
+        if (!result?.data?.user) {
+          setStatus(SIGNED_OUT);
+          return;
+        }
+        setUser(result.data.user);
+        // Asked before the site is shown rather than after, so nobody sees a
+        // workspace's worth of empty pages first. A failure here counts as
+        // "has one": the workspace screen is for an account that provably has
+        // none, and showing it because a request failed would strand somebody
+        // whose workspace is fine.
+        try {
+          const {memberships} = await loadWorkspaces();
+          if (!cancelled) setWorkspaces(memberships?.length ?? 1);
+        } catch {
+          if (!cancelled) setWorkspaces(1);
+        }
+        if (!cancelled) setStatus(SIGNED_IN);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -67,13 +112,32 @@ function AuthGate({ children, devAutoLogin }) {
     return () => { cancelled = true; };
   }, [authClient]);
 
+  // The router's location, not window's. Leaving /join is a client-side route
+  // change, and a pathname read from window during one render would still say
+  // /join on the next.
+  const ungated = isUngated(useLocation().pathname);
+
   if (status === CHECKING) return <Hidden>{children}</Hidden>;
-  // The CLI is mounted here rather than in Layout, which Docusaurus tears down
-  // and rebuilds on every navigation: a conversation you can walk away from is
-  // the difference between a window docked to the app and a widget stuck to the
-  // page. It sits beside the children rather than inside them, so the sign-in
-  // screen, which replaces the children, never carries it.
-  if (status === SIGNED_IN) return <>{children}<CommandBar /></>;
+
+  if (status === SIGNED_IN) {
+    if (workspaces === 0 && !ungated) {
+      return (
+        <OnboardingScreen
+          user={user}
+          onSignOut={() => signOutAndForget().then(() => window.location.reload())}
+        />
+      );
+    }
+    // The CLI is mounted here rather than in Layout, which Docusaurus tears
+    // down and rebuilds on every navigation: a conversation you can walk away
+    // from is the difference between a window docked to the app and a widget
+    // stuck to the page. It sits beside the children rather than inside them,
+    // so the screens that replace the children never carry it, and it waits
+    // for a workspace, because every request it makes needs one.
+    return <>{children}{workspaces === 0 ? null : <CommandBar />}</>;
+  }
+
+  if (ungated) return <>{children}</>;
 
   return (
     <AuthScreen

@@ -29,8 +29,8 @@
  */
 const fs = require('fs');
 const path = require('path');
-const {PROJECT_ROOT, CONTENT_DIR, VAR_DIR} = require('./paths');
-const {numericParam} = require('./server-utils');
+const {PROJECT_ROOT, CONTENT_DIR, VAR_DIR, PRIMARY_ORG_SLUG} = require('./paths');
+const {numericParam, within} = require('./server-utils');
 
 /** The surface this file currently implements. */
 const API_VERSION = 1;
@@ -40,20 +40,6 @@ const CAPABILITIES = Object.freeze(['cache', 'content:read', 'content:write', 'n
 /** Text longer than this is not a field value, it is an accident or an attack. */
 const MAX_WRITE_BYTES = 5 * 1024 * 1024;
 
-/**
- * Resolve `relative` inside `root`, or throw.
- *
- * The guard is on the resolved path rather than on the string, because
- * '../../etc/passwd' and 'a/../../../etc/passwd' are both fine as strings and
- * neither is inside the directory once resolved.
- */
-function within(root, relative, what) {
-  const resolved = path.resolve(root, String(relative ?? ''));
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-    throw new Error(`${what} is outside the directory this plugin may use: ${relative}`);
-  }
-  return resolved;
-}
 
 /**
  * Read and write files under content/, and nothing else.
@@ -256,10 +242,20 @@ function buildPluginApi({name, requires = [], ctx, req}) {
   const files = {
     fs: ctx.fs ?? fs,
     onWrite: () => {
-      ctx.invalidateCache('stats');
-      ctx.invalidateCache('search');
+      // Scoped to the workspace whose file was written, so one plugin write
+      // does not drop every other organization's derived caches.
+      ctx.invalidateCache(ctx.cacheKey ? ctx.cacheKey(req?.auth?.orgId, 'stats') : 'stats');
+      ctx.invalidateCache(ctx.cacheKey ? ctx.cacheKey(req?.auth?.orgId, 'search') : 'search');
     },
-    CONTENT_DIR: root === PROJECT_ROOT ? CONTENT_DIR : path.join(root, 'content'),
+    // The caller's workspace, not the whole content tree. A plugin holding
+    // content:read sees one organization's files and cannot name another's,
+    // because `within` resolves every relative path it is given inside this
+    // root and the root comes from the verified session rather than the
+    // request. That makes the bibliography plugin per-workspace for free: its
+    // BIB_FILE is the relative 'bibliography/references.yaml'.
+    CONTENT_DIR: ctx.contentRootFor
+      ? ctx.contentRootFor(req?.auth?.orgId)
+      : path.join(root, 'content', PRIMARY_ORG_SLUG),
     VAR_DIR: root === PROJECT_ROOT ? VAR_DIR : path.join(root, 'var'),
   };
 
@@ -273,7 +269,9 @@ function buildPluginApi({name, requires = [], ctx, req}) {
 }
 
 module.exports = {
-  API_VERSION, CAPABILITIES, buildPluginApi, within, PROJECT_ROOT,
+  API_VERSION, CAPABILITIES, buildPluginApi, PROJECT_ROOT,
+  /** Re-exported where it used to live, for the plugins that import it. */
+  within,
   /**
    * Pure helpers a plugin may import directly rather than receive. They read
    * nothing and reach nowhere, so there is no capability to gate: clamping a

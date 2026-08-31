@@ -9,13 +9,15 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, TEST_IDENTITY} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, TEST_IDENTITY, key} from '../../_harness.mjs';
 
 const routes = loadRoute('feeds');
 const {STREAKS_FILE} = FILES;
 const SESSIONS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'sessions.json');
 const SCHEDULE_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'schedule.json');
-const at = rel => path.join(PROJECT_ROOT, rel);
+// Content fixtures live in the workspace's own tree, and the paths the scan
+// reports are relative to it: `books/math/x.md`, never `content/mochi/...`.
+const at = rel => path.join(CONTENT_DIR, rel);
 
 const PROTO_KEYS = ['__proto__', 'constructor', 'prototype'];
 const INHERITED_KEYS = ['toString', 'valueOf', 'hasOwnProperty'];
@@ -77,9 +79,9 @@ describe('GET /api/feed/rss and /api/feed/atom', () => {
   // mockFs stamps each file with an increasing mtime, so declaration order here
   // is oldest to newest and the feeds must reverse it.
   const CONTENT = {
-    [at('content/old.md')]: fm({title: 'Oldest', date: '2020-01-01'}),
-    [at('content/mid.md')]: fm({title: 'AT&T <Corp>'}),
-    [at('content/new.md')]: fm({title: 'Newest'}),
+    [at('old.md')]: fm({title: 'Oldest', date: '2020-01-01'}),
+    [at('mid.md')]: fm({title: 'AT&T <Corp>'}),
+    [at('new.md')]: fm({title: 'Newest'}),
   };
 
   function feedCtx() {
@@ -102,7 +104,7 @@ describe('GET /api/feed/rss and /api/feed/atom', () => {
     let seen;
     const ctx = makeCtx({fs: mockFs(CONTENT), cached: (key, ttl, fn) => { seen = [key, ttl]; return fn(); }});
     await invoke(routes, {path: '/api/feed/rss', ctx});
-    assert.deepEqual(seen, ['feed-items', 60000]);
+    assert.deepEqual(seen, [key('feed-items'), 60000]);
   });
 
   const FEEDS = [
@@ -129,7 +131,7 @@ describe('GET /api/feed/rss and /api/feed/atom', () => {
     });
 
     it(`${name} slices to the twenty most recent items`, async () => {
-      const many = Object.fromEntries(Array.from({length: 25}, (_, i) => [at(`content/f${i}.md`), fm({title: `T${i}`})]));
+      const many = Object.fromEntries(Array.from({length: 25}, (_, i) => [at(`f${i}.md`), fm({title: `T${i}`})]));
       const ctx = makeCtx({fs: mockFs(many)});
       const r = await invoke(routes, {path: p, ctx});
       const items = [...r.written.body.matchAll(/<(?:item|entry)>/g)];
@@ -139,11 +141,11 @@ describe('GET /api/feed/rss and /api/feed/atom', () => {
 
   it('skips dot and underscore entries and non-allowed extensions in the scan', async () => {
     const ctx = makeCtx({fs: mockFs({
-      [at('content/.hidden.md')]: fm({title: 'Hidden'}),
-      [at('content/_draft.md')]: fm({title: 'Draft'}),
-      [at('content/_partials/p.md')]: fm({title: 'Partial'}),
-      [at('content/notes.txt')]: 'Plain',
-      [at('content/keep.md')]: fm({title: 'Keep'}),
+      [at('.hidden.md')]: fm({title: 'Hidden'}),
+      [at('_draft.md')]: fm({title: 'Draft'}),
+      [at('_partials/p.md')]: fm({title: 'Partial'}),
+      [at('notes.txt')]: 'Plain',
+      [at('keep.md')]: fm({title: 'Keep'}),
     })});
     const r = await invoke(routes, {path: '/api/feed/rss', ctx});
     const titles = [...r.written.body.matchAll(/<title>([^<]*)<\/title>/g)].map(m => m[1]);
@@ -154,6 +156,35 @@ describe('GET /api/feed/rss and /api/feed/atom', () => {
     const {ctx} = feedCtx();
     const r = await invoke(routes, {path: '/api/feed/atom', ctx});
     assert.match(r.written.body, /<updated>2020-01-01T00:00:00Z<\/updated>/);
+  });
+
+  // Both feeds link to the page the site actually serves, not to the source
+  // path. The `books/` and `posts/` levels are repository structure and never
+  // appear in a URL, a chapter's `NN-` ordering prefix is dropped from every
+  // segment, and a post is addressed by its front-matter slug when it has one.
+  // These used to emit `/books/...` and `/posts/...`, which were dead links.
+  describe('item links are real site URLs', () => {
+    // Declared oldest to newest, so the feed reverses them: research, blog, book.
+    const LINKED = {
+      [at('books/programming/3-cuda/1-first.md')]: fm({title: 'Kernel'}),
+      [at('posts/blog/hello.md')]: fm({title: 'Hello'}),
+      [at('posts/research/swarms.md')]: fm({title: 'Swarms', slug: 'eisi'}),
+    };
+    const WANT = ['/research/eisi', '/blog/hello', '/programming/cuda/first'];
+
+    it('RSS emits them in <link>', async () => {
+      const ctx = makeCtx({fs: mockFs(LINKED)});
+      const r = await invoke(routes, {path: '/api/feed/rss', ctx});
+      const links = [...r.written.body.matchAll(/<link>([^<]*)<\/link>/g)].map(m => m[1]);
+      assert.deepEqual(links, WANT);
+    });
+
+    it('Atom emits them in <link href>', async () => {
+      const ctx = makeCtx({fs: mockFs(LINKED)});
+      const r = await invoke(routes, {path: '/api/feed/atom', ctx});
+      const links = [...r.written.body.matchAll(/<link href="([^"]*)"\/>/g)].map(m => m[1]);
+      assert.deepEqual(links, WANT);
+    });
   });
 
   // The whole build runs inside one try, so a throw from the memo layer and a
@@ -179,7 +210,7 @@ describe('GET /api/feed/rss and /api/feed/atom', () => {
 // ── Schedule ──────────────────────────────────────────────────────────────
 
 describe('POST /api/schedule', () => {
-  const OK = {path: 'content/a.md', publishAt: '2026-06-01T00:00:00.000Z'};
+  const OK = {path: 'a.md', publishAt: '2026-06-01T00:00:00.000Z'};
 
   const GUARDS = [
     {name: 'a missing path', body: {publishAt: 'x'}, error: 'Missing or invalid path'},
@@ -202,7 +233,7 @@ describe('POST /api/schedule', () => {
     const r = await invoke(routes, {method: 'POST', path: '/api/schedule', body: OK, ctx});
     assert.equal(r.status, 200);
     const {id, createdAt, ...stable} = r.payload.item;
-    assert.deepEqual(stable, {path: 'content/a.md', publishAt: OK.publishAt, note: '', status: 'scheduled'});
+    assert.deepEqual(stable, {path: 'a.md', publishAt: OK.publishAt, note: '', status: 'scheduled'});
     assert.match(id, /^sched_\d+_[a-z0-9]+$/);
     assert.equal(ctx.calls.saveJSON.length, 1);
     assert.deepEqual(ctx.store[SCHEDULE_FILE].items, [r.payload.item]);
@@ -279,11 +310,11 @@ describe('GET /api/activity-heatmap', () => {
   // mtime to survive the post-cache window filter.
   function heatmapCtx(over = {}) {
     const base = mockFs({
-      [at('content/a.md')]: 'x',
-      [at('content/sub/b.md')]: 'x',
-      [at('content/.hidden.md')]: 'x',
-      [at('content/.hidden/c.md')]: 'x',
-      [at('content/n.txt')]: 'x',
+      [at('a.md')]: 'x',
+      [at('sub/b.md')]: 'x',
+      [at('.hidden.md')]: 'x',
+      [at('.hidden/c.md')]: 'x',
+      [at('n.txt')]: 'x',
     });
     const now = new Date();
     const fs = {...base, statSync: p => ({...base.statSync(p), mtime: now}), ...(over.fs ? {} : {})};

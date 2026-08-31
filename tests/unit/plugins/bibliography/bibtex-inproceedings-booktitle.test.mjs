@@ -16,11 +16,14 @@ const path = require('path');
 
 // Resolve references.yaml relative to the plugin (cwd-independent), mirroring the
 // sibling test, so the discovery below reads the same data loadContent() reads.
+// Content is one tree per organization, and the build renders the primary one,
+// so the slug is resolved exactly as the plugin resolves it.
 const pluginDir = path.dirname(
   require.resolve('../../../../plugins/bibliography'),
 );
 const projectDir = path.resolve(pluginDir, '..', '..');
-const bibPath = path.join(projectDir, 'content', 'bibliography', 'references.yaml');
+const PRIMARY_ORG = process.env.ROOT_ORG_SLUG || 'mochi';
+const bibPath = path.join(projectDir, 'content', PRIMARY_ORG, 'bibliography', 'references.yaml');
 const rawBib = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
 const allKeys = Object.keys(rawBib);
 
