@@ -16,6 +16,18 @@ same-site cookies without exposing credentials to browser JavaScript.
 Use `.env.production.example` as the secret checklist. Never commit a filled
 environment file.
 
+Copy it to `.env.production.local`, fill the object-storage values, and verify
+the bucket before deploying:
+
+```bash
+cp .env.production.example .env.production.local
+npm run object-storage:verify
+```
+
+The probe writes one random object below `_mochi-health/`, verifies its bytes
+and metadata, deletes it, and confirms deletion. It never reads or modifies a
+business asset.
+
 ## Release sequence
 
 1. Back up the legacy database, content tree, and uploaded objects.

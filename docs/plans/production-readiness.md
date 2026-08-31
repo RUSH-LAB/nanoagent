@@ -25,8 +25,8 @@ the cutover in staging, and deploy one verified application image.
 
 1. Provision a separate production Neon project or database. Never point
    `test:postgres` at it.
-2. Provision an S3/R2-compatible bucket and configure the five
-   `OBJECT_STORAGE_*` values.
+2. Provision an S3/R2-compatible bucket, configure the five
+   `OBJECT_STORAGE_*` values, and run `npm run object-storage:verify`.
 3. Configure an HTTPS mail webhook and token.
 4. Configure the application host from `.env.production.example`, including a
    new production-only `BETTER_AUTH_SECRET`.

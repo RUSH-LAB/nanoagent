@@ -32,9 +32,13 @@ These are migration tools, not application startup steps.
 
 ## `maintenance/`
 
-Manual repair or cleanup commands. `clean-test-bibliography.mjs` removes known
-integration-test bibliography records and creates a backup before writing. It
-is a dry run unless `--apply` is supplied.
+Manual verification, repair, or cleanup commands:
+
+- `verify-object-storage.mjs` performs a self-cleaning upload, metadata,
+  download, and delete probe against configured S3/R2 storage.
+- `clean-test-bibliography.mjs` removes known integration-test bibliography
+  records and creates a backup before writing. It is a dry run unless `--apply`
+  is supplied.
 
 ## `dev/`
 

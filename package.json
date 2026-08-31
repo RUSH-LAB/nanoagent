@@ -19,6 +19,7 @@
     "db:postgres:verify": "node scripts/db/postgres.mjs verify",
     "test:postgres": "node scripts/db/postgres.mjs test",
     "start:postgres:api": "node scripts/db/postgres.mjs serve",
+    "object-storage:verify": "node --env-file-if-exists=.env.postgres.local --env-file-if-exists=.env.production.local scripts/maintenance/verify-object-storage.mjs",
     "proofs:check": "cd plugins/lean-proofs/proofs && lake build",
     "proofs:test": "node --test 'tests/unit/plugins/lean-proofs/**/*.test.mjs' && npm run proofs:check",
     "docusaurus": "docusaurus",
