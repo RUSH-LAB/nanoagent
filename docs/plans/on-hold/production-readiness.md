@@ -7,6 +7,9 @@ The workspace architecture and PostgreSQL migration path are complete. The
 remaining work is operational: provision production-only dependencies, rehearse
 the cutover in staging, and deploy one verified application image.
 
+For a plain-language summary of the services already in use and what remains,
+see [Production status](../../infra/production-status.md).
+
 ## Current state
 
 - [x] Workspace context comes from `/w/:workspaceSlug/...` and is revalidated
@@ -31,9 +34,9 @@ the cutover in staging, and deploy one verified application image.
    `OBJECT_STORAGE_*` values, and run `npm run object-storage:verify`.
 3. Verify `mochi-lab.org` in Resend, configure `RESEND_API_KEY` and `MAIL_FROM`,
    then run `npm run mail:verify`.
-4. Connect Railway to the GitHub repository and configure it from
-   `.env.production.example`, including a new production-only
-   `BETTER_AUTH_SECRET`.
+4. Connect Railway to the GitHub repository and configure the database,
+   authentication, email, and object-storage variables, including a new
+   production-only `BETTER_AUTH_SECRET`.
 5. Take a fresh SQLite and object backup, then freeze legacy writes.
 6. Run the database migration dry run, apply once, and rerun it until every
    count and hash matches.

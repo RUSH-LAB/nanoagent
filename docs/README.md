@@ -12,6 +12,8 @@ Start with the [product north star](product/north-star.md), then read the
 [platform architecture](infra/platform-architecture.md). For database setup on
 a new machine, follow the [Neon Postgres guide](infra/neon-postgres-setup.md).
 For releases, use the [production deployment runbook](infra/production-deployment.md).
+The [production status](infra/production-status.md) summarizes the services
+already prepared and the work remaining before a public launch.
 The current work queue is the
 [local site optimization plan](plans/local-site-optimization.md). Production
 deployment is intentionally [on hold](plans/on-hold/production-readiness.md).

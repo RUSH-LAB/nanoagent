@@ -16,14 +16,10 @@ same-site cookies without exposing credentials to browser JavaScript.
 The current deployment target is Railway. It builds the committed `Dockerfile`,
 injects `PORT`, checks `/api/health`, and terminates TLS at the public domain.
 
-Use `.env.production.example` as the secret checklist. Never commit a filled
-environment file.
-
-Copy it to `.env.production.local`, fill the object-storage values, and verify
-the bucket before deploying:
+Create a git-ignored `.env.production.local`, add the `OBJECT_STORAGE_*`
+credentials for the production bucket, and verify it before deploying:
 
 ```bash
-cp .env.production.example .env.production.local
 npm run object-storage:verify
 ```
 
@@ -58,8 +54,8 @@ password-reset, and invitation messages to their actual recipients.
 
 Create one service from the GitHub repository and select the release branch.
 Railway will use `railway.toml` and the root `Dockerfile`. Add every value from
-`.env.production.example` to the service variables, replacing placeholders;
-do not upload `.env.production.local`.
+the database, authentication, email, and object-storage configuration described
+above to the service variables; do not upload `.env.production.local`.
 
 Generate a Railway domain for the first deployment. Once it is healthy, attach
 `mochi-lab.org` or an application subdomain, update `SITE_URL` and

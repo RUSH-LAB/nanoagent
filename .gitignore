@@ -12,8 +12,6 @@
 .DS_Store
 .env
 .env.*
-!.env.postgres.remote.example
-!.env.production.example
 .env.postgres.local
 
 npm-debug.log*
