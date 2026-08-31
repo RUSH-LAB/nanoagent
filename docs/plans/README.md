@@ -2,7 +2,11 @@
 
 There is one active delivery plan:
 
-- [Production readiness](production-readiness.md)
+- [Local site optimization](local-site-optimization.md)
+
+Plans intentionally paused without being abandoned:
+
+- [Production readiness](on-hold/production-readiness.md)
 
 Completed plans are retained as implementation records:
 

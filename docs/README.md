@@ -13,4 +13,5 @@ Start with the [product north star](product/north-star.md), then read the
 a new machine, follow the [Neon Postgres guide](infra/neon-postgres-setup.md).
 For releases, use the [production deployment runbook](infra/production-deployment.md).
 The current work queue is the
-[production-readiness plan](plans/production-readiness.md).
+[local site optimization plan](plans/local-site-optimization.md). Production
+deployment is intentionally [on hold](plans/on-hold/production-readiness.md).

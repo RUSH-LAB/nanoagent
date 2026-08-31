@@ -2,7 +2,7 @@
 
 Status: completed on 2026-08-31. This is an implementation record, not an
 active plan. Remaining deployment work is tracked in
-[`../production-readiness.md`](../production-readiness.md).
+[`../on-hold/production-readiness.md`](../on-hold/production-readiness.md).
 
 ## Acceptance evidence
 
