@@ -17,7 +17,7 @@ the cutover in staging, and deploy one verified application image.
 - [x] Unit, HTTP integration, PostgreSQL, and production-build checks pass.
 - [ ] Production PostgreSQL is provisioned separately from development.
 - [x] Production object storage is provisioned and upload/delete is verified.
-- [ ] Transactional email is configured for verification, reset, and invites.
+- [x] Transactional email is configured through Resend and delivery is verified.
 - [ ] An HTTPS application origin and secret configuration are selected.
 - [ ] The production cutover and rollback rehearsal is complete.
 
