@@ -16,7 +16,7 @@ let workspaceRequest = null;
 let workspaceRequestTime = 0;
 
 export const WORKSPACE_PAGE_ROOTS = new Set([
-  'analytics', 'bibliography', 'channels', 'compare', 'content-search', 'documents', 'flashcards',
+  'analytics', 'bibliography', 'channels', 'compare', 'content-search', 'documents', 'files', 'flashcards',
   'glossary', 'graph', 'mindmap', 'people', 'reading-lists',
   'recommendations', 'settings', 'stats', 'tasks', 'timeline', 'whiteboard',
 ]);

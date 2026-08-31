@@ -113,8 +113,10 @@ describe('GET /api/content', () => {
   });
 
   it('returns the markdown too, which is what the editor wants', async () => {
-    const ctx = withDocs([{path: 'a.md', markdown: '# source'}]);
-    assert.equal((await at(ctx, 'a.md')).payload.markdown, '# source');
+    const ctx = withDocs([{path: 'a.md', markdown: '---\ntags: [safe]\n---\n# source'}]);
+    const payload = (await at(ctx, 'a.md')).payload;
+    assert.equal(payload.markdown, '---\ntags: [safe]\n---\n# source');
+    assert.deepEqual(payload.frontmatter.tags, ['safe']);
   });
 
   it('answers 404 for a document that is not there', async () => {
@@ -148,6 +150,43 @@ describe('GET /api/content', () => {
     assert.equal(r.status, 422);
     assert.equal(r.payload.code, 'mdx-error');
     assert.match(r.payload.error, /Unclosed/, 'and names what is wrong');
+  });
+});
+
+describe('POST /api/workspaces/:id/documents/preview', () => {
+  const context = Object.freeze({
+    userId: 'ada', workspaceId: 'lab', membershipId: 'membership-1', role: 'editor',
+  });
+
+  it('compiles unsaved source without creating a document', async () => {
+    const ctx = makeCtx();
+    const r = await invoke(routes, {
+      method: 'POST', path: '/api/workspaces/lab/documents/preview',
+      body: {markdown: '# Preview\n\nInline $x^2$.'}, ctx, requestContext: context,
+    });
+    assert.equal(r.status, 200);
+    assert.match(JSON.stringify(r.payload.tree), /Preview/);
+    assert.match(JSON.stringify(r.payload.tree), /katex/);
+    assert.deepEqual(ctx.documents.list(ctx.scopeFor({context})), []);
+  });
+
+  it('requires edit permission', async () => {
+    const ctx = makeCtx();
+    const r = await invoke(routes, {
+      method: 'POST', path: '/api/workspaces/lab/documents/preview',
+      body: {markdown: '# no'}, ctx, requestContext: {...context, role: 'viewer'},
+    });
+    assert.equal(r.status, 403);
+    assert.equal(r.payload.code, 'workspace-permission-denied');
+  });
+
+  it('returns a useful compile error', async () => {
+    const r = await invoke(routes, {
+      method: 'POST', path: '/api/workspaces/lab/documents/preview',
+      body: {markdown: '<Unclosed>\n'}, ctx: makeCtx(), requestContext: context,
+    });
+    assert.equal(r.status, 422);
+    assert.equal(r.payload.code, 'mdx-error');
   });
 });
 

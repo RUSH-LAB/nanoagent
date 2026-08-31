@@ -1,4 +1,4 @@
-import React, {type ReactNode} from 'react';
+import React, {type ReactNode, useEffect, useState} from 'react';
 import clsx from 'clsx';
 import {
   useThemeConfig,
@@ -16,6 +16,8 @@ import WorkspaceSwitcher from '@site/src/components/WorkspaceSwitcher';
 import LazySearchNavbarItem from '@site/src/components/LazySearchNavbarItem';
 import {useLocation} from '@docusaurus/router';
 import {workspaceSlugFromPath} from '@site/src/utils/workspaces';
+import API_BASE, {apiFetch} from '@site/src/utils/api';
+import {workspaceDocumentHref} from '@site/src/utils/documentUrls';
 
 import styles from './styles.module.css';
 
@@ -79,16 +81,38 @@ export default function NavbarContent(): ReactNode {
 
   const items = useNavbarItems();
   const workspaceSlug = workspaceSlugFromPath(location.pathname);
+  const [workspaceSite, setWorkspaceSite] = useState<any>(null);
   const hasConcreteWorkspace = workspaceSlug && !workspaceSlug.startsWith(':');
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!hasConcreteWorkspace) {
+      setWorkspaceSite(null);
+      return undefined;
+    }
+    apiFetch(`${API_BASE}/api/site`)
+      .then(response => response.ok ? response.json() : null)
+      .then(payload => { if (!cancelled) setWorkspaceSite(payload?.site ?? null); })
+      .catch(() => { if (!cancelled) setWorkspaceSite(null); });
+    return () => { cancelled = true; };
+  }, [hasConcreteWorkspace, workspaceSlug]);
+
+  const fixedItems = items.filter(item => item.type === 'search' || item.type === 'custom-userButton');
+  const configuredItems = hasConcreteWorkspace && workspaceSite
+    ? workspaceSite.navigation.map(item => ({
+        label: item.label,
+        to: workspaceDocumentHref(item.path, workspaceSlug, ''),
+      }))
+    : items;
   // Content links in the config are deliberately workspace-neutral so the
   // static build can render them. Once a workspace is present in the URL,
   // keep it in every navbar destination instead of falling back to the user's
   // default workspace through the legacy /documents redirect.
   const scopedItems = hasConcreteWorkspace
-    ? items.map(item => typeof item.to === 'string' && item.to.startsWith('/documents')
+    ? (workspaceSite ? [...configuredItems, ...fixedItems] : configuredItems).map(item => typeof item.to === 'string' && item.to.startsWith('/documents')
       ? {...item, to: `/w/${encodeURIComponent(workspaceSlug)}${item.to}`}
       : item)
-    : items;
+    : configuredItems;
   const [leftItems, rightItems] = splitNavbarItems(scopedItems);
 
   const searchBarItem = items.find((item) => item.type === 'search');

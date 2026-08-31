@@ -23,7 +23,7 @@
 module.exports = function runtimeContentPlugin(_context, options = {}) {
   const routeBasePath = String(options.routeBasePath ?? 'w').replace(/^\/+|\/+$/g, '');
   const workspacePages = [
-    'analytics', 'channels', 'compare', 'content-search', 'flashcards',
+    'analytics', 'channels', 'compare', 'content-search', 'files', 'flashcards',
     'glossary', 'graph', 'mindmap', 'people', 'reading-lists',
     'recommendations', 'settings', 'stats', 'tasks', 'timeline', 'whiteboard',
   ];
@@ -45,6 +45,11 @@ module.exports = function runtimeContentPlugin(_context, options = {}) {
         path: '/documents',
         exact: false,
         component: require.resolve('./LegacyDocumentRedirect.js'),
+      });
+      actions.addRoute({
+        path: `/${routeBasePath}/:workspaceSlug`,
+        exact: true,
+        component: require.resolve('./WorkspaceHomeRoute.js'),
       });
       for (const page of workspacePages) {
         actions.addRoute({

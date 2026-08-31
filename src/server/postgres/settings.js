@@ -127,22 +127,45 @@ function createPostgresPreferences({pool, now = () => new Date().toISOString()})
 
 function createPostgresAssets({pool, newId = () => crypto.randomUUID(), now = () => new Date().toISOString()}) {
   const run = (context, operation) => withRequestContext(pool, requireAssetContext(context), operation);
+  const columns = `id, path, object_key as "objectKey", content_type as "contentType",
+    byte_size as "byteSize", sha256, created_by as "createdBy", created_at as "createdAt"`;
   return Object.freeze({
     async create(context, value) {
       const asset = {id: value.id || newId(), ...value, createdBy: context.userId, createdAt: now()};
       await run(context, client => client.query(
-        `insert into asset(id, workspace_id, object_key, content_type, byte_size, sha256, created_by, created_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [asset.id, context.workspaceId, asset.objectKey, asset.contentType, asset.byteSize, asset.sha256, context.userId, asset.createdAt],
+        `insert into asset(id, workspace_id, path, object_key, content_type, byte_size, sha256, created_by, created_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [asset.id, context.workspaceId, asset.path || asset.id, asset.objectKey, asset.contentType, asset.byteSize, asset.sha256, context.userId, asset.createdAt],
       ));
       return asset;
     },
+    async put(context, value) {
+      const asset = {id: value.id || newId(), ...value, createdBy: context.userId, createdAt: now()};
+      return run(context, async client => (await client.query(
+        `insert into asset(id, workspace_id, path, object_key, content_type, byte_size, sha256, created_by, created_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         on conflict (workspace_id, path) do update set
+           object_key = excluded.object_key, content_type = excluded.content_type,
+           byte_size = excluded.byte_size, sha256 = excluded.sha256,
+           created_by = excluded.created_by, created_at = excluded.created_at
+         returning ${columns}`,
+        [asset.id, context.workspaceId, asset.path, asset.objectKey, asset.contentType, asset.byteSize, asset.sha256, context.userId, asset.createdAt],
+      )).rows[0]);
+    },
     async get(context, id) {
       return run(context, async client => (await client.query(
-        `select id, object_key as "objectKey", content_type as "contentType", byte_size as "byteSize",
-                sha256, created_by as "createdBy", created_at as "createdAt"
-           from asset where id = $1`, [String(id)],
+        `select ${columns} from asset where id = $1`, [String(id)],
       )).rows[0] ?? null);
+    },
+    async getByPath(context, path) {
+      return run(context, async client => (await client.query(
+        `select ${columns} from asset where path = $1`, [String(path)],
+      )).rows[0] ?? null);
+    },
+    async list(context) {
+      return run(context, async client => (await client.query(
+        `select ${columns} from asset order by path`,
+      )).rows);
     },
     async remove(context, id) {
       return run(context, async client => (await client.query('delete from asset where id = $1', [String(id)])).rowCount > 0);

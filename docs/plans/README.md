@@ -2,7 +2,7 @@
 
 There is one active delivery plan:
 
-- [Local site optimization](local-site-optimization.md)
+- [Workspace content and Docusaurus rendering](workspace-content-and-rendering.md)
 
 Plans intentionally paused without being abandoned:
 
@@ -11,6 +11,7 @@ Plans intentionally paused without being abandoned:
 Completed plans are retained as implementation records:
 
 - [Workspace architecture convergence](completed/workspace-architecture-convergence.md)
+- [Local site optimization — first milestone](completed/local-site-optimization.md)
 
 A completed plan must not continue carrying future work. Move remaining work
 into a new active plan, link it from this index, and keep operational commands

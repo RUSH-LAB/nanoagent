@@ -129,9 +129,9 @@ const datasets = [
     destination: 'select id, workspace_id, document_id, seq::int as seq, markdown, author_id, created_at from document_version',
   },
   {
-    table: 'asset', keys: ['id'], columns: ['id', 'workspace_id', 'object_key', 'content_type', 'byte_size', 'sha256', 'created_by', 'created_at'],
-    source: () => rows('select id, organizationId as workspace_id, objectKey as object_key, contentType as content_type, byteSize as byte_size, sha256, createdBy as created_by, createdAt as created_at from asset'),
-    destination: 'select id, workspace_id, object_key, content_type, byte_size::int as byte_size, sha256, created_by, created_at from asset',
+    table: 'asset', keys: ['id'], columns: ['id', 'workspace_id', 'path', 'object_key', 'content_type', 'byte_size', 'sha256', 'created_by', 'created_at'],
+    source: () => rows('select id, organizationId as workspace_id, path, objectKey as object_key, contentType as content_type, byteSize as byte_size, sha256, createdBy as created_by, createdAt as created_at from asset'),
+    destination: 'select id, workspace_id, path, object_key, content_type, byte_size::int as byte_size, sha256, created_by, created_at from asset',
   },
   {
     table: 'reference', keys: ['workspace_id', 'citation_key'], columns: ['id', 'workspace_id', 'citation_key', 'value', 'created_by', 'created_at', 'updated_at'],

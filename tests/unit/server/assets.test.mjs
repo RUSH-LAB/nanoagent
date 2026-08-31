@@ -14,6 +14,7 @@ describe('workspace asset metadata', () => {
     const beta = {workspaceId: 'workspace-b', userId: 'user-2'};
 
     const created = assets.create(alpha, {
+      path: 'papers/file.pdf',
       objectKey: 'workspace-a/assets/asset-1/file.pdf',
       contentType: 'application/pdf',
       byteSize: 12,
@@ -22,10 +23,25 @@ describe('workspace asset metadata', () => {
 
     assert.equal(created.id, 'asset-1');
     assert.equal(assets.get(alpha, 'asset-1').objectKey, created.objectKey);
+    assert.equal(assets.getByPath(alpha, 'papers/file.pdf').id, 'asset-1');
+    assert.deepEqual(assets.list(alpha).map(asset => asset.path), ['papers/file.pdf']);
     assert.equal(assets.get(beta, 'asset-1'), null);
     assert.equal(assets.remove(beta, 'asset-1'), false);
     assert.equal(assets.remove(alpha, 'asset-1'), true);
     assert.equal(assets.get(alpha, 'asset-1'), null);
+  });
+
+  it('replaces metadata at one logical path without exposing another workspace', () => {
+    const db = migratedDatabase();
+    let id = 0;
+    const assets = createAssets({db, newId: () => `asset-${++id}`});
+    const alpha = {workspaceId: 'workspace-a', userId: 'user-1'};
+    const beta = {workspaceId: 'workspace-b', userId: 'user-2'};
+    assets.put(alpha, {path: 'images/plot.png', objectKey: 'old', contentType: 'image/png', byteSize: 1, sha256: 'a'});
+    const replaced = assets.put(alpha, {path: 'images/plot.png', objectKey: 'new', contentType: 'image/png', byteSize: 2, sha256: 'b'});
+    assert.equal(replaced.objectKey, 'new');
+    assert.equal(assets.list(alpha).length, 1);
+    assert.equal(assets.getByPath(beta, 'images/plot.png'), null);
   });
 
   it('refuses unverified contexts', () => {

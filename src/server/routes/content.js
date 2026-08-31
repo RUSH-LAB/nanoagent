@@ -17,7 +17,7 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
   // a route module needs, so a test drives a throwaway database and its own
   // compiler rather than the real ones.
   const {
-    json, readBody, rateLimit, scopeFor, documents, compileDocument, invalidateCache, cacheKey,
+    json, readBody, rateLimit, scopeFor, documents, compileDocument, compileMarkdown, parseFrontmatter, invalidateCache, cacheKey,
     requireWorkspacePermission,
   } = ctx;
 
@@ -99,8 +99,34 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
         updatedAt: document.updatedAt,
       },
       markdown: document.markdown,
+      frontmatter: parseFrontmatter(document.markdown),
       tree,
     });
+  }
+
+  // ── Unsaved preview ──
+  //
+  // The editor sends source through the exact compiler used by the published
+  // route. Nothing is persisted, and the browser still receives an inert tree
+  // rather than executable MDX.
+  if (req.method === 'POST' && contentPath === '/api/content/preview') {
+    if (!rateLimit(`content:${req.socket.remoteAddress}`, 60)) {
+      return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    }
+    try {
+      permit('content:edit');
+      const body = await readBody(req);
+      if (typeof body?.markdown !== 'string') {
+        return json(res, 400, {error: 'markdown must be a string'});
+      }
+      return json(res, 200, {tree: await compileMarkdown(body.markdown)});
+    } catch (err) {
+      if (err?.status && err?.code) return fail(json, res, err, 'Invalid request');
+      return json(res, 422, {
+        error: `This document could not be rendered: ${err.message}`,
+        code: 'mdx-error',
+      });
+    }
   }
 
   // ── Create ──

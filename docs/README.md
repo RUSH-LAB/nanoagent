@@ -15,5 +15,6 @@ For releases, use the [production deployment runbook](infra/production-deploymen
 The [production status](infra/production-status.md) summarizes the services
 already prepared and the work remaining before a public launch.
 The current work queue is the
-[local site optimization plan](plans/local-site-optimization.md). Production
-deployment is intentionally [on hold](plans/on-hold/production-readiness.md).
+[workspace content and Docusaurus rendering plan](plans/workspace-content-and-rendering.md).
+Production deployment is intentionally
+[on hold](plans/on-hold/production-readiness.md).

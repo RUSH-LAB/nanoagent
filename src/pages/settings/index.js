@@ -52,6 +52,10 @@ function SettingsApp() {
   // Its own, because the preferences error renders in the section below and a
   // failed switch reported down there would look like a failed theme change.
   const [workspaceError, setWorkspaceError] = useState(null);
+  const [siteConfig, setSiteConfig] = useState(null);
+  const [navigationText, setNavigationText] = useState('');
+  const [siteSaving, setSiteSaving] = useState(false);
+  const [siteMessage, setSiteMessage] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,6 +83,24 @@ function SettingsApp() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [authClient, workspaceSlug]);
+
+  useEffect(() => {
+    if (!activeId) {
+      setSiteConfig(null);
+      return undefined;
+    }
+    let cancelled = false;
+    apiFetch(`${API_BASE}/api/workspaces/${encodeURIComponent(activeId)}/site`)
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Could not load workspace site settings');
+        if (cancelled) return;
+        setSiteConfig(data.site);
+        setNavigationText((data.site.navigation || []).map(item => `${item.label} | ${item.path}`).join('\n'));
+      })
+      .catch(error => { if (!cancelled) setSiteMessage({kind: 'error', text: error.message}); });
+    return () => { cancelled = true; };
+  }, [activeId]);
 
   /**
    * Run one of the workspace writes. Both reload the page on success, from
@@ -117,6 +139,33 @@ function SettingsApp() {
       setSaving(false);
     }
   }, []);
+
+  const saveSite = useCallback(async () => {
+    if (!activeId || !siteConfig) return;
+    setSiteSaving(true);
+    setSiteMessage(null);
+    try {
+      const navigation = navigationText.split('\n').map(line => line.trim()).filter(Boolean).map((line, index) => {
+        const separator = line.indexOf('|');
+        if (separator < 1) throw new Error(`Navigation line ${index + 1} must be “Label | document/path.md”`);
+        return {label: line.slice(0, separator).trim(), path: line.slice(separator + 1).trim()};
+      });
+      const response = await apiFetch(`${API_BASE}/api/workspaces/${encodeURIComponent(activeId)}/site`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({site: {...siteConfig, navigation}}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not save workspace site settings');
+      setSiteConfig(data.site);
+      setNavigationText((data.site.navigation || []).map(item => `${item.label} | ${item.path}`).join('\n'));
+      setSiteMessage({kind: 'success', text: 'Workspace site settings saved.'});
+    } catch (error) {
+      setSiteMessage({kind: 'error', text: error.message});
+    } finally {
+      setSiteSaving(false);
+    }
+  }, [activeId, navigationText, siteConfig]);
 
   if (loading) {
     return <div className={styles.placeholder}>Loading your settings...</div>;
@@ -284,6 +333,85 @@ function SettingsApp() {
           </p>
         )}
       </section>
+
+      {activeWorkspace ? (
+        <section className={styles.section}>
+          <div className={styles.sectionTitleRow}>
+            <div>
+              <h2 className={styles.sectionTitle}>Workspace site</h2>
+              <p className={styles.muted}>Data-only Docusaurus presentation. Changes do not rebuild the app.</p>
+            </div>
+            <Link className={styles.peopleLink} to={`/w/${encodeURIComponent(activeWorkspace.slug)}/files`}>
+              Manage files
+            </Link>
+          </div>
+          {!siteConfig ? <p className={styles.muted}>Loading site settings…</p> : (
+            <div className={styles.siteFields}>
+              <label>
+                <span>Site title</span>
+                <input
+                  value={siteConfig.site.title || ''}
+                  readOnly={activeWorkspace.role !== 'owner'}
+                  onChange={event => setSiteConfig(current => ({...current, site: {...current.site, title: event.target.value}}))}
+                />
+              </label>
+              <label>
+                <span>Tagline</span>
+                <input
+                  value={siteConfig.site.tagline || ''}
+                  readOnly={activeWorkspace.role !== 'owner'}
+                  onChange={event => setSiteConfig(current => ({...current, site: {...current.site, tagline: event.target.value}}))}
+                />
+              </label>
+              <label>
+                <span>Home document</span>
+                <input
+                  value={siteConfig.site.homeDocument || ''}
+                  readOnly={activeWorkspace.role !== 'owner'}
+                  placeholder="books/programming/0-intro.md"
+                  onChange={event => setSiteConfig(current => ({...current, site: {...current.site, homeDocument: event.target.value}}))}
+                />
+              </label>
+              <label>
+                <span>Navigation</span>
+                <textarea
+                  value={navigationText}
+                  readOnly={activeWorkspace.role !== 'owner'}
+                  rows={Math.max(4, navigationText.split('\n').length + 1)}
+                  placeholder={'Research | posts/research\nProgramming | books/programming/0-intro.md'}
+                  onChange={event => setNavigationText(event.target.value)}
+                />
+              </label>
+              <div className={styles.renderingFlags}>
+                {Object.entries(siteConfig.rendering || {}).map(([name, enabled]) => (
+                  <label key={name}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(enabled)}
+                      disabled={activeWorkspace.role !== 'owner'}
+                      onChange={event => setSiteConfig(current => ({
+                        ...current,
+                        rendering: {...current.rendering, [name]: event.target.checked},
+                      }))}
+                    />
+                    {name}
+                  </label>
+                ))}
+              </div>
+              {activeWorkspace.role === 'owner' ? (
+                <button type="button" className={styles.signOut} disabled={siteSaving} onClick={saveSite}>
+                  {siteSaving ? 'Saving…' : 'Save workspace site'}
+                </button>
+              ) : <p className={styles.muted}>Only workspace owners can change these settings.</p>}
+              {siteMessage ? (
+                <p className={siteMessage.kind === 'error' ? styles.error : styles.status} role="status">
+                  {siteMessage.text}
+                </p>
+              ) : null}
+            </div>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }

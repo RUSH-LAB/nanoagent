@@ -12,6 +12,11 @@ function all(node) {
 }
 
 describe('safe workspace markdown', () => {
+  it('extracts only supported frontmatter fields as inert data', () => {
+    assert.deepEqual(mdx.parseFrontmatter('---\ntitle: Hello\ntags: [one, two]\nsidebar_position: 3\ndraft: true\nunknown: nope\n---\nbody'), {
+      title: 'Hello', sidebarPosition: 3, draft: true, authors: [], tags: ['one', 'two'],
+    });
+  });
   it('returns an inert render tree rather than JavaScript', async () => {
     const tree = await mdx.compileMarkdown('# Hello');
     assert.equal(tree.type, 'root');
@@ -24,6 +29,14 @@ describe('safe workspace markdown', () => {
     const math = all(tree).find(node => node.type === 'math');
     assert.ok(math);
     assert.match(math.html, /katex/);
+  });
+
+  it('keeps LaTeX braces and table pipes out of the MDX expression grammar', async () => {
+    const tree = await mdx.compileMarkdown('| Formula |\n| --- |\n| $e^{-x|y}$ |');
+    const table = all(tree).find(node => node.type === 'table');
+    const row = table.children[1];
+    assert.equal(row.children.length, 1);
+    assert.ok(all(row).some(node => node.type === 'math' && node.tex === 'e^{-x|y}'));
   });
 
   it('keeps an allowed academic component and static attributes', async () => {
@@ -49,12 +62,40 @@ describe('safe workspace markdown', () => {
     assert.equal(nodes.find(node => node.name === 'LeanProof').props.runnable, false);
   });
 
+  it('allows the safe details and summary HTML used by existing documents', async () => {
+    const tree = await mdx.compileMarkdown('<details><summary>Answer</summary>Text</details>');
+    const nodes = all(tree);
+    assert.ok(nodes.some(node => node.type === 'element' && node.name === 'details'));
+    assert.ok(nodes.some(node => node.type === 'element' && node.name === 'summary'));
+  });
+
+  it('accepts safe relative document and asset URLs', async () => {
+    const tree = await mdx.compileMarkdown('[Next](../next.md)\n\n![Plot](./assets/plot.png)');
+    const nodes = all(tree);
+    assert.ok(nodes.some(node => node.type === 'link' && node.url === '../next.md'));
+    assert.ok(nodes.some(node => node.type === 'image' && node.url === './assets/plot.png'));
+  });
+
+  it('treats Docusaurus truncate comments as inert metadata', async () => {
+    const tree = await mdx.compileMarkdown('Before\n\n<!-- truncate -->\n\nAfter\n\n{/* truncate */}');
+    assert.equal(all(tree).some(node => JSON.stringify(node).includes('truncate')), false);
+  });
+
+  it('creates stable heading ids and Docusaurus admonition nodes', async () => {
+    const tree = await mdx.compileMarkdown('## Same heading\n\n## Same heading\n\n:::tip[Remember]\nUse the workspace URL.\n:::');
+    const nodes = all(tree);
+    assert.deepEqual(nodes.filter(node => node.type === 'heading').map(node => node.id), ['same-heading', 'same-heading-1']);
+    const admonition = nodes.find(node => node.type === 'admonition');
+    assert.equal(admonition.admonitionType, 'tip');
+    assert.equal(admonition.title, 'Remember');
+  });
+
   for (const [name, source, message] of [
     ['imports', 'import x from "evil"\n\n# Hello', /import and export/],
     ['exports', 'export const x = 1\n\n# Hello', /import and export/],
     ['expressions', '# Hello {globalThis.document.cookie}', /expressions are not allowed/],
     ['unknown components', '<Script src="/x" />', /is not allowed/],
-    ['expression attributes', '<Theorem id={globalThis.document.cookie}>x</Theorem>', /Expressions are not allowed/],
+    ['expression attributes', '<Theorem id={globalThis.document.cookie}>x</Theorem>', /expressions are not allowed/i],
     ['raw html', '<script>alert(1)</script>', /is not allowed/],
     ['javascript links', '[click](javascript:alert(1))', /allowed/],
   ]) {
@@ -97,7 +138,7 @@ describe('the render-tree cache', () => {
   });
 
   it('does not cache a rejected document', async () => {
-    await assert.rejects(() => mdx.compileDocument({id: 'bad', updatedAt: 't', markdown: '{evil}'}));
+    await assert.rejects(() => mdx.compileDocument({id: 'bad', updatedAt: 't', markdown: '{globalThis.evil}'}));
     assert.equal(mdx._cacheSize(), 0);
   });
 });

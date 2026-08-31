@@ -3,9 +3,9 @@ import {useLocation} from '@docusaurus/router';
 import Link from '@docusaurus/Link';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import Layout from '@theme/Layout';
-import MDXComponents from '@theme/MDXComponents';
 import API_BASE, {apiFetch} from '@site/src/utils/api';
 import {loadWorkspaces} from '@site/src/utils/workspaces';
+import SafeDocument from './SafeDocument';
 import styles from './documentRoute.module.css';
 
 /**
@@ -14,50 +14,6 @@ import styles from './documentRoute.module.css';
  * What arrives is an inert render tree. The server has already rejected code,
  * raw HTML, unsafe URLs, unknown components, and non-static attributes.
  */
-
-function childrenOf(node) {
-  return (node.children || []).map((child, index) => <SafeNode key={index} node={child} />);
-}
-
-function SafeNode({node}) {
-  if (!node || node.type === 'empty') return null;
-  switch (node.type) {
-    case 'root': return <>{childrenOf(node)}</>;
-    case 'text': return node.value;
-    case 'paragraph': return <p>{childrenOf(node)}</p>;
-    case 'heading': return React.createElement(`h${node.depth}`, null, childrenOf(node));
-    case 'emphasis': return <em>{childrenOf(node)}</em>;
-    case 'strong': return <strong>{childrenOf(node)}</strong>;
-    case 'delete': return <del>{childrenOf(node)}</del>;
-    case 'blockquote': return <blockquote>{childrenOf(node)}</blockquote>;
-    case 'thematicBreak': return <hr />;
-    case 'break': return <br />;
-    case 'inlineCode': return <code>{node.value}</code>;
-    case 'code': return <pre><code className={node.lang ? `language-${node.lang}` : undefined}>{node.value}</code></pre>;
-    case 'link': return node.url.startsWith('/')
-      ? <Link to={node.url} title={node.title || undefined}>{childrenOf(node)}</Link>
-      : <a href={node.url} title={node.title || undefined}>{childrenOf(node)}</a>;
-    case 'image': return <img src={node.url} alt={node.alt} title={node.title || undefined} />;
-    case 'list': {
-      const Tag = node.ordered ? 'ol' : 'ul';
-      return <Tag start={node.ordered ? node.start : undefined}>{childrenOf(node)}</Tag>;
-    }
-    case 'listItem': return <li>{childrenOf(node)}</li>;
-    case 'table': return <table><tbody>{childrenOf(node)}</tbody></table>;
-    case 'tableRow': return <tr>{childrenOf(node)}</tr>;
-    case 'tableCell': return <td>{childrenOf(node)}</td>;
-    case 'math': {
-      const Tag = node.display ? 'div' : 'span';
-      return <Tag className={node.display ? 'math-display' : 'math-inline'} dangerouslySetInnerHTML={{__html: node.html}} />;
-    }
-    case 'component': {
-      const Component = MDXComponents[node.name];
-      if (!Component) return null;
-      return React.createElement(Component, node.props || {}, childrenOf(node));
-    }
-    default: return null;
-  }
-}
 
 /** The four states this route can be in. Rendered by the switch at the bottom. */
 const LOADING = 'loading';
@@ -76,6 +32,22 @@ function labelForDirectory(path) {
     .filter(Boolean)
     .map(part => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+function headingsOf(node, result = []) {
+  if (!node) return result;
+  if (node.type === 'heading' && node.depth >= 2 && node.depth <= 3) {
+    const label = (node.children || []).map(child => child.value || '').join('').trim();
+    if (label) result.push({id: node.id, label, depth: node.depth});
+  }
+  for (const child of node.children || []) headingsOf(child, result);
+  return result;
+}
+
+function collectionFor(site, documentPath) {
+  return (site?.collections || [])
+    .filter(collection => documentPath === collection.pathPrefix || documentPath.startsWith(`${collection.pathPrefix}/`))
+    .sort((a, b) => b.pathPrefix.length - a.pathPrefix.length)[0] || null;
 }
 
 function DocumentBody({workspaceSlug, documentPath}) {
@@ -116,7 +88,12 @@ function DocumentBody({workspaceSlug, documentPath}) {
               .filter(document => document.path.startsWith(prefix))
               .sort((a, b) => a.path.localeCompare(b.path));
             if (children.length > 0) {
-              setState({status: READY, directory: documentPath, documents: children});
+              setState({
+                status: READY,
+                directory: documentPath,
+                documents: children,
+                canEdit: workspace.role === 'owner' || workspace.role === 'editor',
+              });
               return;
             }
           }
@@ -133,9 +110,30 @@ function DocumentBody({workspaceSlug, documentPath}) {
         }
 
         if (cancelled) return;
-        setState(documentPath
-          ? {status: READY, tree: payload.tree, document: payload.document}
-          : {status: READY, documents: payload.documents ?? []});
+        const canEdit = workspace.role === 'owner' || workspace.role === 'editor';
+        if (documentPath) {
+          const [treeResponse, siteResponse] = await Promise.all([
+            apiFetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/documents/tree`),
+            apiFetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/site`),
+          ]);
+          const [treeData, siteData] = await Promise.all([
+            treeResponse.json().catch(() => ({})),
+            siteResponse.json().catch(() => ({})),
+          ]);
+          if (cancelled) return;
+          setState({
+            status: READY,
+            tree: payload.tree,
+            document: payload.document,
+            frontmatter: payload.frontmatter || {},
+            documents: treeResponse.ok ? treeData.documents || [] : [],
+            site: siteResponse.ok ? siteData.site : null,
+            workspaceId: workspace.id,
+            canEdit,
+          });
+        } else {
+          setState({status: READY, documents: payload.documents ?? [], workspaceId: workspace.id, canEdit});
+        }
       } catch (err) {
         if (!cancelled) setState({status: BROKEN, message: err.message});
       }
@@ -182,9 +180,16 @@ function DocumentBody({workspaceSlug, documentPath}) {
     return (
       <article className={styles.collection}>
         <header className={styles.collectionHeader}>
-          <span className={styles.eyebrow}>{state.directory ? 'Collection' : 'Workspace library'}</span>
-          <h1>{heading}</h1>
-          <p>{description}</p>
+          <div>
+            <span className={styles.eyebrow}>{state.directory ? 'Collection' : 'Workspace library'}</span>
+            <h1>{heading}</h1>
+            <p>{description}</p>
+          </div>
+          {state.canEdit ? (
+            <Link className="button button--secondary button--sm" to={`/w/${encodeURIComponent(workspaceSlug)}/files`}>
+              Manage files
+            </Link>
+          ) : null}
         </header>
         {state.documents.length === 0 ? <p className={styles.empty}>This workspace has no documents yet.</p> : (
           <ul className={styles.documentGrid}>
@@ -209,11 +214,82 @@ function DocumentBody({workspaceSlug, documentPath}) {
   }
 
   const {tree, document} = state;
+  const collection = collectionFor(state.site, document.path);
+  const collectionDocuments = (collection
+    ? state.documents.filter(item => item.path.startsWith(`${collection.pathPrefix}/`))
+    : state.documents).sort((a, b) => a.path.localeCompare(b.path));
+  const currentIndex = collectionDocuments.findIndex(item => item.path === document.path);
+  const previous = currentIndex > 0 ? collectionDocuments[currentIndex - 1] : null;
+  const next = currentIndex >= 0 && currentIndex < collectionDocuments.length - 1
+    ? collectionDocuments[currentIndex + 1]
+    : null;
+  const headings = headingsOf(tree);
+  const frontmatter = state.frontmatter || {};
   return (
-    <article>
+    <div className={styles.docLayout}>
+      {collectionDocuments.length > 1 ? (
+        <aside className={styles.docSidebar}>
+          <strong>{collection?.title || 'Documents'}</strong>
+          <nav>
+            {collectionDocuments.map(item => (
+              <Link
+                key={item.id}
+                className={item.path === document.path ? styles.sidebarActive : undefined}
+                to={`/w/${encodeURIComponent(workspaceSlug)}/documents/${routeForDocument(item.path)}`}
+              >
+                {item.title}
+              </Link>
+            ))}
+          </nav>
+        </aside>
+      ) : null}
+      <article className={`${styles.document} theme-doc-markdown markdown`}>
+      {state.canEdit ? (
+        <div className={styles.documentActions}>
+          <Link
+            className="button button--secondary button--sm"
+            to={`/w/${encodeURIComponent(workspaceSlug)}/files?path=${encodeURIComponent(document.path)}`}
+          >
+            Edit document
+          </Link>
+        </div>
+      ) : null}
+      {collection?.type === 'blog' && (frontmatter.date || frontmatter.authors?.length || frontmatter.tags?.length) ? (
+        <div className={styles.blogMeta}>
+          {frontmatter.date ? <time dateTime={frontmatter.date}>{new Date(frontmatter.date).toLocaleDateString()}</time> : null}
+          {frontmatter.authors?.length ? <span>{frontmatter.authors.join(', ')}</span> : null}
+          {frontmatter.tags?.length ? <span>{frontmatter.tags.join(' · ')}</span> : null}
+        </div>
+      ) : null}
       {document?.title ? <h1>{document.title}</h1> : null}
-      <SafeNode node={tree} />
-    </article>
+      {frontmatter.description ? <p className={styles.description}>{frontmatter.description}</p> : null}
+      <SafeDocument tree={tree} workspaceId={state.workspaceId} workspaceSlug={workspaceSlug} documentPath={document.path} />
+      <nav className={styles.pager} aria-label="Document pagination">
+        {previous ? (
+          <Link to={`/w/${encodeURIComponent(workspaceSlug)}/documents/${routeForDocument(previous.path)}`}>
+            <small>Previous</small><span>{previous.title}</span>
+          </Link>
+        ) : <span />}
+        {next ? (
+          <Link to={`/w/${encodeURIComponent(workspaceSlug)}/documents/${routeForDocument(next.path)}`}>
+            <small>Next</small><span>{next.title}</span>
+          </Link>
+        ) : null}
+      </nav>
+      </article>
+      {headings.length ? (
+        <aside className={styles.toc}>
+          <strong>On this page</strong>
+          <nav>
+            {headings.map(heading => (
+              <a key={heading.id} className={heading.depth === 3 ? styles.tocNested : undefined} href={`#${heading.id}`}>
+                {heading.label}
+              </a>
+            ))}
+          </nav>
+        </aside>
+      ) : null}
+    </div>
   );
 }
 

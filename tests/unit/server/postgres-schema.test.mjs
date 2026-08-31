@@ -44,6 +44,12 @@ describe('Postgres production schema', () => {
     }
   });
 
+  it('gives content assets a workspace-relative logical path', () => {
+    assert.match(sql, /alter table asset add column path text/i);
+    assert.match(sql, /unique \(workspace_id, path\)/i);
+    assert.match(sql, /create policy asset_update on asset/i);
+  });
+
   it('enables RLS for tenant data and forces it for ordinary domain tables', () => {
     for (const table of tenantTables) {
       assert.match(sql, new RegExp(`alter table ${table} enable row level security;`));

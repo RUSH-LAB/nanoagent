@@ -10,7 +10,7 @@
     "Corollary": {"id": "string", "name": "string"},
     "Definition": {"id": "string", "name": "string"},
     "Remark": {"id": "string", "name": "string"},
-    "Example": {"id": "string", "name": "string"},
+    "Example": {"id": "string", "name": "string", "caption": "string"},
     "Proof": {},
     "Equation": {"id": "string"},
     "Figure": {"id": "string", "caption": "string"},

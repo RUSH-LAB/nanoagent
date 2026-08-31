@@ -10,7 +10,7 @@
     "neon:plan": "neon config plan --config infra/neon.ts",
     "neon:deploy": "neon deploy --config infra/neon.ts",
     "new:plugin": "node scripts/dev/create-plugin.mjs",
-    "content:migrate": "node --env-file-if-exists=.env.postgres.local scripts/migrations/import-workspace-content.mjs",
+    "content:migrate": "node --env-file-if-exists=.env.postgres.local --env-file-if-exists=.env.production.local scripts/migrations/import-workspace-content.mjs",
     "db:migrate:legacy": "node --env-file-if-exists=.env.postgres.local scripts/migrations/sqlite-to-postgres.mjs",
     "db:postgres:bootstrap": "node scripts/db/postgres.mjs bootstrap",
     "db:postgres:prepare": "node scripts/db/postgres.mjs prepare",

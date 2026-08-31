@@ -1,14 +1,25 @@
 'use strict';
 
+const {resolveWorkspaceSite, validateWorkspaceSite} = require('../workspace-site');
+
 module.exports = async function workspace_settings_routes(req, res, _url, _pathname, ctx) {
   if (!req.context) return;
-  const {json, readBody, rateLimit, requireWorkspacePermission, workspaceSettings} = ctx;
+  const {
+    json, readBody, rateLimit, requireWorkspacePermission, workspaceSettings,
+    documents, scopeFor,
+  } = ctx;
   const member = req.workspacePath === '/member-preferences';
-  if (req.workspacePath !== '/settings' && !member) return;
+  const site = req.workspacePath === '/site';
+  if (req.workspacePath !== '/settings' && !member && !site) return;
 
   try {
     if (req.method === 'GET') {
       requireWorkspacePermission(req.context, 'content:read');
+      if (site) {
+        const settings = await workspaceSettings.get(req.context);
+        const rows = await documents.list(scopeFor(req));
+        return json(res, 200, {site: resolveWorkspaceSite(settings, rows)});
+      }
       const settings = member
         ? await workspaceSettings.getMember(req.context)
         : await workspaceSettings.get(req.context);
@@ -20,6 +31,12 @@ module.exports = async function workspace_settings_routes(req, res, _url, _pathn
         return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       }
       const body = await readBody(req);
+      if (site) {
+        const checked = validateWorkspaceSite(body?.site);
+        const settings = await workspaceSettings.update(req.context, checked);
+        const rows = await documents.list(scopeFor(req));
+        return json(res, 200, {success: true, site: resolveWorkspaceSite(settings, rows)});
+      }
       const settings = member
         ? await workspaceSettings.updateMember(req.context, body?.settings)
         : await workspaceSettings.update(req.context, body?.settings);

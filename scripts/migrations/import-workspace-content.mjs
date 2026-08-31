@@ -11,6 +11,10 @@ const postgresServices = postgres.enabled ? require('../../src/server/postgres/s
 const db = postgres.enabled ? null : require('../../src/server/db.js').db;
 const documents = postgresServices?.documents ?? require('../../src/server/documents.js');
 const store = postgresServices?.store ?? require('../../src/server/store/index.js');
+const assets = postgresServices?.assets ?? require('../../src/server/assets.js');
+const workspaceSettings = postgresServices?.workspaceSettings ?? require('../../src/server/workspace-settings.js');
+const {createObjectStorage} = require('../../src/server/object-storage.js');
+const {cleanAssetPath, contentTypeForAsset, assetObjectKey} = require('../../src/server/asset-paths.js');
 const {paperForStorage, isIntegrationTestPaper} = require('../../plugins/bibliography/lib/protocol.js');
 const {PROJECT_ROOT} = require('../../src/server/paths.js');
 
@@ -48,6 +52,23 @@ function markdownFiles(root) {
   return out.sort();
 }
 
+function assetFiles(root) {
+  const out = [];
+  function walk(dir) {
+    for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+      if (entry.name.startsWith('.')) continue;
+      const absolute = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(absolute);
+      else {
+        const relative = path.relative(root, absolute).split(path.sep).join('/');
+        if (cleanAssetPath(relative)) out.push(absolute);
+      }
+    }
+  }
+  if (fs.existsSync(root)) walk(root);
+  return out.sort();
+}
+
 async function workspaces() {
   await postgres.ready;
   const rows = postgres.enabled
@@ -60,9 +81,11 @@ async function workspaces() {
 
 const report = [];
 let conflicts = 0;
+const objectStorage = apply ? createObjectStorage() : null;
 for (const workspace of await workspaces()) {
   const root = path.join(contentRoot, workspace.slug);
   const files = markdownFiles(root);
+  const binaryFiles = assetFiles(root);
   const scope = {
     workspaceId: workspace.id,
     userId: workspace.ownerId,
@@ -77,8 +100,36 @@ for (const workspace of await workspaces()) {
     unchanged: 0,
     update: 0,
     conflicts: [],
+    assets: {source: binaryFiles.length, create: 0, unchanged: 0, update: 0, conflicts: []},
+    siteSettings: 'unchanged',
     references: {source: 0, create: 0, unchanged: 0, update: 0, conflicts: []},
   };
+
+  if (workspace.slug === 'mochi') {
+    const currentSettings = await workspaceSettings.get(scope);
+    if (!currentSettings.schemaVersion) {
+      summary.siteSettings = apply ? 'created' : 'create';
+      if (apply) {
+        await workspaceSettings.update(scope, {
+          schemaVersion: 1,
+          site: {
+            title: 'Mochi Lab',
+            tagline: 'Innovative Research & Development',
+            logoAssetId: null,
+            homeDocument: 'books/programming/0-intro.md',
+          },
+          navigation: [
+            {label: 'Research', path: 'posts/research'},
+            {label: 'Blog', path: 'posts/blog'},
+            {label: 'Survey', path: 'books/survey/intro.md'},
+            {label: 'Programming', path: 'books/programming/0-intro.md'},
+            {label: 'Math', path: 'books/math/0-intro.md'},
+          ],
+          rendering: {math: true, citations: true, wikiLinks: true, leanProofs: true, interactiveMath: true},
+        });
+      }
+    }
+  }
   const sourceDocuments = [];
   const destinationDocuments = [];
   const sourceReferences = [];
@@ -120,6 +171,56 @@ for (const workspace of await workspaces()) {
     sourceHash: valueHash(sourceDocuments),
     databaseHash: valueHash(destinationDocuments),
     matches: valueHash(sourceDocuments) === valueHash(destinationDocuments),
+  };
+
+  const existingAssets = new Map((await assets.list(scope)).map(asset => [asset.path, asset]));
+  const sourceAssets = [];
+  const destinationAssets = [];
+  for (const absolute of binaryFiles) {
+    const relative = path.relative(root, absolute).split(path.sep).join('/');
+    const body = fs.readFileSync(absolute);
+    const sourceHash = sha256(body);
+    const existing = existingAssets.get(relative);
+    sourceAssets.push([relative, sourceHash]);
+    if (existing?.sha256 === sourceHash) {
+      summary.assets.unchanged += 1;
+      destinationAssets.push([relative, sourceHash]);
+      if (apply && !await objectStorage.stat(existing.objectKey)) {
+        await objectStorage.put(existing.objectKey, body, existing.contentType);
+      }
+      continue;
+    }
+    if (existing && !overwrite) {
+      conflicts += 1;
+      summary.assets.conflicts.push({path: relative, sourceHash, databaseHash: existing.sha256});
+      destinationAssets.push([relative, existing.sha256]);
+      continue;
+    }
+    if (existing) summary.assets.update += 1;
+    else summary.assets.create += 1;
+    if (apply) {
+      const objectKey = assetObjectKey(workspace.id, relative, sourceHash);
+      const contentType = contentTypeForAsset(relative);
+      await objectStorage.put(objectKey, body, contentType);
+      await assets.put(scope, {
+        path: relative,
+        objectKey,
+        contentType,
+        byteSize: body.length,
+        sha256: sourceHash,
+      });
+      if (existing && existing.objectKey !== objectKey) {
+        await objectStorage.remove(existing.objectKey).catch(() => {});
+      }
+      destinationAssets.push([relative, sourceHash]);
+    } else {
+      destinationAssets.push([relative, null]);
+    }
+  }
+  summary.assets.verification = {
+    sourceHash: valueHash(sourceAssets),
+    databaseHash: valueHash(destinationAssets),
+    matches: valueHash(sourceAssets) === valueHash(destinationAssets),
   };
 
   const bibliographyPath = path.join(root, 'bibliography', 'references.yaml');
