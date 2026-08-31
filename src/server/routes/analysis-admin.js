@@ -31,14 +31,19 @@ const LINT_HEADING_PREFIX_RE = /^#{1,6}\s+/;
 
 module.exports = async function analysis_admin_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, READING_LISTS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
   } = ctx;
 
   // ── Writing Streak Tracker ──
+  //
+  // Yours, one row per day, keyed by the date. The JSON store was already a map
+  // of user id to a log, which is the shape a per-user collection has without
+  // the handler doing the keying; what it gains is that a day is a row, so
+  // recording today does not rewrite the whole history.
+  const streaks = collection('streaks');
+
   if (req.method === 'GET' && pathname === '/api/streak') {
-    const {userId} = req.auth;
-    const data = loadJSON(STREAKS_FILE);
-    const userLog = (data[userId] && data[userId].dailyLog) || [];
+    const userLog = streaks.values(scopeFor(req));
     // Compute streaks from log
     let currentStreak = 0;
     let longestStreak = 0;
@@ -106,16 +111,10 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
       if (wordsWritten < 0) return json(res, 400, {error: 'wordsWritten must be non-negative'});
       if (wordsWritten > 1000000) return json(res, 400, {error: 'wordsWritten exceeds maximum'});
       const today = new Date().toISOString().slice(0, 10);
-      const data = loadJSON(STREAKS_FILE);
-      if (!Object.hasOwn(data, userId)) data[userId] = {dailyLog: []};
-      const log = data[userId].dailyLog;
-      const existing = log.find(e => e.date === today);
-      if (existing) {
-        existing.words = wordsWritten;
-      } else {
-        log.push({date: today, words: wordsWritten});
-      }
-      saveJSON(STREAKS_FILE, data);
+      // One upsert where the file version searched the log and then either
+      // overwrote the day's entry or appended one. The date is the key, so
+      // those two branches are the same statement.
+      streaks.put(scopeFor(req), today, {date: today, words: wordsWritten});
       return json(res, 200, {success: true, date: today, words: wordsWritten});
     } catch {
       return json(res, 400, {error: 'Invalid request'});

@@ -8,6 +8,15 @@
 // pageview, set-role, and presence handlers below share one immutable, read-only guard list.
 const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
 
+// The two key spaces the analytics collection holds: one row per counted page,
+// prefixed, and one row for the recent list. Prefixed rather than a second
+// domain because they are written by the same request and read by the same one.
+const COUNT_KEY = 'count:';
+const RECENT_KEY = 'recent';
+
+/** How many recent pageviews are kept. The list is a tail, not a log. */
+const RECENT_LIMIT = 100;
+
 // Set-role route matcher for PUT /api/users/:id/role. Hoisted to module scope so
 // the RegExp is built once at module load instead of re-allocated on every request
 // that falls through the earlier handlers to the set-role dispatch check below. The
@@ -18,12 +27,19 @@ const SET_ROLE_RE = /^\/api\/users\/[^/]+\/role$/;
 
 module.exports = async function analytics_users_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, READING_LISTS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
   } = ctx;
 
   // Site-wide roles (owner/editor/viewer), backed by the user_role table. Not
   // the organization roles Better Auth manages.
   const {getRole, setRole, listUsers, isOwner, isValidRole, ROLES, ownerCount} = ctx.roles;
+
+  // ── Analytics ──
+  //
+  // The workspace's, not a reader's: how often each of its pages was opened,
+  // and the last hundred opens. Two key spaces in the one collection, because
+  // they are two views of the same event and are written together.
+  const analytics = collection('analytics');
 
   // ── Analytics: record pageview ──
   if (req.method === 'POST' && pathname === '/api/analytics/pageview') {
@@ -36,19 +52,22 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
       if (PROTO_KEYS.includes(pagePath)) return json(res, 400, {error: "Invalid path"});
       if (referrer !== undefined && typeof referrer !== "string") return json(res, 400, {error: "referrer must be a string"});
       if (userAgent !== undefined && typeof userAgent !== "string") return json(res, 400, {error: "userAgent must be a string"});
-      const analytics = loadJSON(ANALYTICS_FILE);
-      if (!analytics.counts) analytics.counts = {};
-      if (!analytics.recent) analytics.recent = [];
+      const scope = scopeFor(req);
       const safePath = sanitizeText(pagePath);
-      analytics.counts[safePath] = (analytics.counts[safePath] || 0) + 1;
-      analytics.recent.unshift({
-        path: safePath,
-        referrer: referrer ? sanitizeText(referrer) : null,
-        userAgent: userAgent ? sanitizeText(userAgent) : null,
-        timestamp: new Date().toISOString(),
-      });
-      if (analytics.recent.length > 100) analytics.recent = analytics.recent.slice(0, 100);
-      saveJSON(ANALYTICS_FILE, analytics);
+      // One row per counted page rather than one row holding the whole map:
+      // this is the busiest write in the product, one per page load, and a
+      // read-modify-write over a shared value loses counts whenever two land
+      // together. update() is a transaction, so the increment is not a race.
+      analytics.update(scope, COUNT_KEY + safePath, n => (typeof n === 'number' ? n : 0) + 1);
+      analytics.update(scope, RECENT_KEY, list => [
+        {
+          path: safePath,
+          referrer: referrer ? sanitizeText(referrer) : null,
+          userAgent: userAgent ? sanitizeText(userAgent) : null,
+          timestamp: new Date().toISOString(),
+        },
+        ...(Array.isArray(list) ? list : []),
+      ].slice(0, RECENT_LIMIT));
       return json(res, 200, {success: true});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -57,10 +76,18 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
 
   // ── Analytics: get stats ──
   if (req.method === 'GET' && pathname === '/api/analytics') {
-    const analytics = loadJSON(ANALYTICS_FILE);
+    const stored = analytics.entries(scopeFor(req));
+    // Rebuilt into the {path: count} map the clients render. A plain object
+    // literal rather than a prototype-less one because that is what the payload
+    // has always been; the write path refuses the three keys that would make
+    // the difference matter.
+    const pageviews = {};
+    for (const [key, value] of Object.entries(stored)) {
+      if (key.startsWith(COUNT_KEY)) pageviews[key.slice(COUNT_KEY.length)] = value;
+    }
     return json(res, 200, {
-      pageviews: analytics.counts || {},
-      recent: analytics.recent || [],
+      pageviews,
+      recent: stored[RECENT_KEY] ?? [],
     });
   }
 

@@ -12,7 +12,6 @@ import assert from 'node:assert/strict';
 import {loadRoute, makeCtx, invoke, FILES, TEST_IDENTITY} from '../../_harness.mjs';
 
 const routes = loadRoute('analytics-users');
-const {ANALYTICS_FILE} = FILES;
 
 /** The three keys the module refuses outright (its frozen PROTO_KEYS). */
 const PROTO_KEYS = ['__proto__', 'constructor', 'prototype'];
@@ -52,12 +51,30 @@ describe('POST /api/analytics/pageview', () => {
     });
   }
 
+  /**
+   * Seed the analytics collection the way earlier pageviews would have left it.
+   *
+   * Counts are one row each, prefixed; the recent list is one row. Written
+   * through the same store the handler reads, so a change to either key space
+   * fails here rather than being mirrored in the fixture.
+   */
+  const seed = (ctx, {counts = {}, recent} = {}) => {
+    const scope = ctx.scopeFor({auth: TEST_IDENTITY});
+    const analytics = ctx.scoped.collection('analytics');
+    for (const [path, n] of Object.entries(counts)) analytics.put(scope, `count:${path}`, n);
+    if (recent !== undefined) analytics.put(scope, 'recent', recent);
+    return ctx;
+  };
+
+  /** What GET /api/analytics reports, which is the projection under test. */
+  const read = async ctx => (await invoke(routes, {path: '/api/analytics', ctx})).payload;
+
   it('increments the per-path count and unshifts a recent entry', async () => {
-    const ctx = makeCtx({store: {[ANALYTICS_FILE]: {counts: {'/p': 2}, recent: [{path: '/old'}]}}});
+    const ctx = seed(makeCtx(), {counts: {'/p': 2}, recent: [{path: '/old'}]});
     const r = await invoke(routes, {method: 'POST', path: '/api/analytics/pageview', body: {path: '/p', referrer: '/from', userAgent: 'UA'}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {success: true}]);
-    const saved = ctx.store[ANALYTICS_FILE];
-    assert.equal(saved.counts['/p'], 3);
+    const saved = await read(ctx);
+    assert.equal(saved.pageviews['/p'], 3);
     assert.equal(saved.recent.length, 2);
     assert.equal(saved.recent[1].path, '/old', 'the new entry goes to the front');
     const {timestamp, ...head} = saved.recent[0];
@@ -68,20 +85,43 @@ describe('POST /api/analytics/pageview', () => {
   it('nulls an omitted referrer and userAgent and initialises an empty store', async () => {
     const ctx = makeCtx();
     await invoke(routes, {method: 'POST', path: '/api/analytics/pageview', body: {path: '/p'}, ctx});
-    const saved = ctx.store[ANALYTICS_FILE];
-    assert.deepEqual(saved.counts, {'/p': 1});
+    const saved = await read(ctx);
+    assert.deepEqual(saved.pageviews, {'/p': 1});
     assert.equal(saved.recent[0].referrer, null);
     assert.equal(saved.recent[0].userAgent, null);
   });
 
   it('caps the recent list at 100 entries', async () => {
     const recent = Array.from({length: 100}, (_, i) => ({path: `/old${i}`}));
-    const ctx = makeCtx({store: {[ANALYTICS_FILE]: {counts: {}, recent}}});
+    const ctx = seed(makeCtx(), {recent});
     await invoke(routes, {method: 'POST', path: '/api/analytics/pageview', body: {path: '/new'}, ctx});
-    const saved = ctx.store[ANALYTICS_FILE];
+    const saved = await read(ctx);
     assert.equal(saved.recent.length, 100);
     assert.equal(saved.recent[0].path, '/new');
     assert.equal(saved.recent.at(-1).path, '/old98', 'the oldest entry is dropped');
+  });
+
+  // Counts are per-page rows now rather than one map behind a read-modify-write,
+  // so two pageviews landing together add up instead of one overwriting the
+  // other. The JSON store could not make this promise.
+  it('does not lose a count when two pageviews of a page are recorded', async () => {
+    const ctx = makeCtx();
+    for (let i = 0; i < 5; i++) {
+      await invoke(routes, {method: 'POST', path: '/api/analytics/pageview', body: {path: '/p'}, ctx});
+    }
+    assert.equal((await read(ctx)).pageviews['/p'], 5);
+  });
+
+  it('counts a page in one workspace without touching the other', async () => {
+    const ctx = makeCtx();
+    const lab = {...TEST_IDENTITY, orgId: 'lab'};
+    const course = {...TEST_IDENTITY, orgId: 'course'};
+    await invoke(routes, {method: 'POST', path: '/api/analytics/pageview', body: {path: '/p'}, ctx, auth: lab});
+
+    const here = await invoke(routes, {path: '/api/analytics', ctx, auth: lab});
+    const there = await invoke(routes, {path: '/api/analytics', ctx, auth: course});
+    assert.deepEqual(here.payload.pageviews, {'/p': 1});
+    assert.deepEqual(there.payload.pageviews, {}, 'another workspace counts its own pages');
   });
 });
 
@@ -94,7 +134,13 @@ describe('GET /api/analytics', () => {
   ];
   for (const {name, stored, expected} of PROJECTIONS) {
     it(`projects ${name}`, async () => {
-      const r = await invoke(routes, {path: '/api/analytics', ctx: makeCtx({store: {[ANALYTICS_FILE]: stored}})});
+      const ctx = makeCtx();
+      const scope = ctx.scopeFor({auth: TEST_IDENTITY});
+      const analytics = ctx.scoped.collection('analytics');
+      for (const [p, n] of Object.entries(stored.counts ?? {})) analytics.put(scope, `count:${p}`, n);
+      if (stored.recent !== undefined) analytics.put(scope, 'recent', stored.recent);
+
+      const r = await invoke(routes, {path: '/api/analytics', ctx});
       assert.deepEqual([r.status, r.payload], [200, expected]);
     });
   }

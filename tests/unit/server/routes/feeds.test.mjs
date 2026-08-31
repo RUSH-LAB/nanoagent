@@ -9,10 +9,9 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, TEST_IDENTITY, key} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, PROJECT_ROOT, CONTENT_DIR, TEST_IDENTITY, key} from '../../_harness.mjs';
 
 const routes = loadRoute('feeds');
-const {STREAKS_FILE} = FILES;
 const SESSIONS_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'sessions.json');
 const SCHEDULE_FILE = path.join(PROJECT_ROOT, 'var', 'data', 'schedule.json');
 // Content fixtures live in the workspace's own tree, and the paths the scan

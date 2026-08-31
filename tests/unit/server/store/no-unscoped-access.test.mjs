@@ -39,8 +39,6 @@ const ROUTES_DIR = path.resolve(HERE, '../../../../src/server/routes');
  * Ordered by how entangled each one is, which is the order they should move in.
  */
 const MIGRATING = {
-  'analysis-admin.js': ['streaks'],
-  'analytics-users.js': ['analytics'],
   'bookmarks-reading-lists.js': ['reading-lists'],
   'comments-notes.js': ['notes'],
   'feeds.js': ['schedule'],

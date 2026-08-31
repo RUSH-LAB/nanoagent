@@ -14,7 +14,7 @@ import path from 'node:path';
 import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, TEST_IDENTITY} from '../../_harness.mjs';
 
 const routes = loadRoute('analysis-admin');
-const {STREAKS_FILE, ANNOTATIONS_FILE, ANALYTICS_FILE, COMMENTS_FILE} = FILES;
+const {ANNOTATIONS_FILE, COMMENTS_FILE} = FILES;
 // Fixtures live in the workspace's own tree, and the paths a request carries
 // are relative to it: `f0.md`, never `content/mochi/f0.md`.
 const at = rel => path.join(CONTENT_DIR, rel);
@@ -61,10 +61,27 @@ const daysAgo = n => new Date(Date.now() - n * 86400000).toISOString().slice(0, 
 
 // ── Writing streak ────────────────────────────────────────────────────────
 
+/**
+ * Write `dailyLog` into one account's streak collection, a row per day, which
+ * is how the handler's own POST leaves it.
+ */
+const seedStreak = (ctx, auth, dailyLog) => {
+  const scope = ctx.scopeFor({auth});
+  const streaks = ctx.scoped.collection('streaks');
+  for (const entry of dailyLog) streaks.put(scope, entry.date, entry);
+  return ctx;
+};
+
+/** Every day this account has recorded, as the store holds them. */
+const storedDays = (ctx, auth) => ctx.scoped.collection('streaks').values(ctx.scopeFor({auth}));
+
 describe('GET /api/streak', () => {
+  // Seeded under the default account, and read as `auth` when one is given, so
+  // a case can ask what somebody else's session sees of it.
   const streak = async (dailyLog, auth) => {
-    const store = {[STREAKS_FILE]: {[UID]: {dailyLog}, alice: {dailyLog: []}}};
-    const r = await invoke(routes, {path: '/api/streak', ctx: makeCtx({store}), ...(auth ? {auth} : {})});
+    const ctx = seedStreak(makeCtx(), TEST_IDENTITY, dailyLog);
+    seedStreak(ctx, asUser('alice'), []);
+    const r = await invoke(routes, {path: '/api/streak', ctx, ...(auth ? {auth} : {})});
     return r.payload;
   };
 
@@ -78,8 +95,9 @@ describe('GET /api/streak', () => {
   });
 
   it('reads the signed-in user, ignoring a userId in the query string', async () => {
-    const store = {[STREAKS_FILE]: {[UID]: {dailyLog: [{date: daysAgo(0), words: 100}]}, alice: {dailyLog: []}}};
-    const r = await invoke(routes, {path: '/api/streak', query: {userId: 'alice'}, ctx: makeCtx({store})});
+    const ctx = seedStreak(makeCtx(), TEST_IDENTITY, [{date: daysAgo(0), words: 100}]);
+    seedStreak(ctx, asUser('alice'), []);
+    const r = await invoke(routes, {path: '/api/streak', query: {userId: 'alice'}, ctx});
     assert.equal(r.payload.currentStreak, 1);
   });
 
@@ -160,22 +178,22 @@ describe('POST /api/streak', () => {
     const today = new Date().toISOString().slice(0, 10);
     const r = await invoke(routes, {method: 'POST', path: '/api/streak', body: {wordsWritten: 500}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {success: true, date: today, words: 500}]);
-    assert.deepEqual(ctx.store[STREAKS_FILE][UID].dailyLog, [{date: today, words: 500}]);
+    assert.deepEqual(storedDays(ctx, TEST_IDENTITY), [{date: today, words: 500}]);
   });
 
   it('ignores a userId in the body and still writes to the session bucket', async () => {
     const ctx = makeCtx();
     const today = new Date().toISOString().slice(0, 10);
     await invoke(routes, {method: 'POST', path: '/api/streak', body: {userId: 'alice', wordsWritten: 500}, ctx});
-    assert.deepEqual(Object.keys(ctx.store[STREAKS_FILE]), [UID]);
-    assert.deepEqual(ctx.store[STREAKS_FILE][UID].dailyLog, [{date: today, words: 500}]);
+    assert.deepEqual(storedDays(ctx, TEST_IDENTITY), [{date: today, words: 500}]);
+    assert.deepEqual(storedDays(ctx, asUser('alice')), [], 'the body cannot pick whose streak this is');
   });
 
   it('overwrites today rather than appending a second entry', async () => {
     const today = new Date().toISOString().slice(0, 10);
-    const ctx = makeCtx({store: {[STREAKS_FILE]: {[UID]: {dailyLog: [{date: today, words: 100}]}}}});
+    const ctx = seedStreak(makeCtx(), TEST_IDENTITY, [{date: today, words: 100}]);
     await invoke(routes, {method: 'POST', path: '/api/streak', body: {wordsWritten: 900}, ctx});
-    assert.deepEqual(ctx.store[STREAKS_FILE][UID].dailyLog, [{date: today, words: 900}]);
+    assert.deepEqual(storedDays(ctx, TEST_IDENTITY), [{date: today, words: 900}]);
   });
 
   it('defaults a non-numeric or infinite wordsWritten to zero', async () => {
@@ -185,19 +203,33 @@ describe('POST /api/streak', () => {
     }
   });
 
-  // An inherited key is a legal userId, so the bucket init must be an own-key
-  // check or the record would land on Object.prototype.
+  // An inherited key is a legal userId. It used to key a JavaScript object, so
+  // the bucket init had to be an own-key check or the record landed on
+  // Object.prototype; it is a bound SQL parameter now, which has no such
+  // notion, and this asserts the record still comes back to its own account.
   for (const userId of INHERITED_KEYS) {
-    it(`records under the inherited userId ${JSON.stringify(userId)} as an own key`, async () => {
+    it(`records under the inherited userId ${JSON.stringify(userId)} and reads back`, async () => {
       const ctx = makeCtx();
       const auth = asUser(userId);
       const r = await invoke(routes, {method: 'POST', path: '/api/streak', body: {wordsWritten: 100}, ctx, auth});
       assert.equal(r.status, 200);
-      assert.ok(Object.hasOwn(ctx.store[STREAKS_FILE], userId));
-      const read = await invoke(routes, {path: '/api/streak', ctx: makeCtx({store: ctx.store}), auth});
+      const read = await invoke(routes, {path: '/api/streak', ctx, auth});
       assert.equal(read.payload.totalWords, 100);
+      assert.deepEqual(storedDays(ctx, TEST_IDENTITY), [], 'and not onto anybody else');
     });
   }
+
+  it('keeps two members of a workspace on separate streaks', async () => {
+    const ctx = makeCtx();
+    const ada = asUser('ada');
+    const bob = asUser('bob');
+    await invoke(routes, {method: 'POST', path: '/api/streak', body: {wordsWritten: 700}, ctx, auth: ada});
+
+    const hers = await invoke(routes, {path: '/api/streak', ctx, auth: ada});
+    const his = await invoke(routes, {path: '/api/streak', ctx, auth: bob});
+    assert.equal(hers.payload.totalWords, 700);
+    assert.equal(his.payload.totalWords, 0);
+  });
 });
 
 // ── Bulk file operations ──────────────────────────────────────────────────

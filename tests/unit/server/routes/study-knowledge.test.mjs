@@ -19,7 +19,7 @@ const routes = loadRoute('study-knowledge');
 // The memo belongs to the bibliography plugin now, and so does resetting it.
 const bibliographyLib = createRequire(import.meta.url)('../../../../plugins/bibliography/lib/references.js');
 const {LINKSUGGEST_WIKI_RE, QUICKNOTES_TITLE_RE, QUICKNOTES_DATE_RE, QUICKNOTES_BODY_RE, FRONTMATTER_TITLE_RE} = routes;
-const {FLASHCARDS_FILE, GLOSSARY_FILE, READING_LISTS_FILE, ANALYTICS_FILE} = FILES;
+const {FLASHCARDS_FILE, GLOSSARY_FILE, READING_LISTS_FILE} = FILES;
 const at = rel => path.join(PROJECT_ROOT, rel);
 // Content lives in the workspace's own tree, and the paths a request carries
 // are relative to it: `posts/blog/x.md`, never `content/mochi/posts/blog/x.md`.
