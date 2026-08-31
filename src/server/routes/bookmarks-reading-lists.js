@@ -16,7 +16,7 @@ const READING_LIST_EXPORT_RE = /^\/api\/reading-lists\/[^/]+\/export$/;
 
 module.exports = async function bookmarks_reading_lists_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, READING_LISTS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, TASKS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, TASKS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
   } = ctx;
 
   // ── Bookmarks ──
@@ -133,10 +133,17 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
     return json(res, 200, {topics});
   }
 
+  // ── Reading lists ──
+  //
+  // Yours, one row per list, keyed by its id. Every handler below used to find
+  // its list by scanning `data.lists`; the id is the key now, so finding one is
+  // a lookup, and a list belonging to somebody else is not found-then-rejected,
+  // it is not in scope to be found.
+  const readingLists = collection('reading-lists');
+
   // ── Reading Lists: list all ──
   if (req.method === 'GET' && pathname === '/api/reading-lists') {
-    const data = loadJSON(READING_LISTS_FILE);
-    return json(res, 200, {lists: data.lists || []});
+    return json(res, 200, {lists: readingLists.values(scopeFor(req))});
   }
 
   // ── Reading Lists: create ──
@@ -150,8 +157,6 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       if (!trimmedName) return json(res, 400, {error: 'Missing name'});
       if (name.length > 200) return json(res, 400, {error: 'Name must be 200 characters or fewer'});
       if (description !== undefined && typeof description === 'string' && description.length > 5000) return json(res, 400, {error: 'Description must be 5000 characters or fewer'});
-      const data = loadJSON(READING_LISTS_FILE);
-      if (!data.lists) data.lists = [];
       const list = {
         id: crypto.randomUUID(),
         name: sanitizeText(trimmedName),
@@ -160,8 +165,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      data.lists.push(list);
-      saveJSON(READING_LISTS_FILE, data);
+      readingLists.put(scopeFor(req), list.id, list);
       return json(res, 200, {success: true, list});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -173,12 +177,9 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
     try {
       const parts = pathname.split('/');
       const listId = decodeURIComponent(parts[3]);
-      const data = loadJSON(READING_LISTS_FILE);
-      if (!data.lists) data.lists = [];
-      const idx = data.lists.findIndex(l => l.id === listId);
-      if (idx === -1) return json(res, 404, {error: 'Reading list not found'});
-      data.lists.splice(idx, 1);
-      saveJSON(READING_LISTS_FILE, data);
+      if (!readingLists.remove(scopeFor(req), listId)) {
+        return json(res, 404, {error: 'Reading list not found'});
+      }
       return json(res, 200, {success: true});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -197,9 +198,8 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       if (itemPath.length > 500) return json(res, 400, {error: 'Path must be 500 characters or fewer'});
       if (title !== undefined && typeof title === 'string' && title.length > 500) return json(res, 400, {error: 'Title must be 500 characters or fewer'});
       const itemType = (type === 'reference' || type === 'doc') ? type : 'doc';
-      const data = loadJSON(READING_LISTS_FILE);
-      if (!data.lists) data.lists = [];
-      const list = data.lists.find(l => l.id === listId);
+      const scope = scopeFor(req);
+      const list = readingLists.get(scope, listId);
       if (!list) return json(res, 404, {error: 'Reading list not found'});
       if (list.items.some(item => item.path === itemPath)) {
         return json(res, 200, {success: true, message: 'Item already in list'});
@@ -211,7 +211,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
         addedAt: new Date().toISOString(),
       });
       list.updatedAt = new Date().toISOString();
-      saveJSON(READING_LISTS_FILE, data);
+      readingLists.put(scope, listId, list);
       return json(res, 200, {success: true, list});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -226,15 +226,14 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       const body = await readBody(req);
       const {path: itemPath} = body;
       if (!itemPath || typeof itemPath !== 'string') return json(res, 400, {error: 'Missing path'});
-      const data = loadJSON(READING_LISTS_FILE);
-      if (!data.lists) data.lists = [];
-      const list = data.lists.find(l => l.id === listId);
+      const scope = scopeFor(req);
+      const list = readingLists.get(scope, listId);
       if (!list) return json(res, 404, {error: 'Reading list not found'});
       const idx = list.items.findIndex(item => item.path === itemPath);
       if (idx === -1) return json(res, 404, {error: 'Item not found in list'});
       list.items.splice(idx, 1);
       list.updatedAt = new Date().toISOString();
-      saveJSON(READING_LISTS_FILE, data);
+      readingLists.put(scope, listId, list);
       return json(res, 200, {success: true, list});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -250,9 +249,8 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       const {path: itemPath, direction} = body;
       if (!itemPath || typeof itemPath !== 'string') return json(res, 400, {error: 'Missing path'});
       if (direction !== 'up' && direction !== 'down') return json(res, 400, {error: 'direction must be "up" or "down"'});
-      const data = loadJSON(READING_LISTS_FILE);
-      if (!data.lists) data.lists = [];
-      const list = data.lists.find(l => l.id === listId);
+      const scope = scopeFor(req);
+      const list = readingLists.get(scope, listId);
       if (!list) return json(res, 404, {error: 'Reading list not found'});
       const idx = list.items.findIndex(item => item.path === itemPath);
       if (idx === -1) return json(res, 404, {error: 'Item not found in list'});
@@ -262,7 +260,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
       }
       [list.items[idx], list.items[swapIdx]] = [list.items[swapIdx], list.items[idx]];
       list.updatedAt = new Date().toISOString();
-      saveJSON(READING_LISTS_FILE, data);
+      readingLists.put(scope, listId, list);
       return json(res, 200, {success: true, list});
     } catch {
       return json(res, 400, {error: 'Invalid request'});
@@ -274,9 +272,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
     try {
       const parts = pathname.split('/');
       const listId = decodeURIComponent(parts[3]);
-      const data = loadJSON(READING_LISTS_FILE);
-      if (!data.lists) data.lists = [];
-      const list = data.lists.find(l => l.id === listId);
+      const list = readingLists.get(scopeFor(req), listId);
       if (!list) return json(res, 404, {error: 'Reading list not found'});
       const format = url.searchParams.get('format') || 'md';
       const safeName = list.name.replace(/[^a-zA-Z0-9_-]/g, '_');

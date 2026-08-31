@@ -17,7 +17,7 @@ const bibliographyProvides = require('../../../../plugins/bibliography/server.js
 const {_resetReferencesCache} = require('../../../../plugins/bibliography/lib/references.js');
 
 const routes = loadRoute('bookmarks-reading-lists');
-const {COMMENTS_FILE, READING_LISTS_FILE} = FILES;
+const {COMMENTS_FILE} = FILES;
 // Fixtures live in the workspace's own tree, and the paths a request carries
 // are relative to it: `a.md`, never `content/mochi/a.md`.
 const at = rel => path.join(CONTENT_DIR, rel);
@@ -72,6 +72,22 @@ const seedBookmarks = (ctx, scope, entries) => {
 
 /** The scope a request with `auth` resolves to, as the handler will resolve it. */
 const scopeOf = (ctx, auth) => ctx.scopeFor({auth});
+
+/**
+ * A ctx holding these reading lists, one row each, keyed by list id.
+ * `over` is passed through to makeCtx, for the cases that also need a fixture
+ * filesystem or the bibliography loader.
+ */
+const withLists = (lists, over = {}, auth = TEST_IDENTITY) => {
+  const ctx = makeCtx(over);
+  const scope = scopeOf(ctx, auth);
+  for (const list of lists) ctx.scoped.collection('reading-lists').put(scope, list.id, list);
+  return ctx;
+};
+
+/** One account's reading lists, as the store holds them. */
+const storedLists = (ctx, auth = TEST_IDENTITY) =>
+  ctx.scoped.collection('reading-lists').values(scopeOf(ctx, auth));
 
 describe('GET /api/bookmarks', () => {
   for (const [label, stored, expected] of [
@@ -303,11 +319,11 @@ describe('GET /api/analytics/topics', () => {
 
 describe('GET /api/reading-lists', () => {
   for (const [label, stored, expected] of [
-    ['the stored lists verbatim', {lists: [{id: 'l1', name: 'A'}]}, [{id: 'l1', name: 'A'}]],
-    ['an empty array when the store lacks a lists key', {}, []],
+    ['the stored lists verbatim', [{id: 'l1', name: 'A'}], [{id: 'l1', name: 'A'}]],
+    ['an empty array for a caller with none', [], []],
   ]) {
     it(`returns ${label}`, async () => {
-      const r = await invoke(routes, {path: '/api/reading-lists', ctx: makeCtx({store: {[READING_LISTS_FILE]: stored}})});
+      const r = await invoke(routes, {path: '/api/reading-lists', ctx: withLists(stored)});
       assert.deepEqual([r.status, r.payload], [200, {lists: expected}]);
     });
   }
@@ -356,7 +372,7 @@ describe('POST /api/reading-lists (create)', () => {
     const {id, createdAt, updatedAt, ...stable} = r.payload.list;
     assert.deepEqual(stable, {name: 'My List', description: 'About it', items: []});
     assert.match(id, /^[0-9a-f-]{36}$/);
-    assert.equal(ctx.calls.saveJSON.length, 1);
+    assert.deepEqual(storedLists(ctx).map(l => l.id), [id], 'and it is the caller\'s');
   });
 
   it('defaults an omitted description to an empty string', async () => {
@@ -366,25 +382,30 @@ describe('POST /api/reading-lists (create)', () => {
 });
 
 describe('DELETE /api/reading-lists/:id', () => {
-  const withList = (items = []) => ({[READING_LISTS_FILE]: {lists: [{id: 'l1', name: 'A', items}]}});
+  const withList = (items = []) => withLists([{id: 'l1', name: 'A', items}]);
 
   it('returns 404 for an unknown id without saving', async () => {
-    const ctx = makeCtx({store: withList()});
+    const ctx = withList();
     const r = await invoke(routes, {method: 'DELETE', path: '/api/reading-lists/nope', ctx});
     assert.deepEqual([r.status, r.payload], [404, {error: 'Reading list not found'}]);
     assert.deepEqual(ctx.calls.saveJSON, []);
   });
 
-  it('removes the list and saves once', async () => {
-    const ctx = makeCtx({store: withList()});
+  it('removes the list and keeps it', async () => {
+    const ctx = withList();
     const r = await invoke(routes, {method: 'DELETE', path: '/api/reading-lists/l1', ctx});
     assert.deepEqual([r.status, r.payload], [200, {success: true}]);
-    assert.deepEqual(ctx.store[READING_LISTS_FILE].lists, []);
-    assert.equal(ctx.calls.saveJSON.length, 1);
+    assert.deepEqual(storedLists(ctx), []);
   });
 
   it('maps a store failure to the outer catch', async () => {
-    const ctx = makeCtx({loadJSON() { throw new Error('unreadable'); }});
+    // The failure has to come from inside the handler's try, which is where the
+    // store call is; the collections themselves are looked up above it.
+    const ctx = makeCtx();
+    const real = ctx.collection;
+    ctx.collection = name => name === 'reading-lists'
+      ? {...real(name), remove() { throw new Error('unreadable'); }}
+      : real(name);
     const r = await invoke(routes, {method: 'DELETE', path: '/api/reading-lists/l1', ctx});
     assert.deepEqual([r.status, r.payload], [400, {error: 'Invalid request'}]);
   });
@@ -392,7 +413,7 @@ describe('DELETE /api/reading-lists/:id', () => {
 
 describe('POST /api/reading-lists/:id/items (add)', () => {
   const ITEMS_PATH = '/api/reading-lists/l1/items';
-  const withList = (items = []) => ({[READING_LISTS_FILE]: {lists: [{id: 'l1', name: 'A', items}]}});
+  const withList = (items = []) => withLists([{id: 'l1', name: 'A', items}]);
 
   it('returns 429 before reading the body', async () => {
     let reads = 0;
@@ -412,7 +433,7 @@ describe('POST /api/reading-lists/:id/items (add)', () => {
   ];
   for (const {name, body, error} of GUARDS) {
     it(`rejects ${name} without saving`, async () => {
-      const ctx = makeCtx({store: withList()});
+      const ctx = withList();
       const r = await invoke(routes, {method: 'POST', path: ITEMS_PATH, body, ctx});
       assert.deepEqual([r.status, r.payload], [400, {error}]);
       assert.deepEqual(ctx.calls.saveJSON, []);
@@ -420,35 +441,34 @@ describe('POST /api/reading-lists/:id/items (add)', () => {
   }
 
   it('accepts a non-string title, since the length guard is string-only', async () => {
-    const ctx = makeCtx({store: withList()});
+    const ctx = withList();
     const r = await invoke(routes, {method: 'POST', path: ITEMS_PATH, body: {path: '/a', title: 12345}, ctx});
     assert.equal(r.status, 200);
-    assert.equal(ctx.store[READING_LISTS_FILE].lists[0].items[0].title, '/a');
+    assert.equal(storedLists(ctx)[0].items[0].title, '/a');
   });
 
   it('returns 404 for an unknown list', async () => {
-    const ctx = makeCtx({store: withList()});
+    const ctx = withList();
     const r = await invoke(routes, {method: 'POST', path: '/api/reading-lists/nope/items', body: {path: '/a'}, ctx});
     assert.deepEqual([r.status, r.payload], [404, {error: 'Reading list not found'}]);
     assert.deepEqual(ctx.calls.saveJSON, []);
   });
 
   it('dedups an item already in the list', async () => {
-    const ctx = makeCtx({store: withList([{path: '/a'}])});
+    const ctx = withList([{path: '/a'}]);
     const r = await invoke(routes, {method: 'POST', path: ITEMS_PATH, body: {path: '/a'}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {success: true, message: 'Item already in list'}]);
     assert.deepEqual(ctx.calls.saveJSON, []);
   });
 
-  it('adds the item, bumps updatedAt and saves once', async () => {
-    const ctx = makeCtx({store: {[READING_LISTS_FILE]: {lists: [{id: 'l1', name: 'A', items: [], updatedAt: 'old'}]}}});
+  it('adds the item, bumps updatedAt and keeps it', async () => {
+    const ctx = withLists([{id: 'l1', name: 'A', items: [], updatedAt: 'old'}]);
     const r = await invoke(routes, {method: 'POST', path: ITEMS_PATH, body: {path: '/a', title: 'A Doc', type: 'reference'}, ctx});
     assert.equal(r.status, 200);
-    const [item] = ctx.store[READING_LISTS_FILE].lists[0].items;
+    const [item] = storedLists(ctx)[0].items;
     const {addedAt, ...stable} = item;
     assert.deepEqual(stable, {path: '/a', title: 'A Doc', type: 'reference'});
-    assert.notEqual(ctx.store[READING_LISTS_FILE].lists[0].updatedAt, 'old');
-    assert.equal(ctx.calls.saveJSON.length, 1);
+    assert.notEqual(storedLists(ctx)[0].updatedAt, 'old');
   });
 
   const TYPES = [
@@ -459,22 +479,22 @@ describe('POST /api/reading-lists/:id/items (add)', () => {
   ];
   for (const {given, want} of TYPES) {
     it(`normalises the type ${JSON.stringify(given)} to ${want}`, async () => {
-      const ctx = makeCtx({store: withList()});
+      const ctx = withList();
       await invoke(routes, {method: 'POST', path: ITEMS_PATH, body: {path: '/a', type: given}, ctx});
-      assert.equal(ctx.store[READING_LISTS_FILE].lists[0].items[0].type, want);
+      assert.equal(storedLists(ctx)[0].items[0].type, want);
     });
   }
 
   it('falls back to the path for the title', async () => {
-    const ctx = makeCtx({store: withList()});
+    const ctx = withList();
     await invoke(routes, {method: 'POST', path: ITEMS_PATH, body: {path: '/a'}, ctx});
-    assert.equal(ctx.store[READING_LISTS_FILE].lists[0].items[0].title, '/a');
+    assert.equal(storedLists(ctx)[0].items[0].title, '/a');
   });
 });
 
 describe('DELETE /api/reading-lists/:id/items (remove)', () => {
   const ITEMS_PATH = '/api/reading-lists/l1/items';
-  const withList = (items = []) => ({[READING_LISTS_FILE]: {lists: [{id: 'l1', name: 'A', items}]}});
+  const withList = (items = []) => withLists([{id: 'l1', name: 'A', items}]);
 
   const GUARDS = [
     {name: 'an omitted path', body: {}, status: 400, error: 'Missing path'},
@@ -483,7 +503,7 @@ describe('DELETE /api/reading-lists/:id/items (remove)', () => {
   ];
   for (const {name, body, status, error} of GUARDS) {
     it(`rejects ${name} without saving`, async () => {
-      const ctx = makeCtx({store: withList([{path: '/a'}])});
+      const ctx = withList([{path: '/a'}]);
       const r = await invoke(routes, {method: 'DELETE', path: ITEMS_PATH, body, ctx});
       assert.deepEqual([r.status, r.payload], [status, {error}]);
       assert.deepEqual(ctx.calls.saveJSON, []);
@@ -491,23 +511,22 @@ describe('DELETE /api/reading-lists/:id/items (remove)', () => {
   }
 
   it('returns 404 for an unknown list', async () => {
-    const r = await invoke(routes, {method: 'DELETE', path: '/api/reading-lists/nope/items', body: {path: '/a'}, ctx: makeCtx({store: withList([{path: '/a'}])})});
+    const r = await invoke(routes, {method: 'DELETE', path: '/api/reading-lists/nope/items', body: {path: '/a'}, ctx: withList([{path: '/a'}])});
     assert.deepEqual([r.status, r.payload], [404, {error: 'Reading list not found'}]);
   });
 
-  it('removes the item, bumps updatedAt and saves once', async () => {
-    const ctx = makeCtx({store: {[READING_LISTS_FILE]: {lists: [{id: 'l1', items: [{path: '/a'}, {path: '/b'}], updatedAt: 'old'}]}}});
+  it('removes the item, bumps updatedAt and keeps it', async () => {
+    const ctx = withLists([{id: 'l1', items: [{path: '/a'}, {path: '/b'}], updatedAt: 'old'}]);
     const r = await invoke(routes, {method: 'DELETE', path: ITEMS_PATH, body: {path: '/a'}, ctx});
     assert.equal(r.status, 200);
-    assert.deepEqual(ctx.store[READING_LISTS_FILE].lists[0].items.map(i => i.path), ['/b']);
-    assert.notEqual(ctx.store[READING_LISTS_FILE].lists[0].updatedAt, 'old');
-    assert.equal(ctx.calls.saveJSON.length, 1);
+    assert.deepEqual(storedLists(ctx)[0].items.map(i => i.path), ['/b']);
+    assert.notEqual(storedLists(ctx)[0].updatedAt, 'old');
   });
 });
 
 describe('PATCH /api/reading-lists/:id/items (reorder)', () => {
   const ITEMS_PATH = '/api/reading-lists/l1/items';
-  const three = () => ({[READING_LISTS_FILE]: {lists: [{id: 'l1', items: [{path: '/a'}, {path: '/b'}, {path: '/c'}], updatedAt: 'old'}]}});
+  const three = () => withLists([{id: 'l1', items: [{path: '/a'}, {path: '/b'}, {path: '/c'}], updatedAt: 'old'}]);
 
   const GUARDS = [
     {name: 'an omitted path', body: {direction: 'up'}, status: 400, error: 'Missing path'},
@@ -519,7 +538,7 @@ describe('PATCH /api/reading-lists/:id/items (reorder)', () => {
   ];
   for (const {name, body, status, error} of GUARDS) {
     it(`rejects ${name} without saving`, async () => {
-      const ctx = makeCtx({store: three()});
+      const ctx = three();
       const r = await invoke(routes, {method: 'PATCH', path: ITEMS_PATH, body, ctx});
       assert.deepEqual([r.status, r.payload], [status, {error}]);
       assert.deepEqual(ctx.calls.saveJSON, []);
@@ -527,7 +546,7 @@ describe('PATCH /api/reading-lists/:id/items (reorder)', () => {
   }
 
   it('returns 404 for an unknown list', async () => {
-    const r = await invoke(routes, {method: 'PATCH', path: '/api/reading-lists/nope/items', body: {path: '/a', direction: 'up'}, ctx: makeCtx({store: three()})});
+    const r = await invoke(routes, {method: 'PATCH', path: '/api/reading-lists/nope/items', body: {path: '/a', direction: 'up'}, ctx: three()});
     assert.deepEqual([r.status, r.payload], [404, {error: 'Reading list not found'}]);
   });
 
@@ -537,7 +556,7 @@ describe('PATCH /api/reading-lists/:id/items (reorder)', () => {
   ];
   for (const {name, body} of BOUNDARIES) {
     it(`is a no-op when moving ${name}`, async () => {
-      const ctx = makeCtx({store: three()});
+      const ctx = three();
       const r = await invoke(routes, {method: 'PATCH', path: ITEMS_PATH, body, ctx});
       assert.equal(r.status, 200);
       assert.deepEqual(r.payload.list.items.map(i => i.path), ['/a', '/b', '/c']);
@@ -552,11 +571,11 @@ describe('PATCH /api/reading-lists/:id/items (reorder)', () => {
   ];
   for (const {name, body, order} of SWAPS) {
     it(`swaps ${name}, bumps updatedAt and saves once`, async () => {
-      const ctx = makeCtx({store: three()});
+      const ctx = three();
       const r = await invoke(routes, {method: 'PATCH', path: ITEMS_PATH, body, ctx});
       assert.deepEqual(r.payload.list.items.map(i => i.path), order);
       assert.notEqual(r.payload.list.updatedAt, 'old');
-      assert.equal(ctx.calls.saveJSON.length, 1);
+      assert.deepEqual(storedLists(ctx)[0].items.map(i => i.path), order, 'and the swap is kept');
     });
   }
 });
@@ -565,10 +584,10 @@ describe('PATCH /api/reading-lists/:id/items (reorder)', () => {
 
 describe('GET /api/reading-lists/:id/export', () => {
   const EXPORT = '/api/reading-lists/l1/export';
-  const list = over => ({[READING_LISTS_FILE]: {lists: [{id: 'l1', name: 'My List', items: [], ...over}]}});
+  const list = (over, ctxOver) => withLists([{id: 'l1', name: 'My List', items: [], ...over}], ctxOver);
 
   it('returns 404 for an unknown list', async () => {
-    const r = await invoke(routes, {path: '/api/reading-lists/nope/export', ctx: makeCtx({store: list()})});
+    const r = await invoke(routes, {path: '/api/reading-lists/nope/export', ctx: list()});
     assert.deepEqual([r.status, r.payload], [404, {error: 'Reading list not found'}]);
   });
 
@@ -578,7 +597,7 @@ describe('GET /api/reading-lists/:id/export', () => {
       {path: '/b', title: 'A Paper', type: 'reference'},
       {path: '/c'},
     ];
-    const r = await invoke(routes, {path: EXPORT, ctx: makeCtx({store: list({items})})});
+    const r = await invoke(routes, {path: EXPORT, ctx: list({items})});
     assert.equal(r.written.body, '# My List\n\n1. [Doc] A Doc\n2. [Paper] A Paper\n3. [Doc] /c\n');
     assert.deepEqual(r.written.headers, {
       'Content-Type': 'text/markdown; charset=utf-8',
@@ -588,24 +607,24 @@ describe('GET /api/reading-lists/:id/export', () => {
   });
 
   it('prepends the description when the list has one', async () => {
-    const r = await invoke(routes, {path: EXPORT, ctx: makeCtx({store: list({description: 'About it', items: [{path: '/a'}]})})});
+    const r = await invoke(routes, {path: EXPORT, ctx: list({description: 'About it', items: [{path: '/a'}]})});
     assert.equal(r.written.body, '# My List\n\nAbout it\n\n1. [Doc] /a\n');
   });
 
   for (const [label, over] of [['an empty items array', {items: []}], ['no items key at all', {items: undefined}]]) {
     it(`renders the empty placeholder for ${label}`, async () => {
-      const r = await invoke(routes, {path: EXPORT, ctx: makeCtx({store: list(over)})});
+      const r = await invoke(routes, {path: EXPORT, ctx: list(over)});
       assert.equal(r.written.body, '# My List\n\n_No items in this list._\n');
     });
   }
 
   it('treats any non-bibtex format as the markdown default', async () => {
-    const r = await invoke(routes, {path: EXPORT, query: {format: 'json'}, ctx: makeCtx({store: list({items: [{path: '/a'}]})})});
+    const r = await invoke(routes, {path: EXPORT, query: {format: 'json'}, ctx: list({items: [{path: '/a'}]})});
     assert.equal(r.written.headers['Content-Type'], 'text/markdown; charset=utf-8');
   });
 
   it('returns 500 when the list id cannot be decoded', async () => {
-    const ctx = makeCtx({store: list()});
+    const ctx = list();
     const r = await invoke(routes, {path: '/api/reading-lists/%/export', ctx});
     assert.deepEqual([r.status, r.payload], [500, {error: 'Export failed'}]);
     // The decode throws before anything is loaded or streamed.
@@ -645,7 +664,7 @@ describe('GET /api/reading-lists/:id/export', () => {
       const base = mockFs(refs === null ? {} : {[BIB]: refs});
       const fs = {...base, readFileSync: p => { reads++; return base.readFileSync(p); }};
       const references = referencesForCore(bibliographyProvides.references);
-      return {ctx: makeCtx({fs, references, store: list({items})}), reads: () => reads};
+      return {ctx: list({items}, {fs, references}), reads: () => reads};
     };
 
     // The loader memoizes on mtime and size, and every fixture here starts the
