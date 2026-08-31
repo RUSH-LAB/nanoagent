@@ -50,7 +50,10 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
     if (!path) return json(res, 400, {error: 'Missing path'});
     let document;
     try {
-      document = documents.get(scope, path);
+      // `resolve` rather than `get`, so a reader may ask for the URL they are
+      // on (books/math/0-intro) instead of the filename behind it. An exact
+      // path still matches first.
+      document = documents.resolve(scope, path);
     } catch (err) {
       return fail(json, res, err, 'Invalid path');
     }

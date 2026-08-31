@@ -219,7 +219,7 @@ describe('src/server/plugins: the API half, on the same discovery', () => {
 });
 
 describe('the plugins this site actually has', () => {
-  it('is the four directories under plugins/, each filling the slots it declares', () => {
+  it('is the five directories under plugins/, each filling the slots it declares', () => {
     const found = Object.fromEntries(
       listPlugins().map(p => [p.name, Object.keys(p.slots).sort()]),
     );
@@ -227,6 +227,7 @@ describe('the plugins this site actually has', () => {
       'bibliography': ['build', 'remark', 'server'],
       'lean-proofs': ['build'],
       'math-registry': ['build'],
+      'runtime-content': ['build'],
       'wiki-links': ['remark'],
     });
   });

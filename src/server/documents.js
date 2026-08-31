@@ -137,6 +137,31 @@ function createDocuments({db = defaultDb, now = () => new Date().toISOString(), 
     return statements.get.get(orgOf(scope), scope?.userId ?? null, checkPath(path)) ?? undefined;
   }
 
+  /**
+   * The document a URL means.
+   *
+   * A reader asks for /w/books/math/0-intro, not for a filename, so the
+   * extension and the index convention have to be resolved somewhere. Here
+   * rather than in the client, because the client would have to guess and then
+   * ask up to four times to find out which guess was right, and because these
+   * are the same four forms the build already resolves.
+   *
+   * An exact path still wins, so a caller that does know the filename is not
+   * made to go through this.
+   */
+  function resolve(scope, urlPath) {
+    const trimmed = String(urlPath ?? '').replace(/^\/+|\/+$/g, '');
+    if (!trimmed) return undefined;
+    const candidates = /\.mdx?$/.test(trimmed)
+      ? [trimmed]
+      : [`${trimmed}.md`, `${trimmed}.mdx`, `${trimmed}/index.md`, `${trimmed}/index.mdx`];
+    for (const candidate of candidates) {
+      const found = get(scope, candidate);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
   /** One document by id, with its body, or undefined. */
   function getById(scope, id) {
     return statements.getById.get(orgOf(scope), scope?.userId ?? null, id) ?? undefined;
@@ -242,8 +267,8 @@ function createDocuments({db = defaultDb, now = () => new Date().toISOString(), 
   }
 
   return {
-    list, get, getById, create, save, setVisibility, move, remove, versions, version,
-    titleOf, db,
+    list, get, getById, resolve, create, save, setVisibility, move, remove,
+    versions, version, titleOf, db,
   };
 }
 
