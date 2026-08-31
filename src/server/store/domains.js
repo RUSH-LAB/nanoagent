@@ -42,6 +42,11 @@ const DOMAINS = Object.freeze({
   // Yours: what you thought about a page. The product calls these personal
   // reading notes, as distinct from comments, which are addressed to others.
   notes: {owner: 'user'},
+  // Yours: the ones jotted without picking a page first, and how you like the
+  // app set up. Neither reached ctx through a named constant, which is how they
+  // went unlisted here at first: both are built inline from dataFileSegs().
+  quicknotes: {owner: 'user'},
+  preferences: {owner: 'user'},
 
   // ── The workspace's, shared by every member ─────────────────────────────
   // The lab's vocabulary. One definition of a term, or it is not a glossary.

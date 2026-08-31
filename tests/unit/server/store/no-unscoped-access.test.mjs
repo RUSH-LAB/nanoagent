@@ -42,12 +42,36 @@ const MIGRATING = {
   'bookmarks-reading-lists.js': ['reading-lists'],
   'comments-notes.js': ['notes'],
   'feeds.js': ['schedule'],
-  'misc-tools.js': ['flashcards', 'snapshots', 'tasks', 'whiteboards'],
-  'study-knowledge.js': ['flashcards', 'glossary', 'notes'],
+  'misc-tools.js': ['flashcards', 'schedule', 'snapshots', 'tasks', 'whiteboards'],
+  'study-knowledge.js': ['flashcards', 'glossary', 'preferences', 'quicknotes'],
 };
 
 /** The ctx name a domain's JSON file is passed under: notes -> NOTES_FILE. */
 const constantFor = domain => `${domain.toUpperCase().replaceAll('-', '_')}_FILE`;
+
+/**
+ * Whether `body` mentions the constant, as a whole identifier.
+ *
+ * Not a substring test, which is what this was and what it got wrong: NOTES_FILE
+ * is a substring of QUICKNOTES_FILE, so study-knowledge.js was recorded as still
+ * opening `notes` when what it opens is the quicknotes store, and `notes` was
+ * exempted there for a use that did not exist. A left boundary is enough, since
+ * every one of these names ends in the same suffix.
+ */
+const mentions = (body, constant) => new RegExp(`\\b${constant}\\b`).test(body);
+
+/**
+ * Whether `body` builds this domain's file path itself.
+ *
+ * Not every store arrives on ctx under a constant. Three are assembled in the
+ * handler out of dataFileSegs('name'), which reaches exactly the same file by a
+ * route the constant check cannot see, and two of them (quicknotes,
+ * preferences) were therefore missing from the domain registry altogether. A
+ * check that only knows one spelling of the thing it forbids is a check for the
+ * spelling.
+ */
+const buildsPathFor = (body, domain) =>
+  new RegExp(`dataFileSegs\\(\\s*['"]${domain}['"]`).test(body);
 
 /**
  * Every route module's source, with the ctx destructure removed.
@@ -76,7 +100,9 @@ const BODIES = routeBodies();
 /** Which of `domains` appear in the body of `name`. */
 function domainsUsedBy(name, domains) {
   const {body} = BODIES.find(r => r.name === name) ?? {body: ''};
-  return domains.filter(domain => body.includes(constantFor(domain)));
+  return domains.filter(
+    domain => mentions(body, constantFor(domain)) || buildsPathFor(body, domain),
+  );
 }
 
 describe('the per-workspace stores a route may still open as a file', () => {
@@ -104,6 +130,7 @@ describe('everything not exempted', () => {
   // registry cannot silently empty this check.
   const ALL = [
     'bookmarks', 'flashcards', 'streaks', 'tasks', 'reading-lists', 'notes',
+    'quicknotes', 'preferences',
     'glossary', 'schedule', 'whiteboards', 'analytics', 'snapshots',
   ];
 
