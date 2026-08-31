@@ -125,6 +125,13 @@ for (const workspace of await workspaces()) {
             {label: 'Programming', path: 'books/programming/0-intro.md'},
             {label: 'Math', path: 'books/math/0-intro.md'},
           ],
+          collections: [
+            {key: 'research', type: 'blog', pathPrefix: 'posts/research', title: 'Research Papers', description: 'Collection of research paper summaries and discussions', landingPath: null},
+            {key: 'blog', type: 'blog', pathPrefix: 'posts/blog', title: 'Blog', description: 'Blog posts', landingPath: null},
+            {key: 'survey', type: 'docs', pathPrefix: 'books/survey', title: 'Survey', description: null, landingPath: 'books/survey/intro.md'},
+            {key: 'programming', type: 'docs', pathPrefix: 'books/programming', title: 'Programming', description: null, landingPath: 'books/programming/0-intro.md'},
+            {key: 'math', type: 'docs', pathPrefix: 'books/math', title: 'Math', description: null, landingPath: 'books/math/0-intro.md'},
+          ],
           rendering: {math: true, citations: true, wikiLinks: true, leanProofs: true, interactiveMath: true},
         });
       }

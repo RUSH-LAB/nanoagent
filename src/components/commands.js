@@ -165,7 +165,7 @@ const CATEGORY_ORDER = ['Tools', 'Content', 'Insights', 'Meta'];
  * The site's own pages.
  *
  * Every href here is a real route: a page under src/pages, a docs route base
- * (`/math`, `/programming`, `/builder`, `/survey`), or a blog route base
+ * (`/math`, `/programming`, `/survey`), or a blog route base
  * (`/blog`, `/research`). A command that navigates to a 404 is worse than a
  * missing command, so anything moved or removed has to leave here with it.
  *
@@ -194,7 +194,6 @@ export const PAGE_COMMANDS = [
   {id: 'survey', name: 'survey', category: 'Content', icon: icons.book, title: 'Survey', description: 'Literature review chapters', href: '/documents/books/survey/intro'},
   {id: 'math', name: 'math', category: 'Content', icon: icons.book, title: 'Math', description: 'Mathematics textbook', href: '/documents/books/math/0-intro'},
   {id: 'programming', name: 'programming', category: 'Content', icon: icons.book, title: 'Programming', description: 'Programming textbook', href: '/documents/books/programming/0-intro'},
-  {id: 'builder', name: 'builder', category: 'Content', icon: icons.book, title: 'Builder', description: 'Notes on building this site', href: '/documents/books/builder/0-intro'},
   {id: 'timeline', name: 'timeline', category: 'Content', icon: icons.clock, title: 'Timeline', description: 'Recent content activity', href: '/timeline'},
 
   // Insights

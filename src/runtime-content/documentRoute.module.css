@@ -1,6 +1,11 @@
+.runtimeMain {
+  min-height: var(--site-shell-height);
+}
+
 .collection {
   max-width: var(--site-page-width-wide);
   margin: 0 auto;
+  padding: var(--site-content-top) var(--site-page-gutter) 3rem;
 }
 
 .collectionHeader {
@@ -146,6 +151,8 @@
   justify-content: center;
   gap: 2rem;
   margin: 0 auto;
+  padding-top: var(--site-content-top);
+  padding-bottom: 3rem;
 }
 
 .docsLayout {
@@ -155,7 +162,9 @@
 
 .blogLayout {
   grid-template-columns: minmax(0, var(--site-prose-width)) var(--site-toc-width);
-  max-width: var(--site-content-width);
+  max-width: calc(var(--site-content-width) + 6rem);
+  padding-right: 4rem;
+  padding-left: 4rem;
 }
 
 .document {
@@ -172,49 +181,14 @@
   font-size: 0.8rem;
 }
 
-.docSidebar nav,
-.toc nav {
-  display: grid;
-  gap: 0.15rem;
-  margin-top: 0.55rem;
+.docSidebar {
+  min-height: calc(var(--site-shell-height) - var(--site-content-top));
+  border-right: 1px solid var(--ifm-toc-border-color);
+  padding: 0.5rem;
 }
 
-.docSidebar ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.docSidebar ul ul {
-  margin-left: 0.55rem;
-  border-left: 1px solid var(--ifm-color-emphasis-300);
-  padding-left: 0.35rem;
-}
-
-.docSidebar summary {
-  cursor: pointer;
-  padding: 0.3rem 0.45rem;
-  font-weight: 600;
-}
-
-.docSidebar a,
-.toc a {
-  display: block;
-  border-radius: 0.35rem;
-  padding: 0.3rem 0.45rem;
-  color: var(--ifm-color-emphasis-700);
-}
-
-.docSidebar a:hover,
-.toc a:hover,
-.sidebarActive {
-  background: var(--ifm-color-emphasis-200);
-  color: var(--ifm-color-primary-darkest) !important;
-  text-decoration: none;
-}
-
-.tocNested {
-  padding-left: 1rem !important;
+.docsDocument {
+  padding: 0 1rem;
 }
 
 .blogMeta {
@@ -231,29 +205,10 @@
   font-size: 1.08rem;
 }
 
-.pager {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
+.document :global(.pagination-nav) {
   margin-top: 2.5rem;
   padding-top: 1rem;
   border-top: 1px solid var(--ifm-color-emphasis-200);
-}
-
-.pager a {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--ifm-color-emphasis-300);
-  border-radius: 0.5rem;
-  padding: 0.75rem;
-}
-
-.pager a:last-child {
-  text-align: right;
-}
-
-.pager small {
-  color: var(--ifm-color-emphasis-600);
 }
 
 @media (max-width: 700px) {
@@ -286,5 +241,11 @@
   .docSidebar {
     position: static;
     max-height: 14rem;
+  }
+
+  .blogLayout,
+  .docsLayout {
+    padding-right: var(--site-page-gutter);
+    padding-left: var(--site-page-gutter);
   }
 }

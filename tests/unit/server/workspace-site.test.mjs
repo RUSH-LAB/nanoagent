@@ -9,6 +9,7 @@ describe('workspace site configuration', () => {
   const documents = [
     {path: 'books/math/chapter.md'},
     {path: 'books/math/0-intro.md'},
+    {path: 'books/builder/0-intro.md'},
     {path: 'posts/research/paper.md'},
   ];
 
@@ -27,6 +28,16 @@ describe('workspace site configuration', () => {
     assert.equal(site.site.title, 'Lab');
     assert.equal(site.site.homeDocument, 'books/math/0-intro.md');
     assert.deepEqual(site.navigation, [{label: 'Start', path: 'books/math/0-intro.md'}]);
+  });
+
+  it('does not expose an inferred collection omitted from explicit navigation', () => {
+    const site = resolveWorkspaceSite({
+      navigation: [{label: 'Programming', path: 'books/programming/0-intro.md'}],
+    }, [
+      {path: 'books/programming/0-intro.md'},
+      {path: 'books/builder/intro.md'},
+    ]);
+    assert.deepEqual(site.collections.map(collection => collection.key), ['programming']);
   });
 
   it('rejects executable or unbounded configuration shapes', () => {

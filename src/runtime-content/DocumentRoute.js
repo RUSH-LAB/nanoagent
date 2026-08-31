@@ -3,6 +3,8 @@ import {useLocation} from '@docusaurus/router';
 import Link from '@docusaurus/Link';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import Layout from '@theme/Layout';
+import DocSidebarItems from '@theme/DocSidebarItems';
+import TOC from '@theme/TOC';
 import API_BASE, {apiFetch} from '@site/src/utils/api';
 import {loadWorkspaces} from '@site/src/utils/workspaces';
 import SafeDocument from './SafeDocument';
@@ -38,7 +40,7 @@ function headingsOf(node, result = []) {
   if (!node) return result;
   if (node.type === 'heading' && node.depth >= 2 && node.depth <= 3) {
     const label = (node.children || []).map(child => child.value || '').join('').trim();
-    if (label) result.push({id: node.id, label, depth: node.depth});
+    if (label) result.push({id: node.id, value: label, level: node.depth});
   }
   for (const child of node.children || []) headingsOf(child, result);
   return result;
@@ -50,7 +52,7 @@ function collectionFor(site, documentPath) {
     .sort((a, b) => b.pathPrefix.length - a.pathPrefix.length)[0] || null;
 }
 
-function sidebarTree(documents, prefix) {
+function sidebarTree(documents, prefix, workspaceSlug) {
   const root = {folders: new Map(), documents: []};
   for (const document of documents) {
     const relative = document.path.slice(prefix.length).replace(/^\//, '');
@@ -62,32 +64,23 @@ function sidebarTree(documents, prefix) {
     }
     node.documents.push(document);
   }
-  return root;
-}
-
-function SidebarNodes({node, workspaceSlug, currentPath}) {
-  return (
-    <ul>
-      {[...node.folders.values()].sort((a, b) => a.name.localeCompare(b.name)).map(folder => (
-        <li key={folder.name}>
-          <details open>
-            <summary>{labelForDirectory(folder.name)}</summary>
-            <SidebarNodes node={folder} workspaceSlug={workspaceSlug} currentPath={currentPath} />
-          </details>
-        </li>
-      ))}
-      {[...node.documents].sort((a, b) => a.path.localeCompare(b.path)).map(item => (
-        <li key={item.id}>
-          <Link
-            className={item.path === currentPath ? styles.sidebarActive : undefined}
-            to={`/w/${encodeURIComponent(workspaceSlug)}/documents/${routeForDocument(item.path)}`}
-          >
-            {item.title}
-          </Link>
-        </li>
-      ))}
-    </ul>
-  );
+  const convert = node => [
+    ...[...node.folders.values()].sort((a, b) => a.name.localeCompare(b.name)).map(folder => ({
+      type: 'category',
+      label: labelForDirectory(folder.name),
+      collapsible: true,
+      collapsed: false,
+      items: convert(folder),
+    })),
+    ...[...node.documents].sort((a, b) => a.path.localeCompare(b.path)).map(item => ({
+      type: 'link',
+      label: item.title,
+      href: `/w/${encodeURIComponent(workspaceSlug)}/documents/${routeForDocument(item.path)}`,
+      docId: item.path,
+      unlisted: false,
+    })),
+  ];
+  return convert(root);
 }
 
 function DocumentBody({workspaceSlug, documentPath}) {
@@ -178,7 +171,16 @@ function DocumentBody({workspaceSlug, documentPath}) {
             canEdit,
           });
         } else {
-          setState({status: READY, documents: payload.documents ?? [], workspaceId: workspace.id, canEdit});
+          const siteResponse = await apiFetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/site`);
+          const siteData = await siteResponse.json().catch(() => ({}));
+          if (cancelled) return;
+          setState({
+            status: READY,
+            documents: payload.documents ?? [],
+            site: siteResponse.ok ? siteData.site : null,
+            workspaceId: workspace.id,
+            canEdit,
+          });
         }
       } catch (err) {
         if (!cancelled) setState({status: BROKEN, message: err.message});
@@ -221,10 +223,14 @@ function DocumentBody({workspaceSlug, documentPath}) {
   if (!documentPath || state.directory) {
     const directoryCollection = state.directory ? collectionFor(state.site, state.directory) : null;
     const isBlogCollection = directoryCollection?.type === 'blog';
+    const visibleDocuments = !state.directory && state.site?.collections?.length
+      ? state.documents.filter(document => state.site.collections.some(collection =>
+          document.path.startsWith(`${collection.pathPrefix}/`)))
+      : state.documents;
     const heading = directoryCollection?.title || (state.directory ? labelForDirectory(state.directory) : 'Documents');
     const description = state.directory
-      ? directoryCollection?.description || `${state.documents.length} ${state.documents.length === 1 ? 'post' : 'posts'} in this collection`
-      : `${state.documents.length} ${state.documents.length === 1 ? 'document' : 'documents'} in this workspace`;
+      ? directoryCollection?.description || `${visibleDocuments.length} ${visibleDocuments.length === 1 ? 'post' : 'posts'} in this collection`
+      : `${visibleDocuments.length} ${visibleDocuments.length === 1 ? 'document' : 'documents'} in this workspace`;
     return (
       <article className={`${styles.collection} ${isBlogCollection ? styles.blogCollection : ''}`}>
         <header className={styles.collectionHeader}>
@@ -239,9 +245,9 @@ function DocumentBody({workspaceSlug, documentPath}) {
             </Link>
           ) : null}
         </header>
-        {state.documents.length === 0 ? <p className={styles.empty}>This workspace has no documents yet.</p> : (
+        {visibleDocuments.length === 0 ? <p className={styles.empty}>This workspace has no documents yet.</p> : (
           <ul className={isBlogCollection ? styles.blogList : styles.documentGrid}>
-            {[...state.documents].sort((a, b) => isBlogCollection
+            {[...visibleDocuments].sort((a, b) => isBlogCollection
               ? String(b.frontmatter?.date || b.updatedAt).localeCompare(String(a.frontmatter?.date || a.updatedAt))
               : a.path.localeCompare(b.path)).map(document => {
               const route = routeForDocument(document.path);
@@ -291,13 +297,14 @@ function DocumentBody({workspaceSlug, documentPath}) {
     <div className={`${styles.documentLayout} ${isBlog ? styles.blogLayout : styles.docsLayout}`}>
       {!isBlog && collectionDocuments.length > 1 ? (
         <aside className={styles.docSidebar}>
-          <strong>{collection?.title || 'Documents'}</strong>
-          <nav>
-            <SidebarNodes
-              node={sidebarTree(collectionDocuments, collection?.pathPrefix || '')}
-              workspaceSlug={workspaceSlug}
-              currentPath={document.path}
-            />
+          <nav className="menu thin-scrollbar">
+            <ul className="theme-doc-sidebar-menu menu__list">
+              <DocSidebarItems
+                items={sidebarTree(collectionDocuments, collection?.pathPrefix || '', workspaceSlug)}
+                activePath={`/w/${encodeURIComponent(workspaceSlug)}/documents/${routeForDocument(document.path)}`}
+                level={1}
+              />
+            </ul>
           </nav>
         </aside>
       ) : null}
@@ -322,29 +329,24 @@ function DocumentBody({workspaceSlug, documentPath}) {
       ) : null}
       {frontmatter.description ? <p className={styles.description}>{frontmatter.description}</p> : null}
       <SafeDocument tree={tree} workspaceId={state.workspaceId} workspaceSlug={workspaceSlug} documentPath={document.path} />
-      <nav className={styles.pager} aria-label="Document pagination">
+      <nav className="pagination-nav" aria-label="Document pagination">
         {previous ? (
-          <Link to={`/w/${encodeURIComponent(workspaceSlug)}/documents/${routeForDocument(previous.path)}`}>
-            <small>Previous</small><span>{previous.title}</span>
+          <Link className="pagination-nav__link pagination-nav__link--prev" to={`/w/${encodeURIComponent(workspaceSlug)}/documents/${routeForDocument(previous.path)}`}>
+            <div className="pagination-nav__sublabel">Previous</div>
+            <div className="pagination-nav__label">{previous.title}</div>
           </Link>
-        ) : <span />}
+        ) : null}
         {next ? (
-          <Link to={`/w/${encodeURIComponent(workspaceSlug)}/documents/${routeForDocument(next.path)}`}>
-            <small>Next</small><span>{next.title}</span>
+          <Link className="pagination-nav__link pagination-nav__link--next" to={`/w/${encodeURIComponent(workspaceSlug)}/documents/${routeForDocument(next.path)}`}>
+            <div className="pagination-nav__sublabel">Next</div>
+            <div className="pagination-nav__label">{next.title}</div>
           </Link>
         ) : null}
       </nav>
       </article>
       {headings.length ? (
         <aside className={styles.toc}>
-          <strong>On this page</strong>
-          <nav>
-            {headings.map(heading => (
-              <a key={heading.id} className={heading.depth === 3 ? styles.tocNested : undefined} href={`#${heading.id}`}>
-                {heading.label}
-              </a>
-            ))}
-          </nav>
+          <TOC toc={headings} minHeadingLevel={2} maxHeadingLevel={3} />
         </aside>
       ) : null}
     </div>
@@ -359,7 +361,7 @@ export default function DocumentRoute() {
 
   return (
     <Layout title={documentPath || 'Workspace'}>
-      <main className="container margin-vert--lg">
+      <main className={styles.runtimeMain}>
         {/*
           The whole route is a fetch against the caller's session, so there is
           nothing for the static build to render and nothing it could render

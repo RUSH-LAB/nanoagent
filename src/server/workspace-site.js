@@ -41,6 +41,10 @@ function inferredCollections(documents = []) {
   for (const document of documents) {
     const [root, key] = String(document.path ?? '').split('/');
     if (!key || !['books', 'posts'].includes(root)) continue;
+    // books/builder is internal authoring/reference material. It existed as a
+    // routable docs plugin in the old build but was never a product section or
+    // navbar destination, so automatic discovery must not publish it.
+    if (root === 'books' && key === 'builder') continue;
     const id = `${root}:${key}`;
     if (!found.has(id)) {
       const pathPrefix = `${root}/${key}`;
@@ -122,7 +126,10 @@ function validateWorkspaceSite(value = {}) {
 function resolveWorkspaceSite(settings = {}, documents = []) {
   const configured = validateWorkspaceSite(settings);
   const inferred = inferredCollections(documents);
-  const collections = configured.collections ?? inferred;
+  const collections = configured.collections ?? (configured.navigation
+    ? inferred.filter(collection => configured.navigation.some(item =>
+        item.path === collection.pathPrefix || item.path.startsWith(`${collection.pathPrefix}/`)))
+    : inferred);
   const navigation = configured.navigation ?? collections
     .filter(collection => collection.landingPath)
     .map(collection => ({label: collection.title, path: collection.landingPath}));
