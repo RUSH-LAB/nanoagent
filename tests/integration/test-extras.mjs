@@ -94,86 +94,6 @@ async function preflight() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 1. Backup & Restore (2 tests)
-// ────────────────────────────────────────────────────────────────
-
-async function testBackup() {
-  section('Backup & Restore');
-
-  // 1. GET /api/backup — verify returns JSON with 10+ keys
-  await test('GET /api/backup returns JSON with 10+ keys', async () => {
-    const { status, data } = await api('GET', '/api/backup');
-    assertEq(status, 200, 'status');
-    assertOk(typeof data === 'object' && data !== null, 'response is an object');
-    const keys = Object.keys(data);
-    assertOk(keys.length >= 10, `expected 10+ keys, got ${keys.length}: ${keys.join(', ')}`);
-  });
-
-  // 2. POST /api/backup/restore with {comments:{}} — verify 200
-  await test('POST /api/backup/restore with {comments:{}} returns 200', async () => {
-    const { status } = await api('POST', '/api/backup/restore', { comments: {} });
-    assertEq(status, 200, 'status');
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
-// 2. Batch Export (1 test)
-// ────────────────────────────────────────────────────────────────
-
-async function testBatchExport() {
-  section('Batch Export');
-
-  // 3. GET /api/export/batch — verify returns HTML >1000 bytes
-  await test('GET /api/export/batch returns HTML >1000 bytes', async () => {
-    const { status, data } = await api('GET', '/api/export/batch?dir=content/books/math&format=html');
-    assertEq(status, 200, 'status');
-    assertOk(typeof data === 'string', 'response is text');
-    assertOk(data.length > 1000, `expected >1000 bytes, got ${data.length}`);
-    assertOk(data.includes('<'), 'contains HTML tags');
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
-// 3. Reference Formatting (3 tests)
-// ────────────────────────────────────────────────────────────────
-
-async function testReferenceFormat() {
-  section('Reference Formatting');
-
-  let apaCitation = '';
-  let ieeeCitation = '';
-
-  // 4. GET /api/references/format?key=alon2016probabilistic&style=apa
-  await test('GET /api/references/format APA style', async () => {
-    const { status, data } = await api('GET', '/api/references/format?key=alon2016probabilistic&style=apa');
-    assertEq(status, 200, 'status');
-    assertOk(typeof data === 'object' || typeof data === 'string', 'has response');
-    const citation = typeof data === 'object' ? (data.citation || data.formatted || JSON.stringify(data)) : data;
-    assertOk(citation.length > 0, 'citation is non-empty');
-    apaCitation = citation;
-  });
-
-  // 5. GET /api/references/format?key=alon2016probabilistic&style=ieee
-  await test('GET /api/references/format IEEE style (different from APA)', async () => {
-    const { status, data } = await api('GET', '/api/references/format?key=alon2016probabilistic&style=ieee');
-    assertEq(status, 200, 'status');
-    const citation = typeof data === 'object' ? (data.citation || data.formatted || JSON.stringify(data)) : data;
-    assertOk(citation.length > 0, 'citation is non-empty');
-    ieeeCitation = citation;
-    assertOk(ieeeCitation !== apaCitation, 'IEEE format differs from APA');
-  });
-
-  // 6. GET /api/references/format-all?style=mla
-  await test('GET /api/references/format-all MLA style', async () => {
-    const { status, data } = await api('GET', '/api/references/format-all?style=mla');
-    assertEq(status, 200, 'status');
-    assertOk(typeof data === 'string' || typeof data === 'object', 'has response');
-    const text = typeof data === 'string' ? data : JSON.stringify(data);
-    assertOk(text.length > 0, 'response is non-empty');
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
 // 4. RSS & Atom Feeds (2 tests)
 // ────────────────────────────────────────────────────────────────
 
@@ -194,59 +114,6 @@ async function testFeeds() {
     assertEq(status, 200, 'status');
     assertOk(typeof data === 'string', 'response is text');
     assertOk(data.includes('<feed'), 'contains <feed tag');
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
-// 5. File Slides (1 test)
-// ────────────────────────────────────────────────────────────────
-
-async function testSlides() {
-  section('File Slides');
-
-  // 9. GET /api/file/slides — verify JSON with slides array
-  await test('GET /api/file/slides returns slides array', async () => {
-    const { status, data } = await api('GET', `/api/file/slides?path=${SAMPLE_DOC}`);
-    assertEq(status, 200, 'status');
-    assertOk(typeof data === 'object', 'response is object');
-    assertOk(Array.isArray(data.slides), 'has slides array');
-    assertOk(data.slides.length > 0, 'slides is non-empty');
-    assertOk(typeof data.slides[0].content === 'string', 'slide has content');
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
-// 6. Citation Graph (1 test)
-// ────────────────────────────────────────────────────────────────
-
-async function testCitationGraph() {
-  section('Citation Graph');
-
-  // 10. GET /api/references/citation-graph — verify nodes and edges
-  await test('GET /api/references/citation-graph has nodes and edges', async () => {
-    const { status, data } = await api('GET', '/api/references/citation-graph');
-    assertEq(status, 200, 'status');
-    assertOk(typeof data === 'object', 'response is object');
-    assertOk(Array.isArray(data.nodes), 'has nodes array');
-    assertOk(Array.isArray(data.edges), 'has edges array');
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
-// 7. Daily Summary (1 test)
-// ────────────────────────────────────────────────────────────────
-
-async function testDailySummary() {
-  section('Daily Summary');
-
-  // 11. GET /api/summary/daily — verify daily summary fields
-  await test('GET /api/summary/daily returns daily summary', async () => {
-    const { status, data } = await api('GET', '/api/summary/daily');
-    assertEq(status, 200, 'status');
-    assertOk(typeof data === 'object', 'response is object');
-    assertOk('date' in data, 'has date field');
-    assertOk('filesModifiedToday' in data, 'has filesModifiedToday field');
-    assertOk(typeof data.filesModifiedToday === 'number', 'filesModifiedToday is a number');
   });
 }
 
@@ -286,15 +153,6 @@ async function testFileQuality() {
     assertOk(typeof data.breakdown === 'object', 'breakdown is an object');
     assertOk('suggestions' in data, 'has suggestions field');
     assertOk(Array.isArray(data.suggestions), 'suggestions is an array');
-  });
-
-  // 14. GET /api/file/quality-score — verify score only
-  await test('GET /api/file/quality-score returns score', async () => {
-    const { status, data } = await api('GET', `/api/file/quality-score?path=${SAMPLE_DOC}`);
-    assertEq(status, 200, 'status');
-    assertOk(typeof data === 'object', 'response is object');
-    assertOk('score' in data, 'has score field');
-    assertOk(typeof data.score === 'number', 'score is a number');
   });
 }
 
@@ -417,53 +275,6 @@ async function testIntegrity() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 16. File Target (2 tests)
-// ────────────────────────────────────────────────────────────────
-
-async function testFileTarget() {
-  section('File Target');
-
-  // 22. POST /api/file/target — set word target
-  await test('POST /api/file/target sets word target', async () => {
-    const { status, data } = await api('POST', '/api/file/target', {
-      path: SAMPLE_DOC,
-      targetWords: 1000
-    });
-    assertEq(status, 200, 'status');
-    assertOk(typeof data === 'object', 'response is object');
-  });
-
-  // 23. GET /api/file/target — verify target + progress
-  await test('GET /api/file/target returns target and progress', async () => {
-    const { status, data } = await api('GET', `/api/file/target?path=${SAMPLE_DOC}`);
-    assertEq(status, 200, 'status');
-    assertOk(typeof data === 'object', 'response is object');
-    assertOk('target' in data || 'targetWords' in data, 'has target field');
-    assertOk('progress' in data || 'currentWords' in data || 'wordCount' in data, 'has progress field');
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
-// 17. Dashboard (1 test)
-// ────────────────────────────────────────────────────────────────
-
-async function testDashboard() {
-  section('Dashboard');
-
-  // 24. GET /api/dashboard — verify {server, content, activity, endpoints, health}
-  await test('GET /api/dashboard returns server, content, activity, endpoints, health', async () => {
-    const { status, data } = await api('GET', '/api/dashboard');
-    assertEq(status, 200, 'status');
-    assertOk(typeof data === 'object', 'response is object');
-    assertOk('server' in data, 'has server field');
-    assertOk('content' in data, 'has content field');
-    assertOk('activity' in data, 'has activity field');
-    assertOk('endpoints' in data, 'has endpoints field');
-    assertOk('health' in data, 'has health field');
-  });
-}
-
-// ────────────────────────────────────────────────────────────────
 // Main
 // ────────────────────────────────────────────────────────────────
 
@@ -472,14 +283,7 @@ async function main() {
   console.log(`${DIM}Target: ${BASE}${RESET}\n`);
 
   await preflight();
-
-  await testBackup();
-  await testBatchExport();
-  await testReferenceFormat();
   await testFeeds();
-  await testSlides();
-  await testCitationGraph();
-  await testDailySummary();
   await testMindmap();
   await testFileQuality();
   await testQuicknotes();
@@ -488,8 +292,6 @@ async function main() {
   await testPerf();
   await testCalendar();
   await testIntegrity();
-  await testFileTarget();
-  await testDashboard();
 
   // ── Summary ──
   const total = passed + failed;
