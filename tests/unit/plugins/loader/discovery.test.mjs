@@ -41,7 +41,10 @@ before(() => {
 
   makePlugin('beta', {files: {'index.js': 'module.exports = (ctx, opts) => ({name: "beta", opts});'}});
   makePlugin('alpha', {
-    manifest: {options: {greeting: 'hi'}, apiVersion: API_VERSION, requires: ['cache']},
+    manifest: {
+      options: {greeting: 'hi'}, apiVersion: API_VERSION, requires: ['cache'],
+      safeComponents: {Alpha: {}},
+    },
     files: {
       'index.js': 'module.exports = (ctx, opts) => ({name: "alpha", opts});',
       'server.js': 'module.exports = function alphaRoutes() {}; module.exports.provides = {alphaData: 1};',
@@ -158,10 +161,12 @@ describe('plugins/loader: the build half', () => {
 });
 
 describe('plugins/loader: the browser component registry', () => {
-  it('generates explicit top-level imports instead of a recursive webpack scan', () => {
+  it('generates bounded lazy imports instead of a recursive webpack scan', () => {
     const target = writeClientComponentRegistry(root);
     const source = fs.readFileSync(target, 'utf8');
-    assert.match(source, /import \* as client0 from "\.\/alpha\/client\.js"/);
+    assert.match(source, /const load0 = \(\) => import\("\.\/alpha\/client\.js"\)/);
+    assert.match(source, /components\[name\] = lazyClientComponent/);
+    assert.doesNotMatch(source, /import \* as client/);
     assert.doesNotMatch(source, /require\.context/);
     assert.doesNotMatch(source, /beta\/client\.js/);
   });
