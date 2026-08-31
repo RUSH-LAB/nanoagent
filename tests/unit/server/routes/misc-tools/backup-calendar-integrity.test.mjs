@@ -60,65 +60,6 @@ function makeMemoCached() {
   return { cached, store, calls };
 }
 
-// ───────────────────────────── GET /api/backup ─────────────────────────────
-// The handler aggregates nine stores through ctx.loadJSON(FILE) into one
-// bundle plus an exportedAt timestamp. Each store is a distinct value so a
-// swapped FILE->bundle-key pairing would fail the deep-equal. The file-path
-// constants are realistic sentinels; loadJSON maps each back to its store key.
-
-const BACKUP_STORES = {
-  notes: { intro: 'a note' },
-  bookmarks: [{ url: 'https://x' }],
-  readingLists: { default: ['paper-1'] },
-  glossary: { TLA: 'Three Letter Acronym' },
-  flashcards: { alice: [{ id: 'f1' }] },
-  tasks: { tasks: [{ id: 't1', status: 'todo' }] },
-  analytics: { views: { home: 10 } },
-  goals: { goals: [{ id: 'g1' }] },
-  streaks: { alice: { current: 3 } },
-};
-
-const BACKUP_FILES = {
-  NOTES_FILE: '/proj/data/notes.json',
-  BOOKMARKS_FILE: '/proj/data/bookmarks.json',
-  READING_LISTS_FILE: '/proj/data/reading-lists.json',
-  GLOSSARY_FILE: '/proj/data/glossary.json',
-  FLASHCARDS_FILE: '/proj/data/flashcards.json',
-  TASKS_FILE: '/proj/data/tasks.json',
-  ANALYTICS_FILE: '/proj/data/analytics.json',
-  GOALS_FILE: '/proj/data/goals.json',
-  STREAKS_FILE: '/proj/data/streaks.json',
-};
-
-// Maps each file-path sentinel to its store key, so loadJSON(FILE) resolves to
-// the matching store value. Because the handler pairs each bundle key with the
-// matching FILE constant, the resulting nine-key bundle equals BACKUP_STORES.
-const FILE_TO_KEY = new Map([
-  [BACKUP_FILES.NOTES_FILE, 'notes'],
-  [BACKUP_FILES.BOOKMARKS_FILE, 'bookmarks'],
-  [BACKUP_FILES.READING_LISTS_FILE, 'readingLists'],
-  [BACKUP_FILES.GLOSSARY_FILE, 'glossary'],
-  [BACKUP_FILES.FLASHCARDS_FILE, 'flashcards'],
-  [BACKUP_FILES.TASKS_FILE, 'tasks'],
-  [BACKUP_FILES.ANALYTICS_FILE, 'analytics'],
-  [BACKUP_FILES.GOALS_FILE, 'goals'],
-  [BACKUP_FILES.STREAKS_FILE, 'streaks'],
-]);
-
-const okBackupLoad = (file) => {
-  const key = FILE_TO_KEY.get(file);
-  if (!key) throw new Error(`unexpected file ${file}`);
-  return BACKUP_STORES[key];
-};
-
-async function invokeBackup(loadJSON) {
-  const cap = makeCapture();
-  const ctx = { ...BACKUP_FILES, loadJSON, json: cap.json };
-  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
-  await miscToolsRoutes(req, cap.res, new URL('http://localhost/api/backup'), '/api/backup', ctx);
-  return cap.get();
-}
-
 // ──────────────────────────── GET /api/calendar ────────────────────────────
 // The handler is wrapped in cached('calendar', 60000, fn). fn recursively walks
 // the workspace's content root via readdirSync({withFileTypes:true}), reads

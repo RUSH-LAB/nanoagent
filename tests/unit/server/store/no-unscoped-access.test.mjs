@@ -1,0 +1,147 @@
+/**
+ * No route module may reach per-workspace data except through server/store.
+ *
+ * The store makes scoping structural: a handler passes the scope it was given
+ * and has no method available that would let it name another workspace or
+ * another person. That guarantee is worth exactly as much as the number of
+ * handlers that actually go through it, and nothing in the language stops one
+ * from calling loadJSON on a shared file instead. So it is checked here.
+ *
+ * The check runs against the source text rather than against behaviour, which
+ * is unusual and is the point: what is being asserted is that a certain kind of
+ * code is absent, and absence is not observable by calling anything.
+ *
+ * MIGRATING is the list of what has not moved yet, and it is a countdown. Every
+ * feature that moves onto the store deletes its line. The test fails in both
+ * directions on purpose:
+ *
+ *   - a route touching a store not listed for it is a regression, someone
+ *     reaching around the layer;
+ *   - a line still listed for a route that no longer touches it is a stale
+ *     exemption, which is how an allowlist quietly stops meaning anything.
+ *
+ * When MIGRATING is empty the loop over it asserts nothing and the two blocks
+ * below it become absolute. Deleting the constant at that point is the last
+ * step of the migration, and this comment is the note to do it.
+ */
+import {describe, it} from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROUTES_DIR = path.resolve(HERE, '../../../../src/server/routes');
+
+/**
+ * Route module -> the store domains it still reads and writes as a JSON file.
+ *
+ * Ordered by how entangled each one is, which is the order they should move in.
+ */
+const MIGRATING = {
+  'analysis-admin.js': ['streaks'],
+  'analytics-users.js': ['analytics'],
+  'bookmarks-reading-lists.js': ['bookmarks', 'reading-lists'],
+  'comments-notes.js': ['notes'],
+  'feeds.js': ['schedule'],
+  'misc-tools.js': ['flashcards', 'snapshots', 'tasks', 'whiteboards'],
+  'study-knowledge.js': ['flashcards', 'glossary', 'notes'],
+};
+
+/** The ctx name a domain's JSON file is passed under: notes -> NOTES_FILE. */
+const constantFor = domain => `${domain.toUpperCase().replaceAll('-', '_')}_FILE`;
+
+/**
+ * Every route module's source, with the ctx destructure removed.
+ *
+ * That one line names every field ctx carries and is byte-identical across all
+ * the route modules by design, so it mentions every store constant in every
+ * file and would make this test see uses that are not there. What remains is
+ * the body, where a mention is a use.
+ */
+function routeBodies() {
+  return fs
+    .readdirSync(ROUTES_DIR)
+    .filter(name => name.endsWith('.js'))
+    .map(name => ({
+      name,
+      body: fs
+        .readFileSync(path.join(ROUTES_DIR, name), 'utf-8')
+        .split('\n')
+        .filter(line => !line.includes('appendAccessLog, walkDir'))
+        .join('\n'),
+    }));
+}
+
+const BODIES = routeBodies();
+
+/** Which of `domains` appear in the body of `name`. */
+function domainsUsedBy(name, domains) {
+  const {body} = BODIES.find(r => r.name === name) ?? {body: ''};
+  return domains.filter(domain => body.includes(constantFor(domain)));
+}
+
+describe('the per-workspace stores a route may still open as a file', () => {
+  it('finds every route module the exemption list names', () => {
+    const present = new Set(BODIES.map(r => r.name));
+    for (const name of Object.keys(MIGRATING)) {
+      assert.ok(present.has(name), `${name} is exempted but no longer exists; drop its line`);
+    }
+  });
+
+  for (const [name, domains] of Object.entries(MIGRATING)) {
+    it(`${name} still opens exactly ${domains.join(', ')}`, () => {
+      assert.deepEqual(
+        domainsUsedBy(name, domains).sort(),
+        [...domains].sort(),
+        `${name} no longer touches all of these. Delete the ones it has migrated `
+          + 'from MIGRATING; an exemption nobody needs is one nobody notices going stale.',
+      );
+    });
+  }
+});
+
+describe('everything not exempted', () => {
+  // The domains, spelled here rather than imported, so that renaming one in the
+  // registry cannot silently empty this check.
+  const ALL = [
+    'bookmarks', 'flashcards', 'streaks', 'tasks', 'reading-lists', 'notes',
+    'glossary', 'schedule', 'whiteboards', 'analytics', 'snapshots',
+  ];
+
+  for (const {name} of BODIES) {
+    const exempt = MIGRATING[name] ?? [];
+    it(`${name} opens no store it is not exempted for`, () => {
+      const unexpected = domainsUsedBy(name, ALL).filter(d => !exempt.includes(d));
+      assert.deepEqual(
+        unexpected,
+        [],
+        `${name} reads or writes ${unexpected.join(', ')} as a JSON file. That data `
+          + 'belongs to one workspace and one person; go through server/store, which '
+          + 'applies both, instead of loadJSON, which applies neither.',
+      );
+    });
+  }
+});
+
+describe('the database itself', () => {
+  // Chat and organizations own tables and query them through their own modules
+  // (server/chat.js, server/org.js), which is the same arrangement the store
+  // has. What no route may do is prepare its own statement, because a statement
+  // written in a handler is a WHERE clause somebody has to remember.
+  for (const {name, body} of BODIES) {
+    it(`${name} prepares no SQL of its own`, () => {
+      assert.ok(
+        !/\brequire\(['"][./]*\.\.\/db['"]\)/.test(body),
+        `${name} requires the database directly. Reach it through server/store, `
+          + 'server/chat.js or server/org.js, each of which scopes what it returns.',
+      );
+      assert.ok(
+        !/\bdb\s*\.\s*prepare\s*\(/.test(body),
+        `${name} calls db.prepare. A query written in a handler is an isolation `
+          + 'predicate that has to be remembered; the point of server/store is that '
+          + 'it cannot be forgotten.',
+      );
+    });
+  }
+});

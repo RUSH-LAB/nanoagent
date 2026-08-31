@@ -22,6 +22,10 @@ const roles = require('./roles');
 const chat = require('./chat');
 const org = require('./org');
 const ai = require('./ai');
+// The per-workspace data layer. See server/store/index.js: the only way a route
+// module is allowed to reach the thirteen features' data, because it is the
+// only way that applies the organization and the owner without being asked to.
+const store = require('./store');
 const {loadServerPlugins, collectProvides, asRouteModule} = require('./plugins');
 // The tools in plugins/, each contributing its endpoints and whatever it lends
 // the rest of the server. Loaded here, above ctx, because ctx spreads what they
@@ -95,8 +99,6 @@ const WHITEBOARDS_FILE = dataFile('whiteboards');
 const FLASHCARDS_FILE = dataFile('flashcards');
 const GLOSSARY_FILE = dataFile('glossary');
 const TASKS_FILE = dataFile('tasks');
-const GOALS_FILE = dataFile('goals');
-const TARGETS_FILE = dataFile('targets');
 
 // ── Access log file setup ──
 
@@ -148,6 +150,27 @@ function orgSlugFor(orgId) {
 
 function contentRootFor(orgId) {
   return contentDirFor(orgSlugFor(orgId));
+}
+
+/**
+ * The workspace and person a handler's store calls act as: `{orgId, userId}`.
+ *
+ * Built from `req.auth` and from nothing else, which is what makes it not
+ * forgeable: there is no query parameter or body field it consults, so a client
+ * has no way to express somebody else. The same rule, and the same reason, as
+ * contentRootFor above.
+ *
+ * A caller with no active workspace falls back to the primary one, which is
+ * what the public feeds need and what keeps the whole server working with
+ * ENABLE_AUTH off. When the primary workspace does not exist either, the scope
+ * carries a null and server/store raises the 409 rather than this guessing.
+ */
+function scopeFor(req) {
+  const auth = req?.auth;
+  return {
+    orgId: auth?.orgId || org.primaryOrgId(),
+    userId: auth?.userId ?? null,
+  };
 }
 
 /**
@@ -514,11 +537,18 @@ let requestCounter = 0;
 
 // ── Shared context handed to every route module in server/routes/ ──
 const ctx = {
-  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, GOALS_FILE, TARGETS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
+  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, NOTES_FILE, ANALYTICS_FILE, BOOKMARKS_FILE, READING_LISTS_FILE, STREAKS_FILE, SNAPSHOTS_FILE, SCHEDULE_FILE, WHITEBOARDS_FILE, FLASHCARDS_FILE, GLOSSARY_FILE, TASKS_FILE, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
   roles,
   chat,
   org,
   ai,
+  // Where the per-workspace features keep their data. On ctx like every other
+  // dependency a route module needs, so a test drives a throwaway database
+  // rather than the real one. `scopeFor` is beside it because the two are only
+  // ever used together: a handler asks for the caller's scope and hands it to a
+  // collection, and there is no collection method that works without one.
+  store,
+  scopeFor,
   // What the installed plugins lend. ctx.references comes from the bibliography
   // plugin, and falls back to an empty one, because a core handler that reads
   // the bibliography must survive the plugin being removed.

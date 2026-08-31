@@ -163,7 +163,7 @@ async function testUnicodeStress() {
       // Math symbols
       '∀x ∈ ℝ: x² ≥ 0, ∫₁ⁿ f(x)dx ≠ ∞',
       // Zero-width joiners and combining marks
-      'àéîõü​‌‍﻿',
+      'àéîõü‌‍﻿',
     ].join(' | ');
 
     const {status, data} = await api('POST', '/api/quicknote', {

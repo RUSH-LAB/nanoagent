@@ -55,7 +55,6 @@ const DATA_FILES = [
   'ANNOTATIONS_FILE:annotations', 'SNAPSHOTS_FILE:snapshots',
   'SCHEDULE_FILE:schedule', 'WHITEBOARDS_FILE:whiteboards',
   'FLASHCARDS_FILE:flashcards', 'GLOSSARY_FILE:glossary', 'TASKS_FILE:tasks',
-  'GOALS_FILE:goals', 'TARGETS_FILE:targets',
 ];
 
 /**

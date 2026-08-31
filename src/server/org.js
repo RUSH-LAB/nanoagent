@@ -26,7 +26,7 @@
 const fs = require('fs');
 const path = require('path');
 const {fromNodeHeaders} = require('better-auth/node');
-const {contentDirFor} = require('./paths');
+const {contentDirFor, PRIMARY_ORG_SLUG} = require('./paths');
 const {db} = require('./db');
 const {auth} = require('./auth');
 const audit = require('./audit');
@@ -182,6 +182,41 @@ function slugForOrg(orgId) {
 
 /** For the tests, and for anything that does eventually learn to rename. */
 slugForOrg.forget = orgId => (orgId ? slugCache.delete(orgId) : slugCache.clear());
+
+/**
+ * The id of the workspace a caller with no active one is treated as being in.
+ *
+ * The counterpart of what ../paths.js does for content, where the primary
+ * organization owns the bare routes and a request with no session reads its
+ * tree. Data needs the same answer, and needs it as an id rather than a slug,
+ * because that is what the rows reference.
+ *
+ * Two callers have no active workspace: the public feeds, which nobody is
+ * signed in to, and every request when ENABLE_AUTH is off, which is the test
+ * suites and `npm run start:noauth`. Sending those to the primary workspace is
+ * what makes both behave as they did when there was only one.
+ *
+ * Returns null when the primary workspace does not exist yet, which is a clean
+ * checkout before anything has been provisioned. The store turns that into a
+ * 409 rather than inventing somewhere to write.
+ *
+ * Memoized like slugForOrg, and for the same reason: asked on every request
+ * that touches data, and the answer cannot change. Only a hit is remembered,
+ * because a miss during provisioning is a moment rather than a fact.
+ */
+let primaryOrgIdCache = null;
+
+function primaryOrgId() {
+  if (primaryOrgIdCache) return primaryOrgIdCache;
+  const row = db.prepare('SELECT id FROM organization WHERE slug = ?').get(PRIMARY_ORG_SLUG);
+  if (row?.id) primaryOrgIdCache = row.id;
+  return row?.id ?? null;
+}
+
+/** For the tests, which create and destroy workspaces within one process. */
+primaryOrgId.forget = () => {
+  primaryOrgIdCache = null;
+};
 
 /**
  * Give a new workspace the directories its content lives in.
@@ -570,7 +605,7 @@ module.exports = {
   AUDIT_LIMIT: audit.LIMIT,
   listAudit: audit.list,
   canManage, labelFor,
-  slugify, slugTaken, availableSlug, slugForOrg, ensureContentRoot,
+  slugify, slugTaken, availableSlug, slugForOrg, primaryOrgId, ensureContentRoot,
   listMemberships, createWorkspace, setActiveWorkspace,
   getOrganization, listMembers, findMember,
   listInvitations, invitationForLink, invite, cancelInvitation, acceptInvitation,
