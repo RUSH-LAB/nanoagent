@@ -13,7 +13,7 @@ FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV ENABLE_AUTH=true
-ENV EDITOR_PORT=3000
+ENV PORT=3000
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force

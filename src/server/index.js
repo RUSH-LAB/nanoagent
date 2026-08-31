@@ -79,7 +79,7 @@ const developmentAuth = postgresDatabase.enabled ? {
   ROOT_USERNAME: 'root',
 } : require('./dev-auth');
 const {DEV_AUTOLOGIN, ensureRootUser, ensureDevelopmentWorkspace, handleDevLogin, ROOT_USERNAME} = developmentAuth;
-const PORT = process.env.EDITOR_PORT || 3001;
+const PORT = process.env.EDITOR_PORT || process.env.PORT || 3001;
 
 // ── Access log file setup ──
 

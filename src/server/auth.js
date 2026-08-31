@@ -46,7 +46,7 @@ const {
 const {createWorkspaceProvisioning} = require('./workspace-provisioning');
 
 const AUTH_ENABLED = process.env.ENABLE_AUTH === 'true';
-const PORT = process.env.EDITOR_PORT || 3001;
+const PORT = process.env.EDITOR_PORT || process.env.PORT || 3001;
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 const workspaceProvisioning = createWorkspaceProvisioning({postgres, sqliteDb: db});

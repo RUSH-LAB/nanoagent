@@ -18,7 +18,8 @@ the cutover in staging, and deploy one verified application image.
 - [ ] Production PostgreSQL is provisioned separately from development.
 - [x] Production object storage is provisioned and upload/delete is verified.
 - [x] Transactional email is configured through Resend and delivery is verified.
-- [ ] An HTTPS application origin and secret configuration are selected.
+- [ ] Railway is connected to the GitHub repository and has an HTTPS origin
+  plus its production secret configuration.
 - [ ] The production cutover and rollback rehearsal is complete.
 
 ## Release plan
@@ -29,8 +30,9 @@ the cutover in staging, and deploy one verified application image.
    `OBJECT_STORAGE_*` values, and run `npm run object-storage:verify`.
 3. Verify `mochi-lab.org` in Resend, configure `RESEND_API_KEY` and `MAIL_FROM`,
    then run `npm run mail:verify`.
-4. Configure the application host from `.env.production.example`, including a
-   new production-only `BETTER_AUTH_SECRET`.
+4. Connect Railway to the GitHub repository and configure it from
+   `.env.production.example`, including a new production-only
+   `BETTER_AUTH_SECRET`.
 5. Take a fresh SQLite and object backup, then freeze legacy writes.
 6. Run the database migration dry run, apply once, and rerun it until every
    count and hash matches.

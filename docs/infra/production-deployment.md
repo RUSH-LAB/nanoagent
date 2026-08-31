@@ -13,6 +13,9 @@ same-site cookies without exposing credentials to browser JavaScript.
   workspace invitations.
 - A container host with HTTPS termination and secret management.
 
+The current deployment target is Railway. It builds the committed `Dockerfile`,
+injects `PORT`, checks `/api/health`, and terminates TLS at the public domain.
+
 Use `.env.production.example` as the secret checklist. Never commit a filled
 environment file.
 
@@ -50,6 +53,17 @@ password-reset, and invitation messages to their actual recipients.
 6. Build with `docker build -t mochi-lab .` and deploy the resulting image.
 7. Verify `/api/health`, registration, workspace creation, invitation delivery,
    asset upload, and cross-workspace 404 behavior before switching traffic.
+
+## Railway
+
+Create one service from the GitHub repository and select the release branch.
+Railway will use `railway.toml` and the root `Dockerfile`. Add every value from
+`.env.production.example` to the service variables, replacing placeholders;
+do not upload `.env.production.local`.
+
+Generate a Railway domain for the first deployment. Once it is healthy, attach
+`mochi-lab.org` or an application subdomain, update `SITE_URL` and
+`CORS_ORIGIN` to that exact HTTPS origin, and redeploy.
 
 ## Rollback
 
