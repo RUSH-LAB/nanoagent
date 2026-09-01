@@ -111,7 +111,7 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       const result = [];
 
       // Derive possible link targets from the file path
-      // e.g. "books/math/algebra.md" => match [[algebra]], [[math/algebra]], etc.
+      // e.g. "handbook/math/algebra.md" => match [[algebra]], [[math/algebra]], etc.
       const baseName = path.basename(targetPath, path.extname(targetPath));
       const relFromContent = targetPath.replace(/\\/g, '/');
       const withoutExt = relFromContent.replace(/\.(md|mdx)$/, '');

@@ -14,17 +14,19 @@ const remarkDirective = require('remark-directive').default;
 const GithubSlugger = require('github-slugger');
 const katex = require('katex');
 const yaml = require('js-yaml');
-const {loadRuntimeRemarkPlugins, loadSafeComponents} = require('../../plugins/loader');
+const {loadRuntimePluginContracts} = require('../../plugins/loader');
 
 const CORE_SAFE_COMPONENTS = Object.freeze({
   VectorPlayground: {}, LinearTransformDemo: {}, GradientDescentDemo: {}, EigenDemo: {},
   RiemannSumDemo: {}, DistributionExplorer: {}, Surface3DDemo: {},
 });
 
-const ALLOWED_COMPONENT_PROPS = Object.freeze({
-  ...loadSafeComponents(),
-  ...CORE_SAFE_COMPONENTS,
-});
+const RUNTIME_PLUGIN_CONTRACTS = Object.freeze(loadRuntimePluginContracts());
+const ALLOWED_COMPONENT_PROPS = Object.freeze(Object.assign(
+  {},
+  ...RUNTIME_PLUGIN_CONTRACTS.map(plugin => plugin.safeComponents),
+  CORE_SAFE_COMPONENTS,
+));
 
 const SAFE_NATIVE_ELEMENTS = Object.freeze({
   details: {open: 'boolean'},
@@ -52,13 +54,38 @@ const MAX_CACHE_ENTRIES = 500;
 const MAX_NODES = 20_000;
 const cache = new Map();
 
-const parser = unified()
-  .use(remarkParse)
-  .use(remarkMath)
-  .use(remarkGfm)
-  .use(remarkDirective)
-  .use(remarkMdx);
-for (const plugin of loadRuntimeRemarkPlugins()) parser.use(plugin);
+function pluginEnabled(settings, name) {
+  return settings?.plugins?.[name]?.enabled !== false;
+}
+
+const compilerContracts = new Map();
+
+function contractFor(settings = {}) {
+  const disabled = RUNTIME_PLUGIN_CONTRACTS
+    .filter(plugin => !pluginEnabled(settings, plugin.name))
+    .map(plugin => plugin.name)
+    .sort();
+  if (settings?.rendering?.math === false) disabled.push('core:math');
+  disabled.sort();
+  const key = disabled.join(',');
+  if (compilerContracts.has(key)) return compilerContracts.get(key);
+
+  const parser = unified().use(remarkParse);
+  if (settings?.rendering?.math !== false) parser.use(remarkMath);
+  parser
+    .use(remarkGfm)
+    .use(remarkDirective)
+    .use(remarkMdx);
+  const componentSchemas = {...CORE_SAFE_COMPONENTS};
+  for (const plugin of RUNTIME_PLUGIN_CONTRACTS) {
+    if (!pluginEnabled(settings, plugin.name)) continue;
+    if (plugin.remark) parser.use(plugin.remark);
+    Object.assign(componentSchemas, plugin.safeComponents);
+  }
+  const contract = {parser, componentSchemas: Object.freeze(componentSchemas), key};
+  compilerContracts.set(key, contract);
+  return contract;
+}
 
 function renderError(message, node) {
   const line = node?.position?.start?.line;
@@ -257,7 +284,7 @@ function restoreProtected(node, values) {
   return node;
 }
 
-function sanitizeTree(root) {
+function sanitizeTree(root, schemas = ALLOWED_COMPONENT_PROPS) {
   let count = 0;
   const slugger = new GithubSlugger();
   const cleanChildren = node => (node.children ?? []).map(clean);
@@ -364,7 +391,7 @@ function sanitizeTree(root) {
           };
         }
         return {
-          type: 'component', name: node.name, props: componentProps(node),
+          type: 'component', name: node.name, props: componentProps(node, schemas),
           children: cleanChildren(node),
         };
       }
@@ -385,10 +412,11 @@ function sanitizeTree(root) {
   return clean(root);
 }
 
-async function compileMarkdown(markdown) {
+async function compileMarkdown(markdown, settings = {}) {
+  const contract = contractFor(settings);
   const prepared = prepareSource(markdown);
-  const tree = restoreProtected(parser.parse(prepared.source), prepared.values);
-  return sanitizeTree(await parser.run(tree));
+  const tree = restoreProtected(contract.parser.parse(prepared.source), prepared.values);
+  return sanitizeTree(await contract.parser.run(tree), contract.componentSchemas);
 }
 
 function cacheGet(key) {
@@ -406,11 +434,12 @@ function cacheSet(key, value) {
   while (cache.size > MAX_CACHE_ENTRIES) cache.delete(cache.keys().next().value);
 }
 
-async function compileDocument(document) {
-  const key = `${document.id}@${document.updatedAt}`;
+async function compileDocument(document, settings = {}) {
+  const contract = contractFor(settings);
+  const key = `${document.id}@${document.updatedAt}@${contract.key}`;
   const hit = cacheGet(key);
   if (hit !== undefined) return hit;
-  const tree = await compileMarkdown(document.markdown);
+  const tree = await compileMarkdown(document.markdown, settings);
   cacheSet(key, tree);
   return tree;
 }

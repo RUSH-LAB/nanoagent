@@ -17,9 +17,9 @@
  *   "cache"       cache, invalidateCache
  *   "content:read"   read-only database document view: content.read/list/stat/walk
  *   "network"     fetch
- *   "storage"     storage.read/storage.write, scoped to this plugin alone
- *   "records"     organization-scoped SQLite collections owned by the plugin
- *   "blobs"       organization-scoped binary files owned by the plugin
+ *   "storage"     storage.read/storage.write, scoped to this plugin and workspace
+ *   "records"     workspace-scoped database collections owned by the plugin
+ *   "blobs"       workspace-scoped object-storage assets owned by the plugin
  *   "ai"          the configured completion provider
  *   "process"     declared executables, rooted inside the plugin directory
  *
@@ -130,8 +130,10 @@ function contentCapability({documents, scope}) {
  * Namespaced by plugin name, so two plugins cannot collide over a filename and
  * neither has to invent a convention to avoid it.
  */
-function storageCapability(name, {fs, VAR_DIR}) {
-  const root = path.join(VAR_DIR, 'plugins', name);
+function storageCapability(name, workspaceId, {fs, VAR_DIR}) {
+  if (!workspaceId) throw new Error('workspace-scoped plugin storage requires a verified workspace');
+  const safeWorkspace = String(workspaceId).replace(/[^\w.-]/g, '_');
+  const root = path.join(VAR_DIR, 'plugins', name, 'workspaces', safeWorkspace);
   const fileFor = key => within(root, `${String(key).replace(/[^\w.-]/g, '_')}.json`, 'key');
   return Object.freeze({
     dir: root,
@@ -384,7 +386,7 @@ function buildPluginApi({name, dir, requires = [], commands = [], ctx, req}) {
     scope: requestScope,
   });
   if (asked.has('network')) api.fetch = networkCapability();
-  if (asked.has('storage')) api.storage = storageCapability(name, files);
+  if (asked.has('storage')) api.storage = storageCapability(name, requestScope?.workspaceId, files);
   const recordScope = asked.has('records') || asked.has('blobs') ? requestScope : null;
   if (asked.has('records')) {
     api.records = recordsCapability(name, {
@@ -419,7 +421,7 @@ function buildPluginApi({name, dir, requires = [], commands = [], ctx, req}) {
 
 module.exports = {
   API_VERSION, CAPABILITIES, buildPluginApi, processCapability,
-  recordsCapability, blobsCapability, PROJECT_ROOT,
+  recordsCapability, blobsCapability, storageCapability, PROJECT_ROOT,
   /** Re-exported where it used to live, for the plugins that import it. */
   within,
   /**

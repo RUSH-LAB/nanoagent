@@ -28,11 +28,18 @@ function makeCountingCache() {
   return Object.assign(cached, {runs, ttls});
 }
 
+function configureQuickNotes(ctx, path = 'posts/blog') {
+  ctx.workspaceSettings.update(requestContext, {
+    collections: [{key: 'notes', type: 'blog', pathPrefix: path, title: 'Notes'}],
+  });
+  return ctx;
+}
+
 const get = (ctx) => invoke(routes, {path: '/api/quicknote', ctx, requestContext});
 
 describe('GET /api/quicknote cached database scan', () => {
   it('filters quick notes, sorts newest first, and caps the result at ten', async () => {
-    const ctx = makeCtx();
+    const ctx = configureQuickNotes(makeCtx());
     for (let day = 1; day <= 12; day++) {
       const value = String(day).padStart(2, '0');
       ctx.documents.create(scope, {
@@ -51,7 +58,7 @@ describe('GET /api/quicknote cached database scan', () => {
 
   it('memoizes the database-derived payload for sixty seconds', async () => {
     const cached = makeCountingCache();
-    const ctx = makeCtx({cached});
+    const ctx = configureQuickNotes(makeCtx({cached}));
     ctx.documents.create(scope, {path: 'posts/blog/2026-01-01-note.md', markdown: quickNote('One', 'Body')});
     const first = await get(ctx);
     ctx.documents.create(scope, {path: 'posts/blog/2026-01-02-note.md', markdown: quickNote('Two', 'Body')});
@@ -62,16 +69,24 @@ describe('GET /api/quicknote cached database scan', () => {
   });
 
   it('returns an empty result for a workspace with no quick-note documents', async () => {
-    const response = await get(makeCtx());
+    const response = await get(configureQuickNotes(makeCtx()));
     assert.deepEqual([response.status, response.payload], [200, {notes: [], total: 0}]);
   });
 
   it('does not cache a failed database scan', async () => {
     let runs = 0;
     const cached = (_key, _ttl, compute) => { runs++; return compute(); };
-    const ctx = makeCtx({cached, documents: {list() { throw new Error('database unavailable'); }}});
+    const ctx = configureQuickNotes(makeCtx({cached, documents: {list() { throw new Error('database unavailable'); }}}));
     assert.deepEqual((await get(ctx)).payload, {notes: [], total: 0});
     assert.deepEqual((await get(ctx)).payload, {notes: [], total: 0});
     assert.equal(runs, 2);
+  });
+
+  it('uses an arbitrary workspace-configured blog path', async () => {
+    const ctx = configureQuickNotes(makeCtx(), 'journal');
+    ctx.documents.create(scope, {path: 'journal/2026-01-02-note.md', markdown: quickNote('Journal', 'Body')});
+    ctx.documents.create(scope, {path: 'posts/blog/2026-01-03-note.md', markdown: quickNote('Other', 'Body')});
+    const response = await get(ctx);
+    assert.deepEqual(response.payload.notes.map(note => note.path), ['journal/2026-01-02-note.md']);
   });
 });

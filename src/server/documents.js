@@ -147,7 +147,7 @@ function createDocuments({db = require('./db').db, now = () => new Date().toISOS
   /**
    * The document a URL means.
    *
-   * A reader asks for /w/books/math/0-intro, not for a filename, so the
+   * A reader asks for /w/handbook/intro, not for a filename, so the
    * extension and the index convention have to be resolved somewhere. Here
    * rather than in the client, because the client would have to guess and then
    * ask up to four times to find out which guess was right, and because these

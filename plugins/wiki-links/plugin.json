@@ -2,6 +2,7 @@
   "title": "Wiki Links",
   "description": "The [[page]] and [[page|Display Text]] markdown syntax",
   "enabled": true,
+  "scope": "workspace",
   "runtimeRemark": true,
   "options": {}
 }

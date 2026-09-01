@@ -5,7 +5,9 @@ import {createRequire} from 'node:module';
 
 const require = createRequire(import.meta.url);
 const routes = require('../../../../src/server/routes/workspace-settings.js');
-const context = role => ({userId: 'ada', workspaceId: 'lab', membershipId: 'member-1', role});
+const context = (role, workspaceId = 'lab') => ({
+  userId: 'ada', workspaceId, membershipId: `member-${workspaceId}`, role,
+});
 
 describe('workspace settings routes', () => {
   it('lets every member read shared settings', async () => {
@@ -30,17 +32,16 @@ describe('workspace settings routes', () => {
     assert.deepEqual(read.payload.settings, {});
   });
 
-  it('derives a safe workspace site from document paths', async () => {
+  it('does not derive organization configuration from document paths', async () => {
     const ctx = makeCtx();
     const owner = context('owner');
     await ctx.documents.create(owner, {path: 'books/math/0-intro.md', markdown: '# Math'});
     await ctx.documents.create(owner, {path: 'posts/research/paper.md', markdown: '# Paper'});
     const read = await invoke(routes, {path: '/api/workspaces/lab/site', ctx, requestContext: context('viewer')});
     assert.equal(read.status, 200);
-    assert.deepEqual(read.payload.site.navigation, [
-      {label: 'Research', path: 'posts/research/paper.md'},
-      {label: 'Math', path: 'books/math/0-intro.md'},
-    ]);
+    assert.deepEqual(read.payload.site.navigation, []);
+    assert.deepEqual(read.payload.site.collections, []);
+    assert.ok(read.payload.plugins.some(plugin => plugin.name === 'bibliography' && plugin.scope === 'workspace'));
   });
 
   it('only lets owners save validated workspace site configuration', async () => {
@@ -59,5 +60,36 @@ describe('workspace settings routes', () => {
     assert.equal(saved.status, 200);
     assert.equal(saved.payload.site.site.title, 'Ada Lab');
     assert.deepEqual(saved.payload.site.navigation, [{label: 'Math', path: 'books/math/0-intro.md'}]);
+  });
+
+  it('keeps branding, navigation, and plugin switches isolated by workspace', async () => {
+    const ctx = makeCtx();
+    const alpha = context('owner', 'alpha');
+    const beta = context('owner', 'beta');
+    await invoke(routes, {
+      method: 'PUT', path: '/api/workspaces/alpha/site', ctx, requestContext: alpha,
+      body: {site: {
+        site: {title: 'Alpha'},
+        navigation: [{label: 'Handbook', path: 'handbook/intro.md'}],
+        plugins: {bibliography: {enabled: false}},
+      }},
+    });
+    await invoke(routes, {
+      method: 'PUT', path: '/api/workspaces/beta/site', ctx, requestContext: beta,
+      body: {site: {
+        site: {title: 'Beta'},
+        navigation: [{label: 'Updates', path: 'updates'}],
+        plugins: {bibliography: {enabled: true}},
+      }},
+    });
+
+    const alphaRead = await invoke(routes, {path: '/api/workspaces/alpha/site', ctx, requestContext: alpha});
+    const betaRead = await invoke(routes, {path: '/api/workspaces/beta/site', ctx, requestContext: beta});
+    assert.equal(alphaRead.payload.site.site.title, 'Alpha');
+    assert.equal(betaRead.payload.site.site.title, 'Beta');
+    assert.deepEqual(alphaRead.payload.site.navigation, [{label: 'Handbook', path: 'handbook/intro.md'}]);
+    assert.deepEqual(betaRead.payload.site.navigation, [{label: 'Updates', path: 'updates'}]);
+    assert.equal(alphaRead.payload.site.plugins.bibliography.enabled, false);
+    assert.equal(betaRead.payload.site.plugins.bibliography.enabled, true);
   });
 });

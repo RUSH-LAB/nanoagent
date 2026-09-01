@@ -97,7 +97,7 @@ describe('every route module', () => {
   const ALL = [
     'bookmarks', 'flashcards', 'streaks', 'tasks', 'reading-lists', 'notes',
     'quicknotes',
-    'glossary', 'schedule', 'whiteboards', 'analytics', 'snapshots',
+    'agents', 'glossary', 'schedule', 'whiteboards', 'analytics', 'snapshots',
   ];
 
   for (const {name} of BODIES) {

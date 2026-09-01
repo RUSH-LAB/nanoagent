@@ -5,6 +5,7 @@
 
 const { numericParam } = require('../server-utils');
 const {dataFileSegs} = require('../paths');
+const {resolveWorkspaceSite, quickNotesPathFor} = require('../workspace-site');
 
 // Object keys that must never be used as property names (prototype-pollution guard).
 const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
@@ -58,7 +59,7 @@ const SNAPSHOT_LIMIT = 10;
 
 module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, documents, requireWorkspacePermission, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, documents, workspaceSettings, requireWorkspacePermission, _routeDiagnostics
   } = ctx;
 
   // ── Content duplicate detection ──
@@ -504,6 +505,14 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       if (!req.context) return json(res, 404, {error: 'Workspace not found'});
       requireWorkspacePermission(req.context, 'content:create');
       const scope = scopeFor(req);
+      const site = resolveWorkspaceSite(await workspaceSettings.get(req.context));
+      const quickNotesPath = quickNotesPathFor(site);
+      if (!quickNotesPath) {
+        return json(res, 409, {
+          error: 'Configure a quick-note path or a blog collection for this workspace first',
+          code: 'quicknote-path-not-configured',
+        });
+      }
 
       const now = new Date();
       const datePrefix = now.toISOString().slice(0, 10); // YYYY-MM-DD
@@ -527,7 +536,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       }
 
       const filename = `${datePrefix}-${slug}.md`;
-      let relativePath = `posts/blog/${filename}`;
+      let relativePath = `${quickNotesPath}/${filename}`;
       let finalFilename = filename;
 
       const frontmatterTitle = cleanTitle || `Quick Note ${datePrefix}`;
@@ -535,7 +544,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         '---',
         `slug: ${slug}`,
         `title: "${frontmatterTitle.replace(/"/g, '\\"')}"`,
-        `authors: [zeyu]`,
+        ...(site.authoring.defaultAuthor ? [`authors: [${site.authoring.defaultAuthor}]`] : []),
         `tags: [quick-note]`,
         `draft: true`,
         '---',
@@ -551,7 +560,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         if (attempt > 0) {
           const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
           finalFilename = `${datePrefix}-${slug}_${suffix}.md`;
-          relativePath = `posts/blog/${finalFilename}`;
+          relativePath = `${quickNotesPath}/${finalFilename}`;
         }
         try {
           await documents.create(scope, {path: relativePath, markdown: content});
@@ -573,13 +582,18 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       if (!req.context) return json(res, 404, {error: 'Workspace not found'});
       requireWorkspacePermission(req.context, 'content:read');
       const scope = scopeFor(req);
+      const site = resolveWorkspaceSite(await workspaceSettings.get(req.context));
+      const quickNotesPath = quickNotesPathFor(site);
+      if (!quickNotesPath) return json(res, 200, {notes: [], total: 0});
       // Param-free deterministic scan: memoize on a 60s window so repeated
-      // requests do not re-walk content/posts/blog. A thrown scan propagates out
+      // requests do not re-walk the configured quick-note collection. A thrown scan propagates out
       // of cached() before anything is stored, so the outer catch below still
       // returns the empty 200 and that failure is never cached.
       const result = await cached(cacheKey(req.context.workspaceId, 'quicknote-list'), 60000, async () => {
         const rows = (await documents.list(scope))
-          .filter(document => /^posts\/blog\/[^/]+\.md$/.test(document.path))
+          .filter(document => document.path.startsWith(`${quickNotesPath}/`))
+          .filter(document => !document.path.slice(quickNotesPath.length + 1).includes('/'))
+          .filter(document => /\.md$/.test(document.path))
           .sort((a, b) => b.path.localeCompare(a.path));
 
         const notes = [];

@@ -3,7 +3,13 @@
 const MAX_NAVIGATION_ITEMS = 24;
 const MAX_COLLECTIONS = 32;
 const MAX_AUTHORS = 100;
-const HIDDEN_COLLECTION_PATHS = new Set(['books/builder']);
+const MAX_PLUGINS = 64;
+const LEGACY_PLUGIN_FLAGS = Object.freeze({
+  bibliography: 'citations',
+  'lean-proofs': 'leanProofs',
+  'math-registry': 'interactiveMath',
+  'wiki-links': 'wikiLinks',
+});
 
 function text(value, name, {required = false, max = 120} = {}) {
   if (value === undefined || value === null || value === '') {
@@ -31,47 +37,6 @@ function httpUrl(value, name) {
   try { parsed = new URL(candidate); } catch { throw new TypeError(`${name} must be an HTTP URL`); }
   if (!['http:', 'https:'].includes(parsed.protocol)) throw new TypeError(`${name} must be an HTTP URL`);
   return candidate;
-}
-
-function titleCase(value) {
-  return String(value).split(/[-_]/).filter(Boolean)
-    .map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
-}
-
-function landingFor(prefix, documents) {
-  const paths = documents.map(document => document.path).filter(path => path.startsWith(`${prefix}/`)).sort();
-  return [
-    `${prefix}/0-intro.md`, `${prefix}/0-intro.mdx`,
-    `${prefix}/intro.md`, `${prefix}/intro.mdx`,
-    `${prefix}/index.md`, `${prefix}/index.mdx`,
-  ].find(path => paths.includes(path)) ?? paths[0] ?? null;
-}
-
-function inferredCollections(documents = []) {
-  const found = new Map();
-  for (const document of documents) {
-    const [root, key] = String(document.path ?? '').split('/');
-    if (!key || !['books', 'posts'].includes(root)) continue;
-    // books/builder is internal authoring/reference material. It existed as a
-    // routable docs plugin in the old build but was never a product section or
-    // navbar destination, so automatic discovery must not publish it.
-    if (root === 'books' && key === 'builder') continue;
-    const id = `${root}:${key}`;
-    if (!found.has(id)) {
-      const pathPrefix = `${root}/${key}`;
-      found.set(id, {
-        key,
-        type: root === 'posts' ? 'blog' : 'docs',
-        pathPrefix,
-        title: titleCase(key),
-        landingPath: landingFor(pathPrefix, documents),
-      });
-    }
-  }
-  return [...found.values()].sort((a, b) => {
-    if (a.type !== b.type) return a.type === 'blog' ? -1 : 1;
-    return a.title.localeCompare(b.title);
-  });
 }
 
 function validateNavigation(value) {
@@ -104,9 +69,32 @@ function validateCollections(value) {
       description: text(item.description, `collections[${index}].description`, {max: 240}),
       sidebarTitle: text(item.sidebarTitle, `collections[${index}].sidebarTitle`, {max: 80}),
       landingPath: item.landingPath ? contentPath(item.landingPath, `collections[${index}].landingPath`) : null,
-      showReadingTime: item.showReadingTime === undefined ? key === 'research' : Boolean(item.showReadingTime),
+      showReadingTime: item.showReadingTime === undefined ? item.type === 'blog' : Boolean(item.showReadingTime),
     };
   });
+}
+
+function validatePlugins(value, rendering = {}) {
+  if (value == null) value = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('plugins must be an object');
+  const entries = Object.entries(value);
+  if (entries.length > MAX_PLUGINS) throw new TypeError(`plugins may contain at most ${MAX_PLUGINS} entries`);
+  const plugins = Object.fromEntries(entries.map(([name, configuration]) => {
+    if (!/^[a-z][a-z0-9-]{0,63}$/.test(name)) throw new TypeError(`Invalid plugin name: ${name}`);
+    if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration)) {
+      throw new TypeError(`plugins.${name} must be an object`);
+    }
+    return [name, {enabled: configuration.enabled !== false}];
+  }));
+  // Schema v1 exposed plugin switches under `rendering`. Translate those
+  // values on read so deployed workspace data upgrades without a global
+  // fallback or a coordinated rewrite.
+  for (const [name, legacyFlag] of Object.entries(LEGACY_PLUGIN_FLAGS)) {
+    if (plugins[name] === undefined && rendering[legacyFlag] !== undefined) {
+      plugins[name] = {enabled: Boolean(rendering[legacyFlag])};
+    }
+  }
+  return plugins;
 }
 
 function validateSocials(value, name) {
@@ -135,54 +123,54 @@ function validateAuthors(value) {
   }));
 }
 
+function validateAuthoring(value) {
+  if (value == null) return {quickNotesPath: null, defaultAuthor: null};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('authoring must be an object');
+  return {
+    quickNotesPath: value.quickNotesPath ? contentPath(value.quickNotesPath, 'authoring.quickNotesPath') : null,
+    defaultAuthor: text(value.defaultAuthor, 'authoring.defaultAuthor', {max: 100}),
+  };
+}
+
 function validateWorkspaceSite(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('site configuration must be an object');
   const site = value.site ?? {};
   if (!site || typeof site !== 'object' || Array.isArray(site)) throw new TypeError('site must be an object');
   const rendering = value.rendering ?? {};
   if (!rendering || typeof rendering !== 'object' || Array.isArray(rendering)) throw new TypeError('rendering must be an object');
-  const flag = (name, fallback = true) => rendering[name] === undefined ? fallback : Boolean(rendering[name]);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     site: {
       title: text(site.title, 'site.title', {max: 80}),
       tagline: text(site.tagline, 'site.tagline', {max: 200}),
       logoAssetId: text(site.logoAssetId, 'site.logoAssetId', {max: 100}),
       homeDocument: site.homeDocument ? contentPath(site.homeDocument, 'site.homeDocument') : null,
     },
-    navigation: value.navigation == null ? null : validateNavigation(value.navigation),
-    collections: value.collections == null ? null : validateCollections(value.collections),
+    navigation: value.navigation == null ? [] : validateNavigation(value.navigation),
+    collections: value.collections == null ? [] : validateCollections(value.collections),
     authors: value.authors == null ? {} : validateAuthors(value.authors),
+    authoring: validateAuthoring(value.authoring),
+    plugins: validatePlugins(value.plugins, rendering),
     rendering: {
-      math: flag('math'),
-      citations: flag('citations'),
-      wikiLinks: flag('wikiLinks'),
-      leanProofs: flag('leanProofs'),
-      interactiveMath: flag('interactiveMath'),
+      math: rendering.math === undefined ? true : Boolean(rendering.math),
     },
   };
 }
 
-function resolveWorkspaceSite(settings = {}, documents = []) {
+function quickNotesPathFor(site) {
+  return site.authoring.quickNotesPath
+    ?? site.collections.find(collection => collection.type === 'blog')?.pathPrefix
+    ?? null;
+}
+
+function resolveWorkspaceSite(settings = {}) {
   const configured = validateWorkspaceSite(settings);
-  const inferred = inferredCollections(documents);
-  const collections = (configured.collections ?? (configured.navigation
-    ? inferred.filter(collection => configured.navigation.some(item =>
-        item.path === collection.pathPrefix || item.path.startsWith(`${collection.pathPrefix}/`)))
-    : inferred)).filter(collection => !HIDDEN_COLLECTION_PATHS.has(collection.pathPrefix));
-  const navigation = (configured.navigation ?? collections
-    .filter(collection => collection.landingPath)
-    .map(collection => ({label: collection.title, path: collection.landingPath})))
-    .filter(item => ![...HIDDEN_COLLECTION_PATHS].some(prefix =>
-      item.path === prefix || item.path.startsWith(`${prefix}/`)));
   return {
     ...configured,
     site: {
       ...configured.site,
-      homeDocument: configured.site.homeDocument ?? navigation[0]?.path ?? null,
+      homeDocument: configured.site.homeDocument ?? configured.navigation[0]?.path ?? null,
     },
-    navigation,
-    collections,
   };
 }
 
@@ -190,7 +178,9 @@ module.exports = {
   MAX_NAVIGATION_ITEMS,
   MAX_COLLECTIONS,
   MAX_AUTHORS,
-  inferredCollections,
+  MAX_PLUGINS,
   validateWorkspaceSite,
   resolveWorkspaceSite,
+  quickNotesPathFor,
+  LEGACY_PLUGIN_FLAGS,
 };

@@ -7,7 +7,9 @@ import useBaseUrl from '@docusaurus/useBaseUrl';
 import { useThemeConfig } from '@docusaurus/theme-common';
 import { useLocation } from '@docusaurus/router';
 import { useClickOutside } from '@site/src/hooks/useClickOutside';
-import { getCachedWorkspaces, loadWorkspaces, switchWorkspace } from '@site/src/utils/workspaces';
+import { getCachedWorkspaces, loadWorkspaces, switchWorkspace, workspaceSlugFromPath } from '@site/src/utils/workspaces';
+import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
+import API_BASE from '@site/src/utils/api';
 import styles from './styles.module.css';
 
 /**
@@ -49,6 +51,7 @@ export default function WorkspaceSwitcher() {
   const { navbar } = useThemeConfig();
   const authEnabled = siteConfig.customFields?.authEnabled;
   const location = useLocation();
+  const workspaceSite = useWorkspaceSite();
 
   const cached = getCachedWorkspaces();
   const [workspaces, setWorkspaces] = useState(cached?.memberships ?? null);
@@ -58,7 +61,7 @@ export default function WorkspaceSwitcher() {
   const [error, setError] = useState(null);
   const wrapper = useRef(null);
   // Unconditional, because it is a hook: the early return below is beneath it.
-  const logoUrl = useBaseUrl(navbar.logo?.src ?? '');
+  const platformLogoUrl = useBaseUrl(navbar.logo?.src ?? '');
 
   useClickOutside(wrapper, () => setOpen(false), open);
 
@@ -84,12 +87,26 @@ export default function WorkspaceSwitcher() {
     return () => { cancelled = true; };
   }, [authEnabled]);
 
-  const routeSlug = /^\/w\/([^/]+)/.exec(location.pathname)?.[1];
-  const active = workspaces?.find((w) => w.slug === routeSlug)
-    ?? workspaces?.find((w) => w.id === activeId);
+  const routeSlug = workspaceSlugFromPath(location.pathname);
+  // A workspace URL is authoritative. Never replace an unknown or still
+  // loading URL workspace with the session's default workspace: doing so
+  // briefly displays one organization's identity inside another tab.
+  const active = routeSlug
+    ? workspaces?.find((workspace) => workspace.slug === routeSlug)
+    : workspaces?.find((workspace) => workspace.id === activeId);
 
   // Nothing to name yet, or nothing to name at all. The stock logo, untouched.
   if (!active) return <NavbarLogo />;
+
+  const logoAssetId = workspaceSite.slug === routeSlug
+    ? workspaceSite.site?.site?.logoAssetId
+    : null;
+  const logoUrl = logoAssetId
+    ? `${API_BASE}/api/workspaces/${encodeURIComponent(active.id)}/assets?id=${encodeURIComponent(logoAssetId)}`
+    : platformLogoUrl;
+  const displayName = workspaceSite.slug === routeSlug
+    ? workspaceSite.site?.site?.title || active.name
+    : active.name;
 
   async function choose(workspace) {
     if (workspace.slug === active?.slug) {
@@ -114,8 +131,8 @@ export default function WorkspaceSwitcher() {
         onClick={() => setOpen((wasOpen) => !wasOpen)}
         aria-expanded={open}
         aria-haspopup="menu"
-        title={`${active.name} — switch workspace`}
-        aria-label={`Current workspace: ${active.name}. Switch workspace`}
+        title={`${displayName} — switch workspace`}
+        aria-label={`Current workspace: ${displayName}. Switch workspace`}
       >
         {navbar.logo && (
           <div className="navbar__logo">
@@ -123,7 +140,7 @@ export default function WorkspaceSwitcher() {
           </div>
         )}
         <span className={styles.identity}>
-          <b className={clsx('navbar__title', 'text--truncate', styles.name)}>{active.name}</b>
+          <b className={clsx('navbar__title', 'text--truncate', styles.name)}>{displayName}</b>
           <span className={styles.context}>Workspace</span>
         </span>
         <svg className={styles.caret} viewBox="0 0 10 6" width="10" height="6" aria-hidden="true">

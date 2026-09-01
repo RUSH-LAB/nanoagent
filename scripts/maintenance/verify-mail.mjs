@@ -3,6 +3,8 @@ import {createRequire} from 'node:module';
 
 const require = createRequire(import.meta.url);
 const {sendMail} = require('../../src/server/mail.js');
+const {platformConfig} = require('../../src/platform.js');
+const {name: platformName} = platformConfig();
 
 const to = process.env.MAIL_TEST_TO;
 if (!to) {
@@ -12,7 +14,7 @@ if (!to) {
   sendMail({
     to,
     template: 'deployment-test',
-    subject: 'Mochi Lab email delivery test',
+    subject: `${platformName} email delivery test`,
     url: process.env.SITE_URL || 'https://mochi-lab.org',
     data: {purpose: 'production-readiness'},
   }).then(result => {

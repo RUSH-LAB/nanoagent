@@ -3,56 +3,35 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 
 const require = createRequire(import.meta.url);
-const {inferredCollections, resolveWorkspaceSite, validateWorkspaceSite} = require('../../../src/server/workspace-site.js');
+const {resolveWorkspaceSite, validateWorkspaceSite} = require('../../../src/server/workspace-site.js');
 
 describe('workspace site configuration', () => {
-  const documents = [
-    {path: 'books/math/chapter.md'},
-    {path: 'books/math/0-intro.md'},
-    {path: 'books/builder/0-intro.md'},
-    {path: 'posts/research/paper.md'},
-  ];
-
-  it('infers docs and blog collections from virtual document paths', () => {
-    assert.deepEqual(inferredCollections(documents), [
-      {key: 'research', type: 'blog', pathPrefix: 'posts/research', title: 'Research', landingPath: 'posts/research/paper.md'},
-      {key: 'math', type: 'docs', pathPrefix: 'books/math', title: 'Math', landingPath: 'books/math/0-intro.md'},
+  it('does not invent organization navigation or collections from document paths', () => {
+    const site = resolveWorkspaceSite({}, [
+      {path: 'private-convention/papers/intro.md'},
+      {path: 'books/math/0-intro.md'},
     ]);
+    assert.deepEqual(site.navigation, []);
+    assert.deepEqual(site.collections, []);
+    assert.equal(site.site.homeDocument, null);
   });
 
   it('uses explicit navigation and derives a home document', () => {
     const site = resolveWorkspaceSite({
       site: {title: 'Lab'},
       navigation: [{label: 'Start', path: 'books/math/0-intro.md'}],
-    }, documents);
+    });
     assert.equal(site.site.title, 'Lab');
     assert.equal(site.site.homeDocument, 'books/math/0-intro.md');
     assert.deepEqual(site.navigation, [{label: 'Start', path: 'books/math/0-intro.md'}]);
   });
 
-  it('does not expose an inferred collection omitted from explicit navigation', () => {
+  it('does not infer collections omitted from explicit configuration', () => {
     const site = resolveWorkspaceSite({
       navigation: [{label: 'Programming', path: 'books/programming/0-intro.md'}],
-    }, [
-      {path: 'books/programming/0-intro.md'},
-      {path: 'books/builder/intro.md'},
-    ]);
-    assert.deepEqual(site.collections.map(collection => collection.key), ['programming']);
-  });
-
-  it('does not expose the internal builder collection from saved settings', () => {
-    const site = resolveWorkspaceSite({
-      navigation: [
-        {label: 'Builder', path: 'books/builder/0-intro.md'},
-        {label: 'Math', path: 'books/math/0-intro.md'},
-      ],
-      collections: [
-        {key: 'builder', type: 'docs', pathPrefix: 'books/builder', title: 'Builder'},
-        {key: 'math', type: 'docs', pathPrefix: 'books/math', title: 'Math'},
-      ],
-    }, documents);
-    assert.deepEqual(site.collections.map(collection => collection.key), ['math']);
-    assert.deepEqual(site.navigation, [{label: 'Math', path: 'books/math/0-intro.md'}]);
+    });
+    assert.deepEqual(site.collections, []);
+    assert.equal(site.site.homeDocument, 'books/programming/0-intro.md');
   });
 
   it('rejects executable or unbounded configuration shapes', () => {
@@ -60,6 +39,8 @@ describe('workspace site configuration', () => {
     assert.throws(() => validateWorkspaceSite({navigation: [{label: 'Bad', path: '../outside'}]}), /workspace-relative/);
     assert.throws(() => validateWorkspaceSite({collections: [{key: 'x', type: 'plugin', pathPrefix: 'x', title: 'X'}]}), /docs or blog/);
     assert.throws(() => validateWorkspaceSite({authors: {ada: {name: 'Ada', url: 'javascript:alert(1)'}}}), /HTTP URL/);
+    assert.throws(() => validateWorkspaceSite({plugins: []}), /object/);
+    assert.throws(() => validateWorkspaceSite({plugins: {'../bad': {enabled: true}}}), /Invalid plugin name/);
   });
 
   it('keeps inert per-workspace blog author presentation data', () => {
@@ -92,5 +73,43 @@ describe('workspace site configuration', () => {
     }]});
     assert.equal(site.collections[0].sidebarTitle, 'Recent Papers');
     assert.equal(site.collections[0].showReadingTime, true);
+  });
+
+  it('defaults reading time by collection type rather than an organization-specific key', () => {
+    const site = validateWorkspaceSite({collections: [
+      {key: 'updates', type: 'blog', pathPrefix: 'news', title: 'Updates'},
+      {key: 'research', type: 'docs', pathPrefix: 'manual', title: 'Manual'},
+    ]});
+    assert.equal(site.collections[0].showReadingTime, true);
+    assert.equal(site.collections[1].showReadingTime, false);
+  });
+
+  it('keeps only bounded workspace plugin enablement data', () => {
+    const site = validateWorkspaceSite({plugins: {
+      bibliography: {enabled: false, executable: 'never'},
+      'wiki-links': {enabled: true},
+    }});
+    assert.deepEqual(site.plugins, {
+      bibliography: {enabled: false},
+      'wiki-links': {enabled: true},
+    });
+  });
+
+  it('upgrades legacy rendering switches into workspace plugin settings', () => {
+    const site = validateWorkspaceSite({rendering: {
+      math: false,
+      citations: false,
+      wikiLinks: true,
+      leanProofs: false,
+      interactiveMath: true,
+    }});
+    assert.equal(site.schemaVersion, 2);
+    assert.deepEqual(site.rendering, {math: false});
+    assert.deepEqual(site.plugins, {
+      bibliography: {enabled: false},
+      'wiki-links': {enabled: true},
+      'lean-proofs': {enabled: false},
+      'math-registry': {enabled: true},
+    });
   });
 });

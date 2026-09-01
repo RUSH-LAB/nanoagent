@@ -40,6 +40,52 @@ Better Auth owns workspace/member/invitation lifecycle. Mochi hooks add product
 state such as settings, the initial channel, channel membership, and audit
 records. There is deliberately no second organization writer.
 
+## Repository and ownership boundaries
+
+The boundary is based on who may change a value and when it takes effect:
+
+| Location | Owner | Changes require deployment | May contain workspace data |
+|---|---|---:|---:|
+| `src/` | Platform | Yes | No |
+| `plugins/` | Platform/plugin authors | Yes | No |
+| `infra/` | Deployment operators | Yes | No |
+| `scripts/` | Developers/operators | Yes | No live data |
+| `tests/` | Developers | Yes | Fixtures only |
+| `docs/` | Developers/operators | Yes | Examples only |
+| PostgreSQL | Workspace owners and application services | No | Yes |
+| S3/R2 | Workspace owners through scoped services | No | Yes |
+
+`src/` contains the shared application shell, authentication, authorization,
+domain services, safe renderer, pages, and theme adaptations used by every
+workspace. `docusaurus.config.js` and `package.json` are also platform files:
+there is one of each per deployment, never one per workspace. The Docusaurus
+configuration may define the theme, universal routes, installed plugin code,
+and neutral pre-workspace branding. It must not define a workspace's title,
+navigation, collections, homepage, authors, or content paths.
+
+The neutral shell identity is deployment configuration read by
+`src/platform.js` (`PLATFORM_NAME` and `PLATFORM_TAGLINE`). It is used before a
+workspace resolves and in account-level messages; it is never a fallback for
+workspace authorization or organization-owned navigation.
+
+`plugins/` contains trusted capabilities installed by the platform. A manifest's
+code, dependency options, safe-component schema, capability grants, and process
+allowlist are deployment configuration. A workspace may only enable or disable
+an installed plugin and store data through its scoped APIs; it cannot supply a
+package, module path, command, or JavaScript option.
+
+Workspace-owned presentation is validated data in `workspace_settings`:
+branding, homepage, navigation, docs/blog collection definitions, authors, and
+feature switches. Documents and references are PostgreSQL rows. Asset metadata
+is PostgreSQL data and asset bytes live in S3/R2. Every cache key, job, plugin
+record, and object key uses the immutable workspace id.
+
+`infra/` remains separate from `src/`. It describes how the application is
+provisioned, while `src/` is what the provisioned application executes.
+`scripts/` are explicit development, migration, verification, and maintenance
+entry points—not a second runtime. `tests/` prove these boundaries and may use
+synthetic workspace fixtures, but production code never reads test fixtures.
+
 ## What we are not adding yet
 
 Facebook needs specialized graph stores, distributed caches, RPC frameworks,

@@ -1,5 +1,8 @@
 import {useMemo} from 'react';
 import useGlobalData from '@docusaurus/useGlobalData';
+import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
+import {workspaceDocumentHref} from '@site/src/utils/documentUrls';
+import {scopeWorkspacePath} from '@site/src/utils/workspaces';
 
 /**
  * The one list of places you can go, read by both launchers.
@@ -10,12 +13,9 @@ import useGlobalData from '@docusaurus/useGlobalData';
  *
  * A command comes from one of two places, and the split is deliberate:
  *
- *   PAGE_COMMANDS  The site's own pages: its books, its blogs, its dashboards,
- *                  its about page. These are not tools and there is no plugin
- *                  that could own them, so putting each one behind an empty
- *                  plugin directory would buy nothing and cost a directory per
- *                  link. They are first party, so they live in the first party
- *                  module.
+ *   PAGE_COMMANDS  The platform's own tools and administrative pages. Content
+ *                  collections are deliberately absent: each workspace
+ *                  contributes those from its validated database settings.
  *   plugin data    A tool declares its own way in, by putting a `command` (or a
  *                  `commands` array, when one tool has more than one entrance)
  *                  in its global data. Adding a tool stays "add a directory
@@ -164,10 +164,9 @@ const CATEGORY_ORDER = ['Tools', 'Content', 'Insights', 'Meta'];
 /**
  * The site's own pages.
  *
- * Every href here is a real route: a page under src/pages, a docs route base
- * (`/math`, `/programming`, `/survey`), or a blog route base
- * (`/blog`, `/research`). A command that navigates to a 404 is worse than a
- * missing command, so anything moved or removed has to leave here with it.
+ * Every href here is a real shared application route under src/pages. A
+ * command that navigates to a 404 is worse than a missing command, so anything
+ * moved or removed has to leave here with it.
  *
  * The bibliography is deliberately absent: it is a plugin now, it owns its own
  * route, and it declares its own command. Listing it here as well would be a
@@ -188,12 +187,7 @@ export const PAGE_COMMANDS = [
   {id: 'people', name: 'people', category: 'Tools', icon: icons.list, title: 'People', description: 'Everyone in your organization', href: '/people'},
   {id: 'channels', name: 'channels', category: 'Tools', icon: icons.layers, title: 'Channels', description: 'Browse, rename, and archive channels', href: '/channels'},
 
-  // Content
-  {id: 'research', name: 'research', category: 'Content', icon: icons.pages, title: 'Research', description: 'Research paper summaries', href: '/documents/posts/research'},
-  {id: 'blog', name: 'blog', category: 'Content', icon: icons.pages, title: 'Blog', description: 'Posts on ideas and updates', href: '/documents/posts/blog'},
-  {id: 'survey', name: 'survey', category: 'Content', icon: icons.book, title: 'Survey', description: 'Literature review chapters', href: '/documents/books/survey/intro'},
-  {id: 'math', name: 'math', category: 'Content', icon: icons.book, title: 'Math', description: 'Mathematics textbook', href: '/documents/books/math/0-intro'},
-  {id: 'programming', name: 'programming', category: 'Content', icon: icons.book, title: 'Programming', description: 'Programming textbook', href: '/documents/books/programming/0-intro'},
+  // Content activity is shared; named collections come from workspace data.
   {id: 'timeline', name: 'timeline', category: 'Content', icon: icons.clock, title: 'Timeline', description: 'Recent content activity', href: '/timeline'},
 
   // Insights
@@ -248,6 +242,7 @@ function compareCommands(a, b) {
  */
 export function useCommands() {
   const globalData = useGlobalData();
+  const {slug: workspaceSlug, site: workspaceSite} = useWorkspaceSite();
   return useMemo(() => {
     const found = [];
     // An id is a React key in both launchers, so a repeat is dropped rather
@@ -262,17 +257,48 @@ export function useCommands() {
       found.push({...command, id, icon});
     };
 
-    for (const command of PAGE_COMMANDS) take(command, command.icon);
+    const currentPath = workspaceSlug ? `/w/${encodeURIComponent(workspaceSlug)}` : '/';
+    for (const command of PAGE_COMMANDS) {
+      take({...command, href: scopeWorkspacePath(command.href, currentPath)}, command.icon);
+    }
+
+    for (const item of workspaceSite?.navigation ?? []) {
+      const collection = (workspaceSite.collections ?? [])
+        .filter(candidate => item.path === candidate.pathPrefix || item.path.startsWith(`${candidate.pathPrefix}/`))
+        .sort((a, b) => b.pathPrefix.length - a.pathPrefix.length)[0];
+      take({
+        id: `workspace-content:${item.path}`,
+        name: item.label,
+        category: 'Content',
+        title: item.label,
+        description: collection?.description || (collection?.type === 'blog' ? 'Blog collection' : 'Document collection'),
+        href: workspaceDocumentHref(item.path, workspaceSlug, ''),
+      }, collection?.type === 'blog' ? icons.pages : icons.book);
+    }
 
     for (const instances of Object.values(globalData ?? {})) {
       for (const data of Object.values(instances ?? {})) {
         const declared = [];
         if (Array.isArray(data?.commands)) declared.push(...data.commands);
         if (data?.command) declared.push(data.command);
-        for (const command of declared) take(command, icons[command?.icon] ?? icons.search);
+        for (const command of declared) {
+          // A workspace-scoped command is meaningful only after this tab's
+          // workspace configuration has resolved. Hiding it during a route
+          // transition prevents a default plugin surface from flashing before
+          // the new workspace's enablement is known.
+          if (command.scope === 'workspace' && workspaceSlug && !workspaceSite) continue;
+          if (command?.plugin && workspaceSite?.plugins?.[command.plugin]?.enabled === false) continue;
+          const href = command.scope === 'workspace' && workspaceSlug && command.href?.startsWith('/')
+            ? `/w/${encodeURIComponent(workspaceSlug)}${command.href}`
+            : scopeWorkspacePath(command.href, currentPath);
+          take({
+            ...command,
+            href,
+          }, icons[command?.icon] ?? icons.search);
+        }
       }
     }
 
     return found.sort(compareCommands);
-  }, [globalData]);
+  }, [globalData, workspaceSite, workspaceSlug]);
 }

@@ -7,20 +7,28 @@ import {themes as prismThemes} from 'prism-react-renderer';
 // adding one a matter of adding a directory.
 const { loadBuildPlugins, writeClientComponentRegistry } = require('./plugins/loader');
 const runtimeContentPlugin = require('./src/runtime-content');
+const {platformConfig} = require('./src/platform');
+
+// This file describes one deployable application, not one workspace. A
+// workspace's title, logo, homepage, navigation, and collections are loaded
+// from PostgreSQL at request time. These values are deliberately only the
+// platform identity shown before a workspace has been resolved.
+const {name: platformName, tagline: platformTagline} = platformConfig();
 
 writeClientComponentRegistry();
 
 // ── Main config ────────────────────────────────────────────────────────────
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'Mochi Lab',
-  tagline: 'Innovative Research & Development',
+  title: platformName,
+  tagline: platformTagline,
   favicon: 'img/mochi.jpg',
 
   // Served assets live with the rest of the source rather than at the root.
   staticDirectories: ['src/static'],
 
   customFields: {
+    platformName,
     // Whether the sign-in gate is shown. The API server reads the same
     // variable to decide whether it requires a session, so the two can never
     // disagree. `npm start` sets it; `npm run start:noauth` does not.
@@ -129,17 +137,14 @@ const config = {
         },
       },
       navbar: {
-        title: 'Mochi Lab',
+        title: platformName,
         logo: {
-          alt: 'Mochi Lab Logo',
+          alt: `${platformName} logo`,
           src: 'img/mochi.jpg',
         },
         items: [
-          {to: '/documents/posts/research', label: 'Research', position: 'left'},
-          {to: '/documents/posts/blog', label: 'Blog', position: 'left'},
-          {to: '/documents/books/survey/intro', label: 'Survey', position: 'left'},
-          {to: '/documents/books/programming/0-intro', label: 'Programming', position: 'left'},
-          {to: '/documents/books/math/0-intro', label: 'Math', position: 'left'},
+          // Content navigation belongs to the workspace and is supplied by
+          // workspace_settings after the URL workspace has been verified.
           // Naming the search bar explicitly moves it from its default
           // auto-appended position to here, which is what lets the account
           // button sit to the right of it.

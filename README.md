@@ -31,6 +31,9 @@ PG_SSL=require
 PG_SSL_REJECT_UNAUTHORIZED=true
 ENABLE_AUTH=true
 DEV_AUTOLOGIN=false
+# Optional deployment-level shell branding. Workspace branding lives in PostgreSQL.
+PLATFORM_NAME=Mochi Lab
+PLATFORM_TAGLINE=Collaborative knowledge workspaces
 ```
 
 `.env.production.local` is optional for local application startup. It is only

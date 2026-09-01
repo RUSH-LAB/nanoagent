@@ -40,6 +40,7 @@ const postgres = require('./postgres/database');
 const db = postgres.enabled ? null : require('./db').db;
 const {DATA_DIR} = require('./paths');
 const {sendMail} = require('./mail');
+const {platformConfig} = require('../platform');
 const {
   organizationOptions, workspaceAccessControl, workspaceRoles, postgresCoreSchema,
 } = require('./workspace-auth');
@@ -48,6 +49,7 @@ const {createWorkspaceProvisioning} = require('./workspace-provisioning');
 const AUTH_ENABLED = process.env.ENABLE_AUTH === 'true';
 const PORT = process.env.EDITOR_PORT || process.env.PORT || 3001;
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const {name: platformName} = platformConfig();
 
 const workspaceProvisioning = createWorkspaceProvisioning({postgres, sqliteDb: db});
 
@@ -190,7 +192,7 @@ const auth = betterAuth({
     sendResetPassword: ({user, url}) => sendMail({
       to: user.email,
       template: 'password-reset',
-      subject: 'Reset your Mochi Lab password',
+      subject: `Reset your ${platformName} password`,
       url,
     }),
   },
@@ -200,7 +202,7 @@ const auth = betterAuth({
     sendVerificationEmail: ({user, url}) => sendMail({
       to: user.email,
       template: 'email-verification',
-      subject: 'Verify your Mochi Lab email',
+      subject: `Verify your ${platformName} email`,
       url,
     }),
   },

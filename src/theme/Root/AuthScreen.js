@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {authClient} from '@site/src/utils/authClient';
 import API_BASE from '@site/src/utils/api';
 import styles from './authScreen.module.css';
@@ -20,6 +21,7 @@ import styles from './authScreen.module.css';
  * button is a shortcut past the keyboard rather than past authentication.
  */
 export default function AuthScreen({ devAutoLogin = false, unreachable = null }) {
+  const {siteConfig} = useDocusaurusContext();
   const [mode, setMode] = useState('signin');
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
@@ -77,7 +79,7 @@ export default function AuthScreen({ devAutoLogin = false, unreachable = null })
     <div className={styles.page}>
       <form className={styles.card} onSubmit={handleSubmit}>
         <img src="/img/mochi.jpg" alt="" className={styles.logo} />
-        <h1 className={styles.title}>Mochi Lab</h1>
+        <h1 className={styles.title}>{siteConfig.title}</h1>
         <p className={styles.tagline}>
           {signingIn ? 'Sign in to continue' : 'Create an account'}
         </p>

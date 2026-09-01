@@ -81,16 +81,14 @@ describe('the scaffolded plugin', () => {
 
     const routes = [];
     let globalData = null;
-    plugin.contentLoaded({
-      content: {itemCount: 0},
-      actions: {addRoute: r => routes.push(r), setGlobalData: d => { globalData = d; }},
-    });
-    assert.deepEqual(routes.map(r => r.path), [`/${NAME}`]);
+    plugin.contentLoaded({actions: {addRoute: r => routes.push(r), setGlobalData: d => { globalData = d; }}});
+    assert.deepEqual(routes.map(r => r.path), [`/${NAME}`, `/w/:workspaceSlug/${NAME}`]);
     assert.equal(routes[0].component, `@site/plugins/${NAME}/components/Page`);
     // The command is the contract with the shell: src/components/commands.js
     // requires a name and an href, and drops anything without both.
     assert.equal(globalData.command.name, NAME);
     assert.equal(globalData.command.href, `/${NAME}`);
+    assert.equal(globalData.command.scope, 'workspace');
   });
 
   it('declares the API version it was written against, so the server can refuse it', () => {

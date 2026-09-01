@@ -2,6 +2,7 @@
   "title": "Bibliography",
   "description": "Papers with a standard citation schema, provenance, official links, PDFs, tags, and [@key] citations",
   "enabled": true,
+  "scope": "workspace",
   "apiVersion": 1,
   "requires": ["blobs", "cache", "content:read", "network", "records"],
   "options": {}

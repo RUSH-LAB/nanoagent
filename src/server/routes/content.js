@@ -5,6 +5,7 @@
 // is requested. That is what makes a page private, lets a newly-created
 // workspace have pages immediately, and keeps workspace count out of the
 // Docusaurus build. This module never touches the filesystem.
+const {resolveWorkspaceSite} = require('../workspace-site');
 
 /** Turn a thrown status error into the response it describes. */
 function fail(json, res, err, fallback) {
@@ -18,7 +19,7 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
   // compiler rather than the real ones.
   const {
     json, readBody, rateLimit, scopeFor, documents, compileDocument, compileMarkdown, parseFrontmatter, splitBlogPost, invalidateCache, cacheKey,
-    requireWorkspacePermission,
+    requireWorkspacePermission, workspaceSettings,
   } = ctx;
 
   // New clients use /api/workspaces/:id/documents. The dispatcher has already
@@ -30,6 +31,14 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
   if (!contentPath.startsWith('/api/content')) return;
 
   const scope = scopeFor(req);
+  let compileSettings;
+  const settingsForCompile = async () => {
+    if (compileSettings !== undefined) return compileSettings;
+    compileSettings = req.context && workspaceSettings
+      ? resolveWorkspaceSite(await workspaceSettings.get(req.context))
+      : {};
+    return compileSettings;
+  };
   const clearContentCaches = () => {
     if (!req.context || !invalidateCache || !cacheKey) return;
     // A document mutation changes every derived view: feeds, sitemap, graph,
@@ -80,10 +89,11 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
       const rows = includeFrontmatter
         ? await documents.snapshot(scope, {prefix})
         : await documents.list(scope, {prefix});
+      const settings = includeExcerpt ? await settingsForCompile() : {};
       const response = await Promise.all(rows.map(async document => {
         const metadata = includeFrontmatter ? parseFrontmatter(document.markdown) : null;
         const blog = includeFrontmatter ? splitBlogPost(document.markdown) : null;
-        const excerptTree = includeExcerpt ? await compileMarkdown(blog.excerpt) : null;
+        const excerptTree = includeExcerpt ? await compileMarkdown(blog.excerpt, settings) : null;
         return {
           id: document.id,
           path: document.path,
@@ -123,7 +133,7 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
     try {
       permit('content:read');
       // `resolve` rather than `get`, so a reader may ask for the URL they are
-      // on (books/math/0-intro) instead of the filename behind it. An exact
+      // on (handbook/intro) instead of the filename behind it. An exact
       // path still matches first.
       document = await documents.resolve(scope, path);
     } catch (err) {
@@ -136,7 +146,7 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
 
     let tree;
     try {
-      tree = await compileDocument(document);
+      tree = await compileDocument(document, await settingsForCompile());
     } catch (err) {
       // The compiler names the line, so this is worth passing on: a document
       // with broken MDX should say what is wrong rather than fail blankly.
@@ -177,7 +187,7 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
       if (typeof body?.markdown !== 'string') {
         return json(res, 400, {error: 'markdown must be a string'});
       }
-      return json(res, 200, {tree: await compileMarkdown(body.markdown)});
+      return json(res, 200, {tree: await compileMarkdown(body.markdown, await settingsForCompile())});
     } catch (err) {
       if (err?.status && err?.code) return fail(json, res, err, 'Invalid request');
       return json(res, 422, {

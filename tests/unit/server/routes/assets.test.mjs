@@ -40,6 +40,13 @@ describe('workspace assets', () => {
     assert.equal(served.written.status, 200);
     assert.equal(served.written.headers['Content-Type'], 'image/png');
     assert.equal(served.written.body.toString(), 'png bytes');
+
+    const servedById = await invoke(routes, {
+      path: '/api/workspaces/lab/assets', query: {id: uploaded.payload.asset.id},
+      ctx, requestContext: viewer,
+    });
+    assert.equal(servedById.written.status, 200);
+    assert.equal(servedById.written.body.toString(), 'png bytes');
   });
 
   it('does not expose the same logical path in another workspace', async () => {
@@ -54,6 +61,13 @@ describe('workspace assets', () => {
       requestContext: {...viewer, workspaceId: 'other'},
     });
     assert.equal(other.status, 404);
+
+    const id = ctx.assets.list(editor)[0].id;
+    const otherById = await invoke(routes, {
+      path: '/api/workspaces/other/assets', query: {id}, ctx,
+      requestContext: {...viewer, workspaceId: 'other'},
+    });
+    assert.equal(otherById.status, 404);
   });
 
   it('refuses uploads from viewers and unsafe asset types', async () => {

@@ -1,12 +1,14 @@
 'use strict';
 
 const {resolveWorkspaceSite, validateWorkspaceSite} = require('../workspace-site');
+const {installedPluginDescriptors} = require('../plugins');
+
+const installedPlugins = installedPluginDescriptors();
 
 module.exports = async function workspace_settings_routes(req, res, _url, _pathname, ctx) {
   if (!req.context) return;
   const {
     json, readBody, rateLimit, requireWorkspacePermission, workspaceSettings,
-    documents, scopeFor,
   } = ctx;
   const member = req.workspacePath === '/member-preferences';
   const site = req.workspacePath === '/site';
@@ -16,11 +18,8 @@ module.exports = async function workspace_settings_routes(req, res, _url, _pathn
     if (req.method === 'GET') {
       requireWorkspacePermission(req.context, 'content:read');
       if (site) {
-        const [settings, rows] = await Promise.all([
-          workspaceSettings.get(req.context),
-          documents.list(scopeFor(req)),
-        ]);
-        return json(res, 200, {site: resolveWorkspaceSite(settings, rows)});
+        const settings = await workspaceSettings.get(req.context);
+        return json(res, 200, {site: resolveWorkspaceSite(settings), plugins: installedPlugins});
       }
       const settings = member
         ? await workspaceSettings.getMember(req.context)
@@ -36,8 +35,7 @@ module.exports = async function workspace_settings_routes(req, res, _url, _pathn
       if (site) {
         const checked = validateWorkspaceSite(body?.site);
         const settings = await workspaceSettings.update(req.context, checked);
-        const rows = await documents.list(scopeFor(req));
-        return json(res, 200, {success: true, site: resolveWorkspaceSite(settings, rows)});
+        return json(res, 200, {success: true, site: resolveWorkspaceSite(settings), plugins: installedPlugins});
       }
       const settings = member
         ? await workspaceSettings.updateMember(req.context, body?.settings)

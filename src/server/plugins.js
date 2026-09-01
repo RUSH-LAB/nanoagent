@@ -26,6 +26,7 @@
  */
 const {PLUGINS_DIR, listPlugins, requireSlot} = require('../../plugins/loader');
 const {API_VERSION, buildPluginApi} = require('./plugin-api');
+const {resolveWorkspaceSite} = require('./workspace-site');
 
 /**
  * Every enabled plugin with a server half, as {name, routes, provides}.
@@ -39,7 +40,7 @@ function loadServerPlugins(dir = PLUGINS_DIR) {
   for (const plugin of listPlugins(dir)) {
     const routes = requireSlot(plugin, 'server');
     if (!routes) continue;
-    const {apiVersion, requires, commands} = plugin.manifest;
+    const {apiVersion, requires, commands, scope} = plugin.manifest;
     if (apiVersion !== API_VERSION) {
       console.error(
         `[plugins] ${plugin.name}/server.js declares apiVersion ${apiVersion ?? 'none'}, `
@@ -47,9 +48,19 @@ function loadServerPlugins(dir = PLUGINS_DIR) {
       );
       continue;
     }
-    loaded.push({name: plugin.name, dir: plugin.dir, routes, requires, commands, provides: routes.provides ?? {}});
+    loaded.push({name: plugin.name, dir: plugin.dir, routes, requires, commands, scope, provides: routes.provides ?? {}});
   }
   return loaded;
+}
+
+/** Public, data-only descriptions of capabilities installed in this deploy. */
+function installedPluginDescriptors(dir = PLUGINS_DIR) {
+  return listPlugins(dir).map(plugin => ({
+    name: plugin.name,
+    title: plugin.manifest.title,
+    description: plugin.manifest.description,
+    scope: plugin.manifest.scope,
+  }));
 }
 
 /**
@@ -61,6 +72,22 @@ function loadServerPlugins(dir = PLUGINS_DIR) {
  */
 function asRouteModule(plugin, getProvides) {
   const handler = async function plugin_routes(req, res, url, pathname, ctx) {
+    // Installation is a deployment decision; enablement is workspace data.
+    // Missing configuration preserves an installed plugin's default, while an
+    // explicit false makes its API disappear for this verified workspace. The
+    // promise is shared by all plugin wrappers on one request, so the boundary
+    // costs at most one settings read.
+    if (plugin.scope !== 'platform' && req.context && ctx.workspaceSettings) {
+      req.workspacePluginSettings ??= Promise.resolve(ctx.workspaceSettings.get(req.context))
+        .then(settings => resolveWorkspaceSite(settings).plugins);
+      let settings;
+      try {
+        settings = await req.workspacePluginSettings;
+      } catch {
+        return ctx.json(res, 503, {error: 'Workspace plugin configuration is unavailable'});
+      }
+      if (settings?.[plugin.name]?.enabled === false) return;
+    }
     return plugin.routes(req, res, url, pathname, buildPluginApi({
       name: plugin.name,
       dir: plugin.dir,
@@ -94,4 +121,11 @@ function collectProvides(plugins) {
   return provided;
 }
 
-module.exports = {PLUGINS_DIR, API_VERSION, loadServerPlugins, collectProvides, asRouteModule};
+module.exports = {
+  PLUGINS_DIR,
+  API_VERSION,
+  loadServerPlugins,
+  installedPluginDescriptors,
+  collectProvides,
+  asRouteModule,
+};

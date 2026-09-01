@@ -13,6 +13,8 @@ module.exports = function bibliographyPlugin() {
       setGlobalData({
         command: {
           id: 'bibliography',
+          plugin: 'bibliography',
+          scope: 'workspace',
           name: 'bibliography',
           category: 'Tools',
           icon: 'book',

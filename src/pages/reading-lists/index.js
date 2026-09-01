@@ -443,7 +443,7 @@ function ReadingListsApp() {
                     <div style={{display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8}}>
                       <input
                         type="text"
-                        placeholder="Path (e.g., posts/research/paper.md or citationKey)"
+                        placeholder="Path (e.g., papers/example.md or citationKey)"
                         value={itemPath}
                         onChange={e => setItemPath(e.target.value)}
                         required

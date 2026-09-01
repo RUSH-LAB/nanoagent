@@ -17,8 +17,9 @@ module.exports = async function asset_routes(req, res, url, pathname, ctx) {
     assets, objectStorage, crypto,
   } = ctx;
   const logicalPath = url.searchParams.get('path');
+  const assetId = url.searchParams.get('id');
 
-  if (req.method === 'GET' && !logicalPath) {
+  if (req.method === 'GET' && !logicalPath && !assetId) {
     try {
       requireWorkspacePermission(req.context, 'content:read');
       const rows = await assets.list(req.context);
@@ -35,22 +36,28 @@ module.exports = async function asset_routes(req, res, url, pathname, ctx) {
     }
   }
 
-  const clean = cleanAssetPath(logicalPath);
-  if (!clean) return json(res, 400, {error: 'Invalid asset path'});
+  const clean = logicalPath == null ? null : cleanAssetPath(logicalPath);
+  if (!assetId && !clean) return json(res, 400, {error: 'Invalid asset path'});
+  if (assetId && (assetId.length > 200 || !/^[\w-]+$/.test(assetId))) {
+    return json(res, 400, {error: 'Invalid asset id'});
+  }
 
   if (req.method === 'GET') {
     try {
       requireWorkspacePermission(req.context, 'content:read');
-      const asset = await assets.getByPath(req.context, clean);
+      const asset = assetId
+        ? await assets.get(req.context, assetId)
+        : await assets.getByPath(req.context, clean);
       if (!asset) return json(res, 404, {error: 'Asset not found'});
       const body = await objectStorage.get(asset.objectKey);
       if (!body) return json(res, 404, {error: 'Asset not found'});
       const inline = String(asset.contentType).startsWith('image/') || asset.contentType === 'application/pdf';
+      const filename = String(asset.path || asset.id).split('/').pop().replace(/["\\]/g, '_');
       const origin = req.headers.origin;
       res.writeHead(200, {
         'Content-Type': asset.contentType,
         'Content-Length': body.length,
-        'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${clean.split('/').pop().replace(/["\\]/g, '_')}"`,
+        'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${filename}"`,
         'Cache-Control': 'private, max-age=300',
         'ETag': `"${asset.sha256}"`,
         'X-Content-Type-Options': 'nosniff',

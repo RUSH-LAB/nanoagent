@@ -615,8 +615,8 @@ export function makeCtx(overrides = {}) {
     preferences: preferenceLayer,
     workspaceSettings: workspaceSettingsLayer,
     assets: assetLayer,
-    compileDocument: doc => require('../../src/server/mdx.js').compileMarkdown(doc.markdown),
-    compileMarkdown: markdown => require('../../src/server/mdx.js').compileMarkdown(markdown),
+    compileDocument: (doc, settings) => require('../../src/server/mdx.js').compileMarkdown(doc.markdown, settings),
+    compileMarkdown: (markdown, settings) => require('../../src/server/mdx.js').compileMarkdown(markdown, settings),
     parseFrontmatter: markdown => require('../../src/server/mdx.js').parseFrontmatter(markdown),
     splitBlogPost: markdown => require('../../src/server/mdx.js').splitBlogPost(markdown),
 

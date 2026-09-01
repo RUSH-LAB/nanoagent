@@ -1,4 +1,4 @@
-import React, {type ReactNode, useEffect, useState} from 'react';
+import React, {type ReactNode} from 'react';
 import clsx from 'clsx';
 import {
   useThemeConfig,
@@ -14,9 +14,7 @@ import NavbarColorModeToggle from '@theme/Navbar/ColorModeToggle';
 import NavbarMobileSidebarToggle from '@theme/Navbar/MobileSidebar/Toggle';
 import WorkspaceSwitcher from '@site/src/components/WorkspaceSwitcher';
 import LazySearchNavbarItem from '@site/src/components/LazySearchNavbarItem';
-import {useLocation} from '@docusaurus/router';
-import {getCachedWorkspaces, loadWorkspaces, workspaceSlugFromPath} from '@site/src/utils/workspaces';
-import API_BASE, {apiJson, getCachedApiJson} from '@site/src/utils/api';
+import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import {workspaceDocumentHref} from '@site/src/utils/documentUrls';
 
 import styles from './styles.module.css';
@@ -77,43 +75,9 @@ function NavbarContentLayout({
 
 export default function NavbarContent(): ReactNode {
   const mobileSidebar = useNavbarMobileSidebar();
-  const location = useLocation();
-
   const items = useNavbarItems();
-  const workspaceSlug = workspaceSlugFromPath(location.pathname);
-  const hasConcreteWorkspace = workspaceSlug && !workspaceSlug.startsWith(':');
-  const [workspaceSiteState, setWorkspaceSiteState] = useState<any>(() => {
-    const workspace = getCachedWorkspaces()?.workspaces?.find(item => item.slug === workspaceSlug);
-    if (!workspace) return {slug: workspaceSlug, site: null};
-    return {
-      slug: workspaceSlug,
-      site: getCachedApiJson(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/site`)?.data?.site ?? null,
-    };
-  });
-  const workspaceSite = workspaceSiteState.slug === workspaceSlug ? workspaceSiteState.site : null;
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!hasConcreteWorkspace) {
-      setWorkspaceSiteState({slug: workspaceSlug, site: null});
-      return undefined;
-    }
-    const cachedWorkspace = getCachedWorkspaces()?.workspaces?.find(item => item.slug === workspaceSlug);
-    const cachedSite = cachedWorkspace
-      ? getCachedApiJson(`${API_BASE}/api/workspaces/${encodeURIComponent(cachedWorkspace.id)}/site`)?.data?.site ?? null
-      : null;
-    setWorkspaceSiteState({slug: workspaceSlug, site: cachedSite});
-    loadWorkspaces()
-      .then(({workspaces}) => workspaces.find(item => item.slug === workspaceSlug))
-      .then(workspace => workspace
-        ? apiJson(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/site`, {cacheMs: 5 * 60_000})
-        : null)
-      .then(result => {
-        if (!cancelled) setWorkspaceSiteState({slug: workspaceSlug, site: result?.ok ? result.data.site : null});
-      })
-      .catch(() => { if (!cancelled) setWorkspaceSiteState({slug: workspaceSlug, site: null}); });
-    return () => { cancelled = true; };
-  }, [hasConcreteWorkspace, workspaceSlug]);
+  const {slug: workspaceSlug, site: workspaceSite} = useWorkspaceSite();
+  const hasConcreteWorkspace = Boolean(workspaceSlug);
 
   const fixedItems = items.filter(item => item.type === 'search' || item.type === 'custom-userButton');
   const configuredItems = hasConcreteWorkspace

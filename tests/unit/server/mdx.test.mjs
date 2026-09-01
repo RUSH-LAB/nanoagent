@@ -42,6 +42,12 @@ describe('safe workspace markdown', () => {
     assert.match(math.html, /katex/);
   });
 
+  it('keeps math inert when the workspace disables the built-in renderer', async () => {
+    const tree = await mdx.compileMarkdown('The value is $x^2$.', {rendering: {math: false}});
+    assert.equal(all(tree).some(node => node.type === 'math'), false);
+    assert.match(all(tree).filter(node => node.type === 'text').map(node => node.value).join(''), /\$x\^2\$/);
+  });
+
   it('keeps LaTeX braces and table pipes out of the MDX expression grammar', async () => {
     const tree = await mdx.compileMarkdown('| Formula |\n| --- |\n| $e^{-x|y}$ |');
     const table = all(tree).find(node => node.type === 'table');
@@ -64,6 +70,23 @@ describe('safe workspace markdown', () => {
     const lean = nodes.find(node => node.type === 'component' && node.name === 'LeanCode');
     assert.equal(lean.props.source, '#check Nat');
     assert.equal(lean.props.language, 'lean4');
+  });
+
+  it('selects runtime plugin syntax from workspace settings', async () => {
+    const tree = await mdx.compileMarkdown('See [[math/intro|the introduction]].', {
+      plugins: {'wiki-links': {enabled: false}},
+    });
+    assert.equal(all(tree).some(node => node.type === 'link'), false);
+    assert.match(all(tree).filter(node => node.type === 'text').map(node => node.value).join(''), /\[\[math\/intro/);
+  });
+
+  it('rejects components owned by a plugin disabled in this workspace', async () => {
+    await assert.rejects(
+      () => mdx.compileMarkdown('<Theorem id="t1">No longer enabled.</Theorem>', {
+        plugins: {'math-registry': {enabled: false}},
+      }),
+      /Component <Theorem> is not allowed/,
+    );
   });
 
   it('coerces plugin-declared number and boolean props generically', async () => {
@@ -139,6 +162,14 @@ describe('the render-tree cache', () => {
     const before = await mdx.compileDocument(doc('t1', '# before'));
     const after = await mdx.compileDocument(doc('t2', '# after'));
     assert.notDeepEqual(before, after);
+  });
+
+  it('keeps compiled documents separate across workspace plugin configurations', async () => {
+    const document = doc('t1', 'See [[math/intro]].');
+    const enabled = await mdx.compileDocument(document);
+    const disabled = await mdx.compileDocument(document, {plugins: {'wiki-links': {enabled: false}}});
+    assert.notDeepEqual(enabled, disabled);
+    assert.equal(mdx._cacheSize(), 2);
   });
 
   it('keeps documents apart and stays bounded', async () => {

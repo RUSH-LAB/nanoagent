@@ -14,8 +14,8 @@
  * workspace in it.
  *
  * `exact: false` is what makes it a catch-all:
- * /w/acme/documents/books/math/0-intro and
- * /w/acme/documents/posts/blog/hello are the same route with a different
+ * /w/acme/documents/handbook/intro and
+ * /w/acme/documents/updates/hello are the same route with a different
  * remainder. Declaring the route at build time is the one thing
  * about content that still has to happen then; knowing a single page is not.
  */

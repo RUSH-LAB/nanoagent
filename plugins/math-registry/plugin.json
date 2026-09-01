@@ -2,6 +2,7 @@
   "title": "Math Registry",
   "description": "Owns numbered mathematical environments and cross-references across every workspace",
   "enabled": true,
+  "scope": "workspace",
   "options": {},
   "safeComponents": {
     "Theorem": {"id": "string", "name": "string"},

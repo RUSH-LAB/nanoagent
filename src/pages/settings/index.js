@@ -10,6 +10,7 @@ import API_BASE, { apiFetch, invalidateApiJson } from '@site/src/utils/api';
 import {
   loadWorkspaces, switchWorkspace, createWorkspace, workspaceSlugFromPath,
 } from '@site/src/utils/workspaces';
+import {publishWorkspaceSite} from '@site/src/hooks/useWorkspaceSite';
 import styles from './styles.module.css';
 
 /**
@@ -53,9 +54,14 @@ function SettingsApp() {
   // failed switch reported down there would look like a failed theme change.
   const [workspaceError, setWorkspaceError] = useState(null);
   const [siteConfig, setSiteConfig] = useState(null);
+  const [installedPlugins, setInstalledPlugins] = useState([]);
   const [navigationText, setNavigationText] = useState('');
+  const [collectionsText, setCollectionsText] = useState('[]');
   const [siteSaving, setSiteSaving] = useState(false);
   const [siteMessage, setSiteMessage] = useState(null);
+  const activeWorkspace = Array.isArray(workspaces)
+    ? workspaces.find(workspace => workspace.id === activeId)
+    : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -96,7 +102,9 @@ function SettingsApp() {
         if (!response.ok) throw new Error(data.error || 'Could not load workspace site settings');
         if (cancelled) return;
         setSiteConfig(data.site);
+        setInstalledPlugins(data.plugins || []);
         setNavigationText((data.site.navigation || []).map(item => `${item.label} | ${item.path}`).join('\n'));
+        setCollectionsText(JSON.stringify(data.site.collections || [], null, 2));
       })
       .catch(error => { if (!cancelled) setSiteMessage({kind: 'error', text: error.message}); });
     return () => { cancelled = true; };
@@ -150,33 +158,32 @@ function SettingsApp() {
         if (separator < 1) throw new Error(`Navigation line ${index + 1} must be “Label | document/path.md”`);
         return {label: line.slice(0, separator).trim(), path: line.slice(separator + 1).trim()};
       });
+      const collections = JSON.parse(collectionsText || '[]');
       const response = await apiFetch(`${API_BASE}/api/workspaces/${encodeURIComponent(activeId)}/site`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({site: {...siteConfig, navigation}}),
+        body: JSON.stringify({site: {...siteConfig, navigation, collections}}),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Could not save workspace site settings');
       invalidateApiJson(`${API_BASE}/api/workspaces/${encodeURIComponent(activeId)}/site`);
       setSiteConfig(data.site);
+      publishWorkspaceSite(activeWorkspace?.slug, data.site);
       setNavigationText((data.site.navigation || []).map(item => `${item.label} | ${item.path}`).join('\n'));
+      setCollectionsText(JSON.stringify(data.site.collections || [], null, 2));
       setSiteMessage({kind: 'success', text: 'Workspace site settings saved.'});
     } catch (error) {
       setSiteMessage({kind: 'error', text: error.message});
     } finally {
       setSiteSaving(false);
     }
-  }, [activeId, navigationText, siteConfig]);
+  }, [activeId, activeWorkspace?.slug, collectionsText, navigationText, siteConfig]);
 
   if (loading) {
     return <div className={styles.placeholder}>Loading your settings...</div>;
   }
 
   const user = session?.user;
-  const activeWorkspace = Array.isArray(workspaces)
-    ? workspaces.find(workspace => workspace.id === activeId)
-    : null;
-
   return (
     <div className={`${pageStyles.pageContainer} ${pageStyles.wide}`}>
       <header className={styles.pageHeader}>
@@ -365,11 +372,20 @@ function SettingsApp() {
                 />
               </label>
               <label>
+                <span>Logo asset ID</span>
+                <input
+                  value={siteConfig.site.logoAssetId || ''}
+                  readOnly={activeWorkspace.role !== 'owner'}
+                  placeholder="Upload an image in Files, then paste its asset ID"
+                  onChange={event => setSiteConfig(current => ({...current, site: {...current.site, logoAssetId: event.target.value}}))}
+                />
+              </label>
+              <label>
                 <span>Home document</span>
                 <input
                   value={siteConfig.site.homeDocument || ''}
                   readOnly={activeWorkspace.role !== 'owner'}
-                  placeholder="books/programming/0-intro.md"
+                  placeholder="guides/getting-started.md"
                   onChange={event => setSiteConfig(current => ({...current, site: {...current.site, homeDocument: event.target.value}}))}
                 />
               </label>
@@ -379,10 +395,66 @@ function SettingsApp() {
                   value={navigationText}
                   readOnly={activeWorkspace.role !== 'owner'}
                   rows={Math.max(4, navigationText.split('\n').length + 1)}
-                  placeholder={'Research | posts/research\nProgramming | books/programming/0-intro.md'}
+                  placeholder={'Updates | news\nHandbook | guides/getting-started.md'}
                   onChange={event => setNavigationText(event.target.value)}
                 />
               </label>
+              <label>
+                <span>Collections</span>
+                <textarea
+                  value={collectionsText}
+                  readOnly={activeWorkspace.role !== 'owner'}
+                  rows={Math.max(7, collectionsText.split('\n').length)}
+                  placeholder={'[{"key":"notes","type":"blog","pathPrefix":"notes","title":"Notes"}]'}
+                  onChange={event => setCollectionsText(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Quick-note path</span>
+                <input
+                  value={siteConfig.authoring?.quickNotesPath || ''}
+                  readOnly={activeWorkspace.role !== 'owner'}
+                  placeholder="notes"
+                  onChange={event => setSiteConfig(current => ({
+                    ...current,
+                    authoring: {...(current.authoring || {}), quickNotesPath: event.target.value},
+                  }))}
+                />
+              </label>
+              <label>
+                <span>Default author key</span>
+                <input
+                  value={siteConfig.authoring?.defaultAuthor || ''}
+                  readOnly={activeWorkspace.role !== 'owner'}
+                  placeholder="Optional author key"
+                  onChange={event => setSiteConfig(current => ({
+                    ...current,
+                    authoring: {...(current.authoring || {}), defaultAuthor: event.target.value},
+                  }))}
+                />
+              </label>
+              <div className={styles.renderingFlags}>
+                {installedPlugins.filter(plugin => plugin.scope === 'workspace').map(plugin => (
+                  <label key={plugin.name} title={plugin.description || undefined}>
+                    <input
+                      type="checkbox"
+                      checked={siteConfig.plugins?.[plugin.name]?.enabled !== false}
+                      disabled={activeWorkspace.role !== 'owner'}
+                      onChange={event => setSiteConfig(current => ({
+                        ...current,
+                        plugins: {
+                          ...(current.plugins || {}),
+                          [plugin.name]: {enabled: event.target.checked},
+                        },
+                      }))}
+                    />
+                    {plugin.title}
+                  </label>
+                ))}
+              </div>
+              <p className={styles.muted}>
+                Plugins are installed by the platform. This workspace can enable or disable their supported capabilities.
+              </p>
               <div className={styles.renderingFlags}>
                 {Object.entries(siteConfig.rendering || {}).map(([name, enabled]) => (
                   <label key={name}>

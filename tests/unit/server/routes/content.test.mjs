@@ -136,6 +136,16 @@ describe('explicit workspace document API', () => {
     assert.equal(created.status, 403);
     assert.equal(created.payload.code, 'workspace-permission-denied');
   });
+
+  it('compiles through the plugin set enabled for this workspace', async () => {
+    const ctx = withDocs([{path: 'a.md', markdown: '<Theorem id="t1">Result</Theorem>'}], {...ada, orgId: 'lab'});
+    await ctx.workspaceSettings.update(context, {plugins: {'math-registry': {enabled: false}}});
+    const response = await invoke(routes, {
+      path: '/api/workspaces/lab/documents', query: {path: 'a.md'}, ctx, requestContext: context,
+    });
+    assert.equal(response.status, 422);
+    assert.match(response.payload.error, /Component <Theorem> is not allowed/);
+  });
 });
 
 describe('GET /api/content', () => {

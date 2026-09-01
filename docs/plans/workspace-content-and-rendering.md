@@ -26,10 +26,10 @@ snapshots; it is not a second writable content source.
 
 ## Objective
 
-Preserve the current `content/<workspace>/...` authoring model and the visual
-behavior users expect from Docusaurus, while making PostgreSQL the only live
-source of workspace content. A workspace and a document must become available
-without restarting or rebuilding the application.
+Preserve the virtual folder authoring model and the visual behavior users
+expect from Docusaurus, while keeping PostgreSQL as the only live source of
+workspace content. A workspace and a document must become available without
+restarting or rebuilding the application.
 
 This is not a plan to store and execute one `docusaurus.config.js` per
 workspace. Docusaurus configuration is trusted build-time JavaScript. Allowing
@@ -48,19 +48,18 @@ Instead, the system will have:
 
 ## Current baseline
 
-- `content/mochi/` contains 153 Markdown/MDX documents. The
-  `content/hello-world/` directory exists but has no documents.
+- The retired `content/` snapshot has been removed after hash and object
+  verification; Git history remains the rollback copy.
 - PostgreSQL already contains the migrated documents, versions, references,
   workspace settings, and workspace membership boundary.
 - The runtime route `/w/:workspaceSlug/documents/...` reads scoped database
   rows and does not require a Docusaurus rebuild.
-- The runtime compiler renders all 153 source documents. The corpus test keeps
-  relative links/images, LaTeX braces, MDX comments, safe `details`, and
-  component attributes from regressing.
-- The old Docusaurus build supplied docs/blog layouts, generated sidebars,
-  heading anchors, table of contents, code rendering, blog metadata, feeds,
-  and search. The current runtime document route does not yet reproduce all of
-  these behaviors.
+- The runtime compiler renders the migrated document corpus from PostgreSQL.
+  Focused compiler tests keep relative links/images, LaTeX braces, MDX
+  comments, safe `details`, and component attributes from regressing.
+- The runtime route uses Docusaurus docs/blog theme components for sidebars,
+  heading anchors, table of contents, code rendering, blog metadata, lists,
+  and pagination without compiling workspace data into the build.
 - Several older routes still use `/api/file` shapes or a read-only virtual
   filesystem facade over document rows. PostgreSQL is already the backing
   source in production, but the compatibility layer obscures that boundary.
@@ -93,38 +92,42 @@ PostgreSQL owns:
 - asset metadata and workspace-relative asset paths, with bytes in R2;
 - authors, references, tags, and other workspace collections.
 
-The database path `books/math/3-linear-algebra/1-vectors-and-matrices.md` is the
-equivalent of the current file below `content/<workspace>/`. Directories remain
-virtual prefixes rather than operating-system directories.
+For example, a database path such as `handbook/chapter-1.md` replaces the old
+file below `content/<workspace>/`. Directories remain virtual prefixes rather
+than operating-system directories.
 
 ### Workspace site settings
 
-`workspace_settings.value` will use a versioned, validated schema rather than
-accepting Docusaurus JavaScript. The first schema will cover:
+`workspace_settings.value` uses a versioned, validated schema rather than
+accepting Docusaurus JavaScript. Schema version 2 covers:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "site": {
-    "title": "Mochi Lab",
-    "tagline": "Innovative Research & Development",
-    "logoAssetId": null,
-    "homeDocument": "books/programming/0-intro.md"
+    "title": "Example Workspace",
+    "tagline": "Shared notes and publications",
+    "logoAssetId": "asset_123",
+    "homeDocument": "handbook/welcome.md"
   },
   "navigation": [
-    {"label": "Research", "path": "posts/research"},
-    {"label": "Programming", "path": "books/programming/0-intro.md"}
+    {"label": "Handbook", "path": "handbook/welcome.md"},
+    {"label": "Updates", "path": "updates"}
   ],
   "collections": [
-    {"key": "programming", "type": "docs", "pathPrefix": "books/programming", "title": "Programming"},
-    {"key": "research", "type": "blog", "pathPrefix": "posts/research", "title": "Research"}
+    {"key": "handbook", "type": "docs", "pathPrefix": "handbook", "title": "Handbook"},
+    {"key": "updates", "type": "blog", "pathPrefix": "updates", "title": "Updates"}
   ],
+  "authoring": {
+    "quickNotesPath": "updates/notes",
+    "defaultAuthor": "editor"
+  },
+  "plugins": {
+    "bibliography": {"enabled": true},
+    "lean-proofs": {"enabled": false}
+  },
   "rendering": {
-    "math": true,
-    "citations": true,
-    "wikiLinks": true,
-    "leanProofs": true,
-    "interactiveMath": true
+    "math": true
   }
 }
 ```
@@ -246,8 +249,9 @@ Docusaurus presentation, and malicious MDX remains inert or rejected.
    the `mochi` workspace defaults.
 3. Add a workspace settings editor for branding, navigation, collections, and
    rendering feature switches.
-4. Add a `WorkspaceProvider` that resolves the URL slug once and supplies the
-   verified site settings to navbar, document shell, and workspace pages.
+4. Add a shared workspace-site hook that keys all cached state by the URL slug
+   and supplies validated settings to the navbar, commands, document shell,
+   and workspace pages without exposing the previous workspace while loading.
 
 Exit criterion: two tabs can display different titles, navigation, sidebars,
 and content without changing a session-global active workspace or rebuilding.

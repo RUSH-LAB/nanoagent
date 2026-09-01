@@ -381,11 +381,22 @@ describe('the content capability', () => {
 });
 
 describe('the storage capability', () => {
-  it('gives each plugin its own corner of var/', () => {
+  it('gives each plugin and workspace its own corner of var/', () => {
     const {api: mine} = apiFor(['storage'], {}, 'mine');
     const {api: yours} = apiFor(['storage'], {}, 'yours');
-    assert.equal(mine.storage.dir, at('var/plugins/mine'));
-    assert.equal(yours.storage.dir, at('var/plugins/yours'));
+    assert.equal(mine.storage.dir, at('var/plugins/mine/workspaces/o1'));
+    assert.equal(yours.storage.dir, at('var/plugins/yours/workspaces/o1'));
+  });
+
+  it('separates one plugin storage across workspaces', () => {
+    const {ctx} = serverCtx();
+    const mine = buildPluginApi({name: 'demo', requires: ['storage'], ctx, req: REQ});
+    const theirs = buildPluginApi({
+      name: 'demo', requires: ['storage'], ctx,
+      req: {...REQ, context: {...REQ.context, workspaceId: 'o2', membershipId: 'm2'}},
+    });
+    assert.notEqual(mine.storage.dir, theirs.storage.dir);
+    assert.equal(theirs.storage.dir, at('var/plugins/demo/workspaces/o2'));
   });
 
   it('round-trips a value, and answers an unwritten key with the fallback', () => {
@@ -398,8 +409,8 @@ describe('the storage capability', () => {
   it('writes through a temporary file, so a crash cannot truncate the real one', () => {
     const {api, fs} = apiFor(['storage']);
     api.storage.write('state', {seen: 1});
-    assert.equal(fs._files.has(at('var/plugins/demo/state.json.tmp')), false);
-    assert.ok(fs._files.has(at('var/plugins/demo/state.json')));
+    assert.equal(fs._files.has(at('var/plugins/demo/workspaces/o1/state.json.tmp')), false);
+    assert.ok(fs._files.has(at('var/plugins/demo/workspaces/o1/state.json')));
   });
 
   it('flattens a key that would otherwise escape the plugin directory', () => {
@@ -408,12 +419,12 @@ describe('the storage capability', () => {
     // Every character a path separator could hide behind is replaced, so the
     // key lands as one flat filename inside the plugin's own directory.
     assert.deepEqual([...fs._files.keys()].filter(k => k.includes('passwd')),
-      [at('var/plugins/demo/.._.._.._etc_passwd.json')]);
+      [at('var/plugins/demo/workspaces/o1/.._.._.._etc_passwd.json')]);
   });
 
   it('answers a corrupt file with the fallback rather than throwing', () => {
     const {api, fs} = apiFor(['storage']);
-    fs._files.set(at('var/plugins/demo/state.json'), 'not json at all');
+    fs._files.set(at('var/plugins/demo/workspaces/o1/state.json'), 'not json at all');
     assert.equal(api.storage.read('state', 'fallback'), 'fallback');
   });
 });

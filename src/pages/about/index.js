@@ -1,6 +1,7 @@
 import React from 'react';
 import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import pageStyles from '@site/src/css/page.module.css';
 
@@ -27,25 +28,6 @@ const cardStyle = {
   borderRadius: '8px',
   background: 'var(--ifm-card-background-color, #fff)',
   border: '1px solid var(--ifm-color-emphasis-200, #e0e0e0)',
-};
-
-const statCardStyle = {
-  ...cardStyle,
-  textAlign: 'center',
-  padding: '1.5rem 1rem',
-};
-
-const statValueStyle = {
-  fontSize: '2rem',
-  fontWeight: 700,
-  color: 'var(--ifm-color-primary)',
-  lineHeight: 1.2,
-};
-
-const statLabelStyle = {
-  color: '#888',
-  fontSize: '0.85rem',
-  marginTop: '4px',
 };
 
 const checkStyle = {
@@ -107,7 +89,7 @@ const FEATURES = [
   {
     title: 'Research Tools',
     items: [
-      'Bibliography management (YAML-based)',
+      'Workspace-scoped bibliography management',
       'Paper metadata enrichment via Semantic Scholar, CrossRef, DBLP',
       'AI-powered paper recommendations from citation graphs',
       'BibTeX import and export',
@@ -135,13 +117,6 @@ const FEATURES = [
   },
 ];
 
-const STATS = [
-  { value: '10+', label: 'Interactive Pages' },
-  { value: '90+', label: 'API Endpoints' },
-  { value: '844', label: 'References' },
-  { value: '342', label: 'Test Cases' },
-];
-
 const SHORTCUTS = [
   { keys: 'Cmd + K', description: 'Open command palette / quick search' },
   { keys: 'Cmd + O', description: 'Open file navigator' },
@@ -166,13 +141,9 @@ const WHATS_NEW = [
 ];
 
 const QUICK_LINKS = [
-  { label: 'Research Papers', to: '/documents/posts/research', desc: 'Read and discuss research paper summaries' },
-  { label: 'Blog', to: '/documents/posts/blog', desc: 'Posts on ideas, tutorials, and updates' },
-  { label: 'Bibliography', to: '/bibliography', desc: 'Browse and manage references' },
-  { label: 'Knowledge Graph', to: '/graph', desc: 'Visualize page connections' },
-  { label: 'Discover', to: '/recommendations', desc: 'AI-powered paper recommendations' },
-  { label: 'API Reference', to: '/api-docs', desc: 'Full API documentation (90+ endpoints)' },
-  { label: 'Analytics', to: '/analytics', desc: 'Pageview tracking dashboard' },
+  { label: 'Settings', to: '/settings', desc: 'Manage your account and workspace presentation' },
+  { label: 'API Reference', to: '/api-docs', desc: 'Application API documentation' },
+  { label: 'Administration', to: '/admin', desc: 'Platform administration' },
 ];
 
 function FeatureCard({ title, items }) {
@@ -194,16 +165,17 @@ function FeatureCard({ title, items }) {
 }
 
 export default function AboutPage() {
+  const {siteConfig} = useDocusaurusContext();
   return (
-    <Layout title="About" description="About Mochi Lab — features, tech stack, and getting started">
+    <Layout title="About" description={`About ${siteConfig.title} — features, tech stack, and getting started`}>
       <ErrorBoundary>
       <main className={pageStyles.pageContainer}>
 
         {/* Hero */}
         <div style={{ marginBottom: '2.5rem' }}>
-          <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>About Mochi Lab</h1>
+          <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>About {siteConfig.title}</h1>
           <p style={{ fontSize: '1.1rem', color: '#555', lineHeight: 1.7, maxWidth: '720px' }}>
-            Mochi Lab is a one-stop academic collaboration platform for researching and
+            {siteConfig.title} is a one-stop academic collaboration platform for researching and
             organizing knowledge. It combines automated bibliography management, AI-powered
             discovery, and collaborative tools into a single, cohesive workspace.
           </p>
@@ -220,19 +192,6 @@ export default function AboutPage() {
               </li>
             ))}
           </ul>
-        </section>
-
-        {/* Stats */}
-        <section style={sectionStyle}>
-          <h2 style={sectionTitleStyle}>At a Glance</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '1rem' }}>
-            {STATS.map((s, i) => (
-              <div key={i} style={statCardStyle}>
-                <div style={statValueStyle}>{s.value}</div>
-                <div style={statLabelStyle}>{s.label}</div>
-              </div>
-            ))}
-          </div>
         </section>
 
         {/* Features */}

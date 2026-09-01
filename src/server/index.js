@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const {URL} = require('url');
 const {execFileSync} = require('child_process');
+const {platformConfig} = require('../platform');
 const {
   isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText,
   ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH,
@@ -81,6 +82,7 @@ const developmentAuth = postgresDatabase.enabled ? {
 } : require('./dev-auth');
 const {DEV_AUTOLOGIN, ensureRootUser, ensureDevelopmentWorkspace, handleDevLogin, ROOT_USERNAME} = developmentAuth;
 const PORT = process.env.EDITOR_PORT || process.env.PORT || 3001;
+const {name: platformName} = platformConfig();
 
 // ── Access log file setup ──
 
@@ -152,7 +154,7 @@ function scopeFor(req) {
  * analyses. The keys used to be bare, which was correct while there was one
  * tree and became a cross-tenant read the moment there were two, silently and
  * with a sixty-second memory. The per-file keys leak the same way, because
- * `books/math/0-intro.md` is now a path that exists in more than one workspace.
+ * `handbook/intro.md` may be a path that exists in more than one workspace.
  *
  * The `org:` prefix is not decoration. invalidateCache matches by substring, so
  * a bare `<slug>:` prefix would let the pattern for a workspace called `lab`
@@ -167,7 +169,7 @@ function cacheKey(orgId, name) {
  * The file tree under `dir`, with every path relative to `base`.
  *
  * `base` is the caller's content root, so the paths that go out on the wire are
- * `books/math/0-intro.md` and never `content/mochi/books/math/0-intro.md`. That
+ * `handbook/intro.md` and never `content/acme/handbook/intro.md`. That
  * is the whole of the isolation story for content: with no organization in the
  * wire format, a request has nowhere to put one, so asking for another
  * workspace's file is not a thing a client can express rather than a thing the
@@ -278,6 +280,7 @@ function json(res, status, data, opts) {
     'Content-Type': 'application/json',
     ...corsHeaders(res.req),
     'X-API-Version': '1.0',
+    // A stable protocol identifier, unlike the deployment's display name.
     'X-Powered-By': 'Mochi Lab',
   };
   if (status === 200 && res.req?.method === 'GET') {
@@ -896,7 +899,7 @@ postgresDatabase.ready.then(() => server.listen(PORT, async () => {
   _routeDiagnostics.startupMs = startupMs;
   _routeDiagnostics.memoryAtStartupMB = parseFloat(memMB);
 
-  console.log(`\n  Mochi Lab Editor API`);
+  console.log(`\n  ${platformName} Editor API`);
   console.log(`  http://localhost:${PORT}`);
   console.log(`  Startup: ${startupMs}ms | Heap: ${memMB} MB`);
   console.log(`  Handlers: ${_routeDiagnostics.totalHandlers} total, ${_routeDiagnostics.uniqueRoutes} unique routes, ${_routeDiagnostics.uniquePaths} unique paths`);

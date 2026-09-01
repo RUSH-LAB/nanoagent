@@ -19,7 +19,7 @@ plugin that fills none is inert but legal.
 
 | File | Contributes | Loaded by |
 |---|---|---|
-| `plugin.json` | Title, description, `enabled`, `options`, and for a server half `apiVersion` and `requires`. **Required** — it is what makes the directory a plugin | `loader.js` |
+| `plugin.json` | Title, description, deployment-level `enabled`, `scope`, `options`, and for a server half `apiVersion` and `requires`. **Required** — it is what makes the directory a plugin | `loader.js` |
 | `index.js` | The build half: a Docusaurus plugin factory. Pages, global data, the command | `docusaurus.config.js` |
 | `server.js` | The API half: endpoints, and what it lends the rest of the server | `src/server/plugins.js` |
 | `remark.js` | Markdown syntax, added to the chain every content page is parsed with | `docusaurus.config.js` |
@@ -41,19 +41,23 @@ console and skipped, so one broken tool never costs the whole site.
   "title": "Reading List",
   "description": "One line about what this tool is for",
   "enabled": true,
+  "scope": "workspace",
   "apiVersion": 1,
   "requires": ["cache", "storage", "ai", "process"],
   "commands": ["lake"],
   "runtimeRemark": true,
   "safeComponents": {"ExampleWidget": {"name": "string", "open": "boolean"}},
-  "options": {"dir": "content/reading"}
+  "options": {}
 }
 ```
 
 The name is the directory name, not a field, so the two can never disagree.
-`options` is handed to `index.js` as its second argument: a plugin's
-configuration lives with the plugin, and the site config names no plugin at all.
-`"enabled": false` turns the whole tool off, both halves at once. `apiVersion`
+`options` is handed to `index.js` as its second argument and may configure only
+the installed implementation. It must never contain one workspace's data.
+`"enabled": false` removes the tool from the whole deployment, both halves at
+once. `"scope": "workspace"` (the default) lets an owner disable the installed
+tool for that workspace through validated `workspace_settings`; `platform`
+plugins ignore workspace enablement. `apiVersion`
 and `requires` are the server half's half of the bargain and are covered under
 [What a plugin is handed](#what-a-plugin-is-handed); a plugin that is only pages
 and markdown declares neither.
@@ -64,6 +68,11 @@ components and static prop types (`string`, `boolean`, `number`, or
 `runtimeRemark: true` opts a remark extension into that same constrained parser.
 `commands` is required with the `process` capability and is the executable
 allowlist for that plugin.
+
+Plugin code, dependencies, routes, capability grants, safe-component schemas,
+and subprocess allowlists are trusted deployment state. Plugin enablement and
+the records/assets it owns are workspace state. A workspace can never supply a
+module path, package, command, or JavaScript option.
 
 ## The extension points
 
@@ -133,7 +142,7 @@ Always there: `respond`, `stream`, `readBody`, `rateLimit`, `caller`, `shared`,
 | `cache` | `cache`, `invalidateCache`, keyed under the plugin's own name |
 | `content:read` | async `content.read`, `content.list`, `content.stat`, `content.exists`, and `content.walk` over database documents in the verified workspace |
 | `network` | `fetch`, with a timeout, refusing calls back into this server |
-| `storage` | `storage.read`/`storage.write`, in the plugin's own corner of `var/` |
+| `storage` | `storage.read`/`storage.write`, in the plugin-and-workspace corner of `var/` |
 | `records` | workspace-scoped collections namespaced to the plugin |
 | `blobs` | workspace-scoped asset metadata and S3/R2-compatible object storage plus bounded raw request bodies |
 | `ai` | `ai.complete` and `ai.describe`, using the site's configured provider |

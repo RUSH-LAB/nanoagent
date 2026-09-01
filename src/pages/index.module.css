@@ -31,24 +31,3 @@
     padding: 2rem;
   }
 }
-
-.buttons .button--secondary {
-  background-color: #3b5998 !important;
-  border-color: #3b5998 !important;
-  color: #fff !important;
-}
-
-.buttons .button--secondary:hover {
-  background-color: #344e85 !important;
-  border-color: #344e85 !important;
-}
-
-[data-theme='dark'] .buttons .button--secondary {
-  background-color: #4b69a6 !important;
-  border-color: #4b69a6 !important;
-}
-
-[data-theme='dark'] .buttons .button--secondary:hover {
-  background-color: #3b5998 !important;
-  border-color: #3b5998 !important;
-}

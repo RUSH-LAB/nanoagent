@@ -64,6 +64,7 @@ function readManifest(dir, name) {
       title: parsed.title ?? name,
       description: parsed.description ?? '',
       enabled: parsed.enabled !== false,
+      scope: parsed.scope === 'platform' ? 'platform' : 'workspace',
       options: parsed.options ?? {},
       // Which version of the server's plugin API the server half was written
       // against, and which capabilities it asks for. Both matter only to
@@ -219,6 +220,15 @@ function loadRuntimeRemarkPlugins(dir = PLUGINS_DIR) {
   return loaded;
 }
 
+/** Runtime syntax and component contracts grouped by their owning plugin. */
+function loadRuntimePluginContracts(dir = PLUGINS_DIR) {
+  return listPlugins(dir).map(plugin => ({
+    name: plugin.name,
+    remark: plugin.manifest.runtimeRemark ? requireSlot(plugin, 'remark') : null,
+    safeComponents: plugin.manifest.safeComponents,
+  }));
+}
+
 /**
  * Declarative component/prop schemas for the inert runtime-MDX renderer.
  *
@@ -242,5 +252,5 @@ function loadSafeComponents(dir = PLUGINS_DIR) {
 module.exports = {
   PLUGINS_DIR, SLOTS, listPlugins, requireSlot,
   loadBuildPlugins, writeClientComponentRegistry,
-  loadRemarkPlugins, loadRuntimeRemarkPlugins, loadSafeComponents,
+  loadRemarkPlugins, loadRuntimeRemarkPlugins, loadRuntimePluginContracts, loadSafeComponents,
 };

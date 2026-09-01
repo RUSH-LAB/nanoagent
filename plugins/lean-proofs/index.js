@@ -118,6 +118,8 @@ module.exports = function leanProofsPlugin(_context, options = {}) {
         ...content,
         command: {
           id: PLUGIN_NAME,
+          plugin: PLUGIN_NAME,
+          scope: 'workspace',
           name: PLUGIN_NAME,
           category: 'Tools',
           icon: 'book',
@@ -128,6 +130,11 @@ module.exports = function leanProofsPlugin(_context, options = {}) {
       });
       actions.addRoute({
         path: '/lean-proofs',
+        exact: true,
+        component: require.resolve('./components/Workbench.js'),
+      });
+      actions.addRoute({
+        path: '/w/:workspaceSlug/lean-proofs',
         exact: true,
         component: require.resolve('./components/Workbench.js'),
       });

@@ -4,12 +4,13 @@
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 
 const { numericParam } = require('../server-utils');
+const {resolveWorkspaceSite} = require('../workspace-site');
 
 /**
  * The `slug` line of a frontmatter block, or null.
  *
  * A blog post's address is its slug, and the slug is nowhere in its path:
- * `posts/research/swarms.md` is served at `/research/eisi`. Anything emitting a
+ * `updates/launch.md` is served at its workspace document URL. Anything emitting a
  * link to a post therefore has to read the frontmatter, which is why this is
  * shared by the feed scan and the sitemap scan rather than living in one.
  */
@@ -64,25 +65,56 @@ function scanFeedItems(fs, path, contentDir, ALLOWED_EXTS) {
 // ran last it would re-escape the `&` in `&lt;`/`&gt;` into `&amp;lt;`.
 const escapeFeedXml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+function workspaceDocumentUrl(item, workspaceSlug, legacyUrl) {
+  if (!workspaceSlug) return legacyUrl;
+  const route = String(item.path ?? '')
+    .replace(/\\/g, '/')
+    .replace(/\.mdx?$/i, '')
+    .replace(/\/index$/i, '')
+    .split('/')
+    .filter(Boolean)
+    .map(encodeURIComponent)
+    .join('/');
+  return `/w/${encodeURIComponent(workspaceSlug)}/documents${route ? `/${route}` : ''}`;
+}
+
 module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, requireWorkspacePermission, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, workspaceSettings, org, requireWorkspacePermission, _routeDiagnostics
   } = ctx;
+
+  const feedIdentity = async () => {
+    const [settings, workspace] = req.context
+      ? await Promise.all([
+          workspaceSettings ? workspaceSettings.get(req.context) : {},
+          org?.getOrganization ? org.getOrganization(req.context) : null,
+        ])
+      : [{}, null];
+    const site = resolveWorkspaceSite(settings);
+    const title = site.site.title || workspace?.name || 'Workspace';
+    return {
+      title,
+      description: site.site.tagline || `Recent content updates from ${title}`,
+      id: req.context?.workspaceId || 'workspace',
+      slug: workspace?.slug || null,
+    };
+  };
 
   // ── RSS feed of recent content updates ──
   if (req.method === 'GET' && pathname === '/api/feed/rss') {
     try {
+      const identity = await feedIdentity();
       const items = cached(cacheKey(req.context?.workspaceId, 'feed-items'), 60000, () => scanFeedItems(fs, path, contentRootFor(req.context?.workspaceId), ALLOWED_EXTS));
       const recent = items.slice(0, 20);
       const rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
 <channel>
-<title>Mochi Lab</title>
-<description>Recent content updates from Mochi Lab</description>
+<title>${escapeFeedXml(identity.title)}</title>
+<description>${escapeFeedXml(identity.description)}</description>
 <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
 ${recent.map(item => `<item>
 <title>${escapeFeedXml(item.title)}</title>
-<link>${escapeFeedXml(contentPathToUrl(item.path, {slug: item.slug}))}</link>
+<link>${escapeFeedXml(workspaceDocumentUrl(item, identity.slug, contentPathToUrl(item.path, {slug: item.slug})))}</link>
 <pubDate>${new Date(item.date).toUTCString()}</pubDate>
 </item>`).join('\n')}
 </channel>
@@ -168,18 +200,19 @@ ${recent.map(item => `<item>
   // ── Atom feed of recent content updates ──
   if (req.method === 'GET' && pathname === '/api/feed/atom') {
     try {
+      const identity = await feedIdentity();
       const items = cached(cacheKey(req.context?.workspaceId, 'feed-items'), 60000, () => scanFeedItems(fs, path, contentRootFor(req.context?.workspaceId), ALLOWED_EXTS));
       const recent = items.slice(0, 20);
       const atom = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
-<title>Mochi Lab</title>
+<title>${escapeFeedXml(identity.title)}</title>
 <updated>${new Date().toISOString()}</updated>
-<id>urn:mochi-lab:feed</id>
+<id>urn:workspace:${escapeFeedXml(identity.id)}:feed</id>
 ${recent.map(item => `<entry>
 <title>${escapeFeedXml(item.title)}</title>
-<link href="${escapeFeedXml(contentPathToUrl(item.path, {slug: item.slug}))}"/>
+<link href="${escapeFeedXml(workspaceDocumentUrl(item, identity.slug, contentPathToUrl(item.path, {slug: item.slug})))}"/>
 <updated>${item.date}</updated>
-<id>urn:mochi-lab:${escapeFeedXml(item.path)}</id>
+<id>urn:workspace:${escapeFeedXml(identity.id)}:${escapeFeedXml(item.path)}</id>
 </entry>`).join('\n')}
 </feed>`;
       res.writeHead(200, {
@@ -283,3 +316,4 @@ ${urls.map(u => `<url><loc>${u.loc}</loc><lastmod>${u.lastmod}</lastmod></url>`)
 
 module.exports.numericParam = numericParam;
 module.exports.escapeFeedXml = escapeFeedXml;
+module.exports.workspaceDocumentUrl = workspaceDocumentUrl;

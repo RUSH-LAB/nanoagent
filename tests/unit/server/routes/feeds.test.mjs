@@ -53,7 +53,7 @@ describe('numericParam (re-exported)', () => {
 });
 
 describe('escapeFeedXml (hoisted feed XML escaper)', () => {
-  const {escapeFeedXml} = routes;
+  const {escapeFeedXml, workspaceDocumentUrl} = routes;
 
   it('is one stable exported function', () => {
     assert.equal(typeof escapeFeedXml, 'function');
@@ -74,6 +74,13 @@ describe('escapeFeedXml (hoisted feed XML escaper)', () => {
   for (const [input, want] of CASES) {
     it(`escapes ${JSON.stringify(input)}`, () => assert.equal(escapeFeedXml(input), want));
   }
+
+  it('builds workspace-scoped runtime document URLs without Docusaurus path conventions', () => {
+    assert.equal(
+      workspaceDocumentUrl({path: 'any/private-layout/01-intro.md'}, 'alpha', '/legacy'),
+      '/w/alpha/documents/any/private-layout/01-intro',
+    );
+  });
 });
 
 // ── References passthrough ────────────────────────────────────────────────
@@ -136,7 +143,7 @@ describe('GET /api/feed/rss and /api/feed/atom', () => {
       const r = await invoke(routes, {path: p, ctx});
       const titles = [...r.written.body.matchAll(/<title>([^<]*)<\/title>/g)].map(m => m[1]);
       // The first <title> is the channel/feed title, then the items.
-      assert.deepEqual(titles, ['Mochi Lab', 'Newest', 'AT&amp;T &lt;Corp&gt;', 'Oldest']);
+      assert.deepEqual(titles, ['Workspace', 'Newest', 'AT&amp;T &lt;Corp&gt;', 'Oldest']);
     });
 
     it(`${name} slices to the twenty most recent items`, async () => {
@@ -158,7 +165,18 @@ describe('GET /api/feed/rss and /api/feed/atom', () => {
     })});
     const r = await invoke(routes, {path: '/api/feed/rss', ctx});
     const titles = [...r.written.body.matchAll(/<title>([^<]*)<\/title>/g)].map(m => m[1]);
-    assert.deepEqual(titles, ['Mochi Lab', 'Keep']);
+    assert.deepEqual(titles, ['Workspace', 'Keep']);
+  });
+
+  it('uses this workspace site branding rather than a build-time organization name', async () => {
+    const {ctx} = feedCtx();
+    const requestContext = {userId: 'test-user', workspaceId: 'test-org', membershipId: 'm1', role: 'viewer'};
+    await ctx.workspaceSettings.update({...requestContext, role: 'owner'}, {
+      site: {title: 'Alpha Research', tagline: 'Alpha updates'},
+    });
+    const response = await invoke(routes, {path: '/api/feed/rss', ctx, requestContext});
+    assert.match(response.written.body, /<title>Alpha Research<\/title>/);
+    assert.match(response.written.body, /<description>Alpha updates<\/description>/);
   });
 
   it('reads the front-matter date when present and the file mtime otherwise', async () => {

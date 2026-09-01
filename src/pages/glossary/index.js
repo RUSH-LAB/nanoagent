@@ -785,7 +785,7 @@ function GlossaryContent() {
 
 export default function GlossaryPage() {
   return (
-    <Layout title="Glossary" description="Terminology reference for Mochi Lab">
+    <Layout title="Glossary" description="Terminology reference for this workspace">
       <main className={pageStyles.pageContainer}>
         <BrowserOnly>
           {() => <ErrorBoundary><GlossaryContent /></ErrorBoundary>}

@@ -346,8 +346,26 @@ const CATEGORIES = [
     endpoints: [
       {
         method: 'POST', path: '/api/ai/complete', description: 'Generate AI text completions. Supports continue, improve, explain, and summarize modes. Rate-limited to 10/min per IP.',
-        request: '{ "prompt": "The transformer architecture...", "context": "Optional surrounding text", "type": "continue" }\n\nValid types: "continue", "improve", "explain", "summarize"',
+        request: '{ "prompt": "The transformer architecture...", "context": "Optional surrounding text", "type": "continue", "agent": { "name": "Researcher", "instructions": "Check claims and cite evidence." } }\n\nValid types: "continue", "improve", "explain", "summarize". The optional agent supplies a workspace-defined identity.',
         response: '{ "text": "...generated continuation..." }',
+      },
+      {
+        method: 'GET', path: '/api/agents', description: 'List the reusable AI agents defined for this workspace.',
+        response: '{ "agents": [{ "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "color": "blue" }] }',
+      },
+      {
+        method: 'POST', path: '/api/agents', description: 'Create a workspace agent. Owners and editors can manage agents.',
+        request: '{ "name": "Researcher", "description": "Finds evidence", "instructions": "Check claims and cite evidence.", "color": "blue" }',
+        response: '{ "agent": { "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "color": "blue" } }',
+      },
+      {
+        method: 'PATCH', path: '/api/agents/:id', description: 'Update an existing workspace agent.',
+        request: '{ "instructions": "Prefer primary sources." }',
+        response: '{ "agent": { "id": "...", "name": "Researcher", "instructions": "Prefer primary sources." } }',
+      },
+      {
+        method: 'DELETE', path: '/api/agents/:id', description: 'Delete a workspace agent. Existing local chat history is retained.',
+        response: '{ "deleted": true }',
       },
     ],
   },
@@ -710,13 +728,13 @@ const CATEGORIES = [
     description: 'Fast-capture notes saved as draft blog posts with the quick-note tag. Also supports JSON-backed scratchpad notes.',
     endpoints: [
       {
-        method: 'POST', path: '/api/quicknote', description: 'Create a quick-note document under posts/blog/. Auto-generates a date-prefixed path. Rate-limited to 20/min per IP.',
+        method: 'POST', path: '/api/quicknote', description: 'Create a quick-note document in the workspace-configured quick-note or blog collection. Auto-generates a date-prefixed path. Rate-limited to 20/min per IP.',
         request: '{ "text": "Interesting idea about attention heads...", "title": "Attention Head Hypothesis" }',
-        response: '{ "success": true, "path": "posts/blog/2025-01-15-attention-head-hypothesis.md", "filename": "2025-01-15-attention-head-hypothesis.md" }',
+        response: '{ "success": true, "path": "notes/2025-01-15-attention-head-hypothesis.md", "filename": "2025-01-15-attention-head-hypothesis.md" }',
       },
       {
         method: 'GET', path: '/api/quicknote', description: 'List the 10 most recent quick notes (blog posts tagged quick-note), newest first.',
-        response: '{ "notes": [{ "filename": "2025-01-15-attention-head-hypothesis.md", "title": "Attention Head Hypothesis", "date": "2025-01-15", "preview": "Interesting idea about...", "path": "posts/blog/2025-01-15-attention-head-hypothesis.md" }], "total": 3 }',
+        response: '{ "notes": [{ "filename": "2025-01-15-attention-head-hypothesis.md", "title": "Attention Head Hypothesis", "date": "2025-01-15", "preview": "Interesting idea about...", "path": "notes/2025-01-15-attention-head-hypothesis.md" }], "total": 3 }',
       },
       {
         method: 'GET', path: '/api/quicknotes', description: 'List the signed-in user\'s JSON-backed quick notes plus blog quick notes, sorted newest first.',
@@ -783,13 +801,13 @@ export default function ApiDocs() {
   const totalEndpoints = CATEGORIES.reduce((sum, cat) => sum + cat.endpoints.length, 0);
 
   return (
-    <Layout title="API Documentation" description="API documentation for Mochi Lab editor server">
+    <Layout title="API Documentation" description="Application API documentation">
       <ErrorBoundary>
       <main className={pageStyles.pageContainer}>
         <div style={{marginBottom: '2rem'}}>
           <h1 style={{marginBottom: '8px'}}>API Reference</h1>
           <p style={{color: '#6b7280', fontSize: '1rem', marginBottom: '4px'}}>
-            Documentation for the Mochi Lab editor server API &mdash; {totalEndpoints} endpoints across {CATEGORIES.length} categories.
+            Documentation for the application server API &mdash; {totalEndpoints} endpoints across {CATEGORIES.length} categories.
           </p>
           <p style={{color: '#9ca3af', fontSize: '0.85rem'}}>
             Base URL: <code>http://localhost:3001</code> (configurable via <code>EDITOR_PORT</code> env var). All request/response bodies are JSON unless noted otherwise.

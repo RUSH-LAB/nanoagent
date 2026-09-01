@@ -7,7 +7,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {listPlugins, loadBuildPlugins, loadRemarkPlugins, writeClientComponentRegistry} = require('../../../../plugins/loader');
-const {loadServerPlugins, collectProvides} = require('../../../../src/server/plugins');
+const {loadServerPlugins, installedPluginDescriptors, collectProvides, asRouteModule} = require('../../../../src/server/plugins');
 const {API_VERSION} = require('../../../../src/server/plugin-api');
 
 // ---------------------------------------------------------------------------
@@ -135,6 +135,7 @@ describe('plugins/loader: discovery', () => {
     const {result} = quietly(() => listPlugins(root));
     const beta = result.find(p => p.name === 'beta');
     assert.equal(beta.manifest.enabled, true);
+    assert.equal(beta.manifest.scope, 'workspace');
     assert.deepEqual(beta.manifest.options, {});
     assert.equal(beta.manifest.description, '');
     assert.deepEqual(beta.manifest.commands, []);
@@ -210,6 +211,14 @@ describe('src/server/plugins: the API half, on the same discovery', () => {
     assert.deepEqual(result[0].requires, ['cache']);
   });
 
+  it('describes every globally installed plugin without exposing executable configuration', () => {
+    const descriptors = installedPluginDescriptors(root);
+    assert.deepEqual(descriptors.map(plugin => plugin.name), [
+      'alpha', 'beta', 'inert', 'not-a-function', 'renamer', 'throws-on-load',
+    ]);
+    assert.deepEqual(Object.keys(descriptors[0]).sort(), ['description', 'name', 'scope', 'title']);
+  });
+
   it('refuses a server half written against a different API version', () => {
     const manifest = path.join(root, 'alpha', 'plugin.json');
     const original = fs.readFileSync(manifest, 'utf8');
@@ -252,6 +261,41 @@ describe('src/server/plugins: the API half, on the same discovery', () => {
         JSON.stringify({title: 'alpha', options: {greeting: 'hi'}, apiVersion: API_VERSION, requires: ['cache']}),
       );
     }
+  });
+
+  it('keeps plugin installation global but lets a workspace disable its API', async () => {
+    let called = 0;
+    const plugin = {
+      name: 'alpha', dir: root, scope: 'workspace', requires: [], commands: [],
+      routes: async () => { called += 1; },
+    };
+    const handler = asRouteModule(plugin, () => ({}));
+    const request = {context: {workspaceId: 'w1', userId: 'u1', membershipId: 'm1', role: 'owner'}};
+    const response = {writableEnded: false};
+    const ctx = {
+      workspaceSettings: {get: async () => ({plugins: {alpha: {enabled: false}}})},
+      json: () => { throw new Error('disabled plugins should fall through to the common 404'); },
+    };
+    await handler(request, response, new URL('http://localhost/api/alpha'), '/api/alpha', ctx);
+    assert.equal(called, 0);
+  });
+
+  it('loads workspace plugin settings once when several wrappers inspect one request', async () => {
+    let reads = 0;
+    let calls = 0;
+    const request = {context: {workspaceId: 'w1', userId: 'u1', membershipId: 'm1', role: 'owner'}};
+    const ctx = {
+      workspaceSettings: {get: async () => { reads += 1; return {plugins: {}}; }},
+      json: () => {}, sanitizeText: value => value,
+    };
+    const plugin = name => ({
+      name, dir: root, scope: 'workspace', requires: [], commands: [],
+      routes: async () => { calls += 1; },
+    });
+    await asRouteModule(plugin('alpha'), () => ({}))(request, {}, null, '/api/none', ctx);
+    await asRouteModule(plugin('beta'), () => ({}))(request, {}, null, '/api/none', ctx);
+    assert.equal(reads, 1);
+    assert.equal(calls, 2);
   });
 });
 

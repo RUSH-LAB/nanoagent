@@ -33,8 +33,8 @@ function within(root, relative, what) {
 /**
  * Whether `filePath` names a content file the caller may address.
  *
- * The path is relative to the caller's own workspace: `books/math/0-intro.md`,
- * not `content/mochi/books/math/0-intro.md`. Which workspace that is comes from
+ * The path is relative to the caller's own workspace: `handbook/intro.md`,
+ * not `content/acme/handbook/intro.md`. Which workspace that is comes from
  * the verified session and is prepended by the server, so there is no field in
  * any request where a caller could name another organization's file. Chat has
  * worked this way since it was written; this is the same rule for content.

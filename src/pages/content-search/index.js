@@ -511,7 +511,7 @@ function SearchContent() {
 
 export default function SearchPage() {
   return (
-    <Layout title="Search" description="Search across all Mochi Lab content">
+    <Layout title="Search" description="Search this workspace's content">
       <BrowserOnly fallback={
         <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--ifm-color-emphasis-500)' }}>
           Loading search...
