@@ -1,7 +1,5 @@
 import React from 'react';
-import Link from '@docusaurus/Link';
 import MDXComponents from '@theme/MDXComponents';
-import Heading from '@theme/Heading';
 import CodeBlock from '@theme/CodeBlock';
 import Admonition from '@theme/Admonition';
 import {workspaceAssetHref, workspaceDocumentHref} from '@site/src/utils/documentUrls';
@@ -20,23 +18,24 @@ function SafeNode({node, workspaceId, workspaceSlug, documentPath}) {
     case 'root': return <>{childrenOf(node, context)}</>;
     case 'text': return node.value;
     case 'paragraph': return <p>{childrenOf(node, context)}</p>;
-    case 'heading': return <Heading as={`h${node.depth}`} id={node.id}>{childrenOf(node, context)}</Heading>;
+    case 'heading': {
+      const Heading = MDXComponents[`h${node.depth}`];
+      return <Heading id={node.id}>{childrenOf(node, context)}</Heading>;
+    }
     case 'emphasis': return <em>{childrenOf(node, context)}</em>;
     case 'strong': return <strong>{childrenOf(node, context)}</strong>;
     case 'delete': return <del>{childrenOf(node, context)}</del>;
     case 'blockquote': return <blockquote>{childrenOf(node, context)}</blockquote>;
     case 'thematicBreak': return <hr />;
     case 'break': return <br />;
-    case 'inlineCode': return <code>{node.value}</code>;
+    case 'inlineCode': return <MDXComponents.code>{node.value}</MDXComponents.code>;
     case 'code': return <CodeBlock language={node.lang || undefined}>{node.value}</CodeBlock>;
     case 'link': {
       const href = workspaceDocumentHref(node.url, workspaceSlug, documentPath);
-      return /^(?:https?:|mailto:)/i.test(href)
-        ? <a href={href} title={node.title || undefined}>{childrenOf(node, context)}</a>
-        : <Link to={href} title={node.title || undefined}>{childrenOf(node, context)}</Link>;
+      return <MDXComponents.a href={href} title={node.title || undefined}>{childrenOf(node, context)}</MDXComponents.a>;
     }
     case 'image': return (
-      <img
+      <MDXComponents.img
         src={workspaceAssetHref(node.url, workspaceId, documentPath)}
         alt={node.alt}
         title={node.title || undefined}
@@ -44,14 +43,26 @@ function SafeNode({node, workspaceId, workspaceSlug, documentPath}) {
     );
     case 'list': {
       const Tag = node.ordered ? 'ol' : 'ul';
-      return <Tag start={node.ordered ? node.start : undefined}>{childrenOf(node, context)}</Tag>;
+      const Component = node.ordered ? Tag : MDXComponents.ul;
+      const containsTasks = (node.children || []).some(item => item.checked !== null);
+      return (
+        <Component
+          start={node.ordered ? node.start : undefined}
+          className={containsTasks ? 'contains-task-list' : undefined}
+        >
+          {childrenOf(node, context)}
+        </Component>
+      );
     }
-    case 'listItem': return (
-      <li className={node.checked === null ? undefined : 'task-list-item'}>
+    case 'listItem': {
+      const ListItem = MDXComponents.li;
+      return (
+      <ListItem className={node.checked === null ? undefined : 'task-list-item'}>
         {node.checked === null ? null : <input type="checkbox" checked={node.checked} readOnly disabled />}
         {childrenOf(node, context)}
-      </li>
-    );
+      </ListItem>
+      );
+    }
     case 'table': {
       const [head, ...body] = node.children || [];
       return (

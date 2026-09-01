@@ -2,6 +2,8 @@
 
 const MAX_NAVIGATION_ITEMS = 24;
 const MAX_COLLECTIONS = 32;
+const MAX_AUTHORS = 100;
+const HIDDEN_COLLECTION_PATHS = new Set(['books/builder']);
 
 function text(value, name, {required = false, max = 120} = {}) {
   if (value === undefined || value === null || value === '') {
@@ -20,6 +22,15 @@ function contentPath(value, name) {
     throw new TypeError(`${name} must be a workspace-relative path`);
   }
   return path.replace(/^\.\//, '');
+}
+
+function httpUrl(value, name) {
+  const candidate = text(value, name, {max: 1000});
+  if (!candidate) return null;
+  let parsed;
+  try { parsed = new URL(candidate); } catch { throw new TypeError(`${name} must be an HTTP URL`); }
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new TypeError(`${name} must be an HTTP URL`);
+  return candidate;
 }
 
 function titleCase(value) {
@@ -91,9 +102,37 @@ function validateCollections(value) {
       pathPrefix: contentPath(item.pathPrefix, `collections[${index}].pathPrefix`),
       title: text(item.title, `collections[${index}].title`, {required: true, max: 80}),
       description: text(item.description, `collections[${index}].description`, {max: 240}),
+      sidebarTitle: text(item.sidebarTitle, `collections[${index}].sidebarTitle`, {max: 80}),
       landingPath: item.landingPath ? contentPath(item.landingPath, `collections[${index}].landingPath`) : null,
+      showReadingTime: item.showReadingTime === undefined ? key === 'research' : Boolean(item.showReadingTime),
     };
   });
+}
+
+function validateSocials(value, name) {
+  if (value == null) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${name} must be an object`);
+  return Object.fromEntries(Object.entries(value).map(([platform, url]) => [
+    text(platform, `${name} platform`, {required: true, max: 40}),
+    httpUrl(url, `${name}.${platform}`),
+  ]));
+}
+
+function validateAuthors(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('authors must be an object');
+  const entries = Object.entries(value);
+  if (entries.length > MAX_AUTHORS) throw new TypeError(`authors may contain at most ${MAX_AUTHORS} entries`);
+  return Object.fromEntries(entries.map(([key, author]) => {
+    const authorKey = text(key, 'author key', {required: true, max: 100});
+    if (!author || typeof author !== 'object' || Array.isArray(author)) throw new TypeError(`authors.${authorKey} must be an object`);
+    return [authorKey, {
+      name: text(author.name, `authors.${authorKey}.name`, {required: true, max: 120}),
+      title: text(author.title, `authors.${authorKey}.title`, {max: 200}),
+      url: httpUrl(author.url, `authors.${authorKey}.url`),
+      imageUrl: httpUrl(author.imageUrl ?? author.image_url, `authors.${authorKey}.imageUrl`),
+      socials: validateSocials(author.socials, `authors.${authorKey}.socials`),
+    }];
+  }));
 }
 
 function validateWorkspaceSite(value = {}) {
@@ -113,6 +152,7 @@ function validateWorkspaceSite(value = {}) {
     },
     navigation: value.navigation == null ? null : validateNavigation(value.navigation),
     collections: value.collections == null ? null : validateCollections(value.collections),
+    authors: value.authors == null ? {} : validateAuthors(value.authors),
     rendering: {
       math: flag('math'),
       citations: flag('citations'),
@@ -126,13 +166,15 @@ function validateWorkspaceSite(value = {}) {
 function resolveWorkspaceSite(settings = {}, documents = []) {
   const configured = validateWorkspaceSite(settings);
   const inferred = inferredCollections(documents);
-  const collections = configured.collections ?? (configured.navigation
+  const collections = (configured.collections ?? (configured.navigation
     ? inferred.filter(collection => configured.navigation.some(item =>
         item.path === collection.pathPrefix || item.path.startsWith(`${collection.pathPrefix}/`)))
-    : inferred);
-  const navigation = configured.navigation ?? collections
+    : inferred)).filter(collection => !HIDDEN_COLLECTION_PATHS.has(collection.pathPrefix));
+  const navigation = (configured.navigation ?? collections
     .filter(collection => collection.landingPath)
-    .map(collection => ({label: collection.title, path: collection.landingPath}));
+    .map(collection => ({label: collection.title, path: collection.landingPath})))
+    .filter(item => ![...HIDDEN_COLLECTION_PATHS].some(prefix =>
+      item.path === prefix || item.path.startsWith(`${prefix}/`)));
   return {
     ...configured,
     site: {
@@ -147,6 +189,7 @@ function resolveWorkspaceSite(settings = {}, documents = []) {
 module.exports = {
   MAX_NAVIGATION_ITEMS,
   MAX_COLLECTIONS,
+  MAX_AUTHORS,
   inferredCollections,
   validateWorkspaceSite,
   resolveWorkspaceSite,

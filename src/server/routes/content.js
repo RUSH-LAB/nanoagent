@@ -17,7 +17,7 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
   // a route module needs, so a test drives a throwaway database and its own
   // compiler rather than the real ones.
   const {
-    json, readBody, rateLimit, scopeFor, documents, compileDocument, compileMarkdown, parseFrontmatter, invalidateCache, cacheKey,
+    json, readBody, rateLimit, scopeFor, documents, compileDocument, compileMarkdown, parseFrontmatter, splitBlogPost, invalidateCache, cacheKey,
     requireWorkspacePermission,
   } = ctx;
 
@@ -44,6 +44,27 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
     }
   };
 
+  const descriptionOf = markdown => {
+    const body = splitBlogPost(markdown).excerpt
+      .replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '')
+      .replace(/<!--([\s\S]*?)-->/g, '')
+      .trim();
+    const paragraph = body.split(/\r?\n\s*\r?\n/).find(block => {
+      const value = block.trim();
+      return value && !/^(?:#{1,6}\s|```|~~~|[-*+]\s|\d+[.)]\s|>|::|<[A-Z])/m.test(value);
+    });
+    if (!paragraph) return '';
+    return paragraph
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/<\/?[A-Za-z][^>]*>/g, '')
+      .replace(/[`*_~]/g, '')
+      .replace(/\$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 500);
+  };
+
   // ── The tree: every document the caller may see, without their bodies ──
   //
   // Bodies are the whole cost of this read and a file tree renders none of
@@ -52,18 +73,35 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
   if (req.method === 'GET' && contentPath === '/api/content/tree') {
     try {
       permit('content:read');
-      const includeFrontmatter = url.searchParams.get('include') === 'frontmatter';
+      const include = url.searchParams.get('include');
+      const includeFrontmatter = include === 'frontmatter' || include === 'metadata';
+      const includeExcerpt = include === 'frontmatter';
       const prefix = String(url.searchParams.get('prefix') || '').replace(/^\/+|\/+$/g, '');
       const rows = includeFrontmatter ? await documents.snapshot(scope) : await documents.list(scope);
       const filtered = prefix ? rows.filter(document => document.path.startsWith(`${prefix}/`)) : rows;
-      return json(res, 200, {documents: filtered.map(document => ({
-        id: document.id,
-        path: document.path,
-        title: document.title,
-        visibility: document.visibility,
-        updatedAt: document.updatedAt,
-        ...(includeFrontmatter ? {frontmatter: parseFrontmatter(document.markdown)} : {}),
-      }))});
+      const response = await Promise.all(filtered.map(async document => {
+        const metadata = includeFrontmatter ? parseFrontmatter(document.markdown) : null;
+        const blog = includeFrontmatter ? splitBlogPost(document.markdown) : null;
+        const excerptTree = includeExcerpt ? await compileMarkdown(blog.excerpt) : null;
+        return {
+          id: document.id,
+          path: document.path,
+          title: document.title,
+          visibility: document.visibility,
+          createdAt: document.createdAt,
+          updatedAt: document.updatedAt,
+          ...(includeFrontmatter ? {
+            frontmatter: metadata,
+            description: metadata.description || descriptionOf(document.markdown),
+            ...(includeExcerpt ? {
+              hasTruncateMarker: blog.hasTruncateMarker,
+              excerptTree,
+            } : {}),
+            readingTime: Math.max(1, Math.ceil(document.markdown.split(/\s+/).filter(Boolean).length / 200)),
+          } : {}),
+        };
+      }));
+      return json(res, 200, {documents: response});
     } catch (err) {
       return fail(json, res, err, 'Could not list the workspace');
     }
@@ -101,13 +139,18 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
       // with broken MDX should say what is wrong rather than fail blankly.
       return json(res, 422, {error: `This document could not be rendered: ${err.message}`, code: 'mdx-error'});
     }
+    const blog = splitBlogPost(document.markdown);
     return json(res, 200, {
       document: {
         id: document.id,
         path: document.path,
         title: document.title,
         visibility: document.visibility,
+        createdAt: document.createdAt,
         updatedAt: document.updatedAt,
+        hasTruncateMarker: blog.hasTruncateMarker,
+        readingTime: Math.max(1, Math.ceil(document.markdown.split(/\s+/).filter(Boolean).length / 200)),
+        description: parseFrontmatter(document.markdown).description || descriptionOf(document.markdown),
       },
       markdown: document.markdown,
       frontmatter: parseFrontmatter(document.markdown),

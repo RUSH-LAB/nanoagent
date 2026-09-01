@@ -17,6 +17,17 @@ describe('safe workspace markdown', () => {
       title: 'Hello', sidebarPosition: 3, draft: true, authors: [], tags: ['one', 'two'],
     });
   });
+
+  it('preserves the Docusaurus blog truncate boundary as metadata', () => {
+    assert.deepEqual(mdx.splitBlogPost('Before\n\n<!-- truncate -->\n\nAfter'), {
+      hasTruncateMarker: true,
+      excerpt: 'Before\n\n',
+    });
+    assert.deepEqual(mdx.splitBlogPost('Before\n\n{/* truncate */}\n\nAfter'), {
+      hasTruncateMarker: true,
+      excerpt: 'Before\n\n',
+    });
+  });
   it('returns an inert render tree rather than JavaScript', async () => {
     const tree = await mdx.compileMarkdown('# Hello');
     assert.equal(tree.type, 'root');

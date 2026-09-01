@@ -38,6 +38,27 @@ function valueHash(value) {
   return sha256(JSON.stringify(canonical(value)));
 }
 
+function socialUrl(platform, value) {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  if (platform === 'x' || platform === 'twitter') return `https://x.com/${value}`;
+  if (platform === 'github') return `https://github.com/${value}`;
+  if (platform === 'linkedin') return `https://www.linkedin.com/in/${value}/`;
+  return null;
+}
+
+function fillMissing(current, desired) {
+  if (!current || typeof current !== 'object' || Array.isArray(current)) return desired;
+  const next = {...current};
+  for (const [key, value] of Object.entries(desired)) {
+    if (next[key] == null) next[key] = value;
+    else if (value && typeof value === 'object' && !Array.isArray(value)) {
+      next[key] = fillMissing(next[key], value);
+    }
+  }
+  return next;
+}
+
 function markdownFiles(root) {
   const out = [];
   function walk(dir) {
@@ -89,7 +110,9 @@ for (const workspace of await workspaces()) {
   const scope = {
     workspaceId: workspace.id,
     userId: workspace.ownerId,
-    membershipId: null,
+    // Repository methods require a verified-context shape. The owner lookup
+    // above is the verification step for this offline migration process.
+    membershipId: 'migration',
     role: 'owner',
     kind: 'migration',
   };
@@ -107,34 +130,53 @@ for (const workspace of await workspaces()) {
 
   if (workspace.slug === 'mochi') {
     const currentSettings = await workspaceSettings.get(scope);
-    if (!currentSettings.schemaVersion) {
-      summary.siteSettings = apply ? 'created' : 'create';
-      if (apply) {
-        await workspaceSettings.update(scope, {
-          schemaVersion: 1,
-          site: {
-            title: 'Mochi Lab',
-            tagline: 'Innovative Research & Development',
-            logoAssetId: null,
-            homeDocument: 'books/programming/0-intro.md',
-          },
-          navigation: [
-            {label: 'Research', path: 'posts/research'},
-            {label: 'Blog', path: 'posts/blog'},
-            {label: 'Survey', path: 'books/survey/intro.md'},
-            {label: 'Programming', path: 'books/programming/0-intro.md'},
-            {label: 'Math', path: 'books/math/0-intro.md'},
-          ],
-          collections: [
-            {key: 'research', type: 'blog', pathPrefix: 'posts/research', title: 'Research Papers', description: 'Collection of research paper summaries and discussions', landingPath: null},
-            {key: 'blog', type: 'blog', pathPrefix: 'posts/blog', title: 'Blog', description: 'Blog posts', landingPath: null},
-            {key: 'survey', type: 'docs', pathPrefix: 'books/survey', title: 'Survey', description: null, landingPath: 'books/survey/intro.md'},
-            {key: 'programming', type: 'docs', pathPrefix: 'books/programming', title: 'Programming', description: null, landingPath: 'books/programming/0-intro.md'},
-            {key: 'math', type: 'docs', pathPrefix: 'books/math', title: 'Math', description: null, landingPath: 'books/math/0-intro.md'},
-          ],
-          rendering: {math: true, citations: true, wikiLinks: true, leanProofs: true, interactiveMath: true},
-        });
-      }
+    const authorsPath = path.join(root, 'posts', 'authors.yml');
+    const sourceAuthors = fs.existsSync(authorsPath) ? yaml.load(fs.readFileSync(authorsPath, 'utf8')) || {} : {};
+    const authors = Object.fromEntries(Object.entries(sourceAuthors).map(([key, author]) => [key, {
+      name: author.name,
+      title: author.title ?? null,
+      url: author.url ?? null,
+      imageUrl: author.image_url ?? author.imageUrl ?? null,
+      socials: Object.fromEntries(Object.entries(author.socials || {})
+        .map(([platform, value]) => [platform, socialUrl(platform, value)])
+        .filter(([, value]) => value)),
+    }]));
+    const desiredSettings = {
+      schemaVersion: 1,
+      site: {
+        title: 'Mochi Lab',
+        tagline: 'Innovative Research & Development',
+        logoAssetId: null,
+        homeDocument: 'books/programming/0-intro.md',
+      },
+      navigation: [
+        {label: 'Research', path: 'posts/research'},
+        {label: 'Blog', path: 'posts/blog'},
+        {label: 'Survey', path: 'books/survey/intro.md'},
+        {label: 'Programming', path: 'books/programming/0-intro.md'},
+        {label: 'Math', path: 'books/math/0-intro.md'},
+      ],
+      collections: [
+        {key: 'research', type: 'blog', pathPrefix: 'posts/research', title: 'Research Papers', description: 'Collection of research paper summaries and discussions', sidebarTitle: 'Recent Papers', landingPath: null, showReadingTime: true},
+        {key: 'blog', type: 'blog', pathPrefix: 'posts/blog', title: 'Blog', description: 'Blog posts', sidebarTitle: 'All Posts', landingPath: null, showReadingTime: false},
+        {key: 'survey', type: 'docs', pathPrefix: 'books/survey', title: 'Survey', description: null, sidebarTitle: null, landingPath: 'books/survey/intro.md'},
+        {key: 'programming', type: 'docs', pathPrefix: 'books/programming', title: 'Programming', description: null, sidebarTitle: null, landingPath: 'books/programming/0-intro.md'},
+        {key: 'math', type: 'docs', pathPrefix: 'books/math', title: 'Math', description: null, sidebarTitle: null, landingPath: 'books/math/0-intro.md'},
+      ],
+      authors,
+      rendering: {math: true, citations: true, wikiLinks: true, leanProofs: true, interactiveMath: true},
+    };
+    const repairedSettings = fillMissing(currentSettings, desiredSettings);
+    if (Array.isArray(currentSettings.collections)) {
+      const desiredCollections = new Map(desiredSettings.collections.map(collection => [collection.key, collection]));
+      repairedSettings.collections = currentSettings.collections.map(collection =>
+        fillMissing(collection, desiredCollections.get(collection.key) || {}));
+    }
+    if (valueHash(repairedSettings) !== valueHash(currentSettings)) {
+      summary.siteSettings = apply
+        ? (currentSettings.schemaVersion ? 'repaired' : 'created')
+        : (currentSettings.schemaVersion ? 'repair' : 'create');
+      if (apply) await workspaceSettings.update(scope, repairedSettings);
     }
   }
   const sourceDocuments = [];

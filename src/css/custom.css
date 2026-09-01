@@ -47,8 +47,8 @@
   );
   --ifm-container-width: var(--site-max-width);
   --ifm-container-width-xl: var(--site-max-width);
-  --ifm-font-family-base: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --ifm-heading-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ifm-font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
+  --ifm-heading-font-family: 'Inter', system-ui, -apple-system, sans-serif;
   /* Type scale, matched to docs.sglang.io: 16px body on 1.75 leading, a
      compact 30 / 24 / 20px heading ramp, and 14px for the navigation chrome.
      Infima's own ramp is half again as large and inflates h1–h3 a second time

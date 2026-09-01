@@ -49,7 +49,7 @@ const objectStorage = createObjectStorage();
 const assets = postgresServices?.assets ?? require('./assets');
 const objectDeletions = postgresServices?.objectDeletions
   ?? createObjectDeletionQueue({db: require('./db').db});
-const {compileDocument, compileMarkdown, parseFrontmatter} = require('./mdx');
+const {compileDocument, compileMarkdown, parseFrontmatter, splitBlogPost} = require('./mdx');
 const workspaceContexts = postgresServices?.workspaceContexts ?? createWorkspaceContextResolver();
 const {loadServerPlugins, collectProvides, asRouteModule} = require('./plugins');
 // The tools in plugins/, each contributing its endpoints and whatever it lends
@@ -614,6 +614,7 @@ const ctx = {
   compileDocument,
   compileMarkdown,
   parseFrontmatter,
+  splitBlogPost,
   // What the installed plugins lend. ctx.references comes from the bibliography
   // plugin, and falls back to an empty one, because a core handler that reads
   // the bibliography must survive the plugin being removed.

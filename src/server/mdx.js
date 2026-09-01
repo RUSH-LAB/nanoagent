@@ -140,6 +140,15 @@ function stripFrontmatter(markdown) {
   return String(markdown ?? '').replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
 }
 
+function splitBlogPost(markdown) {
+  const source = String(markdown ?? '');
+  const match = /<!--\s*truncate\s*-->|\{\s*\/\*\s*truncate\s*\*\/\s*\}/i.exec(source);
+  return {
+    hasTruncateMarker: Boolean(match),
+    excerpt: match ? source.slice(0, match.index) : source,
+  };
+}
+
 function protect(source, pattern, values, body) {
   return source.replace(pattern, (...match) => {
     const token = `MOCHIPROTECTED${values.size}TOKEN`;
@@ -413,6 +422,7 @@ module.exports = {
   compileMarkdown,
   compileDocument,
   parseFrontmatter,
+  splitBlogPost,
   sanitizeTree,
   safeUrl,
   prepareSource,

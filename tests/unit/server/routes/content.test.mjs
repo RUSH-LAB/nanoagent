@@ -64,7 +64,7 @@ describe('GET /api/content/tree', () => {
 
   it('optionally returns safe frontmatter for one collection', async () => {
     const ctx = withDocs([
-      {path: 'posts/blog/a.md', markdown: '---\ndate: 2026-08-01\ntags: [news]\n---\nA'},
+      {path: 'posts/blog/a.md', markdown: '---\ndate: 2026-08-01\ntags: [news]\n---\nA\n\n<!-- truncate -->\n\nB'},
       {path: 'books/math/a.md', markdown: 'Math'},
     ]);
     const r = await invoke(routes, {
@@ -72,7 +72,25 @@ describe('GET /api/content/tree', () => {
     });
     assert.deepEqual(r.payload.documents.map(document => document.path), ['posts/blog/a.md']);
     assert.deepEqual(r.payload.documents[0].frontmatter.tags, ['news']);
+    assert.equal(r.payload.documents[0].hasTruncateMarker, true);
+    assert.equal(r.payload.documents[0].description, 'A');
+    assert.ok(r.payload.documents[0].createdAt);
+    assert.match(JSON.stringify(r.payload.documents[0].excerptTree), /A/);
+    assert.doesNotMatch(JSON.stringify(r.payload.documents[0].excerptTree), /B/);
     assert.equal('markdown' in r.payload.documents[0], false);
+  });
+
+  it('can return ordering metadata without compiling blog excerpts', async () => {
+    const ctx = withDocs([
+      {path: 'posts/blog/a.md', markdown: '---\ntitle: Post\ndate: 2026-08-01\n---\nA'},
+    ]);
+    const r = await invoke(routes, {
+      path: '/api/content/tree', query: {prefix: 'posts/blog', include: 'metadata'}, ctx, auth: ada,
+    });
+    assert.equal(r.payload.documents[0].frontmatter.title, 'Post');
+    assert.equal(r.payload.documents[0].readingTime, 1);
+    assert.equal(r.payload.documents[0].description, 'A');
+    assert.equal('excerptTree' in r.payload.documents[0], false);
   });
 });
 
@@ -119,6 +137,8 @@ describe('GET /api/content', () => {
     const r = await at(ctx, 'books/math.md');
     assert.equal(r.status, 200);
     assert.equal(r.payload.document.title, 'Math');
+    assert.equal(r.payload.document.description, 'Inline x^2 and t.');
+    assert.ok(r.payload.document.createdAt);
     const rendered = JSON.stringify(r.payload.tree);
     assert.match(rendered, /katex/, 'KaTeX produced inert markup');
     assert.match(rendered, /Theorem/, 'the allowlisted component remains data');

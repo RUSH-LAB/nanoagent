@@ -12,6 +12,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {createRequire} from 'node:module';
+import {isKnownTestDocumentPath} from '../maintenance/test-content-paths.mjs';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
@@ -120,12 +121,15 @@ const datasets = [
   },
   {
     table: 'document', keys: ['id'], columns: ['id', 'workspace_id', 'path', 'title', 'markdown', 'ydoc', 'visibility', 'created_by', 'created_at', 'updated_at', 'deleted_at'],
-    source: () => rows('select id, organizationId as workspace_id, path, title, markdown, ydoc, visibility, createdBy as created_by, createdAt as created_at, updatedAt as updated_at, deletedAt as deleted_at from document'),
+    source: () => rows('select id, organizationId as workspace_id, path, title, markdown, ydoc, visibility, createdBy as created_by, createdAt as created_at, updatedAt as updated_at, deletedAt as deleted_at from document')
+      .filter(row => !isKnownTestDocumentPath(row.path)),
     destination: 'select id, workspace_id, path, title, markdown, ydoc, visibility, created_by, created_at, updated_at, deleted_at from document',
   },
   {
     table: 'document_version', keys: ['id'], columns: ['id', 'workspace_id', 'document_id', 'seq', 'markdown', 'author_id', 'created_at'],
-    source: () => rows('select v.id, d.organizationId as workspace_id, v.documentId as document_id, v.seq, v.markdown, v.authorId as author_id, v.createdAt as created_at from document_version v join document d on d.id = v.documentId'),
+    source: () => rows('select v.id, d.organizationId as workspace_id, d.path as document_path, v.documentId as document_id, v.seq, v.markdown, v.authorId as author_id, v.createdAt as created_at from document_version v join document d on d.id = v.documentId')
+      .filter(row => !isKnownTestDocumentPath(row.document_path))
+      .map(({document_path: _documentPath, ...row}) => row),
     destination: 'select id, workspace_id, document_id, seq::int as seq, markdown, author_id, created_at from document_version',
   },
   {

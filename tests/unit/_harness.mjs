@@ -618,6 +618,7 @@ export function makeCtx(overrides = {}) {
     compileDocument: doc => require('../../src/server/mdx.js').compileMarkdown(doc.markdown),
     compileMarkdown: markdown => require('../../src/server/mdx.js').compileMarkdown(markdown),
     parseFrontmatter: markdown => require('../../src/server/mdx.js').parseFrontmatter(markdown),
+    splitBlogPost: markdown => require('../../src/server/mdx.js').splitBlogPost(markdown),
 
     ...rest,
   };

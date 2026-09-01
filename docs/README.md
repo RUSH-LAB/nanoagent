@@ -7,6 +7,8 @@ The documentation is organized by purpose:
 - [`plans/`](plans/) contains the current delivery plan. Completed plans are
   retained under [`plans/completed/`](plans/completed/) as implementation
   records rather than active work.
+- [`debug/`](debug/) records root causes and reusable debugging lessons from
+  significant incidents.
 
 Start with the [product north star](product/north-star.md), then read the
 [platform architecture](infra/platform-architecture.md). For database setup on
@@ -18,3 +20,5 @@ The current work queue is the
 [workspace content and Docusaurus rendering plan](plans/workspace-content-and-rendering.md).
 Production deployment is intentionally
 [on hold](plans/on-hold/production-readiness.md).
+The runtime-content migration investigation is documented in
+[Docusaurus runtime content parity](debug/docusaurus-runtime-content-parity.md).

@@ -21,6 +21,8 @@
     "start:postgres:api": "node scripts/db/postgres.mjs serve",
     "object-storage:verify": "node --env-file-if-exists=.env.postgres.local --env-file-if-exists=.env.production.local scripts/maintenance/verify-object-storage.mjs",
     "mail:verify": "NODE_ENV=production node --env-file-if-exists=.env.production.local scripts/maintenance/verify-mail.mjs",
+    "content:prune-tests": "node --env-file-if-exists=.env.postgres.local scripts/maintenance/prune-test-documents.mjs",
+    "content:repair:postgres": "npm run db:postgres:migrate && npm run content:prune-tests -- mochi --apply && npm run content:migrate -- mochi --apply",
     "proofs:check": "cd plugins/lean-proofs/proofs && lake build",
     "proofs:test": "node --test 'tests/unit/plugins/lean-proofs/**/*.test.mjs' && npm run proofs:check",
     "docusaurus": "docusaurus",
