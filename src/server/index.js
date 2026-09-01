@@ -45,6 +45,7 @@ const {createObjectStorage} = require('./object-storage');
 const {createObjectDeletionQueue, drainObjectDeletions} = require('./object-deletions');
 const {serveStaticSite} = require('./static-site');
 const {createDocumentFilesystem} = require('./document-filesystem');
+const {usesLegacyDocumentFilesystem} = require('./document-filesystem-routing');
 const objectStorage = createObjectStorage();
 const assets = postgresServices?.assets ?? require('./assets');
 const objectDeletions = postgresServices?.objectDeletions
@@ -793,7 +794,7 @@ const server = http.createServer(async (req, res) => {
   // Legacy analysis handlers still use synchronous fs-shaped traversal. Give
   // them a request-local, read-only view over document rows so production has
   // one content source while those algorithms are migrated incrementally.
-  const routeCtx = req.context
+  const routeCtx = req.context && usesLegacyDocumentFilesystem(dispatchPathname)
     ? await (async () => {
         const root = contentRootFor(req.context.workspaceId);
         const snapshot = documents.snapshot ? await documents.snapshot(scopeFor(req)) : null;

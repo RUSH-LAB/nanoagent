@@ -3,7 +3,7 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import Link from '@docusaurus/Link';
 import Layout from '@theme/Layout';
 import {useLocation} from '@docusaurus/router';
-import API_BASE, {apiFetch} from '@site/src/utils/api';
+import API_BASE, {apiFetch, invalidateApiJson} from '@site/src/utils/api';
 import {loadWorkspaces, workspaceSlugFromPath} from '@site/src/utils/workspaces';
 import SafeDocument from '@site/src/runtime-content/SafeDocument';
 import pageStyles from '@site/src/css/page.module.css';
@@ -207,6 +207,7 @@ function FileManager() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({path: loadedPath, markdown}),
       });
+      invalidateApiJson(apiRoot);
       setSavedMarkdown(markdown);
       setMessage('Saved.');
       await refreshTree(loadedPath);
@@ -232,6 +233,7 @@ function FileManager() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({path, markdown: `---\ntitle: New page\n---\n\n# New page\n`}),
       });
+      invalidateApiJson(apiRoot);
       await refreshTree(path);
       setSelectedPath(path);
     } catch (error) {
@@ -254,6 +256,7 @@ function FileManager() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({from: loadedPath, to: nextPath}),
       });
+      invalidateApiJson(apiRoot);
       setSelectedPath(nextPath);
       setLoadedPath(nextPath);
       await refreshTree(nextPath);
@@ -275,6 +278,7 @@ function FileManager() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({path: loadedPath}),
       });
+      invalidateApiJson(apiRoot);
       setSelectedPath(null);
       setLoadedPath(null);
       setMarkdown('');

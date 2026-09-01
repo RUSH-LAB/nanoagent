@@ -95,6 +95,16 @@
   padding: var(--site-content-top) var(--site-page-gutter) 3rem;
 }
 
+.workspaceHome {
+  max-width: var(--site-page-width-wide);
+  margin: 0 auto;
+  padding: var(--site-content-top) var(--site-page-gutter) 3rem;
+}
+
+.workspaceHome h1 {
+  margin: 0;
+}
+
 @media (max-width: 700px) {
   .collectionHeader {
     align-items: flex-start;

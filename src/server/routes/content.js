@@ -77,16 +77,19 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
       const includeFrontmatter = include === 'frontmatter' || include === 'metadata';
       const includeExcerpt = include === 'frontmatter';
       const prefix = String(url.searchParams.get('prefix') || '').replace(/^\/+|\/+$/g, '');
-      const rows = includeFrontmatter ? await documents.snapshot(scope) : await documents.list(scope);
-      const filtered = prefix ? rows.filter(document => document.path.startsWith(`${prefix}/`)) : rows;
-      const response = await Promise.all(filtered.map(async document => {
+      const rows = includeFrontmatter
+        ? await documents.snapshot(scope, {prefix})
+        : await documents.list(scope, {prefix});
+      const response = await Promise.all(rows.map(async document => {
         const metadata = includeFrontmatter ? parseFrontmatter(document.markdown) : null;
         const blog = includeFrontmatter ? splitBlogPost(document.markdown) : null;
         const excerptTree = includeExcerpt ? await compileMarkdown(blog.excerpt) : null;
         return {
           id: document.id,
           path: document.path,
-          title: document.title,
+          title: includeFrontmatter && documents.titleOf
+            ? documents.titleOf(document.markdown, document.path)
+            : document.title,
           visibility: document.visibility,
           createdAt: document.createdAt,
           updatedAt: document.updatedAt,
@@ -140,20 +143,21 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
       return json(res, 422, {error: `This document could not be rendered: ${err.message}`, code: 'mdx-error'});
     }
     const blog = splitBlogPost(document.markdown);
+    const frontmatter = parseFrontmatter(document.markdown);
     return json(res, 200, {
       document: {
         id: document.id,
         path: document.path,
-        title: document.title,
+        title: documents.titleOf ? documents.titleOf(document.markdown, document.path) : document.title,
         visibility: document.visibility,
         createdAt: document.createdAt,
         updatedAt: document.updatedAt,
         hasTruncateMarker: blog.hasTruncateMarker,
         readingTime: Math.max(1, Math.ceil(document.markdown.split(/\s+/).filter(Boolean).length / 200)),
-        description: parseFrontmatter(document.markdown).description || descriptionOf(document.markdown),
+        description: frontmatter.description || descriptionOf(document.markdown),
       },
       markdown: document.markdown,
-      frontmatter: parseFrontmatter(document.markdown),
+      frontmatter,
       tree,
     });
   }

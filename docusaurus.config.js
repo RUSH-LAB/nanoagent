@@ -135,11 +135,11 @@ const config = {
           src: 'img/mochi.jpg',
         },
         items: [
-          {to: '/documents/posts/research', label: 'Research'},
-          {to: '/documents/posts/blog', label: 'Blog'},
-          {to: '/documents/books/survey/intro', label: 'Survey'},
-          {to: '/documents/books/programming/0-intro', label: 'Programming'},
-          {to: '/documents/books/math/0-intro', label: 'Math'},
+          {to: '/documents/posts/research', label: 'Research', position: 'left'},
+          {to: '/documents/posts/blog', label: 'Blog', position: 'left'},
+          {to: '/documents/books/survey/intro', label: 'Survey', position: 'left'},
+          {to: '/documents/books/programming/0-intro', label: 'Programming', position: 'left'},
+          {to: '/documents/books/math/0-intro', label: 'Math', position: 'left'},
           // Naming the search bar explicitly moves it from its default
           // auto-appended position to here, which is what lets the account
           // button sit to the right of it.

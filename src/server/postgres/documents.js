@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const {withRequestContext} = require('./client');
+const {titleOf} = require('../document-title');
 const VISIBILITIES = Object.freeze(['org', 'private']);
 const MAX_PATH_LENGTH = 400;
 
@@ -25,13 +26,9 @@ function checkPath(value) {
   return path;
 }
 
-const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/;
-const TITLE_RE = /^title:\s*["']?(.+?)["']?\s*$/m;
-function titleOf(markdown, path) {
-  const frontmatter = String(markdown ?? '').match(FRONTMATTER_RE);
-  const titled = frontmatter?.[1].match(TITLE_RE);
-  if (titled) return titled[1];
-  return (path.split('/').pop() ?? path).replace(/\.mdx?$/, '');
+function prefixOf(value) {
+  if (value === undefined || value === null || value === '') return null;
+  return checkPath(String(value).replace(/\/+$/, ''));
 }
 
 function createPostgresDocuments({pool, now = () => new Date().toISOString(), newId = () => crypto.randomUUID()}) {
@@ -44,14 +41,22 @@ function createPostgresDocuments({pool, now = () => new Date().toISOString(), ne
 
   const api = {
     titleOf,
-    async list(scope) {
+    async list(scope, {prefix} = {}) {
+      const cleanPrefix = prefixOf(prefix);
       return inScope(scope, async client => (await client.query(
-        `select ${columns} from document where deleted_at is null order by path`,
+        `select ${columns} from document
+          where deleted_at is null${cleanPrefix ? " and left(path, char_length($1) + 1) = $1 || '/'" : ''}
+          order by path`,
+        cleanPrefix ? [cleanPrefix] : [],
       )).rows);
     },
-    async snapshot(scope) {
+    async snapshot(scope, {prefix} = {}) {
+      const cleanPrefix = prefixOf(prefix);
       return inScope(scope, async client => (await client.query(
-        `select ${columns}, markdown from document where deleted_at is null order by path`,
+        `select ${columns}, markdown from document
+          where deleted_at is null${cleanPrefix ? " and left(path, char_length($1) + 1) = $1 || '/'" : ''}
+          order by path`,
+        cleanPrefix ? [cleanPrefix] : [],
       )).rows);
     },
     async get(scope, path) {
@@ -211,4 +216,4 @@ function createPostgresDocuments({pool, now = () => new Date().toISOString(), ne
   return Object.freeze(api);
 }
 
-module.exports = {createPostgresDocuments, titleOf, checkPath};
+module.exports = {createPostgresDocuments, titleOf, checkPath, prefixOf};

@@ -7,7 +7,7 @@ import useBaseUrl from '@docusaurus/useBaseUrl';
 import { useThemeConfig } from '@docusaurus/theme-common';
 import { useLocation } from '@docusaurus/router';
 import { useClickOutside } from '@site/src/hooks/useClickOutside';
-import { loadWorkspaces, switchWorkspace } from '@site/src/utils/workspaces';
+import { getCachedWorkspaces, loadWorkspaces, switchWorkspace } from '@site/src/utils/workspaces';
 import styles from './styles.module.css';
 
 /**
@@ -50,8 +50,9 @@ export default function WorkspaceSwitcher() {
   const authEnabled = siteConfig.customFields?.authEnabled;
   const location = useLocation();
 
-  const [workspaces, setWorkspaces] = useState(null);
-  const [activeId, setActiveId] = useState(null);
+  const cached = getCachedWorkspaces();
+  const [workspaces, setWorkspaces] = useState(cached?.memberships ?? null);
+  const [activeId, setActiveId] = useState(cached?.activeId ?? null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);

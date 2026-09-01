@@ -9,8 +9,8 @@ import BlogPostPage from '@theme/BlogPostPage';
 import DocRootLayout from '@theme/DocRoot/Layout';
 import {DocsSidebarProvider} from '@docusaurus/plugin-content-docs/client';
 import {HtmlClassNameProvider, ThemeClassNames} from '@docusaurus/theme-common';
-import API_BASE, {apiFetch} from '@site/src/utils/api';
-import {loadWorkspaces} from '@site/src/utils/workspaces';
+import API_BASE, {apiJson} from '@site/src/utils/api';
+import {loadWorkspaces, navigateClient} from '@site/src/utils/workspaces';
 import {createRuntimeBlogContent} from './RuntimeBlogPost';
 import RuntimeDocItem from './RuntimeDocItem';
 import styles from './documentRoute.module.css';
@@ -139,7 +139,12 @@ function DocumentBody({workspaceSlug, documentPath}) {
     let cancelled = false;
 
     (async () => {
-      setState({status: LOADING});
+      // Keep the current native page mounted while the next one is fetched.
+      // Replacing it with a temporary Layout remounted the navbar and caused
+      // both a visible jump and a slower-feeling transition.
+      setState(current => current.status === READY && current.workspaceSlug === workspaceSlug
+        ? {...current, pending: true}
+        : {status: LOADING, workspaceSlug});
       try {
         const {workspaces} = await loadWorkspaces();
         const workspace = workspaces.find(item => item.slug === workspaceSlug);
@@ -147,86 +152,71 @@ function DocumentBody({workspaceSlug, documentPath}) {
           if (!cancelled) setState({status: MISSING});
           return;
         }
-        const endpoint = documentPath
-          ? `${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/documents?path=${encodeURIComponent(documentPath)}`
-          : `${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/documents/tree`;
-        const res = await apiFetch(endpoint);
-        const payload = await res.json().catch(() => ({}));
-
+        const apiRoot = `${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}`;
+        const collectionPrefix = documentPath.split('/').slice(0, 2).join('/');
+        const isBlogPath = collectionPrefix.startsWith('posts/');
+        const treeQuery = documentPath
+          ? `?prefix=${encodeURIComponent(collectionPrefix)}&include=${isBlogPath ? 'frontmatter' : 'metadata'}`
+          : '';
+        const likelyCollection = /^(?:books|posts)\/[^/]+$/.test(documentPath);
+        const [documentResult, treeResult, siteResult] = await Promise.all([
+          documentPath && !likelyCollection
+            ? apiJson(`${apiRoot}/documents?path=${encodeURIComponent(documentPath)}`, {cacheMs: 30_000})
+            : Promise.resolve({ok: false, status: 404, data: {}}),
+          apiJson(`${apiRoot}/documents/tree${treeQuery}`, {cacheMs: 30_000}),
+          apiJson(`${apiRoot}/site`, {cacheMs: 5 * 60_000}),
+        ]);
         if (cancelled) return;
-        if (res.status === 404 && documentPath) {
-          // A path without an index document may still be a real collection.
-          // Research is one: its articles live below posts/research/, so asking
-          // for posts/research should show those articles rather than claim the
-          // workspace has no content.
-          const [treeRes, siteRes] = await Promise.all([
-            apiFetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/documents/tree?prefix=${encodeURIComponent(documentPath)}&include=frontmatter`),
-            apiFetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/site`),
-          ]);
-          const [treePayload, sitePayload] = await Promise.all([
-            treeRes.json().catch(() => ({})),
-            siteRes.json().catch(() => ({})),
-          ]);
-          if (cancelled) return;
-          if (treeRes.ok) {
-            const prefix = `${documentPath.replace(/\/+$/, '')}/`;
-            const children = (treePayload.documents ?? [])
-              .filter(document => document.path.startsWith(prefix))
-              .sort((a, b) => a.path.localeCompare(b.path));
-            if (children.length > 0) {
-              setState({
-                status: READY,
-                directory: documentPath,
-                documents: children,
-                site: siteRes.ok ? sitePayload.site : null,
-                workspaceId: workspace.id,
-              });
-              return;
-            }
+
+        const site = siteResult.ok ? siteResult.data.site : null;
+        const listed = treeResult.ok ? treeResult.data.documents || [] : [];
+        const readyBase = {
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          workspaceSlug,
+          site,
+        };
+        if (!documentPath) {
+          setState({status: READY, documents: listed, ...readyBase});
+          return;
+        }
+        if (documentResult.ok) {
+          setState({
+            status: READY,
+            tree: documentResult.data.tree,
+            document: documentResult.data.document,
+            frontmatter: documentResult.data.frontmatter || {},
+            documents: listed,
+            ...readyBase,
+          });
+          return;
+        }
+        if (documentResult.status === 404 && treeResult.ok) {
+          const prefix = `${documentPath.replace(/\/+$/, '')}/`;
+          const children = listed
+            .filter(document => document.path.startsWith(prefix))
+            .sort((a, b) => a.path.localeCompare(b.path));
+          if (children.length > 0) {
+            setState({
+              status: READY,
+              directory: documentPath,
+              documents: children,
+              ...readyBase,
+            });
+            return;
+          }
+          if (listed.length === 0 && (site?.navigation?.length ?? 0) === 0) {
+            setState({status: READY, documents: [], emptyWorkspace: true, ...readyBase});
+            navigateClient(`/w/${encodeURIComponent(workspaceSlug)}/documents`, {replace: true});
+            return;
           }
           setState({status: MISSING});
           return;
         }
-        if (res.status === 404) {
-          setState({status: MISSING});
-          return;
-        }
-        if (!res.ok) {
-          setState({status: BROKEN, message: payload.error || `Request failed (${res.status})`});
-          return;
-        }
-
-        if (cancelled) return;
-        if (documentPath) {
-          const [treeResponse, siteResponse] = await Promise.all([
-            apiFetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/documents/tree?include=metadata`),
-            apiFetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/site`),
-          ]);
-          const [treeData, siteData] = await Promise.all([
-            treeResponse.json().catch(() => ({})),
-            siteResponse.json().catch(() => ({})),
-          ]);
-          if (cancelled) return;
-          setState({
-            status: READY,
-            tree: payload.tree,
-            document: payload.document,
-            frontmatter: payload.frontmatter || {},
-            documents: treeResponse.ok ? treeData.documents || [] : [],
-            site: siteResponse.ok ? siteData.site : null,
-            workspaceId: workspace.id,
-          });
-        } else {
-          const siteResponse = await apiFetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/site`);
-          const siteData = await siteResponse.json().catch(() => ({}));
-          if (cancelled) return;
-          setState({
-            status: READY,
-            documents: payload.documents ?? [],
-            site: siteResponse.ok ? siteData.site : null,
-            workspaceId: workspace.id,
-          });
-        }
+        setState({
+          status: BROKEN,
+          message: documentResult.data.error || `Request failed (${documentResult.status})`,
+        });
       } catch (err) {
         if (!cancelled) setState({status: BROKEN, message: err.message});
       }
@@ -262,6 +252,14 @@ function DocumentBody({workspaceSlug, documentPath}) {
         <h1>This page could not be rendered</h1>
         <p>{state.message}</p>
       </main></Layout>
+    );
+  }
+
+  if (state.emptyWorkspace || (!documentPath && state.documents.length === 0)) {
+    return (
+      <Layout title={state.workspaceName}>
+        <main className={styles.workspaceHome}><h1>{state.workspaceName}</h1></main>
+      </Layout>
     );
   }
 

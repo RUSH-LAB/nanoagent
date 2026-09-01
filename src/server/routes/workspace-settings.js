@@ -16,8 +16,10 @@ module.exports = async function workspace_settings_routes(req, res, _url, _pathn
     if (req.method === 'GET') {
       requireWorkspacePermission(req.context, 'content:read');
       if (site) {
-        const settings = await workspaceSettings.get(req.context);
-        const rows = await documents.list(scopeFor(req));
+        const [settings, rows] = await Promise.all([
+          workspaceSettings.get(req.context),
+          documents.list(scopeFor(req)),
+        ]);
         return json(res, 200, {site: resolveWorkspaceSite(settings, rows)});
       }
       const settings = member

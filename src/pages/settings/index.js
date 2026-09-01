@@ -6,7 +6,7 @@ import {useLocation} from '@docusaurus/router';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import pageStyles from '@site/src/css/page.module.css';
 import { useColorMode } from '@docusaurus/theme-common';
-import API_BASE, { apiFetch } from '@site/src/utils/api';
+import API_BASE, { apiFetch, invalidateApiJson } from '@site/src/utils/api';
 import {
   loadWorkspaces, switchWorkspace, createWorkspace, workspaceSlugFromPath,
 } from '@site/src/utils/workspaces';
@@ -157,6 +157,7 @@ function SettingsApp() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Could not save workspace site settings');
+      invalidateApiJson(`${API_BASE}/api/workspaces/${encodeURIComponent(activeId)}/site`);
       setSiteConfig(data.site);
       setNavigationText((data.site.navigation || []).map(item => `${item.label} | ${item.path}`).join('\n'));
       setSiteMessage({kind: 'success', text: 'Workspace site settings saved.'});

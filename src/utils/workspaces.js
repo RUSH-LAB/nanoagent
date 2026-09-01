@@ -14,6 +14,7 @@ import API_BASE, { apiFetch } from './api.js';
 const WORKSPACE_CACHE_MS = 30_000;
 let workspaceRequest = null;
 let workspaceRequestTime = 0;
+let workspaceValue = null;
 
 export const WORKSPACE_PAGE_ROOTS = new Set([
   'analytics', 'bibliography', 'channels', 'compare', 'content-search', 'documents', 'files', 'flashcards',
@@ -64,13 +65,16 @@ export function loadWorkspaces({fresh = false} = {}) {
   }
   workspaceRequestTime = now;
   workspaceRequest = call('/api/workspaces')
-    .then(data => ({
-      ...data,
-      // Compatibility names while the remaining callers move to `workspaces`
-      // and `defaultWorkspaceId`.
-      memberships: data.workspaces ?? [],
-      activeId: data.defaultWorkspaceId ?? null,
-    }))
+    .then(data => {
+      workspaceValue = {
+        ...data,
+        // Compatibility names while the remaining callers move to `workspaces`
+        // and `defaultWorkspaceId`.
+        memberships: data.workspaces ?? [],
+        activeId: data.defaultWorkspaceId ?? null,
+      };
+      return workspaceValue;
+    })
     .catch(error => {
       workspaceRequest = null;
       workspaceRequestTime = 0;
@@ -79,9 +83,14 @@ export function loadWorkspaces({fresh = false} = {}) {
   return workspaceRequest;
 }
 
+export function getCachedWorkspaces() {
+  return workspaceValue;
+}
+
 export function invalidateWorkspaceCache() {
   workspaceRequest = null;
   workspaceRequestTime = 0;
+  workspaceValue = null;
 }
 
 /** Update the SPA router without downloading and booting the whole site again. */
@@ -98,7 +107,7 @@ export function navigateClient(pathname, {replace = false} = {}) {
   window.dispatchEvent(event);
 }
 
-/** Navigate to a workspace, preserving the workspace-relative page when able. */
+/** Navigate to a workspace, preserving tools but opening content at its home. */
 export async function switchWorkspace(workspace) {
   let target = workspace;
   if (typeof workspace === 'string') {
@@ -110,7 +119,8 @@ export async function switchWorkspace(workspace) {
   const current = typeof window === 'undefined' ? '' : window.location.pathname;
   const inWorkspace = /^\/w\/[^/]+(\/.*)?$/.exec(current);
   const suffix = inWorkspace?.[1] || '/documents';
-  navigateClient(`/w/${encodeURIComponent(target.slug)}${suffix}`);
+  const destination = suffix.startsWith('/documents/') ? '/documents' : suffix;
+  navigateClient(`/w/${encodeURIComponent(target.slug)}${destination}`);
 }
 
 /**

@@ -19,6 +19,7 @@ const GLOBAL_API_PATHS = [
 ];
 
 const workspaceIds = new Map();
+const jsonResponses = new Map();
 
 function currentWorkspaceSlug() {
   if (typeof window === 'undefined') return null;
@@ -78,6 +79,52 @@ async function workspaceScopedInput(input) {
 export async function apiFetch(input, init = {}) {
   if (!isOwnApi(input)) return fetch(input, init);
   return fetch(await workspaceScopedInput(input), {...init, credentials: 'include'});
+}
+
+/**
+ * Deduplicate and briefly retain read-only API responses. Docusaurus keeps the
+ * navbar mounted across ordinary navigation, but runtime content can remount
+ * layout subtrees. Sharing this cache prevents those consumers from turning
+ * one click into several identical Neon round trips.
+ */
+export async function apiJson(input, {cacheMs = 0, fresh = false, ...init} = {}) {
+  const method = String(init.method || 'GET').toUpperCase();
+  const key = typeof input === 'string' ? input : input.url;
+  const now = Date.now();
+  const cached = method === 'GET' && !fresh ? jsonResponses.get(key) : null;
+  if (cached && (cached.pending || now - cached.at < cacheMs)) return cached.value;
+
+  const pending = apiFetch(input, init).then(async response => ({
+    ok: response.ok,
+    status: response.status,
+    data: await response.json().catch(() => ({})),
+  }));
+  if (method === 'GET' && cacheMs > 0) {
+    jsonResponses.set(key, {at: now, pending: true, value: pending});
+  }
+  try {
+    const result = await pending;
+    if (method === 'GET' && cacheMs > 0 && result.ok) {
+      jsonResponses.set(key, {at: Date.now(), pending: false, result, value: Promise.resolve(result)});
+    } else if (method === 'GET') {
+      jsonResponses.delete(key);
+    }
+    return result;
+  } catch (error) {
+    if (method === 'GET') jsonResponses.delete(key);
+    throw error;
+  }
+}
+
+export function getCachedApiJson(input) {
+  const key = typeof input === 'string' ? input : input?.url;
+  return key ? jsonResponses.get(key)?.result ?? null : null;
+}
+
+export function invalidateApiJson(prefix = '') {
+  for (const key of jsonResponses.keys()) {
+    if (!prefix || key.startsWith(prefix)) jsonResponses.delete(key);
+  }
 }
 
 export default API_BASE;

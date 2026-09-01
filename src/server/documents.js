@@ -17,6 +17,7 @@
  * somebody may not read should not be a row that reached the process.
  */
 const crypto = require('crypto');
+const {titleOf} = require('./document-title');
 
 /** Raised when a caller has no workspace to read or write content in. */
 class NoWorkspaceError extends Error {
@@ -65,17 +66,6 @@ function workspaceOf(context) {
  * pages is a column read instead of several hundred regex passes over bodies
  * the caller did not ask for.
  */
-const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/;
-const TITLE_RE = /^title:\s*["']?(.+?)["']?\s*$/m;
-
-function titleOf(markdown, path) {
-  const frontmatter = String(markdown ?? '').match(FRONTMATTER_RE);
-  const titled = frontmatter?.[1].match(TITLE_RE);
-  if (titled) return titled[1];
-  const name = path.split('/').pop() ?? path;
-  return name.replace(/\.mdx?$/, '');
-}
-
 /**
  * Build the document layer over `db`. Exported so tests and the importer can
  * drive a throwaway database, and so the eventual Postgres connection is an
@@ -93,6 +83,8 @@ function createDocuments({db = require('./db').db, now = () => new Date().toISOS
 
   const statements = {
     list: db.prepare(`SELECT ${columns} FROM document WHERE ${VISIBLE} ORDER BY "path"`),
+    listPrefix: db.prepare(`SELECT ${columns} FROM document
+      WHERE ${VISIBLE} AND "path" LIKE ? ESCAPE '\\' ORDER BY "path"`),
     get: db.prepare(`SELECT ${columns}, "markdown" FROM document WHERE ${VISIBLE} AND "path" = ?`),
     getById: db.prepare(`SELECT ${columns}, "markdown" FROM document WHERE ${VISIBLE} AND "id" = ?`),
     // Deliberately not visibility-scoped: a path is taken or it is not, and a
@@ -134,13 +126,17 @@ function createDocuments({db = require('./db').db, now = () => new Date().toISOS
   };
 
   /** Every document in scope the caller may read, without their bodies. */
-  function list(scope) {
-    return statements.list.all(workspaceOf(scope), scope?.userId ?? null);
+  function list(scope, {prefix} = {}) {
+    const workspaceId = workspaceOf(scope);
+    if (!prefix) return statements.list.all(workspaceId, scope?.userId ?? null);
+    const cleanPrefix = checkPath(String(prefix).replace(/\/+$/, ''));
+    const pattern = `${cleanPrefix.replace(/[\\%_]/g, value => `\\${value}`)}/%`;
+    return statements.listPrefix.all(workspaceId, scope?.userId ?? null, pattern);
   }
 
   /** All visible document metadata and bodies in one scoped query. */
-  function snapshot(scope) {
-    return list(scope).map(row => get(scope, row.path)).filter(Boolean);
+  function snapshot(scope, options) {
+    return list(scope, options).map(row => get(scope, row.path)).filter(Boolean);
   }
 
   /** One document by path, with its body, or undefined. */

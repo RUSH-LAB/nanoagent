@@ -92,6 +92,16 @@ describe('GET /api/content/tree', () => {
     assert.equal(r.payload.documents[0].description, 'A');
     assert.equal('excerptTree' in r.payload.documents[0], false);
   });
+
+  it('uses the first H1 as the sidebar title when index frontmatter has no title', async () => {
+    const ctx = withDocs([
+      {path: 'books/programming/1-intro/index.md', markdown: '# Introduction to Computing\n\nBody'},
+    ]);
+    const r = await invoke(routes, {
+      path: '/api/content/tree', query: {prefix: 'books/programming', include: 'metadata'}, ctx, auth: ada,
+    });
+    assert.equal(r.payload.documents[0].title, 'Introduction to Computing');
+  });
 });
 
 describe('explicit workspace document API', () => {

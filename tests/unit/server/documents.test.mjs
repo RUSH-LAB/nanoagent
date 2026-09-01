@@ -86,6 +86,20 @@ describe('the workspace boundary', () => {
     assert.equal(only.length, 1, 'its own, and only its own');
   });
 
+  it('lists only documents below a requested collection prefix', () => {
+    documents.create(adaCourse, {path: 'posts/blog/a.md', markdown: 'A'});
+    documents.create(adaCourse, {path: 'posts/research/b.md', markdown: 'B'});
+    documents.create(adaCourse, {path: 'books/math/c.md', markdown: 'C'});
+    assert.deepEqual(
+      documents.list(adaCourse, {prefix: 'posts/blog'}).map(document => document.path),
+      ['posts/blog/a.md'],
+    );
+    assert.deepEqual(
+      documents.snapshot(adaCourse, {prefix: 'posts/research'}).map(document => document.path),
+      ['posts/research/b.md'],
+    );
+  });
+
   it('refuses a caller with no workspace, with the status the API sends', () => {
     const err = thrown(() => documents.list({workspaceId: null, userId: 'ada'}));
     assert.equal(err.code, 'no-workspace');
@@ -215,6 +229,12 @@ describe('titles', () => {
   it('fall back to the filename without its extension', () => {
     documents.create(adaLab, {path: 'books/no-frontmatter.md', markdown: 'just a body'});
     assert.equal(documents.get(adaLab, 'books/no-frontmatter.md').title, 'no-frontmatter');
+  });
+
+  it('use the first level-one heading before an index filename', () => {
+    const p = `books/chapter-${counter++}/index.md`;
+    documents.create(adaLab, {path: p, markdown: '# Human chapter title\n\nBody'});
+    assert.equal(documents.get(adaLab, p).title, 'Human chapter title');
   });
 
   it('follow the body when it is saved over', () => {
