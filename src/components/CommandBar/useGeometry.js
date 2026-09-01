@@ -42,11 +42,22 @@ const COARSE_STEP_PX = 64;
 
 const maxHeight = () => Math.round(window.innerHeight * 0.8);
 
+function storedCollapsed() {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 /** Never taller than most of the viewport, never shorter than one usable pane. */
 const clampHeight = (h) => Math.min(Math.max(h, MIN_HEIGHT), maxHeight());
 
 export default function useGeometry() {
-  const [collapsed, setCollapsedState] = useState(false);
+  // BrowserOnly guarantees this runs in the browser. Reading the persisted
+  // value in the initializer prevents one open-frame render (and its chat
+  // requests) before the mount effect discovers that the CLI was closed.
+  const [collapsed, setCollapsedState] = useState(storedCollapsed);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [dragging, setDragging] = useState(false);
   const [railOpen, setRailOpenState] = useState(true);
@@ -92,10 +103,9 @@ export default function useGeometry() {
   }, []);
 
   useEffect(() => {
-    let startCollapsed = false;
+    let startCollapsed = storedCollapsed();
     let startHeight = DEFAULT_HEIGHT;
     try {
-      startCollapsed = localStorage.getItem(COLLAPSED_KEY) === '1';
       // Shown unless it has been closed, so the conversations are there to be
       // found rather than behind a control nobody knows about.
       setRailOpenState(localStorage.getItem(RAIL_KEY) !== '0');

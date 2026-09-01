@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { newStore } from '../../../_harness.mjs';
 import path from 'node:path';
 import { key } from '../../../_harness.mjs';
+import {repositoryContext} from './_document-repository.mjs';
 
 // misc-tools.js is CommonJS; load the REAL module via createRequire the way the
 // sibling route tests do (next-content-health-pageids-hoist.test.mjs and
@@ -149,6 +150,7 @@ async function invokeCalendar({ fs, cached, schedule = [] }) {
   const ctx = {
     fs, path, PROJECT_ROOT, contentRootFor: () => CONTENT_DIR,
     ALLOWED_EXTS: ['.md', '.mdx'], cached, cacheKey: (_orgId, name) => key(name), json: cap.json,
+    ...repositoryContext({fs, root: CONTENT_DIR, path}),
     // The calendar folds in this workspace's scheduled publications. It used to
     // read them from a file it named itself, so they were every workspace's.
     ...newStore().seed('schedule', Object.fromEntries(schedule.map((it, i) => [`s${i}`, it]))).ctxFields,
@@ -225,7 +227,7 @@ describe('GET /api/calendar', () => {
     const afterFirst = { readdirSync: counts.readdirSync, readFileSync: counts.readFileSync };
 
     // The cache key and TTL are exactly what the handler passes.
-    assert.equal(calls[0].key, key('calendar'));
+    assert.equal(calls[0].key, key('calendar:test-user'));
     assert.equal(calls[0].ttl, 60000);
 
     const second = await invokeCalendar({ fs, cached });

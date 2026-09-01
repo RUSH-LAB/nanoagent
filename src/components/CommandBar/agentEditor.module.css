@@ -64,7 +64,8 @@
 }
 
 .label,
-.colors {
+.colors,
+.modelField {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
@@ -79,6 +80,38 @@
   margin-bottom: 0.35rem;
   padding: 0;
 }
+
+.modelField legend {
+  margin-bottom: 0.4rem;
+  padding: 0;
+}
+
+.modelChoices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.modelChoice {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.12rem;
+  padding: 0.58rem 0.7rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 9px;
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.modelChoice span { font-size: var(--cli-label); font-weight: 650; }
+.modelChoice small { overflow: hidden; color: var(--ifm-color-emphasis-500); font-size: var(--cli-micro); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.modelChoice:hover { border-color: var(--ifm-color-primary); }
+.modelChoiceOn { border-color: var(--ifm-color-primary); background: color-mix(in srgb, var(--ifm-color-primary) 8%, transparent); box-shadow: inset 0 0 0 1px var(--ifm-color-primary); }
+.modelChoice:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: 2px; }
 
 .input,
 .instructions {

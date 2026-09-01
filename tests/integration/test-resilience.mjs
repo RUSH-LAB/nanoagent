@@ -112,9 +112,9 @@ async function testConcurrentWrites() {
     assertOk(successes >= 1, `at least 1 write succeeded (got ${successes}/5)`);
 
     // Verify file is still readable and contains one coherent version
-    const {status: readStatus, data: readData} = await api('GET', `/api/file?path=${encodeURIComponent(TEST_FILE)}`);
+    const {status: readStatus, data: readData} = await api('GET', `/api/documents/source?path=${encodeURIComponent(TEST_FILE)}`);
     assertEq(readStatus, 200, 'file still readable after concurrent writes');
-    assertOk(readData.content.includes('Write number'), 'content is coherent');
+    assertOk(readData.markdown.includes('Write number'), 'content is coherent');
   });
 }
 
@@ -172,20 +172,20 @@ async function testNullValues() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 7. Very long paths: GET /api/file?path=content/a/b/c/d/e/f/g.md
+// 7. Very long paths: GET /api/documents/source?path=content/a/b/c/d/e/f/g.md
 // ────────────────────────────────────────────────────────────────
 async function testLongPaths() {
   section('7. Very long paths');
 
-  await test('GET /api/file with deeply nested path', async () => {
+  await test('GET document source with deeply nested path', async () => {
     const longPath = 'content/a/b/c/d/e/f/g.md';
-    const {status} = await api('GET', `/api/file?path=${encodeURIComponent(longPath)}`);
+    const {status} = await api('GET', `/api/documents/source?path=${encodeURIComponent(longPath)}`);
     // Should return 404 (file does not exist) but NOT crash
     assertOk(status === 404 || status === 400, `expected 404 or 400, got ${status}`);
 
     // Also test an absurdly long path
     const absurdPath = 'content/' + Array.from({length: 50}, (_, i) => `dir${i}`).join('/') + '/file.md';
-    const {status: s2} = await api('GET', `/api/file?path=${encodeURIComponent(absurdPath)}`);
+    const {status: s2} = await api('GET', `/api/documents/source?path=${encodeURIComponent(absurdPath)}`);
     assertOk(s2 === 404 || s2 === 400, `absurdly deep path: expected 404 or 400, got ${s2}`);
 
     // Server should still be alive
@@ -230,7 +230,7 @@ async function testConcurrentReadWrite() {
 
   await test('Simultaneous reads and writes to same file', async () => {
     // Ensure the test file exists
-    const {status: checkStatus} = await api('GET', `/api/file?path=${encodeURIComponent(TEST_FILE)}`);
+    const {status: checkStatus} = await api('GET', `/api/documents/source?path=${encodeURIComponent(TEST_FILE)}`);
     if (checkStatus === 404) {
       await api('POST', '/api/documents', {path: TEST_FILE, markdown: TEST_FILE_CONTENT});
     }
@@ -244,7 +244,7 @@ async function testConcurrentReadWrite() {
         }).then(r => ({type: 'write', status: r.status}))
       ),
       ...Array.from({length: 5}, () =>
-        api('GET', `/api/file?path=${encodeURIComponent(TEST_FILE)}`)
+        api('GET', `/api/documents/source?path=${encodeURIComponent(TEST_FILE)}`)
           .then(r => ({type: 'read', status: r.status}))
       ),
     ];

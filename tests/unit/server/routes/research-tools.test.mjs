@@ -75,6 +75,15 @@ function fsCtx(files, over = {}) {
   };
   const references = referencesForCore(bibliographyProvides.references);
   const ctx = makeCtx({fs, references, ...over});
+  if (!over.documents) {
+    const scope = {workspaceId: TEST_ORG_ID, userId: 'test-user'};
+    for (const [fullPath, markdown] of Object.entries(files)) {
+      if (!fullPath.startsWith(`${CONTENT_DIR}${path.sep}`)) continue;
+      const relative = path.relative(CONTENT_DIR, fullPath).replace(/\\/g, '/');
+      if (relative.split('/').pop().startsWith('.') || !/\.mdx?$/.test(relative)) continue;
+      ctx.documents.create(scope, {path: relative, markdown: String(markdown)});
+    }
+  }
   try {
     const parsed = files[BIB] == null ? {} : (yaml.load(files[BIB]) || {});
     const papers = ctx.scoped.collection('plugin:bibliography:papers');
@@ -525,7 +534,7 @@ describe('GET /api/search', () => {
     let seen;
     const {ctx, counts} = fsCtx(TREE, {cached: (k, t, fn) => { seen = [k, t]; return ctx.cache[k] ?? (ctx.cache[k] = fn()); }});
     await invoke(routes, {path: '/api/search', query: {q: 'quantum'}, ctx});
-    assert.deepEqual(seen, [key('search:index'), 60000]);
+    assert.deepEqual(seen, [key('search:index:test-user'), 60000]);
     const after = counts.readdir;
     await invoke(routes, {path: '/api/search', query: {q: 'entanglement'}, ctx});
     assert.equal(counts.readdir, after, 'the second query reuses the index');
@@ -533,7 +542,7 @@ describe('GET /api/search', () => {
 
   it('indexes each document with its frequency map, length and raw content only', async () => {
     let indexed;
-    const {ctx} = fsCtx(TREE, {cached: (k, t, fn) => { indexed = fn(); return indexed; }});
+    const {ctx} = fsCtx(TREE, {cached: async (k, t, fn) => { indexed = await fn(); return indexed; }});
     await invoke(routes, {path: '/api/search', query: {q: 'quantum'}, ctx});
     const [doc] = indexed.docs;
     assert.deepEqual(Object.keys(doc).sort(), ['_content', 'firstLines', 'length', 'name', 'path', 'tf', 'words']);
@@ -542,7 +551,7 @@ describe('GET /api/search', () => {
   });
 
   it('returns 500 when the index walk throws', async () => {
-    const ctx = makeCtx({fs: {readdirSync() { throw new Error('unreadable'); }}});
+    const ctx = makeCtx({documents: {snapshot() { throw new Error('unreadable'); }}});
     const r = await invoke(routes, {path: '/api/search', query: {q: 'quantum'}, ctx});
     assert.deepEqual([r.status, r.payload], [500, {error: 'Search failed'}]);
   });

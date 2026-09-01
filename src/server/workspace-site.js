@@ -4,6 +4,7 @@ const MAX_NAVIGATION_ITEMS = 24;
 const MAX_COLLECTIONS = 32;
 const MAX_AUTHORS = 100;
 const MAX_PLUGINS = 64;
+const HOME_LAYOUTS = new Set(['title', 'library', 'document']);
 const LEGACY_PLUGIN_FLAGS = Object.freeze({
   bibliography: 'citations',
   'lean-proofs': 'leanProofs',
@@ -44,10 +45,12 @@ function validateNavigation(value) {
   if (value.length > MAX_NAVIGATION_ITEMS) throw new TypeError(`navigation may contain at most ${MAX_NAVIGATION_ITEMS} items`);
   return value.map((item, index) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) throw new TypeError(`navigation[${index}] must be an object`);
-    return {
+    const navigation = {
       label: text(item.label, `navigation[${index}].label`, {required: true, max: 50}),
       path: contentPath(item.path, `navigation[${index}].path`),
     };
+    if (item.hidden === true) navigation.hidden = true;
+    return navigation;
   });
 }
 
@@ -138,13 +141,17 @@ function validateWorkspaceSite(value = {}) {
   if (!site || typeof site !== 'object' || Array.isArray(site)) throw new TypeError('site must be an object');
   const rendering = value.rendering ?? {};
   if (!rendering || typeof rendering !== 'object' || Array.isArray(rendering)) throw new TypeError('rendering must be an object');
-  return {
+  if (site.homeLayout != null && !HOME_LAYOUTS.has(site.homeLayout)) {
+    throw new TypeError('site.homeLayout must be title, library, or document');
+  }
+  const validated = {
     schemaVersion: 2,
     site: {
       title: text(site.title, 'site.title', {max: 80}),
       tagline: text(site.tagline, 'site.tagline', {max: 200}),
       logoAssetId: text(site.logoAssetId, 'site.logoAssetId', {max: 100}),
       homeDocument: site.homeDocument ? contentPath(site.homeDocument, 'site.homeDocument') : null,
+      homeLayout: site.homeLayout ?? null,
     },
     navigation: value.navigation == null ? [] : validateNavigation(value.navigation),
     collections: value.collections == null ? [] : validateCollections(value.collections),
@@ -155,6 +162,12 @@ function validateWorkspaceSite(value = {}) {
       math: rendering.math === undefined ? true : Boolean(rendering.math),
     },
   };
+  if (validated.site.homeLayout === 'document'
+    && !validated.site.homeDocument
+    && !validated.navigation[0]?.path) {
+    throw new TypeError('site.homeDocument is required for the document home page');
+  }
+  return validated;
 }
 
 function quickNotesPathFor(site) {
@@ -183,4 +196,5 @@ module.exports = {
   resolveWorkspaceSite,
   quickNotesPathFor,
   LEGACY_PLUGIN_FLAGS,
+  HOME_LAYOUTS,
 };

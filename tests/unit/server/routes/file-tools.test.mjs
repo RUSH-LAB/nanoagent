@@ -10,7 +10,7 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, key} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, TEST_ORG_ID, key} from '../../_harness.mjs';
 
 const routes = loadRoute('file-tools');
 
@@ -31,7 +31,35 @@ function fsCtx(files, over = {}) {
     readFileSync: p => { counts.read++; return base.readFileSync(p); },
     readdirSync: (p, o) => { counts.readdir++; return base.readdirSync(p, o); },
   };
-  return {ctx: makeCtx({fs, ...over}), counts};
+  const ctx = makeCtx({fs, ...over});
+  if (!over.documents) {
+    const scope = {workspaceId: TEST_ORG_ID, userId: 'test-user'};
+    for (const [fullPath, markdown] of Object.entries(files)) {
+      if (!fullPath.startsWith(`${CONTENT_DIR}${path.sep}`)) continue;
+      const relative = path.relative(CONTENT_DIR, fullPath).replace(/\\/g, '/');
+      if (relative.split('/').pop().startsWith('.') || !/\.mdx?$/.test(relative)) continue;
+      ctx.documents.create(scope, {path: relative, markdown: String(markdown)});
+    }
+    const repository = ctx.documents;
+    ctx.documents = {
+      ...repository,
+      get(...args) { counts.read++; return repository.get(...args); },
+      snapshot(...args) { counts.readdir++; return repository.snapshot(...args); },
+    };
+  }
+  if (!over.cached) {
+    ctx.cached = (cacheKey, ttl, fn) => {
+      ctx.calls.cached.push(cacheKey);
+      if (Object.prototype.hasOwnProperty.call(ctx.cache, cacheKey)) return ctx.cache[cacheKey].data;
+      const data = fn();
+      ctx.cache[cacheKey] = {data, time: 0, ttl};
+      if (data && typeof data.then === 'function') {
+        data.catch(() => { delete ctx.cache[cacheKey]; });
+      }
+      return data;
+    };
+  }
+  return {ctx, counts};
 }
 
 // ── The shared per-path guard and micro-cache contract ────────────────────
@@ -41,12 +69,12 @@ function fsCtx(files, over = {}) {
 // failure to 404. The read stays inside the closure so the 404 is never cached.
 describe('per-path guard and cache contract', () => {
   const CACHED = [
-    {path: '/api/file/lint', prefix: 'filelint:'},
-    {path: '/api/file/related', prefix: 'related:'},
+    {path: '/api/content/analysis/lint', prefix: 'filelint:'},
+    {path: '/api/content/analysis/related', prefix: 'related:'},
   ];
   const UNCACHED = [
-    {path: '/api/file/keywords'},
-    {path: '/api/file/readability'},
+    {path: '/api/content/analysis/keywords'},
+    {path: '/api/content/analysis/readability'},
   ];
   const DOC = {[at('a.md')]: fm({title: 'A'}, 'Some body text here.'), [at('b.md')]: 'Other body text here.'};
 
@@ -72,25 +100,27 @@ describe('per-path guard and cache contract', () => {
       // suggest-tags nests an inner all-tags-set memo, so record the first key only.
       const {ctx} = fsCtx(DOC, {cached: (key, ttl, fn) => { seen ??= [key, ttl]; return fn(); }});
       await invoke(routes, {path: p, query: {path: 'a.md'}, ctx});
-      assert.deepEqual(seen, [key(`${prefix}a.md`), 30000]);
+      assert.deepEqual(seen, [key(`${prefix}test-user:a.md`), 30000]);
     });
 
     it(`${p} serves a repeat request from cache and keys each path separately`, async () => {
       const {ctx, counts} = fsCtx(DOC);
       await invoke(routes, {path: p, query: {path: 'a.md'}, ctx});
-      const afterFirst = counts.read;
+      const counter = p.endsWith('/related') ? 'readdir' : 'read';
+      const afterFirst = counts[counter];
       await invoke(routes, {path: p, query: {path: 'a.md'}, ctx});
-      assert.equal(counts.read, afterFirst, 'the repeat request is served from cache');
+      assert.equal(counts[counter], afterFirst, 'the repeat request is served from cache');
       await invoke(routes, {path: p, query: {path: 'b.md'}, ctx});
-      assert.ok(counts.read > afterFirst, 'a distinct path is a distinct cache entry');
+      assert.ok(counts[counter] > afterFirst, 'a distinct path is a distinct cache entry');
     });
 
     it(`${p} does not cache the 404 for a missing file`, async () => {
       const {ctx, counts} = fsCtx(DOC);
       await invoke(routes, {path: p, query: {path: 'gone.md'}, ctx});
-      const afterFirst = counts.read;
+      const counter = p.endsWith('/related') ? 'readdir' : 'read';
+      const afterFirst = counts[counter];
       await invoke(routes, {path: p, query: {path: 'gone.md'}, ctx});
-      assert.ok(counts.read > afterFirst, 'the error path stays outside the cache, so the next request retries');
+      assert.ok(counts[counter] > afterFirst, 'the error path stays outside the cache, so the next request retries');
     });
   }
 });
@@ -101,10 +131,10 @@ describe('per-path guard and cache contract', () => {
 
 // ── Lint ──────────────────────────────────────────────────────────────────
 
-describe('GET /api/file/lint', () => {
+describe('GET /api/content/analysis/lint', () => {
   const lint = async doc => {
     const {ctx} = fsCtx({[at('doc.md')]: doc});
-    const r = await invoke(routes, {path: '/api/file/lint', query: {path: 'doc.md'}, ctx});
+    const r = await invoke(routes, {path: '/api/content/analysis/lint', query: {path: 'doc.md'}, ctx});
     return r.payload;
   };
 
@@ -169,7 +199,7 @@ describe('GET /api/file/lint', () => {
 
 // ── Keywords ──────────────────────────────────────────────────────────────
 
-describe('GET /api/file/keywords', () => {
+describe('GET /api/content/analysis/keywords', () => {
   it('counts keywords, dropping stop words and markdown scaffolding', async () => {
     const doc = fm({title: 'Ignored'}, [
       '# Heading',
@@ -182,7 +212,7 @@ describe('GET /api/file/keywords', () => {
       '<span>html</span>',
     ].join('\n'));
     const {ctx} = fsCtx({[at('doc.md')]: doc});
-    const r = await invoke(routes, {path: '/api/file/keywords', query: {path: 'doc.md'}, ctx});
+    const r = await invoke(routes, {path: '/api/content/analysis/keywords', query: {path: 'doc.md'}, ctx});
     assert.equal(r.status, 200);
     const counts = Object.fromEntries(r.payload.keywords.map(k => [k.word, k.count]));
     assert.equal(counts.quantum, 3, 'the fenced occurrence is stripped before counting');
@@ -198,7 +228,7 @@ describe('GET /api/file/keywords', () => {
     const name = i => 'w' + String.fromCharCode(97 + Math.floor(i / 26)) + String.fromCharCode(97 + (i % 26));
     const words = Array.from({length: 30}, (_, i) => Array(i + 1).fill(name(i)).join(' ')).join(' ');
     const {ctx} = fsCtx({[at('doc.md')]: words});
-    const r = await invoke(routes, {path: '/api/file/keywords', query: {path: 'doc.md'}, ctx});
+    const r = await invoke(routes, {path: '/api/content/analysis/keywords', query: {path: 'doc.md'}, ctx});
     assert.equal(r.payload.keywords.length, 20);
     const counts = r.payload.keywords.map(k => k.count);
     assert.deepEqual(counts, [...counts].sort((a, b) => b - a));
@@ -233,7 +263,7 @@ describe('keyword strip regexes exported from the module', () => {
     const doc = fm({title: 'T'}, 'alpha beta alpha gamma alpha beta');
     const run = async () => {
       const {ctx} = fsCtx({[at('doc.md')]: doc});
-      const r = await invoke(routes, {path: '/api/file/keywords', query: {path: 'doc.md'}, ctx});
+      const r = await invoke(routes, {path: '/api/content/analysis/keywords', query: {path: 'doc.md'}, ctx});
       return r.payload;
     };
     const first = await run();
@@ -245,10 +275,10 @@ describe('keyword strip regexes exported from the module', () => {
 
 // ── Readability ───────────────────────────────────────────────────────────
 
-describe('GET /api/file/readability', () => {
+describe('GET /api/content/analysis/readability', () => {
   const read = async doc => {
     const {ctx} = fsCtx({[at('doc.md')]: doc});
-    const r = await invoke(routes, {path: '/api/file/readability', query: {path: 'doc.md'}, ctx});
+    const r = await invoke(routes, {path: '/api/content/analysis/readability', query: {path: 'doc.md'}, ctx});
     return r.payload;
   };
 
@@ -331,7 +361,7 @@ describe('GET /api/file/readability', () => {
 
 // ── Related ───────────────────────────────────────────────────────────────
 
-describe('GET /api/file/related', () => {
+describe('GET /api/content/analysis/related', () => {
   const TREE = {
     [at('source.md')]: fm({title: 'Source', tags: '[alpha, beta]'}, 'quantum entanglement decoherence measurement'),
     [at('sharesTag.md')]: fm({title: 'Shares Tag', tags: '[alpha]'}, 'completely different subject matter'),
@@ -342,7 +372,7 @@ describe('GET /api/file/related', () => {
 
   it('ranks by tag and word overlap, excluding the source and unrelated files', async () => {
     const {ctx} = fsCtx(TREE);
-    const r = await invoke(routes, {path: '/api/file/related', query: {path: 'source.md'}, ctx});
+    const r = await invoke(routes, {path: '/api/content/analysis/related', query: {path: 'source.md'}, ctx});
     assert.equal(r.status, 200);
     const paths = r.payload.related.map(x => x.path);
     assert.ok(paths.includes('sharesTag.md'));
@@ -360,7 +390,7 @@ describe('GET /api/file/related', () => {
     const many = {[at('source.md')]: fm({title: 'S', tags: '[alpha]'}, 'shared vocabulary here')};
     for (let i = 0; i < 15; i++) many[at(`r${i}.md`)] = fm({title: `R${i}`, tags: '[alpha]'}, 'shared vocabulary here');
     const {ctx} = fsCtx(many);
-    const r = await invoke(routes, {path: '/api/file/related', query: {path: 'source.md'}, ctx});
+    const r = await invoke(routes, {path: '/api/content/analysis/related', query: {path: 'source.md'}, ctx});
     assert.equal(r.payload.related.length, 10);
   });
 });

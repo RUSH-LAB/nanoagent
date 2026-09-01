@@ -28,7 +28,7 @@ const LINT_HEADING_PREFIX_RE = /^#{1,6}\s+/;
 
 module.exports = async function analysis_admin_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, documents, _routeDiagnostics
   } = ctx;
 
   // ── Writing Streak Tracker ──
@@ -119,8 +119,9 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
   }
 
   // ── Recently modified files ──
-  if (req.method === 'GET' && pathname === '/api/files/recent') {
+  if (req.method === 'GET' && pathname === '/api/content/recent') {
     try {
+      const scope = scopeFor(req);
       // `parseInt` yields NaN for a present-but-non-numeric value (e.g. `?limit=abc`),
       // which would otherwise collapse the slice below to an empty list. Fall back to
       // the default 10, mirroring the `intParam` idiom in comments-notes.js. Clamp the
@@ -139,38 +140,34 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
       // in this file. A 30s snapshot is behavior preserving because the walk is
       // deterministic for a given content state. The slice and the try/catch 500
       // path stay outside the cache, so errors are never cached.
-      const sorted = cached('files-recent:' + (includeStats ? 'stats' : 'plain'), 30000, () => {
-        const contentDir = contentRootFor(req.context?.workspaceId);
-        const files = [];
-        function walkRecent(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.')) continue;
-            const fullPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              walkRecent(fullPath);
-            } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              const stat = fs.statSync(fullPath);
-              const relPath = path.relative(contentRootFor(req.context?.workspaceId), fullPath);
-              const fileInfo = {name: entry.name, path: relPath, mtime: stat.mtimeMs};
-              if (includeStats) {
-                try {
-                  const content = fs.readFileSync(fullPath, 'utf-8');
-                  const wordCount = content.split(/\s+/).filter(Boolean).length;
-                  fileInfo.wordCount = wordCount;
-                  fileInfo.readingTimeMin = Math.ceil(wordCount / 200);
-                  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-                  if (fmMatch) {
-                    const titleMatch = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
-                    if (titleMatch) fileInfo.title = titleMatch[1];
-                  }
-                } catch {}
-              }
-              files.push(fileInfo);
+      const sorted = await cached(cacheKey(
+        scope.workspaceId,
+        `files-recent:${scope.userId}:${includeStats ? 'stats' : 'plain'}`,
+      ), 30000, async () => {
+        const rows = includeStats
+          ? await documents.snapshot(scope)
+          : await documents.list(scope);
+        const files = rows
+          .filter(document => {
+            const name = document.path.split('/').pop();
+            return !name.startsWith('.') && ALLOWED_EXTS.some(ext => name.endsWith(ext));
+          })
+          .map(document => {
+            const fileInfo = {
+              name: document.path.split('/').pop(),
+              path: document.path,
+              mtime: Date.parse(document.updatedAt) || 0,
+            };
+            if (includeStats) {
+              const content = document.markdown ?? '';
+              const wordCount = content.split(/\s+/).filter(Boolean).length;
+              fileInfo.wordCount = wordCount;
+              fileInfo.readingTimeMin = Math.ceil(wordCount / 200);
+              fileInfo.title = document.title;
             }
-          }
-        }
-        walkRecent(contentDir);
-        files.sort((a, b) => b.mtime - a.mtime);
+            return fileInfo;
+          });
+        files.sort((a, b) => b.mtime - a.mtime || b.path.localeCompare(a.path));
         return files;
       });
       return json(res, 200, {files: sorted.slice(0, Math.min(limit, 50))});
@@ -182,41 +179,23 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
   // ── Content Duplication Detection ──
   if (req.method === 'GET' && pathname === '/api/analytics/duplicates') {
     try {
-      const duplicates = cached(cacheKey(req.context?.workspaceId, 'analytics:duplicates'), 60000, () => {
-        const contentDir = contentRootFor(req.context?.workspaceId);
+      const scope = scopeFor(req);
+      const duplicates = await cached(cacheKey(scope.workspaceId, `analytics:duplicates:${scope.userId}`), 60000, async () => {
         const fingerprints = []; // [{path, name, words: Set}]
-
-        function scanFiles(dir) {
-          if (!fs.existsSync(dir)) return;
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.')) continue;
-            const fullPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              scanFiles(fullPath);
-            } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              try {
-                let text = fs.readFileSync(fullPath, 'utf8');
-                // Strip frontmatter
-                text = text.replace(/^---[\s\S]*?---/, '');
-                // Strip markdown syntax
-                text = text.replace(/```[\s\S]*?```/g, '');
-                text = text.replace(/`[^`]*`/g, '');
-                text = text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
-                text = text.replace(/#{1,6}\s*/g, '');
-                text = text.replace(/[*_~`>|\\[\]()-]/g, ' ');
-                text = text.replace(/<[^>]+>/g, '');
-                // First 100 words as fingerprint
-                const allWords = text.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-                const first100 = allWords.slice(0, 100);
-                if (first100.length < 5) continue; // skip very short files
-                const relPath = path.relative(contentRootFor(req.context?.workspaceId), fullPath);
-                fingerprints.push({path: relPath, name: entry.name, words: new Set(first100)});
-              } catch { /* skip unreadable */ }
-            }
-          }
+        for (const document of await documents.snapshot(scope)) {
+          const name = document.path.split('/').pop();
+          if (name.startsWith('.') || !ALLOWED_EXTS.some(ext => name.endsWith(ext))) continue;
+          let text = document.markdown ?? '';
+          text = text.replace(/^---[\s\S]*?---/, '');
+          text = text.replace(/```[\s\S]*?```/g, '');
+          text = text.replace(/`[^`]*`/g, '');
+          text = text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
+          text = text.replace(/#{1,6}\s*/g, '');
+          text = text.replace(/[*_~`>|\\[\]()-]/g, ' ');
+          text = text.replace(/<[^>]+>/g, '');
+          const first100 = text.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 100);
+          if (first100.length >= 5) fingerprints.push({path: document.path, name, words: new Set(first100)});
         }
-
-        scanFiles(contentDir);
 
         // Compare all pairs using Jaccard similarity
         const pairs = [];
@@ -261,35 +240,22 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
   // ── Orphan Pages Detection ──
   if (req.method === 'GET' && pathname === '/api/analytics/orphans') {
     try {
-      const orphans = cached(cacheKey(req.context?.workspaceId, 'analytics:orphans'), 60000, () => {
-        const contentDir = contentRootFor(req.context?.workspaceId);
-        const allPages = []; // [{path, name, fullPath}]
+      const scope = scopeFor(req);
+      const orphans = await cached(cacheKey(scope.workspaceId, `analytics:orphans:${scope.userId}`), 60000, async () => {
+        const allPages = (await documents.snapshot(scope))
+          .filter(document => {
+            const name = document.path.split('/').pop();
+            return !name.startsWith('.') && ALLOWED_EXTS.some(ext => name.endsWith(ext));
+          })
+          .map(document => ({path: document.path, name: document.path.split('/').pop(), markdown: document.markdown ?? ''}));
         const linkedTargets = new Set(); // set of basenames and relative paths that are linked to
-
-        // First pass: collect all pages and all outgoing links
-        function collectPages(dir) {
-          if (!fs.existsSync(dir)) return;
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.')) continue;
-            const fullPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              collectPages(fullPath);
-            } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              const relPath = path.relative(contentRootFor(req.context?.workspaceId), fullPath);
-              allPages.push({path: relPath, name: entry.name, fullPath});
-            }
-          }
-        }
-
-        collectPages(contentDir);
 
         // Second pass: find all link targets across all pages, plus sidebar references
         const wikiLinkRe = /\[\[([^\]]+)\]\]/g;
         const mdLinkRe = /\[([^\]]*)\]\(([^)]+)\)/g;
 
         for (const page of allPages) {
-          try {
-            const content = fs.readFileSync(page.fullPath, 'utf8');
+            const content = page.markdown;
             let match;
 
             // Wiki links [[target]] or [[target|alias]]
@@ -319,7 +285,6 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
               linkedTargets.add(baseName);
               linkedTargets.add(baseName.toLowerCase());
             }
-          } catch { /* skip unreadable */ }
         }
 
         // Determine orphans: pages not referenced by any other page
@@ -344,14 +309,10 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
 
           if (!isLinked) {
             // Compute word count
-            let wordCount = 0;
-            try {
-              let text = fs.readFileSync(page.fullPath, 'utf8');
-              text = text.replace(/^---[\s\S]*?---/, '');
-              text = text.replace(/```[\s\S]*?```/g, '');
-              text = text.replace(/`[^`]*`/g, '');
-              wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
-            } catch {}
+            let text = page.markdown.replace(/^---[\s\S]*?---/, '');
+            text = text.replace(/```[\s\S]*?```/g, '');
+            text = text.replace(/`[^`]*`/g, '');
+            const wordCount = text.split(/\s+/).filter(Boolean).length;
             result.push({path: page.path, name: page.name, wordCount});
           }
         }
@@ -369,33 +330,21 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
   // ── Tags: list all tags with counts ──
   if (req.method === 'GET' && pathname === '/api/tags') {
     try {
-      const tags = cached(cacheKey(req.context?.workspaceId, 'all-tags'), 30000, () => {
-        const contentDir = contentRootFor(req.context?.workspaceId);
+      const scope = scopeFor(req);
+      const tags = await cached(cacheKey(scope.workspaceId, `all-tags:${scope.userId}`), 30000, async () => {
         const tagCounts = {};
-        function scanTags(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-            const fullPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              scanTags(fullPath);
-            } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              try {
-                const content = fs.readFileSync(fullPath, 'utf-8');
-                const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-                if (fmMatch) {
-                  const tagsMatch = fmMatch[1].match(/^tags:\s*\[([^\]]*)\]/m);
-                  if (tagsMatch) {
-                    const fileTags = tagsMatch[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
-                    for (const tag of fileTags) {
-                      tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-                    }
-                  }
-                }
-              } catch {}
+        for (const document of await documents.snapshot(scope)) {
+          const name = document.path.split('/').pop();
+          if (name.startsWith('.') || name.startsWith('_') || !ALLOWED_EXTS.some(ext => name.endsWith(ext))) continue;
+          const fmMatch = document.markdown.match(/^---\n([\s\S]*?)\n---/);
+          const tagsMatch = fmMatch?.[1].match(/^tags:\s*\[([^\]]*)\]/m);
+          if (tagsMatch) {
+            const fileTags = tagsMatch[1].split(',').map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+            for (const tag of fileTags) {
+              tagCounts[tag] = (tagCounts[tag] || 0) + 1;
             }
           }
         }
-        scanTags(contentDir);
         return Object.entries(tagCounts)
           .sort((a, b) => b[1] - a[1])
           .map(([tag, count]) => ({tag, count}));
@@ -410,13 +359,12 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
   // ── Bulk content lint ──
   if (req.method === 'GET' && pathname === '/api/content-lint') {
     try {
-      const report = cached(cacheKey(req.context?.workspaceId, 'content-lint'), 60000, () => {
-        const contentDir = contentRootFor(req.context?.workspaceId);
+      const scope = scopeFor(req);
+      const report = await cached(cacheKey(scope.workspaceId, `content-lint:${scope.userId}`), 60000, async () => {
         const fileIssues = [];
         let totalIssues = 0;
         const severityCounts = {error: 0, warning: 0, info: 0};
-        function lintFile(fullPath, relPath) {
-          const content = fs.readFileSync(fullPath, 'utf-8');
+        function lintFile(content, relPath) {
           const issues = [];
           const lines = content.split('\n');
           const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
@@ -436,17 +384,11 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
             for (const iss of issues) severityCounts[iss.severity] = (severityCounts[iss.severity] || 0) + 1;
           }
         }
-        function scanLint(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-            const fp = path.join(dir, entry.name);
-            if (entry.isDirectory()) { scanLint(fp); continue; }
-            if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              try { lintFile(fp, path.relative(contentRootFor(req.context?.workspaceId), fp)); } catch {}
-            }
-          }
+        for (const document of await documents.snapshot(scope)) {
+          const name = document.path.split('/').pop();
+          if (name.startsWith('.') || name.startsWith('_') || !ALLOWED_EXTS.some(ext => name.endsWith(ext))) continue;
+          lintFile(document.markdown ?? '', document.path);
         }
-        scanLint(contentDir);
         return {files: fileIssues, totalIssues, severityCounts};
       });
       return json(res, 200, report);

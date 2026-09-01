@@ -28,7 +28,6 @@ const VAR_SEGS = ['var'];
 const DATA_SEGS = [...VAR_SEGS, 'data'];
 const LOGS_SEGS = [...VAR_SEGS, 'logs'];
 const TRASH_SEGS = [...VAR_SEGS, 'trash'];
-const DOCUMENT_FS_SEGS = [...VAR_SEGS, 'document-fs'];
 
 const ACCESS_LOG_SEGS = [...LOGS_SEGS, 'access.log'];
 
@@ -41,13 +40,6 @@ const DATA_DIR = nodePath.join(PROJECT_ROOT, ...DATA_SEGS);
 const LOGS_DIR = nodePath.join(PROJECT_ROOT, ...LOGS_SEGS);
 const TRASH_DIR = nodePath.join(PROJECT_ROOT, ...TRASH_SEGS);
 const ACCESS_LOG = nodePath.join(PROJECT_ROOT, ...ACCESS_LOG_SEGS);
-const DOCUMENT_FS_DIR = nodePath.join(PROJECT_ROOT, ...DOCUMENT_FS_SEGS);
-
-/**
- * A request-local compatibility root. It need not exist: document-filesystem.js
- * intercepts every path below it and serves rows from the scoped repository.
- */
-const documentFsRootFor = workspaceId => nodePath.join(DOCUMENT_FS_DIR, String(workspaceId || 'none'));
 
 /** The absolute path of the JSON store for `name`. */
 const dataFile = name => nodePath.join(PROJECT_ROOT, ...dataFileSegs(name));
@@ -65,8 +57,8 @@ const PRIMARY_ORG_SLUG = process.env.ROOT_ORG_SLUG || 'mochi';
 
 module.exports = {
   PROJECT_ROOT, PRIMARY_ORG_SLUG,
-  VAR_SEGS, DATA_SEGS, LOGS_SEGS, TRASH_SEGS, DOCUMENT_FS_SEGS,
+  VAR_SEGS, DATA_SEGS, LOGS_SEGS, TRASH_SEGS,
   ACCESS_LOG_SEGS, dataFileSegs,
-  VAR_DIR, DATA_DIR, LOGS_DIR, TRASH_DIR, ACCESS_LOG, DOCUMENT_FS_DIR,
-  documentFsRootFor, dataFile,
+  VAR_DIR, DATA_DIR, LOGS_DIR, TRASH_DIR, ACCESS_LOG,
+  dataFile,
 };

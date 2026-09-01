@@ -29,6 +29,7 @@
  */
 import {useCallback, useEffect, useRef} from 'react';
 import API_BASE, {apiFetch} from '@site/src/utils/api';
+import {entriesForTarget, targetKey} from './useSessions';
 
 /* How much transcript rides along as context on a turn. The server sanitizes
    both prompt and context with sanitizeText, which truncates at 10000
@@ -184,21 +185,24 @@ export default function useAssistant(sessions) {
     // Prior turns ride as `context` and the new line as `prompt`, which is the
     // shape the endpoint already composes into a single message. Read before
     // the line is appended, or the question would be in its own context.
-    const priorEntries = listRef.current.find((s) => s.id === sessionId)?.entries ?? [];
+    const session = listRef.current.find((s) => s.id === sessionId);
+    const conversationKey = targetKey(session?.target);
+    const priorEntries = entriesForTarget(session?.entries ?? [], session?.target);
     const context = priorEntries
       .slice(-CONTEXT_TURNS)
       .map((e) => `${e.kind === 'input' ? 'User' : 'Assistant'}: ${e.text}`)
       .join('\n\n')
       .slice(-CONTEXT_CHARS);
 
-    append(sessionId, 'input', text);
+    append(sessionId, 'input', text, {targetKey: conversationKey});
     // The answer's row is opened empty and marked pending, and every delta is
     // written into that one row. The transcript draws a caret on a pending row
     // and shows the wait in place of an empty one; nothing else has to know
     // that an answer is arriving in pieces.
-    const entryId = append(sessionId, 'output', '', agent ? {
-      agent: {id: agent.id, name: agent.name, color: agent.color},
-    } : {});
+    const entryId = append(sessionId, 'output', '', {
+      targetKey: conversationKey,
+      ...(agent ? {agent: {id: agent.id, name: agent.name, color: agent.color}} : {}),
+    });
     updateEntry(sessionId, entryId, {pending: true});
     patch(sessionId, {busy: true});
 
@@ -206,8 +210,11 @@ export default function useAssistant(sessions) {
     controllers.current[sessionId] = controller;
 
     const payload = context ? {prompt: text, context} : {prompt: text};
-    if (agent?.instructions) {
-      payload.agent = {name: agent.name, instructions: agent.instructions};
+    if (agent) {
+      // The server owns the agent definition. Sending only its id prevents a
+      // caller from replacing trusted instructions or provider policy in the
+      // browser request.
+      payload.agentId = agent.id;
     }
     let answer = '';
     let failure = null;
@@ -294,7 +301,7 @@ export default function useAssistant(sessions) {
         // rewrite: what did arrive is still worth reading.
         if (answer) {
           updateEntry(sessionId, entryId, {pending: false});
-          append(sessionId, 'error', failure);
+          append(sessionId, 'error', failure, {targetKey: conversationKey});
         } else {
           updateEntry(sessionId, entryId, {kind: 'error', text: failure, pending: false});
         }

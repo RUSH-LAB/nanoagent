@@ -16,7 +16,7 @@ const READING_LIST_EXPORT_RE = /^\/api\/reading-lists\/[^/]+\/export$/;
 
 module.exports = async function bookmarks_reading_lists_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, documents, _routeDiagnostics
   } = ctx;
 
   // ── Bookmarks ──
@@ -77,7 +77,8 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
 
   // ── Analytics: content topics/keywords ──
   if (req.method === 'GET' && pathname === '/api/analytics/topics') {
-    const topics = cached(cacheKey(req.context?.workspaceId, 'analytics:topics'), 60000, () => {
+    const scope = scopeFor(req);
+    const topics = await cached(cacheKey(scope.workspaceId, `analytics:topics:${scope.userId}`), 60000, async () => {
       const STOP_WORDS = new Set([
         'the','a','an','is','are','was','were','be','been','being','have','has','had',
         'do','does','did','will','would','could','should','may','might','shall','can',
@@ -91,18 +92,11 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
         'which','who','whom','if',
       ]);
 
-      const contentDir = contentRootFor(req.context?.workspaceId);
       const freq = {};
-
-      function scanMarkdown(dir) {
-        if (!fs.existsSync(dir)) return;
-        for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-          const full = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            scanMarkdown(full);
-          } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-            try {
-              let text = fs.readFileSync(full, 'utf8');
+      for (const document of await documents.snapshot(scope)) {
+          const name = document.path.split('/').pop();
+          if (name.startsWith('.') || !ALLOWED_EXTS.some(ext => name.endsWith(ext))) continue;
+              let text = document.markdown ?? '';
               // Strip frontmatter
               text = text.replace(/^---[\s\S]*?---/, '');
               // Strip markdown syntax (links, images, code blocks, inline code, headings, bold/italic, html tags)
@@ -117,12 +111,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
               for (const w of words) {
                 freq[w] = (freq[w] || 0) + 1;
               }
-            } catch { /* skip unreadable files */ }
-          }
-        }
       }
-
-      scanMarkdown(contentDir);
 
       return Object.entries(freq)
         .sort((a, b) => b[1] - a[1])

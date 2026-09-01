@@ -213,36 +213,11 @@
   cursor: default;
 }
 
-.paneAvatar {
-  display: grid;
-  flex-shrink: 0;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #8b5cf6, #6366f1);
-  color: #fff;
-  font-size: 0.8rem;
-  font-weight: 750;
-}
-
-.agent_violet { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
-.agent_blue { background: linear-gradient(135deg, #60a5fa, #2563eb); }
-.agent_emerald { background: linear-gradient(135deg, #34d399, #059669); }
-.agent_amber { background: linear-gradient(135deg, #fbbf24, #d97706); }
-.agent_rose { background: linear-gradient(135deg, #fb7185, #e11d48); }
-.agent_slate { background: linear-gradient(135deg, #94a3b8, #475569); }
-
-.paneIdentity { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 0.08rem; }
-
-/* Exported only through this compound selector: the header always carries the
-   class and only the focused pane picks up the colour. */
-.paneActive .paneLabel {
+.paneActive .paneName {
   color: var(--ifm-font-color-base);
 }
 
-.paneLabel { overflow: hidden; color: var(--ifm-font-color-base); font-size: var(--cli-label); font-weight: 700; line-height: 1.3; letter-spacing: -0.005em; text-overflow: ellipsis; white-space: nowrap; }
-.paneMeta { overflow: hidden; color: var(--ifm-color-emphasis-500); font-size: var(--cli-meta); line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.paneName { flex: 1; min-width: 0; overflow: hidden; color: var(--ifm-font-color-base); font-size: var(--cli-label); font-weight: 600; line-height: 1.35; letter-spacing: -0.005em; text-overflow: ellipsis; white-space: nowrap; }
 .paneStatus { flex-shrink: 0; color: var(--ifm-color-emphasis-500); font-size: var(--cli-meta); }
 .paneStatus::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 0.3rem; border-radius: 50%; background: #22c55e; vertical-align: 1px; }
 

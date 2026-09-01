@@ -14,39 +14,23 @@ const WORD_FREQ_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be
 
 module.exports = async function stats_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, documents, _routeDiagnostics
   } = ctx;
 
   if (req.method === 'GET' && pathname === '/api/stats/timeline') {
     try {
-      const timeline = cached(cacheKey(req.context?.workspaceId, 'stats:timeline'), 60000, () => {
-        const contentDir = contentRootFor(req.context?.workspaceId);
+      const scope = scopeFor(req);
+      const timeline = await cached(cacheKey(scope.workspaceId, `stats:timeline:${scope.userId}`), 60000, async () => {
         const byMonth = {};
-        function scanTimeline(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-            const fullPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              scanTimeline(fullPath);
-            } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              try {
-                const content = fs.readFileSync(fullPath, 'utf-8');
-                const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-                let date = null;
-                if (fmMatch) {
-                  const dateMatch = fmMatch[1].match(/^date:\s*["']?(\d{4}-\d{2}(?:-\d{2})?)/m);
-                  if (dateMatch) date = dateMatch[1].slice(0, 7);
-                }
-                if (!date) {
-                  const stat = fs.statSync(fullPath);
-                  date = stat.mtime.toISOString().slice(0, 7);
-                }
-                byMonth[date] = (byMonth[date] || 0) + 1;
-              } catch {}
-            }
-          }
+        for (const document of await documents.snapshot(scope)) {
+          const name = document.path.split('/').pop();
+          if (name.startsWith('.') || name.startsWith('_') || !ALLOWED_EXTS.some(ext => name.endsWith(ext))) continue;
+          const fmMatch = document.markdown.match(/^---\n([\s\S]*?)\n---/);
+          const dateMatch = fmMatch?.[1].match(/^date:\s*["']?(\d{4}-\d{2}(?:-\d{2})?)/m);
+          const date = dateMatch?.[1].slice(0, 7)
+            ?? new Date(document.updatedAt).toISOString().slice(0, 7);
+          byMonth[date] = (byMonth[date] || 0) + 1;
         }
-        scanTimeline(contentDir);
         return Object.entries(byMonth)
           .sort((a, b) => a[0].localeCompare(b[0]))
           .map(([month, count]) => ({month, count}));

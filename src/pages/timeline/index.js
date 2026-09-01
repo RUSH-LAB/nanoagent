@@ -73,7 +73,7 @@ function ContentTimeline() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    apiFetch(`${API_BASE}/api/files/recent?limit=50`)
+    apiFetch(`${API_BASE}/api/documents/recent?limit=50`)
       .then((r) => {
         if (!r.ok) throw new Error(`API returned ${r.status}`);
         return r.json();

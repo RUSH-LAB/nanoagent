@@ -24,6 +24,7 @@ const DEFAULT_SYSTEM_PROMPT =
   + 'preamble.';
 
 const VALID_TYPES = ['continue', 'improve', 'explain', 'summarize'];
+const VALID_AGENT_PROVIDERS = ['claude-code', 'codex'];
 
 const SYSTEM_PROMPTS = {
   continue: 'You are a writing assistant. Continue the text naturally, matching the style and tone. Output only the continuation, no preamble.',
@@ -67,8 +68,8 @@ function corsHeaders(req, corsOrigin) {
  *
  * Returns `{error}` for a rejection, otherwise `{request}` ready for ai.
  */
-function composeRequest(body, sanitizeText) {
-  const {prompt, context, type, agent} = body;
+function composeRequest(body, sanitizeText, agent = null) {
+  const {prompt, context, type, agentId} = body;
   if (!prompt || typeof prompt !== 'string') return {error: 'Missing or invalid prompt'};
   if (prompt.length > 50000) return {error: 'Prompt must be 50000 characters or fewer'};
   if (context !== undefined && typeof context !== 'string') return {error: 'context must be a string'};
@@ -78,13 +79,12 @@ function composeRequest(body, sanitizeText) {
   if (type && !VALID_TYPES.includes(type)) {
     return {error: `Invalid type. Must be one of: ${VALID_TYPES.join(', ')}`};
   }
-  if (agent !== undefined && (!agent || typeof agent !== 'object' || Array.isArray(agent))) {
-    return {error: 'agent must be an object'};
+  if (agentId !== undefined && (typeof agentId !== 'string' || !agentId || agentId.length > 100)) {
+    return {error: 'agentId must be a non-empty string of 100 characters or fewer'};
   }
-  if (agent?.name !== undefined && typeof agent.name !== 'string') return {error: 'agent.name must be a string'};
-  if (agent?.instructions !== undefined && typeof agent.instructions !== 'string') return {error: 'agent.instructions must be a string'};
-  if (agent?.name?.length > 60) return {error: 'agent.name must be 60 characters or fewer'};
-  if (agent?.instructions?.length > 10000) return {error: 'agent.instructions must be 10000 characters or fewer'};
+  if (agent && !VALID_AGENT_PROVIDERS.includes(agent.provider ?? 'claude-code')) {
+    return {error: 'The selected agent has an unsupported provider'};
+  }
 
   const userContent = context
     ? `Context:\n${sanitizeText(context)}\n\nText:\n${sanitizeText(prompt)}`
@@ -98,6 +98,31 @@ function composeRequest(body, sanitizeText) {
     request: {
       prompt: userContent,
       system: (type && SYSTEM_PROMPTS[type]) || agentPrompt || DEFAULT_SYSTEM_PROMPT,
+      provider: agent?.provider,
+    },
+  };
+}
+
+/** Resolve an agent inside the verified workspace; never trust its browser copy. */
+async function composeStoredRequest(req, ctx) {
+  const body = await ctx.readBody(req);
+  let agent = null;
+  if (body?.agentId !== undefined) {
+    if (typeof body.agentId !== 'string' || !body.agentId || body.agentId.length > 100) {
+      return {error: 'agentId must be a non-empty string of 100 characters or fewer'};
+    }
+    agent = await ctx.collection('agents').get(ctx.scopeFor(req), body.agentId);
+    if (!agent) return {error: 'Agent not found', status: 404};
+  }
+  const composed = composeRequest(body, ctx.sanitizeText, agent);
+  if (composed.error) return composed;
+  return {
+    request: {
+      ...composed.request,
+      // Tool access is server-owned agent configuration. The browser cannot
+      // grant itself a tool by adding one to the request body.
+      allowedTools: Array.isArray(agent?.tools) ? agent.tools : [],
+      runtimeContext: req.context ?? null,
     },
   };
 }
@@ -122,14 +147,14 @@ function sendEvent(res, event, data) {
 }
 
 module.exports = async function ai_routes(req, res, url, pathname, ctx) {
-  const {json, readBody, rateLimit, sanitizeText, ai, CORS_ORIGIN} = ctx;
+  const {json, rateLimit, ai, CORS_ORIGIN} = ctx;
 
   // ── AI writing assistant (v2 – /api/ai/complete) ──
   if (req.method === 'POST' && pathname === '/api/ai/complete') {
     if (!rateLimit(`ai-complete:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
-      const {error, request} = composeRequest(await readBody(req), sanitizeText);
-      if (error) return json(res, 400, {error});
+      const {error, request, status} = await composeStoredRequest(req, ctx);
+      if (error) return json(res, status || 400, {error});
 
       // Which model answers, and whether by HTTP or by the CLI on this machine,
       // is server/ai.js's business. This one composes the message and reports
@@ -152,11 +177,11 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
 
     let composed;
     try {
-      composed = composeRequest(await readBody(req), sanitizeText);
+      composed = await composeStoredRequest(req, ctx);
     } catch {
       return json(res, 500, {error: 'AI request failed. Please try again later.'});
     }
-    if (composed.error) return json(res, 400, {error: composed.error});
+    if (composed.error) return json(res, composed.status || 400, {error: composed.error});
 
     res.writeHead(200, {
       ...corsHeaders(req, CORS_ORIGIN),
@@ -190,6 +215,12 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
         ...composed.request,
         signal: controller.signal,
         onDelta: (text) => sendEvent(res, 'delta', {text}),
+        // The current client ignores these structured lifecycle events. They
+        // establish the wire contract for future tool progress without
+        // changing text streaming or inventing a second transport later.
+        onEvent: event => {
+          if (event.type !== 'output_text.delta') sendEvent(res, 'agent', event);
+        },
       });
       if (result.error) sendEvent(res, 'error', {error: result.error, status: result.status || 502});
       else sendEvent(res, 'done', {text: result.text});
@@ -216,3 +247,5 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
 };
 
 module.exports.DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT;
+module.exports.composeRequest = composeRequest;
+module.exports.composeStoredRequest = composeStoredRequest;

@@ -65,21 +65,15 @@ function MindmapContent() {
   useEffect(() => {
     setFilesLoading(true);
     setFilesError(null);
-    apiFetch(`${API_BASE}/api/files`)
+    apiFetch(`${API_BASE}/api/documents/tree`)
       .then(r => {
         if (!r.ok) throw new Error(`Failed to load file list (${r.status})`);
         return r.json();
       })
       .then(d => {
-        const flat = [];
-        const flatten = (list) => {
-          for (const f of list) {
-            if (f.children) flatten(f.children);
-            else flat.push(f);
-          }
-        };
-        flatten(d.files || []);
-        setFiles(flat.filter(f => /\.(md|mdx)$/.test(f.name)));
+        setFiles((d.documents || [])
+          .map(document => ({...document, name: document.path.split('/').pop()}))
+          .filter(document => /\.(md|mdx)$/.test(document.name)));
         setFilesLoading(false);
       })
       .catch(err => {
@@ -103,7 +97,7 @@ function MindmapContent() {
     setTree(null);
     if (!filePath) { setTreeLoading(false); return; }
     setTreeLoading(true);
-    apiFetch(`${API_BASE}/api/file/mindmap?path=${encodeURIComponent(filePath)}`)
+    apiFetch(`${API_BASE}/api/documents/analysis/mindmap?path=${encodeURIComponent(filePath)}`)
       .then(r => {
         if (!r.ok) throw new Error(`Failed to generate mindmap (${r.status})`);
         return r.json();

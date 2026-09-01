@@ -17,4 +17,4 @@ Completed results:
 - The authenticated production build and all 2,614 unit tests passed.
 
 The remaining product work moved to the
-[workspace content and rendering plan](../workspace-content-and-rendering.md).
+[workspace content and rendering plan](workspace-content-and-rendering.md).

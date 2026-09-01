@@ -18,7 +18,7 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
   // a route module needs, so a test drives a throwaway database and its own
   // compiler rather than the real ones.
   const {
-    json, readBody, rateLimit, scopeFor, documents, compileDocument, compileMarkdown, parseFrontmatter, splitBlogPost, invalidateCache, cacheKey,
+    json, readBody, rateLimit, scopeFor, documents, compileDocument, compileMarkdown, parseFrontmatter, splitBlogPost, cached, invalidateCache, cacheKey,
     requireWorkspacePermission, workspaceSettings,
   } = ctx;
 
@@ -86,37 +86,97 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
       const includeFrontmatter = include === 'frontmatter' || include === 'metadata';
       const includeExcerpt = include === 'frontmatter';
       const prefix = String(url.searchParams.get('prefix') || '').replace(/^\/+|\/+$/g, '');
-      const rows = includeFrontmatter
-        ? await documents.snapshot(scope, {prefix})
-        : await documents.list(scope, {prefix});
-      const settings = includeExcerpt ? await settingsForCompile() : {};
-      const response = await Promise.all(rows.map(async document => {
-        const metadata = includeFrontmatter ? parseFrontmatter(document.markdown) : null;
-        const blog = includeFrontmatter ? splitBlogPost(document.markdown) : null;
-        const excerptTree = includeExcerpt ? await compileMarkdown(blog.excerpt, settings) : null;
-        return {
-          id: document.id,
-          path: document.path,
-          title: includeFrontmatter && documents.titleOf
-            ? documents.titleOf(document.markdown, document.path)
-            : document.title,
-          visibility: document.visibility,
-          createdAt: document.createdAt,
-          updatedAt: document.updatedAt,
-          ...(includeFrontmatter ? {
-            frontmatter: metadata,
-            description: metadata.description || descriptionOf(document.markdown),
-            ...(includeExcerpt ? {
-              hasTruncateMarker: blog.hasTruncateMarker,
-              excerptTree,
+      // Private documents can differ by caller, so the derived cache includes
+      // both immutable workspace id and verified user id. Mutations clear the
+      // whole workspace prefix. This removes repeated Markdown compilation and
+      // document reads while preserving membership/RLS checks on every request.
+      const derivedKey = cacheKey && req.context?.workspaceId && req.context?.userId
+        ? cacheKey(req.context.workspaceId, `content-tree:${req.context.userId}:${include || 'plain'}:${prefix}`)
+        : null;
+      const buildResponse = async () => {
+        const rows = includeFrontmatter
+          ? await documents.snapshot(scope, {prefix})
+          : await documents.list(scope, {prefix});
+        const settings = includeExcerpt ? await settingsForCompile() : {};
+        return Promise.all(rows.map(async document => {
+          const metadata = includeFrontmatter ? parseFrontmatter(document.markdown) : null;
+          const blog = includeFrontmatter ? splitBlogPost(document.markdown) : null;
+          const excerptTree = includeExcerpt ? await compileMarkdown(blog.excerpt, settings) : null;
+          return {
+            id: document.id,
+            path: document.path,
+            title: includeFrontmatter && documents.titleOf
+              ? documents.titleOf(document.markdown, document.path)
+              : document.title,
+            visibility: document.visibility,
+            createdAt: document.createdAt,
+            updatedAt: document.updatedAt,
+            ...(includeFrontmatter ? {
+              frontmatter: metadata,
+              description: metadata.description || descriptionOf(document.markdown),
+              ...(includeExcerpt ? {
+                hasTruncateMarker: blog.hasTruncateMarker,
+                excerptTree,
+              } : {}),
+              readingTime: Math.max(1, Math.ceil(document.markdown.split(/\s+/).filter(Boolean).length / 200)),
             } : {}),
-            readingTime: Math.max(1, Math.ceil(document.markdown.split(/\s+/).filter(Boolean).length / 200)),
-          } : {}),
-        };
-      }));
+          };
+        }));
+      };
+      const response = derivedKey && cached
+        ? await cached(derivedKey, 10 * 60_000, buildResponse)
+        : await buildResponse();
       return json(res, 200, {documents: response});
     } catch (err) {
       return fail(json, res, err, 'Could not list the workspace');
+    }
+  }
+
+  // ── Lightweight path/title search for file pickers ──
+  if (req.method === 'GET' && contentPath === '/api/content/search') {
+    try {
+      permit('content:read');
+      const query = String(url.searchParams.get('q') || '').trim().toLowerCase();
+      const searchKey = cacheKey && req.context?.workspaceId && req.context?.userId
+        ? cacheKey(req.context.workspaceId, `document-list:${req.context.userId}`)
+        : null;
+      const rows = searchKey && cached
+        ? await cached(searchKey, 10 * 60_000, () => documents.list(scope))
+        : await documents.list(scope);
+      const documentsFound = rows
+        .filter(document => !query || [document.path, document.title].some(value =>
+          String(value || '').toLowerCase().includes(query)))
+        .slice(0, 100)
+        .map(document => ({
+          id: document.id,
+          name: document.path.split('/').pop(),
+          path: document.path,
+          title: document.title,
+          updatedAt: document.updatedAt,
+        }));
+      return json(res, 200, {documents: documentsFound});
+    } catch (err) {
+      return fail(json, res, err, 'Search failed');
+    }
+  }
+
+  // ── Raw source for editors and comparison tools ──
+  if (req.method === 'GET' && contentPath === '/api/content/source') {
+    const path = url.searchParams.get('path');
+    if (!path) return json(res, 400, {error: 'Missing path'});
+    try {
+      permit('content:read');
+      const document = await documents.get(scope, path);
+      return document
+        ? json(res, 200, {document: {
+            id: document.id,
+            path: document.path,
+            title: document.title,
+            updatedAt: document.updatedAt,
+          }, markdown: document.markdown})
+        : json(res, 404, {error: 'Document not found'});
+    } catch (err) {
+      return fail(json, res, err, 'Invalid path');
     }
   }
 

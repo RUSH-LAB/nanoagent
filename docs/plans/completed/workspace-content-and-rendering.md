@@ -1,8 +1,8 @@
 # Workspace content and Docusaurus rendering
 
-Status: active.
+Status: complete (2026-09-01).
 
-## Implementation status — 2026-08-31
+## Implementation status — 2026-09-01
 
 Completed in the current milestone:
 
@@ -19,10 +19,31 @@ Completed in the current milestone:
 - focused security, isolation, corpus, route, and URL tests pass, as does the
   authenticated production build.
 
-Remaining work is Phase 5 cleanup: move derived analysis/search/feed handlers
-off the read-only filesystem compatibility adapter, then remove the adapter
-after the rollback window. The compatibility adapter already reads PostgreSQL
-snapshots; it is not a second writable content source.
+Phase 5 cleanup and latency hardening are complete:
+
+- configured workspace collections are prefetched and retained in a bounded,
+  workspace-keyed client cache;
+- workspace discovery is shared and deduplicated across the navbar, runtime
+  content, and tool pages;
+- derived content handlers use one scoped repository snapshot rather than
+  per-document reads;
+- the filesystem compatibility adapter and old file-shaped read endpoints are
+  gone;
+- the navbar and search page use database-backed workspace search, so the
+  build-time local-search plugin and its client dependency are gone;
+- closed background UI no longer starts a transient polling cycle during
+  hydration.
+
+Performance requirements for this phase:
+
+- a warmed workspace navigation click renders from memory without a Neon round
+  trip;
+- a cold document or collection view performs no duplicate API read and no
+  per-document database loop;
+- every derived page uses at most one document snapshot per request and caches
+  results by immutable workspace ID plus user ID when visibility can differ;
+- background tools do not poll workspace APIs while their UI is closed;
+- no cache key can cross a workspace or private-document boundary.
 
 ## Objective
 
@@ -60,9 +81,8 @@ Instead, the system will have:
 - The runtime route uses Docusaurus docs/blog theme components for sidebars,
   heading anchors, table of contents, code rendering, blog metadata, lists,
   and pagination without compiling workspace data into the build.
-- Several older routes still use `/api/file` shapes or a read-only virtual
-  filesystem facade over document rows. PostgreSQL is already the backing
-  source in production, but the compatibility layer obscures that boundary.
+- Derived routes, search, feeds, graphs, and statistics read scoped document
+  repositories directly. No business route receives a filesystem-shaped view.
 
 ## Architecture decisions
 
@@ -272,16 +292,25 @@ Single-document operations and version restore are complete. Transactional
 directory moves, duplicate, and a trash browser remain optional follow-ups;
 they do not block the database-backed authoring/rendering cutover.
 
-### Phase 5 — Derived features and search
+### Phase 5 — Derived features, search, and latency (complete)
 
 1. Move feeds, graph, lint, statistics, recommendations, recent files, and
    related-document analysis directly onto document/reference repositories.
 2. Replace build-time local search with a workspace-scoped database index.
 3. Remove browser callers of `/api/file`, `/api/files`, and `/api/content` in
    favor of the canonical workspace document API.
+4. Prefetch configured workspace navigation, deduplicate in-flight reads, and
+   invalidate warm client/server content caches on every mutation.
+5. Replace N+1 document reads in graph, backlinks, feeds, recent files,
+   statistics, lint, recommendations, and search with repository snapshots or
+   purpose-built PostgreSQL queries.
+6. Measure cold and warm request timings from `/api/perf`; treat a warm
+   navigation request or a repeated full-workspace snapshot as a regression.
 
-Exit criterion: no business route needs a filesystem-shaped view of workspace
-content.
+Exit criterion met: no business route needs a filesystem-shaped view of
+workspace content. Warm navigation is served by the shared client cache, cold
+collection reads use one scoped repository snapshot, and every derived cache
+includes the immutable workspace ID plus user ID where visibility can differ.
 
 ### Phase 6 — Cutover
 
@@ -290,9 +319,15 @@ content.
 3. All editing and rendering now use PostgreSQL and R2.
 4. The repository content snapshot and importer were removed; Git history is
    the rollback copy.
-5. The database-backed filesystem facade remains only for older analysis
-   routes and can be removed after those algorithms use document repositories
-   directly.
+5. The database-backed filesystem facade and legacy file-shaped read routes
+   were removed after all analysis routes moved to document repositories.
+
+## Final verification
+
+- `npm test`: 2694 tests passed;
+- `npm run build:auth`: authenticated production build passed;
+- migration verification previously confirmed all SQLite/PostgreSQL table
+  counts and hashes, plus all 153 content files and 740 references.
 
 ## Acceptance criteria
 

@@ -50,7 +50,7 @@ describe('API documentation completeness', () => {
 
   it('has documentation for all major endpoint groups', () => {
     const requiredGroups = [
-      '/api/health', '/api/file', '/api/files', '/api/notes', '/api/references', '/api/analytics',
+      '/api/health', '/api/workspaces/:id/documents', '/api/notes', '/api/references', '/api/analytics',
       '/api/users', '/api/graph', '/api/backlinks',
       '/api/trash', '/api/bookmarks', '/api/reading-lists', '/api/streak',
       '/api/search', '/api/stats',

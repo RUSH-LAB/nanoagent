@@ -65,34 +65,26 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   // ── Content duplicate detection ──
   if (req.method === 'GET' && pathname === '/api/content-duplicates') {
     try {
-      const duplicates = cached(cacheKey(req.context?.workspaceId, 'content-duplicates'), 60000, () => {
-        const contentDir = contentRootFor(req.context?.workspaceId);
+      const scope = scopeFor(req);
+      const duplicates = await cached(cacheKey(scope.workspaceId, `content-duplicates:${scope.userId}`), 60000, async () => {
         const files = [];
-        function collectFiles(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-            const fullPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              collectFiles(fullPath);
-            } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              try {
-                const content = fs.readFileSync(fullPath, 'utf-8');
+        for (const document of await documents.snapshot(scope)) {
+                const entryName = document.path.split('/').pop();
+                if (entryName.startsWith('.') || entryName.startsWith('_')) continue;
+                if (!ALLOWED_EXTS.some(ext => entryName.endsWith(ext))) continue;
+                const content = document.markdown ?? '';
                 const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-                let title = entry.name.replace(/\.(mdx?|md)$/, '');
+                let title = document.title || entryName.replace(/\.(mdx?|md)$/, '');
                 if (fmMatch) {
                   const titleMatch = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
                   if (titleMatch) title = titleMatch[1];
                 }
                 files.push({
-                  path: path.relative(contentRootFor(req.context?.workspaceId), fullPath),
+                  path: document.path,
                   title,
                   titleLower: title.toLowerCase().trim(),
                 });
-              } catch {}
-            }
-          }
         }
-        collectFiles(contentDir);
         const groups = {};
         for (const f of files) {
           if (!groups[f.titleLower]) groups[f.titleLower] = [];
@@ -113,26 +105,23 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   // ── Content health check ──
   if (req.method === 'GET' && pathname === '/api/content-health') {
     try {
-      const health = cached(cacheKey(req.context?.workspaceId, 'content-health'), 60000, () => {
-        const contentDir = contentRootFor(req.context?.workspaceId);
+      const scope = scopeFor(req);
+      const health = await cached(cacheKey(scope.workspaceId, `content-health:${scope.userId}`), 60000, async () => {
         const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
         const pages = new Map();
         const allLinks = [];
         let draftCount = 0;
 
-        function scanHealth(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-            const fullPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              scanHealth(fullPath);
-            } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              const relPath = path.relative(contentRootFor(req.context?.workspaceId), fullPath);
+        for (const document of await documents.snapshot(scope)) {
+              const entryName = document.path.split('/').pop();
+              if (entryName.startsWith('.') || entryName.startsWith('_')) continue;
+              if (!ALLOWED_EXTS.some(ext => entryName.endsWith(ext))) continue;
+              const relPath = document.path;
               let id = relPath.replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
               if (id.endsWith('/index')) id = id.slice(0, -6);
-              const content = fs.readFileSync(fullPath, 'utf-8');
+              const content = document.markdown ?? '';
               const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-              let title = entry.name.replace(/\.(mdx?|md)$/, '');
+              let title = document.title || entryName.replace(/\.(mdx?|md)$/, '');
               if (fmMatch) {
                 const titleMatch = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
                 if (titleMatch) title = titleMatch[1];
@@ -148,10 +137,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
               while ((m = MD_LINK_RE.exec(content)) !== null) {
                 allLinks.push({source: id, target: m[2].trim(), type: 'markdown'});
               }
-            }
-          }
         }
-        scanHealth(contentDir);
 
         const pageIds = new Set(pages.keys());
         // The suffix-match fallbacks below scan the page id list, which is
@@ -363,7 +349,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   }
 
   // ── Mindmap from headings ──
-  if (req.method === 'GET' && pathname === '/api/file/mindmap') {
+  if (req.method === 'GET' && pathname === '/api/content/analysis/mindmap') {
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
@@ -373,8 +359,11 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       // in this file. The readFileSync stays INSIDE the closure, so a missing file still
       // throws into the outer catch and the 404 is never cached (cached stores
       // nothing when fn throws).
-      const result = cached(cacheKey(req.context?.workspaceId, 'filemindmap:' + filePath), 30000, () => {
-        let md = fs.readFileSync(path.join(contentRootFor(req.context?.workspaceId), filePath), 'utf-8');
+      const scope = scopeFor(req);
+      const result = await cached(cacheKey(scope.workspaceId, `filemindmap:${scope.userId}:${filePath}`), 30000, async () => {
+        const document = await documents.get(scope, filePath);
+        if (!document) throw new Error('File not found');
+        let md = document.markdown;
         // Strip frontmatter
         md = md.replace(/^---\n[\s\S]*?\n---\n?/, '');
         // Parse headings
@@ -622,7 +611,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   }
 
   // ── Content quality scoring ──
-  if (req.method === 'GET' && pathname === '/api/file/quality') {
+  if (req.method === 'GET' && pathname === '/api/content/analysis/quality') {
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
@@ -633,8 +622,11 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       // graph-trash-files.js. The readFileSync stays INSIDE the closure, so a
       // missing file still throws into the outer catch and the 404 is never cached
       // (cached stores nothing when fn throws).
-      const result = cached(cacheKey(req.context?.workspaceId, 'filequality:' + filePath), 30000, () => {
-        const content = fs.readFileSync(path.join(contentRootFor(req.context?.workspaceId), filePath), 'utf-8');
+      const scope = scopeFor(req);
+      const result = await cached(cacheKey(scope.workspaceId, `filequality:${scope.userId}:${filePath}`), 30000, async () => {
+        const document = await documents.get(scope, filePath);
+        if (!document) throw new Error('File not found');
+        const content = document.markdown;
         const suggestions = [];
 
         // 1. Word count score (max 25)
@@ -772,12 +764,10 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       // 2. Search content files for matching headings
       const matchedPages = [];
       try {
-        const contentDir = contentRootFor(req.context?.workspaceId);
-        if (fs.existsSync(contentDir)) {
-          const mdFiles = flatFiles(contentDir).filter(f => f.name.endsWith('.md') || f.name.endsWith('.mdx'));
-          for (const file of mdFiles) {
-            try {
-              const content = fs.readFileSync(path.join(contentRootFor(req.context?.workspaceId), file.path), 'utf-8');
+          for (const document of await documents.snapshot(scopeFor(req))) {
+              const fileName = document.path.split('/').pop();
+              if (!/\.mdx?$/.test(fileName)) continue;
+              const content = document.markdown ?? '';
               // Extract title from frontmatter or first heading
               let pageTitle = '';
               const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -789,7 +779,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
                 const h1Match = content.match(/^#\s+(.+)/m);
                 if (h1Match) pageTitle = h1Match[1];
               }
-              if (!pageTitle) pageTitle = file.name.replace(/\.(md|mdx)$/, '');
+              if (!pageTitle) pageTitle = document.title || fileName.replace(/\.(md|mdx)$/, '');
 
               // Match against headings and title
               const headings = (content.match(/^#{1,3}\s+.+/gm) || []).map(h => h.replace(/^#+\s+/, ''));
@@ -799,10 +789,8 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
                 if (haystack.includes(kw)) relevance++;
               }
               if (relevance > 0) {
-                matchedPages.push({path: file.path, title: pageTitle, relevance});
+                matchedPages.push({path: document.path, title: pageTitle, relevance});
               }
-            } catch { /* skip unreadable files */ }
-          }
         }
       } catch { /* content dir missing */ }
       matchedPages.sort((a, b) => b.relevance - a.relevance);
@@ -902,21 +890,17 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
   // ── Content calendar (publishing planner) ──
   if (req.method === 'GET' && pathname === '/api/calendar') {
     try {
-      const calendar = await cached(cacheKey(req.context?.workspaceId, 'calendar'), 60000, async () => {
-        const contentDir = contentRootFor(req.context?.workspaceId);
+      const scope = scopeFor(req);
+      const calendar = await cached(cacheKey(scope.workspaceId, `calendar:${scope.userId}`), 60000, async () => {
         const byMonth = {};
-
-        function scan(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-            const fp = path.join(dir, entry.name);
-            if (entry.isDirectory()) { scan(fp); continue; }
-            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-            try {
-              const content = fs.readFileSync(fp, 'utf-8');
+        for (const document of await documents.snapshot(scope)) {
+              const entryName = document.path.split('/').pop();
+              if (entryName.startsWith('.') || entryName.startsWith('_')) continue;
+              if (!ALLOWED_EXTS.some(ext => entryName.endsWith(ext))) continue;
+              const content = document.markdown ?? '';
               const fm = content.match(/^---\n([\s\S]*?)\n---/);
               let date = null;
-              let title = entry.name.replace(/\.(mdx?|md)$/, '');
+              let title = document.title || entryName.replace(/\.(mdx?|md)$/, '');
               let draft = false;
               if (fm) {
                 const dm = fm[1].match(/^date:\s*["']?(\d{4}-\d{2}-\d{2})["']?\s*$/m);
@@ -927,31 +911,27 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
                 if (dfm) draft = true;
               }
               if (!date) {
-                const stat = fs.statSync(fp);
-                date = stat.mtime.toISOString().slice(0, 10);
+                date = new Date(document.updatedAt).toISOString().slice(0, 10);
               }
               const body = content.replace(/^---\n[\s\S]*?\n---\n?/, '');
               const wordCount = body.split(/\s+/).filter(Boolean).length;
               const month = date.slice(0, 7);
               if (!byMonth[month]) byMonth[month] = [];
               byMonth[month].push({
-                path: path.relative(contentRootFor(req.context?.workspaceId), fp),
+                path: document.path,
                 title,
                 date,
                 wordCount,
                 draft,
               });
-            } catch {}
-          }
         }
-        scan(contentDir);
 
         // Include scheduled publications. This read a file it built the path
         // to itself, named schedules.json, which has never existed; and even
         // spelled right it would have been every workspace's schedule on one
         // workspace's calendar. It is this workspace's schedule, through the
         // store, like everything else.
-        for (const item of await collection('schedule').values(scopeFor(req))) {
+        for (const item of await collection('schedule').values(scope)) {
           if (!item.publishAt) continue;
           const pubDate = item.publishAt.slice(0, 10);
           const month = pubDate.slice(0, 7);

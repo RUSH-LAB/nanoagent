@@ -109,6 +109,24 @@ describe('explicit workspace document API', () => {
     userId: 'ada', workspaceId: 'lab', membershipId: 'membership-1', role: 'editor',
   });
 
+  it('keeps cached collection trees separate for two members', async () => {
+    const ctx = makeCtx();
+    await ctx.documents.create(context, {path: 'books/shared.md', markdown: 'shared'});
+    await ctx.documents.create(context, {
+      path: 'drafts/private.md', markdown: 'private', visibility: 'private',
+    });
+    const bobContext = Object.freeze({
+      userId: 'bob', workspaceId: 'lab', membershipId: 'membership-2', role: 'viewer',
+    });
+    const path = '/api/workspaces/lab/documents/tree';
+    const hers = await invoke(routes, {path, ctx, requestContext: context});
+    const his = await invoke(routes, {path, ctx, requestContext: bobContext});
+    assert.deepEqual(hers.payload.documents.map(document => document.path), [
+      'books/shared.md', 'drafts/private.md',
+    ]);
+    assert.deepEqual(his.payload.documents.map(document => document.path), ['books/shared.md']);
+  });
+
   it('uses the workspace from RequestContext rather than the session active organization', async () => {
     const ctx = withDocs([{path: 'books/a.md', markdown: 'lab'}], {...ada, orgId: 'lab'});
     const r = await invoke(routes, {
@@ -120,6 +138,24 @@ describe('explicit workspace document API', () => {
     });
     assert.equal(r.status, 200);
     assert.equal(r.payload.markdown, 'lab');
+  });
+
+  it('serves canonical path/title search and raw source endpoints', async () => {
+    const ctx = withDocs([
+      {path: 'handbook/intro.md', markdown: '---\ntitle: Welcome Guide\n---\nSource body'},
+      {path: 'notes/other.md', markdown: 'Other'},
+    ], {...ada, orgId: 'lab'});
+    const search = await invoke(routes, {
+      path: '/api/workspaces/lab/documents/search', query: {q: 'welcome'}, ctx, requestContext: context,
+    });
+    assert.deepEqual(search.payload.documents.map(document => document.path), ['handbook/intro.md']);
+
+    const source = await invoke(routes, {
+      path: '/api/workspaces/lab/documents/source', query: {path: 'handbook/intro.md'}, ctx, requestContext: context,
+    });
+    assert.equal(source.payload.markdown.endsWith('Source body'), true);
+    assert.equal(source.payload.document.path, 'handbook/intro.md');
+    assert.equal('tree' in source.payload, false, 'raw-source reads do not compile the document');
   });
 
   it('lets a viewer read but not create content', async () => {

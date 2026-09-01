@@ -33,7 +33,7 @@ function AnalyticsDashboard() {
       apiFetch(`${API_BASE}${url}`, { signal }).then((r) => r.json());
 
     // Fire all fetches in parallel, each updating its own state slice
-    fetchJSON('/api/files/recent?limit=50')
+    fetchJSON('/api/documents/recent?limit=50')
       .then(d => setWritingHeatmapFiles(d.files || []))
       .catch(() => { if (!signal.aborted) setWritingHeatmapFiles([]); });
 
@@ -49,7 +49,7 @@ function AnalyticsDashboard() {
       .then(d => setStreak(d))
       .catch(() => { if (!signal.aborted) setStreak(null); });
 
-    fetchJSON('/api/files/recent?limit=8&includeStats=true')
+    fetchJSON('/api/documents/recent?limit=8&includeStats=true')
       .then(d => setRecentFiles(d.files || []))
       .catch(() => { if (!signal.aborted) setRecentFiles([]); });
 

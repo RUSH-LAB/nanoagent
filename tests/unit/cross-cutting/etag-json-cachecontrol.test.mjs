@@ -228,7 +228,7 @@ describe('json() reproduces the old hand-rolled blocks byte-for-byte', () => {
 // shape, without depending on a running server or the filesystem.
 describe('route call sites forward the right cacheControl', () => {
   it('GET /api/stats calls json with a workspace-private 30 second cache', async () => {
-    const filesRoutes = require('../../../src/server/routes/files.js');
+    const contentStatsRoutes = require('../../../src/server/routes/content-stats.js');
     const FAKE_STATS = { totalFiles: 7, totalWords: 1234, references: 5, byDirectory: {} };
     let captured = null;
     const ctx = makeCtx({
@@ -237,7 +237,7 @@ describe('route call sites forward the right cacheControl', () => {
       json: (_res, status, data, opts) => { captured = { status, data, opts }; },
     });
     const url = new URL('http://localhost/api/stats');
-    await filesRoutes({
+    await contentStatsRoutes({
       method: 'GET', headers: {},
       context: {userId: 'test-user', workspaceId: TEST_ORG_ID, membershipId: 'member-1', role: 'owner'},
     }, { writableEnded: false }, url, '/api/stats', ctx);

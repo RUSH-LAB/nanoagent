@@ -1,27 +1,30 @@
-import React, {lazy, Suspense} from 'react';
+import React from 'react';
+import Link from '@docusaurus/Link';
 import NavbarSearch from '@theme/Navbar/Search';
+import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 
-const SearchBar = lazy(() => import('@theme/SearchBar'));
-
-const placeholderStyle = {
-  width: '12rem',
-  height: '2.25rem',
-  borderRadius: '0.5rem',
-  background: 'var(--ifm-color-emphasis-200)',
-};
+import styles from './styles.module.css';
 
 /**
- * Keep the local-search implementation out of the application shell bundle.
- * The navbar shape is reserved during the short async load to avoid layout
- * shift, while Docusaurus' original SearchBar keeps all search behavior.
+ * Search is workspace data, so the navbar opens the database-backed search
+ * page instead of loading a build-time index that cannot contain those rows.
+ * NavbarSearch keeps the native Docusaurus placement and responsive behavior.
  */
 export default function LazySearchNavbarItem({mobile, className}) {
+  const {slug} = useWorkspaceSite();
   if (mobile) return null;
+  const href = slug
+    ? `/w/${encodeURIComponent(slug)}/content-search`
+    : '/content-search';
   return (
     <NavbarSearch className={className}>
-      <Suspense fallback={<div style={placeholderStyle} aria-hidden="true" />}>
-        <SearchBar />
-      </Suspense>
+      <Link className={styles.searchLink} to={href} aria-label="Search this workspace">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m16.25 16.25 4 4" />
+        </svg>
+        <span>Search</span>
+      </Link>
     </NavbarSearch>
   );
 }

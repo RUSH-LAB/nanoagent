@@ -9,9 +9,12 @@
  * Workspace selection is navigation, not session mutation. The URL is the
  * authority, which lets two tabs stay in different workspaces.
  */
-import API_BASE, { apiFetch } from './api.js';
+import API_BASE, { apiFetch, apiJson, invalidateApiJson } from './api.js';
 
-const WORKSPACE_CACHE_MS = 30_000;
+// Workspace ids/slugs are immutable routing data, not authorization. Keeping
+// this mapping warm prevents every content click after 30 seconds from waiting
+// on Neon; the scoped API still revalidates membership and RLS on every read.
+const WORKSPACE_CACHE_MS = 10 * 60_000;
 let workspaceRequest = null;
 let workspaceRequestTime = 0;
 let workspaceValue = null;
@@ -64,8 +67,18 @@ export function loadWorkspaces({fresh = false} = {}) {
     return workspaceRequest;
   }
   workspaceRequestTime = now;
-  workspaceRequest = call('/api/workspaces')
-    .then(data => {
+  workspaceRequest = apiJson(`${API_BASE}/api/workspaces`, {
+    cacheMs: WORKSPACE_CACHE_MS,
+    fresh,
+  })
+    .then(result => {
+      if (!result.ok) {
+        const error = new Error(result.data.error || `Request failed (${result.status})`);
+        error.status = result.status;
+        error.code = result.data.code ?? null;
+        throw error;
+      }
+      const data = result.data;
       workspaceValue = {
         ...data,
         // Compatibility names while the remaining callers move to `workspaces`
@@ -91,6 +104,7 @@ export function invalidateWorkspaceCache() {
   workspaceRequest = null;
   workspaceRequestTime = 0;
   workspaceValue = null;
+  invalidateApiJson(`${API_BASE}/api/workspaces`);
 }
 
 /** Update the SPA router without downloading and booting the whole site again. */

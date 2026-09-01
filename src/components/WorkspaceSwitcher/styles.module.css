@@ -6,32 +6,57 @@
 
 .wrapper {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0;
   padding: 0;
 }
 
-.trigger {
+.homeLink {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   min-height: 40px;
-  padding: 0.22rem 0.5rem 0.22rem 0.25rem;
-  /* No margin reset: .navbar__brand's own margin-right is the gap between the
-     brand and the first nav link, and it sits outside the hover background. */
+  min-width: 0;
+  padding: 0.22rem 0.35rem 0.22rem 0.25rem;
   border: none;
-  border-radius: 8px;
+  border-radius: 8px 4px 4px 8px;
   background: none;
   color: inherit;
   font: inherit;
+  text-decoration: none;
+}
+
+.homeLink:hover {
+  background: var(--ifm-color-emphasis-200);
+  color: inherit;
+  text-decoration: none;
+}
+
+.homeLink:focus-visible,
+.menuTrigger:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+}
+
+.menuTrigger {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 4px 8px 8px 4px;
+  background: none;
+  color: inherit;
   cursor: pointer;
 }
 
-.trigger:hover {
+.menuTrigger:hover,
+.menuTrigger[aria-expanded='true'] {
   background: var(--ifm-color-emphasis-200);
-}
-
-.trigger:focus-visible {
-  outline: 2px solid var(--ifm-color-primary);
-  outline-offset: 2px;
 }
 
 .logo {
@@ -51,23 +76,17 @@
 .identity {
   display: flex;
   min-width: 0;
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.context {
-  margin-top: 0.15rem;
-  color: var(--ifm-color-emphasis-500);
-  font-size: 0.62rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  line-height: 1;
-  text-transform: uppercase;
+  align-items: center;
 }
 
 .caret {
   flex: none;
   opacity: 0.6;
+  transition: transform 120ms ease;
+}
+
+.menuTrigger[aria-expanded='true'] .caret {
+  transform: rotate(180deg);
 }
 
 /* The menu. Positioned against .wrapper rather than the navbar, so it hangs

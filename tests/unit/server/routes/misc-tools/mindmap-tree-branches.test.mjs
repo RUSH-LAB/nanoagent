@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { key } from '../../../_harness.mjs';
+import {repositoryContext} from './_document-repository.mjs';
 
-// Characterization test for the GET /api/file/mindmap handler in
+// Characterization test for the GET /api/content/analysis/mindmap handler in
 // server/routes/misc-tools.js. The sibling suite next-misc-mindmap-cache.test.mjs
 // pins the cache wrapper (filemindmap: key, 30000 ms TTL, per-path keying, 400/404)
 // over ONE flat fixture, so the inner transform's branch logic is uncovered. This
@@ -25,24 +26,25 @@ const PROJECT_ROOT = '/proj';
 // the session resolves to one organization's tree under content/.
 const CONTENT_DIR = path.join(PROJECT_ROOT, 'content', 'mochi');
 
-// Drive GET /api/file/mindmap with a mocked ctx for a single file whose content is
+// Drive GET /api/content/analysis/mindmap with a mocked ctx for a single file whose content is
 // `body`, keyed (as the handler reads it) by path.join(CONTENT_DIR, filePath). The
 // pass-through cached() runs fn() inline, so what is captured is exactly the inner
 // transform's output. Returns the { status, payload } handed to json().
 async function invoke(filePath, body) {
-  const pathname = '/api/file/mindmap';
+  const pathname = '/api/content/analysis/mindmap';
   const url = new URL(`http://localhost${pathname}?path=${encodeURIComponent(filePath)}`);
   const req = { method: 'GET' };
   const res = { writableEnded: false };
   const absPath = path.join(CONTENT_DIR, filePath);
   let captured = null;
-  const ctx = {
-    fs: {
+  const fs = {
       readFileSync(fp) {
         if (fp === absPath) return body;
         const e = new Error(`ENOENT: ${fp}`); e.code = 'ENOENT'; throw e;
       },
-    },
+  };
+  const ctx = {
+    fs,
     path,
     PROJECT_ROOT,
     contentRootFor: () => CONTENT_DIR,
@@ -50,6 +52,7 @@ async function invoke(filePath, body) {
     cached: (_k, _t, fn) => fn(),
     cacheKey: (_orgId, name) => key(name),
     json(_res, status, payload) { captured = { status, payload }; res.writableEnded = true; return captured; },
+    ...repositoryContext({fs, root: CONTENT_DIR, path}),
   };
   await routes(req, res, url, pathname, ctx);
   return captured;
@@ -64,7 +67,7 @@ function allTexts(node, acc = []) {
   return acc;
 }
 
-describe('GET /api/file/mindmap tree branches (characterization)', () => {
+describe('GET /api/content/analysis/mindmap tree branches (characterization)', () => {
   // ── heading-text cleanup regex ──────────────────────────────────────────────
   // m[2].replace(/[*_`\[\]]/g, '').trim(): a heading carrying bold (**), italic (_),
   // inline code (`), and a bracketed token has every one of those markers stripped

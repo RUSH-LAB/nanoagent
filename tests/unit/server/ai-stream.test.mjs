@@ -54,7 +54,29 @@ if (prompt === 'no-deltas') {
   emit({type: 'result', subtype: 'success', is_error: false, result: 'Hello, world'});
 }
 `, {mode: 0o755});
+const FAKE_CODEX = path.join(SANDBOX, 'codex');
+fs.writeFileSync(FAKE_CODEX, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const prompt = args.at(-1);
+const emit = (record) => process.stdout.write(JSON.stringify(record) + '\\n');
+if (prompt.includes('codex-refuse')) {
+  emit({type: 'turn.failed', error: {message: 'model unavailable'}});
+  process.exit(1);
+} else if (prompt.includes('codex-slow')) {
+  emit({type: 'item.completed', item: {type: 'agent_message', text: 'starting'}});
+  setTimeout(() => emit({type: 'turn.completed'}), 30000);
+} else if (prompt.includes('echo-codex-args')) {
+  emit({type: 'item.completed', item: {type: 'agent_message', text: args.join(' ')}});
+  emit({type: 'turn.completed'});
+} else {
+  emit({type: 'thread.started', thread_id: 'thread-1'});
+  emit({type: 'item.completed', item: {type: 'reasoning', text: 'hidden'}});
+  emit({type: 'item.completed', item: {type: 'agent_message', text: 'Hello from Codex'}});
+  emit({type: 'turn.completed'});
+}
+`, {mode: 0o755});
 process.env.CLAUDE_CLI_PATH = FAKE_CLI;
+process.env.CODEX_CLI_PATH = FAKE_CODEX;
 // Not the repository, and not the home directory either: a test should leave
 // nothing behind outside its own temporary tree.
 process.env.AI_WORKDIR = path.join(SANDBOX, 'workdir');
@@ -313,6 +335,7 @@ describe('streaming from the local CLI', () => {
     // partial events unless asked, so all three flags travel together.
     assert.ok(args.includes('--include-partial-messages'));
     assert.ok(args.includes('--verbose'));
+    assert.equal(args[args.indexOf('--effort') + 1], 'low');
     assert.ok(args.includes('--strict-mcp-config'));
     assert.ok(args.includes('--no-session-persistence'));
     assert.deepEqual(args[args.indexOf('--disallowedTools') + 1].split(' '), [...ai.FORBIDDEN_TOOLS]);
@@ -398,5 +421,39 @@ describe('streaming from the local CLI', () => {
     await Promise.all(held);
     // And the slot is given back, so the limit is a limit and not a fuse.
     assert.deepEqual((await run({prompt: 'no-deltas'})).result, {text: 'the whole answer'});
+  });
+});
+
+describe('streaming from local Codex', () => {
+  it('returns only the completed assistant message', async () => {
+    const {deltas, result} = await run({provider: 'codex', prompt: 'hello'});
+    assert.deepEqual(deltas, ['Hello from Codex']);
+    assert.deepEqual(result, {text: 'Hello from Codex'});
+  });
+
+  it('uses an ephemeral read-only invocation in the isolated work directory', async () => {
+    const {result} = await run({provider: 'codex', prompt: 'echo-codex-args'});
+    for (const expected of ['exec', '--json', '--ephemeral', '--ignore-user-config', '--ignore-rules', '--sandbox read-only']) {
+      assert.match(result.text, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    }
+    assert.match(result.text, /\.mochi-lab\/ai|mochi-ai-stream/);
+  });
+
+  it('reports a failed Codex turn', async () => {
+    const {result} = await run({provider: 'codex', prompt: 'codex-refuse'});
+    assert.deepEqual(result, {error: 'model unavailable', status: 502});
+  });
+
+  it('stops Codex when the caller cancels', async () => {
+    const controller = new AbortController();
+    const deltas = [];
+    const running = ai.stream({
+      provider: 'codex',
+      prompt: 'codex-slow',
+      signal: controller.signal,
+      onDelta: text => { deltas.push(text); controller.abort(); },
+    });
+    assert.deepEqual(await running, {error: 'The AI request was cancelled.', status: 499});
+    assert.deepEqual(deltas, ['starting']);
   });
 });

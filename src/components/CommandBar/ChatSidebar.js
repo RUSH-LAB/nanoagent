@@ -24,6 +24,27 @@ function Icon({name}) {
   return null;
 }
 
+/** The shared visual identity used by both the sidebar and an open pane. */
+export function ConversationIcon({agent = null, channel = null, person = null, label = ''}) {
+  if (agent) {
+    return (
+      <span className={`${styles.agentAvatar} ${styles[`agent_${agent.color || 'violet'}`]}`} aria-hidden="true">
+        {agent.name.slice(0, 1).toUpperCase()}
+      </span>
+    );
+  }
+  if (person || channel?.kind === 'dm') {
+    const name = person ? personLabel(person) : (channelLabel(channel) || label);
+    return (
+      <span className={styles.personAvatar} aria-hidden="true">
+        {name.slice(0, 1).toUpperCase()}<i className={styles.onlineDot} />
+      </span>
+    );
+  }
+  if (!channel) return <span className={`${styles.convoIcon} ${styles.emptyIcon}`} aria-hidden="true">+</span>;
+  return <span className={styles.convoIcon} aria-hidden="true"><Icon name="hash" /></span>;
+}
+
 function Unread({count}) {
   if (!count) return null;
   return <span className={styles.unread}>{count > 99 ? '99+' : count}</span>;
@@ -145,8 +166,8 @@ export default function ChatSidebar({
           {agents.map(agent => (
             <div key={agent.id} className={`${styles.agentRow} ${managingAgents ? styles.agentManaging : ''}`}>
               <button type="button" className={`${styles.convo} ${styles.agentConvo} ${activeAgentId === agent.id ? styles.convoActive : ''}`} onClick={() => onSelectAgent(agent)} aria-current={activeAgentId === agent.id} title={agent.description || agent.name}>
-                <span className={`${styles.agentAvatar} ${styles[`agent_${agent.color || 'violet'}`]}`}>{agent.name.slice(0, 1).toUpperCase()}</span>
-                <span className={styles.convoBody}><span className={styles.convoName}>{agent.name}</span>{agent.description && <span className={styles.convoMeta}>{agent.description}</span>}</span>
+                <ConversationIcon agent={agent} />
+                <span className={styles.convoBody}><span className={styles.convoName}>{agent.name}</span></span>
               </button>
               {canEditAgents && <button type="button" className={styles.editAgent} onClick={() => onEditAgent(agent)} aria-label={`Edit ${agent.name}`}>•••</button>}
             </div>
@@ -159,8 +180,8 @@ export default function ChatSidebar({
           {creating && <form className={styles.inlineForm} onSubmit={submitChannel}><span>#</span><input value={draft} onChange={event => setDraft(event.target.value)} placeholder="channel-name" autoFocus aria-label="New channel name" /></form>}
           {chat.channels.filter(channel => channel.kind !== 'dm').map(channel => (
             <button key={channel.id} type="button" className={`${styles.convo} ${channel.id === activeChannelId ? styles.convoActive : ''}`} onClick={() => onSelect(channel.id, channelLabel(channel))} aria-current={channel.id === activeChannelId}>
-              <span className={styles.convoIcon}><Icon name="hash" /></span>
-              <span className={styles.convoBody}><span className={styles.convoName}>{channel.name}</span>{channel.topic && <span className={styles.convoMeta}>{channel.topic}</span>}</span>
+              <ConversationIcon channel={channel} />
+              <span className={styles.convoBody}><span className={styles.convoName}>{channel.name}</span></span>
               <Unread count={channel.unread} />
             </button>
           ))}
@@ -174,11 +195,8 @@ export default function ChatSidebar({
             return (
               <div key={person.id} className={styles.personRow}>
                 <button type="button" className={`${styles.convo} ${styles.personConvo} ${person.dmChannelId === activeChannelId ? styles.convoActive : ''}`} onClick={() => !person.you && openPerson(person)} disabled={person.you} aria-current={person.dmChannelId === activeChannelId}>
-                  <span className={styles.personAvatar}>{label.slice(0, 1).toUpperCase()}<i className={styles.onlineDot} /></span>
-                  <span className={styles.convoBody}>
-                    <span className={styles.convoName}>{label}{person.you && <span className={styles.youTag}>you</span>}</span>
-                    <span className={styles.convoMeta}>{person.role || person.name || 'Workspace member'}</span>
-                  </span>
+                  <ConversationIcon person={person} />
+                  <span className={styles.convoBody}><span className={styles.convoName}>{label}</span></span>
                   <Unread count={dm?.unread} />
                 </button>
                 {!person.you && (

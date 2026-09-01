@@ -69,17 +69,6 @@ function diffLines(linesA, linesB) {
   return ops;
 }
 
-function flattenTree(nodes, result = []) {
-  for (const node of nodes) {
-    if (node.type === 'file') {
-      result.push(node.path);
-    } else if (node.children) {
-      flattenTree(node.children, result);
-    }
-  }
-  return result;
-}
-
 function CompareView() {
   const [files, setFiles] = useState([]);
   const [leftPath, setLeftPath] = useState('');
@@ -91,10 +80,10 @@ function CompareView() {
 
   // Fetch file list on mount
   useEffect(() => {
-    apiFetch(`${API_BASE}/api/files`)
+    apiFetch(`${API_BASE}/api/documents/tree`)
       .then((r) => r.json())
       .then((d) => {
-        const flat = flattenTree(d.files || []).sort();
+        const flat = (d.documents || []).map(document => document.path).sort();
         setFiles(flat);
       })
       .catch((err) => setError('Failed to load file list: ' + err.message));
@@ -111,14 +100,14 @@ function CompareView() {
     setError(null);
 
     Promise.all([
-      apiFetch(`${API_BASE}/api/file?path=${encodeURIComponent(leftPath)}`).then((r) => r.json()),
-      apiFetch(`${API_BASE}/api/file?path=${encodeURIComponent(rightPath)}`).then((r) => r.json()),
+      apiFetch(`${API_BASE}/api/documents/source?path=${encodeURIComponent(leftPath)}`).then((r) => r.json()),
+      apiFetch(`${API_BASE}/api/documents/source?path=${encodeURIComponent(rightPath)}`).then((r) => r.json()),
     ])
       .then(([left, right]) => {
         if (left.error) throw new Error(`Left file: ${left.error}`);
         if (right.error) throw new Error(`Right file: ${right.error}`);
-        setLeftContent(left.content);
-        setRightContent(right.content);
+        setLeftContent(left.markdown);
+        setRightContent(right.markdown);
         setLoading(false);
       })
       .catch((err) => {

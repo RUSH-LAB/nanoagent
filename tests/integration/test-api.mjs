@@ -99,9 +99,9 @@ async function testFileCRUD() {
 
   // 1. List files
   await test('List files', async () => {
-    const {status, data} = await api('GET', '/api/files');
+    const {status, data} = await api('GET', '/api/documents/tree');
     assertEq(status, 200, 'status');
-    assertOk(Array.isArray(data.files), 'files is array');
+    assertOk(Array.isArray(data.documents), 'documents is array');
   });
 
   // 2. Create file
@@ -117,9 +117,9 @@ async function testFileCRUD() {
 
   // 3. Read file
   await test('Read file', async () => {
-    const {status, data} = await api('GET', `/api/file?path=${encodeURIComponent(TEST_FILE)}`);
+    const {status, data} = await api('GET', `/api/documents/source?path=${encodeURIComponent(TEST_FILE)}`);
     assertEq(status, 200, 'status');
-    assertOk(data.content.includes('Test Post'), 'content matches');
+    assertOk(data.markdown.includes('Test Post'), 'content matches');
   });
 
   // 4. Update file
@@ -132,17 +132,17 @@ async function testFileCRUD() {
     assertEq(status, 200, 'status');
     assertOk(data.success, 'success');
     // Verify the update
-    const {data: readData} = await api('GET', `/api/file?path=${encodeURIComponent(TEST_FILE)}`);
-    assertOk(readData.content.includes('Updated content'), 'content updated');
+    const {data: readData} = await api('GET', `/api/documents/source?path=${encodeURIComponent(TEST_FILE)}`);
+    assertOk(readData.markdown.includes('Updated content'), 'content updated');
   });
 
   // 5. Search files
   await test('Search files', async () => {
-    const {status, data} = await api('GET', `/api/files/search?q=${encodeURIComponent(TEST_PREFIX)}`);
+    const {status, data} = await api('GET', `/api/documents/search?q=${encodeURIComponent(TEST_PREFIX)}`);
     assertEq(status, 200, 'status');
-    assertOk(Array.isArray(data.files), 'files is array');
-    assertOk(data.files.length >= 1, 'found at least one file');
-    assertOk(data.files.some(f => f.path.includes(TEST_PREFIX)), 'found our test file');
+    assertOk(Array.isArray(data.documents), 'documents is array');
+    assertOk(data.documents.length >= 1, 'found at least one file');
+    assertOk(data.documents.some(f => f.path.includes(TEST_PREFIX)), 'found our test file');
   });
 
   // 6. File move
@@ -158,7 +158,7 @@ async function testFileCRUD() {
     cleanup.pop();
     cleanup.push(() => safeDeleteFile(movedPath));
     // Verify it is at the new location
-    const {status: readStatus} = await api('GET', `/api/file?path=${encodeURIComponent(movedPath)}`);
+    const {status: readStatus} = await api('GET', `/api/documents/source?path=${encodeURIComponent(movedPath)}`);
     assertEq(readStatus, 200, 'moved file readable');
   });
 
@@ -174,7 +174,7 @@ async function testFileCRUD() {
     cleanup.pop();
     cleanup.push(() => emptyTrashIfNeeded());
     // Verify the file is gone from its original location
-    const {status: readStatus} = await api('GET', `/api/file?path=${encodeURIComponent(movedPath)}`);
+    const {status: readStatus} = await api('GET', `/api/documents/source?path=${encodeURIComponent(movedPath)}`);
     assertEq(readStatus, 404, 'file no longer readable');
   });
 }
@@ -361,7 +361,7 @@ async function testSecurity() {
 
   // 1. Path traversal blocked
   await test('Path traversal blocked', async () => {
-    const {status, data} = await api('GET', '/api/file?path=../../../etc/passwd');
+    const {status, data} = await api('GET', '/api/documents/source?path=../../../etc/passwd');
     assertEq(status, 400, 'status');
     assertOk(data.error, 'has error');
   });

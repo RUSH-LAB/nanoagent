@@ -5,7 +5,7 @@
 
 const { numericParam } = require('../server-utils');
 
-// Stop words dropped before the GET /api/file/related handler measures word
+// Stop words dropped before the GET /api/content/analysis/related handler measures word
 // overlap between two files. This set is identical on every request, so it is
 // built once at module load rather than rebuilt per request. The other
 // file-tools handlers (suggest-tags, keywords) keep their own separate stop
@@ -13,7 +13,7 @@ const { numericParam } = require('../server-utils');
 const RELATED_STOP_WORDS = new Set(['the','a','an','is','are','was','were','be','been','have','has','had','do','does','did','will','would','could','should','and','but','or','for','in','on','at','to','by','of','with','from','this','that','it','not']);
 
 // Stop-word sets for the keyword filtering in GET /api/file/suggest-tags and
-// GET /api/file/keywords, built once at module load instead of rebuilt on every
+// GET /api/content/analysis/keywords, built once at module load instead of rebuilt on every
 // request. Each set is read only (`.has` membership tests inside a `.filter`),
 // so hoisting leaves the suggested tags and extracted keywords identical. The
 // two lists intentionally differ in length, so they stay as two distinct
@@ -31,7 +31,7 @@ const WIKI_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 const CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
 const MD_LINK_RE = /\[([^\]]*)\]\(\/([^)#?]+)\)/g;
 
-// Per-word syllable patterns for GET /api/file/readability, compiled once at
+// Per-word syllable patterns for GET /api/content/analysis/readability, compiled once at
 // module load instead of four RegExp allocations per word of every request.
 // Each is applied only through String.prototype.replace / String.prototype.match,
 // which reset lastIndex on every call, so the shared /g instances stay
@@ -42,13 +42,13 @@ const READ_SYLLABLE_TRIM_RE = /(?:[^laeiouy]es|ed|[^laeiouy]e)$/;
 const READ_LEADING_Y_RE = /^y/;
 const READ_VOWEL_GROUP_RE = /[aeiouy]{1,2}/g;
 
-// Markdown-stripping patterns for GET /api/file/keywords, compiled once at module
+// Markdown-stripping patterns for GET /api/content/analysis/keywords, compiled once at module
 // load instead of rebuilt on every request. Seven run through String.prototype.replace
 // and KEYWORDS_SPLIT_RE through String.prototype.split; both reset or ignore lastIndex
 // and run to completion each call, so the shared /g instances stay request-independent
 // and the extracted keywords and totalWords are byte-identical to the per-request build.
 // Six of them (FRONTMATTER, FENCE, INLINE_CODE, LINK, HEADING, HTML) are now shared by
-// the GET /api/file/readability handler too, which previously rebuilt byte-identical
+// the GET /api/content/analysis/readability handler too, which previously rebuilt byte-identical
 // copies per request; its punct, sentence-split, and word-split patterns genuinely
 // differ from KEYWORDS_PUNCT_RE / KEYWORDS_SPLIT_RE, so they stay inline there. The
 // /summary, /related, and /suggest-tags handlers keep their own inline patterns.
@@ -64,21 +64,24 @@ const KEYWORDS_SPLIT_RE = /[^a-z]+/;
 
 module.exports = async function file_tools_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, documents, _routeDiagnostics
   } = ctx;
 
   // ── File markdown lint ──
-  if (req.method === 'GET' && pathname === '/api/file/lint') {
+  if (req.method === 'GET' && pathname === '/api/content/analysis/lint') {
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
+      const scope = scopeFor(req);
       // Cache the per-path lint result so repeated requests for the same file skip the
       // frontmatter check and line-by-line issue scan. The readFileSync stays inside
       // the closure, so a missing file still throws here and propagates to the outer
       // catch (the 404 is never cached). Mirrors the /api/file/dependencies and
-      // /api/file/related caches in this module.
-      const result = cached(cacheKey(req.context?.workspaceId, 'filelint:' + filePath), 30000, () => {
-        const content = fs.readFileSync(path.join(contentRootFor(req.context?.workspaceId), filePath), 'utf-8');
+      // /api/content/analysis/related caches in this module.
+      const result = await cached(cacheKey(scope.workspaceId, `filelint:${scope.userId}:${filePath}`), 30000, async () => {
+        const document = await documents.get(scope, filePath);
+        if (!document) throw new Error('File not found');
+        const content = document.markdown;
         const issues = [];
         const lines = content.split('\n');
         const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
@@ -121,11 +124,13 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
   }
 
   // ── File readability score ──
-  if (req.method === 'GET' && pathname === '/api/file/readability') {
+  if (req.method === 'GET' && pathname === '/api/content/analysis/readability') {
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      let text = fs.readFileSync(path.join(contentRootFor(req.context?.workspaceId), filePath), 'utf-8');
+      const document = await documents.get(scopeFor(req), filePath);
+      if (!document) return json(res, 404, {error: 'File not found'});
+      let text = document.markdown;
       text = text.replace(KEYWORDS_FRONTMATTER_RE, '');
       text = text.replace(KEYWORDS_FENCE_RE, '').replace(KEYWORDS_INLINE_CODE_RE, '');
       text = text.replace(KEYWORDS_LINK_RE, '$1');
@@ -161,18 +166,21 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
   }
 
   // ── Related pages: suggest pages related to a given file ──
-  if (req.method === 'GET' && pathname === '/api/file/related') {
+  if (req.method === 'GET' && pathname === '/api/content/analysis/related') {
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
+      const scope = scopeFor(req);
       // Cache the per-path related result so repeated requests for the same file
       // skip the recursive scanRelated walk that reads and word-compares every
       // content file. The source-file readFileSync stays inside the closure, so a
       // missing source file still throws here and propagates to the outer catch
       // (the 404 is never cached). Mirrors the /api/file/dependencies cache above.
-      const result = cached(cacheKey(req.context?.workspaceId, 'related:' + filePath), 30000, () => {
-        const fullPath = path.join(contentRootFor(req.context?.workspaceId), filePath);
-        const content = fs.readFileSync(fullPath, 'utf-8');
+      const result = await cached(cacheKey(scope.workspaceId, `related:${scope.userId}:${filePath}`), 30000, async () => {
+        const rows = await documents.snapshot(scope);
+        const source = rows.find(document => document.path === filePath);
+        if (!source) throw new Error('File not found');
+        const content = source.markdown;
         const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
         const sourceTags = new Set();
         if (fmMatch) {
@@ -183,20 +191,14 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
         }
         let plainText = content.replace(/^---[\s\S]*?---/, '').replace(/```[\s\S]*?```/g, '').replace(/[^a-zA-Z\s]/g, ' ');
         const sourceWords = new Set(plainText.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !RELATED_STOP_WORDS.has(w)));
-        const contentDir = contentRootFor(req.context?.workspaceId);
         const candidates = [];
-        function scanRelated(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-            const fp = path.join(dir, entry.name);
-            if (entry.isDirectory()) { scanRelated(fp); continue; }
-            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-            const rel = path.relative(contentRootFor(req.context?.workspaceId), fp);
-            if (rel === filePath) continue;
-            try {
-              const c = fs.readFileSync(fp, 'utf-8');
+        for (const document of rows) {
+            const entryName = document.path.split('/').pop();
+            if (entryName.startsWith('.') || entryName.startsWith('_')) continue;
+            if (!ALLOWED_EXTS.some(ext => entryName.endsWith(ext)) || document.path === filePath) continue;
+              const c = document.markdown ?? '';
               const fm = c.match(/^---\n([\s\S]*?)\n---/);
-              let title = entry.name.replace(/\.(mdx?|md)$/, '');
+              let title = document.title || entryName.replace(/\.(mdx?|md)$/, '');
               const tags = new Set();
               if (fm) {
                 const tm = fm[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
@@ -211,11 +213,8 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
               let shared = 0;
               for (const w of ws) { if (sourceWords.has(w)) shared++; }
               score += Math.min(shared / Math.max(ws.length, 1) * 10, 5);
-              if (score > 0.5) candidates.push({path: rel, title, score: Math.round(score * 100) / 100});
-            } catch {}
-          }
+              if (score > 0.5) candidates.push({path: document.path, title, score: Math.round(score * 100) / 100});
         }
-        scanRelated(contentDir);
         candidates.sort((a, b) => b.score - a.score);
         return {related: candidates.slice(0, 10)};
       });
@@ -226,11 +225,13 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
   }
 
   // ── File keywords: extract top keywords from a file ──
-  if (req.method === 'GET' && pathname === '/api/file/keywords') {
+  if (req.method === 'GET' && pathname === '/api/content/analysis/keywords') {
     const filePath = url.searchParams.get('path');
     if (!isValidFilePath(filePath)) return json(res, 400, {error: 'Invalid path'});
     try {
-      let text = fs.readFileSync(path.join(contentRootFor(req.context?.workspaceId), filePath), 'utf-8');
+      const document = await documents.get(scopeFor(req), filePath);
+      if (!document) return json(res, 404, {error: 'File not found'});
+      let text = document.markdown;
       text = text.replace(KEYWORDS_FRONTMATTER_RE, '').replace(KEYWORDS_FENCE_RE, '').replace(KEYWORDS_INLINE_CODE_RE, '');
       text = text.replace(KEYWORDS_LINK_RE, '$1').replace(KEYWORDS_HEADING_RE, '');
       text = text.replace(KEYWORDS_PUNCT_RE, ' ').replace(KEYWORDS_HTML_RE, '');
@@ -247,7 +248,7 @@ module.exports = async function file_tools_routes(req, res, url, pathname, ctx) 
 
 module.exports.numericParam = numericParam;
 // Exported for tests: the markdown-stripping regexes shared by the GET
-// /api/file/keywords handler, so the suite can assert each one's source and flags
+// /api/content/analysis/keywords handler, so the suite can assert each one's source and flags
 // and prove a single shared instance backs every request.
 module.exports.KEYWORDS_FRONTMATTER_RE = KEYWORDS_FRONTMATTER_RE;
 module.exports.KEYWORDS_FENCE_RE = KEYWORDS_FENCE_RE;

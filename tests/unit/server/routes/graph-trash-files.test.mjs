@@ -116,7 +116,7 @@ describe('GET /api/graph', () => {
     let seen;
     const {ctx} = fsCtx(TREE, {cached: (key, ttl, fn) => { seen = [key, ttl]; return fn(); }});
     await scopedInvoke({path: '/api/graph', ctx});
-    assert.deepEqual(seen, [key('graph-data'), 60000]);
+    assert.deepEqual(seen, [key('graph-data:test-user'), 60000]);
   });
 
   it('serves an identical payload from cache without re-scanning', async () => {
@@ -138,7 +138,7 @@ describe('GET /api/graph', () => {
   // message into the reply, so both seams surface the underlying text.
   const SEAMS = [
     {name: 'the memo call throws', over: {cached() { throw new Error('cache unavailable'); }}, message: 'cache unavailable'},
-    {name: 'the database scan throws', over: {cached: (_k, _t, fn) => fn(), documents: {list() { throw new Error('content unavailable'); }}}, message: 'content unavailable'},
+    {name: 'the database scan throws', over: {cached: (_k, _t, fn) => fn(), documents: {snapshot() { throw new Error('content unavailable'); }}}, message: 'content unavailable'},
   ];
   for (const {name, over, message} of SEAMS) {
     it(`returns 500 carrying the error message when ${name}`, async () => {
@@ -223,7 +223,7 @@ describe('GET /api/backlinks', () => {
     let seen;
     const {ctx} = fsCtx(TREE, {cached: (key, ttl, fn) => { seen = [key, ttl]; return fn(); }});
     await scopedInvoke({path: '/api/backlinks', query: {path: TARGET}, ctx});
-    assert.deepEqual(seen, [key(`backlinks:${TARGET}`), 60000]);
+    assert.deepEqual(seen, [key(`backlinks:test-user:${TARGET}`), 60000]);
   });
 
   it('returns identical results back to back', async () => {

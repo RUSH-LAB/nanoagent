@@ -1,4 +1,4 @@
-import React, {type ReactNode} from 'react';
+import React, {useEffect, type ReactNode} from 'react';
 import clsx from 'clsx';
 import {
   useThemeConfig,
@@ -16,6 +16,7 @@ import WorkspaceSwitcher from '@site/src/components/WorkspaceSwitcher';
 import LazySearchNavbarItem from '@site/src/components/LazySearchNavbarItem';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import {workspaceDocumentHref} from '@site/src/utils/documentUrls';
+import {prefetchWorkspaceContentHref} from '@site/src/utils/workspaceContent';
 
 import styles from './styles.module.css';
 
@@ -81,7 +82,7 @@ export default function NavbarContent(): ReactNode {
 
   const fixedItems = items.filter(item => item.type === 'search' || item.type === 'custom-userButton');
   const configuredItems = hasConcreteWorkspace
-    ? (workspaceSite?.navigation ?? []).map(item => ({
+    ? (workspaceSite?.navigation ?? []).filter(item => item.hidden !== true).map(item => ({
         label: item.label,
         to: workspaceDocumentHref(item.path, workspaceSlug, ''),
         position: 'left' as const,
@@ -99,6 +100,38 @@ export default function NavbarContent(): ReactNode {
   const [leftItems, rightItems] = splitNavbarItems(scopedItems);
 
   const searchBarItem = items.find((item) => item.type === 'search');
+
+  useEffect(() => {
+    if (!workspaceSlug || !workspaceSite?.navigation?.length) return undefined;
+    const hrefs = [...new Set(workspaceSite.navigation.filter(item => item.hidden !== true).map(item =>
+      workspaceDocumentHref(item.path, workspaceSlug, ''),
+    ))];
+    if (hrefs.length === 0) return undefined;
+    let cancelled = false;
+    let idleHandle: number | undefined;
+
+    // The first navigation item is normally the primary collection (Research
+    // in Mochi). Start it immediately when the workspace navbar resolves, then
+    // warm the remaining collections when the browser is idle.
+    prefetchWorkspaceContentHref(hrefs[0], workspaceSite).catch(() => {});
+    const warmRemaining = () => {
+      if (cancelled) return;
+      for (const href of hrefs.slice(1)) {
+        prefetchWorkspaceContentHref(href, workspaceSite).catch(() => {});
+      }
+    };
+    if ('requestIdleCallback' in window) {
+      idleHandle = window.requestIdleCallback(warmRemaining, {timeout: 1_000});
+    } else {
+      idleHandle = window.setTimeout(warmRemaining, 250);
+    }
+    return () => {
+      cancelled = true;
+      if (idleHandle === undefined) return;
+      if ('cancelIdleCallback' in window) window.cancelIdleCallback(idleHandle);
+      else window.clearTimeout(idleHandle);
+    };
+  }, [workspaceSlug, workspaceSite]);
 
   return (
     <NavbarContentLayout

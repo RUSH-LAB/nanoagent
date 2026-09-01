@@ -11,6 +11,9 @@ import {DocsSidebarProvider} from '@docusaurus/plugin-content-docs/client';
 import {HtmlClassNameProvider, ThemeClassNames} from '@docusaurus/theme-common';
 import API_BASE, {apiJson} from '@site/src/utils/api';
 import {loadWorkspaces, navigateClient} from '@site/src/utils/workspaces';
+import {
+  WORKSPACE_CONTENT_CACHE_MS, workspaceContentPlan, workspaceHomeLayout,
+} from '@site/src/utils/workspaceContent';
 import {createRuntimeBlogContent} from './RuntimeBlogPost';
 import RuntimeDocItem from './RuntimeDocItem';
 import styles from './documentRoute.module.css';
@@ -153,29 +156,61 @@ function DocumentBody({workspaceSlug, documentPath}) {
           return;
         }
         const apiRoot = `${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}`;
-        const collectionPrefix = documentPath.split('/').slice(0, 2).join('/');
-        const isBlogPath = collectionPrefix.startsWith('posts/');
-        const treeQuery = documentPath
-          ? `?prefix=${encodeURIComponent(collectionPrefix)}&include=${isBlogPath ? 'frontmatter' : 'metadata'}`
-          : '';
-        const likelyCollection = /^(?:books|posts)\/[^/]+$/.test(documentPath);
-        const [documentResult, treeResult, siteResult] = await Promise.all([
-          documentPath && !likelyCollection
-            ? apiJson(`${apiRoot}/documents?path=${encodeURIComponent(documentPath)}`, {cacheMs: 30_000})
+        const siteResult = await apiJson(`${apiRoot}/site`, {cacheMs: WORKSPACE_CONTENT_CACHE_MS});
+        const site = siteResult.ok ? siteResult.data.site : null;
+        const homeLayout = workspaceHomeLayout(site, workspaceSlug);
+        const homeDocument = !documentPath && homeLayout === 'document'
+          ? site?.site?.homeDocument
+          : null;
+        const requestedPath = documentPath || homeDocument || '';
+        const plan = workspaceContentPlan(site, requestedPath);
+        const needsTree = Boolean(documentPath || homeLayout !== 'title');
+        const [documentResult, treeResult] = await Promise.all([
+          plan.path && !plan.isCollection
+            ? apiJson(`${apiRoot}/documents?path=${encodeURIComponent(plan.path)}`, {
+                cacheMs: WORKSPACE_CONTENT_CACHE_MS,
+              })
             : Promise.resolve({ok: false, status: 404, data: {}}),
-          apiJson(`${apiRoot}/documents/tree${treeQuery}`, {cacheMs: 30_000}),
-          apiJson(`${apiRoot}/site`, {cacheMs: 5 * 60_000}),
+          needsTree
+            ? apiJson(`${apiRoot}/documents/tree${plan.treeQuery}`, {
+                cacheMs: WORKSPACE_CONTENT_CACHE_MS,
+              })
+            : Promise.resolve({ok: true, status: 200, data: {documents: []}}),
         ]);
         if (cancelled) return;
 
-        const site = siteResult.ok ? siteResult.data.site : null;
         const listed = treeResult.ok ? treeResult.data.documents || [] : [];
         const readyBase = {
           workspaceId: workspace.id,
           workspaceName: workspace.name,
           workspaceSlug,
+          routePath: documentPath,
           site,
         };
+        if (!documentPath && homeLayout === 'title') {
+          setState({status: READY, documents: listed, homeLayout, ...readyBase});
+          return;
+        }
+        if (!documentPath && homeLayout === 'document') {
+          if (!homeDocument) {
+            setState({status: BROKEN, message: 'Choose a home document in workspace settings.'});
+            return;
+          }
+          if (!documentResult.ok) {
+            setState({status: BROKEN, message: documentResult.data.error || 'The configured home document was not found.'});
+            return;
+          }
+          setState({
+            status: READY,
+            tree: documentResult.data.tree,
+            document: documentResult.data.document,
+            frontmatter: documentResult.data.frontmatter || {},
+            documents: listed,
+            homeLayout,
+            ...readyBase,
+          });
+          return;
+        }
         if (!documentPath) {
           setState({status: READY, documents: listed, ...readyBase});
           return;
@@ -255,22 +290,31 @@ function DocumentBody({workspaceSlug, documentPath}) {
     );
   }
 
-  if (state.emptyWorkspace || (!documentPath && state.documents.length === 0)) {
+  // During an in-workspace navigation, state intentionally retains the last
+  // successfully rendered page until the next request finishes. Branch on the
+  // path that produced that state, not the newer URL: mixing a homepage state
+  // with a document URL is what previously dereferenced `document.path` before
+  // the Research document had arrived.
+  const renderedPath = state.routePath ?? documentPath;
+
+  if (state.emptyWorkspace || (!renderedPath && (state.homeLayout === 'title' || (!state.document && state.documents.length === 0)))) {
+    const workspaceTitle = state.site?.site?.title || state.workspaceName;
     return (
-      <Layout title={state.workspaceName}>
-        <main className={styles.workspaceHome}><h1>{state.workspaceName}</h1></main>
+      <Layout title={workspaceTitle}>
+        <main className={styles.workspaceHome}><h1>{workspaceTitle}</h1></main>
       </Layout>
     );
   }
 
-  if (!documentPath || state.directory) {
+  if ((!renderedPath && !state.document) || state.directory) {
     const directoryCollection = state.directory ? collectionFor(state.site, state.directory) : null;
     const isBlogCollection = directoryCollection?.type === 'blog';
     const visibleDocuments = !state.directory && state.site?.collections?.length
       ? state.documents.filter(document => state.site.collections.some(collection =>
           document.path.startsWith(`${collection.pathPrefix}/`)))
       : state.documents;
-    const heading = directoryCollection?.title || (state.directory ? labelForDirectory(state.directory) : 'Documents');
+    const workspaceTitle = state.site?.site?.title || state.workspaceName;
+    const heading = directoryCollection?.title || (state.directory ? labelForDirectory(state.directory) : workspaceTitle);
     const description = state.directory
       ? directoryCollection?.description || `${visibleDocuments.length} ${visibleDocuments.length === 1 ? 'post' : 'posts'} in this collection`
       : `${visibleDocuments.length} ${visibleDocuments.length === 1 ? 'document' : 'documents'} in this workspace`;
@@ -307,9 +351,9 @@ function DocumentBody({workspaceSlug, documentPath}) {
         <article className={styles.collection}>
           <header className={styles.collectionHeader}>
             <div>
-              <span className={styles.eyebrow}>{state.directory ? 'Collection' : 'Workspace library'}</span>
+              {state.directory && <span className={styles.eyebrow}>Collection</span>}
               <h1>{heading}</h1>
-              <p>{description}</p>
+              {state.directory && <p>{description}</p>}
             </div>
           </header>
           {sortedDocuments.length === 0 ? <p className={styles.empty}>This workspace has no documents yet.</p> : (
@@ -333,6 +377,12 @@ function DocumentBody({workspaceSlug, documentPath}) {
         </article>
       </Layout>
     );
+  }
+
+  // A malformed or superseded response should degrade to a loading state,
+  // never take down the route's React boundary.
+  if (!state.document) {
+    return <Layout title="Loading"><main className={styles.statusPage}><p>Loading…</p></main></Layout>;
   }
 
   const {tree, document} = state;

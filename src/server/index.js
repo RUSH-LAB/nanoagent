@@ -15,7 +15,7 @@ const {
   ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH,
 } = require('./server-utils');
 
-const {PROJECT_ROOT, documentFsRootFor, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
+const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
 const {auth, resolveIdentity, isPublicPath, productionAuthError, AUTH_ENABLED} = require('./auth');
 const {
   createWorkspaceContextResolver, matchWorkspaceApiPath, storageScope,
@@ -31,7 +31,9 @@ const {contextualChat, contextualOrg} = require('./context-services');
 const roles = postgresServices?.roles ?? require('./roles');
 const chat = contextualChat(postgresServices?.chat ?? require('./chat'));
 const org = contextualOrg(postgresServices?.org ?? require('./org'));
-const ai = require('./ai');
+const inference = require('./ai');
+const {createAgentRuntime} = require('./agent-runtime');
+const ai = createAgentRuntime({inference});
 // The per-workspace data layer. See server/store/index.js: the only way a route
 // module is allowed to reach the thirteen features' data, because it is the
 // only way that applies the organization and the owner without being asked to.
@@ -45,8 +47,6 @@ const workspaceSettings = postgresServices?.workspaceSettings ?? require('./work
 const {createObjectStorage} = require('./object-storage');
 const {createObjectDeletionQueue, drainObjectDeletions} = require('./object-deletions');
 const {serveStaticSite} = require('./static-site');
-const {createDocumentFilesystem} = require('./document-filesystem');
-const {usesLegacyDocumentFilesystem} = require('./document-filesystem-routing');
 const objectStorage = createObjectStorage();
 const assets = postgresServices?.assets ?? require('./assets');
 const objectDeletions = postgresServices?.objectDeletions
@@ -111,25 +111,13 @@ function appendAccessLog(line) {
   } catch { /* ignore write errors */ }
 }
 
-function hasAllowedExt(name) {
-  return ALLOWED_EXTS.some(ext => name.endsWith(ext));
-}
-
-/**
- * Logical root for legacy fs-shaped algorithms. No directory is read here;
- * createDocumentFilesystem serves the verified workspace's database rows.
- */
-function contentRootFor(orgId) {
-  return documentFsRootFor(orgId);
-}
-
 /**
  * The workspace and person a handler's store calls act as RequestContext.
  *
  * Built from `req.auth` and from nothing else, which is what makes it not
  * forgeable: there is no query parameter or body field it consults, so a client
  * has no way to express somebody else. The same rule, and the same reason, as
- * contentRootFor above.
+ * the workspace URL resolver above.
  *
  * The primary workspace fallback exists only in the explicitly unauthenticated
  * local-development mode. Authenticated requests must already have the
@@ -163,82 +151,6 @@ function scopeFor(req) {
  */
 function cacheKey(orgId, name) {
   return `workspace:${orgId || 'none'}:${name}`;
-}
-
-/**
- * The file tree under `dir`, with every path relative to `base`.
- *
- * `base` is the caller's content root, so the paths that go out on the wire are
- * `handbook/intro.md` and never `content/acme/handbook/intro.md`. That
- * is the whole of the isolation story for content: with no organization in the
- * wire format, a request has nowhere to put one, so asking for another
- * workspace's file is not a thing a client can express rather than a thing the
- * server has to remember to refuse.
- */
-function walkDir(dir, base = dir) {
-  const result = [];
-  for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-    if (entry.name.startsWith('.')) continue;
-    const fullPath = path.join(dir, entry.name);
-    const relPath = path.relative(base, fullPath);
-    if (entry.isDirectory()) {
-      result.push({name: entry.name, path: relPath, type: 'directory', children: walkDir(fullPath, base)});
-    } else if (hasAllowedExt(entry.name)) {
-      const stat = fs.statSync(fullPath);
-      result.push({name: entry.name, path: relPath, type: 'file', mtime: stat.mtimeMs, size: stat.size});
-    }
-  }
-  return result;
-}
-
-/** The same tree, flattened to files, likewise relative to `base`. */
-function flatFiles(dir, base = dir) {
-  const result = [];
-  function walk(d) {
-    for (const entry of fs.readdirSync(d, {withFileTypes: true})) {
-      if (entry.name.startsWith('.')) continue;
-      const fullPath = path.join(d, entry.name);
-      const relPath = path.relative(base, fullPath);
-      if (entry.isDirectory()) {
-        walk(fullPath);
-      } else if (hasAllowedExt(entry.name)) {
-        result.push({name: entry.name, path: relPath});
-      }
-    }
-  }
-  walk(dir);
-  return result;
-}
-
-function walkDirWith(files, dir, base = dir) {
-  const result = [];
-  for (const entry of files.readdirSync(dir, {withFileTypes: true})) {
-    if (entry.name.startsWith('.')) continue;
-    const fullPath = path.join(dir, entry.name);
-    const relPath = path.relative(base, fullPath);
-    if (entry.isDirectory()) {
-      result.push({name: entry.name, path: relPath, type: 'directory', children: walkDirWith(files, fullPath, base)});
-    } else if (hasAllowedExt(entry.name)) {
-      const stat = files.statSync(fullPath);
-      result.push({name: entry.name, path: relPath, type: 'file', mtime: stat.mtimeMs, size: stat.size});
-    }
-  }
-  return result;
-}
-
-function flatFilesWith(files, dir, base = dir) {
-  const result = [];
-  function walk(current) {
-    for (const entry of files.readdirSync(current, {withFileTypes: true})) {
-      if (entry.name.startsWith('.')) continue;
-      const fullPath = path.join(current, entry.name);
-      const relPath = path.relative(base, fullPath);
-      if (entry.isDirectory()) walk(fullPath);
-      else if (hasAllowedExt(entry.name)) result.push({name: entry.name, path: relPath});
-    }
-  }
-  walk(dir);
-  return result;
 }
 
 // Production is same-origin by default. Development keeps the permissive
@@ -582,7 +494,7 @@ let requestCounter = 0;
 
 // ── Shared context handed to every route module in server/routes/ ──
 const ctx = {
-  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
+  appendAccessLog, json, readBody, readRawBody, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
   roles,
   chat,
   org,
@@ -622,12 +534,10 @@ const ctx = {
 const workspaceRoutes = require('./routes/workspaces');
 const routeModules = [
   require('./routes/workspace-settings'),
-  // Content from the database, compiled per request. Ahead of ./routes/files,
-  // which is the same content read off disk, because /api/content is the path
-  // that knows who is asking.
+  // Content from the database, compiled per request.
   require('./routes/content'),
   require('./routes/assets'),
-  require('./routes/files'),
+  require('./routes/content-stats'),
   require('./routes/comments-notes'),
   require('./routes/feeds'),
   require('./routes/analytics-users'),
@@ -787,26 +697,9 @@ const server = http.createServer(async (req, res) => {
     ? workspaceDispatchPath(workspaceRequest.workspacePath)
     : pathname;
 
-  // Legacy analysis handlers still use synchronous fs-shaped traversal. Give
-  // them a request-local, read-only view over document rows so production has
-  // one content source while those algorithms are migrated incrementally.
-  const routeCtx = req.context && usesLegacyDocumentFilesystem(dispatchPathname)
-    ? await (async () => {
-        const root = contentRootFor(req.context.workspaceId);
-        const snapshot = documents.snapshot ? await documents.snapshot(scopeFor(req)) : null;
-        const scopedFs = createDocumentFilesystem({files: fs, documents, context: req.context, root, snapshot});
-        return {
-          ...ctx,
-          fs: scopedFs,
-          walkDir: (dir, base = dir) => walkDirWith(scopedFs, dir, base),
-          flatFiles: (dir, base = dir) => flatFilesWith(scopedFs, dir, base),
-        };
-      })()
-    : ctx;
-
   // ── Domain route modules (see server/routes/). First to send a response wins. ──
   for (const route of routeModules) {
-    await route(req, res, url, dispatchPathname, routeCtx);
+    await route(req, res, url, dispatchPathname, ctx);
     if (res.writableEnded) return;
   }
 

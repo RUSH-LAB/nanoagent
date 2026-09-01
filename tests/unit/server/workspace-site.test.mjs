@@ -14,6 +14,7 @@ describe('workspace site configuration', () => {
     assert.deepEqual(site.navigation, []);
     assert.deepEqual(site.collections, []);
     assert.equal(site.site.homeDocument, null);
+    assert.equal(site.site.homeLayout, null);
   });
 
   it('uses explicit navigation and derives a home document', () => {
@@ -26,12 +27,33 @@ describe('workspace site configuration', () => {
     assert.deepEqual(site.navigation, [{label: 'Start', path: 'books/math/0-intro.md'}]);
   });
 
+  it('keeps an explicit hidden navbar item without changing older items', () => {
+    const site = validateWorkspaceSite({navigation: [
+      {label: 'Visible', path: 'visible.md'},
+      {label: 'Hidden', path: 'hidden.md', hidden: true},
+      {label: 'Explicitly visible', path: 'shown.md', hidden: false},
+    ]});
+    assert.deepEqual(site.navigation, [
+      {label: 'Visible', path: 'visible.md'},
+      {label: 'Hidden', path: 'hidden.md', hidden: true},
+      {label: 'Explicitly visible', path: 'shown.md'},
+    ]);
+  });
+
   it('does not infer collections omitted from explicit configuration', () => {
     const site = resolveWorkspaceSite({
       navigation: [{label: 'Programming', path: 'books/programming/0-intro.md'}],
     });
     assert.deepEqual(site.collections, []);
     assert.equal(site.site.homeDocument, 'books/programming/0-intro.md');
+  });
+
+  it('keeps the workspace-selected home page presentation', () => {
+    assert.equal(validateWorkspaceSite({site: {homeLayout: 'title'}}).site.homeLayout, 'title');
+    assert.equal(validateWorkspaceSite({site: {homeLayout: 'library'}}).site.homeLayout, 'library');
+    assert.equal(validateWorkspaceSite({site: {homeLayout: 'document', homeDocument: 'welcome.md'}}).site.homeLayout, 'document');
+    assert.throws(() => validateWorkspaceSite({site: {homeLayout: 'document'}}), /homeDocument is required/);
+    assert.throws(() => validateWorkspaceSite({site: {homeLayout: 'custom'}}), /title, library, or document/);
   });
 
   it('rejects executable or unbounded configuration shapes', () => {

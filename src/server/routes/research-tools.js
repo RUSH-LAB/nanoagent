@@ -115,7 +115,7 @@ const REC_DOI_RE = /doi\.org\/(10\.\d{4,}\/[^\s]+)/;
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
 module.exports = async function research_tools_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, documents, _routeDiagnostics
   } = ctx;
 
   // ── Preprint tracking: check single reference ──
@@ -303,39 +303,32 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
     const query = (url.searchParams.get('q') || '').toLowerCase().trim();
     if (!query) return json(res, 400, {error: 'Missing query'});
     try {
+      const scope = scopeFor(req);
       // Cached index: each doc carries its term-frequency map and length, plus
       // corpus-wide BM25 statistics (N, average length, per-term doc frequency).
-      const {docs: searchIndex, stats} = cached(cacheKey(req.context?.workspaceId, 'search:index'), 60000, () => {
-        const contentDir = contentRootFor(req.context?.workspaceId);
+      const {docs: searchIndex, stats} = await cached(
+        cacheKey(scope.workspaceId, `search:index:${scope.userId}`),
+        60000,
+        async () => {
         const docs = [];
-        function indexDir(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.')) continue;
-            const fullPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              indexDir(fullPath);
-            } else if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              try {
-                const content = fs.readFileSync(fullPath, 'utf-8');
-                // Same tokenizer for index and query (see tokenizeSearch). Only
-                // the raw text is kept (_content); the lower-cased haystack the
-                // snippet needs is recomputed on demand below rather than stored,
-                // which would double the index's resident string footprint.
-                const tokens = tokenizeSearch(content);
-                docs.push({
-                  path: path.relative(contentRootFor(req.context?.workspaceId), fullPath),
-                  name: entry.name,
-                  words: new Set(tokens),
-                  tf: termFrequencies(tokens),
-                  length: tokens.length,
-                  firstLines: content.slice(0, 500),
-                  _content: content,
-                });
-              } catch {}
-            }
-          }
+        for (const document of await documents.snapshot(scope)) {
+          const name = document.path.split('/').pop();
+          if (name.startsWith('.') || !ALLOWED_EXTS.some(ext => name.endsWith(ext))) continue;
+          const content = document.markdown ?? '';
+          // Same tokenizer for index and query (see tokenizeSearch). Only the
+          // raw text is kept (_content); the lower-cased haystack the snippet
+          // needs is recomputed on demand below rather than stored.
+          const tokens = tokenizeSearch(content);
+          docs.push({
+            path: document.path,
+            name,
+            words: new Set(tokens),
+            tf: termFrequencies(tokens),
+            length: tokens.length,
+            firstLines: content.slice(0, 500),
+            _content: content,
+          });
         }
-        indexDir(contentDir);
         return {docs, stats: corpusStats(docs)};
       });
       // Tokenize the query the same way the index and BM25 scorer do, so the

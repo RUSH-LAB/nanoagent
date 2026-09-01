@@ -42,7 +42,7 @@ const {DATA_DIR} = require('./paths');
 const {sendMail} = require('./mail');
 const {platformConfig} = require('../platform');
 const {
-  organizationOptions, workspaceAccessControl, workspaceRoles, postgresCoreSchema,
+  organizationOptions, workspaceAccessControl, workspaceRoles, postgresCoreSchema, authSessionOptions,
 } = require('./workspace-auth');
 const {createWorkspaceProvisioning} = require('./workspace-provisioning');
 
@@ -178,6 +178,12 @@ const auth = betterAuth({
   secret: resolveSecret(),
   baseURL: process.env.BETTER_AUTH_URL || process.env.SITE_URL || `http://localhost:${PORT}`,
   basePath: '/api/auth',
+  // Verify the signed, HttpOnly session snapshot locally for ordinary API
+  // requests instead of querying Neon just to identify the same browser on
+  // every click. Workspace membership is deliberately not cached here: the
+  // dispatcher still checks it for every scoped request, so removing a member
+  // takes effect immediately. The short lifetime bounds session revocation.
+  session: authSessionOptions({postgresEnabled: postgres.enabled}),
   // The Docusaurus dev server and the production site are separate origins from
   // this API, so both have to be named or Better Auth rejects their requests.
   trustedOrigins: [

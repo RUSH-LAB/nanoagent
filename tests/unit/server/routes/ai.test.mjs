@@ -26,11 +26,15 @@ const GUARDS = [
   {name: 'a non-string type', body: {prompt: 'p', type: 7}, error: 'type must be a string'},
   {name: 'a type over 50 characters', body: {prompt: 'p', type: 't'.repeat(51)}, error: 'Type must be 50 characters or fewer'},
   {name: 'a type outside the allow list', body: {prompt: 'p', type: 'translate'}, error: 'Invalid type. Must be one of: continue, improve, explain, summarize'},
-  {name: 'a non-object agent', body: {prompt: 'p', agent: 'researcher'}, error: 'agent must be an object'},
-  {name: 'a non-string agent name', body: {prompt: 'p', agent: {name: 7, instructions: 'help'}}, error: 'agent.name must be a string'},
-  {name: 'non-string agent instructions', body: {prompt: 'p', agent: {name: 'Researcher', instructions: 7}}, error: 'agent.instructions must be a string'},
-  {name: 'agent instructions over 10000 characters', body: {prompt: 'p', agent: {instructions: 'i'.repeat(10001)}}, error: 'agent.instructions must be 10000 characters or fewer'},
+  {name: 'a non-string agent id', body: {prompt: 'p', agentId: 7}, error: 'agentId must be a non-empty string of 100 characters or fewer'},
+  {name: 'an empty agent id', body: {prompt: 'p', agentId: ''}, error: 'agentId must be a non-empty string of 100 characters or fewer'},
 ];
+
+const WORKSPACE = {workspaceId: 'test-org', userId: 'test-user', membershipId: 'member-1', role: 'owner'};
+
+async function putAgent(ctx, agent) {
+  await ctx.collection('agents').put(ctx.storageScope(WORKSPACE), agent.id, agent);
+}
 
 describe('POST /api/ai/complete', () => {
   const OK = {prompt: 'Write something', type: 'continue'};
@@ -83,14 +87,42 @@ describe('POST /api/ai/complete', () => {
 
   it('uses workspace agent instructions when an agent is selected', async () => {
     const ctx = makeCtx();
+    await putAgent(ctx, {id: 'researcher', name: 'Researcher', instructions: 'Always cite evidence.', provider: 'codex'});
     await invoke(routes, {
       method: 'POST',
       path: '/api/ai/complete',
-      body: {prompt: 'p', agent: {name: 'Researcher', instructions: 'Always cite evidence.'}},
+      body: {prompt: 'p', agentId: 'researcher'},
       ctx,
+      requestContext: WORKSPACE,
     });
     assert.match(ctx.calls.ai[0].system, /workspace agent Researcher/);
     assert.match(ctx.calls.ai[0].system, /Always cite evidence\./);
+    assert.equal(ctx.calls.ai[0].provider, 'codex');
+  });
+
+  it('uses the selected local model with default instructions', async () => {
+    const ctx = makeCtx();
+    await putAgent(ctx, {id: 'mochi', name: 'Mochi', instructions: '', provider: 'claude-code'});
+    await invoke(routes, {
+      method: 'POST',
+      path: '/api/ai/complete',
+      body: {prompt: 'p', agentId: 'mochi'},
+      ctx,
+      requestContext: WORKSPACE,
+    });
+    assert.equal(ctx.calls.ai[0].provider, 'claude-code');
+    assert.match(ctx.calls.ai[0].system, /assistant built into a personal research site/);
+  });
+
+  it('does not accept an agent id outside the workspace store', async () => {
+    const r = await invoke(routes, {
+      method: 'POST',
+      path: '/api/ai/complete',
+      body: {prompt: 'p', agentId: 'missing'},
+      ctx: makeCtx(),
+      requestContext: WORKSPACE,
+    });
+    assert.deepEqual([r.status, r.payload], [404, {error: 'Agent not found'}]);
   });
 
   it('passes a refusal through with the status the assistant chose', async () => {

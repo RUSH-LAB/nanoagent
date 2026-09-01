@@ -62,6 +62,47 @@ describe('workspace settings routes', () => {
     assert.deepEqual(saved.payload.site.navigation, [{label: 'Math', path: 'books/math/0-intro.md'}]);
   });
 
+  it('updates only navbar order and visibility without replacing site structure', async () => {
+    const ctx = makeCtx();
+    const owner = context('owner');
+    await invoke(routes, {
+      method: 'PUT', path: '/api/workspaces/lab/site', ctx, requestContext: owner,
+      body: {site: {
+        site: {title: 'Lab'},
+        navigation: [
+          {label: 'Docs', path: 'books/docs'},
+          {label: 'News', path: 'posts/news'},
+        ],
+        collections: [{key: 'docs', type: 'docs', pathPrefix: 'books/docs', title: 'Documentation'}],
+      }},
+    });
+
+    const saved = await invoke(routes, {
+      method: 'PUT', path: '/api/workspaces/lab/site/navigation', ctx, requestContext: owner,
+      body: {navigation: [
+        {label: 'News', path: 'posts/news'},
+        {label: 'Docs', path: 'books/docs', hidden: true},
+      ]},
+    });
+
+    assert.equal(saved.status, 200);
+    assert.equal(saved.payload.site.site.title, 'Lab');
+    assert.deepEqual(saved.payload.site.collections, [
+      {key: 'docs', type: 'docs', pathPrefix: 'books/docs', title: 'Documentation', description: null, sidebarTitle: null, landingPath: null, showReadingTime: false},
+    ]);
+    assert.deepEqual(saved.payload.site.navigation, [
+      {label: 'News', path: 'posts/news'},
+      {label: 'Docs', path: 'books/docs', hidden: true},
+    ]);
+
+    const edited = await invoke(routes, {
+      method: 'PUT', path: '/api/workspaces/lab/site/navigation', ctx, requestContext: owner,
+      body: {navigation: [{label: 'Different', path: 'elsewhere'}]},
+    });
+    assert.equal(edited.status, 400);
+    assert.match(edited.payload.error, /only be reordered or shown and hidden/);
+  });
+
   it('keeps branding, navigation, and plugin switches isolated by workspace', async () => {
     const ctx = makeCtx();
     const alpha = context('owner', 'alpha');

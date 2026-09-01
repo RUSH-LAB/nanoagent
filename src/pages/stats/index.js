@@ -61,7 +61,7 @@ function StatsDashboard() {
       fetchJSON('/api/analytics/topics').catch(() => null),
       fetchJSON('/api/analytics/orphans').catch(() => null),
       fetchJSON('/api/analytics/duplicates').catch(() => null),
-      fetchJSON('/api/files/recent').catch(() => null),
+      fetchJSON('/api/documents/recent').catch(() => null),
     ])
       .then(([s, r, t, o, d, rf]) => {
         if (signal.aborted) return;

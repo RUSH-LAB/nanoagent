@@ -35,6 +35,24 @@ const INHERITED_KEYS = ['toString', 'valueOf', 'hasOwnProperty'];
 const fm = (fields, body = 'Body text.') =>
   `---\n${Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n')}\n---\n\n${body}\n`;
 
+function documentCtx(files, over = {}, onSnapshot = () => {}) {
+  const filesystem = over.fs ?? mockFs(files);
+  const rows = Object.entries(files).map(([fullPath, markdown]) => ({
+    id: fullPath,
+    path: path.relative(CONTENT_DIR, fullPath).replace(/\\/g, '/'),
+    title: path.basename(fullPath).replace(/\.mdx?$/, ''),
+    visibility: 'org',
+    createdAt: filesystem.statSync(fullPath).mtime.toISOString(),
+    updatedAt: filesystem.statSync(fullPath).mtime.toISOString(),
+    markdown,
+  }));
+  const documents = over.documents ?? {
+    async list() { onSnapshot(); return rows.map(({markdown: _markdown, ...row}) => row); },
+    async snapshot() { onSnapshot(); return rows; },
+  };
+  return makeCtx({...over, fs: filesystem, documents});
+}
+
 // ── Exported helpers ──────────────────────────────────────────────────────
 
 describe('numericParam (re-exported)', () => {
@@ -102,9 +120,7 @@ describe('GET /api/feed/rss and /api/feed/atom', () => {
 
   function feedCtx() {
     let walks = 0;
-    const base = mockFs(CONTENT);
-    const fs = {...base, readdirSync: (p, o) => { walks++; return base.readdirSync(p, o); }};
-    const ctx = makeCtx({fs});
+    const ctx = documentCtx(CONTENT, {}, () => { walks++; });
     return {ctx, walks: () => walks};
   }
 
@@ -118,9 +134,9 @@ describe('GET /api/feed/rss and /api/feed/atom', () => {
 
   it('passes the feed-items cache key with a 60000 ms TTL', async () => {
     let seen;
-    const ctx = makeCtx({fs: mockFs(CONTENT), cached: (key, ttl, fn) => { seen = [key, ttl]; return fn(); }});
+    const ctx = documentCtx(CONTENT, {cached: (key, ttl, fn) => { seen = [key, ttl]; return fn(); }});
     await invoke(routes, {path: '/api/feed/rss', ctx});
-    assert.deepEqual(seen, [key('feed-items'), 60000]);
+    assert.deepEqual(seen, [key('feed-items:test-user'), 60000]);
   });
 
   const FEEDS = [
@@ -148,7 +164,7 @@ describe('GET /api/feed/rss and /api/feed/atom', () => {
 
     it(`${name} slices to the twenty most recent items`, async () => {
       const many = Object.fromEntries(Array.from({length: 25}, (_, i) => [at(`f${i}.md`), fm({title: `T${i}`})]));
-      const ctx = makeCtx({fs: mockFs(many)});
+      const ctx = documentCtx(many);
       const r = await invoke(routes, {path: p, ctx});
       const items = [...r.written.body.matchAll(/<(?:item|entry)>/g)];
       assert.equal(items.length, 20);
@@ -156,13 +172,13 @@ describe('GET /api/feed/rss and /api/feed/atom', () => {
   }
 
   it('skips dot and underscore entries and non-allowed extensions in the scan', async () => {
-    const ctx = makeCtx({fs: mockFs({
+    const ctx = documentCtx({
       [at('.hidden.md')]: fm({title: 'Hidden'}),
       [at('_draft.md')]: fm({title: 'Draft'}),
       [at('_partials/p.md')]: fm({title: 'Partial'}),
       [at('notes.txt')]: 'Plain',
       [at('keep.md')]: fm({title: 'Keep'}),
-    })});
+    });
     const r = await invoke(routes, {path: '/api/feed/rss', ctx});
     const titles = [...r.written.body.matchAll(/<title>([^<]*)<\/title>/g)].map(m => m[1]);
     assert.deepEqual(titles, ['Workspace', 'Keep']);
@@ -200,14 +216,14 @@ describe('GET /api/feed/rss and /api/feed/atom', () => {
     const WANT = ['/research/eisi', '/blog/hello', '/programming/cuda/first'];
 
     it('RSS emits them in <link>', async () => {
-      const ctx = makeCtx({fs: mockFs(LINKED)});
+      const ctx = documentCtx(LINKED);
       const r = await invoke(routes, {path: '/api/feed/rss', ctx});
       const links = [...r.written.body.matchAll(/<link>([^<]*)<\/link>/g)].map(m => m[1]);
       assert.deepEqual(links, WANT);
     });
 
     it('Atom emits them in <link href>', async () => {
-      const ctx = makeCtx({fs: mockFs(LINKED)});
+      const ctx = documentCtx(LINKED);
       const r = await invoke(routes, {path: '/api/feed/atom', ctx});
       const links = [...r.written.body.matchAll(/<link href="([^"]*)"\/>/g)].map(m => m[1]);
       assert.deepEqual(links, WANT);
@@ -218,12 +234,12 @@ describe('GET /api/feed/rss and /api/feed/atom', () => {
   // throw from inside the scan both land in the same catch.
   const SEAMS = [
     {name: 'the cached() memo call throws', over: {cached() { throw new Error('cache unavailable'); }}},
-    {name: 'the scan throws on its first readdirSync', over: {cached: (_k, _t, fn) => fn(), fs: {readdirSync() { throw new Error('unreadable'); }}}},
+    {name: 'the repository snapshot throws', over: {cached: (_k, _t, fn) => fn(), documents: {snapshot() { throw new Error('unreadable'); }}}},
   ];
   for (const {name, over} of SEAMS) {
     for (const {name: feed, path: p} of FEEDS) {
       it(`${feed} returns 500 without streaming when ${name}`, async () => {
-        const ctx = makeCtx({fs: mockFs(CONTENT), ...over});
+        const ctx = documentCtx(CONTENT, over);
         const r = await invoke(routes, {path: p, ctx});
         assert.deepEqual([r.status, r.payload], [500, {error: `${feed} feed generation failed`}]);
         assert.equal(r.written, null, 'the streaming success path never ran');
@@ -337,16 +353,18 @@ describe('GET /api/activity-heatmap', () => {
   // The default and the cap are both 365 days, so content files need a recent
   // mtime to survive the post-cache window filter.
   function heatmapCtx(over = {}) {
-    const base = mockFs({
+    const files = {
       [at('a.md')]: 'x',
       [at('sub/b.md')]: 'x',
       [at('.hidden.md')]: 'x',
       [at('.hidden/c.md')]: 'x',
       [at('n.txt')]: 'x',
-    });
+    };
+    if (over.documents) return documentCtx(files, over);
+    const base = mockFs(files);
     const now = new Date();
-    const fs = {...base, statSync: p => ({...base.statSync(p), mtime: now}), ...(over.fs ? {} : {})};
-    return makeCtx({fs, ...over});
+    const fs = {...base, statSync: p => ({...base.statSync(p), mtime: now})};
+    return documentCtx(files, {...over, fs});
   }
 
   it('tallies content mtimes into one per-day bucket set', async () => {
@@ -372,7 +390,7 @@ describe('GET /api/activity-heatmap', () => {
 
   const SEAMS = [
     {name: 'the cached() memo call throws', over: {cached() { throw new Error('cache unavailable'); }}},
-    {name: 'the scan closure throws', over: {cached: (_k, _t, fn) => fn(), fs: {readdirSync() { throw new Error('unreadable'); }}}},
+    {name: 'the repository read throws', over: {cached: (_k, _t, fn) => fn(), documents: {list() { throw new Error('unreadable'); }}}},
   ];
   for (const {name, over} of SEAMS) {
     it(`returns 500 Heatmap failed when ${name}`, async () => {

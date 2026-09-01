@@ -26,20 +26,17 @@ const isPost = relPath => relPath.startsWith('posts/');
 // Atom feeds share, sorted by mtime descending. Each feed handler wraps this in
 // cached('feed-items'), so the tree is scanned once per cache window instead of
 // once per RSS request plus once per Atom request.
-function scanFeedItems(fs, path, contentDir, ALLOWED_EXTS) {
+function scanFeedItems(rows, ALLOWED_EXTS) {
   const items = [];
-  function scan(dir) {
-    for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-      if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-      const fp = path.join(dir, entry.name);
-      if (entry.isDirectory()) { scan(fp); continue; }
-      if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-      try {
-        const stat = fs.statSync(fp);
-        const content = fs.readFileSync(fp, 'utf-8');
+  for (const document of rows) {
+        const entryName = document.path.split('/').pop();
+        if (entryName.startsWith('.') || entryName.startsWith('_')) continue;
+        if (document.path.split('/').some(segment => segment.startsWith('_') || segment.startsWith('.'))) continue;
+        if (!ALLOWED_EXTS.some(ext => entryName.endsWith(ext))) continue;
+        const content = document.markdown ?? '';
         const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-        let title = entry.name.replace(/\.(mdx?|md)$/, '');
-        let date = stat.mtime.toISOString();
+        let title = document.title || entryName.replace(/\.(mdx?|md)$/, '');
+        let date = new Date(document.updatedAt).toISOString();
         let slug = null;
         if (fmMatch) {
           const tm = fmMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m);
@@ -48,12 +45,9 @@ function scanFeedItems(fs, path, contentDir, ALLOWED_EXTS) {
           if (dm) date = dm[1] + 'T00:00:00Z';
           slug = frontmatterSlug(fmMatch[1]);
         }
-        items.push({title, date, path: path.relative(contentDir, fp), slug, mtime: stat.mtimeMs});
-      } catch {}
-    }
+        items.push({title, date, path: document.path, slug, mtime: Date.parse(document.updatedAt) || 0});
   }
-  scan(contentDir);
-  items.sort((a, b) => b.mtime - a.mtime);
+  items.sort((a, b) => b.mtime - a.mtime || b.path.localeCompare(a.path));
   return items;
 }
 
@@ -80,7 +74,7 @@ function workspaceDocumentUrl(item, workspaceSlug, legacyUrl) {
 
 module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, workspaceSettings, org, requireWorkspacePermission, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, documents, workspaceSettings, org, requireWorkspacePermission, _routeDiagnostics
   } = ctx;
 
   const feedIdentity = async () => {
@@ -104,7 +98,9 @@ module.exports = async function feeds_routes(req, res, url, pathname, ctx) {
   if (req.method === 'GET' && pathname === '/api/feed/rss') {
     try {
       const identity = await feedIdentity();
-      const items = cached(cacheKey(req.context?.workspaceId, 'feed-items'), 60000, () => scanFeedItems(fs, path, contentRootFor(req.context?.workspaceId), ALLOWED_EXTS));
+      const scope = scopeFor(req);
+      const items = await cached(cacheKey(scope.workspaceId, `feed-items:${scope.userId}`), 60000, async () =>
+        scanFeedItems(await documents.snapshot(scope), ALLOWED_EXTS));
       const recent = items.slice(0, 20);
       const rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -201,7 +197,9 @@ ${recent.map(item => `<item>
   if (req.method === 'GET' && pathname === '/api/feed/atom') {
     try {
       const identity = await feedIdentity();
-      const items = cached(cacheKey(req.context?.workspaceId, 'feed-items'), 60000, () => scanFeedItems(fs, path, contentRootFor(req.context?.workspaceId), ALLOWED_EXTS));
+      const scope = scopeFor(req);
+      const items = await cached(cacheKey(scope.workspaceId, `feed-items:${scope.userId}`), 60000, async () =>
+        scanFeedItems(await documents.snapshot(scope), ALLOWED_EXTS));
       const recent = items.slice(0, 20);
       const atom = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -230,24 +228,16 @@ ${recent.map(item => `<entry>
   if (req.method === 'GET' && pathname === '/api/activity-heatmap') {
     try {
       const days = numericParam(url.searchParams.get('days'), 365, 365);
-      const heatmap = cached(cacheKey(req.context?.workspaceId, 'activity-heatmap'), 60000, () => {
-        const contentDir = contentRootFor(req.context?.workspaceId);
+      const scope = scopeFor(req);
+      const heatmap = await cached(cacheKey(scope.workspaceId, `activity-heatmap:${scope.userId}`), 60000, async () => {
         const activity = {};
-        function scanActivity(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.')) continue;
-            const fp = path.join(dir, entry.name);
-            if (entry.isDirectory()) { scanActivity(fp); continue; }
-            if (ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) {
-              try {
-                const stat = fs.statSync(fp);
-                const date = stat.mtime.toISOString().slice(0, 10);
-                activity[date] = (activity[date] || 0) + 1;
-              } catch {}
-            }
-          }
+        for (const document of await documents.list(scope)) {
+          const segments = document.path.split('/');
+          const name = segments.at(-1);
+          if (segments.some(segment => segment.startsWith('.')) || !ALLOWED_EXTS.some(ext => name.endsWith(ext))) continue;
+          const date = new Date(document.updatedAt).toISOString().slice(0, 10);
+          activity[date] = (activity[date] || 0) + 1;
         }
-        scanActivity(contentDir);
         return activity;
       });
       const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
@@ -269,37 +259,31 @@ ${recent.map(item => `<entry>
       // The thunk builds and returns the url list; the XML is rendered from the
       // cached list below, so the emitted document is byte identical to before and
       // only the redundant per-request walk is removed.
-      const urls = cached(cacheKey(req.context?.workspaceId, 'sitemap-xml'), 60000, () => {
-        const contentDir = contentRootFor(req.context?.workspaceId);
+      const scope = scopeFor(req);
+      const urls = await cached(cacheKey(scope.workspaceId, `sitemap-xml:${scope.userId}`), 60000, async () => {
         const collected = [];
-        function scanSitemap(dir) {
-          for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
-            if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
-            const fp = path.join(dir, entry.name);
-            if (entry.isDirectory()) { scanSitemap(fp); continue; }
-            if (!ALLOWED_EXTS.some(ext => entry.name.endsWith(ext))) continue;
-            const stat = fs.statSync(fp);
+        for (const document of await documents.snapshot(scope)) {
+            const segments = document.path.split('/');
+            const name = segments.at(-1);
+            if (segments.some(segment => segment.startsWith('.') || segment.startsWith('_'))) continue;
+            if (!ALLOWED_EXTS.some(ext => name.endsWith(ext))) continue;
             // Content-relative first, with separators normalised for Windows,
             // then the shared rule. The copy that used to be here stripped the
             // extension and /index but neither the books/ and posts/ levels nor
             // a chapter's ordering prefix, so every <loc> in the sitemap named a
             // page that does not exist.
-            const relPath = path.relative(contentDir, fp).replace(/\\/g, '/');
+            const relPath = document.path;
             // Only a post has a slug, and only a post is worth the extra read.
             let slug = null;
             if (isPost(relPath)) {
-              try {
-                const fm = fs.readFileSync(fp, 'utf-8').match(/^---\n([\s\S]*?)\n---/);
-                if (fm) slug = frontmatterSlug(fm[1]);
-              } catch { /* unreadable: fall back to the filename */ }
+              const fm = document.markdown.match(/^---\n([\s\S]*?)\n---/);
+              if (fm) slug = frontmatterSlug(fm[1]);
             }
             collected.push({
               loc: contentPathToUrl(relPath, {slug}),
-              lastmod: stat.mtime.toISOString().slice(0, 10),
+              lastmod: new Date(document.updatedAt).toISOString().slice(0, 10),
             });
-          }
         }
-        scanSitemap(contentDir);
         return collected;
       });
       const xml = `<?xml version="1.0" encoding="UTF-8"?>

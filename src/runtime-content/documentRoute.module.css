@@ -96,9 +96,13 @@
 }
 
 .workspaceHome {
+  display: grid;
+  min-height: var(--site-shell-height);
+  place-items: center;
   max-width: var(--site-page-width-wide);
   margin: 0 auto;
-  padding: var(--site-content-top) var(--site-page-gutter) 3rem;
+  padding: var(--site-page-gutter);
+  text-align: center;
 }
 
 .workspaceHome h1 {

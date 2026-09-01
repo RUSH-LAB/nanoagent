@@ -81,6 +81,14 @@ describe('GET /api/suggest limit guard', () => {
     PROJECT_ROOT,
     contentRootFor: () => contentDir,
     flatFiles: dir => (dir === contentDir ? pageFiles : []),
+    documents: {
+      async snapshot() {
+        return pageFiles.map(file => ({
+          path: file.path,
+          markdown: fileContents.get(path.join(contentDir, file.path)),
+        }));
+      },
+    },
   };
   const callSuggest = search =>
     invoke({ pathname: '/api/suggest', search: `?text=${KEYWORD}${search}`, ctx });

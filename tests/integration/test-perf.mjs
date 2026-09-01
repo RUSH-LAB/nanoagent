@@ -33,7 +33,7 @@ const RESET  = '\x1b[0m';
 // coldLabel (optional) — label for the cold-start row (defaults to `${label} (cold)`).
 const ENDPOINTS = [
   { method: 'GET', path: '/api/health',                   threshold: 5,   label: 'Health check' },
-  { method: 'GET', path: '/api/files',                    threshold: 30,  label: 'File listing' },
+  { method: 'GET', path: '/api/documents/tree',                    threshold: 30,  label: 'File listing' },
   { method: 'GET', path: '/api/search?q=gradient',        threshold: 10,  label: 'Search (warm)', cold: 200, coldLabel: 'Search (cold)' },
   { method: 'GET', path: '/api/stats',                    threshold: 200, label: 'Stats' },
   { method: 'GET', path: '/api/integrity',                threshold: 20,  label: 'Integrity check' },

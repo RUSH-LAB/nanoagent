@@ -5,10 +5,15 @@ const EMPTY = {
   name: '',
   description: '',
   instructions: '',
+  provider: 'codex',
   color: 'violet',
 };
 
 const COLORS = ['violet', 'blue', 'emerald', 'amber', 'rose', 'slate'];
+const MODELS = [
+  {id: 'codex', name: 'Codex', detail: 'Local Codex session'},
+  {id: 'claude-code', name: 'Claude Code', detail: 'Local Claude session'},
+];
 
 export default function AgentEditor({agent, onSave, onDelete, onClose}) {
   const [draft, setDraft] = useState(EMPTY);
@@ -89,6 +94,24 @@ export default function AgentEditor({agent, onSave, onDelete, onClose}) {
             />
           </label>
 
+          <fieldset className={styles.modelField}>
+            <legend>Model</legend>
+            <div className={styles.modelChoices}>
+              {MODELS.map(model => (
+                <button
+                  key={model.id}
+                  type="button"
+                  className={`${styles.modelChoice} ${draft.provider === model.id ? styles.modelChoiceOn : ''}`}
+                  onClick={() => update('provider', model.id)}
+                  aria-pressed={draft.provider === model.id}
+                >
+                  <span>{model.name}</span>
+                  <small>{model.detail}</small>
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
           <fieldset className={styles.colors}>
             <legend>Color</legend>
             <div className={styles.swatches}>
@@ -114,15 +137,14 @@ export default function AgentEditor({agent, onSave, onDelete, onClose}) {
               placeholder="Describe this agent's role, tone, expertise, and how it should approach requests."
               maxLength={10000}
               rows={8}
-              required
             />
-            <span className={styles.help}>These instructions are included with every message you send to this agent.</span>
+            <span className={styles.help}>Optional. Leave blank to use Mochi's default assistant instructions.</span>
           </label>
 
           {error && <p className={styles.error} role="alert">{error}</p>}
 
           <footer className={styles.footer}>
-            {agent && <button type="button" className={styles.delete} onClick={remove} disabled={busy}>Delete</button>}
+            {agent && !agent.builtin && <button type="button" className={styles.delete} onClick={remove} disabled={busy}>Delete</button>}
             <span className={styles.footerSpacer} />
             <button type="button" className={styles.secondary} onClick={onClose} disabled={busy}>Cancel</button>
             <button type="submit" className={styles.primary} disabled={busy}>

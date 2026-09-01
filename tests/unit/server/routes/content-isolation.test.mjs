@@ -1,20 +1,13 @@
-/** Database content isolation through the legacy file-shaped compatibility API. */
+/** Database content isolation through the canonical document API. */
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import {loadRoute, makeCtx, invoke} from '../../_harness.mjs';
 import {isValidFilePath, resolveContentPath} from '../../../../src/server/server-utils.js';
 
-const files = loadRoute('files');
 const content = loadRoute('content');
 const context = (workspaceId, userId = 'user-1', role = 'owner') =>
   Object.freeze({workspaceId, userId, membershipId: `${workspaceId}:${userId}`, role});
-const call = (ctx, workspaceId, options) => invoke(files, {
-  ...options,
-  ctx,
-  auth: {userId: 'user-1', orgId: 'stale-session-workspace', orgRole: 'viewer'},
-  requestContext: context(workspaceId),
-});
 const callContent = (ctx, workspaceId, options) => invoke(content, {
   ...options,
   ctx,
@@ -30,11 +23,11 @@ describe('two workspaces with the same document path', () => {
     ctx.documents.create(scope('hello'), {path: 'books/math/0-intro.md', markdown: '# Hello World maths'});
 
     const query = {path: 'books/math/0-intro.md'};
-    const mochi = await call(ctx, 'mochi', {path: '/api/file', query});
-    const hello = await call(ctx, 'hello', {path: '/api/file', query});
+    const mochi = await callContent(ctx, 'mochi', {path: '/api/content/source', query});
+    const hello = await callContent(ctx, 'hello', {path: '/api/content/source', query});
 
-    assert.equal(mochi.payload.content, '# Mochi Lab maths');
-    assert.equal(hello.payload.content, '# Hello World maths');
+    assert.equal(mochi.payload.markdown, '# Mochi Lab maths');
+    assert.equal(hello.payload.markdown, '# Hello World maths');
   });
 
   it('a write and delete in one workspace cannot affect the other', async () => {
@@ -55,22 +48,15 @@ describe('two workspaces with the same document path', () => {
   });
 
   it('an empty workspace lists nothing while another lists relative paths', async () => {
-    const ctx = makeCtx();
+    const ctx = makeCtx({cacheKey: (workspaceId, name) => `workspace:${workspaceId}:${name}`});
     ctx.documents.create(scope('mochi'), {path: 'books/math/0-intro.md', markdown: 'mochi'});
     ctx.documents.create(scope('mochi'), {path: 'posts/blog/hello.md', markdown: 'blog'});
 
-    const mochi = await call(ctx, 'mochi', {path: '/api/files'});
-    const hello = await call(ctx, 'hello', {path: '/api/files'});
-    assert.deepEqual(mochi.payload.files.map(item => item.name), ['books', 'posts']);
-    assert.deepEqual(hello.payload.files, []);
-
-    const paths = [];
-    (function collect(nodes) {
-      for (const node of nodes) {
-        paths.push(node.path);
-        if (node.children) collect(node.children);
-      }
-    })(mochi.payload.files);
+    const mochi = await callContent(ctx, 'mochi', {path: '/api/content/tree'});
+    const hello = await callContent(ctx, 'hello', {path: '/api/content/tree'});
+    const paths = mochi.payload.documents.map(item => item.path);
+    assert.deepEqual(paths, ['books/math/0-intro.md', 'posts/blog/hello.md']);
+    assert.deepEqual(hello.payload.documents, []);
     assert.ok(paths.includes('books/math/0-intro.md'));
     assert.equal(paths.some(value => value.startsWith('content/')), false);
   });
@@ -86,7 +72,7 @@ describe('naming another workspace', () => {
   ]) {
     it(`refuses ${attempt} before a document lookup`, async () => {
       const ctx = makeCtx();
-      const response = await call(ctx, 'mochi', {path: '/api/file', query: {path: attempt}});
+      const response = await callContent(ctx, 'mochi', {path: '/api/content/source', query: {path: attempt}});
       assert.deepEqual([response.status, response.payload], [400, {error: 'Invalid path'}]);
     });
   }
@@ -103,10 +89,10 @@ describe('naming another workspace', () => {
   });
 });
 
-describe('legacy filesystem path guards', () => {
+describe('document path guards', () => {
   const root = '/fake/root/content/mochi';
   for (const escape of ['../hello/x.md', 'a/../../b.md', '/etc/passwd']) {
-    it(`still rejects ${escape} wherever an unmigrated read-only tool uses a path`, () => {
+    it(`rejects ${escape} before a repository lookup`, () => {
       assert.equal(isValidFilePath(escape), false);
       assert.equal(resolveContentPath(root, escape), null);
     });

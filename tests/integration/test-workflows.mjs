@@ -124,14 +124,14 @@ async function journey1() {
     assertEq(status, 200, 'status');
     assertOk(data.success, 'content updated');
     // Verify updated content
-    const {data: readData} = await api('GET', `/api/file?path=${encodeURIComponent(filePath)}`);
-    assertOk(readData.content.includes('machine learning fundamentals'), 'rich content saved');
+    const {data: readData} = await api('GET', `/api/documents/source?path=${encodeURIComponent(filePath)}`);
+    assertOk(readData.markdown.includes('machine learning fundamentals'), 'rich content saved');
   });
 
   // Step 3: Check quality score
   step(3, 'Check quality score');
-  await test('1.3 Check quality via GET /api/file/quality', async () => {
-    const {status, data} = await api('GET', `/api/file/quality?path=${encodeURIComponent(filePath)}`);
+  await test('1.3 Check quality via GET /api/documents/analysis/quality', async () => {
+    const {status, data} = await api('GET', `/api/documents/analysis/quality?path=${encodeURIComponent(filePath)}`);
     assertEq(status, 200, 'status');
     assertOk(typeof data.score === 'number', 'has numeric score');
     assertOk(data.score > 0, 'score is positive');
@@ -363,8 +363,8 @@ async function journey4() {
     assertEq(updateStatus, 200, 'file updated');
 
     // Verify the file was modified
-    const {data: preRestore} = await api('GET', `/api/file?path=${encodeURIComponent(snapshotFile)}`);
-    assertOk(preRestore.content.includes('Extra paragraph'), 'file has modified content before restore');
+    const {data: preRestore} = await api('GET', `/api/documents/source?path=${encodeURIComponent(snapshotFile)}`);
+    assertOk(preRestore.markdown.includes('Extra paragraph'), 'file has modified content before restore');
 
     // Restore the snapshot
     const {status: restoreStatus, data: restoreData} = await api('POST', '/api/snapshots/restore', {
@@ -377,9 +377,9 @@ async function journey4() {
     assertEq(restoreData.restored.name, 'before-edit', 'restored snapshot name matches');
 
     // Verify the file content is back to the original
-    const {data: postRestore} = await api('GET', `/api/file?path=${encodeURIComponent(snapshotFile)}`);
-    assertOk(!postRestore.content.includes('Extra paragraph'), 'modified content removed after restore');
-    assertOk(postRestore.content.includes('Body of Snapshot Target'), 'original content restored');
+    const {data: postRestore} = await api('GET', `/api/documents/source?path=${encodeURIComponent(snapshotFile)}`);
+    assertOk(!postRestore.markdown.includes('Extra paragraph'), 'modified content removed after restore');
+    assertOk(postRestore.markdown.includes('Body of Snapshot Target'), 'original content restored');
   });
 
   // Step 2: Scheduled publish checker

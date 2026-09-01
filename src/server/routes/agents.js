@@ -2,24 +2,74 @@
 
 const AGENT_RE = /^\/api\/agents\/([^/]+)$/;
 const COLORS = new Set(['violet', 'blue', 'emerald', 'amber', 'rose', 'slate']);
+const PROVIDERS = new Set(['claude-code', 'codex']);
+const DEFAULT_AGENT_ID = 'mochi';
+const DEFAULTS_VERSION = 2;
+
+function defaultAgent(now = new Date().toISOString()) {
+  return {
+    id: DEFAULT_AGENT_ID,
+    name: 'Mochi',
+    description: '',
+    instructions: '',
+    provider: 'codex',
+    tools: [],
+    color: 'violet',
+    builtin: true,
+    defaultsVersion: DEFAULTS_VERSION,
+    createdBy: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+async function ensureDefaultAgent(agents, scope) {
+  const values = await agents.values(scope);
+  const normalized = await Promise.all(values.map(async agent => {
+    const oldDefaultDescription = agent.id === DEFAULT_AGENT_ID
+      && agent.builtin
+      && agent.description === 'Your general-purpose assistant';
+    const oldMochiDefaults = agent.id === DEFAULT_AGENT_ID
+      && agent.builtin
+      && (agent.defaultsVersion ?? 0) < DEFAULTS_VERSION;
+    if (PROVIDERS.has(agent.provider)
+      && typeof agent.instructions === 'string'
+      && !oldDefaultDescription
+      && !oldMochiDefaults) return agent;
+    const updated = {
+      ...agent,
+      ...(oldDefaultDescription ? {description: ''} : {}),
+      instructions: typeof agent.instructions === 'string' ? agent.instructions : '',
+      provider: oldMochiDefaults ? 'codex' : (PROVIDERS.has(agent.provider) ? agent.provider : 'codex'),
+      ...(oldMochiDefaults ? {defaultsVersion: DEFAULTS_VERSION} : {}),
+    };
+    await agents.put(scope, updated.id, updated);
+    return updated;
+  }));
+  if (normalized.some(agent => agent.id === DEFAULT_AGENT_ID)) return normalized;
+  const agent = defaultAgent();
+  await agents.put(scope, agent.id, agent);
+  return [...normalized, agent];
+}
 
 function cleanAgent(body, sanitizeText, current = {}) {
   const source = body && typeof body === 'object' ? body : {};
   if (typeof source.name === 'string' && source.name.length > 60) return {error: 'Agent name must be 60 characters or fewer'};
   if (typeof source.description === 'string' && source.description.length > 180) return {error: 'Description must be 180 characters or fewer'};
   if (typeof source.instructions === 'string' && source.instructions.length > 10000) return {error: 'Instructions must be 10000 characters or fewer'};
+  if (source.provider !== undefined && !PROVIDERS.has(source.provider)) return {error: 'Model must be Codex or Claude Code'};
   const name = typeof source.name === 'string' ? sanitizeText(source.name).trim() : current.name;
   const description = typeof source.description === 'string'
     ? sanitizeText(source.description).trim()
     : (current.description ?? '');
   const instructions = typeof source.instructions === 'string'
     ? sanitizeText(source.instructions).trim()
-    : current.instructions;
+    : (current.instructions ?? '');
+  const provider = source.provider ?? current.provider ?? 'codex';
   const color = COLORS.has(source.color) ? source.color : (current.color || 'violet');
 
   if (!name) return {error: 'Agent name is required'};
-  if (!instructions) return {error: 'Agent instructions are required'};
-  return {agent: {...current, name, description, instructions, color}};
+  return {agent: {...current, name, description, instructions, provider, tools: current.tools ?? [], color}};
 }
 
 module.exports = async function agent_routes(req, res, _url, pathname, ctx) {
@@ -28,13 +78,13 @@ module.exports = async function agent_routes(req, res, _url, pathname, ctx) {
   const {json, readBody, rateLimit, sanitizeText, collection, scopeFor, requireWorkspacePermission, crypto} = ctx;
   const agents = collection('agents');
   const scope = scopeFor(req);
+  const existing = await ensureDefaultAgent(agents, scope);
 
-  if (pathname === '/api/agents' && req.method === 'GET') {
-    const values = await agents.values(scope);
-    return json(res, 200, {agents: values.sort((a, b) => a.name.localeCompare(b.name))});
+  if (req.method === 'GET' && pathname === '/api/agents') {
+    return json(res, 200, {agents: existing.sort((a, b) => a.name.localeCompare(b.name))});
   }
 
-  if (pathname === '/api/agents' && req.method === 'POST') {
+  if (req.method === 'POST' && pathname === '/api/agents') {
     requireWorkspacePermission(req.context, 'content:edit');
     if (!rateLimit(`agents-write:${req.auth?.userId}`, 30)) {
       return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
@@ -78,6 +128,7 @@ module.exports = async function agent_routes(req, res, _url, pathname, ctx) {
   }
 
   if (req.method === 'DELETE') {
+    if (current.builtin) return json(res, 400, {error: 'The default Mochi agent cannot be deleted'});
     await agents.remove(scope, agentId);
     return json(res, 200, {deleted: true});
   }
@@ -85,3 +136,4 @@ module.exports = async function agent_routes(req, res, _url, pathname, ctx) {
 
 module.exports.AGENT_RE = AGENT_RE;
 module.exports.cleanAgent = cleanAgent;
+module.exports.defaultAgent = defaultAgent;

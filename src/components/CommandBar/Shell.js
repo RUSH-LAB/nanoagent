@@ -5,7 +5,7 @@ import {scopeWorkspacePath} from '@site/src/utils/workspaces';
 import AgentEditor from './AgentEditor';
 import AssistantTranscript from './AssistantTranscript';
 import ChannelMembers from './ChannelMembers';
-import ChatSidebar, {channelLabel} from './ChatSidebar';
+import ChatSidebar, {channelLabel, ConversationIcon} from './ChatSidebar';
 import ChatTranscript from './ChatTranscript';
 import Completions, {optionId} from './Completions';
 import Composer from './Composer';
@@ -17,7 +17,7 @@ import useChat from './useChat';
 import useCompletion from './useCompletion';
 import useGeometry from './useGeometry';
 import usePinnedScroll from './usePinnedScroll';
-import useSessions from './useSessions';
+import useSessions, {entriesForTarget} from './useSessions';
 import useUnreadTitle from './useUnreadTitle';
 import {onOpenConversation} from './openConversation';
 import {VERBS} from './verbs';
@@ -119,15 +119,20 @@ function Pane({
   session, index, count, label, agent, channel, isActive, conversation, youId,
   onFocus, onClose, onLoadOlder, onDeleteMessage, onCancel, onCreateAgent, onManageMembers,
 }) {
-  // The header carries the pane number and the person or agent it is pointed at.
-  const heading = [count > 1 ? `Session ${index + 1}` : null, label || 'Choose an agent']
-    .filter(Boolean)
-    .join(' · ');
+  const heading = label || 'Choose an agent';
   const working = Boolean(session.busy || session.sending);
 
   // Whichever of these a pane has, a new one arriving is a new line at the
   // bottom, and the busy row is a line too.
-  const pinned = usePinnedScroll([session.entries, conversation?.messages, session.busy]);
+  const visibleEntries = useMemo(
+    () => entriesForTarget(session.entries, session.target),
+    [session.entries, session.target],
+  );
+  const visibleSession = useMemo(
+    () => ({...session, entries: visibleEntries}),
+    [session, visibleEntries],
+  );
+  const pinned = usePinnedScroll([visibleEntries, conversation?.messages, session.busy]);
 
   // Only a channel pane has output of its own to place: on the assistant these
   // same entries are the transcript. An answer whose first token has not
@@ -136,8 +141,8 @@ function Pane({
   // nothing to show.
   const onChannel = Boolean(conversation);
   const localRows = useMemo(
-    () => (onChannel ? session.entries.filter((e) => !(e.pending && !e.text)) : []),
-    [onChannel, session.entries],
+    () => (onChannel ? visibleEntries.filter((e) => !(e.pending && !e.text)) : []),
+    [onChannel, visibleEntries],
   );
   const localPinned = usePinnedScroll([localRows]);
 
@@ -145,16 +150,11 @@ function Pane({
     <section
       className={`${styles.pane} ${isActive ? styles.paneActive : ''}`}
       onMouseDown={onFocus}
-      aria-label={heading || `Session ${index + 1}`}
+      aria-label={count > 1 ? `Session ${index + 1}: ${heading}` : heading}
     >
       <header className={styles.paneHead}>
-        <span className={`${styles.paneAvatar} ${agent ? styles[`agent_${agent.color || 'violet'}`] : ''}`}>
-          {conversation ? (label?.startsWith('#') ? '#' : '@') : (agent ? agent.name.slice(0, 1).toUpperCase() : '+')}
-        </span>
-        <span className={styles.paneIdentity}>
-          <span className={styles.paneLabel}>{heading}</span>
-          <span className={styles.paneMeta}>{conversation ? 'Conversation' : (agent?.description || 'Select from the sidebar')}</span>
-        </span>
+        <ConversationIcon agent={agent} channel={channel} label={label} />
+        <span className={styles.paneName}>{heading}</span>
         {channel?.kind !== 'dm' && channel && (
           <button type="button" className={styles.membersButton} onClick={onManageMembers}>
             Members <span>{channel.memberCount ?? 0}</span>
@@ -191,7 +191,7 @@ function Pane({
         />
       ) : (
         <AssistantTranscript
-          session={session}
+          session={visibleSession}
           agent={agent}
           onCreateAgent={onCreateAgent}
           scrollProps={pinned.scrollProps}
@@ -217,10 +217,10 @@ function Pane({
   );
 }
 
-export default function Shell() {
+export default function Shell({workspaceKey = 'unscoped'}) {
   const routerHistory = useHistory();
   const geometry = useGeometry();
-  const sessions = useSessions();
+  const sessions = useSessions(workspaceKey);
   const agentStore = useAgents();
   const {active} = sessions;
 
@@ -301,8 +301,13 @@ export default function Shell() {
   }, [active.id, sessions.setTarget, geometry.collapsed, setCollapsed, inputRefFor]);
 
   const selectChannel = useCallback(
-    (channelId, label) => retarget({channelId, label}),
-    [retarget],
+    (channelId, label) => {
+      // The Agent turn belongs to the pane being left. Stop it so a hidden
+      // response cannot keep the human-chat composer busy in the background.
+      if (active.target?.agentId && active.busy) assistant.cancel(active.id);
+      retarget({channelId, label});
+    },
+    [active.id, active.busy, active.target, assistant.cancel, retarget],
   );
 
   const selectAgent = useCallback(

@@ -10,7 +10,7 @@ import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, FILES, CONTENT_DIR, key, TEST_IDENTITY} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, FILES, CONTENT_DIR, TEST_ORG_ID, key, TEST_IDENTITY} from '../../_harness.mjs';
 
 const require = createRequire(import.meta.url);
 const yaml = require('js-yaml');
@@ -20,6 +20,18 @@ const {COMMENTS_FILE} = FILES;
 // Fixtures live in the workspace's own tree, and the paths a request carries
 // are relative to it: `a.md`, never `content/mochi/a.md`.
 const at = rel => path.join(CONTENT_DIR, rel);
+
+function documentCtx(files, over = {}) {
+  const ctx = makeCtx(over);
+  const scope = {workspaceId: TEST_ORG_ID, userId: TEST_IDENTITY.userId};
+  for (const [fullPath, markdown] of Object.entries(files)) {
+    const relative = path.relative(CONTENT_DIR, fullPath).replace(/\\/g, '/');
+    if (!relative.startsWith('..') && /\.mdx?$/.test(relative)) {
+      ctx.documents.create(scope, {path: relative, markdown});
+    }
+  }
+  return ctx;
+}
 /** Truthy inherited members that an own-key check must still reject. */
 const INHERITED_KEYS = ['__proto__', 'constructor', 'toString'];
 
@@ -236,7 +248,7 @@ describe('GET /api/analytics/topics', () => {
       '[label](http://example.com)',
       '<span>html</span>',
     ].join('\n');
-    const ctx = makeCtx({fs: mockFs({[at('a.md')]: doc})});
+    const ctx = documentCtx({[at('a.md')]: doc});
     const r = await invoke(routes, {path: '/api/analytics/topics', ctx});
     assert.equal(r.status, 200);
     const counts = Object.fromEntries(r.payload.topics.map(t => [t.word, t.count]));
@@ -247,20 +259,20 @@ describe('GET /api/analytics/topics', () => {
   });
 
   it('still filters stop words when they outnumber every content word', async () => {
-    const ctx = makeCtx({fs: mockFs({[at('a.md')]: `${'the and but or '.repeat(20)} quantum`})});
+    const ctx = documentCtx({[at('a.md')]: `${'the and but or '.repeat(20)} quantum`});
     const r = await invoke(routes, {path: '/api/analytics/topics', ctx});
     assert.deepEqual(r.payload.topics, [{word: 'quantum', count: 1}]);
   });
 
   it('returns an empty list when the content directory is missing', async () => {
-    const r = await invoke(routes, {path: '/api/analytics/topics', ctx: makeCtx({fs: mockFs({})})});
+    const r = await invoke(routes, {path: '/api/analytics/topics', ctx: documentCtx({})});
     assert.deepEqual([r.status, r.payload], [200, {topics: []}]);
   });
 
   it('caps the list at fifty entries', async () => {
     const words = Array.from({length: 60}, (_, i) => 'w' + String.fromCharCode(97 + Math.floor(i / 26)) + String.fromCharCode(97 + (i % 26)));
     const body = words.map((w, i) => Array(i + 1).fill(w).join(' ')).join(' ');
-    const ctx = makeCtx({fs: mockFs({[at('a.md')]: body})});
+    const ctx = documentCtx({[at('a.md')]: body});
     const r = await invoke(routes, {path: '/api/analytics/topics', ctx});
     assert.equal(r.payload.topics.length, 50);
   });
@@ -270,9 +282,9 @@ describe('GET /api/analytics/topics', () => {
     let walks = 0;
     const base = mockFs({[at('a.md')]: 'quantum quantum'});
     const fs = {...base, readdirSync: (p, o) => { walks++; return base.readdirSync(p, o); }};
-    const ctx = makeCtx({fs, cached: (key, ttl, fn) => { seen = [key, ttl]; return ctx.cache[key] ?? (ctx.cache[key] = fn()); }});
+    const ctx = documentCtx({[at('a.md')]: 'quantum quantum'}, {cached: (key, ttl, fn) => { seen = [key, ttl]; return ctx.cache[key] ?? (ctx.cache[key] = fn()); }});
     await invoke(routes, {path: '/api/analytics/topics', ctx});
-    assert.deepEqual(seen, [key('analytics:topics'), 60000]);
+    assert.deepEqual(seen, [key('analytics:topics:test-user'), 60000]);
     const after = walks;
     await invoke(routes, {path: '/api/analytics/topics', ctx});
     assert.equal(walks, after, 'the factory runs once');

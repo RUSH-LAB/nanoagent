@@ -337,9 +337,9 @@ async function testMisc() {
     }
   });
 
-  // 4. GET /api/files/recent — verify files array
+  // 4. GET /api/documents/recent — verify files array
   await test('Recent files returns files array', async () => {
-    const {status, data} = await api('GET', '/api/files/recent');
+    const {status, data} = await api('GET', '/api/documents/recent');
     assertEq(status, 200, 'status');
     assertOk(Array.isArray(data.files), 'files is array');
     if (data.files.length > 0) {
@@ -415,7 +415,7 @@ async function testFilesRecent() {
   section('Files Recent');
 
   await test('Recent files returns well-shaped entries', async () => {
-    const {status, data} = await api('GET', '/api/files/recent');
+    const {status, data} = await api('GET', '/api/documents/recent');
     assertEq(status, 200, 'status');
     assertOk(Array.isArray(data.files), 'files is array');
     if (data.files.length > 0) {
@@ -562,9 +562,9 @@ async function testFeeds() {
 async function testFileLint() {
   section('File Lint');
 
-  // 1. GET /api/file/lint?path=... — verify shape
+  // 1. GET /api/documents/analysis/lint?path=... — verify shape
   await test('File lint returns issues and issueCount', async () => {
-    const {status, data} = await api('GET', `/api/file/lint?path=${SAMPLE_DOC}`);
+    const {status, data} = await api('GET', `/api/documents/analysis/lint?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(Array.isArray(data.issues), 'issues is array');
     assertOk(typeof data.issueCount === 'number', 'issueCount is number');
@@ -578,7 +578,7 @@ async function testFileLint() {
 
   // 2. Invalid path returns 400
   await test('File lint with invalid path returns 400', async () => {
-    const {status, data} = await api('GET', '/api/file/lint?path=../../etc/passwd');
+    const {status, data} = await api('GET', '/api/documents/analysis/lint?path=../../etc/passwd');
     assertEq(status, 400, 'status');
     assertOk(data.error, 'has error message');
   });
@@ -592,7 +592,7 @@ async function testFileReadability() {
   section('File Readability');
 
   await test('File readability returns expected metrics', async () => {
-    const {status, data} = await api('GET', `/api/file/readability?path=${SAMPLE_DOC}`);
+    const {status, data} = await api('GET', `/api/documents/analysis/readability?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(typeof data.wordCount === 'number', 'has wordCount');
     assertOk(typeof data.sentenceCount === 'number', 'has sentenceCount');
@@ -612,7 +612,7 @@ async function testFileRelated() {
   section('File Related');
 
   await test('File related returns related array', async () => {
-    const {status, data} = await api('GET', `/api/file/related?path=${SAMPLE_DOC}`);
+    const {status, data} = await api('GET', `/api/documents/analysis/related?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(Array.isArray(data.related), 'related is array');
     if (data.related.length > 0) {
@@ -789,9 +789,9 @@ async function testContentHealth() {
 async function testFileKeywords() {
   section('File Keywords');
 
-  // 1. GET /api/file/keywords — verify shape for a real file
+  // 1. GET /api/documents/analysis/keywords — verify shape for a real file
   await test('File keywords returns {keywords, totalWords} shape', async () => {
-    const {status, data} = await api('GET', `/api/file/keywords?path=${SAMPLE_DOC}`);
+    const {status, data} = await api('GET', `/api/documents/analysis/keywords?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(Array.isArray(data.keywords), 'keywords is array');
     assertOk(typeof data.totalWords === 'number', 'totalWords is number');
@@ -799,7 +799,7 @@ async function testFileKeywords() {
 
   // 2. Keywords is non-empty for a real file
   await test('File keywords is non-empty for real file', async () => {
-    const {status, data} = await api('GET', `/api/file/keywords?path=${SAMPLE_DOC}`);
+    const {status, data} = await api('GET', `/api/documents/analysis/keywords?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(data.keywords.length > 0, 'keywords array is non-empty');
     const kw = data.keywords[0];
@@ -811,7 +811,7 @@ async function testFileKeywords() {
 
   // 3. Invalid path returns 400
   await test('File keywords with invalid path returns 400', async () => {
-    const {status, data} = await api('GET', '/api/file/keywords?path=../../etc/passwd');
+    const {status, data} = await api('GET', '/api/documents/analysis/keywords?path=../../etc/passwd');
     assertEq(status, 400, 'status');
     assertOk(data.error, 'has error message');
   });

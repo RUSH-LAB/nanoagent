@@ -169,14 +169,14 @@ const CATEGORIES = [
     description: 'Workspace-scoped Markdown document operations backed by the database.',
     endpoints: [
       {
-        method: 'GET', path: '/api/files', description: 'List the virtual document tree assembled from database rows.',
-        request: 'Query: ?dir=docs (optional, defaults to the workspace root)',
-        response: '{ "files": [{ "name": "intro.md", "path": "intro.md", "type": "file" }, { "name": "docs", "path": "docs", "type": "directory", "children": [...] }] }',
+        method: 'GET', path: '/api/workspaces/:id/documents/tree', description: 'List workspace documents from database rows.',
+        request: 'Query: ?prefix=docs&include=metadata (both optional)',
+        response: '{ "documents": [{ "id": "...", "path": "docs/intro.md", "title": "Introduction" }] }',
       },
       {
-        method: 'GET', path: '/api/file', description: 'Read a single file\'s content.',
+        method: 'GET', path: '/api/workspaces/:id/documents/source', description: 'Read one document\'s Markdown source.',
         request: 'Query: ?path=docs/example.md',
-        response: '{ "content": "---\\ntitle: ...\\n---\\n\\n# Example\\n..." }',
+        response: '{ "document": { "id": "...", "path": "docs/example.md" }, "markdown": "# Example" }',
       },
       {
         method: 'POST', path: '/api/workspaces/:id/documents', description: 'Create a new document. Fails if its workspace-relative path already exists.',
@@ -199,9 +199,9 @@ const CATEGORIES = [
         response: '{ "success": true, "document": { "path": "posts/example.md" } }',
       },
       {
-        method: 'GET', path: '/api/files/search', description: 'Search files by name or path.',
+        method: 'GET', path: '/api/workspaces/:id/documents/search', description: 'Search documents by title or path.',
         request: 'Query: ?q=algebra',
-        response: '{ "files": [{ "name": "algebra.md", "path": "docs/math/algebra.md" }] }',
+        response: '{ "documents": [{ "name": "algebra.md", "path": "docs/math/algebra.md" }] }',
       },
       {
         method: 'POST', path: '/api/folder', description: 'Validate a virtual document-path prefix. Empty directories are not persisted.',
@@ -505,7 +505,7 @@ const CATEGORIES = [
     icon: '\u{1F4E6}',
     endpoints: [
       {
-        method: 'GET', path: '/api/files/recent', description: 'List recently modified files.',
+        method: 'GET', path: '/api/workspaces/:id/documents/recent', description: 'List recently modified documents.',
         request: 'Query: ?limit=10 (max 50)',
         response: '{ "files": [{ "name": "intro.md", "path": "docs/intro.md", "mtime": 1705123456000 }] }',
       },
@@ -521,22 +521,22 @@ const CATEGORIES = [
     icon: '\u{1F4CA}',
     endpoints: [
       {
-        method: 'GET', path: '/api/file/keywords', description: 'Extract top 20 keywords from a file.',
+        method: 'GET', path: '/api/workspaces/:id/documents/analysis/keywords', description: 'Extract top 20 keywords from a document.',
         request: 'Query: ?path=docs/intro.md',
         response: '{ "keywords": [{ "word": "transformer", "count": 12 }], "totalWords": 500 }',
       },
       {
-        method: 'GET', path: '/api/file/readability', description: 'Get readability metrics for a file (Flesch-Kincaid grade, reading time, etc.).',
+        method: 'GET', path: '/api/workspaces/:id/documents/analysis/readability', description: 'Get readability metrics for a document (Flesch-Kincaid grade, reading time, etc.).',
         request: 'Query: ?path=docs/intro.md',
         response: '{ "wordCount": 500, "sentenceCount": 25, "avgWordsPerSentence": 20, "fleschKincaidGrade": 12.5, "readingLevel": "Advanced", "readingTimeMinutes": 3 }',
       },
       {
-        method: 'GET', path: '/api/file/related', description: 'Get pages related to a file by shared tags and content similarity.',
+        method: 'GET', path: '/api/workspaces/:id/documents/analysis/related', description: 'Get related documents by shared tags and content similarity.',
         request: 'Query: ?path=docs/intro.md',
         response: '{ "related": [{ "path": "docs/overview.md", "title": "Overview", "score": 7.5 }] }',
       },
       {
-        method: 'GET', path: '/api/file/lint', description: 'Lint a markdown file for common issues (missing title, empty headings, unclosed code blocks).',
+        method: 'GET', path: '/api/workspaces/:id/documents/analysis/lint', description: 'Lint a Markdown document for common issues.',
         request: 'Query: ?path=docs/intro.md',
         response: '{ "issues": [{ "line": 5, "severity": "warning", "message": "Empty heading" }], "issueCount": 1 }',
       },
@@ -565,7 +565,7 @@ const CATEGORIES = [
         response: '{ "totalReferences": 844, "citedReferences": 668, "uncitedReferences": 176, "mostCited": [...], "coCitations": [...] }',
       },
       {
-        method: 'GET', path: '/api/file/quality', description: 'Compute a 0-100 quality score for a file based on word count, frontmatter, headings, citations, media, and readability.',
+        method: 'GET', path: '/api/workspaces/:id/documents/analysis/quality', description: 'Compute a 0-100 document quality score.',
         request: 'Query: ?path=docs/example.md',
         response: '{ "path": "docs/example.md", "score": 72, "level": "good", "breakdown": { "words": { "score": 20, "max": 25, "wordCount": 650 }, "structure": { "score": 30, "max": 35 }, "citations": { "score": 6, "max": 10, "count": 3 }, "media": { "score": 8, "max": 10 }, "readability": { "score": 8, "max": 10 } }, "suggestions": ["Add citations [@key] to reference sources"] }',
       },

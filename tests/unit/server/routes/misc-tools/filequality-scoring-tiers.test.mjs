@@ -5,10 +5,11 @@ import path from 'node:path';
 import os from 'node:os';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { key } from '../../../_harness.mjs';
+import {repositoryContext} from './_document-repository.mjs';
 
 // server/routes/misc-tools.js is CommonJS; load the REAL module via createRequire the
 // way the sibling route suites do (tests/next-misc-filequality-cache.test.mjs). These
-// tests pin the exact CURRENT output of GET /api/file/quality: the word / structure /
+// tests pin the exact CURRENT output of GET /api/content/analysis/quality: the word / structure /
 // heading / citation / media / readability scoring ladders, the level classification
 // (excellent through minimal), and every suggestion string. The goldens below were
 // captured from the real handler; no source file is touched.
@@ -1364,7 +1365,7 @@ const GOLDENS = {
   }
 };
 
-describe('GET /api/file/quality (scoring tiers, level, suggestions characterization)', () => {
+describe('GET /api/content/analysis/quality (scoring tiers, level, suggestions characterization)', () => {
   // The handler reads exactly one file via fs.readFileSync(path.join(contentRoot,
   // filePath)), where contentRoot is the caller's own workspace under content/ and
   // the requested path is relative to it. PROJECT_ROOT is a real mkdtemp dir (unique,
@@ -1389,7 +1390,7 @@ describe('GET /api/file/quality (scoring tiers, level, suggestions characterizat
         const e = new Error('ENOENT: ' + fp); e.code = 'ENOENT'; throw e;
       },
     };
-    const url = new URL('http://localhost/api/file/quality?path=' + encodeURIComponent(rel));
+    const url = new URL('http://localhost/api/content/analysis/quality?path=' + encodeURIComponent(rel));
     const req = { method: 'GET' };
     const res = { writableEnded: false };
     let captured = null;
@@ -1398,8 +1399,9 @@ describe('GET /api/file/quality (scoring tiers, level, suggestions characterizat
       cached: (_k, _t, fn) => fn(),
       cacheKey: (_orgId, name) => key(name),
       json(_res, status, payload) { captured = { status, payload }; res.writableEnded = true; return captured; },
+      ...repositoryContext({fs, root: CONTENT_DIR, path}),
     };
-    await routes(req, res, url, '/api/file/quality', ctx);
+    await routes(req, res, url, '/api/content/analysis/quality', ctx);
     return captured;
   }
 

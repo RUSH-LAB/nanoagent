@@ -43,6 +43,7 @@ export default function useAgents() {
         name: draft.name,
         description: draft.description,
         instructions: draft.instructions,
+        provider: draft.provider,
         color: draft.color,
       }),
     });

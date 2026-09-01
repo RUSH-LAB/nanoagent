@@ -11,7 +11,7 @@ const require = createRequire(import.meta.url);
 const {betterAuth} = require('better-auth');
 const {organization} = require('better-auth/plugins/organization');
 const {
-  organizationOptions, postgresCoreSchema,
+  organizationOptions, postgresCoreSchema, authSessionOptions,
 } = require('../../../src/server/workspace-auth.js');
 const {createWorkspaceProvisioning} = require('../../../src/server/workspace-provisioning.js');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -40,6 +40,7 @@ describe('Better Auth on the PostgreSQL workspace schema', () => {
     auth = betterAuth({
       database: {db: kysely, type: 'postgres'},
       ...postgresCoreSchema,
+      session: authSessionOptions({postgresEnabled: true}),
       secret: 'postgres-better-auth-test-secret'.padEnd(48, 'x'),
       baseURL: 'http://localhost:3001',
       emailAndPassword: {enabled: true},
@@ -48,6 +49,13 @@ describe('Better Auth on the PostgreSQL workspace schema', () => {
         hooks: provisioning.hooks,
       }))],
     });
+  });
+
+  it('keeps the auth_session mapping when cookie caching is enabled', () => {
+    const session = authSessionOptions({postgresEnabled: true});
+    assert.equal(session.modelName, 'auth_session');
+    assert.equal(session.fields.userId, 'user_id');
+    assert.deepEqual(session.cookieCache, {enabled: true, maxAge: 60});
   });
 
   after(async () => {

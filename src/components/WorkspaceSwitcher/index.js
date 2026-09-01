@@ -107,6 +107,7 @@ export default function WorkspaceSwitcher() {
   const displayName = workspaceSite.slug === routeSlug
     ? workspaceSite.site?.site?.title || active.name
     : active.name;
+  const homeHref = `/w/${encodeURIComponent(active.slug)}/documents`;
 
   async function choose(workspace) {
     if (workspace.slug === active?.slug) {
@@ -117,22 +118,26 @@ export default function WorkspaceSwitcher() {
     setError(null);
     try {
       await switchWorkspace(workspace);
+      // This component survives client-side navigation. Close the old menu and
+      // release its interaction lock immediately so the newly rendered
+      // workspace can be switched again without waiting for page data or the
+      // global CLI to finish loading.
+      setOpen(false);
     } catch (err) {
       setError(err.message);
+    } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className={clsx('navbar__item', styles.wrapper)} ref={wrapper}>
-      <button
-        type="button"
-        className={clsx('navbar__brand', styles.trigger)}
-        onClick={() => setOpen((wasOpen) => !wasOpen)}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        title={`${displayName} — switch workspace`}
-        aria-label={`Current workspace: ${displayName}. Switch workspace`}
+    <div className={clsx('navbar__brand', 'navbar__item', styles.wrapper)} ref={wrapper}>
+      <Link
+        className={styles.homeLink}
+        to={homeHref}
+        onClick={() => setOpen(false)}
+        title={`${displayName} home`}
+        aria-label={`Open ${displayName} home`}
       >
         {navbar.logo && (
           <div className="navbar__logo">
@@ -141,8 +146,17 @@ export default function WorkspaceSwitcher() {
         )}
         <span className={styles.identity}>
           <b className={clsx('navbar__title', 'text--truncate', styles.name)}>{displayName}</b>
-          <span className={styles.context}>Workspace</span>
         </span>
+      </Link>
+      <button
+        type="button"
+        className={styles.menuTrigger}
+        onClick={() => setOpen((wasOpen) => !wasOpen)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        title="Switch workspace"
+        aria-label={`Switch workspace. Current workspace: ${displayName}`}
+      >
         <svg className={styles.caret} viewBox="0 0 10 6" width="10" height="6" aria-hidden="true">
           <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>

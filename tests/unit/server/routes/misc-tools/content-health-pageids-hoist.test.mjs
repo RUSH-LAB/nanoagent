@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { key } from '../../../_harness.mjs';
+import {repositoryContext} from './_document-repository.mjs';
 
 // misc-tools.js is CommonJS; load it via createRequire the way the sibling route
 // tests do (next-misc-mindmap-cache.test.mjs, next-quicknote-cache.test.mjs) and
@@ -190,6 +191,7 @@ async function invoke({ fs, cached }) {
       res.writableEnded = true;
       return captured;
     },
+    ...repositoryContext({fs, root: CONTENT_DIR, path}),
   };
   await miscToolsRoutes(req, res, url, pathname, ctx);
   return captured;
@@ -274,7 +276,7 @@ describe('GET /api/content-health (pageIds spread hoisted to pageIdList)', () =>
     const afterFirst = { readdirSync: counts.readdirSync, readFileSync: counts.readFileSync };
 
     // Cache key and TTL are exactly as the handler passes them.
-    assert.equal(calls[0].key, key('content-health'));
+    assert.equal(calls[0].key, key('content-health:test-user'));
     assert.equal(calls[0].ttl, 60000);
 
     const second = await invoke({ fs, cached });

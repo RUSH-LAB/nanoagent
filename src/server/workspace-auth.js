@@ -51,6 +51,14 @@ const postgresCoreSchema = Object.freeze({
   },
 });
 
+/** Preserve PostgreSQL's physical session-table mapping when adding behavior. */
+function authSessionOptions({postgresEnabled = false, cookieCacheMaxAge = 60} = {}) {
+  return {
+    ...(postgresEnabled ? postgresCoreSchema.session : {}),
+    cookieCache: {enabled: true, maxAge: cookieCacheMaxAge},
+  };
+}
+
 // The product calls these records workspaces, while Better Auth calls them
 // organizations. Schema aliases keep one physical PostgreSQL model and let the
 // framework remain the sole writer of membership and invitation lifecycle.
@@ -101,6 +109,7 @@ module.exports = {
   workspaceAccessControl,
   workspaceRoles,
   postgresCoreSchema,
+  authSessionOptions,
   postgresOrganizationSchema,
   organizationOptions,
 };

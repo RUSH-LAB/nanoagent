@@ -11,7 +11,7 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, TEST_IDENTITY} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, mockFs, FILES, PROJECT_ROOT, CONTENT_DIR, TEST_IDENTITY, TEST_ORG_ID, key} from '../../_harness.mjs';
 
 const routes = loadRoute('analysis-admin');
 const {ANNOTATIONS_FILE, COMMENTS_FILE} = FILES;
@@ -42,7 +42,17 @@ function fsCtx(files, over = {}) {
     writeFileSync: (p, d) => { counts.write++; return base.writeFileSync(p, d); },
     renameSync: (a, b) => { counts.rename++; return base.renameSync(a, b); },
   };
-  return {ctx: makeCtx({fs, ...over}), counts, fs};
+  const ctx = makeCtx({fs, ...over});
+  if (!over.documents) {
+    const scope = {workspaceId: TEST_ORG_ID, userId: TEST_IDENTITY.userId};
+    for (const [fullPath, markdown] of Object.entries(files)) {
+      if (!fullPath.startsWith(`${CONTENT_DIR}${path.sep}`)) continue;
+      const relative = path.relative(CONTENT_DIR, fullPath).replace(/\\/g, '/');
+      if (relative.split('/').pop().startsWith('.') || !/\.mdx?$/.test(relative)) continue;
+      ctx.documents.create(scope, {path: relative, markdown: String(markdown)});
+    }
+  }
+  return {ctx, counts, fs};
 }
 
 function bib(entries) {
@@ -234,7 +244,7 @@ describe('POST /api/streak', () => {
 
 // ── Bulk file operations ──────────────────────────────────────────────────
 
-describe('GET /api/files/recent', () => {
+describe('GET /api/content/recent', () => {
   // mockFs stamps increasing mtimes, so the last declared file is newest.
   const TREE = Object.fromEntries([
     ...Array.from({length: 5}, (_, i) => [at(`f${i}.md`), fm({title: `T${i}`}, `body ${i}`)]),
@@ -243,7 +253,7 @@ describe('GET /api/files/recent', () => {
 
   it('lists the most recently modified first', async () => {
     const {ctx} = fsCtx(TREE);
-    const r = await invoke(routes, {path: '/api/files/recent', ctx});
+    const r = await invoke(routes, {path: '/api/content/recent', ctx});
     assert.equal(r.status, 200);
     assert.deepEqual(r.payload.files.map(f => f.name), ['f4.md', 'f3.md', 'f2.md', 'f1.md', 'f0.md']);
     assert.equal(r.payload.files.some(f => f.name === '.hidden.md'), false);
@@ -261,7 +271,7 @@ describe('GET /api/files/recent', () => {
   for (const {name, query, want} of LIMITS) {
     it(`handles a limit that is ${name}`, async () => {
       const {ctx} = fsCtx(TREE);
-      const r = await invoke(routes, {path: '/api/files/recent', query, ctx});
+      const r = await invoke(routes, {path: '/api/content/recent', query, ctx});
       assert.equal(r.payload.files.length, want);
     });
   }
@@ -269,7 +279,7 @@ describe('GET /api/files/recent', () => {
   it('caps the page at the fifty-entry slice bound', async () => {
     const many = Object.fromEntries(Array.from({length: 60}, (_, i) => [at(`p${i}.md`), 'x']));
     const {ctx} = fsCtx(many);
-    const r = await invoke(routes, {path: '/api/files/recent', query: {limit: '999'}, ctx});
+    const r = await invoke(routes, {path: '/api/content/recent', query: {limit: '999'}, ctx});
     assert.equal(r.payload.files.length, 50);
   });
 
@@ -282,7 +292,7 @@ describe('GET /api/files/recent', () => {
   for (const {name, query, extra} of STATS) {
     it(name, async () => {
       const {ctx} = fsCtx(TREE);
-      const r = await invoke(routes, {path: '/api/files/recent', query, ctx});
+      const r = await invoke(routes, {path: '/api/content/recent', query, ctx});
       const [file] = r.payload.files;
       assert.deepEqual(Object.keys(file).sort(), extra ? ['mtime', 'name', 'path', 'readingTimeMin', 'title', 'wordCount'] : ['mtime', 'name', 'path']);
     });
@@ -291,20 +301,18 @@ describe('GET /api/files/recent', () => {
   it('caches per includeStats flag and slices the cached list per limit', async () => {
     let seen;
     const {ctx, counts} = fsCtx(TREE, {cached: (k, t, fn) => { seen ??= [k, t]; return ctx.cache[k] ?? (ctx.cache[k] = fn()); }});
-    await invoke(routes, {path: '/api/files/recent', ctx});
-    assert.deepEqual(seen, ['files-recent:plain', 30000]);
+    await invoke(routes, {path: '/api/content/recent', ctx});
+    assert.deepEqual(seen, [key('files-recent:test-user:plain'), 30000]);
     const after = counts.readdir;
-    await invoke(routes, {path: '/api/files/recent', query: {limit: '2'}, ctx});
+    await invoke(routes, {path: '/api/content/recent', query: {limit: '2'}, ctx});
     assert.equal(counts.readdir, after, 'a different limit slices the cached list');
-    await invoke(routes, {path: '/api/files/recent', query: {includeStats: 'true'}, ctx});
-    assert.ok(counts.readdir > after, 'the other flag is a distinct entry');
+    await invoke(routes, {path: '/api/content/recent', query: {includeStats: 'true'}, ctx});
+    assert.ok(Object.keys(ctx.cache).some(k => k.endsWith(':stats')), 'the other flag is a distinct entry');
   });
 
-  it('returns 500 without caching when the walk throws', async () => {
-    const ctx = makeCtx({fs: {readdirSync() { throw new Error('unreadable'); }}});
-    const r = await invoke(routes, {path: '/api/files/recent', ctx});
+  it('returns 500 when the repository read throws', async () => {
+    const ctx = makeCtx({documents: {list() { throw new Error('unreadable'); }}});
+    const r = await invoke(routes, {path: '/api/content/recent', ctx});
     assert.deepEqual(r.replies, [{status: 500, payload: {error: 'Failed to list recent files'}, opts: undefined}]);
-    assert.deepEqual(Object.keys(ctx.cache), []);
   });
 });
-

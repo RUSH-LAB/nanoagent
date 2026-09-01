@@ -72,12 +72,12 @@ function SearchContent() {
     // Search files
     setLoadingFiles(true);
     setErrorFiles(null);
-    apiFetch(`${API_BASE}/api/files/search?q=${encoded}`, {signal})
+    apiFetch(`${API_BASE}/api/documents/search?q=${encoded}`, {signal})
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then((data) => { if (!signal.aborted) setFileResults(data.files || data || []); })
+      .then((data) => { if (!signal.aborted) setFileResults(data.documents || []); })
       .catch((err) => { if (!signal.aborted) setErrorFiles(err.message); })
       .finally(() => { if (!signal.aborted) setLoadingFiles(false); });
 

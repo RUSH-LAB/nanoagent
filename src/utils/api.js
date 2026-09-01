@@ -43,11 +43,13 @@ function isGlobalApi(pathname) {
 
 async function workspaceIdFor(slug) {
   if (!workspaceIds.has(slug)) {
-    const pending = fetch(`${API_BASE}/api/workspaces`, {credentials: 'include'})
-      .then(async response => {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error || 'Could not resolve workspace');
-        const workspace = (body.workspaces ?? []).find(item => item.slug === slug);
+    // Share the same in-flight workspace discovery request as the navbar,
+    // auth gate, and runtime content loader. Starting a tool page and its
+    // workspace shell together must not produce two identical Neon reads.
+    const pending = apiJson(`${API_BASE}/api/workspaces`, {cacheMs: 10 * 60_000})
+      .then(result => {
+        if (!result.ok) throw new Error(result.data.error || 'Could not resolve workspace');
+        const workspace = (result.data.workspaces ?? []).find(item => item.slug === slug);
         if (!workspace) {
           const error = new Error('Workspace not found');
           error.status = 404;
@@ -124,6 +126,9 @@ export function getCachedApiJson(input) {
 export function invalidateApiJson(prefix = '') {
   for (const key of jsonResponses.keys()) {
     if (!prefix || key.startsWith(prefix)) jsonResponses.delete(key);
+  }
+  if (!prefix || prefix === `${API_BASE}/api/workspaces`) {
+    workspaceIds.clear();
   }
 }
 

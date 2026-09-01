@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { key } from '../../../_harness.mjs';
+import {repositoryContext} from './_document-repository.mjs';
 
 // misc-tools.js is CommonJS; load the real module the way the sibling route tests
 // do (mirrors tests/next-statsdir-cache.test.mjs and
@@ -116,6 +117,7 @@ async function runHandler(pathname, { fs, cached = passThroughCached }) {
     cached,
     cacheKey: (_orgId, name) => key(name),
     json: (_res, status, payload) => { captured = { status, payload }; res.writableEnded = true; },
+    ...repositoryContext({fs, root: CONTENT_DIR, path}),
   };
   await routes(req, res, url, pathname, ctx);
   return captured;
@@ -270,8 +272,8 @@ describe('content-walk cache wrapping', () => {
     await runHandler('/api/stats/timeline', { fs, cached: recordingCached });
 
     assert.deepEqual(calls, [
-      { key: key('content-duplicates'), ttl: 60000 },
-      { key: key('stats:timeline'), ttl: 60000 },
+      { key: key('content-duplicates:test-user'), ttl: 60000 },
+      { key: key('stats:timeline:test-user'), ttl: 60000 },
     ]);
   });
 });

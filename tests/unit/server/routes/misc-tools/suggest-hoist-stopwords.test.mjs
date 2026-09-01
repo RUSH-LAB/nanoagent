@@ -89,6 +89,13 @@ const ctx = {
   PROJECT_ROOT,
   contentRootFor: () => CONTENT_DIR,
   flatFiles: () => FLAT_FILES,
+  documents: {
+    async snapshot() {
+      return FLAT_FILES
+        .filter(file => /\.mdx?$/.test(file.name))
+        .map(file => ({path: file.path, markdown: FILE_MAP[path.join(CONTENT_DIR, file.path)]}));
+    },
+  },
 };
 
 // Invoke the misc-tools route handler with a mocked ctx and capture the response

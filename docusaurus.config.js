@@ -95,22 +95,6 @@ const config = {
     // plugin.json rather than from here.
     ...loadBuildPlugins(),
 
-    // Local search
-    [
-      '@easyops-cn/docusaurus-search-local',
-      {
-        hashed: true,
-        indexBlog: false,
-        indexDocs: false,
-        indexPages: true,
-        searchBarShortcut: true,
-        searchBarShortcutHint: true,
-        highlightSearchTermsOnTargetPage: true,
-        explicitSearchResultPath: true,
-        searchResultContextMaxLength: 50,
-        searchResultLimits: 10,
-      },
-    ],
   ],
 
   headTags: [

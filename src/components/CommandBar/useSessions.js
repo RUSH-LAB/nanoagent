@@ -30,6 +30,12 @@ const MAX_SESSIONS = 4;
    grep for it finds the clearing as well as the writing. */
 const SESSIONS_KEY = 'mochi-cli-sessions';
 
+function storageKey(workspaceKey) {
+  return workspaceKey && workspaceKey !== 'unscoped'
+    ? `${SESSIONS_KEY}:${encodeURIComponent(workspaceKey)}`
+    : SESSIONS_KEY;
+}
+
 /* Written a beat after the last change rather than on every keystroke: a
    streaming answer patches its entry dozens of times a second, and serializing
    the whole window that often is the one way this hook could cost anything. */
@@ -46,6 +52,27 @@ const MAX_STORED_CHARS = 128 * 1024;
 const ENTRY_KINDS = new Set(['input', 'output', 'system', 'error']);
 
 const freshSession = (id) => ({id, entries: [], busy: false, target: null, sendError: null});
+
+/** A stable boundary between transcripts that happen to reuse the same pane. */
+export function targetKey(target) {
+  if (target?.channelId != null) return `channel:${target.channelId}`;
+  if (target?.agentId != null) return `agent:${target.agentId}`;
+  return null;
+}
+
+/**
+ * Only draw entries written for the target currently occupying the pane.
+ * Unscoped entries predate transcript scoping and were AI-chat entries, so
+ * they remain visible for agents but never leak underneath a human chat.
+ */
+export function entriesForTarget(entries, target) {
+  const key = targetKey(target);
+  return entries.filter(entry => (
+    typeof entry.targetKey === 'string'
+      ? entry.targetKey === key
+      : !target?.channelId
+  ));
+}
 
 /**
  * The part of a window worth remembering, trimmed to fit.
@@ -65,11 +92,12 @@ function serialize(sessions, activeId) {
   const snapshot = sessions.map((session) => ({
     id: session.id,
     target: session.target,
-    // A conversation is the server's to remember. The in-flight row goes before
-    // the cap, or the cap could be spent on a row that is then dropped.
-    entries: session.target?.channelId
-      ? []
-      : session.entries.filter((entry) => !entry.pending).slice(-MAX_ENTRIES_PER_SESSION),
+    // Human conversations live on the server, while Agent transcripts live in
+    // this browser. Keep the latter even when a channel currently occupies the
+    // pane, and drop channel-only command feedback from persisted history.
+    entries: session.entries
+      .filter((entry) => !entry.pending && !entry.targetKey?.startsWith('channel:'))
+      .slice(-MAX_ENTRIES_PER_SESSION),
   }));
   let json = JSON.stringify({activeId, sessions: snapshot});
   while (json.length > MAX_STORED_CHARS) {
@@ -106,6 +134,7 @@ function deserialize(raw) {
           id: entry.id,
           kind: entry.kind,
           text: String(entry.text ?? ''),
+          ...(typeof entry.targetKey === 'string' ? {targetKey: entry.targetKey} : {}),
           ...(entry.agent && typeof entry.agent === 'object' ? {agent: {
             id: String(entry.agent.id ?? ''),
             name: String(entry.agent.name ?? 'Agent'),
@@ -118,7 +147,8 @@ function deserialize(raw) {
   return {sessions, activeId};
 }
 
-export default function useSessions() {
+export default function useSessions(workspaceKey = 'unscoped') {
+  const scopedSessionsKey = storageKey(workspaceKey);
   // `target` is null for the assistant, or {channelId, label} for a
   // conversation. The label is a fallback for the moment between creating a
   // channel and the directory listing it.
@@ -139,7 +169,7 @@ export default function useSessions() {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(SESSIONS_KEY);
+      const raw = localStorage.getItem(scopedSessionsKey);
       const restored = raw ? deserialize(raw) : null;
       if (restored) {
         for (const session of restored.sessions) {
@@ -157,7 +187,7 @@ export default function useSessions() {
       /* unreadable or absent: a fresh window is the right fallback */
     }
     setHydrated(true);
-  }, []);
+  }, [scopedSessionsKey]);
 
   useEffect(() => {
     // Writing before the restore has run would overwrite the saved window with
@@ -165,13 +195,13 @@ export default function useSessions() {
     if (!hydrated) return undefined;
     const timer = setTimeout(() => {
       try {
-        localStorage.setItem(SESSIONS_KEY, serialize(sessions, activeId));
+        localStorage.setItem(scopedSessionsKey, serialize(sessions, activeId));
       } catch {
         /* quota or private mode: the window simply will not be remembered */
       }
     }, SAVE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [hydrated, sessions, activeId]);
+  }, [hydrated, sessions, activeId, scopedSessionsKey]);
 
   /* ── Focus ────────────────────────────────────────────────────── */
 
@@ -221,11 +251,20 @@ export default function useSessions() {
   /** Append a line and hand back its id, which is how it is edited later. */
   const append = useCallback((id, kind, text, metadata = {}) => {
     nextEntryId.current += 1;
-    const entry = {id: nextEntryId.current, kind, text, ...metadata};
+    const entryId = nextEntryId.current;
     setSessions((prev) => prev.map((s) => (
-      s.id === id ? {...s, entries: [...s.entries, entry]} : s
+      s.id === id ? {
+        ...s,
+        entries: [...s.entries, {
+          id: entryId,
+          kind,
+          text,
+          targetKey: targetKey(s.target),
+          ...metadata,
+        }],
+      } : s
     )));
-    return entry.id;
+    return entryId;
   }, []);
 
   /** Rewrite a line in place, which is how a streamed answer grows. */

@@ -15,7 +15,7 @@ const require = createRequire(import.meta.url);
 const ai = require('../../../src/server/ai.js');
 
 /** resolveProvider takes its world as an argument, so no environment is touched. */
-const resolve = (env, opts = {}) => ai.resolveProvider({env, hasCli: false, isProduction: false, ...opts});
+const resolve = (env, opts = {}) => ai.resolveProvider({env, hasCli: false, hasCodex: false, isProduction: false, ...opts});
 
 describe('choosing a provider', () => {
   it('prefers the key when there is one, because a server should not shell out', () => {
@@ -26,11 +26,20 @@ describe('choosing a provider', () => {
     assert.equal(resolve({}, {hasCli: true}).provider, 'claude-code');
   });
 
-  it('explains itself when neither is available, naming both ways out', () => {
+  it('prefers Codex when both local CLIs are available', () => {
+    assert.equal(resolve({}, {hasCli: true, hasCodex: true}).provider, 'codex');
+  });
+
+  it('uses the provider selected by an agent', () => {
+    assert.equal(resolve({}, {requested: 'codex', hasCodex: true}).provider, 'codex');
+    assert.equal(resolve({}, {requested: 'claude-code', hasCli: true}).provider, 'claude-code');
+  });
+
+  it('explains itself when no local provider is available', () => {
     const {provider, error} = resolve({}, {hasCli: false});
     assert.equal(provider, undefined);
-    assert.match(error, /ANTHROPIC_API_KEY/);
     assert.match(error, /Claude Code/);
+    assert.match(error, /Codex/);
   });
 
   // The CLI runs a local program holding this machine's credentials on behalf
@@ -42,6 +51,7 @@ describe('choosing a provider', () => {
       resolve({AI_PROVIDER: 'claude-code'}, {hasCli: true, isProduction: true}).error,
       /development only/,
     );
+    assert.match(resolve({}, {requested: 'codex', hasCodex: true, isProduction: true}).error, /development only/);
   });
 
   it('still uses the key in production', () => {
@@ -51,6 +61,7 @@ describe('choosing a provider', () => {
   const ASKED = [
     ['api', {AI_PROVIDER: 'api', ANTHROPIC_API_KEY: 'sk-ant-x'}, {}, 'api'],
     ['claude-code', {AI_PROVIDER: 'claude-code'}, {hasCli: true}, 'claude-code'],
+    ['codex', {AI_PROVIDER: 'codex'}, {hasCodex: true}, 'codex'],
   ];
   for (const [name, env, opts, expected] of ASKED) {
     it(`honours AI_PROVIDER=${name}`, () => {
@@ -68,12 +79,32 @@ describe('choosing a provider', () => {
   });
 });
 
+describe('the Codex command line', () => {
+  const args = ai.codexArgs({prompt: 'hello', system: 'be brief'});
+
+  it('runs non-interactively with ephemeral, read-only isolation', () => {
+    assert.equal(args[0], 'exec');
+    for (const flag of ['--json', '--ephemeral', '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check']) {
+      assert.ok(args.includes(flag), `${flag} is present`);
+    }
+    assert.equal(args[args.indexOf('--sandbox') + 1], 'read-only');
+    assert.equal(args[args.indexOf('--config') + 1], 'model_reasoning_effort="none"');
+    assert.match(args.at(-1), /be brief[\s\S]*User request:\nhello/);
+  });
+
+  it('reads only completed Codex assistant messages', () => {
+    assert.equal(ai.codexRecordText({type: 'item.completed', item: {type: 'agent_message', text: 'hello'}}), 'hello');
+    assert.equal(ai.codexRecordText({type: 'item.completed', item: {type: 'reasoning', text: 'secret'}}), null);
+  });
+});
+
 describe('the command line the CLI is given', () => {
   const args = ai.cliArgs({prompt: 'hello', system: 'be brief'});
 
   it('asks for one printed answer as JSON', () => {
     assert.deepEqual(args.slice(0, 2), ['--print', 'hello']);
     assert.equal(args[args.indexOf('--output-format') + 1], 'json');
+    assert.equal(args[args.indexOf('--effort') + 1], 'low');
   });
 
   // A completion endpoint answers a text box on a web page. Reading a file or

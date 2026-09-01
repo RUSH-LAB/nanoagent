@@ -27,10 +27,10 @@
 .convoActive:hover { background: color-mix(in srgb, var(--ifm-color-primary) 14%, transparent); }
 .convoActive::before { position: absolute; top: 9px; bottom: 9px; left: 0; width: 3px; border-radius: 999px; background: var(--ifm-color-primary); content: ''; }
 .convoIcon { display: grid; flex-shrink: 0; place-items: center; width: 28px; height: 28px; color: var(--ifm-color-emphasis-500); }
+.emptyIcon { font-size: 1rem; }
 .convoBody { display: flex; flex: 1; min-width: 0; flex-direction: column; }
-.convoName, .convoMeta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.convoName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .convoName { font-size: var(--cli-label); font-weight: 600; line-height: 1.35; letter-spacing: -0.005em; }
-.convoMeta { color: var(--ifm-color-emphasis-500); font-size: var(--cli-meta); font-weight: 400; line-height: 1.35; }
 .convoActive .convoName { color: var(--ifm-color-primary); font-weight: 700; }
 .unread { min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--ifm-color-primary); color: #fff; font-size: var(--cli-micro); font-weight: 700; line-height: 1.45; text-align: center; }
 
@@ -39,7 +39,7 @@
 .editAgent { position: absolute; top: 50%; right: 0.4rem; display: none; width: 26px; height: 26px; padding: 0; transform: translateY(-50%); border: 0; border-radius: 7px; background: var(--ifm-color-emphasis-200); color: var(--ifm-color-emphasis-600); font-size: var(--cli-micro); cursor: pointer; }
 .agentRow:hover .editAgent, .editAgent:focus { display: block; }
 .agentManaging .editAgent { display: block; }
-.agentAvatar, .personAvatar { position: relative; display: grid; flex-shrink: 0; place-items: center; width: 30px; height: 30px; border-radius: 9px; color: #fff; font-size: var(--cli-meta); font-weight: 750; }
+.agentAvatar, .personAvatar { position: relative; display: grid; flex-shrink: 0; place-items: center; width: 28px; height: 28px; border-radius: 8px; color: #fff; font-size: var(--cli-meta); font-weight: 750; }
 .personAvatar { border-radius: 50%; background: var(--ifm-color-emphasis-300); color: var(--ifm-color-emphasis-800); }
 .onlineDot { position: absolute; right: -1px; bottom: -1px; width: 7px; height: 7px; border: 1.5px solid var(--ifm-background-surface-color); border-radius: 50%; background: #22c55e; }
 .agent_violet { background: #8b5cf6; }.agent_blue { background: #3b82f6; }.agent_emerald { background: #10b981; }.agent_amber { background: #f59e0b; }.agent_rose { background: #f43f5e; }.agent_slate { background: #64748b; }
@@ -52,7 +52,6 @@
 .personActions button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 7px; background: var(--ifm-background-surface-color); color: var(--ifm-color-emphasis-500); cursor: pointer; }
 .personActions button:hover:not(:disabled) { background: var(--ifm-color-emphasis-200); color: var(--ifm-color-primary); }
 .personActions button:disabled { opacity: 0.45; cursor: wait; }
-.youTag { margin-left: 0.3rem; color: var(--ifm-color-emphasis-500); font-size: var(--cli-micro); font-weight: 500; }
 
 .inlineForm { display: flex; align-items: center; gap: 0.45rem; margin: 0.15rem 0; padding: 0.35rem 0.5rem; border: 1px solid var(--ifm-color-primary); border-radius: 8px; color: var(--ifm-color-primary); }
 .inlineForm input { min-width: 0; flex: 1; padding: 0; border: 0; background: transparent; color: var(--ifm-font-color-base); font: inherit; font-size: var(--cli-label); outline: 0; }
@@ -62,5 +61,4 @@
 
 @media (max-width: 768px) {
   .sidebar { width: 210px; }
-  .convoMeta { display: none; }
 }

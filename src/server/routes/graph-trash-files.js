@@ -33,15 +33,15 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       // Param-free, deterministic scan (the exact sibling of the already-cached
       // GET /api/graph/export): memoize the whole {nodes, edges} computation under
       // one static key for the TTL while the json() write runs on every request.
-      const result = await cached(cacheKey(req.context.workspaceId, 'graph-data'), 60000, async () => {
+      const result = await cached(cacheKey(req.context.workspaceId, `graph-data:${req.context.userId}`), 60000, async () => {
         const nodes = [];
         const edges = [];
         const nodeMap = {};
 
-        for (const row of await documents.list(scope)) {
+        for (const row of await documents.snapshot(scope)) {
           const fileName = row.path.split('/').pop();
           if (fileName.startsWith('.') || fileName.startsWith('_') || !ALLOWED_EXTS.some(ext => fileName.endsWith(ext))) continue;
-          const content = (await documents.get(scope, row.path))?.markdown ?? '';
+          const content = row.markdown ?? '';
           let id = row.path.replace(/\.(mdx?|md)$/, '').replace(/\\/g, '/');
           if (id.endsWith('/index')) id = id.slice(0, -6);
           const strippedName = row.path.split('/').pop().replace(/\.(mdx?|md)$/, '');
@@ -107,7 +107,7 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
       if (!req.context) return json(res, 404, {error: 'Workspace not found'});
       requireWorkspacePermission(req.context, 'content:read');
       const scope = scopeFor(req);
-      const backlinks = await cached(cacheKey(req.context.workspaceId, `backlinks:${targetPath}`), 60000, async () => {
+      const backlinks = await cached(cacheKey(req.context.workspaceId, `backlinks:${req.context.userId}:${targetPath}`), 60000, async () => {
       const result = [];
 
       // Derive possible link targets from the file path
@@ -131,11 +131,11 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
         return null;
       }
 
-      for (const row of await documents.list(scope)) {
+      for (const row of await documents.snapshot(scope)) {
         const sourcePath = row.path;
         const fileName = sourcePath.split('/').pop();
         if (sourcePath === targetPath || fileName.startsWith('.') || !ALLOWED_EXTS.some(ext => fileName.endsWith(ext))) continue;
-        const content = (await documents.get(scope, sourcePath))?.markdown ?? '';
+        const content = row.markdown ?? '';
         const sourceTitle = extractTitle(content) || row.title;
         let match;
         wikiLinkRe.lastIndex = 0;

@@ -16,7 +16,17 @@ export async function signOutAndForget() {
     await authClient.signOut();
   } finally {
     if (typeof window !== 'undefined') {
-      try { window.localStorage.removeItem(CLI_SESSIONS_KEY); } catch { /* unavailable */ }
+      try {
+        // Agent transcripts are isolated per workspace. Signing out must clear
+        // every scoped copy so another account on the same browser cannot see
+        // the previous reader's conversations.
+        for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+          const key = window.localStorage.key(index);
+          if (key === CLI_SESSIONS_KEY || key?.startsWith(`${CLI_SESSIONS_KEY}:`)) {
+            window.localStorage.removeItem(key);
+          }
+        }
+      } catch { /* unavailable */ }
     }
   }
 }

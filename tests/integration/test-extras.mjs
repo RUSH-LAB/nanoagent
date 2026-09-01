@@ -124,9 +124,9 @@ async function testFeeds() {
 async function testMindmap() {
   section('Mindmap');
 
-  // 12. GET /api/file/mindmap — verify {root} tree
-  await test('GET /api/file/mindmap returns {root} tree', async () => {
-    const { status, data } = await api('GET', `/api/file/mindmap?path=${SAMPLE_DOC}`);
+  // 12. GET /api/documents/analysis/mindmap — verify {root} tree
+  await test('GET /api/documents/analysis/mindmap returns {root} tree', async () => {
+    const { status, data } = await api('GET', `/api/documents/analysis/mindmap?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(typeof data === 'object', 'response is object');
     assertOk('root' in data, 'has root field');
@@ -141,9 +141,9 @@ async function testMindmap() {
 async function testFileQuality() {
   section('File Quality');
 
-  // 13. GET /api/file/quality — verify score, breakdown, suggestions
-  await test('GET /api/file/quality returns score, breakdown, suggestions', async () => {
-    const { status, data } = await api('GET', `/api/file/quality?path=${SAMPLE_DOC}`);
+  // 13. GET /api/documents/analysis/quality — verify score, breakdown, suggestions
+  await test('GET /api/documents/analysis/quality returns score, breakdown, suggestions', async () => {
+    const { status, data } = await api('GET', `/api/documents/analysis/quality?path=${SAMPLE_DOC}`);
     assertEq(status, 200, 'status');
     assertOk(typeof data === 'object', 'response is object');
     assertOk('score' in data, 'has score field');
