@@ -57,13 +57,8 @@ before(async () => {
   const saved = {
     DATABASE_FILE: process.env.DATABASE_FILE,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
-    CONTENT_ROOT: process.env.CONTENT_ROOT,
   };
   process.env.DATABASE_FILE = path.join(dir, 'org.db');
-  // Creating a workspace creates its content directories. Without this they
-  // would be created in the repository being tested, one per workspace the
-  // suite makes, and the build would then generate plugin instances for them.
-  process.env.CONTENT_ROOT = path.join(dir, 'content');
   process.env.BETTER_AUTH_SECRET = 'org-test-secret-'.padEnd(48, 'x');
   for (const m of MODULES) delete require.cache[require.resolve(m)];
   try {

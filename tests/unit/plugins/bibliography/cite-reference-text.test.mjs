@@ -4,12 +4,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 
-// `fs` here is the very same module object that plugins/remark-cite.js captured
-// through its own require('fs'), so spying on fs.readFileSync / fs.statSync below
-// is observed inside the plugin's loadBibliography().
-const fs = require('fs');
-const yaml = require('js-yaml');
-const remarkCitePath = require.resolve('../../../../plugins/bibliography/remark');
+const remarkCite = require('../../../../plugins/bibliography/remark');
 
 // What this pins, and why it is add-only test coverage (NOT a behavior change):
 //
@@ -21,16 +16,11 @@ const remarkCitePath = require.resolve('../../../../plugins/bibliography/remark'
 //     key); venue as ". ${venue}"; volume as ", ${volume}"; pages as
 //     ", pp. ${pages}". The text becomes the child of the reference link when
 //     entry.url is set, or a bare text node when there is no url.
-//   - The existing tests/plugins/remark-cite.test.mjs suite asserts reference
-//     section STRUCTURE (ids, classes, link vs text, the detail link) using real
-//     bibliography keys, but never the reference TEXT content. The real
-//     bibliography/references.yaml always carries a year and a title and never a
-//     volume or pages, so the MISSING_YEAR, title fallback, volume, and pages
-//     branches are dead against real data and were unpinned until now.
-//   - This test feeds a synthetic bibliography through the fs-spy seam used by
-//     tests/next-cite-bib-cache.test.mjs, runs the REAL remarkCite() transform
-//     once, and locks each reference line to a golden captured from the real
-//     code. No source is modified and formatReference is not reimplemented.
+//   - The main remark suite asserts reference section STRUCTURE (ids, classes,
+//     link vs text, and the detail link), while this synthetic bibliography
+//     covers the less common text-formatting branches.
+//   - The bibliography is injected exactly as the database-backed caller would
+//     provide it; no production data file is needed by the test.
 
 // Synthetic bibliography crafted so a single transform pass exercises every
 // formatReference branch. Each entry is annotated with the branch it drives.
@@ -124,43 +114,13 @@ function extractReferenceText(list) {
 
 describe('next-cite-reference-text: formatReference reference-line goldens', () => {
   it('assembles each reference line, exercising MISSING_YEAR, title fallback, venue, volume, and pages', () => {
-    const realRead = fs.readFileSync;
-    const realStat = fs.statSync;
-    const dumped = yaml.dump(SYNTHETIC_BIB);
+    const keys = Object.keys(SYNTHETIC_BIB);
+    const tree = makeCitedTree(keys);
+    remarkCite({bibliography: SYNTHETIC_BIB})(tree, { message() {} });
 
-    // Feed the synthetic bibliography for any references.yaml read, and report a
-    // stable stat for it; all other paths fall through to the real fs.
-    fs.readFileSync = function (p, ...rest) {
-      if (String(p).includes('references.yaml')) return dumped;
-      return realRead.call(this, p, ...rest);
-    };
-    fs.statSync = function (p, ...rest) {
-      if (String(p).includes('references.yaml')) return { mtimeMs: 1, size: 1 };
-      return realStat.call(this, p, ...rest);
-    };
-
-    try {
-      // Re-require the plugin under the spy so loadBibliography reads the
-      // synthetic data rather than any earlier cached parse.
-      delete require.cache[remarkCitePath];
-      const remarkCite = require('../../../../plugins/bibliography/remark');
-
-      const keys = Object.keys(SYNTHETIC_BIB);
-      const tree = makeCitedTree(keys);
-      remarkCite()(tree, { message() {} });
-
-      const list = tree.children.find((n) => n.type === 'list');
-      assert.ok(list, 'transform must append a reference list when citations exist');
-      // Exactly one reference item per cited key: pins the count so a dropped or
-      // duplicated reference item cannot slip past the keyed-map comparison.
-      assert.equal(list.children.length, keys.length);
-
-      assert.deepStrictEqual(extractReferenceText(list), EXPECTED);
-    } finally {
-      fs.readFileSync = realRead;
-      fs.statSync = realStat;
-      // Drop the spy-loaded instance so later suites re-read the real file.
-      delete require.cache[remarkCitePath];
-    }
+    const list = tree.children.find((n) => n.type === 'list');
+    assert.ok(list, 'transform must append a reference list when citations exist');
+    assert.equal(list.children.length, keys.length);
+    assert.deepStrictEqual(extractReferenceText(list), EXPECTED);
   });
 });

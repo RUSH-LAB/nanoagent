@@ -21,8 +21,6 @@ Common entry points are `npm run db:postgres:setup` and
 
 One-time or explicitly requested data movement:
 
-- `import-workspace-content.mjs` imports workspace Markdown and bibliography
-  records. It is a dry run unless `--apply` is supplied.
 - `json-stores-to-database.mjs` carries legacy JSON stores into the scoped
   database. It is a dry run unless `--write` is supplied.
 - `sqlite-to-postgres.mjs` performs the legacy SQLite-to-PostgreSQL cutover. It
@@ -38,10 +36,6 @@ Manual verification, repair, or cleanup commands:
   download, and delete probe against configured S3/R2 storage.
 - `verify-mail.mjs` sends one explicitly addressed deployment-test email using
   the configured Resend or webhook provider.
-- `clean-test-bibliography.mjs` removes known integration-test bibliography
-  records and creates a backup before writing. It is a dry run unless `--apply`
-  is supplied.
-
 ## `dev/`
 
 Developer workflow commands:

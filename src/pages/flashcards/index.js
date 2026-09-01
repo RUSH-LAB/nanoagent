@@ -446,7 +446,7 @@ function FlashcardsApp() {
               type="text"
               value={source}
               onChange={e => setSource(e.target.value)}
-              placeholder="e.g., content/research/algorithms.md"
+              placeholder="e.g., books/math/algorithms.md"
               style={{
                 display: 'block', width: '100%', padding: '10px 12px', borderRadius: 6,
                 border: '1px solid var(--ifm-color-emphasis-300)',

@@ -3,9 +3,9 @@
  *
  * The site has exactly three layout classes:
  *
- *   docs    content/books/*      sidebar + prose + TOC, from the .docItemCol
+ *   docs    books/*              sidebar + prose + TOC, from the .docItemCol
  *                                rule in custom.css
- *   blog    content/posts/*      prose + TOC, from src/theme/BlogLayout
+ *   blog    posts/*              prose + TOC, from src/theme/BlogLayout
  *   pages   src/pages/*          this file
  *
  * There is no separate "app" class. Pages that happen to be applications

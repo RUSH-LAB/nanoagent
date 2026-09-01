@@ -8,8 +8,7 @@ const remarkCite = require('../../../../plugins/bibliography/remark');
 // ===========================================================================
 // Helpers (mirror tests/plugins/remark-cite.test.mjs so this file stays
 // self-contained and drives the REAL transform over a hand-built mdast tree:
-// no Docusaurus build, no network. The only file read is the plugin's own
-// loadBibliography(), exactly as in every existing cite test.)
+// no Docusaurus build, database, or network.)
 // ===========================================================================
 
 /**
@@ -51,8 +50,8 @@ function run(tree, file) {
 // ===========================================================================
 // Unknown-only citation path.
 //
-// These bogus keys (unk-a, unk-b, unk-c) are guaranteed absent from
-// bibliography/references.yaml, so processTextNode never adds them to
+// These bogus keys (unk-a, unk-b, unk-c) are absent from the injected empty
+// bibliography, so processTextNode never adds them to
 // citedKeys (remark-cite.js line 96 runs only for known entries) and
 // buildReferencesSection returns [] when citedKeys is empty (line 132 to 133).
 // The result: unknown spans render inline, but NO References section appears.

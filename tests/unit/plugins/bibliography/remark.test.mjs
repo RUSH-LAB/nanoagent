@@ -40,32 +40,20 @@ function makeFile() {
  * the file messages.
  */
 function run(tree, file) {
-  const transform = remarkCite();
+  const transform = remarkCite({bibliography});
   file = file || makeFile();
   transform(tree, file);
   return { tree, file };
 }
 
 // ---------------------------------------------------------------------------
-// Discover a few real keys from the bibliography loaded by the plugin.
-// This avoids hardcoding entries that might be removed.
+// Small self-contained bibliography. Tests must not depend on production data.
 // ---------------------------------------------------------------------------
-const yaml = require('js-yaml');
-const fs = require('fs');
-const path = require('path');
-
-// Content is one tree per organization, and the build renders the primary one,
-// so the slug is resolved exactly as remark.js resolves it.
-const PRIMARY_ORG = process.env.ROOT_ORG_SLUG || 'mochi';
-const bibPath = path.resolve(
-  path.dirname(require.resolve('../../../../plugins/bibliography/remark')),
-  '..', '..',
-  'content',
-  PRIMARY_ORG,
-  'bibliography',
-  'references.yaml',
-);
-const bibliography = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
+const bibliography = {
+  lovelace1843: {author: ['Ada Lovelace'], year: 1843, title: 'Notes', url: 'https://example.test/notes'},
+  computing1950: {author: ['Alan Turing', 'Claude Shannon'], year: 1950, title: 'Computing Machinery'},
+  systems2026: {author: ['Grace Hopper', 'Edsger Dijkstra', 'Donald Knuth'], year: 2026, title: 'Systems'},
+};
 const allKeys = Object.keys(bibliography);
 
 // Pick keys with known characteristics

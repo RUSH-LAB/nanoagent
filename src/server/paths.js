@@ -7,23 +7,16 @@
  *              (var/data), the access log (var/logs) and soft-deleted files
  *              (var/trash). Ignored by git as a single directory rather than
  *              as three unrelated root entries.
- *   content/   authored source the server reads, including the bibliography.
+ *   var/document-fs/   a logical root used only by the temporary filesystem
+ *                      compatibility adapter; document bytes stay in SQL.
  *
  * Consumers come in two shapes, so the layout is published in two forms.
  *
  * server/index.js knows the real repo root and uses node's own path, so it
  * takes the absolute constants and the helpers below.
  *
- * Route modules get their root from `ctx.PROJECT_ROOT` and their path module
- * from `ctx.path`, both of which a test may replace. They must therefore build
- * paths with the injected module, not this one, so they take the *_SEGS arrays
- * and spread them:
- *
- *     const {REFERENCES_SEGS} = require('../paths');
- *     const bibPath = path.join(PROJECT_ROOT, ...REFERENCES_SEGS);
- *
- * That keeps every route on the ctx contract while still leaving this file the
- * only place that spells the directory names.
+ * Workspace content itself deliberately has no repository path. PostgreSQL and
+ * object storage are its only live sources.
  */
 const nodePath = require('path');
 
@@ -35,24 +28,7 @@ const VAR_SEGS = ['var'];
 const DATA_SEGS = [...VAR_SEGS, 'data'];
 const LOGS_SEGS = [...VAR_SEGS, 'logs'];
 const TRASH_SEGS = [...VAR_SEGS, 'trash'];
-// Content is one tree per organization: content/<org slug>/{books,posts,...}.
-// CONTENT_SEGS names only the level above those trees, which is why almost
-// nothing uses it directly; a handler wants contentSegsFor(slug), because a
-// handler always acts on behalf of somebody and that somebody is in exactly one
-// workspace. The slug rather than the id, because this tree is read by people
-// and tracked in git, and `content/Nbha3RwQIeWYd.../books/math` is not a path
-// anybody can work with. Renaming an organization would therefore have to move
-// its directory; nothing offers a rename yet.
-const CONTENT_SEGS = ['content'];
-
-/** The content root of one organization, as root-relative segments. */
-const contentSegsFor = slug => [...CONTENT_SEGS, slug];
-
-/** That organization's bibliography. */
-const referencesSegsFor = slug => [...contentSegsFor(slug), 'bibliography', 'references.yaml'];
-
-/** The directory /api/quicknote writes into, within one organization. */
-const quicknoteSegsFor = slug => [...contentSegsFor(slug), 'posts', 'blog'];
+const DOCUMENT_FS_SEGS = [...VAR_SEGS, 'document-fs'];
 
 const ACCESS_LOG_SEGS = [...LOGS_SEGS, 'access.log'];
 
@@ -65,18 +41,13 @@ const DATA_DIR = nodePath.join(PROJECT_ROOT, ...DATA_SEGS);
 const LOGS_DIR = nodePath.join(PROJECT_ROOT, ...LOGS_SEGS);
 const TRASH_DIR = nodePath.join(PROJECT_ROOT, ...TRASH_SEGS);
 const ACCESS_LOG = nodePath.join(PROJECT_ROOT, ...ACCESS_LOG_SEGS);
-/**
- * The level holding every organization's tree, not any one organization's.
- *
- * Overridable, because provisioning a workspace now creates directories, and a
- * test that exercises that should not create them in the repository it is
- * testing. CONTENT_ROOT is what the org test sets alongside DATABASE_FILE; a
- * deployment that keeps content on another volume can set it too.
- */
-const CONTENT_DIR = process.env.CONTENT_ROOT || nodePath.join(PROJECT_ROOT, ...CONTENT_SEGS);
+const DOCUMENT_FS_DIR = nodePath.join(PROJECT_ROOT, ...DOCUMENT_FS_SEGS);
 
-/** One organization's content root, absolutely. */
-const contentDirFor = slug => nodePath.join(CONTENT_DIR, slug);
+/**
+ * A request-local compatibility root. It need not exist: document-filesystem.js
+ * intercepts every path below it and serves rows from the scoped repository.
+ */
+const documentFsRootFor = workspaceId => nodePath.join(DOCUMENT_FS_DIR, String(workspaceId || 'none'));
 
 /** The absolute path of the JSON store for `name`. */
 const dataFile = name => nodePath.join(PROJECT_ROOT, ...dataFileSegs(name));
@@ -94,9 +65,8 @@ const PRIMARY_ORG_SLUG = process.env.ROOT_ORG_SLUG || 'mochi';
 
 module.exports = {
   PROJECT_ROOT, PRIMARY_ORG_SLUG,
-  VAR_SEGS, DATA_SEGS, LOGS_SEGS, TRASH_SEGS, CONTENT_SEGS,
-  contentSegsFor, referencesSegsFor, quicknoteSegsFor,
+  VAR_SEGS, DATA_SEGS, LOGS_SEGS, TRASH_SEGS, DOCUMENT_FS_SEGS,
   ACCESS_LOG_SEGS, dataFileSegs,
-  VAR_DIR, DATA_DIR, LOGS_DIR, TRASH_DIR, ACCESS_LOG, CONTENT_DIR,
-  contentDirFor, dataFile,
+  VAR_DIR, DATA_DIR, LOGS_DIR, TRASH_DIR, ACCESS_LOG, DOCUMENT_FS_DIR,
+  documentFsRootFor, dataFile,
 };

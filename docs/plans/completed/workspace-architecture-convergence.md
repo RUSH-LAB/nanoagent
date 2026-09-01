@@ -197,19 +197,9 @@ There is no long-lived dual-write period:
    Docusaurus compilation. Scoped database-backed `/api/file` read aliases may
    remain temporarily for client compatibility.
 
-The repository includes a deliberately one-way importer. It is a dry run unless
-`--apply` is present, compares SHA-256 hashes, and refuses conflicting rows
-unless an operator also supplies `--overwrite`:
-
-```bash
-npm run content:migrate -- mochi
-npm run content:migrate -- mochi --apply
-npm run content:migrate -- mochi --apply --overwrite
-```
-
-Run it only after legacy writes have been disabled and a database backup has
-been taken. A non-zero exit caused by conflicts is a failed verification, not a
-reason to skip the check.
+The one-way content importer was removed after document, reference, and asset
+parity was verified against PostgreSQL and R2. The original source snapshot
+remains recoverable from Git history; it is no longer a live repository tree.
 
 The database cutover itself is also dry-run by default and verifies canonical
 row hashes after importing the complete SQLite product schema:

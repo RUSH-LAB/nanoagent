@@ -14,7 +14,7 @@ const {
   ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH,
 } = require('./server-utils');
 
-const {PROJECT_ROOT, PRIMARY_ORG_SLUG, contentDirFor, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
+const {PROJECT_ROOT, documentFsRootFor, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
 const {auth, resolveIdentity, isPublicPath, productionAuthError, AUTH_ENABLED} = require('./auth');
 const {
   createWorkspaceContextResolver, matchWorkspaceApiPath, storageScope,
@@ -114,19 +114,11 @@ function hasAllowedExt(name) {
 }
 
 /**
- * The absolute content root of one organization.
- *
- * A function of the explicit, verified workspace id rather than a constant on
- * ctx, because ctx is shared by every in-flight request. In live requests the
- * id always comes from RequestContext, never from activeOrganizationId.
+ * Logical root for legacy fs-shaped algorithms. No directory is read here;
+ * createDocumentFilesystem serves the verified workspace's database rows.
  */
-function orgSlugFor(orgId) {
-  if (postgresDatabase.enabled) return orgId;
-  return org.slugForOrg(orgId) || PRIMARY_ORG_SLUG;
-}
-
 function contentRootFor(orgId) {
-  return contentDirFor(orgSlugFor(orgId));
+  return documentFsRootFor(orgId);
 }
 
 /**
@@ -587,7 +579,7 @@ let requestCounter = 0;
 
 // ── Shared context handed to every route module in server/routes/ ──
 const ctx = {
-  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
+  appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
   roles,
   chat,
   org,

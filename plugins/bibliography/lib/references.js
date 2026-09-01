@@ -15,7 +15,7 @@
 const yaml = require('js-yaml');
 const {cleanBibtexValue} = require('./protocol');
 
-/** Where the bibliography lives, relative to content/. */
+/** Where the bibliography lives in the workspace document repository. */
 const BIB_FILE = 'bibliography/references.yaml';
 
 let referencesCache = null; // {mtimeMs, size, data} or null when uncached

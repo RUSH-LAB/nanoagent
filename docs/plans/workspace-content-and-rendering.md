@@ -281,12 +281,14 @@ content.
 
 ### Phase 6 — Cutover
 
-1. Freeze `content/` writes and run a final idempotent import.
-2. Verify document/reference counts and hashes for every workspace.
-3. Switch all editing and rendering to PostgreSQL.
-4. Keep a read-only content snapshot for rollback, then remove the legacy
-   import tree and `document-filesystem.js` after the rollback window.
-5. Do not introduce long-term dual writes.
+1. Legacy writes were frozen and the final import completed.
+2. Document/reference hashes and every R2 asset were verified.
+3. All editing and rendering now use PostgreSQL and R2.
+4. The repository content snapshot and importer were removed; Git history is
+   the rollback copy.
+5. The database-backed filesystem facade remains only for older analysis
+   routes and can be removed after those algorithms use document repositories
+   directly.
 
 ## Acceptance criteria
 

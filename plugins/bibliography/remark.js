@@ -2,10 +2,9 @@
  * The bibliography's markdown syntax: academic citations.
  *
  * The third half of the plugin. `index.js` builds the pages and `server.js`
- * serves the API; this is the `[@key]` notation that lets a page cite an entry,
- * collected into the site's remark chain by plugins/loader.js. It lives here
- * rather than in a standalone remark plugin because it is not general markdown
- * syntax: it reads this plugin's references.yaml, and means nothing without it.
+ * serves the API; this is the `[@key]` notation that lets a page cite an entry.
+ * Callers inject the scoped bibliography rather than this module reading a
+ * repository file: PostgreSQL is the sole live reference source.
  *
  * Syntax: [@key] or [@key1; @key2] in markdown text nodes.
  * Renders inline as "(Author et al., Year)", each key linking to its own
@@ -15,58 +14,8 @@
  * Must run AFTER remark-math so math expressions are already parsed out.
  */
 
-const fs = require('fs');
-const path = require('path');
-const yaml = require('js-yaml');
 const { applyTextReplacements } = require('#markdown');
 const {normalizePaper} = require('./lib/protocol');
-
-// references.yaml is large (~250KB) and remarkCite() loads it once per content
-// file, so a build with ~300 content files used to re-read and re-parse the
-// whole file ~300 times. Cache the parsed object keyed on the file's mtimeMs
-// and size: the first call reads and parses, later calls reuse the stored parse
-// while the file is unchanged on disk. The dev server still picks up new entries
-// without a restart because any edit changes the mtime (and size), which misses
-// the cache and forces a fresh read and parse. Tracking size alongside mtime
-// also catches a same-millisecond rewrite that mtime alone would miss. Mirrors
-// loadReferencesCached (server/routes/references.js).
-//
-// The stat is best effort: if statSync throws (a missing file, or a test that
-// stubs an fs without it) the cache is skipped and the read below still runs,
-// preserving the exact fallback for a missing or broken file (console.warn then
-// return {}). remark-cite only reads bibliography[key] and never mutates it, so
-// the shared cached object is returned directly with no defensive deep copy.
-// Build-time, and the build renders the primary workspace's citations; see
-// the note in ./index.js about the flat key namespace.
-const PRIMARY_ORG = process.env.ROOT_ORG_SLUG || 'mochi';
-const bibPath = path.resolve(__dirname, '..', '..', 'content', PRIMARY_ORG, 'bibliography', 'references.yaml');
-let bibCache = null; // {mtimeMs, size, data} or null when uncached
-
-function loadBibliography() {
-  let stat = null;
-  try {
-    stat = fs.statSync(bibPath);
-  } catch {
-    stat = null;
-  }
-  if (
-    stat &&
-    bibCache &&
-    bibCache.mtimeMs === stat.mtimeMs &&
-    bibCache.size === stat.size
-  ) {
-    return bibCache.data;
-  }
-  try {
-    const data = yaml.load(fs.readFileSync(bibPath, 'utf8')) || {};
-    bibCache = stat ? { mtimeMs: stat.mtimeMs, size: stat.size, data } : null;
-    return data;
-  } catch (err) {
-    console.warn(`[remark-cite] Could not load ${bibPath}: ${err.message}`);
-    bibCache = null;
-    return {};
-  }
-}
 
 // Regex to match [@key] or [@key1; @key2; ...]
 const CITE_RE = /\[@([\w-]+(?:\s*;\s*@[\w-]+)*)\]/g;
@@ -246,9 +195,8 @@ function buildReferencesSection(citedKeys, bibliography) {
 /**
  * The remark plugin function.
  */
-function remarkCite() {
+function remarkCite({bibliography = {}} = {}) {
   return (tree, file) => {
-    const bibliography = loadBibliography();
     const citedKeys = new Set();
 
     // Walk the tree and replace citation patterns in text nodes, skipping

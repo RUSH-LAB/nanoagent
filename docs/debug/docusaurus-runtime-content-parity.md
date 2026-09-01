@@ -86,16 +86,9 @@ or executable expressions.
 - Exclude known integration-test paths from legacy migration and provide a
   backup-producing cleanup command for databases already affected.
 
-For the PostgreSQL development database, apply the repair while the local
-server is stopped:
-
-```bash
-npm run content:repair:postgres
-npm run start:postgres
-```
-
-The repair command applies pending schema migrations, backs up and soft-deletes
-recognized test documents, and fills missing Mochi site configuration.
+The one-time PostgreSQL content repair was completed before the legacy content
+tree was retired. The importer and repair command no longer exist; runtime
+content must now be edited through the workspace document API.
 
 ## Verification checklist
 

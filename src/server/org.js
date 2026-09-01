@@ -157,14 +157,11 @@ function slugTaken(slug) {
 }
 
 /**
- * The slug of `orgId`, which is the name of its content directory.
+ * The stable slug of `orgId`.
  *
  * Memoized because every request that touches a file asks for it, and the
- * answer cannot change: nothing in the product renames an organization, and if
- * something ever does it will have to move the directory too, at which point
- * this cache is the smallest of its problems. A miss is a single indexed lookup
- * on a primary key, so the memo is about not making it per file rather than
- * about the cost of one.
+ * answer cannot change because workspace renaming is not currently offered. A
+ * miss is a single indexed lookup on a primary key.
  */
 const slugCache = new Map();
 
@@ -185,10 +182,8 @@ slugForOrg.forget = orgId => (orgId ? slugCache.delete(orgId) : slugCache.clear(
 /**
  * The id of the workspace a caller with no active one is treated as being in.
  *
- * The counterpart of what ../paths.js does for content, where the primary
- * organization owns the bare routes and a request with no session reads its
- * tree. Data needs the same answer, and needs it as an id rather than a slug,
- * because that is what the rows reference.
+ * The primary workspace id used only by explicitly unauthenticated local mode
+ * and public compatibility endpoints.
  *
  * Two callers have no active workspace: the public feeds, which nobody is
  * signed in to, and every request when ENABLE_AUTH is off, which is the test
