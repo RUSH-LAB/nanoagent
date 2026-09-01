@@ -62,7 +62,10 @@ function createPostgresChat({pool, now = () => new Date().toISOString(), newId =
               and (c.kind = 'public' or cm.user_id is not null)
             order by (c.kind = 'dm'), c.name, c.created_at`, [userId, workspaceId, includeArchived],
         )).rows;
-        return rows;
+        return rows.map(row => ({
+          ...row,
+          lastReadSeq: row.lastReadSeq == null ? null : Number(row.lastReadSeq),
+        }));
       });
     },
     async listMembers(channelId, workspaceId, userId) {
@@ -221,7 +224,12 @@ function createPostgresChat({pool, now = () => new Date().toISOString(), newId =
             where m.channel_id = $1 and ($2::bigint is null or m.seq < $2)
             order by m.seq desc limit $3`, [channelId, cursor, capped],
         )).rows;
-        return {messages: rows.map(message => message.deletedAt ? {...message, body: null} : message).reverse(), hasMore: rows.length === capped};
+        const messages = rows.map(message => ({
+          ...message,
+          seq: Number(message.seq),
+          ...(message.deletedAt ? {body: null} : {}),
+        })).reverse();
+        return {messages, hasMore: rows.length === capped};
       });
     },
     async postMessage(workspaceId, userId, channelId, body) {

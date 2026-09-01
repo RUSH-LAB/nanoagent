@@ -18,6 +18,13 @@
  */
 
 .bar {
+  --cli-title: 1rem;
+  --cli-dialog-title: var(--site-h3-font-size, 1.25rem);
+  --cli-text: 0.875rem;
+  --cli-label: 0.8125rem;
+  --cli-meta: 0.71875rem;
+  --cli-micro: 0.65625rem;
+
   position: fixed;
   right: 0;
   bottom: 0;
@@ -27,8 +34,8 @@
   flex-direction: column;
   border-top: 1px solid var(--ifm-color-emphasis-300);
   background: var(--ifm-background-surface-color, var(--ifm-background-color));
-  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.1);
-  font-family: var(--ifm-font-family-monospace);
+  box-shadow: 0 -12px 40px rgba(15, 23, 42, 0.12);
+  font-family: var(--ifm-font-family-base);
 }
 
 [data-theme='dark'] .bar {
@@ -85,6 +92,7 @@
    completion list is pinned under them, so completions never push the prompt
    off the bottom of the window. */
 .body {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -97,6 +105,70 @@
   display: flex;
   flex: 1;
   min-height: 0;
+}
+
+/* The composer follows the same column geometry as the conversation above it:
+   the rail gets window controls, and every pane gets its own input. */
+.composerDock {
+  display: flex;
+  flex-shrink: 0;
+  min-height: var(--site-cli-row);
+  background: var(--ifm-background-surface-color, var(--ifm-background-color));
+}
+
+.windowControls {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.3rem;
+  width: 264px;
+  padding: 0.6rem 0.75rem;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  border-right: 1px solid var(--ifm-color-emphasis-200);
+  background: color-mix(in srgb, var(--ifm-background-surface-color) 92%, var(--ifm-color-emphasis-100));
+}
+
+.windowControls button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ifm-color-emphasis-600);
+  cursor: pointer;
+}
+
+.windowControls button:hover:not(:disabled) {
+  border-color: var(--ifm-color-emphasis-300);
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-color-primary);
+}
+
+.windowControls button:disabled { opacity: 0.35; cursor: default; }
+.windowControls button:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: -2px; }
+
+.composerPanes {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.composerCell {
+  flex: 1;
+  min-width: 0;
+}
+
+.composerCell > div { height: 100%; }
+
+.composerCell + .composerCell {
+  border-left: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.composerCellActive {
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--ifm-color-primary) 60%, transparent);
 }
 
 .panes {
@@ -114,6 +186,7 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  background: var(--ifm-background-color);
   cursor: text;
 }
 
@@ -124,43 +197,105 @@
 /* Only worth marking once there is more than one, which is also the only time
    the header renders. */
 .paneActive:not(:only-child) {
-  background: var(--ifm-color-emphasis-100);
+  background: var(--ifm-background-color);
+  box-shadow: inset 0 2px 0 var(--ifm-color-primary);
 }
 
 .paneHead {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.2rem var(--site-page-gutter);
+  gap: 0.7rem;
+  min-height: 58px;
+  padding: 0.5rem 1rem;
   border-bottom: 1px solid var(--ifm-color-emphasis-200);
-  color: var(--ifm-color-emphasis-500);
-  font-size: 0.66rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: var(--cli-meta);
+  cursor: default;
 }
+
+.paneAvatar {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.agent_violet { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+.agent_blue { background: linear-gradient(135deg, #60a5fa, #2563eb); }
+.agent_emerald { background: linear-gradient(135deg, #34d399, #059669); }
+.agent_amber { background: linear-gradient(135deg, #fbbf24, #d97706); }
+.agent_rose { background: linear-gradient(135deg, #fb7185, #e11d48); }
+.agent_slate { background: linear-gradient(135deg, #94a3b8, #475569); }
+
+.paneIdentity { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 0.08rem; }
 
 /* Exported only through this compound selector: the header always carries the
    class and only the focused pane picks up the colour. */
 .paneActive .paneLabel {
-  color: var(--ifm-color-primary);
-  font-weight: 700;
+  color: var(--ifm-font-color-base);
 }
 
-.paneBusy {
-  font-style: italic;
+.paneLabel { overflow: hidden; color: var(--ifm-font-color-base); font-size: var(--cli-label); font-weight: 700; line-height: 1.3; letter-spacing: -0.005em; text-overflow: ellipsis; white-space: nowrap; }
+.paneMeta { overflow: hidden; color: var(--ifm-color-emphasis-500); font-size: var(--cli-meta); line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.paneStatus { flex-shrink: 0; color: var(--ifm-color-emphasis-500); font-size: var(--cli-meta); }
+.paneStatus::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 0.3rem; border-radius: 50%; background: #22c55e; vertical-align: 1px; }
+
+.membersButton {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 30px;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ifm-color-emphasis-600);
+  font: inherit;
+  font-size: var(--cli-meta);
+  font-weight: 600;
+  cursor: pointer;
 }
+
+.membersButton span {
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--ifm-color-emphasis-200);
+  color: var(--ifm-font-color-base);
+  font-size: var(--cli-micro);
+}
+
+.membersButton:hover { border-color: var(--ifm-color-primary); color: var(--ifm-color-primary); }
+.membersButton:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: 2px; }
 
 .paneClose {
-  padding: 0 0.25rem;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 7px;
   border: none;
   background: none;
   color: inherit;
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 1rem;
   line-height: 1;
   cursor: pointer;
 }
 
 .paneClose:hover {
+  background: var(--ifm-color-emphasis-100);
   color: var(--ifm-color-danger);
 }
 
@@ -195,6 +330,17 @@
   /* Columns this narrow are unreadable, so sessions stack instead. */
   .panes {
     flex-direction: column;
+  }
+
+  .paneStatus { display: none; }
+
+  .windowControls { width: 210px; }
+
+  .composerPanes { flex-direction: column; }
+
+  .composerCell + .composerCell {
+    border-left: 0;
+    border-top: 1px solid var(--ifm-color-emphasis-200);
   }
 
   .pane + .pane {

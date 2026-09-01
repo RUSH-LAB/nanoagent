@@ -2,7 +2,9 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useHistory} from '@docusaurus/router';
 import {useCommands} from '@site/src/components/commands';
 import {scopeWorkspacePath} from '@site/src/utils/workspaces';
+import AgentEditor from './AgentEditor';
 import AssistantTranscript from './AssistantTranscript';
+import ChannelMembers from './ChannelMembers';
 import ChatSidebar, {channelLabel} from './ChatSidebar';
 import ChatTranscript from './ChatTranscript';
 import Completions, {optionId} from './Completions';
@@ -10,6 +12,7 @@ import Composer from './Composer';
 import Markdown from './Markdown';
 import {parseCommand, resolveCommand, runCommand} from './commandRuntime';
 import useAssistant from './useAssistant';
+import useAgents from './useAgents';
 import useChat from './useChat';
 import useCompletion from './useCompletion';
 import useGeometry from './useGeometry';
@@ -27,8 +30,8 @@ import styles from './shell.module.css';
  * A real window: open at its remembered height from page load, resizable by
  * dragging its top edge, minimisable to the single prompt line. It can be split
  * into up to four sessions side by side, each with its own transcript and its
- * own in-flight request, so one can be waiting on a reply while you type into
- * another. The prompt row is shared and always talks to the focused session.
+ * own in-flight request and composer, so one can be waiting on a reply while
+ * you type into another.
  *
  * A pane is pointed at something, chosen in the rail on the left: the assistant,
  * a channel, or a direct message. That target is per pane, not per window, so a
@@ -95,15 +98,29 @@ function LocalOutput({rows, label, scrollProps}) {
   );
 }
 
+function WindowControls({railOpen, onRailOpenChange, onCollapse, onSplit, splitDisabled, maxSessions}) {
+  return (
+    <div className={styles.windowControls} aria-label="Window controls">
+      <button type="button" onClick={onCollapse} aria-label="Minimise the command bar" title="Minimise">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+      </button>
+      <button type="button" onClick={() => onRailOpenChange(!railOpen)} aria-label="Hide conversations" title="Hide conversations">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="9" y1="4" x2="9" y2="20" /></svg>
+      </button>
+      <button type="button" onClick={onSplit} disabled={splitDisabled} aria-label="Split into another session" title={splitDisabled ? `Limit is ${maxSessions} sessions` : 'Split (⌘D)'}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><line x1="12" y1="4" x2="12" y2="20" /></svg>
+      </button>
+    </div>
+  );
+}
+
 /** One pane: its header, whichever transcript it is showing, and its refusals. */
 function Pane({
-  session, index, count, label, isActive, conversation, youId,
-  onFocus, onClose, onLoadOlder, onDeleteMessage, onCancel,
+  session, index, count, label, agent, channel, isActive, conversation, youId,
+  onFocus, onClose, onLoadOlder, onDeleteMessage, onCancel, onCreateAgent, onManageMembers,
 }) {
-  // The header carries the pane's number, its target, or both, and is worth the
-  // line only when it has something to say: one pane on the assistant needs no
-  // caption.
-  const heading = [count > 1 ? `session ${index + 1}` : null, label]
+  // The header carries the pane number and the person or agent it is pointed at.
+  const heading = [count > 1 ? `Session ${index + 1}` : null, label || 'Choose an agent']
     .filter(Boolean)
     .join(' · ');
   const working = Boolean(session.busy || session.sending);
@@ -130,25 +147,32 @@ function Pane({
       onMouseDown={onFocus}
       aria-label={heading || `Session ${index + 1}`}
     >
-      {heading && (
-        <header className={styles.paneHead}>
-          <span className={styles.paneLabel}>
-            {heading}
-            {working && <span className={styles.paneBusy}> &middot; working</span>}
-          </span>
-          {count > 1 && (
-            <button
-              type="button"
-              className={styles.paneClose}
-              onClick={onClose}
-              aria-label={`Close session ${index + 1}`}
-              title="Close session"
-            >
-              &times;
-            </button>
-          )}
-        </header>
-      )}
+      <header className={styles.paneHead}>
+        <span className={`${styles.paneAvatar} ${agent ? styles[`agent_${agent.color || 'violet'}`] : ''}`}>
+          {conversation ? (label?.startsWith('#') ? '#' : '@') : (agent ? agent.name.slice(0, 1).toUpperCase() : '+')}
+        </span>
+        <span className={styles.paneIdentity}>
+          <span className={styles.paneLabel}>{heading}</span>
+          <span className={styles.paneMeta}>{conversation ? 'Conversation' : (agent?.description || 'Select from the sidebar')}</span>
+        </span>
+        {channel?.kind !== 'dm' && channel && (
+          <button type="button" className={styles.membersButton} onClick={onManageMembers}>
+            Members <span>{channel.memberCount ?? 0}</span>
+          </button>
+        )}
+        <span className={styles.paneStatus}>{working ? 'Working…' : (!conversation && !agent ? 'No agent' : 'Ready')}</span>
+        {count > 1 && (
+          <button
+            type="button"
+            className={styles.paneClose}
+            onClick={onClose}
+            aria-label={`Close session ${index + 1}`}
+            title="Close session"
+          >
+            &times;
+          </button>
+        )}
+      </header>
 
       {conversation ? (
         <ChatTranscript
@@ -168,6 +192,8 @@ function Pane({
       ) : (
         <AssistantTranscript
           session={session}
+          agent={agent}
+          onCreateAgent={onCreateAgent}
           scrollProps={pinned.scrollProps}
           atBottom={pinned.atBottom}
           onJumpToNewest={() => pinned.scrollToBottom(true)}
@@ -195,10 +221,29 @@ export default function Shell() {
   const routerHistory = useHistory();
   const geometry = useGeometry();
   const sessions = useSessions();
+  const agentStore = useAgents();
   const {active} = sessions;
 
-  const [draft, setDraft] = useState('');
-  const inputRef = useRef(null);
+  const [drafts, setDrafts] = useState({});
+  // undefined means closed; null means the create form; an object means edit.
+  const [agentEditor, setAgentEditor] = useState(undefined);
+  const [memberChannel, setMemberChannel] = useState(null);
+  const inputRefs = useRef(new Map());
+
+  const inputRefFor = useCallback((sessionId) => {
+    if (!inputRefs.current.has(sessionId)) inputRefs.current.set(sessionId, {current: null});
+    return inputRefs.current.get(sessionId);
+  }, []);
+
+  const draftFor = useCallback((sessionId) => drafts[sessionId] ?? '', [drafts]);
+  const setDraftFor = useCallback((sessionId, next) => {
+    setDrafts((current) => {
+      const value = typeof next === 'function' ? next(current[sessionId] ?? '') : next;
+      return {...current, [sessionId]: value};
+    });
+  }, []);
+  const draft = draftFor(active.id);
+  const setDraft = useCallback((next) => setDraftFor(active.id, next), [active.id, setDraftFor]);
 
   // Only the channels on screen are worth polling, and a channel open in two
   // panes is still one conversation.
@@ -235,11 +280,11 @@ export default function Shell() {
     if (next) {
       // Drop focus: leaving it on the input means the next click raises no focus
       // event, and the window could not be restored by clicking the prompt.
-      inputRef.current?.blur();
+      inputRefFor(active.id).current?.blur();
     } else {
-      requestAnimationFrame(() => inputRef.current?.focus());
+      requestAnimationFrame(() => inputRefFor(active.id).current?.focus());
     }
-  }, [geometry.setCollapsed]);
+  }, [geometry.setCollapsed, active.id, inputRefFor]);
 
   const split = useCallback(() => {
     // At the limit nothing happens at all, including to a minimised window.
@@ -248,19 +293,32 @@ export default function Shell() {
 
   /* ── Targets ──────────────────────────────────────────────────── */
 
-  /** Point the focused pane at a conversation, or at the assistant with null. */
+  /** Point the focused pane at a human conversation or a configured agent. */
   const retarget = useCallback((target) => {
     sessions.setTarget(active.id, target);
     if (geometry.collapsed) setCollapsed(false);
-    else inputRef.current?.focus();
-  }, [active.id, sessions.setTarget, geometry.collapsed, setCollapsed]);
+    else inputRefFor(active.id).current?.focus();
+  }, [active.id, sessions.setTarget, geometry.collapsed, setCollapsed, inputRefFor]);
 
   const selectChannel = useCallback(
     (channelId, label) => retarget({channelId, label}),
     [retarget],
   );
 
-  const selectAssistant = useCallback(() => retarget(null), [retarget]);
+  const selectAgent = useCallback(
+    (agent) => retarget({agentId: agent.id, label: agent.name}),
+    [retarget],
+  );
+
+  // A fresh session opens on the first available agent. There is deliberately
+  // no anonymous assistant target: AI conversations always have a defined role.
+  useEffect(() => {
+    if (agentStore.status !== 'ready' || agentStore.agents.length === 0) return;
+    const first = agentStore.agents[0];
+    sessions.sessions.forEach((session) => {
+      if (!session.target) sessions.setTarget(session.id, {agentId: first.id, label: first.name});
+    });
+  }, [agentStore.status, agentStore.agents, sessions.sessions, sessions.setTarget]);
 
   // The people directory is a page, not a part of this component, so it asks
   // rather than reaches in. A person arrives as a userId, which is a dm that
@@ -282,9 +340,28 @@ export default function Shell() {
    */
   const labelOf = useCallback((session) => {
     if (!session.target) return null;
+    if (session.target.agentId) {
+      return agentStore.agents.find(agent => agent.id === session.target.agentId)?.name
+        || session.target.label
+        || 'Agent';
+    }
     const channel = chat.channels.find((c) => c.id === session.target.channelId);
     return channel ? channelLabel(channel) : session.target.label;
-  }, [chat.channels]);
+  }, [chat.channels, agentStore.agents]);
+
+  const agentOf = useCallback(
+    (session) => session.target?.agentId
+      ? agentStore.agents.find(agent => agent.id === session.target.agentId) ?? null
+      : null,
+    [agentStore.agents],
+  );
+
+  const channelOf = useCallback(
+    (session) => session.target?.channelId
+      ? chat.channels.find(channel => channel.id === session.target.channelId) ?? null
+      : null,
+    [chat.channels],
+  );
 
   /* ── Saying and asking ────────────────────────────────────────── */
 
@@ -307,9 +384,9 @@ export default function Shell() {
       sessions.patch(sessionId, {sending: false});
     } catch (err) {
       sessions.patch(sessionId, {sending: false, sendError: err.message});
-      setDraft((current) => (current === '' ? text : current));
+      setDraftFor(sessionId, (current) => (current === '' ? text : current));
     }
-  }, [chat.send, sessions.patch]);
+  }, [chat.send, sessions.patch, setDraftFor]);
 
   /** What a verb is handed: the pane it was typed into, and the ways to answer. */
   const contextFor = useCallback((session) => ({
@@ -322,21 +399,25 @@ export default function Shell() {
       href,
       typeof window === 'undefined' ? '' : window.location.pathname,
     )),
-    say: (text) => (session.target ? say(text, session.id, session.target.channelId) : undefined),
+    say: (text) => (session.target?.channelId ? say(text, session.id, session.target.channelId) : undefined),
     note: (text) => sessions.append(session.id, 'system', text),
     fail: (text) => sessions.append(session.id, 'error', text),
   }), [sessions, chat, assistant, commands, routerHistory, say]);
 
   /* ── The line ─────────────────────────────────────────────────── */
 
-  const submit = useCallback(() => {
-    const text = draft.trim();
-    if (!text || active.busy || active.sending) return;
-    const session = active;
+  const submit = useCallback((session = active) => {
+    const sessionDraft = draftFor(session.id);
+    const text = sessionDraft.trim();
+    if (!text || session.busy || session.sending) return;
     sessions.remember(session.id, text);
-    setDraft('');
+    setDraftFor(session.id, '');
 
     const parsed = parseCommand(text);
+    if (!parsed && !session.target?.channelId && !agentOf(session)) {
+      sessions.append(session.id, 'error', 'Choose or create an agent before starting an AI chat.');
+      return;
+    }
     if (parsed) {
       // A terminal echoes the line that was typed, arguments and all.
       sessions.append(session.id, 'input', text);
@@ -359,12 +440,12 @@ export default function Shell() {
 
     // A command works the same in every pane; a plain line goes wherever the
     // pane is pointed.
-    if (session.target) say(text, session.id, session.target.channelId);
-    else assistant.ask(session.id, text);
+    if (session.target?.channelId) say(text, session.id, session.target.channelId);
+    else assistant.ask(session.id, text, agentOf(session));
   }, [
-    draft, active, sessions, commands,
+    active, sessions, commands, draftFor, setDraftFor,
     completion.matches, completion.selected, completion.moved,
-    contextFor, say, assistant,
+    contextFor, say, assistant, agentOf,
   ]);
 
   const runFromMenu = useCallback((command) => {
@@ -375,13 +456,13 @@ export default function Shell() {
     // back with the cursor where the argument goes.
     if (command.usage) {
       setDraft(`/${command.name} `);
-      inputRef.current?.focus();
+      inputRefFor(active.id).current?.focus();
       return;
     }
     setDraft('');
     sessions.append(active.id, 'input', `/${command.name}`);
     runCommand(command, '', contextFor(active));
-  }, [active, sessions, contextFor]);
+  }, [active, sessions, contextFor, inputRefFor]);
 
   const onVertical = useCallback((delta) => {
     // Down is forward through the completion list and forward through history,
@@ -417,9 +498,14 @@ export default function Shell() {
   /* ── Layout ───────────────────────────────────────────────────── */
 
   const activeLabel = labelOf(active);
-  const placeholder = activeLabel
-    ? `message ${activeLabel}`
-    : (active.busy ? 'waiting for a reply…' : 'ask anything, or / for commands');
+  const activeAgent = agentOf(active);
+  const placeholderFor = (session) => {
+    const agent = agentOf(session);
+    const label = labelOf(session);
+    if (agent) return `Ask ${agent.name} anything…`;
+    if (label) return `Message ${label}`;
+    return session.busy ? 'Waiting for a reply…' : 'Choose an agent to start chatting';
+  };
 
   // The slash menu draws rows only when something matched and only while the
   // window is open. The composer names those rows by id to a screen reader, so
@@ -442,9 +528,15 @@ export default function Shell() {
               {geometry.railOpen && (
                 <ChatSidebar
                   chat={chat}
+                  agents={agentStore.agents}
+                  agentsStatus={agentStore.status}
+                  agentsError={agentStore.error}
                   activeChannelId={active.target?.channelId ?? null}
+                  activeAgentId={active.target?.agentId ?? null}
                   onSelect={selectChannel}
-                  onSelectAssistant={selectAssistant}
+                  onSelectAgent={selectAgent}
+                  onCreateAgent={() => setAgentEditor(null)}
+                  onEditAgent={setAgentEditor}
                   onBrowsePeople={() => routerHistory.push(scopeWorkspacePath(
                     '/people',
                     typeof window === 'undefined' ? '' : window.location.pathname,
@@ -464,8 +556,10 @@ export default function Shell() {
                     index={i}
                     count={sessions.sessions.length}
                     label={labelOf(session)}
+                    agent={agentOf(session)}
+                    channel={channelOf(session)}
                     isActive={session.id === active.id}
-                    conversation={session.target ? chat.conversation(session.target.channelId) : null}
+                    conversation={session.target?.channelId ? chat.conversation(session.target.channelId) : null}
                     youId={chat.you?.userId ?? null}
                     onFocus={() => sessions.focus(session.id)}
                     // Closing a pane hangs up on whatever it was waiting for.
@@ -475,11 +569,21 @@ export default function Shell() {
                     // after the close is deliberate: the last pane refuses to
                     // close and has to keep its answer.
                     onClose={() => {
-                      if (sessions.close(session.id)) assistant.cancel(session.id);
+                      if (sessions.close(session.id)) {
+                        assistant.cancel(session.id);
+                        inputRefs.current.delete(session.id);
+                        setDrafts((current) => {
+                          const next = {...current};
+                          delete next[session.id];
+                          return next;
+                        });
+                      }
                     }}
                     onLoadOlder={() => chat.loadOlder(session.target.channelId)}
                     onDeleteMessage={chat.deleteMessage}
                     onCancel={() => assistant.cancel(session.id)}
+                    onCreateAgent={() => setAgentEditor(null)}
+                    onManageMembers={() => setMemberChannel(channelOf(session))}
                   />
                 ))}
               </div>
@@ -495,45 +599,133 @@ export default function Shell() {
                 onRun={runFromMenu}
               />
             )}
+
+            {agentEditor !== undefined && (
+              <AgentEditor
+                agent={agentEditor}
+                onSave={agentStore.save}
+                onDelete={async (id) => {
+                  await agentStore.remove(id);
+                  sessions.sessions.forEach((session) => {
+                    if (session.target?.agentId === id) sessions.setTarget(session.id, null);
+                  });
+                }}
+                onClose={() => setAgentEditor(undefined)}
+              />
+            )}
+
+            {memberChannel && (
+              <ChannelMembers
+                channel={memberChannel}
+                people={chat.members ?? []}
+                youId={chat.you?.userId ?? null}
+                chat={chat}
+                onClose={() => setMemberChannel(null)}
+              />
+            )}
           </div>
         </>
       )}
 
-      <Composer
-        inputRef={inputRef}
-        rowRef={geometry.rowRef}
-        value={draft}
-        onChange={setDraft}
-        placeholder={placeholder}
-        ghost={completion.ghost}
-        isCommand={completion.isCommand}
-        busyElsewhere={sessions.sessions.some((s) => s.id !== active.id && (s.busy || s.sending))}
-        collapsed={geometry.collapsed}
-        onCollapsedChange={setCollapsed}
-        railOpen={geometry.railOpen}
-        onRailOpenChange={geometry.setRailOpen}
-        onSplit={split}
-        splitDisabled={sessions.sessions.length >= sessions.MAX_SESSIONS}
-        maxSessions={sessions.MAX_SESSIONS}
-        sessionNumber={sessions.sessions.length > 1
-          ? sessions.sessions.findIndex((s) => s.id === active.id) + 1
-          : null}
-        targetLabel={activeLabel}
-        onSubmit={submit}
-        onClear={() => sessions.clear(active.id)}
-        onTab={onTab}
-        onVertical={onVertical}
-        onEscape={onEscape}
-        people={chat.people}
-        channels={chat.channels}
-        busy={Boolean(active.busy || active.sending)}
-        // Only an answer can be stopped. A send is a POST whose message is
-        // already on screen, so there is nothing behind a stop button there.
-        onCancel={active.busy ? () => assistant.cancel(active.id) : null}
-        onFocusPane={sessions.focusIndex}
-        listOpen={listOpen}
-        completionId={listOpen ? optionId(completion.selected) : null}
-      />
+      {geometry.collapsed ? (
+        <Composer
+          inputRef={inputRefFor(active.id)}
+          inputId={`command-bar-input-${active.id}`}
+          instanceId={active.id}
+          rowRef={geometry.rowRef}
+          value={draft}
+          onChange={setDraft}
+          placeholder={placeholderFor(active)}
+          ghost={completion.ghost}
+          isCommand={completion.isCommand}
+          busyElsewhere={sessions.sessions.some((session) => session.id !== active.id && (session.busy || session.sending))}
+          collapsed
+          onCollapsedChange={setCollapsed}
+          railOpen={geometry.railOpen}
+          onRailOpenChange={geometry.setRailOpen}
+          onSplit={split}
+          splitDisabled={sessions.sessions.length >= sessions.MAX_SESSIONS}
+          maxSessions={sessions.MAX_SESSIONS}
+          sessionNumber={sessions.sessions.length > 1 ? sessions.sessions.findIndex((session) => session.id === active.id) + 1 : null}
+          targetLabel={activeLabel}
+          onSubmit={() => submit(active)}
+          onClear={() => sessions.clear(active.id)}
+          onTab={onTab}
+          onVertical={onVertical}
+          onEscape={onEscape}
+          people={chat.people}
+          channels={chat.channels}
+          busy={Boolean(active.busy || active.sending)}
+          canSend={Boolean(active.target?.channelId || activeAgent)}
+          onCancel={active.busy ? () => assistant.cancel(active.id) : null}
+          onFocusPane={sessions.focusIndex}
+          listOpen={false}
+        />
+      ) : (
+        <div className={styles.composerDock} ref={geometry.rowRef}>
+          {geometry.railOpen && (
+            <WindowControls
+              railOpen={geometry.railOpen}
+              onRailOpenChange={geometry.setRailOpen}
+              onCollapse={() => setCollapsed(true)}
+              onSplit={split}
+              splitDisabled={sessions.sessions.length >= sessions.MAX_SESSIONS}
+              maxSessions={sessions.MAX_SESSIONS}
+            />
+          )}
+          <div className={styles.composerPanes}>
+            {sessions.sessions.map((session, index) => {
+              const isActive = session.id === active.id;
+              const sessionDraft = draftFor(session.id);
+              const sessionAgent = agentOf(session);
+              return (
+                <div
+                  key={session.id}
+                  className={`${styles.composerCell} ${isActive ? styles.composerCellActive : ''}`}
+                  onMouseDown={() => sessions.focus(session.id)}
+                >
+                  <Composer
+                    inputRef={inputRefFor(session.id)}
+                    inputId={`command-bar-input-${session.id}`}
+                    instanceId={session.id}
+                    value={sessionDraft}
+                    onChange={(next) => setDraftFor(session.id, next)}
+                    placeholder={placeholderFor(session)}
+                    ghost={isActive ? completion.ghost : ''}
+                    isCommand={isActive ? completion.isCommand : sessionDraft.trimStart().startsWith('/')}
+                    busyElsewhere={false}
+                    collapsed={false}
+                    onCollapsedChange={setCollapsed}
+                    railOpen={geometry.railOpen}
+                    onRailOpenChange={geometry.setRailOpen}
+                    onSplit={split}
+                    splitDisabled={sessions.sessions.length >= sessions.MAX_SESSIONS}
+                    maxSessions={sessions.MAX_SESSIONS}
+                    sessionNumber={sessions.sessions.length > 1 ? index + 1 : null}
+                    targetLabel={labelOf(session)}
+                    onSubmit={() => submit(session)}
+                    onClear={() => sessions.clear(session.id)}
+                    onTab={onTab}
+                    onVertical={onVertical}
+                    onEscape={onEscape}
+                    people={chat.people}
+                    channels={chat.channels}
+                    busy={Boolean(session.busy || session.sending)}
+                    canSend={Boolean(session.target?.channelId || sessionAgent)}
+                    onCancel={session.busy ? () => assistant.cancel(session.id) : null}
+                    onFocusPane={sessions.focusIndex}
+                    listOpen={isActive && listOpen}
+                    completionId={isActive && listOpen ? optionId(completion.selected) : null}
+                    onActivate={() => sessions.focus(session.id)}
+                    showChrome={!geometry.railOpen && index === 0}
+                    showHints={sessions.sessions.length === 1}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -58,6 +58,9 @@ const DOMAINS = Object.freeze({
   // one reader: page views, and snapshots of the tree.
   analytics: {owner: 'org'},
   snapshots: {owner: 'org'},
+  // Reusable AI teammates. Their instructions are shared with the workspace so
+  // an agent has the same identity for everyone who can talk to it.
+  agents: {owner: 'org'},
 });
 
 /** Every registered domain name. */

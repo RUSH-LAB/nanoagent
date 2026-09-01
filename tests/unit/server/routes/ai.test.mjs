@@ -26,6 +26,10 @@ const GUARDS = [
   {name: 'a non-string type', body: {prompt: 'p', type: 7}, error: 'type must be a string'},
   {name: 'a type over 50 characters', body: {prompt: 'p', type: 't'.repeat(51)}, error: 'Type must be 50 characters or fewer'},
   {name: 'a type outside the allow list', body: {prompt: 'p', type: 'translate'}, error: 'Invalid type. Must be one of: continue, improve, explain, summarize'},
+  {name: 'a non-object agent', body: {prompt: 'p', agent: 'researcher'}, error: 'agent must be an object'},
+  {name: 'a non-string agent name', body: {prompt: 'p', agent: {name: 7, instructions: 'help'}}, error: 'agent.name must be a string'},
+  {name: 'non-string agent instructions', body: {prompt: 'p', agent: {name: 'Researcher', instructions: 7}}, error: 'agent.instructions must be a string'},
+  {name: 'agent instructions over 10000 characters', body: {prompt: 'p', agent: {instructions: 'i'.repeat(10001)}}, error: 'agent.instructions must be 10000 characters or fewer'},
 ];
 
 describe('POST /api/ai/complete', () => {
@@ -75,6 +79,18 @@ describe('POST /api/ai/complete', () => {
     const ctx = makeCtx();
     await invoke(routes, {method: 'POST', path: '/api/ai/complete', body: {prompt: 'p'}, ctx});
     assert.match(ctx.calls.ai[0].system, /assistant built into a personal research site/);
+  });
+
+  it('uses workspace agent instructions when an agent is selected', async () => {
+    const ctx = makeCtx();
+    await invoke(routes, {
+      method: 'POST',
+      path: '/api/ai/complete',
+      body: {prompt: 'p', agent: {name: 'Researcher', instructions: 'Always cite evidence.'}},
+      ctx,
+    });
+    assert.match(ctx.calls.ai[0].system, /workspace agent Researcher/);
+    assert.match(ctx.calls.ai[0].system, /Always cite evidence\./);
   });
 
   it('passes a refusal through with the status the assistant chose', async () => {

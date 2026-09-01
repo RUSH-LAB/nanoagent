@@ -19,7 +19,7 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 const HEIGHT_KEY = 'mochi-cli-height';
 const COLLAPSED_KEY = 'mochi-cli-collapsed';
 const RAIL_KEY = 'mochi-cli-rail';
-const DEFAULT_HEIGHT = 320;
+const DEFAULT_HEIGHT = 500;
 const MIN_HEIGHT = 140;
 
 /* The chrome around the two parts that are measured: the strip's 1px top border

@@ -68,7 +68,7 @@ function corsHeaders(req, corsOrigin) {
  * Returns `{error}` for a rejection, otherwise `{request}` ready for ai.
  */
 function composeRequest(body, sanitizeText) {
-  const {prompt, context, type} = body;
+  const {prompt, context, type, agent} = body;
   if (!prompt || typeof prompt !== 'string') return {error: 'Missing or invalid prompt'};
   if (prompt.length > 50000) return {error: 'Prompt must be 50000 characters or fewer'};
   if (context !== undefined && typeof context !== 'string') return {error: 'context must be a string'};
@@ -78,15 +78,26 @@ function composeRequest(body, sanitizeText) {
   if (type && !VALID_TYPES.includes(type)) {
     return {error: `Invalid type. Must be one of: ${VALID_TYPES.join(', ')}`};
   }
+  if (agent !== undefined && (!agent || typeof agent !== 'object' || Array.isArray(agent))) {
+    return {error: 'agent must be an object'};
+  }
+  if (agent?.name !== undefined && typeof agent.name !== 'string') return {error: 'agent.name must be a string'};
+  if (agent?.instructions !== undefined && typeof agent.instructions !== 'string') return {error: 'agent.instructions must be a string'};
+  if (agent?.name?.length > 60) return {error: 'agent.name must be 60 characters or fewer'};
+  if (agent?.instructions?.length > 10000) return {error: 'agent.instructions must be 10000 characters or fewer'};
 
   const userContent = context
     ? `Context:\n${sanitizeText(context)}\n\nText:\n${sanitizeText(prompt)}`
     : sanitizeText(prompt);
 
+  const agentPrompt = agent?.instructions?.trim()
+    ? `${DEFAULT_SYSTEM_PROMPT}\n\nYou are the workspace agent ${sanitizeText(agent.name || 'Assistant')}. Follow these workspace-provided instructions:\n${sanitizeText(agent.instructions)}`
+    : null;
+
   return {
     request: {
       prompt: userContent,
-      system: (type && SYSTEM_PROMPTS[type]) || DEFAULT_SYSTEM_PROMPT,
+      system: (type && SYSTEM_PROMPTS[type]) || agentPrompt || DEFAULT_SYSTEM_PROMPT,
     },
   };
 }

@@ -7,12 +7,9 @@ import styles from './composer.module.css';
 /**
  * The prompt row: the one line of the CLI that is always on screen.
  *
- * It is shared by every pane rather than repeated per pane, so the window has a
- * single place where text is entered whatever it is split into, and the prompt
- * itself says where a line will land: the pane's number when there is more than
- * one, and what that pane is pointed at. Reading the prompt before pressing
- * Enter is the only protection against posting an answer meant for the
- * assistant into a channel.
+ * Each pane owns one when the window is split, so every conversation remains a
+ * complete column from header through transcript to input. The session number
+ * and target label identify where a line will land before Enter is pressed.
  *
  * The field is a textarea, not an input, because a message worth sending is
  * often a paragraph: it grows from one line to six as it fills, Enter sends and
@@ -46,10 +43,6 @@ import styles from './composer.module.css';
  * swallow itself into a no-op, offers a way out that does nothing.
  */
 
-/* Whose shell this is. Short, because the prompt shares the row with the line
-   being typed and every character here is one the reader does not get. */
-const PROMPT = 'mochi';
-
 /* How many people or channels a mention popup offers at once. Past this the
    list stops being a glance and starts being a directory, which is what the
    /people and /channels pages are for. */
@@ -69,8 +62,8 @@ const PANE_KEYS = ['1', '2', '3', '4'];
    ids are not: they are imported from Completions.js, which writes them onto
    the listbox and its rows, because two files spelling the same id apart would
    break the announcement silently and leave the layout perfect. */
-const MENTIONS_ID = 'cli-mentions';
-const mentionOptionId = (index) => `cli-mention-${index}`;
+const mentionListId = instanceId => `cli-mentions-${instanceId}`;
+const mentionOptionId = (instanceId, index) => `cli-mention-${instanceId}-${index}`;
 
 /* Stable empty defaults, so a Shell that has not wired a list yet does not hand
    this component a fresh array on every render and re-run every memo. */
@@ -123,6 +116,8 @@ function rankMentions(mention, people, channels) {
 
 export default function Composer({
   inputRef,
+  inputId = 'command-bar-input',
+  instanceId = 'main',
   value,
   onChange,
   placeholder,
@@ -147,6 +142,7 @@ export default function Composer({
   people = NO_ROWS,
   channels = NO_ROWS,
   busy = false,
+  canSend = true,
   // Null rather than a no-op when the focused pane's work cannot be stopped.
   // Escape reads it to decide whether to keep its ordinary meaning, and the
   // hints read it to decide whether to promise anything at all.
@@ -154,6 +150,9 @@ export default function Composer({
   onFocusPane = noop,
   listOpen = false,
   completionId = null,
+  onActivate = noop,
+  showChrome = true,
+  showHints = true,
 }) {
   const [caret, setCaret] = useState(0);
   const [selected, setSelected] = useState(0);
@@ -334,15 +333,16 @@ export default function Composer({
   // that is not in the document is a dangling reference an assistive
   // technology cannot follow. `listOpen` is the shell's answer to the real
   // question, which is whether the rows exist.
+  const mentionsId = mentionListId(instanceId);
   const activeDescendant = menuOpen
-    ? mentionOptionId(selected)
+    ? mentionOptionId(instanceId, selected)
     : (listOpen && completionId) || undefined;
   const expanded = Boolean(menuOpen || listOpen);
-  const controls = menuOpen ? MENTIONS_ID : (listOpen ? LISTBOX_ID : undefined);
+  const controls = menuOpen ? mentionsId : (listOpen ? LISTBOX_ID : undefined);
 
   return (
     <div className={styles.row} ref={rowRef} aria-busy={busy}>
-      <button
+      {showChrome && <><button
         type="button"
         className={styles.chrome}
         onClick={() => onCollapsedChange(!collapsed)}
@@ -381,20 +381,18 @@ export default function Composer({
           <rect x="3" y="4" width="18" height="16" rx="2" />
           <line x1="12" y1="4" x2="12" y2="20" />
         </svg>
-      </button>
+      </button></>}
 
-      <label className={styles.field} htmlFor="command-bar-input">
-        <span className={styles.prompt}>
-          {PROMPT}
-          {sessionNumber !== null && (
-            <span className={styles.promptSession}>:{sessionNumber}</span>
-          )}
-          {targetLabel && <span className={styles.promptTarget}>:{targetLabel}</span>}{' '}
-          <span className={styles.caret}>&#9656;</span>
+      <label className={styles.field} htmlFor={inputId}>
+        <span className={styles.prompt} aria-hidden="true">
+          {sessionNumber !== null && <span className={styles.promptSession}>{sessionNumber}</span>}
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 19V5M5 12l7-7 7 7" />
+          </svg>
         </span>
         <span className={styles.inputWrap}>
           <textarea
-            id="command-bar-input"
+            id={inputId}
             ref={inputRef}
             className={styles.fieldInput}
             rows={1}
@@ -406,7 +404,10 @@ export default function Composer({
             }}
             onSelect={readCaret}
             onKeyDown={handleKeyDown}
-            onFocus={() => collapsed && onCollapsedChange(false)}
+            onFocus={() => {
+              onActivate();
+              if (collapsed) onCollapsedChange(false);
+            }}
             onClick={() => collapsed && onCollapsedChange(false)}
             autoComplete="off"
             spellCheck={false}
@@ -428,7 +429,7 @@ export default function Composer({
           {menuOpen && (
             <div
               className={styles.mentions}
-              id={MENTIONS_ID}
+              id={mentionsId}
               ref={listRef}
               role="listbox"
               aria-label={mention.sigil === '@' ? 'People' : 'Channels'}
@@ -436,7 +437,7 @@ export default function Composer({
               {rows.map((row, i) => (
                 <div
                   key={`${row.key}-${i}`}
-                  id={mentionOptionId(i)}
+                  id={mentionOptionId(instanceId, i)}
                   role="option"
                   aria-selected={i === selected}
                   className={`${styles.mention} ${i === selected ? styles.mentionActive : ''}`}
@@ -457,7 +458,20 @@ export default function Composer({
         </span>
       </label>
 
-      <span className={styles.hints}>
+      <button
+        type="button"
+        className={styles.send}
+        onClick={onSubmit}
+        disabled={!value.trim() || busy || (!canSend && !isCommand)}
+        aria-label={`Send${targetLabel ? ` to ${targetLabel}` : ''}`}
+        title="Send message"
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 19V5M5 12l7-7 7 7" />
+        </svg>
+      </button>
+
+      {showHints && <span className={styles.hints}>
         {busyElsewhere && <span className={styles.hintBusy}>another session is working</span>}
         {/* The stop button is in the transcript, with the answer it stops, so
             this row's contribution is the key: shown only while the focused
@@ -480,7 +494,7 @@ export default function Composer({
             <kbd className={shared.kbd}>&#8984;D</kbd> split
           </>
         )}
-      </span>
+      </span>}
     </div>
   );
 }

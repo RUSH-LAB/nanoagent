@@ -18,6 +18,101 @@
 
 /* ── Rendered markdown ──────────────────────────────────────────── */
 
+.welcome {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  flex-direction: column;
+  padding: 2rem;
+  color: var(--ifm-color-emphasis-600);
+  text-align: center;
+}
+
+.welcome h3 {
+  margin: 0.8rem 0 0.3rem;
+  color: var(--ifm-font-color-base);
+  font-family: var(--ifm-font-family-base);
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.welcome p {
+  max-width: 34rem;
+  margin: 0;
+  font-family: var(--ifm-font-family-base);
+  font-size: var(--cli-text);
+  line-height: 1.55;
+}
+
+.welcomeHint {
+  margin-top: 1rem;
+  font-size: var(--cli-meta);
+}
+
+.createAgent {
+  margin-top: 1rem;
+  padding: 0.48rem 0.8rem;
+  border: 1px solid var(--ifm-color-primary);
+  border-radius: 8px;
+  background: var(--ifm-color-primary);
+  color: #fff;
+  font: inherit;
+  font-size: var(--cli-meta);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.createAgent:hover { filter: brightness(1.08); }
+.createAgent:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: 2px; }
+
+.agentAvatar,
+.messageAvatar {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  color: #fff;
+  font-family: var(--ifm-font-family-base);
+  font-weight: 750;
+}
+
+.agentAvatar { width: 42px; height: 42px; font-size: 1rem; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.15); }
+.messageAvatar { width: 30px; height: 30px; margin-top: 0.05rem; font-size: 0.75rem; }
+.agent_violet { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+.agent_blue { background: linear-gradient(135deg, #60a5fa, #2563eb); }
+.agent_emerald { background: linear-gradient(135deg, #34d399, #059669); }
+.agent_amber { background: linear-gradient(135deg, #fbbf24, #d97706); }
+.agent_rose { background: linear-gradient(135deg, #fb7185, #e11d48); }
+.agent_slate { background: linear-gradient(135deg, #94a3b8, #475569); }
+
+.answer,
+.question {
+  gap: 0.7rem;
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+  font-family: var(--ifm-font-family-base);
+}
+
+.question {
+  background: color-mix(in srgb, var(--ifm-color-primary) 5%, transparent);
+}
+
+.you,
+.speaker {
+  flex-shrink: 0;
+  color: var(--ifm-color-emphasis-600);
+  font-size: var(--cli-meta);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.you { width: 30px; padding-top: 0.1rem; text-align: center; }
+.speaker { display: block; margin-bottom: 0.18rem; }
+.answerBody { min-width: 0; }
+
 /* Sits where the plain reply text used to, so it inherits the entry row's
    font and has to survive the same narrow column. */
 .markdown {
@@ -45,19 +140,20 @@
   margin: 0;
   color: var(--ifm-heading-color);
   font-weight: 700;
+  letter-spacing: -0.01em;
   line-height: 1.4;
 }
 
 .heading[data-level='1'] {
-  font-size: 0.92rem;
+  font-size: 1rem;
 }
 
 .heading[data-level='2'] {
-  font-size: 0.86rem;
+  font-size: 0.9375rem;
 }
 
 .heading[data-level='3'] {
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: var(--ifm-color-emphasis-700);
 }
 
@@ -143,7 +239,7 @@
 
 .codeLang {
   color: var(--ifm-color-emphasis-500);
-  font-size: 0.68rem;
+  font-size: var(--cli-micro);
 }
 
 .copy {
@@ -153,7 +249,7 @@
   background: none;
   color: var(--ifm-color-emphasis-500);
   font-family: inherit;
-  font-size: 0.68rem;
+  font-size: var(--cli-micro);
   cursor: pointer;
 }
 
@@ -214,7 +310,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.15rem var(--site-page-gutter);
-  font-size: 0.8rem;
+  font-size: var(--cli-label);
   line-height: 1.55;
 }
 
@@ -238,7 +334,7 @@
   background: none;
   color: var(--ifm-color-emphasis-600);
   font-family: inherit;
-  font-size: 0.7rem;
+  font-size: var(--cli-meta);
   line-height: 1.6;
   cursor: pointer;
 }

@@ -40,7 +40,7 @@
   background: none;
   color: var(--ifm-font-color-base);
   font-family: inherit;
-  font-size: 0.8rem;
+  font-size: var(--cli-label);
   text-align: left;
   cursor: pointer;
 }
@@ -87,7 +87,7 @@
   overflow: hidden;
   color: var(--ifm-color-emphasis-500);
   font-family: var(--ifm-font-family-monospace);
-  font-size: 0.72rem;
+  font-size: var(--cli-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -103,7 +103,7 @@
 .itemCategory {
   flex-shrink: 0;
   color: var(--ifm-color-emphasis-500);
-  font-size: 0.68rem;
+  font-size: var(--cli-micro);
 }
 
 /* The highlighted command written out in full, for the moment before Tab. */
@@ -115,7 +115,7 @@
   padding: 0.3rem var(--site-page-gutter);
   border-top: 1px solid var(--ifm-color-emphasis-200);
   background: var(--ifm-background-surface-color);
-  font-size: 0.75rem;
+  font-size: var(--cli-meta);
 }
 
 .hintCall {
@@ -134,7 +134,7 @@
 .empty {
   padding: 0.6rem var(--site-page-gutter);
   color: var(--ifm-color-emphasis-500);
-  font-size: 0.8rem;
+  font-size: var(--cli-label);
 }
 
 .emptyQuery {

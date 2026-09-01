@@ -376,7 +376,7 @@ export default function ChatTranscript({
           <div className={shared.banner}>loading earlier messages&hellip;</div>
         )}
         {messages.length > 0 && !loadingOlder && hasMore === false && (
-          <div className={shared.banner}>this is the beginning of {label}</div>
+          <div className={shared.banner}>This is the beginning of {label}</div>
         )}
 
         {messages.length === 0 && !error && (

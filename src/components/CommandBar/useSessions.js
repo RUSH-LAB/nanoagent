@@ -67,7 +67,7 @@ function serialize(sessions, activeId) {
     target: session.target,
     // A conversation is the server's to remember. The in-flight row goes before
     // the cap, or the cap could be spent on a row that is then dropped.
-    entries: session.target
+    entries: session.target?.channelId
       ? []
       : session.entries.filter((entry) => !entry.pending).slice(-MAX_ENTRIES_PER_SESSION),
   }));
@@ -97,10 +97,21 @@ function deserialize(raw) {
       ...freshSession(session.id),
       target: session.target?.channelId != null
         ? {channelId: session.target.channelId, label: session.target.label ?? null}
-        : null,
+        : (session.target?.agentId != null
+          ? {agentId: session.target.agentId, label: session.target.label ?? null}
+          : null),
       entries: (Array.isArray(session.entries) ? session.entries : [])
         .filter((entry) => Number.isFinite(entry?.id) && ENTRY_KINDS.has(entry?.kind))
-        .map((entry) => ({id: entry.id, kind: entry.kind, text: String(entry.text ?? '')})),
+        .map((entry) => ({
+          id: entry.id,
+          kind: entry.kind,
+          text: String(entry.text ?? ''),
+          ...(entry.agent && typeof entry.agent === 'object' ? {agent: {
+            id: String(entry.agent.id ?? ''),
+            name: String(entry.agent.name ?? 'Agent'),
+            color: String(entry.agent.color ?? 'violet'),
+          }} : {}),
+        })),
     }));
   if (!sessions.length) return null;
   const activeId = sessions.some((s) => s.id === parsed?.activeId) ? parsed.activeId : sessions[0].id;
@@ -208,9 +219,9 @@ export default function useSessions() {
   }, []);
 
   /** Append a line and hand back its id, which is how it is edited later. */
-  const append = useCallback((id, kind, text) => {
+  const append = useCallback((id, kind, text, metadata = {}) => {
     nextEntryId.current += 1;
-    const entry = {id: nextEntryId.current, kind, text};
+    const entry = {id: nextEntryId.current, kind, text, ...metadata};
     setSessions((prev) => prev.map((s) => (
       s.id === id ? {...s, entries: [...s.entries, entry]} : s
     )));

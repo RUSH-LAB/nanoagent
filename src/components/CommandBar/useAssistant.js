@@ -180,7 +180,7 @@ export default function useAssistant(sessions) {
     controller.abort();
   }, []);
 
-  const ask = useCallback(async (sessionId, text) => {
+  const ask = useCallback(async (sessionId, text, agent = null) => {
     // Prior turns ride as `context` and the new line as `prompt`, which is the
     // shape the endpoint already composes into a single message. Read before
     // the line is appended, or the question would be in its own context.
@@ -196,7 +196,9 @@ export default function useAssistant(sessions) {
     // written into that one row. The transcript draws a caret on a pending row
     // and shows the wait in place of an empty one; nothing else has to know
     // that an answer is arriving in pieces.
-    const entryId = append(sessionId, 'output', '');
+    const entryId = append(sessionId, 'output', '', agent ? {
+      agent: {id: agent.id, name: agent.name, color: agent.color},
+    } : {});
     updateEntry(sessionId, entryId, {pending: true});
     patch(sessionId, {busy: true});
 
@@ -204,6 +206,9 @@ export default function useAssistant(sessions) {
     controllers.current[sessionId] = controller;
 
     const payload = context ? {prompt: text, context} : {prompt: text};
+    if (agent?.instructions) {
+      payload.agent = {name: agent.name, instructions: agent.instructions};
+    }
     let answer = '';
     let failure = null;
     let interrupted = false;

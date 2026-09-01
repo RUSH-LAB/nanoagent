@@ -1,191 +1,66 @@
-/**
- * The rail: one column listing everything you can be talking to.
- *
- * Every rule here is written for a column about a dozen characters wide, which
- * is the constraint the whole file exists for. A name that does not fit is
- * clipped with an ellipsis rather than wrapped, because a wrapped channel name
- * turns a scannable list into a paragraph, and the unread badge keeps its width
- * so the names still line up under each other.
- *
- * The rail is a list of buttons, so it is the part of the window a keyboard
- * walks through first. Every one of them carries the site's focus ring, a 2px
- * outline in the primary colour under :focus-visible, matching
- * src/components/CommandPalette and src/css/directory.module.css. Rows ring
- * inward because they run the full width of a 180px column and an outward ring
- * would be clipped by it.
- */
-
 .sidebar {
   display: flex;
   flex-shrink: 0;
   flex-direction: column;
-  overflow-y: auto;
-  width: 180px;
-  padding: 0.35rem 0 0.5rem;
+  width: 264px;
+  min-height: 0;
   border-right: 1px solid var(--ifm-color-emphasis-200);
-}
-
-/* ── Section headers ────────────────────────────────────────────── */
-
-/* Section captions, and the one control that creates a channel. */
-.group {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.5rem 0.6rem 0.15rem;
-  color: var(--ifm-color-emphasis-500);
-  font-size: 0.62rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-/* The caption has always been in the markup and never in this stylesheet, so
-   the header's two controls were spaced apart from each other by the row's
-   space-between rather than sitting together at its end. Letting the caption
-   take the slack puts the name at one end and the controls at the other, and
-   clips it rather than pushing a control out of the column. */
-.groupName {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.groupAction {
-  padding: 0 0.2rem;
-  border: none;
-  background: none;
-  color: var(--ifm-color-emphasis-500);
-  font-family: inherit;
-  font-size: 0.85rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.groupAction:hover:not(:disabled) {
-  color: var(--ifm-color-primary);
-}
-
-.groupAction:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.groupAction:focus-visible {
-  outline: 2px solid var(--ifm-color-primary);
-  outline-offset: 1px;
-}
-
-/* ── Conversations ──────────────────────────────────────────────── */
-
-.convo {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  width: 100%;
-  padding: 0.16rem 0.6rem;
-  border: none;
-  background: none;
+  background: color-mix(in srgb, var(--ifm-background-surface-color) 92%, var(--ifm-color-emphasis-100));
   color: var(--ifm-font-color-base);
-  font-family: inherit;
-  font-size: 0.78rem;
-  text-align: left;
-  cursor: pointer;
+  font-family: var(--ifm-font-family-base);
 }
 
-.convo:hover {
-  background: var(--ifm-color-emphasis-100);
-}
+.scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0.5rem 0.55rem 1rem; scrollbar-width: thin; scrollbar-color: var(--ifm-color-emphasis-300) transparent; }
+.section { padding-top: 0.45rem; }
+.section + .section { margin-top: 0.7rem; padding-top: 0.7rem; border-top: 1px solid var(--ifm-color-emphasis-200); }
+.group { display: flex; align-items: center; min-height: 34px; padding: 0 0.5rem; }
+.groupName { color: var(--ifm-color-emphasis-700); font-size: var(--cli-micro); font-weight: 750; letter-spacing: 0.085em; line-height: 1; text-transform: uppercase; }
+.groupCount { margin-left: 0.4rem; color: var(--ifm-color-emphasis-500); font-size: var(--cli-micro); font-variant-numeric: tabular-nums; }
+.groupTools { display: flex; gap: 0.15rem; margin-left: auto; }
+.manageAction, .addAction { display: grid; place-items: center; min-width: 28px; height: 28px; padding: 0 0.4rem; border: 0; border-radius: 7px; background: none; color: var(--ifm-color-emphasis-500); font: inherit; font-size: var(--cli-meta); font-weight: 550; cursor: pointer; }
+.addAction { padding: 0; font-size: 1rem; }
+.manageAction:hover, .addAction:hover { background: var(--ifm-color-emphasis-200); color: var(--ifm-font-color-base); }
 
-.convoActive {
-  background: var(--ifm-color-emphasis-200);
-}
+.convo { position: relative; display: flex; align-items: center; gap: 0.65rem; width: 100%; min-height: 44px; padding: 0.42rem 0.5rem; border: 0; border-radius: 10px; background: none; color: var(--ifm-color-emphasis-700); font: inherit; text-align: left; cursor: pointer; transition: background 0.12s ease, color 0.12s ease; }
+.convo:hover { background: var(--ifm-color-emphasis-100); color: var(--ifm-font-color-base); }
+.convoActive { background: color-mix(in srgb, var(--ifm-color-primary) 11%, transparent); color: var(--ifm-font-color-base); }
+.convoActive:hover { background: color-mix(in srgb, var(--ifm-color-primary) 14%, transparent); }
+.convoActive::before { position: absolute; top: 9px; bottom: 9px; left: 0; width: 3px; border-radius: 999px; background: var(--ifm-color-primary); content: ''; }
+.convoIcon { display: grid; flex-shrink: 0; place-items: center; width: 28px; height: 28px; color: var(--ifm-color-emphasis-500); }
+.convoBody { display: flex; flex: 1; min-width: 0; flex-direction: column; }
+.convoName, .convoMeta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.convoName { font-size: var(--cli-label); font-weight: 600; line-height: 1.35; letter-spacing: -0.005em; }
+.convoMeta { color: var(--ifm-color-emphasis-500); font-size: var(--cli-meta); font-weight: 400; line-height: 1.35; }
+.convoActive .convoName { color: var(--ifm-color-primary); font-weight: 700; }
+.unread { min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--ifm-color-primary); color: #fff; font-size: var(--cli-micro); font-weight: 700; line-height: 1.45; text-align: center; }
 
-/* The selected row and the focused row are different facts: one says what this
-   pane is pointed at, the other says where the keyboard is. The ring is drawn
-   over the background so both can be read at once. */
-.convo:focus-visible {
-  outline: 2px solid var(--ifm-color-primary);
-  outline-offset: -2px;
-}
+.agentRow { position: relative; display: flex; }
+.agentConvo { padding-right: 1.8rem; }
+.editAgent { position: absolute; top: 50%; right: 0.4rem; display: none; width: 26px; height: 26px; padding: 0; transform: translateY(-50%); border: 0; border-radius: 7px; background: var(--ifm-color-emphasis-200); color: var(--ifm-color-emphasis-600); font-size: var(--cli-micro); cursor: pointer; }
+.agentRow:hover .editAgent, .editAgent:focus { display: block; }
+.agentManaging .editAgent { display: block; }
+.agentAvatar, .personAvatar { position: relative; display: grid; flex-shrink: 0; place-items: center; width: 30px; height: 30px; border-radius: 9px; color: #fff; font-size: var(--cli-meta); font-weight: 750; }
+.personAvatar { border-radius: 50%; background: var(--ifm-color-emphasis-300); color: var(--ifm-color-emphasis-800); }
+.onlineDot { position: absolute; right: -1px; bottom: -1px; width: 7px; height: 7px; border: 1.5px solid var(--ifm-background-surface-color); border-radius: 50%; background: #22c55e; }
+.agent_violet { background: #8b5cf6; }.agent_blue { background: #3b82f6; }.agent_emerald { background: #10b981; }.agent_amber { background: #f59e0b; }.agent_rose { background: #f43f5e; }.agent_slate { background: #64748b; }
 
-.convoMark {
-  flex-shrink: 0;
-  color: var(--ifm-color-emphasis-500);
-}
+.personRow { position: relative; display: flex; }
+.personConvo { padding-right: 3.8rem; }
+.personConvo:disabled { color: var(--ifm-color-emphasis-700); cursor: default; opacity: 1; }
+.personActions { position: absolute; top: 50%; right: 0.4rem; display: flex; gap: 0.15rem; transform: translateY(-50%); opacity: 0.72; transition: opacity 0.12s ease; }
+.personRow:hover .personActions, .personRow:focus-within .personActions { opacity: 1; }
+.personActions button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 7px; background: var(--ifm-background-surface-color); color: var(--ifm-color-emphasis-500); cursor: pointer; }
+.personActions button:hover:not(:disabled) { background: var(--ifm-color-emphasis-200); color: var(--ifm-color-primary); }
+.personActions button:disabled { opacity: 0.45; cursor: wait; }
+.youTag { margin-left: 0.3rem; color: var(--ifm-color-emphasis-500); font-size: var(--cli-micro); font-weight: 500; }
 
-.convoActive .convoMark {
-  color: var(--ifm-color-primary);
-}
-
-.convoName {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.convoActive .convoName {
-  font-weight: 700;
-}
-
-.unread {
-  flex-shrink: 0;
-  padding: 0 0.35rem;
-  border-radius: 8px;
-  background: var(--ifm-color-primary);
-  color: var(--ifm-background-color);
-  font-size: 0.62rem;
-  font-weight: 700;
-}
-
-/* ── The rail's own forms and notes ─────────────────────────────── */
-
-.newChannel {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  padding: 0.16rem 0.6rem;
-}
-
-.newChannelInput {
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--ifm-font-color-base);
-  font-family: inherit;
-  font-size: 0.78rem;
-  outline: none;
-}
-
-/* The borderless input drops the user-agent ring so it reads as one more line
-   of the rail. That is only honest while it is typed into by pointer; reached
-   by keyboard, it has to say where the caret went. */
-.newChannelInput:focus-visible {
-  outline: 2px solid var(--ifm-color-primary);
-  outline-offset: 1px;
-}
-
-.sidebarNote {
-  margin: 0;
-  padding: 0.16rem 0.6rem;
-  color: var(--ifm-color-emphasis-500);
-  font-size: 0.7rem;
-}
-
-.sidebarFailure {
-  margin: 0;
-  padding: 0.16rem 0.6rem;
-  color: var(--ifm-color-danger);
-  font-size: 0.7rem;
-}
+.inlineForm { display: flex; align-items: center; gap: 0.45rem; margin: 0.15rem 0; padding: 0.35rem 0.5rem; border: 1px solid var(--ifm-color-primary); border-radius: 8px; color: var(--ifm-color-primary); }
+.inlineForm input { min-width: 0; flex: 1; padding: 0; border: 0; background: transparent; color: var(--ifm-font-color-base); font: inherit; font-size: var(--cli-label); outline: 0; }
+.sidebarNote, .sidebarNotice, .sidebarFailure { margin: 0; padding: 0.35rem 0.5rem; font-size: var(--cli-meta); line-height: 1.4; }
+.sidebarNote { color: var(--ifm-color-emphasis-500); }.sidebarNotice { color: var(--ifm-color-success); }.sidebarFailure { color: var(--ifm-color-danger); }
+.convo:focus-visible, .manageAction:focus-visible, .addAction:focus-visible, .editAgent:focus-visible, .personActions button:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: -2px; }
 
 @media (max-width: 768px) {
-  /* The rail keeps its place beside the panes, at the narrowest width a
-     channel name still reads at. */
-  .sidebar {
-    width: 132px;
-  }
+  .sidebar { width: 210px; }
+  .convoMeta { display: none; }
 }

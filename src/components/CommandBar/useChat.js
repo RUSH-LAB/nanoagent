@@ -133,10 +133,17 @@ function sameMessage(a, b) {
     && a.deletedAt === b.deletedAt;
 }
 
-/** The lowest sequence in a list, or null when it holds only unsent rows. */
+/** PostgreSQL returns BIGINT values as strings; the browser uses numbers. */
+function sequenceOf(message) {
+  const sequence = Number(message?.seq);
+  return Number.isSafeInteger(sequence) && sequence >= 0 ? sequence : null;
+}
+
+/** The lowest server-assigned sequence in a list. */
 function oldestSeq(messages) {
   for (const message of messages) {
-    if (typeof message.seq === 'number') return message.seq;
+    const sequence = sequenceOf(message);
+    if (sequence !== null) return sequence;
   }
   return null;
 }
@@ -144,7 +151,8 @@ function oldestSeq(messages) {
 /** The highest sequence in a page. Pages arrive oldest first. */
 function newestSeq(messages) {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (typeof messages[i].seq === 'number') return messages[i].seq;
+    const sequence = sequenceOf(messages[i]);
+    if (sequence !== null) return sequence;
   }
   return null;
 }
@@ -186,42 +194,38 @@ function hasGap(held, page) {
  * and it is the difference between a quiet channel costing one request per tick
  * and costing a render of the entire window.
  *
- * Optimistic rows have no sequence and cannot take part in that; they sit at the
- * end, in the order they were typed, until the server answers with the real
- * message. A row the server has since sent back is dropped here rather than
- * waiting for its own request to resolve, so a slow POST cannot leave the same
- * sentence on screen twice.
+ * Every displayed chat row is now server-confirmed and therefore has a
+ * sequence. Sequence-less rows are leftovers from the old optimistic sender;
+ * dropping them here also repairs an already-open window after Fast Refresh,
+ * instead of making somebody reload the whole page to clear a duplicate.
  */
 function mergePage(held, page) {
   const bySeq = new Map();
-  const pending = [];
+  let changed = false;
   for (const message of held) {
-    if (typeof message.seq === 'number') bySeq.set(message.seq, message);
-    else pending.push(message);
+    const sequence = sequenceOf(message);
+    if (sequence === null) {
+      changed = true;
+      continue;
+    }
+    const normalized = message.seq === sequence ? message : {...message, seq: sequence};
+    if (normalized !== message) changed = true;
+    bySeq.set(sequence, normalized);
   }
 
-  let changed = false;
-  const arrived = [];
   for (const message of page) {
-    const previous = bySeq.get(message.seq);
-    if (previous && previous.deletedAt != null && message.deletedAt == null) continue;
-    if (previous && sameMessage(previous, message)) continue;
-    if (!previous) arrived.push(message);
-    bySeq.set(message.seq, message);
+    const sequence = sequenceOf(message);
+    if (sequence === null) continue;
+    const normalized = message.seq === sequence ? message : {...message, seq: sequence};
+    const previous = bySeq.get(sequence);
+    if (previous && previous.deletedAt != null && normalized.deletedAt == null) continue;
+    if (previous && sameMessage(previous, normalized)) continue;
+    bySeq.set(sequence, normalized);
     changed = true;
   }
 
-  // Matched on author and text because an optimistic row has nothing else to
-  // match on, and only against messages that arrived in this very page, so a
-  // repeated sentence from earlier in the history cannot claim one.
-  const stillPending = pending.filter(row => !arrived.some(
-    message => message.userId === row.userId && message.body === row.body,
-  ));
-  if (stillPending.length !== pending.length) changed = true;
-
   if (!changed) return held;
-  const merged = [...bySeq.values()].sort((a, b) => a.seq - b.seq);
-  return stillPending.length ? [...merged, ...stillPending] : merged;
+  return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
 }
 
 /* ── Finding what was named ─────────────────────────────────────── */
@@ -268,7 +272,7 @@ function uniqueMatch(rows, tiers) {
  * @param paused         true while the window is minimised, which stops both clocks
  */
 export default function useChat({openChannelIds, paused}) {
-  const [directory, setDirectory] = useState({status: 'loading', channels: [], people: [], you: null, error: null});
+  const [directory, setDirectory] = useState({status: 'loading', channels: [], people: [], members: [], you: null, error: null});
   const [conversations, setConversations] = useState({});
 
   // The newest message each open channel has been marked read up to, and only
@@ -295,9 +299,6 @@ export default function useChat({openChannelIds, paused}) {
   const inFlightRef = useRef(new Set());
   const olderRef = useRef(new Set());
 
-  /** Counter behind the temporary ids an optimistic row is shown under. */
-  const echoRef = useRef(0);
-
   /**
    * Change one conversation, or leave the map exactly as it was.
    *
@@ -319,7 +320,7 @@ export default function useChat({openChannelIds, paused}) {
     try {
       const [channels, roster] = await Promise.all([
         call('/api/chat/channels'),
-        call('/api/org/members'),
+        call('/api/members'),
       ]);
       // The caller's own row carries the name an optimistic message is signed
       // with; `roster.you` is a standing in the organization and has no name in
@@ -329,6 +330,10 @@ export default function useChat({openChannelIds, paused}) {
       setDirectory({
         status: 'ready',
         channels: channels.channels,
+        // The full roster powers the People panel. `people` remains the subset
+        // that can be addressed by a DM or an @ mention, so existing messaging
+        // behavior never offers a conversation with yourself.
+        members: roster.members,
         // The roster includes the caller, because it is also what the people
         // directory draws. A rail of who you can talk to does not.
         people: roster.members.filter(m => !m.you),
@@ -336,7 +341,7 @@ export default function useChat({openChannelIds, paused}) {
         error: null,
       });
     } catch (err) {
-      setDirectory({status: statusOf(err), channels: [], people: [], you: null, error: err.message});
+      setDirectory({status: statusOf(err), channels: [], people: [], members: [], you: null, error: err.message});
     }
   }, []);
 
@@ -354,11 +359,9 @@ export default function useChat({openChannelIds, paused}) {
         // the page, which is what opening the channel fresh would have shown.
         // Short and true beats long with an unmarked hole in it, and `hasMore`
         // below then sends the reader's own scroll back through the hole to
-        // fetch what was dropped. Optimistic rows are not history and stay.
+        // fetch what was dropped.
         const gap = hasGap(held.messages, page.messages);
-        const base = gap
-          ? held.messages.filter(m => typeof m.seq !== 'number')
-          : held.messages;
+        const base = gap ? [] : held.messages;
         const messages = mergePage(base, page.messages);
         // The reader's own mark, taken the first time the directory can say
         // what it is and then left alone. It moves the moment this channel is
@@ -528,14 +531,9 @@ export default function useChat({openChannelIds, paused}) {
   /**
    * Post to a channel.
    *
-   * The message goes up on screen before the request is made, marked `pending`,
-   * and is then either replaced by the row the server stored or taken away
-   * again with the reason. Waiting for the round trip instead would leave the
-   * composer empty and the transcript unchanged for as long as the network
-   * takes, which reads as a message that went nowhere.
-   *
-   * What comes back is what is kept, not what was typed: the server trims a
-   * body, and the line on screen should be the line everyone else will read.
+   * The server-confirmed row is the only row inserted. This avoids a race where
+   * polling sees the stored message while a temporary optimistic copy is still
+   * on screen, which made the sender briefly see every message twice.
    *
    * Reading a public channel does not join it, so the first thing you say in
    * one is also the moment you join it. That retry lives here rather than on
@@ -543,43 +541,15 @@ export default function useChat({openChannelIds, paused}) {
    */
   const send = useCallback(async (channelId, body) => {
     const path = `/api/chat/channels/${channelId}/messages`;
-    echoRef.current += 1;
-    const you = youRef.current;
-    const echo = {
-      // No `seq`: it is the server's to give, and a made-up one would merge
-      // itself over a real message.
-      id: `echo-${echoRef.current}`,
-      channelId,
-      userId: you?.userId ?? null,
-      username: you?.username ?? null,
-      name: you?.name ?? null,
-      body,
-      createdAt: new Date().toISOString(),
-      editedAt: null,
-      deletedAt: null,
-      pending: true,
-    };
-    const withoutEcho = messages => messages.filter(m => m.id !== echo.id);
-    const takeEchoBack = held => ({...held, messages: withoutEcho(held.messages)});
-    patchConversation(channelId, held => ({
-      ...held,
-      messages: [...held.messages, echo],
-      loading: false,
-    }));
-
     let data;
     try {
       data = await post(path, {body});
     } catch (err) {
-      if (err.code !== NOT_A_MEMBER) {
-        patchConversation(channelId, takeEchoBack);
-        throw err;
-      }
+      if (err.code !== NOT_A_MEMBER) throw err;
       try {
         await post(`/api/chat/channels/${channelId}/join`);
         data = await post(path, {body});
       } catch (retried) {
-        patchConversation(channelId, takeEchoBack);
         throw retried;
       }
       refreshDirectory();
@@ -587,7 +557,7 @@ export default function useChat({openChannelIds, paused}) {
 
     patchConversation(channelId, held => ({
       ...held,
-      messages: mergePage(withoutEcho(held.messages), [data.message]),
+      messages: mergePage(held.messages, [data.message]),
       loading: false,
       error: null,
     }));
@@ -623,7 +593,7 @@ export default function useChat({openChannelIds, paused}) {
    * so its caller copies it rather than printing it.
    */
   const invite = useCallback(async (email) => {
-    const {invitation} = await post('/api/org/invitations', {email});
+    const {invitation} = await post('/api/invitations', {email});
     refreshDirectory();
     return invitation;
   }, [refreshDirectory]);
@@ -683,6 +653,12 @@ export default function useChat({openChannelIds, paused}) {
     refreshDirectory();
     return result;
   }, [refreshDirectory]);
+
+  /** Channel metadata and its current membership, for the in-window manager. */
+  const channelDetails = useCallback(
+    channelId => call(`/api/chat/channels/${channelId}`),
+    [],
+  );
 
   const addMember = useCallback(async (channelId, userId) => {
     const result = await post(`/api/chat/channels/${channelId}/members`, {userId});
@@ -772,6 +748,7 @@ export default function useChat({openChannelIds, paused}) {
     error: directory.error,
     channels: directory.channels,
     people: directory.people,
+    members: directory.members,
     /** The caller's standing in the organization, which decides what the rail offers. */
     you: directory.you,
     unreadTotal,
@@ -787,6 +764,7 @@ export default function useChat({openChannelIds, paused}) {
     archive,
     update,
     removeChannel,
+    channelDetails,
     addMember,
     removeMember,
     deleteMessage,

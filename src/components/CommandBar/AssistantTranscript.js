@@ -82,6 +82,8 @@ function useElapsedSeconds(running) {
 
 export default function AssistantTranscript({
   session,
+  agent = null,
+  onCreateAgent,
   scrollProps,
   atBottom = true,
   onJumpToNewest,
@@ -110,11 +112,20 @@ export default function AssistantTranscript({
         {/* Cleared while an answer is in flight is still not an idle pane, and
             the window should not offer its introduction over a live request. */}
         {entries.length === 0 && !busy && (
-          <div className={shared.banner}>
-            mochi cli &mdash; type to chat, <span className={shared.slash}>/</span> for commands,{' '}
-            a conversation on the left to talk to someone,{' '}
-            <kbd className={shared.kbd}>&#8984;D</kbd> to split,{' '}
-            <kbd className={shared.kbd}>&#8984;L</kbd> to clear
+          <div className={styles.welcome}>
+            <div className={`${styles.agentAvatar} ${styles[`agent_${agent?.color || 'violet'}`]}`}>
+              {agent ? agent.name.slice(0, 1).toUpperCase() : '+'}
+            </div>
+            <h3>{agent?.name || 'Choose an agent'}</h3>
+            <p>{agent?.description || 'Agents have a defined role and instructions. Select one from the sidebar, or create one for the way you work.'}</p>
+            {agent ? (
+              <span className={styles.welcomeHint}>
+                Type below to start &middot; <span className={shared.slash}>/</span> for commands &middot;{' '}
+                <kbd className={shared.kbd}>&#8984;D</kbd> split view
+              </span>
+            ) : onCreateAgent ? (
+              <button type="button" className={styles.createAgent} onClick={onCreateAgent}>Create an agent</button>
+            ) : null}
           </div>
         )}
 
@@ -124,10 +135,11 @@ export default function AssistantTranscript({
           if (entry.pending && !entry.text) return null;
 
           if (entry.kind === 'output') {
+            const speaker = entry.agent || agent;
             return (
               <div
                 key={entry.id}
-                className={`${shared.entry} ${shared.output} ${entry.pending ? styles.streaming : ''}`}
+                className={`${shared.entry} ${shared.output} ${styles.answer} ${entry.pending ? styles.streaming : ''}`}
                 // Busy rather than silenced: the deltas rebuild this subtree
                 // many times a second, and the log around it would read every
                 // one of them out. Holding the announcement until the row
@@ -135,14 +147,20 @@ export default function AssistantTranscript({
                 // region off here would not.
                 aria-busy={entry.pending ? true : undefined}
               >
-                <Markdown text={entry.text} />
+                <span className={`${styles.messageAvatar} ${styles[`agent_${speaker?.color || 'violet'}`]}`} aria-hidden="true">
+                  {speaker ? speaker.name.slice(0, 1).toUpperCase() : 'A'}
+                </span>
+                <div className={styles.answerBody}>
+                  <span className={styles.speaker}>{speaker?.name || 'Agent'}</span>
+                  <Markdown text={entry.text} />
+                </div>
               </div>
             );
           }
 
           return (
-            <div key={entry.id} className={`${shared.entry} ${shared[entry.kind]}`}>
-              {entry.kind === 'input' && <span className={shared.entryMark}>&#9656;</span>}
+            <div key={entry.id} className={`${shared.entry} ${shared[entry.kind]} ${entry.kind === 'input' ? styles.question : ''}`}>
+              {entry.kind === 'input' && <span className={styles.you}>You</span>}
               <span className={shared.entryText}>{entry.text}</span>
             </div>
           );
