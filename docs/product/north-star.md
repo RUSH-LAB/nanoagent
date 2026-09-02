@@ -1,41 +1,42 @@
-# 北极星
+# North star
 
-## 使命
+The goal is to build a product but before that we need to know our north star -- What do we want eventually?
 
-让研究者在一个地方完成阅读、引用、写作、讨论与发布。
+## What?
 
-## 对手
+We need a proudut to manage information and commications.
 
-我们要同时胜过八类产品：
+- Structured
+- Intelligence
+- Cooperative
+- Personalized
+- Extensible
 
-| 对手 | 胜出条件 |
-| --- | --- |
-| Obsidian | 同级编辑体验，更强的发布与协作 |
-| GitBook | 同级文档体验，原生支持学术写作 |
-| Google Scholar | 更干净的搜索、元数据与引用 |
-| Zotero | 把文献管理直接融入写作 |
-| arXiv | 让论文可以被记录、讨论与持续追踪 |
-| Discord | 让讨论始终连接具体内容 |
-| Overleaf | 用 Markdown、MDX 和实时协作超越纯 LaTeX |
-| Canvas | 用更好的内容、作业与讨论体验服务教学 |
+## Have you used these?
 
-我们的优势不是八套孤立功能，而是一个完整系统。
+- Obsidian
+- Notion
+- Overleaf
+- Canvas
+- Google Scholar
+- Google Search
+- Slack
 
-## 闭环
+## Tech stack
 
-发现论文 → 阅读与笔记 → 引用与写作 → 发布与讨论 → 产生新问题
+Web app
 
-每一步沉淀的数据，都让下一次发现和创作更好。
+- Web apps are very customizable
+  - You can define your own tool/plugin for your use
 
-## 原则
+How to be intelligent
 
-1. **学术原生**：引用、数学、证明和交互内容是一等公民。
-2. **一体协作**：内容与讨论相连，个人知识自然进入团队协作。
-3. **自由可控**：基于开放格式，内容和平台归我们所有。
-4. **少而完整**：不追求功能数量，只建设强化闭环的能力。
+- LLM inference
+- Agent harness
+- Use case (benchmark/product)
 
-## 判断标准
+More details - You can chat with AI to know them
 
-研究者能否不离开 mochi-lab，就把一篇论文变成一个新想法，再把新想法变成可分享的成果？
+## Demo
 
-如果不能，就继续简化。
+A nice app to manage knowledge and chat
