@@ -3,6 +3,7 @@ import {BlogPostProvider} from '@docusaurus/plugin-content-blog/client';
 import BlogPostItem from '@theme/BlogPostItem';
 import BlogPostPaginator from '@theme/BlogPostPaginator';
 import SafeDocument from './SafeDocument';
+import DocumentEditAction from './DocumentEditAction';
 
 function permalink(workspaceSlug, path) {
   const route = path.replace(/\.(md|mdx)$/i, '').replace(/\/index$/i, '');
@@ -68,17 +69,20 @@ function contentFor({document, tree, workspaceSlug, collectionPath, previous, ne
 
 export function createRuntimeBlogContent({
   document, tree, toc = [], workspaceId, workspaceSlug, collectionPath,
-  previous = null, next = null, showReadingTime = false, authors = {},
+  previous = null, next = null, showReadingTime = false, authors = {}, onEdit = null,
 }) {
   const content = contentFor({document, tree, workspaceSlug, collectionPath, previous, next, showReadingTime, authors});
   function RuntimeBlogContent() {
     return (
-      <SafeDocument
-        tree={tree}
-        workspaceId={workspaceId}
-        workspaceSlug={workspaceSlug}
-        documentPath={document.path}
-      />
+      <>
+        <DocumentEditAction onEdit={onEdit} />
+        <SafeDocument
+          tree={tree}
+          workspaceId={workspaceId}
+          workspaceSlug={workspaceSlug}
+          documentPath={document.path}
+        />
+      </>
     );
   }
   Object.assign(RuntimeBlogContent, content, {toc});
@@ -87,11 +91,11 @@ export function createRuntimeBlogContent({
 
 export default function RuntimeBlogPost({
   document, tree, workspaceId, workspaceSlug, collectionPath,
-  isBlogPostPage = false, previous = null, next = null, showReadingTime = false, authors = {},
+  isBlogPostPage = false, previous = null, next = null, showReadingTime = false, authors = {}, onEdit = null,
 }) {
   const Content = createRuntimeBlogContent({
     document, tree, workspaceId, workspaceSlug, collectionPath,
-    previous, next, showReadingTime, authors,
+    previous, next, showReadingTime, authors, onEdit,
   });
   return (
     <BlogPostProvider content={Content} isBlogPostPage={isBlogPostPage}>

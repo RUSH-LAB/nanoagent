@@ -246,6 +246,18 @@ describe('titles', () => {
 });
 
 describe('history', () => {
+  it('rejects a save based on a stale revision without creating history', () => {
+    const p = freshPath();
+    documents.create(adaLab, {path: p, markdown: 'current'});
+    const err = thrown(() => documents.save(adaLab, p, 'stale edit', {
+      expectedUpdatedAt: '2000-01-01T00:00:00.000Z',
+    }));
+    assert.equal(err.code, 'document-conflict');
+    assert.equal(err.status, 409);
+    assert.equal(documents.get(adaLab, p).markdown, 'current');
+    assert.deepEqual(documents.versions(adaLab, p), []);
+  });
+
   it('keeps what each save replaced, newest first', () => {
     const p = freshPath();
     documents.create(adaLab, {path: p, markdown: 'one'});

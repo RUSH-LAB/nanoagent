@@ -2,6 +2,7 @@ import React from 'react';
 import {DocsVersionProvider} from '@docusaurus/plugin-content-docs/client';
 import DocItem from '@theme/DocItem';
 import SafeDocument from './SafeDocument';
+import DocumentEditAction from './DocumentEditAction';
 
 function routeFor(workspaceSlug, path) {
   const route = path.replace(/\.(md|mdx)$/i, '').replace(/\/index$/i, '');
@@ -13,7 +14,7 @@ function hasTopLevelTitle(tree) {
 }
 
 export default function RuntimeDocItem({
-  document, tree, toc, workspaceId, workspaceSlug, previous, next,
+  document, tree, toc, workspaceId, workspaceSlug, previous, next, onEdit,
 }) {
   const frontmatter = document.frontmatter || {};
   const tags = (frontmatter.tags || []).map(label => ({label, permalink: '#'}));
@@ -43,12 +44,15 @@ export default function RuntimeDocItem({
   };
   function RuntimeDocContent() {
     return (
-      <SafeDocument
-        tree={tree}
-        workspaceId={workspaceId}
-        workspaceSlug={workspaceSlug}
-        documentPath={document.path}
-      />
+      <>
+        <DocumentEditAction onEdit={onEdit} />
+        <SafeDocument
+          tree={tree}
+          workspaceId={workspaceId}
+          workspaceSlug={workspaceSlug}
+          documentPath={document.path}
+        />
+      </>
     );
   }
   Object.assign(RuntimeDocContent, {

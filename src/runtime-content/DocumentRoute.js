@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {Suspense, lazy, useCallback, useEffect, useState} from 'react';
 import clsx from 'clsx';
 import {useLocation} from '@docusaurus/router';
 import Link from '@docusaurus/Link';
@@ -17,6 +17,8 @@ import {
 import {createRuntimeBlogContent} from './RuntimeBlogPost';
 import RuntimeDocItem from './RuntimeDocItem';
 import styles from './documentRoute.module.css';
+
+const DocumentEditor = lazy(() => import('./DocumentEditor'));
 
 /**
  * A page, fetched and rendered when somebody asks for it.
@@ -137,9 +139,11 @@ function sidebarTree(documents, prefix, workspaceSlug) {
 
 function DocumentBody({workspaceSlug, documentPath}) {
   const [state, setState] = useState({status: LOADING});
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    setEditing(false);
 
     (async () => {
       // Keep the current native page mounted while the next one is fetched.
@@ -183,6 +187,7 @@ function DocumentBody({workspaceSlug, documentPath}) {
         const readyBase = {
           workspaceId: workspace.id,
           workspaceName: workspace.name,
+          workspaceRole: workspace.role,
           workspaceSlug,
           routePath: documentPath,
           site,
@@ -204,6 +209,7 @@ function DocumentBody({workspaceSlug, documentPath}) {
             status: READY,
             tree: documentResult.data.tree,
             document: documentResult.data.document,
+            markdown: documentResult.data.markdown,
             frontmatter: documentResult.data.frontmatter || {},
             documents: listed,
             homeLayout,
@@ -220,6 +226,7 @@ function DocumentBody({workspaceSlug, documentPath}) {
             status: READY,
             tree: documentResult.data.tree,
             document: documentResult.data.document,
+            markdown: documentResult.data.markdown,
             frontmatter: documentResult.data.frontmatter || {},
             documents: listed,
             ...readyBase,
@@ -261,6 +268,20 @@ function DocumentBody({workspaceSlug, documentPath}) {
       cancelled = true;
     };
   }, [workspaceSlug, documentPath]);
+
+  const applySavedDocument = useCallback(saved => {
+    setState(current => ({
+      ...current,
+      pending: false,
+      tree: saved.tree,
+      markdown: saved.markdown,
+      frontmatter: saved.frontmatter,
+      document: {...current.document, ...saved.document},
+      documents: (current.documents || []).map(item => item.path === saved.document.path
+        ? {...item, title: saved.document.title, updatedAt: saved.document.updatedAt}
+        : item),
+    }));
+  }, []);
 
   if (state.status === LOADING) {
     return <Layout title="Loading"><main className={styles.statusPage}><p>Loading…</p></main></Layout>;
@@ -386,6 +407,24 @@ function DocumentBody({workspaceSlug, documentPath}) {
   }
 
   const {tree, document} = state;
+  const canEdit = state.workspaceRole === 'owner' || state.workspaceRole === 'editor';
+  if (editing && canEdit) {
+    return (
+      <Layout title={`Edit ${document.title}`}>
+        <Suspense fallback={<main className={styles.statusPage}><p>Loading editor…</p></main>}>
+          <DocumentEditor
+            workspaceId={state.workspaceId}
+            workspaceSlug={workspaceSlug}
+            document={document}
+            markdown={state.markdown}
+            tree={tree}
+            onCancel={() => setEditing(false)}
+            onSaved={applySavedDocument}
+          />
+        </Suspense>
+      </Layout>
+    );
+  }
   const collection = collectionFor(state.site, document.path);
   const collectionDocuments = (collection
     ? state.documents.filter(item => item.path.startsWith(`${collection.pathPrefix}/`))
@@ -410,6 +449,7 @@ function DocumentBody({workspaceSlug, documentPath}) {
       authors: state.site?.authors,
       previous,
       next,
+      onEdit: canEdit ? () => setEditing(true) : null,
     });
     return (
       <BlogPostPage
@@ -435,6 +475,7 @@ function DocumentBody({workspaceSlug, documentPath}) {
               workspaceSlug={workspaceSlug}
               previous={previous}
               next={next}
+              onEdit={canEdit ? () => setEditing(true) : null}
             />
           </DocRootLayout>
         </DocsSidebarProvider>

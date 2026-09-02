@@ -1,0 +1,291 @@
+.editAction {
+  position: absolute;
+  top: 0.25rem;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  margin: 0;
+}
+
+/*
+ * Runtime docs and blog posts render their titles in different theme
+ * wrappers. Anchor the action to that wrapper so it consistently shares the
+ * title line instead of occupying a row in the markdown body.
+ */
+:global(.theme-doc-markdown):has(> .editAction),
+:global(article):has(> :global(.markdown) > .editAction) {
+  position: relative;
+}
+
+:global(.theme-doc-markdown):has(> .editAction) > :global(header:first-child) h1,
+:global(.theme-doc-markdown):has(> .editAction) > :global(h1),
+:global(article):has(> :global(.markdown) > .editAction) > :global(header:first-child) > :global(h1:first-child) {
+  padding-right: 4.25rem;
+}
+
+.editAction button,
+.cancelButton,
+.saveButton,
+.modeSwitcher button,
+.editorMessage button {
+  border-radius: 7px;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.editAction button,
+.cancelButton {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  background: var(--ifm-background-surface-color);
+  color: var(--ifm-font-color-base);
+}
+
+.editAction button:hover,
+.cancelButton:hover,
+.modeSwitcher button:hover {
+  border-color: var(--ifm-color-primary);
+  color: var(--ifm-color-primary);
+}
+
+.editorPage {
+  display: flex;
+  min-height: calc(var(--site-shell-height) - var(--ifm-navbar-height));
+  flex-direction: column;
+  background: var(--ifm-background-color);
+}
+
+.editorHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+  min-height: 68px;
+  padding: 0.7rem max(1rem, var(--site-page-gutter));
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  background: var(--ifm-background-surface-color);
+}
+
+.editorIdentity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.editorIdentity strong,
+.editorIdentity code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editorIdentity strong {
+  font-size: 0.9rem;
+}
+
+.editorIdentity code {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.68rem;
+}
+
+.eyebrow {
+  color: var(--ifm-color-primary);
+  font-size: 0.62rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.modeSwitcher {
+  display: flex;
+  gap: 0.2rem;
+  padding: 0.2rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 9px;
+}
+
+.modeSwitcher button {
+  padding: 0.34rem 0.65rem;
+  border: 0;
+  background: transparent;
+  color: var(--ifm-color-emphasis-600);
+  text-transform: capitalize;
+}
+
+.modeSwitcher .modeActive {
+  background: var(--ifm-color-emphasis-200);
+  color: var(--ifm-font-color-base);
+}
+
+.editorActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.saveButton {
+  padding: 0.42rem 0.85rem;
+  border: 1px solid var(--ifm-color-primary);
+  background: var(--ifm-color-primary);
+  color: white;
+}
+
+.saveButton:hover:not(:disabled) {
+  background: var(--ifm-color-primary-dark);
+}
+
+.saveButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.editorMessage {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem max(1rem, var(--site-page-gutter));
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  font-size: 0.78rem;
+}
+
+.message_notice {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.message_success {
+  background: color-mix(in srgb, var(--ifm-color-success) 9%, var(--ifm-background-color));
+  color: var(--ifm-color-success-dark);
+}
+
+.message_error,
+.message_conflict {
+  background: color-mix(in srgb, var(--ifm-color-danger) 8%, var(--ifm-background-color));
+  color: var(--ifm-color-danger-dark);
+}
+
+.editorMessage button {
+  padding: 0.3rem 0.55rem;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+}
+
+.editorPanes {
+  display: grid;
+  flex: 1;
+  min-height: 32rem;
+}
+
+.mode_split {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.mode_write,
+.mode_preview {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.sourcePane,
+.previewPane {
+  min-width: 0;
+  min-height: 0;
+}
+
+.sourcePane {
+  overflow: hidden;
+  border-right: 1px solid var(--ifm-color-emphasis-200);
+  background: var(--ifm-background-surface-color);
+}
+
+.sourcePane :global(.cm-editor) {
+  height: 100%;
+  font-size: 0.86rem;
+}
+
+.sourcePane :global(.cm-scroller) {
+  overflow: auto;
+  font-family: var(--ifm-font-family-monospace);
+  line-height: 1.65;
+}
+
+.loadingEditor {
+  padding: 1rem;
+  color: var(--ifm-color-emphasis-500);
+}
+
+.previewPane {
+  overflow: auto;
+}
+
+.previewHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  background: color-mix(in srgb, var(--ifm-background-surface-color) 94%, transparent);
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.previewHeader small {
+  color: var(--ifm-color-emphasis-500);
+  font-weight: 400;
+}
+
+.previewContent {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+@media (max-width: 996px) {
+  .editorHeader {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .modeSwitcher {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    justify-self: center;
+  }
+
+  .mode_split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mode_split .previewPane {
+    display: none;
+  }
+
+  .sourcePane {
+    border-right: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .editorHeader {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editorActions,
+  .modeSwitcher {
+    grid-row: auto;
+    grid-column: auto;
+    justify-self: stretch;
+  }
+
+  .modeSwitcher button,
+  .editorActions button {
+    flex: 1;
+  }
+}

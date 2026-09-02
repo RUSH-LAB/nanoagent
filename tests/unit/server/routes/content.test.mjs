@@ -329,6 +329,30 @@ describe('PUT /api/content', () => {
     });
     assert.equal(saved.status, 200);
     assert.equal((await at(ctx, 'a.md')).payload.markdown, 'after');
+    assert.match(JSON.stringify(saved.payload.tree), /after/);
+  });
+
+  it('refuses to overwrite a newer revision', async () => {
+    const ctx = withDocs([{path: 'conflict.md', markdown: 'current'}]);
+    const saved = await invoke(routes, {
+      method: 'PUT', path: '/api/content',
+      body: {path: 'conflict.md', markdown: 'stale', baseUpdatedAt: '2000-01-01T00:00:00.000Z'},
+      ctx, auth: ada,
+    });
+    assert.equal(saved.status, 409);
+    assert.equal(saved.payload.code, 'document-conflict');
+    assert.equal((await at(ctx, 'conflict.md')).payload.markdown, 'current');
+  });
+
+  it('validates rendering before changing the saved document', async () => {
+    const ctx = withDocs([{path: 'valid.md', markdown: '# Valid'}]);
+    const saved = await invoke(routes, {
+      method: 'PUT', path: '/api/content',
+      body: {path: 'valid.md', markdown: '<Unclosed>'}, ctx, auth: ada,
+    });
+    assert.equal(saved.status, 422);
+    assert.equal(saved.payload.code, 'mdx-error');
+    assert.equal((await at(ctx, 'valid.md')).payload.markdown, '# Valid');
   });
 
   it('recompiles rather than serving what it compiled before', async () => {

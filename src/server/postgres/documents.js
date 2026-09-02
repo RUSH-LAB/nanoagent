@@ -18,6 +18,19 @@ function workspaceOf(context) {
   return context.workspaceId;
 }
 
+function assertCurrentRevision(current, expectedUpdatedAt) {
+  if (expectedUpdatedAt === undefined || expectedUpdatedAt === null) return;
+  const currentTime = new Date(current.updatedAt).getTime();
+  const expectedTime = new Date(expectedUpdatedAt).getTime();
+  if ((!Number.isNaN(currentTime) && !Number.isNaN(expectedTime) && currentTime === expectedTime)
+    || String(current.updatedAt) === String(expectedUpdatedAt)) return;
+  const conflict = new Error('This document changed after you opened it. Reload before saving.');
+  conflict.status = 409;
+  conflict.code = 'document-conflict';
+  conflict.currentUpdatedAt = current.updatedAt;
+  throw conflict;
+}
+
 function checkPath(value) {
   const input = String(value ?? '');
   const path = input.startsWith('content/') ? input.slice('content/'.length) : input;
@@ -116,13 +129,14 @@ function createPostgresDocuments({pool, now = () => new Date().toISOString(), ne
         return {id, path: clean, title, visibility, createdAt: at, updatedAt: at};
       });
     },
-    async save(scope, path, markdown) {
+    async save(scope, path, markdown, {expectedUpdatedAt} = {}) {
       return inScope(scope, async client => {
         const current = (await client.query(
           `select ${columns}, markdown from document where deleted_at is null and path = $1 for update`,
           [checkPath(path)],
         )).rows[0];
         if (!current) return undefined;
+        assertCurrentRevision(current, expectedUpdatedAt);
         const seq = Number((await client.query(
           'select coalesce(max(seq), 0) + 1 as seq from document_version where document_id = $1', [current.id],
         )).rows[0].seq);

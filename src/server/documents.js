@@ -58,6 +58,19 @@ function workspaceOf(context) {
   return workspaceId;
 }
 
+function assertCurrentRevision(current, expectedUpdatedAt) {
+  if (expectedUpdatedAt === undefined || expectedUpdatedAt === null) return;
+  const currentTime = new Date(current.updatedAt).getTime();
+  const expectedTime = new Date(expectedUpdatedAt).getTime();
+  if ((!Number.isNaN(currentTime) && !Number.isNaN(expectedTime) && currentTime === expectedTime)
+    || String(current.updatedAt) === String(expectedUpdatedAt)) return;
+  const conflict = new Error('This document changed after you opened it. Reload before saving.');
+  conflict.status = 409;
+  conflict.code = 'document-conflict';
+  conflict.currentUpdatedAt = current.updatedAt;
+  throw conflict;
+}
+
 /**
  * The title a document lists under, taken from its frontmatter and falling back
  * to its filename.
@@ -205,18 +218,18 @@ function createDocuments({db = require('./db').db, now = () => new Date().toISOS
    * a save half-succeeded is worse than no history, because it reads as though
    * that edit never happened.
    */
-  function save(scope, path, markdown) {
-    const current = get(scope, path);
-    if (!current) return undefined;
-    const at = now();
+  function save(scope, path, markdown, {expectedUpdatedAt} = {}) {
     const run = db.transaction(() => {
+      const current = get(scope, path);
+      if (!current) return undefined;
+      assertCurrentRevision(current, expectedUpdatedAt);
+      const at = now();
       const {seq} = statements.nextSeq.get(current.id);
       statements.addVersion.run(newId(), current.id, seq, current.markdown, scope?.userId ?? null, at);
       statements.update.run(markdown, titleOf(markdown, current.path), at, current.id);
-      return seq;
+      return {...current, markdown, title: titleOf(markdown, current.path), updatedAt: at, version: seq};
     });
-    const seq = run();
-    return {...current, markdown, title: titleOf(markdown, current.path), updatedAt: at, version: seq};
+    return run();
   }
 
   /** Change who may read a document. Only its author may. */

@@ -184,9 +184,14 @@ const CATEGORIES = [
         response: '{ "success": true, "document": { "path": "docs/new-page.md" } }',
       },
       {
-        method: 'PUT', path: '/api/workspaces/:id/documents', description: 'Update an existing document and retain the previous version.',
-        request: '{ "path": "docs/example.md", "markdown": "updated content..." }',
-        response: '{ "success": true }',
+        method: 'PUT', path: '/api/workspaces/:id/documents', description: 'Validate and update a document, retaining the previous version and rejecting stale edits.',
+        request: '{ "path": "docs/example.md", "markdown": "updated content...", "baseUpdatedAt": "2026-09-01T00:00:00.000Z" }',
+        response: '{ "success": true, "version": 3, "tree": { "type": "root" } }',
+      },
+      {
+        method: 'POST', path: '/api/workspaces/:id/documents/preview', description: 'Compile unsaved Markdown through the workspace-safe renderer without persisting it.',
+        request: '{ "markdown": "# Unsaved preview" }',
+        response: '{ "tree": { "type": "root" } }',
       },
       {
         method: 'DELETE', path: '/api/workspaces/:id/documents', description: 'Soft-delete a document.',

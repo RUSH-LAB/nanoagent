@@ -286,18 +286,36 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
     try {
       permit('content:edit');
       const body = await readBody(req);
-      const {path, markdown} = body ?? {};
+      const {path, markdown, baseUpdatedAt} = body ?? {};
       if (!path) return json(res, 400, {error: 'Missing path'});
       if (typeof markdown !== 'string') return json(res, 400, {error: 'markdown must be a string'});
-      const saved = await documents.save(scope, path, markdown);
+      let tree;
+      try {
+        tree = await compileMarkdown(markdown, await settingsForCompile());
+      } catch (err) {
+        return json(res, 422, {
+          error: `This document could not be rendered: ${err.message}`,
+          code: 'mdx-error',
+        });
+      }
+      const saved = await documents.save(scope, path, markdown, {expectedUpdatedAt: baseUpdatedAt});
       if (!saved) return json(res, 404, {error: 'Document not found'});
       clearContentCaches();
       return json(res, 200, {
         success: true,
         document: {path: saved.path, title: saved.title, updatedAt: saved.updatedAt},
         version: saved.version,
+        frontmatter: parseFrontmatter(markdown),
+        tree,
       });
     } catch (err) {
+      if (err?.code === 'document-conflict') {
+        return json(res, 409, {
+          error: err.message,
+          code: err.code,
+          currentUpdatedAt: err.currentUpdatedAt,
+        });
+      }
       return fail(json, res, err, 'Invalid request');
     }
   }
