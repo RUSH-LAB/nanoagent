@@ -342,21 +342,21 @@ const CATEGORIES = [
     id: 'ai',
     title: 'AI',
     icon: '🤖',
-    description: 'AI writing assistant powered by Claude (requires ANTHROPIC_API_KEY environment variable).',
+    description: 'AI writing assistant powered by the deployment\'s private NanoAgent service.',
     endpoints: [
       {
         method: 'POST', path: '/api/ai/complete', description: 'Generate AI text completions. Supports continue, improve, explain, and summarize modes. Rate-limited to 10/min per IP.',
-        request: '{ "prompt": "The transformer architecture...", "context": "Optional surrounding text", "type": "continue", "agent": { "name": "Researcher", "instructions": "Check claims and cite evidence." } }\n\nValid types: "continue", "improve", "explain", "summarize". The optional agent supplies a workspace-defined identity.',
+        request: '{ "prompt": "The transformer architecture...", "messages": [{ "role": "user", "content": "Earlier question" }, { "role": "assistant", "content": "Earlier answer" }], "type": "continue", "agentId": "researcher" }\n\nValid types: "continue", "improve", "explain", "summarize". The optional agentId selects a trusted workspace-defined identity.',
         response: '{ "text": "...generated continuation..." }',
       },
       {
         method: 'GET', path: '/api/agents', description: 'List the reusable AI agents defined for this workspace.',
-        response: '{ "agents": [{ "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "color": "blue" }] }',
+        response: '{ "agents": [{ "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "model": "deepseek/deepseek-v4-flash-0731", "color": "blue" }] }',
       },
       {
         method: 'POST', path: '/api/agents', description: 'Create a workspace agent. Owners and editors can manage agents.',
-        request: '{ "name": "Researcher", "description": "Finds evidence", "instructions": "Check claims and cite evidence.", "color": "blue" }',
-        response: '{ "agent": { "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "color": "blue" } }',
+        request: '{ "name": "Researcher", "description": "Finds evidence", "instructions": "Check claims and cite evidence.", "model": "deepseek/deepseek-v4-flash-0731", "color": "blue" }',
+        response: '{ "agent": { "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "model": "deepseek/deepseek-v4-flash-0731", "color": "blue" } }',
       },
       {
         method: 'PATCH', path: '/api/agents/:id', description: 'Update an existing workspace agent.',

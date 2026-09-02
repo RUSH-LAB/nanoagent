@@ -1,4 +1,5 @@
 'use strict';
+const modelCatalog = require('../../ai-models.json');
 // Route module organized from server/index.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
@@ -6,7 +7,7 @@
 // The assistant. Core, not a plugin: the CLI at the foot of every page talks to
 // it, and a site whose assistant could be uninstalled would be a site whose
 // front door sometimes answers 404. Which model replies, and whether over HTTP
-// or through the Claude CLI on this machine, is server/ai.js's business.
+// through the private NanoAgent service, is server/ai.js's business.
 //
 // It lived in the references route module, next to the bibliography, for no
 // reason anybody would defend; the split that gave the bibliography its own
@@ -24,8 +25,8 @@ const DEFAULT_SYSTEM_PROMPT =
   + 'preamble.';
 
 const VALID_TYPES = ['continue', 'improve', 'explain', 'summarize'];
-const VALID_AGENT_PROVIDERS = ['claude-code', 'codex'];
-
+const VALID_MODELS = new Set(modelCatalog.models.map(model => model.id));
+const DEFAULT_MODEL = modelCatalog.defaultModel;
 const SYSTEM_PROMPTS = {
   continue: 'You are a writing assistant. Continue the text naturally, matching the style and tone. Output only the continuation, no preamble.',
   improve: 'You are an editing assistant. Improve the text for clarity, flow, and correctness while preserving the original meaning and tone. Output only the improved text, no preamble.',
@@ -69,11 +70,22 @@ function corsHeaders(req, corsOrigin) {
  * Returns `{error}` for a rejection, otherwise `{request}` ready for ai.
  */
 function composeRequest(body, sanitizeText, agent = null) {
-  const {prompt, context, type, agentId} = body;
+  const {prompt, context, messages, type, agentId} = body;
   if (!prompt || typeof prompt !== 'string') return {error: 'Missing or invalid prompt'};
   if (prompt.length > 50000) return {error: 'Prompt must be 50000 characters or fewer'};
   if (context !== undefined && typeof context !== 'string') return {error: 'context must be a string'};
   if (context && context.length > 50000) return {error: 'Context must be 50000 characters or fewer'};
+  if (messages !== undefined && !Array.isArray(messages)) return {error: 'messages must be an array'};
+  if (messages?.length > 24) return {error: 'messages must contain 24 entries or fewer'};
+  const history = [];
+  for (let index = 0; index < (messages ?? []).length; index += 1) {
+    const message = messages[index];
+    if (!message || typeof message !== 'object') return {error: `messages[${index}] must be an object`};
+    if (!['user', 'assistant'].includes(message.role)) return {error: `messages[${index}].role must be user or assistant`};
+    if (typeof message.content !== 'string') return {error: `messages[${index}].content must be a string`};
+    if (message.content.length > 10000) return {error: `messages[${index}].content must be 10000 characters or fewer`};
+    history.push({role: message.role, content: sanitizeText(message.content)});
+  }
   if (type !== undefined && typeof type !== 'string') return {error: 'type must be a string'};
   if (type && type.length > 50) return {error: 'Type must be 50 characters or fewer'};
   if (type && !VALID_TYPES.includes(type)) {
@@ -82,13 +94,10 @@ function composeRequest(body, sanitizeText, agent = null) {
   if (agentId !== undefined && (typeof agentId !== 'string' || !agentId || agentId.length > 100)) {
     return {error: 'agentId must be a non-empty string of 100 characters or fewer'};
   }
-  if (agent && !VALID_AGENT_PROVIDERS.includes(agent.provider ?? 'claude-code')) {
-    return {error: 'The selected agent has an unsupported provider'};
+  if (agent?.model !== undefined && !VALID_MODELS.has(agent.model)) {
+    return {error: 'The selected agent has an unsupported model'};
   }
-
-  const userContent = context
-    ? `Context:\n${sanitizeText(context)}\n\nText:\n${sanitizeText(prompt)}`
-    : sanitizeText(prompt);
+  if (context) history.push({role: 'user', content: `Context:\n${sanitizeText(context)}`});
 
   const agentPrompt = agent?.instructions?.trim()
     ? `${DEFAULT_SYSTEM_PROMPT}\n\nYou are the workspace agent ${sanitizeText(agent.name || 'Assistant')}. Follow these workspace-provided instructions:\n${sanitizeText(agent.instructions)}`
@@ -96,9 +105,10 @@ function composeRequest(body, sanitizeText, agent = null) {
 
   return {
     request: {
-      prompt: userContent,
-      system: (type && SYSTEM_PROMPTS[type]) || agentPrompt || DEFAULT_SYSTEM_PROMPT,
-      provider: agent?.provider,
+      input: sanitizeText(prompt),
+      messages: history,
+      instructions: (type && SYSTEM_PROMPTS[type]) || agentPrompt || DEFAULT_SYSTEM_PROMPT,
+      model: agent?.model ?? DEFAULT_MODEL,
     },
   };
 }
@@ -116,15 +126,9 @@ async function composeStoredRequest(req, ctx) {
   }
   const composed = composeRequest(body, ctx.sanitizeText, agent);
   if (composed.error) return composed;
-  return {
-    request: {
-      ...composed.request,
-      // Tool access is server-owned agent configuration. The browser cannot
-      // grant itself a tool by adding one to the request body.
-      allowedTools: Array.isArray(agent?.tools) ? agent.tools : [],
-      runtimeContext: req.context ?? null,
-    },
-  };
+  // NanoAgent owns model, tool, and execution policy. None of those are copied
+  // from browser input or mutable workspace data.
+  return composed;
 }
 
 /**
@@ -194,8 +198,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     });
     res.flushHeaders?.();
 
-    // A reader who closes the tab should not leave a Claude Code process
-    // running for nobody.
+    // A reader who closes the tab should not leave a NanoAgent run active.
     //
     // The connection is watched through res and not req, which is measured
     // rather than assumed: req emits its own 'close' as soon as the body has
@@ -240,7 +243,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     return;
   }
 
-  // ── Which provider is answering, and why not, when none is ──
+  // ── Which private agent runtime is answering ──
   if (req.method === 'GET' && pathname === '/api/ai/status') {
     return json(res, 200, ai.describe());
   }

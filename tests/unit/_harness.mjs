@@ -500,7 +500,7 @@ export function makeCtx(overrides = {}) {
         request.onDelta?.('completion');
         return {text: 'a completion'};
       },
-      describe: () => ({available: true, provider: 'api', model: 'test-model'}),
+      describe: () => ({available: true, provider: 'nanoagent', model: 'test-model'}),
     },
     PROJECT_ROOT: root,
     /**

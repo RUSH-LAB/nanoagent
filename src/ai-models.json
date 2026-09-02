@@ -1,0 +1,10 @@
+{
+  "defaultModel": "deepseek/deepseek-v4-flash-0731",
+  "models": [
+    {
+      "id": "deepseek/deepseek-v4-flash-0731",
+      "name": "DeepSeek V4 Flash",
+      "detail": "NanoAgent via OpenRouter"
+    }
+  ]
+}

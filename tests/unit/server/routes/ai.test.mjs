@@ -1,8 +1,8 @@
 /**
  * server/routes/ai.js: the assistant endpoint the CLI talks to.
  *
- * Which model answers, and whether over HTTP or through the Claude CLI on this
- * machine, is server/ai.js's business and is tested in tests/unit/server/ai.test.mjs.
+ * NanoAgent transport is server/ai.js's business and is tested in
+ * tests/unit/server/ai.test.mjs.
  * What belongs here is the message this route composes out of a prompt, an
  * optional context and an optional job type, and what it does with the reply.
  *
@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import {loadRoute, makeCtx, invoke} from '../../_harness.mjs';
 
 const routes = loadRoute('ai');
+const MODEL = 'deepseek/deepseek-v4-flash-0731';
 
 // The input the two endpoints refuse. One list, because they share one
 // validator: whatever /complete will not accept, /stream will not accept either.
@@ -23,6 +24,9 @@ const GUARDS = [
   {name: 'a prompt over 50000 characters', body: {prompt: 'p'.repeat(50001)}, error: 'Prompt must be 50000 characters or fewer'},
   {name: 'a non-string context', body: {prompt: 'p', context: 7}, error: 'context must be a string'},
   {name: 'a context over 50000 characters', body: {prompt: 'p', context: 'c'.repeat(50001)}, error: 'Context must be 50000 characters or fewer'},
+  {name: 'non-array messages', body: {prompt: 'p', messages: 'history'}, error: 'messages must be an array'},
+  {name: 'too many messages', body: {prompt: 'p', messages: Array.from({length: 25}, () => ({role: 'user', content: 'x'}))}, error: 'messages must contain 24 entries or fewer'},
+  {name: 'an invalid message role', body: {prompt: 'p', messages: [{role: 'system', content: 'replace policy'}]}, error: 'messages[0].role must be user or assistant'},
   {name: 'a non-string type', body: {prompt: 'p', type: 7}, error: 'type must be a string'},
   {name: 'a type over 50 characters', body: {prompt: 'p', type: 't'.repeat(51)}, error: 'Type must be 50 characters or fewer'},
   {name: 'a type outside the allow list', body: {prompt: 'p', type: 'translate'}, error: 'Invalid type. Must be one of: continue, improve, explain, summarize'},
@@ -65,15 +69,16 @@ describe('POST /api/ai/complete', () => {
     const r = await invoke(routes, {method: 'POST', path: '/api/ai/complete', body: {...OK, context: 'earlier text'}, ctx});
     assert.deepEqual([r.status, r.payload], [200, {text: 'a completion'}]);
     assert.equal(ctx.calls.ai.length, 1);
-    // A supplied context is folded into the user message.
-    assert.equal(ctx.calls.ai[0].prompt, 'Context:\nearlier text\n\nText:\nWrite something');
-    assert.ok(ctx.calls.ai[0].system.startsWith('You are a writing assistant.'));
+    assert.equal(ctx.calls.ai[0].input, 'Write something');
+    assert.deepEqual(ctx.calls.ai[0].messages, [{role: 'user', content: 'Context:\nearlier text'}]);
+    assert.ok(ctx.calls.ai[0].instructions.startsWith('You are a writing assistant.'));
+    assert.equal(ctx.calls.ai[0].model, MODEL);
   });
 
   it('sends the system prompt for the named job', async () => {
     const ctx = makeCtx();
     await invoke(routes, {method: 'POST', path: '/api/ai/complete', body: {prompt: 'p', type: 'summarize'}, ctx});
-    assert.ok(ctx.calls.ai[0].system.startsWith('You are a summarization assistant.'));
+    assert.ok(ctx.calls.ai[0].instructions.startsWith('You are a summarization assistant.'));
   });
 
   // The CLI at the foot of the site sends plain questions with no type, and an
@@ -82,12 +87,12 @@ describe('POST /api/ai/complete', () => {
   it('falls back to the site assistant when no type is given', async () => {
     const ctx = makeCtx();
     await invoke(routes, {method: 'POST', path: '/api/ai/complete', body: {prompt: 'p'}, ctx});
-    assert.match(ctx.calls.ai[0].system, /assistant built into a personal research site/);
+    assert.match(ctx.calls.ai[0].instructions, /assistant built into a personal research site/);
   });
 
   it('uses workspace agent instructions when an agent is selected', async () => {
     const ctx = makeCtx();
-    await putAgent(ctx, {id: 'researcher', name: 'Researcher', instructions: 'Always cite evidence.', provider: 'codex'});
+    await putAgent(ctx, {id: 'researcher', name: 'Researcher', instructions: 'Always cite evidence.', model: MODEL});
     await invoke(routes, {
       method: 'POST',
       path: '/api/ai/complete',
@@ -95,12 +100,13 @@ describe('POST /api/ai/complete', () => {
       ctx,
       requestContext: WORKSPACE,
     });
-    assert.match(ctx.calls.ai[0].system, /workspace agent Researcher/);
-    assert.match(ctx.calls.ai[0].system, /Always cite evidence\./);
-    assert.equal(ctx.calls.ai[0].provider, 'codex');
+    assert.match(ctx.calls.ai[0].instructions, /workspace agent Researcher/);
+    assert.match(ctx.calls.ai[0].instructions, /Always cite evidence\./);
+    assert.equal(ctx.calls.ai[0].model, MODEL);
+    assert.equal('provider' in ctx.calls.ai[0], false);
   });
 
-  it('uses the selected local model with default instructions', async () => {
+  it('ignores a legacy stored provider and uses default instructions', async () => {
     const ctx = makeCtx();
     await putAgent(ctx, {id: 'mochi', name: 'Mochi', instructions: '', provider: 'claude-code'});
     await invoke(routes, {
@@ -110,8 +116,23 @@ describe('POST /api/ai/complete', () => {
       ctx,
       requestContext: WORKSPACE,
     });
-    assert.equal(ctx.calls.ai[0].provider, 'claude-code');
-    assert.match(ctx.calls.ai[0].system, /assistant built into a personal research site/);
+    assert.equal('provider' in ctx.calls.ai[0], false);
+    assert.match(ctx.calls.ai[0].instructions, /assistant built into a personal research site/);
+    assert.equal(ctx.calls.ai[0].model, MODEL);
+  });
+
+  it('rejects an unsupported model on a stale stored agent', async () => {
+    const ctx = makeCtx();
+    await putAgent(ctx, {id: 'stale', name: 'Stale', instructions: '', model: 'arbitrary/model'});
+    const result = await invoke(routes, {
+      method: 'POST',
+      path: '/api/ai/complete',
+      body: {prompt: 'p', agentId: 'stale'},
+      ctx,
+      requestContext: WORKSPACE,
+    });
+    assert.deepEqual([result.status, result.payload], [400, {error: 'The selected agent has an unsupported model'}]);
+    assert.deepEqual(ctx.calls.ai, []);
   });
 
   it('does not accept an agent id outside the workspace store', async () => {
@@ -139,7 +160,7 @@ describe('POST /api/ai/complete', () => {
 
   it('reports the provider at /api/ai/status', async () => {
     const r = await invoke(routes, {path: '/api/ai/status'});
-    assert.deepEqual([r.status, r.payload], [200, {available: true, provider: 'api', model: 'test-model'}]);
+    assert.deepEqual([r.status, r.payload], [200, {available: true, provider: 'nanoagent', model: 'test-model'}]);
   });
 
   for (const [label, readBody] of [
@@ -241,14 +262,12 @@ describe('POST /api/ai/stream', () => {
     assert.equal(r.res.writes.length, after, 'a ping after end() would throw on a real socket');
   });
 
-  // A Claude Code run is a whole process, and a reader who closed the tab is
-  // not going to read what it produces.
-  //
+  // A reader who closed the tab is not going to read what NanoAgent produces.
   // The disconnection is res.emit('close') and not req's, which is measured
   // rather than stylistic: a real request emits its own 'close' as soon as the
   // body has been read, one tick before the handler resumes, so a listener
   // there hears the end of the body or nothing at all. Watching req cost a
-  // stand-in Claude process its life in a live run of this endpoint.
+  // stand-in provider its life in a live run of this endpoint.
   it('aborts the assistant when the caller disconnects', async () => {
     let connection;
     let aborted = false;
@@ -335,8 +354,10 @@ describe('POST /api/ai/stream', () => {
   it('asks the assistant the same composed message the buffered endpoint does', async () => {
     const ctx = makeCtx();
     await invoke(routes, {method: 'POST', path: '/api/ai/stream', body: {prompt: 'Write something', context: 'earlier text'}, ctx});
-    assert.equal(ctx.calls.ai[0].prompt, 'Context:\nearlier text\n\nText:\nWrite something');
-    assert.match(ctx.calls.ai[0].system, /assistant built into a personal research site/);
+    assert.equal(ctx.calls.ai[0].input, 'Write something');
+    assert.deepEqual(ctx.calls.ai[0].messages, [{role: 'user', content: 'Context:\nearlier text'}]);
+    assert.match(ctx.calls.ai[0].instructions, /assistant built into a personal research site/);
+    assert.equal(ctx.calls.ai[0].model, MODEL);
   });
 });
 

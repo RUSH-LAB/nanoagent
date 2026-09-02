@@ -1,19 +1,17 @@
 import React, {useEffect, useState} from 'react';
+import modelCatalog from '@site/src/ai-models.json';
 import styles from './agentEditor.module.css';
 
 const EMPTY = {
   name: '',
   description: '',
   instructions: '',
-  provider: 'codex',
+  model: modelCatalog.defaultModel,
   color: 'violet',
 };
 
 const COLORS = ['violet', 'blue', 'emerald', 'amber', 'rose', 'slate'];
-const MODELS = [
-  {id: 'codex', name: 'Codex', detail: 'Local Codex session'},
-  {id: 'claude-code', name: 'Claude Code', detail: 'Local Claude session'},
-];
+const MODELS = modelCatalog.models;
 
 export default function AgentEditor({agent, onSave, onDelete, onClose}) {
   const [draft, setDraft] = useState(EMPTY);
@@ -101,9 +99,9 @@ export default function AgentEditor({agent, onSave, onDelete, onClose}) {
                 <button
                   key={model.id}
                   type="button"
-                  className={`${styles.modelChoice} ${draft.provider === model.id ? styles.modelChoiceOn : ''}`}
-                  onClick={() => update('provider', model.id)}
-                  aria-pressed={draft.provider === model.id}
+                  className={`${styles.modelChoice} ${draft.model === model.id ? styles.modelChoiceOn : ''}`}
+                  onClick={() => update('model', model.id)}
+                  aria-pressed={draft.model === model.id}
                 >
                   <span>{model.name}</span>
                   <small>{model.detail}</small>

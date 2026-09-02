@@ -18,7 +18,7 @@ The [production status](infra/production-status.md) summarizes the services
 already prepared and the work remaining before a public launch.
 The completed workspace rendering migration is recorded in the
 [workspace content and Docusaurus rendering plan](plans/completed/workspace-content-and-rendering.md).
-The local Claude Code prototype and the production path for hosted LLM agents
+The NanoAgent integration and the production path for hosted LLM agents
 are tracked in the [LLM agent platform plan](plans/llm-agent-platform.md).
 Production deployment is intentionally
 [on hold](plans/on-hold/production-readiness.md).

@@ -11,6 +11,7 @@ valuable at much larger scale.
 |---|---|---|
 | Client | React + Docusaurus | Application shell, navigation, document rendering |
 | API | Node.js HTTP server | Authentication gate, request context, domain orchestration |
+| Agent runtime | Private NanoAgent service | Model access, bounded agent loop, tool policy, usage and cost |
 | Identity control plane | Better Auth | Users, sessions, workspaces, members, invitations |
 | Transactional data | PostgreSQL | Authoritative workspace and product records |
 | Binary data | S3/R2-compatible storage | Uploaded asset bytes |
@@ -27,8 +28,8 @@ Browser
   -> Better Auth session
   -> Node request gate
   -> verified RequestContext(user, workspace, membership, role)
-  -> PostgreSQL transaction + RLS
-  -> repository
+     -> PostgreSQL transaction + RLS
+     -> NanoAgent over a private authenticated connection
 
 Workspace deletion
   -> SQL transaction queues object keys and deletes relational rows
@@ -85,6 +86,10 @@ provisioned, while `src/` is what the provisioned application executes.
 `scripts/` are explicit development, migration, verification, and maintenance
 entry points—not a second runtime. `tests/` prove these boundaries and may use
 synthetic workspace fixtures, but production code never reads test fixtures.
+
+NanoAgent is the deliberate exception to the single-process preference below.
+Its Python model runtime has an independent dependency and scaling boundary;
+Mochi remains the only public service and NanoAgent holds no application data.
 
 ## What we are not adding yet
 

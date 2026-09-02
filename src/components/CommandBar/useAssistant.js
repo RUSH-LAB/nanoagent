@@ -9,7 +9,7 @@
  * line moving in Shell.js.
  *
  * The answer is streamed from /api/ai/stream as server-sent events, because a
- * local provider can take five seconds to produce its first token and a window
+ * private agent service can take a few seconds to produce its first token and a window
  * that says nothing for five seconds reads as a broken one. TCP hands us bytes,
  * not frames: a chunk can end in the middle of a JSON payload, so the decoded
  * text is buffered and only whole frames, the ones terminated by a blank line,
@@ -31,10 +31,8 @@ import {useCallback, useEffect, useRef} from 'react';
 import API_BASE, {apiFetch} from '@site/src/utils/api';
 import {entriesForTarget, targetKey} from './useSessions';
 
-/* How much transcript rides along as context on a turn. The server sanitizes
-   both prompt and context with sanitizeText, which truncates at 10000
-   characters, so raising CONTEXT_CHARS past that would only pay to send bytes
-   the server drops. */
+/* How much structured transcript rides along on a turn. The server validates
+   and sanitizes every message before forwarding it to NanoAgent. */
 const CONTEXT_TURNS = 12;
 const CONTEXT_CHARS = 8000;
 
@@ -182,17 +180,19 @@ export default function useAssistant(sessions) {
   }, []);
 
   const ask = useCallback(async (sessionId, text, agent = null) => {
-    // Prior turns ride as `context` and the new line as `prompt`, which is the
-    // shape the endpoint already composes into a single message. Read before
-    // the line is appended, or the question would be in its own context.
+    // Prior turns ride as structured messages and the new line as the prompt.
+    // Read before appending it, or the question would appear in its own history.
     const session = listRef.current.find((s) => s.id === sessionId);
     const conversationKey = targetKey(session?.target);
     const priorEntries = entriesForTarget(session?.entries ?? [], session?.target);
-    const context = priorEntries
+    const messages = priorEntries
       .slice(-CONTEXT_TURNS)
-      .map((e) => `${e.kind === 'input' ? 'User' : 'Assistant'}: ${e.text}`)
-      .join('\n\n')
-      .slice(-CONTEXT_CHARS);
+      .filter(e => e.kind === 'input' || e.kind === 'output')
+      .map(e => ({role: e.kind === 'input' ? 'user' : 'assistant', content: e.text}));
+    let historyChars = messages.reduce((sum, message) => sum + message.content.length, 0);
+    while (historyChars > CONTEXT_CHARS && messages.length) {
+      historyChars -= messages.shift().content.length;
+    }
 
     append(sessionId, 'input', text, {targetKey: conversationKey});
     // The answer's row is opened empty and marked pending, and every delta is
@@ -209,10 +209,10 @@ export default function useAssistant(sessions) {
     const controller = new AbortController();
     controllers.current[sessionId] = controller;
 
-    const payload = context ? {prompt: text, context} : {prompt: text};
+    const payload = messages.length ? {prompt: text, messages} : {prompt: text};
     if (agent) {
       // The server owns the agent definition. Sending only its id prevents a
-      // caller from replacing trusted instructions or provider policy in the
+      // caller from replacing trusted instructions or NanoAgent policy in the
       // browser request.
       payload.agentId = agent.id;
     }

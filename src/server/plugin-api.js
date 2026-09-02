@@ -20,7 +20,7 @@
  *   "storage"     storage.read/storage.write, scoped to this plugin and workspace
  *   "records"     workspace-scoped database collections owned by the plugin
  *   "blobs"       workspace-scoped object-storage assets owned by the plugin
- *   "ai"          the configured completion provider
+ *   "ai"          the configured private agent runtime
  *   "process"     declared executables, rooted inside the plugin directory
  *
  * A capability the manifest did not ask for is simply absent, so a plugin that

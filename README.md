@@ -1,58 +1,14 @@
-# Local testing
+# Mochi Lab
 
-## Prerequisites
-
-- Node.js 20 or newer
-- npm
-- Access to an isolated Mochi Lab Neon development branch
-- No local PostgreSQL or Docker installation is required
+A collaborative workspace for knowledge, documents, communication, and AI agents.
 
 ```bash
-npm ci
-npm install --global neon@latest
-neon auth
-neon link --project-id curly-rice-08210507 --branch production -y
-neon checkout dev-my-laptop
-npm run neon:deploy
-npm run db:postgres:setup
-```
-
-## Environment
-
-`npm run db:postgres:setup` creates the git-ignored `.env.postgres.local` file.
-It must contain these variables; never commit their real values:
-
-```dotenv
-DATABASE_URL=postgresql://mochi_runtime:...@...-pooler.../neondb?sslmode=require
-DATABASE_MIGRATION_URL=postgresql://neondb_owner:...@.../neondb?sslmode=require
-BETTER_AUTH_SECRET=...
-PG_DRIVER=neon-serverless
-PG_SSL=require
-PG_SSL_REJECT_UNAUTHORIZED=true
-ENABLE_AUTH=true
-DEV_AUTOLOGIN=false
-# Optional deployment-level shell branding. Workspace branding lives in PostgreSQL.
-PLATFORM_NAME=Mochi Lab
-PLATFORM_TAGLINE=Collaborative knowledge workspaces
-```
-
-`.env.production.local` is optional for local application startup. It is only
-needed to verify R2 or Resend:
-
-```dotenv
-OBJECT_STORAGE_ENDPOINT=...
-OBJECT_STORAGE_BUCKET=...
-OBJECT_STORAGE_REGION=auto
-OBJECT_STORAGE_ACCESS_KEY_ID=...
-OBJECT_STORAGE_SECRET_ACCESS_KEY=...
-RESEND_API_KEY=...
-MAIL_FROM=Mochi Lab <no-reply@mochi-lab.org>
-MAIL_TEST_TO=...
-```
-
-## Run
-
-```bash
-npm run test:postgres
+# Terminal 1
+cd ../nanoagent && uv run python -m nanoagent web web_cfg=configs/web_openrouter.yaml
+# Terminal 2 (from mochi-lab)
 npm run start:postgres
 ```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+See [repository commands and local setup](scripts/README.md) or the [documentation index](docs/README.md).

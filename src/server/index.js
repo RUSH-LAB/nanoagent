@@ -31,9 +31,7 @@ const {contextualChat, contextualOrg} = require('./context-services');
 const roles = postgresServices?.roles ?? require('./roles');
 const chat = contextualChat(postgresServices?.chat ?? require('./chat'));
 const org = contextualOrg(postgresServices?.org ?? require('./org'));
-const inference = require('./ai');
-const {createAgentRuntime} = require('./agent-runtime');
-const ai = createAgentRuntime({inference});
+const ai = require('./ai');
 // The per-workspace data layer. See server/store/index.js: the only way a route
 // module is allowed to reach the thirteen features' data, because it is the
 // only way that applies the organization and the owner without being asked to.

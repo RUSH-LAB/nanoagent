@@ -18,6 +18,7 @@ restart.
 | Object storage | Cloudflare R2 | Stores uploaded images and attachments through the S3-compatible API. A real write, read, metadata, and delete probe has passed. |
 | Transactional email | Resend | Sends account verification, password-reset, and workspace-invitation email from the verified Mochi mail domain. A real delivery probe has passed. |
 | Application hosting | Railway, planned | The repository contains the container and Railway configuration, but the public service and production secrets have not been activated. |
+| Agent runtime | NanoAgent, local/private | Mochi uses NanoAgent's private SSE API. Local integration is verified; the production service and model credentials are not activated. |
 
 For local work, run:
 
@@ -75,6 +76,8 @@ Before a public launch, we still need to:
    pass.
 7. Configure backups, logs, alerts, and a rollback window before accepting real
    users.
+8. Deploy NanoAgent as a private Railway service, configure its model key and
+   shared API token, and run `npm run nanoagent:verify` before enabling AI.
 
 No production data migration or DNS switch should happen while this work is on
 hold. When public deployment becomes a priority, resume the

@@ -1,8 +1,9 @@
 # Production deployment
 
-Mochi runs as one Node process serving both the built Docusaurus shell and
-`/api/*`. Keeping one public origin lets Better Auth use HttpOnly, Secure,
-same-site cookies without exposing credentials to browser JavaScript.
+Mochi's public surface is one Node process serving both the built Docusaurus
+shell and `/api/*`. Keeping one public origin lets Better Auth use HttpOnly,
+Secure, same-site cookies without exposing credentials to browser JavaScript.
+It calls NanoAgent over Railway's private network; NanoAgent is never public.
 
 ## Required services
 
@@ -12,6 +13,8 @@ same-site cookies without exposing credentials to browser JavaScript.
 - An HTTPS transactional-email webhook for verification, password reset, and
   workspace invitations.
 - A container host with HTTPS termination and secret management.
+- A private NanoAgent service with its model-provider key and a shared
+  `NANOAGENT_API_TOKEN`.
 
 The current deployment target is Railway. It builds the committed `Dockerfile`,
 injects `PORT`, checks `/api/health`, and terminates TLS at the public domain.
@@ -52,10 +55,17 @@ password-reset, and invitation messages to their actual recipients.
 
 ## Railway
 
-Create one service from the GitHub repository and select the release branch.
+Create the public Mochi service from the GitHub repository and select the release branch.
 Railway will use `railway.toml` and the root `Dockerfile`. Add every value from
 the database, authentication, email, and object-storage configuration described
 above to the service variables; do not upload `.env.production.local`.
+
+Create a second, private service from the NanoAgent repository. Run
+`nanoagent web` with a web config that binds `0.0.0.0:$PORT`, reads
+`NANOAGENT_API_TOKEN` from the environment, and keeps `tools: []` for the first
+release. Put the model-provider credential only on this service. On Mochi, set
+`NANOAGENT_URL` to the private Railway URL and set the same
+`NANOAGENT_API_TOKEN`. Do not expose a public domain for NanoAgent.
 
 Generate a Railway domain for the first deployment. Once it is healthy, attach
 `mochi-lab.org` or an application subdomain, update `SITE_URL` and

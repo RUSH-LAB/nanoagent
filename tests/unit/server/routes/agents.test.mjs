@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import {loadRoute, makeCtx, invoke} from '../../_harness.mjs';
 
 const routes = loadRoute('agents');
+const MODEL = routes.DEFAULT_MODEL;
 const context = {workspaceId: 'test-org', userId: 'test-user', membershipId: 'member-1', role: 'owner'};
 const body = {
   name: 'Researcher',
   description: 'Finds the evidence',
   instructions: 'Check claims and cite the strongest available evidence.',
-  provider: 'codex',
+  model: MODEL,
   color: 'blue',
 };
 
@@ -19,12 +20,12 @@ describe('workspace agents', () => {
       id: agent.id,
       name: agent.name,
       instructions: agent.instructions,
-      provider: agent.provider,
+      model: agent.model,
       builtin: agent.builtin,
-    })), [{id: 'mochi', name: 'Mochi', instructions: '', provider: 'codex', builtin: true}]);
+    })), [{id: 'mochi', name: 'Mochi', instructions: '', model: MODEL, builtin: true}]);
   });
 
-  it('moves the legacy Mochi default to Codex once without overriding later choices', async () => {
+  it('removes legacy provider selection from stored agents', async () => {
     const ctx = makeCtx();
     const scope = ctx.scopeFor({context});
     await ctx.collection('agents').put(scope, 'mochi', {
@@ -37,18 +38,9 @@ describe('workspace agents', () => {
     });
 
     const migrated = await invoke(routes, {method: 'GET', path: '/api/agents', ctx, requestContext: context});
-    assert.equal(migrated.payload.agents[0].provider, 'codex');
+    assert.equal('provider' in migrated.payload.agents[0], false);
+    assert.equal(migrated.payload.agents[0].model, MODEL);
     assert.equal(migrated.payload.agents[0].description, '');
-
-    await invoke(routes, {
-      method: 'PATCH',
-      path: '/api/agents/mochi',
-      body: {provider: 'claude-code'},
-      ctx,
-      requestContext: context,
-    });
-    const selected = await invoke(routes, {method: 'GET', path: '/api/agents', ctx, requestContext: context});
-    assert.equal(selected.payload.agents[0].provider, 'claude-code');
   });
 
   it('creates, lists, edits, and deletes an agent', async () => {
@@ -57,7 +49,8 @@ describe('workspace agents', () => {
     assert.equal(created.status, 201);
     assert.equal(created.payload.agent.name, 'Researcher');
     assert.equal(created.payload.agent.color, 'blue');
-    assert.equal(created.payload.agent.provider, 'codex');
+    assert.equal(created.payload.agent.model, MODEL);
+    assert.equal('provider' in created.payload.agent, false);
 
     const id = created.payload.agent.id;
     const listed = await invoke(routes, {method: 'GET', path: '/api/agents', ctx, requestContext: context});
@@ -73,14 +66,18 @@ describe('workspace agents', () => {
     assert.deepEqual(empty.payload.agents.map(agent => agent.id), ['mochi']);
   });
 
-  it('allows empty instructions and rejects an unknown model', async () => {
+  it('allows the catalog model and rejects unsupported models or legacy providers', async () => {
     const ctx = makeCtx();
     const created = await invoke(routes, {method: 'POST', path: '/api/agents', body: {name: 'Plain', instructions: ''}, ctx, requestContext: context});
     assert.equal(created.payload.agent.instructions, '');
-    assert.equal(created.payload.agent.provider, 'codex');
+    assert.equal(created.payload.agent.model, MODEL);
+    assert.equal('provider' in created.payload.agent, false);
 
-    const rejected = await invoke(routes, {method: 'POST', path: '/api/agents', body: {name: 'Bad', provider: 'other'}, ctx, requestContext: context});
-    assert.deepEqual([rejected.status, rejected.payload], [400, {error: 'Model must be Codex or Claude Code'}]);
+    const unsupported = await invoke(routes, {method: 'POST', path: '/api/agents', body: {name: 'Bad', model: 'other'}, ctx, requestContext: context});
+    assert.deepEqual([unsupported.status, unsupported.payload], [400, {error: 'Unsupported AI model'}]);
+
+    const legacy = await invoke(routes, {method: 'POST', path: '/api/agents', body: {name: 'Old', provider: 'codex'}, ctx, requestContext: context});
+    assert.deepEqual([legacy.status, legacy.payload], [400, {error: 'Model selection is managed by NanoAgent'}]);
   });
 
   it('does not delete the built-in Mochi agent', async () => {
