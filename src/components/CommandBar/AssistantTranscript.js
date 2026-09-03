@@ -83,6 +83,8 @@ function useElapsedSeconds(running) {
 export default function AssistantTranscript({
   session,
   agent = null,
+  hasChat = false,
+  onStartChat,
   onCreateAgent,
   scrollProps,
   atBottom = true,
@@ -116,13 +118,15 @@ export default function AssistantTranscript({
             <div className={`${styles.agentAvatar} ${styles[`agent_${agent?.color || 'violet'}`]}`}>
               {agent ? agent.name.slice(0, 1).toUpperCase() : '+'}
             </div>
-            <h3>{agent?.name || 'Choose an agent'}</h3>
-            <p>{agent?.description || 'Agents have a defined role and instructions. Select one from the sidebar, or create one for the way you work.'}</p>
-            {agent ? (
+            <h3>{agent?.name || 'Choose a chat'}</h3>
+            <p>{agent?.description || 'Open an existing chat from the sidebar, or explicitly start a new one with an agent.'}</p>
+            {agent && hasChat ? (
               <span className={styles.welcomeHint}>
                 Type below to start &middot; <span className={shared.slash}>/</span> for commands &middot;{' '}
                 <kbd className={shared.kbd}>&#8984;D</kbd> split view
               </span>
+            ) : onStartChat ? (
+              <button type="button" className={styles.createAgent} onClick={onStartChat}>Start a new chat</button>
             ) : onCreateAgent ? (
               <button type="button" className={styles.createAgent} onClick={onCreateAgent}>Create an agent</button>
             ) : null}

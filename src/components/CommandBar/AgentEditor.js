@@ -1,29 +1,39 @@
 import React, {useEffect, useState} from 'react';
-import modelCatalog from '@site/src/ai-models.json';
 import styles from './agentEditor.module.css';
 
-const EMPTY = {
+const emptyAgent = defaultProfile => ({
   name: '',
   description: '',
   instructions: '',
-  model: modelCatalog.defaultModel,
+  profileId: defaultProfile,
   color: 'violet',
-};
+});
 
 const COLORS = ['violet', 'blue', 'emerald', 'amber', 'rose', 'slate'];
-const MODELS = modelCatalog.models;
+const harnessLabel = harness => ({native: 'NanoAgent', hermes: 'Hermes Agent', pi: 'PI'}[harness] ?? harness);
 
-export default function AgentEditor({agent, onSave, onDelete, onClose}) {
-  const [draft, setDraft] = useState(EMPTY);
+export default function AgentEditor({agent, profileCatalog, onSave, onDelete, onClose}) {
+  const profiles = profileCatalog?.profiles ?? [];
+  const defaultProfile = profileCatalog?.defaultProfile ?? '';
+  const [draft, setDraft] = useState(() => emptyAgent(defaultProfile));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    setDraft(agent ? {...agent} : EMPTY);
+    setDraft(agent ? {...agent} : emptyAgent(defaultProfile));
     setError(null);
-  }, [agent]);
+  }, [agent, defaultProfile]);
 
   const update = (key, value) => setDraft(current => ({...current, [key]: value}));
+  const selectedProfile = profiles.find(profile => profile.id === draft.profileId);
+  const harnesses = [...new Set(profiles.map(profile => profile.harness))];
+  const selectedHarness = selectedProfile?.harness ?? harnesses[0] ?? '';
+  const harnessProfiles = profiles.filter(profile => profile.harness === selectedHarness);
+
+  const selectHarness = (harness) => {
+    const choices = profiles.filter(profile => profile.harness === harness);
+    update('profileId', (choices.find(profile => profile.available) ?? choices[0])?.id ?? '');
+  };
 
   const submit = async (event) => {
     event.preventDefault();
@@ -40,7 +50,7 @@ export default function AgentEditor({agent, onSave, onDelete, onClose}) {
   };
 
   const remove = async () => {
-    if (!agent || !window.confirm(`Delete ${agent.name}? Its existing chat history will remain.`)) return;
+    if (!agent || !window.confirm(`Delete ${agent.name} and its chat history?`)) return;
     setBusy(true);
     setError(null);
     try {
@@ -92,23 +102,40 @@ export default function AgentEditor({agent, onSave, onDelete, onClose}) {
             />
           </label>
 
-          <fieldset className={styles.modelField}>
-            <legend>Model</legend>
-            <div className={styles.modelChoices}>
-              {MODELS.map(model => (
-                <button
-                  key={model.id}
-                  type="button"
-                  className={`${styles.modelChoice} ${draft.model === model.id ? styles.modelChoiceOn : ''}`}
-                  onClick={() => update('model', model.id)}
-                  aria-pressed={draft.model === model.id}
-                >
-                  <span>{model.name}</span>
-                  <small>{model.detail}</small>
-                </button>
-              ))}
-            </div>
-          </fieldset>
+          <div className={styles.runtimeFields}>
+            <label className={styles.label}>
+              Agent harness
+              <select
+                className={styles.input}
+                value={selectedHarness}
+                onChange={event => selectHarness(event.target.value)}
+              >
+                {harnesses.map(harness => (
+                  <option key={harness} value={harness}>{harnessLabel(harness)}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className={styles.label}>
+              Model
+              <select
+                className={styles.input}
+                value={draft.profileId}
+                onChange={event => update('profileId', event.target.value)}
+              >
+                {harnessProfiles.map(profile => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.model}{profile.available ? '' : ' (unavailable)'}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {selectedProfile && !selectedProfile.available && (
+            <p className={styles.warning} role="status">
+              {selectedProfile.unavailableReason || 'This NanoAgent profile is currently unavailable.'}
+            </p>
+          )}
 
           <fieldset className={styles.colors}>
             <legend>Color</legend>
@@ -145,7 +172,7 @@ export default function AgentEditor({agent, onSave, onDelete, onClose}) {
             {agent && !agent.builtin && <button type="button" className={styles.delete} onClick={remove} disabled={busy}>Delete</button>}
             <span className={styles.footerSpacer} />
             <button type="button" className={styles.secondary} onClick={onClose} disabled={busy}>Cancel</button>
-            <button type="submit" className={styles.primary} disabled={busy}>
+            <button type="submit" className={styles.primary} disabled={busy || !selectedProfile}>
               {busy ? 'Saving…' : (agent ? 'Save changes' : 'Create agent')}
             </button>
           </footer>

@@ -318,6 +318,71 @@
 .send:disabled { background: var(--ifm-color-emphasis-300); color: var(--ifm-color-emphasis-500); cursor: default; }
 .send:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: 2px; }
 
+/* A page selection is deliberately visible before it becomes model context.
+   It stays a compact peer of the input so attaching text never changes the
+   dock's published height or covers the transcript above it. */
+.selectionContext {
+  display: flex;
+  flex: 0 1 clamp(8rem, 18vw, 15rem);
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  height: 42px;
+  padding: 0.35rem 0.4rem 0.35rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--ifm-color-primary) 35%, var(--ifm-color-emphasis-300));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--ifm-color-primary) 7%, var(--ifm-background-color));
+  color: var(--ifm-color-emphasis-700);
+}
+
+.selectionContextText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  font-size: var(--cli-meta);
+  line-height: 1.25;
+}
+
+.selectionContextText strong {
+  color: var(--ifm-color-primary);
+  font-size: var(--cli-micro);
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.selectionContextText span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selectionContextRemove {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ifm-color-emphasis-600);
+  font: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.selectionContextRemove:hover {
+  background: var(--ifm-color-emphasis-200);
+  color: var(--ifm-color-danger);
+}
+
+.selectionContextRemove:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 1px;
+}
+
 /* ── Motion ─────────────────────────────────────────────────────── */
 
 /* Nothing here is worth making someone motion sensitive unwell over: the chrome
@@ -344,5 +409,9 @@
   .mentions {
     min-width: 0;
     right: 0;
+  }
+
+  .selectionContext {
+    flex-basis: 8rem;
   }
 }

@@ -63,7 +63,10 @@ above to the service variables; do not upload `.env.production.local`.
 Create a second, private service from the NanoAgent repository. Run
 `nanoagent web` with a web config that binds `0.0.0.0:$PORT`, reads
 `NANOAGENT_API_TOKEN` from the environment, and keeps `tools: []` for the first
-release. Put the model-provider credential only on this service. On Mochi, set
+release. Install the `nanoagent[hermes]` extra to enable Hermes profiles and
+install/link `@nanoagent/pi-runner` with Node 22.19 or newer to enable PI
+profiles; profiles whose runner is missing remain visible as unavailable. Put
+the model-provider credential only on this service. On Mochi, set
 `NANOAGENT_URL` to the private Railway URL and set the same
 `NANOAGENT_API_TOKEN`. Do not expose a public domain for NanoAgent.
 

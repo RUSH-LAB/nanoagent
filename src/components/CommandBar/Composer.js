@@ -133,6 +133,8 @@ export default function Composer({
   maxSessions,
   sessionNumber,
   targetLabel,
+  selectionContext = null,
+  onRemoveSelection = noop,
   rowRef,
   onSubmit,
   onClear,
@@ -339,6 +341,7 @@ export default function Composer({
     : (listOpen && completionId) || undefined;
   const expanded = Boolean(menuOpen || listOpen);
   const controls = menuOpen ? mentionsId : (listOpen ? LISTBOX_ID : undefined);
+  const selectionPreview = selectionContext?.text.replace(/\s+/g, ' ').trim().slice(0, 160);
 
   return (
     <div className={styles.row} ref={rowRef} aria-busy={busy}>
@@ -458,6 +461,28 @@ export default function Composer({
         </span>
       </label>
 
+      {selectionContext && (
+        <div
+          className={styles.selectionContext}
+          aria-label="Selected page text attached to the next AI message"
+          title={`${selectionContext.title || selectionContext.path || 'Selected text'}\n\n${selectionPreview}${selectionContext.text.length > 160 ? '…' : ''}`}
+        >
+          <span className={styles.selectionContextText}>
+            <strong>Selection</strong>
+            <span>{selectionPreview}</span>
+          </span>
+          <button
+            type="button"
+            className={styles.selectionContextRemove}
+            onClick={onRemoveSelection}
+            aria-label="Remove selected text from context"
+            title="Remove context"
+          >
+            &times;
+          </button>
+        </div>
+      )}
+
       <button
         type="button"
         className={styles.send}
@@ -471,7 +496,7 @@ export default function Composer({
         </svg>
       </button>
 
-      {showHints && <span className={styles.hints}>
+      {showHints && !selectionContext && <span className={styles.hints}>
         {busyElsewhere && <span className={styles.hintBusy}>another session is working</span>}
         {/* The stop button is in the transcript, with the answer it stops, so
             this row's contribution is the key: shown only while the focused
@@ -491,7 +516,7 @@ export default function Composer({
           <>
             <kbd className={shared.kbd}>&crarr;</kbd> send
             <kbd className={shared.kbd}>&#8679;&crarr;</kbd> newline
-            <kbd className={shared.kbd}>&#8984;D</kbd> split
+            <kbd className={shared.kbd}>&#8984;&#8679;&crarr;</kbd> add selection
           </>
         )}
       </span>}

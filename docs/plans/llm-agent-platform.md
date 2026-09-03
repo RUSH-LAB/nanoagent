@@ -17,23 +17,24 @@ connection authenticated with a deployment secret.
 Browser CLI pane
   -> POST /api/ai/stream
   -> Mochi API (identity, workspace, rate limit, trusted agent instructions)
-  -> POST NanoAgent /v1/runs (private bearer-authenticated SSE)
-  -> model backend selected by NanoAgent YAML
+  -> GET NanoAgent /v1/profiles (private, cached discovery)
+  -> POST NanoAgent /v1/runs with a server-approved profile id (private SSE)
+  -> harness and model selected by NanoAgent YAML
 ```
 
-Mochi exposes a server-owned model catalog and stores the selected catalog id on
-each workspace agent. The catalog currently contains only DeepSeek V4 Flash
-(`deepseek/deepseek-v4-flash-0731`), mapped to the one configured NanoAgent
-service. Arbitrary model ids are rejected. Provider credentials, tools, and
-execution budgets remain NanoAgent deployment policy and never come from the
-browser.
+Mochi mirrors NanoAgent's server-owned profile catalog and stores a `profileId`
+on each workspace agent. A profile is an approved harness/model pairing; the
+initial configuration offers NanoAgent, Hermes Agent, and PI with DeepSeek V4
+Flash. Arbitrary harnesses, commands, and model ids are rejected. Provider
+credentials, tools, and execution budgets remain NanoAgent deployment policy
+and never come from the browser.
 
 ## Implemented boundary
 
 - `src/components/CommandBar/useAssistant.js` owns per-pane requests,
   cancellation, and a bounded structured conversation window.
 - `src/server/routes/ai.js` authenticates, rate-limits, validates, loads trusted
-  workspace agent instructions and model selection, and preserves Mochi's
+  workspace agent instructions and profile selection, and preserves Mochi's
   buffered and SSE APIs.
 - `src/server/ai.js` is the private NanoAgent transport. It maps NanoAgent
   `start`, `delta`, `tool`, `step`, `done`, and `error` events into Mochi's
@@ -43,6 +44,10 @@ browser.
 - Reasoning deltas and raw tool outputs are not forwarded to the browser.
 - NanoAgent's initial web configuration has no tools and no host filesystem
   access.
+- Legacy workspace agents with a `model` field migrate to the matching profile;
+  new writes accept only a catalog `profileId`.
+- Each local AI chat pins its own profile. `/harness` and `/model` inspect or
+  switch that chat without changing the workspace agent's default.
 - AI history remains in browser storage and is not yet shared across browsers
   or people.
 
@@ -54,6 +59,8 @@ NANOAGENT_API_TOKEN=...
 # Optional Mochi-side guards; NanoAgent has its own independent limits.
 NANOAGENT_TIMEOUT_MS=190000
 NANOAGENT_MAX_STREAM_BYTES=2097152
+NANOAGENT_PROFILE_CACHE_MS=30000
+NANOAGENT_PROFILE_TIMEOUT_MS=5000
 ```
 
 `NANOAGENT_URL=off` disables the assistant explicitly.
@@ -96,8 +103,7 @@ short-lived capability.
 - [x] Replace Codex, Claude Code, and direct provider adapters with NanoAgent.
 - [x] Propagate browser cancellation to NanoAgent.
 - [x] Send bounded structured conversation history.
-- [x] Add a server-allowlisted model selector to workspace agents, initially
-  containing only DeepSeek V4 Flash.
+- [x] Add linked harness/model selectors backed by NanoAgent's profile catalog.
 - [x] Normalize NanoAgent lifecycle, usage, cost, and errors.
 - [x] Keep reasoning and raw tool output off the browser transport.
 - [ ] Publish and pin `@nanoagent/client`; replace Mochi's dependency-free
@@ -145,7 +151,7 @@ short-lived capability.
 The first production release stays deliberately small:
 
 1. One privately deployed NanoAgent service.
-2. One model backend selected by server-owned YAML.
+2. Server-approved harness/model profiles selected by stable IDs.
 3. Streaming, cancellation, usage, and cost propagation.
 4. Durable text conversations.
 5. No autonomous background work or write-capable tools.

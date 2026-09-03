@@ -9,13 +9,13 @@ function sse(event) {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
-function response(chunks, {status = 200, error = null} = {}) {
+function response(chunks, {status = 200, error = null, json = {}} = {}) {
   const encoder = new TextEncoder();
   let index = 0;
   return {
     ok: status >= 200 && status < 300,
     status,
-    json: async () => error ? {error} : {},
+    json: async () => error ? {error} : json,
     body: {
       getReader: () => ({
         read: async () => index < chunks.length
@@ -51,12 +51,8 @@ describe('NanoAgent endpoint configuration', () => {
     assert.deepEqual(description, {
       available: true,
       provider: 'nanoagent',
+      profile: ai.DEFAULT_PROFILE,
       model: ai.DEFAULT_MODEL,
-      models: [{
-        id: ai.DEFAULT_MODEL,
-        name: 'DeepSeek V4 Flash',
-        detail: 'NanoAgent via OpenRouter',
-      }],
     });
     assert.doesNotMatch(JSON.stringify(description), /secret/);
   });
@@ -96,6 +92,7 @@ describe('NanoAgent gateway', () => {
       sse({
         type: 'done', runId: 'run-1', answer: 'hello', stop_reason: 'answer', steps: 2,
         usage: {total_tokens: 5}, cost: 0.02, error: null,
+        profile: 'pi-deepseek', harness: 'pi', model: 'deepseek/test',
       }),
     ];
     const gateway = ai.createNanoAgentGateway({
@@ -109,7 +106,7 @@ describe('NanoAgent gateway', () => {
     const events = [];
     const result = await gateway.stream({
       input: 'current question',
-      model: ai.DEFAULT_MODEL,
+      profile: 'pi-deepseek',
       messages: [{role: 'user', content: 'earlier'}],
       instructions: 'Be concise.',
       onDelta: delta => deltas.push(delta),
@@ -122,10 +119,12 @@ describe('NanoAgent gateway', () => {
       input: 'current question',
       messages: [{role: 'user', content: 'earlier'}],
       instructions: 'Be concise.',
+      profile: 'pi-deepseek',
     });
     assert.deepEqual(deltas, ['hel', 'lo']);
     assert.deepEqual(result, {
-      text: 'hello', model: ai.DEFAULT_MODEL, usage: {total_tokens: 5}, cost: 0.02,
+      text: 'hello', profile: 'pi-deepseek', harness: 'pi', model: 'deepseek/test',
+      usage: {total_tokens: 5}, cost: 0.02,
       stopReason: 'answer', runId: 'run-1',
     });
     assert.deepEqual(events.map(event => event.type), [
@@ -146,14 +145,29 @@ describe('NanoAgent gateway', () => {
     assert.equal((await gateway.complete({prompt: 'legacy shape', system: 'instruction'})).text, 'finished');
   });
 
-  it('rejects model ids outside Mochi\'s server-owned catalog', async () => {
-    let called = false;
-    const gateway = ai.createNanoAgentGateway({env: {}, fetchImpl: async () => { called = true; }});
-    assert.deepEqual(await gateway.complete({input: 'x', model: 'arbitrary/model'}), {
-      error: 'Unsupported AI model: arbitrary/model',
-      status: 400,
+  it('forwards only a profile id, never browser-owned model configuration', () => {
+    assert.deepEqual(ai.nanoRequest({input: 'x', profile: 'native-test', model: 'ignored'}), {
+      input: 'x', messages: [], profile: 'native-test',
     });
-    assert.equal(called, false);
+  });
+
+  it('discovers and caches the server-owned profile catalog', async () => {
+    let calls = 0;
+    const catalog = {
+      defaultProfile: 'native-test',
+      profiles: [{
+        id: 'native-test', label: 'Native Test', harness: 'native', model: 'test-model',
+        available: true, unavailableReason: null,
+        capabilities: {streaming: true, history: true},
+      }],
+    };
+    const gateway = ai.createNanoAgentGateway({
+      env: {NANOAGENT_URL: 'http://agent'},
+      fetchImpl: async () => { calls += 1; return response([], {json: catalog}); },
+    });
+    assert.deepEqual(await gateway.profiles(), ai.normalizeProfileCatalog(catalog));
+    assert.deepEqual(await gateway.profiles(), ai.normalizeProfileCatalog(catalog));
+    assert.equal(calls, 1);
   });
 
   it('maps terminal failures and incomplete streams to Mochi errors', async () => {

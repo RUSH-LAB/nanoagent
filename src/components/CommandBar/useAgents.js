@@ -16,13 +16,21 @@ async function call(path, init) {
 
 export default function useAgents() {
   const [agents, setAgents] = useState([]);
+  const [profileCatalog, setProfileCatalog] = useState({defaultProfile: '', profiles: []});
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState(null);
 
   const load = useCallback(async () => {
     try {
-      const data = await call('/api/agents');
+      const [data, catalog] = await Promise.all([
+        call('/api/agents'),
+        call('/api/ai/profiles'),
+      ]);
       setAgents(Array.isArray(data.agents) ? data.agents : []);
+      setProfileCatalog({
+        defaultProfile: typeof catalog.defaultProfile === 'string' ? catalog.defaultProfile : '',
+        profiles: Array.isArray(catalog.profiles) ? catalog.profiles : [],
+      });
       setStatus('ready');
       setError(null);
     } catch (err) {
@@ -43,7 +51,7 @@ export default function useAgents() {
         name: draft.name,
         description: draft.description,
         instructions: draft.instructions,
-        model: draft.model,
+        profileId: draft.profileId,
         color: draft.color,
       }),
     });
@@ -61,5 +69,5 @@ export default function useAgents() {
     setAgents(current => current.filter(agent => agent.id !== id));
   }, []);
 
-  return {agents, status, error, reload: load, save, remove};
+  return {agents, profileCatalog, status, error, reload: load, save, remove};
 }

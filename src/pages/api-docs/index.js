@@ -351,17 +351,21 @@ const CATEGORIES = [
     endpoints: [
       {
         method: 'POST', path: '/api/ai/complete', description: 'Generate AI text completions. Supports continue, improve, explain, and summarize modes. Rate-limited to 10/min per IP.',
-        request: '{ "prompt": "The transformer architecture...", "messages": [{ "role": "user", "content": "Earlier question" }, { "role": "assistant", "content": "Earlier answer" }], "type": "continue", "agentId": "researcher" }\n\nValid types: "continue", "improve", "explain", "summarize". The optional agentId selects a trusted workspace-defined identity.',
+        request: '{ "prompt": "The transformer architecture...", "messages": [{ "role": "user", "content": "Earlier question" }, { "role": "assistant", "content": "Earlier answer" }], "type": "continue", "agentId": "researcher", "profileId": "native-deepseek" }\n\nValid types: "continue", "improve", "explain", "summarize". The optional agentId selects a trusted workspace-defined identity; profileId selects only from the server-provided profile catalog.',
         response: '{ "text": "...generated continuation..." }',
       },
       {
+        method: 'GET', path: '/api/ai/profiles', description: 'List the server-approved NanoAgent harness and model profiles, including current availability.',
+        response: '{ "defaultProfile": "native-deepseek", "profiles": [{ "id": "native-deepseek", "label": "DeepSeek V4 Flash · NanoAgent", "harness": "native", "model": "deepseek/deepseek-v4-flash-0731", "available": true }] }',
+      },
+      {
         method: 'GET', path: '/api/agents', description: 'List the reusable AI agents defined for this workspace.',
-        response: '{ "agents": [{ "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "model": "deepseek/deepseek-v4-flash-0731", "color": "blue" }] }',
+        response: '{ "agents": [{ "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "profileId": "native-deepseek", "color": "blue" }] }',
       },
       {
         method: 'POST', path: '/api/agents', description: 'Create a workspace agent. Owners and editors can manage agents.',
-        request: '{ "name": "Researcher", "description": "Finds evidence", "instructions": "Check claims and cite evidence.", "model": "deepseek/deepseek-v4-flash-0731", "color": "blue" }',
-        response: '{ "agent": { "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "model": "deepseek/deepseek-v4-flash-0731", "color": "blue" } }',
+        request: '{ "name": "Researcher", "description": "Finds evidence", "instructions": "Check claims and cite evidence.", "profileId": "native-deepseek", "color": "blue" }',
+        response: '{ "agent": { "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "profileId": "native-deepseek", "color": "blue" } }',
       },
       {
         method: 'PATCH', path: '/api/agents/:id', description: 'Update an existing workspace agent.',

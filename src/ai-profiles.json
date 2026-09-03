@@ -1,0 +1,23 @@
+{
+  "defaultProfile": "native-deepseek",
+  "profiles": [
+    {
+      "id": "native-deepseek",
+      "label": "DeepSeek V4 Flash · NanoAgent",
+      "harness": "native",
+      "model": "deepseek/deepseek-v4-flash-0731"
+    },
+    {
+      "id": "hermes-deepseek",
+      "label": "DeepSeek V4 Flash · Hermes Agent",
+      "harness": "hermes",
+      "model": "deepseek/deepseek-v4-flash-0731"
+    },
+    {
+      "id": "pi-deepseek",
+      "label": "DeepSeek V4 Flash · PI",
+      "harness": "pi",
+      "model": "deepseek/deepseek-v4-flash-0731"
+    }
+  ]
+}

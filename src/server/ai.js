@@ -1,6 +1,6 @@
 'use strict';
 
-const modelCatalog = require('../ai-models.json');
+const fallbackProfiles = require('../ai-profiles.json');
 
 /**
  * Mochi's private connection to NanoAgent.
@@ -14,11 +14,13 @@ const modelCatalog = require('../ai-models.json');
 const DEFAULT_URL = 'http://127.0.0.1:8787';
 const DEFAULT_TIMEOUT_MS = 190_000;
 const DEFAULT_MAX_STREAM_BYTES = 2 * 1024 * 1024;
+const DEFAULT_PROFILE_CACHE_MS = 30_000;
+const DEFAULT_PROFILE_TIMEOUT_MS = 5_000;
 const CANCELLED = 'The AI request was cancelled.';
 const TIMED_OUT = 'The AI request timed out. Please try again.';
 const UNAVAILABLE = 'Could not reach NanoAgent.';
-const MODEL_IDS = new Set(modelCatalog.models.map(model => model.id));
-const DEFAULT_MODEL = modelCatalog.defaultModel;
+const DEFAULT_PROFILE = fallbackProfiles.defaultProfile;
+const DEFAULT_MODEL = fallbackProfiles.profiles.find(profile => profile.id === DEFAULT_PROFILE).model;
 
 function positiveNumber(value, fallback) {
   const parsed = Number(value);
@@ -101,6 +103,52 @@ function nanoRequest(request) {
     })) : [],
     ...(request.instructions || request.system ? {instructions: request.instructions || request.system} : {}),
     ...(request.metadata ? {metadata: request.metadata} : {}),
+    ...(request.profile ? {profile: request.profile} : {}),
+  };
+}
+
+function normalizeProfileCatalog(value) {
+  if (!value || typeof value !== 'object' || !Array.isArray(value.profiles)) {
+    throw new Error('NanoAgent returned an invalid profile catalog.');
+  }
+  const profiles = value.profiles.map(profile => {
+    if (!profile || typeof profile !== 'object'
+      || typeof profile.id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,99}$/.test(profile.id)
+      || typeof profile.label !== 'string' || !profile.label
+      || typeof profile.harness !== 'string' || !profile.harness
+      || typeof profile.model !== 'string' || !profile.model) {
+      throw new Error('NanoAgent returned an invalid profile catalog.');
+    }
+    const capabilities = profile.capabilities && typeof profile.capabilities === 'object'
+      ? Object.fromEntries(['streaming', 'reasoning', 'tools', 'usage', 'cancellation', 'history']
+        .map(key => [key, profile.capabilities[key] === true]))
+      : {};
+    return {
+      id: profile.id,
+      label: profile.label,
+      harness: profile.harness,
+      model: profile.model,
+      available: profile.available !== false,
+      unavailableReason: typeof profile.unavailableReason === 'string' ? profile.unavailableReason : null,
+      capabilities,
+    };
+  });
+  const ids = new Set(profiles.map(profile => profile.id));
+  if (profiles.length === 0 || ids.size !== profiles.length || !ids.has(value.defaultProfile)) {
+    throw new Error('NanoAgent returned an invalid profile catalog.');
+  }
+  return {defaultProfile: value.defaultProfile, profiles};
+}
+
+function unavailableFallback(reason) {
+  return {
+    defaultProfile: fallbackProfiles.defaultProfile,
+    profiles: fallbackProfiles.profiles.map(profile => ({
+      ...profile,
+      available: false,
+      unavailableReason: reason,
+      capabilities: {},
+    })),
   };
 }
 
@@ -108,6 +156,7 @@ function statusForCode(code) {
   if (code === 'cancelled') return 499;
   if (code === 'timeout') return 504;
   if (code === 'capacity') return 503;
+  if (code === 'runner_unavailable') return 503;
   return 502;
 }
 
@@ -147,10 +196,48 @@ function publicEvent(event) {
 function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fetch(...args)} = {}) {
   const timeoutMs = positiveNumber(env.NANOAGENT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
   const maxStreamBytes = positiveNumber(env.NANOAGENT_MAX_STREAM_BYTES, DEFAULT_MAX_STREAM_BYTES);
+  const profileCacheMs = positiveNumber(env.NANOAGENT_PROFILE_CACHE_MS, DEFAULT_PROFILE_CACHE_MS);
+  const profileTimeoutMs = positiveNumber(
+    env.NANOAGENT_PROFILE_TIMEOUT_MS,
+    DEFAULT_PROFILE_TIMEOUT_MS,
+  );
+  let profileCache = null;
+  let profilePromise = null;
+
+  async function profiles({refresh = false} = {}) {
+    const endpoint = endpointFrom(env);
+    if (endpoint.error) return unavailableFallback(endpoint.error);
+    const now = Date.now();
+    if (!refresh && profileCache && profileCache.expiresAt > now) return profileCache.value;
+    if (!refresh && profilePromise) return profilePromise;
+    profilePromise = (async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), profileTimeoutMs);
+      try {
+        const response = await fetchImpl(`${endpoint.url}/v1/profiles`, {
+          headers: env.NANOAGENT_API_TOKEN
+            ? {Authorization: `Bearer ${env.NANOAGENT_API_TOKEN}`}
+            : {},
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(await responseError(response));
+        const value = normalizeProfileCatalog(await response.json());
+        profileCache = {value, expiresAt: Date.now() + profileCacheMs};
+        return value;
+      } catch (error) {
+        const value = profileCache?.value
+          ?? unavailableFallback(error instanceof Error ? error.message : UNAVAILABLE);
+        profileCache = {value, expiresAt: Date.now() + Math.min(profileCacheMs, 5_000)};
+        return value;
+      } finally {
+        clearTimeout(timer);
+        profilePromise = null;
+      }
+    })();
+    return profilePromise;
+  }
 
   async function stream(request = {}) {
-    const model = request.model || DEFAULT_MODEL;
-    if (!MODEL_IDS.has(model)) return {error: `Unsupported AI model: ${model}`, status: 400};
     const endpoint = endpointFrom(env);
     if (endpoint.error) return {error: endpoint.error, status: 503};
     if (request.signal?.aborted) return {error: CANCELLED, status: 499};
@@ -224,7 +311,9 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
       if (terminal.error) return {error: terminal.error, status: 502};
       return {
         text: typeof terminal.answer === 'string' && terminal.answer ? terminal.answer : (text || 'No response generated'),
-        model,
+        profile: terminal.profile ?? request.profile ?? null,
+        harness: terminal.harness ?? null,
+        model: terminal.model ?? null,
         usage: terminal.usage ?? null,
         cost: terminal.cost ?? null,
         stopReason: terminal.stop_reason ?? null,
@@ -247,10 +336,11 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
   return Object.freeze({
     complete: request => stream({...request, onDelta: undefined}),
     stream,
+    profiles,
     describe() {
       const endpoint = endpointFrom(env);
       if (endpoint.error) return {available: false, reason: endpoint.error};
-      return {available: true, provider: 'nanoagent', model: DEFAULT_MODEL, models: modelCatalog.models};
+      return {available: true, provider: 'nanoagent', profile: DEFAULT_PROFILE, model: DEFAULT_MODEL};
     },
   });
 }
@@ -261,15 +351,20 @@ module.exports = {
   DEFAULT_URL,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_STREAM_BYTES,
+  DEFAULT_PROFILE_CACHE_MS,
+  DEFAULT_PROFILE_TIMEOUT_MS,
+  DEFAULT_PROFILE,
   DEFAULT_MODEL,
   CANCELLED,
   TIMED_OUT,
   createSseParser,
   endpointFrom,
   nanoRequest,
+  normalizeProfileCatalog,
   publicEvent,
   createNanoAgentGateway,
   complete: gateway.complete,
   stream: gateway.stream,
+  profiles: gateway.profiles,
   describe: gateway.describe,
 };

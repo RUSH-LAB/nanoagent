@@ -500,6 +500,16 @@ export function makeCtx(overrides = {}) {
         request.onDelta?.('completion');
         return {text: 'a completion'};
       },
+      profiles: async () => ({
+        defaultProfile: 'native-test',
+        profiles: [{
+          id: 'native-test', label: 'Test', harness: 'native', model: 'test-model',
+          available: true, unavailableReason: null, capabilities: {},
+        }, {
+          id: 'pi-test', label: 'PI Test', harness: 'pi', model: 'test-model',
+          available: true, unavailableReason: null, capabilities: {},
+        }],
+      }),
       describe: () => ({available: true, provider: 'nanoagent', model: 'test-model'}),
     },
     PROJECT_ROOT: root,

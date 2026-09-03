@@ -34,11 +34,22 @@
 .convoActive .convoName { color: var(--ifm-color-primary); font-weight: 700; }
 .unread { min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--ifm-color-primary); color: #fff; font-size: var(--cli-micro); font-weight: 700; line-height: 1.45; text-align: center; }
 
+.agentGroup + .agentGroup { margin-top: 0.15rem; }
 .agentRow { position: relative; display: flex; }
-.agentConvo { padding-right: 1.8rem; }
-.editAgent { position: absolute; top: 50%; right: 0.4rem; display: none; width: 26px; height: 26px; padding: 0; transform: translateY(-50%); border: 0; border-radius: 7px; background: var(--ifm-color-emphasis-200); color: var(--ifm-color-emphasis-600); font-size: var(--cli-micro); cursor: pointer; }
+.agentConvo { padding-right: 6rem; }
+.agentTools { position: absolute; top: 50%; right: 0.4rem; display: flex; gap: 0.1rem; transform: translateY(-50%); }
+.newAgentChat, .manageAgentChats { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--ifm-color-emphasis-500); font: inherit; font-size: 1rem; cursor: pointer; }
+.newAgentChat:hover, .manageAgentChats:hover { background: var(--ifm-color-emphasis-200); color: var(--ifm-color-primary); }
+.editAgent { display: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: var(--ifm-color-emphasis-200); color: var(--ifm-color-emphasis-600); font-size: var(--cli-micro); cursor: pointer; }
 .agentRow:hover .editAgent, .editAgent:focus { display: block; }
 .agentManaging .editAgent { display: block; }
+.agentChildren { margin: 0.05rem 0 0.35rem 2.35rem; padding-left: 0.45rem; border-left: 1px solid var(--ifm-color-emphasis-300); }
+.agentChat { display: flex; align-items: center; gap: 0.35rem; width: 100%; min-height: 30px; padding: 0.25rem 0.45rem; overflow: hidden; border: 0; border-radius: 7px; background: transparent; color: var(--ifm-color-emphasis-500); font: inherit; font-size: var(--cli-meta); text-align: left; cursor: pointer; }
+.agentChat span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agentChat:hover { background: var(--ifm-color-emphasis-100); color: var(--ifm-font-color-base); }
+.agentChatActive { background: color-mix(in srgb, var(--ifm-color-primary) 10%, transparent); color: var(--ifm-color-primary); font-weight: 650; }
+.moreChats { width: 100%; padding: 0.25rem 0.45rem; border: 0; background: transparent; color: var(--ifm-color-primary); font: inherit; font-size: var(--cli-micro); text-align: left; cursor: pointer; }
+.moreChats:hover { text-decoration: underline; }
 .agentAvatar, .personAvatar { position: relative; display: grid; flex-shrink: 0; place-items: center; width: 28px; height: 28px; border-radius: 8px; color: #fff; font-size: var(--cli-meta); font-weight: 750; }
 .personAvatar { border-radius: 50%; background: var(--ifm-color-emphasis-300); color: var(--ifm-color-emphasis-800); }
 .onlineDot { position: absolute; right: -1px; bottom: -1px; width: 7px; height: 7px; border: 1.5px solid var(--ifm-background-surface-color); border-radius: 50%; background: #22c55e; }
@@ -57,7 +68,7 @@
 .inlineForm input { min-width: 0; flex: 1; padding: 0; border: 0; background: transparent; color: var(--ifm-font-color-base); font: inherit; font-size: var(--cli-label); outline: 0; }
 .sidebarNote, .sidebarNotice, .sidebarFailure { margin: 0; padding: 0.35rem 0.5rem; font-size: var(--cli-meta); line-height: 1.4; }
 .sidebarNote { color: var(--ifm-color-emphasis-500); }.sidebarNotice { color: var(--ifm-color-success); }.sidebarFailure { color: var(--ifm-color-danger); }
-.convo:focus-visible, .manageAction:focus-visible, .addAction:focus-visible, .editAgent:focus-visible, .personActions button:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: -2px; }
+.convo:focus-visible, .manageAction:focus-visible, .addAction:focus-visible, .newAgentChat:focus-visible, .manageAgentChats:focus-visible, .editAgent:focus-visible, .agentChat:focus-visible, .moreChats:focus-visible, .personActions button:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: -2px; }
 
 @media (max-width: 768px) {
   .sidebar { width: 210px; }

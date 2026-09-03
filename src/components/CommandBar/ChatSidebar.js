@@ -69,12 +69,17 @@ function Section({title, count, browseLabel, browseText = 'Manage', onBrowse, on
 export default function ChatSidebar({
   chat,
   agents,
+  aiChats = [],
   agentsStatus,
   agentsError,
   activeChannelId,
   activeAgentId,
+  activeChatId,
   onSelect,
   onSelectAgent,
+  onSelectChat,
+  onNewChat,
+  onManageChats,
   onCreateAgent,
   onEditAgent,
   onBrowsePeople,
@@ -163,15 +168,45 @@ export default function ChatSidebar({
           onAdd={canEditAgents ? onCreateAgent : null}
           addLabel="Create an agent"
         >
-          {agents.map(agent => (
-            <div key={agent.id} className={`${styles.agentRow} ${managingAgents ? styles.agentManaging : ''}`}>
-              <button type="button" className={`${styles.convo} ${styles.agentConvo} ${activeAgentId === agent.id ? styles.convoActive : ''}`} onClick={() => onSelectAgent(agent)} aria-current={activeAgentId === agent.id} title={agent.description || agent.name}>
-                <ConversationIcon agent={agent} />
-                <span className={styles.convoBody}><span className={styles.convoName}>{agent.name}</span></span>
-              </button>
-              {canEditAgents && <button type="button" className={styles.editAgent} onClick={() => onEditAgent(agent)} aria-label={`Edit ${agent.name}`}>•••</button>}
+          {agents.map(agent => {
+            const agentChats = aiChats.filter(aiChat => aiChat.agentId === agent.id);
+            const visibleChats = agentChats.slice(0, 3);
+            return <div key={agent.id} className={styles.agentGroup}>
+              <div className={`${styles.agentRow} ${managingAgents ? styles.agentManaging : ''}`}>
+                <button type="button" className={`${styles.convo} ${styles.agentConvo} ${activeAgentId === agent.id ? styles.convoActive : ''}`} onClick={() => onSelectAgent(agent)} aria-current={activeAgentId === agent.id} title={agent.description || agent.name}>
+                  <ConversationIcon agent={agent} />
+                  <span className={styles.convoBody}><span className={styles.convoName}>{agent.name}</span></span>
+                </button>
+                <span className={styles.agentTools}>
+                  <button type="button" className={styles.newAgentChat} onClick={() => onNewChat(agent)} aria-label={`New chat with ${agent.name}`} title="New chat">+</button>
+                  {agentChats.length > 0 && <button type="button" className={styles.manageAgentChats} onClick={() => onManageChats(agent)} aria-label={`Manage ${agent.name} chats`} title="Manage chats">≡</button>}
+                  {canEditAgents && <button type="button" className={styles.editAgent} onClick={() => onEditAgent(agent)} aria-label={`Edit ${agent.name}`}>•••</button>}
+                </span>
+              </div>
+              {agentChats.length > 0 && (
+                <div className={styles.agentChildren} aria-label={`${agent.name} chats`}>
+                  {visibleChats.map(aiChat => (
+                    <button
+                      key={aiChat.id}
+                      type="button"
+                      className={`${styles.agentChat} ${aiChat.id === activeChatId ? styles.agentChatActive : ''}`}
+                      onClick={() => onSelectChat(aiChat)}
+                      aria-current={aiChat.id === activeChatId}
+                      title={aiChat.title}
+                    >
+                      <span aria-hidden="true">↳</span>
+                      <span>{aiChat.title}</span>
+                    </button>
+                  ))}
+                  {agentChats.length > visibleChats.length && (
+                    <button type="button" className={styles.moreChats} onClick={() => onManageChats(agent)}>
+                      {agentChats.length - visibleChats.length} more…
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-          ))}
+          })}
           {agentsStatus === 'loading' && <p className={styles.sidebarNote}>Loading agents…</p>}
           {agentsStatus === 'error' && <p className={styles.sidebarFailure}>{agentsError}</p>}
         </Section>

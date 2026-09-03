@@ -49,7 +49,7 @@ export default function Completions({matches, selected, query, dragging, onHover
   return (
     <div className={`${styles.completions} ${dragging ? styles.completionsDragging : ''}`}>
       {matches.length > 0 ? (
-        <div className={styles.list} ref={listRef} id={LISTBOX_ID} role="listbox" aria-label="Commands">
+        <div className={styles.list} ref={listRef} id={LISTBOX_ID} role="listbox" aria-label="Commands and choices">
           {matches.map((cmd, i) => (
             <button
               key={cmd.id}
@@ -62,8 +62,8 @@ export default function Completions({matches, selected, query, dragging, onHover
               onMouseEnter={() => onHover(i)}
             >
               <span className={styles.itemIcon}>{iconOf(cmd)}</span>
-              <span className={styles.itemName}>/{cmd.name}</span>
-              <span className={styles.itemUsage}>{cmd.usage}</span>
+              <span className={styles.itemName}>{cmd.kind === 'argument' ? cmd.name : `/${cmd.name}`}</span>
+              <span className={styles.itemUsage}>{cmd.kind === 'argument' && cmd.current ? '✓ current' : cmd.usage}</span>
               <span className={styles.itemDescription}>{cmd.description}</span>
               <span className={styles.itemCategory}>{cmd.category}</span>
             </button>
@@ -80,11 +80,12 @@ export default function Completions({matches, selected, query, dragging, onHover
       {choice && (
         <div className={styles.hint}>
           <span className={styles.hintCall}>
-            /{choice.name}
-            {choice.usage ? ` ${choice.usage}` : ''}
+            {choice.kind === 'argument'
+              ? choice.commandLine
+              : `/${choice.name}${choice.usage ? ` ${choice.usage}` : ''}`}
           </span>
           <span className={styles.hintText}>
-            {[choice.description, choice.usage ? null : 'takes no argument']
+            {[choice.description, choice.available === false ? 'currently unavailable' : null]
               .filter(Boolean)
               .join(' · ')}
           </span>

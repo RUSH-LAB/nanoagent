@@ -119,6 +119,7 @@ const FEATURES = [
 
 const SHORTCUTS = [
   { keys: 'Cmd + K', description: 'Open command palette / quick search' },
+  { keys: 'Cmd/Ctrl + Shift + Enter', description: 'Add selected page text to an existing AI chat' },
   { keys: 'Cmd + O', description: 'Open file navigator' },
   { keys: 'Cmd + S', description: 'Save current file' },
   { keys: 'Cmd + J', description: 'Toggle bottom panel' },

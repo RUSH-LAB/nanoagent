@@ -179,7 +179,13 @@ export default function useAssistant(sessions) {
     controller.abort();
   }, []);
 
-  const ask = useCallback(async (sessionId, text, agent = null) => {
+  const ask = useCallback(async (
+    sessionId,
+    text,
+    agent = null,
+    context = '',
+    profileId = null,
+  ) => {
     // Prior turns ride as structured messages and the new line as the prompt.
     // Read before appending it, or the question would appear in its own history.
     const session = listRef.current.find((s) => s.id === sessionId);
@@ -187,14 +193,14 @@ export default function useAssistant(sessions) {
     const priorEntries = entriesForTarget(session?.entries ?? [], session?.target);
     const messages = priorEntries
       .slice(-CONTEXT_TURNS)
-      .filter(e => e.kind === 'input' || e.kind === 'output')
+      .filter(e => !e.command && (e.kind === 'input' || e.kind === 'output'))
       .map(e => ({role: e.kind === 'input' ? 'user' : 'assistant', content: e.text}));
     let historyChars = messages.reduce((sum, message) => sum + message.content.length, 0);
     while (historyChars > CONTEXT_CHARS && messages.length) {
       historyChars -= messages.shift().content.length;
     }
 
-    append(sessionId, 'input', text, {targetKey: conversationKey});
+    append(sessionId, 'input', text, {targetKey: conversationKey, titleChat: true});
     // The answer's row is opened empty and marked pending, and every delta is
     // written into that one row. The transcript draws a caret on a pending row
     // and shows the wait in place of an empty one; nothing else has to know
@@ -210,6 +216,8 @@ export default function useAssistant(sessions) {
     controllers.current[sessionId] = controller;
 
     const payload = messages.length ? {prompt: text, messages} : {prompt: text};
+    if (context) payload.context = context;
+    if (profileId) payload.profileId = profileId;
     if (agent) {
       // The server owns the agent definition. Sending only its id prevents a
       // caller from replacing trusted instructions or NanoAgent policy in the

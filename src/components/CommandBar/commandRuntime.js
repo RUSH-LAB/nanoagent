@@ -1,11 +1,8 @@
 /**
  * Turning a typed line into something that happens.
  *
- * The CLI used to treat the whole line as the query, which meant a slash
- * command could never take an argument: `/dm alice` was searched for as the
- * string "dm alice", matched nothing, and was refused. Splitting the line into
- * a verb and the rest of it, and matching on the verb alone, is what makes
- * arguments possible at all, so the parse lives here rather than inside a hook.
+ * Splitting the line into a verb and the rest of it lets `/model model-id` and
+ * `/harness harness-name` share one small parser and completion path.
  *
  * This module has no JSX and no React, on purpose. It is the part of the CLI
  * worth unit testing, and `node --test` can only load it if nothing in its
@@ -67,27 +64,35 @@ export function resolveCommand(commands, verb) {
   return prefixed.length === 1 ? prefixed[0] : null;
 }
 
+/** Turn a command's dynamic choices into rows the completion menu can run. */
+export function rankCommandOptions(command, ctx, query = '') {
+  if (typeof command?.options !== 'function') return [];
+  const options = command.options(ctx).map(option => ({
+    ...option,
+    kind: 'argument',
+    commandName: command.name,
+    commandLine: `/${command.name} ${option.value}`,
+    argument: option.value,
+    title: option.value,
+    icon: option.icon ?? command.icon,
+    run: runtimeCtx => command.run(runtimeCtx, option.value),
+  }));
+  return rankCommands(options, query);
+}
+
 /**
  * Run a resolved command.
  *
- * A command that has an `href` is somewhere to go, and going there is the whole
- * of it; a command that has a `run` does something, and is handed the context
- * and the raw argument line to do it with. Either way every failure is caught
+ * A command is handed the context and the raw argument line. Every failure is caught
  * and reported into the pane, because a verb that throws would take the React
  * tree down with it and lose the transcript that explains what went wrong.
  *
- * `ctx` is {session, sessions, chat, assistant, commands, navigate, say, note,
- * fail}: the pane the line was typed into, the hooks behind the window, the
- * command list (which is what /help reads), and three ways to answer.
+ * `ctx` carries the active chat, profile catalog, session store, and ways to
+ * report success or failure into the transcript.
  */
 export async function runCommand(command, argLine, ctx) {
   if (!command) return;
   try {
-    if (command.href) {
-      ctx.note(`opening ${command.title}`);
-      ctx.navigate(command.href);
-      return;
-    }
     if (typeof command.run === 'function') {
       await command.run(ctx, argLine ?? '');
       return;

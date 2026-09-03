@@ -1,5 +1,5 @@
 'use strict';
-const modelCatalog = require('../../ai-models.json');
+const fallbackProfiles = require('../../ai-profiles.json');
 // Route module organized from server/index.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
@@ -25,8 +25,6 @@ const DEFAULT_SYSTEM_PROMPT =
   + 'preamble.';
 
 const VALID_TYPES = ['continue', 'improve', 'explain', 'summarize'];
-const VALID_MODELS = new Set(modelCatalog.models.map(model => model.id));
-const DEFAULT_MODEL = modelCatalog.defaultModel;
 const SYSTEM_PROMPTS = {
   continue: 'You are a writing assistant. Continue the text naturally, matching the style and tone. Output only the continuation, no preamble.',
   improve: 'You are an editing assistant. Improve the text for clarity, flow, and correctness while preserving the original meaning and tone. Output only the improved text, no preamble.',
@@ -69,8 +67,8 @@ function corsHeaders(req, corsOrigin) {
  *
  * Returns `{error}` for a rejection, otherwise `{request}` ready for ai.
  */
-function composeRequest(body, sanitizeText, agent = null) {
-  const {prompt, context, messages, type, agentId} = body;
+function composeRequest(body, sanitizeText, agent = null, catalog = null) {
+  const {prompt, context, messages, type, agentId, profileId: requestedProfileId} = body;
   if (!prompt || typeof prompt !== 'string') return {error: 'Missing or invalid prompt'};
   if (prompt.length > 50000) return {error: 'Prompt must be 50000 characters or fewer'};
   if (context !== undefined && typeof context !== 'string') return {error: 'context must be a string'};
@@ -94,8 +92,19 @@ function composeRequest(body, sanitizeText, agent = null) {
   if (agentId !== undefined && (typeof agentId !== 'string' || !agentId || agentId.length > 100)) {
     return {error: 'agentId must be a non-empty string of 100 characters or fewer'};
   }
-  if (agent?.model !== undefined && !VALID_MODELS.has(agent.model)) {
-    return {error: 'The selected agent has an unsupported model'};
+  if (requestedProfileId !== undefined
+    && (typeof requestedProfileId !== 'string' || !requestedProfileId || requestedProfileId.length > 100)) {
+    return {error: 'profileId must be a non-empty string of 100 characters or fewer'};
+  }
+  const profiles = catalog?.profiles ?? [];
+  let profileId = requestedProfileId || agent?.profileId;
+  if (!profileId && agent?.model) {
+    profileId = profiles.find(profile => profile.model === agent.model)?.id;
+    if (!profileId) return {error: 'The selected agent has an unsupported legacy model'};
+  }
+  profileId ||= catalog?.defaultProfile;
+  if (!profiles.some(profile => profile.id === profileId)) {
+    return {error: 'The selected agent has an unsupported profile'};
   }
   if (context) history.push({role: 'user', content: `Context:\n${sanitizeText(context)}`});
 
@@ -108,7 +117,7 @@ function composeRequest(body, sanitizeText, agent = null) {
       input: sanitizeText(prompt),
       messages: history,
       instructions: (type && SYSTEM_PROMPTS[type]) || agentPrompt || DEFAULT_SYSTEM_PROMPT,
-      model: agent?.model ?? DEFAULT_MODEL,
+      profile: profileId,
     },
   };
 }
@@ -116,6 +125,9 @@ function composeRequest(body, sanitizeText, agent = null) {
 /** Resolve an agent inside the verified workspace; never trust its browser copy. */
 async function composeStoredRequest(req, ctx) {
   const body = await ctx.readBody(req);
+  const catalog = typeof ctx.ai.profiles === 'function'
+    ? await ctx.ai.profiles()
+    : fallbackProfiles;
   let agent = null;
   if (body?.agentId !== undefined) {
     if (typeof body.agentId !== 'string' || !body.agentId || body.agentId.length > 100) {
@@ -124,10 +136,10 @@ async function composeStoredRequest(req, ctx) {
     agent = await ctx.collection('agents').get(ctx.scopeFor(req), body.agentId);
     if (!agent) return {error: 'Agent not found', status: 404};
   }
-  const composed = composeRequest(body, ctx.sanitizeText, agent);
+  const composed = composeRequest(body, ctx.sanitizeText, agent, catalog);
   if (composed.error) return composed;
-  // NanoAgent owns model, tool, and execution policy. None of those are copied
-  // from browser input or mutable workspace data.
+  // The browser may choose only a profile id from NanoAgent's discovered
+  // allowlist. Commands, credentials, tools, and execution policy stay private.
   return composed;
 }
 
@@ -246,6 +258,10 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
   // ── Which private agent runtime is answering ──
   if (req.method === 'GET' && pathname === '/api/ai/status') {
     return json(res, 200, ai.describe());
+  }
+
+  if (req.method === 'GET' && pathname === '/api/ai/profiles') {
+    return json(res, 200, await ai.profiles());
   }
 };
 

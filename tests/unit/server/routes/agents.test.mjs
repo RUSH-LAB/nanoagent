@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import {loadRoute, makeCtx, invoke} from '../../_harness.mjs';
 
 const routes = loadRoute('agents');
-const MODEL = routes.DEFAULT_MODEL;
+const PROFILE = 'native-test';
 const context = {workspaceId: 'test-org', userId: 'test-user', membershipId: 'member-1', role: 'owner'};
 const body = {
   name: 'Researcher',
   description: 'Finds the evidence',
   instructions: 'Check claims and cite the strongest available evidence.',
-  model: MODEL,
+  profileId: PROFILE,
   color: 'blue',
 };
 
@@ -20,9 +20,9 @@ describe('workspace agents', () => {
       id: agent.id,
       name: agent.name,
       instructions: agent.instructions,
-      model: agent.model,
+      profileId: agent.profileId,
       builtin: agent.builtin,
-    })), [{id: 'mochi', name: 'Mochi', instructions: '', model: MODEL, builtin: true}]);
+    })), [{id: 'mochi', name: 'Mochi', instructions: '', profileId: 'native-test', builtin: true}]);
   });
 
   it('removes legacy provider selection from stored agents', async () => {
@@ -34,12 +34,14 @@ describe('workspace agents', () => {
       description: 'Your general-purpose assistant',
       instructions: '',
       provider: 'claude-code',
+      model: 'test-model',
       builtin: true,
     });
 
     const migrated = await invoke(routes, {method: 'GET', path: '/api/agents', ctx, requestContext: context});
     assert.equal('provider' in migrated.payload.agents[0], false);
-    assert.equal(migrated.payload.agents[0].model, MODEL);
+    assert.equal(migrated.payload.agents[0].profileId, 'native-test');
+    assert.equal('model' in migrated.payload.agents[0], false);
     assert.equal(migrated.payload.agents[0].description, '');
   });
 
@@ -49,7 +51,7 @@ describe('workspace agents', () => {
     assert.equal(created.status, 201);
     assert.equal(created.payload.agent.name, 'Researcher');
     assert.equal(created.payload.agent.color, 'blue');
-    assert.equal(created.payload.agent.model, MODEL);
+    assert.equal(created.payload.agent.profileId, PROFILE);
     assert.equal('provider' in created.payload.agent, false);
 
     const id = created.payload.agent.id;
@@ -66,18 +68,18 @@ describe('workspace agents', () => {
     assert.deepEqual(empty.payload.agents.map(agent => agent.id), ['mochi']);
   });
 
-  it('allows the catalog model and rejects unsupported models or legacy providers', async () => {
+  it('allows configured profiles and rejects arbitrary or legacy selection fields', async () => {
     const ctx = makeCtx();
     const created = await invoke(routes, {method: 'POST', path: '/api/agents', body: {name: 'Plain', instructions: ''}, ctx, requestContext: context});
     assert.equal(created.payload.agent.instructions, '');
-    assert.equal(created.payload.agent.model, MODEL);
+    assert.equal(created.payload.agent.profileId, 'native-test');
     assert.equal('provider' in created.payload.agent, false);
 
-    const unsupported = await invoke(routes, {method: 'POST', path: '/api/agents', body: {name: 'Bad', model: 'other'}, ctx, requestContext: context});
-    assert.deepEqual([unsupported.status, unsupported.payload], [400, {error: 'Unsupported AI model'}]);
+    const unsupported = await invoke(routes, {method: 'POST', path: '/api/agents', body: {name: 'Bad', profileId: 'other'}, ctx, requestContext: context});
+    assert.deepEqual([unsupported.status, unsupported.payload], [400, {error: 'Unsupported NanoAgent profile'}]);
 
     const legacy = await invoke(routes, {method: 'POST', path: '/api/agents', body: {name: 'Old', provider: 'codex'}, ctx, requestContext: context});
-    assert.deepEqual([legacy.status, legacy.payload], [400, {error: 'Model selection is managed by NanoAgent'}]);
+    assert.deepEqual([legacy.status, legacy.payload], [400, {error: 'Harness and model selection use a NanoAgent profileId'}]);
   });
 
   it('does not delete the built-in Mochi agent', async () => {

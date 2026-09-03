@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import {loadRoute, makeCtx, invoke} from '../../_harness.mjs';
 
 const routes = loadRoute('ai');
-const MODEL = 'deepseek/deepseek-v4-flash-0731';
+const PROFILE = 'native-test';
 
 // The input the two endpoints refuse. One list, because they share one
 // validator: whatever /complete will not accept, /stream will not accept either.
@@ -32,6 +32,8 @@ const GUARDS = [
   {name: 'a type outside the allow list', body: {prompt: 'p', type: 'translate'}, error: 'Invalid type. Must be one of: continue, improve, explain, summarize'},
   {name: 'a non-string agent id', body: {prompt: 'p', agentId: 7}, error: 'agentId must be a non-empty string of 100 characters or fewer'},
   {name: 'an empty agent id', body: {prompt: 'p', agentId: ''}, error: 'agentId must be a non-empty string of 100 characters or fewer'},
+  {name: 'a non-string profile id', body: {prompt: 'p', profileId: 7}, error: 'profileId must be a non-empty string of 100 characters or fewer'},
+  {name: 'an unknown profile id', body: {prompt: 'p', profileId: 'unknown'}, error: 'The selected agent has an unsupported profile'},
 ];
 
 const WORKSPACE = {workspaceId: 'test-org', userId: 'test-user', membershipId: 'member-1', role: 'owner'};
@@ -72,13 +74,24 @@ describe('POST /api/ai/complete', () => {
     assert.equal(ctx.calls.ai[0].input, 'Write something');
     assert.deepEqual(ctx.calls.ai[0].messages, [{role: 'user', content: 'Context:\nearlier text'}]);
     assert.ok(ctx.calls.ai[0].instructions.startsWith('You are a writing assistant.'));
-    assert.equal(ctx.calls.ai[0].model, MODEL);
+    assert.equal(ctx.calls.ai[0].profile, PROFILE);
   });
 
   it('sends the system prompt for the named job', async () => {
     const ctx = makeCtx();
     await invoke(routes, {method: 'POST', path: '/api/ai/complete', body: {prompt: 'p', type: 'summarize'}, ctx});
     assert.ok(ctx.calls.ai[0].instructions.startsWith('You are a summarization assistant.'));
+  });
+
+  it('uses a catalog-approved profile override for this chat', async () => {
+    const ctx = makeCtx();
+    await invoke(routes, {
+      method: 'POST',
+      path: '/api/ai/complete',
+      body: {prompt: 'p', profileId: 'pi-test'},
+      ctx,
+    });
+    assert.equal(ctx.calls.ai[0].profile, 'pi-test');
   });
 
   // The CLI at the foot of the site sends plain questions with no type, and an
@@ -92,7 +105,7 @@ describe('POST /api/ai/complete', () => {
 
   it('uses workspace agent instructions when an agent is selected', async () => {
     const ctx = makeCtx();
-    await putAgent(ctx, {id: 'researcher', name: 'Researcher', instructions: 'Always cite evidence.', model: MODEL});
+    await putAgent(ctx, {id: 'researcher', name: 'Researcher', instructions: 'Always cite evidence.', profileId: PROFILE});
     await invoke(routes, {
       method: 'POST',
       path: '/api/ai/complete',
@@ -102,7 +115,7 @@ describe('POST /api/ai/complete', () => {
     });
     assert.match(ctx.calls.ai[0].instructions, /workspace agent Researcher/);
     assert.match(ctx.calls.ai[0].instructions, /Always cite evidence\./);
-    assert.equal(ctx.calls.ai[0].model, MODEL);
+    assert.equal(ctx.calls.ai[0].profile, PROFILE);
     assert.equal('provider' in ctx.calls.ai[0], false);
   });
 
@@ -118,12 +131,12 @@ describe('POST /api/ai/complete', () => {
     });
     assert.equal('provider' in ctx.calls.ai[0], false);
     assert.match(ctx.calls.ai[0].instructions, /assistant built into a personal research site/);
-    assert.equal(ctx.calls.ai[0].model, MODEL);
+    assert.equal(ctx.calls.ai[0].profile, PROFILE);
   });
 
-  it('rejects an unsupported model on a stale stored agent', async () => {
+  it('rejects an unsupported profile on a stale stored agent', async () => {
     const ctx = makeCtx();
-    await putAgent(ctx, {id: 'stale', name: 'Stale', instructions: '', model: 'arbitrary/model'});
+    await putAgent(ctx, {id: 'stale', name: 'Stale', instructions: '', profileId: 'removed-profile'});
     const result = await invoke(routes, {
       method: 'POST',
       path: '/api/ai/complete',
@@ -131,7 +144,7 @@ describe('POST /api/ai/complete', () => {
       ctx,
       requestContext: WORKSPACE,
     });
-    assert.deepEqual([result.status, result.payload], [400, {error: 'The selected agent has an unsupported model'}]);
+    assert.deepEqual([result.status, result.payload], [400, {error: 'The selected agent has an unsupported profile'}]);
     assert.deepEqual(ctx.calls.ai, []);
   });
 
@@ -161,6 +174,13 @@ describe('POST /api/ai/complete', () => {
   it('reports the provider at /api/ai/status', async () => {
     const r = await invoke(routes, {path: '/api/ai/status'});
     assert.deepEqual([r.status, r.payload], [200, {available: true, provider: 'nanoagent', model: 'test-model'}]);
+  });
+
+  it('returns NanoAgent profiles for the agent editor', async () => {
+    const r = await invoke(routes, {path: '/api/ai/profiles'});
+    assert.equal(r.status, 200);
+    assert.equal(r.payload.defaultProfile, PROFILE);
+    assert.equal(r.payload.profiles[0].harness, 'native');
   });
 
   for (const [label, readBody] of [
@@ -357,7 +377,7 @@ describe('POST /api/ai/stream', () => {
     assert.equal(ctx.calls.ai[0].input, 'Write something');
     assert.deepEqual(ctx.calls.ai[0].messages, [{role: 'user', content: 'Context:\nearlier text'}]);
     assert.match(ctx.calls.ai[0].instructions, /assistant built into a personal research site/);
-    assert.equal(ctx.calls.ai[0].model, MODEL);
+    assert.equal(ctx.calls.ai[0].profile, PROFILE);
   });
 });
 

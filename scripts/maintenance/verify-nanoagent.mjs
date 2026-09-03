@@ -93,7 +93,18 @@ try {
   const modelPort = await listen(fakeModel);
   const agentPort = await unusedPort();
   const configPath = path.join(temporary, 'web.yaml');
-  fs.writeFileSync(configPath, `model:
+  fs.writeFileSync(configPath, `default_profile: native-fake
+profiles:
+  native-fake:
+    label: Fake model · NanoAgent
+    model: fake
+    harness:
+      type: native
+      command: null
+      cwd: null
+      options: {}
+    model_overrides: {}
+model:
   model: fake
   backend: sglang
   base_url: http://127.0.0.1:${modelPort}/v1
@@ -140,6 +151,8 @@ include_reasoning: false
   await waitForHealth(url, nanoagent, () => stderr);
   const deltas = [];
   const gateway = createNanoAgentGateway({env: {NANOAGENT_URL: url}});
+  const profiles = await gateway.profiles();
+  assert.equal(profiles.defaultProfile, 'native-fake');
   const result = await gateway.stream({
     input: 'Say where this answer came from.',
     messages: [{role: 'user', content: 'This is a prior turn.'}],
@@ -148,7 +161,9 @@ include_reasoning: false
   });
 
   assert.equal(result.text, 'hello from nanoagent');
-  assert.equal(result.model, 'deepseek/deepseek-v4-flash-0731');
+  assert.equal(result.profile, 'native-fake');
+  assert.equal(result.harness, 'native');
+  assert.equal(result.model, 'fake');
   assert.deepEqual(deltas, ['hello from ', 'nanoagent']);
   assert.equal(result.stopReason, 'answer');
   assert.equal(result.usage.total_tokens, 10);
@@ -159,7 +174,7 @@ include_reasoning: false
     {role: 'user', content: 'This is a prior turn.'},
     {role: 'user', content: 'Say where this answer came from.'},
   ]);
-  console.log('NanoAgent integration verified: DeepSeek V4 Flash profile, streamed text, history, instructions, usage, and completion.');
+  console.log('NanoAgent integration verified: profile discovery, streamed text, history, instructions, usage, and completion.');
 } finally {
   await stop(nanoagent);
   await new Promise(resolve => fakeModel.close(resolve));
