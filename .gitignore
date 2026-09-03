@@ -10,11 +10,6 @@
 
 # Misc
 .DS_Store
-# This private repository intentionally versions its base and deployment env
-# files. Keep arbitrary developer-specific variants ignored.
-.env.*
-!.env.postgres.local
-!.env.production.local
 
 npm-debug.log*
 yarn-debug.log*
