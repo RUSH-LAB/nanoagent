@@ -1,31 +1,11 @@
-# Dependencies
-/node_modules
-
-# Production
-/build
-
-# Generated files
-.docusaurus
-.cache-loader
-
-# Misc
+node_modules/
+build/
+.docusaurus/
+.cache-loader/
 .DS_Store
-
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Mutable runtime state the server writes: the JSON stores (var/data), the
-# access log (var/logs) and soft-deleted files (var/trash). See server/paths.js.
-/var
-
-# Raw bibliography artifacts (large PDFs/sources)
-/raw
-raw/
-.worktrees/
-
-# Fleet (next/moon) git worktrees
-.claude/worktrees/
-
-# Loop scaffolding and per-cycle records written by the next/moon fleets
-/progress
+*.log*
+/var/
+/raw/
+/.worktrees/
+/.claude/worktrees/
+/progress/
