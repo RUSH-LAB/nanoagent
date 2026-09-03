@@ -1,3 +1,5 @@
+import API_BASE from './api.js';
+
 function splitSuffix(value) {
   const match = /^([^?#]*)([?#].*)?$/.exec(String(value ?? ''));
   return {pathname: match?.[1] ?? '', suffix: match?.[2] ?? ''};
@@ -52,5 +54,5 @@ export function workspaceAssetHref(url, workspaceId, documentPath) {
   const segments = cleanSegments(pathname, current);
   if (!segments || !workspaceId) return value;
   const logicalPath = segments.join('/');
-  return `/api/workspaces/${encodeURIComponent(workspaceId)}/assets?path=${encodeURIComponent(logicalPath)}${suffix}`;
+  return `${API_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/assets?path=${encodeURIComponent(logicalPath)}${suffix}`;
 }

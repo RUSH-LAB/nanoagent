@@ -248,6 +248,7 @@ export function Equation({ id, children }) {
     <div
       ref={ref}
       id={id}
+      className="numbered-equation"
       style={{
         margin: '1em 0',
         display: 'flex',

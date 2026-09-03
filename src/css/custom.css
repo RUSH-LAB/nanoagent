@@ -220,6 +220,25 @@ h2[class*="title_"] a:hover {
   color: #e2e8f0 !important;
 }
 
+/* Runtime-authored Markdown is rendered from an inert tree rather than through
+   Docusaurus's MDX pipeline. Give its display-math wrapper the same centered,
+   scroll-safe presentation as a normal KaTeX block. The width belongs to the
+   wrapper so long equations scroll inside the prose column instead of pushing
+   the blog layout wider. */
+.markdown .math-display {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 1.5rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+}
+
+.markdown .math-display > .katex-display {
+  margin: 0;
+  text-align: center;
+}
+
 /* For readability concerns, you should choose a lighter palette in dark mode. */
 [data-theme='dark'] {
   --ifm-color-primary: #ffffff;

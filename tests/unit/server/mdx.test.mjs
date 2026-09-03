@@ -42,6 +42,17 @@ describe('safe workspace markdown', () => {
     assert.match(math.html, /katex/);
   });
 
+  it('preserves display math as a centered block, including inside Equation', async () => {
+    const tree = await mdx.compileMarkdown(
+      '<Equation id="eq-energy">\n\n$$\nE = mc^2\n$$\n\n</Equation>',
+    );
+    const equation = all(tree).find(node => node.type === 'component' && node.name === 'Equation');
+    const math = all(equation).find(node => node.type === 'math');
+    assert.deepEqual(equation.props, {id: 'eq-energy'});
+    assert.equal(math.display, true);
+    assert.match(math.html, /katex-display/);
+  });
+
   it('keeps math inert when the workspace disables the built-in renderer', async () => {
     const tree = await mdx.compileMarkdown('The value is $x^2$.', {rendering: {math: false}});
     assert.equal(all(tree).some(node => node.type === 'math'), false);

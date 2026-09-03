@@ -209,7 +209,14 @@ function prepareSource(markdown) {
     values,
     (_whole, _ticks, body) => body,
   );
-  source = protect(source, /\$\$([\s\S]*?)\$\$/g, values, (_whole, body) => body);
+  // Keep display delimiters on their own lines while shielding the TeX body
+  // from MDX. Collapsing a multiline block to `$$TOKEN$$` makes remark-math
+  // classify it as inline math, which loses display layout and centering.
+  source = source.replace(/\$\$([\s\S]*?)\$\$/g, (_whole, body) => {
+    const token = `MOCHIPROTECTED${values.size}TOKEN`;
+    values.set(token, body);
+    return `$$\n${token}\n$$`;
+  });
   source = protect(
     source,
     /(?<!\\)(?<!\$)\$(?!\$)([^$\n]+?)(?<!\\)\$(?!\$)/g,
