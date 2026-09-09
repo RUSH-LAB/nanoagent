@@ -77,15 +77,10 @@ function TokenBreakdown({usage, compact = false}) {
     : null;
   return (
     <dl className={`${styles.tokenGrid} ${compact ? styles.tokenGridCompact : ''}`}>
-      <div className={`${styles.tokenGroup} ${styles.inputGroup}`}>
-        <dt>Input</dt>
-        <dd>{tokens(input)}</dd>
-        <div className={styles.tokenParts}>
-          <span><small>Uncached</small><b>{tokens(uncached)}</b></span>
-          <span><small>Cache read</small><b>{tokens(cached)}</b></span>
-          <span><small>Cache write</small><b>{tokens(cacheWrite)}</b></span>
-        </div>
-      </div>
+      <Stat label="Input" value={tokens(input)} accent />
+      <Stat label="Uncached" value={tokens(uncached)} />
+      <Stat label="Cache read" value={tokens(cached)} />
+      <Stat label="Cache write" value={tokens(cacheWrite)} />
       <Stat label="Output" value={tokens(output)} />
       <Stat label="Reasoning" value={tokens(reasoning)} />
     </dl>
@@ -145,7 +140,7 @@ function MessageMetrics({telemetry}) {
                     <span className={styles.stepMeta}>{dollars(step.cost)}</span>
                     <span className={styles.stepMeta}>{seconds(step.duration_s)}</span>
                   </div>
-                  <TokenBreakdown usage={step.usage} compact />
+                  {stepRows.length > 1 && <TokenBreakdown usage={step.usage} compact />}
 
                   <div className={styles.calls}>
                     {(step.model_calls || []).map((call, callIndex) => (

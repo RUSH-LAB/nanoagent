@@ -116,9 +116,9 @@
 .metrics {
   overflow: hidden;
   max-width: 46rem;
-  margin-top: 0.7rem;
+  margin-top: 0.45rem;
   border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 10px;
+  border-radius: 7px;
   background: color-mix(in srgb, var(--ifm-background-surface-color) 92%, var(--ifm-color-emphasis-100));
   color: var(--ifm-color-emphasis-600);
   font-size: var(--cli-micro);
@@ -128,10 +128,10 @@
 .metricsSummary {
   display: grid;
   grid-template-columns: minmax(5.5rem, 1fr) repeat(3, auto) 0.75rem;
-  gap: 0.55rem 1rem;
+  gap: 0.35rem 0.8rem;
   align-items: center;
-  min-height: 2.75rem;
-  padding: 0.45rem 0.65rem;
+  min-height: 2.15rem;
+  padding: 0.28rem 0.5rem;
   list-style: none;
   cursor: pointer;
   user-select: none;
@@ -180,16 +180,16 @@
 }
 
 .metricsBody {
-  padding: 0 0.65rem 0.7rem;
+  padding: 0 0.5rem 0.45rem;
   border-top: 1px solid var(--ifm-color-emphasis-200);
 }
 
 .metricSection {
-  padding-top: 0.65rem;
+  padding-top: 0.42rem;
 }
 
 .metricSection + .metricSection {
-  margin-top: 0.65rem;
+  margin-top: 0.42rem;
   border-top: 1px solid var(--ifm-color-emphasis-200);
 }
 
@@ -197,7 +197,7 @@
   display: flex;
   gap: 0.4rem;
   align-items: center;
-  margin: 0 0 0.4rem;
+  margin: 0 0 0.28rem;
   color: var(--ifm-color-emphasis-600);
   font-family: inherit;
   font-size: var(--cli-micro);
@@ -224,35 +224,44 @@
 .statGrid,
 .callMetrics {
   display: grid;
-  grid-template-columns: minmax(10rem, 1.6fr) repeat(2, minmax(5rem, 1fr));
-  gap: 0.4rem;
+  gap: 0.25rem;
   margin: 0;
 }
 
-.tokenGroup,
+.tokenGrid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.statGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .stat {
   min-width: 0;
-  padding: 0.5rem 0.55rem;
+  padding: 0.3rem 0.38rem;
   border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 7px;
+  border-radius: 5px;
   background: var(--ifm-background-color);
 }
 
-.tokenGroup > dt,
 .stat dt {
+  overflow: hidden;
   color: var(--ifm-color-emphasis-500);
-  font-size: 0.62rem;
+  font-size: 0.56rem;
   font-weight: 650;
   letter-spacing: 0.025em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.tokenGroup > dd,
 .stat dd {
-  margin: 0.08rem 0 0;
+  overflow: hidden;
+  margin: 0.03rem 0 0;
   color: var(--ifm-color-emphasis-900);
-  font-size: 0.86rem;
+  font-size: 0.72rem;
   font-weight: 730;
-  line-height: 1.25;
+  line-height: 1.2;
+  text-overflow: ellipsis;
 }
 
 .stat > span {
@@ -265,33 +274,6 @@
 .statAccent {
   border-color: color-mix(in srgb, var(--ifm-color-primary) 24%, var(--ifm-color-emphasis-200));
   background: color-mix(in srgb, var(--ifm-color-primary) 4%, var(--ifm-background-color));
-}
-
-.tokenParts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.65rem;
-  margin-top: 0.42rem;
-  padding-top: 0.38rem;
-  border-top: 1px solid var(--ifm-color-emphasis-200);
-}
-
-.tokenParts span {
-  display: flex;
-  gap: 0.22rem;
-  align-items: baseline;
-  white-space: nowrap;
-}
-
-.tokenParts small {
-  color: var(--ifm-color-emphasis-500);
-  font-size: 0.58rem;
-}
-
-.tokenParts b {
-  color: var(--ifm-color-emphasis-700);
-  font-size: 0.62rem;
-  font-weight: 680;
 }
 
 .metricSteps {
@@ -312,7 +294,7 @@
   display: flex;
   gap: 0.45rem;
   align-items: center;
-  padding: 0.42rem 0.5rem;
+  padding: 0.3rem 0.4rem;
   background: var(--ifm-color-emphasis-100);
   color: var(--ifm-color-emphasis-700);
 }
@@ -321,8 +303,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.15rem;
-  height: 1.15rem;
+  width: 1rem;
+  height: 1rem;
   border-radius: 50%;
   background: var(--ifm-color-primary);
   color: var(--ifm-color-primary-contrast-background, #fff);
@@ -333,7 +315,7 @@
 .stepSummary b { margin-right: auto; }
 
 .stepMeta {
-  padding: 0.12rem 0.35rem;
+  padding: 0.08rem 0.3rem;
   border: 1px solid var(--ifm-color-emphasis-200);
   border-radius: 999px;
   background: var(--ifm-background-color);
@@ -342,22 +324,25 @@
 }
 
 .tokenGridCompact {
-  margin: 0.5rem;
+  margin: 0.35rem;
 }
 
-.tokenGridCompact .tokenGroup,
 .tokenGridCompact .stat {
   background: color-mix(in srgb, var(--ifm-background-color) 96%, var(--ifm-color-emphasis-100));
 }
 
 .calls {
   display: grid;
-  gap: 0.4rem;
-  margin: 0.5rem;
+  gap: 0.25rem;
+  margin: 0.35rem;
 }
 
 .callCard {
-  padding: 0.45rem 0.5rem;
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) minmax(13rem, 1.7fr);
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.3rem 0.4rem;
   border: 1px solid var(--ifm-color-emphasis-200);
   border-radius: 7px;
   background: var(--ifm-background-color);
@@ -395,15 +380,16 @@
 
 .callMetrics {
   grid-template-columns: repeat(3, minmax(4.5rem, 1fr));
-  margin-top: 0.4rem;
 }
 
 .callMetrics .stat {
-  padding: 0.35rem 0.4rem;
+  padding: 0.2rem 0.3rem;
   background: var(--ifm-color-emphasis-100);
 }
 
-.callMetrics .stat dd { font-size: 0.72rem; }
+.callMetrics .stat dd { font-size: 0.66rem; }
+
+.callCard:not(:has(.callMetrics)) { grid-template-columns: 1fr; }
 
 .callFailed { border-color: color-mix(in srgb, var(--ifm-color-danger) 35%, var(--ifm-color-emphasis-200)); }
 .metricError { color: var(--ifm-color-danger); font-weight: 700; }
@@ -416,12 +402,8 @@
 
   .summaryStat small { display: none; }
 
-  .tokenGrid,
-  .statGrid {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .inputGroup { grid-column: 1 / -1; }
+  .tokenGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .callCard { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 390px) {
@@ -429,6 +411,7 @@
   .metricsSummary { grid-template-columns: repeat(3, 1fr) 0.5rem; }
   .summaryStat { display: block; }
   .summaryStat small { display: block; }
+  .tokenGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .callMetrics { grid-template-columns: 1fr; }
 }
 
