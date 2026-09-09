@@ -351,6 +351,18 @@ Every run saves one. A trajectory is the full message list plus per-step timings
 cost and a `stop_reason`, written atomically (temp file + rename) so a reader never sees a partial
 file. That is the artifact a scorer or an RL trainer consumes, and `nanoagent browse` reads back.
 
+Each trajectory also carries a structured `profile`. It contains total active run time and one
+record per agent step, with per-request token/cost usage, model wall time, time to first streamed
+token (`ttft_s`), generation time, output tokens/second, and individual tool-call latency. The
+step's `tools_s` is wall time for the whole concurrent dispatch, while each entry in `tool_calls`
+has that call's own duration. Provider-reported cache reads/writes are normalized as
+`cached_tokens` and `cache_write_tokens`.
+
+TTFT is client-observed: it includes network and provider queueing in addition to prompt prefill.
+For a non-streamed request, `ttft_s`, `generation_s`, and output tokens/second are `null` rather
+than estimates. The standalone primitives are available from `nanoagent.profiler` and from the
+top-level `nanoagent` package.
+
 ## Development
 
 ```bash

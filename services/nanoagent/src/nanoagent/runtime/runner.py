@@ -57,6 +57,7 @@ class RunnerResult:
     usage: dict[str, int] = field(default_factory=dict)
     cost: float = 0.0
     error: str | None = None
+    profile: dict[str, Any] | None = None
 
     @classmethod
     def from_agent_result(cls, result: AgentResult) -> RunnerResult:
@@ -67,6 +68,7 @@ class RunnerResult:
             usage=dict(result.usage),
             cost=result.cost,
             error=result.error,
+            profile=result.profile.to_dict() if result.profile is not None else None,
         )
 
     @classmethod
@@ -91,6 +93,7 @@ class RunnerResult:
             usage=dict(usage),
             cost=_non_negative_number(event.get("cost", 0.0), "cost"),
             error=_optional_string(event.get("error"), "error"),
+            profile=_optional_object(event.get("metrics"), "metrics"),
         )
 
 
@@ -145,6 +148,7 @@ def validate_progress_event(event: Any) -> dict[str, Any]:
         usage = event.get("usage")
         if not isinstance(usage, dict) or any(not isinstance(value, int) for value in usage.values()):
             raise RunnerProtocolError("step event usage must map strings to integers")
+        _optional_object(event.get("metrics"), "metrics")
     else:
         raise RunnerProtocolError(f"runner emitted unsupported progress event {event_type!r}")
     return dict(event)
@@ -166,3 +170,9 @@ def _optional_string(value: Any, field_name: str) -> str | None:
     if value is not None and not isinstance(value, str):
         raise RunnerProtocolError(f"{field_name} must be a string or null")
     return value
+
+
+def _optional_object(value: Any, field_name: str) -> dict[str, Any] | None:
+    if value is not None and not isinstance(value, dict):
+        raise RunnerProtocolError(f"{field_name} must be an object or null")
+    return dict(value) if value is not None else None

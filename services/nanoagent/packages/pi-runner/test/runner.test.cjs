@@ -19,12 +19,22 @@ test("PI usage maps to NanoAgent fields", async () => {
   assert.deepEqual(usageFields({
     input: 2,
     output: 3,
-    cacheRead: 0,
-    cacheWrite: 0,
-    totalTokens: 5,
+    cacheRead: 4,
+    cacheWrite: 1,
+    cacheWrite1h: 1,
+    reasoning: 2,
+    totalTokens: 10,
     cost: {input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0, total: 0.3},
   }), {
-    usage: {prompt_tokens: 2, completion_tokens: 3, total_tokens: 5},
+    usage: {
+      prompt_tokens: 7,
+      completion_tokens: 3,
+      total_tokens: 10,
+      cached_tokens: 4,
+      cache_write_tokens: 1,
+      cache_write_1h_tokens: 1,
+      reasoning_tokens: 2,
+    },
     cost: 0.3,
   });
 });

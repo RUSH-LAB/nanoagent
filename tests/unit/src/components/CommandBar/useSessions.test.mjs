@@ -25,6 +25,11 @@ describe('AI chat identity', () => {
         {id: 'one', agentId: 'mochi', profileId: 'pi-fast', title: 'First', entries: [
           {id: 1, kind: 'input', text: 'one'},
           {id: 2, kind: 'input', text: '/model fast', command: true},
+          {id: 3, kind: 'output', text: 'answer', telemetry: {
+            cost: 0.01,
+            usage: {prompt_tokens: 10, completion_tokens: 2},
+            metrics: {duration_s: 1.5, steps: []},
+          }},
         ]},
         {id: 'two', agentId: 'mochi', title: 'Second', entries: [{id: 2, kind: 'input', text: 'two'}]},
       ],
@@ -33,6 +38,11 @@ describe('AI chat identity', () => {
     assert.equal(restored.sessions[0].target.chatId, 'one');
     assert.equal(restored.chats[0].profileId, 'pi-fast');
     assert.equal(restored.chats[0].entries[1].command, true);
+    assert.deepEqual(restored.chats[0].entries[2].telemetry, {
+      cost: 0.01,
+      usage: {prompt_tokens: 10, completion_tokens: 2},
+      metrics: {duration_s: 1.5, steps: []},
+    });
     assert.equal(restored.chats[1].entries[0].targetKey, 'chat:two');
   });
 

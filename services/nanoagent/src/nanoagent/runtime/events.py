@@ -5,7 +5,7 @@ kinds, in the order a step produces them::
 
     {"type": "delta", "kind": "content"|"reasoning", "text": "..."}   # a streamed fragment
     {"type": "tool",  "name": ..., "arguments": {...}, "output": ..., "is_error": false}
-    {"type": "step",  "step": 3, "usage": {...}, "cost": 0.01}        # a turn finished
+    {"type": "step",  "step": 3, "usage": {...}, "metrics": {...}}    # a turn finished
     {"type": "done",  "stop_reason": "answer", "answer": ..., ...}    # the run finished
 
 A delta carries ONLY its fragment, never the message so far. Pi shipped the cumulative form and
@@ -78,7 +78,16 @@ class RunEvents:
         self._emitted_tools = len(result.tool_calls)
         if result.stop_reason is StopReason.RUNNING:
             self._emit(
-                self._label, type="step", step=result.steps, usage=result.usage, cost=result.cost
+                self._label,
+                type="step",
+                step=result.steps,
+                usage=result.usage,
+                cost=result.cost,
+                metrics=(
+                    result.profile.steps[-1].to_dict()
+                    if result.profile is not None and result.profile.steps
+                    else None
+                ),
             )
         else:
             self._emit(
@@ -90,6 +99,7 @@ class RunEvents:
                 usage=result.usage,
                 cost=result.cost,
                 error=result.error,
+                metrics=result.profile.to_dict() if result.profile is not None else None,
             )
 
     def tee(self, on_step: Callable[[AgentResult], None] | None) -> Callable[[AgentResult], None]:

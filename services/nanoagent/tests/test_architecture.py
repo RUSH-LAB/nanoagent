@@ -9,10 +9,11 @@ PACKAGE_ROOT = Path(__file__).parents[1] / "src" / "nanoagent"
 
 ALLOWED_IMPORTS = {
     "adapters": {"adapters"},
-    "core": {"core"},
-    "inference": {"inference"},
+    "core": {"core", "profiler"},
+    "inference": {"inference", "profiler"},
     "runtime": {"core", "extensions", "inference", "runtime", "tools"},
     "tools": {"core", "extensions", "tools"},
+    "profiler": {"profiler"},
 }
 
 

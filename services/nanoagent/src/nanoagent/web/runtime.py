@@ -254,6 +254,7 @@ class RunHost:
                     usage=result.usage,
                     cost=result.cost,
                     error=None,
+                    metrics=result.profile,
                     profile=profile.id,
                     harness=profile.harness,
                     model=profile.model,

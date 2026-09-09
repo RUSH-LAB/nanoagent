@@ -37,6 +37,7 @@ from nanoagent.inference.config import LeanInferConfig
 from nanoagent.inference.http import httpx as _httpx
 from nanoagent.inference.thinking import split_thinking
 from nanoagent.inference.types import Fidelity, Response, ToolCall
+from nanoagent.profiler import normalize_usage
 
 # 4xx / auth errors won't succeed on retry — fail fast on these.
 _ABORT_ERRORS: tuple[type[Exception], ...] = (
@@ -355,21 +356,7 @@ class SglangBackend:
 
     @staticmethod
     def _usage(response: Any) -> dict[str, int]:
-        raw = getattr(response, "usage", None)
-        if raw is None:
-            return {}
-        usage = {
-            "prompt_tokens": getattr(raw, "prompt_tokens", 0) or 0,
-            "completion_tokens": getattr(raw, "completion_tokens", 0) or 0,
-            "total_tokens": getattr(raw, "total_tokens", 0) or 0,
-        }
-        # SGLang (when reasoning is parsed) breaks out the think-block subset of
-        # completion_tokens here; absent on some builds, so surface it only when present.
-        details = getattr(raw, "completion_tokens_details", None)
-        reasoning = getattr(details, "reasoning_tokens", None) if details else None
-        if reasoning:
-            usage["reasoning_tokens"] = reasoning
-        return usage
+        return normalize_usage(getattr(response, "usage", None))
 
 
 # What `backend: sglang` resolves to. A built-in declares itself exactly the way a plugin does

@@ -45,6 +45,7 @@ from typing import Any, Protocol
 
 from nanoagent.core.hooks import Hooks, RunHooks
 from nanoagent.core.tool import build_tool_map, Tool
+from nanoagent.profiler import Profiler, RunProfile, StepProfiler
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -171,6 +172,9 @@ class AgentResult:
     # answer step. Summing either key gives that phase's total time.
     step_durations: list[dict[str, float]] = field(default_factory=list)
     error: str | None = None
+    # Detailed model/tool timing and per-step token usage. ``step_durations`` remains above as
+    # the compact backwards-compatible view consumed by existing callers.
+    profile: RunProfile | None = None
 
 
 class RunEventCallbacks(Protocol):
@@ -266,6 +270,7 @@ class Agent:
         and re-raised. ``label`` (e.g. the task id) is prefixed to this run's log
         lines so they're attributable when many rollouts log to one console.
         """
+        profiler = Profiler()
         tag = f"[{label}] " if label is not None else ""
         for tool in self._tools.values():
             tool.reset()
@@ -296,9 +301,6 @@ class Agent:
         usage: dict[str, int] = {}
         cost = 0.0
         step_durations: list[dict[str, float]] = []
-        # Passed to model.query only when the caller wants streaming, so a ChatModel with no
-        # `on_delta` parameter (every batch-path fake) is still called exactly as before.
-        stream = {"on_delta": on_delta} if on_delta is not None else {}
 
         def result(
             steps: int, stop_reason: StopReason, answer: str, error: str | None = None
@@ -313,6 +315,7 @@ class Agent:
                 cost,
                 list(step_durations),
                 error,
+                profiler.snapshot(),
             )
 
         # Timing of the in-flight step, or None between steps. Built incrementally: a
@@ -320,6 +323,18 @@ class Agent:
         # `+=` sums. Cleared once appended, so the `except` handler can record a step that died
         # mid-flight with whatever phases completed, without double-counting.
         pending: dict[str, float] | None = None
+        profile_step: StepProfiler | None = None
+
+        def finish_step() -> None:
+            """Commit the legacy duration and detailed profile for the in-flight step."""
+            nonlocal pending, profile_step
+            if pending is not None:
+                step_durations.append(pending)
+                pending = None
+            if profile_step is not None:
+                profile_step.finish()
+                profile_step = None
+
         try:
             for step in range(self._max_steps):
                 if self._cost_limit is not None and cost >= self._cost_limit:
@@ -343,6 +358,7 @@ class Agent:
                 if step == self._max_steps - 1:
                     transcript.append({"role": "user", "content": _LAST_STEP_PROMPT})
                 pending = {"model": 0.0, "tools": 0.0}
+                profile_step = profiler.start_step(step + 1)
                 # Once per STEP, not per query: the retry loop below re-queries with the same
                 # context, and a reminder appended per attempt would stack up three copies.
                 if hooks is not None:
@@ -364,10 +380,20 @@ class Agent:
                 log_rows: list[dict[str, Any]] = []
                 tool_msgs: list[dict[str, Any]] = []
                 while True:
-                    tm = time.monotonic()
+                    model_call = profile_step.start_model_call()
+                    stream: dict[str, Any] = {}
+                    if on_delta is not None:
+                        def profiled_delta(kind: str, text: str) -> None:
+                            model_call.on_delta(kind, text)
+                            on_delta(kind, text)
+
+                        stream["on_delta"] = profiled_delta
                     try:
                         reply = await self._model.query(transcript, self._tool_specs, **stream)
                     except Exception as e:
+                        model_record = profile_step.finish_model_call(
+                            model_call, error=f"{type(e).__name__}: {e}"
+                        )
                         # SGLang / OpenAI-compatible servers reject UPFRONT (HTTP 400) when
                         # prompt_tokens + max_tokens > context_length — the request never reaches
                         # the GPU, so the post-reply check below can't see it. Match on the
@@ -375,9 +401,8 @@ class Agent:
                         # class: keeps this module provider-agnostic.
                         if "maximum context length" not in str(e):
                             raise
-                        pending["model"] += time.monotonic() - tm
-                        step_durations.append(pending)
-                        pending = None
+                        pending["model"] += model_record.duration_s
+                        finish_step()
                         logger.warning(
                             "%sagent step %d: server rejected request as over context length, stopping",
                             tag,
@@ -391,7 +416,10 @@ class Agent:
                                 last_assistant_text(transcript),
                             ),
                         )
-                    pending["model"] += time.monotonic() - tm
+                    model_record = profile_step.finish_model_call(
+                        model_call, usage=reply.usage, cost=reply.cost
+                    )
+                    pending["model"] += model_record.duration_s
                     _accumulate(usage, reply.usage)
                     cost += reply.cost
                     # Hard stop (compact=False): the prompt we just SENT already filled the
@@ -404,8 +432,7 @@ class Agent:
                         and reply.usage.get("prompt_tokens", 0) >= self._context_window
                     ):
                         transcript.append(assistant_message(reply))
-                        step_durations.append(pending)
-                        pending = None
+                        finish_step()
                         return _emit(
                             on_step,
                             result(
@@ -417,8 +444,12 @@ class Agent:
                     if not reply.tool_calls:
                         break  # final answer — no dispatch to retry on
                     td = time.monotonic()
-                    log_rows, tool_msgs = await self._dispatch(reply.tool_calls, step, hooks)
-                    pending["tools"] += time.monotonic() - td
+                    log_rows, tool_msgs = await self._dispatch(
+                        reply.tool_calls, step, hooks, profile_step
+                    )
+                    tool_phase = time.monotonic() - td
+                    pending["tools"] += tool_phase
+                    profile_step.add_tool_phase(tool_phase)
                     if attempt < _MAX_TOOL_ARG_RETRIES and all(
                         _is_arg_malformed(r["output"]) for r in log_rows
                     ):
@@ -442,8 +473,7 @@ class Agent:
                     break
                 transcript.append(assistant_message(reply))
                 if not reply.tool_calls:
-                    step_durations.append(pending)
-                    pending = None
+                    finish_step()
                     return _emit(
                         on_step, result(step + 1, StopReason.ANSWER, reply.content or "")
                     )
@@ -464,10 +494,27 @@ class Agent:
                     self._context_window, reply.usage.get("prompt_tokens", 0)
                 ):
                     tc = time.monotonic()
-                    transcript[:] = await compact_messages(self._model, transcript)
+                    compaction_call = profile_step.start_model_call("compaction")
+                    compaction_reply: list[Reply] = []
+                    try:
+                        transcript[:] = await compact_messages(
+                            self._model, transcript, on_reply=compaction_reply.append
+                        )
+                    except Exception as error:
+                        profile_step.finish_model_call(
+                            compaction_call, error=f"{type(error).__name__}: {error}"
+                        )
+                        pending["model"] += time.monotonic() - tc
+                        raise
                     pending["model"] += time.monotonic() - tc
-                step_durations.append(pending)
-                pending = None
+                    if compaction_reply:
+                        summary_reply = compaction_reply[0]
+                        profile_step.finish_model_call(
+                            compaction_call,
+                            usage=summary_reply.usage,
+                            cost=summary_reply.cost,
+                        )
+                finish_step()
                 if on_step is not None:
                     on_step(result(step + 1, StopReason.RUNNING, reply.content or ""))
             return _emit(
@@ -476,8 +523,7 @@ class Agent:
             )
         except Exception as e:
             logger.exception("%sagent run failed", tag)
-            if pending is not None:
-                step_durations.append(pending)
+            finish_step()
             _emit(
                 on_step,
                 result(
@@ -498,7 +544,11 @@ class Agent:
                 tool.cleanup()
 
     async def _dispatch(
-        self, calls: list[ToolCall], step: int = 0, hooks: RunHooks | None = None
+        self,
+        calls: list[ToolCall],
+        step: int = 0,
+        hooks: RunHooks | None = None,
+        profile: StepProfiler | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Invoke every tool call concurrently; return (call_log rows, role=tool messages) in INPUT order.
 
@@ -508,7 +558,32 @@ class Agent:
         ordering deterministic: a post-await append would land in COMPLETION order, so for
         genuinely suspending async tools the rows would disagree with the role="tool" messages.
         """
-        results = await asyncio.gather(*(self._run_one(c, step, hooks) for c in calls))
+        timers = [profile.start_tool_call(c.id, c.name) for c in calls] if profile else []
+
+        async def run_one(index: int, call: ToolCall) -> tuple[dict[str, Any], dict[str, Any]]:
+            try:
+                row, message = await self._run_one(call, step, hooks)
+            except BaseException as error:
+                if profile is not None:
+                    slot, timer = timers[index]
+                    profile.finish_tool_call(
+                        slot,
+                        timer,
+                        is_error=True,
+                        error=f"{type(error).__name__}: {error}",
+                    )
+                raise
+            if profile is not None:
+                slot, timer = timers[index]
+                profile.finish_tool_call(
+                    slot,
+                    timer,
+                    is_error=row["is_error"],
+                    error=row["output"] if row["is_error"] else None,
+                )
+            return row, message
+
+        results = await asyncio.gather(*(run_one(i, c) for i, c in enumerate(calls)))
         return [row for row, _msg in results], [msg for _row, msg in results]
 
     async def _run_one(
@@ -678,7 +753,10 @@ def needs_compaction(context_window: int | None, prompt_tokens: int) -> bool:
 
 
 async def compact_messages(
-    model: ChatModel, messages: list[dict[str, Any]]
+    model: ChatModel,
+    messages: list[dict[str, Any]],
+    *,
+    on_reply: Callable[[Reply], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Summarize the middle of ``messages`` to reclaim context, preserving both ends.
 
@@ -702,6 +780,8 @@ async def compact_messages(
         return messages
     middle = messages[1:keep_from]
     reply = await model.query([*middle, {"role": "user", "content": _COMPACT_PROMPT}], [])
+    if on_reply is not None:
+        on_reply(reply)
     summary = {
         "role": "user",
         "content": f"Summary of earlier conversation:\n{reply.content or ''}",

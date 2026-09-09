@@ -36,6 +36,7 @@ from nanoagent.inference.http import httpx as _httpx
 from nanoagent.inference.thinking import split_thinking
 from nanoagent.inference.tokenizer import Tokenizer, load_tokenizer
 from nanoagent.inference.types import Fidelity, Response, Tokens
+from nanoagent.profiler import normalize_usage
 
 # Same reasoning as the /v1 transport: keep idle pooled connections alive across a batch, and
 # decorrelate concurrent retries with full jitter.
@@ -199,6 +200,11 @@ class SglangNativeBackend:
             "completion_tokens": int(meta.get("completion_tokens", len(entries))),
         }
         usage["total_tokens"] = usage["prompt_tokens"] + usage["completion_tokens"]
+        # Newer SGLang builds may expose cache/reasoning counters alongside the base counts.
+        # Preserve those optional details while retaining the exact local fallbacks above.
+        for key, value in normalize_usage(meta).items():
+            if key not in {"prompt_tokens", "completion_tokens", "total_tokens"}:
+                usage[key] = value
         text, reasoning = self._split_reasoning(data.get("text") or None)
         return Response(
             text=text,

@@ -19,6 +19,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from nanoagent.core import Agent, AgentResult, Reply, Tool, ToolCall
+from nanoagent.profiler import ModelCallProfile, Profiler, RunProfile, StepProfile, ToolCallProfile
 
 
 def get_tools(yaml_paths: Iterable[str | Path]) -> list[Tool]:
@@ -29,4 +30,16 @@ def get_tools(yaml_paths: Iterable[str | Path]) -> list[Tool]:
 
 __version__ = "0.2.0"
 
-__all__ = ["Agent", "AgentResult", "get_tools", "Reply", "Tool", "ToolCall"]
+__all__ = [
+    "Agent",
+    "AgentResult",
+    "get_tools",
+    "ModelCallProfile",
+    "Profiler",
+    "Reply",
+    "RunProfile",
+    "StepProfile",
+    "Tool",
+    "ToolCall",
+    "ToolCallProfile",
+]

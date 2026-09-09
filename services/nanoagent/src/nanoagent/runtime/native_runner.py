@@ -66,6 +66,11 @@ class NativeRunner:
                         "step": result.steps,
                         "usage": result.usage,
                         "cost": result.cost,
+                        "metrics": (
+                            result.profile.steps[-1].to_dict()
+                            if result.profile is not None and result.profile.steps
+                            else None
+                        ),
                     }
                 )
             else:

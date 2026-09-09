@@ -56,6 +56,9 @@ function cleanEntry(entry, target = null) {
       name: String(entry.agent.name ?? 'Agent'),
       color: String(entry.agent.color ?? 'violet'),
     }} : {}),
+    ...(entry.telemetry && typeof entry.telemetry === 'object'
+      ? {telemetry: entry.telemetry}
+      : {}),
   };
 }
 

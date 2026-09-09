@@ -77,6 +77,21 @@ describe('POST /api/ai/complete', () => {
     assert.equal(ctx.calls.ai[0].profile, PROFILE);
   });
 
+  it('returns the answer accounting fields when NanoAgent provides them', async () => {
+    const metrics = {duration_s: 1.2, model_s: 1, tools_s: 0.2, steps: []};
+    const ctx = makeCtx({ai: {complete: async () => ({
+      text: 'measured', usage: {prompt_tokens: 10, completion_tokens: 2},
+      cost: 0.001, metrics, model: 'test-model', harness: 'native', profile: PROFILE,
+      stopReason: 'answer',
+    })}});
+    const r = await invoke(routes, {method: 'POST', path: '/api/ai/complete', body: OK, ctx});
+    assert.deepEqual(r.payload, {
+      text: 'measured', usage: {prompt_tokens: 10, completion_tokens: 2},
+      cost: 0.001, metrics, model: 'test-model', harness: 'native', profile: PROFILE,
+      stopReason: 'answer',
+    });
+  });
+
   it('sends the system prompt for the named job', async () => {
     const ctx = makeCtx();
     await invoke(routes, {method: 'POST', path: '/api/ai/complete', body: {prompt: 'p', type: 'summarize'}, ctx});
@@ -218,6 +233,22 @@ describe('POST /api/ai/stream', () => {
     // a second set of headers down a response the caller is still reading.
     assert.equal(r.res.writableEnded, true);
     assert.deepEqual(r.replies, [], 'and json() was never involved');
+  });
+
+  it('includes accounting data in the answer frame', async () => {
+    const metrics = {duration_s: 1.2, model_s: 1, tools_s: 0.2, steps: []};
+    const ctx = makeCtx({ai: {stream: async ({onDelta}) => {
+      onDelta('measured');
+      return {
+        text: 'measured', usage: {total_tokens: 12}, cost: 0.001, metrics,
+        model: 'test-model', harness: 'native', profile: PROFILE, stopReason: 'answer',
+      };
+    }}});
+    const r = await ask({ctx});
+    assert.equal(r.res.writes.at(-1), `event: done\ndata: ${JSON.stringify({
+      text: 'measured', usage: {total_tokens: 12}, cost: 0.001, metrics,
+      model: 'test-model', harness: 'native', profile: PROFILE, stopReason: 'answer',
+    })}\n\n`);
   });
 
   it('declares an unbuffered event stream', async () => {

@@ -113,6 +113,57 @@
 .speaker { display: block; margin-bottom: 0.18rem; }
 .answerBody { min-width: 0; }
 
+.metrics {
+  margin-top: 0.45rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: var(--cli-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.metrics summary {
+  width: fit-content;
+  cursor: pointer;
+  user-select: none;
+}
+
+.metrics summary:hover { color: var(--ifm-color-primary); }
+.metrics summary:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: 2px; }
+
+.metricGrid,
+.timingGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.75rem;
+  margin-top: 0.35rem;
+}
+
+.metricGrid b,
+.timingGrid b {
+  color: var(--ifm-color-emphasis-800);
+  font-weight: 650;
+}
+
+.metricSteps {
+  margin: 0.45rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.metricSteps > li + li { margin-top: 0.45rem; }
+
+.stepSummary,
+.callRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.7rem;
+}
+
+.callRow {
+  margin-top: 0.2rem;
+  color: var(--ifm-color-emphasis-500);
+}
+
+.metricError { color: var(--ifm-color-danger); }
+
 /* Sits where the plain reply text used to, so it inherits the entry row's
    font and has to survive the same narrow column. */
 .markdown {

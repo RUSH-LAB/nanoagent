@@ -21,6 +21,7 @@ and each tool result's error flag are inlined onto the messages, so there are no
       "steps": int,
       "usage": {...},             # accumulated token counts
       "cost": float,
+      "profile": {...},           # run/step/model-call/tool-call timing and per-step usage
       "error": str | None,
       "logs": [{"time": str, "level": str, "logger": str, "message": str}],  # this task's WARNING+ log records
       "meta": {...},              # caller-supplied (task id, model, ...)
@@ -126,6 +127,7 @@ def to_dict(
         "steps": result.steps,
         "usage": result.usage,
         "cost": result.cost,
+        "profile": result.profile.to_dict() if result.profile is not None else None,
         "error": result.error,
         "logs": logs or [],
         "meta": meta or {},

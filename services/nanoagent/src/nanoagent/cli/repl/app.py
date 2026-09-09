@@ -67,6 +67,7 @@ from nanoagent.runtime.config import InteractiveConfig, load_config_args, ModelC
 from nanoagent.runtime.events import EventWriter
 from nanoagent.core.hooks import Hooks
 from nanoagent.extensions import get_hooks
+from nanoagent.profiler import merge_profiles, RunProfile
 from nanoagent.runtime.model import Model
 from nanoagent.cli.repl.tree import load as load_session, SESSION_SUFFIX, SessionTree
 from nanoagent.core.tool import build_tool_map, JsonSchema, Tool
@@ -227,6 +228,10 @@ class _Narrating:
         reasoning = usage.get("reasoning_tokens", 0)
         output = max(usage.get("completion_tokens", 0) - reasoning, 0)
         bits = [f"prompt {usage.get('prompt_tokens', 0)}"]
+        if "cached_tokens" in usage:
+            bits.append(f"cached {usage['cached_tokens']}")
+        if "cache_write_tokens" in usage:
+            bits.append(f"cache write {usage['cache_write_tokens']}")
         if reasoning:
             bits.append(f"reasoning {reasoning}")
         bits.append(f"output {output}")
@@ -350,6 +355,7 @@ class InteractiveSession:
         self._cost = 0.0
         self._usage: dict[str, int] = {}
         self._step_durations: list[dict[str, float]] = []
+        self._profiles: list[RunProfile] = []
         # How the last run_task ended — surfaced in to_result/the trajectory so a session
         # truncated by max_steps (or Ctrl-C / an error) is distinguishable from a clean answer.
         self._stop_reason: StopReason = StopReason.ANSWER
@@ -397,6 +403,7 @@ class InteractiveSession:
             step_durations=self._step_durations,
             cost=self._cost,
             error=self._error,
+            profile=merge_profiles(self._profiles),
         )
 
     async def run_task(self, task: str) -> str:
@@ -462,6 +469,8 @@ class InteractiveSession:
         self._cost += result.cost
         _accumulate(self._usage, result.usage)
         self._step_durations.extend(result.step_durations)
+        if result.profile is not None:
+            self._profiles.append(result.profile)
         self._stop_reason = result.stop_reason
         self._error = result.error
 

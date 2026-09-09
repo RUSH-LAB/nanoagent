@@ -82,7 +82,12 @@ const fakeModel = http.createServer((req, res) => {
     send({...base, choices: [{index: 0, delta: {role: 'assistant', content: 'hello from '}, finish_reason: null}]});
     send({...base, choices: [{index: 0, delta: {content: 'nanoagent'}, finish_reason: null}]});
     send({...base, choices: [{index: 0, delta: {}, finish_reason: 'stop'}]});
-    send({...base, choices: [], usage: {prompt_tokens: 7, completion_tokens: 3, total_tokens: 10}});
+    send({...base, choices: [], usage: {
+      prompt_tokens: 7,
+      completion_tokens: 3,
+      total_tokens: 10,
+      prompt_tokens_details: {cached_tokens: 4},
+    }});
     res.end('data: [DONE]\n\n');
   });
 });
@@ -168,6 +173,12 @@ include_reasoning: false
   assert.deepEqual(deltas, ['hello from ', 'nanoagent']);
   assert.equal(result.stopReason, 'answer');
   assert.equal(result.usage.total_tokens, 10);
+  assert.equal(result.usage.cached_tokens, 4);
+  assert.equal(result.metrics.steps.length, 1);
+  assert.equal(result.metrics.steps[0].usage.cached_tokens, 4);
+  assert.ok(result.metrics.steps[0].model_calls[0].ttft_s >= 0);
+  assert.ok(result.metrics.steps[0].model_calls[0].generation_s >= 0);
+  assert.ok(result.metrics.duration_s >= result.metrics.model_s);
   assert.equal(modelRequest.stream, true);
   assert.match(modelRequest.messages[0].content, /deterministic integration verifier/);
   assert.match(modelRequest.messages[0].content, /Application instructions:\nAnswer briefly\./);
@@ -175,7 +186,7 @@ include_reasoning: false
     {role: 'user', content: 'This is a prior turn.'},
     {role: 'user', content: 'Say where this answer came from.'},
   ]);
-  console.log('NanoAgent integration verified: profile discovery, streamed text, history, instructions, usage, and completion.');
+  console.log('NanoAgent integration verified: streamed text, token/cache usage, timing profile, history, instructions, and completion.');
 } finally {
   await stop(nanoagent);
   await new Promise(resolve => fakeModel.close(resolve));

@@ -177,7 +177,16 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
       // whatever comes back.
       const result = await ai.complete(request);
       if (result.error) return json(res, result.status || 502, {error: result.error});
-      return json(res, 200, {text: result.text});
+      return json(res, 200, {
+        text: result.text,
+        ...(result.usage ? {usage: result.usage} : {}),
+        ...(result.cost != null ? {cost: result.cost} : {}),
+        ...(result.metrics ? {metrics: result.metrics} : {}),
+        ...(result.model ? {model: result.model} : {}),
+        ...(result.harness ? {harness: result.harness} : {}),
+        ...(result.profile ? {profile: result.profile} : {}),
+        ...(result.stopReason ? {stopReason: result.stopReason} : {}),
+      });
     } catch {
       return json(res, 500, {error: 'AI request failed. Please try again later.'});
     }
@@ -238,7 +247,16 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
         },
       });
       if (result.error) sendEvent(res, 'error', {error: result.error, status: result.status || 502});
-      else sendEvent(res, 'done', {text: result.text});
+      else sendEvent(res, 'done', {
+        text: result.text,
+        ...(result.usage ? {usage: result.usage} : {}),
+        ...(result.cost != null ? {cost: result.cost} : {}),
+        ...(result.metrics ? {metrics: result.metrics} : {}),
+        ...(result.model ? {model: result.model} : {}),
+        ...(result.harness ? {harness: result.harness} : {}),
+        ...(result.profile ? {profile: result.profile} : {}),
+        ...(result.stopReason ? {stopReason: result.stopReason} : {}),
+      });
     } catch {
       sendEvent(res, 'error', {error: 'AI request failed. Please try again later.', status: 500});
     } finally {

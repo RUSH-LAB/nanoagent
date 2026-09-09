@@ -170,11 +170,76 @@ async function responseError(response) {
   return `NanoAgent request failed (${response.status}).`;
 }
 
+function metricNumber(value) {
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function publicUsage(value) {
+  if (!value || typeof value !== 'object') return null;
+  const usage = {};
+  for (const key of [
+    'prompt_tokens', 'completion_tokens', 'total_tokens', 'cached_tokens',
+    'cache_write_tokens', 'cache_write_1h_tokens', 'reasoning_tokens',
+  ]) {
+    if (Number.isInteger(value[key]) && value[key] >= 0) usage[key] = value[key];
+  }
+  return usage;
+}
+
+/** Keep performance/accounting data while dropping model/tool error text from the public API. */
+function publicStepMetrics(value) {
+  if (!value || typeof value !== 'object') return null;
+  const modelCall = call => ({
+    kind: typeof call?.kind === 'string' ? call.kind : 'agent',
+    duration_s: metricNumber(call?.duration_s),
+    ttft_s: metricNumber(call?.ttft_s),
+    generation_s: metricNumber(call?.generation_s),
+    output_tokens_per_second: metricNumber(call?.output_tokens_per_second),
+    usage: publicUsage(call?.usage),
+    cost: metricNumber(call?.cost),
+    failed: Boolean(call?.error),
+  });
+  const toolCall = call => ({
+    name: typeof call?.name === 'string' ? call.name : 'unknown',
+    duration_s: metricNumber(call?.duration_s),
+    is_error: call?.is_error === true,
+  });
+  return {
+    step: Number.isInteger(value.step) ? value.step : null,
+    duration_s: metricNumber(value.duration_s),
+    model_s: metricNumber(value.model_s),
+    tools_s: metricNumber(value.tools_s),
+    overhead_s: metricNumber(value.overhead_s),
+    usage: publicUsage(value.usage),
+    cost: metricNumber(value.cost),
+    model_calls: Array.isArray(value.model_calls) ? value.model_calls.map(modelCall) : [],
+    tool_calls: Array.isArray(value.tool_calls) ? value.tool_calls.map(toolCall) : [],
+  };
+}
+
+function publicMetrics(value) {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    duration_s: metricNumber(value.duration_s),
+    model_s: metricNumber(value.model_s),
+    tools_s: metricNumber(value.tools_s),
+    overhead_s: metricNumber(value.overhead_s),
+    usage: publicUsage(value.usage),
+    cost: metricNumber(value.cost),
+    steps: Array.isArray(value.steps) ? value.steps.map(publicStepMetrics).filter(Boolean) : [],
+  };
+}
+
 function publicEvent(event) {
   const runId = typeof event?.runId === 'string' ? event.runId : null;
   if (event?.type === 'start') return {type: 'run.started', runId};
   if (event?.type === 'step') {
-    return {type: 'step.completed', runId, step: event.step, usage: event.usage ?? null, cost: event.cost ?? null};
+    const metrics = publicStepMetrics(event.metrics);
+    return {
+      type: 'step.completed', runId, step: event.step,
+      usage: publicUsage(event.usage), cost: metricNumber(event.cost),
+      ...(metrics ? {metrics} : {}),
+    };
   }
   if (event?.type === 'tool') {
     return {
@@ -184,9 +249,11 @@ function publicEvent(event) {
     };
   }
   if (event?.type === 'done') {
+    const metrics = publicMetrics(event.metrics);
     return {
       type: 'run.completed', runId, stopReason: event.stop_reason,
-      steps: event.steps, usage: event.usage ?? null, cost: event.cost ?? null,
+      steps: event.steps, usage: publicUsage(event.usage), cost: metricNumber(event.cost),
+      ...(metrics ? {metrics} : {}),
     };
   }
   if (event?.type === 'error') return {type: 'run.failed', runId, code: event.code};
@@ -314,8 +381,9 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
         profile: terminal.profile ?? request.profile ?? null,
         harness: terminal.harness ?? null,
         model: terminal.model ?? null,
-        usage: terminal.usage ?? null,
-        cost: terminal.cost ?? null,
+        usage: publicUsage(terminal.usage),
+        cost: metricNumber(terminal.cost),
+        ...(terminal.metrics ? {metrics: publicMetrics(terminal.metrics)} : {}),
         stopReason: terminal.stop_reason ?? null,
         runId: terminal.runId ?? null,
       };
@@ -361,6 +429,7 @@ module.exports = {
   endpointFrom,
   nanoRequest,
   normalizeProfileCatalog,
+  publicMetrics,
   publicEvent,
   createNanoAgentGateway,
   complete: gateway.complete,

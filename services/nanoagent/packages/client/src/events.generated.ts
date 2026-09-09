@@ -36,6 +36,7 @@ export type StepEvent = EventBase & {
   step: number;
   usage: Usage;
   cost: number;
+  metrics?: StepMetrics | null;
   [k: string]: unknown;
 };
 export type DoneEvent = EventBase & {
@@ -45,6 +46,7 @@ export type DoneEvent = EventBase & {
   steps: number;
   usage: Usage;
   cost: number;
+  metrics?: RunMetrics | null;
   error: string | null;
   profile: string;
   harness: string;
@@ -64,4 +66,45 @@ export interface EventBase {
 }
 export interface Usage {
   [k: string]: number;
+}
+export interface StepMetrics {
+  step: number;
+  duration_s: number;
+  model_s: number;
+  tools_s: number;
+  overhead_s: number;
+  usage: Usage;
+  cost: number;
+  model_calls: ModelCallMetrics[];
+  tool_calls: ToolCallMetrics[];
+  [k: string]: unknown;
+}
+export interface ModelCallMetrics {
+  kind: string;
+  duration_s: number;
+  ttft_s: number | null;
+  generation_s: number | null;
+  output_tokens_per_second: number | null;
+  usage: Usage;
+  cost: number;
+  error: string | null;
+  [k: string]: unknown;
+}
+export interface ToolCallMetrics {
+  id: string;
+  name: string;
+  duration_s: number;
+  is_error: boolean;
+  error: string | null;
+  [k: string]: unknown;
+}
+export interface RunMetrics {
+  duration_s: number;
+  model_s: number;
+  tools_s: number;
+  overhead_s: number;
+  usage: Usage;
+  cost: number;
+  steps: StepMetrics[];
+  [k: string]: unknown;
 }

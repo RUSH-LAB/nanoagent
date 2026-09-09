@@ -128,7 +128,7 @@ async function releaseBody(res) {
   }
 }
 
-/** The buffered endpoint, as `{text}` or `{error}`. */
+/** The buffered endpoint, including the same accounting data as the streamed path. */
 async function postComplete(payload, signal) {
   const res = await apiFetch(`${API_BASE}/api/ai/complete`, {
     method: 'POST',
@@ -138,7 +138,16 @@ async function postComplete(payload, signal) {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) return {error: data?.error || `request failed (${res.status})`};
-  return {text: data?.text || ''};
+  return {
+    text: data?.text || '',
+    usage: data?.usage ?? null,
+    cost: data?.cost ?? null,
+    metrics: data?.metrics ?? null,
+    model: data?.model ?? null,
+    harness: data?.harness ?? null,
+    profile: data?.profile ?? null,
+    stopReason: data?.stopReason ?? null,
+  };
 }
 
 /* ── The hook ───────────────────────────────────────────────────── */
@@ -227,6 +236,7 @@ export default function useAssistant(sessions) {
     let answer = '';
     let failure = null;
     let interrupted = false;
+    let telemetry = null;
 
     const write = (next) => {
       answer = next;
@@ -259,6 +269,15 @@ export default function useAssistant(sessions) {
             // a provider that never emitted a delta still answers here.
             closed = true;
             if (typeof data?.text === 'string' && data.text) write(data.text);
+            telemetry = {
+              usage: data?.usage ?? null,
+              cost: data?.cost ?? null,
+              metrics: data?.metrics ?? null,
+              model: data?.model ?? null,
+              harness: data?.harness ?? null,
+              profile: data?.profile ?? null,
+              stopReason: data?.stopReason ?? null,
+            };
           } else if (event === 'error') {
             closed = true;
             failure = data?.error || `request failed (${data?.status ?? 502})`;
@@ -285,7 +304,18 @@ export default function useAssistant(sessions) {
         await releaseBody(res);
         const result = await postComplete(payload, controller.signal);
         if (result.error) failure = result.error;
-        else write(result.text);
+        else {
+          write(result.text);
+          telemetry = {
+            usage: result.usage,
+            cost: result.cost,
+            metrics: result.metrics,
+            model: result.model,
+            harness: result.harness,
+            profile: result.profile,
+            stopReason: result.stopReason,
+          };
+        }
       } else {
         const data = await res.json().catch(() => null);
         failure = data?.error || `request failed (${res.status})`;
@@ -314,7 +344,11 @@ export default function useAssistant(sessions) {
           updateEntry(sessionId, entryId, {kind: 'error', text: failure, pending: false});
         }
       } else {
-        updateEntry(sessionId, entryId, {text: answer || EMPTY_ANSWER, pending: false});
+        updateEntry(sessionId, entryId, {
+          text: answer || EMPTY_ANSWER,
+          pending: false,
+          ...(telemetry ? {telemetry} : {}),
+        });
       }
 
       patch(sessionId, {busy: false});

@@ -20,6 +20,59 @@
       "type": "object",
       "additionalProperties": {"type": "integer"}
     },
+    "ModelCallMetrics": {
+      "type": "object",
+      "properties": {
+        "kind": {"type": "string"},
+        "duration_s": {"type": "number", "minimum": 0},
+        "ttft_s": {"type": ["number", "null"], "minimum": 0},
+        "generation_s": {"type": ["number", "null"], "minimum": 0},
+        "output_tokens_per_second": {"type": ["number", "null"], "minimum": 0},
+        "usage": {"$ref": "#/$defs/Usage"},
+        "cost": {"type": "number", "minimum": 0},
+        "error": {"type": ["string", "null"]}
+      },
+      "required": ["kind", "duration_s", "ttft_s", "generation_s", "output_tokens_per_second", "usage", "cost", "error"]
+    },
+    "ToolCallMetrics": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "duration_s": {"type": "number", "minimum": 0},
+        "is_error": {"type": "boolean"},
+        "error": {"type": ["string", "null"]}
+      },
+      "required": ["id", "name", "duration_s", "is_error", "error"]
+    },
+    "StepMetrics": {
+      "type": "object",
+      "properties": {
+        "step": {"type": "integer", "minimum": 1},
+        "duration_s": {"type": "number", "minimum": 0},
+        "model_s": {"type": "number", "minimum": 0},
+        "tools_s": {"type": "number", "minimum": 0},
+        "overhead_s": {"type": "number", "minimum": 0},
+        "usage": {"$ref": "#/$defs/Usage"},
+        "cost": {"type": "number", "minimum": 0},
+        "model_calls": {"type": "array", "items": {"$ref": "#/$defs/ModelCallMetrics"}},
+        "tool_calls": {"type": "array", "items": {"$ref": "#/$defs/ToolCallMetrics"}}
+      },
+      "required": ["step", "duration_s", "model_s", "tools_s", "overhead_s", "usage", "cost", "model_calls", "tool_calls"]
+    },
+    "RunMetrics": {
+      "type": "object",
+      "properties": {
+        "duration_s": {"type": "number", "minimum": 0},
+        "model_s": {"type": "number", "minimum": 0},
+        "tools_s": {"type": "number", "minimum": 0},
+        "overhead_s": {"type": "number", "minimum": 0},
+        "usage": {"$ref": "#/$defs/Usage"},
+        "cost": {"type": "number", "minimum": 0},
+        "steps": {"type": "array", "items": {"$ref": "#/$defs/StepMetrics"}}
+      },
+      "required": ["duration_s", "model_s", "tools_s", "overhead_s", "usage", "cost", "steps"]
+    },
     "StartEvent": {
       "allOf": [
         {"$ref": "#/$defs/EventBase"},
@@ -76,7 +129,8 @@
             "type": {"const": "step"},
             "step": {"type": "integer", "minimum": 0},
             "usage": {"$ref": "#/$defs/Usage"},
-            "cost": {"type": "number", "minimum": 0}
+            "cost": {"type": "number", "minimum": 0},
+            "metrics": {"anyOf": [{"$ref": "#/$defs/StepMetrics"}, {"type": "null"}]}
           },
           "required": ["type", "step", "usage", "cost"]
         }
@@ -94,6 +148,7 @@
             "steps": {"type": "integer", "minimum": 0},
             "usage": {"$ref": "#/$defs/Usage"},
             "cost": {"type": "number", "minimum": 0},
+            "metrics": {"anyOf": [{"$ref": "#/$defs/RunMetrics"}, {"type": "null"}]},
             "error": {"type": ["string", "null"]},
             "profile": {"type": "string"},
             "harness": {"type": "string"},

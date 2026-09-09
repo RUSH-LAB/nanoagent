@@ -91,7 +91,25 @@ describe('NanoAgent gateway', () => {
       sse({type: 'step', runId: 'run-1', step: 1, usage: {total_tokens: 4}, cost: 0.01}),
       sse({
         type: 'done', runId: 'run-1', answer: 'hello', stop_reason: 'answer', steps: 2,
-        usage: {total_tokens: 5}, cost: 0.02, error: null,
+        usage: {prompt_tokens: 3, completion_tokens: 2, total_tokens: 5, cached_tokens: 1},
+        cost: 0.02, error: null,
+        metrics: {
+          duration_s: 1.5, model_s: 1.2, tools_s: 0.2, overhead_s: 0.1,
+          usage: {prompt_tokens: 3, completion_tokens: 2, total_tokens: 5, cached_tokens: 1},
+          cost: 0.02,
+          steps: [{
+            step: 1, duration_s: 1.5, model_s: 1.2, tools_s: 0.2, overhead_s: 0.1,
+            usage: {prompt_tokens: 3, completion_tokens: 2, total_tokens: 5, cached_tokens: 1},
+            cost: 0.02,
+            model_calls: [{
+              kind: 'agent', duration_s: 1.2, ttft_s: 0.4, generation_s: 0.8,
+              output_tokens_per_second: 2.5,
+              usage: {prompt_tokens: 3, completion_tokens: 2, total_tokens: 5, cached_tokens: 1},
+              cost: 0.02, error: 'private provider detail',
+            }],
+            tool_calls: [{id: 'secret-id', name: 'search', duration_s: 0.2, is_error: false, error: null}],
+          }],
+        },
         profile: 'pi-deepseek', harness: 'pi', model: 'deepseek/test',
       }),
     ];
@@ -124,14 +142,31 @@ describe('NanoAgent gateway', () => {
     assert.deepEqual(deltas, ['hel', 'lo']);
     assert.deepEqual(result, {
       text: 'hello', profile: 'pi-deepseek', harness: 'pi', model: 'deepseek/test',
-      usage: {total_tokens: 5}, cost: 0.02,
+      usage: {prompt_tokens: 3, completion_tokens: 2, total_tokens: 5, cached_tokens: 1}, cost: 0.02,
+      metrics: {
+        duration_s: 1.5, model_s: 1.2, tools_s: 0.2, overhead_s: 0.1,
+        usage: {prompt_tokens: 3, completion_tokens: 2, total_tokens: 5, cached_tokens: 1},
+        cost: 0.02,
+        steps: [{
+          step: 1, duration_s: 1.5, model_s: 1.2, tools_s: 0.2, overhead_s: 0.1,
+          usage: {prompt_tokens: 3, completion_tokens: 2, total_tokens: 5, cached_tokens: 1},
+          cost: 0.02,
+          model_calls: [{
+            kind: 'agent', duration_s: 1.2, ttft_s: 0.4, generation_s: 0.8,
+            output_tokens_per_second: 2.5,
+            usage: {prompt_tokens: 3, completion_tokens: 2, total_tokens: 5, cached_tokens: 1},
+            cost: 0.02, failed: true,
+          }],
+          tool_calls: [{name: 'search', duration_s: 0.2, is_error: false}],
+        }],
+      },
       stopReason: 'answer', runId: 'run-1',
     });
     assert.deepEqual(events.map(event => event.type), [
       'run.started', 'output_text.delta', 'output_text.delta',
       'tool.completed', 'step.completed', 'run.completed',
     ]);
-    assert.doesNotMatch(JSON.stringify(events), /private thought|private document text|\"query\"/);
+    assert.doesNotMatch(JSON.stringify(events), /private thought|private document text|private provider detail|secret-id|\"query\"/);
   });
 
   it('uses the stream for buffered completions too', async () => {

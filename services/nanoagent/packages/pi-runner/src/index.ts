@@ -54,12 +54,19 @@ export function parseOptions(value: Record<string, unknown> = {}): PiOptions {
 }
 
 export function usageFields(usage: Usage): {usage: Record<string, number>; cost: number} {
+  const normalized: Record<string, number> = {
+    // PI splits uncached input, cache reads, and cache writes. NanoAgent follows the
+    // OpenAI convention where prompt_tokens is the full input and cached_tokens is a subset.
+    prompt_tokens: usage.input + usage.cacheRead + usage.cacheWrite,
+    completion_tokens: usage.output,
+    total_tokens: usage.totalTokens,
+    cached_tokens: usage.cacheRead,
+    cache_write_tokens: usage.cacheWrite,
+  };
+  if (usage.cacheWrite1h !== undefined) normalized.cache_write_1h_tokens = usage.cacheWrite1h;
+  if (usage.reasoning !== undefined) normalized.reasoning_tokens = usage.reasoning;
   return {
-    usage: {
-      prompt_tokens: usage.input,
-      completion_tokens: usage.output,
-      total_tokens: usage.totalTokens,
-    },
+    usage: normalized,
     cost: usage.cost.total,
   };
 }

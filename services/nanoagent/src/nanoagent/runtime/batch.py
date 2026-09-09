@@ -121,7 +121,7 @@ def _result_row(
 
     Both ``result`` and ``error`` may be supplied together: that is the partial-trajectory
     error path (``run_one``'s exception handler passes the last per-step snapshot AS the
-    result so the row inherits real ``steps`` / ``total_tokens`` / wall-clock instead of
+    result so the row inherits real ``steps`` / token counts / wall-clock instead of
     the all-zero defaults). When both are set the row's numeric fields come from
     ``result``; ``stop_reason`` becomes ``ERROR`` and the ``error`` text is preserved.
     """
@@ -132,8 +132,15 @@ def _result_row(
         "stop_reason": StopReason.ERROR,
         "steps": 0,
         "n_tool_calls": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "cache_write_1h_tokens": 0,
+        "reasoning_tokens": 0,
         "total_tokens": 0,
         "cost": 0.0,
+        "duration": 0.0,
         "model_time": 0.0,
         "tools_time": 0.0,
         "error": error,
@@ -146,8 +153,19 @@ def _result_row(
             stop_reason=StopReason.ERROR if error else result.stop_reason,
             steps=result.steps,
             n_tool_calls=len(result.tool_calls),
+            prompt_tokens=result.usage.get("prompt_tokens", 0),
+            completion_tokens=result.usage.get("completion_tokens", 0),
+            cached_tokens=result.usage.get("cached_tokens", 0),
+            cache_write_tokens=result.usage.get("cache_write_tokens", 0),
+            cache_write_1h_tokens=result.usage.get("cache_write_1h_tokens", 0),
+            reasoning_tokens=result.usage.get("reasoning_tokens", 0),
             total_tokens=result.usage.get("total_tokens", 0),
             cost=result.cost,
+            duration=(
+                result.profile.duration_s
+                if result.profile is not None
+                else sum(d["model"] + d["tools"] for d in result.step_durations)
+            ),
             # Wall-clock split: LLM (model query) vs tool dispatch (here: the search calls),
             # summed over the run's steps from result.step_durations.
             model_time=sum(d["model"] for d in result.step_durations),
