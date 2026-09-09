@@ -13,6 +13,8 @@ const postgresEnvFile = path.join(root, '.env.postgres.local');
 const docusaurusCli = path.join(root, 'node_modules', '@docusaurus', 'core', 'bin', 'docusaurus.mjs');
 const nanoagentRoot = path.join(root, 'services', 'nanoagent');
 const nanoagentPort = 8787;
+const piRunnerRoot = path.join(nanoagentRoot, 'packages', 'pi-runner');
+const piRunnerEntry = path.join(piRunnerRoot, 'dist', 'index.js');
 
 export function modeFrom(argv) {
   const postgres = argv.includes('--postgres');
@@ -60,6 +62,35 @@ export function usesBundledNanoAgent(env = process.env) {
   return !env.NANOAGENT_URL?.trim();
 }
 
+function run(command, args, options) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, options);
+    child.once('error', reject);
+    child.once('exit', (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${command} ${args.join(' ')} exited with ${signal || `status ${code}`}`));
+    });
+  });
+}
+
+async function preparePiRunner(env) {
+  const dependencies = path.join(piRunnerRoot, 'node_modules', '@earendil-works', 'pi-agent-core');
+  const inputs = ['package.json', 'package-lock.json', 'tsconfig.json', 'src/index.ts']
+    .map(file => path.join(piRunnerRoot, file));
+  const builtAt = fs.existsSync(piRunnerEntry) ? fs.statSync(piRunnerEntry).mtimeMs : 0;
+  const stale = inputs.some(file => fs.statSync(file).mtimeMs > builtAt);
+  const options = {cwd: piRunnerRoot, env, stdio: 'inherit'};
+
+  if (!fs.existsSync(dependencies)) {
+    console.log('Preparing bundled PI runner...');
+    await run('npm', ['ci', '--include=dev'], options);
+  } else if (stale) {
+    console.log('Rebuilding bundled PI runner...');
+    await run('npm', ['run', 'build'], options);
+  }
+  if (!fs.existsSync(piRunnerEntry)) throw new Error('PI runner build did not produce dist/index.js');
+}
+
 function validatedPort(value, name) {
   const port = Number(value);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -82,6 +113,7 @@ export async function startLocal(argv = process.argv.slice(2)) {
   if (usesBundledNanoAgent(env) && !env.OPENROUTER_API_KEY?.trim()) {
     throw new Error('Bundled NanoAgent requires OPENROUTER_API_KEY. Add it to .env.openrouter.local, then run npm start again.');
   }
+  if (usesBundledNanoAgent(env)) await preparePiRunner(env);
   const apiPort = validatedPort(env.EDITOR_PORT, 'EDITOR_PORT');
   const sitePort = validatedPort(env.SITE_PORT || 3000, 'SITE_PORT');
   if (apiPort === sitePort) {

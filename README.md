@@ -16,28 +16,19 @@ key:
 OPENROUTER_API_KEY=...
 ```
 
-Then choose a database mode. Both commands start the complete stack: NanoAgent,
-the Mochi API, and the site.
+Start the complete stack—NanoAgent, the Mochi API, and the site—with one
+command:
 
-For ordinary local development:
 
 ```bash
 npm start
 ```
 
-This uses a local SQLite file under `var/data/`. It needs no database setup and
-is the quickest way to run the project.
-
-For development against PostgreSQL:
-
-```bash
-npm run start:postgres
-```
-
 This uses the prepared Neon PostgreSQL branch and credentials from
-`.env.postgres.local`. Run `npm run db:postgres:setup` before using it. Choose
-this mode when testing PostgreSQL behavior, migrations, permissions, or the
-production-like database path.
+`.env.postgres.local`, keeping local development on the same authoritative data
+path as production. Run `npm run db:postgres:setup` once before using it.
+The older `npm run start:postgres` command remains as an explicit alias for
+`npm start`.
 
 Open [http://localhost:3000](http://localhost:3000). NanoAgent is bundled in
 `services/nanoagent`; no adjacent checkout or second terminal is required. Set

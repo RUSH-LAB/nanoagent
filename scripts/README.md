@@ -6,7 +6,7 @@ details grouped by responsibility.
 
 ## Local setup
 
-Prerequisites are Node.js 20+, npm, Python 3.12, and `uv`. PostgreSQL mode also
+Prerequisites are Node.js 22.19+, npm, Python 3.12, and `uv`. PostgreSQL mode also
 requires access to an isolated Mochi Lab Neon development branch. Local
 PostgreSQL, Docker, and a separate NanoAgent checkout are not required.
 
@@ -63,13 +63,16 @@ OPENROUTER_API_KEY=...
 Start the complete local stack with one command:
 
 ```bash
-npm start                 # bundled NanoAgent + API + site, local SQLite
-npm run start:postgres    # bundled NanoAgent + API + site, prepared Neon branch
+npm start                 # bundled NanoAgent + API + site, prepared Neon branch
+npm run start:postgres    # explicit alias for npm start
 ```
 
+PostgreSQL is the normal development path and source of truth.
+
 The supervisor installs NanoAgent's Python dependencies with `uv` on its first
-run and stops every process together on Ctrl+C. Mochi connects to the bundled
-service at `http://127.0.0.1:8787`. Set `NANOAGENT_URL` and
+run, prepares the bundled PI runner when needed, and stops every process
+together on Ctrl+C. Mochi connects to the bundled service at
+`http://127.0.0.1:8787`. Set `NANOAGENT_URL` and
 `NANOAGENT_API_TOKEN` to use another service, or `NANOAGENT_URL=off` to disable
 AI. The sole model currently exposed by Mochi is
 `deepseek/deepseek-v4-flash-0731`.
