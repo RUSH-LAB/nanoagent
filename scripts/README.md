@@ -6,9 +6,9 @@ details grouped by responsibility.
 
 ## Local setup
 
-Prerequisites are Node.js 20+, npm, Python 3.12, `uv`, and access to an
-isolated Mochi Lab Neon development branch. Local PostgreSQL and Docker are not
-required.
+Prerequisites are Node.js 20+, npm, Python 3.12, and `uv`. PostgreSQL mode also
+requires access to an isolated Mochi Lab Neon development branch. Local
+PostgreSQL, Docker, and a separate NanoAgent checkout are not required.
 
 Install the JavaScript dependencies and prepare the Neon branch:
 
@@ -20,14 +20,6 @@ neon link --project-id curly-rice-08210507 --branch production -y
 neon checkout dev-my-laptop
 npm run neon:deploy
 npm run db:postgres:setup
-```
-
-Prepare the adjacent NanoAgent checkout:
-
-```bash
-cd ../nanoagent
-uv sync --extra web
-cd ../mochi-lab
 ```
 
 `npm run db:postgres:setup` creates the git-ignored `.env.postgres.local` file.
@@ -62,25 +54,24 @@ MAIL_TEST_TO=...
 
 ## Running locally
 
-Start NanoAgent in one terminal. Its current web configuration uses DeepSeek V4
-Flash through OpenRouter and grants no tools:
+Put the OpenRouter key in the git-ignored `.env.local` file:
 
-```bash
-export OPENROUTER_API_KEY=...
-cd ../nanoagent
-uv run python -m nanoagent web web_cfg=configs/web_openrouter.yaml
+```dotenv
+OPENROUTER_API_KEY=...
 ```
 
-Start Mochi in another terminal:
+Start the complete local stack with one command:
 
 ```bash
-npm start                 # local SQLite
-npm run start:postgres    # prepared Neon development branch
+npm start                 # bundled NanoAgent + API + site, local SQLite
+npm run start:postgres    # bundled NanoAgent + API + site, prepared Neon branch
 ```
 
-Mochi connects to `http://127.0.0.1:8787` by default. Use `NANOAGENT_URL` and
-`NANOAGENT_API_TOKEN` for another service, or `NANOAGENT_URL=off` to disable AI.
-The sole model currently exposed by Mochi is
+The supervisor installs NanoAgent's Python dependencies with `uv` on its first
+run and stops every process together on Ctrl+C. Mochi connects to the bundled
+service at `http://127.0.0.1:8787`. Set `NANOAGENT_URL` and
+`NANOAGENT_API_TOKEN` to use another service, or `NANOAGENT_URL=off` to disable
+AI. The sole model currently exposed by Mochi is
 `deepseek/deepseek-v4-flash-0731`.
 
 ## `db/`
@@ -119,7 +110,8 @@ Manual verification, repair, or cleanup commands:
   deterministic fake model and verifies Mochi's private streaming contract.
 
 Run the agent check with `npm run nanoagent:verify`. It expects the NanoAgent
-checkout at `../nanoagent`, or at `NANOAGENT_PROJECT_DIR` when set.
+service bundled at `services/nanoagent`, or the project at
+`NANOAGENT_PROJECT_DIR` when set.
 
 ## `dev/`
 

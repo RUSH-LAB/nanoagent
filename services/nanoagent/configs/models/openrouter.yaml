@@ -1,0 +1,14 @@
+# Shared OpenRouter model policy. Interactive and web configs compose this file so endpoint,
+# sampling, retry and pricing changes have one owner.
+model:
+  model: deepseek/deepseek-v4-flash-0731
+  backend: sglang
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${oc.env:OPENROUTER_API_KEY}
+  temperature: 0.0
+  max_tokens: 4096
+  request_timeout: 300.0
+  max_retries: 3
+  extra_body: {}
+  input_price: 0.065
+  output_price: 0.18

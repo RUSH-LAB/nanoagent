@@ -1,0 +1,20 @@
+# Example nanoagent.inference config: google/gemma-4-31B-it served by SGLang.
+#
+# Load with:
+#   from nanoagent.inference import BatchedInference, SGLangConfig
+#   cfg = SGLangConfig.from_yaml("configs/gemma_4_31b_sglang.yaml")
+#   BatchedInference(cfg).run("Hello, world!")
+#
+# A relative path resolves against the PROJECT ROOT, not the CWD, so this one path names this
+# one file wherever the process was launched from. Per-run knobs go as keyword overrides
+# (`SGLangConfig.from_yaml(..., max_tokens=8192)`) rather than a forked copy of this file.
+#
+# `base_url` must point at the running SGLang OpenAI-compatible /v1 endpoint
+# (the model is served under --served-model-name google/gemma-4-31B-it). Edit the
+# host/port to match your deployment.
+backend: sglang
+model: google/gemma-4-31B-it
+base_url: http://localhost:30000/v1
+# Greedy decoding for reproducible accuracy runs (e.g. BrowseComp / SimpleQA).
+temperature: 0.0
+max_tokens: 4096

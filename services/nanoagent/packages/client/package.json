@@ -1,0 +1,42 @@
+{
+  "name": "@nanoagent/client",
+  "version": "0.1.0",
+  "description": "Typed server-side client for the NanoAgent HTTP/SSE API",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zeyuyang8/nanoagent.git",
+    "directory": "packages/client"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "generate": "npm run generate:request && npm run generate:events",
+    "generate:request": "json2ts -i ../../src/nanoagent/web/schema/run-request.schema.json -o src/request.generated.ts",
+    "generate:events": "json2ts -i ../../src/nanoagent/web/schema/run-events.schema.json -o src/events.generated.ts",
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run generate && npm run build && node --test test/*.test.cjs",
+    "prepare": "npm run generate && npm run build"
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "^15.0.4",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

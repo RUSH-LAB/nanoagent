@@ -1,0 +1,36 @@
+{
+  "name": "@nanoagent/pi-runner",
+  "version": "0.1.0",
+  "description": "PI harness adapter for NanoAgent's JSONL runner protocol",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zeyuyang8/nanoagent.git",
+    "directory": "packages/pi-runner"
+  },
+  "bin": {
+    "nanoagent-pi-runner": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.cjs",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.84.4",
+    "@earendil-works/pi-ai": "0.84.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=22.19"
+  }
+}

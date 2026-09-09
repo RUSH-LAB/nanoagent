@@ -1,0 +1,21 @@
+# Serve google/gemma-4-31B-it with SGLang (the launch side of nanoagent.inference).
+#
+# Start it:
+#   python3 -m nanoagent.inference.serve --config configs/gemma_4_31b_serve.yaml
+#
+# It then exposes an OpenAI-compatible endpoint at http://localhost:30000/v1 — the same
+# base_url the client config gemma_4_31b_sglang.yaml points at, under the served name
+# google/gemma-4-31B-it. Add SGLang flags under extra_args (e.g. tool-call-parser /
+# reasoning-parser). Use host 0.0.0.0 to bind all interfaces.
+mode: single
+model_path: google/gemma-4-31B-it
+served_model_name: google/gemma-4-31B-it
+host: localhost
+port: 30000
+# Parallelism follows slime's _compute_server_args (see serve.py): one engine using all 8 GPUs
+# of this node -> tp_size = 8, nnodes = 1. pp_size/dp_size/ep_size default to 1.
+gpus_per_engine: 8
+num_gpus_per_node: 8
+# Add any other launch_server flag here as --<key> <value> (True → bare flag). We set none
+# and rely on SGLang's defaults, exactly like slime (which sets no CUDA-graph flags).
+extra_args: {}

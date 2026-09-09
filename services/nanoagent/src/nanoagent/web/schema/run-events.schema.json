@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nanoagent.dev/schema/run-events-v1.json",
+  "title": "RunEvent",
+  "oneOf": [
+    {"$ref": "#/$defs/StartEvent"},
+    {"$ref": "#/$defs/DeltaEvent"},
+    {"$ref": "#/$defs/ToolEvent"},
+    {"$ref": "#/$defs/StepEvent"},
+    {"$ref": "#/$defs/DoneEvent"},
+    {"$ref": "#/$defs/ErrorEvent"}
+  ],
+  "$defs": {
+    "EventBase": {
+      "type": "object",
+      "properties": {"runId": {"type": "string"}},
+      "required": ["runId"]
+    },
+    "Usage": {
+      "type": "object",
+      "additionalProperties": {"type": "integer"}
+    },
+    "StartEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/EventBase"},
+        {
+          "type": "object",
+          "properties": {
+            "type": {"const": "start"},
+            "metadata": {"type": ["object", "null"], "additionalProperties": true},
+            "profile": {"type": "string"},
+            "harness": {"type": "string"},
+            "model": {"type": "string"}
+          },
+          "required": ["type", "metadata", "profile", "harness", "model"]
+        }
+      ]
+    },
+    "DeltaEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/EventBase"},
+        {
+          "type": "object",
+          "properties": {
+            "type": {"const": "delta"},
+            "kind": {"enum": ["content", "reasoning"]},
+            "text": {"type": "string"}
+          },
+          "required": ["type", "kind", "text"]
+        }
+      ]
+    },
+    "ToolEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/EventBase"},
+        {
+          "type": "object",
+          "properties": {
+            "type": {"const": "tool"},
+            "id": {"type": "string"},
+            "name": {"type": "string"},
+            "arguments": {},
+            "output": {"type": "string"},
+            "is_error": {"type": "boolean"}
+          },
+          "required": ["type", "id", "name", "arguments", "output", "is_error"]
+        }
+      ]
+    },
+    "StepEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/EventBase"},
+        {
+          "type": "object",
+          "properties": {
+            "type": {"const": "step"},
+            "step": {"type": "integer", "minimum": 0},
+            "usage": {"$ref": "#/$defs/Usage"},
+            "cost": {"type": "number", "minimum": 0}
+          },
+          "required": ["type", "step", "usage", "cost"]
+        }
+      ]
+    },
+    "DoneEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/EventBase"},
+        {
+          "type": "object",
+          "properties": {
+            "type": {"const": "done"},
+            "answer": {"type": "string"},
+            "stop_reason": {"type": "string"},
+            "steps": {"type": "integer", "minimum": 0},
+            "usage": {"$ref": "#/$defs/Usage"},
+            "cost": {"type": "number", "minimum": 0},
+            "error": {"type": ["string", "null"]},
+            "profile": {"type": "string"},
+            "harness": {"type": "string"},
+            "model": {"type": "string"}
+          },
+          "required": ["type", "answer", "stop_reason", "steps", "usage", "cost", "error", "profile", "harness", "model"]
+        }
+      ]
+    },
+    "ErrorEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/EventBase"},
+        {
+          "type": "object",
+          "properties": {
+            "type": {"const": "error"},
+            "code": {"type": "string"},
+            "error": {"type": "string"}
+          },
+          "required": ["type", "code", "error"]
+        }
+      ]
+    }
+  }
+}

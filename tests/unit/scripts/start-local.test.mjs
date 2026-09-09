@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {environmentFor, modeFrom, portIsAvailable} from '../../../scripts/dev/start-local.mjs';
+import {
+  environmentFor,
+  modeFrom,
+  portIsAvailable,
+  usesBundledNanoAgent,
+} from '../../../scripts/dev/start-local.mjs';
 
 describe('local process supervisor configuration', () => {
   it('selects exactly one supported mode', () => {
@@ -52,5 +57,12 @@ describe('local process supervisor configuration', () => {
     } finally {
       await new Promise(resolve => server.close(resolve));
     }
+  });
+
+  it('starts the bundled NanoAgent unless an endpoint is explicitly configured', () => {
+    assert.equal(usesBundledNanoAgent({}), true);
+    assert.equal(usesBundledNanoAgent({NANOAGENT_URL: ''}), true);
+    assert.equal(usesBundledNanoAgent({NANOAGENT_URL: 'off'}), false);
+    assert.equal(usesBundledNanoAgent({NANOAGENT_URL: 'https://agent.internal'}), false);
   });
 });

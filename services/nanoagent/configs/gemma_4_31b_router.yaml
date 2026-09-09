@@ -1,0 +1,24 @@
+# Serve google/gemma-4-31B-it behind an sglang_router with multiple single-node engines
+# (nanoagent.inference.router) — slime's multi-engine + router topology, self-contained (no Ray).
+#
+# This fills the 8-GPU node with 4 engines of tp=2, load-balanced by the router. policy
+# cache_aware routes same-prefix requests to the same engine so per-engine prefix caches are
+# reused. The router is the public OpenAI endpoint (http://localhost:30000/v1) — point the
+# client config there, exactly like a single server.
+#
+# Start it:
+#   python3 -m nanoagent.inference.serve --config configs/gemma_4_31b_router.yaml
+#
+# Multi-node (manual): run this same file on every node with a distinct node_rank, and set
+# router_address to node 0's reachable HOST:PORT. Only node_rank 0 starts the router; every node's
+# engines register to it. (For automatic cross-node rendezvous on a scheduler, use mode: multinode.)
+# Requires the sglang-router package: pip install 'nanoagent.inference[serve]'.
+mode: router
+model_path: google/gemma-4-31B-it
+served_model_name: google/gemma-4-31B-it
+host: 0.0.0.0
+port: 30000
+num_gpus_per_node: 8
+gpus_per_engine: 2  # 8 // 2 = 4 engines of tp=2 on this node
+policy: cache_aware
+extra_args: {}

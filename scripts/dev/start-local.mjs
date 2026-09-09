@@ -8,8 +8,11 @@ import {fileURLToPath} from 'node:url';
 import {parseEnv} from '../db/postgres.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const localEnvFile = path.join(root, '.env.openrouter.local');
 const postgresEnvFile = path.join(root, '.env.postgres.local');
 const docusaurusCli = path.join(root, 'node_modules', '@docusaurus', 'core', 'bin', 'docusaurus.mjs');
+const nanoagentRoot = path.join(root, 'services', 'nanoagent');
+const nanoagentPort = 8787;
 
 export function modeFrom(argv) {
   const postgres = argv.includes('--postgres');
@@ -53,6 +56,10 @@ export function portIsAvailable(port, host = 'localhost') {
   });
 }
 
+export function usesBundledNanoAgent(env = process.env) {
+  return !env.NANOAGENT_URL?.trim();
+}
+
 function validatedPort(value, name) {
   const port = Number(value);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -68,36 +75,53 @@ function signalTree(child, signal) {
 
 export async function startLocal(argv = process.argv.slice(2)) {
   const mode = modeFrom(argv);
-  const env = environmentFor(mode);
+  const localEnv = fs.existsSync(localEnvFile)
+    ? parseEnv(fs.readFileSync(localEnvFile, 'utf8'))
+    : {};
+  const env = environmentFor(mode, {base: {...localEnv, ...process.env}});
+  if (usesBundledNanoAgent(env) && !env.OPENROUTER_API_KEY?.trim()) {
+    throw new Error('Bundled NanoAgent requires OPENROUTER_API_KEY. Add it to .env.openrouter.local, then run npm start again.');
+  }
   const apiPort = validatedPort(env.EDITOR_PORT, 'EDITOR_PORT');
   const sitePort = validatedPort(env.SITE_PORT || 3000, 'SITE_PORT');
   if (apiPort === sitePort) {
     throw new Error('EDITOR_PORT and SITE_PORT must be different');
   }
-  const checks = await Promise.all([portIsAvailable(apiPort), portIsAvailable(sitePort)]);
-  const occupied = [apiPort, sitePort].filter((_, index) => !checks[index]);
+  const ports = [apiPort, sitePort];
+  if (usesBundledNanoAgent(env)) ports.push(nanoagentPort);
+  const checks = await Promise.all(ports.map(port => portIsAvailable(port)));
+  const occupied = ports.filter((_, index) => !checks[index]);
   if (occupied.length) {
     throw new Error(`Port${occupied.length === 1 ? '' : 's'} ${occupied.join(', ')} already in use; stop the existing local service first`);
   }
-  // Keep both children in the terminal's process group. Ctrl+C then reaches
-  // the API, the Docusaurus CLI, and this supervisor together, so npm cannot
-  // exit while leaving a detached dev server behind.
-  const options = {cwd: root, env, stdio: 'inherit'};
-  const children = [
-    spawn(process.execPath, ['src/server/index.js'], options),
-    spawn(process.execPath, [docusaurusCli, 'start', '--no-open', '--port', String(sitePort)], options),
+  // Keep every child in the terminal's process group. Ctrl+C then reaches the
+  // agent, API, site, and this supervisor together, so npm cannot leave a
+  // detached development service behind.
+  const options = cwd => ({cwd, env, stdio: 'inherit'});
+  const processes = [
+    {name: 'API', child: spawn(process.execPath, ['src/server/index.js'], options(root))},
+    {name: 'site', child: spawn(process.execPath, [docusaurusCli, 'start', '--no-open', '--port', String(sitePort)], options(root))},
   ];
+  if (usesBundledNanoAgent(env)) {
+    processes.unshift({
+      name: 'NanoAgent',
+      child: spawn('uv', [
+        'run', '--extra', 'web', 'python', '-m', 'nanoagent', 'web',
+        'web_cfg=configs/web_openrouter.yaml',
+      ], options(nanoagentRoot)),
+    });
+  }
   let stopping = false;
 
   function stop(exitCode, signal = 'SIGTERM') {
     if (stopping) return;
     stopping = true;
-    for (const child of children) signalTree(child, signal);
+    for (const {child} of processes) signalTree(child, signal);
     const force = setTimeout(() => {
-      for (const child of children) signalTree(child, 'SIGKILL');
+      for (const {child} of processes) signalTree(child, 'SIGKILL');
     }, 5_000);
     force.unref?.();
-    Promise.all(children.map(child => child.exitCode === null
+    Promise.all(processes.map(({child}) => child.exitCode === null
       ? new Promise(resolve => child.once('exit', resolve))
       : Promise.resolve()))
       .then(() => {
@@ -106,9 +130,9 @@ export async function startLocal(argv = process.argv.slice(2)) {
       });
   }
 
-  for (const child of children) {
+  for (const {name, child} of processes) {
     child.once('error', error => {
-      console.error(`Local ${mode} startup failed: ${error.message}`);
+      console.error(`${name} startup failed: ${error.message}`);
       stop(1);
     });
     child.once('exit', (code, signal) => {

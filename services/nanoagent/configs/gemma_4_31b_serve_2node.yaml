@@ -1,0 +1,28 @@
+# Multi-node serve example: ONE engine of 16 GPUs spanning TWO 8-GPU nodes, derived slime-style
+# (serve.py / slime _compute_server_args): nnodes = 16 // 8 = 2, tp_size = 16 // pp(1) = 16, so
+# the tensor-parallel group spans both nodes. Self-contained — SGLang forms the process group,
+# no Ray.
+#
+# NOTE: do this only if you deliberately want a single 16-GPU engine. google/gemma-4-31B-it fits
+# on one node, so spanning its TP across nodes adds inter-node all-reduce; the usual multi-node
+# path for a node-fitting model is many single-node engines behind a router (slime's Ray path),
+# which this single-server launcher does not cover.
+#
+# Run THIS config on BOTH nodes, changing only node_rank:
+#   on node 0 (node_rank: 0 below):
+#     python3 -m nanoagent.inference.serve --config configs/gemma_4_31b_serve_2node.yaml
+#   on node 1: copy this file, set node_rank: 1, run the same command there.
+#
+# dist_init_addr must be node 0's reachable HOST:PORT (identical on both nodes). Only node_rank 0
+# exposes the OpenAI endpoint at host:port.
+mode: single
+model_path: google/gemma-4-31B-it
+served_model_name: google/gemma-4-31B-it
+host: 0.0.0.0
+port: 30000
+gpus_per_engine: 16  # 2 nodes x 8 GPUs in ONE engine -> tp_size=16 (16 // pp_size 1)
+num_gpus_per_node: 8
+nnodes: 2  # explicit; matches gpus_per_engine // num_gpus_per_node for this cross-node single engine
+node_rank: 0  # set to 1 on the second node
+dist_init_addr: NODE0_HOST:5000  # replace with node 0's reachable address
+extra_args: {}

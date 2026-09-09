@@ -1,0 +1,48 @@
+# The agent against a hosted provider — OpenRouter, no plugin and no code.
+#
+#     export OPENROUTER_API_KEY=sk-or-...
+#     mgen --config configs/openrouter.yaml -p "what does src/nanoagent/runtime/build.py do?"
+#
+# This composes one shared OpenRouter model block over the packaged `mgen.yaml` shape.
+# `backend: sglang` is not a typo: that
+# transport is the async OpenAI SDK pointed at a base_url, and OpenRouter speaks that protocol, so
+# the only thing a hosted provider changes is WHERE and WITH WHAT KEY.
+
+defaults:
+  - configs/models/openrouter.yaml
+
+agent:
+  max_steps: 60
+  cost_limit: null
+  token_limit: null
+  context_window: null
+  hooks: []
+  skills: null
+  context_files:
+    - CLAUDE.md
+    - AGENTS.md
+  events: null
+  system_prompt: |
+    You are a coding agent working in a checkout of this repository, driven from a terminal.
+
+    Work from evidence: read before you edit, run what you can, and say what you actually did.
+    Keep changes surgical — every changed line should trace to what was asked. When something
+    is ambiguous, say which readings you see rather than picking one silently.
+
+    Finish by stating the outcome plainly: what changed, what you verified, and what you did
+    not. If a step failed, show the output rather than summarising it away.
+
+tools:
+  - tools/files.yaml
+  - tools/bash.yaml
+  - tools/python.yaml
+tools_dir: null
+allowed_tools: null
+task: null
+output: null
+yolo: false
+resume: null
+commands: []
+models: {}
+theme: {}
+images: false

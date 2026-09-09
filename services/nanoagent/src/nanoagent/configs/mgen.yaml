@@ -1,0 +1,68 @@
+# The default `mgen` config: a general coding agent against a locally served model.
+#
+#     mgen -p "what does src/nanoagent/runtime/build.py do?"
+#
+# Every `mgen` flag overrides a leaf of THIS file, and `mgen --dump-config` prints the result —
+# so an invocation you liked can be saved as a config and stops being an invocation.
+#
+# The model block below points at a local SGLang endpoint. To reach something else, copy this
+# file, change the model block, and point $MGEN_CONFIG at yours. `backend:` is resolved by
+# nanoagent.inference — a built-in, or a plugin file in a $NANOAGENT_PLUGINS directory, which
+# is how a private gateway is reached without either package knowing about it.
+
+model:
+  model: default            # served name; --model overrides it
+  backend: sglang           # a built-in, or the name of a plugin file (see nanoagent.inference.plugins)
+  base_url: http://127.0.0.1:30000/v1
+  api_key: null             # a plugin backend reads its own key from the environment
+  temperature: 0.6
+  max_tokens: 8192
+  request_timeout: 900.0
+  max_retries: 4
+  extra_body: {}
+  input_price: 0.0
+  output_price: 0.0
+
+agent:
+  # A terminal session is open-ended, so the budget is generous where a benchmark's is not.
+  max_steps: 60
+  cost_limit: null
+  token_limit: null
+  context_window: null
+  hooks: []
+  skills: null
+  # The checkout's own instructions, on by default: a coding agent that has not read them
+  # proposes changes the project rejects on sight. Missing files are skipped.
+  context_files:
+    - CLAUDE.md
+    - AGENTS.md
+  events: null
+  system_prompt: |
+    You are a coding agent working in a checkout of this repository, driven from a terminal.
+
+    Work from evidence: read before you edit, run what you can, and say what you actually did.
+    Keep changes surgical — every changed line should trace to what was asked. When something
+    is ambiguous, say which readings you see rather than picking one silently.
+
+    Finish by stating the outcome plainly: what changed, what you verified, and what you did
+    not. If a step failed, show the output rather than summarising it away.
+
+# read / write / edit, plus a shell. This IS the toolset; --allowedTools narrows it by name
+# (bash, read, write, edit, python) without editing this list.
+# Resolved against the CWD first, then against the configs shipped inside the installed
+# package (nanoagent.extensions.resolve_config) — so `mgen` works from any directory.
+tools:
+  - tools/files.yaml
+  - tools/bash.yaml
+  - tools/python.yaml
+tools_dir: null             # the agent may not write itself new tools
+allowed_tools: null         # null = everything `tools` loaded
+
+task: null                  # the positional prompt overrides it
+output: null                # null = the default mgen folder (expdir/mgen/)
+yolo: false                 # confirm each tool call (--dangerously-skip-permissions flips it)
+resume: null                # -r / -c set it
+commands: []
+models: {}
+theme: {}
+images: false
