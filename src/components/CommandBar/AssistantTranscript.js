@@ -55,6 +55,7 @@ const finite = value => Number.isFinite(value) && value >= 0;
 const tokens = value => finite(value) ? Math.round(value).toLocaleString() : '—';
 const seconds = value => finite(value) ? `${value < 0.1 ? value.toFixed(3) : value.toFixed(1)}s` : '—';
 const dollars = value => finite(value) ? `$${value < 0.01 ? value.toFixed(6) : value.toFixed(4)}` : '—';
+const telemetryCost = telemetry => telemetry?.metrics?.cost ?? telemetry?.cost;
 
 function Stat({label, value, detail, accent = false}) {
   return (
@@ -97,19 +98,24 @@ function TimingBreakdown({metrics}) {
   );
 }
 
-/** One answer's accounting summary, with the model/tool steps available on demand. */
-function MessageMetrics({telemetry}) {
+/** One answer's accounting summary, with its model/tool passes available on demand. */
+function MessageMetrics({telemetry, conversationCost = null, showConversationCost = false}) {
   if (!telemetry) return null;
   const metrics = telemetry.metrics;
   const usage = metrics?.usage || telemetry.usage;
-  const cost = metrics?.cost ?? telemetry.cost;
+  const cost = telemetryCost(telemetry);
   if (!usage && !finite(cost) && !metrics) return null;
   const stepRows = Array.isArray(metrics?.steps) ? metrics.steps : [];
   return (
     <details className={styles.metrics}>
       <summary className={styles.metricsSummary}>
-        <span className={styles.metricsTitle}>Run profile</span>
-        <span className={styles.summaryStat}><small>Cost</small><b>{dollars(cost)}</b></span>
+        <span className={styles.metricsTitle}>Response metrics</span>
+        <span className={styles.summaryStat}><small>Response</small><b>{dollars(cost)}</b></span>
+        {showConversationCost && (
+          <span className={`${styles.summaryStat} ${styles.summaryTotal}`}>
+            <small>Conversation</small><b>{dollars(conversationCost)}</b>
+          </span>
+        )}
         <span className={styles.summaryStat}><small>Tokens</small><b>{tokens(usage?.total_tokens)}</b></span>
         <span className={styles.summaryStat}><small>Time</small><b>{seconds(metrics?.duration_s)}</b></span>
         <span className={styles.summaryChevron} aria-hidden="true" />
@@ -130,13 +136,16 @@ function MessageMetrics({telemetry}) {
 
         {stepRows.length > 0 && (
           <section className={styles.metricSection}>
-            <h4>Steps <span>{stepRows.length}</span></h4>
+            <h4>
+              Agent passes <span>{stepRows.length}</span>
+              <small>Each pass is one model/tool cycle</small>
+            </h4>
             <ol className={styles.metricSteps}>
               {stepRows.map((step, index) => (
                 <li key={`${step.step ?? index}-${index}`}>
                   <div className={styles.stepSummary}>
                     <span className={styles.stepNumber}>{step.step ?? index + 1}</span>
-                    <b>Step {step.step ?? index + 1}</b>
+                    <b>Pass {step.step ?? index + 1}</b>
                     <span className={styles.stepMeta}>{dollars(step.cost)}</span>
                     <span className={styles.stepMeta}>{seconds(step.duration_s)}</span>
                   </div>
@@ -230,6 +239,19 @@ export default function AssistantTranscript({
   const streaming = entries.find((entry) => entry.pending) ?? null;
   const waiting = busy && !streaming?.text;
   const seconds = useElapsedSeconds(waiting);
+  const accountingByEntry = new Map();
+  let conversationCost = 0;
+  let meteredResponses = 0;
+  entries.forEach((entry) => {
+    const cost = telemetryCost(entry.telemetry);
+    if (!finite(cost)) return;
+    conversationCost += cost;
+    meteredResponses += 1;
+    accountingByEntry.set(entry, {
+      conversationCost,
+      showConversationCost: meteredResponses > 1,
+    });
+  });
 
   return (
     <div className={shared.viewport}>
@@ -287,7 +309,12 @@ export default function AssistantTranscript({
                 <div className={styles.answerBody}>
                   <span className={styles.speaker}>{speaker?.name || 'Agent'}</span>
                   <Markdown text={entry.text} />
-                  {!entry.pending && <MessageMetrics telemetry={entry.telemetry} />}
+                  {!entry.pending && (
+                    <MessageMetrics
+                      telemetry={entry.telemetry}
+                      {...accountingByEntry.get(entry)}
+                    />
+                  )}
                 </div>
               </div>
             );
