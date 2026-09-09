@@ -56,7 +56,17 @@ const tokens = value => finite(value) ? Math.round(value).toLocaleString() : '�
 const seconds = value => finite(value) ? `${value < 0.1 ? value.toFixed(3) : value.toFixed(1)}s` : '—';
 const dollars = value => finite(value) ? `$${value < 0.01 ? value.toFixed(6) : value.toFixed(4)}` : '—';
 
-function TokenBreakdown({usage}) {
+function Stat({label, value, detail, accent = false}) {
+  return (
+    <div className={`${styles.stat} ${accent ? styles.statAccent : ''}`}>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+      {detail && <span>{detail}</span>}
+    </div>
+  );
+}
+
+function TokenBreakdown({usage, compact = false}) {
   const input = usage?.prompt_tokens;
   const cached = usage?.cached_tokens;
   const cacheWrite = usage?.cache_write_tokens;
@@ -66,14 +76,29 @@ function TokenBreakdown({usage}) {
     ? Math.max(0, input - (finite(cached) ? cached : 0) - (finite(cacheWrite) ? cacheWrite : 0))
     : null;
   return (
-    <div className={styles.metricGrid}>
-      <span>input <b>{tokens(input)}</b></span>
-      <span>uncached <b>{tokens(uncached)}</b></span>
-      <span>cache read <b>{tokens(cached)}</b></span>
-      <span>cache write <b>{tokens(cacheWrite)}</b></span>
-      <span>output <b>{tokens(output)}</b></span>
-      <span>reasoning <b>{tokens(reasoning)}</b></span>
-    </div>
+    <dl className={`${styles.tokenGrid} ${compact ? styles.tokenGridCompact : ''}`}>
+      <div className={`${styles.tokenGroup} ${styles.inputGroup}`}>
+        <dt>Input</dt>
+        <dd>{tokens(input)}</dd>
+        <div className={styles.tokenParts}>
+          <span><small>Uncached</small><b>{tokens(uncached)}</b></span>
+          <span><small>Cache read</small><b>{tokens(cached)}</b></span>
+          <span><small>Cache write</small><b>{tokens(cacheWrite)}</b></span>
+        </div>
+      </div>
+      <Stat label="Output" value={tokens(output)} />
+      <Stat label="Reasoning" value={tokens(reasoning)} />
+    </dl>
+  );
+}
+
+function TimingBreakdown({metrics}) {
+  return (
+    <dl className={styles.statGrid}>
+      <Stat label="Model" value={seconds(metrics.model_s)} detail="inference" accent />
+      <Stat label="Tools" value={seconds(metrics.tools_s)} detail="execution" />
+      <Stat label="Overhead" value={seconds(metrics.overhead_s)} detail="agent runtime" />
+    </dl>
   );
 }
 
@@ -87,48 +112,76 @@ function MessageMetrics({telemetry}) {
   const stepRows = Array.isArray(metrics?.steps) ? metrics.steps : [];
   return (
     <details className={styles.metrics}>
-      <summary>
-        {dollars(cost)} · {tokens(usage?.total_tokens)} tokens
-        {finite(metrics?.duration_s) ? ` · ${seconds(metrics.duration_s)}` : ''}
+      <summary className={styles.metricsSummary}>
+        <span className={styles.metricsTitle}>Run profile</span>
+        <span className={styles.summaryStat}><small>Cost</small><b>{dollars(cost)}</b></span>
+        <span className={styles.summaryStat}><small>Tokens</small><b>{tokens(usage?.total_tokens)}</b></span>
+        <span className={styles.summaryStat}><small>Time</small><b>{seconds(metrics?.duration_s)}</b></span>
+        <span className={styles.summaryChevron} aria-hidden="true" />
       </summary>
-      <TokenBreakdown usage={usage} />
-      {metrics && (
-        <div className={styles.timingGrid}>
-          <span>model <b>{seconds(metrics.model_s)}</b></span>
-          <span>tools <b>{seconds(metrics.tools_s)}</b></span>
-          <span>overhead <b>{seconds(metrics.overhead_s)}</b></span>
-        </div>
-      )}
-      {stepRows.length > 0 && (
-        <ol className={styles.metricSteps}>
-          {stepRows.map((step, index) => (
-            <li key={`${step.step ?? index}-${index}`}>
-              <div className={styles.stepSummary}>
-                <b>step {step.step ?? index + 1}</b>
-                <span>{dollars(step.cost)}</span>
-                <span>{seconds(step.duration_s)}</span>
-              </div>
-              <TokenBreakdown usage={step.usage} />
-              {(step.model_calls || []).map((call, callIndex) => (
-                <div className={styles.callRow} key={`model-${callIndex}`}>
-                  <span>{call.kind === 'compaction' ? 'compaction' : `model ${callIndex + 1}`}</span>
-                  <span>{dollars(call.cost)}</span>
-                  <span>TTFT {seconds(call.ttft_s)}</span>
-                  <span>generate {seconds(call.generation_s)}</span>
-                  <span>{finite(call.output_tokens_per_second) ? `${call.output_tokens_per_second.toFixed(1)} tok/s` : '— tok/s'}</span>
-                </div>
+
+      <div className={styles.metricsBody}>
+        <section className={styles.metricSection}>
+          <h4>Token usage</h4>
+          <TokenBreakdown usage={usage} />
+        </section>
+
+        {metrics && (
+          <section className={styles.metricSection}>
+            <h4>Time</h4>
+            <TimingBreakdown metrics={metrics} />
+          </section>
+        )}
+
+        {stepRows.length > 0 && (
+          <section className={styles.metricSection}>
+            <h4>Steps <span>{stepRows.length}</span></h4>
+            <ol className={styles.metricSteps}>
+              {stepRows.map((step, index) => (
+                <li key={`${step.step ?? index}-${index}`}>
+                  <div className={styles.stepSummary}>
+                    <span className={styles.stepNumber}>{step.step ?? index + 1}</span>
+                    <b>Step {step.step ?? index + 1}</b>
+                    <span className={styles.stepMeta}>{dollars(step.cost)}</span>
+                    <span className={styles.stepMeta}>{seconds(step.duration_s)}</span>
+                  </div>
+                  <TokenBreakdown usage={step.usage} compact />
+
+                  <div className={styles.calls}>
+                    {(step.model_calls || []).map((call, callIndex) => (
+                      <div className={styles.callCard} key={`model-${callIndex}`}>
+                        <div className={styles.callHead}>
+                          <span className={styles.callKind}>Model</span>
+                          <b>{call.kind === 'compaction' ? 'Compaction' : `Call ${callIndex + 1}`}</b>
+                          <span className={styles.callCost}>{dollars(call.cost)}</span>
+                        </div>
+                        <dl className={styles.callMetrics}>
+                          <Stat label="First token" value={seconds(call.ttft_s)} />
+                          <Stat label="Generation" value={seconds(call.generation_s)} />
+                          <Stat
+                            label="Throughput"
+                            value={finite(call.output_tokens_per_second) ? `${call.output_tokens_per_second.toFixed(1)} tok/s` : '—'}
+                          />
+                        </dl>
+                      </div>
+                    ))}
+                    {(step.tool_calls || []).map((call, callIndex) => (
+                      <div className={`${styles.callCard} ${call.is_error ? styles.callFailed : ''}`} key={`tool-${callIndex}`}>
+                        <div className={styles.callHead}>
+                          <span className={styles.callKind}>Tool</span>
+                          <b>{call.name}</b>
+                          <span className={styles.callCost}>{seconds(call.duration_s)}</span>
+                          {call.is_error && <span className={styles.metricError}>Failed</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </li>
               ))}
-              {(step.tool_calls || []).map((call, callIndex) => (
-                <div className={styles.callRow} key={`tool-${callIndex}`}>
-                  <span>{call.name}</span>
-                  <span>{seconds(call.duration_s)}</span>
-                  {call.is_error && <span className={styles.metricError}>failed</span>}
-                </div>
-              ))}
-            </li>
-          ))}
-        </ol>
-      )}
+            </ol>
+          </section>
+        )}
+      </div>
     </details>
   );
 }
