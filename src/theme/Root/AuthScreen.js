@@ -59,20 +59,6 @@ export default function AuthScreen({ devAutoLogin = false, googleAuthEnabled = f
     setError(null);
     setBusy(true);
     try {
-      if (signingIn && email.trim().toLowerCase() === 'root@mochi.local') {
-        const response = await fetch(`${API_BASE}/api/dev-login`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({email: email.trim().toLowerCase(), password}),
-        });
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok && response.status !== 404) throw new Error(body.error || 'Root sign-in failed.');
-        if (response.ok) {
-          window.location.reload();
-          return;
-        }
-      }
       const result = signingIn
         ? await authClient.signIn.email({email, password})
         : await authClient.signUp.email({email, password, name: name || email.split('@')[0]});
