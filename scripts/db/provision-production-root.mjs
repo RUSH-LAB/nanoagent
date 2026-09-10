@@ -29,8 +29,10 @@ export async function main() {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().catch(error => {
-    console.error(`Production root provisioning failed: ${error?.message || String(error)}`);
-    process.exitCode = 1;
-  });
+  main()
+    .then(() => process.exit(0))
+    .catch(error => {
+      console.error(`Production root provisioning failed: ${error?.message || String(error)}`);
+      process.exit(1);
+    });
 }
