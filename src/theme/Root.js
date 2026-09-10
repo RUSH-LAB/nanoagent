@@ -74,7 +74,7 @@ function isUngated(pathname) {
   return UNGATED.some((page) => pathname === page || pathname.startsWith(`${page}/`));
 }
 
-function AuthGate({ children, devAutoLogin }) {
+function AuthGate({ children, devAutoLogin, googleAuthEnabled }) {
   // Required lazily, inside BrowserOnly, because workspace discovery reads the
   // authenticated API and should never run during the static build.
   const { loadWorkspaces } = require('@site/src/utils/workspaces');
@@ -153,6 +153,7 @@ function AuthGate({ children, devAutoLogin }) {
     <Deferred>
       <AuthScreen
         devAutoLogin={devAutoLogin}
+        googleAuthEnabled={googleAuthEnabled}
         unreachable={status === UNREACHABLE ? detail : null}
       />
     </Deferred>
@@ -163,6 +164,7 @@ export default function Root({ children }) {
   const { siteConfig } = useDocusaurusContext();
   const authEnabled = siteConfig.customFields?.authEnabled;
   const devAutoLogin = siteConfig.customFields?.devAutoLogin;
+  const googleAuthEnabled = siteConfig.customFields?.googleAuthEnabled;
 
   if (!authEnabled) {
     return (
@@ -181,7 +183,7 @@ export default function Root({ children }) {
         // renders the content itself and the gate takes over on hydration.
         fallback={<>{children}</>}
       >
-        {() => <AuthGate devAutoLogin={devAutoLogin}>{children}</AuthGate>}
+        {() => <AuthGate devAutoLogin={devAutoLogin} googleAuthEnabled={googleAuthEnabled}>{children}</AuthGate>}
       </BrowserOnly>
       <PageTracker />
     </>

@@ -37,6 +37,7 @@ const config = {
     // `npm start` only; the server enforces the same flag plus a loopback
     // check, so a stray value here cannot grant a session by itself.
     devAutoLogin: process.env.DEV_AUTOLOGIN === 'true' && process.env.NODE_ENV !== 'production',
+    googleAuthEnabled: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
   },
 
   future: {

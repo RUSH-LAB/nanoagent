@@ -71,13 +71,9 @@ const NO_REFERENCES = Object.freeze({
   paperForStorage: value => value,
 });
 const {toNodeHandler} = require('better-auth/node');
-const developmentAuth = postgresDatabase.enabled ? {
-  DEV_AUTOLOGIN: false,
-  ensureRootUser: async () => null,
-  ensureDevelopmentWorkspace: () => null,
-  handleDevLogin: (_req, res, _auth, send) => send(res, 404, {error: 'Development login is unavailable with PostgreSQL'}),
-  ROOT_USERNAME: 'root',
-} : require('./dev-auth');
+const developmentAuth = postgresDatabase.enabled
+  ? require('./postgres-dev-auth')
+  : require('./dev-auth');
 const {DEV_AUTOLOGIN, ensureRootUser, ensureDevelopmentWorkspace, handleDevLogin, ROOT_USERNAME} = developmentAuth;
 const PORT = process.env.EDITOR_PORT || process.env.PORT || 3001;
 const {name: platformName} = platformConfig();
@@ -611,7 +607,7 @@ const server = http.createServer(async (req, res) => {
   // Development only, and guarded again inside: the handler answers 404 unless
   // DEV_AUTOLOGIN is set outside production, and 403 to anything off loopback.
   if (req.method === 'POST' && pathname === '/api/dev-login') {
-    return handleDevLogin(req, res, auth, json);
+    return handleDevLogin(req, res, auth, json, readBody);
   }
 
   // ── Identity ──

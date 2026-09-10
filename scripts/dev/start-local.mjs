@@ -37,6 +37,7 @@ export function environmentFor(mode, {base = process.env, envFile = postgresEnvF
     }
     env.ENABLE_AUTH = 'true';
     env.DEV_AUTOLOGIN = 'false';
+    env.POSTGRES_ROOT_LOGIN = 'true';
   } else {
     delete env.DATABASE_URL;
     delete env.DATABASE_MIGRATION_URL;

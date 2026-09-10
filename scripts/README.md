@@ -36,7 +36,19 @@ ENABLE_AUTH=true
 DEV_AUTOLOGIN=false
 PLATFORM_NAME=Mochi Lab
 PLATFORM_TAGLINE=Collaborative knowledge workspaces
+# Optional: enables the "Continue with Google" sign-in button.
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
 ```
+
+For Google OAuth, register `http://localhost:3001/api/auth/callback/google` as
+the local authorized redirect URI. Add the corresponding HTTPS callback under
+your `SITE_URL` for deployment. Without both Google values, Mochi keeps the
+ordinary email/password form and hides the Google button.
+
+In local PostgreSQL mode, `root@mochi.local` / `root@mochi.local` is the fixed
+development root login. The first successful login repairs that account's
+password and makes it an owner of the `mochi` and `hello-world` workspaces.
 
 `.env.production.local` is optional during local development and is only
 needed for the R2 and Resend verification commands:

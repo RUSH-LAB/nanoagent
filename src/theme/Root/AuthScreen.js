@@ -20,7 +20,7 @@ import styles from './authScreen.module.css';
  * outside production, explicitly enabled, and called from loopback, so the
  * button is a shortcut past the keyboard rather than past authentication.
  */
-export default function AuthScreen({ devAutoLogin = false, unreachable = null }) {
+export default function AuthScreen({ devAutoLogin = false, googleAuthEnabled = false, unreachable = null }) {
   const {siteConfig} = useDocusaurusContext();
   const [mode, setMode] = useState('signin');
   const [email, setEmail] = useState('');
@@ -59,6 +59,20 @@ export default function AuthScreen({ devAutoLogin = false, unreachable = null })
     setError(null);
     setBusy(true);
     try {
+      if (signingIn && email.trim().toLowerCase() === 'root@mochi.local') {
+        const response = await fetch(`${API_BASE}/api/dev-login`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({email: email.trim().toLowerCase(), password}),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok && response.status !== 404) throw new Error(body.error || 'Root sign-in failed.');
+        if (response.ok) {
+          window.location.reload();
+          return;
+        }
+      }
       const result = signingIn
         ? await authClient.signIn.email({email, password})
         : await authClient.signUp.email({email, password, name: name || email.split('@')[0]});
@@ -75,6 +89,22 @@ export default function AuthScreen({ devAutoLogin = false, unreachable = null })
     }
   }
 
+  async function signInWithGoogle() {
+    setError(null);
+    setBusy(true);
+    try {
+      const result = await authClient.signIn.social({
+        provider: 'google',
+        callbackURL: window.location.href,
+      });
+      if (result?.error) setError(result.error.message || 'Google sign-in failed.');
+    } catch (err) {
+      setError(err?.message || 'Google sign-in failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className={styles.page}>
       <form className={styles.card} onSubmit={handleSubmit}>
@@ -83,6 +113,16 @@ export default function AuthScreen({ devAutoLogin = false, unreachable = null })
         <p className={styles.tagline}>
           {signingIn ? 'Sign in to continue' : 'Create an account'}
         </p>
+
+        {googleAuthEnabled && (
+          <>
+            <button type="button" className={styles.googleButton} onClick={signInWithGoogle} disabled={busy}>
+              <span aria-hidden="true">G</span>
+              Continue with Google
+            </button>
+            <div className={styles.divider}><span>or use email</span></div>
+          </>
+        )}
 
         {devAutoLogin && signingIn && (
           <>

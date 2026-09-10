@@ -49,6 +49,8 @@ const {createWorkspaceProvisioning} = require('./workspace-provisioning');
 const AUTH_ENABLED = process.env.ENABLE_AUTH === 'true';
 const PORT = process.env.EDITOR_PORT || process.env.PORT || 3001;
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID?.trim();
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET?.trim();
 const {name: platformName} = platformConfig();
 
 const workspaceProvisioning = createWorkspaceProvisioning({postgres, sqliteDb: db});
@@ -202,6 +204,12 @@ const auth = betterAuth({
       url,
     }),
   },
+  socialProviders: GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET ? {
+    google: {
+      clientId: GOOGLE_CLIENT_ID,
+      clientSecret: GOOGLE_CLIENT_SECRET,
+    },
+  } : {},
   emailVerification: {
     sendOnSignUp: IS_PRODUCTION,
     autoSignInAfterVerification: true,

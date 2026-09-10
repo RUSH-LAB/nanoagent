@@ -76,6 +76,30 @@
   cursor: default;
 }
 
+.googleButton {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.62rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1e293b;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.googleButton span {
+  color: #4285f4;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.googleButton:hover:not(:disabled) { background: #f8fafc; border-color: #94a3b8; }
+.googleButton:disabled { opacity: 0.6; cursor: default; }
+
 .rootHint {
   margin: 0.4rem 0 0;
   text-align: center;

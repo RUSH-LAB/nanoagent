@@ -28,6 +28,7 @@ describe('local process supervisor configuration', () => {
     assert.equal(env.EDITOR_PORT, '4101');
     assert.equal(env.ENABLE_AUTH, 'true');
     assert.equal(env.DEV_AUTOLOGIN, 'false');
+    assert.equal(env.POSTGRES_ROOT_LOGIN, 'true');
   });
 
   it('reports how to prepare a missing PostgreSQL environment file', () => {
