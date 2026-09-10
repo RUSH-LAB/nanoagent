@@ -605,6 +605,17 @@ describe('GET /api/references', () => {
     assert.equal(r.payload.references.smith2020.source.type, 'manual');
   });
 
+  it('awaits the asynchronous database read for one paper', async () => {
+    const {ctx} = fsCtx({[BIB]: 'smith2020:\n  title: A Paper\n  pdfUrl: https://example.test/paper.pdf\n'});
+    const plugin = brokenPaperRecords({
+      get: async citationKey => storedPapers(ctx)[citationKey],
+    });
+    const r = await invoke(routes, {plugin, path: '/api/references/item/smith2020', ctx});
+    assert.equal(r.status, 200);
+    assert.equal(r.payload.entry.title, 'A Paper');
+    assert.equal(r.payload.entry.pdfUrl, 'https://example.test/paper.pdf');
+  });
+
   it('serves a small sorted window for the library page', async () => {
     const {ctx} = fsCtx({[BIB]: bib({
       old: {title: 'Old systems paper', year: 2020, tags: ['systems']},
@@ -1155,6 +1166,59 @@ describe('GET /api/references/export', () => {
       assert.equal(r.written.body, '\n');
     });
   }
+});
+
+describe('paper discussions', () => {
+  it('stores and lists workspace-scoped comments for a paper', async () => {
+    const {ctx} = fsCtx({[BIB]: bib({paper2025: {title: 'Paper', author: ['Ada Lovelace'], year: 2025, venue: 'ICML'}})});
+    const posted = await invoke(routes, {
+      plugin: BIBLIOGRAPHY,
+      method: 'POST',
+      path: '/api/references/paper2025/comments',
+      body: {body: 'This result deserves a closer look.'},
+      ctx,
+    });
+    assert.equal(posted.status, 201);
+    assert.equal(posted.payload.comment.authorId, 'test-user');
+    assert.equal(posted.payload.comment.paperKey, 'paper2025');
+
+    const listed = await invoke(routes, {plugin: BIBLIOGRAPHY, path: '/api/references/paper2025/comments', ctx});
+    assert.equal(listed.status, 200);
+    assert.deepEqual(listed.payload.comments, [posted.payload.comment]);
+  });
+
+  it('supports replies and rejects a parent from another paper', async () => {
+    const {ctx} = fsCtx({[BIB]: bib({
+      first: {title: 'First', author: ['Ada Lovelace'], year: 2025, venue: 'ICML'},
+      second: {title: 'Second', author: ['Grace Hopper'], year: 2025, venue: 'ACL'},
+    })});
+    const parent = await invoke(routes, {
+      plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references/first/comments', body: {body: 'Question'}, ctx,
+    });
+    const reply = await invoke(routes, {
+      plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references/first/comments', body: {body: 'Answer', parentId: parent.payload.comment.id}, ctx,
+    });
+    assert.equal(reply.status, 201);
+    assert.equal(reply.payload.comment.parentId, parent.payload.comment.id);
+
+    const rejected = await invoke(routes, {
+      plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references/second/comments', body: {body: 'Wrong thread', parentId: parent.payload.comment.id}, ctx,
+    });
+    assert.equal(rejected.status, 400);
+  });
+
+  it('lets an author delete their comment', async () => {
+    const {ctx} = fsCtx({[BIB]: bib({paper2025: {title: 'Paper', author: ['Ada Lovelace'], year: 2025, venue: 'ICML'}})});
+    const posted = await invoke(routes, {
+      plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references/paper2025/comments', body: {body: 'Temporary'}, ctx,
+    });
+    const removed = await invoke(routes, {
+      plugin: BIBLIOGRAPHY, method: 'DELETE', path: `/api/reference-comments/${posted.payload.comment.id}`, ctx,
+    });
+    assert.deepEqual([removed.status, removed.payload], [200, {success: true}]);
+    const listed = await invoke(routes, {plugin: BIBLIOGRAPHY, path: '/api/references/paper2025/comments', ctx});
+    assert.deepEqual(listed.payload.comments, []);
+  });
 });
 
 // ── cleanBibtexValue, moved here with the BibTeX export it serves ──────────────────────────────────────────────────────

@@ -334,7 +334,14 @@ function buildPluginApi({name, dir, requires = [], commands = [], ctx, req}) {
      * cannot widen them either.
      */
     stream: (res, {status = 200, headers = {}, body}) => {
-      res.writeHead(status, {...headers, 'Access-Control-Allow-Origin': ctx.CORS_ORIGIN});
+      const requestOrigin = req?.headers?.origin;
+      const allowedOrigin = ctx.CORS_ORIGIN === '*' ? (requestOrigin || '*') : ctx.CORS_ORIGIN;
+      res.writeHead(status, {
+        ...headers,
+        'Access-Control-Allow-Origin': allowedOrigin,
+        'Access-Control-Allow-Credentials': 'true',
+        'Vary': 'Origin',
+      });
       res.end(body);
     },
 

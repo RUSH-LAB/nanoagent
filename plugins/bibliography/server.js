@@ -113,6 +113,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
 
   const paperRecords = records.collection('papers');
   const annotationRecords = records.collection('annotations');
+  const discussionRecords = records.collection('discussions');
   const fileRecords = records.collection('files');
   const canManagePapers = ['owner', 'editor'].includes(caller.role);
   const canDeletePapers = caller.role === 'owner';
@@ -476,6 +477,8 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
   const pdfPath = /^\/api\/references\/([^/]+)\/pdf$/.exec(pathname);
   const annotationsPath = /^\/api\/references\/([^/]+)\/annotations$/.exec(pathname);
   const annotationPath = /^\/api\/reference-annotations\/([^/]+)$/.exec(pathname);
+  const discussionsPath = /^\/api\/references\/([^/]+)\/comments$/.exec(pathname);
+  const discussionPath = /^\/api\/reference-comments\/([^/]+)$/.exec(pathname);
   const decodeKey = encoded => {
     try { return decodeURIComponent(encoded); } catch { return ''; }
   };
@@ -483,7 +486,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
   // A paper detail page needs one row, not the entire organization library.
   if (req.method === 'GET' && paperItemPath) {
     const citationKey = decodeKey(paperItemPath[1]);
-    const paper = citationKey ? paperRecords.get(citationKey) : null;
+    const paper = citationKey ? await paperRecords.get(citationKey) : null;
     if (!paper) return respond(res, 404, {error: 'Reference not found'});
     return respond(res, 200, {entry: normalizePaper(citationKey, paper)});
   }
@@ -495,6 +498,9 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
     if (!citationKey || !await paperRecords.has(citationKey)) return respond(res, 404, {error: 'Reference not found'});
     for (const item of await annotationRecords.list()) {
       if (item.value?.paperKey === citationKey) await annotationRecords.remove(item.key);
+    }
+    for (const item of await discussionRecords.list()) {
+      if (item.value?.paperKey === citationKey) await discussionRecords.remove(item.key);
     }
     const file = await fileRecords.get(citationKey);
     if (file?.blobKey) await blobs.remove(file.blobKey);
@@ -645,6 +651,57 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
     } catch (err) {
       return respond(res, 400, {error: err.message || 'Invalid annotation'});
     }
+  }
+
+  // ── Paper discussions ──
+  if (req.method === 'GET' && discussionsPath) {
+    const citationKey = decodeKey(discussionsPath[1]);
+    if (!citationKey || !await paperRecords.has(citationKey)) return respond(res, 404, {error: 'Reference not found'});
+    const comments = (await discussionRecords.values())
+      .filter(comment => comment.paperKey === citationKey)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return respond(res, 200, {comments});
+  }
+
+  if (req.method === 'POST' && discussionsPath) {
+    const citationKey = decodeKey(discussionsPath[1]);
+    if (!citationKey || !await paperRecords.has(citationKey)) return respond(res, 404, {error: 'Reference not found'});
+    if (!rateLimit(`paper-comment:${caller.userId}`, 30)) return respond(res, 429, {error: 'Too many comments. Try again in a minute.'});
+    try {
+      const request = await readBody();
+      const body = sanitize(request?.body || '').slice(0, 10_000);
+      if (!body) return respond(res, 400, {error: 'A comment cannot be empty'});
+      const parentId = typeof request?.parentId === 'string' ? request.parentId : null;
+      if (parentId) {
+        const parent = await discussionRecords.get(parentId);
+        if (!parent || parent.paperKey !== citationKey) return respond(res, 400, {error: 'Reply target is not part of this discussion'});
+      }
+      const now = new Date().toISOString();
+      const comment = {
+        id: crypto.randomUUID(),
+        paperKey: citationKey,
+        authorId: caller.userId,
+        parentId,
+        body,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await discussionRecords.put(comment.id, comment);
+      return respond(res, 201, {comment});
+    } catch (err) {
+      return respond(res, 400, {error: err.message || 'Invalid comment'});
+    }
+  }
+
+  if (req.method === 'DELETE' && discussionPath) {
+    const id = decodeKey(discussionPath[1]);
+    const comment = id ? await discussionRecords.get(id) : null;
+    if (!comment) return respond(res, 404, {error: 'Comment not found'});
+    if (comment.authorId !== caller.userId && caller.role !== 'owner') {
+      return respond(res, 403, {error: 'Only the comment author or a workspace owner may delete it'});
+    }
+    await discussionRecords.remove(id);
+    return respond(res, 200, {success: true});
   }
 
   // ── References: update one protocol record ──

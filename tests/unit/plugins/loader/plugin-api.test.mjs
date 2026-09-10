@@ -130,9 +130,27 @@ describe('the always-there surface', () => {
       {status: 201, headers: {'Content-Type': 'text/plain'}, body: 'hi'});
     assert.deepEqual(head, {
       status: 201,
-      headers: {'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': 'https://example.test'},
+      headers: {
+        'Content-Type': 'text/plain',
+        'Access-Control-Allow-Origin': 'https://example.test',
+        'Access-Control-Allow-Credentials': 'true',
+        'Vary': 'Origin',
+      },
     });
     assert.equal(body, 'hi');
+  });
+
+  it('reflects the request origin for credentialed binary responses', () => {
+    const {ctx} = serverCtx();
+    ctx.CORS_ORIGIN = '*';
+    const api = buildPluginApi({
+      name: 'demo', requires: [], ctx,
+      req: {...REQ, headers: {origin: 'http://localhost:3000'}},
+    });
+    let headers;
+    api.stream({writeHead: (_status, value) => { headers = value; }, end() {}}, {body: 'pdf'});
+    assert.equal(headers['Access-Control-Allow-Origin'], 'http://localhost:3000');
+    assert.equal(headers['Access-Control-Allow-Credentials'], 'true');
   });
 
   it('reports the caller from the verified session, never from the request body', () => {
