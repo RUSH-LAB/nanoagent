@@ -4,12 +4,11 @@
   "steps": {
     "build": {
       "commands": [
-        "python -m venv --copies /app/.venv",
-        "/app/.venv/bin/pip install --no-cache-dir '.[web]'"
+        "pip install --no-cache-dir --target /app/python_packages '.[web]'"
       ]
     }
   },
   "deploy": {
-    "startCommand": "/app/.venv/bin/python -m nanoagent web web_cfg=configs/web_openrouter.yaml host=0.0.0.0 port=$PORT api_token=$NANOAGENT_API_TOKEN"
+    "startCommand": "PYTHONPATH=/app/python_packages python -m nanoagent web web_cfg=configs/web_openrouter.yaml host=0.0.0.0 port=$PORT api_token=$NANOAGENT_API_TOKEN"
   }
 }
