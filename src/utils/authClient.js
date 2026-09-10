@@ -2,8 +2,12 @@
 import {createAuthClient} from 'better-auth/react';
 import API_BASE from './api';
 
+const AUTH_BASE_URL = API_BASE
+  ? `${API_BASE}/api/auth`
+  : `${typeof window === 'undefined' ? 'http://localhost:3000' : window.location.origin}/api/auth`;
+
 export const authClient = createAuthClient({
-  baseURL: `${API_BASE}/api/auth`,
+  baseURL: AUTH_BASE_URL,
   fetchOptions: {credentials: 'include'},
 });
 
