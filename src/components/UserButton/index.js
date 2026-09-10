@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import Link from '@docusaurus/Link';
 import {useLocation} from '@docusaurus/router';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
-import {workspaceSlugFromPath} from '@site/src/utils/workspaces';
 import styles from './styles.module.css';
 
 /**
@@ -29,6 +28,12 @@ function labelOf(user) {
   return user?.username || user?.name || user?.email || 'Account';
 }
 
+function workspaceSlugFromPath(pathname) {
+  const match = /^\/w\/([^/]+)(?:\/|$)/.exec(String(pathname ?? ''));
+  if (!match) return null;
+  try { return decodeURIComponent(match[1]); } catch { return null; }
+}
+
 export default function UserButton({ mobile = false }) {
   const { siteConfig } = useDocusaurusContext();
   const authEnabled = siteConfig.customFields?.authEnabled;
@@ -41,12 +46,9 @@ export default function UserButton({ mobile = false }) {
   useEffect(() => {
     if (!authEnabled) return undefined;
     let cancelled = false;
-    // Required here rather than imported at the top so the auth client, which
-    // reaches for localStorage, never runs during the static build.
-    const { authClient } = require('@site/src/utils/authClient');
-    authClient
-      .getSession()
-      .then((result) => { if (!cancelled) setUser(result?.data?.user ?? null); })
+    fetch('/api/auth/get-session', {credentials: 'include'})
+      .then((response) => response.ok ? response.json() : null)
+      .then((result) => { if (!cancelled) setUser(result?.user ?? null); })
       .catch(() => { /* signed out or API down; the button still links to settings */ });
     return () => { cancelled = true; };
   }, [authEnabled]);
