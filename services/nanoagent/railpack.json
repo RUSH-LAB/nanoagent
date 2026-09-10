@@ -3,10 +3,13 @@
   "provider": "python",
   "steps": {
     "build": {
-      "commands": ["...", "pip install '.[web]'"]
+      "commands": [
+        "python -m venv --copies /app/.venv",
+        "/app/.venv/bin/pip install --no-cache-dir '.[web]'"
+      ]
     }
   },
   "deploy": {
-    "startCommand": "python -m nanoagent web web_cfg=configs/web_openrouter.yaml host=0.0.0.0 port=$PORT api_token=$NANOAGENT_API_TOKEN"
+    "startCommand": "/app/.venv/bin/python -m nanoagent web web_cfg=configs/web_openrouter.yaml host=0.0.0.0 port=$PORT api_token=$NANOAGENT_API_TOKEN"
   }
 }
