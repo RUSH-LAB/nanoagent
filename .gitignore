@@ -4,9 +4,6 @@ build/
 .cache-loader/
 .DS_Store
 *.log*
-/.env.local
-/.env.openai.local
-/.env.openrouter.local
 /var/
 /raw/
 /.worktrees/
