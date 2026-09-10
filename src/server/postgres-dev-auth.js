@@ -10,7 +10,7 @@ const ROOT_USERNAME = 'root';
 const ROOT_EMAIL = (process.env.ROOT_EMAIL || 'root@mochi.local').trim().toLowerCase();
 const ROOT_PASSWORD = process.env.ROOT_PASSWORD || 'root@mochi.local';
 const ROOT_NAME = process.env.ROOT_NAME || 'Root User';
-const ROOT_WORKSPACES = ['mochi', 'hello-world'];
+const ROOT_WORKSPACE = 'mochi';
 const ROOT_LOGIN_ENABLED = process.env.POSTGRES_ROOT_LOGIN === 'true' && !IS_PRODUCTION;
 
 function isLoopback(req) {
@@ -48,7 +48,7 @@ async function provisionRoot(auth) {
     if (credential.rowCount !== 1) throw new Error('Root credential account is missing or ambiguous');
 
     const workspaces = (await client.query(
-      'select id from workspace where slug = any($1::text[])', [ROOT_WORKSPACES],
+      'select id from workspace where slug = $1', [ROOT_WORKSPACE],
     )).rows;
     for (const workspace of workspaces) {
       await client.query(

@@ -13,8 +13,8 @@ function all(node) {
 
 describe('safe workspace markdown', () => {
   it('extracts only supported frontmatter fields as inert data', () => {
-    assert.deepEqual(mdx.parseFrontmatter('---\ntitle: Hello\ntags: [one, two]\nsidebar_position: 3\ndraft: true\nunknown: nope\n---\nbody'), {
-      title: 'Hello', sidebarPosition: 3, draft: true, authors: [], tags: ['one', 'two'],
+    assert.deepEqual(mdx.parseFrontmatter('---\ntitle: Hello\ngroup: Research\ncategory: Science\nsubcategory: Mathematics\ntags: [one, two]\nsidebar_position: 3\ndraft: true\nunknown: nope\n---\nbody'), {
+      title: 'Hello', group: 'Research', category: 'Science', subcategory: 'Mathematics', sidebarPosition: 3, draft: true, authors: [], tags: ['one', 'two'],
     });
   });
 

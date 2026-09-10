@@ -276,13 +276,13 @@ describe('the root account', () => {
   it('provisions the workspace once, not on every start', async () => {
     const again = await devAuth.ensureRootUser(auth);
     assert.equal(again.workspace.created, false, 'the workspace was already there');
-    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM channel').get().n, 2,
-      'root and demo each keep exactly one lifecycle-provisioned channel');
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM channel').get().n, 1,
+      'root keeps exactly one lifecycle-provisioned channel');
   });
 
   // The whole point of provisioning it: the one-click sign-in lands somewhere
-  // with something in it, and lands in root's own rather than in the fixture.
-  it('signs root in to that workspace, not the empty second one', async () => {
+  // with something in it.
+  it('signs root in to its workspace', async () => {
     await devAuth.ensureRootUser(auth);
     const {calls, json} = capture();
     const headers = {};
@@ -293,65 +293,5 @@ describe('the root account', () => {
       headers: {cookie: headers['Set-Cookie'][0].split(';')[0]},
     });
     assert.equal(session.session.activeOrganizationId, orgIdOf(devAuth.ROOT_ORG_SLUG));
-  });
-
-  // The fixture that gives the navbar switcher something to switch to.
-  describe('the second workspace', () => {
-    it('exists, with root as its owner', async () => {
-      const {userId, demo} = await devAuth.ensureRootUser(auth);
-      assert.equal(demo.name, devAuth.DEMO_ORG_NAME);
-      const membership = db
-        .prepare('SELECT role FROM member WHERE organizationId = ? AND userId = ?')
-        .get(orgIdOf(devAuth.DEMO_ORG_SLUG), userId);
-      assert.equal(membership.role, 'owner');
-    });
-
-    it('is immediately usable with its lifecycle-provisioned channel', async () => {
-      await devAuth.ensureRootUser(auth);
-      const channels = db
-        .prepare('SELECT COUNT(*) AS n FROM channel WHERE organizationId = ?')
-        .get(orgIdOf(devAuth.DEMO_ORG_SLUG));
-      assert.equal(channels.n, 1);
-    });
-
-    it('leaves root in two workspaces, which is what the switcher needs', async () => {
-      const {userId} = await devAuth.ensureRootUser(auth);
-      // Ordered the way listMemberships and firstOrganizationOf order it. Both
-      // break the same-millisecond tie on rowid, because the ids are random and
-      // provisioning both workspaces takes less than a millisecond.
-      const slugs = db
-        .prepare(
-          `SELECT o.slug FROM member m JOIN organization o ON o.id = m.organizationId
-            WHERE m.userId = ? ORDER BY m.createdAt, m.rowid`,
-        )
-        .all(userId)
-        .map(r => r.slug);
-      assert.deepEqual(slugs, [devAuth.ROOT_ORG_SLUG, devAuth.DEMO_ORG_SLUG],
-        'root\'s own first, so a new session opens there');
-    });
-
-    // Unlike the root workspace, this one is keyed on its slug rather than on
-    // whether root has any organization: a fixture that disappears as soon as
-    // you make a workspace of your own would be no use.
-    it('is created once however many times the server starts', async () => {
-      await devAuth.ensureRootUser(auth);
-      await devAuth.ensureRootUser(auth);
-      const count = db
-        .prepare('SELECT COUNT(*) AS n FROM organization WHERE slug = ?')
-        .get(devAuth.DEMO_ORG_SLUG);
-      assert.equal(count.n, 1);
-    });
-
-    it('takes root back in if the membership was removed but the workspace kept', async () => {
-      const {userId} = await devAuth.ensureRootUser(auth);
-      const demoId = orgIdOf(devAuth.DEMO_ORG_SLUG);
-      db.prepare('DELETE FROM member WHERE organizationId = ? AND userId = ?').run(demoId, userId);
-
-      await devAuth.ensureRootUser(auth);
-      assert.ok(
-        db.prepare('SELECT 1 FROM member WHERE organizationId = ? AND userId = ?').get(demoId, userId),
-        'and does not fail on the unique slug trying to make a second one',
-      );
-    });
   });
 });

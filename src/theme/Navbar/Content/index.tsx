@@ -1,5 +1,6 @@
 import React, {useEffect, type ReactNode} from 'react';
 import clsx from 'clsx';
+import {useLocation} from '@docusaurus/router';
 import {
   useThemeConfig,
   ErrorCauseBoundary,
@@ -76,17 +77,41 @@ function NavbarContentLayout({
 
 export default function NavbarContent(): ReactNode {
   const mobileSidebar = useNavbarMobileSidebar();
+  const location = useLocation();
   const items = useNavbarItems();
   const {slug: workspaceSlug, site: workspaceSite} = useWorkspaceSite();
   const hasConcreteWorkspace = Boolean(workspaceSlug);
 
   const fixedItems = items.filter(item => item.type === 'search' || item.type === 'custom-userButton');
-  const configuredItems = hasConcreteWorkspace
-    ? (workspaceSite?.navigation ?? []).filter(item => item.hidden !== true).map(item => ({
-        label: item.label,
-        to: workspaceDocumentHref(item.path, workspaceSlug, ''),
-        position: 'left' as const,
-      }))
+  const collections = workspaceSite?.collections ?? [];
+  const marker = '/documents/';
+  const documentPath = location.pathname.includes(marker)
+    ? decodeURIComponent(location.pathname.slice(location.pathname.indexOf(marker) + marker.length))
+    : '';
+  const currentCollection = collections
+    .filter(collection => documentPath === collection.pathPrefix || documentPath.startsWith(`${collection.pathPrefix}/`))
+    .sort((a, b) => b.pathPrefix.length - a.pathPrefix.length)[0];
+  const bookCollection = currentCollection?.type === 'docs'
+    ? currentCollection
+    : collections.find(collection => collection.type === 'docs');
+  const blogCollection = currentCollection?.type === 'blog'
+    ? currentCollection
+    : collections.find(collection => collection.type === 'blog');
+  const configuredItems: NavbarItemConfig[] = hasConcreteWorkspace
+    ? [
+        bookCollection && {
+          label: 'Book',
+          to: workspaceDocumentHref(bookCollection.landingPath || bookCollection.pathPrefix, workspaceSlug, ''),
+          activeBasePath: workspaceDocumentHref(bookCollection.pathPrefix, workspaceSlug, ''),
+          position: 'left' as const,
+        },
+        blogCollection && {
+          label: 'Blog',
+          to: workspaceDocumentHref(blogCollection.landingPath || blogCollection.pathPrefix, workspaceSlug, ''),
+          activeBasePath: workspaceDocumentHref(blogCollection.pathPrefix, workspaceSlug, ''),
+          position: 'left' as const,
+        },
+      ].filter((item): item is NavbarItemConfig => Boolean(item))
     : items;
   // Content links in the config are deliberately workspace-neutral so the
   // static build can render them. Once a workspace is present in the URL,
@@ -102,10 +127,10 @@ export default function NavbarContent(): ReactNode {
   const searchBarItem = items.find((item) => item.type === 'search');
 
   useEffect(() => {
-    if (!workspaceSlug || !workspaceSite?.navigation?.length) return undefined;
-    const hrefs = [...new Set(workspaceSite.navigation.filter(item => item.hidden !== true).map(item =>
-      workspaceDocumentHref(item.path, workspaceSlug, ''),
-    ))];
+    if (!workspaceSlug || !workspaceSite) return undefined;
+    const hrefs = [bookCollection, blogCollection]
+      .filter(Boolean)
+      .map(collection => workspaceDocumentHref(collection.landingPath || collection.pathPrefix, workspaceSlug, ''));
     if (hrefs.length === 0) return undefined;
     let cancelled = false;
     let idleHandle: number | undefined;
@@ -131,7 +156,7 @@ export default function NavbarContent(): ReactNode {
       if ('cancelIdleCallback' in window) window.cancelIdleCallback(idleHandle);
       else window.clearTimeout(idleHandle);
     };
-  }, [workspaceSlug, workspaceSite]);
+  }, [workspaceSlug, workspaceSite, bookCollection, blogCollection]);
 
   return (
     <NavbarContentLayout

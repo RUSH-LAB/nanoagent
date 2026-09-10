@@ -6,10 +6,10 @@ import {loadWorkspaces} from './workspaces.js';
 // so this avoids repeated Neon round trips without making saved content stale.
 export const WORKSPACE_CONTENT_CACHE_MS = 10 * 60_000;
 
-// These are the two development workspaces that predate configurable home
-// pages. Give only them the requested title-only presentation; every other
-// workspace retains the library until its owner chooses another layout.
-const TITLE_ONLY_WORKSPACES = new Set(['mochi', 'hello-world']);
+// This development workspace predates configurable home pages. Give only it
+// the requested title-only presentation; every other workspace retains the
+// library until its owner chooses another layout.
+const TITLE_ONLY_WORKSPACES = new Set(['mochi']);
 
 export function workspaceHomeLayout(site, workspaceSlug) {
   return site?.site?.homeLayout
@@ -35,7 +35,10 @@ export function workspaceContentPlan(site, documentPath) {
   // keeps an unconfigured workspace useful without assuming organization-
   // specific names such as `books` or `posts`.
   const prefix = collection?.pathPrefix ?? '';
-  const include = collection?.type === 'blog' ? 'frontmatter' : 'metadata';
+  // Collection pages render a compact metadata list. Avoid compiling every
+  // post excerpt merely to show its title, author, and year—this matters once
+  // a workspace has hundreds of posts.
+  const include = 'metadata';
   const treeQuery = path || prefix
     ? `?prefix=${encodeURIComponent(prefix || path)}&include=${include}`
     : '';

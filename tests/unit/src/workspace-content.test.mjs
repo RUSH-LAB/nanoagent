@@ -11,9 +11,9 @@ const site = {
 };
 
 describe('workspace content request planning', () => {
-  it('uses title-only homes for the two existing workspaces without imposing it globally', () => {
+  it('uses a title-only home for the existing development workspace without imposing it globally', () => {
     assert.equal(workspaceHomeLayout({}, 'mochi'), 'title');
-    assert.equal(workspaceHomeLayout({}, 'hello-world'), 'title');
+    assert.equal(workspaceHomeLayout({}, 'hello-world'), 'library');
     assert.equal(workspaceHomeLayout({}, 'another-workspace'), 'library');
     assert.equal(workspaceHomeLayout({site: {homeLayout: 'document'}}, 'mochi'), 'document');
   });
@@ -21,7 +21,7 @@ describe('workspace content request planning', () => {
   it('uses configured blog collections without assuming a posts directory', () => {
     const plan = workspaceContentPlan(site, 'library/papers');
     assert.equal(plan.isCollection, true);
-    assert.equal(plan.treeQuery, '?prefix=library%2Fpapers&include=frontmatter');
+    assert.equal(plan.treeQuery, '?prefix=library%2Fpapers&include=metadata');
   });
 
   it('uses configured docs collections without assuming a books directory', () => {

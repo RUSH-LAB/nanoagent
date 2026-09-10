@@ -6,12 +6,11 @@ export default function LinkWrapper(props) {
   const numberMap = useSidebarNumbers();
   const entry = numberMap.get(props.item?.href);
 
-  if (!entry) {
+  if (!entry || props.level > 1) {
     return <Link {...props} />;
   }
 
-  // Add a CSS class and custom property for the chapter number.
-  // CSS ::before on .menu__link picks up --chapter-num to render inline superscript.
+  // Add a CSS class and custom property for the inline chapter-number column.
   const modifiedItem = {
     ...props.item,
     className: `${props.item.className || ''} sidebar-numbered-link`.trim(),

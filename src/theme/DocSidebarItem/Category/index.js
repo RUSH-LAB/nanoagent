@@ -6,7 +6,7 @@ export default function CategoryWrapper(props) {
   const numberMap = useSidebarNumbers();
   const entry = numberMap.get(`category:${props.item?.label}`);
 
-  if (!entry) {
+  if (!entry || props.level > 1) {
     return <Category {...props} />;
   }
 

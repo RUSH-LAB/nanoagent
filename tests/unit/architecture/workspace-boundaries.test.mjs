@@ -29,6 +29,22 @@ describe('platform and workspace ownership boundaries', () => {
     assert.match(commands, /workspaceSite\?\.navigation/);
   });
 
+  it('keeps personal settings free of navigation and groups navbar links by content type', () => {
+    const settings = read('src/pages/settings/index.js');
+    const navbar = read('src/theme/Navbar/Content/index.tsx');
+    assert.doesNotMatch(settings, /site\/navigation|workspace-navigation/);
+    assert.match(navbar, /label: 'Book'/);
+    assert.match(navbar, /label: 'Blog'/);
+    assert.match(navbar, /collection\.type === 'docs'/);
+    assert.match(navbar, /collection\.type === 'blog'/);
+    assert.doesNotMatch(navbar, /NavbarNavigationEditor/);
+  });
+
+  it('keeps appearance controls out of account settings', () => {
+    const settings = read('src/pages/settings/index.js');
+    assert.doesNotMatch(settings, /useColorMode|api\/preferences|id="appearance"/);
+  });
+
   it('does not reuse the previous workspace presentation while a new URL loads', () => {
     const hook = read('src/hooks/useWorkspaceSite.js');
     const switcher = read('src/components/WorkspaceSwitcher/index.js');

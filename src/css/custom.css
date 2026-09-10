@@ -78,35 +78,6 @@
   --anchor-scroll-margin: 30vh;
 }
 
-/* ── Docs reading column ──────────────────────────────────────────────────── */
-/* Infima splits the doc row 75/25, which ties the article measure to the
-   viewport. Pin the table of contents instead and let the article take the
-   rest, up to --site-prose-width, so docs match the blog. Below 997px
-   Docusaurus stacks the two columns, hence the desktop-only scope. */
-@media (min-width: 997px) {
-  .row > [class*="docItemCol_"] {
-    flex: 1 1 0 !important;
-    /* Without this the column keeps min-width:auto, so a wide code block or
-       table holds it above the space left by the TOC and the TOC wraps onto a
-       line of its own below the article. */
-    min-width: 0;
-    max-width: var(--site-prose-col) !important;
-  }
-
-  .row > [class*="docItemCol_"] + .col--3 {
-    flex: 0 0 var(--site-toc-col) !important;
-    max-width: var(--site-toc-col) !important;
-  }
-
-  /* Both columns are capped, so collapsing the sidebar hands the row more
-     width than they can use. Centre the surplus instead of letting it pile up
-     on one side. A no-op while the sidebar is open, where the row is exactly
-     as wide as the two columns. */
-  .row:has(> [class*="docItemCol_"]) {
-    justify-content: center;
-  }
-}
-
 /* Between the stacking breakpoint and here, a 240px TOC plus the 300px chapter
    sidebar leaves the article under ~600px, which is too cramped to be worth the
    split. Drop the side TOC and hand the article the whole row.
@@ -116,10 +87,6 @@
    of the two is visible rather than by rendering anything new. Scoped through
    `article` to outrank the theme's own display:none. */
 @media (min-width: 997px) and (max-width: 1200px) {
-  .row > [class*="docItemCol_"] + .col--3 {
-    display: none;
-  }
-
   article .theme-doc-toc-mobile {
     display: block;
   }
@@ -328,30 +295,32 @@ table {
   display: table !important;
 }
 
-/* ── Sidebar chapter numbers (inline superscript) ────────────────────────── */
+/* ── Sidebar chapter numbers ─────────────────────────────────────────────── */
 
-/* Link items: superscript number above the label */
-.sidebar-numbered-link .menu__link {
-  position: relative;
-  padding-top: 0.7rem;
+/* Keep chapter numbers in the same row as their labels. The reserved number
+   column gives every title one shared left edge, matching the icon-and-label
+   alignment used by the blog taxonomy sidebar. */
+.sidebar-numbered-link .menu__link,
+.sidebar-numbered-category > .menu__list-item > .menu__list-item-collapsible > .menu__link {
+  align-items: center;
+  padding-top: var(--ifm-menu-link-padding-vertical);
 }
 
 .sidebar-numbered-link .menu__link::before,
 .sidebar-numbered-category > .menu__list-item > .menu__list-item-collapsible > .menu__link::before {
   content: var(--chapter-num);
-  position: absolute;
-  top: 2px;
-  left: 0.3rem;
+  display: inline-flex;
+  width: 1.05rem;
+  min-width: 1.05rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin-right: 0.65rem;
   font-size: 0.75rem;
   color: #15803d;
   font-weight: 500;
   line-height: 1;
-}
-
-/* Category items: superscript number above the category label */
-.sidebar-numbered-category > .menu__list-item > .menu__list-item-collapsible > .menu__link {
-  position: relative;
-  padding-top: 0.7rem;
+  font-variant-numeric: tabular-nums;
 }
 
 [data-theme='dark'] .sidebar-numbered-link .menu__link::before,

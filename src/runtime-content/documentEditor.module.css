@@ -124,8 +124,74 @@
 
 .editorActions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+.actionMenu {
+  position: relative;
+}
+
+.actionMenu summary {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 7px;
+  background: var(--ifm-background-surface-color);
+  color: var(--ifm-font-color-base);
+  font-size: 0.8rem;
+  font-weight: 650;
+  list-style: none;
+  cursor: pointer;
+}
+
+.actionMenu summary::-webkit-details-marker {
+  display: none;
+}
+
+.actionMenu summary::after {
+  margin-left: 0.4rem;
+  content: '▾';
+  color: var(--ifm-color-emphasis-500);
+}
+
+.actionMenu[open] summary {
+  border-color: var(--ifm-color-primary);
+  color: var(--ifm-color-primary);
+}
+
+.actionMenuItems {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 10;
+  display: grid;
+  min-width: 11rem;
+  overflow: hidden;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 9px;
+  background: var(--ifm-background-surface-color);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+}
+
+.actionMenuItems button {
+  padding: 0.55rem 0.75rem;
+  border: 0;
+  background: transparent;
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.actionMenuItems button:hover:not(:disabled) {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.actionMenuItems .dangerAction {
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  color: var(--ifm-color-danger-dark);
 }
 
 .saveButton {

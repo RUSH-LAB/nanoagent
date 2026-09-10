@@ -48,7 +48,7 @@ ordinary email/password form and hides the Google button.
 
 In local PostgreSQL mode, `root@mochi.local` / `root@mochi.local` is the fixed
 development root login. The first successful login repairs that account's
-password and makes it an owner of the `mochi` and `hello-world` workspaces.
+password and makes it an owner of the `mochi` workspace.
 
 `.env.production.local` is optional during local development and is only
 needed for the Resend verification command:

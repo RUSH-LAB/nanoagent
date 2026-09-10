@@ -150,6 +150,10 @@ function parseFrontmatter(markdown) {
   if (typeof source.title === 'string') value.title = source.title.slice(0, 200);
   if (typeof source.description === 'string') value.description = source.description.slice(0, 500);
   if (typeof source.slug === 'string') value.slug = source.slug.slice(0, 400);
+  if (typeof source.group === 'string') value.group = source.group.trim().slice(0, 100);
+  if (typeof source.category === 'string') value.category = source.category.trim().slice(0, 100);
+  const subcategory = source.subcategory ?? source.sub_category;
+  if (typeof subcategory === 'string') value.subcategory = subcategory.trim().slice(0, 100);
   if (Number.isFinite(Number(source.sidebar_position))) value.sidebarPosition = Number(source.sidebar_position);
   if (typeof source.date === 'string' || source.date instanceof Date) {
     const date = new Date(source.date);

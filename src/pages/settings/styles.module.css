@@ -107,12 +107,6 @@
   gap: 1rem;
 }
 
-.overviewGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-}
-
 .placeholder {
   padding: 3rem;
   text-align: center;
@@ -190,45 +184,12 @@
   font-style: normal;
 }
 
-.sectionActions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 1.1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--ifm-color-emphasis-200);
-}
-
-.field {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  font-size: 0.88rem;
-}
-
-.field > span {
-  display: grid;
-  gap: 0.16rem;
-}
-
-.field small {
-  color: var(--ifm-color-emphasis-500);
-}
-
-.field select,
-.siteFields input:not([type='checkbox']),
-.siteFields select,
 .createWorkspace input {
   border: 1px solid var(--ifm-color-emphasis-300);
   border-radius: 8px;
   background: var(--ifm-background-color);
   color: var(--ifm-font-color-base);
   font: inherit;
-}
-
-.field select {
-  min-width: 145px;
-  padding: 0.48rem 0.6rem;
 }
 
 .workspaces {
@@ -309,7 +270,6 @@
 
 .primaryButton,
 .secondaryButton,
-.dangerButton,
 .textButton {
   flex: none;
   border-radius: 8px;
@@ -325,16 +285,11 @@
   color: white;
 }
 
-.secondaryButton,
-.dangerButton {
+.secondaryButton {
   padding: 0.45rem 0.75rem;
   border: 1px solid var(--ifm-color-emphasis-300);
   background: var(--ifm-background-color);
   color: var(--ifm-font-color-base);
-}
-
-.dangerButton {
-  color: var(--ifm-color-danger-dark);
 }
 
 .textButton {
@@ -349,167 +304,26 @@
   color: white;
 }
 
-.secondaryButton:hover:not(:disabled),
-.dangerButton:hover:not(:disabled) {
+.secondaryButton:hover:not(:disabled) {
   background: var(--ifm-color-emphasis-100);
 }
 
 .primaryButton:disabled,
-.secondaryButton:disabled,
-.dangerButton:disabled {
+.secondaryButton:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
-.siteFields {
-  display: grid;
-  gap: 1rem;
-}
-
-.emptyState {
-  margin: 0;
-  padding: 1rem;
-  border: 1px dashed var(--ifm-color-emphasis-300);
-  border-radius: 10px;
-  color: var(--ifm-color-emphasis-500);
-  font-size: 0.8rem;
-  text-align: center;
-}
-
-.navigationList {
-  display: grid;
-  gap: 0.5rem;
-}
-
-.navigationItem {
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.7rem 0.75rem;
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 10px;
-  background: var(--ifm-background-color);
-  transition: opacity 120ms ease, background 120ms ease;
-}
-
-.navigationItemHidden {
-  background: color-mix(in srgb, var(--ifm-color-emphasis-100) 65%, transparent);
-  opacity: 0.65;
-}
-
-.navigationPosition {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  background: var(--ifm-color-emphasis-100);
-  color: var(--ifm-color-emphasis-600);
-  font-size: 0.72rem;
-  font-weight: 700;
-}
-
-.navigationIdentity {
-  display: grid;
-  min-width: 0;
-  gap: 0.08rem;
-}
-
-.navigationIdentity strong,
-.navigationIdentity small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.navigationIdentity strong {
-  font-size: 0.86rem;
-}
-
-.navigationIdentity small {
-  color: var(--ifm-color-emphasis-500);
-  font-family: var(--ifm-font-family-monospace);
-  font-size: 0.68rem;
-}
-
-.visibilityToggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.42rem;
-  color: var(--ifm-color-emphasis-700);
-  font-size: 0.76rem;
-  font-weight: 600;
-}
-
-.visibilityToggle input {
-  margin: 0;
-  accent-color: var(--ifm-color-primary);
-}
-
-.orderButtons {
-  display: inline-flex;
-  gap: 0.25rem;
-}
-
-.orderButtons button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 1px solid var(--ifm-color-emphasis-300);
-  border-radius: 7px;
-  background: var(--ifm-background-surface-color);
-  color: var(--ifm-font-color-base);
-  font: inherit;
-  cursor: pointer;
-}
-
-.orderButtons button:hover:not(:disabled) {
-  border-color: var(--ifm-color-primary);
-  color: var(--ifm-color-primary);
-}
-
-.orderButtons button:disabled {
-  cursor: not-allowed;
-  opacity: 0.35;
-}
-
-.saveBar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.8rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--ifm-color-emphasis-200);
-  color: var(--ifm-color-emphasis-600);
-  font-size: 0.8rem;
-}
-
-.saveBar > span:first-child {
-  margin-right: auto;
-}
-
-.status,
 .error,
-.savedAt,
 .muted {
   margin: 0.75rem 0 0;
   font-size: 0.8rem;
-}
-
-.status {
-  color: var(--ifm-color-success-dark);
 }
 
 .error {
   color: var(--ifm-color-danger-dark);
 }
 
-.savedAt,
 .muted {
   color: var(--ifm-color-emphasis-500);
 }
@@ -537,31 +351,13 @@
 
 @media (max-width: 700px) {
   .headerRow,
-  .sectionTitleRow,
-  .saveBar {
+  .sectionTitleRow {
     align-items: stretch;
     flex-direction: column;
   }
 
   .workspaceContext {
     width: 100%;
-  }
-
-  .overviewGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .navigationItem {
-    grid-template-columns: 30px minmax(0, 1fr) auto;
-  }
-
-  .visibilityToggle {
-    grid-column: 2;
-  }
-
-  .orderButtons {
-    grid-row: 1 / span 2;
-    grid-column: 3;
   }
 
   .account {
@@ -573,15 +369,10 @@
     margin-bottom: 0.55rem;
   }
 
-  .field,
   .workspace,
   .inlineForm {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .field select {
-    width: 100%;
   }
 
   .currentBadge,
@@ -589,7 +380,4 @@
     align-self: flex-start;
   }
 
-  .saveBar > span:first-child {
-    margin-right: 0;
-  }
 }

@@ -40,7 +40,9 @@ function recoverDraft(key, markdown, updatedAt) {
 }
 
 export default function DocumentEditor({
-  workspaceId, workspaceSlug, document, markdown, tree, onCancel, onSaved,
+  workspaceId, workspaceSlug, document, markdown, tree, contentType = 'page',
+  onCreate = null, onCreateBefore = null, onCreateAfter = null, onDelete = null,
+  onCancel, onSaved,
 }) {
   const storageKey = useMemo(() => draftKey(workspaceId, document.id), [workspaceId, document.id]);
   const [baseline, setBaseline] = useState(() => ({markdown, updatedAt: document.updatedAt, tree}));
@@ -49,6 +51,7 @@ export default function DocumentEditor({
   const [mode, setMode] = useState('split');
   const [previewStatus, setPreviewStatus] = useState('ready');
   const [saving, setSaving] = useState(false);
+  const [acting, setActing] = useState(false);
   const [completionUsage, setCompletionUsage] = useState({count: 0, totalCost: 0, last: null});
   const [message, setMessage] = useState(
     draft !== markdown ? {kind: 'notice', text: 'Recovered an unsaved draft from this browser.'} : null,
@@ -197,6 +200,19 @@ export default function DocumentEditor({
     }
   };
 
+  const runAction = async action => {
+    if (!action || acting) return;
+    setActing(true);
+    try {
+      await action();
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const hasDocumentActions = Boolean(onCreate || onCreateBefore || onCreateAfter || onDelete);
+  const actionLabel = `${contentType === 'post' ? 'Post' : 'Page'} actions`;
+
   return (
     <main className={styles.editorPage}>
       <header className={styles.editorHeader}>
@@ -211,6 +227,17 @@ export default function DocumentEditor({
           ))}
         </div>
         <div className={styles.editorActions}>
+          {hasDocumentActions ? (
+            <details className={styles.actionMenu}>
+              <summary>{actionLabel}</summary>
+              <div className={styles.actionMenuItems}>
+                {onCreateBefore ? <button type="button" disabled={acting} onClick={() => runAction(onCreateBefore)}>Add page before</button> : null}
+                {onCreateAfter ? <button type="button" disabled={acting} onClick={() => runAction(onCreateAfter)}>Add page after</button> : null}
+                {onCreate ? <button type="button" disabled={acting} onClick={() => runAction(onCreate)}>New post</button> : null}
+                {onDelete ? <button type="button" className={styles.dangerAction} disabled={acting} onClick={() => runAction(onDelete)}>Delete {contentType}</button> : null}
+              </div>
+            </details>
+          ) : null}
           <button type="button" className={styles.cancelButton} onClick={close}>Done</button>
           <button type="button" className={styles.saveButton} disabled={!dirty || saving} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>
         </div>
