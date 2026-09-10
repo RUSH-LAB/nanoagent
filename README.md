@@ -1,5 +1,7 @@
 # Mochi Lab
 
+https://www.alphaxiv.org
+
 A collaborative workspace for knowledge, documents, communication, and AI agents.
 
 Install the Node dependencies once and create your local environment file:
