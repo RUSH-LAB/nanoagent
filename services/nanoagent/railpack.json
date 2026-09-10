@@ -2,7 +2,7 @@
   "$schema": "https://schema.railpack.com",
   "provider": "python",
   "steps": {
-    "install": {
+    "build": {
       "commands": ["...", "pip install '.[web]'"]
     }
   },
