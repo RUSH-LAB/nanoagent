@@ -654,6 +654,19 @@ export default function useChat({openChannelIds, paused}) {
     return result;
   }, [refreshDirectory]);
 
+  /** Change or remove a workspace member from the in-window people manager. */
+  const updateWorkspaceMember = useCallback(async (memberId, role) => {
+    const result = await post(`/api/members/${encodeURIComponent(memberId)}/role`, {role});
+    refreshDirectory();
+    return result;
+  }, [refreshDirectory]);
+
+  const removeWorkspaceMember = useCallback(async (memberId) => {
+    const result = await remove(`/api/members/${encodeURIComponent(memberId)}`);
+    refreshDirectory();
+    return result;
+  }, [refreshDirectory]);
+
   /** Channel metadata and its current membership, for the in-window manager. */
   const channelDetails = useCallback(
     channelId => call(`/api/chat/channels/${channelId}`),
@@ -764,6 +777,8 @@ export default function useChat({openChannelIds, paused}) {
     archive,
     update,
     removeChannel,
+    updateWorkspaceMember,
+    removeWorkspaceMember,
     channelDetails,
     addMember,
     removeMember,

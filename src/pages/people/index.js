@@ -356,20 +356,18 @@ function People() {
             </span>
             <span className={dir.meta}>joined {dayOf(person.joinedAt)}</span>
 
-            {/* What a row is usually clicked for stays on it; what it is
-                clicked for once is behind the menu. Neither appears on your own
-                row: demoting or removing yourself is leaving, which has its own
-                questions rather than a dropdown next to everyone else's. */}
+            {/* Messaging stays directly on every row, including your own: a
+                self-chat is useful as a private notes thread. Administrative
+                actions stay off your own row because demoting or removing
+                yourself is leaving and needs a different flow. */}
             <span className={dir.actions}>
-              {!person.you && (
-                <button
-                  type="button"
-                  className={`${dir.action} ${dir.primary}`}
-                  onClick={() => message_(person)}
-                >
-                  Message
-                </button>
-              )}
+              <button
+                type="button"
+                className={`${dir.action} ${dir.primary}`}
+                onClick={() => message_(person)}
+              >
+                Message
+              </button>
               {canManage && !person.you && (
                 <>
                   <select

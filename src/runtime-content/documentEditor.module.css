@@ -198,9 +198,40 @@
 }
 
 .sourcePane {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border-right: 1px solid var(--ifm-color-emphasis-200);
   background: var(--ifm-background-surface-color);
+}
+
+.sourceHeader {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.sourceHeader small {
+  overflow: hidden;
+  color: var(--ifm-color-emphasis-500);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sourceEditor {
+  flex: 1;
+  min-height: 0;
+}
+
+.sourceEditor > :global(.cm-theme) {
+  height: 100%;
 }
 
 .sourcePane :global(.cm-editor) {

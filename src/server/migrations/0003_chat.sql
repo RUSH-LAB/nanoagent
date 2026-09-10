@@ -1,7 +1,7 @@
 -- Chat: channels, membership, and messages, all scoped to an organization.
 --
 -- A direct message is not a separate concept here. It is a channel with
--- kind='dm', no name, and two members, so there is one message table, one send
+-- kind='dm', no name, and one or two members, so there is one message table, one send
 -- path, and one permission check rather than two of each that must be kept in
 -- agreement. The columns that only apply to one kind (name for named channels,
 -- dmKey for direct messages) are nullable, and the partial unique indexes below
@@ -21,7 +21,7 @@ create table if not exists channel (
   "organizationId" text not null references "organization" ("id") on delete cascade,
   -- 'public'  any member of the organization may read and join
   -- 'private' members only, by invitation
-  -- 'dm'      exactly two members, no name
+  -- 'dm'      one member for self-chat, otherwise two; no name
   "kind"           text not null,
   "name"           text,
   "topic"          text,

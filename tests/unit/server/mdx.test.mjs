@@ -152,6 +152,8 @@ describe('safe workspace markdown', () => {
   it('strips frontmatter rather than rendering it', async () => {
     const tree = await mdx.compileMarkdown('---\ntitle: Hello\n---\n# Body');
     assert.equal(all(tree).some(node => node.value === 'title: Hello'), false);
+    const heading = all(tree).find(node => node.type === 'heading');
+    assert.deepEqual(heading.position, {startLine: 4, endLine: 4});
   });
 
   it('accepts an empty document', async () => {

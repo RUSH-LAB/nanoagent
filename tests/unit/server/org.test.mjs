@@ -123,7 +123,7 @@ describe('the roster', () => {
     assert.deepEqual(org.listMembers(otherOrgId, who.ada.id), []);
   });
 
-  it('carries the caller\'s dm with each person, and never one with themselves', () => {
+  it('carries the caller\'s dm with each other person without borrowing one for their own row', () => {
     const before = org.listMembers(orgId, who.ada.id);
     assert.equal(before.every(r => r.dmChannelId === null), true, 'no conversations yet');
 

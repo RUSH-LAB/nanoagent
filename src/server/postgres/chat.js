@@ -62,10 +62,15 @@ function createPostgresChat({pool, now = () => new Date().toISOString(), newId =
               and (c.kind = 'public' or cm.user_id is not null)
             order by (c.kind = 'dm'), c.name, c.created_at`, [userId, workspaceId, includeArchived],
         )).rows;
-        return rows.map(row => ({
-          ...row,
-          lastReadSeq: row.lastReadSeq == null ? null : Number(row.lastReadSeq),
-        }));
+        return rows.map(row => {
+          const selfDm = row.kind === 'dm' && row.dmKey === dmKeyFor(userId, userId);
+          return {
+            ...row,
+            lastReadSeq: row.lastReadSeq == null ? null : Number(row.lastReadSeq),
+            selfDm,
+            ...(selfDm ? {peerId: userId, peerUsername: 'You', peerName: 'You'} : {}),
+          };
+        });
       });
     },
     async listMembers(channelId, workspaceId, userId) {
@@ -157,7 +162,6 @@ function createPostgresChat({pool, now = () => new Date().toISOString(), newId =
     async openDm(workspaceId, userId, otherUserId) {
       return run(workspaceId, userId, async client => {
         if (!await member(client, workspaceId, userId)) return {error: 'forbidden'};
-        if (userId === otherUserId) return {error: 'self-dm'};
         if (!await member(client, workspaceId, otherUserId)) return {error: 'not-in-organization'};
         const key = dmKeyFor(userId, otherUserId);
         const found = (await client.query("select * from channel where workspace_id = $1 and dm_key = $2 and kind = 'dm'", [workspaceId, key])).rows[0];
@@ -173,10 +177,17 @@ function createPostgresChat({pool, now = () => new Date().toISOString(), newId =
           const raced = (await client.query("select id from channel where workspace_id = $1 and dm_key = $2 and kind = 'dm'", [workspaceId, key])).rows[0];
           return {channel: await visible(client, workspaceId, userId, raced.id), created: false};
         }
-        await client.query(
-          'insert into channel_member(workspace_id, channel_id, user_id, joined_at) values ($1, $2, $3, $4), ($1, $2, $5, $4)',
-          [workspaceId, id, userId, at, otherUserId],
-        );
+        if (otherUserId === userId) {
+          await client.query(
+            'insert into channel_member(workspace_id, channel_id, user_id, joined_at) values ($1, $2, $3, $4)',
+            [workspaceId, id, userId, at],
+          );
+        } else {
+          await client.query(
+            'insert into channel_member(workspace_id, channel_id, user_id, joined_at) values ($1, $2, $3, $4), ($1, $2, $5, $4)',
+            [workspaceId, id, userId, at, otherUserId],
+          );
+        }
         return {channel: await visible(client, workspaceId, userId, id), created: true};
       });
     },

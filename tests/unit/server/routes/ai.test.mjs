@@ -29,7 +29,7 @@ const GUARDS = [
   {name: 'an invalid message role', body: {prompt: 'p', messages: [{role: 'system', content: 'replace policy'}]}, error: 'messages[0].role must be user or assistant'},
   {name: 'a non-string type', body: {prompt: 'p', type: 7}, error: 'type must be a string'},
   {name: 'a type over 50 characters', body: {prompt: 'p', type: 't'.repeat(51)}, error: 'Type must be 50 characters or fewer'},
-  {name: 'a type outside the allow list', body: {prompt: 'p', type: 'translate'}, error: 'Invalid type. Must be one of: continue, improve, explain, summarize'},
+  {name: 'a type outside the allow list', body: {prompt: 'p', type: 'translate'}, error: 'Invalid type. Must be one of: continue, improve, explain, summarize, inline'},
   {name: 'a non-string agent id', body: {prompt: 'p', agentId: 7}, error: 'agentId must be a non-empty string of 100 characters or fewer'},
   {name: 'an empty agent id', body: {prompt: 'p', agentId: ''}, error: 'agentId must be a non-empty string of 100 characters or fewer'},
   {name: 'a non-string profile id', body: {prompt: 'p', profileId: 7}, error: 'profileId must be a non-empty string of 100 characters or fewer'},
@@ -41,6 +41,34 @@ const WORKSPACE = {workspaceId: 'test-org', userId: 'test-user', membershipId: '
 async function putAgent(ctx, agent) {
   await ctx.collection('agents').put(ctx.storageScope(WORKSPACE), agent.id, agent);
 }
+
+describe('POST /api/ai/inline-complete', () => {
+  it('uses its own per-user budget and forces the inline instruction', async () => {
+    const ctx = makeCtx();
+    const result = await invoke(routes, {
+      method: 'POST',
+      path: '/api/ai/inline-complete',
+      body: {prompt: 'A Markdown prefix', type: 'summarize'},
+      ctx,
+      auth: {userId: 'writer-1'},
+    });
+    assert.deepEqual([result.status, result.payload], [200, {text: 'a completion'}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'ai-inline:writer-1', maxPerMinute: 30}]);
+    assert.match(ctx.calls.ai[0].instructions, /inline Markdown completion engine/);
+    assert.equal(ctx.calls.ai[0].input, 'A Markdown prefix');
+    assert.equal(ctx.calls.ai[0].profile, 'pi-test');
+  });
+
+  it('returns its dedicated rate-limit message before reading the body', async () => {
+    let reads = 0;
+    const ctx = makeCtx({rateLimitAllow: false, readBody: async () => { reads++; return {}; }});
+    const result = await invoke(routes, {
+      method: 'POST', path: '/api/ai/inline-complete', ctx, auth: {userId: 'writer-1'},
+    });
+    assert.deepEqual([result.status, result.payload], [429, {error: 'Too many inline completions. Try again in a minute.'}]);
+    assert.equal(reads, 0);
+  });
+});
 
 describe('POST /api/ai/complete', () => {
   const OK = {prompt: 'Write something', type: 'continue'};
@@ -219,6 +247,22 @@ describe('POST /api/ai/complete', () => {
  */
 describe('POST /api/ai/stream', () => {
   const ask = (opts = {}) => invoke(routes, {method: 'POST', path: '/api/ai/stream', body: {prompt: 'hello'}, ...opts});
+
+  it('streams editor completions with a separate budget and forced inline prompt', async () => {
+    const ctx = makeCtx();
+    const result = await invoke(routes, {
+      method: 'POST',
+      path: '/api/ai/inline-stream',
+      body: {prompt: 'Markdown at <CURSOR>', type: 'summarize'},
+      ctx,
+      auth: {userId: 'writer-1'},
+    });
+    assert.equal(result.res.written.status, 200);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'ai-inline-stream:writer-1', maxPerMinute: 30}]);
+    assert.match(ctx.calls.ai[0].instructions, /inline Markdown completion engine/);
+    assert.equal(ctx.calls.ai[0].profile, 'pi-test');
+    assert.equal(result.res.writes.at(-1), 'event: done\ndata: {"text":"a completion"}\n\n');
+  });
 
   it('frames the deltas, then the whole answer, then ends the response', async () => {
     const r = await ask();

@@ -4,15 +4,19 @@ import {toast} from '@site/src/components/Toast/toast';
 import {scopeWorkspacePath} from '@site/src/utils/workspaces';
 import AgentEditor from './AgentEditor';
 import AgentChatsDialog from './AgentChatsDialog';
+import AgentChatPicker from './AgentChatPicker';
 import AssistantTranscript from './AssistantTranscript';
+import ChannelEditor from './ChannelEditor';
 import ChannelMembers from './ChannelMembers';
 import ChatSidebar, {channelLabel, ConversationIcon} from './ChatSidebar';
 import ChatTranscript from './ChatTranscript';
 import Completions, {optionId} from './Completions';
 import Composer from './Composer';
 import Markdown from './Markdown';
+import PersonEditor from './PersonEditor';
+import SelectionCapture from './SelectionCapture';
 import {parseCommand, resolveCommand, runCommand} from './commandRuntime';
-import {existingChatForSelection, formatSelectionContext, isSelectionContextShortcut, selectionContextFrom} from './selectionContext';
+import {formatSharedSelection, isSelectionContextShortcut, selectionContextFrom, sourceLocationFromRange} from './selectionContext';
 import useAssistant from './useAssistant';
 import useAgents from './useAgents';
 import useChat from './useChat';
@@ -114,10 +118,11 @@ function WindowControls({railOpen, onRailOpenChange, onCollapse, onSplit, splitD
 
 /** One pane: its header, whichever transcript it is showing, and its refusals. */
 function Pane({
-  session, index, count, label, agent, channel, isActive, conversation, youId,
-  onFocus, onClose, onLoadOlder, onDeleteMessage, onCancel, onStartChat, onCreateAgent, onManageMembers,
+  session, index, count, label, agent, currentChat, agentChats, channel, isActive, conversation, youId,
+  onFocus, onClose, onLoadOlder, onDeleteMessage, onCancel, onStartChat, onCreateAgent,
+  onOpenChat, onManageChats, onManageMembers,
 }) {
-  const heading = label || 'Choose a chat';
+  const heading = channel && channel.kind !== 'dm' ? channel.name : (label || 'Choose a chat');
   const working = Boolean(session.busy || session.sending);
 
   // Whichever of these a pane has, a new one arriving is a new line at the
@@ -152,7 +157,19 @@ function Pane({
     >
       <header className={styles.paneHead}>
         <ConversationIcon agent={agent} channel={channel} label={label} />
-        <span className={styles.paneName}>{heading}</span>
+        {agent ? (
+          <AgentChatPicker
+            sessionId={session.id}
+            agent={agent}
+            currentChat={currentChat}
+            chats={agentChats}
+            onOpen={onOpenChat}
+            onNew={onStartChat}
+            onManage={onManageChats}
+          />
+        ) : (
+          <span className={styles.paneName}>{heading}</span>
+        )}
         {channel?.kind !== 'dm' && channel && (
           <button type="button" className={styles.membersButton} onClick={onManageMembers}>
             Members <span>{channel.memberCount ?? 0}</span>
@@ -225,10 +242,11 @@ export default function Shell({workspaceKey = 'unscoped'}) {
   const {active} = sessions;
 
   const [drafts, setDrafts] = useState({});
-  const [selectionContexts, setSelectionContexts] = useState({});
   // undefined means closed; null means the create form; an object means edit.
   const [agentEditor, setAgentEditor] = useState(undefined);
   const [chatManagerAgentId, setChatManagerAgentId] = useState(null);
+  const [channelEditor, setChannelEditor] = useState(null);
+  const [personEditor, setPersonEditor] = useState(null);
   const [memberChannel, setMemberChannel] = useState(null);
   const inputRefs = useRef(new Map());
 
@@ -246,19 +264,6 @@ export default function Shell({workspaceKey = 'unscoped'}) {
   }, []);
   const draft = draftFor(active.id);
   const setDraft = useCallback((next) => setDraftFor(active.id, next), [active.id, setDraftFor]);
-  const selectionContextFor = useCallback(
-    (chatId) => (chatId ? selectionContexts[chatId] ?? null : null),
-    [selectionContexts],
-  );
-  const clearSelectionContext = useCallback((chatId) => {
-    if (!chatId) return;
-    setSelectionContexts((current) => {
-      if (!(chatId in current)) return current;
-      const next = {...current};
-      delete next[chatId];
-      return next;
-    });
-  }, []);
 
   // Only the channels on screen are worth polling, and a channel open in two
   // panes is still one conversation.
@@ -295,46 +300,31 @@ export default function Shell({workspaceKey = 'unscoped'}) {
     if (sessions.split() !== null) setCollapsed(false);
   }, [sessions.split, setCollapsed]);
 
-  // Add to an existing chat only. If a human channel is active, reopen the most
-  // recent AI chat in that pane; the shortcut never creates a conversation.
+  // The shortcut inserts the same readable text that Copy as context puts on
+  // the clipboard. It remains ordinary editable text, so several selections
+  // can live in one draft instead of competing for one attachment slot.
   useEffect(() => {
     const attachSelection = (event) => {
       if (!isSelectionContextShortcut(event)) return;
-      const context = selectionContextFrom(window.getSelection(), {
+      const selected = window.getSelection();
+      const range = selected?.rangeCount ? selected.getRangeAt(0) : null;
+      const context = selectionContextFrom(selected, {
         title: document.title,
         path: window.location.pathname,
+        url: window.location.href,
+        ...sourceLocationFromRange(range),
       });
       if (!context) return;
 
       event.preventDefault();
-      const selectedChat = existingChatForSelection(
-        active.target?.chatId,
-        active.target?.agentId,
-        sessions.chats,
-      );
-      if (!selectedChat) {
-        toast.info('Open or create an AI chat before adding selected text.');
-        return;
-      }
-      setSelectionContexts((current) => ({...current, [selectedChat.id]: context}));
-      const openSession = sessions.sessions.find(session => session.target?.chatId === selectedChat.id);
-      const focusId = openSession?.id ?? active.id;
-      if (openSession) {
-        sessions.focus(openSession.id);
-      } else if (active.target?.chatId !== selectedChat.id) {
-        sessions.setTarget(active.id, {
-          chatId: selectedChat.id,
-          agentId: selectedChat.agentId,
-          label: selectedChat.title,
-        });
-      }
+      setDraftFor(active.id, current => formatSharedSelection(current, context));
       if (geometry.collapsed) setCollapsed(false);
-      requestAnimationFrame(() => inputRefFor(focusId).current?.focus());
+      requestAnimationFrame(() => inputRefFor(active.id).current?.focus());
     };
 
     window.addEventListener('keydown', attachSelection);
     return () => window.removeEventListener('keydown', attachSelection);
-  }, [active.id, active.target?.agentId, active.target?.chatId, sessions.chats, sessions.sessions, sessions.focus, sessions.setTarget, geometry.collapsed, inputRefFor, setCollapsed]);
+  }, [active.id, geometry.collapsed, inputRefFor, setCollapsed, setDraftFor]);
 
   /* ── Targets ──────────────────────────────────────────────────── */
 
@@ -403,7 +393,7 @@ export default function Shell({workspaceKey = 'unscoped'}) {
     [sessions.chats],
   );
 
-  const openChat = useCallback((chatToOpen) => {
+  const openChat = useCallback((chatToOpen, sessionId = active.id) => {
     const alreadyOpen = sessions.sessions.find(session => session.target?.chatId === chatToOpen.id);
     if (alreadyOpen) {
       sessions.focus(alreadyOpen.id);
@@ -411,12 +401,15 @@ export default function Shell({workspaceKey = 'unscoped'}) {
       requestAnimationFrame(() => inputRefFor(alreadyOpen.id).current?.focus());
       return;
     }
-    retarget({
+    sessions.setTarget(sessionId, {
       chatId: chatToOpen.id,
       agentId: chatToOpen.agentId,
       label: chatToOpen.title,
     });
-  }, [sessions.sessions, sessions.focus, geometry.collapsed, setCollapsed, inputRefFor, retarget]);
+    sessions.focus(sessionId);
+    if (geometry.collapsed) setCollapsed(false);
+    else requestAnimationFrame(() => inputRefFor(sessionId).current?.focus());
+  }, [active.id, sessions.sessions, sessions.focus, sessions.setTarget, geometry.collapsed, setCollapsed, inputRefFor]);
 
   const selectAgent = useCallback((agent) => {
     const recentChat = sessions.chats.find(chatItem => chatItem.agentId === agent.id);
@@ -438,13 +431,22 @@ export default function Shell({workspaceKey = 'unscoped'}) {
     requestAnimationFrame(() => inputRefFor(sessionId).current?.focus());
   }, [active, agentStore.agents, sessions.sessions, sessions.createChat, geometry.collapsed, setCollapsed, inputRefFor, agentOf]);
 
+  // The rail's chat icon behaves like the one beside a person: return to the
+  // conversation when one exists, and create the first one only when needed.
+  // The explicit New chat control in the pane remains the way to branch into a
+  // separate conversation with the same agent.
+  const openOrStartAgentChat = useCallback((agent) => {
+    const recentChat = sessions.chats.find(chatItem => chatItem.agentId === agent.id);
+    if (recentChat) openChat(recentChat);
+    else startChat(agent);
+  }, [sessions.chats, openChat, startChat]);
+
   const deleteChat = useCallback((chatId) => {
     sessions.sessions.forEach(session => {
       if (session.target?.chatId === chatId) assistant.cancel(session.id);
     });
-    clearSelectionContext(chatId);
     sessions.deleteChat(chatId);
-  }, [sessions.sessions, sessions.deleteChat, assistant.cancel, clearSelectionContext]);
+  }, [sessions.sessions, sessions.deleteChat, assistant.cancel]);
 
   const channelOf = useCallback(
     (session) => session.target?.channelId
@@ -467,7 +469,8 @@ export default function Shell({workspaceKey = 'unscoped'}) {
    * message on screen, so a stop button offered here would be a control that
    * does nothing.
    */
-  const say = useCallback(async (text, sessionId, channelId) => {
+  const say = useCallback(async (text, sessionId, target) => {
+    const channelId = target.channelId;
     sessions.patch(sessionId, {sending: true, sendError: null});
     try {
       await chat.send(channelId, text);
@@ -531,27 +534,23 @@ export default function Shell({workspaceKey = 'unscoped'}) {
 
     // A command works the same in every pane; a plain line goes wherever the
     // pane is pointed.
-    if (session.target?.channelId) say(text, session.id, session.target.channelId);
+    if (session.target?.channelId) say(text, session.id, session.target);
     else {
-      const chatId = session.target?.chatId;
-      const selected = selectionContextFor(chatId);
       const agent = agentOf(session);
       const activeChat = chatOf(session);
       assistant.ask(
         session.id,
         text,
         agent,
-        formatSelectionContext(selected),
+        '',
         activeChat?.profileId || agent?.profileId || agentStore.profileCatalog.defaultProfile,
       );
-      clearSelectionContext(chatId);
     }
   }, [
     active, sessions, commands, draftFor, setDraftFor,
     completion.matches, completion.selected, completion.moved,
     completion.selectingArgument, completion.choice,
     contextFor, say, assistant, agentOf, chatOf, agentStore.profileCatalog.defaultProfile,
-    selectionContextFor, clearSelectionContext,
   ]);
 
   const runFromMenu = useCallback((command) => {
@@ -625,8 +624,12 @@ export default function Shell({workspaceKey = 'unscoped'}) {
 
   return (
     <div
+      data-command-bar
       className={`${styles.bar} ${geometry.collapsed ? styles.barCollapsed : ''} ${geometry.dragging ? styles.barDragging : ''}`}
     >
+      <SelectionCapture onCopy={() => {
+        toast.success('Context copied. Paste it into any conversation.');
+      }} />
       {!geometry.collapsed && (
         <>
           <div className={styles.handle} {...geometry.handleProps}>
@@ -639,19 +642,17 @@ export default function Shell({workspaceKey = 'unscoped'}) {
                 <ChatSidebar
                   chat={chat}
                   agents={agentStore.agents}
-                  aiChats={sessions.chats}
                   agentsStatus={agentStore.status}
                   agentsError={agentStore.error}
                   activeChannelId={active.target?.channelId ?? null}
                   activeAgentId={active.target?.agentId ?? null}
-                  activeChatId={active.target?.chatId ?? null}
                   onSelect={selectChannel}
                   onSelectAgent={selectAgent}
-                  onSelectChat={openChat}
-                  onNewChat={startChat}
-                  onManageChats={(agent) => setChatManagerAgentId(agent.id)}
+                  onOpenAgentChat={openOrStartAgentChat}
                   onCreateAgent={() => setAgentEditor(null)}
                   onEditAgent={setAgentEditor}
+                  onEditChannel={setChannelEditor}
+                  onEditPerson={setPersonEditor}
                   onBrowsePeople={() => routerHistory.push(scopeWorkspacePath(
                     '/people',
                     typeof window === 'undefined' ? '' : window.location.pathname,
@@ -672,6 +673,8 @@ export default function Shell({workspaceKey = 'unscoped'}) {
                     count={sessions.sessions.length}
                     label={labelOf(session)}
                     agent={agentOf(session)}
+                    currentChat={chatOf(session)}
+                    agentChats={sessions.chats.filter(chatItem => chatItem.agentId === session.target?.agentId)}
                     channel={channelOf(session)}
                     isActive={session.id === active.id}
                     conversation={session.target?.channelId ? chat.conversation(session.target.channelId) : null}
@@ -699,6 +702,8 @@ export default function Shell({workspaceKey = 'unscoped'}) {
                     onCancel={() => assistant.cancel(session.id)}
                     onStartChat={agentStore.agents.length ? () => startChat(null, session.id) : null}
                     onCreateAgent={() => setAgentEditor(null)}
+                    onOpenChat={(chatItem) => openChat(chatItem, session.id)}
+                    onManageChats={() => setChatManagerAgentId(session.target?.agentId ?? null)}
                     onManageMembers={() => setMemberChannel(channelOf(session))}
                   />
                 ))}
@@ -759,6 +764,22 @@ export default function Shell({workspaceKey = 'unscoped'}) {
                 onClose={() => setMemberChannel(null)}
               />
             )}
+
+            {channelEditor && (
+              <ChannelEditor
+                channel={channelEditor}
+                chat={chat}
+                onClose={() => setChannelEditor(null)}
+              />
+            )}
+
+            {personEditor && (
+              <PersonEditor
+                person={personEditor}
+                chat={chat}
+                onClose={() => setPersonEditor(null)}
+              />
+            )}
           </div>
         </>
       )}
@@ -774,7 +795,6 @@ export default function Shell({workspaceKey = 'unscoped'}) {
           placeholder={placeholderFor(active)}
           ghost={completion.ghost}
           isCommand={completion.isCommand}
-          busyElsewhere={sessions.sessions.some((session) => session.id !== active.id && (session.busy || session.sending))}
           collapsed
           onCollapsedChange={setCollapsed}
           railOpen={geometry.railOpen}
@@ -784,8 +804,6 @@ export default function Shell({workspaceKey = 'unscoped'}) {
           maxSessions={sessions.MAX_SESSIONS}
           sessionNumber={sessions.sessions.length > 1 ? sessions.sessions.findIndex((session) => session.id === active.id) + 1 : null}
           targetLabel={activeLabel}
-          selectionContext={selectionContextFor(active.target?.chatId)}
-          onRemoveSelection={() => clearSelectionContext(active.target?.chatId)}
           onSubmit={() => submit(active)}
           onClear={() => sessions.clear(active.id)}
           onTab={onTab}
@@ -831,7 +849,6 @@ export default function Shell({workspaceKey = 'unscoped'}) {
                     placeholder={placeholderFor(session)}
                     ghost={isActive ? completion.ghost : ''}
                     isCommand={isActive ? completion.isCommand : sessionDraft.trimStart().startsWith('/')}
-                    busyElsewhere={false}
                     collapsed={false}
                     onCollapsedChange={setCollapsed}
                     railOpen={geometry.railOpen}
@@ -841,8 +858,6 @@ export default function Shell({workspaceKey = 'unscoped'}) {
                     maxSessions={sessions.MAX_SESSIONS}
                     sessionNumber={sessions.sessions.length > 1 ? index + 1 : null}
                     targetLabel={labelOf(session)}
-                    selectionContext={selectionContextFor(session.target?.chatId)}
-                    onRemoveSelection={() => clearSelectionContext(session.target?.chatId)}
                     onSubmit={() => submit(session)}
                     onClear={() => sessions.clear(session.id)}
                     onTab={onTab}
@@ -858,7 +873,6 @@ export default function Shell({workspaceKey = 'unscoped'}) {
                     completionId={isActive && listOpen ? optionId(completion.selected) : null}
                     onActivate={() => sessions.focus(session.id)}
                     showChrome={!geometry.railOpen && index === 0}
-                    showHints={sessions.sessions.length === 1}
                   />
                 </div>
               );

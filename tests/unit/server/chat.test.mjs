@@ -280,8 +280,13 @@ describe('direct messages', () => {
     assert.equal(chat.openDm(ORG_A, EVE, ALICE).error, 'forbidden');
   });
 
-  it('refuses a dm with yourself', () => {
-    assert.equal(chat.openDm(ORG_A, ALICE, ALICE).error, 'self-dm');
+  it('creates and reopens a one-member dm with yourself', () => {
+    const first = chat.openDm(ORG_A, ALICE, ALICE);
+    const again = chat.openDm(ORG_A, ALICE, ALICE);
+    assert.equal(first.created, true);
+    assert.equal(again.created, false);
+    assert.equal(again.channel.id, first.channel.id);
+    assert.deepEqual(chat.listMembers(first.channel.id).map(member => member.id), [ALICE]);
   });
 
   it('cannot be left or added to', () => {
@@ -296,6 +301,14 @@ describe('direct messages', () => {
 // label it with. The roster of people lives in server/org.js and is tested
 // there; this is the channel half.
 describe('the channel list a sidebar draws', () => {
+  it('labels a dm with yourself as You', () => {
+    const {channel} = chat.openDm(ORG_A, ALICE, ALICE);
+    const self = chat.listChannels(ORG_A, ALICE).find(c => c.id === channel.id);
+    assert.equal(self.selfDm, true);
+    assert.equal(self.peerId, ALICE);
+    assert.equal(self.peerUsername, 'You');
+  });
+
   it('names the other side of a dm, from each side', () => {
     const {channel} = chat.openDm(ORG_A, ALICE, BOB);
     const forAlice = chat.listChannels(ORG_A, ALICE).find(c => c.id === channel.id);

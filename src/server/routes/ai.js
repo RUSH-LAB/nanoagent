@@ -24,12 +24,14 @@ const DEFAULT_SYSTEM_PROMPT =
   + 'where it earns its place: a short heading, a list, a fenced code block. No '
   + 'preamble.';
 
-const VALID_TYPES = ['continue', 'improve', 'explain', 'summarize'];
+const VALID_TYPES = ['continue', 'improve', 'explain', 'summarize', 'inline'];
+const INLINE_HARNESS = 'pi';
 const SYSTEM_PROMPTS = {
   continue: 'You are a writing assistant. Continue the text naturally, matching the style and tone. Output only the continuation, no preamble.',
   improve: 'You are an editing assistant. Improve the text for clarity, flow, and correctness while preserving the original meaning and tone. Output only the improved text, no preamble.',
   explain: 'You are a teaching assistant. Explain the given text in simple, clear terms. Be concise but thorough.',
   summarize: 'You are a summarization assistant. Provide a concise summary of the given text in 2-3 sentences.',
+  inline: 'You are an inline Markdown completion engine. Return only the exact text to insert at <CURSOR>: no explanation, quotation marks, or code fences. Do not repeat text before or after the cursor. Match the document style and continue only as far as is immediately useful, usually one sentence, list item, or code line.',
 };
 
 // How long a stream may go without a byte on the wire. server/index.js gives
@@ -123,11 +125,17 @@ function composeRequest(body, sanitizeText, agent = null, catalog = null) {
 }
 
 /** Resolve an agent inside the verified workspace; never trust its browser copy. */
-async function composeStoredRequest(req, ctx) {
-  const body = await ctx.readBody(req);
+async function composeStoredRequest(req, ctx, overrides = {}, preferredHarness = null) {
+  const supplied = await ctx.readBody(req);
   const catalog = typeof ctx.ai.profiles === 'function'
     ? await ctx.ai.profiles()
     : fallbackProfiles;
+  const preferredProfile = preferredHarness
+    ? catalog.profiles?.find(profile => profile.harness === preferredHarness && profile.available !== false)?.id
+    : null;
+  const body = supplied && typeof supplied === 'object'
+    ? {...supplied, ...overrides, ...(preferredProfile ? {profileId: preferredProfile} : {})}
+    : supplied;
   let agent = null;
   if (body?.agentId !== undefined) {
     if (typeof body.agentId !== 'string' || !body.agentId || body.agentId.length > 100) {
@@ -162,8 +170,38 @@ function sendEvent(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
+function completionPayload(result) {
+  return {
+    text: result.text,
+    ...(result.usage ? {usage: result.usage} : {}),
+    ...(result.cost != null ? {cost: result.cost} : {}),
+    ...(result.metrics ? {metrics: result.metrics} : {}),
+    ...(result.model ? {model: result.model} : {}),
+    ...(result.harness ? {harness: result.harness} : {}),
+    ...(result.profile ? {profile: result.profile} : {}),
+    ...(result.stopReason ? {stopReason: result.stopReason} : {}),
+  };
+}
+
 module.exports = async function ai_routes(req, res, url, pathname, ctx) {
   const {json, rateLimit, ai, CORS_ORIGIN} = ctx;
+
+  // A separate budget keeps editor pauses from consuming the CLI chat limit.
+  // The type is forced server-side so this endpoint can never become a second
+  // unrestricted assistant surface.
+  if (req.method === 'POST' && pathname === '/api/ai/inline-complete') {
+    const caller = req.auth?.userId || req.socket.remoteAddress;
+    if (!rateLimit(`ai-inline:${caller}`, 30)) return json(res, 429, {error: 'Too many inline completions. Try again in a minute.'});
+    try {
+      const {error, request, status} = await composeStoredRequest(req, ctx, {type: 'inline'}, INLINE_HARNESS);
+      if (error) return json(res, status || 400, {error});
+      const result = await ai.complete(request);
+      if (result.error) return json(res, result.status || 502, {error: result.error});
+      return json(res, 200, completionPayload(result));
+    } catch {
+      return json(res, 500, {error: 'AI request failed. Please try again later.'});
+    }
+  }
 
   // ── AI writing assistant (v2 – /api/ai/complete) ──
   if (req.method === 'POST' && pathname === '/api/ai/complete') {
@@ -177,32 +215,33 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
       // whatever comes back.
       const result = await ai.complete(request);
       if (result.error) return json(res, result.status || 502, {error: result.error});
-      return json(res, 200, {
-        text: result.text,
-        ...(result.usage ? {usage: result.usage} : {}),
-        ...(result.cost != null ? {cost: result.cost} : {}),
-        ...(result.metrics ? {metrics: result.metrics} : {}),
-        ...(result.model ? {model: result.model} : {}),
-        ...(result.harness ? {harness: result.harness} : {}),
-        ...(result.profile ? {profile: result.profile} : {}),
-        ...(result.stopReason ? {stopReason: result.stopReason} : {}),
-      });
+      return json(res, 200, completionPayload(result));
     } catch {
       return json(res, 500, {error: 'AI request failed. Please try again later.'});
     }
   }
 
-  // ── The same answer, written as it is composed (/api/ai/stream) ──
+  // ── The same answer, written as it is composed ──
   // The CLI at the foot of the page shows the reply arriving; five silent
   // seconds while a local model starts up read as a hang.
-  if (req.method === 'POST' && pathname === '/api/ai/stream') {
+  const inlineStream = pathname === '/api/ai/inline-stream';
+  if (req.method === 'POST' && (pathname === '/api/ai/stream' || inlineStream)) {
     // Keyed on the person, not the socket: this endpoint is behind the identity
     // gate, and one office behind one address should not share a budget.
-    if (!rateLimit(`ai-stream:${req.auth?.userId}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    const rateKey = inlineStream ? 'ai-inline-stream' : 'ai-stream';
+    const rateMax = inlineStream ? 30 : 10;
+    if (!rateLimit(`${rateKey}:${req.auth?.userId}`, rateMax)) return json(res, 429, {
+      error: inlineStream ? 'Too many inline completions. Try again in a minute.' : 'Too many requests. Try again in a minute.',
+    });
 
     let composed;
     try {
-      composed = await composeStoredRequest(req, ctx);
+      composed = await composeStoredRequest(
+        req,
+        ctx,
+        inlineStream ? {type: 'inline'} : {},
+        inlineStream ? INLINE_HARNESS : null,
+      );
     } catch {
       return json(res, 500, {error: 'AI request failed. Please try again later.'});
     }

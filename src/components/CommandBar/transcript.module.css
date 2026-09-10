@@ -35,9 +35,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Fixed column, so a run of messages reads as a conversation rather than as a
-   ragged list. It keeps its width when a grouped message empties it, which is
-   what lines the run up under its own first line. */
+/* Fixed column, so every message body begins on the same vertical line while
+   still repeating who sent it. */
 .messageAuthor {
   flex-shrink: 0;
   width: 10ch;

@@ -1,7 +1,6 @@
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {fuzzyMatch} from '@site/src/utils/fuzzyMatch';
 import {LISTBOX_ID} from './Completions';
-import shared from './shared.module.css';
 import styles from './composer.module.css';
 
 /**
@@ -32,9 +31,8 @@ import styles from './composer.module.css';
  * by every pane can only ever stop the focused one, and a split window can
  * leave a background pane answering, so that control belongs to the transcript
  * that knows which request it is offering to abort (AssistantTranscript).
- * Escape is therefore the only way out from here, and a key nobody is told
- * about is not an escape hatch, so the hints name it for as long as there is
- * something to stop.
+ * Escape remains the keyboard route for stopping the focused pane, while the
+ * visible stop control stays beside the answer it affects.
  *
  * Working and stoppable are two different things, which is why `busy` and
  * `onCancel` are two props rather than one. A pane posting a message to a
@@ -123,7 +121,6 @@ export default function Composer({
   placeholder,
   ghost,
   isCommand,
-  busyElsewhere,
   collapsed,
   onCollapsedChange,
   railOpen,
@@ -133,8 +130,6 @@ export default function Composer({
   maxSessions,
   sessionNumber,
   targetLabel,
-  selectionContext = null,
-  onRemoveSelection = noop,
   rowRef,
   onSubmit,
   onClear,
@@ -146,15 +141,13 @@ export default function Composer({
   busy = false,
   canSend = true,
   // Null rather than a no-op when the focused pane's work cannot be stopped.
-  // Escape reads it to decide whether to keep its ordinary meaning, and the
-  // hints read it to decide whether to promise anything at all.
+  // Escape reads it to decide whether to keep its ordinary meaning.
   onCancel = null,
   onFocusPane = noop,
   listOpen = false,
   completionId = null,
   onActivate = noop,
   showChrome = true,
-  showHints = true,
 }) {
   const [caret, setCaret] = useState(0);
   const [selected, setSelected] = useState(0);
@@ -341,8 +334,6 @@ export default function Composer({
     : (listOpen && completionId) || undefined;
   const expanded = Boolean(menuOpen || listOpen);
   const controls = menuOpen ? mentionsId : (listOpen ? LISTBOX_ID : undefined);
-  const selectionPreview = selectionContext?.text.replace(/\s+/g, ' ').trim().slice(0, 160);
-
   return (
     <div className={styles.row} ref={rowRef} aria-busy={busy}>
       {showChrome && <><button
@@ -461,28 +452,6 @@ export default function Composer({
         </span>
       </label>
 
-      {selectionContext && (
-        <div
-          className={styles.selectionContext}
-          aria-label="Selected page text attached to the next AI message"
-          title={`${selectionContext.title || selectionContext.path || 'Selected text'}\n\n${selectionPreview}${selectionContext.text.length > 160 ? '…' : ''}`}
-        >
-          <span className={styles.selectionContextText}>
-            <strong>Selection</strong>
-            <span>{selectionPreview}</span>
-          </span>
-          <button
-            type="button"
-            className={styles.selectionContextRemove}
-            onClick={onRemoveSelection}
-            aria-label="Remove selected text from context"
-            title="Remove context"
-          >
-            &times;
-          </button>
-        </div>
-      )}
-
       <button
         type="button"
         className={styles.send}
@@ -496,30 +465,6 @@ export default function Composer({
         </svg>
       </button>
 
-      {showHints && !selectionContext && <span className={styles.hints}>
-        {busyElsewhere && <span className={styles.hintBusy}>another session is working</span>}
-        {/* The stop button is in the transcript, with the answer it stops, so
-            this row's contribution is the key: shown only while the focused
-            pane has something Escape would actually abort, because a hint for
-            a key that does nothing is worse than no hint. */}
-        {busy && onCancel && (
-          <span className={styles.hintStop}>
-            <kbd className={shared.kbd}>esc</kbd> stop
-          </span>
-        )}
-        {isCommand ? (
-          <>
-            <kbd className={shared.kbd}>tab</kbd> complete
-            <kbd className={shared.kbd}>&crarr;</kbd> go
-          </>
-        ) : (
-          <>
-            <kbd className={shared.kbd}>&crarr;</kbd> send
-            <kbd className={shared.kbd}>&#8679;&crarr;</kbd> newline
-            <kbd className={shared.kbd}>&#8984;&#8679;&crarr;</kbd> add selection
-          </>
-        )}
-      </span>}
     </div>
   );
 }

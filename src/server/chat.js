@@ -9,7 +9,8 @@
  * cheapest defence is to make it impossible to write one.
  *
  * A direct message is a channel with kind='dm', so everything below serves both
- * without a second implementation.
+ * without a second implementation. A self-message uses the same model with one
+ * membership row rather than two.
  */
 const crypto = require('crypto');
 const {db} = require('./db');
@@ -105,8 +106,9 @@ function listChannels(orgId, userId, {includeArchived = false} = {}) {
                   AND msg.seq > COALESCE(cm.lastReadSeq, 0)) AS unread
          FROM channel c
          LEFT JOIN channel_member cm ON cm.channelId = c.id AND cm.userId = ?
-         -- Restricted to dms, which openDm gives exactly two members, so this
-         -- widens each row rather than multiplying it.
+         -- Restricted to the other dm member, so this widens each ordinary dm
+         -- row rather than multiplying it. A self-dm has no second member and
+         -- is labelled in the result mapping below.
          LEFT JOIN channel_member pm ON pm.channelId = c.id AND c.kind = 'dm' AND pm.userId != ?
          LEFT JOIN "user" pu ON pu.id = pm.userId
         WHERE c.organizationId = ?
@@ -117,7 +119,15 @@ function listChannels(orgId, userId, {includeArchived = false} = {}) {
         ORDER BY c.kind = 'dm', c.name COLLATE NOCASE, c.createdAt`,
     )
     .all(userId, userId, userId, orgId, includeArchived ? 1 : 0)
-    .map(row => ({...row, joined: Boolean(row.joined)}));
+    .map(row => {
+      const selfDm = row.kind === 'dm' && row.dmKey === dmKeyFor(userId, userId);
+      return {
+        ...row,
+        joined: Boolean(row.joined),
+        selfDm,
+        ...(selfDm ? {peerId: userId, peerUsername: 'You', peerName: 'You'} : {}),
+      };
+    });
 }
 
 /** Everyone in a channel, with the display fields a member list needs. */
@@ -301,7 +311,6 @@ function removeChannelMember(orgId, userId, channelId, targetId, {manages = fals
  */
 function openDm(orgId, userId, otherUserId) {
   if (!isOrgMember(orgId, userId)) return {error: 'forbidden'};
-  if (userId === otherUserId) return {error: 'self-dm'};
   if (!isOrgMember(orgId, otherUserId)) return {error: 'not-in-organization'};
 
   const key = dmKeyFor(userId, otherUserId);
@@ -320,7 +329,7 @@ function openDm(orgId, userId, otherUserId) {
       ).run(id, orgId, key, userId, at);
       const join = db.prepare('INSERT INTO channel_member (channelId, userId, joinedAt) VALUES (?, ?, ?)');
       join.run(id, userId, at);
-      join.run(id, otherUserId, at);
+      if (otherUserId !== userId) join.run(id, otherUserId, at);
     })();
   } catch (err) {
     const raced = db

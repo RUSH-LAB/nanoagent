@@ -8,11 +8,10 @@ import styles from './transcript.module.css';
  *
  * A flat list of lines is not a conversation. Without a day rule, a message
  * from last Tuesday sits against one from a minute ago and both read as now.
- * Without author grouping, a person saying four things in a row looks like
- * four people. Without a mark for where reading stopped, coming back to a busy
- * channel means guessing. Without a way back through history, the channel
- * began fifty messages ago. Each of those is one small structure over the same
- * list, and together they are the difference between a log and a chat client.
+ * Every line repeats its author so adjacent messages remain independently
+ * attributable. Without a mark for where reading stopped, coming back to a
+ * busy channel means guessing. Without a way back through history, the channel
+ * began fifty messages ago. Each is one small structure over the same list.
  *
  * The unread divider is the one piece of state this file freezes. It is worked
  * out once, the first time the conversation reports where the reader stopped,
@@ -36,9 +35,6 @@ import styles from './transcript.module.css';
  */
 
 /* ── Constants ──────────────────────────────────────────────────── */
-
-/** Two messages from one author closer together than this read as one turn. */
-const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 /** How near the top of the box counts as asking for the previous page. */
 const NEAR_TOP_PX = 80;
@@ -112,15 +108,15 @@ function DayRule({label}) {
 }
 
 /**
- * One message. The author column is kept but emptied when this message
- * continues a run, so the text of a run still starts on one vertical line.
+ * One message. The author column is repeated on every row, including a quick
+ * run from one person, so no line depends on the one above for attribution.
  */
-function Message({message, at, grouped, mine, confirming, onDelete}) {
+function Message({message, at, mine, confirming, onDelete}) {
   const author = message.username || message.name || 'unknown';
   return (
     <div className={`${shared.entry} ${styles.messageRow} ${message.pending ? styles.messagePending : ''}`}>
       <span className={styles.messageTime}>{at ? timeOf(at) : ''}</span>
-      <span className={styles.messageAuthor} title={author}>{grouped ? '' : author}</span>
+      <span className={styles.messageAuthor} title={author}>{author}</span>
 
       {/* A deleted message keeps its place in the thread and loses its body,
           so the replies around it still make sense. */}
@@ -297,7 +293,6 @@ export default function ChatTranscript({
 
   const now = new Date();
   const rows = [];
-  let previous = null;
   let previousAt = null;
   let dividerDrawn = false;
 
@@ -328,28 +323,17 @@ export default function ChatTranscript({
       );
     }
 
-    const grouped = Boolean(
-      previous
-        && !dayChanged
-        && !startsUnread
-        && previous.userId === message.userId
-        && at && previousAt
-        && at.getTime() - previousAt.getTime() < GROUP_WINDOW_MS,
-    );
-
     rows.push(
       <Message
         key={message.id}
         message={message}
         at={at}
-        grouped={grouped}
         mine={Boolean(youId) && message.userId === youId && message.body !== null && !message.pending}
         confirming={armed === message.id}
         onDelete={() => requestDelete(message.id)}
       />,
     );
 
-    previous = message;
     previousAt = at;
   }
 

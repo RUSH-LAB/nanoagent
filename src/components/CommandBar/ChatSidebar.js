@@ -4,7 +4,7 @@ import styles from './rail.module.css';
 
 export function channelLabel(channel) {
   if (!channel) return '';
-  if (channel.kind !== 'dm') return `# ${channel.name}`;
+  if (channel.kind !== 'dm') return `#${channel.name}`;
   return channel.peerUsername || channel.peerName || 'Someone';
 }
 
@@ -18,7 +18,6 @@ const STATUS_NOTE = {
 
 function Icon({name}) {
   const common = {width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round'};
-  if (name === 'hash') return <svg {...common}><path d="M5 9h14M4 15h14M10 3 8 21M16 3l-2 18" /></svg>;
   if (name === 'message') return <svg {...common}><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" /></svg>;
   if (name === 'add-person') return <svg {...common}><path d="M15 21a7 7 0 0 0-14 0M8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M19 8v6M16 11h6" /></svg>;
   return null;
@@ -42,7 +41,7 @@ export function ConversationIcon({agent = null, channel = null, person = null, l
     );
   }
   if (!channel) return <span className={`${styles.convoIcon} ${styles.emptyIcon}`} aria-hidden="true">+</span>;
-  return <span className={styles.convoIcon} aria-hidden="true"><Icon name="hash" /></span>;
+  return <span className={styles.convoIcon} aria-hidden="true">#</span>;
 }
 
 function Unread({count}) {
@@ -69,19 +68,17 @@ function Section({title, count, browseLabel, browseText = 'Manage', onBrowse, on
 export default function ChatSidebar({
   chat,
   agents,
-  aiChats = [],
   agentsStatus,
   agentsError,
   activeChannelId,
   activeAgentId,
-  activeChatId,
   onSelect,
   onSelectAgent,
-  onSelectChat,
-  onNewChat,
-  onManageChats,
+  onOpenAgentChat,
   onCreateAgent,
   onEditAgent,
+  onEditChannel,
+  onEditPerson,
   onBrowsePeople,
   onBrowseChannels,
 }) {
@@ -103,7 +100,7 @@ export default function ChatSidebar({
       setCreating(false);
       setDraft('');
       setFailure(null);
-      onSelect(channelId, `# ${name}`);
+      onSelect(channelId, `#${name}`);
     } catch (err) { setFailure(err.message); }
   };
 
@@ -122,7 +119,10 @@ export default function ChatSidebar({
   };
 
   const openPerson = async (person) => {
-    if (person.dmChannelId) return onSelect(person.dmChannelId, personLabel(person));
+    const existingId = person.you
+      ? chat.channels.find(channel => channel.kind === 'dm' && channel.selfDm)?.id
+      : person.dmChannelId;
+    if (existingId) return onSelect(existingId, personLabel(person));
     try {
       onSelect(await chat.openDm(person.id), personLabel(person));
       setFailure(null);
@@ -169,8 +169,6 @@ export default function ChatSidebar({
           addLabel="Create an agent"
         >
           {agents.map(agent => {
-            const agentChats = aiChats.filter(aiChat => aiChat.agentId === agent.id);
-            const visibleChats = agentChats.slice(0, 3);
             return <div key={agent.id} className={styles.agentGroup}>
               <div className={`${styles.agentRow} ${managingAgents ? styles.agentManaging : ''}`}>
                 <button type="button" className={`${styles.convo} ${styles.agentConvo} ${activeAgentId === agent.id ? styles.convoActive : ''}`} onClick={() => onSelectAgent(agent)} aria-current={activeAgentId === agent.id} title={agent.description || agent.name}>
@@ -178,33 +176,12 @@ export default function ChatSidebar({
                   <span className={styles.convoBody}><span className={styles.convoName}>{agent.name}</span></span>
                 </button>
                 <span className={styles.agentTools}>
-                  <button type="button" className={styles.newAgentChat} onClick={() => onNewChat(agent)} aria-label={`New chat with ${agent.name}`} title="New chat">+</button>
-                  {agentChats.length > 0 && <button type="button" className={styles.manageAgentChats} onClick={() => onManageChats(agent)} aria-label={`Manage ${agent.name} chats`} title="Manage chats">≡</button>}
+                  <button type="button" className={styles.openAgentChat} onClick={() => onOpenAgentChat(agent)} aria-label={`Open chat with ${agent.name}`} title="Open chat">
+                    <Icon name="message" />
+                  </button>
                   {canEditAgents && <button type="button" className={styles.editAgent} onClick={() => onEditAgent(agent)} aria-label={`Edit ${agent.name}`}>•••</button>}
                 </span>
               </div>
-              {agentChats.length > 0 && (
-                <div className={styles.agentChildren} aria-label={`${agent.name} chats`}>
-                  {visibleChats.map(aiChat => (
-                    <button
-                      key={aiChat.id}
-                      type="button"
-                      className={`${styles.agentChat} ${aiChat.id === activeChatId ? styles.agentChatActive : ''}`}
-                      onClick={() => onSelectChat(aiChat)}
-                      aria-current={aiChat.id === activeChatId}
-                      title={aiChat.title}
-                    >
-                      <span aria-hidden="true">↳</span>
-                      <span>{aiChat.title}</span>
-                    </button>
-                  ))}
-                  {agentChats.length > visibleChats.length && (
-                    <button type="button" className={styles.moreChats} onClick={() => onManageChats(agent)}>
-                      {agentChats.length - visibleChats.length} more…
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
           })}
           {agentsStatus === 'loading' && <p className={styles.sidebarNote}>Loading agents…</p>}
@@ -214,38 +191,51 @@ export default function ChatSidebar({
         <Section title="Channels" count={chat.channels.filter(channel => channel.kind !== 'dm').length} onBrowse={onBrowseChannels} browseLabel="Manage channels" onAdd={() => { setCreating(value => !value); setFailure(null); }} addLabel="New channel">
           {creating && <form className={styles.inlineForm} onSubmit={submitChannel}><span>#</span><input value={draft} onChange={event => setDraft(event.target.value)} placeholder="channel-name" autoFocus aria-label="New channel name" /></form>}
           {chat.channels.filter(channel => channel.kind !== 'dm').map(channel => (
-            <button key={channel.id} type="button" className={`${styles.convo} ${channel.id === activeChannelId ? styles.convoActive : ''}`} onClick={() => onSelect(channel.id, channelLabel(channel))} aria-current={channel.id === activeChannelId}>
-              <ConversationIcon channel={channel} />
-              <span className={styles.convoBody}><span className={styles.convoName}>{channel.name}</span></span>
-              <Unread count={channel.unread} />
-            </button>
+            <div key={channel.id} className={styles.channelRow}>
+              <button type="button" className={`${styles.convo} ${styles.channelConvo} ${channel.id === activeChannelId ? styles.convoActive : ''}`} onClick={() => onSelect(channel.id, channelLabel(channel))} aria-current={channel.id === activeChannelId}>
+                <ConversationIcon channel={channel} />
+                <span className={styles.convoBody}><span className={styles.convoName}>{channel.name}</span></span>
+                <Unread count={channel.unread} />
+              </button>
+              <span className={styles.agentTools}>
+                <button type="button" className={styles.openAgentChat} onClick={() => onSelect(channel.id, channelLabel(channel))} aria-label={`Open #${channel.name}`} title="Open channel">
+                  <Icon name="message" />
+                </button>
+                {onEditChannel && (
+                  <button type="button" className={styles.editAgent} onClick={() => onEditChannel(channel)} aria-label={`Settings for #${channel.name}`} title="Channel settings">•••</button>
+                )}
+              </span>
+            </div>
           ))}
         </Section>
 
         <Section title="People" count={allPeople.length} onBrowse={onBrowsePeople} browseLabel="Manage people" onAdd={chat.you?.canManage ? () => { setInviting(value => !value); setFailure(null); } : null} addLabel="Invite someone">
           {inviting && <form className={styles.inlineForm} onSubmit={submitInvite}><span>@</span><input type="email" value={invitee} onChange={event => setInvitee(event.target.value)} placeholder="email" autoFocus aria-label="Email address to invite" /></form>}
           {allPeople.map(person => {
-            const dm = person.dmChannelId ? dmChannels.get(person.dmChannelId) : null;
+            const selfDm = person.you ? chat.channels.find(channel => channel.kind === 'dm' && channel.selfDm) : null;
+            const dm = selfDm || (person.dmChannelId ? dmChannels.get(person.dmChannelId) : null);
+            const dmChannelId = dm?.id || person.dmChannelId;
             const label = personLabel(person);
             return (
               <div key={person.id} className={styles.personRow}>
-                <button type="button" className={`${styles.convo} ${styles.personConvo} ${person.dmChannelId === activeChannelId ? styles.convoActive : ''}`} onClick={() => !person.you && openPerson(person)} disabled={person.you} aria-current={person.dmChannelId === activeChannelId}>
+                <button type="button" className={`${styles.convo} ${styles.personConvo} ${activeChannel && !person.you ? styles.personConvoWide : ''} ${dmChannelId === activeChannelId ? styles.convoActive : ''}`} onClick={() => openPerson(person)} aria-current={dmChannelId === activeChannelId}>
                   <ConversationIcon person={person} />
                   <span className={styles.convoBody}><span className={styles.convoName}>{label}</span></span>
                   <Unread count={dm?.unread} />
                 </button>
-                {!person.you && (
-                  <span className={styles.personActions}>
-                    {activeChannel && (
-                      <button type="button" onClick={() => addToActiveChannel(person, activeChannel)} disabled={addingPersonId === person.id} aria-label={`Add ${label} to #${activeChannel.name}`} title={`Add to #${activeChannel.name}`}>
-                        <Icon name="add-person" />
-                      </button>
-                    )}
-                    <button type="button" onClick={() => openPerson(person)} aria-label={`Message ${label} privately`} title="Private message">
-                      <Icon name="message" />
+                <span className={styles.personActions}>
+                  {!person.you && activeChannel && (
+                    <button type="button" onClick={() => addToActiveChannel(person, activeChannel)} disabled={addingPersonId === person.id} aria-label={`Add ${label} to #${activeChannel.name}`} title={`Add to #${activeChannel.name}`}>
+                      <Icon name="add-person" />
                     </button>
-                  </span>
-                )}
+                  )}
+                  <button type="button" onClick={() => openPerson(person)} aria-label={`Message ${label} privately`} title="Private message">
+                    <Icon name="message" />
+                  </button>
+                  {onEditPerson && (
+                    <button type="button" className={styles.personSettings} onClick={() => onEditPerson(person)} aria-label={`Settings for ${label}`} title="Person settings">•••</button>
+                  )}
+                </span>
               </div>
             );
           })}

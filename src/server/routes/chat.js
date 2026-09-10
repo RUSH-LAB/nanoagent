@@ -31,7 +31,6 @@ const ERRORS = Object.freeze({
   'archived': [409, 'This channel is archived, so it is read-only'],
   'leave-instead': [400, 'Leave the channel rather than removing yourself from it'],
   'cannot-invite-to-dm': [400, 'A direct message takes exactly two people'],
-  'self-dm': [400, 'You cannot message yourself'],
   'invalid-kind': [400, 'Channel kind must be public or private'],
   'invalid-name': [400, 'Channel name is required'],
   'name-taken': [409, 'A channel with that name already exists'],

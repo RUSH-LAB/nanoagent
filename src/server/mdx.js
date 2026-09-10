@@ -164,7 +164,13 @@ function parseFrontmatter(markdown) {
 }
 
 function stripFrontmatter(markdown) {
-  return String(markdown ?? '').replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
+  // Keep the removed block's newlines so every parser position still points
+  // at the same line in the stored file. The client uses those positions when
+  // a reader copies a passage as chat context.
+  return String(markdown ?? '').replace(
+    /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/,
+    block => '\n'.repeat((block.match(/\n/g) || []).length),
+  );
 }
 
 function splitBlogPost(markdown) {
@@ -224,9 +230,10 @@ function prepareSource(markdown) {
     (_whole, body) => body,
   );
 
+  const keepLines = block => '\n'.repeat((block.match(/\n/g) || []).length);
   source = source
-    .replace(/<!--([\s\S]*?)-->/g, '')
-    .replace(/\{\/\*([\s\S]*?)\*\/\}/g, '')
+    .replace(/<!--([\s\S]*?)-->/g, keepLines)
+    .replace(/\{\/\*([\s\S]*?)\*\/\}/g, keepLines)
     .replace(/<(\/?)details(?=[\s/>])/gi, '<$1MochiDetails')
     .replace(/<(\/?)summary(?=[\s/>])/gi, '<$1MochiSummary')
     .replace(/<(\/?)strong(?=[\s/>])/gi, '<$1MochiStrong');
@@ -294,7 +301,14 @@ function restoreProtected(node, values) {
 function sanitizeTree(root, schemas = ALLOWED_COMPONENT_PROPS) {
   let count = 0;
   const slugger = new GithubSlugger();
-  const cleanChildren = node => (node.children ?? []).map(clean);
+  const withPosition = (cleaned, source) => {
+    const start = Number(source?.position?.start?.line);
+    const end = Number(source?.position?.end?.line);
+    return Number.isInteger(start) && Number.isInteger(end)
+      ? {...cleaned, position: {startLine: start, endLine: end}}
+      : cleaned;
+  };
+  const cleanChildren = node => (node.children ?? []).map(child => withPosition(clean(child), child));
   const textContent = node => {
     if (typeof node?.value === 'string') return node.value;
     return (node?.children ?? []).map(textContent).join('');

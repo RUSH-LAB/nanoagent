@@ -350,9 +350,19 @@ const CATEGORIES = [
     description: 'AI writing assistant powered by the deployment\'s private NanoAgent service.',
     endpoints: [
       {
-        method: 'POST', path: '/api/ai/complete', description: 'Generate AI text completions. Supports continue, improve, explain, and summarize modes. Rate-limited to 10/min per IP.',
-        request: '{ "prompt": "The transformer architecture...", "messages": [{ "role": "user", "content": "Earlier question" }, { "role": "assistant", "content": "Earlier answer" }], "type": "continue", "agentId": "researcher", "profileId": "native-deepseek" }\n\nValid types: "continue", "improve", "explain", "summarize". The optional agentId selects a trusted workspace-defined identity; profileId selects only from the server-provided profile catalog.',
+        method: 'POST', path: '/api/ai/complete', description: 'Generate AI text completions. Supports continue, improve, explain, summarize, and inline modes. Rate-limited to 10/min per IP.',
+        request: '{ "prompt": "The transformer architecture...", "messages": [{ "role": "user", "content": "Earlier question" }, { "role": "assistant", "content": "Earlier answer" }], "type": "continue", "agentId": "researcher", "profileId": "native-deepseek" }\n\nValid types: "continue", "improve", "explain", "summarize", "inline". The optional agentId selects a trusted workspace-defined identity; profileId selects only from the server-provided profile catalog.',
         response: '{ "text": "...generated continuation..." }',
+      },
+      {
+        method: 'POST', path: '/api/ai/inline-complete', description: 'Return a short, insertable Markdown completion for the live editor. The server forces inline mode and applies a separate 30/min user budget.',
+        request: '{ "prompt": "Markdown file: notes/idea.md\\nCursor line: 8\\nComplete the text at <CURSOR>.\\n..." }',
+        response: '{ "text": "...text to insert..." }',
+      },
+      {
+        method: 'POST', path: '/api/ai/inline-stream', description: 'Stream an inline Markdown completion as server-sent events so the editor can display tokens immediately.',
+        request: '{ "prompt": "Markdown file: notes/idea.md\\n...<CURSOR>..." }',
+        response: 'event: delta\ndata: {"text":"..."}\n\nevent: done\ndata: {"text":"...complete text..."}',
       },
       {
         method: 'GET', path: '/api/ai/profiles', description: 'List the server-approved NanoAgent harness and model profiles, including current availability.',

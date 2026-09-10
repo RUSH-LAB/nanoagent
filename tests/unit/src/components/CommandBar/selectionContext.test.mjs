@@ -2,11 +2,24 @@ import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {
   MAX_SELECTION_CONTEXT_CHARS,
+  contextFromText,
+  contextKeyForTarget,
   existingChatForSelection,
+  formatSharedSelection,
   formatSelectionContext,
   isSelectionContextShortcut,
   selectionContextFrom,
+  selectionSource,
+  sourceLocationFromRange,
 } from '../../../../../src/components/CommandBar/selectionContext.js';
+
+describe('selection attachment destination', () => {
+  it('keeps AI and human conversation ids in separate namespaces', () => {
+    assert.equal(contextKeyForTarget({chatId: 'same'}), 'chat:same');
+    assert.equal(contextKeyForTarget({channelId: 'same'}), 'channel:same');
+    assert.equal(contextKeyForTarget({agentId: 'agent'}), null);
+  });
+});
 
 function selection(text, overrides = {}) {
   return {
@@ -74,6 +87,41 @@ describe('selectionContextFrom', () => {
     assert.equal(context.text.length, MAX_SELECTION_CONTEXT_CHARS);
     assert.equal(context.truncated, true);
   });
+
+  it('keeps an exact source file and line range when the renderer provides it', () => {
+    const context = selectionContextFrom(selection('return answer;'), {
+      file: 'src/example.js', startLine: 18, endLine: 20,
+    });
+    assert.equal(selectionSource(context), 'src/example.js:18-20');
+  });
+
+  it('accepts editor text with exact source coordinates', () => {
+    assert.deepEqual(contextFromText('  selected Markdown  ', {
+      file: 'notes/idea.md', startLine: 7, endLine: 9, title: 'Idea', path: '/notes/idea',
+    }), {
+      text: 'selected Markdown',
+      title: 'Idea',
+      path: '/notes/idea',
+      truncated: false,
+      file: 'notes/idea.md',
+      startLine: 7,
+      endLine: 9,
+    });
+  });
+});
+
+describe('sourceLocationFromRange', () => {
+  const holder = (file, start, end) => ({
+    dataset: {contextFile: file, contextStartLine: String(start), contextEndLine: String(end)},
+  });
+  const node = closest => ({nodeType: 3, parentElement: {closest: () => closest}});
+
+  it('combines the containing source nodes into one file range', () => {
+    assert.deepEqual(sourceLocationFromRange({
+      startContainer: node(holder('notes/example.md', 12, 14)),
+      endContainer: node(holder('notes/example.md', 18, 18)),
+    }), {file: 'notes/example.md', startLine: 12, endLine: 18});
+  });
 });
 
 describe('formatSelectionContext', () => {
@@ -86,5 +134,23 @@ describe('formatSelectionContext', () => {
 
   it('returns no request context for no attachment', () => {
     assert.equal(formatSelectionContext(null), '');
+  });
+});
+
+describe('formatSharedSelection', () => {
+  it('turns a copied selection into sourced context for a human message', () => {
+    assert.equal(formatSharedSelection('Have a look', {
+      text: 'A useful passage',
+      title: 'Notes',
+      url: 'https://mochi.test/notes',
+      truncated: false,
+    }), 'Have a look\n\nContext · Notes — https://mochi.test/notes\n│ A useful passage');
+  });
+
+  it('bounds the combined message without truncating the user-written part first', () => {
+    const result = formatSharedSelection('Question', {text: 'x'.repeat(500), title: 'Page'}, 80);
+    assert.equal(result.length, 80);
+    assert.match(result, /^Question\n\nContext · Page\n/);
+    assert.match(result, /\[Context truncated\]$/);
   });
 });

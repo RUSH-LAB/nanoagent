@@ -71,8 +71,9 @@ function getOrganization(orgId, userId) {
  *
  * The caller is in the list because this is the roster a directory shows, and
  * leaving yourself out of a list of who is here reads as a bug. `you` marks the
- * row instead, and `dmChannelId` is null on it: the dm subquery requires the
- * two sides to be different people, which is also what openDm requires.
+ * row instead. The ordinary dm subquery requires its two joined sides to be
+ * different so it cannot mistake one of the caller's other conversations for
+ * their self-chat; the channel directory identifies that special one directly.
  *
  * `memberId` is the membership, not the account, and it is what the writes
  * below address. The distinction matters: the same account in two

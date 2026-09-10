@@ -29,6 +29,7 @@
  */
 import {useCallback, useEffect, useRef} from 'react';
 import API_BASE, {apiFetch} from '@site/src/utils/api';
+import {readEvents, releaseBody, SSE_CONTENT_TYPE} from '@site/src/utils/eventStream';
 import {entriesForTarget, targetKey} from './useSessions';
 
 /* How much structured transcript rides along on a turn. The server validates
@@ -39,94 +40,8 @@ const CONTEXT_CHARS = 8000;
 /** What a cancelled answer is marked with, rather than being thrown away. */
 const INTERRUPTED = '(interrupted)';
 
-/* The event stream's own grammar: a blank line ends a frame, and a line
-   beginning with a colon is a comment, which is what the server's heartbeat
-   is. */
-const FRAME_END = '\n\n';
-const SSE_CONTENT_TYPE = 'text/event-stream';
-
 /* What a pane says when the provider answered with nothing at all. */
 const EMPTY_ANSWER = 'no response generated';
-
-/* ── The wire ───────────────────────────────────────────────────── */
-
-/**
- * Cut whole frames out of the decoded buffer, and hand back what is left.
- *
- * The remainder is the point of this function: it is the half frame that the
- * next chunk completes. Callers must keep it and prepend it to the next decode.
- */
-function takeFrames(buffer) {
-  const frames = [];
-  let rest = buffer;
-  let end = rest.indexOf(FRAME_END);
-  while (end !== -1) {
-    frames.push(rest.slice(0, end));
-    rest = rest.slice(end + FRAME_END.length);
-    end = rest.indexOf(FRAME_END);
-  }
-  return {frames, rest};
-}
-
-/**
- * One frame as `{event, data}`, or null when there is nothing in it to act on.
- *
- * Comments (the heartbeat) and fields we do not use are skipped rather than
- * treated as an error, which is what the format asks of a client. A `data:`
- * payload that is not JSON is dropped for the same reason: a frame the client
- * cannot read must not end the answer that the following frames carry.
- */
-function parseFrame(frame) {
-  let event = 'message';
-  const data = [];
-  for (const raw of frame.split('\n')) {
-    // Tolerate CRLF: the server writes bare newlines, but the format allows
-    // either and a proxy may rewrite them.
-    const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
-    if (!line || line.startsWith(':')) continue;
-    const colon = line.indexOf(':');
-    const field = colon === -1 ? line : line.slice(0, colon);
-    // One optional space after the colon belongs to the framing, not the value.
-    const value = colon === -1 ? '' : line.slice(colon + 1).replace(/^ /, '');
-    if (field === 'event') event = value;
-    else if (field === 'data') data.push(value);
-  }
-  if (!data.length) return null;
-  try {
-    return {event, data: JSON.parse(data.join('\n'))};
-  } catch {
-    return null;
-  }
-}
-
-/** Read a response body to its end, calling `onEvent` for every whole frame. */
-async function readEvents(res, onEvent) {
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  for (;;) {
-    const {value, done} = await reader.read();
-    // `stream` keeps a multi-byte character that straddles two chunks whole
-    // instead of decoding half of it into a replacement character.
-    buffer += decoder.decode(value, {stream: !done});
-    const taken = takeFrames(buffer);
-    buffer = taken.rest;
-    for (const frame of taken.frames) {
-      const parsed = parseFrame(frame);
-      if (parsed) onEvent(parsed);
-    }
-    if (done) return;
-  }
-}
-
-/** Let go of a body we will not read: a stream nobody reads holds its socket. */
-async function releaseBody(res) {
-  try {
-    await res.body?.cancel?.();
-  } catch {
-    /* already closed, which is the state we wanted it in */
-  }
-}
 
 /** The buffered endpoint, including the same accounting data as the streamed path. */
 async function postComplete(payload, signal) {

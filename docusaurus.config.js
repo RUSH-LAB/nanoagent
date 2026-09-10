@@ -42,6 +42,12 @@ const config = {
 
   future: {
     v4: true,
+    // Copy-as-context needs source file/line metadata on Mochi's JSX. The SWC
+    // fast path has no project-local transform hook, so keep the other faster
+    // defaults and use Babel only for JavaScript/TypeScript compilation.
+    faster: {
+      swcJsLoader: false,
+    },
   },
 
   url: process.env.SITE_URL || 'http://localhost:3000',

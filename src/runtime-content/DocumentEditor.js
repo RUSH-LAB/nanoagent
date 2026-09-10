@@ -6,6 +6,11 @@ import styles from './documentEditor.module.css';
 const MarkdownSourceEditor = lazy(() => import('./MarkdownSourceEditor'));
 const PREVIEW_DELAY_MS = 300;
 
+const finite = value => Number.isFinite(value) && value >= 0;
+const formatCost = value => finite(value) ? `$${value < 0.01 ? value.toFixed(6) : value.toFixed(4)}` : '—';
+const formatTokens = value => finite(value) ? Math.round(value).toLocaleString() : '—';
+const formatSeconds = value => finite(value) ? `${value < 0.1 ? value.toFixed(3) : value.toFixed(1)}s` : '—';
+
 function draftKey(workspaceId, documentId) {
   return `mochi:document-draft:${workspaceId}:${documentId}`;
 }
@@ -44,11 +49,28 @@ export default function DocumentEditor({
   const [mode, setMode] = useState('split');
   const [previewStatus, setPreviewStatus] = useState('ready');
   const [saving, setSaving] = useState(false);
+  const [completionUsage, setCompletionUsage] = useState({count: 0, totalCost: 0, last: null});
   const [message, setMessage] = useState(
     draft !== markdown ? {kind: 'notice', text: 'Recovered an unsaved draft from this browser.'} : null,
   );
   const dirty = draft !== baseline.markdown;
   const apiRoot = `/api/workspaces/${encodeURIComponent(workspaceId)}/documents`;
+
+  const recordCompletionMetrics = useCallback((telemetry) => {
+    const usage = telemetry?.metrics?.usage ?? telemetry?.usage ?? null;
+    const cost = telemetry?.metrics?.cost ?? telemetry?.cost;
+    setCompletionUsage(current => ({
+      count: current.count + 1,
+      totalCost: current.totalCost + (finite(cost) ? cost : 0),
+      last: {
+        cost,
+        tokens: usage?.total_tokens,
+        duration: telemetry?.metrics?.duration_s,
+        profile: telemetry?.profile,
+        model: telemetry?.model,
+      },
+    }));
+  }, []);
 
   useEffect(() => {
     if (!dirty) {
@@ -204,9 +226,25 @@ export default function DocumentEditor({
       <div className={`${styles.editorPanes} ${styles[`mode_${mode}`]}`}>
         {mode !== 'preview' && (
           <section className={styles.sourcePane} aria-label="Markdown editor">
-            <Suspense fallback={<div className={styles.loadingEditor}>Loading editor…</div>}>
-              <MarkdownSourceEditor value={draft} onChange={setDraft} />
-            </Suspense>
+            <div className={styles.sourceHeader}>
+              <span>Markdown</span>
+              {completionUsage.last ? (
+                <small title={[completionUsage.last.profile, completionUsage.last.model].filter(Boolean).join(' · ')}>
+                  AI last {formatCost(completionUsage.last.cost)} · {formatTokens(completionUsage.last.tokens)} tokens · {formatSeconds(completionUsage.last.duration)} · session {formatCost(completionUsage.totalCost)}
+                </small>
+              ) : <small>AI usage appears after a suggestion</small>}
+            </div>
+            <div className={styles.sourceEditor}>
+              <Suspense fallback={<div className={styles.loadingEditor}>Loading editor…</div>}>
+                <MarkdownSourceEditor
+                  value={draft}
+                  onChange={setDraft}
+                  documentPath={document.path}
+                  documentTitle={document.title}
+                  onCompletionMetrics={recordCompletionMetrics}
+                />
+              </Suspense>
+            </div>
           </section>
         )}
         {mode !== 'write' && (
