@@ -14,8 +14,8 @@ valuable at much larger scale.
 | Agent runtime | Private NanoAgent service | Model access, bounded agent loop, tool policy, usage and cost |
 | Identity control plane | Better Auth | Users, sessions, workspaces, members, invitations |
 | Transactional data | PostgreSQL | Authoritative workspace and product records |
-| Binary data | S3/R2-compatible storage | Uploaded asset bytes |
-| Side-effect delivery | PostgreSQL deletion outbox | Retriable object deletion after SQL commits |
+| Binary data | PostgreSQL `object_blob` rows | Uploaded asset bytes and integrity metadata |
+| Side-effect delivery | PostgreSQL outbox | Retriable non-database side effects |
 | Derived views | Search, graph, feeds, statistics | Rebuilt from authoritative workspace records |
 
 PostgreSQL is the single source of truth. A workspace id is resolved from the
@@ -32,9 +32,8 @@ Browser
      -> NanoAgent over a private authenticated connection
 
 Workspace deletion
-  -> SQL transaction queues object keys and deletes relational rows
-  -> background drain removes object bytes
-  -> successful removals clear outbox rows
+  -> one SQL transaction deletes the workspace
+  -> foreign-key cascades delete metadata and object bytes together
 ```
 
 Better Auth owns workspace/member/invitation lifecycle. Mochi hooks add product
@@ -54,7 +53,6 @@ The boundary is based on who may change a value and when it takes effect:
 | `tests/` | Developers | Yes | Fixtures only |
 | `docs/` | Developers/operators | Yes | Examples only |
 | PostgreSQL | Workspace owners and application services | No | Yes |
-| S3/R2 | Workspace owners through scoped services | No | Yes |
 
 `src/` contains the shared application shell, authentication, authorization,
 domain services, safe renderer, pages, and theme adaptations used by every
@@ -78,8 +76,10 @@ package, module path, command, or JavaScript option.
 Workspace-owned presentation is validated data in `workspace_settings`:
 branding, homepage, navigation, docs/blog collection definitions, authors, and
 feature switches. Documents and references are PostgreSQL rows. Asset metadata
-is PostgreSQL data and asset bytes live in S3/R2. Every cache key, job, plugin
-record, and object key uses the immutable workspace id.
+and bytes are both PostgreSQL data: metadata lives in `asset`, and the payload
+and integrity fields live in `object_blob`. No runtime asset depends on a
+machine-local directory or a second storage service. Every cache key, job,
+plugin record, and object key uses the immutable workspace id.
 
 `infra/` remains separate from `src/`. It describes how the application is
 provisioned, while `src/` is what the provisioned application executes.

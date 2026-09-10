@@ -11,6 +11,7 @@
     "neon:deploy": "neon deploy --config infra/neon.ts",
     "new:plugin": "node scripts/dev/create-plugin.mjs",
     "db:migrate:legacy": "node --env-file-if-exists=.env.postgres.local scripts/migrations/sqlite-to-postgres.mjs",
+    "db:migrate:objects": "node --env-file-if-exists=.env.postgres.local scripts/migrations/local-objects-to-postgres.mjs",
     "db:postgres:bootstrap": "node scripts/db/postgres.mjs bootstrap",
     "db:postgres:prepare": "node scripts/db/postgres.mjs prepare",
     "db:postgres:setup": "node scripts/db/postgres.mjs setup",

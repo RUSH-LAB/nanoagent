@@ -34,7 +34,9 @@ npm run db:migrate:postgres
 ```
 
 The migration runner takes an advisory lock, verifies checksums of previously
-applied files, and runs each new migration in its own transaction.
+applied files, and runs each new migration in its own transaction. Uploaded
+bytes live in the workspace-scoped `object_blob` table and are deleted by the
+same database cascade as their workspace.
 
 For the one-time production cutover from the local SQLite database, first stop
 legacy writes and take a backup, then run the complete dry run:
@@ -51,8 +53,9 @@ accounts, credentials, workspaces, memberships, invitations, settings,
 documents and versions, assets, references, scoped feature data, chat, audit,
 and platform administrators. Existing sessions and verification tokens are
 deliberately invalidated at cutover. Add `--apply` only after reviewing the dry
-run. Asset bytes require the `OBJECT_STORAGE_*` variables; use
-`--skip-asset-bytes` only when they were copied and verified separately.
+run. The migration validates legacy files below `var/objects` and copies them
+into `object_blob`; use `--skip-asset-bytes` only when they were copied and
+verified separately.
 
 Run the live isolation probe against staging before switching traffic:
 

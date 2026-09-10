@@ -49,6 +49,9 @@ describe('live PostgreSQL row-level isolation', () => {
       insert into asset(id, workspace_id, object_key, content_type, byte_size, sha256, created_by) values
         ('rls-asset', 'rls-a', 'rls-a/assets/object', 'application/octet-stream', 1,
          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'rls-alice');
+      insert into object_blob(object_key, workspace_id, body, content_type, byte_size, sha256) values
+        ('rls-a/assets/object', 'rls-a', decode('78', 'hex'), 'application/octet-stream', 1,
+         'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     `);
   });
 
@@ -64,6 +67,11 @@ describe('live PostgreSQL row-level isolation', () => {
     const explicitCrossRead = await asRuntime('rls-alice', 'rls-a', () =>
       db.query('select markdown from document where workspace_id = $1', ['rls-b']));
     assert.deepEqual(explicitCrossRead.rows, []);
+
+    const ownBlob = await asRuntime('rls-alice', 'rls-a', () => db.query('select object_key from object_blob'));
+    assert.deepEqual(ownBlob.rows, [{object_key: 'rls-a/assets/object'}]);
+    const crossWorkspaceBlob = await asRuntime('rls-bob', 'rls-b', () => db.query('select object_key from object_blob'));
+    assert.deepEqual(crossWorkspaceBlob.rows, []);
   });
 
   it('rejects forged writes and viewer content writes at the database layer', async () => {
@@ -102,7 +110,8 @@ describe('live PostgreSQL row-level isolation', () => {
            + (select count(*) from workspace_member where workspace_id = 'rls-a')
            + (select count(*) from workspace_settings where workspace_id = 'rls-a')
            + (select count(*) from document where workspace_id = 'rls-a')
-           + (select count(*) from asset where workspace_id = 'rls-a') as n
+           + (select count(*) from asset where workspace_id = 'rls-a')
+           + (select count(*) from object_blob where workspace_id = 'rls-a') as n
     `);
     assert.equal(Number(residual.rows[0].n), 0);
     assert.deepEqual((await db.query(

@@ -464,17 +464,14 @@ describe('the records capability', () => {
 
 describe('the blobs capability', () => {
   it('returns an opaque asset id while storing content-addressed bytes below the workspace prefix', async () => {
-    const {api, fs} = apiFor(['blobs']);
+    const {api} = apiFor(['blobs']);
     const bytes = Buffer.from('%PDF-test');
     const stored = await api.blobs.put(bytes, '.pdf');
     const digest = crypto.createHash('sha256').update(bytes).digest('hex');
     assert.match(stored.key, /^[a-f0-9-]{36}$/);
     assert.equal(stored.sha256, digest);
-    assert.deepEqual([...fs._files.keys()].filter(file => file.endsWith(`${digest}.pdf`)), [
-      path.join(PROJECT_ROOT, 'var', 'objects', 'o1', 'assets', stored.key, `${digest}.pdf`),
-    ]);
     assert.equal((await api.blobs.read(stored.key)).toString(), '%PDF-test');
-    assert.equal(api.blobs.provider, 'local');
+    assert.equal(api.blobs.provider, 'memory');
   });
 
   it('exposes the raw request body only with blob access', async () => {

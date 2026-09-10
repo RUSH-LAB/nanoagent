@@ -144,7 +144,7 @@ Always there: `respond`, `stream`, `readBody`, `rateLimit`, `caller`, `shared`,
 | `network` | `fetch`, with a timeout, refusing calls back into this server |
 | `storage` | `storage.read`/`storage.write`, in the plugin-and-workspace corner of `var/` |
 | `records` | workspace-scoped collections namespaced to the plugin |
-| `blobs` | workspace-scoped asset metadata and S3/R2-compatible object storage plus bounded raw request bodies |
+| `blobs` | workspace-scoped PostgreSQL asset metadata and object bytes plus bounded raw request bodies |
 | `ai` | `ai.complete` and `ai.describe`, using the site's configured provider |
 | `process` | `exec`, restricted to declared `commands` and a cwd inside the plugin |
 

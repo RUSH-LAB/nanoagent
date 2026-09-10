@@ -19,7 +19,7 @@
  *   "network"     fetch
  *   "storage"     storage.read/storage.write, scoped to this plugin and workspace
  *   "records"     workspace-scoped database collections owned by the plugin
- *   "blobs"       workspace-scoped object-storage assets owned by the plugin
+ *   "blobs"       workspace-scoped PostgreSQL assets owned by the plugin
  *   "ai"          the configured private agent runtime
  *   "process"     declared executables, rooted inside the plugin directory
  *
@@ -36,7 +36,11 @@ const crypto = require('crypto');
 const {spawn} = require('child_process');
 const {PROJECT_ROOT, VAR_DIR} = require('./paths');
 const {numericParam, within} = require('./server-utils');
-const {localObjectStorage} = require('./object-storage');
+const {memoryObjectStorage} = require('./object-storage');
+
+// One process-level fallback keeps non-PostgreSQL tests and explicitly
+// no-database development coherent across requests without writing to disk.
+const fallbackObjectStorage = memoryObjectStorage();
 
 /** The surface this file currently implements. */
 const API_VERSION = 1;
@@ -183,7 +187,7 @@ function recordsCapability(name, {collection, scope, onWrite = () => {}}) {
 }
 
 /** Organization-scoped binary storage for PDFs and other plugin artifacts. */
-function blobsCapability(name, {fs, VAR_DIR, orgId, userId, objectStorage, assets}) {
+function blobsCapability(name, {orgId, userId, objectStorage, assets}) {
   if (!orgId) {
     const error = new Error('This action needs an active workspace');
     error.status = 409;
@@ -191,8 +195,7 @@ function blobsCapability(name, {fs, VAR_DIR, orgId, userId, objectStorage, asset
     throw error;
   }
   const safeOrg = String(orgId).replace(/[^\w.-]/g, '_');
-  const root = path.join(VAR_DIR, 'objects');
-  const storage = objectStorage ?? localObjectStorage({root, files: fs});
+  const storage = objectStorage ?? fallbackObjectStorage;
   const prefix = `${safeOrg}/assets/`;
   const context = {workspaceId: orgId, userId};
   const transient = new Map();
@@ -404,8 +407,6 @@ function buildPluginApi({name, dir, requires = [], commands = [], ctx, req}) {
   }
   if (asked.has('blobs')) {
     api.blobs = blobsCapability(name, {
-      fs: files.fs,
-      VAR_DIR: files.VAR_DIR,
       orgId: recordScope.workspaceId,
       userId: recordScope.userId,
       objectStorage: ctx.objectStorage,

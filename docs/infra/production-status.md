@@ -1,24 +1,23 @@
 # Production status
 
-Last updated: 2026-08-31
+Last updated: 2026-09-09
 
-Mochi is not publicly launched yet. Production deployment is intentionally on
-hold while the product is improved locally. The production architecture and
-supporting services are mostly prepared, so this is a pause rather than a
-restart.
+Mochi is deployed publicly at `https://mochi-lab.org`. Railway runs the
+application and private NanoAgent service, Cloudflare fronts the custom domain,
+and Neon PostgreSQL is the authoritative store for both relational data and
+uploaded bytes.
 
 ## What we use today
 
 | Area | Service | Current use |
 |---|---|---|
-| Local website | Docusaurus + Node API | The application runs locally at `http://localhost:3000`; the development API uses port `3001`. |
+| Website | Docusaurus + Node API on Railway | The public application runs at `https://mochi-lab.org`; local development remains available at `http://localhost:3000`. |
 | Source and CI | Private GitHub repository | Stores the application and runs automated PostgreSQL checks. |
-| Database | Neon PostgreSQL | The development database contains the migrated legacy data and is used to test migrations and row-level security. It is not the future production database. |
-| Domain and DNS | Cloudflare | Manages `mochi-lab.org` and the DNS records used by application services and email. The domain is not currently pointed at a public Mochi deployment. |
-| Object storage | Cloudflare R2 | Stores uploaded images and attachments through the S3-compatible API. A real write, read, metadata, and delete probe has passed. |
-| Transactional email | Resend | Sends account verification, password-reset, and workspace-invitation email from the verified Mochi mail domain. A real delivery probe has passed. |
-| Application hosting | Railway, planned | The repository contains the container and Railway configuration, but the public service and production secrets have not been activated. |
-| Agent runtime | NanoAgent, local/private | Mochi uses NanoAgent's private SSE API. Local integration is verified; the production service and model credentials are not activated. |
+| Database and objects | Neon PostgreSQL | Stores workspace records, asset metadata, and binary object payloads with row-level workspace isolation. |
+| Domain and DNS | Cloudflare | Proxies `mochi-lab.org` to the Railway application and manages application and email DNS. |
+| Transactional email | Resend | Sends account verification, password-reset, and workspace-invitation email from the verified Mochi mail domain. |
+| Application hosting | Railway | Builds the repository container and serves the public application. |
+| Agent runtime | NanoAgent, private Railway service | Mochi calls NanoAgent over its private authenticated endpoint. |
 
 For local work, run:
 
@@ -26,14 +25,8 @@ For local work, run:
 npm start
 ```
 
-To use the prepared Neon development database instead of local SQLite, run:
-
-```bash
-npm run start:postgres
-```
-
-Both commands start the website and API together. Stopping the command stops
-both processes.
+PostgreSQL is the normal local development path and source of truth. The
+supervisor starts the website, API, and bundled NanoAgent together.
 
 ## What has been completed for production
 
@@ -47,8 +40,8 @@ both processes.
   canonical SHA-256 hash.
 - The content migration verified 153 Markdown documents and 740 bibliography
   records against PostgreSQL.
-- Uploaded assets use S3-compatible object storage instead of the application
-  repository. Cloudflare R2 connectivity and deletion were verified.
+- Uploaded asset metadata and bytes use PostgreSQL instead of a local
+  `var/objects` directory or a separate object-storage service.
 - Resend support covers verification, password reset, and workspace
   invitations. DNS and real email delivery were verified.
 - The repository includes a production `Dockerfile`, Railway configuration,
@@ -56,30 +49,9 @@ both processes.
 - Unit, integration, PostgreSQL, isolation, and production-build checks have
   been established.
 
-## What still needs to be done
+## Remaining operations
 
-Before a public launch, we still need to:
-
-1. Create a production-only Neon database. Development and test commands must
-   never use it.
-2. Connect Railway to the private GitHub repository and add the production
-   environment variables, including a new production-only Better Auth secret.
-3. Deploy the container to a temporary Railway HTTPS domain and confirm that
-   `/api/health` succeeds.
-4. Rehearse the migration and rollback using staging backups, then perform the
-   final production import during a short legacy-write freeze.
-5. Test registration, login, password reset, workspace creation, invitations,
-   document editing, asset upload, and cross-workspace 404 isolation in a real
-   browser.
-6. Attach `mochi-lab.org`, update `SITE_URL` and `CORS_ORIGIN` to the exact
-   public HTTPS origin, and switch Cloudflare DNS only after the smoke tests
-   pass.
-7. Configure backups, logs, alerts, and a rollback window before accepting real
-   users.
-8. Deploy NanoAgent as a private Railway service, configure its model key and
-   shared API token, and run `npm run nanoagent:verify` before enabling AI.
-
-No production data migration or DNS switch should happen while this work is on
-hold. When public deployment becomes a priority, resume the
-[production-readiness plan](../plans/on-hold/production-readiness.md) and follow
-the [deployment runbook](production-deployment.md).
+Continue exercising authentication, invitations, editing, asset upload, and
+cross-workspace isolation in production. Keep database backups, logs, alerts,
+and rollback procedures current as public usage grows. Follow the
+[deployment runbook](production-deployment.md) for future releases.

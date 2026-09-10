@@ -51,14 +51,9 @@ development root login. The first successful login repairs that account's
 password and makes it an owner of the `mochi` and `hello-world` workspaces.
 
 `.env.production.local` is optional during local development and is only
-needed for the R2 and Resend verification commands:
+needed for the Resend verification command:
 
 ```dotenv
-OBJECT_STORAGE_ENDPOINT=...
-OBJECT_STORAGE_BUCKET=...
-OBJECT_STORAGE_REGION=auto
-OBJECT_STORAGE_ACCESS_KEY_ID=...
-OBJECT_STORAGE_SECRET_ACCESS_KEY=...
 RESEND_API_KEY=...
 MAIL_FROM=Mochi Lab <no-reply@mochi-lab.org>
 MAIL_TEST_TO=...
@@ -110,6 +105,9 @@ One-time or explicitly requested data movement:
   database. It is a dry run unless `--write` is supplied.
 - `sqlite-to-postgres.mjs` performs the legacy SQLite-to-PostgreSQL cutover. It
   is a dry run unless `--apply` is supplied.
+- `local-objects-to-postgres.mjs` validates legacy files below `var/objects`
+  against asset metadata, then copies them into PostgreSQL when `--apply` is
+  supplied.
 
 These are migration tools, not application startup steps.
 
@@ -118,7 +116,7 @@ These are migration tools, not application startup steps.
 Manual verification, repair, or cleanup commands:
 
 - `verify-object-storage.mjs` performs a self-cleaning upload, metadata,
-  download, and delete probe against configured S3/R2 storage.
+  download, and delete probe against PostgreSQL object storage.
 - `verify-mail.mjs` sends one explicitly addressed deployment-test email using
   the configured Resend or webhook provider.
 - `verify-nanoagent.mjs` starts a real NanoAgent web process against a local

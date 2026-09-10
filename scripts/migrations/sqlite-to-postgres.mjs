@@ -19,7 +19,7 @@ const Database = require('better-sqlite3');
 const {
   createPool, migrate, grantRuntimeAccess, assertRuntimeRoleIsNotOwner,
 } = require('../../src/server/postgres/client.js');
-const {s3ObjectStorage} = require('../../src/server/object-storage.js');
+const {postgresObjectStorage} = require('../../src/server/object-storage.js');
 
 const args = new Set(process.argv.slice(2));
 const apply = args.has('--apply');
@@ -228,16 +228,7 @@ async function verify(client) {
 async function copyAssetBytes() {
   const assets = datasets.find(item => item.table === 'asset').rows;
   if (!assets.length || skipAssetBytes) return {total: assets.length, copied: 0, skipped: assets.length};
-  const required = ['OBJECT_STORAGE_ENDPOINT', 'OBJECT_STORAGE_BUCKET', 'OBJECT_STORAGE_ACCESS_KEY_ID', 'OBJECT_STORAGE_SECRET_ACCESS_KEY'];
-  const missing = required.filter(name => !process.env[name]);
-  if (apply && missing.length) throw new Error(`Asset migration requires ${missing.join(', ')} or --skip-asset-bytes`);
-  const storage = apply ? s3ObjectStorage({
-    endpoint: process.env.OBJECT_STORAGE_ENDPOINT,
-    bucket: process.env.OBJECT_STORAGE_BUCKET,
-    region: process.env.OBJECT_STORAGE_REGION || 'auto',
-    accessKeyId: process.env.OBJECT_STORAGE_ACCESS_KEY_ID,
-    secretAccessKey: process.env.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-  }) : null;
+  const storage = apply ? postgresObjectStorage({pool: migrationPool}) : null;
   let copied = 0;
   for (const asset of assets) {
     const absolute = path.resolve(sourceObjectRoot, asset.object_key);
@@ -254,7 +245,7 @@ async function copyAssetBytes() {
 }
 
 if (sourceOnly) {
-  const assetBytes = await copyAssetBytes();
+  let assetBytes = apply ? null : await copyAssetBytes();
   console.log(JSON.stringify({
     mode: 'source-only',
     source: sourceFile,
@@ -310,6 +301,8 @@ try {
       client.release();
     }
   }
+
+  if (apply) assetBytes = await copyAssetBytes();
 
   const after = apply ? await verify(migrationPool) : before;
   console.log(JSON.stringify({

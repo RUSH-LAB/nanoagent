@@ -45,7 +45,7 @@ const workspaceSettings = postgresServices?.workspaceSettings ?? require('./work
 const {createObjectStorage} = require('./object-storage');
 const {createObjectDeletionQueue, drainObjectDeletions} = require('./object-deletions');
 const {serveStaticSite} = require('./static-site');
-const objectStorage = createObjectStorage();
+const objectStorage = createObjectStorage(process.env, {pool: postgresDatabase.pool});
 const assets = postgresServices?.assets ?? require('./assets');
 const objectDeletions = postgresServices?.objectDeletions
   ?? createObjectDeletionQueue({db: require('./db').db});

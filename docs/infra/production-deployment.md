@@ -9,7 +9,6 @@ It calls NanoAgent over Railway's private network; NanoAgent is never public.
 
 - A PostgreSQL database separate from development, with a direct schema-owner
   URL and a pooled restricted `mochi_runtime` URL.
-- S3-compatible object storage for uploaded assets.
 - An HTTPS transactional-email webhook for verification, password reset, and
   workspace invitations.
 - A container host with HTTPS termination and secret management.
@@ -19,16 +18,16 @@ It calls NanoAgent over Railway's private network; NanoAgent is never public.
 The current deployment target is Railway. It builds the committed `Dockerfile`,
 injects `PORT`, checks `/api/health`, and terminates TLS at the public domain.
 
-Create a git-ignored `.env.production.local`, add the `OBJECT_STORAGE_*`
-credentials for the production bucket, and verify it before deploying:
+Uploaded object bytes are stored in PostgreSQL alongside their metadata. After
+applying migrations, verify the database-backed object path before deploying:
 
 ```bash
 npm run object-storage:verify
 ```
 
-The probe writes one random object below `_mochi-health/`, verifies its bytes
-and metadata, deletes it, and confirms deletion. It never reads or modifies a
-business asset.
+The probe writes one random object below an existing workspace, verifies its
+bytes and metadata, deletes it, and confirms deletion. It never reads or
+modifies a business asset.
 
 For account email, verify `mochi-lab.org` in Resend, configure
 `RESEND_API_KEY`, `MAIL_FROM`, and `MAIL_TEST_TO`, then send one deployment
@@ -57,8 +56,8 @@ password-reset, and invitation messages to their actual recipients.
 
 Create the public Mochi service from the GitHub repository and select the release branch.
 Railway will use `railway.toml` and the root `Dockerfile`. Add every value from
-the database, authentication, email, and object-storage configuration described
-above to the service variables; do not upload `.env.production.local`.
+the database, authentication, and email configuration described above to the
+service variables; do not upload `.env.production.local`.
 
 Create a second, private service from this repository with its root directory
 set to `services/nanoagent`. Run `nanoagent web` with a web config that binds
@@ -77,7 +76,7 @@ Generate a Railway domain for the first deployment. Once it is healthy, attach
 
 ## Rollback
 
-Keep the pre-cutover PostgreSQL and object-storage backups for an explicit
-rollback window. Restore them together; restoring only one side can leave asset
-metadata pointing at missing objects. Roll back the application image before
-reopening writes.
+Keep the pre-cutover PostgreSQL backup for an explicit rollback window. Because
+asset metadata and bytes share the database, one database restore returns them
+to the same point in time. Roll back the application image before reopening
+writes.
