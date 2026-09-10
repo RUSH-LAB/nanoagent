@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "provider": "python",
+  "steps": {
+    "install": {
+      "commands": ["...", "pip install '.[web]'"]
+    }
+  },
+  "deploy": {
+    "startCommand": "python -m nanoagent web web_cfg=configs/web_openrouter.yaml host=0.0.0.0 port=$PORT api_token=$NANOAGENT_API_TOKEN"
+  }
+}
