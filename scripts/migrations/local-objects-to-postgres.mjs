@@ -23,6 +23,7 @@ export async function migrateLocalObjects({pool, storage, objectRoot = root, wri
        from asset order by object_key`,
   )).rows;
   const report = {expected: assets.length, verified: 0, copied: 0, missing: [], mismatched: []};
+  const verified = [];
 
   for (const asset of assets) {
     const absolute = path.resolve(objectRoot, ...String(asset.objectKey).split('/'));
@@ -40,14 +41,17 @@ export async function migrateLocalObjects({pool, storage, objectRoot = root, wri
       continue;
     }
     report.verified++;
-    if (write) {
-      await storage.put(asset.objectKey, body, asset.contentType);
-      report.copied++;
-    }
+    verified.push({asset, body});
   }
 
   if (report.missing.length || report.mismatched.length) {
     throw new Error(`Object migration validation failed: ${report.missing.length} missing, ${report.mismatched.length} mismatched`);
+  }
+  if (write) {
+    for (const {asset, body} of verified) {
+      await storage.put(asset.objectKey, body, asset.contentType);
+      report.copied++;
+    }
   }
   return report;
 }

@@ -35,12 +35,20 @@ describe('local object migration', () => {
 
   it('refuses missing or changed bytes instead of silently producing broken metadata', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-objects-'));
+    const body = Buffer.from('valid-first-object');
+    const validKey = 'workspace/assets/valid.bin';
+    const validFile = path.join(root, ...validKey.split('/'));
+    fs.mkdirSync(path.dirname(validFile), {recursive: true});
+    fs.writeFileSync(validFile, body);
     try {
       await assert.rejects(() => migrateLocalObjects({
-        pool: {query: async () => ({rows: [{
-          objectKey: 'workspace/assets/missing.pdf', contentType: 'application/pdf',
-          byteSize: 10, sha256: '0'.repeat(64),
-        }]})},
+        pool: {query: async () => ({rows: [
+          {objectKey: validKey, contentType: 'application/octet-stream', byteSize: body.length, sha256: digest(body)},
+          {
+            objectKey: 'workspace/assets/missing.pdf', contentType: 'application/pdf',
+            byteSize: 10, sha256: '0'.repeat(64),
+          },
+        ]})},
         storage: {put: async () => assert.fail('must not write')},
         objectRoot: root,
         write: true,
