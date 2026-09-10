@@ -3,6 +3,7 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
+preDeployCommand = "node scripts/db/bootstrap-runtime-role.mjs && node scripts/db/apply-schema.mjs"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
