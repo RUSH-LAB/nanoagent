@@ -16,6 +16,9 @@ import NavbarMobileSidebarToggle from '@theme/Navbar/MobileSidebar/Toggle';
 import WorkspaceSwitcher from '@site/src/components/WorkspaceSwitcher';
 import LazySearchNavbarItem from '@site/src/components/LazySearchNavbarItem';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
+import useWorkspaceSubscriptions, {
+  isBookSubscribed, orderByPreference,
+} from '@site/src/hooks/useWorkspaceSubscriptions';
 import {workspaceDocumentHref} from '@site/src/utils/documentUrls';
 import {prefetchWorkspaceContentHref} from '@site/src/utils/workspaceContent';
 
@@ -79,7 +82,8 @@ export default function NavbarContent(): ReactNode {
   const mobileSidebar = useNavbarMobileSidebar();
   const location = useLocation();
   const items = useNavbarItems();
-  const {slug: workspaceSlug, site: workspaceSite} = useWorkspaceSite();
+  const {slug: workspaceSlug, workspace, site: workspaceSite} = useWorkspaceSite();
+  const {subscriptions} = useWorkspaceSubscriptions(workspace);
   const hasConcreteWorkspace = Boolean(workspaceSlug);
 
   const fixedItems = items.filter(item => item.type === 'search' || item.type === 'custom-userButton');
@@ -91,9 +95,15 @@ export default function NavbarContent(): ReactNode {
   const currentCollection = collections
     .filter(collection => documentPath === collection.pathPrefix || documentPath.startsWith(`${collection.pathPrefix}/`))
     .sort((a, b) => b.pathPrefix.length - a.pathPrefix.length)[0];
+  const orderedBooks = orderByPreference(
+    collections.filter(collection => collection.type === 'docs'),
+    subscriptions?.bookOrder,
+    collection => collection.key,
+  );
   const bookCollection = currentCollection?.type === 'docs'
     ? currentCollection
-    : collections.find(collection => collection.type === 'docs');
+    : orderedBooks.find(collection => isBookSubscribed(subscriptions, collection.key))
+      || orderedBooks[0];
   const blogCollection = currentCollection?.type === 'blog'
     ? currentCollection
     : collections.find(collection => collection.type === 'blog');

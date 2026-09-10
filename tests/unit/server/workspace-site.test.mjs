@@ -97,6 +97,24 @@ describe('workspace site configuration', () => {
     assert.equal(site.collections[0].showReadingTime, true);
   });
 
+  it('keeps ordered blog groups as inert settings', () => {
+    const site = validateWorkspaceSite({collections: [
+      {key: 'private-book', type: 'docs', pathPrefix: 'books/private', title: 'Private'},
+      {
+        key: 'posts', type: 'blog', pathPrefix: 'posts/blog', title: 'Blog',
+        groups: [{title: 'Research'}, {title: 'Notes'}],
+      },
+    ]});
+    assert.deepEqual(site.collections[1].groups, [
+      {title: 'Research'},
+      {title: 'Notes'},
+    ]);
+    assert.throws(() => validateWorkspaceSite({collections: [{
+      key: 'posts', type: 'blog', pathPrefix: 'posts', title: 'Posts',
+      groups: [{title: 'Same'}, {title: 'same'}],
+    }]}), /Duplicate blog group/);
+  });
+
   it('defaults reading time by collection type rather than an organization-specific key', () => {
     const site = validateWorkspaceSite({collections: [
       {key: 'updates', type: 'blog', pathPrefix: 'news', title: 'Updates'},

@@ -10,6 +10,9 @@ import BlogPostPage from '@theme/BlogPostPage';
 import DocRootLayout from '@theme/DocRoot/Layout';
 import {DocsSidebarProvider} from '@docusaurus/plugin-content-docs/client';
 import {HtmlClassNameProvider, ThemeClassNames} from '@docusaurus/theme-common';
+import useWorkspaceSubscriptions, {
+  isGroupSubscribed, orderByPreference,
+} from '@site/src/hooks/useWorkspaceSubscriptions';
 import API_BASE, {apiFetch, apiJson, invalidateApiJson} from '@site/src/utils/api';
 import {loadWorkspaces, navigateClient} from '@site/src/utils/workspaces';
 import {adjacentDocumentPosition, newDocumentDraft} from '@site/src/utils/documentAuthoring';
@@ -206,6 +209,23 @@ function blogFilterHref(collectionHref, {group, category = null, subcategory = n
   return query ? `${collectionHref}?${query}` : collectionHref;
 }
 
+function configuredBlogGroups(documents, collection) {
+  const counts = new Map();
+  for (const document of documents) {
+    const title = documentGroup(document);
+    counts.set(title, (counts.get(title) || 0) + 1);
+  }
+  const configured = collection?.groups || [];
+  const configuredNames = new Set(configured.map(group => group.title.toLocaleLowerCase()));
+  return [
+    ...configured.map(group => ({...group, count: counts.get(group.title) || 0})),
+    ...[...counts.entries()]
+      .filter(([title]) => !configuredNames.has(title.toLocaleLowerCase()))
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([title, count]) => ({title, count})),
+  ];
+}
+
 function blogGroupNavigation(
   documents,
   workspaceSlug,
@@ -215,13 +235,7 @@ function blogGroupNavigation(
   activeSubcategory = null,
   showBreadcrumb = false,
 ) {
-  const entries = new Map();
-  for (const document of documents) {
-    const title = documentGroup(document);
-    if (!entries.has(title)) entries.set(title, {title, count: 0});
-    const entry = entries.get(title);
-    entry.count += 1;
-  }
+  const groupEntries = configuredBlogGroups(documents, collection);
   const collectionHref = `/w/${encodeURIComponent(workspaceSlug)}/documents/${collection.pathPrefix}`;
   const groupDocuments = activeGroup
     ? documents.filter(document => documentGroup(document) === activeGroup)
@@ -291,10 +305,12 @@ function blogGroupNavigation(
   ].filter(Boolean) : [];
   return {
     title: 'Groups',
+    collectionKey: collection.key,
+    collectionHref,
     activeGroup,
     activeCategory,
     activeSubcategory,
-    groups: [...entries.values()].sort((a, b) => a.title.localeCompare(b.title)).map(entry => ({
+    groups: groupEntries.map(entry => ({
       title: entry.title,
       permalink: blogFilterHref(collectionHref, {group: entry.title}),
       count: entry.count,
@@ -382,6 +398,9 @@ function DocumentBody({
   const {siteConfig} = useDocusaurusContext();
   const [state, setState] = useState({status: LOADING});
   const [editing, setEditing] = useState(false);
+  const {subscriptions} = useWorkspaceSubscriptions(
+    state.workspaceId ? {id: state.workspaceId} : null,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -660,8 +679,17 @@ function DocumentBody({
       : `${visibleDocuments.length} ${visibleDocuments.length === 1 ? 'document' : 'documents'} in this workspace`;
     const sortedDocuments = [...visibleDocuments].sort((a, b) => compareDocuments(a, b, directoryCollection?.type));
     if (isBlogCollection) {
-      const groups = [...new Set(sortedDocuments.map(documentGroup))].sort((a, b) => a.localeCompare(b));
-      const selectedGroup = groups.includes(groupRequested) ? groupRequested : groups[0] || null;
+      const groups = orderByPreference(
+        configuredBlogGroups(sortedDocuments, directoryCollection),
+        subscriptions?.groupOrder?.[directoryCollection.key],
+        group => group.title,
+      );
+      const requestedGroup = groups.find(group => group.title === groupRequested);
+      const selectedGroup = requestedGroup?.title
+        || groups.find(group => isGroupSubscribed(
+          subscriptions, directoryCollection.key, group.title,
+        ))?.title
+        || null;
       const groupDocuments = selectedGroup
         ? sortedDocuments.filter(document => documentGroup(document) === selectedGroup)
         : [];

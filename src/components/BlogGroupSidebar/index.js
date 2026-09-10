@@ -2,6 +2,11 @@ import React, {useEffect, useRef, useState} from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import {useClickOutside} from '@site/src/hooks/useClickOutside';
+import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
+import useWorkspaceSubscriptions, {
+  isGroupSubscribed, orderByPreference,
+} from '@site/src/hooks/useWorkspaceSubscriptions';
+import {saveWorkspaceCollections} from '@site/src/utils/workspaceSiteEditor';
 import styles from './styles.module.css';
 
 function GroupIcon() {
@@ -39,7 +44,17 @@ function TaxonomyIcon({all = false}) {
 
 function GroupSwitcher({navigation}) {
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
   const wrapper = useRef(null);
+  const {workspace, site} = useWorkspaceSite();
+  const {subscriptions} = useWorkspaceSubscriptions(workspace);
+  const canManage = workspace?.role === 'owner';
+  const groups = orderByPreference(
+    navigation.groups,
+    subscriptions?.groupOrder?.[navigation.collectionKey],
+    group => group.title,
+  ).filter(group => isGroupSubscribed(subscriptions, navigation.collectionKey, group.title));
   useClickOutside(wrapper, () => setOpen(false), open);
 
   useEffect(() => {
@@ -50,6 +65,33 @@ function GroupSwitcher({navigation}) {
     document.addEventListener('keydown', closeOnEscape);
     return () => document.removeEventListener('keydown', closeOnEscape);
   }, [open]);
+
+  const saveGroups = async nextGroups => {
+    if (!workspace || !site || saving) return false;
+    const collection = site.collections.find(item => item.key === navigation.collectionKey);
+    if (!collection) return false;
+    setSaving(true);
+    setError(null);
+    try {
+      const serialized = nextGroups.map(group => ({title: group.title}));
+      await saveWorkspaceCollections(workspace, site, site.collections.map(item =>
+        item.key === collection.key ? {...item, groups: serialized} : item));
+      return true;
+    } catch (saveError) {
+      setError(saveError.message);
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addGroup = async () => {
+    const title = window.prompt('New group name')?.trim();
+    if (!title || navigation.groups.some(group => group.title.toLocaleLowerCase() === title.toLocaleLowerCase())) return;
+    if (await saveGroups([...navigation.groups, {title, count: 0}])) {
+      window.location.assign(`${navigation.collectionHref}?group=${encodeURIComponent(title)}`);
+    }
+  };
 
   return (
     <div className={styles.groupSwitcher} ref={wrapper}>
@@ -68,22 +110,35 @@ function GroupSwitcher({navigation}) {
       </button>
       {open && (
         <div className={styles.groupMenu} role="listbox" aria-label="Choose blog group">
-          {navigation.groups.map(group => {
+          {groups.length === 0 && (
+            <span className={styles.emptySelection}>No subscribed groups</span>
+          )}
+          {groups.map(group => {
             const selected = group.title === navigation.activeGroup;
             return (
-              <Link
+              <div
                 key={group.title}
-                className={clsx(styles.groupOption, selected && styles.groupOptionSelected)}
-                role="option"
-                aria-selected={selected}
-                to={group.permalink}
-                onClick={() => setOpen(false)}
+                className={styles.groupOptionRow}
               >
-                <span>{group.title}</span>
-                {selected && <span className={styles.checkmark} aria-hidden="true">✓</span>}
-              </Link>
+                <Link
+                  className={clsx(styles.groupOption, selected && styles.groupOptionSelected)}
+                  role="option"
+                  aria-selected={selected}
+                  to={group.permalink}
+                  onClick={() => setOpen(false)}
+                >
+                  <span>{group.title}</span>
+                  {selected && <span className={styles.checkmark} aria-hidden="true">✓</span>}
+                </Link>
+              </div>
             );
           })}
+          {canManage && (
+            <button className={styles.addGroup} type="button" disabled={saving} onClick={() => void addGroup()}>
+              + New group
+            </button>
+          )}
+          {error && <span className={styles.groupError} role="alert">{error}</span>}
         </div>
       )}
     </div>

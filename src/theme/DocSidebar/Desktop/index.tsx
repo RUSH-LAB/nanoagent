@@ -11,8 +11,14 @@ import Logo from '@theme/Logo';
 import Content from '@theme/DocSidebar/Desktop/Content';
 import type {Props} from '@theme/DocSidebar/Desktop';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
+import useWorkspaceSubscriptions, {
+  isBookSubscribed, orderByPreference,
+} from '@site/src/hooks/useWorkspaceSubscriptions';
+import API_BASE, {apiFetch, invalidateApiJson} from '@site/src/utils/api';
 import {workspaceDocumentHref} from '@site/src/utils/documentUrls';
 import {navigateClient} from '@site/src/utils/workspaces';
+import {newDocumentDraft, slugifyDocumentTitle} from '@site/src/utils/documentAuthoring';
+import {replaceCollectionType, saveWorkspaceCollections} from '@site/src/utils/workspaceSiteEditor';
 import styles from './styles.module.css';
 
 function SidebarCollapseButton({onClick}: {onClick: () => void}): ReactNode {
@@ -33,8 +39,11 @@ function SidebarCollapseButton({onClick}: {onClick: () => void}): ReactNode {
 
 function BookSwitcher(): ReactNode {
   const [isOpen, setIsOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const switcherRef = useRef<HTMLDivElement>(null);
-  const {slug, site} = useWorkspaceSite();
+  const {slug, workspace, site} = useWorkspaceSite();
+  const {subscriptions} = useWorkspaceSubscriptions(workspace);
   const books = (site?.collections ?? []).filter(collection => collection.type === 'docs');
   const pathname = typeof window === 'undefined' ? '' : window.location.pathname;
   const marker = '/documents/';
@@ -44,6 +53,11 @@ function BookSwitcher(): ReactNode {
   const current = books
     .filter(book => documentPath === book.pathPrefix || documentPath.startsWith(`${book.pathPrefix}/`))
     .sort((a, b) => b.pathPrefix.length - a.pathPrefix.length)[0];
+  const selectableBooks = orderByPreference(
+    books,
+    subscriptions?.bookOrder,
+    book => book.key,
+  ).filter(book => isBookSubscribed(subscriptions, book.key));
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -63,7 +77,67 @@ function BookSwitcher(): ReactNode {
     };
   }, [isOpen]);
 
-  if (!slug || books.length === 0) return null;
+  if (!slug || (books.length === 0 && workspace?.role !== 'owner')) return null;
+
+  const saveBooks = async (nextBooks) => {
+    if (!workspace || !site || saving) return false;
+    setSaving(true);
+    setError(null);
+    try {
+      await saveWorkspaceCollections(
+        workspace,
+        site,
+        replaceCollectionType(site.collections, 'docs', nextBooks),
+      );
+      return true;
+    } catch (saveError) {
+      setError(saveError.message);
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addBook = async () => {
+    const title = window.prompt('New book name')?.trim();
+    if (!title) return;
+    const base = slugifyDocumentTitle(title) || 'book';
+    const keys = new Set((site?.collections ?? []).map(collection => collection.key));
+    const paths = new Set((site?.collections ?? []).map(collection => collection.pathPrefix));
+    let key = base;
+    let suffix = 2;
+    while (keys.has(key) || paths.has(`books/${key}`)) {
+      key = `${base}-${suffix}`;
+      suffix += 1;
+    }
+    const collection = {
+      key,
+      type: 'docs',
+      pathPrefix: `books/${key}`,
+      title,
+      description: null,
+      sidebarTitle: null,
+      showReadingTime: false,
+    };
+    const draft = newDocumentDraft({collection, title: 'Introduction'});
+    const nextCollection = {...collection, landingPath: draft.path};
+    if (!await saveBooks([...books, nextCollection])) return;
+    try {
+      const documentsUrl = `${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/documents`;
+      const response = await apiFetch(documentsUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: draft.path, markdown: draft.markdown}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not create the first page');
+      invalidateApiJson(documentsUrl);
+      setIsOpen(false);
+      navigateClient(workspaceDocumentHref(draft.path, slug, ''));
+    } catch (createError) {
+      setError(createError.message);
+    }
+  };
 
   return (
     <div className={styles.bookSwitcher} ref={switcherRef}>
@@ -95,25 +169,38 @@ function BookSwitcher(): ReactNode {
       </button>
       {isOpen && (
         <div className={styles.bookMenu} role="listbox" aria-label="Choose documentation book">
-          {books.map(book => {
+          {selectableBooks.length === 0 && (
+            <span className={styles.emptySelection}>No subscribed books</span>
+          )}
+          {selectableBooks.map(book => {
             const selected = book.key === current?.key;
             return (
-              <button
+              <div
                 key={book.key}
-                className={clsx(styles.bookOption, selected && styles.bookOptionSelected)}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                onClick={() => {
-                  setIsOpen(false);
-                  navigateClient(workspaceDocumentHref(book.landingPath || book.pathPrefix, slug, ''));
-                }}
+                className={styles.bookOptionRow}
               >
-                <span>{book.title}</span>
-                {selected && <span className={styles.checkmark} aria-hidden="true">✓</span>}
-              </button>
+                <button
+                  className={clsx(styles.bookOption, selected && styles.bookOptionSelected)}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => {
+                    setIsOpen(false);
+                    navigateClient(workspaceDocumentHref(book.landingPath || book.pathPrefix, slug, ''));
+                  }}
+                >
+                  <span>{book.title}</span>
+                  {selected && <span className={styles.checkmark} aria-hidden="true">✓</span>}
+                </button>
+              </div>
             );
           })}
+          {workspace?.role === 'owner' && (
+            <button className={styles.addBook} type="button" disabled={saving} onClick={() => void addBook()}>
+              + New book
+            </button>
+          )}
+          {error && <span className={styles.bookError} role="alert">{error}</span>}
         </div>
       )}
     </div>

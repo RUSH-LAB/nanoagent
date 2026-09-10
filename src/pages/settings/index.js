@@ -4,7 +4,13 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import Link from '@docusaurus/Link';
 import {useLocation} from '@docusaurus/router';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
+import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
+import useWorkspaceSubscriptions, {
+  isBookSubscribed, isGroupSubscribed, orderByPreference,
+} from '@site/src/hooks/useWorkspaceSubscriptions';
 import pageStyles from '@site/src/css/page.module.css';
+import API_BASE, {apiJson} from '@site/src/utils/api';
+import {WORKSPACE_CONTENT_CACHE_MS} from '@site/src/utils/workspaceContent';
 import {
   loadWorkspaces, switchWorkspace, createWorkspace, workspaceSlugFromPath,
 } from '@site/src/utils/workspaces';
@@ -24,9 +30,21 @@ function SettingsApp() {
   const [newWorkspace, setNewWorkspace] = useState('');
   const [switching, setSwitching] = useState(false);
   const [workspaceError, setWorkspaceError] = useState(null);
+  const [subscriptionGroups, setSubscriptionGroups] = useState({});
+  const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
+  const [subscriptionsSaving, setSubscriptionsSaving] = useState(false);
+  const [subscriptionsStatus, setSubscriptionsStatus] = useState(null);
   const activeWorkspace = Array.isArray(workspaces)
     ? workspaces.find(workspace => workspace.id === activeId)
     : null;
+  const {workspace: routeWorkspace, site} = useWorkspaceSite();
+  const preferenceWorkspace = routeWorkspace?.id === activeId ? routeWorkspace : activeWorkspace;
+  const {
+    subscriptions, loading: preferencesLoading, error: preferencesError, saveSubscriptions,
+  } = useWorkspaceSubscriptions(preferenceWorkspace);
+  const books = (site?.collections ?? []).filter(collection => collection.type === 'docs');
+  const blogs = (site?.collections ?? []).filter(collection => collection.type === 'blog');
+  const orderedBooks = orderByPreference(books, subscriptions?.bookOrder, book => book.key);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,6 +67,111 @@ function SettingsApp() {
 
     return () => { cancelled = true; };
   }, [authClient, workspaceSlug]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!preferenceWorkspace?.id || !site) {
+      setSubscriptionGroups({});
+      return () => { cancelled = true; };
+    }
+    const blogCollections = site.collections.filter(collection => collection.type === 'blog');
+    setSubscriptionsLoading(blogCollections.length > 0);
+    Promise.all(blogCollections.map(async collection => {
+      const configured = (collection.groups ?? []).map(group => group.title);
+      const result = await apiJson(
+        `${API_BASE}/api/workspaces/${encodeURIComponent(preferenceWorkspace.id)}/documents/tree?prefix=${encodeURIComponent(collection.pathPrefix)}&include=metadata`,
+        {cacheMs: WORKSPACE_CONTENT_CACHE_MS},
+      );
+      const derived = result.ok
+        ? (result.data.documents ?? [])
+          .map(document => document.frontmatter?.group?.trim() || 'Ungrouped')
+        : [];
+      const seen = new Set();
+      const titles = [...configured, ...derived.sort((a, b) => a.localeCompare(b))]
+        .filter(title => {
+          const identity = title.toLocaleLowerCase();
+          if (seen.has(identity)) return false;
+          seen.add(identity);
+          return true;
+        });
+      return [collection.key, titles];
+    }))
+      .then(entries => {
+        if (!cancelled) setSubscriptionGroups(Object.fromEntries(entries));
+      })
+      .catch(error => {
+        if (!cancelled) setSubscriptionsStatus({type: 'error', message: error.message});
+      })
+      .finally(() => {
+        if (!cancelled) setSubscriptionsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [preferenceWorkspace?.id, site]);
+
+  const saveSubscriptionChoice = useCallback(async next => {
+    setSubscriptionsSaving(true);
+    setSubscriptionsStatus(null);
+    try {
+      await saveSubscriptions(next);
+      setSubscriptionsStatus({type: 'success', message: 'Saved'});
+    } catch (error) {
+      setSubscriptionsStatus({type: 'error', message: error.message});
+    } finally {
+      setSubscriptionsSaving(false);
+    }
+  }, [saveSubscriptions]);
+
+  const toggleBookSubscription = key => {
+    const selected = orderedBooks
+      .filter(book => isBookSubscribed(subscriptions, book.key))
+      .map(book => book.key);
+    const nextBooks = selected.includes(key)
+      ? selected.filter(item => item !== key)
+      : [...selected, key];
+    void saveSubscriptionChoice({...subscriptions, books: nextBooks});
+  };
+
+  const toggleGroupSubscription = (collectionKey, title) => {
+    const available = orderByPreference(
+      subscriptionGroups[collectionKey] ?? [],
+      subscriptions?.groupOrder?.[collectionKey],
+    );
+    const selected = available.filter(group => isGroupSubscribed(subscriptions, collectionKey, group));
+    const nextGroups = selected.includes(title)
+      ? selected.filter(group => group !== title)
+      : [...selected, title];
+    void saveSubscriptionChoice({
+      ...subscriptions,
+      groups: {...subscriptions?.groups, [collectionKey]: nextGroups},
+    });
+  };
+
+  const moveItem = (items, sourceIndex, direction) => {
+    const targetIndex = sourceIndex + direction;
+    if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= items.length) return null;
+    const next = [...items];
+    const [moved] = next.splice(sourceIndex, 1);
+    next.splice(targetIndex, 0, moved);
+    return next;
+  };
+
+  const reorderBooks = (index, direction) => {
+    const nextOrder = moveItem(orderedBooks.map(book => book.key), index, direction);
+    if (nextOrder) void saveSubscriptionChoice({...subscriptions, bookOrder: nextOrder});
+  };
+
+  const reorderGroups = (collectionKey, index, direction) => {
+    const orderedGroups = orderByPreference(
+      subscriptionGroups[collectionKey] ?? [],
+      subscriptions?.groupOrder?.[collectionKey],
+    );
+    const nextOrder = moveItem(orderedGroups, index, direction);
+    if (!nextOrder) return;
+    void saveSubscriptionChoice({
+      ...subscriptions,
+      groupOrder: {...subscriptions?.groupOrder, [collectionKey]: nextOrder},
+    });
+  };
 
   /**
    * Run one of the workspace writes. Both reload the page on success, from
@@ -93,6 +216,7 @@ function SettingsApp() {
       <div className={styles.settingsLayout}>
         <nav className={styles.settingsNav} aria-label="Settings sections">
           <a href="#account"><strong>Account</strong><span>Identity and session</span></a>
+          <a href="#subscriptions"><strong>Subscriptions</strong><span>Books and blog groups</span></a>
           <a href="#workspaces"><strong>Workspaces</strong><span>Access and switching</span></a>
         </nav>
 
@@ -110,6 +234,98 @@ function SettingsApp() {
               </dl>
             ) : (
               <p className={styles.muted}>Authentication is disabled; requests use the local development account.</p>
+            )}
+          </section>
+
+          <section id="subscriptions" className={styles.section}>
+            <div className={styles.sectionHeading}>
+              <div><h2>Subscriptions</h2><p>Choose which books and blog groups appear in your navigation.</p></div>
+            </div>
+            {!preferenceWorkspace || !site || preferencesLoading || subscriptionsLoading ? (
+              <p className={styles.muted}>Loading subscriptions…</p>
+            ) : (
+              <div className={styles.subscriptionColumns}>
+                <div className={styles.subscriptionGroup}>
+                  <h3>Books</h3>
+                  {books.length ? orderedBooks.map((book, index) => (
+                    <div className={styles.subscriptionOptionRow} key={book.key}>
+                      <label className={styles.subscriptionOption}>
+                        <input
+                          type="checkbox"
+                          checked={isBookSubscribed(subscriptions, book.key)}
+                          disabled={subscriptionsSaving}
+                          onChange={() => toggleBookSubscription(book.key)}
+                        />
+                        <span>{book.title}</span>
+                      </label>
+                      <span className={styles.orderButtons}>
+                        <button
+                          type="button"
+                          disabled={subscriptionsSaving || index === 0}
+                          aria-label={`Move ${book.title} up`}
+                          title="Move up"
+                          onClick={() => reorderBooks(index, -1)}
+                        >↑</button>
+                        <button
+                          type="button"
+                          disabled={subscriptionsSaving || index === orderedBooks.length - 1}
+                          aria-label={`Move ${book.title} down`}
+                          title="Move down"
+                          onClick={() => reorderBooks(index, 1)}
+                        >↓</button>
+                      </span>
+                    </div>
+                  )) : <p className={styles.muted}>No books yet.</p>}
+                </div>
+                <div className={styles.subscriptionGroup}>
+                  <h3>Blog groups</h3>
+                  {blogs.length ? blogs.map(collection => (
+                    <div className={styles.blogSubscriptions} key={collection.key}>
+                      {blogs.length > 1 && <h4>{collection.title}</h4>}
+                      {(subscriptionGroups[collection.key] ?? []).length
+                        ? orderByPreference(
+                          subscriptionGroups[collection.key],
+                          subscriptions?.groupOrder?.[collection.key],
+                        ).map((title, index, orderedGroups) => (
+                          <div className={styles.subscriptionOptionRow} key={title}>
+                            <label className={styles.subscriptionOption}>
+                              <input
+                                type="checkbox"
+                                checked={isGroupSubscribed(subscriptions, collection.key, title)}
+                                disabled={subscriptionsSaving}
+                                onChange={() => toggleGroupSubscription(collection.key, title)}
+                              />
+                              <span>{title}</span>
+                            </label>
+                            <span className={styles.orderButtons}>
+                              <button
+                                type="button"
+                                disabled={subscriptionsSaving || index === 0}
+                                aria-label={`Move ${title} up`}
+                                title="Move up"
+                                onClick={() => reorderGroups(collection.key, index, -1)}
+                              >↑</button>
+                              <button
+                                type="button"
+                                disabled={subscriptionsSaving || index === orderedGroups.length - 1}
+                                aria-label={`Move ${title} down`}
+                                title="Move down"
+                                onClick={() => reorderGroups(collection.key, index, 1)}
+                              >↓</button>
+                            </span>
+                          </div>
+                        ))
+                        : <p className={styles.muted}>No groups yet.</p>}
+                    </div>
+                  )) : <p className={styles.muted}>No blog groups yet.</p>}
+                </div>
+              </div>
+            )}
+            {(preferencesError || subscriptionsStatus) && (
+              <p
+                className={subscriptionsStatus?.type === 'success' && !preferencesError ? styles.saved : styles.error}
+                role={subscriptionsStatus?.type === 'error' || preferencesError ? 'alert' : 'status'}
+              >{preferencesError || subscriptionsStatus.message}</p>
             )}
           </section>
 

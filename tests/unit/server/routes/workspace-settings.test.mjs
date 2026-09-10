@@ -26,7 +26,17 @@ describe('workspace settings routes', () => {
 
   it('keeps member preferences separate inside a workspace', async () => {
     const ctx = makeCtx();
-    await invoke(routes, {method: 'PUT', path: '/api/workspaces/lab/member-preferences', body: {settings: {sidebar: 'compact'}}, ctx, requestContext: context('viewer')});
+    await invoke(routes, {
+      method: 'PUT', path: '/api/workspaces/lab/member-preferences', ctx,
+      body: {settings: {sidebar: 'compact', subscriptions: {
+        books: ['survey'], groups: {blog: ['Research']},
+      }}},
+      requestContext: context('viewer'),
+    });
+    const own = await invoke(routes, {path: '/api/workspaces/lab/member-preferences', ctx, requestContext: context('viewer')});
+    assert.deepEqual(own.payload.settings.subscriptions, {
+      books: ['survey'], groups: {blog: ['Research']},
+    });
     const other = {...context('viewer'), userId: 'grace', membershipId: 'member-2'};
     const read = await invoke(routes, {path: '/api/workspaces/lab/member-preferences', ctx, requestContext: other});
     assert.deepEqual(read.payload.settings, {});

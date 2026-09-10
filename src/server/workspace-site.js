@@ -2,6 +2,7 @@
 
 const MAX_NAVIGATION_ITEMS = 24;
 const MAX_COLLECTIONS = 32;
+const MAX_BLOG_GROUPS = 100;
 const MAX_AUTHORS = 100;
 const MAX_PLUGINS = 64;
 const HOME_LAYOUTS = new Set(['title', 'library', 'document']);
@@ -64,7 +65,7 @@ function validateCollections(value) {
     if (keys.has(key)) throw new TypeError(`Duplicate collection key: ${key}`);
     keys.add(key);
     if (!['docs', 'blog'].includes(item.type)) throw new TypeError(`collections[${index}].type must be docs or blog`);
-    return {
+    const collection = {
       key,
       type: item.type,
       pathPrefix: contentPath(item.pathPrefix, `collections[${index}].pathPrefix`),
@@ -74,6 +75,24 @@ function validateCollections(value) {
       landingPath: item.landingPath ? contentPath(item.landingPath, `collections[${index}].landingPath`) : null,
       showReadingTime: item.showReadingTime === undefined ? item.type === 'blog' : Boolean(item.showReadingTime),
     };
+    if (item.type === 'blog' && item.groups != null) {
+      if (!Array.isArray(item.groups)) throw new TypeError(`collections[${index}].groups must be an array`);
+      if (item.groups.length > MAX_BLOG_GROUPS) {
+        throw new TypeError(`collections[${index}].groups may contain at most ${MAX_BLOG_GROUPS} items`);
+      }
+      const groupNames = new Set();
+      collection.groups = item.groups.map((group, groupIndex) => {
+        if (!group || typeof group !== 'object' || Array.isArray(group)) {
+          throw new TypeError(`collections[${index}].groups[${groupIndex}] must be an object`);
+        }
+        const title = text(group.title, `collections[${index}].groups[${groupIndex}].title`, {required: true, max: 100});
+        const identity = title.toLocaleLowerCase();
+        if (groupNames.has(identity)) throw new TypeError(`Duplicate blog group: ${title}`);
+        groupNames.add(identity);
+        return {title};
+      });
+    }
+    return collection;
   });
 }
 
@@ -190,6 +209,7 @@ function resolveWorkspaceSite(settings = {}) {
 module.exports = {
   MAX_NAVIGATION_ITEMS,
   MAX_COLLECTIONS,
+  MAX_BLOG_GROUPS,
   MAX_AUTHORS,
   MAX_PLUGINS,
   validateWorkspaceSite,
