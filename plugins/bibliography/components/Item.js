@@ -312,7 +312,7 @@ export default function BibliographyItem() {
             <header style={{margin: '20px 0 22px'}}>
               <h1 style={{marginBottom: 8}}>{paper.title}</h1>
               <p style={{fontSize: 17, color: 'var(--ifm-color-emphasis-700)', margin: '0 0 6px'}}>
-                {(paper.author || []).join(', ') || 'Unknown authors'}
+                {(paper.authors || paper.author || []).join(', ') || 'Unknown authors'}
               </p>
               <p style={{margin: 0, color: 'var(--ifm-color-emphasis-600)'}}>
                 {[paper.venue, paper.year].filter(Boolean).join(' · ')}

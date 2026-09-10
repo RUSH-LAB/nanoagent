@@ -9,7 +9,7 @@
  * accepts the older bibliography shape so existing references need no bulk
  * migration.
  */
-const PAPER_SCHEMA = 'mochi.paper/1';
+const PAPER_SCHEMA = 'mochi.paper/2';
 const SOURCE_TYPES = new Set(['doi', 'arxiv', 'publisher', 'url', 'bibtex', 'manual']);
 const API_TEST_KEY_PATTERNS = Object.freeze([
   /^__test_\d+_(?:ref|import)$/,
@@ -127,6 +127,7 @@ function sourceFor(entry, {doi, arxivId, officialUrl}) {
 
 function normalizePaper(key, input = {}) {
   const entry = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const authors = normalizeAuthors(entry.authors ?? entry.author);
   const doi = normalizeDoi(entry.doi || entry.source?.type === 'doi' && entry.source?.id);
   const arxivId = normalizeArxivId(
     entry.arxivId
@@ -149,7 +150,9 @@ function normalizePaper(key, input = {}) {
     ...(key ? {key: String(key)} : {}),
     type: text(entry.type).toLowerCase() || 'misc',
     title: text(entry.title),
-    author: normalizeAuthors(entry.author),
+    authors,
+    // Compatibility alias for consumers that still use BibTeX's singular name.
+    author: authors,
     year: Number.isFinite(year) ? year : null,
     venue: text(entry.venue),
     doi,
@@ -167,6 +170,7 @@ function paperForStorage(input) {
     schema: paper.schema,
     type: paper.type,
     title: paper.title,
+    authors: paper.authors,
     author: paper.author,
     year: paper.year,
     venue: paper.venue,

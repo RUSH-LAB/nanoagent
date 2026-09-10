@@ -339,7 +339,7 @@ describe('POST /api/references', () => {
     assert.equal(r.status, 201);
     assert.equal(r.payload.success, true);
     assert.equal(r.payload.key, 'new2024');
-    assert.equal(r.payload.entry.schema, 'mochi.paper/1');
+    assert.equal(r.payload.entry.schema, 'mochi.paper/2');
     assert.equal(counts.write, 0);
     // The write capability drops the server's content-derived caches; the
     // plugin never names them.
@@ -426,7 +426,7 @@ describe('GET /api/metadata/search', () => {
     assert.equal(r.payload.merged.year, 2017);
     // The merge strips the source discriminator.
     assert.equal('source' in r.payload.merged, false);
-    assert.equal(r.payload.paper.schema, 'mochi.paper/1');
+    assert.equal(r.payload.paper.schema, 'mochi.paper/2');
     assert.equal(r.payload.paper.source.type, 'doi');
     assert.equal(r.payload.paper.source.provider, 'crossref');
     assert.equal(r.payload.paper.officialUrl, 'https://doi.org/10.1/x');
@@ -503,7 +503,7 @@ describe('GET /api/references/enrich', () => {
     assert.equal(r.status, 200);
     assert.equal(r.payload.key, 'withTitle');
     assert.equal(r.payload.current.title, REFS.withTitle.title);
-    assert.equal(r.payload.current.schema, 'mochi.paper/1');
+    assert.equal(r.payload.current.schema, 'mochi.paper/2');
     assert.equal(r.payload.sources.semanticScholar.tldr, 'summary');
     assert.equal(r.payload.sources.crossref.publisher, 'Pub');
     assert.deepEqual(r.payload.sources.dblp.authors, ['Ada Lovelace']);
@@ -600,7 +600,7 @@ describe('GET /api/references', () => {
     const r = await invoke(routes, {plugin: BIBLIOGRAPHY, path: '/api/references', ctx});
     assert.equal(r.status, 200);
     assert.equal(r.payload.references.smith2020.title, 'A Paper');
-    assert.equal(r.payload.references.smith2020.schema, 'mochi.paper/1');
+    assert.equal(r.payload.references.smith2020.schema, 'mochi.paper/2');
     assert.deepEqual(r.payload.references.smith2020.tags, []);
     assert.equal(r.payload.references.smith2020.source.type, 'manual');
   });
@@ -710,7 +710,7 @@ describe('PATCH /api/references/:key', () => {
     assert.equal(r.payload.entry.officialUrl, 'https://doi.org/10.1/paper');
     assert.equal(r.payload.entry.pdfUrl, 'https://example.test/paper.pdf');
     const saved = storedPapers(ctx);
-    assert.equal(saved.paper2024.schema, 'mochi.paper/1');
+    assert.equal(saved.paper2024.schema, 'mochi.paper/2');
     assert.deepEqual(saved.paper2024.tags, ['Theory', 'Read next']);
   });
 

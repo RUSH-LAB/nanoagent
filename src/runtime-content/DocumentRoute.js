@@ -1,6 +1,7 @@
 import React, {Suspense, lazy, useCallback, useEffect, useState} from 'react';
 import clsx from 'clsx';
 import {useLocation} from '@docusaurus/router';
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Link from '@docusaurus/Link';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import Layout from '@theme/Layout';
@@ -19,6 +20,65 @@ import RuntimeDocItem from './RuntimeDocItem';
 import styles from './documentRoute.module.css';
 
 const DocumentEditor = lazy(() => import('./DocumentEditor'));
+
+const HOME_TOOLS = Object.freeze([
+  {
+    id: 'bibliography',
+    title: 'Bibliography',
+    description: 'Collect papers, organize sources, and manage citations.',
+    path: 'bibliography',
+    keywords: ['bib', 'bibliography', 'citation', 'citations', 'paper', 'papers', 'reference', 'references'],
+  },
+]);
+
+function ToolSearch({workspaceSlug}) {
+  const [query, setQuery] = useState('');
+  const workspaceRoot = `/w/${encodeURIComponent(workspaceSlug)}`;
+  const normalized = query.trim().toLowerCase();
+  const matches = normalized
+    ? HOME_TOOLS.filter(tool => tool.keywords.some(keyword => keyword.includes(normalized)))
+    : [];
+
+  const openFirst = (event) => {
+    event.preventDefault();
+    if (matches[0]) navigateClient(`${workspaceRoot}/${matches[0].path}`);
+  };
+
+  return (
+    <section className={styles.toolSearch} aria-label="Find a tool">
+      <form className={styles.toolSearchBar} role="search" onSubmit={openFirst}>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m16.5 16.5 4 4" />
+        </svg>
+        <input
+          type="search"
+          value={query}
+          onChange={event => setQuery(event.target.value)}
+          placeholder="Search tools"
+          aria-label="Search workspace tools"
+          autoComplete="off"
+          autoFocus
+        />
+      </form>
+
+      {normalized && (
+        <div className={styles.toolResults} aria-live="polite">
+          {matches.map(tool => (
+            <Link key={tool.id} className={styles.toolResult} to={`${workspaceRoot}/${tool.path}`}>
+              <span>
+                <strong>{tool.title}</strong>
+                <small>{tool.description}</small>
+              </span>
+              <span aria-hidden="true">→</span>
+            </Link>
+          ))}
+          {matches.length === 0 && <p>No tools match “{query.trim()}”.</p>}
+        </div>
+      )}
+    </section>
+  );
+}
 
 /**
  * A page, fetched and rendered when somebody asks for it.
@@ -138,6 +198,7 @@ function sidebarTree(documents, prefix, workspaceSlug) {
 }
 
 function DocumentBody({workspaceSlug, documentPath}) {
+  const {siteConfig} = useDocusaurusContext();
   const [state, setState] = useState({status: LOADING});
   const [editing, setEditing] = useState(false);
 
@@ -322,7 +383,13 @@ function DocumentBody({workspaceSlug, documentPath}) {
     const workspaceTitle = state.site?.site?.title || state.workspaceName;
     return (
       <Layout title={workspaceTitle}>
-        <main className={styles.workspaceHome}><h1>{workspaceTitle}</h1></main>
+        <main className={styles.workspaceHome}>
+          <header className={styles.workspaceWelcome}>
+            <h1>{siteConfig.title}</h1>
+            {workspaceTitle !== siteConfig.title && <p>{workspaceTitle}</p>}
+          </header>
+          <ToolSearch workspaceSlug={state.workspaceSlug} />
+        </main>
       </Layout>
     );
   }

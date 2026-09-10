@@ -13,7 +13,7 @@ const {
   isIntegrationTestPaper,
 } = require('../../../../../plugins/bibliography/lib/protocol.js');
 
-describe('Mochi Paper Protocol v1', () => {
+describe('Mochi Paper Protocol v2', () => {
   it('upgrades an old arXiv entry into the canonical shape', () => {
     const paper = normalizePaper('vaswani2017', {
       title: 'Attention Is All You Need',
@@ -25,6 +25,7 @@ describe('Mochi Paper Protocol v1', () => {
 
     assert.equal(paper.schema, PAPER_SCHEMA);
     assert.equal(paper.key, 'vaswani2017');
+    assert.deepEqual(paper.authors, ['Ashish Vaswani']);
     assert.equal(paper.arxivId, '1706.03762');
     assert.deepEqual(paper.source, {
       type: 'arxiv',
@@ -35,6 +36,15 @@ describe('Mochi Paper Protocol v1', () => {
     assert.equal(paper.officialUrl, 'https://arxiv.org/abs/1706.03762');
     assert.equal(paper.pdfUrl, 'https://arxiv.org/pdf/1706.03762.pdf');
     assert.deepEqual(paper.tags, ['Transformers', 'Foundational']);
+  });
+
+  it('uses plural authors as the canonical field while accepting legacy author input', () => {
+    const canonical = normalizePaper('paper', {
+      title: 'Paper', authors: ['Ada Lovelace'], year: 1843, venue: 'Notes',
+    });
+    assert.deepEqual(canonical.authors, ['Ada Lovelace']);
+    assert.deepEqual(canonical.author, canonical.authors);
+    assert.deepEqual(paperForStorage(canonical).authors, ['Ada Lovelace']);
   });
 
   it('keeps the official page separate from a directly viewable PDF', () => {

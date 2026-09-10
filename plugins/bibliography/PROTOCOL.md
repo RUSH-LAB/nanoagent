@@ -1,12 +1,12 @@
-# Mochi Paper Protocol v1
+# Mochi Paper Protocol v2
 
-Every bibliography entry uses the schema identifier `mochi.paper/1`.
+Every bibliography entry uses the schema identifier `mochi.paper/2`.
 
 ```yaml
-schema: mochi.paper/1
+schema: mochi.paper/2
 type: article
 title: Attention Is All You Need
-author:
+authors:
   - Ashish Vaswani
 year: 2017
 venue: NeurIPS
@@ -24,8 +24,12 @@ tags:
   - foundational
 ```
 
-Required fields are `schema`, `title`, `author`, `source`, and `tags`. Citation
-fields use familiar BibTeX names so the format remains easy to edit and export.
+The primary bibliographic fields are `title`, `authors`, `year`, and `venue`.
+Every normalized paper contains all four: `authors` is always an array, `year`
+is an integer or `null`, and the text fields are strings. `schema`, `source`,
+and `tags` are also present on every record. The legacy BibTeX-style `author`
+field is accepted on input and returned as a compatibility alias while callers
+migrate to `authors`.
 
 `source` records where the identity or metadata came from. Its `type` is one of
 `doi`, `arxiv`, `publisher`, `url`, `bibtex`, or `manual`. `officialUrl` is the
@@ -36,9 +40,9 @@ separate: a DOI page is usually official but is not itself a PDF.
 Tags are workspace-defined strings. They are trimmed, deduplicated without
 regard to case, and kept in their first-entered display form.
 
-Older entries remain valid input. The plugin derives the new fields from
-`doi`, `arxivId`, and `url` at read time, so adopting the protocol does not
-require rewriting an existing bibliography.
+Older entries remain valid input. The plugin derives `authors` from `author`
+and the source fields from `doi`, `arxivId`, and `url` at read time, so adopting
+the protocol does not require rewriting an existing bibliography.
 
 ## Organization storage
 

@@ -52,9 +52,10 @@ function sanitizePaperInput(entry, sanitize) {
     else if (entry[field] != null) clean[field] = entry[field];
   }
   if (entry.year != null) clean.year = entry.year;
-  clean.author = Array.isArray(entry.author)
-    ? entry.author.slice(0, 50).map(value => sanitize(String(value)).slice(0, 500))
-    : entry.author;
+  const authors = entry.authors ?? entry.author;
+  clean.authors = Array.isArray(authors)
+    ? authors.slice(0, 50).map(value => sanitize(String(value)).slice(0, 500))
+    : authors;
   clean.tags = Array.isArray(entry.tags)
     ? entry.tags.slice(0, 50).map(value => sanitize(String(value)).slice(0, 80))
     : [];
@@ -382,12 +383,13 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
       if (!refs[citationKey]) return respond(res, 404, {error: `Reference "${citationKey}" not found`});
 
       // Merge the selected fields into the existing reference
-      const allowedFields = ['title', 'author', 'year', 'venue', 'doi', 'arxivId', 'url', 'volume', 'issue', 'pages', 'publisher', 'type', 'citationCount', 'referenceCount', 'tldr'];
+      const allowedFields = ['title', 'authors', 'author', 'year', 'venue', 'doi', 'arxivId', 'url', 'volume', 'issue', 'pages', 'publisher', 'type', 'citationCount', 'referenceCount', 'tldr'];
       for (const [field, value] of Object.entries(fields)) {
         if (allowedFields.includes(field) && value != null) {
-          if (typeof value === 'string') refs[citationKey][field] = sanitize(value).slice(0, 5000);
-          else if (Array.isArray(value)) refs[citationKey][field] = value.slice(0, 50).map(v => typeof v === 'string' ? sanitize(v).slice(0, 500) : v);
-          else refs[citationKey][field] = value;
+          const targetField = field === 'author' ? 'authors' : field;
+          if (typeof value === 'string') refs[citationKey][targetField] = sanitize(value).slice(0, 5000);
+          else if (Array.isArray(value)) refs[citationKey][targetField] = value.slice(0, 50).map(v => typeof v === 'string' ? sanitize(v).slice(0, 500) : v);
+          else refs[citationKey][targetField] = value;
         }
       }
 
@@ -445,7 +447,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
             key,
             paper.title,
             paper.venue,
-            ...(paper.author || []),
+            ...(paper.authors || paper.author || []),
             ...(paper.tags || []),
           ].some(value => String(value || '').toLocaleLowerCase().includes(query)))
           .sort(([, a], [, b]) =>
@@ -664,7 +666,8 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
       if (!body || typeof body !== 'object' || Array.isArray(body)) return respond(res, 400, {error: 'Invalid paper'});
       const refs = await readPapers();
       if (!Object.prototype.hasOwnProperty.call(refs, citationKey)) return respond(res, 404, {error: 'Reference not found'});
-      const sanitized = sanitizePaperInput({...refs[citationKey], ...body}, sanitize);
+      const patch = body.authors == null && body.author != null ? {...body, authors: body.author} : body;
+      const sanitized = sanitizePaperInput({...refs[citationKey], ...patch}, sanitize);
       const {paper, errors} = validatePaper(sanitized);
       if (errors.length) return respond(res, 400, {error: errors.join('; ')});
       const stored = paperForStorage(paper);
@@ -939,7 +942,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
           const entry = paperForStorage({
             type: mapBibtexEntryType(entryType),
             title: sanitize(fields.title || ''),
-            author: parseBibtexAuthors(fields.author),
+            authors: parseBibtexAuthors(fields.author),
             year: fields.year ? parseInt(fields.year, 10) || null : null,
             venue: fields.journal || fields.booktitle || '',
             doi: fields.doi,
