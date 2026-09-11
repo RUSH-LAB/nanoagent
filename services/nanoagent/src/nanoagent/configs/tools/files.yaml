@@ -1,4 +1,0 @@
-# read / write / edit, scoped to the process CWD (nanoagent.core.workspace).
-code: nanoagent.tools.file
-root: "."
-provenance: null   # a path here appends one JSONL row per write/edit

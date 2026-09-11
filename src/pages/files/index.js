@@ -5,6 +5,7 @@ import Layout from '@theme/Layout';
 import {useLocation} from '@docusaurus/router';
 import API_BASE, {apiFetch, invalidateApiJson} from '@site/src/utils/api';
 import {loadWorkspaces, workspaceSlugFromPath} from '@site/src/utils/workspaces';
+import {clientPlatform} from '@site/src/platform/client';
 import SafeDocument from '@site/src/runtime-content/SafeDocument';
 import pageStyles from '@site/src/css/page.module.css';
 import styles from './styles.module.css';
@@ -155,7 +156,7 @@ function FileManager() {
   }, [apiRoot, assetRoot, location.search]);
 
   const select = useCallback(path => {
-    if (dirty && !window.confirm('Discard your unsaved changes?')) return;
+    if (dirty && !clientPlatform.dialogs.confirm('Discard your unsaved changes?')) return;
     setSelectedPath(path);
   }, [dirty]);
 
@@ -222,7 +223,7 @@ function FileManager() {
 
   const createDocument = useCallback(async () => {
     if (!apiRoot || !canEdit) return;
-    const value = window.prompt('New document path', 'notes/new-page.md')?.trim();
+    const value = clientPlatform.dialogs.prompt('New document path', 'notes/new-page.md')?.trim();
     if (!value) return;
     const path = /\.mdx?$/i.test(value) ? value : `${value}.md`;
     setBusy(true);
@@ -245,7 +246,7 @@ function FileManager() {
 
   const renameDocument = useCallback(async () => {
     if (!apiRoot || !loadedPath || !canEdit) return;
-    const value = window.prompt('Move or rename document', loadedPath)?.trim();
+    const value = clientPlatform.dialogs.prompt('Move or rename document', loadedPath)?.trim();
     if (!value || value === loadedPath) return;
     const nextPath = /\.mdx?$/i.test(value) ? value : `${value}.md`;
     setBusy(true);
@@ -269,7 +270,7 @@ function FileManager() {
 
   const deleteDocument = useCallback(async () => {
     if (!apiRoot || !loadedPath || !canDelete) return;
-    if (!window.confirm(`Delete ${loadedPath}? Its saved versions will be retained until cleanup.`)) return;
+    if (!clientPlatform.dialogs.confirm(`Delete ${loadedPath}? Its saved versions will be retained until cleanup.`)) return;
     setBusy(true);
     setMessage(null);
     try {
@@ -316,7 +317,7 @@ function FileManager() {
   }, [assetFile, assetPath, assetRoot, canEdit]);
 
   const deleteAsset = useCallback(async path => {
-    if (!assetRoot || !canDelete || !window.confirm(`Delete asset ${path}?`)) return;
+    if (!assetRoot || !canDelete || !clientPlatform.dialogs.confirm(`Delete asset ${path}?`)) return;
     setBusy(true);
     try {
       await request(`${assetRoot}?path=${encodeURIComponent(path)}`, {method: 'DELETE'});

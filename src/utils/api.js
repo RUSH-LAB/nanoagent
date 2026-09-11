@@ -1,7 +1,25 @@
-/** Base URL for API requests. Empty string (same-origin) in production, localhost:3001 in dev. */
-const API_BASE = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-  ? ''  // Same origin on Vercel
-  : 'http://localhost:3001';
+import {clientPlatform} from '../platform/client.js';
+
+/**
+ * Base URL for API requests. A desktop shell can point the shared frontend at
+ * the hosted API without teaching feature code about its packaging.
+ */
+export function resolveApiBase({configured, hostname} = {}) {
+  if (typeof configured === 'string' && configured.trim()) {
+    return configured.trim().replace(/\/$/, '');
+  }
+  return hostname && hostname !== 'localhost' ? '' : 'http://localhost:3001';
+}
+
+const runtimeConfig = clientPlatform.runtimeConfig();
+const locationHostname = (() => {
+  const href = clientPlatform.location.href();
+  try { return href ? new URL(href).hostname : ''; } catch { return ''; }
+})();
+const API_BASE = resolveApiBase({
+  configured: runtimeConfig.apiBaseUrl,
+  hostname: locationHostname,
+});
 
 /** Whether `input` addresses our own API. */
 function isOwnApi(input) {
@@ -22,8 +40,7 @@ const workspaceIds = new Map();
 const jsonResponses = new Map();
 
 function currentWorkspaceSlug() {
-  if (typeof window === 'undefined') return null;
-  const match = /^\/w\/([^/]+)(?:\/|$)/.exec(window.location.pathname);
+  const match = /^\/w\/([^/]+)(?:\/|$)/.exec(clientPlatform.location.pathname());
   if (!match) return null;
   try { return decodeURIComponent(match[1]); } catch { return null; }
 }

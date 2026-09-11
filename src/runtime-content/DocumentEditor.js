@@ -1,5 +1,6 @@
 import React, {Suspense, lazy, useCallback, useEffect, useMemo, useState} from 'react';
 import API_BASE, {apiFetch, invalidateApiJson} from '@site/src/utils/api';
+import {clientPlatform} from '@site/src/platform/client';
 import SafeDocument from './SafeDocument';
 import styles from './documentEditor.module.css';
 
@@ -29,7 +30,7 @@ async function request(path, init) {
 
 function recoverDraft(key, markdown, updatedAt) {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(key));
+    const saved = JSON.parse(clientPlatform.storage.getItem(key));
     if (saved?.baseUpdatedAt === updatedAt && typeof saved.markdown === 'string' && saved.markdown !== markdown) {
       return saved.markdown;
     }
@@ -77,12 +78,12 @@ export default function DocumentEditor({
 
   useEffect(() => {
     if (!dirty) {
-      window.localStorage.removeItem(storageKey);
+      clientPlatform.storage.removeItem(storageKey);
       return undefined;
     }
     const timer = window.setTimeout(() => {
       try {
-        window.localStorage.setItem(storageKey, JSON.stringify({
+        clientPlatform.storage.setItem(storageKey, JSON.stringify({
           markdown: draft,
           baseUpdatedAt: baseline.updatedAt,
           savedAt: new Date().toISOString(),
@@ -154,7 +155,7 @@ export default function DocumentEditor({
       const next = {markdown: draft, updatedAt: data.document.updatedAt, tree: data.tree};
       setBaseline(next);
       setPreviewTree(data.tree);
-      window.localStorage.removeItem(storageKey);
+      clientPlatform.storage.removeItem(storageKey);
       setMessage({kind: 'success', text: `Saved version ${data.version}.`});
       onSaved({document: nextDocument, markdown: draft, tree: data.tree, frontmatter: data.frontmatter || {}});
     } catch (error) {
@@ -176,13 +177,13 @@ export default function DocumentEditor({
   }, [save]);
 
   const close = () => {
-    if (dirty && !window.confirm('Discard your unsaved changes?')) return;
-    if (dirty) window.localStorage.removeItem(storageKey);
+    if (dirty && !clientPlatform.dialogs.confirm('Discard your unsaved changes?')) return;
+    if (dirty) clientPlatform.storage.removeItem(storageKey);
     onCancel();
   };
 
   const reloadLatest = async () => {
-    if (!window.confirm('Replace this draft with the latest saved version?')) return;
+    if (!clientPlatform.dialogs.confirm('Replace this draft with the latest saved version?')) return;
     setSaving(true);
     try {
       const data = await request(`${apiRoot}?path=${encodeURIComponent(document.path)}`);
@@ -190,7 +191,7 @@ export default function DocumentEditor({
       setBaseline(next);
       setDraft(data.markdown);
       setPreviewTree(data.tree);
-      window.localStorage.removeItem(storageKey);
+      clientPlatform.storage.removeItem(storageKey);
       setMessage({kind: 'notice', text: 'Loaded the latest saved version.'});
       onSaved({document: {...document, ...data.document}, markdown: data.markdown, tree: data.tree, frontmatter: data.frontmatter || {}});
     } catch (error) {

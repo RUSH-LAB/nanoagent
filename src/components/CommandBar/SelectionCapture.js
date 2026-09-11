@@ -1,6 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {formatSharedSelection, selectionContextFrom, sourceLocationFromRange} from './selectionContext';
 import {CONTEXT_SELECTION_EVENT} from './contextSelectionEvent';
+import {clientPlatform} from '@site/src/platform/client';
 import styles from './selectionCapture.module.css';
 
 /** Floating action shown beside selected page text. */
@@ -80,7 +81,7 @@ export default function SelectionCapture({onCopy}) {
 
   const copy = () => {
     onCopy(selection.context);
-    navigator.clipboard?.writeText(formatSharedSelection('', selection.context)).catch(() => {});
+    clientPlatform.clipboard.writeText(formatSharedSelection('', selection.context)).catch(() => {});
     setSelection(null);
   };
 

@@ -5,6 +5,7 @@ import {useLocation} from '@docusaurus/router';
 import API_BASE, {apiFetch} from '@site/src/utils/api';
 import {loadWorkspaces, workspaceSlugFromPath} from '@site/src/utils/workspaces';
 import {openConversation} from '@site/src/components/CommandBar/openConversation';
+import {clientPlatform} from '@site/src/platform/client';
 import pageStyles from '@site/src/css/page.module.css';
 import dir from '@site/src/css/directory.module.css';
 import RowMenu from '@site/src/components/RowMenu';
@@ -205,7 +206,7 @@ function People() {
   const remove = (person) => {
     // Removal is not undoable from this page: readmitting someone is an invite,
     // and their channel membership does not come back with them.
-    const sure = window.confirm(
+    const sure = clientPlatform.dialogs.confirm(
       `Remove ${person.username} from ${organization?.name}?\n\n` +
       'They lose access to every channel here. What they have already said stays.',
     );

@@ -32,9 +32,8 @@ path as production. Run `npm run db:postgres:setup` once before using it.
 The older `npm run start:postgres` command remains as an explicit alias for
 `npm start`.
 
-Open [http://localhost:3000](http://localhost:3000). NanoAgent is bundled in
-`services/nanoagent`; no adjacent checkout or second terminal is required. Set
-`NANOAGENT_URL` only when you intentionally want to use an external agent
-service.
+Open [http://localhost:3000](http://localhost:3000). By default, the supervisor
+uses the adjacent `../nanoagent` checkout. Set `NANOAGENT_PROJECT_DIR` to use a
+checkout elsewhere, or `NANOAGENT_URL` to use an already-running agent service.
 
 See [repository commands and local setup](scripts/README.md) or the [documentation index](docs/README.md).

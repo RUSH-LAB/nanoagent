@@ -13,6 +13,7 @@
  * being dragged.
  */
 import {useCallback, useEffect, useRef, useState} from 'react';
+import {clientPlatform} from '@site/src/platform/client';
 
 /* Pane geometry. The height is the user's to set, so it is remembered across
    visits and clamped to something usable on any viewport. */
@@ -43,11 +44,7 @@ const COARSE_STEP_PX = 64;
 const maxHeight = () => Math.round(window.innerHeight * 0.8);
 
 function storedCollapsed() {
-  try {
-    return localStorage.getItem(COLLAPSED_KEY) === '1';
-  } catch {
-    return false;
-  }
+  return clientPlatform.storage.getItem(COLLAPSED_KEY) === '1';
 }
 
 /** Never taller than most of the viewport, never shorter than one usable pane. */
@@ -105,15 +102,11 @@ export default function useGeometry() {
   useEffect(() => {
     let startCollapsed = storedCollapsed();
     let startHeight = DEFAULT_HEIGHT;
-    try {
-      // Shown unless it has been closed, so the conversations are there to be
-      // found rather than behind a control nobody knows about.
-      setRailOpenState(localStorage.getItem(RAIL_KEY) !== '0');
-      const saved = Number.parseInt(localStorage.getItem(HEIGHT_KEY), 10);
-      if (Number.isFinite(saved)) startHeight = clampHeight(saved);
-    } catch {
-      /* storage unavailable (private mode); the defaults are fine */
-    }
+    // Shown unless it has been closed, so the conversations are there to be
+    // found rather than behind a control nobody knows about.
+    setRailOpenState(clientPlatform.storage.getItem(RAIL_KEY) !== '0');
+    const saved = Number.parseInt(clientPlatform.storage.getItem(HEIGHT_KEY), 10);
+    if (Number.isFinite(saved)) startHeight = clampHeight(saved);
     heightRef.current = startHeight;
     setHeight(startHeight);
     setCollapsedState(startCollapsed);
@@ -159,20 +152,12 @@ export default function useGeometry() {
   const setCollapsed = useCallback((next) => {
     setCollapsedState(next);
     publishFootprint(next, heightRef.current);
-    try {
-      localStorage.setItem(COLLAPSED_KEY, next ? '1' : '0');
-    } catch {
-      /* non-fatal: the state just will not persist */
-    }
+    clientPlatform.storage.setItem(COLLAPSED_KEY, next ? '1' : '0');
   }, [publishFootprint]);
 
   const setRailOpen = useCallback((next) => {
     setRailOpenState(next);
-    try {
-      localStorage.setItem(RAIL_KEY, next ? '1' : '0');
-    } catch {
-      /* non-fatal: the choice just will not persist */
-    }
+    clientPlatform.storage.setItem(RAIL_KEY, next ? '1' : '0');
   }, []);
 
   /* ── Resizing the top edge ────────────────────────────────────── */
@@ -185,11 +170,7 @@ export default function useGeometry() {
     heightRef.current = h;
     setHeight(h);
     publishFootprint(collapsed, h);
-    try {
-      localStorage.setItem(HEIGHT_KEY, String(h));
-    } catch {
-      /* non-fatal: the height just will not persist */
-    }
+    clientPlatform.storage.setItem(HEIGHT_KEY, String(h));
   }, [collapsed, publishFootprint]);
 
   const startDrag = useCallback((e) => {

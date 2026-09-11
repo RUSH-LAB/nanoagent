@@ -8,7 +8,8 @@ details grouped by responsibility.
 
 Prerequisites are Node.js 22.19+, npm, Python 3.12, and `uv`. PostgreSQL mode also
 requires access to an isolated Mochi Lab Neon development branch. Local
-PostgreSQL, Docker, and a separate NanoAgent checkout are not required.
+PostgreSQL and Docker are not required. Clone NanoAgent beside this repository,
+or set `NANOAGENT_PROJECT_DIR` to its checkout path.
 
 Install the JavaScript dependencies and prepare the Neon branch:
 
@@ -70,18 +71,18 @@ OPENROUTER_API_KEY=...
 Start the complete local stack with one command:
 
 ```bash
-npm start                 # bundled NanoAgent + API + site, prepared Neon branch
+npm start                 # adjacent NanoAgent checkout + API + site, prepared Neon branch
 npm run start:postgres    # explicit alias for npm start
 ```
 
 PostgreSQL is the normal development path and source of truth.
 
 The supervisor installs NanoAgent's Python dependencies with `uv` on its first
-run, prepares the bundled PI runner when needed, and stops every process
-together on Ctrl+C. Mochi connects to the bundled service at
-`http://127.0.0.1:8787`. Set `NANOAGENT_URL` and
-`NANOAGENT_API_TOKEN` to use another service, or `NANOAGENT_URL=off` to disable
-AI. The sole model currently exposed by Mochi is
+run, prepares its PI runner when needed, and stops every process together on
+Ctrl+C. Mochi uses the adjacent `../nanoagent` checkout by default and connects
+to it at `http://127.0.0.1:8787`. Set `NANOAGENT_PROJECT_DIR` for a checkout in
+another location, set `NANOAGENT_URL` and `NANOAGENT_API_TOKEN` to use an
+already-running service, or set `NANOAGENT_URL=off` to disable AI. The sole model currently exposed by Mochi is
 `deepseek/deepseek-v4-flash-0731`.
 
 ## `db/`
@@ -122,9 +123,8 @@ Manual verification, repair, or cleanup commands:
 - `verify-nanoagent.mjs` starts a real NanoAgent web process against a local
   deterministic fake model and verifies Mochi's private streaming contract.
 
-Run the agent check with `npm run nanoagent:verify`. It expects the NanoAgent
-service bundled at `services/nanoagent`, or the project at
-`NANOAGENT_PROJECT_DIR` when set.
+Run the agent check with `npm run nanoagent:verify`. It expects an adjacent
+`../nanoagent` checkout, or the project at `NANOAGENT_PROJECT_DIR` when set.
 
 ## `dev/`
 

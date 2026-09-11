@@ -61,7 +61,7 @@ function Join() {
       return;
     }
     // Who, if anyone, is signed in here. Required here rather than imported so
-    // the auth client, which reaches for localStorage, never runs at build time.
+    // the auth client, which initializes browser-only state, never runs at build time.
     try {
       const {authClient} = require('@site/src/utils/authClient');
       const session = await authClient.getSession();

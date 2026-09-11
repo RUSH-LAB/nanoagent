@@ -3,6 +3,7 @@ import Link from '@docusaurus/Link';
 import {useLocation} from '@docusaurus/router';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {signOutAndForget} from '@site/src/utils/authClient';
+import {clientPlatform} from '@site/src/platform/client';
 import styles from './styles.module.css';
 
 /**
@@ -79,7 +80,7 @@ export default function UserButton({ mobile = false }) {
     try {
       await signOutAndForget();
     } finally {
-      window.location.assign('/');
+      clientPlatform.location.assign('/');
     }
   };
 

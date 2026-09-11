@@ -6,8 +6,9 @@ import path from 'node:path';
 import {
   environmentFor,
   modeFrom,
+  nanoagentProjectFrom,
   portIsAvailable,
-  usesBundledNanoAgent,
+  usesLocalNanoAgent,
 } from '../../../scripts/dev/start-local.mjs';
 
 describe('local process supervisor configuration', () => {
@@ -60,10 +61,11 @@ describe('local process supervisor configuration', () => {
     }
   });
 
-  it('starts the bundled NanoAgent unless an endpoint is explicitly configured', () => {
-    assert.equal(usesBundledNanoAgent({}), true);
-    assert.equal(usesBundledNanoAgent({NANOAGENT_URL: ''}), true);
-    assert.equal(usesBundledNanoAgent({NANOAGENT_URL: 'off'}), false);
-    assert.equal(usesBundledNanoAgent({NANOAGENT_URL: 'https://agent.internal'}), false);
+  it('starts the local NanoAgent checkout unless an endpoint is explicitly configured', () => {
+    assert.equal(usesLocalNanoAgent({}), true);
+    assert.equal(usesLocalNanoAgent({NANOAGENT_URL: ''}), true);
+    assert.equal(usesLocalNanoAgent({NANOAGENT_URL: 'off'}), false);
+    assert.equal(usesLocalNanoAgent({NANOAGENT_URL: 'https://agent.internal'}), false);
+    assert.equal(nanoagentProjectFrom({NANOAGENT_PROJECT_DIR: '/tmp/nanoagent'}), '/tmp/nanoagent');
   });
 });

@@ -1,2 +1,0 @@
-# A shell. NOT a sandbox: the command runs as the same user, on this host.
-code: nanoagent.tools.bash

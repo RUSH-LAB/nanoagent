@@ -18,6 +18,7 @@ import API_BASE, {apiFetch, invalidateApiJson} from '@site/src/utils/api';
 import {workspaceDocumentHref} from '@site/src/utils/documentUrls';
 import {navigateClient} from '@site/src/utils/workspaces';
 import {newDocumentDraft, slugifyDocumentTitle} from '@site/src/utils/documentAuthoring';
+import {clientPlatform} from '@site/src/platform/client';
 import {replaceCollectionType, saveWorkspaceCollections} from '@site/src/utils/workspaceSiteEditor';
 import styles from './styles.module.css';
 
@@ -99,7 +100,7 @@ function BookSwitcher(): ReactNode {
   };
 
   const addBook = async () => {
-    const title = window.prompt('New book name')?.trim();
+    const title = clientPlatform.dialogs.prompt('New book name')?.trim();
     if (!title) return;
     const base = slugifyDocumentTitle(title) || 'book';
     const keys = new Set((site?.collections ?? []).map(collection => collection.key));

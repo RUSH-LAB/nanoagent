@@ -20,6 +20,8 @@ The completed workspace rendering migration is recorded in the
 [workspace content and Docusaurus rendering plan](plans/completed/workspace-content-and-rendering.md).
 The NanoAgent integration and the production path for hosted LLM agents
 are tracked in the [LLM agent platform plan](plans/llm-agent-platform.md).
+The shared web/desktop boundary and staged packaging work are described in
+[desktop readiness](desktop-readiness.md).
 Production deployment is intentionally
 [on hold](plans/on-hold/production-readiness.md).
 The runtime-content migration investigation is documented in

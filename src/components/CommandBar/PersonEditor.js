@@ -1,4 +1,5 @@
 import React, {useEffect, useState} from 'react';
+import {clientPlatform} from '@site/src/platform/client';
 import styles from './agentEditor.module.css';
 
 const ROLES = ['owner', 'editor', 'viewer'];
@@ -37,7 +38,7 @@ export default function PersonEditor({person, chat, onClose}) {
 
   const remove = async () => {
     if (!canManage) return;
-    if (!window.confirm(`Remove ${labelOf(person)} from this workspace?`)) return;
+    if (!clientPlatform.dialogs.confirm(`Remove ${labelOf(person)} from this workspace?`)) return;
     setBusy(true);
     setError(null);
     try {

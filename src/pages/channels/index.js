@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import API_BASE, {apiFetch} from '@site/src/utils/api';
 import {openConversation} from '@site/src/components/CommandBar/openConversation';
+import {clientPlatform} from '@site/src/platform/client';
 import RowMenu from '@site/src/components/RowMenu';
 import pageStyles from '@site/src/css/page.module.css';
 import dir from '@site/src/css/directory.module.css';
@@ -122,7 +123,7 @@ function Channels() {
     // The only irreversible thing on this page, so it asks for the name rather
     // than for a click: an archive is one keystroke away and does almost the
     // same job.
-    const typed = window.prompt(
+    const typed = clientPlatform.dialogs.prompt(
       `Deleting #${channel.name} deletes every message in it, for everyone, permanently.\n\n` +
       'Archiving keeps them and hides the channel instead.\n\n' +
       `Type the channel name to delete it:`,

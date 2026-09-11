@@ -59,8 +59,8 @@ Railway will use `railway.toml` and the root `Dockerfile`. Add every value from
 the database, authentication, and email configuration described above to the
 service variables; do not upload `.env.production.local`.
 
-Create a second, private service from this repository with its root directory
-set to `services/nanoagent`. Run `nanoagent web` with a web config that binds
+Create a second, private service from the standalone NanoAgent repository. Run
+`nanoagent web` with a web config that binds
 `0.0.0.0:$PORT`, reads
 `NANOAGENT_API_TOKEN` from the environment, and keeps `tools: []` for the first
 release. Install the `nanoagent[hermes]` extra to enable Hermes profiles and

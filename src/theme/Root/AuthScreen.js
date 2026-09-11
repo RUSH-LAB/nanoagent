@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {authClient} from '@site/src/utils/authClient';
 import API_BASE from '@site/src/utils/api';
+import {clientPlatform} from '@site/src/platform/client';
 import styles from './authScreen.module.css';
 
 /**
@@ -43,7 +44,7 @@ export default function AuthScreen({ devAutoLogin = false, googleAuthEnabled = f
       if (!res.ok) {
         throw new Error(body.error || 'Development sign-in was refused.');
       }
-      window.location.reload();
+      clientPlatform.location.reload();
     } catch (err) {
       setError(
         err?.message?.includes('fetch')
@@ -67,7 +68,7 @@ export default function AuthScreen({ devAutoLogin = false, googleAuthEnabled = f
         setError(result.error.message || 'Something went wrong. Please try again.');
         return;
       }
-      window.location.reload();
+      clientPlatform.location.reload();
     } catch (err) {
       setError(err?.message || 'Could not reach the API server. Is it running on port 3001?');
     } finally {
@@ -81,7 +82,7 @@ export default function AuthScreen({ devAutoLogin = false, googleAuthEnabled = f
     try {
       const result = await authClient.signIn.social({
         provider: 'google',
-        callbackURL: window.location.href,
+        callbackURL: clientPlatform.location.href(),
       });
       if (result?.error) setError(result.error.message || 'Google sign-in failed.');
     } catch (err) {

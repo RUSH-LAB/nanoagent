@@ -7,6 +7,7 @@ import useWorkspaceSubscriptions, {
   isGroupSubscribed, orderByPreference,
 } from '@site/src/hooks/useWorkspaceSubscriptions';
 import {saveWorkspaceCollections} from '@site/src/utils/workspaceSiteEditor';
+import {clientPlatform} from '@site/src/platform/client';
 import styles from './styles.module.css';
 
 function GroupIcon() {
@@ -86,10 +87,10 @@ function GroupSwitcher({navigation}) {
   };
 
   const addGroup = async () => {
-    const title = window.prompt('New group name')?.trim();
+    const title = clientPlatform.dialogs.prompt('New group name')?.trim();
     if (!title || navigation.groups.some(group => group.title.toLocaleLowerCase() === title.toLocaleLowerCase())) return;
     if (await saveGroups([...navigation.groups, {title, count: 0}])) {
-      window.location.assign(`${navigation.collectionHref}?group=${encodeURIComponent(title)}`);
+      clientPlatform.location.assign(`${navigation.collectionHref}?group=${encodeURIComponent(title)}`);
     }
   };
 

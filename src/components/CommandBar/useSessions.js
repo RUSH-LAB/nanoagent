@@ -8,6 +8,7 @@
  * manufacturing a new one as a side effect.
  */
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {clientPlatform} from '../../platform/client.js';
 
 const MAX_SESSIONS = 4;
 const SAVE_DEBOUNCE_MS = 400;
@@ -252,7 +253,7 @@ export default function useSessions(workspaceKey = 'unscoped') {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(scopedSessionsKey);
+      const raw = clientPlatform.storage.getItem(scopedSessionsKey);
       const restored = raw ? restoreSessionState(raw) : null;
       if (restored) {
         for (const session of restored.sessions) {
@@ -278,7 +279,7 @@ export default function useSessions(workspaceKey = 'unscoped') {
     if (!hydrated) return undefined;
     const timer = setTimeout(() => {
       try {
-        localStorage.setItem(scopedSessionsKey, serializeSessionState(paneSessions, chats, activeId));
+        clientPlatform.storage.setItem(scopedSessionsKey, serializeSessionState(paneSessions, chats, activeId));
       } catch {
         /* quota or private mode: the window simply will not be remembered */
       }

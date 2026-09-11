@@ -26,7 +26,7 @@ npm start
 ```
 
 PostgreSQL is the normal local development path and source of truth. The
-supervisor starts the website, API, and bundled NanoAgent together.
+supervisor starts the website, API, and adjacent NanoAgent checkout together.
 
 ## What has been completed for production
 

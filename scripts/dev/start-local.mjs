@@ -11,10 +11,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const localEnvFile = path.join(root, '.env.openrouter.local');
 const postgresEnvFile = path.join(root, '.env.postgres.local');
 const docusaurusCli = path.join(root, 'node_modules', '@docusaurus', 'core', 'bin', 'docusaurus.mjs');
-const nanoagentRoot = path.join(root, 'services', 'nanoagent');
 const nanoagentPort = 8787;
-const piRunnerRoot = path.join(nanoagentRoot, 'packages', 'pi-runner');
-const piRunnerEntry = path.join(piRunnerRoot, 'dist', 'index.js');
 
 export function modeFrom(argv) {
   const postgres = argv.includes('--postgres');
@@ -59,8 +56,12 @@ export function portIsAvailable(port, host = 'localhost') {
   });
 }
 
-export function usesBundledNanoAgent(env = process.env) {
+export function usesLocalNanoAgent(env = process.env) {
   return !env.NANOAGENT_URL?.trim();
+}
+
+export function nanoagentProjectFrom(env = process.env) {
+  return path.resolve(env.NANOAGENT_PROJECT_DIR || path.join(root, '..', 'nanoagent'));
 }
 
 function run(command, args, options) {
@@ -74,7 +75,9 @@ function run(command, args, options) {
   });
 }
 
-async function preparePiRunner(env) {
+async function preparePiRunner(env, nanoagentRoot) {
+  const piRunnerRoot = path.join(nanoagentRoot, 'packages', 'pi-runner');
+  const piRunnerEntry = path.join(piRunnerRoot, 'dist', 'index.js');
   const dependencies = path.join(piRunnerRoot, 'node_modules', '@earendil-works', 'pi-agent-core');
   const inputs = ['package.json', 'package-lock.json', 'tsconfig.json', 'src/index.ts']
     .map(file => path.join(piRunnerRoot, file));
@@ -111,17 +114,21 @@ export async function startLocal(argv = process.argv.slice(2)) {
     ? parseEnv(fs.readFileSync(localEnvFile, 'utf8'))
     : {};
   const env = environmentFor(mode, {base: {...localEnv, ...process.env}});
-  if (usesBundledNanoAgent(env) && !env.OPENROUTER_API_KEY?.trim()) {
-    throw new Error('Bundled NanoAgent requires OPENROUTER_API_KEY. Add it to .env.openrouter.local, then run npm start again.');
+  const nanoagentRoot = nanoagentProjectFrom(env);
+  if (usesLocalNanoAgent(env) && !fs.existsSync(path.join(nanoagentRoot, 'pyproject.toml'))) {
+    throw new Error(`NanoAgent checkout not found at ${nanoagentRoot}. Clone it beside Mochi or set NANOAGENT_PROJECT_DIR.`);
   }
-  if (usesBundledNanoAgent(env)) await preparePiRunner(env);
+  if (usesLocalNanoAgent(env) && !env.OPENROUTER_API_KEY?.trim()) {
+    throw new Error('Local NanoAgent requires OPENROUTER_API_KEY. Add it to .env.openrouter.local, then run npm start again.');
+  }
+  if (usesLocalNanoAgent(env)) await preparePiRunner(env, nanoagentRoot);
   const apiPort = validatedPort(env.EDITOR_PORT, 'EDITOR_PORT');
   const sitePort = validatedPort(env.SITE_PORT || 3000, 'SITE_PORT');
   if (apiPort === sitePort) {
     throw new Error('EDITOR_PORT and SITE_PORT must be different');
   }
   const ports = [apiPort, sitePort];
-  if (usesBundledNanoAgent(env)) ports.push(nanoagentPort);
+  if (usesLocalNanoAgent(env)) ports.push(nanoagentPort);
   const checks = await Promise.all(ports.map(port => portIsAvailable(port)));
   const occupied = ports.filter((_, index) => !checks[index]);
   if (occupied.length) {
@@ -135,7 +142,7 @@ export async function startLocal(argv = process.argv.slice(2)) {
     {name: 'API', child: spawn(process.execPath, ['src/server/index.js'], options(root))},
     {name: 'site', child: spawn(process.execPath, [docusaurusCli, 'start', '--no-open', '--port', String(sitePort)], options(root))},
   ];
-  if (usesBundledNanoAgent(env)) {
+  if (usesLocalNanoAgent(env)) {
     processes.unshift({
       name: 'NanoAgent',
       child: spawn('uv', [

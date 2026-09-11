@@ -1,3 +1,5 @@
+import {clientPlatform} from '../platform/client.js';
+
 // Copies heading anchor URLs to clipboard on click
 if (typeof document !== 'undefined') {
   document.addEventListener('click', (e) => {
@@ -5,12 +7,11 @@ if (typeof document !== 'undefined') {
     if (!link) return;
 
     e.preventDefault();
-    const url =
-      window.location.origin +
-      window.location.pathname +
+    const url = clientPlatform.location.origin() +
+      clientPlatform.location.pathname() +
       link.getAttribute('href');
 
-    navigator.clipboard.writeText(url).then(() => {
+    clientPlatform.clipboard.writeText(url).then(() => {
       // Show brief "Copied!" feedback
       const tip = document.createElement('span');
       tip.textContent = 'Copied!';

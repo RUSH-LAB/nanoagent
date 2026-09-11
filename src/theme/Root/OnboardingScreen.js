@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { idFromLink } from '@site/src/utils/invite';
 import { createWorkspace } from '@site/src/utils/workspaces';
+import {clientPlatform} from '@site/src/platform/client';
 import styles from './authScreen.module.css';
 
 /**
@@ -64,7 +65,7 @@ export default function OnboardingScreen({ user, onSignOut }) {
     }
     // The /join page does the accepting. It reads the invitation, says which
     // workspace and which address it is for, and is exempt from this gate.
-    window.location.assign(`/join?i=${encodeURIComponent(id)}`);
+    clientPlatform.location.assign(`/join?i=${encodeURIComponent(id)}`);
   }
 
   const label = user?.username || user?.name || user?.email || 'you';

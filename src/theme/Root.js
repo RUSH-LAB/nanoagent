@@ -3,6 +3,7 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import { useLocation } from '@docusaurus/router';
 import PageTracker from '@site/src/components/Analytics/PageTracker';
+import {clientPlatform} from '@site/src/platform/client';
 
 const CommandBar = lazy(() => import('@site/src/components/CommandBar'));
 const AuthScreen = lazy(() => import('@site/src/theme/Root/AuthScreen'));
@@ -133,7 +134,7 @@ function AuthGate({ children, devAutoLogin, googleAuthEnabled }) {
             user={user}
             onSignOut={() => import('@site/src/utils/authClient')
               .then(({signOutAndForget}) => signOutAndForget())
-              .then(() => window.location.reload())}
+              .then(() => clientPlatform.location.reload())}
           />
         </Deferred>
       );

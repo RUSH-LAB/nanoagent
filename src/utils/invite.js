@@ -6,10 +6,11 @@
  * instead. Both need the same URL, and a second spelling of it would be a link
  * that works from one page and not the other.
  */
+import {clientPlatform} from '../platform/client.js';
 
 /** Where an invitation is redeemed. Absolute, because it is meant to be pasted. */
 export function linkFor(invitationId) {
-  const origin = typeof window === 'undefined' ? '' : window.location.origin;
+  const origin = clientPlatform.location.origin();
   return `${origin}/join?i=${encodeURIComponent(invitationId)}`;
 }
 
@@ -46,7 +47,7 @@ export function idFromLink(text) {
 export async function copyLink(invitationId) {
   const link = linkFor(invitationId);
   try {
-    await navigator.clipboard.writeText(link);
+    await clientPlatform.clipboard.writeText(link);
     return {copied: true, link};
   } catch {
     return {copied: false, link};

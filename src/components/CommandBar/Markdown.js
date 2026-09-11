@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Highlight, Prism} from 'prism-react-renderer';
 import {parseMarkdown, settledLength} from '@site/src/utils/markdown';
+import {clientPlatform} from '@site/src/platform/client';
 import styles from './assistant.module.css';
 
 /**
@@ -113,7 +114,7 @@ function CodeBlock({lang, code}) {
   const copy = useCallback(async () => {
     let next = 'copied';
     try {
-      await navigator.clipboard.writeText(code);
+      await clientPlatform.clipboard.writeText(code);
     } catch {
       next = 'failed';
     }

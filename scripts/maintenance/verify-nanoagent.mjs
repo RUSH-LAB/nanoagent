@@ -3,8 +3,8 @@
 /**
  * Live contract check: Mochi adapter -> NanoAgent web host -> fake OpenAI API.
  *
- * No provider credential is used. By default this verifies the bundled
- * NanoAgent service; set NANOAGENT_PROJECT_DIR to verify another checkout.
+ * No provider credential is used. By default this verifies the adjacent
+ * NanoAgent checkout; set NANOAGENT_PROJECT_DIR to verify another checkout.
  */
 
 import assert from 'node:assert/strict';
@@ -20,7 +20,7 @@ import {fileURLToPath} from 'node:url';
 const require = createRequire(import.meta.url);
 const {createNanoAgentGateway} = require('../../src/server/ai.js');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const nanoagentProject = path.resolve(process.env.NANOAGENT_PROJECT_DIR || path.join(root, 'services/nanoagent'));
+const nanoagentProject = path.resolve(process.env.NANOAGENT_PROJECT_DIR || path.join(root, '..', 'nanoagent'));
 
 function listen(server) {
   return new Promise((resolve, reject) => {

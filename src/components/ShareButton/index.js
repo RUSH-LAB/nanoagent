@@ -1,6 +1,7 @@
 import React, {useState, useRef, useEffect} from 'react';
 import {toast} from '@site/src/components/Toast/toast';
 import {useClickOutside} from '@site/src/hooks/useClickOutside';
+import {clientPlatform} from '@site/src/platform/client';
 
 /**
  * ShareButton — sits next to BookmarkButton on doc pages.
@@ -29,7 +30,7 @@ export default function ShareButton({pageTitle, pagePath}) {
   }, [open]);
 
   function getUrl() {
-    return typeof window !== 'undefined' ? window.location.href : '';
+    return clientPlatform.location.href();
   }
 
   function citationKey() {
@@ -43,7 +44,7 @@ export default function ShareButton({pageTitle, pagePath}) {
 
   async function copyText(text, label) {
     try {
-      await navigator.clipboard.writeText(text);
+      await clientPlatform.clipboard.writeText(text);
       toast.success(`${label} copied!`);
     } catch {
       toast.error('Failed to copy to clipboard');

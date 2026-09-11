@@ -233,7 +233,7 @@ export default function AssistantTranscript({
   const {entries, busy} = session;
 
   // At most one row is ever pending: it is the answer currently being written.
-  // A row restored from localStorage cannot be one, because useSessions leaves
+  // A row restored from client storage cannot be one, because useSessions leaves
   // an in-flight row out of the snapshot and does not read the flag back, so a
   // reloaded window never shows a caret or a wait.
   const streaming = entries.find((entry) => entry.pending) ?? null;

@@ -15,6 +15,7 @@ import useWorkspaceSubscriptions, {
 } from '@site/src/hooks/useWorkspaceSubscriptions';
 import API_BASE, {apiFetch, apiJson, invalidateApiJson} from '@site/src/utils/api';
 import {loadWorkspaces, navigateClient} from '@site/src/utils/workspaces';
+import {clientPlatform} from '@site/src/platform/client';
 import {adjacentDocumentPosition, newDocumentDraft} from '@site/src/utils/documentAuthoring';
 import {
   WORKSPACE_CONTENT_CACHE_MS, workspaceContentPlan, workspaceHomeLayout,
@@ -549,7 +550,7 @@ function DocumentBody({
   const createDocument = useCallback(async (collection, adjacent = null, group = null) => {
     if (!state.workspaceId || (state.workspaceRole !== 'owner' && state.workspaceRole !== 'editor')) return;
     const type = collection?.type === 'blog' ? 'post' : 'page';
-    const title = window.prompt(`New ${type} title`)?.trim();
+    const title = clientPlatform.dialogs.prompt(`New ${type} title`)?.trim();
     if (!title) return;
     try {
       const directory = adjacent?.document.path.includes('/')
@@ -583,7 +584,7 @@ function DocumentBody({
   const deleteDocument = useCallback(async (document, collection) => {
     if (!state.workspaceId || state.workspaceRole !== 'owner') return;
     const type = collection?.type === 'blog' ? 'post' : 'page';
-    if (!window.confirm(`Delete ${type} “${document.title}”? It will be moved to trash.`)) return;
+    if (!clientPlatform.dialogs.confirm(`Delete ${type} “${document.title}”? It will be moved to trash.`)) return;
     try {
       const apiRoot = `/api/workspaces/${encodeURIComponent(state.workspaceId)}/documents`;
       await request(apiRoot, {

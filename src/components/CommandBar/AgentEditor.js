@@ -1,4 +1,5 @@
 import React, {useEffect, useState} from 'react';
+import {clientPlatform} from '@site/src/platform/client';
 import styles from './agentEditor.module.css';
 
 const emptyAgent = defaultProfile => ({
@@ -50,7 +51,7 @@ export default function AgentEditor({agent, profileCatalog, onSave, onDelete, on
   };
 
   const remove = async () => {
-    if (!agent || !window.confirm(`Delete ${agent.name} and its chat history?`)) return;
+    if (!agent || !clientPlatform.dialogs.confirm(`Delete ${agent.name} and its chat history?`)) return;
     setBusy(true);
     setError(null);
     try {

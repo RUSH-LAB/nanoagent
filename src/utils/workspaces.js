@@ -10,6 +10,7 @@
  * authority, which lets two tabs stay in different workspaces.
  */
 import API_BASE, { apiFetch, apiJson, invalidateApiJson } from './api.js';
+import {clientPlatform} from '../platform/client.js';
 
 // Workspace ids/slugs are immutable routing data, not authorization. Keeping
 // this mapping warm prevents every content click after 30 seconds from waiting
@@ -111,7 +112,7 @@ export function invalidateWorkspaceCache() {
 export function navigateClient(pathname, {replace = false} = {}) {
   if (typeof window === 'undefined') return;
   const target = String(pathname || '/');
-  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const current = `${clientPlatform.location.pathname()}${clientPlatform.location.search()}${clientPlatform.location.hash()}`;
   if (target === current) return;
   const state = window.history.state;
   window.history[replace ? 'replaceState' : 'pushState'](state, '', target);
@@ -130,7 +131,7 @@ export async function switchWorkspace(workspace) {
   }
   if (!target?.slug) throw new Error('Workspace not found');
 
-  const current = typeof window === 'undefined' ? '' : window.location.pathname;
+  const current = clientPlatform.location.pathname();
   const inWorkspace = /^\/w\/[^/]+(\/.*)?$/.exec(current);
   const suffix = inWorkspace?.[1] || '/documents';
   const destination = suffix.startsWith('/documents/') ? '/documents' : suffix;
@@ -151,5 +152,5 @@ export async function createWorkspace({ name, slug }) {
     body: JSON.stringify(slug ? { name, slug } : { name }),
   });
   invalidateWorkspaceCache();
-  window.location.assign(`/w/${encodeURIComponent(workspace.slug)}/documents`);
+  clientPlatform.location.assign(`/w/${encodeURIComponent(workspace.slug)}/documents`);
 }

@@ -18,7 +18,7 @@ function WorkspaceCommandBar() {
 /**
  * The mount point of the CLI, and nothing else.
  *
- * Everything the window does needs a browser: localStorage for its height and
+ * Everything the window does needs client capabilities: storage for its height and
  * its panes, the root element for the footprint it publishes, a clock for the
  * chat poll. None of that exists during the static build, so the whole shell
  * sits behind BrowserOnly and this file stays the one place that decides it.
