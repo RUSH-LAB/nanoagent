@@ -1,3 +1,4 @@
+import React, {lazy, Suspense} from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 
 const placeholderStyle = {
@@ -18,22 +19,24 @@ function Placeholder({ label }) {
 }
 
 function lazyDemo(loader, label) {
-  return function (props) {
+  const Demo = lazy(loader);
+  return function DeferredDemo(props) {
     return (
       <BrowserOnly fallback={<Placeholder label={label} />}>
-        {() => {
-          const Component = loader().default;
-          return <Component {...props} />;
-        }}
+        {() => (
+          <Suspense fallback={<Placeholder label={label} />}>
+            <Demo {...props} />
+          </Suspense>
+        )}
       </BrowserOnly>
     );
   };
 }
 
-export const VectorPlayground = lazyDemo(() => require('./demos/VectorPlayground'), 'vector playground');
-export const LinearTransformDemo = lazyDemo(() => require('./demos/LinearTransformDemo'), 'linear transformation demo');
-export const GradientDescentDemo = lazyDemo(() => require('./demos/GradientDescentDemo'), 'gradient descent demo');
-export const EigenDemo = lazyDemo(() => require('./demos/EigenDemo'), 'eigenvalue demo');
-export const RiemannSumDemo = lazyDemo(() => require('./demos/RiemannSumDemo'), 'Riemann sum demo');
-export const DistributionExplorer = lazyDemo(() => require('./demos/DistributionExplorer'), 'distribution explorer');
-export const Surface3DDemo = lazyDemo(() => require('./demos/Surface3DDemo'), '3D surface demo');
+export const VectorPlayground = lazyDemo(() => import('./demos/VectorPlayground'), 'vector playground');
+export const LinearTransformDemo = lazyDemo(() => import('./demos/LinearTransformDemo'), 'linear transformation demo');
+export const GradientDescentDemo = lazyDemo(() => import('./demos/GradientDescentDemo'), 'gradient descent demo');
+export const EigenDemo = lazyDemo(() => import('./demos/EigenDemo'), 'eigenvalue demo');
+export const RiemannSumDemo = lazyDemo(() => import('./demos/RiemannSumDemo'), 'Riemann sum demo');
+export const DistributionExplorer = lazyDemo(() => import('./demos/DistributionExplorer'), 'distribution explorer');
+export const Surface3DDemo = lazyDemo(() => import('./demos/Surface3DDemo'), '3D surface demo');

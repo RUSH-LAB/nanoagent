@@ -101,6 +101,22 @@ export async function apiFetch(input, init = {}) {
 }
 
 /**
+ * Call one of Mochi's JSON endpoints and turn its error response into the
+ * consistent Error shape expected throughout the client.
+ */
+export async function apiRequest(path, init, {failureLabel = 'Request failed'} = {}) {
+  const response = await apiFetch(`${API_BASE}${path}`, init);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error || `${failureLabel} (${response.status})`);
+    error.status = response.status;
+    error.code = data.code ?? null;
+    throw error;
+  }
+  return data;
+}
+
+/**
  * Deduplicate and briefly retain read-only API responses. Docusaurus keeps the
  * navbar mounted across ordinary navigation, but runtime content can remount
  * layout subtrees. Sharing this cache prevents those consumers from turning
