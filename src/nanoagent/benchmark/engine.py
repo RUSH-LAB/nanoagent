@@ -20,6 +20,8 @@ from nanoagent.benchmark.protocol import (
     BenchmarkCase,
     BenchmarkScore,
 )
+from nanoagent.benchmark.environment import EnvironmentOutcome, EnvironmentSession
+from nanoagent.benchmark.scorer import ScoringContext
 from nanoagent.runtime.runner import RunnerRequest, RunnerResult
 from nanoagent.runtime.runner_factory import RunnerProfile
 from nanoagent.runtime.taskselect import select_subset
@@ -58,8 +60,14 @@ def _read_rows(path: Path) -> list[dict[str, Any]]:
                 row = json.loads(line)
             except json.JSONDecodeError as error:
                 raise ValueError(f"{path} line {line_number}: invalid JSON: {error}") from error
-            if not isinstance(row, dict) or not isinstance(row.get("case_id"), str):
+            if not isinstance(row, dict) or not isinstance(
+                row.get("task_id", row.get("case_id")), str
+            ):
                 raise ValueError(f"{path} line {line_number}: invalid benchmark result row")
+            if "task_id" not in row:
+                row["task_id"] = row["case_id"]
+            if "case_id" not in row:
+                row["case_id"] = row["task_id"]
             rows.append(row)
     return rows
 
@@ -76,6 +84,9 @@ def _manifest_identity(
             "version": descriptor.version,
             "dataset_fingerprint": descriptor.dataset_fingerprint,
         },
+        "environment": benchmark.environment.descriptor.to_dict(),
+        "scorer": benchmark.scorer.descriptor.to_dict(),
+        "metrics": [metric.to_dict() for metric in benchmark.scorer.metrics],
         "profile": {
             "id": profile.id,
             "model": profile.model,
@@ -110,6 +121,7 @@ def _check_or_create_manifest(
         "created_at": _now(),
         **identity,
         "selected_cases": selected_cases,
+        "selected_tasks": selected_cases,
     }
     _atomic_json(path, manifest)
     return manifest
@@ -122,6 +134,7 @@ def _result_row(
     profile: RunnerProfile,
     result: RunnerResult | None,
     score: BenchmarkScore | None,
+    outcome: EnvironmentOutcome | None,
     status: str,
     error: str | None,
     artifact: str,
@@ -130,7 +143,9 @@ def _result_row(
     return {
         "protocol": BENCHMARK_RESULT_PROTOCOL,
         "run_id": run_id,
+        "task_id": case.id,
         "case_id": case.id,
+        "task_name": case.name,
         "profile": profile.id,
         "model": profile.model,
         "harness": profile.harness,
@@ -139,6 +154,9 @@ def _result_row(
         "stop_reason": result.stop_reason if result else "error",
         "metrics": dict(score.metrics) if score else {},
         "score_details": dict(score.details) if score else {},
+        "submission": score.submission if score else (outcome.submission if outcome else None),
+        "environment": case.environment.to_dict(),
+        "environment_details": dict(outcome.metadata) if outcome else {},
         "steps": result.steps if result else 0,
         "usage": dict(result.usage) if result else {},
         "cost": result.cost if result else 0.0,
@@ -168,7 +186,7 @@ async def run_benchmark(
     if timeout is not None and timeout <= 0:
         raise ValueError("benchmark timeout must be > 0 or null")
     run_started = time.perf_counter()
-    all_cases = benchmark.cases()
+    all_cases = benchmark.tasks()
     case_ids = [case.id for case in all_cases]
     if len(case_ids) != len(set(case_ids)):
         raise ValueError(f"benchmark {benchmark.descriptor.name!r} contains duplicate case ids")
@@ -186,6 +204,7 @@ async def run_benchmark(
     if redo:
         ledger_path.unlink(missing_ok=True)
         summary_path.unlink(missing_ok=True)
+        (out / "predictions.jsonl").unlink(missing_ok=True)
     selection = {"filter": filter_re, "slice": slice_spec, "shuffle": shuffle}
     manifest = _check_or_create_manifest(
         out / "run.json",
@@ -200,8 +219,20 @@ async def run_benchmark(
     available, unavailable_reason = profile.runner.availability()
     if not available:
         raise RuntimeError(unavailable_reason or f"runner profile {profile.id!r} is unavailable")
+    available, unavailable_reason = benchmark.environment.availability()
+    if not available:
+        raise RuntimeError(unavailable_reason or "benchmark environment is unavailable")
+    available, unavailable_reason = benchmark.scorer.availability()
+    if not available:
+        raise RuntimeError(unavailable_reason or "benchmark scorer is unavailable")
     semaphore = asyncio.Semaphore(concurrency)
     write_lock = asyncio.Lock()
+    scoring_context = ScoringContext(
+        output_dir=out.resolve(),
+        run_id=manifest["run_id"],
+        profile_id=profile.id,
+        model=profile.model,
+    )
 
     async def run_one(case: BenchmarkCase) -> dict[str, Any]:
         relative_artifact = f"trajectories/{_artifact_name(case.id)}"
@@ -209,42 +240,62 @@ async def run_benchmark(
         events: list[dict[str, Any]] = []
         result: RunnerResult | None = None
         score: BenchmarkScore | None = None
+        session: EnvironmentSession | None = None
+        outcome: EnvironmentOutcome | None = None
         status = "completed"
         error: str | None = None
         started_at = _now()
         started = time.perf_counter()
         try:
-            prepared = await benchmark.prepare(case)
-        except Exception as caught:
-            status = "setup_error"
-            error = f"{type(caught).__name__}: {caught}"
-        else:
-            request = RunnerRequest(
-                input=prepared.input,
-                messages=prepared.messages,
-                instructions=prepared.instructions,
-                metadata={"case_id": case.id, **prepared.metadata},
-            )
             try:
-                operation = profile.runner.run(request, lambda event: events.append(dict(event)))
-                result = (
-                    await asyncio.wait_for(operation, timeout=timeout)
-                    if timeout is not None
-                    else await operation
-                )
-            except asyncio.TimeoutError:
-                status = "timeout"
-                error = f"exceeded {timeout}s"
+                session = await benchmark.environment.start(case)
             except Exception as caught:
-                status = "runner_error"
+                status = "environment_error"
                 error = f"{type(caught).__name__}: {caught}"
-            else:
-                if result.error:
-                    status = "runner_error"
-                    error = result.error
+            if session is not None:
+                try:
+                    prepared = await benchmark.prepare(case)
+                except Exception as caught:
+                    status = "setup_error"
+                    error = f"{type(caught).__name__}: {caught}"
                 else:
+                    request = RunnerRequest(
+                        input=prepared.input,
+                        messages=prepared.messages,
+                        instructions=prepared.instructions,
+                        metadata={"case_id": case.id, "task_name": case.name, **prepared.metadata},
+                        workspace=None if session.workspace is None else str(session.workspace),
+                    )
                     try:
-                        score = await benchmark.score(case, result)
+                        operation = profile.runner.run(
+                            request, lambda event: events.append(dict(event))
+                        )
+                        result = (
+                            await asyncio.wait_for(operation, timeout=timeout)
+                            if timeout is not None
+                            else await operation
+                        )
+                    except asyncio.TimeoutError:
+                        status = "timeout"
+                        error = f"exceeded {timeout}s"
+                    except Exception as caught:
+                        status = "runner_error"
+                        error = f"{type(caught).__name__}: {caught}"
+                    else:
+                        if result.error:
+                            status = "runner_error"
+                            error = result.error
+                try:
+                    outcome = await benchmark.environment.capture(case, session)
+                except Exception as caught:
+                    status = "environment_error"
+                    error = f"{type(caught).__name__}: {caught}"
+                if status == "completed" and result is not None and outcome is not None:
+                    try:
+                        score = await benchmark.scorer.score(
+                            case, result, session, outcome, scoring_context
+                        )
+                        benchmark.scorer.validate(score)
                         if benchmark.descriptor.primary_metric not in score.metrics:
                             raise ValueError(
                                 "score is missing primary metric "
@@ -253,12 +304,21 @@ async def run_benchmark(
                     except Exception as caught:
                         status = "scorer_error"
                         error = f"{type(caught).__name__}: {caught}"
+        finally:
+            if session is not None:
+                try:
+                    await benchmark.environment.close(case, session)
+                except Exception as caught:
+                    if status == "completed":
+                        status = "environment_error"
+                        error = f"{type(caught).__name__}: {caught}"
         row = _result_row(
             run_id=manifest["run_id"],
             case=case,
             profile=profile,
             result=result,
             score=score,
+            outcome=outcome,
             status=status,
             error=error,
             artifact=relative_artifact,
@@ -269,13 +329,14 @@ async def run_benchmark(
             {
                 "protocol": BENCHMARK_CASE_PROTOCOL,
                 "run_id": manifest["run_id"],
+                "task_id": case.id,
                 "case_id": case.id,
                 "started_at": started_at,
                 "finished_at": _now(),
-                "public_case": {
-                    "input": case.input,
-                    "instructions": case.instructions,
-                    "metadata": case.metadata,
+                "task": case.public(),
+                "environment": {
+                    "session": dict(session.metadata) if session else {},
+                    "outcome": dict(outcome.metadata) if outcome else {},
                 },
                 "events": events,
                 "result": row,
@@ -302,12 +363,12 @@ async def run_benchmark(
         for row in rows
         if row.get("status") == "completed" and row.get("metrics")
     ]
-    metrics = benchmark.aggregate(scores)
+    metrics = benchmark.scorer.aggregate(scores)
     descriptor = benchmark.descriptor
     summary = {
         "protocol": BENCHMARK_RESULT_PROTOCOL,
         "run_id": manifest["run_id"],
-        "benchmark": descriptor.to_dict(),
+        "benchmark": benchmark.public(),
         "profile": _manifest_identity(benchmark, profile)["profile"],
         "primary_metric": {
             "name": descriptor.primary_metric,
@@ -328,4 +389,11 @@ async def run_benchmark(
         "finished_at": _now(),
     }
     _atomic_json(summary_path, summary)
+    submissions = [row["submission"] for row in rows if isinstance(row.get("submission"), dict)]
+    predictions_path = out / "predictions.jsonl"
+    if submissions:
+        predictions_path.write_text(
+            "".join(json.dumps(item, separators=(",", ":"), default=str) + "\n" for item in submissions),
+            encoding="utf-8",
+        )
     return summary

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from nanoagent.core.agent import Agent, AgentResult, StopReason
+from nanoagent.core import workspace
 from nanoagent.runtime.build import build_agent
 from nanoagent.runtime.config import AgentDefinitionConfig
 from nanoagent.runtime.model import Model
@@ -77,12 +78,21 @@ class NativeRunner:
                 terminal_snapshot = result
 
         try:
-            result = await agent.run(
-                request.input,
-                messages=transcript,
-                on_delta=on_delta,
-                on_step=on_step,
-            )
+            if request.workspace is None:
+                result = await agent.run(
+                    request.input,
+                    messages=transcript,
+                    on_delta=on_delta,
+                    on_step=on_step,
+                )
+            else:
+                with workspace.use(request.workspace):
+                    result = await agent.run(
+                        request.input,
+                        messages=transcript,
+                        on_delta=on_delta,
+                        on_step=on_step,
+                    )
         except Exception:
             if terminal_snapshot is None:
                 raise

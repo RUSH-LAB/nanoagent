@@ -168,10 +168,13 @@ terminates the child when the caller cancels or disconnects.
 
 ### Benchmarks
 
-`nanoagent benchmark` keeps three concerns independent:
+`nanoagent benchmark` keeps the fundamental concerns independent:
 
 - a **profile** selects the LLM and harness;
-- a **benchmark adapter** owns cases, private gold data, scoring, and aggregation;
+- a named **task** contains the prompt and private oracle;
+- an **environment** prepares an isolated workspace and captures its submission;
+- a deterministic, versioned **scorer** evaluates that submission;
+- declared **metrics** define direction, range, and aggregation;
 - the benchmark engine owns selection, concurrency, timeout, resume, and artifacts.
 
 The included exact-match JSONL adapter accepts rows shaped as
@@ -188,8 +191,9 @@ A benchmark output directory is a stable, machine-readable bundle:
 
 ```text
 run.json                 resolved benchmark/profile identity and dataset fingerprint
-results.jsonl            one `nanoagent.benchmark.result.v1` row per case
+results.jsonl            one `nanoagent.benchmark.result.v2` row per task
 summary.json             aggregate metrics, counts, usage, and cost
+predictions.jsonl         benchmark-native submissions when applicable
 trajectories/*.benchmark.json
 ```
 
@@ -199,9 +203,43 @@ directory whose benchmark version, dataset fingerprint, model, or harness differ
 
 Custom Python benchmarks set `adapter.type: python` and name a module or `.py` file in
 `adapter.code`. That module defines exactly one subclass of
-`nanoagent.benchmark.protocol.BaseBenchmarkAdapter`; it receives the benchmark name, label,
-version, primary metric, and the operator-owned `adapter.options`. Implement `cases()` and
-`score()` and override `prepare()` or `aggregate()` only when needed.
+`nanoagent.benchmark.protocol.BaseBenchmarkAdapter`; it composes a task source,
+`BenchmarkEnvironment`, and `BenchmarkScorer`. Private task oracles are omitted from runner
+requests and trajectory task metadata.
+
+SWE-bench uses a disposable checkout for each instance and the official deterministic Docker
+evaluator for scoring. Install its optional dependencies and make sure Docker is running:
+
+```bash
+pip install -e '.[swebench]'
+
+# The checked-in config uses your authenticated local Codex CLI and runs one
+# SWE-bench Lite instance as a smoke test.
+nanoagent benchmark run benchmark_cfg=configs/benchmark_swebench.yaml
+
+# Run the same task with your authenticated local Claude Code installation.
+nanoagent benchmark run benchmark_cfg=configs/benchmark_swebench.yaml \
+    profile=claude-local output=expdir/benchmarks/swebench-lite/claude-local
+
+# Run the complete selected split.
+nanoagent benchmark run benchmark_cfg=configs/benchmark_swebench.yaml \
+    slice='' output=expdir/benchmarks/swebench-lite/full
+```
+
+Each successful SWE-bench task contributes an official prediction row containing
+`instance_id`, `model_name_or_path`, and `model_patch`. Its `resolved` metric comes only from the
+official evaluator's `FAIL_TO_PASS` and `PASS_TO_PASS` rules. Dataset loading, image downloads,
+and evaluation require network access and substantial Docker disk space; start with the
+one-instance smoke configuration.
+
+The Codex harness uses non-interactive `codex exec`, `workspace-write` sandboxing, no approval
+prompts, and the task checkout as its working directory. The Claude Code harness uses print mode
+in that checkout; its example profile enables `bypassPermissions`, so use it only for trusted
+benchmark definitions and disposable workspaces.
+
+Both integrations are companion adapters under `nanoagent.adapters`. They translate the local
+CLI into `nanoagent.runner.v1`, so an already authenticated `codex` or `claude` installation can
+be selected as a benchmark profile without configuring a provider API key in NanoAgent.
 
 Custom harnesses use the existing `nanoagent.runner.v1` JSONL contract:
 

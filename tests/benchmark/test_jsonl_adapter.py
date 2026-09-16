@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 
 from nanoagent.benchmark.adapters.jsonl import JsonlExactMatchBenchmark
+from nanoagent.benchmark.environment import EnvironmentOutcome, EnvironmentSession
+from nanoagent.benchmark.scorer import ScoringContext
 from nanoagent.runtime.runner import RunnerResult
 
 
@@ -26,12 +28,18 @@ async def test_exact_match_keeps_gold_out_of_public_case(tmp_path: Path) -> None
         json.dumps({"id": "one", "input": "2 + 2", "expected": "4", "metadata": {"topic": "math"}}) + "\n"
     )
     benchmark = adapter(dataset, casefold=True)
-    case = benchmark.cases()[0]
+    case = benchmark.tasks()[0]
 
     assert case.metadata == {"topic": "math"}
     assert "expected" not in case.metadata
     assert case.oracle == "4"
-    score = await benchmark.score(case, RunnerResult(answer=" 4 ", stop_reason="answer"))
+    score = await benchmark.scorer.score(
+        case,
+        RunnerResult(answer=" 4 ", stop_reason="answer"),
+        EnvironmentSession(),
+        EnvironmentOutcome(),
+        ScoringContext(tmp_path, "run", "profile", "model"),
+    )
     assert score.metrics == {"accuracy": 1.0}
     assert benchmark.descriptor.dataset_fingerprint.startswith("sha256:")
 

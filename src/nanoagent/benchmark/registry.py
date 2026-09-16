@@ -7,7 +7,7 @@ import inspect
 from pathlib import Path
 from typing import Any
 
-from nanoagent.benchmark.adapters import JsonlExactMatchBenchmark
+from nanoagent.benchmark.adapters import JsonlExactMatchBenchmark, SWEbenchBenchmark
 from nanoagent.benchmark.protocol import BenchmarkAdapter, BaseBenchmarkAdapter
 from nanoagent.extensions import load_module
 from nanoagent.runtime.config import BenchmarkDefinitionConfig
@@ -30,7 +30,7 @@ class BenchmarkRegistry:
             raise KeyError(f"unknown benchmark {name!r}") from None
 
     def public(self) -> list[dict[str, Any]]:
-        return [self._benchmarks[name].descriptor.to_dict() for name in sorted(self._benchmarks)]
+        return [self._benchmarks[name].public() for name in sorted(self._benchmarks)]
 
 
 def build_benchmark(name: str, definition: BenchmarkDefinitionConfig) -> BenchmarkAdapter:
@@ -44,6 +44,8 @@ def build_benchmark(name: str, definition: BenchmarkDefinitionConfig) -> Benchma
     }
     if adapter.type == "jsonl_exact_match":
         return JsonlExactMatchBenchmark(**common)
+    if adapter.type == "swebench":
+        return SWEbenchBenchmark(**common)
     if adapter.type != "python":
         raise ValueError(f"benchmark {name!r}: unsupported adapter type {adapter.type!r}")
     if not adapter.code:

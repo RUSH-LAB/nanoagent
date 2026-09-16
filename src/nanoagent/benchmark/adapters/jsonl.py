@@ -7,13 +7,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+from nanoagent.benchmark.environment import LocalEnvironment
 from nanoagent.benchmark.protocol import (
     BaseBenchmarkAdapter,
-    BenchmarkCase,
     BenchmarkDescriptor,
-    BenchmarkScore,
 )
-from nanoagent.runtime.runner import RunnerResult
+from nanoagent.benchmark.scorer import ExactMatchScorer
+from nanoagent.benchmark.task import BenchmarkTask, TaskEnvironment
 
 
 class JsonlExactMatchBenchmark(BaseBenchmarkAdapter):
@@ -39,6 +39,12 @@ class JsonlExactMatchBenchmark(BaseBenchmarkAdapter):
         self.expected_field = str(options.get("expected_field", "expected"))
         self.strip = bool(options.get("strip", True))
         self.casefold = bool(options.get("casefold", False))
+        self.environment = LocalEnvironment()
+        self.scorer = ExactMatchScorer(
+            metric=primary_metric,
+            strip=self.strip,
+            casefold=self.casefold,
+        )
         digest = hashlib.sha256(self.path.read_bytes()).hexdigest()
         self.descriptor = BenchmarkDescriptor(
             name=name,
@@ -49,8 +55,8 @@ class JsonlExactMatchBenchmark(BaseBenchmarkAdapter):
             metrics={primary_metric: "higher_is_better"},
         )
 
-    def cases(self) -> list[BenchmarkCase]:
-        cases: list[BenchmarkCase] = []
+    def tasks(self) -> list[BenchmarkTask]:
+        tasks: list[BenchmarkTask] = []
         seen: set[str] = set()
         with self.path.open(encoding="utf-8") as source:
             for line_number, line in enumerate(source, start=1):
@@ -82,10 +88,12 @@ class JsonlExactMatchBenchmark(BaseBenchmarkAdapter):
                 public_metadata = row.get("metadata", {})
                 if not isinstance(public_metadata, dict):
                     raise ValueError(f"{self.path} line {line_number}: metadata must be an object")
-                cases.append(
-                    BenchmarkCase(
+                tasks.append(
+                    BenchmarkTask(
                         id=case_id,
+                        name=str(row.get("name") or case_id),
                         input=str(row[self.input_field]),
+                        environment=TaskEnvironment(name="local", version="1"),
                         instructions=(
                             None if row.get("instructions") is None else str(row["instructions"])
                         ),
@@ -93,18 +101,4 @@ class JsonlExactMatchBenchmark(BaseBenchmarkAdapter):
                         oracle=row[self.expected_field],
                     )
                 )
-        return cases
-
-    def _normalize(self, value: Any) -> str:
-        text = str(value)
-        if self.strip:
-            text = text.strip()
-        return text.casefold() if self.casefold else text
-
-    async def score(self, case: BenchmarkCase, result: RunnerResult) -> BenchmarkScore:
-        predicted = self._normalize(result.answer)
-        expected = self._normalize(case.oracle)
-        return BenchmarkScore(
-            metrics={self.descriptor.primary_metric: float(predicted == expected)},
-            details={"predicted": predicted, "expected": expected},
-        )
+        return tasks

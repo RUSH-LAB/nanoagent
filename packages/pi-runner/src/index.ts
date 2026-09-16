@@ -9,6 +9,7 @@ interface RunnerRequest {
   messages?: unknown[];
   instructions?: string | null;
   metadata?: Record<string, unknown> | null;
+  workspace?: string | null;
 }
 
 interface Envelope {

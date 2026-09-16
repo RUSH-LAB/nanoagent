@@ -10,11 +10,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from nanoagent.runtime.runner import RunnerResult
+from nanoagent.benchmark.environment import BenchmarkEnvironment, LocalEnvironment
+from nanoagent.benchmark.metric import MetricDefinition
+from nanoagent.benchmark.scorer import BenchmarkScore, BenchmarkScorer
+from nanoagent.benchmark.task import BenchmarkTask
 
-BENCHMARK_PROTOCOL = "nanoagent.benchmark.v1"
-BENCHMARK_RESULT_PROTOCOL = "nanoagent.benchmark.result.v1"
-BENCHMARK_CASE_PROTOCOL = "nanoagent.benchmark.case.v1"
+BENCHMARK_PROTOCOL = "nanoagent.benchmark.v2"
+BENCHMARK_RESULT_PROTOCOL = "nanoagent.benchmark.result.v2"
+BENCHMARK_TASK_PROTOCOL = "nanoagent.benchmark.task.v2"
+# Compatibility alias for the v1 name.
+BENCHMARK_CASE_PROTOCOL = BENCHMARK_TASK_PROTOCOL
 
 
 @dataclass(frozen=True)
@@ -38,15 +43,6 @@ class BenchmarkDescriptor:
 
 
 @dataclass(frozen=True)
-class BenchmarkCase:
-    id: str
-    input: str
-    instructions: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-    oracle: Any = None
-
-
-@dataclass(frozen=True)
 class PreparedCase:
     input: str
     instructions: str | None = None
@@ -54,53 +50,71 @@ class PreparedCase:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class BenchmarkScore:
-    metrics: dict[str, float]
-    details: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if not self.metrics:
-            raise ValueError("benchmark score must contain at least one metric")
-        for name, value in self.metrics.items():
-            if not isinstance(name, str) or not name:
-                raise ValueError("benchmark metric names must be non-empty strings")
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
-                raise ValueError(f"benchmark metric {name!r} must be numeric")
-
-
 class BenchmarkAdapter(Protocol):
-    """A benchmark implementation. Implementations may be built in or loaded by name."""
+    """A task source composed with an environment and a deterministic scorer."""
 
     descriptor: BenchmarkDescriptor
+    environment: BenchmarkEnvironment
+    scorer: BenchmarkScorer
 
-    def cases(self) -> list[BenchmarkCase]: ...
+    def tasks(self) -> list[BenchmarkTask]: ...
 
-    async def prepare(self, case: BenchmarkCase) -> PreparedCase: ...
+    async def prepare(self, task: BenchmarkTask) -> PreparedCase: ...
 
-    async def score(self, case: BenchmarkCase, result: RunnerResult) -> BenchmarkScore: ...
-
-    def aggregate(self, scores: list[BenchmarkScore]) -> dict[str, float]: ...
+    def public(self) -> dict[str, Any]: ...
 
 
 class BaseBenchmarkAdapter:
-    """Convenient defaults for adapters that only need to load and score cases."""
+    """Convenient composition defaults for benchmark task sources."""
 
     descriptor: BenchmarkDescriptor
+    environment: BenchmarkEnvironment = LocalEnvironment()
+    scorer: BenchmarkScorer
 
-    async def prepare(self, case: BenchmarkCase) -> PreparedCase:
+    def cases(self) -> list[BenchmarkTask]:
+        """Compatibility alias for the original benchmark API."""
+        return self.tasks()
+
+    async def prepare(self, task: BenchmarkTask) -> PreparedCase:
         return PreparedCase(
-            input=case.input,
-            instructions=case.instructions,
-            metadata=dict(case.metadata),
+            input=task.input,
+            instructions=task.instructions,
+            metadata=dict(task.metadata),
         )
 
-    def aggregate(self, scores: list[BenchmarkScore]) -> dict[str, float]:
-        if not scores:
-            return {}
-        names = sorted({name for score in scores for name in score.metrics})
+    def public(self) -> dict[str, Any]:
+        environment_available, environment_reason = self.environment.availability()
+        scorer_available, scorer_reason = self.scorer.availability()
         return {
-            name: sum(float(score.metrics[name]) for score in scores if name in score.metrics)
-            / sum(1 for score in scores if name in score.metrics)
-            for name in names
+            "protocol": BENCHMARK_PROTOCOL,
+            **self.descriptor.to_dict(),
+            "environment": {
+                **self.environment.descriptor.to_dict(),
+                "available": environment_available,
+                "unavailable_reason": environment_reason,
+            },
+            "scorer": {
+                **self.scorer.descriptor.to_dict(),
+                "available": scorer_available,
+                "unavailable_reason": scorer_reason,
+            },
+            "metrics": [metric.to_dict() for metric in self.scorer.metrics],
         }
+
+
+# Compatibility name for code written against nanoagent.benchmark.v1.
+BenchmarkCase = BenchmarkTask
+
+__all__ = [
+    "BENCHMARK_CASE_PROTOCOL",
+    "BENCHMARK_PROTOCOL",
+    "BENCHMARK_RESULT_PROTOCOL",
+    "BENCHMARK_TASK_PROTOCOL",
+    "BaseBenchmarkAdapter",
+    "BenchmarkAdapter",
+    "BenchmarkCase",
+    "BenchmarkDescriptor",
+    "BenchmarkScore",
+    "MetricDefinition",
+    "PreparedCase",
+]

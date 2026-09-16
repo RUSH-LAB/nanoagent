@@ -51,7 +51,7 @@ def test_external_harness_uses_default_or_explicit_command() -> None:
 
 
 def test_harness_config_rejects_invalid_values() -> None:
-    with pytest.raises(ValueError, match="native, hermes, pi, or custom"):
+    with pytest.raises(ValueError, match="native, hermes, pi, codex, claude, or custom"):
         HarnessConfig(type="unknown", command=None, cwd=None, options={})
     with pytest.raises(ValueError, match="must be null"):
         HarnessConfig(type="native", command=["agent"], cwd=None, options={})
@@ -82,6 +82,27 @@ def test_custom_harness_uses_runner_protocol_and_declared_capabilities() -> None
     assert runner.command == ("my-runner",)
     assert runner.capabilities.streaming is True
     assert runner.options == {"setting": "value", "model": "test"}
+
+
+@pytest.mark.parametrize(
+    ("kind", "command"),
+    [("codex", "nanoagent-codex-runner"), ("claude", "nanoagent-claude-runner")],
+)
+def test_local_coding_cli_harnesses(kind, command) -> None:
+    cfg = config()
+    runner = build_runner(
+        cfg,
+        HarnessProfileConfig(
+            label=kind,
+            model="default",
+            harness=HarnessConfig(type=kind, command=None, cwd=None, options={}),
+            model_overrides={},
+        ),
+    )
+
+    assert isinstance(runner, SubprocessRunner)
+    assert runner.command == (command,)
+    assert runner.capabilities.tools is True
 
 
 def test_agent_factory_is_only_for_native_harness() -> None:

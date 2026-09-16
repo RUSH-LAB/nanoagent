@@ -39,6 +39,7 @@ class RunnerRequest:
     messages: list[dict[str, Any]] = field(default_factory=list)
     instructions: str | None = None
     metadata: dict[str, Any] | None = None
+    workspace: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -46,6 +47,7 @@ class RunnerRequest:
             "messages": self.messages,
             "instructions": self.instructions,
             "metadata": self.metadata,
+            "workspace": self.workspace,
         }
 
 

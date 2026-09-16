@@ -15,6 +15,8 @@ from nanoagent.runtime.runner import Runner, RunnerCapabilities
 _DEFAULT_COMMANDS = {
     "hermes": ("nanoagent-hermes-runner",),
     "pi": ("nanoagent-pi-runner",),
+    "codex": ("nanoagent-codex-runner",),
+    "claude": ("nanoagent-claude-runner",),
 }
 
 _CAPABILITIES = {
@@ -23,6 +25,8 @@ _CAPABILITIES = {
     "pi": RunnerCapabilities(
         streaming=True, reasoning=True, usage=True, cancellation=True, history=True
     ),
+    "codex": RunnerCapabilities(tools=True, usage=True, cancellation=True, history=True),
+    "claude": RunnerCapabilities(tools=True, usage=True, cancellation=True, history=True),
 }
 
 _SECRET_FIELDS = {"api_key", "api_token", "client_secret", "password", "token"}

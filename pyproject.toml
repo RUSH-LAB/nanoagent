@@ -74,6 +74,9 @@ fast = ["orjson"]
 # a base dependency — an install that only ever sends text never loads it, and
 # nanoagent.inference.tokenizer imports it inside load_tokenizer to keep that true.
 tokens = ["transformers"]
+# Official dataset loading and Docker-based rule scoring for SWE-bench. Kept optional because
+# ordinary question/answer benchmarks need neither Hugging Face datasets nor Docker bindings.
+swebench = ["swebench>=5,<6"]
 dev = [
     "pytest",
     "pytest-asyncio",
@@ -97,6 +100,8 @@ nanoagent = "nanoagent.cli.main:main"
 # `mgen -p "..."` is what a script written against `claude` already says.
 mgen = "nanoagent.cli.mgen:main"
 nanoagent-hermes-runner = "nanoagent.adapters.hermes:main"
+nanoagent-codex-runner = "nanoagent.adapters.codex:main"
+nanoagent-claude-runner = "nanoagent.adapters.claude:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "nanoagent.__version__"}

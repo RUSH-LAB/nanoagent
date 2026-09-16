@@ -134,6 +134,16 @@ class SubprocessRunner:
             hermes = self.options.get("executable", "hermes")
             if not isinstance(hermes, str) or not shutil.which(hermes):
                 return False, "Hermes Agent is not installed"
+        companion_executables = {
+            "codex": ("nanoagent-codex-runner", "codex", "Codex CLI"),
+            "claude": ("nanoagent-claude-runner", "claude", "Claude Code"),
+        }
+        if self.name in companion_executables:
+            companion, default, label = companion_executables[self.name]
+            if self.command == (companion,):
+                executable = self.options.get("executable", default)
+                if not isinstance(executable, str) or not shutil.which(executable):
+                    return False, f"{label} is not installed"
         return True, None
 
 

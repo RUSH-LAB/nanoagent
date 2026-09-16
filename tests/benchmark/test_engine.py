@@ -66,7 +66,7 @@ async def test_benchmark_writes_standard_artifacts_and_resumes(tmp_path: Path) -
 
     summary = await run_benchmark(benchmark, profile, output_dir=output, concurrency=2)
 
-    assert summary["protocol"] == "nanoagent.benchmark.result.v1"
+    assert summary["protocol"] == "nanoagent.benchmark.result.v2"
     assert summary["primary_metric"] == {"name": "accuracy", "value": 0.5}
     assert summary["counts"] == {"selected": 2, "completed": 2, "errors": 0}
     assert summary["usage"] == {"total_tokens": 6}

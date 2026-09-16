@@ -172,9 +172,10 @@ class HarnessConfig:
     options: dict[str, Any] = MISSING
 
     def __post_init__(self) -> None:
-        if self.type not in {MISSING, "native", "hermes", "pi", "custom"}:
+        if self.type not in {MISSING, "native", "hermes", "pi", "codex", "claude", "custom"}:
             raise ValueError(
-                f"harness.type must be native, hermes, pi, or custom; got {self.type!r}"
+                "harness.type must be native, hermes, pi, codex, claude, or custom; "
+                f"got {self.type!r}"
             )
         if isinstance(self.command, list) and (
             not self.command or any(not isinstance(part, str) or not part for part in self.command)
@@ -219,15 +220,15 @@ class BenchmarkAdapterConfig:
     options: dict[str, Any] = MISSING
 
     def __post_init__(self) -> None:
-        if self.type not in {MISSING, "jsonl_exact_match", "python"}:
+        if self.type not in {MISSING, "jsonl_exact_match", "swebench", "python"}:
             raise ValueError(
-                "benchmark adapter type must be jsonl_exact_match or python; "
+                "benchmark adapter type must be jsonl_exact_match, swebench, or python; "
                 f"got {self.type!r}"
             )
         if self.type == "python" and not self.code:
             raise ValueError("python benchmark adapter requires code")
-        if self.type == "jsonl_exact_match" and self.code is not None:
-            raise ValueError("jsonl_exact_match benchmark adapter code must be null")
+        if self.type in {"jsonl_exact_match", "swebench"} and self.code is not None:
+            raise ValueError(f"{self.type} benchmark adapter code must be null")
 
 
 @dataclass

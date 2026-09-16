@@ -14,6 +14,7 @@ from __future__ import annotations
 import subprocess
 
 from nanoagent.core.tool import JsonSchema, Tool
+from nanoagent.core import workspace
 from nanoagent.tools.process import communicate_or_kill
 
 
@@ -48,6 +49,7 @@ class Bash(Tool):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
+            cwd=workspace.current(),
         )
         out, err = communicate_or_kill(proc, self.TIMEOUT_SECONDS)
         output = out + err

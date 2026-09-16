@@ -24,7 +24,9 @@ Run (from the repo root)::
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
+from nanoagent.core import workspace
 from nanoagent.tools.bash import Bash
 
 # Validates the exact documented wrapper AND extracts the parts to assert on. re.fullmatch fails
@@ -71,3 +73,10 @@ async def test_invoke_returns_formatted_text_and_no_error() -> None:
     returncode, body = _parse(text)
     assert returncode == 0
     assert "hi" in body
+
+
+def test_run_uses_the_active_benchmark_workspace(tmp_path: Path) -> None:
+    with workspace.use(tmp_path):
+        _, body = _parse(Bash().run("pwd"))
+
+    assert body.strip() == str(tmp_path.resolve())

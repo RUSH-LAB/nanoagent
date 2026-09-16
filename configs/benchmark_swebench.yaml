@@ -1,0 +1,79 @@
+# A one-instance smoke run by default. Set slice="" for the full SWE-bench Lite test split.
+model:
+  model: unused-for-local-cli
+  backend: sglang
+  base_url: null
+  api_key: null
+  temperature: 0.0
+  max_tokens: 8192
+  request_timeout: 300.0
+  max_retries: 0
+  extra_body: {}
+  input_price: 0.0
+  output_price: 0.0
+
+agent:
+  system_prompt: |
+    You are a coding agent solving a real repository issue. Inspect the checkout and its
+    instructions, implement the smallest correct fix, and run focused tests when possible.
+  max_steps: 60
+  cost_limit: null
+  token_limit: null
+  context_window: null
+  hooks: []
+  skills: null
+  context_files: []
+  events: null
+
+tools:
+  - tools/files.yaml
+  - tools/bash.yaml
+tools_dir: null
+allowed_tools: [read, write, edit, bash]
+
+profiles:
+  codex-local:
+    label: Local Codex
+    model: default
+    harness:
+      type: codex
+      command: null
+      cwd: null
+      options: {sandbox: workspace-write, extra_args: []}
+    model_overrides: {}
+  claude-local:
+    label: Local Claude Code
+    model: default
+    harness:
+      type: claude
+      command: null
+      cwd: null
+      options: {permission_mode: bypassPermissions, extra_args: []}
+    model_overrides: {}
+
+benchmarks:
+  swebench-lite:
+    label: SWE-bench Lite
+    version: "1"
+    primary_metric: resolved
+    adapter:
+      type: swebench
+      code: null
+      options:
+        dataset: SWE-bench/SWE-bench_Lite
+        split: test
+        cache_dir: ~/.cache/nanoagent/benchmark/repos
+        work_dir: null
+        keep_workspaces: false
+        repo_url_template: https://github.com/{repo}.git
+        evaluation_timeout: 1800
+
+profile: codex-local
+benchmark: swebench-lite
+output: expdir/benchmarks/swebench-lite/codex-local
+concurrency: 1
+filter: ""
+slice: "0:1"
+shuffle: false
+redo: false
+timeout: 1800.0
