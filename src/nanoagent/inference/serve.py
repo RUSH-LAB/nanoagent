@@ -329,8 +329,8 @@ _SERVE_KEY = "serve"
 # is deliberately loaded by both sides, so the serve side has to skip past it.
 #
 # Nothing else is exempt. An earlier version also skipped `model`/`agent`/`tools`/`batch`/
-# `benchmark`/`defaults`: `defaults` is already consumed by slimconfig's composition and never
-# reaches here, and the rest were one downstream project's vocabulary — which both coupled this
+# `benchmark`/`defaults`: the composition key (`_default:`) is already consumed by slimconfig's
+# composition and never reaches here, and the rest were one downstream project's vocabulary — which both coupled this
 # library to that project's config names AND silently swallowed any serve-field typo that happened
 # to match one. A yaml that really does carry foreign blocks uses `serve:` instead.
 _LAUNCH_KEY = "launch"

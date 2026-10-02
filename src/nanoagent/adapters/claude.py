@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import json
-import sys
 from typing import Any
 
 from nanoagent.adapters._coding_cli import (
-    emit,
     executable,
     extra_args,
     prompt,
     request_and_options,
     run_child,
+    run_main,
     workspace,
 )
 
@@ -71,19 +70,7 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> int:
-    try:
-        payload = json.loads(sys.stdin.readline())
-        if not isinstance(payload, dict):
-            raise ValueError("runner request must be a JSON object")
-        emit(_run(payload))
-    except FileNotFoundError as error:
-        emit({"type": "error", "code": "runner_unavailable", "error": str(error)})
-    except ValueError as error:
-        emit({"type": "error", "code": "invalid_request", "error": str(error)})
-    except Exception as error:
-        print(f"Claude Code failed: {error}", file=sys.stderr)
-        emit({"type": "error", "code": "claude_error", "error": "Claude Code failed"})
-    return 0
+    return run_main(_run, error_code="claude_error", label="Claude Code")
 
 
 if __name__ == "__main__":

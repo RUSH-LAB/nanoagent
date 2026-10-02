@@ -9,18 +9,14 @@ loop side reaches into it. :class:`Model` just:
 
   1. translates the loop's :class:`~nanoagent.runtime.config.ModelConfig` into a
      :class:`~nanoagent.inference.config.LeanInferConfig` (carrying the fields by name),
-  2. builds the matching backend via :func:`nanoagent.inference.backends.build_backend`, and
+  2. builds the matching client via :func:`nanoagent.inference.backends.build_backend`, and
   3. maps each :class:`~nanoagent.inference.types.Response` onto the loop's
      :class:`~nanoagent.core.agent.Reply` (text + tool calls + usage + cost + reasoning).
 
-``ModelConfig.backend`` names the transport and is passed through verbatim, to be resolved
-against the built-ins (``"sglang"``, the OpenAI SDK against an SGLang ``/v1`` endpoint) and then
-against the plugin directories in ``$NANOAGENT_PLUGINS`` — which is how ``backend: mygateway``
-finds ``mygateway.py`` in a directory the package does not ship. There is deliberately no
-allowlist here: it would have to be edited for every new plugin, and
-:mod:`nanoagent.inference.plugins` already names the backends it did find and the directories it
-searched when it rejects one. The transport module is imported only when the backend is built, so
-constructing one never pulls in another's stack.
+``ModelConfig.provider`` names the client and is passed through verbatim.
+:mod:`nanoagent.inference.providers` is the one table that turns that name into a client
+(``sglang`` or ``openrouter``). The client module is imported only when that provider is built,
+so constructing one never pulls in another's stack.
 """
 
 from __future__ import annotations
@@ -34,7 +30,7 @@ from nanoagent.inference.backend import Backend
 from nanoagent.inference.backends import build_backend
 from nanoagent.inference.types import Response
 from nanoagent.core.agent import Reply, ToolCall
-from nanoagent.runtime.config import ModelConfig
+from nanoagent.runtime.config import ModelConfig, parse_kv_list
 
 
 class Model:
@@ -60,8 +56,14 @@ class Model:
         carries it across automatically, and a name that has no LeanInferConfig counterpart
         fails loudly here instead of being silently dropped by a hand-written copy. Fields only
         LeanInferConfig has (parse_thinking, concurrency, retry backoff) keep their own defaults.
+        ``extra_body`` is the exception: ModelConfig stores it as ``key=value`` tokens, and
+        LeanInferConfig wants the parsed mapping.
         """
-        lean_cfg = LeanInferConfig(**{f.name: getattr(cfg, f.name) for f in fields(cfg)})
+        values = {f.name: getattr(cfg, f.name) for f in fields(cfg)}
+        extra = values.get("extra_body")
+        if isinstance(extra, list):
+            values["extra_body"] = parse_kv_list(extra)
+        lean_cfg = LeanInferConfig(**values)
         return cls(build_backend(lean_cfg))
 
     async def query(

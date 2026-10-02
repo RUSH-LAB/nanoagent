@@ -1,7 +1,10 @@
 """Backend protocol with a shared async retry helper and a token-cost helper.
 
 A backend turns one chat-message list into a :class:`~nanoagent.inference.types.Response`. The
-sglang transport (:mod:`nanoagent.inference.backends.sglang`) implements :class:`Backend`.
+chat client (:mod:`nanoagent.inference.backends.sglang`) implements :class:`Backend` for the
+``/v1`` providers in :mod:`nanoagent.inference.providers`. SGLang's ``/generate`` client
+(:mod:`nanoagent.inference.backends.sglang_native`) is a separate spec,
+:class:`~nanoagent.inference.config.GenerateConfig`.
 
 :func:`retry_async` wraps a coroutine factory with exponential backoff, re-raising
 immediately on caller-declared ``abort_errors`` (e.g. 4xx auth / bad-request, which

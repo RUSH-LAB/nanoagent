@@ -7,6 +7,7 @@ import shutil
 import signal
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -105,3 +106,31 @@ def run_child(argv: Sequence[str], *, cwd: Path, input_text: str) -> tuple[str, 
         return stdout, stderr
     finally:
         signal.signal(signal.SIGTERM, previous_handler)
+
+
+def run_main(
+    run_fn: Callable[[dict[str, Any]], dict[str, Any]],
+    *,
+    error_code: str,
+    label: str,
+) -> int:
+    """Shared stdin/stdout entry point for coding-CLI companion adapters.
+
+    Reads one ``nanoagent.runner.v1`` request line, runs it, and emits the terminal
+    event — ``done`` on success, ``error`` otherwise. The only per-adapter inputs are
+    the failure label: ``FileNotFoundError`` (missing executable) and ``ValueError``
+    (bad request) map to stable codes, anything else is the adapter's own error.
+    """
+    try:
+        payload = json.loads(sys.stdin.readline())
+        if not isinstance(payload, dict):
+            raise ValueError("runner request must be a JSON object")
+        emit(run_fn(payload))
+    except FileNotFoundError as error:
+        emit({"type": "error", "code": "runner_unavailable", "error": str(error)})
+    except ValueError as error:
+        emit({"type": "error", "code": "invalid_request", "error": str(error)})
+    except Exception as error:
+        print(f"{label} failed: {error}", file=sys.stderr)
+        emit({"type": "error", "code": error_code, "error": f"{label} failed"})
+    return 0

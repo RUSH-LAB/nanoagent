@@ -43,9 +43,40 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol
 
+from nanoagent.core.compact import (
+    _COMPACT_KEEP_RECENT,
+    _COMPACT_PROMPT,
+    _COMPACT_THRESHOLD,
+    compact_messages,
+    needs_compaction,
+)
+from nanoagent.core.dispatch import _is_arg_malformed, _unquote_arg_keys, invoke_tool_call
 from nanoagent.core.hooks import Hooks, RunHooks
+from nanoagent.core.messages import assistant_message, last_assistant_text
 from nanoagent.core.tool import build_tool_map, Tool
 from nanoagent.profiler import Profiler, RunProfile, StepProfiler
+
+__all__ = [
+    "Agent",
+    "AgentResult",
+    "ChatModel",
+    "EventObserver",
+    "Reply",
+    "RunEventCallbacks",
+    "StopReason",
+    "StreamingChatModel",
+    "ToolCall",
+    "_COMPACT_KEEP_RECENT",
+    "_COMPACT_PROMPT",
+    "_COMPACT_THRESHOLD",
+    "_is_arg_malformed",
+    "_unquote_arg_keys",
+    "assistant_message",
+    "compact_messages",
+    "invoke_tool_call",
+    "last_assistant_text",
+    "needs_compaction",
+]
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -68,17 +99,7 @@ _LAST_STEP_PROMPT = (
     "likely answer anyway and say how confident you are."
 )
 
-# Compact the history once a reply's prompt_tokens crosses this fraction of context_window —
-# 0.8 leaves headroom for the next turn. Only used when the agent is built with compact=True.
-_COMPACT_THRESHOLD = 0.8
-# Messages kept verbatim at the tail when compacting (the most recent exchange); grown
-# backwards over leading tool messages so an assistant tool-call is never split from its
-# results (see compact_messages).
-_COMPACT_KEEP_RECENT = 2
-_COMPACT_PROMPT = (
-    "Summarize the conversation so far. Preserve: key findings, decisions made, "
-    "tool results that matter, and any outstanding tasks. Be concise."
-)
+# Compaction policy constants live in nanoagent.core.compact (re-exported above).
 
 
 @dataclass
@@ -636,63 +657,7 @@ class Agent:
         return text, is_error, args
 
 
-# Marker prefixes for tool-result text whose error stems from the model emitting a malformed
-# call shape. These are the only errors a fresh re-query can plausibly fix (the model wrote the
-# wrong call); a tool whose run() raised some OTHER exception would re-fire identically and is
-# intentionally not retried — its error text goes back as a normal tool result instead.
-_ARG_MALFORMED_PREFIXES = (
-    "Error: invalid JSON arguments",
-    "Error: tool arguments must be a JSON object",
-    "Error: unknown tool ",
-    "Error: TypeError:",  # arg-shape mismatch raised when calling tool.run(**args)
-)
-
-
-def _is_arg_malformed(text: str) -> bool:
-    """True when ``text`` is a tool result whose error came from a malformed call shape."""
-    return any(text.startswith(p) for p in _ARG_MALFORMED_PREFIXES)
-
-
-def _unquote_arg_keys(args: dict[str, Any]) -> dict[str, Any]:
-    """Strip a surrounding quote pair from each arg key (``'"query"'`` -> ``'query'``).
-
-    Some served tool-call parsers (SGLang's gemma4 on quote-heavy argument values) emit the
-    argument NAME wrapped in literal quotes, so ``json.loads`` yields ``{'"query"': ...}`` and
-    ``tool.run(**args)`` then rejects an unknown kwarg. A real arg name never starts and ends
-    with a quote, so unwrapping a matching pair recovers the call without affecting valid ones.
-    """
-    return {
-        (
-            k[1:-1]
-            if isinstance(k, str) and len(k) >= 2 and k[0] == k[-1] and k[0] in "\"'"
-            else k
-        ): v
-        for k, v in args.items()
-    }
-
-
-async def invoke_tool_call(
-    tools: dict[str, Tool], call: ToolCall
-) -> tuple[str, bool, dict[str, Any]]:
-    """Parse a tool call's JSON arguments and dispatch it to the named tool.
-
-    Returns ``(output_text, is_error, parsed_args)``. Bad JSON, arguments that aren't a JSON
-    object, an unknown tool name, or a tool that reports failure all come back as
-    ``is_error=True`` text (never raised) so the caller can feed the message back to the model;
-    ``parsed_args`` is ``{}`` in the first three cases.
-    """
-    try:
-        args = json.loads(call.arguments or "{}")
-    except json.JSONDecodeError as e:
-        return f"Error: invalid JSON arguments: {e}", True, {}
-    if not isinstance(args, dict):
-        return f"Error: tool arguments must be a JSON object, got {type(args).__name__}", True, {}
-    args = _unquote_arg_keys(args)  # recover keys a tool-call parser wrapped in quotes
-    tool = tools.get(call.name)
-    if tool is None:
-        return f"Error: unknown tool {call.name!r}; available: {', '.join(sorted(tools))}", True, {}
-    text, is_error = await tool.invoke(**args)
-    return text, is_error, args
+# Tool-call dispatch lives in nanoagent.core.dispatch (re-exported above).
 
 
 def _emit(
@@ -708,82 +673,5 @@ def _accumulate(total: dict[str, int], delta: dict[str, int]) -> None:
         total[key] = total.get(key, 0) + value
 
 
-def assistant_message(reply: Reply) -> dict[str, Any]:
-    """Convert a :class:`Reply` into a re-sendable assistant message dict.
-
-    Preserves ``tool_calls`` so the next request shows the assistant's call right before its
-    matching ``role="tool"`` results — the API requires that pairing.
-
-    Also replays the turn's reasoning as ``reasoning_content``. A reasoning-parser server strips
-    the trace out of ``content``, so dropping it here would hand the model back a turn in which
-    it called a tool for no stated reason: it then re-derives the same plan from scratch every
-    step instead of building on it. Both served chat templates expect the field (gemma-4 renders
-    it as a `thought` channel; Muse Glimmer re-emits it as its `to=self` channel) and ignore it
-    when absent, so the template — not this function — decides when a trace is in scope.
-    """
-    out: dict[str, Any] = {"role": "assistant", "content": reply.content}
-    if reply.reasoning:
-        out["reasoning_content"] = reply.reasoning
-    if reply.tool_calls:
-        out["tool_calls"] = [
-            {
-                "id": c.id,
-                "type": "function",
-                "function": {"name": c.name, "arguments": c.arguments},
-            }
-            for c in reply.tool_calls
-        ]
-    return out
-
-
-def last_assistant_text(messages: list[dict[str, Any]]) -> str:
-    """Best-effort answer when the loop stops without a clean final reply."""
-    for msg in reversed(messages):
-        if msg.get("role") == "assistant" and msg.get("content"):
-            return str(msg["content"])
-    return ""
-
-
-def needs_compaction(context_window: int | None, prompt_tokens: int) -> bool:
-    """True when ``prompt_tokens`` has crossed the compaction threshold for ``context_window``.
-
-    ``context_window`` of ``None`` disables compaction entirely.
-    """
-    return context_window is not None and prompt_tokens > context_window * _COMPACT_THRESHOLD
-
-
-async def compact_messages(
-    model: ChatModel,
-    messages: list[dict[str, Any]],
-    *,
-    on_reply: Callable[[Reply], None] | None = None,
-) -> list[dict[str, Any]]:
-    """Summarize the middle of ``messages`` to reclaim context, preserving both ends.
-
-    Keeps the system prompt (``messages[0]``) and the most recent exchange verbatim, asks
-    ``model`` to summarize everything in between, and splices that summary back in as one
-    ``user`` message. The model is queried with no tools so it can only write prose, never try
-    to act mid-summary. The kept tail is extended backwards over any leading ``role="tool"``
-    messages so an assistant's tool call is never separated from its results (the chat API
-    rejects that pairing). Returns ``messages`` unchanged unless at least two messages sit
-    between the system prompt and the kept tail: folding fewer cannot shrink the list and would
-    only burn a model call and lossily rewrite the original task. The summarization turn's own
-    tokens are intentionally not added to the run's usage/cost — it is bookkeeping, not task
-    work. NOTE: size ``context_window`` above the system prompt plus one full exchange; a
-    tighter budget keeps the kept tail itself over the threshold, so compaction then runs every
-    turn (still bounded and valid, just costlier).
-    """
-    keep_from = len(messages) - _COMPACT_KEEP_RECENT
-    while keep_from > 1 and messages[keep_from].get("role") == "tool":
-        keep_from -= 1
-    if keep_from <= 2:
-        return messages
-    middle = messages[1:keep_from]
-    reply = await model.query([*middle, {"role": "user", "content": _COMPACT_PROMPT}], [])
-    if on_reply is not None:
-        on_reply(reply)
-    summary = {
-        "role": "user",
-        "content": f"Summary of earlier conversation:\n{reply.content or ''}",
-    }
-    return [messages[0], summary, *messages[keep_from:]]
+# Transcript helpers live in nanoagent.core.messages and compaction in
+# nanoagent.core.compact (both re-exported above).

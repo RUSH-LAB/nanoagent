@@ -6,15 +6,11 @@ import json
 import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
-
-def _emit(event: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(event, separators=(",", ":")) + "\n")
-    sys.stdout.flush()
+from nanoagent.adapters._coding_cli import run_main
 
 
 def _prompt(request: dict[str, Any]) -> str:
@@ -100,7 +96,7 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
     if executable is None:
         raise FileNotFoundError(
             f"Hermes executable {executable_name!r} was not found; install with "
-            '`pip install "nanoagent[hermes]"` or set harness.options.executable'
+            '`pip install "nanoagent[hermes]"` or set `executable=...` in the harness `options` list'
         )
 
     usage_file = tempfile.NamedTemporaryFile(prefix="nanoagent-hermes-", suffix=".json", delete=False)
@@ -138,19 +134,7 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> int:
-    try:
-        payload = json.loads(sys.stdin.readline())
-        if not isinstance(payload, dict):
-            raise ValueError("runner request must be a JSON object")
-        _emit(_run(payload))
-    except FileNotFoundError as error:
-        _emit({"type": "error", "code": "runner_unavailable", "error": str(error)})
-    except ValueError as error:
-        _emit({"type": "error", "code": "invalid_request", "error": str(error)})
-    except Exception as error:
-        print(f"Hermes Agent failed: {error}", file=sys.stderr)
-        _emit({"type": "error", "code": "hermes_error", "error": "Hermes Agent failed"})
-    return 0
+    return run_main(_run, error_code="hermes_error", label="Hermes Agent")
 
 
 if __name__ == "__main__":

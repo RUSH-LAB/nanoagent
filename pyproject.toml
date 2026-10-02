@@ -28,15 +28,19 @@ dependencies = [
     # module off the SDK itself (see inference/backends/sglang.py). Declaring `httpx` here would
     # pull in a second, unrelated copy and invite exactly the mismatch that resolution avoids.
     "openai>=1.40",
-    # The YAML/config layer: `defaults:` composition, typed schema loading, `key=value` tokens.
-    # Capped below 0.6, which made a top-level `_schema:` mandatory and replaced the `defaults:`
-    # list with a single `_default:`. nanoagent's loader (nanoagent.runtime.config._merge_specs) and every
-    # config here speak the pre-0.6 dialect; on 0.10 every `*_cfg=` load raises "does not say which
-    # config class it fills". Lifting the cap is a port, not a bump. See nanoagent.runtime.config.
-    "slimconfig>=0.2,<0.6",
+    # The YAML/config layer: `_default:` composition, typed schema loading, `key=value` tokens.
+    # Floor at 0.14: the new dialect — `Config` schemas, `_ >` declarations on every file and
+    # block, Enum-keyed mappings, no `Any` fields. nanoagent's schemas (see nanoagent.runtime.config)
+    # are written against it (open string-keyed data lives in `key=value` token lists and
+    # per-entry files instead). The loader API is unchanged between 0.14 and 0.15.
+    "slimconfig>=0.14",
     # Struct-mode merge onto the all-MISSING dataclass schemas in nanoagent.runtime.config, and the
     # tool-manifest reader in nanoagent.extensions.
     "omegaconf>=2.2",
+    # `key=value` token values led by `[` / `{` parse as YAML flow collections (see
+    # nanoagent.runtime.config._parse_kv_value). Also required transitively by slimconfig and
+    # omegaconf, but imported directly here, so declared directly.
+    "pyyaml",
     # Terminal rendering for `run`/`chat` (streaming, tool-call panels, the live batch progress).
     "rich",
     # The `browse` trajectory viewer, and nothing else.

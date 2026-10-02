@@ -1,2 +1,0 @@
-{"id":"addition","input":"Answer with only the number: 19 + 23","expected":"42","metadata":{"category":"arithmetic"}}
-{"id":"multiplication","input":"Answer with only the number: 7 * 8","expected":"56","metadata":{"category":"arithmetic"}}

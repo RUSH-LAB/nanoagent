@@ -6,24 +6,29 @@
 # so an invocation you liked can be saved as a config and stops being an invocation.
 #
 # The model block below points at a local SGLang endpoint. To reach something else, copy this
-# file, change the model block, and point $MGEN_CONFIG at yours. `backend:` is resolved by
-# nanoagent.inference — a built-in, or a plugin file in a $NANOAGENT_PLUGINS directory, which
-# is how a private gateway is reached without either package knowing about it.
+# file, change the model block, and point $MGEN_CONFIG at yours. `provider:` is resolved by
+# nanoagent.inference.providers — sglang or openrouter.
+#
+# Dialect notes (slimconfig >= 0.14): the file names the class it fills on `_ >`, every block
+# filling a nested class names it on its own key, and free-form knob maps are `key=value` token
+# lists (see nanoagent.runtime.config.parse_kv_list).
 
-model:
+_ > nanoagent.runtime.config.InteractiveConfig:
+
+model > nanoagent.runtime.config.ModelConfig:
   model: default            # served name; --model overrides it
-  backend: sglang           # a built-in, or the name of a plugin file (see nanoagent.inference.plugins)
+  provider: sglang          # sglang or openrouter (see nanoagent.inference.providers)
   base_url: http://127.0.0.1:30000/v1
-  api_key: null             # a plugin backend reads its own key from the environment
+  api_key: null             # openrouter reads OPENROUTER_API_KEY when this is null
   temperature: 0.6
   max_tokens: 8192
   request_timeout: 900.0
   max_retries: 4
-  extra_body: {}
+  extra_body: []            # e.g. ["repetition_penalty=1.05"]
   input_price: 0.0
   output_price: 0.0
 
-agent:
+agent > nanoagent.runtime.config.AgentConfig:
   # A terminal session is open-ended, so the budget is generous where a benchmark's is not.
   max_steps: 60
   cost_limit: null
@@ -63,6 +68,6 @@ output: null                # null = the default mgen folder (expdir/mgen/)
 yolo: false                 # confirm each tool call (--dangerously-skip-permissions flips it)
 resume: null                # -r / -c set it
 commands: []
-models: {}
+models: []                  # ModelConfig files; /model switches by file stem
 theme: {}
 images: false

@@ -13,9 +13,8 @@ from __future__ import annotations
 
 import subprocess
 
-from nanoagent.core.tool import JsonSchema, Tool
+from nanoagent.core.tool import JsonSchema, Tool, communicate_or_kill
 from nanoagent.core import workspace
-from nanoagent.tools.process import communicate_or_kill
 
 
 class Bash(Tool):

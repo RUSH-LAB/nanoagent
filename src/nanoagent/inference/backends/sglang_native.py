@@ -1,8 +1,9 @@
 """SGLang's NATIVE ``/generate`` endpoint: ids in, ids out.
 
-The same server as :mod:`nanoagent.inference.backends.sglang`, through the other door. The
-``/v1`` chat endpoint templates the conversation itself and answers in text; ``/generate`` takes
-``input_ids`` and — with ``return_logprob`` — answers with the ids it sampled and their logprobs.
+The chat providers in :mod:`nanoagent.inference.providers` talk to ``/v1``. This module is the
+other API, configured by :class:`~nanoagent.inference.config.GenerateConfig` rather than by
+``provider``. ``/generate`` takes ``input_ids`` and — with ``return_logprob`` — answers with the
+ids it sampled and their logprobs.
 So this is the only transport in the package whose
 :class:`~nanoagent.inference.types.Tokens` are :attr:`~nanoagent.inference.types.Fidelity.NATIVE`,
 and the only one an RL trainer can compute a per-token loss against.
@@ -21,8 +22,8 @@ drift from the sampler — and it moves two jobs client-side that ``/v1`` used t
   * **streaming is not implemented here** either; ``on_delta`` fires once with the whole answer,
     which is the fallback the :class:`~nanoagent.inference.backend.Backend` protocol allows.
 
-So: use this to generate or score a batch (:func:`~nanoagent.inference.engine.infer`), and the
-``/v1`` transport to drive an agent.
+Build it with :meth:`SglangNativeBackend.from_config` and a :class:`~nanoagent.inference.config.GenerateConfig`.
+The agent loop and :func:`~nanoagent.inference.engine.infer` stay on the ``/v1`` providers.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from collections.abc import Callable
 from typing import Any
 
 from nanoagent.inference.backend import retry_async, token_cost
-from nanoagent.inference.config import LeanInferConfig
+from nanoagent.inference.config import GenerateConfig
 from nanoagent.inference.http import httpx as _httpx
 from nanoagent.inference.thinking import split_thinking
 from nanoagent.inference.tokenizer import Tokenizer, load_tokenizer
@@ -84,9 +85,8 @@ class SglangNativeBackend:
         self.max_retries = max_retries
         self.retry_base_delay = retry_base_delay
         self.retry_max_delay = retry_max_delay
-        # `/generate` hangs off the server ROOT, while every config in the wild writes base_url as
-        # the OpenAI-compatible `.../v1`. Dropping that suffix is what lets one config switch
-        # between the two transports by changing `backend:` and nothing else.
+        # `/generate` hangs off the server root. A GenerateConfig may still carry a copied chat
+        # URL ending in `/v1`; drop that suffix so the request hits `/generate`.
         self._url = base_url.rstrip("/").removesuffix("/v1") + "/generate"
         # Native sampling params, NOT the OpenAI ones: the budget is `max_new_tokens` here. A None
         # value is omitted rather than sent, for the same reason as on the /v1 side (an explicit
@@ -110,17 +110,8 @@ class SglangNativeBackend:
         )
 
     @classmethod
-    def from_config(cls, cfg: LeanInferConfig) -> SglangNativeBackend:
-        """Build from a ``backend: sglang_native`` config; both endpoint and tokenizer are required."""
-        if cfg.base_url is None:
-            raise ValueError(
-                "backend='sglang_native' requires config.base_url (an SGLang endpoint)"
-            )
-        if cfg.tokenizer is None:
-            raise ValueError(
-                "backend='sglang_native' requires config.tokenizer: this transport sends input_ids, "
-                "so the chat template is applied HERE and there is no server-side default to fall back on"
-            )
+    def from_config(cls, cfg: GenerateConfig) -> SglangNativeBackend:
+        """Build from a :class:`~nanoagent.inference.config.GenerateConfig`."""
         return cls(
             base_url=cfg.base_url,
             tokenizer=load_tokenizer(cfg.tokenizer),
@@ -147,8 +138,8 @@ class SglangNativeBackend:
         """Render ``messages`` to ids, sample, and return the reply with its NATIVE tokens."""
         if tools:
             raise NotImplementedError(
-                "backend='sglang_native' does not parse tool calls: /generate returns raw text, and "
-                "the call format is per-model. Use backend='sglang' (the /v1 endpoint) for an agent loop"
+                "the /generate client does not parse tool calls: the reply is raw text, and "
+                "the call format is per-model. Use provider='sglang' (the /v1 endpoint) for an agent loop"
             )
         prompt_ids = self._tokenizer.render(messages)
         payload = {
@@ -243,6 +234,3 @@ def _finish_reason(raw: Any) -> str | None:
     if isinstance(raw, dict):
         return raw.get("type")
     return raw
-
-
-BACKEND = SglangNativeBackend

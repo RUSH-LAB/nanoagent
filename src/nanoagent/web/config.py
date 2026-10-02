@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 from omegaconf import MISSING
 
-from nanoagent.runtime.config import AgentDefinitionConfig, HarnessProfileConfig
+from nanoagent.runtime.config import AgentDefinitionConfig
 
 
 @dataclass
@@ -20,7 +19,10 @@ class WebConfig(AgentDefinitionConfig):
     """
 
     default_profile: str = MISSING
-    profiles: dict[str, HarnessProfileConfig] = MISSING
+    # Registry files, each a complete HarnessProfileConfig; the id is the file's stem (see
+    # `nanoagent.runtime.config.load_registry`). At least one; the default must be among them —
+    # both checked where the registry loads, since the files are only read there.
+    profiles: list[str] = MISSING
     host: str = MISSING
     port: int = MISSING
     api_token: str | None = MISSING
@@ -42,22 +44,8 @@ class WebConfig(AgentDefinitionConfig):
                 raise ValueError(f"{name} must be > 0, got {value}")
         if isinstance(self.api_token, str) and not self.api_token:
             raise ValueError("api_token must be non-empty or null")
-        if isinstance(self.profiles, dict) and not self.profiles:
+        if isinstance(self.profiles, list) and not self.profiles:
             raise ValueError("profiles must contain at least one server-approved profile")
-        if isinstance(self.profiles, dict):
-            for profile_id in self.profiles:
-                if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,99}", profile_id):
-                    raise ValueError(
-                        "profile ids must start with a lowercase letter or digit and contain "
-                        "only lowercase letters, digits, '.', '_' or '-'"
-                    )
-        if (
-            isinstance(self.profiles, dict)
-            and isinstance(self.default_profile, str)
-            and self.default_profile != MISSING
-        ):
-            if self.default_profile not in self.profiles:
-                raise ValueError(f"default_profile {self.default_profile!r} is not in profiles")
         if self.host not in {"127.0.0.1", "localhost", "::1"} and not self.api_token:
             raise ValueError("api_token is required when the web host is not loopback-only")
         if self.agent.events is not None:

@@ -22,8 +22,8 @@ from nanoagent.benchmark.protocol import (
 )
 from nanoagent.benchmark.environment import EnvironmentOutcome, EnvironmentSession
 from nanoagent.benchmark.scorer import ScoringContext
+from nanoagent.runtime.harness import RunnerProfile
 from nanoagent.runtime.runner import RunnerRequest, RunnerResult
-from nanoagent.runtime.runner_factory import RunnerProfile
 from nanoagent.runtime.taskselect import select_subset
 
 

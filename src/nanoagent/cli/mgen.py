@@ -7,7 +7,7 @@
     mgen --dump-config                     # what the flags above resolved to, as YAML
 
 The point is the *protocol*, not the transport: which server answers is
-:mod:`nanoagent.inference.plugins`' business (a plugin, an OpenAI-compatible gateway, a local SGLang),
+:mod:`nanoagent.inference.providers`' business (``sglang`` or ``openrouter``),
 so a script written against ``claude`` runs against whatever this repo can reach by changing
 the config, not the script.
 
@@ -37,7 +37,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from nanoagent.runtime.config import InteractiveConfig, load_config_args
+from nanoagent.runtime.config import InteractiveConfig, load_config_args, load_registry, ModelConfig
 from nanoagent.extensions import PACKAGED_CONFIGS
 from nanoagent.runtime.trajectory import TRAJECTORY_SUFFIX
 
@@ -202,7 +202,7 @@ def run_interactive(cfg: InteractiveConfig) -> int:
         resume=cfg.resume,
         options=ReplOptions(
             commands=list(cfg.commands),
-            models=dict(cfg.models),
+            models=load_registry(cfg.models, ModelConfig),
             theme=dict(cfg.theme),
             images=cfg.images,
         ),

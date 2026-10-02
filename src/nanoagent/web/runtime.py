@@ -5,17 +5,19 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from importlib.resources import files
+from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
 from jsonschema import Draft202012Validator
 
-from nanoagent.runtime.native_runner import AgentFactory
+from nanoagent.runtime.harness import AgentFactory, RunnerProfile, RunnerRegistry
 from nanoagent.runtime.runner import Runner, RunnerError, RunnerRequest
-from nanoagent.runtime.runner_factory import RunnerProfile, RunnerRegistry
+from nanoagent.runtime.config import HarnessProfileConfig, load_registry
 from nanoagent.web.config import WebConfig
 
 logger = logging.getLogger(__name__)
@@ -117,6 +119,14 @@ class RunHost:
         if sum(value is not None for value in (runner, registry, agent_factory)) > 1:
             raise ValueError("pass only one of runner, registry, or agent_factory")
         self.cfg = cfg
+        # Profile ids surface in URLs, so they stay URL-safe: the check moved here from
+        # WebConfig, which now carries file paths (the id is each file's stem).
+        for path in cfg.profiles:
+            if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,99}", Path(path).stem):
+                raise ValueError(
+                    "profile ids must start with a lowercase letter or digit and contain "
+                    "only lowercase letters, digits, '.', '_' or '-'"
+                )
         if registry is not None:
             self._runners = registry
         elif runner is None:
@@ -127,7 +137,7 @@ class RunHost:
                 agent_factory=agent_factory,
             )
         else:
-            profile_cfg = cfg.profiles[cfg.default_profile]
+            profile_cfg = load_registry(cfg.profiles, HarnessProfileConfig)[cfg.default_profile]
             self._runners = RunnerRegistry.single(
                 runner,
                 profile_id=cfg.default_profile,

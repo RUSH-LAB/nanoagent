@@ -9,7 +9,7 @@ import sys
 from nanoagent.benchmark.engine import run_benchmark
 from nanoagent.benchmark.registry import BenchmarkRegistry
 from nanoagent.runtime.config import BenchmarkRunConfig, load_config_args
-from nanoagent.runtime.runner_factory import RunnerRegistry
+from nanoagent.runtime.harness import RunnerRegistry
 
 _USAGE = (
     "usage: nanoagent benchmark {list|run} benchmark_cfg=<benchmark.yaml> "

@@ -172,7 +172,7 @@ _DELEGATES = {
     "benchmark": "nanoagent.cli.benchmark",
     "chat": "nanoagent.cli.repl.app",
     "browse": "nanoagent.cli.repl.browser",
-    "web": "nanoagent.web.cli",
+    "web": "nanoagent.web.app",
     # The one command that takes argparse flags rather than config tokens; it is also installed
     # as its own console script, `mgen` (see nanoagent.cli.mgen for why it is the exception).
     "mgen": "nanoagent.cli.mgen",

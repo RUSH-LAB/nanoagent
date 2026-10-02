@@ -38,8 +38,7 @@ import tempfile
 from pathlib import Path
 from shutil import rmtree
 
-from nanoagent.core.tool import Tool
-from nanoagent.tools.process import communicate_or_kill
+from nanoagent.core.tool import Tool, communicate_or_kill
 
 
 class CodeExecutionError(RuntimeError):

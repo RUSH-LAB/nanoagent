@@ -20,21 +20,15 @@ There is deliberately no multi-turn tool loop here. :class:`nanoagent.core.agent
 loop and is the only one in the package; this side returns ONE :class:`~nanoagent.inference.types.Response`
 per request and lets the caller decide what to do with the tool calls in it.
 
-Text is what a provider returns; token ids are what a trainer needs. ``config.tokenizer`` names the
-vocabulary, and every reply then carries :attr:`Response.tokens` — :attr:`Fidelity.NATIVE` from
-``backend: sglang_native`` (SGLang's ``/generate``, which reports the ids it sampled),
-:attr:`Fidelity.RECONSTRUCTED` from any chat transport, where the ids were re-encoded here from
-the text. One shape, and a label saying which of the two it is, because no chat API — OpenRouter's
-or SGLang's own ``/v1`` — reports ids at all.
+Text is what a chat provider returns; token ids are what a trainer needs. ``config.tokenizer``
+names the vocabulary, and a chat reply then carries :attr:`Response.tokens` labelled
+:attr:`Fidelity.RECONSTRUCTED` — the ids were re-encoded here from the text, because no chat API
+reports the ids the sampler emitted. :class:`~nanoagent.inference.config.GenerateConfig` is the
+other spec, SGLang's ``/generate``, and those replies are :attr:`Fidelity.NATIVE`.
 
-The transport is ``config.backend``: the built-in ``"sglang"`` (OpenAI-compatible HTTP), the
-``"sglang_native"`` token-level one, or the name of a plugin file — see
-:mod:`nanoagent.inference.plugins`, which loads ``<name>.py`` from
-``config.plugin_dirs`` / ``$NANOAGENT_PLUGINS`` / ``<project root>/.meta/plugins`` so a
-site-specific endpoint (an internal gateway, a team key) never has to enter this package.
-:func:`~nanoagent.inference.plugins.available_backends` lists what is reachable. Either way the backend
-module is imported only when selected, so importing this package does not pull in the ``openai``
-SDK until a backend is built.
+The chat client is ``config.provider``, resolved by :mod:`nanoagent.inference.providers`:
+``"sglang"`` and ``"openrouter"``. The client module is imported only when selected, so importing
+this package does not pull in the ``openai`` SDK until a provider is built.
 
 Every yaml entry point resolves a relative path against the PROJECT ROOT (see
 :func:`~nanoagent.inference.config.load_yaml`), so one config path names one file no matter which
@@ -43,17 +37,16 @@ directory the process was started from.
 
 from __future__ import annotations
 
-from nanoagent.inference.config import LeanInferConfig, load_config, load_yaml
+from nanoagent.inference.config import GenerateConfig, LeanInferConfig, load_config, load_yaml
 from nanoagent.inference.engine import infer
 from nanoagent.inference.launch import launch_from_yaml
-from nanoagent.inference.plugins import BackendNotFound, available_backends
 from nanoagent.inference.serve import SGLangServeConfig, SGLangServer, ensure_weights
 from nanoagent.inference.tokenizer import Tokenizer, load_tokenizer
 from nanoagent.inference.types import Fidelity, Request, Response, Tokens, ToolCall
 
 __all__ = [
-    "BackendNotFound",
     "Fidelity",
+    "GenerateConfig",
     "LeanInferConfig",
     "Request",
     "Response",
@@ -62,7 +55,6 @@ __all__ = [
     "Tokenizer",
     "Tokens",
     "ToolCall",
-    "available_backends",
     "ensure_weights",
     "infer",
     "launch_from_yaml",

@@ -1,4 +1,4 @@
-"""Typed, OmegaConf-backed structured run configuration.
+"""Typed, slimconfig-backed structured run configuration.
 
 A run is described by :class:`RunConfig`, which nests :class:`ModelConfig` (how to reach the
 model — SGLang served name, endpoint, sampling, prices) and :class:`AgentConfig` (how to drive
@@ -9,56 +9,169 @@ where to write it. :class:`InteractiveConfig` and :class:`BatchConfig` extend it
 ``browse`` viewer. Everything is yaml-driven — the CLIs take no argparse flags, only
 ``key=value`` tokens (see :func:`load_config_args`), so all knobs live in the YAML.
 
-A YAML (plus optional dotted ``key=value`` overrides) is merged onto the structured
-schema by :func:`load_config`. Two rules, enforced recursively at load time:
+Every schema subclasses :class:`slimconfig.Config` and is loaded by
+:func:`slimconfig.load_config`, so the new-dialect rules apply:
 
   * NO field has a default — every leaf is ``MISSING`` and must be set explicitly in the YAML
     (a config fully specifies the run; nothing is silently filled in). An unset leaf raises; a
     nullable field that is "off" must still be present, set to ``null`` (e.g. ``cost_limit: null``),
     and an empty collection must be written out (e.g. ``tools: []``);
-  * unknown keys are rejected (OmegaConf struct mode).
+  * every config file names the class it fills (``_ > nanoagent.runtime.config.BatchConfig:``)
+    and every block that fills a nested class names it too
+    (``model > nanoagent.runtime.config.ModelConfig:``);
+  * unknown keys are rejected, and every value must match its declared type;
+  * one file inherits one file (``_default: <path>``, resolved against the CWD) — independent
+    files compose at the launch instead, as several ``*_cfg=`` tokens (see :func:`_ordered_specs`).
+
+Three shapes that do not fit "every key is registered" are spelled as values, not keys:
+
+  * free-form knob maps (``extra_body``, both ``options``) are ``key=value`` token lists (see
+    :func:`parse_kv_list`) — inline, overridable as a whole, parsed where they are consumed;
+  * ``model_overrides`` is a :data:`ModelPart`, a partial :class:`ModelConfig` stating only the
+    fields it changes (see :func:`slimconfig.stated`);
+  * registries (``profiles``, ``benchmarks``, ``models``) are lists of per-entry YAML files, each
+    a complete entry config — the entry's id is its file's stem (see :func:`load_registry`).
 
 CLI entry points pass ``["<file>.yaml", "agent.max_steps=30", ...]``; later specs win.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any, TypeVar
 
+import yaml
 from omegaconf import MISSING
 # The loader itself is slimconfig (github.com/zeyuyang8/slimconfig), the extracted standalone
-# package this repo's copy grew into: `load_config` merges specs onto a schema with the two rules
+# package this repo's copy grew into: `load_config` merges specs onto a schema with the rules
 # documented above, and `peek` reads one key before a schema is chosen. Re-exported under their own
 # names here, so `from nanoagent.runtime.config import load_config` keeps working.
-from slimconfig import Spec, load_config, peek as _peek
+from slimconfig import Config, Spec, load_config, partial_of, stated
+from slimconfig import peek as _peek
+
+from nanoagent.extensions import resolve_config
 
 T = TypeVar("T")
 
 
-@dataclass
-class ModelConfig:
-    """How to reach one model — an SGLang ``/v1`` endpoint.
+def _check_concurrency(value: Any, *, what: str = "concurrency") -> None:
+    """Shared fan-out guard: ``asyncio.Semaphore(0)`` would deadlock the batch forever."""
+    if isinstance(value, int) and value < 1:
+        raise ValueError(f"{what} must be >= 1, got {value}")
 
-    nanoagent supports a single transport, ``backend: "sglang"`` (see
-    :meth:`~nanoagent.runtime.model.Model.from_config`): the OpenAI SDK against ``base_url`` (an SGLang
-    ``/v1`` endpoint), using ``model`` (the served name) and ``extra_body``.
+
+def _check_timeout(value: Any, *, what: str = "timeout") -> None:
+    """Shared wall-clock guard: ``<= 0`` cancels every rollout before it does any work."""
+    if isinstance(value, (int, float)) and value <= 0:
+        raise ValueError(f"{what} must be > 0 or null, got {value}")
+
+
+def _parse_kv_value(raw: str) -> Any:
+    """Parse one token value: JSON first, YAML-flow collections second, else the literal string.
+
+    Scalars stay strict JSON on purpose — full-YAML parsing would turn ``level=off`` into False
+    and ``date=2024-01-01`` into a date. But a value led by ``[`` or ``{`` that is not valid JSON
+    reads as a YAML flow collection, so lists keep their natural spelling (``args=[--foo, bar]``)
+    instead of demanding JSON's quoted strings. A bracket-led value that parses as neither is an
+    error rather than a silent string: ``extra_args=[--foo`` must fail, not iterate characters.
+    """
+    try:
+        return json.loads(raw)
+    except ValueError:
+        pass
+    if raw[:1] in ("[", "{"):
+        try:
+            parsed = yaml.safe_load(raw)
+        except yaml.YAMLError as error:
+            raise ValueError(f"value {raw!r} is neither JSON nor YAML: {error}") from error
+        if not isinstance(parsed, (list, dict)):
+            raise ValueError(f"value {raw!r} is neither a JSON nor a YAML collection")
+        return parsed
+    return raw
+
+
+def parse_kv_list(items: list[str]) -> dict[str, Any]:
+    """Parse free-form ``key=value`` tokens into a mapping (see :class:`ModelConfig`).
+
+    Each item splits on its FIRST ``=``; the key is literal (no dotted expansion) and must be
+    unique. A value is JSON when it parses as JSON (``retries=3``, ``tags=["a", "b"]``), a YAML
+    flow collection when bracket-led (``args=[--foo, bar]``), else the literal string
+    (``prompt=You are...``) — see :func:`_parse_kv_value`. A value that would parse as JSON but
+    should stay a string must be double-quoted (``port="8080"``). ``key=`` is the empty string;
+    ``key=null`` is None.
+    """
+    parsed: dict[str, Any] = {}
+    for item in items:
+        key, sep, raw = item.partition("=")
+        key = key.strip()
+        if not sep or not key:
+            raise ValueError(f"expected key=value, got {item!r}")
+        if key in parsed:
+            raise ValueError(f"duplicate key {key!r} in {items!r}")
+        parsed[key] = _parse_kv_value(raw.strip())
+    return parsed
+
+
+def load_registry[T](paths: list[str], schema: type[T]) -> dict[str, T]:
+    """Load per-entry config files into ``{file stem: entry}`` (see :class:`BenchmarkRunConfig`).
+
+    Paths resolve like every other config path (the CWD first, then the configs shipped inside
+    the package). Each file must be a complete ``schema`` on its own; two files with the same
+    stem are an error, since the stem is the id selections (``profile=``, ``benchmark=``,
+    ``/model``) name.
+    """
+    entries: dict[str, T] = {}
+    sources: dict[str, str] = {}
+    for path in paths:
+        resolved = resolve_config(path)
+        entry = load_config(schema, [str(resolved)])
+        stem = resolved.stem
+        if stem in entries:
+            raise ValueError(
+                f"duplicate entry {stem!r}: {sources[stem]!r} and {path!r} name the same id"
+            )
+        entries[stem] = entry
+        sources[stem] = path
+    return entries
+
+
+class ThemeName(StrEnum):
+    """The style names the REPL emits — the only keys a ``theme:`` override can usefully set."""
+
+    agent = "agent"
+    tool = "tool"
+    notice = "notice"
+    warn = "warn"
+    error = "error"
+    dim = "dim"
+    bold = "bold"
+
+
+@dataclass
+class ModelConfig(Config):
+    """How to reach one model.
+
+    ``provider`` selects the chat client (see :mod:`nanoagent.inference.providers`): ``"sglang"``
+    and ``"openrouter"`` share one OpenAI-compatible ``/v1`` client. ``base_url`` is that endpoint
+    (OpenRouter fills its own when null). SGLang's ``/generate`` endpoint is
+    :class:`~nanoagent.inference.config.GenerateConfig`, a different spec.
 
     Every field is required (no defaults — a config must set each one explicitly); ``Optional``
     fields may be ``null`` but must still be present. That all-required contract is the ONLY
     reason this is not just :class:`~nanoagent.inference.config.LeanInferConfig`: the fields are a strict subset of
     it, by the same names, so :meth:`~nanoagent.runtime.model.Model.from_config` translates by field-name
-    projection (pinned by ``tests/test_model_config_projection.py``).
+    projection (plus :func:`parse_kv_list` on ``extra_body``).
     """
 
     model: str = MISSING
-    # transport: the built-in "sglang" (OpenAI SDK over base_url), or the name of a
-    # backend plugin — see nanoagent.inference.plugins.
-    backend: str = MISSING
-    # SGLang endpoint.
+    # which chat client to build: "sglang" or "openrouter".
+    provider: str = MISSING
+    # OpenAI-compatible /v1 endpoint. Required for sglang; openrouter defaults it.
     base_url: str | None = MISSING
-    # OpenAI-style key passed through to the backend; the sglang backend ignores it (SGLang
-    # accepts any key). May be null, but must be present.
+    # OpenAI-style key. SGLang ignores it. OpenRouter reads this, or OPENROUTER_API_KEY when null.
+    # May be null, but must be present.
     api_key: str | None = MISSING
     # null omits temperature from the request body entirely rather than sending a default: a
     # reasoning deployment behind a gateway rejects an explicit one with a 400. 0.0 is a value
@@ -75,14 +188,22 @@ class ModelConfig:
     # a truly-dead server still ends after max_retries+1 attempts rather than hanging. 0 disables.
     max_retries: int = MISSING
     # extra SGLang sampling params passed through verbatim as the request `extra_body`
-    # (e.g. {repetition_penalty: 1.05} to break thinking-model repeat loops); {} = none.
-    extra_body: dict[str, Any] = MISSING
+    # (e.g. ["repetition_penalty=1.05"] to break thinking-model repeat loops); [] = none.
+    # A token list, not a mapping: the key space belongs to the server, so the keys stay values
+    # (see :func:`parse_kv_list`) rather than becoming config keys nothing could register.
+    extra_body: list[str] = MISSING
     input_price: float = MISSING
     output_price: float = MISSING
 
 
+# One layer of a ModelConfig: every field, none of them required — what a profile's
+# `model_overrides` states (see HarnessProfileConfig). Only the fields the layer sets reach
+# `dataclasses.replace`, via `slimconfig.stated`.
+ModelPart = partial_of(ModelConfig, name="ModelPart")
+
+
 @dataclass
-class AgentConfig:
+class AgentConfig(Config):
     """How to drive the agent loop."""
 
     system_prompt: str = MISSING
@@ -140,7 +261,7 @@ class AgentConfig:
 
 
 @dataclass
-class AgentDefinitionConfig:
+class AgentDefinitionConfig(Config):
     """Everything required to build an agent, independent of how a caller drives it."""
 
     model: ModelConfig = field(default_factory=ModelConfig)
@@ -161,7 +282,7 @@ class AgentDefinitionConfig:
 
 
 @dataclass
-class HarnessConfig:
+class HarnessConfig(Config):
     """Select the agent implementation behind NanoAgent's stable run API."""
 
     type: str = MISSING
@@ -169,7 +290,8 @@ class HarnessConfig:
     command: list[str] | None = MISSING
     cwd: str | None = MISSING
     # Adapter-owned, server-side settings. They are never accepted from a run request.
-    options: dict[str, Any] = MISSING
+    # A token list, not a mapping: the key space belongs to the adapter (see :func:`parse_kv_list`).
+    options: list[str] = MISSING
 
     def __post_init__(self) -> None:
         if self.type not in {MISSING, "native", "hermes", "pi", "codex", "claude", "custom"}:
@@ -188,36 +310,37 @@ class HarnessConfig:
 
 
 @dataclass
-class HarnessProfileConfig:
+class HarnessProfileConfig(Config):
     """One server-approved harness/model combination exposed to API clients."""
 
     label: str = MISSING
     model: str = MISSING
     harness: HarnessConfig = field(default_factory=HarnessConfig)
-    # Native profiles may override ModelConfig fields such as base_url or temperature.
-    model_overrides: dict[str, Any] = MISSING
+    # Native profiles may override ModelConfig fields such as base_url or temperature: a layer
+    # stating only what changes (`model_overrides > nanoagent.runtime.config.ModelPart:`), so an
+    # unknown override key fails at load instead of reaching `dataclasses.replace`. A bare key
+    # (no values under it) states nothing. Never the model name — `model` owns that.
+    model_overrides: ModelPart = field(default_factory=ModelPart)  # type: ignore[valid-type]
 
     def __post_init__(self) -> None:
         if isinstance(self.label, str) and not self.label.strip():
             raise ValueError("profile label must be non-empty")
         if isinstance(self.model, str) and not self.model.strip():
             raise ValueError("profile model must be non-empty")
-        if (
-            self.harness.type not in {MISSING, "native"}
-            and isinstance(self.model_overrides, dict)
-            and self.model_overrides
-        ):
+        if self.harness.type not in {MISSING, "native"} and stated(self.model_overrides):
             raise ValueError("model_overrides are only valid for native harness profiles")
 
 
 @dataclass
-class BenchmarkAdapterConfig:
+class BenchmarkAdapterConfig(Config):
     """How a named benchmark loads cases and scores runner results."""
 
     type: str = MISSING
     # Python adapters name a module or .py file. Built-in adapters set this to null.
     code: str | None = MISSING
-    options: dict[str, Any] = MISSING
+    # Adapter-owned settings (e.g. the jsonl path). A token list, not a mapping: the key space
+    # belongs to the adapter (see :func:`parse_kv_list`).
+    options: list[str] = MISSING
 
     def __post_init__(self) -> None:
         if self.type not in {MISSING, "jsonl_exact_match", "swebench", "python"}:
@@ -232,7 +355,7 @@ class BenchmarkAdapterConfig:
 
 
 @dataclass
-class BenchmarkDefinitionConfig:
+class BenchmarkDefinitionConfig(Config):
     """One benchmark name in the operator-owned registry."""
 
     label: str = MISSING
@@ -251,8 +374,11 @@ class BenchmarkDefinitionConfig:
 class BenchmarkRunConfig(AgentDefinitionConfig):
     """One named benchmark evaluated with one named LLM+harness profile."""
 
-    profiles: dict[str, HarnessProfileConfig] = MISSING
-    benchmarks: dict[str, BenchmarkDefinitionConfig] = MISSING
+    # Registry files, each a complete entry config; the id is the file's stem (see
+    # :func:`load_registry`). Separate files because the ids are operator-chosen names — data,
+    # not fields — and a mapping can only be keyed by registered names.
+    profiles: list[str] = MISSING
+    benchmarks: list[str] = MISSING
     profile: str = MISSING
     benchmark: str = MISSING
     output: str = MISSING
@@ -264,18 +390,12 @@ class BenchmarkRunConfig(AgentDefinitionConfig):
     timeout: float | None = MISSING
 
     def __post_init__(self) -> None:
-        if isinstance(self.concurrency, int) and self.concurrency < 1:
-            raise ValueError("benchmark concurrency must be >= 1")
-        if isinstance(self.timeout, (int, float)) and self.timeout <= 0:
-            raise ValueError("benchmark timeout must be > 0 or null")
-        if isinstance(self.profiles, dict) and isinstance(self.profile, str):
-            if self.profile not in self.profiles:
-                raise ValueError(f"benchmark profile {self.profile!r} is not configured")
-        if isinstance(self.benchmarks, dict) and isinstance(self.benchmark, str):
-            if self.benchmark not in self.benchmarks:
-                raise ValueError(f"benchmark {self.benchmark!r} is not configured")
+        _check_concurrency(self.concurrency, what="benchmark concurrency")
+        _check_timeout(self.timeout, what="benchmark timeout")
         if isinstance(self.output, str) and not self.output.strip():
             raise ValueError("benchmark output must be non-empty")
+        # `profile` / `benchmark` membership is checked where the registries load (the files are
+        # only read there); an unknown selection names the ids that are configured.
 
 
 @dataclass
@@ -302,8 +422,12 @@ class InteractiveConfig(RunConfig):
     # carry on from; null starts fresh.
     resume: str | None = MISSING
     commands: list[str] = MISSING  # .md prompt templates: notes/review.md becomes /review
-    models: dict[str, ModelConfig] = MISSING  # what /model can switch to; {} = the primary only
-    theme: dict[str, str] = MISSING  # rich styles for the REPL's named colours; {} = the defaults
+    # What /model can switch to, as ModelConfig YAML paths (see :func:`load_registry`); [] = the
+    # primary only. Each file is a complete ModelConfig; its stem is the /model name.
+    models: list[str] = MISSING
+    # rich styles for the REPL's named colours, keyed by ThemeName; {} = the defaults. A key that
+    # is not a member fails at load — previously it silently restyled nothing.
+    theme: dict[ThemeName, str] = MISSING
     images: bool = MISSING  # draw an image a tool returns inline, instead of printing its path
 
 
@@ -315,7 +439,7 @@ class BatchConfig(RunConfig):
     once. ``tasks`` (a JSONL of ``{task_id, task}``) is what selects batch mode; ``output``
     is the output directory; the inherited ``task`` is unused (leave null). Compose the agent
     harness and the batch knobs with ``harness_cfg=<harness.yaml> batch_cfg=<batch.yaml>``
-    (later specs win).
+    (later specs win) — each file declares ``BatchConfig`` and sets the keys it owns.
     """
 
     tasks: str = MISSING  # JSONL of {task_id, task} rows
@@ -327,24 +451,14 @@ class BatchConfig(RunConfig):
     timeout: float | None = MISSING  # per-rollout wall-clock cap (s); null = no cap, overrun killed + scored zero (required)
 
     def __post_init__(self) -> None:
-        # concurrency sizes asyncio.Semaphore(concurrency) in run_batch; a value < 1 builds
-        # Semaphore(0), which deadlocks the fan-out forever (every `async with semaphore` blocks).
-        # Concrete-int-only so the MISSING sentinel ("???") survives schema construction
-        # (OmegaConf.structured(BatchConfig) builds it with concurrency == "???"); an unset
-        # concurrency is caught later by load_config's _missing_fields.
-        if isinstance(self.concurrency, int) and self.concurrency < 1:
-            raise ValueError(f"concurrency must be >= 1, got {self.concurrency}")
-        # timeout is the per-rollout wall-clock cap, fed to
-        # asyncio.wait_for(agent.run(...), timeout) in run_batch. A value <= 0 makes wait_for
-        # cancel the rollout before it does any work, silently scoring EVERY task in the batch
-        # zero, so a non-positive timeout is always a config error (null = no cap). Concrete-
-        # numeric-only so the None default (and the MISSING sentinel) survive schema construction.
-        if isinstance(self.timeout, (int, float)) and self.timeout <= 0:
-            raise ValueError(f"timeout must be > 0 or null, got {self.timeout}")
+        # Concrete-value-only so the MISSING sentinel ("???") and None survive schema
+        # construction; an unset value is caught later by load_config's _missing_fields.
+        _check_concurrency(self.concurrency)
+        _check_timeout(self.timeout)
 
 
 @dataclass
-class BrowseConfig:
+class BrowseConfig(Config):
     """The ``browse`` trajectory viewer: just where to look."""
 
     # a *.traj.json file, or a directory searched recursively for them
@@ -358,7 +472,9 @@ def _ordered_specs(args: list[str]) -> list[Spec]:
 
       * ``<label>_cfg=<path>`` — a config **file** to merge in. The label (e.g.
         ``model_cfg``, ``batch_cfg``) is just a readable name; only ``<path>`` is used, so
-        you say exactly which file is which instead of relying on argument order.
+        you say exactly which file is which instead of relying on argument order. Every file
+        declares the schema it fills (``_ > <dotted.path.To.Schema>:``) and may inherit one
+        file of its own (``_default: <path>``).
       * ``<dotted.key>=<value>`` — override one leaf (e.g. ``agent.max_steps=30``).
 
     Files come first so every override wins; since files normally set disjoint keys, the

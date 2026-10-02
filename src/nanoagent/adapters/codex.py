@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from nanoagent.adapters._coding_cli import (
-    emit,
     executable,
     extra_args,
     prompt,
     request_and_options,
     run_child,
+    run_main,
     workspace,
 )
 
@@ -91,19 +90,7 @@ def _run(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> int:
-    try:
-        payload = json.loads(sys.stdin.readline())
-        if not isinstance(payload, dict):
-            raise ValueError("runner request must be a JSON object")
-        emit(_run(payload))
-    except FileNotFoundError as error:
-        emit({"type": "error", "code": "runner_unavailable", "error": str(error)})
-    except ValueError as error:
-        emit({"type": "error", "code": "invalid_request", "error": str(error)})
-    except Exception as error:
-        print(f"Codex CLI failed: {error}", file=sys.stderr)
-        emit({"type": "error", "code": "codex_error", "error": "Codex CLI failed"})
-    return 0
+    return run_main(_run, error_code="codex_error", label="Codex CLI")
 
 
 if __name__ == "__main__":

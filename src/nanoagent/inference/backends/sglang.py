@@ -1,7 +1,9 @@
-"""SGLang backend: chat completions over the OpenAI-compatible ``/v1`` endpoint.
+"""Chat completions over an OpenAI-compatible ``/v1`` endpoint.
 
-SGLang serves an OpenAI-compatible API, so we point :class:`openai.AsyncOpenAI` at its
-``base_url`` and call ``chat.completions.create``. :meth:`SglangBackend.generate` supports
+:class:`ChatBackend` is the one chat client. :mod:`nanoagent.inference.providers` points both
+``sglang`` and ``openrouter`` at it; they differ only in the default ``base_url`` and where the
+API key comes from. We point :class:`openai.AsyncOpenAI` at ``base_url`` and call
+``chat.completions.create``. :meth:`ChatBackend.generate` supports
 both batch plain-text inference and tool-calling agent turns:
 
   * ``tools`` (OpenAI tool specs) are forwarded to the call; any tool calls in the reply are
@@ -15,9 +17,9 @@ both batch plain-text inference and tool-calling agent turns:
 Transient errors retry with backoff (fail-fast on 4xx); the response is normalized into a
 :class:`~nanoagent.inference.types.Response` (text + tool calls + token usage + computed cost). Cost is
 computed from optional per-1M-token prices on the config; they default to 0, so cost stays 0
-for a local model unless prices are set. Selected only when ``config.backend == "sglang"``
-(see :func:`nanoagent.inference.backends.build_backend`), so this module — and its ``openai`` import —
-is loaded only when a backend is actually built.
+for a local model unless prices are set. Loaded only when a chat provider is selected
+(see :func:`nanoagent.inference.providers.build_provider`), so this module — and its ``openai``
+import — stays out of the import path until then.
 
 Serving note: tool calling requires the SGLang server to be started with tool-call support
 for the model (e.g. ``--tool-call-parser <parser>``). Without it ``tool_calls`` is always
@@ -86,20 +88,24 @@ def _reasoning_text(obj: Any) -> str | None:
     return extra.get("reasoning_content") or extra.get("reasoning")
 
 
-class SglangBackend:
-    """Async chat backend over ``AsyncOpenAI.chat.completions`` for SGLang."""
+class ChatBackend:
+    """Async chat client over ``AsyncOpenAI.chat.completions``.
+
+    Shared by the ``sglang`` and ``openrouter`` providers. SGLang ignores the API key; OpenRouter
+    requires one, which :func:`~nanoagent.inference.providers.build_provider` fills in before
+    calling :meth:`from_config`.
+    """
 
     #: Text in, text out. The chat API reports token COUNTS and no ids — that is true of SGLang's
     #: own ``/v1`` endpoint as much as of a hosted gateway — so any ids attributed to a reply from
-    #: here were produced locally. :mod:`nanoagent.inference.backends.sglang_native` is the same
-    #: server through the endpoint that does return them.
+    #: here were produced locally. The sampler's own ids come from
+    #: :class:`~nanoagent.inference.config.GenerateConfig`, the ``/generate`` spec.
     fidelity = Fidelity.RECONSTRUCTED
 
     #: The request field carrying the output-token budget. OpenAI deprecated ``max_tokens`` in
     #: favour of ``max_completion_tokens``, and gateways disagree about which they accept — some
-    #: newer deployments reject the old name with a 400. SGLang takes ``max_tokens``, so that is
-    #: the default; a subclass (typically a plugin transport, see :mod:`nanoagent.inference.plugins`)
-    #: overrides this one string rather than reimplementing the request builder.
+    #: newer deployments reject the old name with a 400. SGLang and OpenRouter both take
+    #: ``max_tokens``, so that is the field this client sends.
     token_budget_param: str = "max_tokens"
 
     def __init__(
@@ -173,12 +179,15 @@ class SglangBackend:
         )
 
     @classmethod
-    def from_config(cls, cfg: LeanInferConfig) -> SglangBackend:
-        """Build a :class:`SglangBackend` from a ``backend: sglang`` config."""
+    def from_config(cls, cfg: LeanInferConfig) -> ChatBackend:
+        """Build a :class:`ChatBackend` from a config whose ``base_url`` is already resolved.
+
+        Provider defaults (OpenRouter's URL and key) are applied by
+        :func:`~nanoagent.inference.providers.build_provider` before this runs. A missing
+        ``base_url`` here is a caller that skipped that step.
+        """
         if cfg.base_url is None:
-            raise ValueError(
-                "backend='sglang' requires config.base_url (an SGLang /v1 endpoint)"
-            )
+            raise ValueError("chat client requires config.base_url")
         return cls(
             cfg.model,
             base_url=cfg.base_url,
@@ -357,9 +366,3 @@ class SglangBackend:
     @staticmethod
     def _usage(response: Any) -> dict[str, int]:
         return normalize_usage(getattr(response, "usage", None))
-
-
-# What `backend: sglang` resolves to. A built-in declares itself exactly the way a plugin does
-# (see nanoagent.inference.plugins), so build_backend has one code path and a plugin that subclasses this
-# transport is not a special case.
-BACKEND = SglangBackend

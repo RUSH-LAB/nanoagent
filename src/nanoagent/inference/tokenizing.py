@@ -4,8 +4,8 @@ This is what makes "every reply has tokens" true of OpenRouter and of any other 
 renders the prompt and re-encodes the answer with the configured tokenizer, and stamps the result
 :attr:`~nanoagent.inference.types.Fidelity.RECONSTRUCTED` so nothing downstream mistakes it for
 what the sampler saw. Applied by :func:`~nanoagent.inference.backends.build_backend` when a config
-names a ``tokenizer`` and the transport is not already native, so it covers plugin transports too
-without any of them knowing it exists.
+names a ``tokenizer`` and the provider is not already native, so both chat providers get it
+without either of them knowing it exists.
 
 **What these ids are not.** Four separate reasons a reconstructed record can disagree with the
 real one, all of them silent:
@@ -30,9 +30,9 @@ real one, all of them silent:
 Which is the whole argument for the flag: these are useful for a length, a rough alignment or a
 cache key, and unusable for a per-token loss.
 
-Deliberately NOT under ``backends/``, which holds exactly the modules ``backend:`` can name — this
-one wraps a transport rather than being one, and a name that appears in
-:func:`~nanoagent.inference.plugins.available_backends` is a name a config is invited to try.
+Deliberately NOT under ``backends/``. Those modules are the clients a provider name builds; this
+one wraps a client rather than being one, and it is not a name in
+:data:`~nanoagent.inference.providers.PROVIDERS`.
 """
 
 from __future__ import annotations

@@ -22,6 +22,9 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
+import signal
+import subprocess
 from collections.abc import Sequence
 from typing import Any
 
@@ -148,6 +151,21 @@ class Tool:
             return str(result), False
         except Exception as e:
             return f"Error: {type(e).__name__}: {e}", True
+
+
+def communicate_or_kill(proc: subprocess.Popen[str], timeout: float) -> tuple[str, str]:
+    """Drain a subprocess within ``timeout``; kill its process group on expiry.
+
+    Shared by the subprocess tools (:mod:`nanoagent.tools.bash`, :mod:`nanoagent.tools.code`).
+    Callers start their child with ``start_new_session=True`` so the kill reaps the whole
+    process tree, not just the direct child.
+    """
+    try:
+        return proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        proc.communicate()
+        raise
 
 
 def build_tool_map(tools: Sequence[Tool]) -> dict[str, Tool]:

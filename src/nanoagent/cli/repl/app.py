@@ -63,7 +63,7 @@ from nanoagent.core.agent import (
 )
 from nanoagent.runtime.build import build_prompt_and_tools
 from nanoagent.cli.repl.commands import BUILTINS, Command, DEFAULT_THEME, image_in, inline_image, prompt_commands
-from nanoagent.runtime.config import InteractiveConfig, load_config_args, ModelConfig, RunConfig
+from nanoagent.runtime.config import InteractiveConfig, load_config_args, load_registry, ModelConfig, RunConfig
 from nanoagent.runtime.events import EventWriter
 from nanoagent.core.hooks import Hooks
 from nanoagent.extensions import get_hooks
@@ -660,7 +660,7 @@ def main(argv: list[str] | None = None) -> int:
         resume=cfg.resume,
         options=ReplOptions(
             commands=list(cfg.commands),
-            models=dict(cfg.models),
+            models=load_registry(cfg.models, ModelConfig),
             theme=dict(cfg.theme),
             images=cfg.images,
         ),
