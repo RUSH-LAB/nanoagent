@@ -5,7 +5,6 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   environmentFor,
-  modeFrom,
   nanoagentProjectFrom,
   portIsAvailable,
   usesLocalNanoAgent,
@@ -13,18 +12,11 @@ import {
 } from '../../../scripts/dev/start-local.mjs';
 
 describe('local process supervisor configuration', () => {
-  it('selects exactly one supported mode', () => {
-    assert.equal(modeFrom([]), 'sqlite');
-    assert.equal(modeFrom(['--postgres']), 'postgres');
-    assert.equal(modeFrom(['--no-auth']), 'no-auth');
-    assert.throws(() => modeFrom(['--postgres', '--no-auth']), /cannot be combined/);
-  });
-
   it('loads PostgreSQL credentials while keeping explicit shell overrides', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-start-'));
     const envFile = path.join(dir, '.env');
     fs.writeFileSync(envFile, 'DATABASE_URL=postgres://runtime\nDATABASE_MIGRATION_URL=postgres://owner\nEDITOR_PORT=9999\n');
-    const env = environmentFor('postgres', {base: {EDITOR_PORT: '4101'}, envFile});
+    const env = environmentFor({base: {EDITOR_PORT: '4101'}, envFile});
     assert.equal(env.DATABASE_URL, 'postgres://runtime');
     assert.equal(env.DATABASE_MIGRATION_URL, 'postgres://owner');
     assert.equal(env.EDITOR_PORT, '4101');
@@ -35,20 +27,9 @@ describe('local process supervisor configuration', () => {
 
   it('reports how to prepare a missing PostgreSQL environment file', () => {
     assert.throws(
-      () => environmentFor('postgres', {base: {}, envFile: '/path/that/does/not/exist'}),
+      () => environmentFor({base: {}, envFile: '/path/that/does/not/exist'}),
       /db:postgres:setup/,
     );
-  });
-
-  it('keeps SQLite modes independent from inherited PostgreSQL variables', () => {
-    const base = {DATABASE_URL: 'postgres://runtime', DATABASE_MIGRATION_URL: 'postgres://owner'};
-    const authenticated = environmentFor('sqlite', {base});
-    assert.equal(authenticated.DATABASE_URL, undefined);
-    assert.equal(authenticated.ENABLE_AUTH, 'true');
-    assert.equal(authenticated.DEV_AUTOLOGIN, 'true');
-    const open = environmentFor('no-auth', {base});
-    assert.equal(open.DATABASE_MIGRATION_URL, undefined);
-    assert.equal(open.ENABLE_AUTH, 'false');
   });
 
   it('detects an occupied port before either application process starts', async () => {

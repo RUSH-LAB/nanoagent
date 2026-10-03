@@ -397,7 +397,7 @@ describe('productionAuthError', () => {
   });
 
   // Development is the case where running without authentication is the point:
-  // the test suites and `npm run start:noauth` both do it deliberately.
+  // the test suites do it deliberately.
   for (const nodeEnv of [undefined, 'development', 'test']) {
     it(`permits NODE_ENV=${JSON.stringify(nodeEnv)} without authentication`, () => {
       assert.equal(disabled.productionAuthError({NODE_ENV: nodeEnv}), null);

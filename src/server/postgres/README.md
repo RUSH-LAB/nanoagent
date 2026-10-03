@@ -45,7 +45,6 @@ legacy writes and take a backup, then run the complete dry run:
 DATABASE_FILE=var/data/mochi.db \
 DATABASE_URL=postgres://mochi_runtime:... \
 DATABASE_MIGRATION_URL=postgres://mochi_owner:... \
-npm run db:migrate:legacy
 ```
 
 The report includes source/destination counts and canonical SHA-256 hashes for

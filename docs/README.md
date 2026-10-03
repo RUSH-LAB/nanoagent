@@ -4,11 +4,7 @@ The documentation is organized by purpose:
 
 - [`product/`](product/) describes the product direction and decision criteria.
 - [`infra/`](infra/) documents the current system architecture and operational setup.
-- [`plans/`](plans/) contains the current delivery plan. Completed plans are
-  retained under [`plans/completed/`](plans/completed/) as implementation
-  records rather than active work.
-- [`debug/`](debug/) records root causes and reusable debugging lessons from
-  significant incidents.
+- [`plans/`](plans/) contains active future work.
 
 Start with the [product north star](product/north-star.md), then read the
 [platform architecture](infra/platform-architecture.md). For database setup on
@@ -18,13 +14,7 @@ The [production status](infra/production-status.md) summarizes the services
 already prepared and the work remaining before a public launch.
 The [release policy](infra/release-policy.md) defines the shared branch,
 compatibility, deployment-order, verification, and rollback rules.
-The completed workspace rendering migration is recorded in the
-[workspace content and Docusaurus rendering plan](plans/completed/workspace-content-and-rendering.md).
 The NanoAgent integration and the production path for hosted LLM agents
 are tracked in the [LLM agent platform plan](plans/llm-agent-platform.md).
 The shared web/desktop boundary and staged packaging work are described in
 [desktop readiness](desktop-readiness.md).
-Production deployment is intentionally
-[on hold](plans/on-hold/production-readiness.md).
-The runtime-content migration investigation is documented in
-[Docusaurus runtime content parity](debug/docusaurus-runtime-content-parity.md).

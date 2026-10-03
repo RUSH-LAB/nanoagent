@@ -13,34 +13,16 @@ const docusaurusCli = path.join(root, 'node_modules', '@docusaurus', 'core', 'bi
 const nanoagentPort = 8787;
 const nanoagentStartupTimeoutMs = 30_000;
 
-export function modeFrom(argv) {
-  const postgres = argv.includes('--postgres');
-  const noAuth = argv.includes('--no-auth');
-  if (postgres && noAuth) throw new Error('--postgres and --no-auth cannot be combined');
-  return postgres ? 'postgres' : noAuth ? 'no-auth' : 'sqlite';
-}
-
-export function environmentFor(mode, {base = process.env, envFile = localEnvFile} = {}) {
-  if (mode === 'postgres' && !fs.existsSync(envFile)) {
-    throw new Error('Run npm run db:postgres:setup before npm run start:postgres');
-  }
-  const file = mode === 'postgres'
-    ? parseEnv(fs.readFileSync(envFile, 'utf8'))
-    : {};
+export function environmentFor({base = process.env, envFile = localEnvFile} = {}) {
+  if (!fs.existsSync(envFile)) throw new Error('Run npm run db:postgres:setup before npm start');
+  const file = parseEnv(fs.readFileSync(envFile, 'utf8'));
   const env = {...file, ...base, EDITOR_PORT: base.EDITOR_PORT || '3001'};
-  if (mode === 'postgres') {
-    if (!env.DATABASE_URL || !env.DATABASE_MIGRATION_URL) {
-      throw new Error('Run npm run db:postgres:setup before npm run start:postgres');
-    }
-    env.ENABLE_AUTH = 'true';
-    env.DEV_AUTOLOGIN = 'false';
-    env.POSTGRES_ROOT_LOGIN = 'true';
-  } else {
-    delete env.DATABASE_URL;
-    delete env.DATABASE_MIGRATION_URL;
-    env.ENABLE_AUTH = mode === 'sqlite' ? 'true' : 'false';
-    env.DEV_AUTOLOGIN = mode === 'sqlite' ? 'true' : 'false';
+  if (!env.DATABASE_URL || !env.DATABASE_MIGRATION_URL) {
+    throw new Error('Run npm run db:postgres:setup before npm start');
   }
+  env.ENABLE_AUTH = 'true';
+  env.DEV_AUTOLOGIN = 'false';
+  env.POSTGRES_ROOT_LOGIN = 'true';
   return env;
 }
 
@@ -153,11 +135,11 @@ function signalTree(child, signal) {
 }
 
 export async function startLocal(argv = process.argv.slice(2)) {
-  const mode = modeFrom(argv);
+  if (argv.length) throw new Error(`Unknown startup option: ${argv[0]}`);
   const localEnv = fs.existsSync(localEnvFile)
     ? parseEnv(fs.readFileSync(localEnvFile, 'utf8'))
     : {};
-  const env = environmentFor(mode, {base: {...localEnv, ...process.env}});
+  const env = environmentFor({base: {...localEnv, ...process.env}});
   const nanoagentRoot = nanoagentProjectFrom(env);
   if (usesLocalNanoAgent(env) && !fs.existsSync(path.join(nanoagentRoot, 'pyproject.toml'))) {
     throw new Error(`NanoAgent checkout not found at ${nanoagentRoot}. Clone it beside Mochi or set NANOAGENT_PROJECT_DIR.`);

@@ -72,7 +72,6 @@ Start the complete local stack with one command:
 
 ```bash
 npm start                 # adjacent NanoAgent checkout + API + site, prepared Neon branch
-npm run start:postgres    # explicit alias for npm start
 ```
 
 PostgreSQL is the normal development path and source of truth.
@@ -98,20 +97,6 @@ Database setup and schema operations:
 Common entry points are `npm run db:postgres:setup` and
 `npm run db:postgres:migrate`.
 
-## `migrations/`
-
-One-time or explicitly requested data movement:
-
-- `json-stores-to-database.mjs` carries legacy JSON stores into the scoped
-  database. It is a dry run unless `--write` is supplied.
-- `sqlite-to-postgres.mjs` performs the legacy SQLite-to-PostgreSQL cutover. It
-  is a dry run unless `--apply` is supplied.
-- `local-objects-to-postgres.mjs` validates legacy files below `var/objects`
-  against asset metadata, then copies them into PostgreSQL when `--apply` is
-  supplied.
-
-These are migration tools, not application startup steps.
-
 ## `maintenance/`
 
 Manual verification, repair, or cleanup commands:
@@ -130,8 +115,8 @@ Run the agent check with `npm run nanoagent:verify`. It expects an adjacent
 
 Developer workflow commands:
 
-- `start-local.mjs` starts the API and site as one supervised process group for
-  SQLite, PostgreSQL, or no-auth development.
+- `start-local.mjs` starts NanoAgent, the PostgreSQL API, and the site as one
+  supervised process group.
 - `create-plugin.mjs` implements `npm run new:plugin -- <name>`.
 
 ## Tests and workflows

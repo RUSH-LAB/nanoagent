@@ -31,7 +31,7 @@ const config = {
     platformName,
     // Whether the sign-in gate is shown. The API server reads the same
     // variable to decide whether it requires a session, so the two can never
-    // disagree. `npm start` sets it; `npm run start:noauth` does not.
+    // disagree. `npm start` sets it.
     authEnabled: process.env.ENABLE_AUTH === 'true',
     // Whether the sign-in screen should sign itself in as root. Set by
     // `npm start` only; the server enforces the same flag plus a loopback

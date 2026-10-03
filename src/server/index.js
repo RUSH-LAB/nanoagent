@@ -361,34 +361,10 @@ const objectCleanupTimer = setInterval(() => {
 }, 60000);
 objectCleanupTimer.unref?.();
 
-// ── Scheduled publishing checker (runs every 60s) ──
-//
-// This had never run. It read var/data/schedules.json, and the store the API
-// wrote was var/data/schedule.json, so loadJSON returned {} on every tick for
-// as long as the loop had existed. It also expected a bare array where the API
-// wrote {items: [...]}, so correcting only the filename would have left it
-// doing nothing, and correcting only the shape would have left it reading a
-// file that is not there.
-//
-// The defect worth naming is the third: it joined `schedule.path` onto the repo
-// root and wrote to it, with no validation. That field arrives from the body of
-// POST /api/schedule, where it is passed through sanitizeText, which strips
-// control characters and does not care about `../`. The path check remains at
-// this boundary even though publishing now updates a document row rather than
-// resolving a filesystem path.
-//
-// The loop belongs to no caller, so it cannot take a scope from a request. It
-// asks every workspace what it has due, in turn, and acts inside each one: the
-// paths, the caches it drops and the rows it updates are all that workspace's.
-//
-// Published items keep their row with status 'published', rather than being
-// dropped, so that GET /api/schedule can still account for them; that endpoint
-// already models an item's life as a status rather than as presence in a list.
+// Publish due documents once per minute.
 const scheduledPublishingTimer = setInterval(async () => {
   const now = new Date();
   for (const {id: workspaceId, ownerId = null} of await org.allOrganizations()) {
-    // The schedule is the workspace's, so the scope needs no user. A workspace
-    // with nothing scheduled costs one indexed read and no further work.
     const scope = {workspaceId, userId: ownerId, membershipId: null, role: 'owner', kind: 'system'};
     let due;
     try {
@@ -446,9 +422,6 @@ const scheduledPublishingTimer = setInterval(async () => {
     }
 
     if (published > 0) {
-      // That workspace's frontmatter changed, so anything derived from its tree
-      // is one publish behind. Its caches only: another workspace's search index
-      // is not stale because this one published.
       invalidateCache(cacheKey(workspaceId, ''));
     }
   }

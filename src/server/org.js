@@ -188,7 +188,7 @@ slugForOrg.forget = orgId => (orgId ? slugCache.delete(orgId) : slugCache.clear(
  *
  * Two callers have no active workspace: the public feeds, which nobody is
  * signed in to, and every request when ENABLE_AUTH is off, which is the test
- * suites and `npm run start:noauth`. Sending those to the primary workspace is
+ * test suites. Sending those to the primary workspace is
  * what makes both behave as they did when there was only one.
  *
  * Returns null when the primary workspace does not exist yet, which is a clean

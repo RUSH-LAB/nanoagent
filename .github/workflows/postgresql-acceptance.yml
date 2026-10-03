@@ -7,7 +7,6 @@ on:
       - 'package-lock.json'
       - 'package.json'
       - 'scripts/db/**'
-      - 'scripts/migrations/sqlite-to-postgres.mjs'
       - 'src/server/**'
       - 'tests/unit/server/postgres-*.test.mjs'
       - 'tests/integration/postgres/**'

@@ -18,9 +18,7 @@ const FUTURE = '2999-01-01T00:00:00.000Z';
 
 function liftPublisher() {
   const lines = SOURCE.split('\n');
-  const banner = lines.findIndex(line => line.includes('Scheduled publishing checker'));
-  assert.ok(banner !== -1);
-  const start = lines.findIndex((line, index) => index > banner && line.includes('setInterval(async () => {'));
+  const start = lines.findIndex(line => line.includes('const scheduledPublishingTimer = setInterval(async () => {'));
   assert.ok(start !== -1);
   let depth = 0;
   let opened = false;
