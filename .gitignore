@@ -4,6 +4,9 @@ build/
 .cache-loader/
 .DS_Store
 *.log*
+.env
+.env.*
+!.env.*.example
 /var/
 /raw/
 /.worktrees/

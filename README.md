@@ -4,11 +4,11 @@ https://www.alphaxiv.org
 
 A collaborative workspace for knowledge, documents, communication, and AI agents.
 
-Install the Node dependencies once and create your local environment file:
+Install the required runtimes, dependencies, adjacent NanoAgent checkout, and
+sanitized local environment file:
 
 ```bash
-npm ci
-cp .env.openrouter.local.example .env.openrouter.local
+./install.sh
 ```
 
 Then replace the placeholder in `.env.openrouter.local` with your OpenRouter
@@ -35,5 +35,8 @@ The older `npm run start:postgres` command remains as an explicit alias for
 Open [http://localhost:3000](http://localhost:3000). By default, the supervisor
 uses the adjacent `../nanoagent` checkout. Set `NANOAGENT_PROJECT_DIR` to use a
 checkout elsewhere, or `NANOAGENT_URL` to use an already-running agent service.
+The installer never overwrites an existing checkout or local environment file.
+Set `NANOAGENT_REPOSITORY` and `NANOAGENT_REF` before running it to reproduce
+against a fork or a specific branch/tag.
 
 See [repository commands and local setup](scripts/README.md) or the [documentation index](docs/README.md).
