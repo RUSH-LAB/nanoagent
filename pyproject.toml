@@ -19,6 +19,7 @@ requires-python = ">=3.12"
 # actually built, so any object satisfying the `ChatModel` duck-type is a usable model.
 dependencies = [
     "jsonschema>=4.23",
+    "mcp>=1.27,<2",
     # The OpenAI-compatible client the sglang backend speaks. Floor at 1.40: the backend imports
     # `DefaultAsyncHttpxClient` from the package root and reads `completion_tokens_details` off the
     # usage object, neither of which exists on the 0.x SDK.

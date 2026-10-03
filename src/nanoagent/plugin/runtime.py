@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from typing import Any
 
+import anyio
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+from mcp.types import TextContent
 from jsonschema import ValidationError, validate
 
 from nanoagent.core.tool import Tool
@@ -23,26 +26,7 @@ def call_tool(
     except ValidationError as error:
         raise ValueError(f"invalid input for {tool}: {error.message}") from error
 
-    request = json.dumps({"tool": tool, "arguments": arguments}) + "\n"
-    completed = subprocess.run(
-        manifest.command,
-        cwd=manifest.root,
-        input=request,
-        text=True,
-        capture_output=True,
-        timeout=timeout,
-        check=False,
-    )
-    if completed.returncode:
-        detail = completed.stderr.strip() or f"exit status {completed.returncode}"
-        raise RuntimeError(f"{manifest.id} failed: {detail}")
-    lines = [line for line in completed.stdout.splitlines() if line.strip()]
-    if len(lines) != 1:
-        raise RuntimeError(f"{manifest.id} must return exactly one JSON response")
-    try:
-        response = json.loads(lines[0])
-    except json.JSONDecodeError as error:
-        raise RuntimeError(f"{manifest.id} returned invalid JSON") from error
+    response = anyio.run(_call_mcp_tool, manifest, tool, arguments, timeout)
     if not isinstance(response, dict):
         raise RuntimeError(f"{manifest.id} returned a non-object response")
     try:
@@ -50,6 +34,41 @@ def call_tool(
     except ValidationError as error:
         raise RuntimeError(f"invalid output from {tool}: {error.message}") from error
     return response
+
+
+async def _call_mcp_tool(
+    manifest: PluginManifest,
+    tool: str,
+    arguments: dict[str, Any],
+    timeout: float,
+) -> Any:
+    params = StdioServerParameters(
+        command=manifest.command[0],
+        args=list(manifest.command[1:]),
+        cwd=manifest.root,
+    )
+    with anyio.fail_after(timeout):
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                offered = {item.name: item for item in (await session.list_tools()).tools}
+                if tool not in offered:
+                    raise RuntimeError(f"{manifest.id} MCP server does not offer {tool!r}")
+                definition = manifest.tool(tool)
+                if offered[tool].inputSchema != definition.input:
+                    raise RuntimeError(f"{manifest.id} MCP input schema differs from its manifest")
+                if offered[tool].outputSchema != definition.output:
+                    raise RuntimeError(f"{manifest.id} MCP output schema differs from its manifest")
+                result = await session.call_tool(tool, arguments=arguments)
+    if result.structuredContent is not None:
+        return result.structuredContent
+    text = [item.text for item in result.content if isinstance(item, TextContent)]
+    if len(text) != 1:
+        raise RuntimeError(f"{manifest.id} must return exactly one MCP text result")
+    try:
+        return json.loads(text[0])
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"{manifest.id} returned invalid JSON in its MCP result") from error
 
 
 class PluginTool(Tool):

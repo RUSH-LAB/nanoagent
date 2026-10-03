@@ -17,7 +17,7 @@ uv run nanoagent --help
 NanoAgent plugins follow the strict `nanoagent.plugin/v1` directory contract.
 NanoAgent validates their files, permissions and JSON schemas, then launches
 the standard Python entrypoint from the committed uv lockfile through a
-JSON-lines subprocess protocol:
+standard MCP stdio connection:
 
 ```bash
 uv run nanoagent plugin inspect ../arxiv-source
