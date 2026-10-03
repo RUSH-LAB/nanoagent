@@ -34,14 +34,16 @@ async function ensureDefaultAgent(agents, scope, catalog) {
     const oldMochiDefaults = agent.id === DEFAULT_AGENT_ID
       && agent.builtin
       && (agent.defaultsVersion ?? 0) < DEFAULTS_VERSION;
+    const configuredProfile = typeof agent.profileId === 'string'
+      && catalog.profiles.some(profile => profile.id === agent.profileId);
     if (!Object.hasOwn(agent, 'provider')
       && !Object.hasOwn(agent, 'model')
-      && typeof agent.profileId === 'string'
+      && configuredProfile
       && typeof agent.instructions === 'string'
       && !oldDefaultDescription
       && !oldMochiDefaults) return agent;
     const {provider: _legacyProvider, model: legacyModel, ...withoutLegacy} = agent;
-    const migratedProfile = typeof agent.profileId === 'string'
+    const migratedProfile = configuredProfile
       ? agent.profileId
       : (catalog.profiles.find(profile => profile.model === legacyModel)?.id
         ?? catalog.defaultProfile);

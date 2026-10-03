@@ -16,6 +16,8 @@ a new machine, follow the [Neon Postgres guide](infra/neon-postgres-setup.md).
 For releases, use the [production deployment runbook](infra/production-deployment.md).
 The [production status](infra/production-status.md) summarizes the services
 already prepared and the work remaining before a public launch.
+The [release policy](infra/release-policy.md) defines the shared branch,
+compatibility, deployment-order, verification, and rollback rules.
 The completed workspace rendering migration is recorded in the
 [workspace content and Docusaurus rendering plan](plans/completed/workspace-content-and-rendering.md).
 The NanoAgent integration and the production path for hosted LLM agents

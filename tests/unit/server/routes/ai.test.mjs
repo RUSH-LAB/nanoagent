@@ -177,7 +177,7 @@ describe('POST /api/ai/complete', () => {
     assert.equal(ctx.calls.ai[0].profile, PROFILE);
   });
 
-  it('rejects an unsupported profile on a stale stored agent', async () => {
+  it('moves a stale stored agent profile to the live default', async () => {
     const ctx = makeCtx();
     await putAgent(ctx, {id: 'stale', name: 'Stale', instructions: '', profileId: 'removed-profile'});
     const result = await invoke(routes, {
@@ -187,8 +187,22 @@ describe('POST /api/ai/complete', () => {
       ctx,
       requestContext: WORKSPACE,
     });
-    assert.deepEqual([result.status, result.payload], [400, {error: 'The selected agent has an unsupported profile'}]);
-    assert.deepEqual(ctx.calls.ai, []);
+    assert.equal(result.status, 200);
+    assert.equal(ctx.calls.ai[0].profile, PROFILE);
+  });
+
+  it('ignores a removed chat profile when the stored agent is valid', async () => {
+    const ctx = makeCtx();
+    await putAgent(ctx, {id: 'mochi', name: 'Mochi', instructions: '', profileId: PROFILE});
+    const result = await invoke(routes, {
+      method: 'POST',
+      path: '/api/ai/complete',
+      body: {prompt: 'p', agentId: 'mochi', profileId: 'removed-profile'},
+      ctx,
+      requestContext: WORKSPACE,
+    });
+    assert.equal(result.status, 200);
+    assert.equal(ctx.calls.ai[0].profile, PROFILE);
   });
 
   it('does not accept an agent id outside the workspace store', async () => {

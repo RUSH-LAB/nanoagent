@@ -27,6 +27,7 @@ export default function AuthScreen({ devAutoLogin = false, googleAuthEnabled = f
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -154,14 +155,25 @@ export default function AuthScreen({ devAutoLogin = false, googleAuthEnabled = f
 
         <label className={styles.field}>
           <span>Password</span>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete={signingIn ? 'current-password' : 'new-password'}
-            minLength={8}
-            required
-          />
+          <span className={styles.passwordInput}>
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete={signingIn ? 'current-password' : 'new-password'}
+              minLength={8}
+              required
+            />
+            <button
+              type="button"
+              className={styles.passwordToggle}
+              onClick={() => setShowPassword((visible) => !visible)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              aria-pressed={showPassword}
+            >
+              {showPassword ? 'Hide' : 'Show'}
+            </button>
+          </span>
         </label>
 
         {!signingIn && (

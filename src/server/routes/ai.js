@@ -106,7 +106,14 @@ function composeRequest(body, sanitizeText, agent = null, catalog = null) {
   }
   profileId ||= catalog?.defaultProfile;
   if (!profiles.some(profile => profile.id === profileId)) {
-    return {error: 'The selected agent has an unsupported profile'};
+    // A durable browser chat may still carry a profile removed from the
+    // server-owned catalog. When the request names a stored workspace agent,
+    // safely fall back to the live default; requests without an agent must
+    // still prove that their selected profile is allowed.
+    if (!agent || !profiles.some(profile => profile.id === catalog?.defaultProfile)) {
+      return {error: 'The selected agent has an unsupported profile'};
+    }
+    profileId = catalog.defaultProfile;
   }
   if (context) history.push({role: 'user', content: `Context:\n${sanitizeText(context)}`});
 

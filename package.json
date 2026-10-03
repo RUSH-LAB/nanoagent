@@ -22,6 +22,7 @@
     "object-storage:verify": "node --env-file-if-exists=.env.postgres.local --env-file-if-exists=.env.production.local scripts/maintenance/verify-object-storage.mjs",
     "mail:verify": "NODE_ENV=production node --env-file-if-exists=.env.production.local scripts/maintenance/verify-mail.mjs",
     "nanoagent:verify": "node scripts/maintenance/verify-nanoagent.mjs",
+    "release:check": "npm test && npm run build:auth && npm run nanoagent:verify",
     "proofs:check": "cd plugins/lean-proofs/proofs && lake build",
     "proofs:test": "node --test 'tests/unit/plugins/lean-proofs/**/*.test.mjs' && npm run proofs:check",
     "docusaurus": "docusaurus",

@@ -9,6 +9,7 @@ import {
   nanoagentProjectFrom,
   portIsAvailable,
   usesLocalNanoAgent,
+  waitForNanoAgent,
 } from '../../../scripts/dev/start-local.mjs';
 
 describe('local process supervisor configuration', () => {
@@ -67,5 +68,22 @@ describe('local process supervisor configuration', () => {
     assert.equal(usesLocalNanoAgent({NANOAGENT_URL: 'off'}), false);
     assert.equal(usesLocalNanoAgent({NANOAGENT_URL: 'https://agent.internal'}), false);
     assert.equal(nanoagentProjectFrom({NANOAGENT_PROJECT_DIR: '/tmp/nanoagent'}), '/tmp/nanoagent');
+  });
+
+  it('accepts startup only when NanoAgent has an available default profile', async () => {
+    const responses = new Map([
+      ['http://127.0.0.1:8787/health', {service: 'nanoagent'}],
+      ['http://127.0.0.1:8787/v1/profiles', {
+        defaultProfile: 'pi-test',
+        profiles: [{id: 'pi-test', model: 'test/model', available: true}],
+      }],
+    ]);
+    const fetchImpl = async url => ({
+      ok: true,
+      json: async () => responses.get(url),
+    });
+
+    const ready = await waitForNanoAgent({}, null, {fetchImpl, timeoutMs: 100, intervalMs: 1});
+    assert.equal(ready.profile.id, 'pi-test');
   });
 });

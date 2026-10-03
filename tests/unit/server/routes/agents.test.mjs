@@ -45,6 +45,23 @@ describe('workspace agents', () => {
     assert.equal(migrated.payload.agents[0].description, '');
   });
 
+  it('moves an agent from a removed profile to the live default profile', async () => {
+    const ctx = makeCtx();
+    const scope = ctx.scopeFor({context});
+    await ctx.collection('agents').put(scope, 'mochi', {
+      id: 'mochi',
+      name: 'Mochi',
+      description: '',
+      instructions: '',
+      profileId: 'removed-profile',
+      builtin: true,
+      defaultsVersion: 5,
+    });
+
+    const migrated = await invoke(routes, {method: 'GET', path: '/api/agents', ctx, requestContext: context});
+    assert.equal(migrated.payload.agents[0].profileId, PROFILE);
+  });
+
   it('creates, lists, edits, and deletes an agent', async () => {
     const ctx = makeCtx();
     const created = await invoke(routes, {method: 'POST', path: '/api/agents', body, ctx, requestContext: context});

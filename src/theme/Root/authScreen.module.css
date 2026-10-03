@@ -154,6 +154,40 @@
   background: #ffffff;
 }
 
+.passwordInput {
+  position: relative;
+  display: flex;
+}
+
+.passwordInput input {
+  width: 100%;
+  padding-right: 3.8rem;
+}
+
+.passwordToggle {
+  position: absolute;
+  top: 50%;
+  right: 0.7rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #2568c2;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.passwordToggle:hover {
+  text-decoration: underline;
+}
+
+.passwordToggle:focus-visible {
+  outline: 2px solid #2568c2;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 .field input:focus {
   outline: none;
   border-color: #2568c2;

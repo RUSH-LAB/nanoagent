@@ -12,6 +12,7 @@ const localEnvFile = path.join(root, '.env.openrouter.local');
 const postgresEnvFile = path.join(root, '.env.postgres.local');
 const docusaurusCli = path.join(root, 'node_modules', '@docusaurus', 'core', 'bin', 'docusaurus.mjs');
 const nanoagentPort = 8787;
+const nanoagentStartupTimeoutMs = 30_000;
 
 export function modeFrom(argv) {
   const postgres = argv.includes('--postgres');
@@ -62,6 +63,50 @@ export function usesLocalNanoAgent(env = process.env) {
 
 export function nanoagentProjectFrom(env = process.env) {
   return path.resolve(env.NANOAGENT_PROJECT_DIR || path.join(root, '..', 'nanoagent'));
+}
+
+function nanoagentUrl(env) {
+  return env.NANOAGENT_URL?.trim() || `http://127.0.0.1:${nanoagentPort}`;
+}
+
+export async function waitForNanoAgent(env, child = null, {
+  fetchImpl = fetch,
+  timeoutMs = nanoagentStartupTimeoutMs,
+  intervalMs = 200,
+} = {}) {
+  const url = nanoagentUrl(env).replace(/\/$/, '');
+  const headers = env.NANOAGENT_API_TOKEN
+    ? {Authorization: `Bearer ${env.NANOAGENT_API_TOKEN}`}
+    : {};
+  const deadline = Date.now() + timeoutMs;
+  let lastError = 'service did not answer';
+
+  while (Date.now() < deadline) {
+    if (child && child.exitCode !== null) {
+      throw new Error(`NanoAgent exited during startup with status ${child.exitCode}`);
+    }
+    try {
+      const health = await fetchImpl(`${url}/health`, {headers});
+      if (!health.ok) throw new Error(`health returned ${health.status}`);
+      const healthBody = await health.json();
+      if (healthBody?.service !== 'nanoagent') throw new Error('health response identified the wrong service');
+
+      const response = await fetchImpl(`${url}/v1/profiles`, {headers});
+      if (!response.ok) throw new Error(`profiles returned ${response.status}`);
+      const catalog = await response.json();
+      const profiles = Array.isArray(catalog?.profiles) ? catalog.profiles : [];
+      const defaultProfile = profiles.find(profile => profile.id === catalog.defaultProfile);
+      if (!defaultProfile) throw new Error('default profile is missing from the profile catalog');
+      if (defaultProfile.available === false) {
+        throw new Error(defaultProfile.unavailableReason || `default profile ${defaultProfile.id} is unavailable`);
+      }
+      return {url, profile: defaultProfile};
+    } catch (error) {
+      lastError = error?.message || String(error);
+    }
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`NanoAgent failed its startup check at ${url}: ${lastError}`);
 }
 
 function run(command, args, options) {
@@ -138,19 +183,31 @@ export async function startLocal(argv = process.argv.slice(2)) {
   // agent, API, site, and this supervisor together, so npm cannot leave a
   // detached development service behind.
   const options = cwd => ({cwd, env, stdio: 'inherit'});
-  const processes = [
-    {name: 'API', child: spawn(process.execPath, ['src/server/index.js'], options(root))},
-    {name: 'site', child: spawn(process.execPath, [docusaurusCli, 'start', '--no-open', '--port', String(sitePort)], options(root))},
-  ];
+  const processes = [];
   if (usesLocalNanoAgent(env)) {
-    processes.unshift({
+    const process = {
       name: 'NanoAgent',
       child: spawn('uv', [
         'run', '--extra', 'web', 'python', '-m', 'nanoagent', 'web',
         'web_cfg=configs/web_openrouter.yaml',
       ], options(nanoagentRoot)),
-    });
+    };
+    processes.push(process);
+    try {
+      const ready = await waitForNanoAgent(env, process.child);
+      console.log(`NanoAgent ready: ${ready.profile.id} (${ready.profile.model})`);
+    } catch (error) {
+      signalTree(process.child, 'SIGTERM');
+      throw error;
+    }
+  } else if (env.NANOAGENT_URL !== 'off') {
+    const ready = await waitForNanoAgent(env);
+    console.log(`NanoAgent ready: ${ready.profile.id} (${ready.profile.model})`);
   }
+  processes.push(
+    {name: 'API', child: spawn(process.execPath, ['src/server/index.js'], options(root))},
+    {name: 'site', child: spawn(process.execPath, [docusaurusCli, 'start', '--no-open', '--port', String(sitePort)], options(root))},
+  );
   let stopping = false;
 
   function stop(exitCode, signal = 'SIGTERM') {

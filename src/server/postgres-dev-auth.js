@@ -97,7 +97,17 @@ async function handleDevLogin(req, res, auth, json, readBody) {
 module.exports = {
   DEV_AUTOLOGIN,
   ROOT_USERNAME,
-  ensureRootUser: async () => null,
+  ensureRootUser: async auth => {
+    if (!ROOT_LOGIN_ENABLED) return null;
+    const userId = await provisionRoot(auth);
+    return {
+      username: ROOT_USERNAME,
+      userId,
+      created: false,
+      workspace: null,
+      demo: null,
+    };
+  },
   ensureDevelopmentWorkspace: () => null,
   handleDevLogin,
   provisionRoot,

@@ -98,30 +98,40 @@ try {
   const modelPort = await listen(fakeModel);
   const agentPort = await unusedPort();
   const configPath = path.join(temporary, 'web.yaml');
-  fs.writeFileSync(configPath, `default_profile: native-fake
+  const profilePath = path.join(temporary, 'native-fake.yaml');
+  fs.writeFileSync(profilePath, `_ > nanoagent.runtime.config.HarnessProfileConfig:
+
+label: Fake model · NanoAgent
+model: fake
+
+harness > nanoagent.runtime.config.HarnessConfig:
+  type: native
+  command: null
+  cwd: null
+  options: []
+
+model_overrides > nanoagent.runtime.config.ModelPart:
+`, 'utf8');
+  fs.writeFileSync(configPath, `_ > nanoagent.web.config.WebConfig:
+
+default_profile: native-fake
 profiles:
-  native-fake:
-    label: Fake model · NanoAgent
-    model: fake
-    harness:
-      type: native
-      command: null
-      cwd: null
-      options: {}
-    model_overrides: {}
-model:
+  - ${profilePath}
+
+model > nanoagent.runtime.config.ModelConfig:
   model: fake
-  backend: sglang
+  provider: sglang
   base_url: http://127.0.0.1:${modelPort}/v1
   api_key: null
   temperature: 0.0
   max_tokens: 64
   request_timeout: 5.0
   max_retries: 0
-  extra_body: {}
+  extra_body: []
   input_price: 0.0
   output_price: 0.0
-agent:
+
+agent > nanoagent.runtime.config.AgentConfig:
   system_prompt: You are Mochi's deterministic integration verifier.
   max_steps: 2
   cost_limit: null
