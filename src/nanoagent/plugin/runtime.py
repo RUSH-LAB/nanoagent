@@ -4,18 +4,25 @@ import json
 import subprocess
 from typing import Any
 
+from jsonschema import ValidationError, validate
+
 from nanoagent.core.tool import Tool
-from nanoagent.software.manifest import SoftwareManifest
+from nanoagent.plugin.manifest import PluginManifest
 
 
 def call_tool(
-    manifest: SoftwareManifest,
+    manifest: PluginManifest,
     tool: str,
     arguments: dict[str, Any],
     *,
     timeout: float = 300,
 ) -> dict[str, Any]:
-    manifest.tool(tool)
+    definition = manifest.tool(tool)
+    try:
+        validate(arguments, definition.input)
+    except ValidationError as error:
+        raise ValueError(f"invalid input for {tool}: {error.message}") from error
+
     request = json.dumps({"tool": tool, "arguments": arguments}) + "\n"
     completed = subprocess.run(
         manifest.command,
@@ -38,11 +45,15 @@ def call_tool(
         raise RuntimeError(f"{manifest.id} returned invalid JSON") from error
     if not isinstance(response, dict):
         raise RuntimeError(f"{manifest.id} returned a non-object response")
+    try:
+        validate(response, definition.output)
+    except ValidationError as error:
+        raise RuntimeError(f"invalid output from {tool}: {error.message}") from error
     return response
 
 
-class SoftwareTool(Tool):
-    def __init__(self, manifest: SoftwareManifest, name: str) -> None:
+class PluginTool(Tool):
+    def __init__(self, manifest: PluginManifest, name: str) -> None:
         definition = manifest.tool(name)
         self._manifest = manifest
         self.NAME = definition.name
@@ -56,9 +67,9 @@ class SoftwareTool(Tool):
     def run(self, **arguments: Any) -> str:
         response = call_tool(self._manifest, self.NAME, arguments)
         if not response.get("ok", False):
-            raise RuntimeError(str(response.get("error", "software tool failed")))
+            raise RuntimeError(str(response.get("error", "plugin tool failed")))
         return json.dumps(response)
 
 
-def software_tools(manifest: SoftwareManifest) -> list[Tool]:
-    return [SoftwareTool(manifest, definition.name) for definition in manifest.tools]
+def plugin_tools(manifest: PluginManifest) -> list[Tool]:
+    return [PluginTool(manifest, definition.name) for definition in manifest.tools]

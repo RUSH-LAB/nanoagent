@@ -18,6 +18,7 @@ requires-python = ">=3.12"
 # nanoagent.inference.backends.build_backend, which imports the SDK only when the sglang backend is
 # actually built, so any object satisfying the `ChatModel` duck-type is a usable model.
 dependencies = [
+    "jsonschema>=4.23",
     # The OpenAI-compatible client the sglang backend speaks. Floor at 1.40: the backend imports
     # `DefaultAsyncHttpxClient` from the package root and reads `completion_tokens_details` off the
     # usage object, neither of which exists on the 0.x SDK.

@@ -5,11 +5,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from nanoagent.software import call_tool, load_manifest
+from nanoagent.plugin import call_tool, load_manifest
 
 _USAGE = """usage:
-  nanoagent software inspect <path>
-  nanoagent software run <path> <task> [key=value ...]"""
+  nanoagent plugin inspect <path>
+  nanoagent plugin run <path> <task> [key=value ...]"""
 
 
 def _value(text: str) -> Any:
@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     task = manifest.task(argv[2])
     if len(task.tools) != 1:
-        raise ValueError("direct software runs currently require a task with exactly one tool")
+        raise ValueError("direct plugin runs require a task with exactly one tool")
     arguments: dict[str, Any] = {}
     for token in argv[3:]:
         if "=" not in token:

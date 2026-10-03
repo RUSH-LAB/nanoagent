@@ -12,19 +12,21 @@ Run:
 uv run nanoagent --help
 ```
 
-## Software packages
+## Plugins
 
-NanoAgent can load a directory containing a `nanoagent.yaml` manifest, inspect
-its tasks, and invoke its tools through a small JSON-lines subprocess protocol:
+NanoAgent plugins follow the strict `nanoagent.plugin/v1` directory contract.
+NanoAgent validates their files, permissions and JSON schemas, then launches
+the standard Python entrypoint from the committed uv lockfile through a
+JSON-lines subprocess protocol:
 
 ```bash
-uv run nanoagent software inspect ../arxiv-source
-uv run nanoagent software run ../arxiv-source save-paper-source \
+uv run nanoagent plugin inspect ../arxiv-source
+uv run nanoagent plugin run ../arxiv-source save-paper-source \
   arxiv_id=1706.03762 destination=downloads/attention
 ```
 
-Each declared software tool is also available as a regular NanoAgent `Tool`
-through `nanoagent.software.software_tools`.
+Each declared plugin tool is also available as a regular NanoAgent `Tool`
+through `nanoagent.plugin.plugin_tools`.
 
 ## Railway service
 

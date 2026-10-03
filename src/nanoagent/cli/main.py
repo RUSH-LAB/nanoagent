@@ -173,12 +173,12 @@ _DELEGATES = {
     "chat": "nanoagent.cli.repl.app",
     "browse": "nanoagent.cli.repl.browser",
     "web": "nanoagent.web.app",
-    "software": "nanoagent.cli.software",
+    "plugin": "nanoagent.cli.plugin",
     # The one command that takes argparse flags rather than config tokens; it is also installed
     # as its own console script, `mgen` (see nanoagent.cli.mgen for why it is the exception).
     "mgen": "nanoagent.cli.mgen",
 }
-_USAGE = "usage: nanoagent {run|benchmark|chat|browse|mgen|web|software} [args...]"
+_USAGE = "usage: nanoagent {run|benchmark|chat|browse|mgen|web|plugin} [args...]"
 
 
 def main(argv: list[str] | None = None) -> int:
