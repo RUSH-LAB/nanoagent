@@ -12,6 +12,20 @@ Run:
 uv run nanoagent --help
 ```
 
+## Software packages
+
+NanoAgent can load a directory containing a `nanoagent.yaml` manifest, inspect
+its tasks, and invoke its tools through a small JSON-lines subprocess protocol:
+
+```bash
+uv run nanoagent software inspect ../arxiv-source
+uv run nanoagent software run ../arxiv-source save-paper-source \
+  arxiv_id=1706.03762 destination=downloads/attention
+```
+
+Each declared software tool is also available as a regular NanoAgent `Tool`
+through `nanoagent.software.software_tools`.
+
 ## Railway service
 
 The repository includes a production container and private Railway service
