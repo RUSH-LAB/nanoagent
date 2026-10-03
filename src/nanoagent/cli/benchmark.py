@@ -8,8 +8,8 @@ import sys
 
 from nanoagent.benchmark.engine import run_benchmark
 from nanoagent.benchmark.registry import BenchmarkRegistry
+from nanoagent.harness import HarnessRegistry
 from nanoagent.runtime.config import BenchmarkRunConfig, load_config_args
-from nanoagent.runtime.harness import RunnerRegistry
 
 _USAGE = (
     "usage: nanoagent benchmark {list|run} benchmark_cfg=<benchmark.yaml> "
@@ -20,7 +20,7 @@ _USAGE = (
 async def _execute(cfg: BenchmarkRunConfig) -> dict:
     benchmarks = BenchmarkRegistry.from_config(cfg.benchmarks)
     benchmark = benchmarks.resolve(cfg.benchmark)
-    runners = RunnerRegistry.from_config(cfg, cfg.profiles, cfg.profile)
+    runners = HarnessRegistry.from_config(cfg, cfg.profiles, cfg.profile)
     profile = runners.resolve(cfg.profile)
     try:
         return await run_benchmark(
@@ -40,7 +40,7 @@ async def _execute(cfg: BenchmarkRunConfig) -> dict:
 
 async def _list(cfg: BenchmarkRunConfig) -> dict:
     benchmarks = BenchmarkRegistry.from_config(cfg.benchmarks)
-    runners = RunnerRegistry.from_config(cfg, cfg.profiles, cfg.profile)
+    runners = HarnessRegistry.from_config(cfg, cfg.profiles, cfg.profile)
     try:
         return {"benchmarks": benchmarks.public(), **runners.public()}
     finally:

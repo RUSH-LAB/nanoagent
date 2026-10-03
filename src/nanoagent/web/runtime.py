@@ -15,8 +15,14 @@ from uuid import uuid4
 
 from jsonschema import Draft202012Validator
 
-from nanoagent.runtime.harness import AgentFactory, RunnerProfile, RunnerRegistry
-from nanoagent.runtime.runner import Runner, RunnerError, RunnerRequest
+from nanoagent.harness import (
+    Harness as Runner,
+    HarnessError as RunnerError,
+    HarnessProfile as RunnerProfile,
+    HarnessRegistry as RunnerRegistry,
+    HarnessRequest as RunnerRequest,
+)
+from nanoagent.runtime.harness import AgentFactory
 from nanoagent.runtime.config import HarnessProfileConfig, load_registry
 from nanoagent.web.config import WebConfig
 

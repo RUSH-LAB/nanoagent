@@ -28,6 +28,16 @@ uv run nanoagent plugin run ../arxiv-source save-paper-source \
 Each declared plugin tool is also available as a regular NanoAgent `Tool`
 through `nanoagent.plugin.plugin_tools`.
 
+## Harnesses and trajectories
+
+`nanoagent.harness` is the stable interface shared by the native agent loop and
+out-of-process harnesses. It normalizes requests, progress events,
+capabilities, availability and results while keeping model- and
+harness-specific code behind adapters.
+
+NanoAgent keeps its detailed native trajectory format and can also export an
+`AgentResult` to the portable ATIF format with `nanoagent.trajectory.to_atif`.
+
 ## Railway service
 
 The repository includes a production container and private Railway service

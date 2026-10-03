@@ -16,7 +16,7 @@ from typing import Any, Protocol, Sequence
 from nanoagent.benchmark.environment import EnvironmentOutcome, EnvironmentSession
 from nanoagent.benchmark.metric import MetricDefinition
 from nanoagent.benchmark.task import BenchmarkTask
-from nanoagent.runtime.runner import RunnerResult
+from nanoagent.harness import HarnessResult as RunnerResult
 
 
 @dataclass(frozen=True)
