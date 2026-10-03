@@ -23,7 +23,7 @@ npm run neon:deploy
 npm run db:postgres:setup
 ```
 
-`npm run db:postgres:setup` creates the git-ignored `.env.postgres.local` file.
+`npm run db:postgres:setup` updates the git-ignored `.env.local` file.
 It must contain the following values; never commit real secrets:
 
 ```dotenv
@@ -51,7 +51,7 @@ In local PostgreSQL mode, `root@mochi.local` / `root@mochi.local` is the fixed
 development root login. The first successful login repairs that account's
 password and makes it an owner of the `mochi` workspace.
 
-`.env.production.local` is optional during local development and is only
+Production-only verification values can also live in `.env.local` and are only
 needed for the Resend verification command:
 
 ```dotenv

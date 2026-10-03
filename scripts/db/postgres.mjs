@@ -6,8 +6,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const POSTGRES_ENV_FILE = path.join(root, '.env.postgres.local');
-const NEON_ENV_FILE = path.join(root, '.env.local');
+const LOCAL_ENV_FILE = path.join(root, '.env.local');
 
 export function parseEnv(source) {
   const result = {};
@@ -30,7 +29,7 @@ function readEnvFile(file) {
 }
 
 function loadPostgresEnvironment() {
-  const file = readEnvFile(POSTGRES_ENV_FILE);
+  const file = readEnvFile(LOCAL_ENV_FILE);
   const env = {...file, ...process.env};
   if (!env.DATABASE_URL || !env.DATABASE_MIGRATION_URL) {
     throw new Error('Run npm run db:postgres:setup before using PostgreSQL commands');
@@ -70,8 +69,8 @@ function serializeEnv(values) {
 
 /** Derive Mochi's restricted pooled runtime URL from one Neon owner URL. */
 export function prepareNeonEnvironment({
-  envFile = POSTGRES_ENV_FILE,
-  pulledEnvFile = NEON_ENV_FILE,
+  envFile = LOCAL_ENV_FILE,
+  pulledEnvFile = LOCAL_ENV_FILE,
   randomBytes = crypto.randomBytes,
 } = {}) {
   const values = readEnvFile(envFile);
@@ -85,8 +84,11 @@ export function prepareNeonEnvironment({
 
   const ownerUrl = parsePostgresUrl(source, 'The Neon owner URL');
   ownerUrl.hostname = directEndpoint(ownerUrl.hostname);
-  const existingRuntimeUrl = values.DATABASE_URL
+  const candidateRuntimeUrl = values.DATABASE_URL
     ? parsePostgresUrl(values.DATABASE_URL, 'The existing DATABASE_URL')
+    : null;
+  const existingRuntimeUrl = candidateRuntimeUrl?.username === 'mochi_runtime'
+    ? candidateRuntimeUrl
     : null;
   const runtimeUrl = new URL(ownerUrl);
   runtimeUrl.username = existingRuntimeUrl?.username || 'mochi_runtime';

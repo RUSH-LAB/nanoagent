@@ -40,9 +40,12 @@ else
   echo "Using existing NanoAgent checkout at $NANOAGENT_PROJECT_DIR."
 fi
 
-if [[ ! -f .env.openrouter.local ]]; then
-  cp .env.openrouter.local.example .env.openrouter.local
-  echo "Created .env.openrouter.local from its sanitized template."
+node scripts/dev/consolidate-env.mjs
+
+if [[ ! -f .env.local ]]; then
+  cp .env.example .env.local
+  chmod 600 .env.local
+  echo "Created .env.local from its sanitized template."
 fi
 
 echo
@@ -53,6 +56,6 @@ echo "Python: $(python3.12 --version)"
 echo "uv:     $(uv --version)"
 echo
 echo "Next steps:"
-echo "  Add OPENROUTER_API_KEY to .env.openrouter.local"
+echo "  Add OPENROUTER_API_KEY to .env.local"
 echo "  npm run db:postgres:setup"
 echo "  npm start"

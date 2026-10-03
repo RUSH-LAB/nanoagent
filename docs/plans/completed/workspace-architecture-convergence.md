@@ -38,7 +38,7 @@ The delivery topology is intentionally asymmetric:
 - Production receives a separate database and credentials. The Neon dev branch
   and the production database must never be the same target.
 
-The developer-only URLs live in the git-ignored `.env.postgres.local` file.
+The developer-only URLs live in the git-ignored `.env.local` file.
 The supported commands are:
 
 ```bash

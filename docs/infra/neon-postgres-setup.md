@@ -69,7 +69,7 @@ The setup command:
 3. Derives the matching pooled endpoint for application traffic.
 4. Generates a password for `mochi_runtime` and a Better Auth secret when they
    do not already exist.
-5. Writes `.env.postgres.local` atomically with file mode `0600`.
+5. Writes `.env.local` atomically with file mode `0600`.
 6. Creates or repairs the restricted runtime role.
 7. Applies versioned migrations and grants the runtime role only the required
    table, sequence, and function privileges.
@@ -115,7 +115,7 @@ npm run start:postgres:api
 npm run start:site
 ```
 
-The API loads `.env.postgres.local`. Neon may suspend an idle compute, so the
+The API loads `.env.local`. Neon may suspend an idle compute, so the
 first request after a long pause can be slower than subsequent requests.
 
 ## Routine commands
@@ -142,7 +142,7 @@ production.
   no database password, is git-ignored, and can be recreated with `neon link`.
 - `.env.local` is temporary Neon CLI output containing owner credentials. It is
   git-ignored and can be recreated with `neon env pull`.
-- `.env.postgres.local` is Mochi's private owner/runtime configuration. It is
+- `.env.local` is Mochi's private local configuration. It is
   git-ignored and must remain mode `0600`.
 - `infra/neon.ts` is committed configuration-as-code. Because it is not at the
   repository root, use the `neon:plan` and `neon:deploy` npm scripts.

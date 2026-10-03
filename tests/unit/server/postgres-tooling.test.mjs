@@ -26,7 +26,7 @@ describe('Neon PostgreSQL tooling', () => {
 
   it('derives direct owner and pooled restricted Neon URLs from one connection string', () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-neon-'));
-    const envFile = path.join(directory, '.env.postgres.local');
+    const envFile = path.join(directory, '.env.local');
     fs.writeFileSync(envFile, [
       'DATABASE_MIGRATION_URL=postgresql://owner:secret@ep-demo-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require',
       'DATABASE_URL=',
@@ -54,7 +54,7 @@ describe('Neon PostgreSQL tooling', () => {
 
   it('can bootstrap its private environment from Neon env pull output', () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-neon-pull-'));
-    const envFile = path.join(directory, '.env.postgres.local');
+    const envFile = path.join(directory, '.env.local');
     const pulledEnvFile = path.join(directory, '.env.local');
     fs.writeFileSync(pulledEnvFile, [
       'NEON_BRANCH=br-example',
@@ -81,23 +81,24 @@ describe('Neon PostgreSQL tooling', () => {
 
   it('follows a newly checked-out Neon branch without reusing the old host', () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-neon-switch-'));
-    const envFile = path.join(directory, '.env.postgres.local');
-    const pulledEnvFile = path.join(directory, '.env.local');
+    const envFile = path.join(directory, '.env.local');
     fs.writeFileSync(envFile, [
-      'DATABASE_MIGRATION_URL=postgresql://owner:secret@ep-old.us-east-2.aws.neon.tech/neondb',
-      'DATABASE_URL=postgresql://mochi_runtime:runtime-secret@ep-old-pooler.us-east-2.aws.neon.tech/neondb',
+      'DATABASE_URL=postgresql://owner:new-secret@ep-new-pooler.us-east-2.aws.neon.tech/neondb',
+      'DATABASE_URL_UNPOOLED=postgresql://owner:new-secret@ep-new.us-east-2.aws.neon.tech/neondb',
       '',
     ].join('\n'));
-    fs.writeFileSync(pulledEnvFile,
-      'DATABASE_URL_UNPOOLED=postgresql://owner:new-secret@ep-new.us-east-2.aws.neon.tech/neondb\n');
     try {
-      const prepared = prepareNeonEnvironment({envFile, pulledEnvFile});
+      const prepared = prepareNeonEnvironment({
+        envFile,
+        pulledEnvFile: envFile,
+        randomBytes: size => Buffer.alloc(size, 11),
+      });
       const owner = new URL(prepared.DATABASE_MIGRATION_URL);
       const runtime = new URL(prepared.DATABASE_URL);
       assert.equal(owner.hostname, 'ep-new.us-east-2.aws.neon.tech');
       assert.equal(runtime.hostname, 'ep-new-pooler.us-east-2.aws.neon.tech');
       assert.equal(runtime.username, 'mochi_runtime');
-      assert.equal(runtime.password, 'runtime-secret');
+      assert.notEqual(runtime.password, owner.password);
     } finally {
       fs.rmSync(directory, {recursive: true, force: true});
     }

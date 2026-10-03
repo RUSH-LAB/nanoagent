@@ -2,7 +2,7 @@ import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {parseEnv} from '../../../scripts/db/postgres.mjs';
 
-describe('.env.postgres.local parser', () => {
+describe('.env.local parser', () => {
   it('loads direct and pooled Neon URLs without shell evaluation', () => {
     const values = parseEnv(`
       DATABASE_MIGRATION_URL='postgresql://owner:p%40ss@direct.example/neondb?sslmode=require'

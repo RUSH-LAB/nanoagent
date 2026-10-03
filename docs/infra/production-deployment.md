@@ -57,7 +57,7 @@ password-reset, and invitation messages to their actual recipients.
 Create the public Mochi service from the GitHub repository and select the release branch.
 Railway will use `railway.toml` and the root `Dockerfile`. Add every value from
 the database, authentication, and email configuration described above to the
-service variables; do not upload `.env.production.local`.
+service variables; do not upload `.env.local`.
 
 Create a second, private service from the standalone NanoAgent repository. Run
 `nanoagent web` with a web config that binds

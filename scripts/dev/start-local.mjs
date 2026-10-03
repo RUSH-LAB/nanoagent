@@ -8,8 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {parseEnv} from '../db/postgres.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const localEnvFile = path.join(root, '.env.openrouter.local');
-const postgresEnvFile = path.join(root, '.env.postgres.local');
+const localEnvFile = path.join(root, '.env.local');
 const docusaurusCli = path.join(root, 'node_modules', '@docusaurus', 'core', 'bin', 'docusaurus.mjs');
 const nanoagentPort = 8787;
 const nanoagentStartupTimeoutMs = 30_000;
@@ -21,7 +20,7 @@ export function modeFrom(argv) {
   return postgres ? 'postgres' : noAuth ? 'no-auth' : 'sqlite';
 }
 
-export function environmentFor(mode, {base = process.env, envFile = postgresEnvFile} = {}) {
+export function environmentFor(mode, {base = process.env, envFile = localEnvFile} = {}) {
   if (mode === 'postgres' && !fs.existsSync(envFile)) {
     throw new Error('Run npm run db:postgres:setup before npm run start:postgres');
   }
@@ -164,7 +163,7 @@ export async function startLocal(argv = process.argv.slice(2)) {
     throw new Error(`NanoAgent checkout not found at ${nanoagentRoot}. Clone it beside Mochi or set NANOAGENT_PROJECT_DIR.`);
   }
   if (usesLocalNanoAgent(env) && !env.OPENROUTER_API_KEY?.trim()) {
-    throw new Error('Local NanoAgent requires OPENROUTER_API_KEY. Add it to .env.openrouter.local, then run npm start again.');
+    throw new Error('Local NanoAgent requires OPENROUTER_API_KEY. Add it to .env.local, then run npm start again.');
   }
   if (usesLocalNanoAgent(env)) await preparePiRunner(env, nanoagentRoot);
   const apiPort = validatedPort(env.EDITOR_PORT, 'EDITOR_PORT');

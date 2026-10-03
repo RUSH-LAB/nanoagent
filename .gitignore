@@ -6,7 +6,7 @@ build/
 *.log*
 .env
 .env.*
-!.env.*.example
+!.env.example
 /var/
 /raw/
 /.worktrees/
