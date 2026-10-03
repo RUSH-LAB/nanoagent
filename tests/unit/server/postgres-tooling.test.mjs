@@ -45,7 +45,7 @@ describe('Neon PostgreSQL tooling', () => {
       assert.equal(runtime.hostname, 'ep-demo-pooler.us-east-2.aws.neon.tech');
       assert.equal(runtime.username, 'mochi_runtime');
       assert.notEqual(runtime.password, owner.password);
-      assert.equal(prepared.PG_DRIVER, 'neon-serverless');
+      assert.equal(prepared.PG_DRIVER, undefined);
       assert.equal(fs.statSync(envFile).mode & 0o777, 0o600);
     } finally {
       fs.rmSync(directory, {recursive: true, force: true});

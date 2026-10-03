@@ -8,13 +8,7 @@ const MIGRATION_LOCK = 786234901;
 
 function createPool(env = process.env, options = {}) {
   if (!env.DATABASE_URL) throw new Error('DATABASE_URL is required for PostgreSQL');
-  let Pool = PgPool;
-  if (env.PG_DRIVER === 'neon-serverless') {
-    const {Pool: NeonPool, neonConfig} = require('@neondatabase/serverless');
-    neonConfig.webSocketConstructor = require('ws');
-    Pool = NeonPool;
-  }
-  return new Pool({
+  const pool = new PgPool({
     connectionString: env.DATABASE_URL,
     max: Number(env.PG_POOL_MAX || 10),
     idleTimeoutMillis: Number(env.PG_IDLE_TIMEOUT_MS || 30_000),
@@ -25,6 +19,8 @@ function createPool(env = process.env, options = {}) {
         : undefined,
     ...options,
   });
+  pool.on('error', error => console.error('[postgres] Idle connection failed:', error.message));
+  return pool;
 }
 
 function migrationFiles(directory = MIGRATIONS_DIR) {

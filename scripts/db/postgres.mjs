@@ -101,11 +101,11 @@ export function prepareNeonEnvironment({
     DATABASE_URL: runtimeUrl.toString(),
     PG_SSL: values.PG_SSL || 'require',
     PG_SSL_REJECT_UNAUTHORIZED: values.PG_SSL_REJECT_UNAUTHORIZED || 'true',
-    PG_DRIVER: values.PG_DRIVER || 'neon-serverless',
     ENABLE_AUTH: values.ENABLE_AUTH || 'true',
     DEV_AUTOLOGIN: values.DEV_AUTOLOGIN || 'false',
     BETTER_AUTH_SECRET: values.BETTER_AUTH_SECRET || randomBytes(32).toString('hex'),
   };
+  delete output.PG_DRIVER;
   const temporaryFile = `${envFile}.${process.pid}.tmp`;
   try {
     fs.writeFileSync(temporaryFile, serializeEnv(output), {mode: 0o600});

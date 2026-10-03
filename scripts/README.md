@@ -30,7 +30,6 @@ It must contain the following values; never commit real secrets:
 DATABASE_URL=postgresql://mochi_runtime:...@...-pooler.../neondb?sslmode=require
 DATABASE_MIGRATION_URL=postgresql://neondb_owner:...@.../neondb?sslmode=require
 BETTER_AUTH_SECRET=...
-PG_DRIVER=neon-serverless
 PG_SSL=require
 PG_SSL_REJECT_UNAUTHORIZED=true
 ENABLE_AUTH=true

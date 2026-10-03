@@ -46,12 +46,12 @@ describe('PostgreSQL runtime boundary', () => {
     await compatibility.end();
   });
 
-  it('can select the Neon WebSocket pool explicitly', async () => {
+  it('handles idle connection failures without crashing the process', async () => {
     const pool = createPool({
       DATABASE_URL: 'postgresql://runtime:secret@example.invalid/mochi',
-      PG_DRIVER: 'neon-serverless',
     });
-    assert.equal(pool.constructor.name, 'NeonPool');
+    assert.equal(pool.constructor.name, 'BoundPool');
+    assert.equal(pool.listenerCount('error'), 1);
     await pool.end();
   });
 

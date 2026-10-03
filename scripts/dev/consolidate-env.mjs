@@ -21,6 +21,7 @@ for (const file of legacyFiles) {
   if (fs.existsSync(file)) Object.assign(values, parseEnv(fs.readFileSync(file, 'utf8')));
 }
 if (fs.existsSync(destination)) Object.assign(values, parseEnv(fs.readFileSync(destination, 'utf8')));
+delete values.PG_DRIVER;
 
 if (Object.keys(values).length === 0 && process.argv.includes('--initialize')) {
   values.OPENROUTER_API_KEY = 'replace-me';

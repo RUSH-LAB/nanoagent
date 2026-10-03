@@ -168,7 +168,7 @@ npm run db:postgres:setup
 ### Direct TCP port 5432 is unavailable
 
 Hosted mode uses `@neondatabase/serverless` over secure WebSockets. The generated
-environment sets `PG_DRIVER=neon-serverless`, so normal application traffic does
+application uses `node-postgres` with the pooled runtime URL, so normal traffic does
 not require outbound TCP access to port 5432.
 
 ### The first request is slow
