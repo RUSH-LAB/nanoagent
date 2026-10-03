@@ -26,7 +26,7 @@ describe('Neon PostgreSQL tooling', () => {
 
   it('derives direct owner and pooled restricted Neon URLs from one connection string', () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-neon-'));
-    const envFile = path.join(directory, '.env.local');
+    const envFile = path.join(directory, '.env');
     fs.writeFileSync(envFile, [
       'DATABASE_MIGRATION_URL=postgresql://owner:secret@ep-demo-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require',
       'DATABASE_URL=',
@@ -35,7 +35,7 @@ describe('Neon PostgreSQL tooling', () => {
     try {
       const prepared = prepareNeonEnvironment({
         envFile,
-        pulledEnvFile: path.join(directory, '.env.local'),
+        pulledEnvFile: path.join(directory, '.env'),
         randomBytes: size => Buffer.alloc(size, 7),
       });
       const owner = new URL(prepared.DATABASE_MIGRATION_URL);
@@ -54,8 +54,8 @@ describe('Neon PostgreSQL tooling', () => {
 
   it('can bootstrap its private environment from Neon env pull output', () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-neon-pull-'));
-    const envFile = path.join(directory, '.env.local');
-    const pulledEnvFile = path.join(directory, '.env.local');
+    const envFile = path.join(directory, '.env');
+    const pulledEnvFile = path.join(directory, '.env');
     fs.writeFileSync(pulledEnvFile, [
       'NEON_BRANCH=br-example',
       'DATABASE_URL=postgresql://owner:secret@ep-demo-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require',
@@ -81,7 +81,7 @@ describe('Neon PostgreSQL tooling', () => {
 
   it('follows a newly checked-out Neon branch without reusing the old host', () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-neon-switch-'));
-    const envFile = path.join(directory, '.env.local');
+    const envFile = path.join(directory, '.env');
     fs.writeFileSync(envFile, [
       'DATABASE_URL=postgresql://owner:new-secret@ep-new-pooler.us-east-2.aws.neon.tech/neondb',
       'DATABASE_URL_UNPOOLED=postgresql://owner:new-secret@ep-new.us-east-2.aws.neon.tech/neondb',

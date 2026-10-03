@@ -6,7 +6,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const LOCAL_ENV_FILE = path.join(root, '.env.local');
+const LOCAL_ENV_FILE = path.join(root, '.env');
 
 export function parseEnv(source) {
   const result = {};

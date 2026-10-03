@@ -53,7 +53,7 @@ npm run neon:deploy
 ```
 
 `neon checkout` pulls the branch's pooled and direct owner URLs into the
-git-ignored `.env.local`. `neon:deploy` applies the configuration declared in
+git-ignored `.env`. `neon:deploy` applies the configuration declared in
 `infra/neon.ts`.
 
 Prepare the application role and schema:
@@ -64,12 +64,12 @@ npm run db:postgres:setup
 
 The setup command:
 
-1. Reads `DATABASE_URL_UNPOOLED` from `.env.local`.
+1. Reads `DATABASE_URL_UNPOOLED` from `.env`.
 2. Normalizes it as the direct migration connection.
 3. Derives the matching pooled endpoint for application traffic.
 4. Generates a password for `mochi_runtime` and a Better Auth secret when they
    do not already exist.
-5. Writes `.env.local` atomically with file mode `0600`.
+5. Writes `.env` atomically with file mode `0600`.
 6. Creates or repairs the restricted runtime role.
 7. Applies versioned migrations and grants the runtime role only the required
    table, sequence, and function privileges.
@@ -77,11 +77,8 @@ The setup command:
 When switching branches, setup keeps the existing runtime password but updates
 both connection hosts to the newly checked-out Neon branch.
 
-After setup succeeds, `.env.local` is no longer required and may be removed:
-
-```bash
-rm -f .env.local
-```
+After setup succeeds, keep `.env`; it is the single local configuration file
+for the database, NanoAgent, and optional verification commands.
 
 ## Verify the environment
 
@@ -115,7 +112,7 @@ npm run start:postgres:api
 npm run start:site
 ```
 
-The API loads `.env.local`. Neon may suspend an idle compute, so the
+The API loads `.env`. Neon may suspend an idle compute, so the
 first request after a long pause can be slower than subsequent requests.
 
 ## Routine commands
@@ -124,7 +121,7 @@ first request after a long pause can be slower than subsequent requests.
 npm run neon:plan             # Preview infra/neon.ts changes
 npm run neon:deploy           # Apply infra/neon.ts to the linked branch
 neon checkout <branch-name>   # Change the branch recorded in .neon
-neon env pull                 # Refresh Neon-managed variables in .env.local
+neon env pull                 # Refresh Neon-managed variables in .env
 
 npm run db:postgres:prepare   # Regenerate the private local environment
 npm run db:postgres:bootstrap # Create or repair mochi_runtime
@@ -140,9 +137,7 @@ production.
 
 - `.neon` stores the linked organization, project, and branch IDs. It contains
   no database password, is git-ignored, and can be recreated with `neon link`.
-- `.env.local` is temporary Neon CLI output containing owner credentials. It is
-  git-ignored and can be recreated with `neon env pull`.
-- `.env.local` is Mochi's private local configuration. It is
+- `.env` contains Neon credentials and Mochi's other private local configuration. It is
   git-ignored and must remain mode `0600`.
 - `infra/neon.ts` is committed configuration-as-code. Because it is not at the
   repository root, use the `neon:plan` and `neon:deploy` npm scripts.

@@ -22,7 +22,7 @@ describe('local process supervisor configuration', () => {
 
   it('loads PostgreSQL credentials while keeping explicit shell overrides', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-start-'));
-    const envFile = path.join(dir, '.env.local');
+    const envFile = path.join(dir, '.env');
     fs.writeFileSync(envFile, 'DATABASE_URL=postgres://runtime\nDATABASE_MIGRATION_URL=postgres://owner\nEDITOR_PORT=9999\n');
     const env = environmentFor('postgres', {base: {EDITOR_PORT: '4101'}, envFile});
     assert.equal(env.DATABASE_URL, 'postgres://runtime');

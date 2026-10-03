@@ -11,7 +11,7 @@ sanitized local environment file:
 ./install.sh
 ```
 
-Then replace the placeholder in `.env.local` with your OpenRouter
+Then replace the placeholder in `.env` with your OpenRouter
 key:
 
 ```dotenv
@@ -27,7 +27,7 @@ npm start
 ```
 
 This uses the prepared Neon PostgreSQL branch and credentials from
-`.env.local`, keeping local development on the same authoritative data
+`.env`, keeping local development on the same authoritative data
 path as production. Run `npm run db:postgres:setup` once before using it.
 The older `npm run start:postgres` command remains as an explicit alias for
 `npm start`.
@@ -40,6 +40,6 @@ Set `NANOAGENT_REPOSITORY` and `NANOAGENT_REF` before running it to reproduce
 against a fork or a specific branch/tag.
 
 All local secrets and connection settings live in the single git-ignored
-`.env.local` file. The committed `.env.example` documents the supported keys.
+`.env` file.
 
 See [repository commands and local setup](scripts/README.md) or the [documentation index](docs/README.md).
