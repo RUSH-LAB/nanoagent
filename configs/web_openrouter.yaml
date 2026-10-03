@@ -1,0 +1,45 @@
+_ > nanoagent.web.config.WebConfig:
+
+model > nanoagent.runtime.config.ModelConfig:
+  model: deepseek/deepseek-v4-flash-0731
+  provider: openrouter
+  base_url: null
+  api_key: null
+  temperature: 0.0
+  max_tokens: 2048
+  request_timeout: 120.0
+  max_retries: 2
+  extra_body: []
+  input_price: 0.065
+  output_price: 0.18
+
+agent > nanoagent.runtime.config.AgentConfig:
+  system_prompt: |
+    You are an assistant embedded in a collaborative knowledge application.
+    Follow the application's additional instructions and answer the user directly.
+  max_steps: 2
+  cost_limit: 0.10
+  token_limit: 8192
+  context_window: null
+  hooks: []
+  skills: null
+  context_files: []
+  events: null
+
+tools: []
+tools_dir: null
+allowed_tools: []
+
+default_profile: pi-deepseek
+profiles:
+  - configs/profiles/pi-deepseek.yaml
+
+host: 127.0.0.1
+port: 8787
+api_token: null
+max_concurrency: 8
+request_timeout: 180.0
+max_request_bytes: 262144
+max_output_chars: 50000
+heartbeat_seconds: 10.0
+include_reasoning: false

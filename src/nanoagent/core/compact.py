@@ -8,7 +8,7 @@ by the loop; everything about *how* to shrink lives here.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nanoagent.core.agent import ChatModel, Reply
