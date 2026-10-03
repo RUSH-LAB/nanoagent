@@ -12,7 +12,7 @@ whole point is that what happens in the child must not reach the parent, and eve
 loop touches is a mutable dict.
 
 Resume reads either format. A ``.session.json`` written by :meth:`save` restores the branches;
-a ``.traj.json`` from :mod:`nanoagent.runtime.trajectory` — a batch rollout, or an older chat — restores
+a ``.traj.json`` from :mod:`nanoagent.trajectory.native` — a batch rollout, or an older chat — restores
 its transcript as a single-node tree, so a run you want to pick up is resumable whether or not it
 was a chat.
 """

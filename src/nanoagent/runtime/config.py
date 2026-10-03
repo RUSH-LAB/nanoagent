@@ -236,7 +236,7 @@ class AgentConfig(Config):
     # A sibling `<name>.override.md` REPLACES its file rather than adding to it. [] = none.
     context_files: list[str] = MISSING
     # NDJSON event stream: one line per streamed fragment / step / tool call / run end, for a UI
-    # or a log tailer to consume live (see :mod:`nanoagent.runtime.events`). null = don't write one.
+    # or a log tailer to consume live (see :mod:`nanoagent.execution.events`). null = don't write one.
     events: str | None = MISSING
 
     def __post_init__(self) -> None:

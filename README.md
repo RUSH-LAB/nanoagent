@@ -38,6 +38,18 @@ harness-specific code behind adapters.
 NanoAgent keeps its detailed native trajectory format and can also export an
 `AgentResult` to the portable ATIF format with `nanoagent.trajectory.to_atif`.
 
+## Source layout
+
+- `core`: the native agent loop and tool primitives
+- `harness`: normalized harness contracts, implementations and adapters
+- `plugin`: reproducible MCP plugin packages
+- `inference`: model clients, routing and serving
+- `execution`: batch runs, events, task selection and logging
+- `trajectory`: native and ATIF trajectory formats
+- `benchmark`: evaluation protocols and scoring
+- `cli` and `web`: user-facing interfaces
+- `runtime`: configuration and compatibility imports for older module paths
+
 ## Railway service
 
 The repository includes a production container and private Railway service

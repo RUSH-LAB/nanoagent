@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from nanoagent.runtime.config import BrowseConfig, load_config_args
-from nanoagent.runtime.trajectory import TRAJECTORY_SUFFIX
+from nanoagent.trajectory.native import TRAJECTORY_SUFFIX
 
 
 def find_trajectories(path: str | Path) -> list[Path]:
@@ -54,7 +54,7 @@ def render_message(message: dict[str, Any]) -> str:
 
     The header also shows the inlined per-step ``durations`` (assistant turns) and flags a tool
     result whose ``is_error`` is set — both written onto the message by the saved-trajectory
-    annotation (see :func:`nanoagent.runtime.trajectory._annotate_messages`).
+    annotation (see :func:`nanoagent.trajectory.native._annotate_messages`).
     """
     header = f"## {(message.get('role') or 'unknown').upper()}"
     durations = message.get("durations")

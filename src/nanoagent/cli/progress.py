@@ -1,4 +1,4 @@
-"""The live batch display — :func:`~nanoagent.runtime.batch.run_batch`'s three callbacks, rendered.
+"""The live batch display — :func:`~nanoagent.execution.batch.run_batch`'s three callbacks, rendered.
 
 ``run_batch`` reports through ``on_start(pending)`` / ``on_step(task_id, result)`` /
 ``on_done(row)`` and knows nothing about how they are drawn. This module is the one renderer:

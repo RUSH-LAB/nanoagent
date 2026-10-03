@@ -54,7 +54,7 @@ class CodeExecutionError(RuntimeError):
 # The active sandbox dir lives PER asyncio context, not in a shared instance attribute: the
 # production fan-out path (batch.run_batch) runs ONE shared CodeExec across concurrent rollouts via
 # asyncio.gather, so a plain attribute would let one rollout's reset() wipe a peer's live dir and
-# hand every rollout the same /tmp dir. Mirrors how nanoagent.runtime.log_capture isolates each task's log
+# hand every rollout the same /tmp dir. Mirrors how nanoagent.execution.logging isolates each task's log
 # buffer in a ContextVar. The holder is a mutable 1-element list (not the Path directly) so a dir
 # created lazily DEEP in the call tree — even inside a child asyncio task, whose ContextVar.set()
 # would not propagate back to its parent — is visible across the whole rollout: every context that

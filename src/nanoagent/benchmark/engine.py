@@ -27,7 +27,7 @@ from nanoagent.harness import (
     HarnessRequest as RunnerRequest,
     HarnessResult as RunnerResult,
 )
-from nanoagent.runtime.taskselect import select_subset
+from nanoagent.execution.selection import select_subset
 
 
 def _now() -> str:

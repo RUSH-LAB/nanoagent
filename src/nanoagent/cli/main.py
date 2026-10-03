@@ -25,7 +25,7 @@ Two modes, picked by the config (not a flag):
     rather than aborting the batch; Ctrl-C stops cleanly. ``output`` (the output directory)
     is required.
 
-This module is the front end only: the batch driver itself is :mod:`nanoagent.runtime.batch` and its
+This module is the front end only: the batch driver itself is :mod:`nanoagent.execution.batch` and its
 live display :mod:`nanoagent.cli.progress`.
 
 Usage — every command is ``nanoagent <command> <key=value tokens>`` (the installed console
@@ -65,7 +65,7 @@ from nanoagent.runtime.config import (
     RunConfig,
 )
 from nanoagent.runtime import log_capture
-from nanoagent.runtime.batch import filter_tasks, load_tasks, run_batch
+from nanoagent.execution.batch import filter_tasks, load_tasks, run_batch
 from nanoagent.runtime.build import build_agent
 from nanoagent.cli.progress import BatchProgress, format_tally
 from rich.console import Console

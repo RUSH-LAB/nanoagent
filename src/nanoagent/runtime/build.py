@@ -101,7 +101,7 @@ def build_agent(
     """Build the agent any driver describes, optionally reusing a long-lived model."""
     # Deferred (not module-level) so importing this module — or a CLI whose command only reports —
     # stays light: only this path pulls in openai, via Model.
-    from nanoagent.runtime.events import EventWriter
+    from nanoagent.execution.events import EventWriter
     from nanoagent.runtime.model import Model
     from nanoagent.core.agent import Agent
     from nanoagent.extensions import get_hooks

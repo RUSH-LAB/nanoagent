@@ -1,1 +1,1 @@
-"""Companion-process adapters for third-party agent harnesses."""
+"""Compatibility package; use :mod:`nanoagent.harness.adapters`."""

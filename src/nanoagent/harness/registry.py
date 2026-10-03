@@ -1,6 +1,6 @@
 """Harness profile selection and construction."""
 
-from nanoagent.runtime.harness import (
+from nanoagent.harness.implementation import (
     RunnerProfile as HarnessProfile,
     RunnerRegistry as HarnessRegistry,
     build_runner as build_harness,

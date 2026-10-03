@@ -10,7 +10,7 @@ It stops early on ``max_steps``, ``cost_limit``, ``token_limit`` or ``context_wi
 errors are fed back to the model (not raised) so it can recover. Token/cost usage is
 accumulated across turns onto :class:`AgentResult`.
 
-This is the ONLY agent loop in the package. The batch driver (:mod:`nanoagent.runtime.batch`,
+This is the ONLY agent loop in the package. The batch driver (:mod:`nanoagent.execution.batch`,
 a benchmark runner) calls :meth:`Agent.run` directly; the human-in-the-loop REPL
 (:mod:`nanoagent.cli.repl.app`) drives the same method through its optional hooks
 (``messages`` for a persistent transcript, ``on_delta`` for live streaming) and wraps its
@@ -19,9 +19,9 @@ model and tools to narrate and confirm — so there is no second loop to drift.
 Two optional seams onto that loop, both ``None`` by default and each guarded at its call site,
 so a run that does not use them executes exactly the code it did before they existed:
 ``hooks`` (:mod:`nanoagent.core.hooks`) can inject a reminder before a model call, short-circuit a
-tool call, or observe one; ``events`` (:mod:`nanoagent.runtime.events`) mirrors the run to an NDJSON
+tool call, or observe one; ``events`` (:mod:`nanoagent.execution.events`) mirrors the run to an NDJSON
 stream. Both are split per-run inside :meth:`run` — a :class:`~nanoagent.core.hooks.RunHooks` and a
-:class:`~nanoagent.runtime.events.RunEvents` — because the :class:`Agent` itself is shared.
+:class:`~nanoagent.execution.events.RunEvents` — because the :class:`Agent` itself is shared.
 
 Run many agents concurrently against one model with
 ``asyncio.gather(*(agent.run(t) for t in tasks))``; :meth:`run` keeps no state on the
@@ -235,7 +235,7 @@ class Agent:
         summarizes older turns at 80% of it and keeps going. ``context_window=None`` disables both.
 
         ``hooks`` (see :mod:`nanoagent.core.hooks`) lets a config steer the loop — inject a reminder,
-        refuse a tool call — without editing it. ``events`` (see :mod:`nanoagent.runtime.events`) is the
+        refuse a tool call — without editing it. ``events`` (see :mod:`nanoagent.execution.events`) is the
         opposite: it only watches, mirroring the run to an NDJSON stream. ``None``, the default
         for both, is not a no-op but no call at all.
         """

@@ -50,8 +50,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from nanoagent.runtime import log_capture
-from nanoagent.runtime import trajectory
+from nanoagent.execution import logging as log_capture
+from nanoagent.trajectory import native as trajectory
 from nanoagent.core.agent import (
     _accumulate,
     Agent,
@@ -64,7 +64,7 @@ from nanoagent.core.agent import (
 from nanoagent.runtime.build import build_prompt_and_tools
 from nanoagent.cli.repl.commands import BUILTINS, Command, DEFAULT_THEME, image_in, inline_image, prompt_commands
 from nanoagent.runtime.config import InteractiveConfig, load_config_args, load_registry, ModelConfig, RunConfig
-from nanoagent.runtime.events import EventWriter
+from nanoagent.execution.events import EventWriter
 from nanoagent.core.hooks import Hooks
 from nanoagent.extensions import get_hooks
 from nanoagent.profiler import merge_profiles, RunProfile

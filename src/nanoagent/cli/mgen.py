@@ -39,7 +39,7 @@ from typing import Any
 
 from nanoagent.runtime.config import InteractiveConfig, load_config_args, load_registry, ModelConfig
 from nanoagent.extensions import PACKAGED_CONFIGS
-from nanoagent.runtime.trajectory import TRAJECTORY_SUFFIX
+from nanoagent.trajectory.native import TRAJECTORY_SUFFIX
 
 #: The shipped default: a locally served model. Absolute, and inside the package, because `mgen`
 #: is a terminal command run from wherever the user happens to be — a repo-relative default would
@@ -174,7 +174,7 @@ def _result_json(result: Any, path: Path) -> dict[str, Any]:
 def run_print(cfg: InteractiveConfig, output_format: str) -> int:
     """One task, no REPL: the result on stdout and nothing else, the trajectory on disk."""
     from nanoagent.cli.repl.tree import load as load_session
-    from nanoagent.runtime import trajectory
+    from nanoagent.trajectory import native as trajectory
     from nanoagent.runtime.build import build_agent
 
     if cfg.task is None:
