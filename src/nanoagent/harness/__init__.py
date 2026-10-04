@@ -10,8 +10,9 @@ from nanoagent.harness.base import (
     HarnessUnavailableError,
     ProgressSink,
 )
-from nanoagent.harness.native import NativeHarness, SubprocessHarness
+from nanoagent.harness.native import NativeHarness
 from nanoagent.harness.registry import HarnessProfile, HarnessRegistry, build_harness
+from nanoagent.harness.subprocess import SubprocessHarness
 
 __all__ = [
     "Harness",
