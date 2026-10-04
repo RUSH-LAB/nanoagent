@@ -46,6 +46,24 @@ def _command(
     model = options.get("model")
     if isinstance(model, str) and model and model != "default":
         command.extend(["--model", model])
+    provider = options.get("provider")
+    if provider is not None:
+        if provider != "bedrock":
+            raise ValueError("Codex provider must be 'bedrock' when set")
+        command.extend(["-c", 'model_provider="amazon-bedrock"'])
+        region = options.get("aws_region")
+        profile = options.get("aws_profile")
+        if not isinstance(region, str) or not region:
+            raise ValueError("Codex Bedrock profiles require aws_region")
+        command.extend(
+            ["-c", f'model_providers.amazon-bedrock.aws.region={json.dumps(region)}']
+        )
+        if profile is not None:
+            if not isinstance(profile, str) or not profile:
+                raise ValueError("Codex option aws_profile must be a non-empty string")
+            command.extend(
+                ["-c", f'model_providers.amazon-bedrock.aws.profile={json.dumps(profile)}']
+            )
     return [*command, *extra_args(options), "-"]
 
 

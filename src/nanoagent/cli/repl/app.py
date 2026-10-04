@@ -63,12 +63,21 @@ from nanoagent.core.agent import (
 )
 from nanoagent.runtime.build import build_prompt_and_tools
 from nanoagent.cli.repl.commands import BUILTINS, Command, DEFAULT_THEME, image_in, inline_image, prompt_commands
-from nanoagent.runtime.config import InteractiveConfig, load_config_args, load_registry, ModelConfig, RunConfig
+from nanoagent.runtime.config import (
+    HarnessProfileConfig,
+    InteractiveConfig,
+    load_config_args,
+    load_registry,
+    ModelConfig,
+    RunConfig,
+)
 from nanoagent.execution.events import EventWriter
 from nanoagent.core.hooks import Hooks
 from nanoagent.extensions import get_hooks
 from nanoagent.profiler import merge_profiles, RunProfile
 from nanoagent.runtime.model import Model
+from nanoagent.harness import HarnessRegistry
+from nanoagent.harness.native import NativeRunner
 from nanoagent.cli.repl.tree import load as load_session, SESSION_SUFFIX, SessionTree
 from nanoagent.core.tool import build_tool_map, JsonSchema, Tool
 from rich.console import Console
@@ -82,6 +91,50 @@ Mode = Literal["confirm", "yolo", "human"]
 _MODE_COMMANDS: dict[str, Mode] = {"/y": "yolo", "/c": "confirm", "/u": "human"}
 # Name of the tool :class:`~nanoagent.tools.bash.Bash` registers; used to look it up in human mode.
 _BASH_TOOL = "bash"
+
+
+def _deferred_agent_factory(_instructions: str | None) -> tuple[Agent, str]:
+    """Keep profile selection from opening a second native model connection for the REPL."""
+    raise RuntimeError("the interactive native profile is built by InteractiveSession")
+
+
+def _interactive_profile(
+    cfg: RunConfig,
+) -> tuple[HarnessRegistry, Any]:
+    """Resolve chat/print execution through the shared model–harness profile registry."""
+    profile_paths = list(getattr(cfg, "profiles", []))
+    selected = getattr(cfg, "profile", None)
+    if not profile_paths:
+        runner = NativeRunner(cfg, agent_factory=_deferred_agent_factory)
+        registry = HarnessRegistry.single(
+            runner,
+            profile_id="native",
+            label="Native",
+            model=cfg.model.model,
+        )
+        return registry, registry.resolve(None)
+    if not selected:
+        raise ValueError("profile must be set when profiles is non-empty")
+    definitions = load_registry(profile_paths, HarnessProfileConfig)
+    try:
+        selected_config = definitions[selected]
+    except KeyError:
+        known = ", ".join(sorted(definitions)) or "none"
+        raise ValueError(
+            f"unknown profile {selected!r} (configured: {known})"
+        ) from None
+    factory = (
+        _deferred_agent_factory
+        if selected_config.harness.type == "native"
+        else None
+    )
+    registry = HarnessRegistry.from_config(
+        cfg,
+        profile_paths,
+        selected,
+        agent_factory=factory,
+    )
+    return registry, registry.resolve(selected)
 
 
 @dataclass(frozen=True)
@@ -599,6 +652,26 @@ def run_and_save(
     timestamped file under ``<DEFAULT_TRAJ_DIR>/<subdir>/``. ``confirm_exit=False`` (run) stops
     after the one task; ``True`` (chat) prompts for follow-ups until empty input.
     """
+    registry, profile = _interactive_profile(cfg)
+    if not isinstance(profile.runner, NativeRunner):
+        _run_external_and_save(
+            cfg,
+            registry,
+            profile,
+            resume=resume,
+            confirm_exit=confirm_exit,
+            subdir=subdir,
+        )
+        return
+
+    # A configured native profile may override the model while keeping the same interactive
+    # frontend. Use the registry-resolved definition rather than rebuilding from the base config.
+    definition = profile.runner.definition
+    cfg.model = definition.model
+    cfg.agent = definition.agent
+    cfg.tools = definition.tools
+    cfg.tools_dir = definition.tools_dir
+    cfg.allowed_tools = definition.allowed_tools
     prompt, tools = build_prompt_and_tools(cfg.agent, cfg.tools, cfg.tools_dir, cfg.allowed_tools)
     session = InteractiveSession(
         Model.from_config(cfg.model),
@@ -640,6 +713,74 @@ def run_and_save(
         if len(session.tree.nodes) > 1:
             saved = session.tree.save(str(path).removesuffix(trajectory.TRAJECTORY_SUFFIX) + SESSION_SUFFIX)
             print(f"saved {len(session.tree.nodes)} branches to {saved}")
+        asyncio.run(registry.aclose())
+
+
+def _run_external_and_save(
+    cfg: RunConfig,
+    registry: HarnessRegistry,
+    profile: Any,
+    *,
+    resume: str | None,
+    confirm_exit: bool,
+    subdir: str,
+) -> None:
+    """Drive an external profile as a conversational harness and save a native trajectory."""
+    from nanoagent.cli.repl.harness import HarnessConversation, run_conversation
+    from nanoagent.runtime.build import context_text
+    from nanoagent.tools.skill import discover, skill_index
+
+    skills = discover(cfg.agent.skills)
+    instructions = (
+        cfg.agent.system_prompt
+        + context_text(cfg.agent.context_files)
+        + skill_index(skills)
+    )
+    conversation = HarnessConversation.start(
+        profile,
+        instructions=instructions,
+        workspace=Path.cwd(),
+        tree=load_session(resume) if resume else None,
+    )
+    logs = log_capture.start_capture()
+    try:
+        asyncio.run(
+            run_conversation(
+                conversation,
+                initial_task=cfg.task,
+                confirm_exit=confirm_exit,
+                reader=_input_reader,
+            )
+        )
+    except KeyboardInterrupt:
+        pass
+    finally:
+        out = (
+            Path(cfg.output)
+            if cfg.output
+            else Path(DEFAULT_TRAJ_DIR)
+            / subdir
+            / f"{datetime.now():%Y%m%d_%H%M%S}{trajectory.TRAJECTORY_SUFFIX}"
+        )
+        path = trajectory.save(
+            conversation.to_result(),
+            out,
+            meta={
+                "task": cfg.task,
+                "model": profile.model,
+                "harness": profile.harness,
+                "profile": profile.id,
+            },
+            logs=logs,
+        )
+        print(f"saved trajectory to {path}")
+        if len(conversation.tree.nodes) > 1:
+            saved = conversation.tree.save(
+                str(path).removesuffix(trajectory.TRAJECTORY_SUFFIX)
+                + SESSION_SUFFIX
+            )
+            print(f"saved {len(conversation.tree.nodes)} branches to {saved}")
+        asyncio.run(registry.aclose())
 
 
 def main(argv: list[str] | None = None) -> int:

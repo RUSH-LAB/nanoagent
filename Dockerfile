@@ -22,7 +22,7 @@ RUN cd packages/pi-runner \
     && npm run build \
     && npm prune --omit=dev
 
-COPY configs ./configs
+COPY deploy ./deploy
 
 ENV PATH="/app/.venv/bin:${PATH}"
 ENV PORT=8787
@@ -32,4 +32,4 @@ EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:' + __import__('os').environ.get('PORT', '8787') + '/health', timeout=4)"
 
-CMD ["sh", "-c", "exec python -m nanoagent web web_cfg=configs/web_railway.yaml"]
+CMD ["sh", "-c", "exec python -m nanoagent web web_cfg=deploy/railway/nanoagent.yaml"]

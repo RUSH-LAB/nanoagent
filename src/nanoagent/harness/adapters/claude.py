@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from nanoagent.harness.adapters._coding_cli import (
+    aws_environment,
     executable,
     extra_args,
     prompt,
@@ -34,10 +35,17 @@ def _command(executable_path: str, options: dict[str, Any]) -> list[str]:
 def _run(payload: dict[str, Any]) -> dict[str, Any]:
     request, options = request_and_options(payload)
     root = workspace(request)
+    environment = aws_environment(options)
+    provider = options.get("provider")
+    if provider is not None and provider != "bedrock":
+        raise ValueError("Claude Code provider must be 'bedrock' when set")
+    if provider == "bedrock":
+        environment["CLAUDE_CODE_USE_BEDROCK"] = "1"
     stdout, _ = run_child(
         _command(executable(options, "claude"), options),
         cwd=root,
         input_text=prompt(request),
+        env=environment,
     )
     try:
         result = json.loads(stdout)

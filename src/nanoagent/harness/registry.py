@@ -65,6 +65,29 @@ def _custom_capabilities(options: dict[str, Any]) -> tuple[RunnerCapabilities, d
     return RunnerCapabilities(**declared), clean
 
 
+def _validate_provider_options(harness: str, options: dict[str, Any]) -> None:
+    """Fail at profile construction when a built-in harness cannot honor its provider settings."""
+    provider = options.get("provider")
+    expected = {
+        "claude": "bedrock",
+        "codex": "bedrock",
+    }.get(harness)
+    if expected is not None and provider not in {None, expected}:
+        raise ValueError(f"{harness} harness provider must be {expected!r} when set")
+    uses_bedrock = provider == "bedrock" or (
+        harness == "pi" and provider == "amazon-bedrock"
+    )
+    if uses_bedrock:
+        region = options.get("aws_region")
+        if not isinstance(region, str) or not region:
+            raise ValueError(f"{harness} Bedrock profiles require options.aws_region")
+        profile = options.get("aws_profile")
+        if profile is not None and (not isinstance(profile, str) or not profile):
+            raise ValueError(
+                f"{harness} Bedrock option aws_profile must be a non-empty string"
+            )
+
+
 @dataclass(frozen=True)
 class RunnerProfile:
     id: str
@@ -202,6 +225,8 @@ def build_runner(
     options = parse_kv_list(harness.options)
     if harness.type == "custom":
         capabilities, options = _custom_capabilities(options)
+    else:
+        _validate_provider_options(harness.type, options)
     return SubprocessRunner(
         harness.type,
         command,

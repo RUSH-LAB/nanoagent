@@ -19,7 +19,7 @@ def test_railway_config_is_private_authenticated_and_mochi_compatible(
 
     config = load_config_args(
         WebConfig,
-        ["web_cfg=configs/web_railway.yaml"],
+        ["web_cfg=deploy/railway/nanoagent.yaml"],
     )
     host = RunHost(config)
     catalog = host.profiles

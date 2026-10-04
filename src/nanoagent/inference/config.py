@@ -1,7 +1,7 @@
 """Typed, OmegaConf-backed structured configuration for batch inference.
 
-:class:`LeanInferConfig` is the chat schema. ``provider`` picks the client — ``"sglang"`` or
-``"openrouter"``, one OpenAI-compatible ``/v1`` client (see :mod:`nanoagent.inference.providers`).
+:class:`LeanInferConfig` is the chat schema. ``provider`` picks the client — an
+OpenAI-compatible ``/v1`` client or Amazon Bedrock Converse.
 The remaining fields cover the model, sampling, concurrency, retry, and per-1M-token prices used
 for cost accounting.
 
@@ -72,7 +72,7 @@ def _greater_than(name: str, value: float | None, floor: float) -> None:
 class LeanInferConfig:
     """How to run a batch of completions: which transport, which model, and the knobs."""
 
-    # which chat client to build: "sglang" or "openrouter".
+    # which chat client to build: "sglang", "openrouter", or "bedrock".
     # See nanoagent.inference.providers. The /generate endpoint is GenerateConfig, not a provider.
     provider: str = "sglang"
     # served model name (sglang --served-model-name, or an OpenRouter model id).
@@ -88,6 +88,10 @@ class LeanInferConfig:
     # auth key passed to the OpenAI client; SGLang ignores it but the SDK requires a non-empty
     # string, so null becomes "EMPTY".
     api_key: str | None = None
+    # AWS settings used only by provider="bedrock". null region follows the normal boto3 region
+    # resolution chain; null profile follows the normal credential chain.
+    aws_region: str | None = None
+    aws_profile: str | None = None
     # null OMITS the field, leaving the server's own default — which is the only way to reach a
     # reasoning deployment, since those reject an explicit temperature once reasoning effort is set
     # (some demand it be absent, some demand exactly 1). 0.0 still means "send 0.0".

@@ -108,6 +108,11 @@ class NativeRunner:
     def availability(self) -> tuple[bool, str | None]:
         return True, None
 
+    @property
+    def definition(self) -> AgentDefinitionConfig:
+        """Resolved native definition, including profile model overrides."""
+        return self._cfg
+
 
 NativeHarness = NativeRunner
 

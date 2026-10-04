@@ -173,19 +173,57 @@ def _result_json(result: Any, path: Path) -> dict[str, Any]:
 
 def run_print(cfg: InteractiveConfig, output_format: str) -> int:
     """One task, no REPL: the result on stdout and nothing else, the trajectory on disk."""
+    from rich.console import Console
+
+    from nanoagent.cli.repl.app import _interactive_profile
+    from nanoagent.cli.repl.harness import HarnessConversation
     from nanoagent.cli.repl.tree import load as load_session
+    from nanoagent.harness.native import NativeRunner
     from nanoagent.trajectory import native as trajectory
     from nanoagent.runtime.build import build_agent
+    from nanoagent.runtime.build import context_text
+    from nanoagent.tools.skill import discover, skill_index
 
     if cfg.task is None:
         raise SystemExit("mgen: -p needs a prompt (as an argument, or `task:` in the config)")
-    agent = build_agent(cfg)
-    messages = load_session(cfg.resume).messages if cfg.resume else None
-    result = asyncio.run(agent.run(cfg.task, messages=messages))
+    registry, profile = _interactive_profile(cfg)
+    try:
+        if isinstance(profile.runner, NativeRunner):
+            definition = profile.runner.definition
+            agent = build_agent(definition)
+            messages = load_session(cfg.resume).messages if cfg.resume else None
+            result = asyncio.run(agent.run(cfg.task, messages=messages))
+        else:
+            skills = discover(cfg.agent.skills)
+            instructions = (
+                cfg.agent.system_prompt
+                + context_text(cfg.agent.context_files)
+                + skill_index(skills)
+            )
+            conversation = HarnessConversation.start(
+                profile,
+                instructions=instructions,
+                workspace=Path.cwd(),
+                tree=load_session(cfg.resume) if cfg.resume else None,
+                # Progress remains visible to a human but stdout contains only the requested
+                # text/JSON result, preserving mgen's scripting contract.
+                console=Console(stderr=True, highlight=False),
+            )
+            asyncio.run(conversation.run_task(cfg.task))
+            result = conversation.to_result()
+    finally:
+        asyncio.run(registry.aclose())
     # Saved before printing: the answer is the cheap half, and a run whose transcript did not
     # survive is not resumable by the -c that usually follows.
     path = trajectory.save(
-        result, session_path(cfg), meta={"task": cfg.task, "model": cfg.model.model}
+        result,
+        session_path(cfg),
+        meta={
+            "task": cfg.task,
+            "model": profile.model,
+            "harness": profile.harness,
+            "profile": profile.id,
+        },
     )
     if output_format == "json":
         print(json.dumps(_result_json(result, path)))

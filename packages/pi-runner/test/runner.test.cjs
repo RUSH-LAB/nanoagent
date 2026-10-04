@@ -10,6 +10,8 @@ test("PI runner validates server-owned options", async () => {
     apiKeyEnv: undefined,
     thinkingLevel: "off",
     systemPrompt: "You are a helpful assistant.",
+    awsRegion: undefined,
+    awsProfile: undefined,
   });
   assert.throws(() => parseOptions({provider: "openrouter"}), /model.*required/);
 });

@@ -24,6 +24,8 @@ export interface PiOptions {
   apiKeyEnv?: string;
   thinkingLevel: ThinkingLevel;
   systemPrompt: string;
+  awsRegion?: string;
+  awsProfile?: string;
 }
 
 const THINKING_LEVELS = new Set<ThinkingLevel>([
@@ -36,6 +38,8 @@ export function parseOptions(value: Record<string, unknown> = {}): PiOptions {
   const apiKeyEnv = value.api_key_env;
   const thinkingLevel = value.thinking_level ?? "off";
   const systemPrompt = value.system_prompt ?? "You are a helpful assistant.";
+  const awsRegion = value.aws_region;
+  const awsProfile = value.aws_profile;
   if (typeof provider !== "string" || !provider) throw new Error("PI option 'provider' is required");
   if (typeof model !== "string" || !model) throw new Error("PI option 'model' is required");
   if (apiKeyEnv !== undefined && (typeof apiKeyEnv !== "string" || !apiKeyEnv)) {
@@ -45,12 +49,20 @@ export function parseOptions(value: Record<string, unknown> = {}): PiOptions {
     throw new Error("PI option 'thinking_level' is invalid");
   }
   if (typeof systemPrompt !== "string") throw new Error("PI option 'system_prompt' must be a string");
+  if (awsRegion !== undefined && (typeof awsRegion !== "string" || !awsRegion)) {
+    throw new Error("PI option 'aws_region' must be a non-empty string");
+  }
+  if (awsProfile !== undefined && (typeof awsProfile !== "string" || !awsProfile)) {
+    throw new Error("PI option 'aws_profile' must be a non-empty string");
+  }
   return {
     provider,
     model,
     apiKeyEnv: apiKeyEnv as string | undefined,
     thinkingLevel: thinkingLevel as ThinkingLevel,
     systemPrompt,
+    awsRegion: awsRegion as string | undefined,
+    awsProfile: awsProfile as string | undefined,
   };
 }
 
@@ -120,6 +132,8 @@ async function main(): Promise<void> {
   try {
     const envelope = await readEnvelope();
     const options = parseOptions(envelope.options);
+    if (options.awsRegion) process.env.AWS_REGION = options.awsRegion;
+    if (options.awsProfile) process.env.AWS_PROFILE = options.awsProfile;
     const models = builtinModels();
     const model = models.getModel(options.provider, options.model);
     if (!model) throw new Error(`PI model not found: ${options.provider}/${options.model}`);

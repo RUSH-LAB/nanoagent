@@ -154,8 +154,8 @@ class ModelConfig(Config):
     """How to reach one model.
 
     ``provider`` selects the chat client (see :mod:`nanoagent.inference.providers`): ``"sglang"``
-    and ``"openrouter"`` share one OpenAI-compatible ``/v1`` client. ``base_url`` is that endpoint
-    (OpenRouter fills its own when null). SGLang's ``/generate`` endpoint is
+    and ``"openrouter"`` share one OpenAI-compatible ``/v1`` client, while ``"bedrock"`` uses
+    Amazon Bedrock Converse. ``base_url`` is the OpenAI-compatible endpoint. SGLang's ``/generate`` endpoint is
     :class:`~nanoagent.inference.config.GenerateConfig`, a different spec.
 
     Every field is required (no defaults — a config must set each one explicitly); ``Optional``
@@ -166,13 +166,17 @@ class ModelConfig(Config):
     """
 
     model: str = MISSING
-    # which chat client to build: "sglang" or "openrouter".
+    # which chat client to build: "sglang", "openrouter", or "bedrock".
     provider: str = MISSING
     # OpenAI-compatible /v1 endpoint. Required for sglang; openrouter defaults it.
     base_url: str | None = MISSING
     # OpenAI-style key. SGLang ignores it. OpenRouter reads this, or OPENROUTER_API_KEY when null.
     # May be null, but must be present.
     api_key: str | None = MISSING
+    # Bedrock region/profile. null follows boto3's standard region/credential resolution chains.
+    # Other providers ignore these fields.
+    aws_region: str | None = MISSING
+    aws_profile: str | None = MISSING
     # null omits temperature from the request body entirely rather than sending a default: a
     # reasoning deployment behind a gateway rejects an explicit one with a 400. 0.0 is a value
     # and is still sent.
@@ -429,6 +433,11 @@ class InteractiveConfig(RunConfig):
     # is not a member fails at load — previously it silently restyled nothing.
     theme: dict[ThemeName, str] = MISSING
     images: bool = MISSING  # draw an image a tool returns inline, instead of printing its path
+    # Optional model–harness profiles. Empty preserves the direct native configuration above;
+    # otherwise `profile` selects one entry and chat / mgen use the same HarnessRegistry as web
+    # and benchmark execution.
+    profiles: list[str] = field(default_factory=list)
+    profile: str | None = None
 
 
 @dataclass

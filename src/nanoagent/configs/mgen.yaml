@@ -7,7 +7,7 @@
 #
 # The model block below points at a local SGLang endpoint. To reach something else, copy this
 # file, change the model block, and point $MGEN_CONFIG at yours. `provider:` is resolved by
-# nanoagent.inference.providers — sglang or openrouter.
+# nanoagent.inference.providers — sglang, openrouter, or bedrock.
 #
 # Dialect notes (slimconfig >= 0.14): the file names the class it fills on `_ >`, every block
 # filling a nested class names it on its own key, and free-form knob maps are `key=value` token
@@ -17,9 +17,11 @@ _ > nanoagent.runtime.config.InteractiveConfig:
 
 model > nanoagent.runtime.config.ModelConfig:
   model: default            # served name; --model overrides it
-  provider: sglang          # sglang or openrouter (see nanoagent.inference.providers)
+  provider: sglang          # sglang, openrouter, or bedrock
   base_url: http://127.0.0.1:30000/v1
   api_key: null             # openrouter reads OPENROUTER_API_KEY when this is null
+  aws_region: null          # bedrock; null uses the AWS SDK resolution chain
+  aws_profile: null
   temperature: 0.6
   max_tokens: 8192
   request_timeout: 900.0
@@ -71,3 +73,5 @@ commands: []
 models: []                  # ModelConfig files; /model switches by file stem
 theme: {}
 images: false
+profiles: []                # HarnessProfileConfig files; non-empty routes chat/-p through one
+profile: null               # selected profile id (the profile filename stem)

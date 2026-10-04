@@ -1,6 +1,6 @@
 """The one place a config picks an inference provider.
 
-:data:`PROVIDERS` is the whole list. Both names share
+:data:`PROVIDERS` is the whole list. The OpenAI-compatible names share
 :class:`~nanoagent.inference.backends.sglang.ChatBackend`, the OpenAI-compatible ``/v1`` client.
 SGLang's ``/generate`` endpoint is a different API and lives on
 :class:`~nanoagent.inference.config.GenerateConfig`, not in this table. The chat client is
@@ -23,7 +23,7 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_API_KEY_ENV = "OPENROUTER_API_KEY"
 
 #: Every name :func:`build_provider` accepts, in the order an error message lists them.
-PROVIDERS: tuple[str, ...] = ("sglang", "openrouter")
+PROVIDERS: tuple[str, ...] = ("sglang", "openrouter", "bedrock")
 
 
 def build_provider(config: LeanInferConfig) -> Backend:
@@ -37,6 +37,11 @@ def build_provider(config: LeanInferConfig) -> Backend:
     if name not in PROVIDERS:
         choices = ", ".join(PROVIDERS)
         raise ValueError(f"unknown provider {name!r}; choose from {choices}")
+    if name == "bedrock":
+        from nanoagent.inference.backends.bedrock import BedrockBackend
+
+        return BedrockBackend.from_config(config)
+
     from nanoagent.inference.backends.sglang import ChatBackend
 
     return ChatBackend.from_config(_chat_config(config))

@@ -1,9 +1,7 @@
 name: CI
 
 on:
-  push:
-    branches: [master]
-  pull_request:
+  # Automatic CI is intentionally disabled. Run this workflow manually when needed.
   workflow_dispatch:
 
 jobs:
@@ -61,6 +59,6 @@ jobs:
           NANOAGENT_API_TOKEN: ci-secret
         run: |
           uv sync --python 3.12 --extra web --no-dev
-          uv run python -c "from nanoagent.runtime.config import load_config_args; from nanoagent.web.config import WebConfig; from nanoagent.web.runtime import RunHost; cfg = load_config_args(WebConfig, ['web_cfg=configs/web_railway.yaml']); host = RunHost(cfg); assert cfg.host == '0.0.0.0'; assert cfg.port == 8787; assert host.profiles['defaultProfile'] == 'pi-deepseek'"
+          uv run python -c "from nanoagent.runtime.config import load_config_args; from nanoagent.web.config import WebConfig; from nanoagent.web.runtime import RunHost; cfg = load_config_args(WebConfig, ['web_cfg=deploy/railway/nanoagent.yaml']); host = RunHost(cfg); assert cfg.host == '0.0.0.0'; assert cfg.port == 8787; assert host.profiles['defaultProfile'] == 'pi-deepseek'"
       - name: Build production container
         run: docker build --tag nanoagent-ci .

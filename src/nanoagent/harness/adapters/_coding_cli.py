@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import signal
 import subprocess
@@ -80,7 +81,28 @@ def extra_args(options: dict[str, Any]) -> list[str]:
     return list(value)
 
 
-def run_child(argv: Sequence[str], *, cwd: Path, input_text: str) -> tuple[str, str]:
+def aws_environment(options: dict[str, Any]) -> dict[str, str]:
+    """AWS variables declared by a server-owned harness profile."""
+    environment: dict[str, str] = {}
+    for option, variable in (
+        ("aws_region", "AWS_REGION"),
+        ("aws_profile", "AWS_PROFILE"),
+    ):
+        value = options.get(option)
+        if value is not None:
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"harness option {option} must be a non-empty string")
+            environment[variable] = value
+    return environment
+
+
+def run_child(
+    argv: Sequence[str],
+    *,
+    cwd: Path,
+    input_text: str,
+    env: dict[str, str] | None = None,
+) -> tuple[str, str]:
     child: subprocess.Popen[str] | None = None
     previous_handler = signal.getsignal(signal.SIGTERM)
     try:
@@ -91,6 +113,7 @@ def run_child(argv: Sequence[str], *, cwd: Path, input_text: str) -> tuple[str, 
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=os.environ | (env or {}),
         )
 
         def terminate_child(_signum: int, _frame: Any) -> None:

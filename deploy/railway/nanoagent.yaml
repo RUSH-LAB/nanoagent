@@ -5,6 +5,8 @@ model > nanoagent.runtime.config.ModelConfig:
   provider: openrouter
   base_url: null
   api_key: null
+  aws_region: null
+  aws_profile: null
   temperature: 0.0
   max_tokens: 2048
   request_timeout: 120.0
@@ -32,11 +34,11 @@ allowed_tools: []
 
 default_profile: pi-deepseek
 profiles:
-  - configs/profiles/pi-deepseek.yaml
+  - deploy/railway/profiles/pi-deepseek.yaml
 
-host: 127.0.0.1
-port: 8787
-api_token: null
+host: 0.0.0.0
+port: ${oc.env:PORT,8787}
+api_token: ${oc.env:NANOAGENT_API_TOKEN}
 max_concurrency: 8
 request_timeout: 180.0
 max_request_bytes: 262144
