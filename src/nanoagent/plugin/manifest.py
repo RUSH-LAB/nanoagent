@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,10 +13,7 @@ from jsonschema import Draft202012Validator
 PLUGIN_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 REQUIRED_FILES = (
     "README.md",
-    "pyproject.toml",
-    "uv.lock",
-    "src/plugin/__init__.py",
-    "src/plugin/__main__.py",
+    "verifier.py",
 )
 
 
@@ -50,13 +48,10 @@ class PluginManifest:
     name: str
     version: str
     runtime: str
+    command: tuple[str, ...]
     permissions: Permissions
     tools: tuple[ToolDefinition, ...]
     tasks: tuple[TaskDefinition, ...]
-
-    @property
-    def command(self) -> tuple[str, ...]:
-        return ("uv", "run", "--frozen", "python", "-m", "plugin")
 
     def task(self, task_id: str) -> TaskDefinition:
         try:
@@ -77,7 +72,7 @@ class PluginManifest:
             "id": self.id,
             "name": self.name,
             "version": self.version,
-            "runtime": {"type": self.runtime},
+            "runtime": {"type": self.runtime, "command": list(self.command)},
             "permissions": {
                 "network": {"hosts": list(self.permissions.network_hosts)},
                 "filesystem": {"write": list(self.permissions.filesystem_write)},
@@ -152,8 +147,19 @@ def load_manifest(source: str | Path) -> PluginManifest:
         raise ValueError("id must contain lowercase letters, numbers, and single hyphens")
 
     runtime = _mapping(raw.get("runtime"), "runtime")
-    if runtime != {"type": "python"}:
-        raise ValueError("runtime must be exactly {type: python}")
+    if runtime.get("type") != "mcp_stdio":
+        raise ValueError("runtime.type must be mcp_stdio")
+    command_value = runtime.get("command")
+    if isinstance(command_value, str):
+        command = tuple(shlex.split(command_value))
+    elif isinstance(command_value, list) and all(
+        isinstance(part, str) and part for part in command_value
+    ):
+        command = tuple(command_value)
+    else:
+        raise ValueError("runtime.command must be a command string or string list")
+    if not command:
+        raise ValueError("runtime.command must not be empty")
 
     permission_data = _mapping(raw.get("permissions"), "permissions")
     network = _mapping(permission_data.get("network"), "permissions.network")
@@ -206,7 +212,8 @@ def load_manifest(source: str | Path) -> PluginManifest:
         id=plugin_id,
         name=_text(raw.get("name"), "name"),
         version=_text(raw.get("version"), "version"),
-        runtime="python",
+        runtime="mcp_stdio",
+        command=command,
         permissions=Permissions(hosts, writes),
         tools=tool_tuple,
         tasks=tasks,

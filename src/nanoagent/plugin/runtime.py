@@ -11,6 +11,7 @@ from jsonschema import ValidationError, validate
 
 from nanoagent.core.tool import Tool
 from nanoagent.plugin.manifest import PluginManifest
+from nanoagent.plugin.verifier import verify_input, verify_output
 
 
 def call_tool(
@@ -25,6 +26,9 @@ def call_tool(
         validate(arguments, definition.input)
     except ValidationError as error:
         raise ValueError(f"invalid input for {tool}: {error.message}") from error
+    input_check = verify_input(manifest.root, arguments)
+    if not input_check.valid:
+        raise ValueError(f"plugin input verification failed: {input_check.message}")
 
     response = anyio.run(_call_mcp_tool, manifest, tool, arguments, timeout)
     if not isinstance(response, dict):
@@ -33,6 +37,9 @@ def call_tool(
         validate(response, definition.output)
     except ValidationError as error:
         raise RuntimeError(f"invalid output from {tool}: {error.message}") from error
+    output_check = verify_output(manifest.root, arguments, response)
+    if not output_check.valid:
+        raise RuntimeError(f"plugin output verification failed: {output_check.message}")
     return response
 
 

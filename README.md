@@ -14,10 +14,11 @@ uv run nanoagent --help
 
 ## Plugins
 
-NanoAgent plugins follow the strict `nanoagent.plugin/v1` directory contract.
-NanoAgent validates their files, permissions and JSON schemas, then launches
-the standard Python entrypoint from the committed uv lockfile through a
-standard MCP stdio connection:
+NanoAgent plugins follow the implementation-neutral `nanoagent.plugin/v1`
+contract. A package requires `nanoagent.yaml`, `README.md`, referenced JSON
+schemas and `verifier.py`; its source layout and environment manager are its
+own concern. NanoAgent launches its declared MCP runtime, validates schemas,
+and runs the standard semantic input/output verifier:
 
 ```bash
 uv run nanoagent plugin inspect ../arxiv-source

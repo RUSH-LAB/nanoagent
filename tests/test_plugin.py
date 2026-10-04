@@ -11,13 +11,13 @@ from nanoagent.plugin import call_tool, load_manifest, plugin_tools
 def write_plugin(root: Path) -> Path:
     for name, content in {
         "README.md": "# Echo\n",
-        "pyproject.toml": "[project]\nname='echo'\nversion='1.0.0'\n",
-        "uv.lock": "version = 1\n",
-        "src/plugin/__init__.py": "",
-        "src/plugin/__main__.py": (
-            "import json, sys\n"
-            "request = json.loads(sys.stdin.readline())\n"
-            "print(json.dumps({'ok': True, 'value': request['arguments']['value']}))\n"
+        "verifier.py": (
+            "def verify_input(value):\n"
+            "    return {'valid': bool(value.get('value')), 'score': 1.0, 'message': 'ok', 'details': {}}\n"
+            "def verify_output(input_value, output_value):\n"
+            "    valid = output_value.get('value') == input_value.get('value')\n"
+            "    return {'valid': valid, 'score': float(valid), 'message': 'ok' if valid else 'mismatch',"
+            " 'details': {}}\n"
         ),
         "schemas/input.json": json.dumps(
             {
@@ -45,7 +45,9 @@ def write_plugin(root: Path) -> Path:
 id: echo
 name: Echo
 version: 1.0.0
-runtime: {type: python}
+runtime:
+  type: mcp_stdio
+  command: [echo-server]
 permissions:
   network: {hosts: []}
   filesystem: {write: [workspace]}
@@ -67,7 +69,7 @@ tasks:
 
 def test_loads_strict_plugin_manifest(tmp_path: Path) -> None:
     manifest = load_manifest(write_plugin(tmp_path))
-    assert manifest.command == ("uv", "run", "--frozen", "python", "-m", "plugin")
+    assert manifest.command == ("echo-server",)
     assert manifest.public()["spec"] == "nanoagent.plugin/v1"
 
 
@@ -78,11 +80,11 @@ def test_rejects_missing_standard_file(tmp_path: Path) -> None:
         load_manifest(path)
 
 
-def test_rejects_custom_runtime_command(tmp_path: Path) -> None:
-    path = write_plugin(tmp_path)
-    path.write_text(path.read_text().replace("runtime: {type: python}", "runtime: {type: python, command: bad}"))
-    with pytest.raises(ValueError, match="exactly"):
-        load_manifest(path)
+def test_does_not_require_source_or_python_project_files(tmp_path: Path) -> None:
+    manifest = load_manifest(write_plugin(tmp_path))
+    assert not (tmp_path / "src").exists()
+    assert not (tmp_path / "pyproject.toml").exists()
+    assert manifest.runtime == "mcp_stdio"
 
 
 def test_rejects_unknown_task_tool(tmp_path: Path) -> None:
@@ -96,6 +98,14 @@ def test_validates_tool_input_before_launch(tmp_path: Path) -> None:
     manifest = load_manifest(write_plugin(tmp_path))
     with pytest.raises(ValueError, match="invalid input"):
         call_tool(manifest, "echo", {"value": 42})
+
+
+def test_runs_standard_verifier(tmp_path: Path) -> None:
+    from nanoagent.plugin import verify_input, verify_output
+
+    write_plugin(tmp_path)
+    assert verify_input(tmp_path, {"value": "yes"}).score == 1
+    assert verify_output(tmp_path, {"value": "yes"}, {"ok": True, "value": "no"}).valid is False
 
 
 @pytest.mark.asyncio

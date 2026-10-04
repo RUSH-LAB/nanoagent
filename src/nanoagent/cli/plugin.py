@@ -41,7 +41,11 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError(f"task argument must be key=value: {token}")
         key, value = token.split("=", 1)
         arguments[key] = _value(value)
-    response = call_tool(manifest, task.tools[0], arguments)
+    try:
+        response = call_tool(manifest, task.tools[0], arguments)
+    except (ValueError, RuntimeError) as error:
+        print(json.dumps({"ok": False, "error": str(error)}, indent=2))
+        return 1
     print(json.dumps(response, indent=2))
     return 0 if response.get("ok") else 1
 
