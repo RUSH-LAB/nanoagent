@@ -34,6 +34,8 @@ const GUARDS = [
   {name: 'an empty agent id', body: {prompt: 'p', agentId: ''}, error: 'agentId must be a non-empty string of 100 characters or fewer'},
   {name: 'a non-string profile id', body: {prompt: 'p', profileId: 7}, error: 'profileId must be a non-empty string of 100 characters or fewer'},
   {name: 'an unknown profile id', body: {prompt: 'p', profileId: 'unknown'}, error: 'The selected agent has an unsupported profile'},
+  {name: 'a malformed app id', body: {prompt: 'p', appId: '../runs'}, error: 'appId must be a NanoAgent plugin id'},
+  {name: 'an app id with a profile', body: {prompt: 'p', appId: 'echo', profileId: PROFILE}, error: 'appId cannot be combined with type, agentId or profileId'},
 ];
 
 const WORKSPACE = {workspaceId: 'test-org', userId: 'test-user', membershipId: 'member-1', role: 'owner'};
@@ -276,6 +278,23 @@ describe('POST /api/ai/stream', () => {
     assert.match(ctx.calls.ai[0].instructions, /inline Markdown completion engine/);
     assert.equal(ctx.calls.ai[0].profile, 'pi-test');
     assert.equal(result.res.writes.at(-1), 'event: done\ndata: {"text":"a completion"}\n\n');
+  });
+
+  it('sends an app prompt to that app with no profile or site instructions', async () => {
+    const ctx = makeCtx();
+    const r = await ask({body: {prompt: 'save 1706.03762', appId: 'arxiv-source'}, ctx, requestContext: WORKSPACE});
+    assert.equal(r.res.written.status, 200);
+    assert.deepEqual(ctx.calls.ai[0].app, 'arxiv-source');
+    assert.match(ctx.calls.ai[0].workspace, /^[0-9a-f]{32}$/);
+    assert.equal('profile' in ctx.calls.ai[0], false);
+    assert.equal('instructions' in ctx.calls.ai[0], false);
+  });
+
+  it('does not let a viewer run an app', async () => {
+    await assert.rejects(
+      ask({body: {prompt: 'p', appId: 'echo'}, requestContext: {...WORKSPACE, role: 'viewer'}}),
+      error => error?.status === 403,
+    );
   });
 
   it('frames the deltas, then the whole answer, then ends the response', async () => {

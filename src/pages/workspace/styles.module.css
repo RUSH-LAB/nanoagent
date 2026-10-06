@@ -1,0 +1,84 @@
+.pageHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.pageHeader h1 {
+  margin: 0.15rem 0 0.35rem;
+}
+
+.eyebrow {
+  color: var(--ifm-color-primary);
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.muted {
+  margin: 0;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.9rem;
+}
+
+.error {
+  margin-bottom: 1rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--ifm-color-danger-light);
+  border-radius: 8px;
+  background: var(--ifm-color-danger-contrast-background);
+  font-size: 0.875rem;
+}
+
+.files {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 14px;
+  background: var(--ifm-background-surface-color);
+}
+
+.fileTree {
+  margin: 0;
+  padding-left: 1rem;
+  list-style: none;
+  font-size: 0.875rem;
+}
+
+.files > .fileTree {
+  padding-left: 0;
+}
+
+.fileTree summary {
+  cursor: pointer;
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.1rem 0;
+}
+
+.fileRow a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deleteFile {
+  margin-left: auto;
+  padding: 0 0.3rem;
+  border: none;
+  background: none;
+  color: var(--ifm-color-emphasis-500);
+  cursor: pointer;
+}
+
+.deleteFile:hover {
+  color: var(--ifm-color-danger);
+}

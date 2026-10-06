@@ -776,6 +776,7 @@ export async function invoke(routes, opts = {}) {
   const req = {
     method, url: pathname + search, headers, socket: {remoteAddress: '127.0.0.1'}, auth,
     context: requestContext,
+    setTimeout() { return this; },
     workspacePath: requestContext
       ? pathname.replace(/^\/api\/workspaces\/[^/]+/, '') || '/'
       : undefined,

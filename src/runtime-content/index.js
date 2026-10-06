@@ -23,9 +23,9 @@
 module.exports = function runtimeContentPlugin(_context, options = {}) {
   const routeBasePath = String(options.routeBasePath ?? 'w').replace(/^\/+|\/+$/g, '');
   const workspacePages = [
-    'analytics', 'channels', 'compare', 'content-search', 'files', 'flashcards',
+    'analytics', 'apps', 'channels', 'compare', 'content-search', 'files', 'flashcards',
     'glossary', 'graph', 'mindmap', 'people', 'reading-lists',
-    'recommendations', 'settings', 'stats', 'tasks', 'timeline', 'whiteboard',
+    'recommendations', 'settings', 'stats', 'tasks', 'timeline', 'whiteboard', 'workspace',
   ];
 
   return {

@@ -1,5 +1,6 @@
 'use strict';
 const fallbackProfiles = require('../../ai-profiles.json');
+const {agentWorkspaceId} = require('../agent-workspace');
 // Route module organized from server/index.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
@@ -70,7 +71,7 @@ function corsHeaders(req, corsOrigin) {
  * Returns `{error}` for a rejection, otherwise `{request}` ready for ai.
  */
 function composeRequest(body, sanitizeText, agent = null, catalog = null) {
-  const {prompt, context, messages, type, agentId, profileId: requestedProfileId} = body;
+  const {prompt, context, messages, type, agentId, profileId: requestedProfileId, appId} = body;
   if (!prompt || typeof prompt !== 'string') return {error: 'Missing or invalid prompt'};
   if (prompt.length > 50000) return {error: 'Prompt must be 50000 characters or fewer'};
   if (context !== undefined && typeof context !== 'string') return {error: 'context must be a string'};
@@ -93,6 +94,18 @@ function composeRequest(body, sanitizeText, agent = null, catalog = null) {
   }
   if (agentId !== undefined && (typeof agentId !== 'string' || !agentId || agentId.length > 100)) {
     return {error: 'agentId must be a non-empty string of 100 characters or fewer'};
+  }
+  // A prompt for a NanoAgent app runs on that app's own agent, whose tools and
+  // instructions NanoAgent owns, so nothing here may choose them instead.
+  if (appId !== undefined) {
+    if (typeof appId !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(appId) || appId.length > 100) {
+      return {error: 'appId must be a NanoAgent plugin id'};
+    }
+    if (type !== undefined || agentId !== undefined || requestedProfileId !== undefined) {
+      return {error: 'appId cannot be combined with type, agentId or profileId'};
+    }
+    if (context) history.push({role: 'user', content: `Context:\n${sanitizeText(context)}`});
+    return {request: {input: sanitizeText(prompt), messages: history, app: appId}};
   }
   if (requestedProfileId !== undefined
     && (typeof requestedProfileId !== 'string' || !requestedProfileId || requestedProfileId.length > 100)) {
@@ -253,6 +266,11 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
       return json(res, 500, {error: 'AI request failed. Please try again later.'});
     }
     if (composed.error) return json(res, composed.status || 400, {error: composed.error});
+    // An app's agent acts through the app's tools, which is editing, not reading.
+    if (composed.request.app) {
+      ctx.requireWorkspacePermission(req.context, 'content:edit');
+      composed.request.workspace = agentWorkspaceId(req.context);
+    }
 
     res.writeHead(200, {
       ...corsHeaders(req, CORS_ORIGIN),

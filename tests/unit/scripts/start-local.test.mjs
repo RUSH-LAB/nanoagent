@@ -5,7 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   environmentFor,
+  nanoagentPluginsFrom,
   nanoagentProjectFrom,
+  nanoagentWebArgs,
   portIsAvailable,
   usesLocalNanoAgent,
   waitForNanoAgent,
@@ -66,5 +68,27 @@ describe('local process supervisor configuration', () => {
 
     const ready = await waitForNanoAgent({}, null, {fetchImpl, timeoutMs: 100, intervalMs: 1});
     assert.equal(ready.profile.id, 'pi-test');
+  });
+
+  it('publishes each plugin package to the local NanoAgent', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-plugins-'));
+    for (const name of ['b-app', 'a-app', 'not-a-plugin']) fs.mkdirSync(path.join(dir, name));
+    fs.writeFileSync(path.join(dir, 'a-app', 'nanoagent.yaml'), '');
+    fs.writeFileSync(path.join(dir, 'b-app', 'nanoagent.yaml'), '');
+    const env = {NANOAGENT_PLUGINS_DIR: dir};
+    assert.deepEqual(nanoagentPluginsFrom(env), [path.join(dir, 'a-app'), path.join(dir, 'b-app')]);
+    assert.ok(nanoagentWebArgs(env).includes(`plugins=${JSON.stringify(nanoagentPluginsFrom(env))}`));
+  });
+
+  it('rejects a plugins directory that does not exist', () => {
+    assert.throws(() => nanoagentPluginsFrom({NANOAGENT_PLUGINS_DIR: '/path/that/does/not/exist'}), /not found/);
+    assert.throws(() => nanoagentPluginsFrom({NANOAGENT_PROJECT_DIR: '/path/that/does/not/exist'}), /not found/);
+  });
+
+  it('defaults to the NanoAgent checkout\'s built-in plugins', () => {
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-nanoagent-'));
+    fs.mkdirSync(path.join(project, 'plugins', 'arxiv-source'), {recursive: true});
+    fs.writeFileSync(path.join(project, 'plugins', 'arxiv-source', 'nanoagent.yaml'), '');
+    assert.deepEqual(nanoagentPluginsFrom({NANOAGENT_PROJECT_DIR: project}), [path.join(project, 'plugins', 'arxiv-source')]);
   });
 });

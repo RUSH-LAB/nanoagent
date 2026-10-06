@@ -16,6 +16,7 @@ import NavbarMobileSidebarToggle from '@theme/Navbar/MobileSidebar/Toggle';
 import WorkspaceSwitcher from '@site/src/components/WorkspaceSwitcher';
 import LazySearchNavbarItem from '@site/src/components/LazySearchNavbarItem';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
+import useWorkspaceApps from '@site/src/hooks/useWorkspaceApps';
 import useWorkspaceSubscriptions, {
   isBookSubscribed, orderByPreference,
 } from '@site/src/hooks/useWorkspaceSubscriptions';
@@ -78,12 +79,31 @@ function NavbarContentLayout({
   );
 }
 
+/** Plugins: one entry per NanoAgent app, each opening it on the apps page. */
+function appsItem(workspaceSlug: string, apps: {id: string; name: string}[]): NavbarItemConfig {
+  const appsPath = `/w/${encodeURIComponent(workspaceSlug)}/apps`;
+  const item = {label: 'Plugins', to: appsPath, activeBasePath: appsPath, position: 'left' as const};
+  if (!apps.length) return item;
+  return {
+    ...item,
+    type: 'dropdown',
+    items: apps.map(app => ({label: app.name, to: `${appsPath}?app=${encodeURIComponent(app.id)}`})),
+  } as NavbarItemConfig;
+}
+
+/** Workspace: the files the apps saved for this member. */
+function workspaceItem(workspaceSlug: string): NavbarItemConfig {
+  const path = `/w/${encodeURIComponent(workspaceSlug)}/workspace`;
+  return {label: 'Workspace', to: path, activeBasePath: path, position: 'left' as const};
+}
+
 export default function NavbarContent(): ReactNode {
   const mobileSidebar = useNavbarMobileSidebar();
   const location = useLocation();
   const items = useNavbarItems();
   const {slug: workspaceSlug, workspace, site: workspaceSite} = useWorkspaceSite();
   const {subscriptions} = useWorkspaceSubscriptions(workspace);
+  const apps = useWorkspaceApps(workspace);
   const hasConcreteWorkspace = Boolean(workspaceSlug);
 
   const fixedItems = items.filter(item => item.type === 'search' || item.type === 'custom-userButton');
@@ -121,6 +141,8 @@ export default function NavbarContent(): ReactNode {
           activeBasePath: workspaceDocumentHref(blogCollection.pathPrefix, workspaceSlug, ''),
           position: 'left' as const,
         },
+        appsItem(workspaceSlug, apps),
+        workspaceItem(workspaceSlug),
       ].filter((item): item is NavbarItemConfig => Boolean(item))
     : items;
   // Content links in the config are deliberately workspace-neutral so the

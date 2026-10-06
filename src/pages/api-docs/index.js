@@ -365,8 +365,31 @@ const CATEGORIES = [
         response: 'event: delta\ndata: {"text":"..."}\n\nevent: done\ndata: {"text":"...complete text..."}',
       },
       {
+        method: 'POST', path: '/api/ai/stream', description: 'Stream an assistant answer as server-sent events. With appId, the prompt runs on that NanoAgent app\'s own agent, which acts through the app\'s tools (owners and editors only); tool calls arrive as agent events.',
+        request: '{ "prompt": "Download the source of arXiv 1706.03762", "appId": "arxiv-source" }',
+        response: 'event: agent\ndata: {"type":"tool.completed","call":{"name":"download_source"}}\n\nevent: delta\ndata: {"text":"..."}\n\nevent: done\ndata: {"text":"...complete answer..."}',
+      },
+      {
         method: 'GET', path: '/api/ai/profiles', description: 'List the server-approved NanoAgent harness and model profiles, including current availability.',
         response: '{ "defaultProfile": "native-deepseek", "profiles": [{ "id": "native-deepseek", "label": "DeepSeek V4 Flash · NanoAgent", "harness": "native", "model": "deepseek/deepseek-v4-flash-0731", "available": true }] }',
+      },
+      {
+        method: 'GET', path: '/api/agent-files', description: 'List the files in your private agent workspace: what the apps you ran saved for you.',
+        response: '{ "files": [{ "path": "attention/ms.tex", "size": 1234, "modified": 1759680000.0 }], "truncated": false }',
+      },
+      {
+        method: 'GET', path: '/api/agent-files/content', description: 'Open one file from your agent workspace. Images and PDFs are shown as themselves, other text as plain text, anything else is downloaded.',
+        request: '?path=attention/ms.tex',
+        response: '(file bytes)',
+      },
+      {
+        method: 'DELETE', path: '/api/agent-files/content', description: 'Delete one file from your agent workspace. Owners and editors only.',
+        request: '?path=attention/ms.tex',
+        response: '{ "deleted": true }',
+      },
+      {
+        method: 'GET', path: '/api/apps', description: 'List the apps (NanoAgent plugin packages) the private NanoAgent service publishes, with README, tasks, tool schemas and permissions.',
+        response: '{ "apps": [{ "id": "arxiv-source", "name": "arXiv Source Downloader", "version": "0.1.0", "permissions": { "network": { "hosts": ["export.arxiv.org"] }, "filesystem": { "write": ["workspace"] } }, "tasks": [{ "id": "save-paper-source", "tools": ["download_source"] }], "tools": [{ "name": "download_source", "inputSchema": {}, "outputSchema": {} }], "readme": "# ..." }] }',
       },
       {
         method: 'GET', path: '/api/agents', description: 'List the reusable AI agents defined for this workspace.',

@@ -253,3 +253,51 @@ describe('NanoAgent gateway', () => {
     assert.match((await gateway.complete({input: 'x'})).error, /too large/);
   });
 });
+
+describe('NanoAgent plugin API', () => {
+  it('reads the plugin catalog with the service token', async () => {
+    const seen = [];
+    const gateway = ai.createNanoAgentGateway({
+      env: {NANOAGENT_API_TOKEN: 'secret'},
+      fetchImpl: async (url, init) => {
+        seen.push([url, init.headers.Authorization]);
+        return response([], {json: {plugins: []}});
+      },
+    });
+    assert.deepEqual(await gateway.plugins(), {value: {plugins: []}});
+    assert.deepEqual(seen, [['http://127.0.0.1:8787/v1/plugins', 'Bearer secret']]);
+  });
+
+  it('streams an app prompt to that plugin\'s agent without a profile', async () => {
+    const seen = [];
+    const gateway = ai.createNanoAgentGateway({
+      env: {},
+      fetchImpl: async (url, init) => {
+        seen.push([url, JSON.parse(init.body)]);
+        return response([sse({type: 'done', answer: 'saved', runId: 'r1'})]);
+      },
+    });
+    assert.equal((await gateway.complete({input: 'save it', app: 'arxiv-source', workspace: 'w1'})).text, 'saved');
+    assert.deepEqual(seen, [['http://127.0.0.1:8787/v1/workspaces/w1/plugins/arxiv-source/runs', {input: 'save it', messages: []}]]);
+  });
+
+  it('reads a workspace file as bytes and relays a missing one as 404', async () => {
+    const seen = [];
+    const gateway = ai.createNanoAgentGateway({
+      env: {},
+      fetchImpl: async url => {
+        seen.push(url);
+        if (url.endsWith('missing.tex')) return {ok: false, status: 404, json: async () => ({error: 'file not found'})};
+        return {ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode('hi').buffer};
+      },
+    });
+    assert.equal((await gateway.workspaceFile('w1', 'papers/a b.tex')).value.toString(), 'hi');
+    assert.deepEqual(await gateway.workspaceFile('w1', 'missing.tex'), {error: 'file not found', status: 404});
+    assert.equal(seen[0], 'http://127.0.0.1:8787/v1/workspaces/w1/files/papers/a%20b.tex');
+  });
+
+  it('reports an unreachable service', async () => {
+    const gateway = ai.createNanoAgentGateway({env: {}, fetchImpl: async () => { throw new Error('refused'); }});
+    assert.deepEqual(await gateway.plugins(), {error: 'Could not reach NanoAgent.', status: 502});
+  });
+});

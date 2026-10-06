@@ -520,6 +520,7 @@ const routeModules = [
   require('./routes/org'),
   require('./routes/agents'),
   require('./routes/ai'),
+  require('./routes/apps'),
   // Plugin endpoints run after the core ones. A plugin extends the site; it
   // does not get to shadow the routes the site is made of. Each is wrapped so
   // that what reaches it is the narrow plugin API, never this ctx.

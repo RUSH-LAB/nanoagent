@@ -46,6 +46,37 @@ export function nanoagentProjectFrom(env = process.env) {
   return path.resolve(env.NANOAGENT_PROJECT_DIR || path.join(root, '..', 'nanoagent'));
 }
 
+/**
+ * The plugin packages NanoAgent publishes as apps: each directory with a manifest in the NanoAgent
+ * checkout's built-in `plugins/`, or in NANOAGENT_PLUGINS_DIR.
+ */
+export function nanoagentPluginsFrom(env = process.env) {
+  const pluginsRoot = path.resolve(env.NANOAGENT_PLUGINS_DIR || path.join(nanoagentProjectFrom(env), 'plugins'));
+  if (!fs.existsSync(pluginsRoot)) {
+    throw new Error(`NanoAgent plugins directory not found: ${pluginsRoot} (set NANOAGENT_PLUGINS_DIR)`);
+  }
+  return fs.readdirSync(pluginsRoot, {withFileTypes: true})
+    .filter(entry => entry.isDirectory() && fs.existsSync(path.join(pluginsRoot, entry.name, 'nanoagent.yaml')))
+    .map(entry => path.join(pluginsRoot, entry.name))
+    .sort();
+}
+
+/**
+ * The local service is the Railway configuration bound to loopback, so local
+ * development and production run the same agent definition and profiles.
+ */
+export function nanoagentWebArgs(env = process.env) {
+  return [
+    'run', '--extra', 'web', 'python', '-m', 'nanoagent', 'web',
+    'web_cfg=deploy/railway/nanoagent.yaml',
+    'host=127.0.0.1',
+    `port=${nanoagentPort}`,
+    'api_token=null',
+    `plugins=${JSON.stringify(nanoagentPluginsFrom(env))}`,
+    `workspaces=${JSON.stringify(path.join(root, 'var', 'agent-workspaces'))}`,
+  ];
+}
+
 function nanoagentUrl(env) {
   return env.NANOAGENT_URL?.trim() || `http://127.0.0.1:${nanoagentPort}`;
 }
@@ -102,7 +133,7 @@ function run(command, args, options) {
 }
 
 async function preparePiRunner(env, nanoagentRoot) {
-  const piRunnerRoot = path.join(nanoagentRoot, 'packages', 'pi-runner');
+  const piRunnerRoot = path.join(nanoagentRoot, 'js', 'pi-runner');
   const piRunnerEntry = path.join(piRunnerRoot, 'dist', 'index.js');
   const dependencies = path.join(piRunnerRoot, 'node_modules', '@earendil-works', 'pi-agent-core');
   const inputs = ['package.json', 'package-lock.json', 'tsconfig.json', 'src/index.ts']
@@ -168,10 +199,7 @@ export async function startLocal(argv = process.argv.slice(2)) {
   if (usesLocalNanoAgent(env)) {
     const process = {
       name: 'NanoAgent',
-      child: spawn('uv', [
-        'run', '--extra', 'web', 'python', '-m', 'nanoagent', 'web',
-        'web_cfg=configs/web_openrouter.yaml',
-      ], options(nanoagentRoot)),
+      child: spawn('uv', nanoagentWebArgs(env), options(nanoagentRoot)),
     };
     processes.push(process);
     try {

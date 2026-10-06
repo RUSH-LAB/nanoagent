@@ -36,6 +36,12 @@ The installer never overwrites an existing checkout or local environment file.
 Set `NANOAGENT_REPOSITORY` and `NANOAGENT_REF` before running it to reproduce
 against a fork or a specific branch/tag.
 
+The local NanoAgent also publishes every plugin package built into the
+NanoAgent checkout, in its `plugins/` directory (such as `plugins/arxiv-source`).
+Mochi shows these as apps at `/apps`, where you can read what each one does and
+run its tasks. Set `NANOAGENT_PLUGINS_DIR` to publish packages from somewhere else.
+A missing plugins directory stops the launch instead of publishing no apps.
+
 All local secrets and connection settings live in the single git-ignored
 `.env` file.
 

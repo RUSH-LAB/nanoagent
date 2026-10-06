@@ -320,7 +320,12 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
 
     let reader;
     try {
-      const response = await fetchImpl(`${endpoint.url}/v1/runs`, {
+      // An app prompt runs on that plugin's agent, inside the caller's workspace;
+      // anything else on a configured profile.
+      const path = request.app
+        ? `/v1/workspaces/${encodeURIComponent(request.workspace)}/plugins/${encodeURIComponent(request.app)}/runs`
+        : '/v1/runs';
+      const response = await fetchImpl(`${endpoint.url}${path}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -401,10 +406,45 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     }
   }
 
+  /**
+   * One call to NanoAgent's plugin or workspace API: `{value}` (its JSON, or
+   * its bytes when asked for), otherwise `{error, status}` to relay. A rejected path or a
+   * missing file is the caller's to know about; anything else is ours.
+   */
+  async function nanoFetch(path, {method = 'GET', bytes = false, waitMs = profileTimeoutMs} = {}) {
+    const endpoint = endpointFrom(env);
+    if (endpoint.error) return {error: endpoint.error, status: 503};
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), waitMs);
+    try {
+      const response = await fetchImpl(`${endpoint.url}${path}`, {
+        method,
+        headers: env.NANOAGENT_API_TOKEN ? {Authorization: `Bearer ${env.NANOAGENT_API_TOKEN}`} : {},
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const status = [400, 404].includes(response.status) ? response.status : 502;
+        return {error: await responseError(response), status};
+      }
+      return {value: bytes ? Buffer.from(await response.arrayBuffer()) : await response.json()};
+    } catch {
+      return controller.signal.aborted ? {error: TIMED_OUT, status: 504} : {error: UNAVAILABLE, status: 502};
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  const filePath = (workspace, path) =>
+    `/v1/workspaces/${encodeURIComponent(workspace)}/files/${String(path).split('/').map(encodeURIComponent).join('/')}`;
+
   return Object.freeze({
     complete: request => stream({...request, onDelta: undefined}),
     stream,
     profiles,
+    plugins: () => nanoFetch('/v1/plugins'),
+    workspaceFiles: workspace => nanoFetch(`/v1/workspaces/${encodeURIComponent(workspace)}/files`),
+    workspaceFile: (workspace, path) => nanoFetch(filePath(workspace, path), {bytes: true, waitMs: timeoutMs}),
+    deleteWorkspaceFile: (workspace, path) => nanoFetch(filePath(workspace, path), {method: 'DELETE'}),
     describe() {
       const endpoint = endpointFrom(env);
       if (endpoint.error) return {available: false, reason: endpoint.error};
@@ -435,5 +475,9 @@ module.exports = {
   complete: gateway.complete,
   stream: gateway.stream,
   profiles: gateway.profiles,
+  plugins: gateway.plugins,
+  workspaceFiles: gateway.workspaceFiles,
+  workspaceFile: gateway.workspaceFile,
+  deleteWorkspaceFile: gateway.deleteWorkspaceFile,
   describe: gateway.describe,
 };

@@ -225,7 +225,8 @@ export default function DocSidebarDesktop({path, sidebar, onCollapse, isHidden}:
     >
       {hideOnScroll && <Logo tabIndex={-1} className={styles.sidebarLogo} />}
       <div className={styles.sidebarControls}>
-        {!isHidden && <BookSwitcher />}
+        {/* Plugins and Workspace reuse this sidebar; only a book has books to switch. */}
+        {!isHidden && path.includes('/documents/') && <BookSwitcher />}
         <SidebarCollapseButton onClick={handleCollapse} />
       </div>
       <Content path={path} sidebar={sidebar} />
