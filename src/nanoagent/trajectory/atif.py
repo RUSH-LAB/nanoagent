@@ -2,11 +2,35 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
+
+from slimconfig import Output
 
 from nanoagent.core.agent import AgentResult
 
 ATIF_VERSION = "ATIF-v1.8"
+
+
+@dataclass
+class AtifTrajectory(Output):
+    """Typed SlimConfig output carrying one ATIF trajectory."""
+
+    schema_version: str
+    session_id: str
+    agent: dict[str, Any]
+    steps: list[dict[str, Any]]
+    final_metrics: dict[str, Any]
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> AtifTrajectory:
+        return cls(
+            schema_version=value["schema_version"],
+            session_id=value["session_id"],
+            agent=value["agent"],
+            steps=value["steps"],
+            final_metrics=value["final_metrics"],
+        )
 
 
 def to_atif(
@@ -107,3 +131,6 @@ def _arguments(value: Any) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+__all__ = ["ATIF_VERSION", "AtifTrajectory", "to_atif"]

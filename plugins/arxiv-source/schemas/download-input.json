@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "required": ["arxiv_id", "destination"],
+  "properties": {
+    "arxiv_id": {
+      "type": "string",
+      "description": "A modern or legacy arXiv identifier, optionally with a version"
+    },
+    "destination": {
+      "type": "string",
+      "description": "A new folder relative to the plugin workspace"
+    }
+  },
+  "additionalProperties": false
+}

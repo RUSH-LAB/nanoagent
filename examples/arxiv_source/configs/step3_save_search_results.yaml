@@ -1,0 +1,10 @@
+_ > nanoagent.cli.plugin.PluginRunConfig:
+
+# The built-in arXiv source plugin.
+plugin: plugins/arxiv-source
+task: save-search-results
+arguments:
+  - query=ti:"attention is all you need"
+  - max_results=2
+  - destination=papers
+timeout: 300.0

@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "required": ["text", "destination"],
+  "properties": {
+    "text": {"type": "string", "description": "The note's text"},
+    "destination": {"type": "string", "description": "A new file path relative to the plugin workspace"}
+  },
+  "additionalProperties": false
+}

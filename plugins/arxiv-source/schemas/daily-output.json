@@ -1,0 +1,70 @@
+{
+  "type": "object",
+  "required": [
+    "ok"
+  ],
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "date": {
+      "type": "string"
+    },
+    "people": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "papers"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "papers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "arxiv_id",
+                "title",
+                "authors",
+                "published",
+                "abs_url"
+              ],
+              "properties": {
+                "arxiv_id": {
+                  "type": "string",
+                  "pattern": "^\\d{4}\\.\\d{5}$",
+                  "description": "An arXiv id of the form YYMM.NNNNN"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "authors": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "published": {
+                  "type": "string"
+                },
+                "abs_url": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "error": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

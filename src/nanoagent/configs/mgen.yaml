@@ -1,11 +1,11 @@
-# The default `mgen` config: a general coding agent against a locally served model.
+# The default `mgen` config: a general coding agent on Claude Opus 5.5 through Amazon Bedrock.
 #
 #     mgen -p "what does src/nanoagent/runtime/build.py do?"
 #
 # Every `mgen` flag overrides a leaf of THIS file, and `mgen --dump-config` prints the result —
 # so an invocation you liked can be saved as a config and stops being an invocation.
 #
-# The model block below points at a local SGLang endpoint. To reach something else, copy this
+# The model block below points at Bedrock in us-west-2. To reach something else, copy this
 # file, change the model block, and point $MGEN_CONFIG at yours. `provider:` is resolved by
 # nanoagent.inference.providers — sglang, openrouter, or bedrock.
 #
@@ -16,13 +16,13 @@
 _ > nanoagent.runtime.config.InteractiveConfig:
 
 model > nanoagent.runtime.config.ModelConfig:
-  model: default            # served name; --model overrides it
-  provider: sglang          # sglang, openrouter, or bedrock
-  base_url: http://127.0.0.1:30000/v1
+  model: us.anthropic.claude-opus-5-5  # --model overrides it
+  provider: bedrock         # sglang, openrouter, or bedrock
+  base_url: null            # sglang/openrouter only
   api_key: null             # openrouter reads OPENROUTER_API_KEY when this is null
-  aws_region: null          # bedrock; null uses the AWS SDK resolution chain
-  aws_profile: null
-  temperature: 0.6
+  aws_region: us-west-2     # bedrock; null uses the AWS SDK resolution chain
+  aws_profile: null         # null uses the AWS SDK credential chain
+  temperature: null         # omitted from the request
   max_tokens: 8192
   request_timeout: 900.0
   max_retries: 4
@@ -66,7 +66,7 @@ tools_dir: null             # the agent may not write itself new tools
 allowed_tools: null         # null = everything `tools` loaded
 
 task: null                  # the positional prompt overrides it
-output: null                # null = the default mgen folder (expdir/mgen/)
+output: outputs/mgen        # explicit session folder; there is no fallback output path
 yolo: false                 # confirm each tool call (--dangerously-skip-permissions flips it)
 resume: null                # -r / -c set it
 commands: []

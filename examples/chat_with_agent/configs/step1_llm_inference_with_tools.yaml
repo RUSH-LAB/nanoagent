@@ -1,0 +1,34 @@
+_ > step1_llm_inference_with_tools.ChatConfig:
+
+# Independent model, harness, toolbox, loop policy, and task.
+llm > nanoagent.llm.bedrock.BedrockConfig:
+  model: us.anthropic.claude-opus-5-5
+  region: us-west-2
+  profile: codex-DO-NOT-DELETE
+  temperature: null
+  max_tokens: 1024
+  max_attempts: 5
+  read_timeout: 300.0
+  input_price: 0.0
+  output_price: 0.0
+
+harness > nanoagent.harness.nanoagent.NanoAgentConfig:
+  max_steps: 10
+  cost_limit: null
+  token_limit: null
+  context_window: null
+  hooks: []
+  skills: null
+  context_files: []
+  events: null
+
+toolbox:
+  - examples/chat_with_agent/configs/step1_calculator.yaml
+
+task > step1_llm_inference_with_tools.TaskConfig:
+  prompt > step1_llm_inference_with_tools.PromptConfig:
+    system_prompt: >-
+      Use the calculator tool for every arithmetic step; do not compute arithmetic in your head.
+    user_prompt: >-
+      A fuzzer runs 1234 test cases per second for one week without stopping. How many test
+      cases does it run, minus the 98765 that crashed?

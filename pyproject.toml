@@ -30,6 +30,9 @@ dependencies = [
     # module off the SDK itself (see inference/backends/sglang.py). Declaring `httpx` here would
     # pull in a second, unrelated copy and invite exactly the mismatch that resolution avoids.
     "openai>=1.40",
+    # The Bedrock Converse client behind the default `mgen` model. Imported only when the bedrock
+    # backend is built.
+    "boto3>=1.35",
     # The YAML/config layer: `_default:` composition, typed schema loading, `key=value` tokens.
     # Floor at 0.14: the new dialect — `Config` schemas, `_ >` declarations on every file and
     # block, Enum-keyed mappings, no `Any` fields. nanoagent's schemas (see nanoagent.runtime.config)
@@ -64,9 +67,6 @@ classifiers = [
 # ASGI web host for server-side application integrations. Kept optional so the batch / training
 # package does not acquire an HTTP framework merely because it imports nanoagent.
 web = ["jsonschema>=4.23", "starlette>=0.41", "uvicorn>=0.30"]
-# Native inference through the Amazon Bedrock Converse API. Kept optional so local SGLang and
-# OpenRouter installs do not acquire the AWS SDK.
-bedrock = ["boto3>=1.35"]
 # Optional third-party harness. It is launched behind the subprocess boundary rather than
 # imported into NanoAgent's server process, but this extra makes a single-environment setup easy.
 hermes = ["hermes-agent==0.19.0"]
@@ -96,8 +96,6 @@ dev = [
     # Only `repl.commands.inline_image` touches it, to read an image's pixel size — and it falls
     # back to a guess when the import fails, so Pillow is a test dependency, not a runtime one.
     "pillow",
-    # Exercises the optional Bedrock backend without requiring a separate CI environment.
-    "boto3>=1.35",
 ]
 
 [project.urls]
@@ -128,7 +126,7 @@ include = ["nanoagent*"]
 # default toolset an installed `mgen` cannot find. See nanoagent.extensions.resolve_config.
 # Package data belongs to the top-level package alongside ``py.typed``.
 [tool.setuptools.package-data]
-nanoagent = ["py.typed", "configs/*.yaml", "configs/tools/*.yaml", "web/schema/*.json"]
+nanoagent = ["py.typed", "configs/*.yaml", "configs/tools/*.yaml", "web/schema/*.json", "plugin/template/**/*"]
 
 [tool.ruff]
 line-length = 150
@@ -142,3 +140,5 @@ extend-ignore = ["E203"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Each plugin under plugins/ is its own uv project and runs its own tests.
+testpaths = ["test"]

@@ -27,11 +27,11 @@ is a pre-loop that runs before the agent is handed control. So chat and batch ca
 Run (yaml-driven, no flags — a chat YAML is a harness YAML plus the REPL-only leaves `task`,
 `yolo`, `output`, `resume`, `commands`, `models`, `theme`, `images`). The toolset comes from the
 config's `tools` list; human mode needs a tool named ``bash`` in it to run shell commands directly:
-  nanoagent chat chat_cfg=mychat.yaml output=expdir/chat
+  nanoagent chat chat_cfg=mychat.yaml output=outputs/chat
 
 The session trajectory is always saved on exit, named by the time the chat started:
-``<output>/<yymmdd-hhmmss>.traj.json``, where ``output`` is the folder to save into (null = the
-default ``expdir/chat/``). If you forked, the whole tree is saved beside it as
+``<output>/<yymmdd-hhmmss>.traj.json``, where ``output`` is the required folder. If you forked,
+the whole tree is saved beside it as
 ``<same>.session.json``, which ``resume:`` reads back — as does a plain ``.traj.json``, which
 resumes as a single branch.
 """
@@ -77,15 +77,12 @@ from nanoagent.extensions import get_hooks
 from nanoagent.profiler import merge_profiles, RunProfile
 from nanoagent.runtime.model import Model
 from nanoagent.harness import HarnessRegistry
-from nanoagent.harness.native import NativeRunner
+from nanoagent.harness.nanoagent import NanoAgentRunner
 from nanoagent.cli.repl.tree import load as load_session, SESSION_SUFFIX, SessionTree
 from nanoagent.core.tool import build_tool_map, JsonSchema, Tool
 from rich.console import Console
 from rich.rule import Rule
 from rich.theme import Theme
-
-# Default trajectory location when `output` is unset (relative to the CWD).
-DEFAULT_TRAJ_DIR = "./expdir/"
 
 Mode = Literal["confirm", "yolo", "human"]
 _MODE_COMMANDS: dict[str, Mode] = {"/y": "yolo", "/c": "confirm", "/u": "human"}
@@ -94,8 +91,8 @@ _BASH_TOOL = "bash"
 
 
 def _deferred_agent_factory(_instructions: str | None) -> tuple[Agent, str]:
-    """Keep profile selection from opening a second native model connection for the REPL."""
-    raise RuntimeError("the interactive native profile is built by InteractiveSession")
+    """Keep profile selection from opening a second NanoAgent model connection for the REPL."""
+    raise RuntimeError("the interactive NanoAgent profile is built by InteractiveSession")
 
 
 def _interactive_profile(
@@ -105,11 +102,11 @@ def _interactive_profile(
     profile_paths = list(getattr(cfg, "profiles", []))
     selected = getattr(cfg, "profile", None)
     if not profile_paths:
-        runner = NativeRunner(cfg, agent_factory=_deferred_agent_factory)
+        runner = NanoAgentRunner(cfg, agent_factory=_deferred_agent_factory)
         registry = HarnessRegistry.single(
             runner,
-            profile_id="native",
-            label="Native",
+            profile_id="nanoagent",
+            label="NanoAgent",
             model=cfg.model.model,
         )
         return registry, registry.resolve(None)
@@ -125,7 +122,7 @@ def _interactive_profile(
         ) from None
     factory = (
         _deferred_agent_factory
-        if selected_config.harness.type == "native"
+        if selected_config.harness.type == "nanoagent"
         else None
     )
     registry = HarnessRegistry.from_config(
@@ -649,11 +646,11 @@ def run_and_save(
     Shared by the interactive ``chat`` command and the single-task ``run`` command: both run
     one :class:`InteractiveSession` and persist it on ANY exit (clean / Ctrl-C / error), so the
     session is always browsable. When ``cfg.output`` is unset, the trajectory defaults to a
-    timestamped file under ``<DEFAULT_TRAJ_DIR>/<subdir>/``. ``confirm_exit=False`` (run) stops
-    after the one task; ``True`` (chat) prompts for follow-ups until empty input.
+    ``cfg.output`` must name the trajectory file. ``confirm_exit=False`` (run) stops after the
+    one task; ``True`` (chat) prompts for follow-ups until empty input.
     """
     registry, profile = _interactive_profile(cfg)
-    if not isinstance(profile.runner, NativeRunner):
+    if not isinstance(profile.runner, NanoAgentRunner):
         _run_external_and_save(
             cfg,
             registry,
@@ -664,7 +661,7 @@ def run_and_save(
         )
         return
 
-    # A configured native profile may override the model while keeping the same interactive
+    # A configured NanoAgent profile may override the model while keeping the same interactive
     # frontend. Use the registry-resolved definition rather than rebuilding from the base config.
     definition = profile.runner.definition
     cfg.model = definition.model
@@ -694,13 +691,9 @@ def run_and_save(
     except KeyboardInterrupt:
         pass
     finally:
-        out = (
-            Path(cfg.output)
-            if cfg.output
-            else Path(DEFAULT_TRAJ_DIR)
-            / subdir
-            / f"{datetime.now():%Y%m%d_%H%M%S}{trajectory.TRAJECTORY_SUFFIX}"
-        )
+        if not cfg.output:
+            raise ValueError(f"{subdir} requires an explicit output path")
+        out = Path(cfg.output)
         path = trajectory.save(
             session.to_result(),
             out,
@@ -755,13 +748,9 @@ def _run_external_and_save(
     except KeyboardInterrupt:
         pass
     finally:
-        out = (
-            Path(cfg.output)
-            if cfg.output
-            else Path(DEFAULT_TRAJ_DIR)
-            / subdir
-            / f"{datetime.now():%Y%m%d_%H%M%S}{trajectory.TRAJECTORY_SUFFIX}"
-        )
+        if not cfg.output:
+            raise ValueError(f"{subdir} requires an explicit output path")
+        out = Path(cfg.output)
         path = trajectory.save(
             conversation.to_result(),
             out,
@@ -790,11 +779,11 @@ def main(argv: list[str] | None = None) -> int:
         print(_USAGE)
         return 2
     cfg = load_config_args(InteractiveConfig, argv)
-    # In chat mode `output` is the FOLDER to save into (like batch mode); the session file is
-    # named by the time the chat started — <output>/<yymmdd-hhmmss>.traj.json. A null output
-    # falls back to the default chat dir. Resolving it here (to a concrete file) means
-    # run_and_save just writes that path.
-    out_dir = Path(cfg.output) if cfg.output else Path(DEFAULT_TRAJ_DIR) / "chat"
+    # In chat mode `output` is the explicit folder to save into. Resolve it to one concrete
+    # trajectory path before the session starts; there is no implicit output directory.
+    if not cfg.output:
+        raise SystemExit("chat requires `output=<folder>`")
+    out_dir = Path(cfg.output)
     cfg.output = str(out_dir / f"{datetime.now():%y%m%d-%H%M%S}{trajectory.TRAJECTORY_SUFFIX}")
     run_and_save(
         cfg,

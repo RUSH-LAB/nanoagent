@@ -19,9 +19,11 @@ agent > nanoagent.runtime.config.AgentConfig:
   system_prompt: |
     You are an assistant embedded in a collaborative knowledge application.
     Follow the application's additional instructions and answer the user directly.
-  max_steps: 2
+  # The NanoAgent loop runs plugin prompts (chat uses the PI profile): room to search, then
+  # download, then answer, with the cost cap as the real bound.
+  max_steps: 6
   cost_limit: 0.10
-  token_limit: 8192
+  token_limit: 65536
   context_window: null
   hooks: []
   skills: null
@@ -35,6 +37,9 @@ allowed_tools: []
 default_profile: pi-deepseek
 profiles:
   - deploy/railway/profiles/pi-deepseek.yaml
+plugins: []
+# Mount a Railway volume at /data, or these are lost on every deploy.
+workspaces: /data/workspaces
 
 host: 0.0.0.0
 port: ${oc.env:PORT,8787}

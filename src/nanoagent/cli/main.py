@@ -15,8 +15,8 @@ Two modes, picked by the config (not a flag):
 
   * ``task`` set (``RunConfig``) — run one task as a one-shot, non-interactive session: it
     streams the model and prints each tool call live (same UX as ``chat``, but no
-    confirmation and no follow-up prompt), then always saves the trajectory — to ``output``
-    when set, otherwise a timestamped ``expdir/run/<YYYYMMDD_HHMMSS>.traj.json``.
+    confirmation and no follow-up prompt), then always saves the trajectory to the required
+    ``output`` path.
   * ``tasks`` set (``BatchConfig``) — batch mode. Runs every ``{task_id, task}`` row of the
     ``tasks`` JSONL concurrently (BrowseComp ``{query_id, problem}`` rows also accepted),
     saving ``<output>/trajectories/<task_id>.traj.json`` plus a slim
@@ -39,12 +39,12 @@ script; ``python3 -m nanoagent <command> ...`` is the same entry point), run fro
   # run — batch over a tasks JSONL; a set `tasks` selects batch mode and `output` is the
   # (required) output directory. Re-run the same command to resume:
   nanoagent run harness_cfg=<harness.yaml> batch_cfg=<batch.yaml> \
-      tasks=mytasks.jsonl output=expdir/batch
+      tasks=mytasks.jsonl output=outputs/batch
   # batch knobs: concurrency=16  filter='^id_'  slice=0:100  shuffle=true  redo=true  timeout=600
 
   # chat — interactive session (see :mod:`nanoagent.cli.repl.app`); browse — trajectory viewer TUI:
   nanoagent chat chat_cfg=mychat.yaml
-  nanoagent browse path=expdir/chat/
+  nanoagent browse path=outputs/chat/
 
   # override any model/agent leaf inline, on any command:
   #   ... agent.max_steps=30 model.temperature=0.7 model.base_url=http://localhost:7002/v1
@@ -86,6 +86,8 @@ def _run_single(argv: list[str]) -> int:
     cfg = load_config_args(RunConfig, argv)
     if cfg.task is None:
         raise SystemExit("run: config sets neither `task` (single) nor `tasks` (batch)")
+    if not cfg.output:
+        raise SystemExit("run: single-task mode requires `output=<trajectory file>`")
     # Single-task run = a one-shot, non-interactive (yolo, no follow-up) chat session, so it
     # streams the model and prints each tool call live, then always saves the trajectory.
     run_and_save(cfg, mode="yolo", confirm_exit=False, subdir="run")

@@ -14,11 +14,11 @@ COPY src ./src
 RUN uv python install 3.12 \
     && uv sync --python 3.12 --extra web --no-dev
 
-COPY packages/pi-runner/package.json packages/pi-runner/package-lock.json ./packages/pi-runner/
-RUN cd packages/pi-runner && npm ci --include=dev --ignore-scripts
+COPY js/pi-runner/package.json js/pi-runner/package-lock.json ./js/pi-runner/
+RUN cd js/pi-runner && npm ci --include=dev --ignore-scripts
 
-COPY packages/pi-runner ./packages/pi-runner
-RUN cd packages/pi-runner \
+COPY js/pi-runner ./js/pi-runner
+RUN cd js/pi-runner \
     && npm run build \
     && npm prune --omit=dev
 

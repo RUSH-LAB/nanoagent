@@ -94,19 +94,14 @@ def _parser() -> argparse.ArgumentParser:
     return p
 
 
-def _traj_root() -> Path:
-    # Deferred: nanoagent.cli.repl.app builds a Model at import, which is the only openai import on
-    # this path — `mgen --help` and `--dump-config` must not pay for it.
-    from nanoagent.cli.repl.app import DEFAULT_TRAJ_DIR
-
-    return Path(DEFAULT_TRAJ_DIR) / SUBDIR
-
-
-def latest_session() -> str:
+def latest_session(output: str | None) -> str:
     """The most recently written trajectory under the mgen folder — what ``-c`` continues."""
-    found = sorted(_traj_root().rglob(f"*{TRAJECTORY_SUFFIX}"), key=lambda p: p.stat().st_mtime)
+    if not output:
+        raise SystemExit("mgen: --continue requires an explicit `output` folder in the config")
+    root = Path(output)
+    found = sorted(root.rglob(f"*{TRAJECTORY_SUFFIX}"), key=lambda p: p.stat().st_mtime)
     if not found:
-        raise SystemExit(f"mgen: --continue: no session under {_traj_root()} yet")
+        raise SystemExit(f"mgen: --continue: no session under {root} yet")
     return str(found[-1])
 
 
@@ -128,7 +123,7 @@ def resolve_config(args: argparse.Namespace) -> InteractiveConfig:
     if args.prompt:
         cfg.task = " ".join(args.prompt)
     if args.resume or args.continue_:
-        cfg.resume = args.resume or latest_session()
+        cfg.resume = args.resume or latest_session(cfg.output)
     return cfg
 
 
@@ -139,7 +134,9 @@ def session_path(cfg: InteractiveConfig) -> Path:
     on the config — so a dumped config still says ``output: null`` and re-running it starts a
     new session rather than nesting one inside the last one's filename.
     """
-    folder = Path(cfg.output) if cfg.output else _traj_root()
+    if not cfg.output:
+        raise SystemExit("mgen requires an explicit `output` folder in the config")
+    folder = Path(cfg.output)
     return folder / f"{datetime.now():%y%m%d-%H%M%S}{TRAJECTORY_SUFFIX}"
 
 
@@ -178,7 +175,7 @@ def run_print(cfg: InteractiveConfig, output_format: str) -> int:
     from nanoagent.cli.repl.app import _interactive_profile
     from nanoagent.cli.repl.harness import HarnessConversation
     from nanoagent.cli.repl.tree import load as load_session
-    from nanoagent.harness.native import NativeRunner
+    from nanoagent.harness.nanoagent import NanoAgentRunner
     from nanoagent.trajectory import native as trajectory
     from nanoagent.runtime.build import build_agent
     from nanoagent.runtime.build import context_text
@@ -188,7 +185,7 @@ def run_print(cfg: InteractiveConfig, output_format: str) -> int:
         raise SystemExit("mgen: -p needs a prompt (as an argument, or `task:` in the config)")
     registry, profile = _interactive_profile(cfg)
     try:
-        if isinstance(profile.runner, NativeRunner):
+        if isinstance(profile.runner, NanoAgentRunner):
             definition = profile.runner.definition
             agent = build_agent(definition)
             messages = load_session(cfg.resume).messages if cfg.resume else None

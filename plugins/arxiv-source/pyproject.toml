@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nanoagent-arxiv-source"
+version = "0.3.0"
+description = "Download and safely unpack an arXiv source archive"
+requires-python = ">=3.12"
+dependencies = ["mcp>=1.27,<2"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.pytest.ini_options]
+# tests/ import the verifier package from the plugin root.
+pythonpath = ["."]

@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "required": [
+    "query",
+    "max_results",
+    "destination"
+  ],
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "description": "An arXiv API search_query, e.g. ti:\"attention is all you need\" or au:vaswani AND cat:cs.CL"
+    },
+    "max_results": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "How many of the best matches to save"
+    },
+    "destination": {
+      "type": "string",
+      "description": "A new folder relative to the plugin workspace; each paper goes in <destination>/<arxiv id>"
+    }
+  },
+  "additionalProperties": false
+}

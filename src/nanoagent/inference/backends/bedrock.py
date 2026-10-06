@@ -24,14 +24,9 @@ class BedrockBackend:
 
     def __init__(self, config: LeanInferConfig, *, client: Any | None = None) -> None:
         if client is None:
-            try:
-                import boto3
-                from botocore.config import Config as BotocoreConfig
-            except ImportError as error:
-                raise RuntimeError(
-                    "provider='bedrock' requires the 'bedrock' extra: "
-                    "pip install 'nanoagent[bedrock]'"
-                ) from error
+            import boto3
+            from botocore.config import Config as BotocoreConfig
+
             session = boto3.Session(
                 profile_name=config.aws_profile,
                 region_name=config.aws_region,

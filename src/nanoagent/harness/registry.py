@@ -10,7 +10,7 @@ from typing import Any
 from slimconfig import stated
 
 from nanoagent.harness.base import Runner, RunnerCapabilities
-from nanoagent.harness.native import AgentFactory, NativeRunner
+from nanoagent.harness.nanoagent import AgentFactory, NanoAgentRunner
 from nanoagent.harness.subprocess import SubprocessRunner
 from nanoagent.runtime.config import (
     AgentDefinitionConfig,
@@ -205,10 +205,10 @@ def build_runner(
     agent_factory: AgentFactory | None = None,
 ) -> Runner:
     harness = profile.harness
-    if harness.type == "native":
+    if harness.type == "nanoagent":
         overrides = stated(profile.model_overrides)
         if "model" in overrides:
-            raise ValueError("profile.model owns the native model name; do not override model")
+            raise ValueError("profile.model owns the NanoAgent model name; do not override model")
         model = replace(cfg.model, model=profile.model, **overrides)
         definition = AgentDefinitionConfig(
             model=model,
@@ -217,9 +217,9 @@ def build_runner(
             tools_dir=cfg.tools_dir,
             allowed_tools=cfg.allowed_tools,
         )
-        return NativeRunner(definition, agent_factory=agent_factory)
+        return NanoAgentRunner(definition, agent_factory=agent_factory)
     if agent_factory is not None:
-        raise ValueError("agent_factory can only be used with a native default profile")
+        raise ValueError("agent_factory can only be used with a NanoAgent default profile")
     command = harness.command or list(_DEFAULT_COMMANDS[harness.type])
     capabilities = _CAPABILITIES.get(harness.type, RunnerCapabilities())
     options = parse_kv_list(harness.options)

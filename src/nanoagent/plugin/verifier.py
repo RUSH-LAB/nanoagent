@@ -1,12 +1,103 @@
-"""Standard semantic verification contract for plugin task inputs and outputs."""
+"""The deterministic verifier every plugin ships as the ``verifier/`` package.
+
+A verifier is plain code, never a model: the same input (and the same workspace files) must
+always give the same verdict. ``verifier/__init__.py`` defines three functions, each returning
+``valid``/``score``/``message``/``details``; other modules in ``verifier/`` are imported
+relatively (``from .ids import ARXIV_ID``):
+
+    def verify_input(tool, value): ...                                  # tool: its name
+    def verify_output(tool, input_value, output_value, workspace): ...  # workspace: the folder path
+    def verify_task(task, arguments, reference, workspace): ...  # once the whole task is done
+
+``verify_input`` / ``verify_output`` check each tool call; ``verify_task`` checks the outcome of a
+task, against ``reference``: the pinned output of the task's reference tool, or None.
+
+Determinism is enforced twice. :func:`check_verifier` reads every module before anything runs:
+each may import only :data:`ALLOWED_IMPORTS` and its own package, and may not reach builtins that
+load or run code, private attributes, or file-writing methods. Each call then runs in a fresh interpreter (see
+``_verifier_sandbox.py``) with networking and process launching disabled and new imports
+blocked, and the function is called twice: two different verdicts fail the run.
+"""
 
 from __future__ import annotations
 
-import importlib.util
+import ast
+import json
+import subprocess
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from types import ModuleType
-from typing import Any, Callable
+from typing import Any
+
+# Pure, deterministic standard-library modules: no clock, randomness, environment, network or
+# processes.
+ALLOWED_IMPORTS = frozenset(
+    {
+        "__future__",
+        "collections",
+        "dataclasses",
+        "decimal",
+        "difflib",
+        "enum",
+        "fractions",
+        "functools",
+        "hashlib",
+        "itertools",
+        "json",
+        "math",
+        "operator",
+        "pathlib",
+        "re",
+        "statistics",
+        "string",
+        "textwrap",
+        "typing",
+        "unicodedata",
+    }
+)
+# Builtins that load or run code, reach hidden state, or read the terminal.
+FORBIDDEN_NAMES = frozenset(
+    {
+        "__import__",
+        "breakpoint",
+        "compile",
+        "delattr",
+        "eval",
+        "exec",
+        "getattr",
+        "globals",
+        "input",
+        "locals",
+        "open",
+        "setattr",
+        "vars",
+    }
+)
+# Attributes that write files, or reach a module an allowed one imported (`pathlib.os`).
+FORBIDDEN_ATTRIBUTES = frozenset(
+    {
+        "builtins",
+        "chmod",
+        "hardlink_to",
+        "mkdir",
+        "os",
+        "rename",
+        "rmdir",
+        "shutil",
+        "socket",
+        "subprocess",
+        "symlink_to",
+        "sys",
+        "touch",
+        "unlink",
+        "write_bytes",
+        "write_text",
+    }
+)
+# The two functions and their positional parameters.
+SIGNATURES = {"verify_input": 2, "verify_output": 4, "verify_task": 4}
+TIMEOUT = 60.0
+_SANDBOX = Path(__file__).with_name("_verifier_sandbox.py")
 
 
 @dataclass(frozen=True)
@@ -32,31 +123,121 @@ class Verification:
         return asdict(self)
 
 
-Verifier = Callable[..., Verification | dict[str, Any]]
+def check_verifier(folder: Path) -> None:
+    """Fail unless the package ``folder`` reads as a deterministic verifier (see the module docstring)."""
+    problems = verifier_problems(folder)
+    if problems:
+        raise ValueError(f"{folder} is not a deterministic verifier: " + "; ".join(problems))
 
 
-def verify_input(root: str | Path, value: dict[str, Any]) -> Verification:
-    return _call(root, "verify_input", value)
+def verifier_problems(folder: Path) -> list[str]:
+    """Every way the package ``folder`` falls short of a deterministic verifier."""
+    init = folder / "__init__.py"
+    if not init.is_file():
+        return ["verifier/ has no __init__.py"]
+    problems: list[str] = []
+    for module in sorted(folder.rglob("*.py")):
+        name = f"verifier/{module.relative_to(folder).as_posix()}"
+        try:
+            tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
+        except SyntaxError as error:
+            problems.append(f"{name}:{error.lineno}: not valid Python")
+            continue
+        problems += [f"{name}:{problem}" for problem in _problems(tree)]
+        if module == init:
+            problems += [f"{name}: {problem}" for problem in _missing_functions(tree)]
+    return problems
+
+
+def _problems(tree: ast.Module) -> list[str]:
+    problems: list[str] = []
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 0)
+        modules: list[str] = []
+        if isinstance(node, ast.Import):
+            modules = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0:
+                modules = [node.module or ""]
+            problems += [
+                f"{line}: imports {alias.name!r}"
+                for alias in node.names
+                if alias.name.startswith("_") or alias.name in FORBIDDEN_ATTRIBUTES
+            ]
+        problems += [
+            f"{line}: imports {module!r}"
+            for module in modules
+            if module.split(".")[0] not in ALLOWED_IMPORTS
+        ]
+        if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
+            problems.append(f"{line}: uses {node.id}()")
+        if isinstance(node, ast.Attribute) and (
+            node.attr.startswith("_") or node.attr in FORBIDDEN_ATTRIBUTES
+        ):
+            problems.append(f"{line}: uses .{node.attr}")
+    return problems
+
+
+def _missing_functions(tree: ast.Module) -> list[str]:
+    functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+    problems: list[str] = []
+    for name, count in SIGNATURES.items():
+        function = functions.get(name)
+        if function is None:
+            problems.append(f"defines no {name}()")
+        elif len(function.args.posonlyargs + function.args.args) != count:
+            problems.append(f"{name}() must take {count} positional argument(s)")
+    return problems
+
+def verify_input(root: str | Path, tool: str, value: dict[str, Any]) -> Verification:
+    return _call(root, "verify_input", [tool, value])
 
 
 def verify_output(
     root: str | Path,
+    tool: str,
     input_value: dict[str, Any],
     output_value: dict[str, Any],
+    workspace: Path,
 ) -> Verification:
-    return _call(root, "verify_output", input_value, output_value)
+    return _call(root, "verify_output", [tool, input_value, output_value, str(workspace.resolve())])
 
 
-def _call(root: str | Path, name: str, *arguments: dict[str, Any]) -> Verification:
-    module = _load(Path(root).resolve() / "verifier.py")
-    function = getattr(module, name, None)
-    if not callable(function):
-        raise ValueError(f"verifier.py must define {name}()")
-    result = function(*arguments)
-    if isinstance(result, Verification):
-        return result
+def verify_task(
+    root: str | Path,
+    task: str,
+    arguments: dict[str, Any],
+    reference: dict[str, Any] | None,
+    workspace: Path,
+) -> Verification:
+    return _call(root, "verify_task", [task, arguments, reference, str(workspace.resolve())])
+
+
+def _call(root: str | Path, name: str, arguments: list[Any]) -> Verification:
+    folder = Path(root).resolve() / "verifier"
+    check_verifier(folder)
+    request = {
+        "verifier": str(folder),
+        "function": name,
+        "arguments": arguments,
+        "modules": sorted(ALLOWED_IMPORTS),
+    }
+    completed = subprocess.run(
+        # -B: no __pycache__ written into the plugin.
+        [sys.executable, "-I", "-B", str(_SANDBOX)],
+        input=json.dumps(request),
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+        cwd=folder.parent,
+        check=False,
+    )
+    if completed.returncode:
+        reason = completed.stderr.strip().splitlines()[-1:] or [f"exit {completed.returncode}"]
+        raise RuntimeError(f"verifier {name}() failed: {reason[0]}")
+    result = json.loads(completed.stdout)
     if not isinstance(result, dict):
-        raise TypeError(f"{name}() must return Verification or a mapping")
+        raise TypeError(f"{name}() must return a mapping")
     try:
         return Verification(
             valid=result["valid"],
@@ -66,14 +247,3 @@ def _call(root: str | Path, name: str, *arguments: dict[str, Any]) -> Verificati
         )
     except KeyError as error:
         raise ValueError(f"{name}() result is missing {error.args[0]!r}") from error
-
-
-def _load(path: Path) -> ModuleType:
-    spec = importlib.util.spec_from_file_location(
-        f"_nanoagent_plugin_verifier_{hash(path)}", path
-    )
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load plugin verifier: {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module

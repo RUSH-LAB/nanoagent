@@ -9,7 +9,7 @@ harness > nanoagent.runtime.config.HarnessConfig:
   command:
     - node
     - --use-env-proxy
-    - packages/pi-runner/dist/index.js
+    - js/pi-runner/dist/index.js
   cwd: null
   options:
     - provider=openrouter

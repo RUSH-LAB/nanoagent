@@ -22,7 +22,7 @@ from nanoagent.harness import (
     HarnessRegistry as RunnerRegistry,
     HarnessRequest as RunnerRequest,
 )
-from nanoagent.harness.native import AgentFactory
+from nanoagent.harness.nanoagent import AgentFactory
 from nanoagent.runtime.config import HarnessProfileConfig, load_registry
 from nanoagent.web.config import WebConfig
 
@@ -169,11 +169,19 @@ class RunHost:
     def profiles(self) -> dict[str, Any]:
         return self._runners.public()
 
-    async def start(self, request: RunRequest) -> ActiveRun:
-        try:
-            profile = self._runners.resolve(request.profile)
-        except KeyError as error:
-            raise ValidationError(str(error)) from None
+    async def start(
+        self, request: RunRequest, *, runner_profile: RunnerProfile | None = None
+    ) -> ActiveRun:
+        """Start ``request`` on its configured profile, or on a caller-built ``runner_profile``."""
+        if runner_profile is not None:
+            if request.profile is not None:
+                raise ValidationError("profile cannot be selected for this run")
+            profile = runner_profile
+        else:
+            try:
+                profile = self._runners.resolve(request.profile)
+            except KeyError as error:
+                raise ValidationError(str(error)) from None
         run_id = str(uuid4())
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         task = asyncio.create_task(

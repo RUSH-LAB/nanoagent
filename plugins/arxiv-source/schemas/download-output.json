@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "required": ["ok"],
+  "properties": {
+    "ok": {"type": "boolean"},
+    "arxiv_id": {"type": "string"},
+    "source_url": {"type": "string"},
+    "folder": {"type": "string"},
+    "files": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "error": {"type": "string"}
+  },
+  "additionalProperties": false
+}

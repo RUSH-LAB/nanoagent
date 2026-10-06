@@ -1,0 +1,2 @@
+code: examples/chat_with_agent/step1_calculator.py
+operations: [add, subtract, multiply, divide]

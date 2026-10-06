@@ -18,3 +18,11 @@ htmlcov/
 # before the first key ever lands here, not after.
 .env
 .env.*
+
+# Outputs
+outputs/
+
+# Built-in plugins commit their lock and their `.env`, which holds variable names only (the plugin
+# loader refuses a value).
+!plugins/*/uv.lock
+!plugins/*/.env

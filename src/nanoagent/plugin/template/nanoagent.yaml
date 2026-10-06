@@ -1,0 +1,25 @@
+spec: nanoagent.plugin/v1
+id: {{id}}
+name: {{name}}
+version: 0.1.0
+runtime:
+  type: mcp_stdio
+  command: [uv, run, --frozen, python, -m, plugin]
+permissions:
+  network:
+    hosts: []
+  filesystem:
+    write: [workspace]
+tools:
+  - name: write_note
+    description: Write a text note into a new file in the workspace
+    input: schemas/note-input.json
+    output: schemas/note-output.json
+tasks:
+  - id: write-note
+    description: Save a note as a file
+    runner: tool
+    tools: [write_note]
+    input: schemas/note-input.json
+    reference: null
+    instructions: Write the text into a new file at the destination and return its path.

@@ -10,7 +10,7 @@ Inputs:
     produced by :mod:`nanoagent.cli.main`).
 
 Run:
-  nanoagent browse path=expdir/chat/
+  nanoagent browse path=outputs/chat/
 """
 
 from __future__ import annotations

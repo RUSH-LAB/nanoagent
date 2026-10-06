@@ -10,11 +10,14 @@ from nanoagent.harness.base import (
     HarnessUnavailableError,
     ProgressSink,
 )
-from nanoagent.harness.native import NativeHarness
+from nanoagent.harness.chat import ChatLayout, Conversation, Turn
+from nanoagent.harness.nanoagent import NanoAgentConfig, NanoAgentHarness
 from nanoagent.harness.registry import HarnessProfile, HarnessRegistry, build_harness
 from nanoagent.harness.subprocess import SubprocessHarness
 
 __all__ = [
+    "ChatLayout",
+    "Conversation",
     "Harness",
     "HarnessCapabilities",
     "HarnessError",
@@ -24,8 +27,10 @@ __all__ = [
     "HarnessRequest",
     "HarnessResult",
     "HarnessUnavailableError",
-    "NativeHarness",
+    "NanoAgentHarness",
+    "NanoAgentConfig",
     "ProgressSink",
     "SubprocessHarness",
+    "Turn",
     "build_harness",
 ]

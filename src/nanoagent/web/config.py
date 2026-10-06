@@ -23,6 +23,11 @@ class WebConfig(AgentDefinitionConfig):
     # `nanoagent.runtime.config.load_registry`). At least one; the default must be among them —
     # both checked where the registry loads, since the files are only read there.
     profiles: list[str] = MISSING
+    # Plugin directories (`nanoagent.plugin/v1` packages) published at /v1/plugins; their
+    # single-tool tasks can be run directly. Ids must be unique, checked where they load.
+    plugins: list[str] = MISSING
+    # Root of the persistent caller workspaces plugin prompts run in (see nanoagent.web.workspaces).
+    workspaces: str = MISSING
     host: str = MISSING
     port: int = MISSING
     api_token: str | None = MISSING

@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["ok"],
+  "properties": {
+    "ok": {"type": "boolean"},
+    "path": {"type": "string"},
+    "bytes": {"type": "integer"},
+    "error": {"type": "string"}
+  },
+  "additionalProperties": false
+}

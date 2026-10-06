@@ -298,17 +298,25 @@ class HarnessConfig(Config):
     options: list[str] = MISSING
 
     def __post_init__(self) -> None:
-        if self.type not in {MISSING, "native", "hermes", "pi", "codex", "claude", "custom"}:
+        if self.type not in {
+            MISSING,
+            "nanoagent",
+            "hermes",
+            "pi",
+            "codex",
+            "claude",
+            "custom",
+        }:
             raise ValueError(
-                "harness.type must be native, hermes, pi, codex, claude, or custom; "
+                "harness.type must be nanoagent, hermes, pi, codex, claude, or custom; "
                 f"got {self.type!r}"
             )
         if isinstance(self.command, list) and (
             not self.command or any(not isinstance(part, str) or not part for part in self.command)
         ):
             raise ValueError("harness.command must be null or a non-empty list of strings")
-        if self.type == "native" and self.command is not None:
-            raise ValueError("harness.command must be null for the native harness")
+        if self.type == "nanoagent" and self.command is not None:
+            raise ValueError("harness.command must be null for the NanoAgent harness")
         if self.type == "custom" and not isinstance(self.command, list):
             raise ValueError("harness.command must be set for a custom harness")
 
@@ -320,7 +328,7 @@ class HarnessProfileConfig(Config):
     label: str = MISSING
     model: str = MISSING
     harness: HarnessConfig = field(default_factory=HarnessConfig)
-    # Native profiles may override ModelConfig fields such as base_url or temperature: a layer
+    # NanoAgent profiles may override ModelConfig fields such as base_url or temperature: a layer
     # stating only what changes (`model_overrides > nanoagent.runtime.config.ModelPart:`), so an
     # unknown override key fails at load instead of reaching `dataclasses.replace`. A bare key
     # (no values under it) states nothing. Never the model name — `model` owns that.
@@ -331,8 +339,8 @@ class HarnessProfileConfig(Config):
             raise ValueError("profile label must be non-empty")
         if isinstance(self.model, str) and not self.model.strip():
             raise ValueError("profile model must be non-empty")
-        if self.harness.type not in {MISSING, "native"} and stated(self.model_overrides):
-            raise ValueError("model_overrides are only valid for native harness profiles")
+        if self.harness.type not in {MISSING, "nanoagent"} and stated(self.model_overrides):
+            raise ValueError("model_overrides are only valid for NanoAgent harness profiles")
 
 
 @dataclass
@@ -408,7 +416,7 @@ class RunConfig(AgentDefinitionConfig):
 
     # the task to run; null selects batch mode (see BatchConfig.tasks)
     task: str | None = MISSING
-    # single: trajectory .json (null = a timestamped file under expdir/run/); batch: output dir
+    # Single: required trajectory .json path. Batch: required output directory.
     output: str | None = MISSING
 
 
@@ -416,9 +424,8 @@ class RunConfig(AgentDefinitionConfig):
 class InteractiveConfig(RunConfig):
     """An interactive ``chat`` session: a :class:`RunConfig` plus the confirm/yolo toggle.
 
-    ``task`` is the optional opening task (null = prompt interactively); ``output`` is the FOLDER
-    the session trajectory is saved into on exit, named ``<yymmdd-hhmmss>.traj.json`` by the time
-    the chat started (null = the default folder ``expdir/chat/``).
+    ``task`` is the optional opening task (null = prompt interactively); ``output`` is the required
+    folder where the session trajectory is saved on exit.
     """
 
     yolo: bool = MISSING  # run tool calls without confirmation
@@ -433,7 +440,7 @@ class InteractiveConfig(RunConfig):
     # is not a member fails at load — previously it silently restyled nothing.
     theme: dict[ThemeName, str] = MISSING
     images: bool = MISSING  # draw an image a tool returns inline, instead of printing its path
-    # Optional model–harness profiles. Empty preserves the direct native configuration above;
+    # Optional model–harness profiles. Empty preserves the direct NanoAgent configuration above;
     # otherwise `profile` selects one entry and chat / mgen use the same HarnessRegistry as web
     # and benchmark execution.
     profiles: list[str] = field(default_factory=list)

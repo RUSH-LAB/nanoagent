@@ -1,0 +1,9 @@
+_ > nanoagent.cli.plugin.PluginRunConfig:
+
+# The built-in arXiv source plugin.
+plugin: plugins/arxiv-source
+task: save-paper-source
+arguments:
+  - arxiv_id="1706.03762"
+  - destination=attention
+timeout: 300.0

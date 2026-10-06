@@ -3,7 +3,7 @@
 .venv
 __pycache__
 *.pyc
-packages/*/node_modules
-packages/*/dist
+js/*/node_modules
+js/*/dist
 tests
 docs
