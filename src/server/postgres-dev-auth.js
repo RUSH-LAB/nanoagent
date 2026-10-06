@@ -7,9 +7,9 @@ const postgres = require('./postgres/database');
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const DEV_AUTOLOGIN = false;
 const ROOT_USERNAME = 'root';
-const ROOT_EMAIL = (process.env.ROOT_EMAIL || 'root@mochi.local').trim().toLowerCase();
-const ROOT_PASSWORD = process.env.ROOT_PASSWORD || 'root@mochi.local';
-const ROOT_NAME = process.env.ROOT_NAME || 'Root User';
+// The local root login is fixed so it never depends on .env. ROOT_* values in
+// .env only configure the production root (scripts/db/provision-production-root.mjs).
+const LOCAL_ROOT = {email: 'root@mochi.local', password: 'root@mochi.local', name: 'Root User'};
 const ROOT_WORKSPACE = 'mochi';
 const ROOT_LOGIN_ENABLED = process.env.POSTGRES_ROOT_LOGIN === 'true' && !IS_PRODUCTION;
 
@@ -18,32 +18,32 @@ function isLoopback(req) {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
 }
 
-async function provisionRoot(auth) {
+async function provisionRoot(auth, {email, password, name}) {
   const pool = postgres.migrationPool;
   let root = (await pool.query(
-    'select id from app_user where lower(email) = lower($1)', [ROOT_EMAIL],
+    'select id from app_user where lower(email) = lower($1)', [email],
   )).rows[0];
 
   if (!root) {
-    await auth.api.signUpEmail({body: {email: ROOT_EMAIL, password: ROOT_PASSWORD, name: ROOT_NAME}});
+    await auth.api.signUpEmail({body: {email, password, name}});
     root = (await pool.query(
-      'select id from app_user where lower(email) = lower($1)', [ROOT_EMAIL],
+      'select id from app_user where lower(email) = lower($1)', [email],
     )).rows[0];
   }
   if (!root) throw new Error('Root account could not be created');
 
-  const password = await hashPassword(ROOT_PASSWORD);
+  const passwordHash = await hashPassword(password);
   const client = await pool.connect();
   try {
     await client.query('begin');
     await client.query(
       'update app_user set display_name = $1, email_verified = true, updated_at = now() where id = $2',
-      [ROOT_NAME, root.id],
+      [name, root.id],
     );
     const credential = await client.query(
       `update auth_account set password = $1, updated_at = now()
        where user_id = $2 and provider_id = 'credential'`,
-      [password, root.id],
+      [passwordHash, root.id],
     );
     if (credential.rowCount !== 1) throw new Error('Root credential account is missing or ambiguous');
 
@@ -78,12 +78,12 @@ async function handleDevLogin(req, res, auth, json, readBody) {
 
   try {
     const body = await readBody(req);
-    if (String(body?.email ?? '').trim().toLowerCase() !== ROOT_EMAIL || body?.password !== ROOT_PASSWORD) {
+    if (String(body?.email ?? '').trim().toLowerCase() !== LOCAL_ROOT.email || body?.password !== LOCAL_ROOT.password) {
       return json(res, 401, {error: 'Invalid email or password'});
     }
-    await provisionRoot(auth);
+    await provisionRoot(auth, LOCAL_ROOT);
     const result = await auth.api.signInEmail({
-      body: {email: ROOT_EMAIL, password: ROOT_PASSWORD},
+      body: {email: LOCAL_ROOT.email, password: LOCAL_ROOT.password},
       returnHeaders: true,
     });
     const cookies = result.headers?.getSetCookie?.() ?? [];
@@ -99,7 +99,7 @@ module.exports = {
   ROOT_USERNAME,
   ensureRootUser: async auth => {
     if (!ROOT_LOGIN_ENABLED) return null;
-    const userId = await provisionRoot(auth);
+    const userId = await provisionRoot(auth, LOCAL_ROOT);
     return {
       username: ROOT_USERNAME,
       userId,

@@ -3,7 +3,11 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import {useLocation} from '@docusaurus/router';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import Markdown from '@site/src/components/CommandBar/Markdown';
-import ToolsLayout from '@site/src/components/ToolsLayout';
+import Layout from '@theme/Layout';
+import PluginSidebar, {pluginNavigation} from '@site/src/components/PluginSidebar';
+import ThreeColumnLayout from '@site/src/components/ThreeColumnLayout';
+import useWorkspaceApps from '@site/src/hooks/useWorkspaceApps';
+import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import styles from './styles.module.css';
 
 /**
@@ -146,16 +150,29 @@ function ChatSession({app}) {
   );
 }
 
+/** A plugin still being built: what it is, and that it cannot be used yet. */
+function MaintenanceNotice({app}) {
+  return (
+    <article className={styles.detail}>
+      <header className={styles.detailHeader}>
+        <h1>{app.name}</h1>
+      </header>
+      <section className={styles.maintenanceNotice}>
+        <strong>Under maintenance</strong>
+        <p>{app.name} is still being built, so it can't be used yet. It will open here once it is ready.</p>
+      </section>
+    </article>
+  );
+}
+
 function AppDetail({app}) {
+  if (app.status !== 'ready') return <MaintenanceNotice app={app} />;
   const hosts = app.permissions.network.hosts;
   const writes = app.permissions.filesystem.write;
   return (
     <article className={styles.detail}>
       <header className={styles.detailHeader}>
-        <div>
-          <div className={styles.eyebrow}>{app.id} · v{app.version}</div>
-          <h2>{app.name}</h2>
-        </div>
+        <h1>{app.name}</h1>
         <div className={styles.badges}>
           <span className={styles.badge}>Network: {hosts.length ? hosts.join(', ') : 'none'}</span>
           <span className={styles.badge}>Writes: {writes.length ? writes.join(', ') : 'none'}</span>
@@ -170,37 +187,44 @@ function AppDetail({app}) {
   );
 }
 
-function AppsApp() {
-  const {useState, useEffect} = React;
-  const {apiRequest} = require('@site/src/utils/api');
+function AppsColumns() {
   const location = useLocation();
-  const [apps, setApps] = useState(null);
-  const [error, setError] = useState(null);
+  const {slug, workspace} = useWorkspaceSite();
+  const {apps, error} = useWorkspaceApps(workspace);
+  const navigation = pluginNavigation(apps ?? [], location.search, `/w/${encodeURIComponent(slug)}/apps`);
 
-  useEffect(() => {
-    apiRequest('/api/apps', undefined, {failureLabel: 'Could not load apps'})
-      .then(data => setApps(data.apps))
-      .catch(err => setError(err.message));
-  }, []);
-
-  // The selection lives in ?app=, which the sidebar and the navbar menu link to.
-  const requested = new URLSearchParams(location.search).get('app');
-  const selected = requested ?? apps?.[0]?.id ?? null;
-  const app = apps?.find(item => item.id === selected);
-  if (error) return <div className={styles.error}>{error}</div>;
-  if (apps && !apps.length) {
-    return <p className={styles.muted}>NanoAgent publishes no apps. List plugin directories under <code>plugins</code> in its web config.</p>;
+  let content = null;
+  if (!slug) content = <p className={styles.muted}>Open Plugins from a workspace.</p>;
+  else if (error) content = <div className={styles.error}>{error}</div>;
+  else if (apps && !apps.length) {
+    content = <p className={styles.muted}>NanoAgent publishes no apps. List plugin directories under <code>plugins</code> in its web config.</p>;
+  } else if (apps && navigation.unknownGroup) {
+    content = <div className={styles.error}>No plugin group named {navigation.unknownGroup}.</div>;
+  } else if (apps && navigation.requestedApp && !navigation.app) {
+    content = <div className={styles.error}>No app named {navigation.requestedApp}.</div>;
+  } else if (apps) {
+    content = <AppDetail key={navigation.app.id} app={navigation.app} />;
   }
-  if (!apps) return null;
-  return app ? <AppDetail key={app.id} app={app} /> : <div className={styles.error}>No app named {selected}.</div>;
+
+  return (
+    <ThreeColumnLayout
+      sidebarKey="plugins"
+      showSidebarOnMobile
+      renderSidebar={({collapsed, onCollapse}) => (
+        <PluginSidebar navigation={navigation} collapsed={collapsed} onCollapse={onCollapse} />
+      )}
+    >
+      <BrowserOnly fallback={<div style={{padding: 40, textAlign: 'center'}}>Loading...</div>}>
+        {() => <ErrorBoundary>{content}</ErrorBoundary>}
+      </BrowserOnly>
+    </ThreeColumnLayout>
+  );
 }
 
 export default function AppsPage() {
   return (
-    <ToolsLayout title="Plugins" description="Apps built on NanoAgent">
-      <BrowserOnly fallback={<div style={{padding: 40, textAlign: 'center'}}>Loading...</div>}>
-        {() => <ErrorBoundary><AppsApp /></ErrorBoundary>}
-      </BrowserOnly>
-    </ToolsLayout>
+    <Layout title="Plugins" description="Apps built on NanoAgent">
+      <AppsColumns />
+    </Layout>
   );
 }

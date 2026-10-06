@@ -21,7 +21,11 @@ export async function main() {
   const {provisionRoot} = require('../../src/server/postgres-dev-auth');
   try {
     await postgres.ready;
-    const userId = await provisionRoot(auth);
+    const userId = await provisionRoot(auth, {
+      email: process.env.ROOT_EMAIL.trim().toLowerCase(),
+      password: process.env.ROOT_PASSWORD,
+      name: process.env.ROOT_NAME || 'Root User',
+    });
     console.log(`Provisioned verified platform root ${process.env.ROOT_EMAIL} (${userId}).`);
   } finally {
     await postgres.close();

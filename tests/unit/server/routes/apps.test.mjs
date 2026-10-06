@@ -64,6 +64,14 @@ describe('NanoAgent apps', () => {
     }
   });
 
+  it('sends a viewable file as an attachment when asked to download it', async () => {
+    const ctx = ctxWith({workspaceFile: async () => ({value: Buffer.from('text')})});
+    const served = await invoke(routes, {
+      method: 'GET', path: '/api/agent-files/content', query: '?path=notes/a.txt&download=1', ctx, requestContext: context,
+    });
+    assert.equal(served.res.written.headers['Content-Disposition'], 'attachment; filename="a.txt"');
+  });
+
   it('does not let a viewer delete workspace files', async () => {
     const ctx = ctxWith({deleteWorkspaceFile: async () => assert.fail('must not delete')});
     await assert.rejects(

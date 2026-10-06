@@ -47,7 +47,8 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
     requireWorkspacePermission(req.context, 'content:read');
     const result = await ai.workspaceFile(workspace, path);
     if (result.error) return json(res, result.status, {error: result.error});
-    const {type, inline} = contentTypeFor(path, result.value);
+    const {type, inline: viewable} = contentTypeFor(path, result.value);
+    const inline = viewable && url.searchParams.get('download') !== '1';
     const filename = path.split('/').pop().replace(/["\\\r\n]/g, '_');
     const origin = req.headers.origin;
     res.writeHead(200, {

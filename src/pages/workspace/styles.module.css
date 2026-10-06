@@ -1,18 +1,5 @@
-.pageHeader {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-  padding-bottom: 1.25rem;
-  border-bottom: 1px solid var(--ifm-color-emphasis-200);
-}
-
-.pageHeader h1 {
-  margin: 0.15rem 0 0.35rem;
-}
-
-.eyebrow {
+.eyebrow,
+.breadcrumb {
   color: var(--ifm-color-primary);
   font-size: 0.7rem;
   font-weight: 750;
@@ -20,10 +7,28 @@
   text-transform: uppercase;
 }
 
+.breadcrumb {
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.page h1 {
+  margin: 0.15rem 0 0.35rem;
+  overflow-wrap: anywhere;
+}
+
 .muted {
   margin: 0;
   color: var(--ifm-color-emphasis-600);
   font-size: 0.9rem;
+}
+
+.empty {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  border: 1px dashed var(--ifm-color-emphasis-300);
+  border-radius: 12px;
+  color: var(--ifm-color-emphasis-600);
 }
 
 .error {
@@ -35,50 +40,81 @@
   font-size: 0.875rem;
 }
 
-.files {
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--ifm-color-emphasis-300);
-  border-radius: 14px;
-  background: var(--ifm-background-surface-color);
+.sectionTitle {
+  margin: 1.5rem 0 0.5rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.fileTree {
+.recent {
   margin: 0;
-  padding-left: 1rem;
+  padding: 0;
   list-style: none;
-  font-size: 0.875rem;
 }
 
-.files > .fileTree {
-  padding-left: 0;
-}
-
-.fileTree summary {
-  cursor: pointer;
-}
-
-.fileRow {
+.recent li {
   display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.1rem 0;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  font-size: 0.9rem;
 }
 
-.fileRow a {
+.recent a {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.deleteFile {
-  margin-left: auto;
-  padding: 0 0.3rem;
-  border: none;
-  background: none;
-  color: var(--ifm-color-emphasis-500);
-  cursor: pointer;
+.fileHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
 }
 
-.deleteFile:hover {
-  color: var(--ifm-color-danger);
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.preview {
+  min-width: 0;
+}
+
+.text {
+  max-height: 75vh;
+  margin: 0;
+  overflow: auto;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.markdown {
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 12px;
+}
+
+.image {
+  display: block;
+  max-width: 100%;
+  max-height: 75vh;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 8px;
+}
+
+.pdf {
+  width: 100%;
+  height: 80vh;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 8px;
 }
