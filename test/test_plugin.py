@@ -56,6 +56,9 @@ def write_plugin(root: Path) -> Path:
 id: echo
 name: Echo
 version: 1.0.0
+group: Testing
+category: Testing
+status: ready
 runtime:
   type: mcp_stdio
   command: [echo-server]
@@ -196,7 +199,7 @@ def test_fails_a_verifier_whose_two_calls_disagree(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_exposes_plugin_as_agent_tools(tmp_path: Path) -> None:
     manifest = load_manifest(write_plugin(tmp_path).parent)
-    tool = plugin_tools(manifest, tmp_path)[0]
+    tool = plugin_tools(manifest, tmp_path, session=None)[0]
     assert tool.to_openai_spec()["function"]["parameters"]["required"] == ["value"]
 
 
@@ -210,6 +213,7 @@ from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
 server = Server("echo")
+CALLS = []
 
 
 @server.list_tools()
@@ -222,7 +226,9 @@ async def list_tools():
 @server.call_tool()
 async def call_tool(name, arguments):
     Path(os.environ["NANOAGENT_WORKSPACE"], "echo.txt").write_text(arguments["value"])
-    return {"ok": True, "value": arguments["value"]}
+    CALLS.append(arguments["value"])
+    # Every value this process has seen: one process for a session keeps them all.
+    return {"ok": True, "value": "+".join(CALLS)}
 
 
 async def main():
@@ -251,10 +257,13 @@ plugin: {plugin}
 task: echo
 arguments:
   - value=hello
+inputs:
+  - {tmp_path / "given.txt"}
 timeout: 60.0
 """,
         encoding="utf-8",
     )
+    (tmp_path / "given.txt").write_text("a file the task reads", encoding="utf-8")
     home = tmp_path / "run"
     monkeypatch.setattr(sys, "argv", ["nanoagent", "plugin", "run"])
     with pytest.raises(SystemExit) as exit_:
@@ -263,6 +272,8 @@ timeout: 60.0
     run = load_layout(home, PluginRunLayout)
     assert run.result.response == {"ok": True, "value": "hello"}
     assert (run.workspace / "echo.txt").read_text() == "hello"
+    assert (run.workspace / "inputs" / "given.txt").read_text() == "a file the task reads"
+    assert run.verdict.valid is True
 
 
 def test_verifier_package_may_import_its_own_modules(tmp_path: Path) -> None:
@@ -340,9 +351,9 @@ def _layout(folder: Path) -> set[str]:
     return {path.name for path in folder.iterdir() if path.name not in TOOL_ARTIFACTS}
 
 
-def test_the_built_in_reference_plugin_follows_every_rule() -> None:
-    manifest = load_manifest(ROOT / "plugins" / "arxiv-source")
-    assert [task.id for task in manifest.tasks if task.reference] == ["daily-digest"]
+@pytest.mark.parametrize("plugin", sorted(path.name for path in (ROOT / "plugins").iterdir() if path.is_dir()))
+def test_every_built_in_plugin_follows_every_rule(plugin: str) -> None:
+    assert load_manifest(ROOT / "plugins" / plugin).id == plugin
 
 
 def test_plugin_new_creates_a_plugin_shaped_like_the_reference(tmp_path: Path) -> None:
@@ -355,3 +366,51 @@ def test_plugin_new_creates_a_plugin_shaped_like_the_reference(tmp_path: Path) -
     assert "{{" not in (tmp_path / "my-notes" / "LICENSE").read_text()
     assert main(["new", str(tmp_path / "my-notes")]) == 1
     assert main(["new", str(tmp_path / "Bad_Name")]) == 1
+
+
+def _echo_plugin(tmp_path: Path) -> Path:
+    import sys
+
+    plugin = tmp_path / "plugin"
+    manifest = write_plugin(plugin)
+    manifest.write_text(manifest.read_text().replace("[echo-server]", f"[{sys.executable}, src/server.py]"))
+    (plugin / "src" / "server.py").write_text(SERVER, encoding="utf-8")
+    # The fixture's verifier wants the output to echo the input; this server reports its history.
+    verifier = plugin / "verifier" / "__init__.py"
+    verifier.write_text(
+        verifier.read_text().replace(
+            "output_value.get('value') == input_value.get('value')",
+            "output_value.get('value').endswith(input_value.get('value'))",
+        ),
+        encoding="utf-8",
+    )
+    return plugin
+
+
+async def test_a_session_keeps_one_plugin_process_for_every_call(tmp_path: Path) -> None:
+    from nanoagent.plugin import PluginSession
+
+    manifest = load_manifest(_echo_plugin(tmp_path))
+    async with PluginSession(manifest, tmp_path, timeout=60) as session:
+        assert (await session.call("echo", {"value": "a"}))["value"] == "a"
+        assert (await session.call("echo", {"value": "b"}))["value"] == "a+b"
+    with pytest.raises(RuntimeError, match="not open"):
+        await session.call("echo", {"value": "c"})
+
+
+async def test_plugin_tool_images_reach_the_model_as_images() -> None:
+    from nanoagent.core.tool import Tool, ToolText
+
+    class Shot(Tool):
+        NAME = "shot"
+        PARAMETERS = {"type": "object", "properties": {}}
+
+        @property
+        def description(self) -> str:
+            return "a picture"
+
+        def run(self) -> str:
+            return ToolText("{}", images=[{"media_type": "image/png", "data": "iVBORw=="}])
+
+    text, is_error = await Shot().invoke()
+    assert (str(text), is_error, text.images) == ("{}", False, [{"media_type": "image/png", "data": "iVBORw=="}])

@@ -6,4 +6,5 @@ task: search-papers
 arguments:
   - query=ti:"attention is all you need"
   - max_results=5
+inputs: []
 timeout: 300.0

@@ -222,6 +222,8 @@ class ChatBackend:
         :class:`Response` is identical to the non-streamed path; streaming only adds the live
         callback (tool-call fragments are reassembled internally, not streamed).
         """
+        if any(message.get("images") for message in messages):
+            raise ValueError("this backend cannot show tool images to the model; use provider=bedrock")
         kwargs: dict[str, Any] = {**self._base_kwargs, "messages": messages}
         if tools:
             kwargs["tools"] = tools

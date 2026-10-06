@@ -139,3 +139,21 @@ def test_bedrock_harness_profiles_require_explicit_regions() -> None:
         _validate_provider_options(
             harness, {"provider": provider, "aws_region": "us-west-2"}
         )
+
+
+def test_bedrock_sends_tool_images_as_image_blocks() -> None:
+    from nanoagent.inference.backends.bedrock import _message
+
+    message = {
+        "role": "tool",
+        "tool_call_id": "call-1",
+        "content": "{}",
+        "images": [{"media_type": "image/png", "data": "iVBORw=="}],
+    }
+    [result] = _message(message)["content"]
+    assert result["toolResult"]["content"] == [
+        {"text": "{}"},
+        {"image": {"format": "png", "source": {"bytes": b"\x89PNG"}}},
+    ]
+    with pytest.raises(ValueError, match="cannot show"):
+        _message({**message, "images": [{"media_type": "application/pdf", "data": ""}]})

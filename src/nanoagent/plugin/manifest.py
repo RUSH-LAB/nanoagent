@@ -68,6 +68,9 @@ _TEXTS = {"type": "array", "minItems": 1, "items": _TEXT}
 _SCHEMA_FILE = {"type": "string", "pattern": r"^schemas/[^\s]+\.json$"}
 
 
+STATUSES = ("ready", "in-development")
+
+
 def _record(required: dict[str, Any]) -> dict[str, Any]:
     """An object with exactly the keys ``required``, each matching its schema."""
     return {
@@ -85,6 +88,12 @@ MANIFEST_SCHEMA = _record(
         "id": {"type": "string", "pattern": PLUGIN_ID.pattern},
         "name": _TEXT,
         "version": _TEXT,
+        # Where a catalog files the plugin: a group such as "Research", and within it a
+        # category such as "Papers".
+        "group": _TEXT,
+        "category": _TEXT,
+        # Whether hosts may run it: "ready", or "in-development" (listed, never run).
+        "status": {"enum": list(STATUSES)},
         "runtime": _record(
             {"type": {"const": "mcp_stdio"}, "command": {"oneOf": [_TEXT, _TEXTS]}}
         ),
@@ -123,6 +132,16 @@ MANIFEST_SCHEMA = _record(
         },
     }
 )
+
+
+# What a catalog needs to list a plugin: the identifying head of `nanoagent.yaml`. The rest may
+# be unfinished while the plugin is in development, since a host never runs it then.
+LISTING_KEYS = ("spec", "id", "name", "version", "group", "category", "status")
+LISTING_SCHEMA = {
+    "type": "object",
+    "required": list(LISTING_KEYS),
+    "properties": {key: MANIFEST_SCHEMA["properties"][key] for key in LISTING_KEYS},
+}
 
 
 class PluginError(ValueError):
@@ -168,6 +187,9 @@ class PluginManifest:
     id: str
     name: str
     version: str
+    group: str
+    category: str
+    status: str
     runtime: str
     command: tuple[str, ...]
     permissions: Permissions
@@ -194,6 +216,9 @@ class PluginManifest:
             "id": self.id,
             "name": self.name,
             "version": self.version,
+            "group": self.group,
+            "category": self.category,
+            "status": self.status,
             "runtime": {"type": self.runtime, "command": list(self.command)},
             "env": list(self.env),
             "permissions": {
@@ -387,6 +412,9 @@ def load_manifest(source: str | Path) -> PluginManifest:
         id=raw["id"],
         name=raw["name"].strip(),
         version=raw["version"].strip(),
+        group=raw["group"].strip(),
+        category=raw["category"].strip(),
+        status=raw["status"],
         runtime="mcp_stdio",
         command=tuple(shlex.split(command) if isinstance(command, str) else command),
         permissions=Permissions(
@@ -396,3 +424,62 @@ def load_manifest(source: str | Path) -> PluginManifest:
         tools=tuple(tools),
         tasks=tuple(tasks),
     )
+
+
+@dataclass(frozen=True)
+class PluginListing:
+    """An in-development plugin as a catalog shows it: what it is, never how to run it."""
+
+    root: Path
+    id: str
+    name: str
+    version: str
+    group: str
+    category: str
+    status: str
+
+    def public(self) -> dict[str, Any]:
+        readme = self.root / "README.md"
+        return {
+            "spec": SPEC,
+            "id": self.id,
+            "name": self.name,
+            "version": self.version,
+            "group": self.group,
+            "category": self.category,
+            "status": self.status,
+            "readme": readme.read_text(encoding="utf-8") if readme.is_file() else "",
+        }
+
+
+def load_listing(source: str | Path) -> PluginManifest | PluginListing:
+    """A ``ready`` plugin, which must pass every rule, or an in-development one's listing.
+
+    An in-development plugin need only name itself correctly, so a plugin being built cannot
+    stop a host that lists it; a ``ready`` one is held to all of :func:`load_manifest`.
+    """
+    root = Path(source).expanduser().resolve()
+    try:
+        raw = yaml.safe_load((root / MANIFEST).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise PluginError(root, [f"{MANIFEST} not found"]) from None
+    except yaml.YAMLError as error:
+        raise PluginError(root, [f"{MANIFEST} is not YAML: {error}"]) from None
+    violations = [
+        f"{MANIFEST} {'.'.join(str(part) for part in error.absolute_path) or '(top level)'}: {error.message}"
+        for error in Draft202012Validator(LISTING_SCHEMA).iter_errors(raw)
+    ]
+    if violations:
+        raise PluginError(root, violations)
+    if raw["status"] == "ready":
+        return load_manifest(root)
+    return PluginListing(
+        root=root,
+        id=raw["id"],
+        name=raw["name"].strip(),
+        version=raw["version"].strip(),
+        group=raw["group"].strip(),
+        category=raw["category"].strip(),
+        status=raw["status"],
+    )
+

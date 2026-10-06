@@ -1,0 +1,40 @@
+spec: nanoagent.plugin/v1
+id: bibtex-check
+name: BibTeX Hallucination Check
+version: 0.1.0
+group: Research
+category: Citations
+status: in-development
+runtime:
+  type: mcp_stdio
+  command: [uv, run, --frozen, python, -m, plugin]
+permissions:
+  network:
+    hosts: []
+  filesystem:
+    write: [workspace]
+tools:
+  - name: parse_bibtex
+    description: Parse the reference and raw BibTeX files into the registered schema
+    input: schemas/parse-input.json
+    output: schemas/parse-output.json
+  - name: read_bibtex
+    description: Read a BibTeX file's entries in the registered schema
+    input: schemas/read-input.json
+    output: schemas/read-output.json
+  - name: submit_verdicts
+    description: Write one verdict, real or hallucinated, per raw entry key to verdicts.json
+    input: schemas/verdicts-input.json
+    output: schemas/verdicts-output.json
+tasks:
+  - id: check-bibtex
+    description: Decide for each entry of an LLM-generated BibTeX file whether it matches a verified reference entry
+    runner: agent
+    tools: [read_bibtex, submit_verdicts]
+    input: schemas/parse-input.json
+    reference: parse_bibtex
+    instructions: |-
+      Call read_bibtex on the reference file and on the raw file. Each entry has its citation key and either its record in the registered schema (entry_type, title, authors, year, venue, doi) or, when it does not parse into the schema, a null record and an error.
+      A raw entry is real only when its record equals some reference record exactly, in every one of those six fields; the citation keys do not matter. Every other raw entry, including one with a null record, is hallucinated.
+      Then call submit_verdicts once with exactly one verdict, real or hallucinated, for every raw entry key.
+      Finish with a one-paragraph report naming each hallucinated entry and what differs.

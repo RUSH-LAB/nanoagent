@@ -2,6 +2,9 @@ spec: nanoagent.plugin/v1
 id: {{id}}
 name: {{name}}
 version: 0.1.0
+group: General
+category: General
+status: in-development
 runtime:
   type: mcp_stdio
   command: [uv, run, --frozen, python, -m, plugin]

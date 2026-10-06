@@ -7,4 +7,5 @@ arguments:
   - query=ti:"attention is all you need"
   - max_results=2
   - destination=papers
+inputs: []
 timeout: 300.0

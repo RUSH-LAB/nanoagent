@@ -1,0 +1,73 @@
+{
+  "oatmeal with blueberries and peanut butter": {
+    "meals": ["breakfast"],
+    "tags": ["vegetarian", "dairy"],
+    "ingredients": {"rolled oats": 60, "milk, 2%": 200, "blueberries": 80, "peanut butter": 16}
+  },
+  "greek yogurt bowl": {
+    "meals": ["breakfast"],
+    "tags": ["vegetarian", "dairy"],
+    "ingredients": {"greek yogurt, nonfat": 200, "blueberries": 75, "rolled oats": 30, "banana": 60}
+  },
+  "scrambled eggs on toast": {
+    "meals": ["breakfast"],
+    "tags": ["vegetarian", "gluten"],
+    "ingredients": {"eggs": 120, "whole wheat bread": 60, "spinach": 30, "olive oil": 5}
+  },
+  "peanut butter banana toast": {
+    "meals": ["breakfast"],
+    "tags": ["vegetarian", "vegan", "gluten"],
+    "ingredients": {"whole wheat bread": 60, "peanut butter": 32, "banana": 100}
+  },
+  "tofu scramble": {
+    "meals": ["breakfast"],
+    "tags": ["vegetarian", "vegan", "gluten"],
+    "ingredients": {"tofu, firm": 150, "spinach": 50, "whole wheat bread": 40, "olive oil": 5}
+  },
+  "chickpea quinoa salad": {
+    "meals": ["lunch", "dinner"],
+    "tags": ["vegetarian", "vegan"],
+    "ingredients": {"chickpeas, cooked": 150, "quinoa, cooked": 150, "spinach": 40, "avocado": 50, "olive oil": 10}
+  },
+  "lentil soup": {
+    "meals": ["lunch", "dinner"],
+    "tags": ["vegetarian", "vegan"],
+    "ingredients": {"lentils, cooked": 250, "tomato sauce": 100, "spinach": 50, "olive oil": 5}
+  },
+  "chicken rice bowl": {
+    "meals": ["lunch", "dinner"],
+    "tags": ["meat"],
+    "ingredients": {"chicken breast, cooked": 150, "brown rice, cooked": 180, "broccoli, cooked": 100, "olive oil": 5}
+  },
+  "black bean burrito bowl": {
+    "meals": ["lunch", "dinner"],
+    "tags": ["vegetarian", "dairy"],
+    "ingredients": {
+      "black beans, cooked": 150,
+      "brown rice, cooked": 150,
+      "avocado": 50,
+      "cheddar cheese": 30,
+      "tomato sauce": 60
+    }
+  },
+  "tofu broccoli stir-fry": {
+    "meals": ["dinner"],
+    "tags": ["vegetarian", "vegan"],
+    "ingredients": {"tofu, firm": 200, "broccoli, cooked": 150, "brown rice, cooked": 150, "olive oil": 10}
+  },
+  "baked salmon with quinoa": {
+    "meals": ["dinner"],
+    "tags": ["fish"],
+    "ingredients": {"salmon, cooked": 150, "quinoa, cooked": 150, "broccoli, cooked": 100, "olive oil": 5}
+  },
+  "whole wheat pasta with lentil marinara": {
+    "meals": ["dinner"],
+    "tags": ["vegetarian", "dairy", "gluten"],
+    "ingredients": {
+      "whole wheat pasta, cooked": 200,
+      "lentils, cooked": 100,
+      "tomato sauce": 150,
+      "cheddar cheese": 20
+    }
+  }
+}

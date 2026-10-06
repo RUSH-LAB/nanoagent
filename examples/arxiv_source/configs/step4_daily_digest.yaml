@@ -6,6 +6,7 @@ task: daily-digest
 arguments:
   - people=["Yoshua Bengio", "Yann LeCun"]
   - date=2026-09-09
+inputs: []
 timeout: 300.0
 
 llm > nanoagent.llm.bedrock.BedrockConfig:

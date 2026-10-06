@@ -8,6 +8,7 @@ agent loop. Botocore owns service retries; NanoAgent's request timeout becomes i
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 from collections.abc import Callable
 from typing import Any
@@ -172,7 +173,10 @@ def _message(message: dict[str, Any]) -> dict[str, Any]:
                 {
                     "toolResult": {
                         "toolUseId": str(message.get("tool_call_id", "")),
-                        "content": [{"text": str(message.get("content", ""))}],
+                        "content": [
+                            {"text": str(message.get("content", ""))},
+                            *(_image(image) for image in message.get("images", [])),
+                        ],
                         "status": "success",
                     }
                 }
@@ -204,6 +208,14 @@ def _message(message: dict[str, Any]) -> dict[str, Any]:
                 }
             )
     return {"role": role, "content": content}
+
+
+def _image(image: dict[str, str]) -> dict[str, Any]:
+    """One tool-result image (``{"media_type": "image/png", "data": <base64>}``) as a Converse block."""
+    kind, _, image_format = image["media_type"].partition("/")
+    if kind != "image" or image_format not in {"png", "jpeg", "gif", "webp"}:
+        raise ValueError(f"Bedrock cannot show a tool image of type {image['media_type']!r}")
+    return {"image": {"format": image_format, "source": {"bytes": base64.b64decode(image["data"])}}}
 
 
 def _tool_spec(tool: dict[str, Any]) -> dict[str, Any]:

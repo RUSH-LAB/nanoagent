@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "required": [
+    "reference",
+    "raw"
+  ],
+  "properties": {
+    "reference": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The verified BibTeX file, relative to the workspace"
+    },
+    "raw": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The LLM-generated BibTeX file, relative to the workspace"
+    }
+  },
+  "additionalProperties": false
+}

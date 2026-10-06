@@ -1,9 +1,18 @@
+"""Running plugin tools: one plugin process per :class:`PluginSession`, every call checked.
+
+A session runs the plugin's ``run.sh`` once, starts its MCP server once and keeps it for every call,
+so a plugin can hold state (a browser, a game) for the whole of one task run. Each call re-checks
+the plugin rules, validates both schemas and runs the verifier on its input and output.
+:func:`call_tool` is a session of one call.
+"""
+
 from __future__ import annotations
 
 import json
 import os
 import subprocess
 from collections.abc import Sequence
+from contextlib import AsyncExitStack
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -14,7 +23,7 @@ from mcp.client.stdio import get_default_environment, stdio_client
 from mcp.types import TextContent
 from jsonschema import ValidationError, validate
 
-from nanoagent.core.tool import Tool
+from nanoagent.core.tool import Tool, ToolText
 from nanoagent.plugin.manifest import PluginManifest, load_manifest
 from nanoagent.plugin.verifier import verify_input, verify_output
 
@@ -70,62 +79,110 @@ async def call_tool_async(
     timeout: float = 300,
 ) -> dict[str, Any]:
     """:func:`call_tool` for a caller already inside an event loop, such as an agent."""
-    # The rules are re-checked on every call: a plugin edited since it loaded, or a manifest
-    # built by hand, is refused.
-    if load_manifest(manifest.root) != manifest:
-        raise ValueError(f"plugin {manifest.id} changed since it was loaded; load it again")
-    if not workspace.is_dir():
-        raise ValueError(f"plugin workspace {workspace} is not a folder")
-    definition = manifest.tool(tool)
+    # Bad input is refused before the plugin is launched.
+    _check_input(manifest, tool, arguments)
+    async with PluginSession(manifest, workspace, timeout=timeout) as session:
+        return await session.invoke(tool, arguments)
+
+
+def _check_input(manifest: PluginManifest, tool: str, arguments: dict[str, Any]) -> None:
     try:
-        validate(arguments, definition.input)
+        validate(arguments, manifest.tool(tool).input)
     except ValidationError as error:
         raise ValueError(f"invalid input for {tool}: {error.message}") from error
     input_check = verify_input(manifest.root, tool, arguments)
     if not input_check.valid:
         raise ValueError(f"plugin input verification failed: {input_check.message}")
 
-    env = plugin_env(manifest, workspace)
-    preflight(manifest, env)
-    response = await _call_mcp_tool(manifest, tool, arguments, env, timeout)
-    if not isinstance(response, dict):
-        raise RuntimeError(f"{manifest.id} returned a non-object response")
-    try:
-        validate(response, definition.output)
-    except ValidationError as error:
-        raise RuntimeError(f"invalid output from {tool}: {error.message}") from error
-    output_check = verify_output(manifest.root, tool, arguments, response, workspace)
-    if not output_check.valid:
-        raise RuntimeError(f"plugin output verification failed: {output_check.message}")
-    return response
 
+class PluginSession:
+    """One plugin process for a run: entered once, then :meth:`call` any number of times.
 
-async def _call_mcp_tool(
-    manifest: PluginManifest,
-    tool: str,
-    arguments: dict[str, Any],
-    env: dict[str, str],
-    timeout: float,
-) -> Any:
-    params = StdioServerParameters(
-        command=manifest.command[0],
-        args=list(manifest.command[1:]),
-        cwd=manifest.root,
-        env=env,
-    )
-    with anyio.fail_after(timeout):
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
+    ``timeout`` bounds the launch and each call separately.
+    """
+
+    def __init__(self, manifest: PluginManifest, workspace: Path, *, timeout: float) -> None:
+        self.manifest = manifest
+        self.workspace = workspace
+        self.timeout = timeout
+        self._stack = AsyncExitStack()
+        self._session: ClientSession | None = None
+
+    async def __aenter__(self) -> PluginSession:
+        self._check()
+        if not self.workspace.is_dir():
+            raise ValueError(f"plugin workspace {self.workspace} is not a folder")
+        env = plugin_env(self.manifest, self.workspace)
+        preflight(self.manifest, env)
+        params = StdioServerParameters(
+            command=self.manifest.command[0],
+            args=list(self.manifest.command[1:]),
+            cwd=self.manifest.root,
+            env=env,
+        )
+        try:
+            # The connection's own scopes close with the session, so only the waits are bounded.
+            read, write = await self._stack.enter_async_context(stdio_client(params))
+            session = await self._stack.enter_async_context(ClientSession(read, write))
+            with anyio.fail_after(self.timeout):
                 await session.initialize()
                 offered = {item.name: item for item in (await session.list_tools()).tools}
-                if tool not in offered:
-                    raise RuntimeError(f"{manifest.id} MCP server does not offer {tool!r}")
-                definition = manifest.tool(tool)
-                if offered[tool].inputSchema != definition.input:
-                    raise RuntimeError(f"{manifest.id} MCP input schema differs from its manifest")
-                if offered[tool].outputSchema != definition.output:
-                    raise RuntimeError(f"{manifest.id} MCP output schema differs from its manifest")
-                result = await session.call_tool(tool, arguments=arguments)
+        except BaseException:
+            await self._stack.aclose()
+            raise
+        for definition in self.manifest.tools:
+            served = offered.get(definition.name)
+            if served is None:
+                problem = f"does not offer {definition.name!r}"
+            elif served.inputSchema != definition.input:
+                problem = f"input schema of {definition.name!r} differs from its manifest"
+            elif served.outputSchema != definition.output:
+                problem = f"output schema of {definition.name!r} differs from its manifest"
+            else:
+                continue
+            await self._stack.aclose()
+            raise RuntimeError(f"{self.manifest.id} MCP server {problem}")
+        self._session = session
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        self._session = None
+        await self._stack.aclose()
+
+    def _check(self) -> None:
+        # The rules are re-checked on every call: a plugin edited since it loaded, or a manifest
+        # built by hand, is refused.
+        if load_manifest(self.manifest.root) != self.manifest:
+            raise ValueError(f"plugin {self.manifest.id} changed since it was loaded; load it again")
+
+    async def call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Check the input, run ``tool``, and return its checked output."""
+        _check_input(self.manifest, tool, arguments)
+        return await self.invoke(tool, arguments)
+
+    async def invoke(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """:meth:`call` for input already checked by :func:`_check_input`."""
+        if self._session is None:
+            raise RuntimeError("plugin session is not open")
+        self._check()
+        manifest = self.manifest
+        definition = manifest.tool(tool)
+        with anyio.fail_after(self.timeout):
+            result = await self._session.call_tool(tool, arguments=arguments)
+        response = _response(manifest, result)
+        if not isinstance(response, dict):
+            raise RuntimeError(f"{manifest.id} returned a non-object response")
+        try:
+            validate(response, definition.output)
+        except ValidationError as error:
+            raise RuntimeError(f"invalid output from {tool}: {error.message}") from error
+        output_check = verify_output(manifest.root, tool, arguments, response, self.workspace)
+        if not output_check.valid:
+            raise RuntimeError(f"plugin output verification failed: {output_check.message}")
+        return response
+
+
+def _response(manifest: PluginManifest, result: Any) -> Any:
     if result.structuredContent is not None:
         return result.structuredContent
     text = [item.text for item in result.content if isinstance(item, TextContent)]
@@ -138,10 +195,20 @@ async def _call_mcp_tool(
 
 
 class PluginTool(Tool):
-    def __init__(self, manifest: PluginManifest, name: str, workspace: Path) -> None:
+    """A plugin tool for an agent: called through ``session`` when one is open for the run,
+    otherwise through a session of its own per call.
+
+    A response's ``images`` (a list of ``{"media_type", "data"}``, data in base64) go to the model
+    as images, not as text.
+    """
+
+    def __init__(
+        self, manifest: PluginManifest, name: str, workspace: Path, session: PluginSession | None
+    ) -> None:
         definition = manifest.tool(name)
         self._manifest = manifest
         self._workspace = workspace
+        self._session = session
         self.NAME = definition.name
         self.PARAMETERS = definition.input
         self._description = definition.description
@@ -153,15 +220,25 @@ class PluginTool(Tool):
     # Async so the agent awaits it on its own loop; a sync run would go to a worker thread,
     # where call_tool's anyio.run refuses the loop context the thread inherits.
     async def run(self, **arguments: Any) -> str:
-        response = await call_tool_async(
-            self._manifest, self.NAME, arguments, workspace=self._workspace
-        )
+        if self._session is not None:
+            response = await self._session.call(self.NAME, arguments)
+        else:
+            response = await call_tool_async(
+                self._manifest, self.NAME, arguments, workspace=self._workspace
+            )
         if not response.get("ok", False):
             raise RuntimeError(str(response.get("error", "plugin tool failed")))
-        return json.dumps(response)
+        images = response.pop("images", [])
+        return ToolText(json.dumps(response), images=images)
 
 
-def plugin_tools(manifest: PluginManifest, workspace: Path, names: Sequence[str] | None = None) -> list[Tool]:
+def plugin_tools(
+    manifest: PluginManifest,
+    workspace: Path,
+    names: Sequence[str] | None = None,
+    *,
+    session: PluginSession | None,
+) -> list[Tool]:
     """The plugin's tools as agent tools, or only ``names`` (e.g. one task's tools)."""
     chosen = [manifest.tool(name) for name in names] if names is not None else manifest.tools
-    return [PluginTool(manifest, definition.name, workspace) for definition in chosen]
+    return [PluginTool(manifest, definition.name, workspace, session) for definition in chosen]

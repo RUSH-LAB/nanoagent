@@ -1,0 +1,98 @@
+{
+  "type": "object",
+  "required": [
+    "ok"
+  ],
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "recipe",
+          "servings"
+        ],
+        "properties": {
+          "recipe": {
+            "type": "string"
+          },
+          "servings": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "objective": {
+      "type": "number",
+      "description": "The plan's total of the objective nutrient"
+    },
+    "totals": {
+      "type": "object",
+      "required": [
+        "kcal",
+        "protein",
+        "fat",
+        "carbs",
+        "fiber"
+      ],
+      "properties": {
+        "kcal": {
+          "type": "number"
+        },
+        "protein": {
+          "type": "number"
+        },
+        "fat": {
+          "type": "number"
+        },
+        "carbs": {
+          "type": "number"
+        },
+        "fiber": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "recipes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "kcal",
+          "protein",
+          "fat",
+          "carbs",
+          "fiber"
+        ],
+        "properties": {
+          "kcal": {
+            "type": "number"
+          },
+          "protein": {
+            "type": "number"
+          },
+          "fat": {
+            "type": "number"
+          },
+          "carbs": {
+            "type": "number"
+          },
+          "fiber": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Each eligible recipe's nutrition per serving"
+    },
+    "error": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

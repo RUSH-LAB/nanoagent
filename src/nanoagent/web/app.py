@@ -14,7 +14,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 from nanoagent.core.agent import ChatModel
-from nanoagent.plugin import PluginManifest, call_tool_async, load_manifest
+from nanoagent.plugin import PluginManifest, call_tool_async, load_listing
 from nanoagent.runtime.config import load_config_args
 from nanoagent.web.config import WebConfig
 from nanoagent.web.plugin_agent import plugin_profile
@@ -56,13 +56,21 @@ def create_app(
         raise RuntimeError('NanoAgent web support requires `pip install "nanoagent[web]"`') from error
 
     run_host = host or RunHost(cfg)
+    # Ready plugins run; in-development ones are only listed, as under maintenance.
     plugins: dict[str, PluginManifest] = {}
+    in_development: dict[str, str] = {}
+    listed: list[dict[str, Any]] = []
     for path in cfg.plugins:
-        manifest = load_manifest(path)
-        if manifest.id in plugins:
-            raise ValueError(f"duplicate plugin id {manifest.id!r} in {path!r}")
-        plugins[manifest.id] = manifest
-    plugin_catalog = {"plugins": [_plugin_entry(manifest) for manifest in plugins.values()]}
+        entry = load_listing(path)
+        if entry.id in plugins or entry.id in in_development:
+            raise ValueError(f"duplicate plugin id {entry.id!r} in {path!r}")
+        if isinstance(entry, PluginManifest):
+            plugins[entry.id] = entry
+            listed.append(_plugin_entry(entry))
+        else:
+            in_development[entry.id] = entry.name
+            listed.append(entry.public())
+    plugin_catalog = {"plugins": listed}
     plugin_slots = asyncio.Semaphore(cfg.max_concurrency)
     workspaces = Workspaces(cfg.workspaces)
     owned_model: Any = None
@@ -131,6 +139,9 @@ def create_app(
         """Run a prompt with an agent that operates one plugin inside a caller's workspace."""
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
+        if request.path_params["plugin_id"] in in_development:
+            name = in_development[request.path_params["plugin_id"]]
+            return JSONResponse({"error": f"{name} is under maintenance"}, status_code=409)
         manifest = plugins.get(request.path_params["plugin_id"])
         if manifest is None:
             return JSONResponse({"error": "plugin not found"}, status_code=404)
@@ -196,6 +207,9 @@ def create_app(
         """Run a single-tool plugin task: the body is the tool's input, the reply its output."""
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
+        if request.path_params["plugin_id"] in in_development:
+            name = in_development[request.path_params["plugin_id"]]
+            return JSONResponse({"error": f"{name} is under maintenance"}, status_code=409)
         manifest = plugins.get(request.path_params["plugin_id"])
         if manifest is None:
             return JSONResponse({"error": "plugin not found"}, status_code=404)

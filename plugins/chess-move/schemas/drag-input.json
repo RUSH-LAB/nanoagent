@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "required": [
+    "from_xy",
+    "to_xy"
+  ],
+  "properties": {
+    "from_xy": {
+      "type": "array",
+      "items": {
+        "type": "number",
+        "minimum": 0
+      },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[x, y] in pixels of the board screenshot, from its top-left corner"
+    },
+    "to_xy": {
+      "type": "array",
+      "items": {
+        "type": "number",
+        "minimum": 0
+      },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[x, y] in pixels of the board screenshot, from its top-left corner"
+    }
+  },
+  "additionalProperties": false
+}

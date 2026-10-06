@@ -1,0 +1,45 @@
+spec: nanoagent.plugin/v1
+id: meal-suggestion
+name: Meal Suggestion
+version: 0.1.0
+group: Life
+category: Health
+status: in-development
+runtime:
+  type: mcp_stdio
+  command: [uv, run, --frozen, python, -m, plugin]
+permissions:
+  network:
+    hosts: []
+  filesystem:
+    write: [workspace]
+tools:
+  - name: solve
+    description: Find the best meal of whole servings that meets the constraints and the preference
+    input: schemas/solve-input.json
+    output: schemas/solve-output.json
+  - name: list_recipes
+    description: List the recipes for a meal that meet a food preference
+    input: schemas/recipes-input.json
+    output: schemas/recipes-output.json
+  - name: nutrition
+    description: Give one serving of a recipe, its ingredients and its nutrition
+    input: schemas/nutrition-input.json
+    output: schemas/nutrition-output.json
+  - name: submit_meal
+    description: Write the suggested meal, each dish's recipe and servings, to meal.json
+    input: schemas/submit-input.json
+    output: schemas/submit-output.json
+tasks:
+  - id: suggest-meal
+    description: Suggest dishes for a meal that together meet the nutrition constraints and the food preference
+    runner: agent
+    tools: [list_recipes, nutrition, submit_meal]
+    input: schemas/solve-input.json
+    reference: solve
+    instructions: |-
+      Call list_recipes with the recipes file, the meal and the preference; only those recipes may be suggested.
+      Call nutrition for each of them to get one serving's kcal and grams of protein, fat, carbs and fiber.
+      Choose whole servings of the recipes, at most max_servings of each and at least one dish, so that the meal's totals (servings x per serving, summed) meet every constraint, and the objective's total is as good as it can be: weigh the combinations, not only single dishes.
+      Call submit_meal with the chosen dishes; a later call replaces the earlier suggestion.
+      Finish with a short report of the dishes and the meal's totals.

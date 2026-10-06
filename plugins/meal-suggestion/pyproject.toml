@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nanoagent-meal-suggestion"
+version = "0.1.0"
+description = "Suggest a meal of whole recipe servings that meets nutrition constraints and a food preference"
+requires-python = ">=3.12"
+dependencies = ["mcp>=1.27,<2", "scipy>=1.15"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.pytest.ini_options]
+# tests/ import the verifier package from the plugin root.
+pythonpath = ["."]

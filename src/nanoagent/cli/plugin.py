@@ -7,15 +7,19 @@
 
 Every run folder holds config.yaml, metadata.json and run.log, ``workspace/`` (the only folder
 the plugin may write to) and ``verdict.json``, the plugin's :func:`verify_task` verdict on the
-finished task; the run exits 1 unless that verdict is valid. A tool run adds ``result.json`` (the
+finished task; the run exits 1 unless that verdict is valid. The files a config lists under
+``inputs`` are copied into ``workspace/inputs/`` first, so tools, the reference tool and the
+verifier read them as ``inputs/<name>`` and the run folder holds everything it was judged on. A tool run adds ``result.json`` (the
 tool's verified response). An agent run adds ``reference.json`` (the task's reference tool output,
-pinned before the agent starts) and ``messages.json`` (the agent's conversation, as ATIF).
+pinned before the agent starts) and ``messages.json`` (the agent's conversation, as ATIF); the
+agent's tools share one plugin process for the whole run.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import sys
 import tempfile
 import uuid
@@ -30,7 +34,8 @@ from slimconfig import Config, Folder, Layout, Output, Run
 from nanoagent import __version__
 from nanoagent.harness.nanoagent import NanoAgentConfig
 from nanoagent.llm.bedrock import BedrockConfig
-from nanoagent.plugin import PluginError, PluginManifest, call_tool, load_manifest, plugin_tools, verify_task
+from nanoagent.core.agent import AgentResult
+from nanoagent.plugin import PluginError, PluginManifest, PluginSession, call_tool, load_manifest, plugin_tools, verify_task
 from nanoagent.plugin.manifest import TaskDefinition
 from nanoagent.plugin.scaffold import create_plugin
 from nanoagent.plugin.verifier import Verification
@@ -54,6 +59,8 @@ class PluginRunConfig(Config):
     # The task's input as `key=value` tokens (see parse_kv_list). A value that parses as JSON but
     # must stay a string is double-quoted: arxiv_id="1706.03762".
     arguments: list[str] = MISSING
+    # Files the task reads, copied to workspace/inputs/<file name>; [] for none.
+    inputs: list[str] = MISSING
     # Seconds the plugin may take per tool call, launch included.
     timeout: float = MISSING
 
@@ -64,6 +71,7 @@ class PluginAgentConfig(Config):
     # One of the plugin's tasks whose runner is `agent`.
     task: str = MISSING
     arguments: list[str] = MISSING
+    inputs: list[str] = MISSING
     timeout: float = MISSING
     # The model, and the agent loop's limits.
     llm: BedrockConfig = field(default_factory=BedrockConfig)
@@ -118,6 +126,18 @@ def _task(config: PluginRunConfig | PluginAgentConfig, runner: str) -> tuple[Plu
     return manifest, task
 
 
+def stage_inputs(paths: list[str], workspace: Path) -> None:
+    """Copy each input file to ``workspace/inputs/<file name>``."""
+    names = [Path(path).name for path in paths]
+    if len(set(names)) != len(names):
+        raise ValueError(f"inputs must have distinct file names: {names}")
+    for path in map(Path, paths):
+        if not path.is_file():
+            raise FileNotFoundError(f"input file not found: {path}")
+        (workspace / "inputs").mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, workspace / "inputs" / path.name)
+
+
 def _verdict(task: TaskDefinition, verification: Verification) -> PluginVerdict:
     print(f"verdict: {'valid' if verification.valid else 'INVALID'} ({verification.score:.2f}) {verification.message}")
     return PluginVerdict(task=task.id, **verification.to_dict())
@@ -134,6 +154,7 @@ class PluginRun(Run):
         [tool] = task.tools
         workspace = Path(self.layout.workspace)
         arguments = parse_kv_list(self.config.arguments)
+        stage_inputs(self.config.inputs, workspace)
         response = call_tool(manifest, tool, arguments, workspace=workspace, timeout=self.config.timeout)
         self.layout.result = PluginResult(plugin=manifest.id, task=task.id, tool=tool, response=response)
         print(json.dumps(response, indent=2))
@@ -161,11 +182,13 @@ class PluginAgent(Run):
         workspace = Path(self.layout.workspace)
         arguments = parse_kv_list(self.config.arguments)
         validate(arguments, task.input)
+        stage_inputs(self.config.inputs, workspace)
 
         reference = None
         if task.reference is not None:
             # The reference tool writes nowhere the agent can see.
             with tempfile.TemporaryDirectory(prefix=f"nanoagent-{manifest.id}-reference-") as scratch:
+                stage_inputs(self.config.inputs, Path(scratch))
                 reference = call_tool(manifest, task.reference, arguments, workspace=Path(scratch), timeout=self.config.timeout)
             if not reference.get("ok"):
                 raise RuntimeError(f"reference tool {task.reference} failed: {reference.get('error')}")
@@ -180,10 +203,16 @@ class PluginAgent(Run):
             allowed_tools=None,
         )
         agent = build_agent(definition)
-        for tool in plugin_tools(manifest, workspace, task.tools):
-            agent.add_tool(tool)
+
+        async def work() -> AgentResult:
+            # One plugin process for the whole task, so its tools can keep state between calls.
+            async with PluginSession(manifest, workspace, timeout=self.config.timeout) as session:
+                for tool in plugin_tools(manifest, workspace, task.tools, session=session):
+                    agent.add_tool(tool)
+                return await agent.run(user)
+
         print(f"user: {user}")
-        result = asyncio.run(agent.run(user))
+        result = asyncio.run(work())
         print(f"agent: {result.answer}")
         self.layout.messages = AtifTrajectory.from_dict(
             to_atif(

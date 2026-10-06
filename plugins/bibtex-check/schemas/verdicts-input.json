@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "required": [
+    "verdicts"
+  ],
+  "properties": {
+    "verdicts": {
+      "type": "object",
+      "additionalProperties": {
+        "enum": [
+          "real",
+          "hallucinated"
+        ]
+      },
+      "description": "Raw entry citation key -> real or hallucinated, one per raw entry"
+    }
+  },
+  "additionalProperties": false
+}

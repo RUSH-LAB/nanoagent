@@ -136,6 +136,8 @@ class SglangNativeBackend:
         on_delta: Callable[[str, str], None] | None = None,
     ) -> Response:
         """Render ``messages`` to ids, sample, and return the reply with its NATIVE tokens."""
+        if any(message.get("images") for message in messages):
+            raise ValueError("this backend cannot show tool images to the model; use provider=bedrock")
         if tools:
             raise NotImplementedError(
                 "the /generate client does not parse tool calls: the reply is raw text, and "

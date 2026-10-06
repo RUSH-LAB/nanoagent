@@ -1,0 +1,53 @@
+{
+  "type": "object",
+  "required": [
+    "ok"
+  ],
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "recipe": {
+      "type": "string"
+    },
+    "ingredients": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      },
+      "description": "Grams of each ingredient per serving"
+    },
+    "per_serving": {
+      "type": "object",
+      "required": [
+        "kcal",
+        "protein",
+        "fat",
+        "carbs",
+        "fiber"
+      ],
+      "properties": {
+        "kcal": {
+          "type": "number"
+        },
+        "protein": {
+          "type": "number"
+        },
+        "fat": {
+          "type": "number"
+        },
+        "carbs": {
+          "type": "number"
+        },
+        "fiber": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

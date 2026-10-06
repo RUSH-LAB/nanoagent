@@ -122,6 +122,19 @@ Every run folder holds `workspace/` and `verdict.json` (the `verify_task`
 verdict), and the run exits 1 unless the verdict is valid. A plugin may write
 only to its workspace, which NanoAgent passes as `NANOAGENT_WORKSPACE`.
 
+- **Input files.** A config's `inputs:` lists files the task reads. They are
+  copied to `workspace/inputs/<file name>` before the task starts, and into
+  the reference tool's scratch workspace too, so arguments name them as
+  `inputs/<name>`.
+- **One plugin process per run.** An agent run keeps one plugin process
+  (`nanoagent.plugin.PluginSession`) for the whole task, so a plugin can hold
+  state, such as a browser, between calls. `run.sh` runs once. Every call is
+  still checked against the rules, both schemas and the verifier.
+- **Images.** A tool response's `images` field (a list of
+  `{"media_type": "image/png", "data": <base64>}`) is shown to the model as
+  images, not text. Only the Bedrock backend supports this; the OpenAI-
+  compatible backends refuse it.
+
 Each declared plugin tool is also available as a regular NanoAgent `Tool`
 through `nanoagent.plugin.plugin_tools(manifest, workspace, names)`.
 

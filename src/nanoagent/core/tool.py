@@ -35,6 +35,22 @@ from typing import Any
 JsonSchema = dict[str, Any]
 
 
+
+class ToolText(str):
+    """A tool's text result that also carries images for the model.
+
+    A ``str``, so it passes unchanged through every path that handles tool output as text; the
+    agent loop reads ``images`` (each ``{"media_type": "image/png", "data": <base64>}``) when it
+    builds the tool message, and only a backend that can show images to the model accepts them.
+    """
+
+    images: list[dict[str, str]]
+
+    def __new__(cls, text: str, *, images: list[dict[str, str]]) -> ToolText:
+        value = super().__new__(cls, text)
+        value.images = images
+        return value
+
 class Tool:
     """A callable the agent can invoke, defined as a self-describing subclass.
 
@@ -148,7 +164,7 @@ class Tool:
                 result = await asyncio.to_thread(self.run, **arguments)
                 if inspect.isawaitable(result):
                     result = await result
-            return str(result), False
+            return (result if isinstance(result, ToolText) else str(result)), False
         except Exception as e:
             return f"Error: {type(e).__name__}: {e}", True
 

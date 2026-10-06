@@ -43,7 +43,7 @@ def plugin_profile(
         )
         agent = Agent(
             model,
-            [*tools, *plugin_tools(manifest, workspace)],
+            [*tools, *plugin_tools(manifest, workspace, session=None)],
             system_prompt=prompt,
             max_steps=cfg.agent.max_steps,
             cost_limit=cfg.agent.cost_limit,

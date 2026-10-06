@@ -2,6 +2,9 @@ spec: nanoagent.plugin/v1
 id: arxiv-source
 name: arXiv Search and Source Downloader
 version: 0.3.0
+group: Research
+category: Papers
+status: ready
 runtime:
   type: mcp_stdio
   command: [uv, run, --frozen, python, -m, plugin]

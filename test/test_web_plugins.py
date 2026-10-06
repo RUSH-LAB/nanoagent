@@ -173,3 +173,29 @@ def test_workspace_files_stay_inside_their_workspace(client: TestClient, workspa
     assert client.get("/v1/workspaces/bad.id/files").status_code == 400
     assert client.delete("/v1/workspaces/alice/files/papers/ms.tex").json() == {"deleted": True}
     assert not (workspaces / "alice" / "papers" / "ms.tex").exists()
+
+
+def test_refuses_to_run_a_plugin_in_development(tmp_path: Path, workspaces: Path) -> None:
+    manifest = write_plugin(tmp_path)
+    manifest.write_text(manifest.read_text().replace("status: ready", "status: in-development"))
+    # Unfinished: a plugin being built need not pass the rules a ready one must.
+    (tmp_path / "schemas" / "output.json").unlink()
+    config = load_config_args(
+        WebConfig,
+        [
+            "web_cfg=deploy/railway/nanoagent.yaml",
+            f"plugins=[{tmp_path}]",
+            f"workspaces={workspaces}",
+            "api_token=null",
+            "host=127.0.0.1",
+        ],
+    )
+    client = TestClient(create_app(config, plugin_model=ScriptedModel()))
+    [listed] = client.get("/v1/plugins").json()["plugins"]
+    assert listed["status"] == "in-development"
+    assert "tools" not in listed
+    response = client.post(RUNS, json={"input": "echo hi"})
+    assert response.status_code == 409
+    assert response.json() == {"error": "Echo is under maintenance"}
+    assert client.post("/v1/plugins/echo/tasks/echo", json={"value": "hi"}).status_code == 409
+

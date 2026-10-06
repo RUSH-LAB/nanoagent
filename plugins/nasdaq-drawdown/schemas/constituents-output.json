@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "required": [
+    "ok"
+  ],
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "as_of": {
+      "type": "string"
+    },
+    "start": {
+      "type": "string",
+      "description": "The session 5 sessions before as_of"
+    },
+    "sessions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The week's sessions, start through as_of"
+    },
+    "listed_at": {
+      "type": "string",
+      "description": "When Nasdaq stamped the constituent list (US Eastern)"
+    },
+    "constituents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ticker",
+          "name"
+        ],
+        "properties": {
+          "ticker": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "error": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

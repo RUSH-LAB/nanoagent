@@ -6,4 +6,5 @@ task: save-paper-source
 arguments:
   - arxiv_id="1706.03762"
   - destination=attention
+inputs: []
 timeout: 300.0

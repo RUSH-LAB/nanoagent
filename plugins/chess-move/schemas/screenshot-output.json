@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "required": [
+    "ok"
+  ],
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "images": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "media_type",
+          "data"
+        ],
+        "properties": {
+          "media_type": {
+            "const": "image/png"
+          },
+          "data": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The PNG, base64"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "error": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

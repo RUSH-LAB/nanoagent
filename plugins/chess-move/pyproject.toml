@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nanoagent-chess-move"
+version = "0.1.0"
+description = "Play one chess move with the mouse on mind-sports-arena's live board, scored by Stockfish"
+requires-python = ">=3.12"
+# mind-sports-arena's msa is imported from MSA_ROOT (see src/plugin/msa_path.py); slimconfig is
+# the one third-party package it needs.
+dependencies = ["mcp>=1.27,<2", "slimconfig"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# The commit mind-sports-arena's uv.lock pins.
+[tool.uv.sources]
+slimconfig = { git = "https://github.com/zeyuyang8/slimconfig", rev = "34da31e8a3733db486d1324e5162856c25b4ec0c" }
+
+[tool.ruff]
+line-length = 120
+
+[tool.pytest.ini_options]
+# tests/ import the verifier package from the plugin root.
+pythonpath = ["."]

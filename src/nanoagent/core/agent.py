@@ -623,7 +623,12 @@ class Agent:
             "output": text,
             "is_error": is_error,
         }
-        return log_row, {"role": "tool", "tool_call_id": call.id, "content": text}
+        message = {"role": "tool", "tool_call_id": call.id, "content": str(text)}
+        # A tool that shows the model a picture (see ToolText) puts it on the message itself.
+        images = getattr(text, "images", None)
+        if images:
+            message["images"] = images
+        return log_row, message
 
     async def _run_one_hooked(
         self, call: ToolCall, step: int, hooks: RunHooks

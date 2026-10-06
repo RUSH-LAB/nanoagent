@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "required": [
+    "path"
+  ],
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A BibTeX file, relative to the workspace"
+    }
+  },
+  "additionalProperties": false
+}

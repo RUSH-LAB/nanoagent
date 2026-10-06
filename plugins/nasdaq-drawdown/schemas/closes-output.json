@@ -1,0 +1,37 @@
+{
+  "type": "object",
+  "required": [
+    "ok"
+  ],
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "date": {
+      "type": "string"
+    },
+    "closes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ticker",
+          "close"
+        ],
+        "properties": {
+          "ticker": {
+            "type": "string"
+          },
+          "close": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "error": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

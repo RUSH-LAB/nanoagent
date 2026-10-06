@@ -1,0 +1,45 @@
+spec: nanoagent.plugin/v1
+id: nasdaq-drawdown
+name: Nasdaq-100 Weekly Drawdown
+version: 0.1.0
+group: Finance
+category: Markets
+status: in-development
+runtime:
+  type: mcp_stdio
+  command: [uv, run, --frozen, python, -m, plugin]
+permissions:
+  network:
+    hosts: [api.nasdaq.com]
+  filesystem:
+    write: [workspace]
+tools:
+  - name: pin_week
+    description: Pin every Nasdaq-100 constituent's close on a session and 5 sessions earlier
+    input: schemas/pin-input.json
+    output: schemas/pin-output.json
+  - name: list_constituents
+    description: List the Nasdaq-100 constituents and the 5-session week ending on a date
+    input: schemas/constituents-input.json
+    output: schemas/constituents-output.json
+  - name: get_closes
+    description: Get each ticker's daily close on a trading session
+    input: schemas/closes-input.json
+    output: schemas/closes-output.json
+  - name: submit_tickers
+    description: Submit the tickers that fell at least 5% over the week, written to tickers.json
+    input: schemas/submit-input.json
+    output: schemas/submit-output.json
+tasks:
+  - id: nasdaq-down-5
+    description: List the Nasdaq-100 constituents that fell by at least 5% over the week ending on a date
+    runner: agent
+    tools: [list_constituents, get_closes, submit_tickers]
+    input: schemas/pin-input.json
+    reference: pin_week
+    instructions: |-
+      The week is the 5 trading sessions ending on as_of: each constituent's change is its close on as_of over its close on the session 5 sessions earlier, minus 1. It fell by at least 5% when that change is -5% or lower.
+      Call list_constituents once with as_of: it gives the constituents and the week's first session (start).
+      Call get_closes for every constituent on start and on as_of, at most 25 tickers per call.
+      Then call submit_tickers once with exactly the tickers that fell by at least 5%, or [] if none did.
+      Finish with a one-paragraph report listing each of those tickers and its change.

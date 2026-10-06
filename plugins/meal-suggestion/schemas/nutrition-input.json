@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "required": [
+    "ingredients",
+    "recipes",
+    "recipe"
+  ],
+  "properties": {
+    "ingredients": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The ingredients file in the workspace (inputs/ingredients.json): each ingredient's kcal and grams of protein, fat, carbs and fiber per 100 g"
+    },
+    "recipes": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The recipes file in the workspace (inputs/recipes.json): each recipe's meals, tags and grams of each ingredient per serving"
+    },
+    "recipe": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A recipe's name, as list_recipes gives it"
+    }
+  },
+  "additionalProperties": false
+}
