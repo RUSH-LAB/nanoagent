@@ -57,7 +57,6 @@ id: echo
 name: Echo
 version: 1.0.0
 group: Testing
-category: Testing
 status: ready
 runtime:
   type: mcp_stdio

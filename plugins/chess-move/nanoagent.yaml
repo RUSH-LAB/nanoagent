@@ -3,7 +3,6 @@ id: chess-move
 name: Chess Move
 version: 0.1.0
 group: Games
-category: Chess
 status: in-development
 runtime:
   type: mcp_stdio

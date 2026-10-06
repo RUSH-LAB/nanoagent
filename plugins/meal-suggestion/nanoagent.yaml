@@ -3,7 +3,6 @@ id: meal-suggestion
 name: Meal Suggestion
 version: 0.1.0
 group: Life
-category: Health
 status: in-development
 runtime:
   type: mcp_stdio

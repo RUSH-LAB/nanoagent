@@ -3,7 +3,6 @@ id: nasdaq-drawdown
 name: Nasdaq-100 Weekly Drawdown
 version: 0.1.0
 group: Finance
-category: Markets
 status: in-development
 runtime:
   type: mcp_stdio

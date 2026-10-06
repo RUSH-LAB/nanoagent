@@ -3,7 +3,6 @@ id: bibtex-check
 name: BibTeX Hallucination Check
 version: 0.1.0
 group: Research
-category: Citations
 status: in-development
 runtime:
   type: mcp_stdio

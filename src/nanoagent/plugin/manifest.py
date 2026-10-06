@@ -88,10 +88,8 @@ MANIFEST_SCHEMA = _record(
         "id": {"type": "string", "pattern": PLUGIN_ID.pattern},
         "name": _TEXT,
         "version": _TEXT,
-        # Where a catalog files the plugin: a group such as "Research", and within it a
-        # category such as "Papers".
+        # The shelf a catalog files the plugin under, such as "Research".
         "group": _TEXT,
-        "category": _TEXT,
         # Whether hosts may run it: "ready", or "in-development" (listed, never run).
         "status": {"enum": list(STATUSES)},
         "runtime": _record(
@@ -136,7 +134,7 @@ MANIFEST_SCHEMA = _record(
 
 # What a catalog needs to list a plugin: the identifying head of `nanoagent.yaml`. The rest may
 # be unfinished while the plugin is in development, since a host never runs it then.
-LISTING_KEYS = ("spec", "id", "name", "version", "group", "category", "status")
+LISTING_KEYS = ("spec", "id", "name", "version", "group", "status")
 LISTING_SCHEMA = {
     "type": "object",
     "required": list(LISTING_KEYS),
@@ -188,7 +186,6 @@ class PluginManifest:
     name: str
     version: str
     group: str
-    category: str
     status: str
     runtime: str
     command: tuple[str, ...]
@@ -217,7 +214,6 @@ class PluginManifest:
             "name": self.name,
             "version": self.version,
             "group": self.group,
-            "category": self.category,
             "status": self.status,
             "runtime": {"type": self.runtime, "command": list(self.command)},
             "env": list(self.env),
@@ -413,7 +409,6 @@ def load_manifest(source: str | Path) -> PluginManifest:
         name=raw["name"].strip(),
         version=raw["version"].strip(),
         group=raw["group"].strip(),
-        category=raw["category"].strip(),
         status=raw["status"],
         runtime="mcp_stdio",
         command=tuple(shlex.split(command) if isinstance(command, str) else command),
@@ -435,7 +430,6 @@ class PluginListing:
     name: str
     version: str
     group: str
-    category: str
     status: str
 
     def public(self) -> dict[str, Any]:
@@ -446,7 +440,6 @@ class PluginListing:
             "name": self.name,
             "version": self.version,
             "group": self.group,
-            "category": self.category,
             "status": self.status,
             "readme": readme.read_text(encoding="utf-8") if readme.is_file() else "",
         }
@@ -479,7 +472,6 @@ def load_listing(source: str | Path) -> PluginManifest | PluginListing:
         name=raw["name"].strip(),
         version=raw["version"].strip(),
         group=raw["group"].strip(),
-        category=raw["category"].strip(),
         status=raw["status"],
     )
 
