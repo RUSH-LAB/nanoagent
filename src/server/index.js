@@ -32,6 +32,7 @@ const roles = postgresServices?.roles ?? require('./roles');
 const chat = contextualChat(postgresServices?.chat ?? require('./chat'));
 const org = contextualOrg(postgresServices?.org ?? require('./org'));
 const ai = require('./ai');
+const {createAgentSync} = require('./fs/agent-sync');
 // The per-workspace data layer. See server/store/index.js: the only way a route
 // module is allowed to reach the thirteen features' data, because it is the
 // only way that applies the organization and the owner without being asked to.
@@ -500,6 +501,8 @@ const ctx = {
   publicFs: postgresServices?.publicFs ?? null,
   crdt: postgresServices?.crdt ?? null,
   crdtHub: postgresServices?.crdtHub ?? null,
+  // Plugin runs work on a copy of the member's agent folder (fs/agent-sync.js).
+  agentSync: postgresServices?.fs ? createAgentSync({ai, fs: postgresServices.fs}) : null,
   compileDocument,
   compileMarkdown,
   parseFrontmatter,

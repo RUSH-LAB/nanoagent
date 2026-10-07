@@ -299,7 +299,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     }, HEARTBEAT_MS);
 
     try {
-      const result = await ai.stream({
+      const answer = () => ai.stream({
         ...composed.request,
         signal: controller.signal,
         onDelta: (text) => sendEvent(res, 'delta', {text}),
@@ -310,6 +310,11 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
           if (event.type !== 'output_text.delta') sendEvent(res, 'agent', event);
         },
       });
+      // An app's agent works on a copy of the member's agent folder, and what
+      // it writes there is kept in the workspace file system (fs/agent-sync.js).
+      const result = composed.request.app && ctx.agentSync
+        ? await ctx.agentSync.run(req.context, composed.request.workspace, answer)
+        : await answer();
       if (result.error) sendEvent(res, 'error', {error: result.error, status: result.status || 502});
       else sendEvent(res, 'done', {
         text: result.text,

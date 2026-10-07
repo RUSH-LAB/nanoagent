@@ -96,43 +96,59 @@ async function streamTaskRun(req, res, ctx, app, task) {
     return json(res, 400, {error: 'Request body must be {"arguments": {...}}'});
   }
 
+  const workspace = agentWorkspaceId(req.context);
   const controller = new AbortController();
   const onClose = () => controller.abort();
-  res.on('close', onClose);
-  try {
-    const result = await ai.taskRun({workspace: agentWorkspaceId(req.context), app, task, args, signal: controller.signal});
-    if (result.error) return json(res, result.status, {error: result.error});
-    res.writeHead(200, {
-      ...corsHeaders(req, CORS_ORIGIN),
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
-    res.flushHeaders?.();
-    // NanoAgent's heartbeats pass through too, keeping the connection inside
-    // the idle limit server/index.js sets.
-    const reader = result.value.getReader();
+  // The run itself, which leaves the response open: the stream ends only after
+  // the run's files are written back (below), so a page that reloads its files
+  // on task.done finds them.
+  const runTask = async () => {
+    res.on('close', onClose);
     try {
-      for (;;) {
-        const {value, done} = await reader.read();
-        if (done || res.writableEnded || res.destroyed) break;
-        res.write(Buffer.from(value));
+      const result = await ai.taskRun({workspace, app, task, args, signal: controller.signal});
+      if (result.error) return json(res, result.status, {error: result.error});
+      res.writeHead(200, {
+        ...corsHeaders(req, CORS_ORIGIN),
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
+      res.flushHeaders?.();
+      // NanoAgent's heartbeats pass through too, keeping the connection inside
+      // the idle limit server/index.js sets.
+      const reader = result.value.getReader();
+      try {
+        for (;;) {
+          const {value, done} = await reader.read();
+          if (done || res.writableEnded || res.destroyed) break;
+          res.write(Buffer.from(value));
+        }
+      } catch {
+        // The caller hung up or NanoAgent dropped the stream; either way it ends
+        // here, and the page sees a run that stopped before task.done.
+      } finally {
+        reader.releaseLock();
       }
-    } catch {
-      // The caller hung up or NanoAgent dropped the stream; either way it ends
-      // here, and the page sees a run that stopped before task.done.
+      return undefined;
     } finally {
-      reader.releaseLock();
+      res.off('close', onClose);
     }
-    // Dropped before ending, which emits the same 'close'; ended here, after the
-    // stream, because the dispatcher decides a handler answered by
-    // res.writableEnded (see routes/ai.js).
-    res.off('close', onClose);
-    return res.end();
-  } finally {
-    res.off('close', onClose);
+  };
+
+  // With the workspace file system, the run works on a copy of the member's
+  // agent folder and its results are written back there (fs/agent-sync.js).
+  try {
+    if (ctx.agentSync) await ctx.agentSync.run(req.context, workspace, runTask);
+    else await runTask();
+  } catch (error) {
+    if (!res.headersSent) return json(res, error.status || 502, {error: error.message});
+    console.error('[apps] The run finished but its files could not be written back:', error);
   }
+  // Ended here, after the stream, because the dispatcher decides a handler
+  // answered by res.writableEnded (see routes/ai.js).
+  if (!res.writableEnded) res.end();
+  return undefined;
 }
 
 module.exports = async function app_routes(req, res, url, pathname, ctx) {
