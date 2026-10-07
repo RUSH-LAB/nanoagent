@@ -13,6 +13,7 @@ const {createFsDocuments} = require('../fs/documents');
 const {createFsAssetStore} = require('../fs/assets');
 const {createCrdt, createCrdtHub} = require('../fs/crdt');
 const {createFsRecords} = require('../fs/records');
+const {createFsChat} = require('../fs/chat');
 
 if (!database.pool) throw new Error('PostgreSQL services require DATABASE_URL');
 
@@ -26,6 +27,7 @@ if (!CONTENT_STORES.includes(contentStore)) {
 }
 const fs = contentStore === 'fs' ? createPostgresFs({pool: database.pool}) : null;
 const legacyStore = createPostgresStore({pool: database.pool});
+const fsChat = fs ? createFsChat({fs}) : null;
 
 module.exports = Object.freeze({
   ready: database.ready,
@@ -45,7 +47,8 @@ module.exports = Object.freeze({
   assets: createPostgresAssets({pool: database.pool}),
   workspaceContexts: createPostgresWorkspaceContextResolver({pool: database.pool}),
   org: createPostgresOrg({pool: database.pool, auth}),
-  chat: createPostgresChat({pool: database.pool}),
+  chat: fsChat ?? createPostgresChat({pool: database.pool}),
+  fsChat,
   roles: createPostgresRoles({pool: database.pool}),
   objectDeletions: createObjectDeletionQueue({pool: database.pool}),
 });

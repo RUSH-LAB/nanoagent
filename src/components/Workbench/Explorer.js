@@ -240,6 +240,7 @@ export default function Explorer({
               {!folder && <LocalStatus held={held.get(node.path)} />}
               {node.access === 'public' && <span className={styles.accessBadge} title="Anyone can see this">public</span>}
               {node.access === 'private' && <span className={styles.accessBadge} title="Only you can see this">private</span>}
+              {node.access === 'shared' && <span className={styles.accessBadge} title="Shared with specific people">shared</span>}
               {dirtyPaths.has(node.path) && <span className={styles.dirtyDot} title="Unsaved changes" />}
             </div>
             {folder && open && editingParent === node.path && newEntryInput(depth + 1)}

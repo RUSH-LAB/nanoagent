@@ -54,7 +54,12 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID?.trim();
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET?.trim();
 const {name: platformName} = platformConfig();
 
-const workspaceProvisioning = createWorkspaceProvisioning({postgres, sqliteDb: db});
+// Channels are files when the workspace file system serves content; required
+// when first needed, because the services module requires this one.
+const workspaceProvisioning = createWorkspaceProvisioning({
+  postgres, sqliteDb: db,
+  fsChat: () => (postgres.enabled ? require('./postgres/services').fsChat : null),
+});
 
 /**
  * Why a production server may not start, or null when it may.

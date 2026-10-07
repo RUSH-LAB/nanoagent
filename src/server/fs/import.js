@@ -9,7 +9,9 @@
  * of its own, goes under `.plugins/blobs/`. App records (store_item, and the
  * bibliography's `reference` rows) become the JSON files fs/records.js reads,
  * members' own under their private home folder; internal state such as page
- * analytics stays where it is. Folders are created for every path.
+ * analytics stays where it is. Chat becomes the files fs/chat.js reads: a
+ * folder per channel, private channels and direct messages shared with exactly
+ * their members. Folders are created for every path.
  *
  * Runs on the schema owner's connection, which row-level security does not
  * restrict, because it writes on behalf of every author at once. A workspace
@@ -138,6 +140,69 @@ async function plan(client, workspaceId) {
     events.push({node: file, op: 'create', body, actor: record.author, at: record.created_at});
   }
 
+  // Chat: a folder per channel, its members and messages as files.
+  const channels = (await client.query(
+    `select id, kind, name, topic, dm_key, created_by, created_at, archived_at
+       from channel where workspace_id = $1 order by created_at, id`, [workspaceId],
+  )).rows;
+  const channelMembers = (await client.query(
+    `select channel_id, user_id, joined_at, last_read_seq from channel_member where workspace_id = $1`, [workspaceId],
+  )).rows;
+  const messages = (await client.query(
+    `select id, seq, channel_id, user_id, body, created_at, edited_at, deleted_at
+       from message where workspace_id = $1 order by channel_id, seq`, [workspaceId],
+  )).rows;
+  // Shared nodes by path: the root of each private channel and direct message.
+  const sharedRoots = new Map();
+  const chatFile = (path, value, author, at, id = crypto.randomUUID()) => {
+    const body = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+    const file = {
+      id, path, body, contentType: 'application/json', meta: {}, access: 'workspace', accessExplicit: false,
+      ownerId: author, createdBy: author, createdAt: at, updatedAt: at, deletedAt: null,
+    };
+    files.push(file);
+    events.push({node: file, op: 'create', body, actor: author, at});
+    return file;
+  };
+  for (const channel of channels) {
+    const folder = `chat/${channel.id}`;
+    const members = channelMembers.filter(each => each.channel_id === channel.id);
+    if (channel.kind !== 'public') {
+      sharedRoots.set(folder, {id: crypto.randomUUID(), members: members.map(each => each.user_id)});
+    }
+    chatFile(`${folder}/channel.json`, {
+      id: channel.id, kind: channel.kind, name: channel.name, topic: channel.topic, dmKey: channel.dm_key,
+      createdBy: channel.created_by, createdAt: channel.created_at, archivedAt: channel.archived_at,
+    }, channel.created_by, channel.created_at);
+    for (const each of members) {
+      chatFile(`${folder}/members/${each.user_id}.json`, {
+        userId: each.user_id, joinedAt: each.joined_at, lastReadSeq: Number(each.last_read_seq),
+      }, each.user_id, each.joined_at);
+    }
+    for (const message of messages.filter(each => each.channel_id === channel.id)) {
+      const name = `${String(message.seq).padStart(12, '0')}-${encodeURIComponent(message.user_id)}${message.deleted_at ? '-deleted' : ''}.json`;
+      chatFile(`${folder}/messages/${name}`, {
+        id: message.id, seq: Number(message.seq), userId: message.user_id, body: message.deleted_at ? null : message.body,
+        createdAt: message.created_at, editedAt: message.edited_at, deletedAt: message.deleted_at,
+      }, message.user_id, message.created_at);
+    }
+    if (channel.name) chatFile(`chat/.names/${encodeURIComponent(channel.name)}.json`, {channelId: channel.id}, channel.created_by, channel.created_at);
+    if (channel.kind === 'dm' && channel.dm_key) {
+      const registry = chatFile(`chat/.dms/${encodeURIComponent(channel.dm_key)}.json`, {channelId: channel.id}, channel.created_by, channel.created_at);
+      sharedRoots.set(registry.path, {id: registry.id, members: members.map(each => each.user_id)});
+    }
+  }
+
+  /** Who may see `path`: its member's home, a shared channel, or the workspace. */
+  const accessOf = nodePath => {
+    const home = [...homes.keys()].find(each => nodePath === each || nodePath.startsWith(`${each}/`));
+    if (home) return {access: 'private', ownerId: homes.get(home), shareRoot: null, accessExplicit: nodePath === home};
+    const root = [...sharedRoots.keys()].find(each => nodePath === each || nodePath.startsWith(`${each}/`));
+    if (root) return {access: 'shared', ownerId: null, shareRoot: sharedRoots.get(root).id, accessExplicit: nodePath === root};
+    return null;
+  };
+  for (const file of files) Object.assign(file, accessOf(file.path) ?? {shareRoot: null});
+
   const live = new Map();
   for (const file of files.filter(each => !each.deletedAt)) {
     if (live.has(file.path)) throw new Error(`Two files would share the path ${file.path} in workspace ${workspaceId}`);
@@ -149,11 +214,13 @@ async function plan(client, workspaceId) {
       if (live.has(folder)) throw new Error(`${folder} is both a file and a folder in workspace ${workspaceId}`);
       const known = folders.get(folder);
       if (!known || time(file.createdAt) < time(known.createdAt)) {
-        // A member's home folder is private to them, and everything in it inherits that.
-        const home = [...homes.keys()].find(each => folder === each || folder.startsWith(`${each}/`));
+        // A member's home is private to them and a channel shared with its
+        // members; everything inside inherits that.
         folders.set(folder, {
-          id: known?.id ?? crypto.randomUUID(), path: folder, createdBy: file.createdBy, createdAt: file.createdAt,
-          access: home ? 'private' : 'workspace', accessExplicit: folder === home, ownerId: home ? homes.get(home) : file.createdBy,
+          id: known?.id ?? sharedRoots.get(folder)?.id ?? crypto.randomUUID(), path: folder,
+          createdBy: file.createdBy, createdAt: file.createdAt,
+          access: 'workspace', accessExplicit: false, ownerId: file.createdBy, shareRoot: null,
+          ...accessOf(folder),
         });
       }
     }
@@ -164,7 +231,10 @@ async function plan(client, workspaceId) {
   // Folders before what they contain when two things happened at once.
   events.sort((a, b) => time(a.at) - time(b.at) || Number(Boolean(b.folder)) - Number(Boolean(a.folder))
     || a.node.path.length - b.node.path.length);
-  return {documents, assets, records: recordFiles, files, folders: [...folders.values()], events};
+  return {
+    documents, assets, records: recordFiles, messages, files, folders: [...folders.values()], events,
+    shares: [...sharedRoots.values()],
+  };
 }
 
 async function importWorkspace(client, workspace, {replace}) {
@@ -172,8 +242,9 @@ async function importWorkspace(client, workspace, {replace}) {
     'select count(*)::int as count from fs_node where workspace_id = $1', [workspace.id],
   )).rows[0].count);
   if (existing && !replace) return {workspace: workspace.slug, skipped: `already has ${existing} file system nodes`};
-  const {documents, assets, records, files, folders, events} = await plan(client, workspace.id);
+  const {documents, assets, records, messages, files, folders, events, shares} = await plan(client, workspace.id);
   if (existing) {
+    await client.query('delete from fs_share where workspace_id = $1', [workspace.id]);
     await client.query('delete from fs_change where workspace_id = $1', [workspace.id]);
     await client.query('delete from fs_node where workspace_id = $1', [workspace.id]);
     await client.query('delete from fs_content where workspace_id = $1', [workspace.id]);
@@ -193,20 +264,27 @@ async function importWorkspace(client, workspace, {replace}) {
   // Nodes first, with their final state, so every change can name one.
   for (const folder of folders) {
     await client.query(
-      `insert into fs_node(id, workspace_id, path, kind, access, access_explicit, owner_id, rev, created_by, created_at, updated_at)
-       values ($1, $2, $3, 'folder', $4, $5, $6, 0, $7, $8, $8)`,
-      [folder.id, workspace.id, folder.path, folder.access, folder.accessExplicit, folder.ownerId, folder.createdBy, folder.createdAt],
+      `insert into fs_node(id, workspace_id, path, kind, access, access_explicit, owner_id, share_root, rev,
+                           created_by, created_at, updated_at)
+       values ($1, $2, $3, 'folder', $4, $5, $6, $7, 0, $8, $9, $9)`,
+      [folder.id, workspace.id, folder.path, folder.access, folder.accessExplicit, folder.ownerId, folder.shareRoot,
+        folder.createdBy, folder.createdAt],
     );
   }
   for (const file of files) {
     const hash = await store(file.body);
     await client.query(
       `insert into fs_node(id, workspace_id, path, kind, content_hash, size, content_type, access, access_explicit,
-                           owner_id, meta, rev, created_by, created_at, updated_at, deleted_at)
-       values ($1, $2, $3, 'file', $4, $5, $6, $7, $8, $9, $10, 0, $11, $12, $13, $14)`,
+                           owner_id, share_root, meta, rev, created_by, created_at, updated_at, deleted_at)
+       values ($1, $2, $3, 'file', $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, $13, $14, $15)`,
       [file.id, workspace.id, file.path, hash, file.body.length, file.contentType, file.access, file.accessExplicit,
-        file.ownerId, JSON.stringify(file.meta), file.createdBy, file.createdAt, file.updatedAt, file.deletedAt],
+        file.ownerId, file.shareRoot, JSON.stringify(file.meta), file.createdBy, file.createdAt, file.updatedAt, file.deletedAt],
     );
+  }
+  for (const share of shares) {
+    for (const userId of new Set(share.members)) {
+      await client.query('insert into fs_share(node_id, workspace_id, user_id) values ($1, $2, $3)', [share.id, workspace.id, userId]);
+    }
   }
   for (const event of events) {
     const hash = event.body ? await store(event.body) : null;
@@ -219,7 +297,8 @@ async function importWorkspace(client, workspace, {replace}) {
     await client.query('update fs_node set rev = $1 where id = $2', [seq, event.node.id]);
   }
   return {
-    workspace: workspace.slug, documents: documents.length, assets: assets.length, records: records.length, folders: folders.length,
+    workspace: workspace.slug, documents: documents.length, assets: assets.length, records: records.length,
+    messages: messages.length, folders: folders.length,
   };
 }
 

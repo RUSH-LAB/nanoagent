@@ -11,7 +11,9 @@ const FIRST_CHANNEL_TOPIC = 'Everything, to start with';
  * Every operation is idempotent. Better Auth may retry a request, and a hook
  * can be replayed safely while recovering from an interrupted deployment.
  */
-function createWorkspaceProvisioning({postgres, sqliteDb, now = () => new Date().toISOString(), newId = () => crypto.randomUUID()}) {
+function createWorkspaceProvisioning({
+  postgres, sqliteDb, fsChat = () => null, now = () => new Date().toISOString(), newId = () => crypto.randomUUID(),
+}) {
   async function postgresContext(userId, workspaceId, operation) {
     const {withRequestContext} = require('./postgres/client');
     return withRequestContext(postgres.pool, {userId, workspaceId}, operation);
@@ -22,6 +24,19 @@ function createWorkspaceProvisioning({postgres, sqliteDb, now = () => new Date()
     const userId = member.userId || user.id;
     const at = now();
     const isOwner = String(member.role).split(',').includes('owner');
+
+    // With the workspace file system, channels are files (fs/chat.js).
+    const chat = fsChat();
+    if (chat) {
+      if (isOwner) {
+        await postgresContext(userId, workspaceId, client => client.query(
+          `insert into workspace_settings(workspace_id, value, updated_at)
+           values ($1, '{}'::jsonb, $2) on conflict (workspace_id) do nothing`,
+          [workspaceId, at],
+        ));
+      }
+      return chat.provisionMember(workspaceId, userId, {isOwner, name: FIRST_CHANNEL, topic: FIRST_CHANNEL_TOPIC});
+    }
 
     if (postgres?.enabled) {
       return postgresContext(userId, workspaceId, async client => {
@@ -81,6 +96,8 @@ function createWorkspaceProvisioning({postgres, sqliteDb, now = () => new Date()
   }
 
   async function removeMemberChannels({member, organization}) {
+    const chat = fsChat();
+    if (chat) return chat.removeMember(organization.id, member.userId);
     if (postgres?.enabled) {
       return postgresContext(member.userId, organization.id, client => client.query(
         `delete from channel_member

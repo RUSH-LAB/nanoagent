@@ -62,12 +62,20 @@ export const moveEntry = (from, to) => apiRequest('/api/fs/move', {
   body: JSON.stringify({from, to}),
 }, {failureLabel: `Could not move ${from}`});
 
-/** Who may see `path`: 'workspace', 'private', 'public', or null to follow its folder. */
-export const setAccess = (path, access) => apiRequest('/api/fs/access', {
+/**
+ * Who may see `path`: 'workspace', 'private', 'shared' (with `members`, by user
+ * id), 'public', or null to follow its folder.
+ */
+export const setAccess = (path, access, members) => apiRequest('/api/fs/access', {
   method: 'PUT',
   headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({path, access}),
+  body: JSON.stringify({path, access, ...(members ? {members} : {})}),
 }, {failureLabel: `Could not change who can see ${path}`});
+
+/** The workspace's members, `[{id, name, email}]`. */
+export async function listMembers() {
+  return (await apiRequest('/api/members', undefined, {failureLabel: 'Could not list the members'})).members;
+}
 
 export async function listTrash() {
   return (await apiRequest('/api/fs/tree?deleted=1', undefined, {failureLabel: 'Could not load the trash'})).nodes;

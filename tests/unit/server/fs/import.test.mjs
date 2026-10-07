@@ -42,6 +42,16 @@ describe('importing legacy content into the file system', () => {
         ('lab', null, 'analytics', 'views', '{"count": 9}', '2026-01-02T00:00:00Z', '2026-01-02T00:00:00Z');
       insert into reference(id, workspace_id, citation_key, value, created_by, created_at, updated_at) values
         ('ref-1', 'lab', 'knuth1984', '{"title": "Literate Programming"}', 'alice', '2026-01-02T00:00:00Z', '2026-01-02T00:00:00Z');
+      insert into channel(id, workspace_id, kind, name, topic, created_by, created_at) values
+        ('ch_general', 'lab', 'public', 'general', 'Everything', 'alice', '2026-01-01T00:00:00Z'),
+        ('ch_secret', 'lab', 'private', 'secret', null, 'bob', '2026-01-01T00:00:00Z');
+      insert into channel_member(workspace_id, channel_id, user_id, joined_at, last_read_seq) values
+        ('lab', 'ch_general', 'alice', '2026-01-01T00:00:00Z', 1), ('lab', 'ch_general', 'vic', '2026-01-01T00:00:00Z', 0),
+        ('lab', 'ch_secret', 'bob', '2026-01-01T00:00:00Z', 0);
+      insert into message(id, workspace_id, seq, channel_id, user_id, body, created_at, deleted_at) values
+        ('msg_1', 'lab', 1, 'ch_general', 'alice', 'hello', '2026-01-01T01:00:00Z', null),
+        ('msg_2', 'lab', 2, 'ch_general', 'vic', 'gone', '2026-01-01T02:00:00Z', '2026-01-01T03:00:00Z'),
+        ('msg_3', 'lab', 1, 'ch_secret', 'bob', 'shh', '2026-01-01T01:00:00Z', null);
     `);
   });
   after(() => db?.close());
@@ -83,6 +93,17 @@ describe('importing legacy content into the file system', () => {
     assert.deepEqual(await store.collection('glossary').get(as('vic'), 'CRDT'), {term: 'CRDT'});
     assert.deepEqual(await store.collection('plugin:bibliography:papers').get(as('vic'), 'knuth1984'), {title: 'Literate Programming'});
     assert.equal(await fs.stat(as('alice'), 'apps/analytics/views.json'), null);
+  });
+
+  it('imports chat, keeping private channels to their members', async () => {
+    const {createFsChat} = require('../../../../src/server/fs/chat.js');
+    const chat = createFsChat({fs});
+    const {messages} = await chat.listMessages('lab', 'vic', 'ch_general');
+    assert.deepEqual(messages.map(message => [message.seq, message.body]), [[1, 'hello'], [2, null]]);
+    assert.equal((await chat.listChannels('lab', 'alice')).find(channel => channel.id === 'ch_general').lastReadSeq, 1);
+    assert.equal(await chat.visibleChannel('lab', 'alice', 'ch_secret'), null);
+    assert.equal((await chat.listMessages('lab', 'bob', 'ch_secret')).messages[0].body, 'shh');
+    assert.deepEqual(await chat.createChannel('lab', 'alice', {name: 'general'}), {error: 'name-taken'});
   });
 
   it('skips a workspace that already has files unless asked to replace it', async () => {

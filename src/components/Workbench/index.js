@@ -401,6 +401,28 @@ export default function Workbench({workspace}) {
   const share = (node, access) => run(() => api.setAccess(node.path, access), () => toast.success(access
     ? `${node.path}: ${ACCESS_LABELS[access].toLowerCase()} can see it`
     : `${node.path} now follows its folder`));
+  const shareWithPeople = async node => {
+    let members;
+    try {
+      members = (await api.listMembers()).filter(member => member.id !== scopeRef.current?.userId);
+    } catch (error) {
+      toast.error(error.message);
+      return;
+    }
+    const answer = window.prompt(
+      `Share ${node.path} with which members? Enter their emails, separated by commas.\n\n`
+        + members.map(member => member.email).join('\n'),
+    );
+    if (answer === null) return;
+    const wanted = answer.split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
+    const unknown = wanted.filter(email => !members.some(member => member.email.toLowerCase() === email));
+    if (unknown.length) {
+      toast.error(`Not members of this workspace: ${unknown.join(', ')}`);
+      return;
+    }
+    const ids = members.filter(member => wanted.includes(member.email.toLowerCase())).map(member => member.id);
+    run(() => api.setAccess(node.path, 'shared', ids), () => toast.success(`${node.path} is shared with ${wanted.length} ${wanted.length === 1 ? 'member' : 'members'}`));
+  };
 
   const openTrash = () => api.listTrash()
     .then(nodes => setTrash(nodes.filter(node => !nodes.some(other => other !== node && within(node.path, other.path)
@@ -435,7 +457,10 @@ export default function Workbench({workspace}) {
       node && !readOnly ? Object.entries(ACCESS_LABELS).map(([access, label]) => ({
         label: `${node.access === access ? '✓ ' : ''}Visible to: ${label}`,
         run: () => share(node, access),
-      })).concat(node.accessExplicit ? [{label: 'Visible to: same as its folder', run: () => share(node, null)}] : []) : [],
+      })).concat(
+        [{label: `${node.access === 'shared' ? '✓ ' : ''}Visible to: specific people…`, run: () => shareWithPeople(node)}],
+        node.accessExplicit ? [{label: 'Visible to: same as its folder', run: () => share(node, null)}] : [],
+      ) : [],
       node && !readOnly ? [
         {label: 'Rename…', shortcut: 'F2', run: () => setEditing({mode: 'rename', node})},
         {label: 'Delete', shortcut: '⌫', danger: true, run: () => remove(node)},

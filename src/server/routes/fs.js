@@ -13,7 +13,9 @@
  *   DELETE node?path=&baseRev=        to the trash, with everything inside
  *   POST   restore {id}
  *   DELETE trash                      empty the trash
- *   PUT    access {path, access}      workspace, private, public, or null to inherit
+ *   PUT    access {path, access, members}
+ *                                     workspace, private, shared (with `members`), public, or null to inherit
+ *   GET    share?path=                who a shared node is shared with
  *   GET    history?path=              every revision, newest first
  *   GET    revision?path=&seq=        the bytes of one revision
  *   GET    changes?since=&limit=      the change feed sync clients follow
@@ -24,7 +26,7 @@
  *   POST   crdt?path=                 apply an editor's Yjs update; the merged text is a new revision
  *   GET    crdt/events?path=          server-sent `update` events, base64 Yjs updates, for live editing
  */
-const ROUTE = /^\/api\/fs\/(tree|stat|file|folder|move|node|restore|trash|access|history|revision|changes|crdt|crdt\/events)$/;
+const ROUTE = /^\/api\/fs\/(tree|stat|file|folder|move|node|restore|trash|access|share|history|revision|changes|crdt|crdt\/events)$/;
 const HEARTBEAT_MS = 25_000;
 
 function fail(json, res, error) {
@@ -155,10 +157,19 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
 
     if (req.method === 'PUT' && action === 'access') {
       permit('content:publish');
-      const {path, access} = await readBody(req) ?? {};
-      const node = await fs.setAccess(scope, path, access ?? null);
+      const {path, access, members} = await readBody(req) ?? {};
+      if (members !== undefined && (!Array.isArray(members) || members.some(member => typeof member !== 'string'))) {
+        return json(res, 400, {error: 'members must be a list of user ids', code: 'bad-members'});
+      }
+      const node = await fs.setAccess(scope, path, access ?? null, {members});
       changed();
       return json(res, 200, {node});
+    }
+
+    if (req.method === 'GET' && action === 'share') {
+      permit('content:read');
+      const members = await fs.sharedWith(scope, param('path'));
+      return members ? json(res, 200, {members}) : json(res, 404, {error: 'Not shared', code: 'not-shared'});
     }
 
     if (req.method === 'GET' && action === 'history') {

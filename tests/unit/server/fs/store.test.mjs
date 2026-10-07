@@ -94,6 +94,21 @@ describe('workspace file system', () => {
     assert.equal(await publicFs.read('lab', 'posts/draft.md'), null);
   });
 
+  it('shares a folder with chosen members only, who may work in it', async () => {
+    await fs.write(alice, 'team/plan.md', 'for alice and bob');
+    await fs.setAccess(alice, 'team', 'shared', {members: ['bob']});
+    assert.equal((await fs.read(bob, 'team/plan.md')).body.toString(), 'for alice and bob');
+    assert.equal(await fs.stat(vic, 'team/plan.md'), null);
+    assert.deepEqual(await fs.sharedWith(bob, 'team/plan.md'), ['alice', 'bob']);
+    // A member it is shared with adds to it, and the file stays shared.
+    const added = await fs.write(bob, 'team/notes.md', 'bob was here');
+    assert.equal(added.access, 'shared');
+    assert.equal(await fs.stat(vic, 'team/notes.md'), null);
+    // Unsharing hands it back to the workspace.
+    await fs.setAccess(alice, 'team', 'workspace');
+    assert.ok(await fs.stat(vic, 'team/notes.md'));
+  });
+
   it('lets a viewer read but not write', async () => {
     assert.ok(await fs.read(vic, 'notes/a.md'));
     await assert.rejects(() => fs.write(vic, 'notes/b.md', 'nope'));

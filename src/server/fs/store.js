@@ -18,7 +18,7 @@ const path = require('path');
 const {withRequestContext} = require('../postgres/client');
 const {titleOf} = require('../document-title');
 
-const ACCESS = Object.freeze(['workspace', 'private', 'public']);
+const ACCESS = Object.freeze(['workspace', 'private', 'shared', 'public']);
 const MAX_PATH_LENGTH = 400;
 const MARKDOWN = /\.mdx?$/i;
 const CONTENT_TYPES = Object.freeze({
@@ -87,6 +87,7 @@ function metaFor(nodePath, body) {
 
 const NODE_COLUMNS = `n.id, n.path, n.kind, n.content_hash as "contentHash", n.size::float8 as size,
   n.content_type as "contentType", n.access, n.access_explicit as "accessExplicit", n.owner_id as "ownerId",
+  n.share_root as "shareRoot",
   n.meta, n.rev::float8 as rev, n.created_by as "createdBy", n.created_at as "createdAt",
   n.updated_at as "updatedAt", n.deleted_at as "deletedAt"`;
 const CHANGE_COLUMNS = `c.seq::float8 as seq, c.node_id as "nodeId", c.op, c.path, c.from_path as "fromPath",
@@ -162,20 +163,21 @@ function operations(client, scope) {
       contentType,
       access: effective,
       accessExplicit: access !== undefined && access !== inherited,
-      // A private node belongs to whoever made it private: its own creator, or
-      // the owner of the private folder it inherits from.
-      ownerId: effective === 'private' && !access ? parent.ownerId : scope.userId,
+      // A private or shared node belongs to whoever set that: its own creator,
+      // or the owner of the folder it inherits from.
+      ownerId: ['private', 'shared'].includes(effective) && !access ? parent.ownerId : scope.userId,
+      shareRoot: effective === 'shared' ? parent.shareRoot : null,
       meta,
       createdBy: scope.userId,
     };
     try {
       const row = (await client.query(
         `insert into fs_node(id, workspace_id, path, kind, content_hash, size, content_type, access, access_explicit,
-                             owner_id, meta, rev, created_by)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12)
+                             owner_id, share_root, meta, rev, created_by)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, $13)
          returning created_at as "createdAt", updated_at as "updatedAt"`,
         [node.id, workspaceId, node.path, node.kind, node.contentHash, node.size, node.contentType, node.access,
-          node.accessExplicit, node.ownerId, JSON.stringify(node.meta), node.createdBy],
+          node.accessExplicit, node.ownerId, node.shareRoot, JSON.stringify(node.meta), node.createdBy],
       )).rows[0];
       Object.assign(node, row, {deletedAt: null});
     } catch (error) {
@@ -203,20 +205,42 @@ function operations(client, scope) {
     )).rows;
   }
 
+  /**
+   * Make `root`'s share list exactly `members`. New members are added before
+   * dropped ones are removed: the caller must still see the node while the
+   * list changes, even when they are leaving it.
+   */
+  async function replaceShares(root, members) {
+    const wanted = [...new Set(members.map(String))];
+    for (const userId of wanted) {
+      await client.query(
+        'insert into fs_share(node_id, workspace_id, user_id) values ($1, $2, $3) on conflict do nothing',
+        [root, workspaceId, userId],
+      );
+    }
+    await client.query('delete from fs_share where node_id = $1 and user_id <> all($2::text[])', [root, wanted]);
+  }
+
   /** Re-derive inherited access below (and including) `root` after its folder or its own access changed. */
   async function inheritAccess(root) {
     const nodes = await subtree(root.path);
     const parent = parentOf(root.path) ? await nodeAt(parentOf(root.path)) : null;
-    const effective = new Map([[parentOf(root.path), {access: parent?.access ?? 'workspace', ownerId: parent?.ownerId ?? null}]]);
+    const effective = new Map([[parentOf(root.path), {
+      access: parent?.access ?? 'workspace', ownerId: parent?.ownerId ?? null, shareRoot: parent?.shareRoot ?? null,
+    }]]);
     for (const node of nodes) {
-      const above = effective.get(parentOf(node.path)) ?? {access: 'workspace', ownerId: null};
+      const above = effective.get(parentOf(node.path)) ?? {access: 'workspace', ownerId: null, shareRoot: null};
       const next = node.accessExplicit
-        ? {access: node.access, ownerId: node.ownerId}
-        : {access: above.access, ownerId: above.access === 'private' ? above.ownerId : node.ownerId};
+        ? {access: node.access, ownerId: node.ownerId, shareRoot: node.access === 'shared' ? node.id : null}
+        : {
+          access: above.access,
+          ownerId: ['private', 'shared'].includes(above.access) ? above.ownerId : node.ownerId,
+          shareRoot: above.access === 'shared' ? above.shareRoot : null,
+        };
       effective.set(node.path, next);
-      if (next.access === node.access && next.ownerId === node.ownerId) continue;
-      await client.query('update fs_node set access = $1, owner_id = $2, updated_at = now() where id = $3',
-        [next.access, next.ownerId, node.id]);
+      if (next.access === node.access && next.ownerId === node.ownerId && next.shareRoot === node.shareRoot) continue;
+      await client.query('update fs_node set access = $1, owner_id = $2, share_root = $3, updated_at = now() where id = $4',
+        [next.access, next.ownerId, next.shareRoot, node.id]);
       Object.assign(node, next);
       await log(node, 'access');
     }
@@ -365,8 +389,13 @@ function operations(client, scope) {
       return (await client.query('delete from fs_node where deleted_at is not null')).rowCount;
     },
 
-    /** Set `access` on a node, or pass null to inherit its folder's again. */
-    async setAccess(nodePath, access) {
+    /**
+     * Set `access` on a node, or pass null to inherit its folder's again.
+     * `shared` takes the `members` it is shared with; the owner is whoever
+     * shares it, and sees it whether listed or not, unless `unowned`, when
+     * exactly the members do (a chat channel, which its creator may leave).
+     */
+    async setAccess(nodePath, access, {members = [], unowned = false} = {}) {
       if (access !== null && !ACCESS.includes(access)) throw new FsError(400, 'bad-access', `Not an access level: ${access}`);
       const clean = cleanPath(nodePath);
       const node = await nodeAt(clean, {lock: true});
@@ -375,15 +404,38 @@ function operations(client, scope) {
         await client.query('update fs_node set access_explicit = false where id = $1', [node.id]);
         node.accessExplicit = false;
       } else {
+        const owned = ['private', 'shared'].includes(access);
+        const ownerId = access === 'shared' && unowned ? null : owned ? scope.userId : node.ownerId;
+        // An owned share lists its sharer too, so they keep it in either case.
+        await replaceShares(node.id, access === 'shared' ? [...(unowned ? [] : [scope.userId]), ...members] : []);
         await client.query(
-          'update fs_node set access = $1, access_explicit = true, owner_id = $2, updated_at = now() where id = $3',
-          [access, access === 'private' ? scope.userId : node.ownerId, node.id],
+          `update fs_node set access = $1, access_explicit = true, owner_id = $2, share_root = $3, updated_at = now()
+            where id = $4`,
+          [access, ownerId, access === 'shared' ? node.id : null, node.id],
         );
-        Object.assign(node, {access, accessExplicit: true, ownerId: access === 'private' ? scope.userId : node.ownerId});
+        Object.assign(node, {access, accessExplicit: true, ownerId, shareRoot: access === 'shared' ? node.id : null});
         await log(node, 'access');
       }
       await inheritAccess(node);
       return nodeAt(clean);
+    },
+
+    /** Replace who the shared node at `nodePath` is shared with, keeping its owner. */
+    async shareWith(nodePath, members) {
+      const node = await nodeAt(cleanPath(nodePath), {lock: true});
+      if (!node || node.access !== 'shared') throw new FsError(409, 'not-shared', `${nodePath} is not shared`);
+      // Logged first: a member leaving the list can no longer see the node after.
+      await log(node, 'access');
+      await replaceShares(node.shareRoot, members);
+      return node;
+    },
+
+    /** Who the node at `nodePath` is shared with, or null when it is not shared. */
+    async sharedWith(nodePath) {
+      const node = await nodeAt(cleanPath(nodePath));
+      if (!node || node.access !== 'shared') return null;
+      return (await client.query('select user_id as "userId" from fs_share where node_id = $1 order by user_id',
+        [node.shareRoot])).rows.map(row => row.userId);
     },
 
     /** Every revision of the node at `nodePath`, newest first. */
@@ -459,7 +511,9 @@ function createPostgresFs({pool}) {
     restore: (scope, id) => run(scope, fs => fs.restore(id)),
     trash: (scope, options) => run(scope, fs => fs.list({...options, deleted: true})),
     emptyTrash: scope => run(scope, fs => fs.emptyTrash()),
-    setAccess: (scope, nodePath, access) => run(scope, fs => fs.setAccess(nodePath, access)),
+    setAccess: (scope, nodePath, access, options) => run(scope, fs => fs.setAccess(nodePath, access, options)),
+    sharedWith: (scope, nodePath) => run(scope, fs => fs.sharedWith(nodePath)),
+    shareWith: (scope, nodePath, members) => run(scope, fs => fs.shareWith(nodePath, members)),
     history: (scope, nodePath) => run(scope, fs => fs.history(nodePath)),
     readRevision: (scope, nodePath, seq) => run(scope, fs => fs.readRevision(nodePath, seq)),
     changes: (scope, options) => run(scope, fs => fs.changes(options)),
