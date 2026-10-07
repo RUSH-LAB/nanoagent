@@ -37,6 +37,7 @@ const {spawn} = require('child_process');
 const {PROJECT_ROOT, VAR_DIR} = require('./paths');
 const {numericParam, within} = require('./server-utils');
 const {memoryObjectStorage} = require('./object-storage');
+const {fsBlobs} = require('./fs/assets');
 
 // One process-level fallback keeps non-PostgreSQL tests and explicitly
 // no-database development coherent across requests without writing to disk.
@@ -406,12 +407,15 @@ function buildPluginApi({name, dir, requires = [], commands = [], ctx, req}) {
     });
   }
   if (asked.has('blobs')) {
-    api.blobs = blobsCapability(name, {
-      orgId: recordScope.workspaceId,
-      userId: recordScope.userId,
-      objectStorage: ctx.objectStorage,
-      assets: ctx.assets,
-    });
+    // With CONTENT_STORE=fs a plugin's blobs are files in the workspace file system.
+    api.blobs = ctx.workspaceFs
+      ? fsBlobs(name, {orgId: recordScope.workspaceId, userId: recordScope.userId, fs: ctx.workspaceFs})
+      : blobsCapability(name, {
+        orgId: recordScope.workspaceId,
+        userId: recordScope.userId,
+        objectStorage: ctx.objectStorage,
+        assets: ctx.assets,
+      });
     api.readBytes = () => ctx.readRawBody(req);
   }
   if (asked.has('ai')) {

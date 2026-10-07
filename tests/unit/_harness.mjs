@@ -633,6 +633,12 @@ export function makeCtx(overrides = {}) {
     ...rest,
   };
 
+  // Uploads go through the store interface server/index.js builds from the
+  // same two pieces, so a suite that supplies object storage gets real uploads.
+  if (!ctx.assetStore && ctx.objectStorage) {
+    ctx.assetStore = require('../../src/server/asset-store.js')
+      .createLegacyAssetStore({assets: ctx.assets, objectStorage: ctx.objectStorage});
+  }
   ctx.calls = calls;
   ctx.store = store;
   // The store itself, for a suite that wants to seed or read rows directly

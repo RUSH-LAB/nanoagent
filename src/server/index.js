@@ -43,10 +43,14 @@ const documents = postgresServices?.documents ?? require('./documents');
 const preferences = postgresServices?.preferences ?? require('./preferences');
 const workspaceSettings = postgresServices?.workspaceSettings ?? require('./workspace-settings');
 const {createObjectStorage} = require('./object-storage');
+const {createLegacyAssetStore} = require('./asset-store');
 const {createObjectDeletionQueue, drainObjectDeletions} = require('./object-deletions');
 const {serveStaticSite} = require('./static-site');
 const objectStorage = createObjectStorage(process.env, {pool: postgresDatabase.pool});
 const assets = postgresServices?.assets ?? require('./assets');
+// Uploads through the store CONTENT_STORE selects (see asset-store.js).
+const assetStore = postgresServices?.assetStore ?? createLegacyAssetStore({assets, objectStorage});
+const contentStore = postgresServices?.contentStore ?? 'legacy';
 const objectDeletions = postgresServices?.objectDeletions
   ?? createObjectDeletionQueue({db: require('./db').db});
 const {compileDocument, compileMarkdown, parseFrontmatter, splitBlogPost} = require('./mdx');
@@ -486,6 +490,11 @@ const ctx = {
   objectStorage,
   cleanPendingObjects,
   assets,
+  assetStore,
+  // The workspace file system, present when CONTENT_STORE=fs.
+  contentStore,
+  workspaceFs: postgresServices?.fs ?? null,
+  publicFs: postgresServices?.publicFs ?? null,
   compileDocument,
   compileMarkdown,
   parseFrontmatter,
@@ -504,6 +513,8 @@ const routeModules = [
   // Content from the database, compiled per request.
   require('./routes/content'),
   require('./routes/assets'),
+  // The workspace file system, when CONTENT_STORE=fs.
+  require('./routes/fs'),
   require('./routes/content-stats'),
   require('./routes/comments-notes'),
   require('./routes/feeds'),
@@ -624,7 +635,7 @@ const server = http.createServer(async (req, res) => {
 
   // ── Health check ──
   if (req.method === 'GET' && pathname === '/api/health') {
-    return json(res, 200, {status: 'ok', uptime: process.uptime(), memory: process.memoryUsage().heapUsed});
+    return json(res, 200, {status: 'ok', contentStore, uptime: process.uptime(), memory: process.memoryUsage().heapUsed});
   }
 
   // ── Memory debug endpoint ──

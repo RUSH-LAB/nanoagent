@@ -18,6 +18,7 @@
     "db:postgres:setup": "node scripts/db/postgres.mjs setup",
     "db:postgres:migrate": "node scripts/db/postgres.mjs migrate",
     "db:postgres:verify": "node scripts/db/postgres.mjs verify",
+    "fs:import": "node --env-file-if-exists=.env scripts/db/import-fs.mjs",
     "test:postgres": "node scripts/db/postgres.mjs test",
     "start:postgres:api": "node scripts/db/postgres.mjs serve",
     "object-storage:verify": "node --env-file-if-exists=.env scripts/maintenance/verify-object-storage.mjs",
