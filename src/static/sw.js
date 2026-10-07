@@ -6,14 +6,17 @@
  * API responses never pass through this cache; documents are kept by
  * src/utils/documentCache.js, per account, and signing out clears them.
  *
- * Pages are fetched from the network first so a deploy is picked up at once,
- * and the stored copy is used only when the network fails. Every client route
- * is served by the same application shell, exactly as the server does
- * (src/server/static-site.js), so a route never opened before still starts.
- * Hashed files under /assets/ never change and are served from the store.
+ * Everything is fetched from the network first, so a deploy or a development
+ * rebuild is picked up at once, and the stored copy is used only when the
+ * network fails. Every client route is served by the same application shell,
+ * exactly as the server does (src/server/static-site.js), so a route never
+ * opened before still starts. Only files whose names carry a content hash,
+ * which a production build gives its scripts and styles, are served from the
+ * store directly, because they never change.
  */
 const CACHE = 'mochi-app-v1';
 const SHELL = '/';
+const HASHED = /\.[0-9a-f]{8,}\.(?:js|css)$/;
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -66,7 +69,9 @@ self.addEventListener('fetch', event => {
   const {request} = event;
   const url = new URL(request.url);
   if (request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
-  if (url.pathname.startsWith('/assets/')) {
+  // The development server's live-reload updates are never worth keeping.
+  if (url.pathname.includes('hot-update')) return;
+  if (HASHED.test(url.pathname)) {
     event.respondWith(fromStore(request));
   } else {
     event.respondWith(fromNetwork(request, request.mode === 'navigate' ? url.pathname : request));

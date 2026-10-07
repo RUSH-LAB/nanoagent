@@ -1,10 +1,9 @@
 /**
  * Install the worker that keeps the application on this computer (src/static/sw.js).
- *
- * Production builds only: the development server rebuilds its files on every
- * change, and a stored copy would hide each edit until the cache was cleared.
+ * It prefers the network for anything that can change, so it is safe under the
+ * development server as well as in a production build.
  */
-if (typeof window !== 'undefined' && process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
       await navigator.serviceWorker.register('/sw.js');
