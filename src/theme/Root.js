@@ -75,6 +75,13 @@ function isUngated(pathname) {
   return UNGATED.some((page) => pathname === page || pathname.startsWith(`${page}/`));
 }
 
+/**
+ * A workspace's documents, which a visitor who is signed out may read when the
+ * workspace publishes them. The page itself asks the public API and says
+ * "not found" for anything unpublished, so the gate lets these through.
+ */
+const PUBLISHED = /^\/w\/[^/]+\/documents(?:\/|$)/;
+
 function AuthGate({ children, devAutoLogin, googleAuthEnabled }) {
   // Required lazily, inside BrowserOnly, because workspace discovery reads the
   // authenticated API and should never run during the static build.
@@ -119,7 +126,8 @@ function AuthGate({ children, devAutoLogin, googleAuthEnabled }) {
   // The router's location, not window's. Leaving /join is a client-side route
   // change, and a pathname read from window during one render would still say
   // /join on the next.
-  const ungated = isUngated(useLocation().pathname);
+  const {pathname} = useLocation();
+  const ungated = isUngated(pathname);
 
   // The static shell is safe to paint immediately: protected data only arrives
   // from authenticated API calls. Keeping it visible avoids a blank first
@@ -149,6 +157,7 @@ function AuthGate({ children, devAutoLogin, googleAuthEnabled }) {
   }
 
   if (ungated) return <>{children}</>;
+  if (status === SIGNED_OUT && PUBLISHED.test(pathname)) return <>{children}</>;
 
   return (
     <Deferred>

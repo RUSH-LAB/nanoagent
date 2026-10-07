@@ -296,6 +296,8 @@ const PUBLIC_PATTERNS = [/^\/api\/invite\/[^/]+$/];
 function isPublicPath(pathname) {
   return PUBLIC_PATHS.has(pathname)
     || pathname.startsWith('/api/auth/')
+    // What a workspace publishes (routes/public.js).
+    || pathname.startsWith('/api/public/')
     || PUBLIC_PATTERNS.some(pattern => pattern.test(pathname));
 }
 

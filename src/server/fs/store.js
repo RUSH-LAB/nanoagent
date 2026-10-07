@@ -486,6 +486,15 @@ function createPublicFsReader({pool}) {
     }
   }
   return Object.freeze({
+    /** `{id, name, slug, site}` for a workspace that publishes something, or null. */
+    async workspace(slug) {
+      const client = await pool.connect();
+      try {
+        return (await client.query('select id, name, slug, site from public_workspace($1)', [String(slug)])).rows[0] ?? null;
+      } finally {
+        client.release();
+      }
+    },
     list: (workspaceId, options) => run(workspaceId, fs => fs.list(options)),
     readMany: (workspaceId, options) => run(workspaceId, fs => fs.readMany(options)),
     async read(workspaceId, nodePath) {

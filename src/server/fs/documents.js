@@ -163,4 +163,37 @@ function createFsDocuments({fs}) {
   });
 }
 
-module.exports = {createFsDocuments};
+/**
+ * The read side of the document repository for visitors: one workspace's
+ * public documents, through the public reader. It has no write methods; the
+ * content routes reach none for a viewer.
+ */
+function createPublicDocuments({publicFs, workspaceId}) {
+  return Object.freeze({
+    titleOf,
+    async list(scope, {prefix} = {}) {
+      return (await publicFs.list(workspaceId, {prefix: prefixOf(prefix)})).filter(isDocument).map(toDocument);
+    },
+    async snapshot(scope, {prefix} = {}) {
+      return (await publicFs.readMany(workspaceId, {prefix: prefixOf(prefix)}))
+        .filter(isDocument)
+        .map(row => withMarkdown({node: row, body: row.body}));
+    },
+    async get(scope, path) {
+      const found = await publicFs.read(workspaceId, checkPath(path));
+      return found && isDocument(found.node) ? withMarkdown(found) : undefined;
+    },
+    async resolve(scope, urlPath) {
+      const trimmed = String(urlPath ?? '').replace(/^\/+|\/+$/g, '');
+      if (!trimmed) return undefined;
+      const candidates = /\.mdx?$/.test(trimmed)
+        ? [trimmed]
+        : [`${trimmed}.md`, `${trimmed}.mdx`, `${trimmed}/index.md`, `${trimmed}/index.mdx`];
+      const found = await publicFs.readMany(workspaceId, {paths: candidates});
+      const first = candidates.map(candidate => found.find(row => row.path === candidate)).find(Boolean);
+      return first ? withMarkdown({node: first, body: first.body}) : undefined;
+    },
+  });
+}
+
+module.exports = {createFsDocuments, createPublicDocuments};

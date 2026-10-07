@@ -18,6 +18,7 @@ import {loadWorkspaces, navigateClient} from '@site/src/utils/workspaces';
 import {
   DOCUMENT_SYNC_EVENT, documentCache, isOffline, startDocumentSync,
 } from '@site/src/utils/documentCache';
+import {viewWorkspacePublicly} from '@site/src/utils/documentUrls';
 import {toast} from '@site/src/components/Toast/toast';
 import {clientPlatform} from '@site/src/platform/client';
 import {adjacentDocumentPosition, newDocumentDraft} from '@site/src/utils/documentAuthoring';
@@ -403,8 +404,9 @@ function DocumentBody({
   const {siteConfig} = useDocusaurusContext();
   const [state, setState] = useState({status: LOADING});
   const [editing, setEditing] = useState(false);
+  // A visitor has no member preferences to read.
   const {subscriptions} = useWorkspaceSubscriptions(
-    state.workspaceId ? {id: state.workspaceId} : null,
+    state.workspaceId && state.workspaceRole !== 'visitor' ? {id: state.workspaceId} : null,
   );
 
   useEffect(() => {
@@ -419,24 +421,46 @@ function DocumentBody({
         ? {...current, pending: true}
         : {status: LOADING, workspaceSlug});
       try {
-        const {workspaces, userId} = await loadWorkspaces();
-        const workspace = workspaces.find(item => item.slug === workspaceSlug);
+        // A signed-out visitor reads what the workspace publishes, through the
+        // public API, without this browser's cache of member documents.
+        let workspace;
+        let userId = null;
+        let publicSite = null;
+        try {
+          const account = await loadWorkspaces();
+          userId = account.userId;
+          workspace = account.workspaces.find(item => item.slug === workspaceSlug);
+        } catch (err) {
+          if (err.status !== 401) throw err;
+          const published = await apiJson(`${API_BASE}/api/public/${encodeURIComponent(workspaceSlug)}`, {
+            cacheMs: WORKSPACE_CONTENT_CACHE_MS,
+          });
+          if (published.ok) {
+            workspace = {...published.data.workspace, role: 'visitor'};
+            publicSite = {ok: true, status: 200, data: {site: published.data.site}};
+            viewWorkspacePublicly(workspace.id, workspace.slug);
+          }
+        }
         if (!workspace) {
           if (!cancelled) setState({status: MISSING});
           return;
         }
-        const apiRoot = `${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}`;
+        const apiRoot = publicSite
+          ? `${API_BASE}/api/public/${encodeURIComponent(workspace.slug)}`
+          : `${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}`;
         const scope = {userId, workspaceId: workspace.id};
-        const cache = documentCache();
+        const cache = publicSite ? null : documentCache();
         const logCacheError = error => console.error('[documents] Browser cache failed:', error);
-        let siteResult;
-        try {
-          siteResult = await apiJson(`${apiRoot}/site`, {cacheMs: WORKSPACE_CONTENT_CACHE_MS});
-          if (siteResult.ok) cache.remember(scope, '#site', siteResult.data).catch(logCacheError);
-        } catch (err) {
-          // Offline: lay the workspace out as it was when this browser last saw it.
-          siteResult = isOffline(err) ? await cache.read(scope, '#site') : null;
-          if (!siteResult) throw err;
+        let siteResult = publicSite;
+        if (!siteResult) {
+          try {
+            siteResult = await apiJson(`${apiRoot}/site`, {cacheMs: WORKSPACE_CONTENT_CACHE_MS});
+            if (siteResult.ok) cache.remember(scope, '#site', siteResult.data).catch(logCacheError);
+          } catch (err) {
+            // Offline: lay the workspace out as it was when this browser last saw it.
+            siteResult = isOffline(err) ? await cache.read(scope, '#site') : null;
+            if (!siteResult) throw err;
+          }
         }
         const site = siteResult.ok ? siteResult.data.site : null;
         const homeLayout = workspaceHomeLayout(site, workspaceSlug);
@@ -540,7 +564,7 @@ function DocumentBody({
 
         // This browser's copy renders at once; the server's answer below
         // replaces it. A copy holding an edit not yet uploaded stays in view.
-        const cached = views.document || views.tree
+        const cached = cache && (views.document || views.tree)
           ? await Promise.all(['document', 'tree'].map(kind => views[kind]
             ? cache.read(scope, views[kind])
             : notRequested[kind])).catch(error => {
@@ -570,7 +594,7 @@ function DocumentBody({
         if (cancelled) return;
         const [fetchedDocument, treeResult] = results;
         for (const [kind, result] of [['document', fetchedDocument], ['tree', treeResult]]) {
-          if (views[kind] && result.ok) cache.remember(scope, views[kind], result.data).catch(logCacheError);
+          if (cache && views[kind] && result.ok) cache.remember(scope, views[kind], result.data).catch(logCacheError);
         }
         show(cached[0]?.pending ? cached[0] : fetchedDocument, treeResult);
       } catch (err) {

@@ -46,6 +46,8 @@ const {createObjectStorage} = require('./object-storage');
 const {createLegacyAssetStore} = require('./asset-store');
 const {createObjectDeletionQueue, drainObjectDeletions} = require('./object-deletions');
 const {serveStaticSite} = require('./static-site');
+const {servePublicPage} = require('./public-pages');
+const {resolveWorkspaceSite} = require('./workspace-site');
 const objectStorage = createObjectStorage(process.env, {pool: postgresDatabase.pool});
 const assets = postgresServices?.assets ?? require('./assets');
 // Uploads through the store CONTENT_STORE selects (see asset-store.js).
@@ -515,6 +517,8 @@ const routeModules = [
   require('./routes/assets'),
   // The workspace file system, when CONTENT_STORE=fs.
   require('./routes/fs'),
+  // What workspaces publish, for anyone.
+  require('./routes/public'),
   require('./routes/content-stats'),
   require('./routes/comments-notes'),
   require('./routes/feeds'),
@@ -574,7 +578,12 @@ const server = http.createServer(async (req, res) => {
   // A production process serves the Docusaurus application shell and API from
   // one origin, so the session cookie never has to be exposed to JavaScript.
   if (pathname !== '/api' && !pathname.startsWith('/api/') && process.env.NODE_ENV === 'production') {
-    if (serveStaticSite(req, res, {root: path.join(PROJECT_ROOT, 'build')})) return;
+    const root = path.join(PROJECT_ROOT, 'build');
+    // A published document's page carries its title and content as HTML.
+    if (await servePublicPage(req, res, {
+      root, publicFs: postgresServices?.publicFs, compileMarkdown, parseFrontmatter, resolveWorkspaceSite,
+    })) return;
+    if (serveStaticSite(req, res, {root})) return;
   }
 
   // ── Sign-up, sign-in, sign-out, organizations ──

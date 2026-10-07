@@ -37,6 +37,7 @@ function isGlobalApiPath(pathname) {
   const value = String(pathname ?? '');
   return GLOBAL_API_PATHS.has(value)
     || value.startsWith('/api/auth/')
+    || value.startsWith('/api/public/')
     || /^\/api\/invite\/[^/]+(?:\/accept)?$/.test(value)
     || /^\/api\/users\/[^/]+\/role$/.test(value);
 }

@@ -43,6 +43,15 @@ export function workspaceDocumentHref(url, workspaceSlug, documentPath) {
   return `/w/${encodeURIComponent(workspaceSlug)}/documents${path ? `/${path}` : ''}${suffix}`;
 }
 
+// Workspaces this tab shows as a visitor, by id, with their slugs: their files
+// come from the public API rather than the members' one.
+const publicWorkspaces = new Map();
+
+/** Show `workspaceId`'s files to this tab as a visitor of the workspace `slug`. */
+export function viewWorkspacePublicly(workspaceId, slug) {
+  publicWorkspaces.set(workspaceId, slug);
+}
+
 export function workspaceAssetHref(url, workspaceId, documentPath) {
   const value = String(url ?? '');
   if (!value || value.startsWith('/') || value.startsWith('#') || /^(?:https?:|data:|blob:)/i.test(value)) {
@@ -54,5 +63,9 @@ export function workspaceAssetHref(url, workspaceId, documentPath) {
   const segments = cleanSegments(pathname, current);
   if (!segments || !workspaceId) return value;
   const logicalPath = segments.join('/');
+  const publicSlug = publicWorkspaces.get(workspaceId);
+  if (publicSlug) {
+    return `${API_BASE}/api/public/${encodeURIComponent(publicSlug)}/fs/file?path=${encodeURIComponent(logicalPath)}${suffix}`;
+  }
   return `${API_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/assets?path=${encodeURIComponent(logicalPath)}${suffix}`;
 }
