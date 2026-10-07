@@ -264,7 +264,7 @@ describe('NanoAgent plugin API', () => {
         return response([], {json: {plugins: []}});
       },
     });
-    assert.deepEqual(await gateway.plugins(), {value: {plugins: []}});
+    assert.deepEqual((await gateway.plugins()).value, {plugins: []});
     assert.deepEqual(seen, [['http://127.0.0.1:8787/v1/plugins', 'Bearer secret']]);
   });
 
@@ -294,6 +294,60 @@ describe('NanoAgent plugin API', () => {
     assert.equal((await gateway.workspaceFile('w1', 'papers/a b.tex')).value.toString(), 'hi');
     assert.deepEqual(await gateway.workspaceFile('w1', 'missing.tex'), {error: 'file not found', status: 404});
     assert.equal(seen[0], 'http://127.0.0.1:8787/v1/workspaces/w1/files/papers/a%20b.tex');
+  });
+
+  it('fetches a plugin page file with its headers', async () => {
+    const seen = [];
+    const gateway = ai.createNanoAgentGateway({
+      env: {NANOAGENT_API_TOKEN: 'secret'},
+      fetchImpl: async (url, init) => {
+        seen.push([url, init.headers.Authorization]);
+        return {
+          ok: true, status: 200,
+          headers: new Headers({'content-security-policy': "default-src 'self'"}),
+          arrayBuffer: async () => new TextEncoder().encode('<html>').buffer,
+        };
+      },
+    });
+    const file = await gateway.pluginUiFile('chess-move', 'js/app main.js');
+    assert.equal(file.value.toString(), '<html>');
+    assert.equal(file.headers.get('content-security-policy'), "default-src 'self'");
+    assert.deepEqual(seen, [['http://127.0.0.1:8787/v1/plugins/chess-move/ui/js/app%20main.js', 'Bearer secret']]);
+  });
+
+  it('starts a task run in a workspace and hands back its event stream', async () => {
+    const seen = [];
+    const body = {};
+    const gateway = ai.createNanoAgentGateway({
+      env: {NANOAGENT_API_TOKEN: 'secret'},
+      fetchImpl: async (url, init) => {
+        seen.push([url, init.method, init.headers.Authorization, JSON.parse(init.body)]);
+        if (url.includes('/tasks/missing/')) return {ok: false, status: 404, json: async () => ({error: 'task not found'})};
+        if (url.includes('/tasks/broken/')) return {ok: false, status: 500, json: async () => ({error: 'boom'})};
+        return {ok: true, status: 200, body};
+      },
+    });
+    const started = await gateway.taskRun({workspace: 'w1', app: 'arxiv-source', task: 'daily digest', args: {people: ['Ada']}});
+    assert.equal(started.value, body);
+    assert.deepEqual(seen[0], [
+      'http://127.0.0.1:8787/v1/workspaces/w1/plugins/arxiv-source/tasks/daily%20digest/runs',
+      'POST', 'Bearer secret', {arguments: {people: ['Ada']}},
+    ]);
+    assert.deepEqual(await gateway.taskRun({workspace: 'w1', app: 'a', task: 'missing', args: {}}), {error: 'task not found', status: 404});
+    assert.deepEqual(await gateway.taskRun({workspace: 'w1', app: 'a', task: 'broken', args: {}}), {error: 'boom', status: 502});
+  });
+
+  it('shows an app run\'s tool arguments and output, and no other run\'s', async () => {
+    const tool = sse({type: 'tool', runId: 'r', id: 't', name: 'move', arguments: {fen: 'x'}, output: {move: 'e4'}, is_error: false});
+    const done = sse({type: 'done', runId: 'r', answer: 'ok'});
+    const gateway = ai.createNanoAgentGateway({env: {}, fetchImpl: async () => response([tool, done])});
+    const calls = async request => {
+      const events = [];
+      await gateway.stream({input: 'x', ...request, onEvent: event => events.push(event)});
+      return events.filter(event => event.type === 'tool.completed').map(event => event.call);
+    };
+    assert.deepEqual(await calls({app: 'chess-move', workspace: 'w1'}), [{id: 't', name: 'move', arguments: {fen: 'x'}, output: {move: 'e4'}}]);
+    assert.deepEqual(await calls({}), [{id: 't', name: 'move'}]);
   });
 
   it('reports an unreachable service', async () => {

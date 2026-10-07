@@ -350,3 +350,4 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
 module.exports.DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT;
 module.exports.composeRequest = composeRequest;
 module.exports.composeStoredRequest = composeStoredRequest;
+module.exports.corsHeaders = corsHeaders;

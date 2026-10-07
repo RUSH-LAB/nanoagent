@@ -486,6 +486,7 @@ const ctx = {
   storageScope,
   normalizeWorkspaceRole,
   requireWorkspacePermission,
+  workspaceContexts,
   documents,
   preferences,
   workspaceSettings,

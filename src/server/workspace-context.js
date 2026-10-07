@@ -27,7 +27,7 @@ const PERMISSIONS = Object.freeze({
 });
 
 const GLOBAL_API_PATHS = new Set([
-  '/api/health', '/api/dev-login', '/api/workspaces', '/api/preferences',
+  '/api/health', '/api/dev-login', '/api/workspaces', '/api/workspace-site', '/api/preferences',
   '/api/users', '/api/users/me', '/api/logs', '/api/perf',
   '/api/debug/memory', '/api/debug/routes',
 ]);
@@ -39,6 +39,7 @@ function isGlobalApiPath(pathname) {
     || value.startsWith('/api/auth/')
     || value.startsWith('/api/public/')
     || /^\/api\/invite\/[^/]+(?:\/accept)?$/.test(value)
+    || /^\/api\/apps\/[^/]+\/ui\/.+$/.test(value)
     || /^\/api\/users\/[^/]+\/role$/.test(value);
 }
 

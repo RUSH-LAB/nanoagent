@@ -281,16 +281,20 @@ const PUBLIC_PATHS = new Set([
 ]);
 
 /**
- * Endpoints whose path carries an unguessable id, reachable without a session
- * for the same reason as the ones above: their caller cannot hold one yet.
+ * Endpoints matched by shape, reachable without a session because their caller
+ * cannot hold one.
  *
- * Reading an invitation is the only member. Someone following an invitation
- * link has no account, and cannot make one with the right address until they
- * are told which address was invited. The pattern is deliberately exact rather
- * than a prefix, so that accepting the invitation, at
- * /api/invite/:id/accept, still requires the session whose address that is.
+ * Reading an invitation: someone following an invitation link has no account,
+ * and cannot make one with the right address until they are told which address
+ * was invited. The pattern is deliberately exact rather than a prefix, so that
+ * accepting the invitation, at /api/invite/:id/accept, still requires the
+ * session whose address that is.
+ *
+ * A plugin's page files: the page runs in a sandboxed frame with an opaque
+ * origin, whose requests carry no cookies, and the files are the plugin's
+ * published assets (routes/apps.js).
  */
-const PUBLIC_PATTERNS = [/^\/api\/invite\/[^/]+$/];
+const PUBLIC_PATTERNS = [/^\/api\/invite\/[^/]+$/, /^\/api\/apps\/[^/]+\/ui\/.+$/];
 
 /** Whether `pathname` may be served without a session. */
 function isPublicPath(pathname) {

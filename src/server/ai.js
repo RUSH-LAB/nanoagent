@@ -230,7 +230,12 @@ function publicMetrics(value) {
   };
 }
 
-function publicEvent(event) {
+/**
+ * A run event as the browser may see it. A tool call's arguments and output stay
+ * private, except on an app run (`app`): that app's own page shows them to the
+ * person who ran it, on the files of their own workspace.
+ */
+function publicEvent(event, {app = false} = {}) {
   const runId = typeof event?.runId === 'string' ? event.runId : null;
   if (event?.type === 'start') return {type: 'run.started', runId};
   if (event?.type === 'step') {
@@ -245,7 +250,11 @@ function publicEvent(event) {
     return {
       type: event.is_error ? 'tool.failed' : 'tool.completed',
       runId,
-      call: {id: event.id ?? null, name: event.name ?? 'unknown'},
+      call: {
+        id: event.id ?? null,
+        name: event.name ?? 'unknown',
+        ...(app ? {arguments: event.arguments ?? null, output: event.output ?? null} : {}),
+      },
     };
   }
   if (event?.type === 'done') {
@@ -358,7 +367,7 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
           return;
         }
         if (event.type === 'done' || event.type === 'error') terminal = event;
-        const normalized = publicEvent(event);
+        const normalized = publicEvent(event, {app: Boolean(request.app)});
         if (normalized) request.onEvent?.(normalized);
       });
 
@@ -407,11 +416,10 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
   }
 
   /**
-   * One call to NanoAgent's plugin or workspace API: `{value}` (its JSON, or
-   * its bytes when asked for), otherwise `{error, status}` to relay. A rejected path or a
-   * missing file is the caller's to know about; anything else is ours.
+   * One call to NanoAgent's plugin or workspace API: `{value, headers}` (its
+   * JSON, or its bytes when asked for), otherwise `{error, status}` to relay.
    */
-  async function nanoFetch(path, {method = 'GET', bytes = false, waitMs = profileTimeoutMs} = {}) {
+  async function nanoFetch(path, {method = 'GET', body, contentType, bytes = false, waitMs = profileTimeoutMs} = {}) {
     const endpoint = endpointFrom(env);
     if (endpoint.error) return {error: endpoint.error, status: 503};
     const controller = new AbortController();
@@ -419,14 +427,23 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     try {
       const response = await fetchImpl(`${endpoint.url}${path}`, {
         method,
-        headers: env.NANOAGENT_API_TOKEN ? {Authorization: `Bearer ${env.NANOAGENT_API_TOKEN}`} : {},
+        headers: {
+          ...(contentType ? {'Content-Type': contentType} : {}),
+          ...(env.NANOAGENT_API_TOKEN ? {Authorization: `Bearer ${env.NANOAGENT_API_TOKEN}`} : {}),
+        },
+        ...(body === undefined ? {} : {body}),
         signal: controller.signal,
       });
       if (!response.ok) {
-        const status = [400, 404].includes(response.status) ? response.status : 502;
+        // A rejected path, a missing file, a name already taken or a file too large
+        // is the caller's to know about; anything else is ours.
+        const status = [400, 404, 409, 413].includes(response.status) ? response.status : 502;
         return {error: await responseError(response), status};
       }
-      return {value: bytes ? Buffer.from(await response.arrayBuffer()) : await response.json()};
+      return {
+        value: bytes ? Buffer.from(await response.arrayBuffer()) : await response.json(),
+        headers: response.headers,
+      };
     } catch {
       return controller.signal.aborted ? {error: TIMED_OUT, status: 504} : {error: UNAVAILABLE, status: 502};
     } finally {
@@ -434,17 +451,63 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     }
   }
 
-  const filePath = (workspace, path) =>
-    `/v1/workspaces/${encodeURIComponent(workspace)}/files/${String(path).split('/').map(encodeURIComponent).join('/')}`;
+  const encodedPath = path => String(path).split('/').map(encodeURIComponent).join('/');
+  const inWorkspace = (workspace, rest) => `/v1/workspaces/${encodeURIComponent(workspace)}${rest}`;
+
+  /**
+   * Start one task of a plugin in a workspace: `{value}`, NanoAgent's event
+   * stream as it arrives, otherwise `{error, status}`. Aborting `signal` closes
+   * the stream, which cancels the run.
+   */
+  async function taskRun({workspace, app, task, args, signal}) {
+    const endpoint = endpointFrom(env);
+    if (endpoint.error) return {error: endpoint.error, status: 503};
+    try {
+      const path = inWorkspace(workspace, `/plugins/${encodeURIComponent(app)}/tasks/${encodeURIComponent(task)}/runs`);
+      const response = await fetchImpl(`${endpoint.url}${path}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+          ...(env.NANOAGENT_API_TOKEN ? {Authorization: `Bearer ${env.NANOAGENT_API_TOKEN}`} : {}),
+        },
+        body: JSON.stringify({arguments: args}),
+        signal,
+      });
+      if (!response.ok) {
+        // Arguments that fail the task's schema, or a task or plugin that is not
+        // there or under maintenance, are the caller's to know about.
+        const status = [400, 404, 409].includes(response.status) ? response.status : 502;
+        return {error: await responseError(response), status};
+      }
+      if (!response.body) return {error: 'NanoAgent returned no response stream.', status: 502};
+      return {value: response.body};
+    } catch {
+      return signal?.aborted ? {error: CANCELLED, status: 499} : {error: UNAVAILABLE, status: 502};
+    }
+  }
+  const filePath = (workspace, path) => inWorkspace(workspace, `/files/${encodedPath(path)}`);
+  const folderPath = (workspace, path) => inWorkspace(workspace, `/folders/${encodedPath(path)}`);
 
   return Object.freeze({
     complete: request => stream({...request, onDelta: undefined}),
     stream,
     profiles,
     plugins: () => nanoFetch('/v1/plugins'),
+    pluginUiFile: (app, path) => nanoFetch(`/v1/plugins/${encodeURIComponent(app)}/ui/${encodedPath(path)}`, {bytes: true}),
+    taskRun,
     workspaceFiles: workspace => nanoFetch(`/v1/workspaces/${encodeURIComponent(workspace)}/files`),
     workspaceFile: (workspace, path) => nanoFetch(filePath(workspace, path), {bytes: true, waitMs: timeoutMs}),
     deleteWorkspaceFile: (workspace, path) => nanoFetch(filePath(workspace, path), {method: 'DELETE'}),
+    saveWorkspaceFile: (workspace, path, body, {create = false} = {}) => nanoFetch(
+      `${filePath(workspace, path)}${create ? '?create=1' : ''}`,
+      {method: 'PUT', body, contentType: 'application/octet-stream', waitMs: timeoutMs},
+    ),
+    makeWorkspaceFolder: (workspace, path) => nanoFetch(folderPath(workspace, path), {method: 'POST'}),
+    deleteWorkspaceFolder: (workspace, path) => nanoFetch(folderPath(workspace, path), {method: 'DELETE'}),
+    moveWorkspaceEntry: (workspace, from, to) => nanoFetch(inWorkspace(workspace, '/move'), {
+      method: 'POST', body: JSON.stringify({from, to}), contentType: 'application/json',
+    }),
     describe() {
       const endpoint = endpointFrom(env);
       if (endpoint.error) return {available: false, reason: endpoint.error};
@@ -476,8 +539,14 @@ module.exports = {
   stream: gateway.stream,
   profiles: gateway.profiles,
   plugins: gateway.plugins,
+  pluginUiFile: gateway.pluginUiFile,
+  taskRun: gateway.taskRun,
   workspaceFiles: gateway.workspaceFiles,
   workspaceFile: gateway.workspaceFile,
   deleteWorkspaceFile: gateway.deleteWorkspaceFile,
+  saveWorkspaceFile: gateway.saveWorkspaceFile,
+  makeWorkspaceFolder: gateway.makeWorkspaceFolder,
+  deleteWorkspaceFolder: gateway.deleteWorkspaceFolder,
+  moveWorkspaceEntry: gateway.moveWorkspaceEntry,
   describe: gateway.describe,
 };

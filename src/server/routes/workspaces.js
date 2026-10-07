@@ -1,12 +1,30 @@
 'use strict';
 
+const {resolveWorkspaceSite} = require('../workspace-site');
+
 /** User-global workspace discovery and creation. */
 module.exports = async function workspace_routes(req, res, url, pathname, ctx) {
   const {
     json, readBody, rateLimit, org, normalizeWorkspaceRole,
-    requireWorkspacePermission, cleanPendingObjects,
+    requireWorkspacePermission, cleanPendingObjects, workspaceContexts, workspaceSettings,
   } = ctx;
-  if (pathname !== '/api/workspaces' && !pathname.startsWith('/api/workspaces/')) return;
+  if (pathname !== '/api/workspaces' && pathname !== '/api/workspace-site' && !pathname.startsWith('/api/workspaces/')) return;
+
+  // ── One workspace and its site, by slug ──
+  // Everything the navbar needs to draw a workspace in one round trip: the
+  // membership as /api/workspaces lists it, and the site as /site resolves it.
+  if (req.method === 'GET' && pathname === '/api/workspace-site') {
+    const slug = url.searchParams.get('slug');
+    const membership = slug && (await org.listMemberships(req.auth)).find(item => item.slug === slug);
+    if (!membership) return json(res, 404, {error: 'Workspace not found'});
+    const context = await workspaceContexts.byId(req.auth?.userId, membership.id);
+    if (!context) return json(res, 404, {error: 'Workspace not found'});
+    requireWorkspacePermission(context, 'content:read');
+    return json(res, 200, {
+      workspace: {...membership, role: normalizeWorkspaceRole(membership.role)},
+      site: resolveWorkspaceSite(await workspaceSettings.get(context)),
+    });
+  }
 
   const userId = req.auth?.userId;
 

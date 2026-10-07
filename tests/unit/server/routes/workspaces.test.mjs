@@ -89,3 +89,30 @@ describe('DELETE /api/workspaces/:id', () => {
     assert.deepEqual(calls, [['delete', context], ['cleanup']]);
   });
 });
+
+describe('GET /api/workspace-site', () => {
+  const membership = {id: 'a', slug: 'alpha', name: 'Alpha', role: 'admin'};
+  const site = {navigation: [], collections: [{key: 'notes', type: 'docs'}]};
+  const ctxWith = ({contexts = {}} = {}) => {
+    const ctx = makeCtx({org: {listMemberships: () => [membership]}});
+    ctx.workspaceContexts = {byId: async (userId, id) => contexts[id] ?? null};
+    ctx.workspaceSettings = {get: async () => ({site})};
+    return ctx;
+  };
+
+  it('answers the membership and its site in one read', async () => {
+    const ctx = ctxWith({contexts: {a: {userId: 'ada', workspaceId: 'a', membershipId: 'm', role: 'editor'}}});
+    const r = await invoke(routes, {path: '/api/workspace-site', query: '?slug=alpha', ctx, auth: {userId: 'ada'}});
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.payload.workspace, {...membership, role: 'editor'});
+    assert.ok(Array.isArray(r.payload.site.collections));
+  });
+
+  it('does not reveal a workspace the caller is not a member of', async () => {
+    const ctx = ctxWith();
+    for (const query of ['?slug=beta', '?slug=alpha', '']) {
+      const r = await invoke(routes, {path: '/api/workspace-site', query, ctx, auth: {userId: 'ada'}});
+      assert.equal(r.status, 404);
+    }
+  });
+});
