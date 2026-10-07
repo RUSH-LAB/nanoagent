@@ -6,7 +6,10 @@
  * Documents keep their ids, authors, timestamps, visibility, and trash state,
  * and their saved versions become the node's earlier revisions in fs_change.
  * Uploaded assets keep their ids and bytes; a plugin's blob, which has no path
- * of its own, goes under `.plugins/blobs/`. Folders are created for every path.
+ * of its own, goes under `.plugins/blobs/`. App records (store_item, and the
+ * bibliography's `reference` rows) become the JSON files fs/records.js reads,
+ * members' own under their private home folder; internal state such as page
+ * analytics stays where it is. Folders are created for every path.
  *
  * Runs on the schema owner's connection, which row-level security does not
  * restrict, because it writes on behalf of every author at once. A workspace
@@ -19,6 +22,7 @@ const path = require('path');
 const {cleanAssetPath} = require('../asset-paths');
 const {contentTypeFor, parentOf} = require('./store');
 const {titleOf} = require('../document-title');
+const {SYSTEM_DOMAINS, fileNameFor, folderFor, serialize} = require('./records');
 
 const sha256 = body => crypto.createHash('sha256').update(body).digest('hex');
 const asBuffer = value => (Buffer.isBuffer(value) ? value : Buffer.from(value));
@@ -94,6 +98,46 @@ async function plan(client, workspaceId) {
     events.push({node: file, op: 'create', body, actor: asset.created_by, at: asset.created_at});
   }
 
+  const records = (await client.query(
+    `select domain, owner_id, key, value, created_at, updated_at from store_item
+      where workspace_id = $1 and domain <> all($2::text[]) order by created_at, key`,
+    [workspaceId, [...SYSTEM_DOMAINS]],
+  )).rows;
+  const references = (await client.query(
+    `select id, citation_key, value, created_by, created_at, updated_at
+       from reference where workspace_id = $1 order by created_at, citation_key`, [workspaceId],
+  )).rows;
+  const homes = new Map();
+  const recordFiles = [
+    ...records.map(record => ({...record, id: crypto.randomUUID(), author: record.owner_id})),
+    ...references.map(reference => ({
+      id: reference.id, domain: 'plugin:bibliography:papers', owner_id: null, key: reference.citation_key,
+      value: reference.value, author: reference.created_by, created_at: reference.created_at, updated_at: reference.updated_at,
+    })),
+  ];
+  for (const record of recordFiles) {
+    const folder = folderFor(record.domain, {workspaceId, userId: record.owner_id});
+    const home = folder.startsWith('home/') ? folder.split('/').slice(0, 2).join('/') : null;
+    if (home) homes.set(home, record.owner_id);
+    const body = Buffer.from(serialize(record.key, record.value));
+    const file = {
+      id: record.id,
+      path: `${folder}/${fileNameFor(record.key)}`,
+      body,
+      contentType: 'application/json',
+      meta: {},
+      access: home ? 'private' : 'workspace',
+      accessExplicit: false,
+      ownerId: record.owner_id,
+      createdBy: record.author,
+      createdAt: record.created_at,
+      updatedAt: record.updated_at,
+      deletedAt: null,
+    };
+    files.push(file);
+    events.push({node: file, op: 'create', body, actor: record.author, at: record.created_at});
+  }
+
   const live = new Map();
   for (const file of files.filter(each => !each.deletedAt)) {
     if (live.has(file.path)) throw new Error(`Two files would share the path ${file.path} in workspace ${workspaceId}`);
@@ -105,8 +149,11 @@ async function plan(client, workspaceId) {
       if (live.has(folder)) throw new Error(`${folder} is both a file and a folder in workspace ${workspaceId}`);
       const known = folders.get(folder);
       if (!known || time(file.createdAt) < time(known.createdAt)) {
+        // A member's home folder is private to them, and everything in it inherits that.
+        const home = [...homes.keys()].find(each => folder === each || folder.startsWith(`${each}/`));
         folders.set(folder, {
           id: known?.id ?? crypto.randomUUID(), path: folder, createdBy: file.createdBy, createdAt: file.createdAt,
+          access: home ? 'private' : 'workspace', accessExplicit: folder === home, ownerId: home ? homes.get(home) : file.createdBy,
         });
       }
     }
@@ -117,7 +164,7 @@ async function plan(client, workspaceId) {
   // Folders before what they contain when two things happened at once.
   events.sort((a, b) => time(a.at) - time(b.at) || Number(Boolean(b.folder)) - Number(Boolean(a.folder))
     || a.node.path.length - b.node.path.length);
-  return {documents, assets, files, folders: [...folders.values()], events};
+  return {documents, assets, records: recordFiles, files, folders: [...folders.values()], events};
 }
 
 async function importWorkspace(client, workspace, {replace}) {
@@ -125,7 +172,7 @@ async function importWorkspace(client, workspace, {replace}) {
     'select count(*)::int as count from fs_node where workspace_id = $1', [workspace.id],
   )).rows[0].count);
   if (existing && !replace) return {workspace: workspace.slug, skipped: `already has ${existing} file system nodes`};
-  const {documents, assets, files, folders, events} = await plan(client, workspace.id);
+  const {documents, assets, records, files, folders, events} = await plan(client, workspace.id);
   if (existing) {
     await client.query('delete from fs_change where workspace_id = $1', [workspace.id]);
     await client.query('delete from fs_node where workspace_id = $1', [workspace.id]);
@@ -146,9 +193,9 @@ async function importWorkspace(client, workspace, {replace}) {
   // Nodes first, with their final state, so every change can name one.
   for (const folder of folders) {
     await client.query(
-      `insert into fs_node(id, workspace_id, path, kind, access, owner_id, rev, created_by, created_at, updated_at)
-       values ($1, $2, $3, 'folder', 'workspace', $4, 0, $4, $5, $5)`,
-      [folder.id, workspace.id, folder.path, folder.createdBy, folder.createdAt],
+      `insert into fs_node(id, workspace_id, path, kind, access, access_explicit, owner_id, rev, created_by, created_at, updated_at)
+       values ($1, $2, $3, 'folder', $4, $5, $6, 0, $7, $8, $8)`,
+      [folder.id, workspace.id, folder.path, folder.access, folder.accessExplicit, folder.ownerId, folder.createdBy, folder.createdAt],
     );
   }
   for (const file of files) {
@@ -171,7 +218,9 @@ async function importWorkspace(client, workspace, {replace}) {
     )).rows[0].seq;
     await client.query('update fs_node set rev = $1 where id = $2', [seq, event.node.id]);
   }
-  return {workspace: workspace.slug, documents: documents.length, assets: assets.length, folders: folders.length};
+  return {
+    workspace: workspace.slug, documents: documents.length, assets: assets.length, records: records.length, folders: folders.length,
+  };
 }
 
 /** Compare every legacy document and asset with its file system node. */

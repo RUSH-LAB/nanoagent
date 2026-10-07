@@ -76,6 +76,13 @@ function readManifest(dir, name) {
       safeComponents: parsed.safeComponents && typeof parsed.safeComponents === 'object'
         ? parsed.safeComponents
         : {},
+      // The files this plugin's page edits, by folder (`path`, a prefix such as
+      // "apps/bibliography/") or by `extension` (".bib"), and the workspace page
+      // that opens them, so the Workspace can hand a file to its app.
+      opens: Array.isArray(parsed.opens)
+        ? parsed.opens.filter(rule => rule && typeof rule.page === 'string'
+          && (typeof rule.path === 'string' || typeof rule.extension === 'string'))
+        : [],
     };
   } catch (err) {
     console.error(`[plugins] ${name}/plugin.json is not valid JSON: ${err.message}; skipped`);

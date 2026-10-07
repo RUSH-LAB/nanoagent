@@ -12,6 +12,7 @@ const {createPostgresFs, createPublicFsReader} = require('../fs/store');
 const {createFsDocuments} = require('../fs/documents');
 const {createFsAssetStore} = require('../fs/assets');
 const {createCrdt, createCrdtHub} = require('../fs/crdt');
+const {createFsRecords} = require('../fs/records');
 
 if (!database.pool) throw new Error('PostgreSQL services require DATABASE_URL');
 
@@ -24,12 +25,14 @@ if (!CONTENT_STORES.includes(contentStore)) {
   throw new Error(`CONTENT_STORE must be one of ${CONTENT_STORES.join(', ')}, not "${contentStore}"`);
 }
 const fs = contentStore === 'fs' ? createPostgresFs({pool: database.pool}) : null;
+const legacyStore = createPostgresStore({pool: database.pool});
 
 module.exports = Object.freeze({
   ready: database.ready,
   close: database.close,
   pool: database.pool,
-  store: createPostgresStore({pool: database.pool}),
+  // App records become files; internal state stays in the legacy store.
+  store: fs ? createFsRecords({fs, legacy: legacyStore}) : legacyStore,
   contentStore,
   fs,
   publicFs: fs ? createPublicFsReader({pool: database.pool}) : null,

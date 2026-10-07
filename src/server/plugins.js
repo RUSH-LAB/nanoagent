@@ -60,6 +60,7 @@ function installedPluginDescriptors(dir = PLUGINS_DIR) {
     title: plugin.manifest.title,
     description: plugin.manifest.description,
     scope: plugin.manifest.scope,
+    opens: plugin.manifest.opens,
   }));
 }
 

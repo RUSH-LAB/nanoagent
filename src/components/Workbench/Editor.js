@@ -95,7 +95,7 @@ function liveLabel(status) {
   return 'All changes saved';
 }
 
-export default function Editor({tabs, activePath, readOnly, fileUrl, onActivate, onClose, onChange}) {
+export default function Editor({tabs, activePath, readOnly, fileUrl, appLink = () => null, onActivate, onClose, onChange}) {
   const [cursor, setCursor] = useState(null);
   const tab = tabs.find(item => item.path === activePath);
   useEffect(() => setCursor(null), [activePath]);
@@ -140,7 +140,12 @@ export default function Editor({tabs, activePath, readOnly, fileUrl, onActivate,
           </div>
         ))}
       </div>
-      <div className={styles.breadcrumbs}>{tab.path.split('/').join(' › ')}</div>
+      <div className={styles.breadcrumbs}>
+        {tab.path.split('/').join(' › ')}
+        {appLink(tab.path) && (
+          <a className={styles.appLink} href={appLink(tab.path).href}>Open in {appLink(tab.path).title}</a>
+        )}
+      </div>
       <div className={styles.editorBody}>
         <TabContent
           key={tab.path}

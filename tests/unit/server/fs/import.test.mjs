@@ -36,6 +36,12 @@ describe('importing legacy content into the file system', () => {
       insert into asset(id, workspace_id, path, object_key, content_type, byte_size, sha256, created_by, created_at) values
         ('asset-plot', 'lab', 'books/guide/plot.png', 'lab/content/${sha('png')}/books/guide/plot.png', 'image/png', 3, '${sha('png')}', 'alice', '2026-01-02T00:00:00Z'),
         ('blob-1', 'lab', 'blob-1', 'lab/assets/blob-1/${sha('pdf')}.pdf', 'application/pdf', 3, '${sha('pdf')}', 'alice', '2026-01-02T00:00:00Z');
+      insert into store_item(workspace_id, owner_id, domain, key, value, created_at, updated_at) values
+        ('lab', 'alice', 'tasks', 't1', '{"title": "Write"}', '2026-01-02T00:00:00Z', '2026-01-02T00:00:00Z'),
+        ('lab', null, 'glossary', 'CRDT', '{"term": "CRDT"}', '2026-01-02T00:00:00Z', '2026-01-02T00:00:00Z'),
+        ('lab', null, 'analytics', 'views', '{"count": 9}', '2026-01-02T00:00:00Z', '2026-01-02T00:00:00Z');
+      insert into reference(id, workspace_id, citation_key, value, created_by, created_at, updated_at) values
+        ('ref-1', 'lab', 'knuth1984', '{"title": "Literate Programming"}', 'alice', '2026-01-02T00:00:00Z', '2026-01-02T00:00:00Z');
     `);
   });
   after(() => db?.close());
@@ -66,6 +72,17 @@ describe('importing legacy content into the file system', () => {
     assert.equal((await fs.read(as('vic'), 'books/guide/plot.png')).body.toString(), 'png');
     assert.equal((await fs.readById(as('vic'), 'blob-1')).body.toString(), 'pdf');
     assert.equal((await fs.stat(as('vic'), 'books/guide')).kind, 'folder');
+  });
+
+  it('imports app records as files, members\' own in their private home', async () => {
+    const {createFsRecords} = require('../../../../src/server/fs/records.js');
+    const store = createFsRecords({fs, legacy: {collection: () => null}});
+    assert.deepEqual(await store.collection('tasks').values(as('alice')), [{title: 'Write'}]);
+    assert.deepEqual(await store.collection('tasks').values(as('bob')), []);
+    assert.equal((await fs.stat(as('alice'), 'home/alice')).access, 'private');
+    assert.deepEqual(await store.collection('glossary').get(as('vic'), 'CRDT'), {term: 'CRDT'});
+    assert.deepEqual(await store.collection('plugin:bibliography:papers').get(as('vic'), 'knuth1984'), {title: 'Literate Programming'});
+    assert.equal(await fs.stat(as('alice'), 'apps/analytics/views.json'), null);
   });
 
   it('skips a workspace that already has files unless asked to replace it', async () => {

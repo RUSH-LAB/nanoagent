@@ -1,12 +1,14 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useHistory, useLocation} from '@docusaurus/router';
 import {toast} from '@site/src/components/Toast/toast';
+import API_BASE, {apiJson} from '@site/src/utils/api';
 import {isOffline} from '@site/src/utils/documentCache';
 import {FS_SYNC_EVENT, fsReplica, startFsSync} from '@site/src/utils/fsReplica';
-import {loadWorkspaces} from '@site/src/utils/workspaces';
+import {loadWorkspaces, navigateClient} from '@site/src/utils/workspaces';
 import * as api from './api';
 import Editor from './Editor';
 import {openLiveDocument} from './liveDocument';
+import {appFor} from './apps';
 import Explorer, {ContextMenu} from './Explorer';
 import {basename, buildTree, dirname, invalidName, join, movedPath, within} from './tree';
 import styles from './styles.module.css';
@@ -58,6 +60,7 @@ export default function Workbench({workspace}) {
   const [scope, setScope] = useState(null);
   const [held, setHeld] = useState(() => new Map());
   const [offline, setOffline] = useState(false);
+  const [plugins, setPlugins] = useState([]);
   const tabsRef = useRef(tabs);
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
@@ -198,6 +201,17 @@ export default function Workbench({workspace}) {
       }
     })();
   }, [openLive, refreshHeld]);
+
+  // The installed plugins, for which app opens which file.
+  useEffect(() => {
+    apiJson(`${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}/site`, {cacheMs: 5 * 60_000})
+      .then(result => { if (result.ok) setPlugins(result.data.plugins ?? []); })
+      .catch(error => console.error('[workspace] Could not list the installed apps:', error));
+  }, [workspace.id]);
+  const appLink = path => {
+    const app = appFor(path, plugins);
+    return app ? {title: app.title, href: `/w/${encodeURIComponent(workspace.slug)}/${app.page}`} : null;
+  };
 
   // Leaving the page closes every live document and its stream.
   useEffect(() => () => { for (const tab of tabsRef.current) tab.live?.close(); }, []);
@@ -406,6 +420,7 @@ export default function Workbench({workspace}) {
     const groups = [
       file ? [
         {label: 'Open', run: () => open(node)},
+        ...(appLink(node.path) ? [{label: `Open in ${appLink(node.path).title}`, run: () => navigateClient(appLink(node.path).href)}] : []),
         {label: 'Download', run: () => window.open(api.fileUrl(workspace.id, node.path, {download: true}), '_self')},
         ...(scope && kindOf(node) === 'text' ? [{
           label: held.get(node.path)?.pinned ? '✓ Kept on this computer' : 'Keep on this computer',
@@ -506,6 +521,7 @@ export default function Workbench({workspace}) {
           activePath={activePath}
           readOnly={readOnly}
           fileUrl={(path, options) => api.fileUrl(workspace.id, path, options)}
+          appLink={appLink}
           onActivate={setActivePath}
           onClose={close}
           onChange={(path, text) => updateTab(path, {text})}

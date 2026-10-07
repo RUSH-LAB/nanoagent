@@ -216,7 +216,7 @@ describe('src/server/plugins: the API half, on the same discovery', () => {
     assert.deepEqual(descriptors.map(plugin => plugin.name), [
       'alpha', 'beta', 'inert', 'not-a-function', 'renamer', 'throws-on-load',
     ]);
-    assert.deepEqual(Object.keys(descriptors[0]).sort(), ['description', 'name', 'scope', 'title']);
+    assert.deepEqual(Object.keys(descriptors[0]).sort(), ['description', 'name', 'opens', 'scope', 'title']);
   });
 
   it('refuses a server half written against a different API version', () => {

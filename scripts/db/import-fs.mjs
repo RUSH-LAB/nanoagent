@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Copy documents and uploaded assets into the workspace file system
- * (src/server/fs/import.js), verifying every file by SHA-256.
+ * Copy documents, uploaded assets, and app records into the workspace file
+ * system (src/server/fs/import.js), verifying documents and assets by SHA-256.
  *
  *   npm run fs:import                    report what would be imported; writes nothing
  *   npm run fs:import -- --apply         import workspaces whose file system is empty
@@ -32,7 +32,8 @@ try {
     replace: flags.has('--replace'),
     log: entry => console.log(entry.skipped
       ? `${entry.workspace}: skipped, ${entry.skipped}`
-      : `${entry.workspace}: ${entry.documents} documents, ${entry.assets} assets, ${entry.folders} folders, verified`),
+      : `${entry.workspace}: ${entry.documents} documents, ${entry.assets} assets, ${entry.records} app records, `
+        + `${entry.folders} folders, verified`),
   });
   console.log(result.applied ? 'Imported.' : 'Dry run: nothing was written. Add --apply to import.');
 } finally {

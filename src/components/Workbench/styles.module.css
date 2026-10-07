@@ -241,6 +241,13 @@
   font-size: 0.8rem;
 }
 
+/* The app that edits the open file, when one does. */
+.appLink {
+  margin-left: 0.75rem;
+  color: var(--ifm-color-primary);
+  font-size: 0.75rem;
+}
+
 /* ── Trash ── */
 
 .trash {

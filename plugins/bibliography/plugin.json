@@ -5,5 +5,9 @@
   "scope": "workspace",
   "apiVersion": 1,
   "requires": ["blobs", "cache", "content:read", "network", "records"],
-  "options": {}
+  "options": {},
+  "opens": [
+    {"path": "apps/bibliography/", "page": "bibliography"},
+    {"extension": ".bib", "page": "bibliography"}
+  ]
 }
