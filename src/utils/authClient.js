@@ -2,6 +2,7 @@
 import {createAuthClient} from 'better-auth/react';
 import API_BASE from './api';
 import {clientPlatform} from '../platform/client.js';
+import {documentCache} from './documentCache.js';
 
 const AUTH_BASE_URL = API_BASE
   ? `${API_BASE}/api/auth`
@@ -26,5 +27,7 @@ export async function signOutAndForget() {
     clientPlatform.storage.removeMatching(
       key => key === CLI_SESSIONS_KEY || key.startsWith(`${CLI_SESSIONS_KEY}:`),
     );
+    // This browser's copy of the account's documents, and any unsent edits.
+    await documentCache().clear();
   }
 }

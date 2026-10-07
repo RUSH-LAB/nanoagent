@@ -2,6 +2,9 @@
   "name": "mochi-lab",
   "version": "0.0.0",
   "private": true,
+  "bin": {
+    "mochi": "./cli/mochi.mjs"
+  },
   "imports": {
     "#plugin-api": "./src/server/plugin-api.js",
     "#markdown": "./src/utils/visitText.js"

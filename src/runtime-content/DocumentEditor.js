@@ -1,6 +1,7 @@
 import React, {Suspense, lazy, useCallback, useEffect, useMemo, useState} from 'react';
 import API_BASE, {apiFetch, invalidateApiJson} from '@site/src/utils/api';
 import {clientPlatform} from '@site/src/platform/client';
+import {DOCUMENT_SYNC_EVENT, documentCache, isOffline} from '@site/src/utils/documentCache';
 import SafeDocument from './SafeDocument';
 import styles from './documentEditor.module.css';
 
@@ -41,7 +42,7 @@ function recoverDraft(key, markdown, updatedAt) {
 }
 
 export default function DocumentEditor({
-  workspaceId, workspaceSlug, document, markdown, tree, contentType = 'page',
+  userId, workspaceId, workspaceSlug, document, markdown, tree, contentType = 'page',
   onCreate = null, onCreateBefore = null, onCreateAfter = null, onDelete = null,
   onCancel, onSaved,
 }) {
@@ -159,11 +160,38 @@ export default function DocumentEditor({
       setMessage({kind: 'success', text: `Saved version ${data.version}.`});
       onSaved({document: nextDocument, markdown: draft, tree: data.tree, frontmatter: data.frontmatter || {}});
     } catch (error) {
-      setMessage({kind: error.code === 'document-conflict' ? 'conflict' : 'error', text: error.message});
+      if (!isOffline(error)) {
+        setMessage({kind: error.code === 'document-conflict' ? 'conflict' : 'error', text: error.message});
+        return;
+      }
+      // The server cannot be reached. The browser keeps the save and uploads
+      // it on reconnect, still based on the revision this edit started from.
+      try {
+        await documentCache().queueSave({userId, workspaceId}, {
+          path: document.path, markdown: draft, baseUpdatedAt: baseline.updatedAt, tree: previewTree,
+        });
+      } catch (cacheError) {
+        setMessage({kind: 'error', text: `You are offline and this browser could not keep the edit: ${cacheError.message}`});
+        return;
+      }
+      setBaseline(current => ({...current, markdown: draft, tree: previewTree}));
+      clientPlatform.storage.removeItem(storageKey);
+      setMessage({kind: 'notice', text: 'You are offline. The edit is saved in this browser and will upload when you reconnect.'});
+      onSaved({document, markdown: draft, tree: previewTree});
     } finally {
       setSaving(false);
     }
-  }, [apiRoot, baseline.updatedAt, dirty, document, draft, onSaved, saving, storageKey]);
+  }, [apiRoot, baseline.updatedAt, dirty, document, draft, onSaved, previewTree, saving, storageKey, userId, workspaceId]);
+
+  // An edit queued offline was uploaded: later saves build on the revision it created.
+  useEffect(() => {
+    const onSync = ({detail}) => {
+      if (!detail.uploaded || detail.path !== document.path || detail.scope.workspaceId !== workspaceId) return;
+      setBaseline(current => ({...current, updatedAt: detail.document.updatedAt}));
+    };
+    window.addEventListener(DOCUMENT_SYNC_EVENT, onSync);
+    return () => window.removeEventListener(DOCUMENT_SYNC_EVENT, onSync);
+  }, [document.path, workspaceId]);
 
   useEffect(() => {
     const shortcut = event => {

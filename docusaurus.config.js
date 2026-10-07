@@ -73,6 +73,7 @@ const config = {
   clientModules: [
     require.resolve('./src/client/copyHeadingLink.js'),
     require.resolve('./src/client/workspaceRoutes.js'),
+    require.resolve('./src/client/serviceWorker.js'),
   ],
 
   presets: [

@@ -11,6 +11,7 @@
  */
 import API_BASE, { apiFetch, apiJson, invalidateApiJson } from './api.js';
 import {clientPlatform} from '../platform/client.js';
+import {documentCache, isOffline} from './documentCache.js';
 
 // Workspace ids/slugs are immutable routing data, not authorization. Keeping
 // this mapping warm prevents every content click after 30 seconds from waiting
@@ -57,10 +58,13 @@ export function scopeWorkspacePath(target, currentPath) {
  * `{memberships, activeId}`: every workspace this account is in, oldest first,
  * with the role held in each, and which one the session is currently in.
  *
- * Throws when the API cannot be reached. Callers decide what that means for
- * them, because it is not the same everywhere: the gate treats it as "probably
- * has one" so a network blip cannot strand somebody on the onboarding screen,
- * while the settings page simply says it could not load.
+ * While the API cannot be reached, answers with the list this browser kept
+ * from the last signed-in load, marked `offline: true`, so the documents kept
+ * on this computer stay reachable. Throws when there is no such list. Callers
+ * decide what a failure means for them, because it is not the same everywhere:
+ * the gate treats it as "probably has one" so a network blip cannot strand
+ * somebody on the onboarding screen, while the settings page simply says it
+ * could not load.
  */
 export function loadWorkspaces({fresh = false} = {}) {
   const now = Date.now();
@@ -87,12 +91,19 @@ export function loadWorkspaces({fresh = false} = {}) {
         memberships: data.workspaces ?? [],
         activeId: data.defaultWorkspaceId ?? null,
       };
+      documentCache().rememberAccount(data)
+        .catch(error => console.error('[documents] Could not keep the workspace list:', error));
       return workspaceValue;
     })
-    .catch(error => {
+    .catch(async error => {
       workspaceRequest = null;
       workspaceRequestTime = 0;
-      throw error;
+      // A server that answers "signed out" ends offline use of this account too.
+      if (error.status === 401) await documentCache().forgetAccount()
+        .catch(cacheError => console.error('[documents] Could not forget the workspace list:', cacheError));
+      const kept = isOffline(error) ? await documentCache().account() : null;
+      if (!kept) throw error;
+      return {...kept, memberships: kept.workspaces ?? [], activeId: kept.defaultWorkspaceId ?? null, offline: true};
     });
   return workspaceRequest;
 }

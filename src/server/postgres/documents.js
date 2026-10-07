@@ -198,10 +198,16 @@ function createPostgresDocuments({pool, now = () => new Date().toISOString(), ne
         return {...current, path: clean, updatedAt: at};
       });
     },
-    async remove(scope, path) {
-      return inScope(scope, async client => (await client.query(
-        'update document set deleted_at = $1 where path = $2 and deleted_at is null', [now(), checkPath(path)],
-      )).rowCount > 0);
+    async remove(scope, path, {expectedUpdatedAt} = {}) {
+      return inScope(scope, async client => {
+        const current = (await client.query(
+          `select ${columns} from document where deleted_at is null and path = $1 for update`, [checkPath(path)],
+        )).rows[0];
+        if (!current) return false;
+        assertCurrentRevision(current, expectedUpdatedAt);
+        await client.query('update document set deleted_at = $1 where id = $2', [now(), current.id]);
+        return true;
+      });
     },
     async emptyTrash(scope) {
       return inScope(scope, async client => (await client.query('delete from document where deleted_at is not null')).rowCount);

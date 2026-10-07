@@ -15,6 +15,10 @@ import useWorkspaceSubscriptions, {
 } from '@site/src/hooks/useWorkspaceSubscriptions';
 import API_BASE, {apiFetch, apiJson, invalidateApiJson} from '@site/src/utils/api';
 import {loadWorkspaces, navigateClient} from '@site/src/utils/workspaces';
+import {
+  DOCUMENT_SYNC_EVENT, documentCache, isOffline, startDocumentSync,
+} from '@site/src/utils/documentCache';
+import {toast} from '@site/src/components/Toast/toast';
 import {clientPlatform} from '@site/src/platform/client';
 import {adjacentDocumentPosition, newDocumentDraft} from '@site/src/utils/documentAuthoring';
 import {
@@ -415,14 +419,25 @@ function DocumentBody({
         ? {...current, pending: true}
         : {status: LOADING, workspaceSlug});
       try {
-        const {workspaces} = await loadWorkspaces();
+        const {workspaces, userId} = await loadWorkspaces();
         const workspace = workspaces.find(item => item.slug === workspaceSlug);
         if (!workspace) {
           if (!cancelled) setState({status: MISSING});
           return;
         }
         const apiRoot = `${API_BASE}/api/workspaces/${encodeURIComponent(workspace.id)}`;
-        const siteResult = await apiJson(`${apiRoot}/site`, {cacheMs: WORKSPACE_CONTENT_CACHE_MS});
+        const scope = {userId, workspaceId: workspace.id};
+        const cache = documentCache();
+        const logCacheError = error => console.error('[documents] Browser cache failed:', error);
+        let siteResult;
+        try {
+          siteResult = await apiJson(`${apiRoot}/site`, {cacheMs: WORKSPACE_CONTENT_CACHE_MS});
+          if (siteResult.ok) cache.remember(scope, '#site', siteResult.data).catch(logCacheError);
+        } catch (err) {
+          // Offline: lay the workspace out as it was when this browser last saw it.
+          siteResult = isOffline(err) ? await cache.read(scope, '#site') : null;
+          if (!siteResult) throw err;
+        }
         const site = siteResult.ok ? siteResult.data.site : null;
         const homeLayout = workspaceHomeLayout(site, workspaceSlug);
         const homeDocument = !documentPath && homeLayout === 'document'
@@ -431,98 +446,133 @@ function DocumentBody({
         const requestedPath = documentPath || homeDocument || '';
         const plan = workspaceContentPlan(site, requestedPath);
         const needsTree = Boolean(documentPath || homeLayout !== 'title');
-        const [documentResult, treeResult] = await Promise.all([
-          plan.path && !plan.isCollection
-            ? apiJson(`${apiRoot}/documents?path=${encodeURIComponent(plan.path)}`, {
-                cacheMs: WORKSPACE_CONTENT_CACHE_MS,
-              })
-            : Promise.resolve({ok: false, status: 404, data: {}}),
-          needsTree
-            ? apiJson(`${apiRoot}/documents/tree${plan.treeQuery}`, {
-                cacheMs: WORKSPACE_CONTENT_CACHE_MS,
-              })
-            : Promise.resolve({ok: true, status: 200, data: {documents: []}}),
-        ]);
-        if (cancelled) return;
-
-        const listed = treeResult.ok ? treeResult.data.documents || [] : [];
-        const readyBase = {
-          workspaceId: workspace.id,
-          workspaceName: workspace.name,
-          workspaceRole: workspace.role,
-          workspaceSlug,
-          routePath: documentPath,
-          site,
+        const views = {
+          document: plan.path && !plan.isCollection ? `?path=${encodeURIComponent(plan.path)}` : null,
+          tree: needsTree ? `/tree${plan.treeQuery}` : null,
         };
-        if (!documentPath && homeLayout === 'title') {
-          setState({status: READY, documents: listed, homeLayout, ...readyBase});
-          return;
-        }
-        if (!documentPath && homeLayout === 'document') {
-          if (!homeDocument) {
-            setState({status: BROKEN, message: 'Choose a home document in workspace settings.'});
+        const notRequested = {
+          document: {ok: false, status: 404, data: {}},
+          tree: {ok: true, status: 200, data: {documents: []}},
+        };
+
+        const show = (documentResult, treeResult) => {
+          const listed = treeResult.ok ? treeResult.data.documents || [] : [];
+          const readyBase = {
+            workspaceId: workspace.id,
+            workspaceName: workspace.name,
+            workspaceRole: workspace.role,
+            workspaceSlug,
+            userId,
+            views,
+            routePath: documentPath,
+            site,
+          };
+          if (!documentPath && homeLayout === 'title') {
+            setState({status: READY, documents: listed, homeLayout, ...readyBase});
             return;
           }
-          if (!documentResult.ok) {
-            setState({status: BROKEN, message: documentResult.data.error || 'The configured home document was not found.'});
-            return;
-          }
-          setState({
-            status: READY,
-            tree: documentResult.data.tree,
-            document: documentResult.data.document,
-            markdown: documentResult.data.markdown,
-            frontmatter: documentResult.data.frontmatter || {},
-            documents: listed,
-            homeLayout,
-            ...readyBase,
-          });
-          return;
-        }
-        if (!documentPath) {
-          setState({status: READY, documents: listed, ...readyBase});
-          return;
-        }
-        if (documentResult.ok) {
-          setState({
-            status: READY,
-            tree: documentResult.data.tree,
-            document: documentResult.data.document,
-            markdown: documentResult.data.markdown,
-            frontmatter: documentResult.data.frontmatter || {},
-            documents: listed,
-            ...readyBase,
-          });
-          if (editRequested && (workspace.role === 'owner' || workspace.role === 'editor')) setEditing(true);
-          return;
-        }
-        if (documentResult.status === 404 && treeResult.ok) {
-          const prefix = `${documentPath.replace(/\/+$/, '')}/`;
-          const children = listed
-            .filter(document => document.path.startsWith(prefix))
-            .sort((a, b) => a.path.localeCompare(b.path));
-          const requestedCollection = collectionFor(site, documentPath);
-          if (children.length > 0 || requestedCollection?.pathPrefix === documentPath) {
+          if (!documentPath && homeLayout === 'document') {
+            if (!homeDocument) {
+              setState({status: BROKEN, message: 'Choose a home document in workspace settings.'});
+              return;
+            }
+            if (!documentResult.ok) {
+              setState({status: BROKEN, message: documentResult.data.error || 'The configured home document was not found.'});
+              return;
+            }
             setState({
               status: READY,
-              directory: documentPath,
-              documents: children,
+              tree: documentResult.data.tree,
+              document: documentResult.data.document,
+              markdown: documentResult.data.markdown,
+              frontmatter: documentResult.data.frontmatter || {},
+              documents: listed,
+              homeLayout,
               ...readyBase,
             });
             return;
           }
-          if (listed.length === 0 && (site?.navigation?.length ?? 0) === 0) {
-            setState({status: READY, documents: [], emptyWorkspace: true, ...readyBase});
-            navigateClient(`/w/${encodeURIComponent(workspaceSlug)}/documents`, {replace: true});
+          if (!documentPath) {
+            setState({status: READY, documents: listed, ...readyBase});
             return;
           }
-          setState({status: MISSING});
-          return;
+          if (documentResult.ok) {
+            setState({
+              status: READY,
+              tree: documentResult.data.tree,
+              document: documentResult.data.document,
+              markdown: documentResult.data.markdown,
+              frontmatter: documentResult.data.frontmatter || {},
+              documents: listed,
+              ...readyBase,
+            });
+            if (editRequested && (workspace.role === 'owner' || workspace.role === 'editor')) setEditing(true);
+            return;
+          }
+          if (documentResult.status === 404 && treeResult.ok) {
+            const prefix = `${documentPath.replace(/\/+$/, '')}/`;
+            const children = listed
+              .filter(document => document.path.startsWith(prefix))
+              .sort((a, b) => a.path.localeCompare(b.path));
+            const requestedCollection = collectionFor(site, documentPath);
+            if (children.length > 0 || requestedCollection?.pathPrefix === documentPath) {
+              setState({
+                status: READY,
+                directory: documentPath,
+                documents: children,
+                ...readyBase,
+              });
+              return;
+            }
+            if (listed.length === 0 && (site?.navigation?.length ?? 0) === 0) {
+              setState({status: READY, documents: [], emptyWorkspace: true, ...readyBase});
+              navigateClient(`/w/${encodeURIComponent(workspaceSlug)}/documents`, {replace: true});
+              return;
+            }
+            setState({status: MISSING});
+            return;
+          }
+          setState({
+            status: BROKEN,
+            message: documentResult.data.error || `Request failed (${documentResult.status})`,
+          });
+        };
+
+        // This browser's copy renders at once; the server's answer below
+        // replaces it. A copy holding an edit not yet uploaded stays in view.
+        const cached = views.document || views.tree
+          ? await Promise.all(['document', 'tree'].map(kind => views[kind]
+            ? cache.read(scope, views[kind])
+            : notRequested[kind])).catch(error => {
+            logCacheError(error);
+            return [null, null];
+          })
+          : [null, null];
+        const shownFromCache = Boolean(cached[0] && cached[1]);
+        if (cancelled) return;
+        if (shownFromCache) show(cached[0], cached[1]);
+
+        let results;
+        try {
+          results = await Promise.all([
+            views.document
+              ? apiJson(`${apiRoot}/documents${views.document}`, {cacheMs: WORKSPACE_CONTENT_CACHE_MS})
+              : notRequested.document,
+            views.tree
+              ? apiJson(`${apiRoot}/documents${views.tree}`, {cacheMs: WORKSPACE_CONTENT_CACHE_MS})
+              : notRequested.tree,
+          ]);
+        } catch (err) {
+          // Offline: keep showing this browser's copy.
+          if (shownFromCache && isOffline(err)) return;
+          throw err;
         }
-        setState({
-          status: BROKEN,
-          message: documentResult.data.error || `Request failed (${documentResult.status})`,
-        });
+        if (cancelled) return;
+        const [fetchedDocument, treeResult] = results;
+        for (const [kind, result] of [['document', fetchedDocument], ['tree', treeResult]]) {
+          if (views[kind] && result.ok) cache.remember(scope, views[kind], result.data).catch(logCacheError);
+        }
+        show(cached[0]?.pending ? cached[0] : fetchedDocument, treeResult);
       } catch (err) {
         if (!cancelled) setState({status: BROKEN, message: err.message});
       }
@@ -533,13 +583,58 @@ function DocumentBody({
     };
   }, [workspaceSlug, documentPath, editRequested]);
 
+  // Keep this browser's copy of the workspace current while the page is open,
+  // and show what the background sync did with edits saved offline.
+  useEffect(() => {
+    if (!state.workspaceId || !state.userId) return undefined;
+    const scope = {userId: state.userId, workspaceId: state.workspaceId};
+    const onSync = ({detail}) => {
+      if (detail.scope.userId !== scope.userId || detail.scope.workspaceId !== scope.workspaceId) return;
+      invalidateApiJson(`${API_BASE}/api/workspaces/${encodeURIComponent(scope.workspaceId)}/documents`);
+      if (detail.conflictedCopy) {
+        toast.warning(`${detail.path} changed while you were offline, so your edit was saved as ${detail.conflictedCopy}.`, {duration: 0});
+      } else if (detail.error) {
+        toast.error(`Your offline edit to ${detail.path} could not be uploaded: ${detail.error}`, {duration: 0});
+      } else if (detail.uploaded) {
+        toast.success(`Uploaded your offline edit to ${detail.path}.`);
+      }
+      if (!detail.view) return;
+      setState(current => {
+        if (current.views?.document === detail.view) {
+          return {
+            ...current,
+            tree: detail.data.tree,
+            markdown: detail.data.markdown,
+            frontmatter: detail.data.frontmatter || {},
+            document: detail.data.document,
+          };
+        }
+        if (current.views?.tree === detail.view && current.documents && !current.directory) {
+          return {...current, documents: detail.data.documents || []};
+        }
+        return current;
+      });
+    };
+    const onOffline = () => toast.warning(
+      'You are offline. Documents on this computer stay readable, and edits upload when you reconnect.',
+    );
+    window.addEventListener(DOCUMENT_SYNC_EVENT, onSync);
+    window.addEventListener('offline', onOffline);
+    const stop = startDocumentSync(scope);
+    return () => {
+      stop();
+      window.removeEventListener(DOCUMENT_SYNC_EVENT, onSync);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, [state.workspaceId, state.userId]);
+
   const applySavedDocument = useCallback(saved => {
     setState(current => ({
       ...current,
       pending: false,
       tree: saved.tree,
       markdown: saved.markdown,
-      frontmatter: saved.frontmatter,
+      frontmatter: saved.frontmatter ?? current.frontmatter,
       document: {...current.document, ...saved.document},
       documents: (current.documents || []).map(item => item.path === saved.document.path
         ? {...item, title: saved.document.title, updatedAt: saved.document.updatedAt}
@@ -814,6 +909,7 @@ function DocumentBody({
       <Layout title={`Edit ${document.title}`}>
         <Suspense fallback={<main className={styles.statusPage}><p>Loading editor…</p></main>}>
           <DocumentEditor
+            userId={state.userId}
             workspaceId={state.workspaceId}
             workspaceSlug={workspaceSlug}
             document={document}

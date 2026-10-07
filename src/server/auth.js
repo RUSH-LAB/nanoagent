@@ -36,6 +36,7 @@ const crypto = require('crypto');
 const {betterAuth} = require('better-auth');
 const {fromNodeHeaders} = require('better-auth/node');
 const {organization} = require('better-auth/plugins/organization');
+const {bearer} = require('better-auth/plugins/bearer');
 const postgres = require('./postgres/database');
 const db = postgres.enabled ? null : require('./db').db;
 const {DATA_DIR} = require('./paths');
@@ -234,6 +235,10 @@ const auth = betterAuth({
     },
   },
   plugins: [
+    // The command-line sync client has no cookie jar. It signs in with email
+    // and password, keeps the session token from the set-auth-token response
+    // header, and sends it as `Authorization: Bearer`.
+    bearer(),
     // Better Auth is the sole organization/member/invitation lifecycle engine
     // in both SQLite and PostgreSQL. The PostgreSQL option aliases its logical
     // models onto Mochi's workspace-named control-plane tables.

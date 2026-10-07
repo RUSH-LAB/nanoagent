@@ -3,3 +3,7 @@
 Current future work:
 
 - [LLM agent platform](llm-agent-platform.md)
+
+On hold:
+
+- [Desktop readiness](on-hold/desktop-readiness.md)

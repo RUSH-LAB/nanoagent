@@ -5,6 +5,7 @@ import Layout from '@theme/Layout';
 import {useLocation} from '@docusaurus/router';
 import API_BASE, {apiFetch, invalidateApiJson} from '@site/src/utils/api';
 import {loadWorkspaces, workspaceSlugFromPath} from '@site/src/utils/workspaces';
+import {DOCUMENT_SYNC_EVENT, documentCache, isOffline} from '@site/src/utils/documentCache';
 import {clientPlatform} from '@site/src/platform/client';
 import SafeDocument from '@site/src/runtime-content/SafeDocument';
 import pageStyles from '@site/src/css/page.module.css';
@@ -43,7 +44,15 @@ function groupDocuments(documents) {
   return root;
 }
 
-function TreeNode({node, selectedPath, onSelect, depth = 0}) {
+/** Where a file lives, as a cloud drive shows it: the server, or also this computer. */
+function LocalStatus({held}) {
+  if (held?.pending) return <span className={styles.localStatus} title="Edited offline; uploads when you reconnect">↑</span>;
+  if (held?.pinned) return <span className={styles.localStatus} title="Kept on this computer">●</span>;
+  if (held) return <span className={styles.localStatus} title="On this computer">○</span>;
+  return <span className={`${styles.localStatus} ${styles.cloudOnly}`} title="In the cloud only">☁</span>;
+}
+
+function TreeNode({node, selectedPath, onSelect, held, depth = 0}) {
   const folders = [...node.folders.values()].sort((a, b) => a.name.localeCompare(b.name));
   const documents = [...node.documents].sort((a, b) => a.path.localeCompare(b.path));
   return (
@@ -52,7 +61,7 @@ function TreeNode({node, selectedPath, onSelect, depth = 0}) {
         <li key={folder.path}>
           <details open>
             <summary className={styles.folder}>{folder.name}</summary>
-            <TreeNode node={folder} selectedPath={selectedPath} onSelect={onSelect} depth={depth + 1} />
+            <TreeNode node={folder} selectedPath={selectedPath} onSelect={onSelect} held={held} depth={depth + 1} />
           </details>
         </li>
       ))}
@@ -64,6 +73,7 @@ function TreeNode({node, selectedPath, onSelect, depth = 0}) {
             onClick={() => onSelect(document.path)}
             title={document.path}
           >
+            <LocalStatus held={held.get(document.path)} />
             {document.path.split('/').pop()}
           </button>
         </li>
@@ -76,7 +86,10 @@ function FileManager() {
   const location = useLocation();
   const workspaceSlug = workspaceSlugFromPath(location.pathname);
   const [workspace, setWorkspace] = useState(null);
+  const [userId, setUserId] = useState(null);
   const [documents, setDocuments] = useState([]);
+  const [held, setHeld] = useState(() => new Map());
+  const [loadedUpdatedAt, setLoadedUpdatedAt] = useState(null);
   const [selectedPath, setSelectedPath] = useState(null);
   const [loadedPath, setLoadedPath] = useState(null);
   const [markdown, setMarkdown] = useState('');
@@ -101,9 +114,29 @@ function FileManager() {
     ? `/api/workspaces/${encodeURIComponent(workspace.id)}/assets`
     : null;
 
+  const scope = useMemo(() => (workspace && userId ? {userId, workspaceId: workspace.id} : null), [userId, workspace]);
+  const refreshHeld = useCallback(async () => {
+    if (scope) setHeld(await documentCache().cachedPaths(scope));
+  }, [scope]);
+
+  // The listing and each document come from the server and are kept in this
+  // browser; while the server cannot be reached, the kept copies are shown.
+  const cachedRequest = useCallback(async view => {
+    try {
+      const data = await request(`${apiRoot}${view}`);
+      documentCache().remember(scope, view, data)
+        .catch(error => console.error('[documents] Browser cache failed:', error));
+      return data;
+    } catch (error) {
+      const kept = isOffline(error) ? await documentCache().read(scope, view) : null;
+      if (!kept) throw error;
+      return kept.data;
+    }
+  }, [apiRoot, scope]);
+
   const refreshTree = useCallback(async (selected = selectedPath) => {
     if (!apiRoot) return;
-    const data = await request(`${apiRoot}/tree`);
+    const data = await cachedRequest('/tree');
     setDocuments(data.documents || []);
     if (selected && !(data.documents || []).some(document => document.path === selected)) {
       setSelectedPath(null);
@@ -117,10 +150,11 @@ function FileManager() {
   useEffect(() => {
     let cancelled = false;
     loadWorkspaces()
-      .then(({workspaces}) => {
+      .then(({workspaces, userId}) => {
         if (cancelled) return;
         const selected = workspaces.find(item => item.slug === workspaceSlug);
         if (!selected) throw Object.assign(new Error('This workspace does not exist, or you are not a member.'), {status: 404});
+        setUserId(userId);
         setWorkspace(selected);
       })
       .catch(error => {
@@ -133,10 +167,13 @@ function FileManager() {
   }, [workspaceSlug]);
 
   useEffect(() => {
-    if (!apiRoot) return;
+    if (!apiRoot || !scope) return;
     let cancelled = false;
     setStatus('loading');
-    Promise.all([request(`${apiRoot}/tree`), request(assetRoot)])
+    Promise.all([
+      cachedRequest('/tree'),
+      request(assetRoot).catch(error => (isOffline(error) ? {assets: []} : Promise.reject(error))),
+    ])
       .then(([data, assetData]) => {
         if (cancelled) return;
         const listed = data.documents || [];
@@ -153,7 +190,17 @@ function FileManager() {
         }
       });
     return () => { cancelled = true; };
-  }, [apiRoot, assetRoot, location.search]);
+  }, [apiRoot, assetRoot, cachedRequest, location.search, scope]);
+
+  useEffect(() => {
+    if (!scope) return undefined;
+    refreshHeld();
+    const onSync = ({detail}) => {
+      if (detail.scope.workspaceId === scope.workspaceId) refreshHeld();
+    };
+    window.addEventListener(DOCUMENT_SYNC_EVENT, onSync);
+    return () => window.removeEventListener(DOCUMENT_SYNC_EVENT, onSync);
+  }, [refreshHeld, scope]);
 
   const select = useCallback(path => {
     if (dirty && !clientPlatform.dialogs.confirm('Discard your unsaved changes?')) return;
@@ -161,16 +208,19 @@ function FileManager() {
   }, [dirty]);
 
   useEffect(() => {
-    if (!apiRoot || !selectedPath) return;
+    if (!apiRoot || !selectedPath || !scope) return;
     let cancelled = false;
     setBusy(true);
     setMessage(null);
     Promise.all([
-      request(`${apiRoot}?path=${encodeURIComponent(selectedPath)}`),
-      request(`${apiRoot}/versions?path=${encodeURIComponent(selectedPath)}`),
+      cachedRequest(`?path=${encodeURIComponent(selectedPath)}`),
+      request(`${apiRoot}/versions?path=${encodeURIComponent(selectedPath)}`)
+        .catch(error => (isOffline(error) ? {versions: []} : Promise.reject(error))),
     ]).then(([documentData, versionData]) => {
       if (cancelled) return;
+      refreshHeld();
       setLoadedPath(documentData.document.path);
+      setLoadedUpdatedAt(documentData.document.updatedAt);
       setMarkdown(documentData.markdown);
       setSavedMarkdown(documentData.markdown);
       setTree(documentData.tree);
@@ -181,7 +231,7 @@ function FileManager() {
       if (!cancelled) setBusy(false);
     });
     return () => { cancelled = true; };
-  }, [apiRoot, selectedPath]);
+  }, [apiRoot, cachedRequest, refreshHeld, scope, selectedPath]);
 
   useEffect(() => {
     if (!apiRoot || !loadedPath || !canEdit || mode === 'editor') return undefined;
@@ -203,23 +253,56 @@ function FileManager() {
     setBusy(true);
     setMessage(null);
     try {
-      await request(apiRoot, {
+      const saved = await request(apiRoot, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({path: loadedPath, markdown}),
+        body: JSON.stringify({path: loadedPath, markdown, baseUpdatedAt: loadedUpdatedAt}),
       });
       invalidateApiJson(apiRoot);
       setSavedMarkdown(markdown);
+      setLoadedUpdatedAt(saved.document.updatedAt);
       setMessage('Saved.');
       await refreshTree(loadedPath);
       const history = await request(`${apiRoot}/versions?path=${encodeURIComponent(loadedPath)}`);
       setVersions(history.versions || []);
     } catch (error) {
-      setMessage(error.message);
+      if (!isOffline(error)) {
+        setMessage(error.message);
+        return;
+      }
+      try {
+        await documentCache().queueSave(scope, {path: loadedPath, markdown, baseUpdatedAt: loadedUpdatedAt, tree});
+      } catch (cacheError) {
+        setMessage(`You are offline and this browser could not keep the edit: ${cacheError.message}`);
+        return;
+      }
+      setSavedMarkdown(markdown);
+      await refreshHeld();
+      setMessage('You are offline. The edit is saved in this browser and will upload when you reconnect.');
     } finally {
       setBusy(false);
     }
-  }, [apiRoot, canEdit, loadedPath, markdown, refreshTree]);
+  }, [apiRoot, canEdit, loadedPath, loadedUpdatedAt, markdown, refreshHeld, refreshTree, scope, tree]);
+
+  // Uploading an offline edit creates a new revision; later saves build on it.
+  useEffect(() => {
+    const onSync = ({detail}) => {
+      if (detail.uploaded && detail.path === loadedPath) setLoadedUpdatedAt(detail.document.updatedAt);
+    };
+    window.addEventListener(DOCUMENT_SYNC_EVENT, onSync);
+    return () => window.removeEventListener(DOCUMENT_SYNC_EVENT, onSync);
+  }, [loadedPath]);
+
+  const togglePinned = useCallback(async () => {
+    if (!scope || !loadedPath) return;
+    const pinned = !held.get(loadedPath)?.pinned;
+    try {
+      await documentCache().setPinned(scope, loadedPath, pinned);
+      await refreshHeld();
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }, [held, loadedPath, refreshHeld, scope]);
 
   const createDocument = useCallback(async () => {
     if (!apiRoot || !canEdit) return;
@@ -369,7 +452,7 @@ function FileManager() {
         <aside className={styles.sidebar} aria-label="Workspace documents">
           <div className={styles.sidebarTitle}>{documents.length} documents</div>
           {documents.length
-            ? <TreeNode node={grouped} selectedPath={selectedPath} onSelect={select} />
+            ? <TreeNode node={grouped} selectedPath={selectedPath} onSelect={select} held={held} />
             : <p className={styles.empty}>No documents yet.</p>}
           <details className={styles.assets}>
             <summary>Assets ({assets.length})</summary>
@@ -429,6 +512,9 @@ function FileManager() {
                 </div>
                 <div className={styles.actions}>
                   <Link to={`/w/${encodeURIComponent(workspace.slug)}/documents/${routeFor(loadedPath)}`}>Open</Link>
+                  <button type="button" onClick={togglePinned} aria-pressed={Boolean(held.get(loadedPath)?.pinned)}>
+                    {held.get(loadedPath)?.pinned ? 'Kept on this computer' : 'Keep on this computer'}
+                  </button>
                   {canEdit ? <button type="button" onClick={renameDocument} disabled={busy}>Rename</button> : null}
                   {canDelete ? <button type="button" onClick={deleteDocument} disabled={busy}>Delete</button> : null}
                   {canEdit ? <button className="button button--primary button--sm" type="button" onClick={save} disabled={busy || !dirty}>Save</button> : null}

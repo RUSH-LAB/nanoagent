@@ -325,12 +325,17 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
     try {
       permit('content:delete');
       const body = await readBody(req);
-      const {path} = body ?? {};
+      const {path, baseUpdatedAt} = body ?? {};
       if (!path) return json(res, 400, {error: 'Missing path'});
-      if (!await documents.remove(scope, path)) return json(res, 404, {error: 'Document not found'});
+      if (!await documents.remove(scope, path, {expectedUpdatedAt: baseUpdatedAt})) {
+        return json(res, 404, {error: 'Document not found'});
+      }
       clearContentCaches();
       return json(res, 200, {success: true});
     } catch (err) {
+      if (err?.code === 'document-conflict') {
+        return json(res, 409, {error: err.message, code: err.code, currentUpdatedAt: err.currentUpdatedAt});
+      }
       return fail(json, res, err, 'Invalid request');
     }
   }
@@ -345,7 +350,7 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
       const moved = await documents.move(scope, from, to);
       if (!moved) return json(res, 404, {error: 'Document not found'});
       clearContentCaches();
-      return json(res, 200, {success: true, document: {path: moved.path, title: moved.title}});
+      return json(res, 200, {success: true, document: {path: moved.path, title: moved.title, updatedAt: moved.updatedAt}});
     } catch (err) {
       return fail(json, res, err, 'Invalid request');
     }

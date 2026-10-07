@@ -153,6 +153,18 @@
   cursor: pointer;
 }
 
+.localStatus {
+  display: inline-block;
+  width: 1.1rem;
+  margin-right: 0.3rem;
+  color: var(--ifm-color-primary);
+  text-align: center;
+}
+
+.cloudOnly {
+  color: var(--ifm-color-emphasis-500);
+}
+
 .file:hover,
 .fileActive {
   background: var(--ifm-color-emphasis-200);
