@@ -2,6 +2,7 @@
 import {createAuthClient} from 'better-auth/react';
 import API_BASE from './api';
 import {clientPlatform} from '../platform/client.js';
+import {WORKSPACE_SITE_STORAGE_PREFIX} from '../hooks/useWorkspaceSite.js';
 import {documentCache} from './documentCache.js';
 
 const AUTH_BASE_URL = API_BASE
@@ -25,7 +26,9 @@ export async function signOutAndForget() {
     // every scoped copy so another account on the same client cannot see the
     // previous reader's conversations.
     clientPlatform.storage.removeMatching(
-      key => key === CLI_SESSIONS_KEY || key.startsWith(`${CLI_SESSIONS_KEY}:`),
+      key => key === CLI_SESSIONS_KEY || key.startsWith(`${CLI_SESSIONS_KEY}:`)
+        // The navbar's memory of each workspace, which the next account must not see.
+        || key.startsWith(WORKSPACE_SITE_STORAGE_PREFIX),
     );
     // This browser's copy of the account's documents, and any unsent edits.
     await documentCache().clear();

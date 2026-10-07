@@ -19,11 +19,10 @@ import styles from './styles.module.css';
 
 /** A Markdown file bound to its shared document. */
 function LiveEditor({tab, readOnly, language, colorMode, onCursor}) {
-  // The editor starts from the document's text once; from then on the binding
-  // keeps the two in step, so React must not pass the text again.
+  // The editor starts from the document's text; from then on the binding keeps
+  // the two in step. The wrapper copies `value` into the editor only when the
+  // prop changes, so it is the same string for the editor's whole life.
   const [initial] = useState(() => tab.live.text.toString());
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
   const extensions = useMemo(() => [
     ...language.extensions,
     yCollab(tab.live.text, null),
@@ -32,7 +31,7 @@ function LiveEditor({tab, readOnly, language, colorMode, onCursor}) {
   return (
     <CodeMirror
       className={styles.codemirror}
-      value={mounted ? undefined : initial}
+      value={initial}
       height="100%"
       theme={colorMode === 'dark' ? 'dark' : 'light'}
       extensions={extensions}
