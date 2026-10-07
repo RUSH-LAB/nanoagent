@@ -5,48 +5,43 @@ import os from 'node:os';
 import path from 'node:path';
 import {syncOnce} from '../../../cli/sync.mjs';
 
-/** An in-memory document API with the server's revision check. */
+/** An in-memory workspace file system with the server's revision check. */
 function fakeServer(initial = {}) {
-  let clock = 0;
+  let seq = 0;
   let ids = 0;
-  const documents = new Map();
+  const files = new Map();
   const calls = [];
-  const stamp = () => new Date(Date.UTC(2026, 0, 1, 0, 0, clock++)).toISOString();
   const conflict = () => Object.assign(new Error('changed'), {status: 409});
-  const write = (documentPath, markdown) => {
-    const current = documents.get(documentPath);
-    documents.set(documentPath, {id: current?.id ?? `doc-${++ids}`, path: documentPath, markdown, updatedAt: stamp()});
-    return {...documents.get(documentPath)};
+  const write = (filePath, body) => {
+    const current = files.get(filePath);
+    files.set(filePath, {id: current?.id ?? `node-${++ids}`, path: filePath, body: Buffer.from(body), rev: ++seq});
+    return {...files.get(filePath)};
   };
-  for (const [documentPath, markdown] of Object.entries(initial)) write(documentPath, markdown);
+  for (const [filePath, body] of Object.entries(initial)) write(filePath, body);
   const api = {
-    async list() { return [...documents.values()].map(({markdown, ...rest}) => rest); },
-    async get(documentPath) { return {...documents.get(documentPath)}; },
-    async create(documentPath, markdown) {
-      calls.push(['create', documentPath]);
-      if (documents.has(documentPath)) throw conflict();
-      if (markdown.includes('<Broken')) throw Object.assign(new Error('invalid MDX'), {status: 422});
-      return write(documentPath, markdown);
+    async list() { return [...files.values()].map(({id, path: filePath, rev}) => ({id, path: filePath, rev})); },
+    async get(filePath) { return {...files.get(filePath)}; },
+    async put(filePath, body, baseRev) {
+      calls.push(['put', filePath, baseRev]);
+      if ((files.get(filePath)?.rev ?? 0) !== baseRev) throw conflict();
+      if (String(body).includes('REFUSE')) throw Object.assign(new Error('not allowed'), {status: 403});
+      return write(filePath, body);
     },
-    async save(documentPath, markdown, baseUpdatedAt) {
-      calls.push(['save', documentPath, baseUpdatedAt]);
-      if (documents.get(documentPath).updatedAt !== baseUpdatedAt) throw conflict();
-      return write(documentPath, markdown);
+    async remove(filePath, baseRev) {
+      calls.push(['remove', filePath]);
+      if (files.get(filePath).rev !== baseRev) throw conflict();
+      files.delete(filePath);
     },
-    async remove(documentPath, baseUpdatedAt) {
-      calls.push(['remove', documentPath]);
-      if (documents.get(documentPath).updatedAt !== baseUpdatedAt) throw conflict();
-      documents.delete(documentPath);
-    },
-    async move(from, to) {
+    async move(from, to, baseRev) {
       calls.push(['move', from, to]);
-      const document = documents.get(from);
-      documents.delete(from);
-      documents.set(to, {...document, path: to, updatedAt: stamp()});
-      return {...documents.get(to)};
+      const file = files.get(from);
+      if (file.rev !== baseRev) throw conflict();
+      files.delete(from);
+      files.set(to, {...file, path: to, rev: ++seq});
+      return {...files.get(to)};
     },
   };
-  return {api, documents, calls, write};
+  return {api, files, calls, write, text: filePath => files.get(filePath)?.body.toString()};
 }
 
 async function folder(t) {
@@ -83,17 +78,17 @@ test('local edits, creations, and deletions reach the server', async t => {
   const local = await folder(t);
   const server = fakeServer({'a.md': 'one', 'b.md': 'two'});
   await syncUntilQuiet(local, server);
-  const base = local.state.files['a.md'].updatedAt;
+  const base = local.state.files['a.md'].rev;
 
   await local.put('a.md', 'one, edited');
   await local.put('drafts/c.mdx', 'three');
   await fs.rm(path.join(local.root, 'b.md'));
   await syncUntilQuiet(local, server);
 
-  assert.equal(server.documents.get('a.md').markdown, 'one, edited');
-  assert.deepEqual(server.calls.find(call => call[0] === 'save'), ['save', 'a.md', base]);
-  assert.equal(server.documents.get('drafts/c.mdx').markdown, 'three');
-  assert.equal(server.documents.has('b.md'), false);
+  assert.equal(server.text('a.md'), 'one, edited');
+  assert.deepEqual(server.calls.find(call => call[0] === 'put' && call[1] === 'a.md'), ['put', 'a.md', base]);
+  assert.equal(server.text('drafts/c.mdx'), 'three');
+  assert.equal(server.files.has('b.md'), false);
 });
 
 test('server edits and deletions reach the folder, removing emptied folders', async t => {
@@ -102,7 +97,7 @@ test('server edits and deletions reach the folder, removing emptied folders', as
   await syncUntilQuiet(local, server);
 
   server.write('a.md', 'one, from the web');
-  server.documents.delete('old/b.md');
+  server.files.delete('old/b.md');
   await syncUntilQuiet(local, server);
 
   assert.equal(await local.read('a.md'), 'one, from the web');
@@ -121,8 +116,8 @@ test('an edit on both sides keeps the server version and saves yours as a confli
   const copy = 'notes/a (conflicted copy laptop 2026-10-07).md';
   assert.equal(await local.read('notes/a.md'), 'theirs');
   assert.equal(await local.read(copy), 'mine');
-  assert.equal(server.documents.get(copy).markdown, 'mine');
-  assert.equal(server.documents.get('notes/a.md').markdown, 'theirs');
+  assert.equal(server.text(copy), 'mine');
+  assert.equal(server.text('notes/a.md'), 'theirs');
 });
 
 test('a local delete loses to a server edit, and a server delete loses to a local edit', async t => {
@@ -133,46 +128,48 @@ test('a local delete loses to a server edit, and a server delete loses to a loca
   await fs.rm(path.join(local.root, 'kept-remotely.md'));
   server.write('kept-remotely.md', 'one, edited');
   await local.put('kept-locally.md', 'two, edited');
-  server.documents.delete('kept-locally.md');
+  server.files.delete('kept-locally.md');
   await syncUntilQuiet(local, server);
 
   assert.equal(await local.read('kept-remotely.md'), 'one, edited');
-  assert.equal(server.documents.get('kept-locally.md').markdown, 'two, edited');
+  assert.equal(server.text('kept-locally.md'), 'two, edited');
 });
 
 test('a local rename moves the document instead of recreating it', async t => {
   const local = await folder(t);
   const server = fakeServer({'a.md': 'body'});
   await syncUntilQuiet(local, server);
-  const {id} = server.documents.get('a.md');
+  const {id} = server.files.get('a.md');
 
   await local.put('archive/a.md', 'body');
   await fs.rm(path.join(local.root, 'a.md'));
   await syncUntilQuiet(local, server);
 
-  assert.deepEqual(server.calls.filter(call => call[0] !== 'save'), [['move', 'a.md', 'archive/a.md']]);
-  assert.equal(server.documents.get('archive/a.md').id, id);
+  assert.deepEqual(server.calls, [['move', 'a.md', 'archive/a.md']]);
+  assert.equal(server.files.get('archive/a.md').id, id);
 });
 
 test('a refused upload is reported once and retried only after the file changes', async t => {
   const local = await folder(t);
   const server = fakeServer();
   const rejected = new Map();
-  await local.put('bad.mdx', '<Broken');
+  await local.put('bad.md', 'REFUSE');
   await syncUntilQuiet(local, server, rejected);
   await syncUntilQuiet(local, server, rejected);
-  assert.equal(server.calls.filter(call => call[0] === 'create').length, 1);
+  assert.equal(server.calls.filter(call => call[0] === 'put').length, 1);
 
-  await local.put('bad.mdx', 'fixed');
+  await local.put('bad.md', 'fixed');
   await syncUntilQuiet(local, server, rejected);
-  assert.equal(server.documents.get('bad.mdx').markdown, 'fixed');
+  assert.equal(server.text('bad.md'), 'fixed');
 });
 
-test('files other than Markdown and dotfiles stay local', async t => {
+test('binary files sync, and dot paths stay on their own side', async t => {
   const local = await folder(t);
-  const server = fakeServer();
-  await local.put('photo.png', 'bytes');
+  const server = fakeServer({'.plugins/blobs/x.pdf': 'plugin data'});
+  await fs.writeFile(path.join(local.root, 'photo.png'), Buffer.from([0, 255, 1, 254]));
   await local.put('.draft.md', 'hidden');
   await syncUntilQuiet(local, server);
-  assert.equal(server.documents.size, 0);
+  assert.deepEqual([...server.files.get('photo.png').body], [0, 255, 1, 254]);
+  assert.equal(server.files.has('.draft.md'), false);
+  assert.equal(await local.exists('.plugins'), false);
 });

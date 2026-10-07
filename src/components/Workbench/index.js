@@ -1,6 +1,9 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useHistory, useLocation} from '@docusaurus/router';
 import {toast} from '@site/src/components/Toast/toast';
+import {isOffline} from '@site/src/utils/documentCache';
+import {FS_SYNC_EVENT, fsReplica, startFsSync} from '@site/src/utils/fsReplica';
+import {loadWorkspaces} from '@site/src/utils/workspaces';
 import * as api from './api';
 import Editor from './Editor';
 import Explorer, {ContextMenu} from './Explorer';
@@ -17,6 +20,11 @@ import styles from './styles.module.css';
  * A save names the revision the tab was read at, so an edit made elsewhere in
  * the meantime is reported rather than overwritten. Who can see a file or
  * folder (the workspace, only you, or anyone) is set from its context menu.
+ *
+ * This browser keeps a replica (utils/fsReplica.js): the tree, and the text
+ * files opened or kept on this computer. Without a network the explorer shows
+ * the replica, kept files open, and saves wait to upload; each row says
+ * whether its file is in the cloud only, on this computer, kept, or waiting.
  */
 
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
@@ -45,7 +53,12 @@ export default function Workbench({workspace}) {
   const [editing, setEditing] = useState(null);
   const [menu, setMenu] = useState(null);
   const [trash, setTrash] = useState(null);
+  const [scope, setScope] = useState(null);
+  const [held, setHeld] = useState(() => new Map());
+  const [offline, setOffline] = useState(false);
   const tabsRef = useRef(tabs);
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
   tabsRef.current = tabs;
 
   const tree = useMemo(() => (listing ? buildTree(listing.files, listing.folders) : null), [listing]);
@@ -54,9 +67,45 @@ export default function Workbench({workspace}) {
     [tabs],
   );
 
-  const load = useCallback(() => api.listFiles()
-    .then(data => { setListing(data); setLoadError(null); return data; })
-    .catch(error => { setLoadError(error.message); return null; }), []);
+  const refreshHeld = useCallback(async () => {
+    if (scopeRef.current) setHeld(await fsReplica().held(scopeRef.current));
+  }, []);
+
+  // The server's tree when it answers, this browser's copy when it cannot be reached.
+  const load = useCallback(async () => {
+    const replica = fsReplica();
+    try {
+      const data = await api.listFiles();
+      if (scopeRef.current) await replica.rememberTree(scopeRef.current, data.nodes);
+      setListing(data);
+      setLoadError(null);
+      setOffline(false);
+      // A tab with no unsaved edits follows a newer revision saved elsewhere.
+      for (const tab of tabsRef.current) {
+        const file = data.files.find(item => item.path === tab.path);
+        if (tab.kind !== 'text' || !file || tab.text !== tab.saved || tab.rev === undefined || file.rev === tab.rev) continue;
+        api.readFile(tab.path).then(result => {
+          if (result.binary) return;
+          updateTab(tab.path, {text: result.text, saved: result.text, rev: result.rev});
+          if (scopeRef.current) replica.remember(scopeRef.current, tab.path, result);
+        }).catch(error => console.error(`[workspace] Could not refresh ${tab.path}:`, error));
+      }
+      refreshHeld();
+      return data;
+    } catch (error) {
+      const nodes = isOffline(error) && scopeRef.current ? await replica.tree(scopeRef.current) : null;
+      if (!nodes) {
+        setLoadError(error.message);
+        return null;
+      }
+      const data = api.listingOf(nodes);
+      setListing(data);
+      setLoadError(null);
+      setOffline(true);
+      refreshHeld();
+      return data;
+    }
+  }, [refreshHeld]);
 
   useEffect(() => { sessionStorage.setItem(expandedKey, JSON.stringify([...expanded])); }, [expandedKey, expanded]);
 
@@ -94,12 +143,77 @@ export default function Workbench({workspace}) {
     const kind = kindOf(file);
     setTabs(current => [...current, {path: file.path, kind, loading: kind === 'text', text: '', saved: ''}]);
     if (kind !== 'text') return;
-    api.readFile(file.path)
-      .then(result => updateTab(file.path, result.binary
-        ? {kind: 'binary', loading: false, rev: result.rev}
-        : {text: result.text, saved: result.text, loading: false, rev: result.rev}))
-      .catch(error => updateTab(file.path, {loading: false, error: error.message}));
-  }, []);
+    (async () => {
+      const replica = fsReplica();
+      const current = scopeRef.current;
+      const kept = current ? await replica.read(current, file.path) : null;
+      // This browser's copy is current when it holds the listed revision or an unsent edit.
+      if (kept && (kept.pending || kept.rev === file.rev)) {
+        updateTab(file.path, {text: kept.text, saved: kept.text, loading: false, rev: kept.rev});
+        return;
+      }
+      try {
+        const result = await api.readFile(file.path);
+        if (result.binary) {
+          updateTab(file.path, {kind: 'binary', loading: false, rev: result.rev});
+          return;
+        }
+        updateTab(file.path, {text: result.text, saved: result.text, loading: false, rev: result.rev});
+        if (current) await replica.remember(current, file.path, result);
+        refreshHeld();
+      } catch (error) {
+        if (kept && isOffline(error)) {
+          updateTab(file.path, {text: kept.text, saved: kept.text, loading: false, rev: kept.rev});
+          return;
+        }
+        updateTab(file.path, {loading: false, error: isOffline(error)
+          ? `${basename(file.path)} is not kept on this computer, and the server cannot be reached.`
+          : error.message});
+      }
+    })();
+  }, [refreshHeld]);
+
+  // Who this replica belongs to, then keep it in step with the server.
+  useEffect(() => {
+    let cancelled = false;
+    loadWorkspaces().then(({userId}) => {
+      if (!cancelled && userId) setScope({userId, workspaceId: workspace.id});
+    }).catch(error => console.error('[workspace] This browser cannot keep files without an account:', error));
+    return () => { cancelled = true; };
+  }, [workspace.id]);
+
+  useEffect(() => {
+    if (!scope) return undefined;
+    const onSync = ({detail}) => {
+      if (detail.scope.workspaceId !== scope.workspaceId || detail.scope.userId !== scope.userId) return;
+      if (detail.uploaded) {
+        updateTab(detail.path, {rev: detail.rev});
+        toast.success(`Uploaded your offline edit to ${basename(detail.path)}.`);
+      } else if (detail.conflictedCopy) {
+        toast.warning(`${detail.path} changed while you were offline, so your edit was saved as ${detail.conflictedCopy}.`, {duration: 0});
+      } else if (detail.error) {
+        toast.error(`Your offline edit to ${detail.path} could not be uploaded: ${detail.error}`, {duration: 0});
+      }
+      load();
+    };
+    window.addEventListener(FS_SYNC_EVENT, onSync);
+    const stop = startFsSync(scope);
+    load();
+    return () => {
+      stop();
+      window.removeEventListener(FS_SYNC_EVENT, onSync);
+    };
+  }, [scope, load]);
+
+  const togglePinned = node => {
+    const pinned = !held.get(node.path)?.pinned;
+    fsReplica().setPinned(scope, node.path, pinned)
+      .then(() => {
+        refreshHeld();
+        toast.success(pinned ? `${node.path} is kept on this computer` : `${node.path} may be removed from this computer`);
+      })
+      .catch(error => toast.error(error.message));
+  };
 
   // The first listing opens the file the URL names, and reveals it in the tree.
   useEffect(() => {
@@ -136,9 +250,20 @@ export default function Workbench({workspace}) {
     const text = tab.text;
     updateTab(path, {saving: true});
     api.saveFile(path, text, {baseRev: tab.rev})
-      .then(entry => { updateTab(path, {saving: false, saved: text, rev: entry.rev}); load(); })
-      .catch(error => {
+      .then(entry => {
+        updateTab(path, {saving: false, saved: text, rev: entry.rev});
+        if (scopeRef.current) fsReplica().remember(scopeRef.current, path, {text, rev: entry.rev});
+        load();
+      })
+      .catch(async error => {
         updateTab(path, {saving: false});
+        if (isOffline(error) && scopeRef.current) {
+          await fsReplica().queueWrite(scopeRef.current, {path, text, baseRev: tab.rev});
+          updateTab(path, {saved: text});
+          refreshHeld();
+          toast.info(`You are offline. ${basename(path)} is saved on this computer and will upload when you reconnect.`);
+          return;
+        }
         toast.error(error.code === 'stale-revision'
           ? `${basename(path)} was changed elsewhere. Copy your edits, close the tab, and open it again.`
           : error.message);
@@ -241,6 +366,10 @@ export default function Workbench({workspace}) {
       file ? [
         {label: 'Open', run: () => open(node)},
         {label: 'Download', run: () => window.open(api.fileUrl(workspace.id, node.path, {download: true}), '_self')},
+        ...(scope && kindOf(node) === 'text' ? [{
+          label: held.get(node.path)?.pinned ? '✓ Kept on this computer' : 'Keep on this computer',
+          run: () => togglePinned(node),
+        }] : []),
       ] : [],
       !readOnly && !file ? [
         {label: 'New File…', run: () => startCreate('file', node?.path ?? '')},
@@ -289,6 +418,7 @@ export default function Workbench({workspace}) {
             </button>
           </div>
         </div>
+        {offline && <p className={styles.offlineNote}>Offline: showing the files kept on this computer.</p>}
         {loadError && <p className={styles.loadError}>{loadError}</p>}
         {tree && (
           <Explorer
@@ -297,6 +427,7 @@ export default function Workbench({workspace}) {
             selected={selected}
             activePath={activePath}
             dirtyPaths={dirtyPaths}
+            held={held}
             editing={editing}
             readOnly={readOnly}
             onToggle={toggle}

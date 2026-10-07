@@ -15,13 +15,18 @@ const describe = node => ({
   accessExplicit: node.accessExplicit, updatedAt: node.updatedAt,
 });
 
-/** `{files, folders}`: every node, folders included so empty ones show. */
-export async function listFiles() {
-  const {nodes} = await apiRequest('/api/fs/tree', undefined, {failureLabel: 'Could not load your workspace'});
+/** `{files, folders, nodes}` from the tree's nodes, folders included so empty ones show. */
+export function listingOf(nodes) {
   return {
+    nodes,
     files: nodes.filter(node => node.kind === 'file').map(describe),
     folders: nodes.filter(node => node.kind === 'folder').map(describe),
   };
+}
+
+export async function listFiles() {
+  const {nodes} = await apiRequest('/api/fs/tree', undefined, {failureLabel: 'Could not load your workspace'});
+  return listingOf(nodes);
 }
 
 /** A file's text and revision, or `{binary: true}` when it is not text. */

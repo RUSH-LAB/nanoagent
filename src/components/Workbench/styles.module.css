@@ -215,6 +215,32 @@
   margin-left: 0.4rem;
 }
 
+/* Where a file is kept: in the cloud only, on this computer, or waiting to upload. */
+.localStatus {
+  flex: none;
+  order: 10;
+  width: 1rem;
+  margin-left: auto;
+  color: var(--ifm-color-primary);
+  font-size: 0.7rem;
+  text-align: center;
+}
+
+.accessBadge ~ .localStatus,
+.dirtyDot ~ .localStatus {
+  margin-left: 0.3rem;
+}
+
+.cloudOnly {
+  color: var(--ifm-color-emphasis-500);
+}
+
+.offlineNote {
+  margin: 0.5rem 0.9rem;
+  color: var(--ifm-color-warning-darkest);
+  font-size: 0.8rem;
+}
+
 /* ── Trash ── */
 
 .trash {

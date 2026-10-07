@@ -119,8 +119,16 @@ export function ContextMenu({menu, onClose}) {
   );
 }
 
+/** Where a file is, as a cloud drive shows it: in the cloud only, on this computer, kept, or waiting to upload. */
+function LocalStatus({held}) {
+  if (held?.pending) return <span className={styles.localStatus} title="Edited offline; uploads when you reconnect">↑</span>;
+  if (held?.pinned) return <span className={styles.localStatus} title="Kept on this computer">●</span>;
+  if (held) return <span className={styles.localStatus} title="On this computer">○</span>;
+  return <span className={clsx(styles.localStatus, styles.cloudOnly)} title="In the cloud">☁</span>;
+}
+
 export default function Explorer({
-  tree, expanded, selected, activePath, dirtyPaths, editing, readOnly,
+  tree, expanded, selected, activePath, dirtyPaths, held = new Map(), editing, readOnly,
   onToggle, onSelect, onOpen, onCommitEdit, onCancelEdit, onContextMenu, onMove, onRename, onDelete,
 }) {
   const [dropTarget, setDropTarget] = useState(null);
@@ -229,6 +237,7 @@ export default function Explorer({
               {folder ? <Chevron open={open} /> : <span className={styles.chevronSpace} />}
               {folder ? <span className={clsx(styles.folderIcon, open && styles.folderOpen)} aria-hidden="true" /> : <FileIcon name={node.name} />}
               <span className={styles.rowName}>{basename(node.path)}</span>
+              {!folder && <LocalStatus held={held.get(node.path)} />}
               {node.access === 'public' && <span className={styles.accessBadge} title="Anyone can see this">public</span>}
               {node.access === 'private' && <span className={styles.accessBadge} title="Only you can see this">private</span>}
               {dirtyPaths.has(node.path) && <span className={styles.dirtyDot} title="Unsaved changes" />}

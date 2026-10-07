@@ -1,26 +1,26 @@
 /**
- * Two-way sync between a workspace's documents and a local folder.
+ * Two-way sync between a workspace file system and a local folder.
  *
- * Every cycle compares three views of each path: the file on disk, the
- * document on the server, and what both looked like after the last successful
- * sync (the base, kept in .mochi/state.json). A side changed when it differs
- * from the base. One changed side is copied to the other; when both changed,
- * the server keeps the path and the local edit is saved beside it as a
- * conflicted copy, which the next cycle uploads as a new document. Nothing is
- * merged silently and nothing is lost.
+ * Every cycle compares three views of each path: the file on disk, the file in
+ * the workspace, and what both looked like after the last successful sync (the
+ * base, kept in .mochi/state.json). A side changed when it differs from the
+ * base: on disk by content hash, in the workspace by revision. One changed
+ * side is copied to the other; when both changed, the workspace keeps the path
+ * and the local edit is saved beside it as a conflicted copy, which the next
+ * cycle uploads as a new file. Nothing is merged silently and nothing is lost.
  *
- * Only .md and .mdx files take part, on both sides, so a file this client
- * cannot represent is never mistaken for a deletion.
+ * Every file takes part, text or binary, except anything with a path segment
+ * starting with a dot, on either side: .mochi/ itself, editor swap files, and
+ * the workspace's .plugins/.
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 export const STATE_DIR = '.mochi';
-const SYNCED = /\.mdx?$/;
 
-export const hashOf = text => crypto.createHash('sha256').update(text).digest('hex');
-const sameTime = (a, b) => new Date(a).getTime() === new Date(b).getTime();
+export const hashOf = body => crypto.createHash('sha256').update(body).digest('hex');
+const hidden = relative => relative.split('/').some(part => part.startsWith('.'));
 
 /** The file changed again between planning and writing; the next cycle replans. */
 class LocalChanged extends Error {}
@@ -32,7 +32,7 @@ export function abortsCycle(error) {
 
 async function readLocal(root, relative) {
   try {
-    return await fs.readFile(path.join(root, relative), 'utf8');
+    return await fs.readFile(path.join(root, relative));
   } catch (error) {
     if (error.code === 'ENOENT') return undefined;
     throw error;
@@ -43,25 +43,24 @@ async function walk(root) {
   const found = new Map();
   async function visit(dir) {
     for (const entry of await fs.readdir(path.join(root, dir), {withFileTypes: true})) {
-      // Dotfiles cover .mochi/, editor swap files, and this client's own temp files.
       if (entry.name.startsWith('.')) continue;
       const relative = dir ? `${dir}/${entry.name}` : entry.name;
       if (entry.isDirectory()) await visit(relative);
-      else if (entry.isFile() && SYNCED.test(entry.name)) found.set(relative, hashOf(await readLocal(root, relative)));
+      else if (entry.isFile()) found.set(relative, hashOf(await readLocal(root, relative)));
     }
   }
   await visit('');
   return found;
 }
 
-/** Write `text` at `relative` only if the file still has `expectedHash` (undefined: absent). */
-async function writeLocal(root, relative, text, expectedHash) {
+/** Write `body` at `relative` only if the file still has `expectedHash` (undefined: absent). */
+async function writeLocal(root, relative, body, expectedHash) {
   const current = await readLocal(root, relative);
   if ((current === undefined ? undefined : hashOf(current)) !== expectedHash) throw new LocalChanged();
   const target = path.join(root, relative);
   await fs.mkdir(path.dirname(target), {recursive: true});
   const temp = path.join(path.dirname(target), `.${path.basename(target)}.mochi-tmp`);
-  await fs.writeFile(temp, text);
+  await fs.writeFile(temp, body);
   await fs.rename(temp, target);
 }
 
@@ -70,7 +69,7 @@ async function removeLocal(root, relative, expectedHash) {
   if (current === undefined) return;
   if (hashOf(current) !== expectedHash) throw new LocalChanged();
   await fs.rm(path.join(root, relative));
-  // Remove folders the deletion emptied, as the server has no folders of its own.
+  // Remove folders the deletion emptied; the workspace removed its own.
   for (let dir = path.dirname(relative); dir !== '.'; dir = path.dirname(dir)) {
     const absolute = path.join(root, dir);
     if ((await fs.readdir(absolute)).length) break;
@@ -80,7 +79,7 @@ async function removeLocal(root, relative, expectedHash) {
 
 async function conflictedCopyPath(root, relative, host, day) {
   const extension = path.extname(relative);
-  const stem = relative.slice(0, -extension.length);
+  const stem = extension ? relative.slice(0, -extension.length) : relative;
   for (let n = 1; ; n += 1) {
     const candidate = `${stem} (conflicted copy ${host} ${day}${n > 1 ? ` ${n}` : ''})${extension}`;
     if (await readLocal(root, candidate) === undefined) return candidate;
@@ -88,16 +87,15 @@ async function conflictedCopyPath(root, relative, host, day) {
 }
 
 /**
- * Run one sync cycle. `api` is the workspace's document API (list, get, create,
- * save, remove, move); `state.files` maps each synced path to its base
- * `{id, updatedAt, hash}`, and `saveState` persists it after every operation so
- * an interrupted cycle resumes where it stopped. `rejected` remembers paths the
+ * Run one sync cycle. `api` is the workspace file system (list, get, put,
+ * remove, move); `state.files` maps each synced path to its base
+ * `{id, rev, hash}`, and `saveState` persists it after every operation so an
+ * interrupted cycle resumes where it stopped. `rejected` remembers paths the
  * server refused, by hash, so they are retried only after the file changes.
  * Returns the number of operations performed.
  */
 export async function syncOnce({root, api, state, saveState, rejected = new Map(), host, day, log = () => {}}) {
-  const remote = new Map((await api.list()).filter(document => SYNCED.test(document.path))
-    .map(document => [document.path, document]));
+  const remote = new Map((await api.list()).filter(file => !hidden(file.path)).map(file => [file.path, file]));
   const local = await walk(root);
   const base = {...state.files};
   let operations = 0;
@@ -112,29 +110,27 @@ export async function syncOnce({root, api, state, saveState, rejected = new Map(
     const now = remote.get(relative);
     const then = base[relative];
     if (!now || !then) return Boolean(now) !== Boolean(then);
-    return now.id !== then.id || !sameTime(now.updatedAt, then.updatedAt);
+    return now.id !== then.id || now.rev !== then.rev;
   };
   const download = async (relative, expectedHash) => {
-    const document = await api.get(relative);
-    await writeLocal(root, relative, document.markdown, expectedHash);
-    await record(relative, {id: document.id, updatedAt: document.updatedAt, hash: hashOf(document.markdown)});
+    const file = await api.get(relative);
+    await writeLocal(root, relative, file.body, expectedHash);
+    await record(relative, {id: file.id, rev: file.rev, hash: hashOf(file.body)});
     log(`downloaded ${relative}`);
   };
   const upload = async (relative, existing) => {
-    const text = await readLocal(root, relative);
-    if (text === undefined) throw new LocalChanged();
-    const hash = hashOf(text);
+    const body = await readLocal(root, relative);
+    if (body === undefined) throw new LocalChanged();
+    const hash = hashOf(body);
     if (rejected.get(relative) === hash) return;
-    const saved = existing
-      ? await api.save(relative, text, existing.updatedAt)
-      : await api.create(relative, text);
+    const node = await api.put(relative, body, existing ? existing.rev : 0);
     rejected.delete(relative);
-    await record(relative, {id: existing?.id ?? saved.id, updatedAt: saved.updatedAt, hash});
+    await record(relative, {id: node.id, rev: node.rev, hash});
     log(`${existing ? 'uploaded' : 'created'} ${relative}`);
   };
 
   // A file that vanished locally and an identical one that appeared elsewhere
-  // is a rename. Moving the document keeps its id, history, and visibility.
+  // is a rename. Moving the node keeps its id, history, and access.
   const vanished = Object.keys(base).filter(relative => !local.has(relative) && !remoteChanged(relative));
   const moved = new Set();
   for (const [to, hash] of local) {
@@ -143,9 +139,9 @@ export async function syncOnce({root, api, state, saveState, rejected = new Map(
     if (!from) continue;
     vanished.splice(vanished.indexOf(from), 1);
     try {
-      const result = await api.move(from, to);
+      const node = await api.move(from, to, base[from].rev);
       delete state.files[from];
-      await record(to, {...base[from], updatedAt: result.updatedAt});
+      await record(to, {id: node.id, rev: node.rev, hash});
       moved.add(from).add(to);
       log(`moved ${from} -> ${to}`);
     } catch (error) {
@@ -166,9 +162,9 @@ export async function syncOnce({root, api, state, saveState, rejected = new Map(
     try {
       if (!serverChanged) {
         if (localHash === undefined) {
-          await api.remove(relative, then.updatedAt);
+          await api.remove(relative, then.rev);
           await record(relative, null);
-          log(`deleted ${relative} on the server`);
+          log(`deleted ${relative} in the workspace`);
         } else {
           await upload(relative, then);
         }
@@ -181,31 +177,31 @@ export async function syncOnce({root, api, state, saveState, rejected = new Map(
           log(`deleted ${relative} locally`);
         }
       } else if (!remote.has(relative)) {
-        // Deleted on the server, edited or deleted here: a local edit wins.
+        // Deleted in the workspace, edited or deleted here: a local edit wins.
         if (localHash === undefined) await record(relative, null);
         else await upload(relative, null);
       } else if (localHash === undefined) {
-        // Deleted here, edited on the server: the server edit wins.
+        // Deleted here, edited in the workspace: the workspace's edit wins.
         await download(relative, undefined);
       } else {
-        const document = await api.get(relative);
-        if (hashOf(document.markdown) !== localHash) {
+        const file = await api.get(relative);
+        if (hashOf(file.body) !== localHash) {
           const mine = await readLocal(root, relative);
           if (mine === undefined || hashOf(mine) !== localHash) throw new LocalChanged();
           const copy = await conflictedCopyPath(root, relative, host, day);
           await writeLocal(root, copy, mine, undefined);
-          await writeLocal(root, relative, document.markdown, localHash);
+          await writeLocal(root, relative, file.body, localHash);
           log(`conflict on ${relative}; your version is in ${copy}`);
         }
-        await record(relative, {id: document.id, updatedAt: document.updatedAt, hash: hashOf(document.markdown)});
+        await record(relative, {id: file.id, rev: file.rev, hash: hashOf(file.body)});
       }
     } catch (error) {
       if (error instanceof LocalChanged) continue;
       if (abortsCycle(error)) throw error;
-      // A refusal for this one file: invalid MDX, a viewer's write, a path the
-      // server rejects. Say why and leave the file as it is until it changes.
+      // A refusal for this one file: a viewer's write, a path the server
+      // rejects. Say why and leave the file as it is until it changes.
       if (error.status === 409) {
-        log(`${relative} changed on the server; it will be synced next cycle`);
+        log(`${relative} changed in the workspace; it will be synced next cycle`);
         continue;
       }
       if (localHash !== undefined) rejected.set(relative, localHash);

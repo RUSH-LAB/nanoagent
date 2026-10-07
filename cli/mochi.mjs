@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /**
- * Mochi Lab's command-line client: mirror a workspace's documents into a local
+ * Mochi Lab's command-line client: mirror a workspace's files into a local
  * folder and keep the two in sync, the way Dropbox keeps a folder in sync.
  *
  *   mochi login <server>                    sign in and keep a session token
  *   mochi clone <server> <workspace> <dir>  download a workspace into a new folder
  *   mochi sync <dir>                        keep that folder in sync until stopped
  *
- * The server stays the source of truth and every write goes through the same
- * API, permissions, and conflict check as the web editor. A synced folder holds
+ * The server stays the source of truth and every write goes through the
+ * workspace file system API (/fs), with the same permissions and revision
+ * checks as the Workspace page; the server must run with CONTENT_STORE=fs. A synced folder holds
  * its settings in .mochi/config.yaml and the last synced state in
  * .mochi/state.json.
  */
@@ -56,9 +57,9 @@ async function tokenFor(server) {
   return token;
 }
 
-/** A JSON client for one server. Errors carry the HTTP status, or 0 when the server is unreachable. */
+/** A client for one server. Errors carry the HTTP status, or 0 when the server is unreachable. */
 function connect(server, token) {
-  return async function request(method, route, {body, headers = {}} = {}) {
+  return async function request(method, route, {body, headers = {}, raw = false} = {}) {
     let response;
     try {
       response = await fetch(`${server}${route}`, {
@@ -68,15 +69,16 @@ function connect(server, token) {
           // require an origin. The server's own origin is a trusted one.
           Origin: server,
           ...(token ? {Authorization: `Bearer ${token}`} : {}),
-          ...(body === undefined ? {} : {'Content-Type': 'application/json'}),
+          ...(body === undefined ? {} : {'Content-Type': Buffer.isBuffer(body) ? 'application/octet-stream' : 'application/json'}),
           ...headers,
         },
-        body: body === undefined ? undefined : JSON.stringify(body),
+        body: body === undefined ? undefined : Buffer.isBuffer(body) ? body : JSON.stringify(body),
       });
     } catch (error) {
       throw Object.assign(new Error(`Cannot reach ${server}: ${error.cause?.message ?? error.message}`), {status: 0});
     }
     if (response.status === 304) return {response, data: null};
+    if (raw && response.ok) return {response, data: Buffer.from(await response.arrayBuffer())};
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw Object.assign(new Error(data.error || data.message || `${method} ${route} failed with ${response.status}`),
@@ -86,35 +88,33 @@ function connect(server, token) {
   };
 }
 
-/** The document API `syncOnce` expects, over one workspace's HTTP endpoints. */
-function documentsApi(request, workspaceId) {
-  const base = `/api/workspaces/${encodeURIComponent(workspaceId)}/documents`;
+/** The file system API `syncOnce` expects, over one workspace's /fs endpoints. */
+function filesApi(request, workspaceId) {
+  const base = `/api/workspaces/${encodeURIComponent(workspaceId)}/fs`;
+  const query = filePath => `path=${encodeURIComponent(filePath)}`;
   let etag = null;
-  let documents = null;
+  let files = null;
   return {
     async list() {
       const {response, data} = await request('GET', `${base}/tree`, {headers: etag ? {'If-None-Match': etag} : {}});
       if (data) {
         etag = response.headers.get('etag');
-        documents = data.documents;
+        files = data.nodes.filter(node => node.kind === 'file').map(node => ({path: node.path, id: node.id, rev: node.rev}));
       }
-      return documents;
+      return files;
     },
-    async get(documentPath) {
-      const {data} = await request('GET', `${base}/source?path=${encodeURIComponent(documentPath)}`);
-      return {...data.document, markdown: data.markdown};
+    async get(filePath) {
+      const {response, data} = await request('GET', `${base}/file?${query(filePath)}`, {raw: true});
+      return {body: data, id: response.headers.get('x-node-id'), rev: Number(response.headers.get('x-rev'))};
     },
-    async create(documentPath, markdown) {
-      return (await request('POST', base, {body: {path: documentPath, markdown}})).data.document;
+    async put(filePath, body, baseRev) {
+      return (await request('PUT', `${base}/file?${query(filePath)}&baseRev=${baseRev}`, {body})).data.node;
     },
-    async save(documentPath, markdown, baseUpdatedAt) {
-      return (await request('PUT', base, {body: {path: documentPath, markdown, baseUpdatedAt}})).data.document;
+    async remove(filePath, baseRev) {
+      await request('DELETE', `${base}/node?${query(filePath)}&baseRev=${baseRev}`);
     },
-    async remove(documentPath, baseUpdatedAt) {
-      await request('DELETE', base, {body: {path: documentPath, baseUpdatedAt}});
-    },
-    async move(from, to) {
-      return (await request('POST', `${base}/move`, {body: {from, to}})).data.document;
+    async move(from, to, baseRev) {
+      return (await request('POST', `${base}/move`, {body: {from, to, baseRev}})).data.node;
     },
   };
 }
@@ -158,7 +158,7 @@ async function openFolder(folder) {
   }
   const statePath = path.join(root, STATE_DIR, 'state.json');
   const state = JSON.parse(await fs.readFile(statePath, 'utf8'));
-  const api = documentsApi(connect(config.server, await tokenFor(config.server)), config.workspace.id);
+  const api = filesApi(connect(config.server, await tokenFor(config.server)), config.workspace.id);
   const rejected = new Map();
   return {
     root,

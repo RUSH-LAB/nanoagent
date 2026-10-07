@@ -277,11 +277,22 @@ export function createDocumentCache({
   };
 }
 
+let sharedStore = null;
 let shared = null;
+
+/**
+ * This browser's IndexedDB store, shared by everything it keeps for its
+ * signed-in account (the document cache and the file system replica), so
+ * signing out clears them together.
+ */
+export function browserStore() {
+  sharedStore ??= indexedDbStore();
+  return sharedStore;
+}
 
 /** This browser's document cache. */
 export function documentCache() {
-  shared ??= createDocumentCache({store: indexedDbStore()});
+  shared ??= createDocumentCache({store: browserStore()});
   return shared;
 }
 
