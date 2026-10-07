@@ -17,8 +17,15 @@
  *   GET    history?path=              every revision, newest first
  *   GET    revision?path=&seq=        the bytes of one revision
  *   GET    changes?since=&limit=      the change feed sync clients follow
+ *
+ * Markdown files are mergeable (fs/crdt.js):
+ *
+ *   GET    crdt?path=                 the Yjs document as one update; X-Rev is its revision
+ *   POST   crdt?path=                 apply an editor's Yjs update; the merged text is a new revision
+ *   GET    crdt/events?path=          server-sent `update` events, base64 Yjs updates, for live editing
  */
-const ROUTE = /^\/api\/fs\/(tree|stat|file|folder|move|node|restore|trash|access|history|revision|changes)$/;
+const ROUTE = /^\/api\/fs\/(tree|stat|file|folder|move|node|restore|trash|access|history|revision|changes|crdt|crdt\/events)$/;
+const HEARTBEAT_MS = 25_000;
 
 function fail(json, res, error) {
   if (error?.status && error?.code) {
@@ -51,7 +58,9 @@ function sendBytes(req, res, {body, contentType, etag, filename, download = fals
 module.exports = async function fs_routes(req, res, url, pathname, ctx) {
   const match = ROUTE.exec(pathname);
   if (!match || !req.context) return;
-  const {json, readBody, readRawBody, requireWorkspacePermission, workspaceFs: fs, invalidateCache, cacheKey} = ctx;
+  const {
+    json, readBody, readRawBody, requireWorkspacePermission, workspaceFs: fs, crdt, crdtHub, invalidateCache, cacheKey, CORS_ORIGIN,
+  } = ctx;
   if (!fs) {
     return json(res, 409, {
       error: 'The workspace file system is not enabled on this server (CONTENT_STORE=legacy)', code: 'fs-disabled',
@@ -98,6 +107,10 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
         ...(baseRev === null ? {} : {baseRev: Number(baseRev)}),
       });
       changed();
+      // Anyone editing this file live sees the plain write as a change too.
+      if (crdt && crdtHub.has(node.id) && /\.mdx?$/i.test(node.path)) {
+        crdtHub.broadcast(node.id, (await crdt.state(scope, node.path)).changes);
+      }
       return json(res, 200, {node});
     }
 
@@ -163,6 +176,53 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
         body: found.body, contentType: node.contentType, etag: `${node.id}:${found.change.seq}`,
         filename: found.change.path.split('/').pop(),
       });
+    }
+
+    if (action === 'crdt' && req.method === 'GET') {
+      permit('content:read');
+      const state = await crdt.state(scope, param('path'));
+      if (state.changes) crdtHub.broadcast(state.nodeId, state.changes);
+      res.setHeader('X-Rev', String(state.rev));
+      res.setHeader('X-Node-Id', state.nodeId);
+      return sendBytes(req, res, {
+        body: Buffer.from(state.update), contentType: 'application/octet-stream', etag: `${state.nodeId}:${state.rev}`,
+        filename: 'state.yjs',
+      });
+    }
+
+    if (action === 'crdt' && req.method === 'POST') {
+      permit('content:edit');
+      const update = await readRawBody(req);
+      const {node, changes} = await crdt.merge(scope, param('path'), update);
+      crdtHub.broadcast(node.id, changes);
+      changed();
+      return json(res, 200, {node});
+    }
+
+    if (action === 'crdt/events' && req.method === 'GET') {
+      permit('content:read');
+      const node = await fs.stat(scope, param('path'));
+      if (!node) return json(res, 404, {error: 'Not found', code: 'not-found'});
+      const origin = req.headers.origin;
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+        'Access-Control-Allow-Origin': CORS_ORIGIN === '*' ? (origin || '*') : CORS_ORIGIN,
+        'Access-Control-Allow-Credentials': 'true',
+        Vary: 'Origin',
+      });
+      res.flushHeaders?.();
+      // The stream outlives the server's idle limit; the heartbeat keeps proxies from closing it.
+      req.setTimeout(0);
+      res.write(': listening\n\n');
+      const stop = crdtHub.listen(node.id, update => res.write(`event: update\ndata: ${update}\n\n`));
+      const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), HEARTBEAT_MS);
+      await new Promise(resolve => res.on('close', resolve));
+      clearInterval(heartbeat);
+      stop();
+      return res.end();
     }
 
     if (req.method === 'GET' && action === 'changes') {

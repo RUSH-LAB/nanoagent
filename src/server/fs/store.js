@@ -224,6 +224,8 @@ function operations(client, scope) {
 
   return {
     nodeAt,
+    /** Run SQL in this transaction, for modules that keep data beside the nodes (fs/crdt.js). */
+    query: (sql, parameters) => client.query(sql, parameters),
 
     async list({prefix, deleted = false} = {}) {
       const clean = cleanPrefix(prefix);

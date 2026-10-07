@@ -6,6 +6,7 @@ import {FS_SYNC_EVENT, fsReplica, startFsSync} from '@site/src/utils/fsReplica';
 import {loadWorkspaces} from '@site/src/utils/workspaces';
 import * as api from './api';
 import Editor from './Editor';
+import {openLiveDocument} from './liveDocument';
 import Explorer, {ContextMenu} from './Explorer';
 import {basename, buildTree, dirname, invalidName, join, movedPath, within} from './tree';
 import styles from './styles.module.css';
@@ -28,6 +29,7 @@ import styles from './styles.module.css';
  */
 
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
+const MARKDOWN = /\.mdx?$/i;
 const PDF = /\.pdf$/i;
 // Past this a file is downloaded rather than loaded into the editor.
 const EDIT_LIMIT = 2 * 1024 * 1024;
@@ -137,9 +139,33 @@ export default function Workbench({workspace}) {
     return next;
   });
 
+  // Markdown opens live once this browser knows whose replica it is.
+  const openLive = useCallback(file => {
+    setTabs(current => [...current, {path: file.path, kind: 'live', loading: true}]);
+    openLiveDocument({
+      scope: scopeRef.current, workspaceId: workspace.id, path: file.path, readOnly,
+      onStatus: liveStatus => updateTab(file.path, {liveStatus}),
+    })
+      .then(live => {
+        // A tab closed while it opened takes its document with it.
+        if (!tabsRef.current.some(tab => tab.path === file.path)) {
+          live.close();
+          return;
+        }
+        updateTab(file.path, {live, loading: false});
+      })
+      .catch(error => updateTab(file.path, {loading: false, error: isOffline(error)
+        ? `${basename(file.path)} is not kept on this computer, and the server cannot be reached.`
+        : error.message}));
+  }, [readOnly, workspace.id]);
+
   const open = useCallback(file => {
     setActivePath(file.path);
     if (tabsRef.current.some(tab => tab.path === file.path)) return;
+    if (MARKDOWN.test(file.path) && scopeRef.current) {
+      openLive(file);
+      return;
+    }
     const kind = kindOf(file);
     setTabs(current => [...current, {path: file.path, kind, loading: kind === 'text', text: '', saved: ''}]);
     if (kind !== 'text') return;
@@ -171,7 +197,10 @@ export default function Workbench({workspace}) {
           : error.message});
       }
     })();
-  }, [refreshHeld]);
+  }, [openLive, refreshHeld]);
+
+  // Leaving the page closes every live document and its stream.
+  useEffect(() => () => { for (const tab of tabsRef.current) tab.live?.close(); }, []);
 
   // Who this replica belongs to, then keep it in step with the server.
   useEffect(() => {
@@ -246,6 +275,10 @@ export default function Workbench({workspace}) {
 
   const save = path => {
     const tab = tabsRef.current.find(item => item.path === path);
+    if (tab?.kind === 'live') {
+      tab.live?.flush();
+      return;
+    }
     if (!tab || tab.kind !== 'text' || readOnly || tab.saving) return;
     const text = tab.text;
     updateTab(path, {saving: true});
@@ -275,13 +308,20 @@ export default function Workbench({workspace}) {
     if (tab?.kind === 'text' && tab.text !== tab.saved && !window.confirm(`Discard unsaved changes to ${basename(path)}?`)) return;
     const index = tabsRef.current.findIndex(item => item.path === path);
     const remaining = tabsRef.current.filter(item => item.path !== path);
+    tab?.live?.close();
     setTabs(remaining);
     if (activePath === path) setActivePath(remaining[Math.min(index, remaining.length - 1)]?.path ?? null);
   };
 
   // A rename or move carries open tabs, the selection and open folders along.
   const followMove = (from, to) => {
-    setTabs(current => current.map(tab => ({...tab, path: movedPath(tab.path, from, to)})));
+    // A live document is bound to its path, so a moved one is opened again there.
+    const reopen = tabsRef.current.filter(tab => tab.kind === 'live' && within(tab.path, from));
+    for (const tab of reopen) tab.live?.close();
+    setTabs(current => current
+      .filter(tab => !reopen.includes(tab))
+      .map(tab => ({...tab, path: movedPath(tab.path, from, to)})));
+    for (const tab of reopen) openLive({path: movedPath(tab.path, from, to)});
     setActivePath(current => current && movedPath(current, from, to));
     setSelected(current => current && {...current, path: movedPath(current.path, from, to)});
     setExpanded(current => new Set([...current].map(path => movedPath(path, from, to))));
@@ -299,6 +339,7 @@ export default function Workbench({workspace}) {
     if (!window.confirm(`Delete ${folder ? `the folder ${node.path} and everything in it` : node.path}?${warning}`)) return;
     run(() => (folder ? api.deleteFolder(node.path) : api.deleteFile(node.path)), () => {
       const remaining = tabsRef.current.filter(tab => !within(tab.path, node.path));
+      for (const tab of tabsRef.current) if (within(tab.path, node.path)) tab.live?.close();
       setTabs(remaining);
       setActivePath(current => (current && within(current, node.path) ? remaining.at(-1)?.path ?? null : current));
       setSelected(null);

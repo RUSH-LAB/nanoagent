@@ -74,7 +74,10 @@
     "remark-mdx": "^3.1.1",
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5",
-    "ws": "^8.21.3"
+    "ws": "^8.21.3",
+    "y-codemirror.next": "^0.3.6",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.33"
   },
   "devDependencies": {
     "@docusaurus/module-type-aliases": "^3.10.0",

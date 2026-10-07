@@ -11,6 +11,7 @@ const {auth} = require('../auth');
 const {createPostgresFs, createPublicFsReader} = require('../fs/store');
 const {createFsDocuments} = require('../fs/documents');
 const {createFsAssetStore} = require('../fs/assets');
+const {createCrdt, createCrdtHub} = require('../fs/crdt');
 
 if (!database.pool) throw new Error('PostgreSQL services require DATABASE_URL');
 
@@ -34,6 +35,8 @@ module.exports = Object.freeze({
   publicFs: fs ? createPublicFsReader({pool: database.pool}) : null,
   documents: fs ? createFsDocuments({fs}) : createPostgresDocuments({pool: database.pool}),
   assetStore: fs ? createFsAssetStore({fs}) : null,
+  crdt: fs ? createCrdt({fs}) : null,
+  crdtHub: fs ? createCrdtHub() : null,
   workspaceSettings: createPostgresSettings({pool: database.pool}),
   preferences: createPostgresPreferences({pool: database.pool}),
   assets: createPostgresAssets({pool: database.pool}),

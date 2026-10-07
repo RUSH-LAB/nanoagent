@@ -1,6 +1,8 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import clsx from 'clsx';
 import CodeMirror from '@uiw/react-codemirror';
+import {keymap} from '@codemirror/view';
+import {yCollab, yUndoManagerKeymap} from 'y-codemirror.next';
 import {useColorMode} from '@docusaurus/theme-common';
 import {languageFor} from './languages';
 import {basename} from './tree';
@@ -8,9 +10,43 @@ import styles from './styles.module.css';
 
 /**
  * The workbench's editor group: a tab per open file, the active one below.
- * Text opens in CodeMirror (the workbench saves it on ⌘S); images and PDFs open as previews;
- * anything else can only be downloaded. The workbench owns every tab's state.
+ * Markdown opens live (liveDocument.js): the editor is bound to the file's
+ * shared document, edits merge with everyone else's as they are typed, and
+ * there is nothing to save. Other text opens in CodeMirror and is saved on ⌘S;
+ * images and PDFs open as previews; anything else can only be downloaded. The
+ * workbench owns every tab's state.
  */
+
+/** A Markdown file bound to its shared document. */
+function LiveEditor({tab, readOnly, language, colorMode, onCursor}) {
+  // The editor starts from the document's text once; from then on the binding
+  // keeps the two in step, so React must not pass the text again.
+  const [initial] = useState(() => tab.live.text.toString());
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const extensions = useMemo(() => [
+    ...language.extensions,
+    yCollab(tab.live.text, null),
+    keymap.of(yUndoManagerKeymap),
+  ], [language, tab.live]);
+  return (
+    <CodeMirror
+      className={styles.codemirror}
+      value={mounted ? undefined : initial}
+      height="100%"
+      theme={colorMode === 'dark' ? 'dark' : 'light'}
+      extensions={extensions}
+      editable={!readOnly}
+      onUpdate={update => {
+        if (!update.selectionSet && !update.docChanged) return;
+        const head = update.state.selection.main.head;
+        const line = update.state.doc.lineAt(head);
+        onCursor({line: line.number, column: head - line.from + 1});
+      }}
+      basicSetup={{highlightActiveLine: true, foldGutter: true, history: false}}
+    />
+  );
+}
 
 function TabContent({tab, readOnly, fileUrl, onChange, onCursor}) {
   const {colorMode} = useColorMode();
@@ -18,6 +54,9 @@ function TabContent({tab, readOnly, fileUrl, onChange, onCursor}) {
 
   if (tab.loading) return <p className={styles.placeholder}>Opening…</p>;
   if (tab.error) return <p className={styles.placeholder}>{tab.error}</p>;
+  if (tab.kind === 'live') {
+    return <LiveEditor tab={tab} readOnly={readOnly} language={language} colorMode={colorMode} onCursor={onCursor} />;
+  }
   if (tab.kind === 'image') return <div className={styles.media}><img src={fileUrl(tab.path)} alt={tab.path} /></div>;
   if (tab.kind === 'pdf') return <iframe className={styles.pdf} src={fileUrl(tab.path)} title={tab.path} />;
   if (tab.kind !== 'text') {
@@ -46,6 +85,14 @@ function TabContent({tab, readOnly, fileUrl, onChange, onCursor}) {
       basicSetup={{highlightActiveLine: true, foldGutter: true}}
     />
   );
+}
+
+function liveLabel(status) {
+  if (!status) return '';
+  if (status.state === 'offline') return status.waiting ? 'Offline: edits saved on this computer' : 'Offline';
+  if (status.state === 'saving') return 'Saving…';
+  if (status.state.startsWith('error: ')) return status.state.slice('error: '.length);
+  return 'All changes saved';
 }
 
 export default function Editor({tabs, activePath, readOnly, fileUrl, onActivate, onClose, onChange}) {
@@ -105,10 +152,10 @@ export default function Editor({tabs, activePath, readOnly, fileUrl, onActivate,
         />
       </div>
       <div className={styles.statusBar}>
-        <span>{tab.saving ? 'Saving…' : dirty(tab) ? 'Unsaved changes' : tab.kind === 'text' ? 'Saved' : ''}</span>
+        <span>{tab.kind === 'live' ? liveLabel(tab.liveStatus) : tab.saving ? 'Saving…' : dirty(tab) ? 'Unsaved changes' : tab.kind === 'text' ? 'Saved' : ''}</span>
         <span className={styles.statusRight}>
-          {tab.kind === 'text' && cursor && <span>Ln {cursor.line}, Col {cursor.column}</span>}
-          {tab.kind === 'text' && <span>{languageFor(tab.path).name}</span>}
+          {(tab.kind === 'text' || tab.kind === 'live') && cursor && <span>Ln {cursor.line}, Col {cursor.column}</span>}
+          {(tab.kind === 'text' || tab.kind === 'live') && <span>{languageFor(tab.path).name}</span>}
           {readOnly && <span>Read only</span>}
         </span>
       </div>

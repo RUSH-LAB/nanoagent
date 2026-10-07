@@ -497,6 +497,8 @@ const ctx = {
   contentStore,
   workspaceFs: postgresServices?.fs ?? null,
   publicFs: postgresServices?.publicFs ?? null,
+  crdt: postgresServices?.crdt ?? null,
+  crdtHub: postgresServices?.crdtHub ?? null,
   compileDocument,
   compileMarkdown,
   parseFrontmatter,
