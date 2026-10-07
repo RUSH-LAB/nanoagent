@@ -86,7 +86,11 @@ plugin pages become editors of files instead of separate stores.
 ## Delivery
 
 Each step ships on a feature branch with its tests; nothing deploys until the
-site is re-enabled.
+site is re-enabled. Status as of 2026-10-07: steps 1–8 are built on
+`site-cli-and-layout` behind `CONTENT_STORE=fs`; the desktop app is on hold.
+Not yet done: large bytes in object storage, relaying live edits between
+several server processes (LISTEN/NOTIFY), and the Book/Blog page editor
+editing live (it saves whole revisions, which the merge folds in).
 
 1. **File system core.** `fs_node`, `fs_content`, `fs_change`, access and RLS,
    the `/fs` API, history and restore. Migrate documents and assets into it,

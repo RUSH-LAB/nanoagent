@@ -50,6 +50,26 @@ In local PostgreSQL mode, `root@mochi.local` / `root@mochi.local` is the fixed
 development root login. The first successful login repairs that account's
 password and makes it an owner of the `mochi` workspace.
 
+### Content store
+
+`CONTENT_STORE` chooses where documents, uploads, app records, and chat live:
+`legacy` (the default: the original tables) or `fs` (the workspace file system,
+[docs/plans/workspace-filesystem.md](../docs/plans/workspace-filesystem.md)).
+Both stay in the schema. To move a database to the file system, review a dry
+run, import, then switch:
+
+```bash
+npm run fs:import            # what would be imported; writes nothing
+npm run fs:import -- --apply # copy, verified by SHA-256; the legacy tables are untouched
+```
+
+```dotenv
+CONTENT_STORE=fs
+```
+
+Switching back to `legacy` serves the original tables again; edits made under
+`fs` stay in the file system.
+
 Production-only verification values can also live in `.env` and are only
 needed for the Resend verification command:
 
