@@ -6,7 +6,7 @@
  *
  *   GET    tree?prefix=&deleted=1     nodes, without contents
  *   GET    stat?path=                 one node
- *   GET    file?path= | ?id=          the bytes; the node's rev is the ETag
+ *   GET    file?path= | ?id=          the bytes; the node's rev is the ETag; &download=1 to save it
  *   PUT    file?path=&baseRev=        create or replace; baseRev=0 means "must not exist"
  *   POST   folder?path=               create a folder and any missing parents
  *   POST   move {from, to, baseRev}
@@ -31,12 +31,12 @@ function fail(json, res, error) {
   throw error;
 }
 
-function sendBytes(req, res, {body, contentType, etag, filename}) {
+function sendBytes(req, res, {body, contentType, etag, filename, download = false}) {
   const origin = req.headers.origin;
   res.writeHead(200, {
     'Content-Type': contentType || 'application/octet-stream',
     'Content-Length': body.length,
-    'Content-Disposition': `inline; filename="${filename.replace(/["\\\r\n]/g, '_')}"`,
+    'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${filename.replace(/["\\\r\n]/g, '_')}"`,
     'Cache-Control': 'private, no-cache',
     'ETag': `"${etag}"`,
     'X-Content-Type-Options': 'nosniff',
@@ -86,7 +86,7 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
       res.setHeader('X-Rev', String(found.node.rev));
       return sendBytes(req, res, {
         body: found.body, contentType: found.node.contentType, etag: found.node.rev,
-        filename: found.node.path.split('/').pop(),
+        filename: found.node.path.split('/').pop(), download: param('download') === '1',
       });
     }
 

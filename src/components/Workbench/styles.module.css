@@ -1,0 +1,506 @@
+/* A small VS Code inside the site: a fixed region between the navbar and the
+   CLI bar, an explorer on the left and an editor group on the right. Colours
+   come from Infima's tokens so light and dark mode both follow the site. */
+
+.workbench {
+  --wb-border: var(--ifm-color-emphasis-200);
+  --wb-sidebar: var(--ifm-color-emphasis-100);
+  --wb-hover: var(--ifm-color-emphasis-200);
+  --wb-select: color-mix(in srgb, var(--ifm-color-primary) 16%, transparent);
+  --wb-focus: var(--ifm-color-primary);
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+  height: var(--site-shell-height);
+  border-top: 1px solid var(--wb-border);
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 720px) {
+  .workbench {
+    grid-template-columns: 1fr;
+    grid-template-rows: 40% 60%;
+  }
+}
+
+/* ── Explorer ── */
+
+.explorer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--wb-border);
+  background: var(--wb-sidebar);
+}
+
+.explorerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 2.2rem;
+  padding: 0 0.4rem 0 0.9rem;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.explorerActions {
+  display: flex;
+  gap: 0.1rem;
+}
+
+.explorerActions button {
+  display: grid;
+  width: 1.6rem;
+  height: 1.6rem;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--ifm-color-emphasis-700);
+  cursor: pointer;
+}
+
+.explorerActions button:hover {
+  background: var(--wb-hover);
+}
+
+.explorerActions svg,
+.chevron,
+.fileIcon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.2;
+}
+
+.tree {
+  flex: 1;
+  min-height: 0;
+  padding-bottom: 2rem;
+  overflow: auto;
+  outline: none;
+}
+
+.dropRoot {
+  box-shadow: inset 0 0 0 1px var(--wb-focus);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  height: 1.55rem;
+  padding-right: 0.6rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.row:hover {
+  background: var(--wb-hover);
+}
+
+.rowActive {
+  background: var(--wb-select);
+}
+
+.rowSelected {
+  background: var(--wb-select);
+}
+
+.tree:focus-within .rowSelected {
+  border-color: var(--wb-focus);
+}
+
+.rowDrop {
+  background: color-mix(in srgb, var(--ifm-color-primary) 22%, transparent);
+}
+
+.rowName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chevron {
+  flex: none;
+  color: var(--ifm-color-emphasis-600);
+  transition: transform 0.1s ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.chevronSpace {
+  flex: none;
+  width: 16px;
+}
+
+.fileIcon {
+  flex: none;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.tintText { color: #519aba; }
+.tintTex { color: #3d8a6a; }
+.tintCode { color: #c9a227; }
+.tintData { color: #a074c4; }
+.tintMedia { color: #d0634f; }
+
+.folderIcon {
+  flex: none;
+  width: 16px;
+  height: 12px;
+  border-radius: 2px;
+  background: #c09553;
+  clip-path: polygon(0 0, 40% 0, 50% 18%, 100% 18%, 100% 100%, 0 100%);
+}
+
+.folderOpen {
+  background: #dcb67a;
+}
+
+.dirtyDot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--ifm-color-emphasis-700);
+}
+
+.nameInput {
+  flex: 1;
+  min-width: 0;
+  height: 1.3rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--wb-focus);
+  border-radius: 2px;
+  outline: none;
+  background: var(--ifm-background-color);
+  color: inherit;
+  font: inherit;
+}
+
+.emptyTree,
+.loadError {
+  margin: 0.75rem 0.9rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.8rem;
+}
+
+.loadError {
+  color: var(--ifm-color-danger-dark);
+}
+
+/* Who can see a node, when it is not just the workspace. */
+.accessBadge {
+  flex: none;
+  margin-left: auto;
+  padding: 0 0.35rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 999px;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.65rem;
+  line-height: 1.1rem;
+}
+
+.accessBadge + .dirtyDot {
+  margin-left: 0.4rem;
+}
+
+/* ── Trash ── */
+
+.trash {
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.trashRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.15rem 0.9rem;
+  font-size: 0.8rem;
+}
+
+.trashRow button,
+.trashEmpty {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--ifm-color-primary);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+/* ── Context menu ── */
+
+.contextMenu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 190px;
+  margin: 0;
+  padding: 0.3rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 6px;
+  background: var(--ifm-background-surface-color);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
+  list-style: none;
+  font-size: 0.8125rem;
+}
+
+.menuItem {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 0.3rem 0.6rem;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuItem:hover {
+  background: var(--ifm-color-primary);
+  color: #fff;
+}
+
+.menuItem kbd {
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+  opacity: 0.7;
+  font-size: 0.75rem;
+}
+
+.menuItemDanger {
+  color: var(--ifm-color-danger-dark);
+}
+
+.menuSeparator {
+  height: 1px;
+  margin: 0.25rem 0.2rem;
+  background: var(--ifm-color-emphasis-200);
+}
+
+/* ── Editor group ── */
+
+.editorArea {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.editor {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.tabs {
+  display: flex;
+  flex: none;
+  overflow-x: auto;
+  background: var(--wb-sidebar);
+  scrollbar-width: thin;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 2.2rem;
+  padding: 0 0.4rem 0 0.8rem;
+  border-right: 1px solid var(--wb-border);
+  border-top: 1px solid transparent;
+  color: var(--ifm-color-emphasis-700);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tabActive {
+  border-top-color: var(--wb-focus);
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+}
+
+.tabClose {
+  position: relative;
+  width: 1.2rem;
+  height: 1.2rem;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.tab:hover .tabClose,
+.tabActive .tabClose,
+.tabDirty {
+  opacity: 1;
+}
+
+.tabClose::before,
+.tabClose::after {
+  position: absolute;
+  inset: 50% 25%;
+  height: 1.2px;
+  background: currentColor;
+  content: '';
+}
+
+.tabClose::before { transform: rotate(45deg); }
+.tabClose::after { transform: rotate(-45deg); }
+
+/* An unsaved tab shows a dot where its close button is, until hovered. */
+.tabDirty:not(:hover)::before {
+  inset: 50% 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px;
+  border-radius: 50%;
+  transform: none;
+}
+
+.tabDirty:not(:hover)::after {
+  display: none;
+}
+
+.tabClose:hover {
+  background: var(--wb-hover);
+}
+
+.breadcrumbs {
+  flex: none;
+  padding: 0.25rem 0.9rem;
+  border-bottom: 1px solid var(--wb-border);
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.75rem;
+}
+
+.editorBody {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.codemirror {
+  height: 100%;
+  font-size: 0.85rem;
+}
+
+.codemirror :global(.cm-editor) {
+  height: 100%;
+}
+
+.codemirror :global(.cm-scroller) {
+  font-family: var(--ifm-font-family-monospace);
+}
+
+.media {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  overflow: auto;
+  padding: 1.5rem;
+}
+
+.media img {
+  max-width: 100%;
+  max-height: 100%;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 15%);
+}
+
+.pdf {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.placeholder {
+  display: flex;
+  height: 100%;
+  margin: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.placeholder p {
+  margin: 0;
+}
+
+.statusBar {
+  display: flex;
+  flex: none;
+  justify-content: space-between;
+  gap: 1rem;
+  height: 1.5rem;
+  padding: 0 0.9rem;
+  align-items: center;
+  background: var(--ifm-color-primary);
+  color: #fff;
+  font-size: 0.72rem;
+}
+
+.statusRight {
+  display: flex;
+  gap: 1.25rem;
+}
+
+/* ── Nothing open ── */
+
+.welcome {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.welcome svg {
+  width: 72px;
+  height: 72px;
+  margin-bottom: 0.5rem;
+  fill: none;
+  stroke: var(--ifm-color-emphasis-300);
+  stroke-linejoin: round;
+  stroke-width: 1;
+}
+
+.welcome h2 {
+  margin-bottom: 0.25rem;
+  color: var(--ifm-color-emphasis-800);
+}
+
+.welcome dl {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 0.4rem 1.25rem;
+  margin: 1.5rem 0 0;
+}
+
+.welcome dt {
+  text-align: right;
+}
+
+.welcome dd {
+  margin: 0;
+}
