@@ -1,0 +1,280 @@
+/**
+ * The shape both directories share: /people and /channels.
+ *
+ * A heading with a search box, then a list of rows, each with an identity on
+ * the left and the controls it offers on the right. The two pages differ in
+ * what a row is about, not in how a row is built, so that part lives here and
+ * each page's own stylesheet carries only what is peculiar to it.
+ *
+ * The controls render only for someone who may use them, which is why a row is
+ * a flex line rather than a grid with holes in it.
+ */
+
+.head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.title {
+  margin: 0 0 0.35rem;
+  font-size: 1.8rem;
+}
+
+.subtitle {
+  margin: 0 0 0.6rem;
+  font-size: 1.1rem;
+}
+
+.note {
+  margin: 0;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.9rem;
+}
+
+.search {
+  width: min(260px, 40vw);
+  padding: 0.4rem 0.8rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-font-color-base);
+  font-size: 0.9rem;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.search:hover {
+  border-color: var(--ifm-color-emphasis-200);
+}
+
+.search:focus {
+  border-color: var(--ifm-color-emphasis-300);
+  background: var(--ifm-background-color);
+  outline: none;
+}
+
+.ok,
+.error {
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.ok {
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  background: rgba(34, 197, 94, 0.08);
+  color: #16a34a;
+}
+
+.error {
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.08);
+  color: #dc2626;
+}
+
+/* ── Rows ───────────────────────────────────────────────────────── */
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Inset by the same amount it is padded, so the hover tint reaches past the
+   text to the edge of the column without the list moving. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 0 -0.6rem;
+  padding: 0.6rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-100);
+  border-radius: 8px;
+  transition: background 0.12s ease;
+}
+
+.row:hover,
+.row:focus-within {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.identity {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.name {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
+.detail {
+  overflow: hidden;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A quiet marker on a row: "you", "private", "archived". */
+.tag {
+  padding: 0 0.35rem;
+  border-radius: 4px;
+  background: var(--ifm-color-emphasis-200);
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.meta {
+  flex-shrink: 0;
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.78rem;
+}
+
+.actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+/**
+ * Three weights of button, because a row's actions are not equal. A border
+ * around each of five of them drew a grid across the page and gave "Open" and
+ * "Delete" the same voice; these are quiet by default and answer when spoken
+ * to. Colour arrives on hover, not at rest.
+ */
+.action {
+  padding: 0.28rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.action:hover:not(:disabled) {
+  background: var(--ifm-color-emphasis-200);
+  color: var(--ifm-font-color-base);
+}
+
+.action:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 1px;
+}
+
+.action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The one thing a row is usually clicked for. */
+.primary {
+  color: var(--ifm-color-primary);
+  font-weight: 600;
+}
+
+/* Two declarations, not one: a browser without color-mix keeps the neutral
+   tint above it, which is a quieter hover rather than no hover at all. Mixing
+   rather than a hardcoded rgba so that changing --ifm-color-primary in
+   custom.css changes this too. */
+.primary:hover:not(:disabled) {
+  background: var(--ifm-color-emphasis-200);
+  background: color-mix(in srgb, var(--ifm-color-primary) 12%, transparent);
+  color: var(--ifm-color-primary);
+}
+
+/* The page's own call to action, and the only filled button on it. */
+.cta {
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--ifm-color-primary);
+  border-radius: 8px;
+  background: var(--ifm-color-primary);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+/* The colour and the no-underline both matter: this is a button on one page and
+   a Link on another, and Docusaurus underlines links. */
+.cta:hover {
+  background: var(--ifm-color-primary-dark);
+  color: #fff;
+  text-decoration: none;
+}
+
+.cta:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+}
+
+.cta:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.12);
+  background: color-mix(in srgb, var(--ifm-color-danger) 12%, transparent);
+  color: var(--ifm-color-danger);
+}
+
+/* Reads as text until reached for, like the buttons beside it. */
+.select {
+  padding: 0.28rem 1.3rem 0.28rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background-color: transparent;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ifm-color-emphasis-500) 50%),
+                    linear-gradient(135deg, var(--ifm-color-emphasis-500) 50%, transparent 50%);
+  background-position: right 0.6rem center, right 0.35rem center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.8rem;
+  cursor: pointer;
+  appearance: none;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.select:hover,
+.select:focus {
+  border-color: var(--ifm-color-emphasis-300);
+  background-color: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+}
+
+/* The controls wrap under the name rather than squeezing it out of the row. */
+@media (max-width: 768px) {
+  .head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search {
+    width: 100%;
+  }
+
+  .row {
+    flex-wrap: wrap;
+  }
+
+  .meta {
+    display: none;
+  }
+}

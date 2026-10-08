@@ -1,0 +1,134 @@
+/* The navbar account button. Sits after the search bar, so it keeps the same
+   vertical rhythm as the other navbar items rather than the link styling. */
+
+.accountMenu {
+  position: relative;
+  display: inline-flex;
+  margin-left: 0.5rem;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.button:hover {
+  text-decoration: none;
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--ifm-color-primary);
+  color: #ffffff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1;
+  /* The letter is centred by flex; the font's own baseline offset would
+     otherwise sit it slightly low inside a circle this small. */
+  text-transform: uppercase;
+  user-select: none;
+  transition: background 150ms ease;
+}
+
+.button:hover .avatar,
+.button:focus-visible .avatar {
+  background: var(--ifm-color-primary-dark);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 0.6rem);
+  right: 0;
+  z-index: 100;
+  display: grid;
+  min-width: 13rem;
+  overflow: hidden;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 10px;
+  background: var(--ifm-background-surface-color);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+}
+
+.identity {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.75rem 0.85rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  line-height: 1.35;
+}
+
+.identity strong,
+.identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.identity strong {
+  font-size: 0.82rem;
+}
+
+.identity small {
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.7rem;
+}
+
+.menu a,
+.menu button {
+  width: 100%;
+  padding: 0.6rem 0.85rem;
+  border: 0;
+  background: transparent;
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu a:hover,
+.menu button:hover:not(:disabled) {
+  background: var(--ifm-color-emphasis-100);
+  text-decoration: none;
+}
+
+.menu button {
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  color: var(--ifm-color-danger-dark);
+}
+
+.menu button:disabled,
+.mobileSignOut:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.mobileAccount {
+  display: grid;
+}
+
+.mobileSignOut {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--ifm-color-danger-dark);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}

@@ -1,0 +1,156 @@
+/**
+ * The slash menu, pinned under the panes and above the prompt row.
+ *
+ * It is a command table rather than a dropdown: fixed columns for the icon, the
+ * name, the usage and the category, with the description taking whatever is
+ * left, so the eye can run down one column instead of reading each row. The
+ * rows scroll inside the box and the hint line does not, because the hint
+ * describes the highlighted row and would otherwise scroll out of sight exactly
+ * when the cursor moves far enough to need it. The box is capped, because it
+ * must never grow far enough to push the prompt off the bottom of the window.
+ */
+
+.completions {
+  display: flex;
+  flex-direction: column;
+  max-height: 55%;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.list {
+  overflow-y: auto;
+}
+
+/* While the window's top edge is being dragged the pointer is resizing, not
+   choosing: without this, sweeping the pointer across the list on the way down
+   re-selects a different command every few pixels. The dragging class is put on
+   the list rather than on the window because a CSS module cannot reach a class
+   declared in another stylesheet. */
+.completionsDragging .item {
+  pointer-events: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.3rem var(--site-page-gutter);
+  border: none;
+  background: none;
+  color: var(--ifm-font-color-base);
+  font-family: inherit;
+  font-size: var(--cli-label);
+  text-align: left;
+  cursor: pointer;
+}
+
+.itemActive {
+  background: var(--ifm-color-emphasis-100);
+}
+
+/* A row is only reachable by pointer (the arrows move the highlight while focus
+   stays in the prompt), but a keyboard that does reach one must show where it
+   is, and this package is the last part of the app without that ring. */
+.item:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+}
+
+.itemIcon {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.itemActive .itemIcon {
+  color: var(--ifm-color-primary);
+}
+
+/* Fixed column so the descriptions line up like a real command table. */
+.itemName {
+  flex-shrink: 0;
+  width: 16ch;
+  overflow: hidden;
+  color: var(--ifm-font-color-base);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* What the command wants after its name. Monospace and dimmed: it is a shape to
+   fill in rather than a word to read, and a fixed column keeps the shapes above
+   one another so the eye can tell at a glance which verbs take an argument. */
+.itemUsage {
+  flex-shrink: 0;
+  width: 12ch;
+  overflow: hidden;
+  color: var(--ifm-color-emphasis-500);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: var(--cli-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemDescription {
+  flex: 1;
+  overflow: hidden;
+  color: var(--ifm-color-emphasis-600);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemCategory {
+  flex-shrink: 0;
+  color: var(--ifm-color-emphasis-500);
+  font-size: var(--cli-micro);
+}
+
+/* The highlighted command written out in full, for the moment before Tab. */
+.hint {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.65rem;
+  align-items: baseline;
+  padding: 0.3rem var(--site-page-gutter);
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  background: var(--ifm-background-surface-color);
+  font-size: var(--cli-meta);
+}
+
+.hintCall {
+  flex-shrink: 0;
+  color: var(--ifm-color-primary);
+  font-family: var(--ifm-font-family-monospace);
+}
+
+.hintText {
+  overflow: hidden;
+  color: var(--ifm-color-emphasis-600);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  padding: 0.6rem var(--site-page-gutter);
+  color: var(--ifm-color-emphasis-500);
+  font-size: var(--cli-label);
+}
+
+.emptyQuery {
+  color: var(--ifm-color-danger);
+}
+
+/* On narrow screens drop the trailing columns rather than squeezing the name.
+   The usage goes with them: the hint line under the list says the same thing
+   for whichever command is highlighted, which is the one being chosen. */
+@media (max-width: 768px) {
+  .itemCategory,
+  .itemUsage {
+    display: none;
+  }
+
+  .itemName {
+    width: 12ch;
+  }
+}

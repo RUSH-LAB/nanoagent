@@ -1,0 +1,25 @@
+{
+  "title": "Math Registry",
+  "description": "Owns numbered mathematical environments and cross-references across every workspace",
+  "enabled": true,
+  "scope": "workspace",
+  "options": {},
+  "safeComponents": {
+    "Theorem": {"id": "string", "name": "string"},
+    "Lemma": {"id": "string", "name": "string"},
+    "Proposition": {"id": "string", "name": "string"},
+    "Corollary": {"id": "string", "name": "string"},
+    "Definition": {"id": "string", "name": "string"},
+    "Remark": {"id": "string", "name": "string"},
+    "Example": {"id": "string", "name": "string", "caption": "string"},
+    "Proof": {},
+    "Equation": {"id": "string"},
+    "Figure": {"id": "string", "caption": "string"},
+    "Table": {"id": "string", "caption": "string", "columns": "string"},
+    "Code": {"id": "string", "caption": "string"},
+    "Algorithm": {"id": "string", "caption": "string"},
+    "Section": {"number": "number"},
+    "Ref": {"id": "string"},
+    "PageRef": {"path": "string", "label": "stringOrBoolean", "category": "string"}
+  }
+}

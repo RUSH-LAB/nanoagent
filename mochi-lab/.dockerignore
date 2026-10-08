@@ -1,0 +1,11 @@
+.git
+.github
+.docusaurus
+build
+node_modules
+var
+.env
+.env.*
+!.env.postgres.remote.example
+!.env.production.example
+npm-debug.log*

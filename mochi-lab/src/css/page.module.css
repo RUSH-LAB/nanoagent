@@ -1,0 +1,60 @@
+/**
+ * Shared layout for the standalone pages in src/pages.
+ *
+ * The site has exactly three layout classes:
+ *
+ *   docs    books/*              sidebar + prose + TOC, from the .docItemCol
+ *                                rule in custom.css
+ *   blog    posts/*              prose + TOC, from src/theme/BlogLayout
+ *   pages   src/pages/*          this file
+ *
+ * There is no separate "app" class. Pages that happen to be applications
+ * rather than documents are ordinary pages carrying the .fill modifier.
+ *
+ * Every page wraps its body in .pageContainer plus zero or more modifiers:
+ *
+ *   (default)  the reading measure, --site-prose-width
+ *   .wide      the full content block, --site-content-width; dashboards,
+ *              tables and boards
+ *   .full      edge to edge, no cap and no gutter; canvases
+ *   .fill      exactly one viewport tall, for a body that must not scroll
+ *   .flush     no bottom padding, for sections that stack
+ *
+ * Widths come from the tokens in custom.css, so no page names a pixel value
+ * and the whole class moves together.
+ *
+ *   import pageStyles from '@site/src/css/page.module.css';
+ *   <main className={pageStyles.pageContainer}>
+ */
+
+.pageContainer {
+  width: 100%;
+  max-width: var(--site-page-width);
+  margin: 0 auto;
+  padding: 2rem var(--site-page-gutter) 3rem;
+}
+
+/* Dashboards, tables and boards: the full content block rather than the
+   reading measure. */
+.wide {
+  max-width: var(--site-page-width-wide);
+}
+
+/* Canvases: the gutter would only shrink the drawing area. */
+.full {
+  max-width: none;
+  padding: 0;
+}
+
+/* Pin the body to the viewport instead of letting it grow. Pages that also
+   need a flex column set that themselves, since what they do with the space
+   differs. A page that wants the height as a floor rather than a ceiling
+   should apply --site-shell-height as a min-height instead of using this. */
+.fill {
+  height: var(--site-shell-height);
+}
+
+/* Sections that stack, where the next one supplies the spacing. */
+.flush {
+  padding-bottom: 0;
+}

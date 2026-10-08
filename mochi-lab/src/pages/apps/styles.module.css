@@ -1,0 +1,44 @@
+.muted {
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.9rem;
+}
+
+.detail section {
+  margin-top: 1.75rem;
+}
+
+.detailHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.detailHeader h1 {
+  margin: 0.15rem 0 0;
+}
+
+
+
+.error {
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  border: 1px solid var(--ifm-color-danger-light);
+  background: var(--ifm-color-danger-contrast-background);
+}
+
+
+
+.maintenanceNotice {
+  padding: 1rem 1.2rem;
+  border: 1px solid var(--ifm-color-warning-dark);
+  border-radius: 12px;
+  background: var(--ifm-color-warning-contrast-background);
+}
+
+.maintenanceNotice p {
+  margin: 0.3rem 0 0;
+}
+

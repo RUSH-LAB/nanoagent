@@ -1,0 +1,17 @@
+{
+  "title": "Lean Proofs",
+  "description": "Writes informal proofs, formalizes them into Lean, and verifies them with the pinned Lake project",
+  "enabled": true,
+  "scope": "workspace",
+  "apiVersion": 1,
+  "requires": ["ai", "process"],
+  "commands": ["lake"],
+  "runtimeRemark": true,
+  "options": {
+    "dir": "proofs"
+  },
+  "safeComponents": {
+    "LeanProof": {"name": "string", "title": "string", "project": "string", "runnable": "boolean"},
+    "LeanCode": {"source": "string", "language": "string", "project": "string", "runnable": "boolean"}
+  }
+}

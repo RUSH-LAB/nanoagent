@@ -1,0 +1,67 @@
+.page { width: min(100% - 2rem, 1600px); margin: 0 auto; padding: 0.8rem 0 1.5rem; }
+.pageHeader { display: flex; align-items: center; min-width: 0; gap: 1rem; height: 2.7rem; }
+.pageHeader > a { flex: 0 0 auto; font-size: 0.8rem; text-decoration: none; }
+.pageHeader h1 { overflow: hidden; margin: 0; font-size: 0.9rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; height: calc(100vh - var(--ifm-navbar-height) - 4.3rem); min-height: 620px; overflow: hidden; border: 1px solid var(--ifm-color-emphasis-200); border-radius: 8px; background: var(--ifm-background-surface-color); }
+.pdfPanel { display: flex; min-width: 0; min-height: 0; flex-direction: column; background: var(--ifm-color-emphasis-100); }
+.pdfToolbar, .discussionHeader, .sectionBar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; border-bottom: 1px solid var(--ifm-color-emphasis-200); background: var(--ifm-background-surface-color); padding: 0.55rem 0.75rem; }
+.pdfToolbar h2, .discussionHeader h2 { margin: 0; font-size: 0.82rem; }
+.pdfActions { display: flex; align-items: center; gap: 0.4rem; }
+.button, .primaryButton, .textButton { display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--ifm-color-emphasis-300); border-radius: 5px; background: var(--ifm-background-color); color: var(--ifm-font-color-base); cursor: pointer; font: inherit; font-size: 0.73rem; font-weight: 600; line-height: 1.2; padding: 0.4rem 0.58rem; text-decoration: none; }
+.button:hover { background: var(--ifm-color-emphasis-100); color: var(--ifm-font-color-base); text-decoration: none; }
+.primaryButton { border-color: var(--ifm-color-primary); background: var(--ifm-color-primary); color: white; }
+.primaryButton:disabled { cursor: not-allowed; opacity: 0.55; }
+.textButton { border: 0; background: transparent; color: var(--ifm-color-primary); padding: 0.2rem; }
+.toolbarError { max-width: 14rem; overflow: hidden; color: var(--ifm-color-danger); font-size: 0.68rem; text-overflow: ellipsis; white-space: nowrap; }
+.pdfFrame { display: block; width: 100%; min-height: 0; border: 0; flex: 1 1 auto; background: #525659; }
+.pdfEmpty { display: flex; align-items: center; justify-content: center; min-height: 28rem; flex: 1; color: var(--ifm-color-emphasis-600); font-size: 0.85rem; }
+.annotations { flex: 0 0 auto; max-height: 16rem; overflow-y: auto; border-top: 1px solid var(--ifm-color-emphasis-200); background: var(--ifm-background-surface-color); }
+.sectionBar { position: sticky; z-index: 1; top: 0; border-bottom: 0; padding-block: 0.45rem; }
+.sectionBar strong { font-size: 0.74rem; }
+.sectionBar strong span, .discussionHeader span { margin-left: 0.25rem; color: var(--ifm-color-emphasis-500); font-weight: 500; }
+.annotationForm { display: grid; grid-template-columns: 5rem minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 0.45rem; border-top: 1px solid var(--ifm-color-emphasis-200); padding: 0.65rem 0.75rem; }
+.annotationForm label { display: grid; gap: 0.15rem; color: var(--ifm-color-emphasis-600); font-size: 0.68rem; font-weight: 600; }
+.annotationForm input, .annotationForm textarea, .commentComposer textarea { width: 100%; border: 1px solid var(--ifm-color-emphasis-300); border-radius: 5px; background: var(--ifm-background-color); color: var(--ifm-font-color-base); font: inherit; font-size: 0.75rem; padding: 0.4rem 0.5rem; resize: vertical; }
+.annotationList { display: flex; overflow-x: auto; gap: 0.45rem; padding: 0 0.75rem 0.65rem; }
+.annotation { display: flex; align-items: flex-start; min-width: 13rem; max-width: 20rem; gap: 0.45rem; overflow: hidden; border: 1px solid var(--ifm-color-emphasis-200); border-radius: 5px; background: var(--ifm-background-color); color: var(--ifm-font-color-base); cursor: pointer; font: inherit; font-size: 0.7rem; padding: 0.45rem; text-align: left; }
+.annotation > span:last-child { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.pageBadge { flex: 0 0 auto; border-radius: 3px; background: #f5c542; color: #342900; font-size: 0.63rem; font-weight: 700; padding: 0.12rem 0.25rem; }
+.discussion { display: flex; min-width: 0; min-height: 0; border-left: 1px solid var(--ifm-color-emphasis-200); flex-direction: column; }
+.discussionHeader { flex: 0 0 auto; }
+.commentList { min-height: 0; overflow-y: auto; flex: 1; padding: 0.75rem; }
+.discussionEmpty { display: flex; align-items: center; justify-content: center; height: 100%; flex-direction: column; gap: 0.25rem; padding: 2rem 1rem; color: var(--ifm-color-emphasis-600); font-size: 0.75rem; text-align: center; }
+.discussionEmpty strong { color: var(--ifm-font-color-base); font-size: 0.85rem; }
+.comment { display: grid; grid-template-columns: 1.8rem minmax(0, 1fr); gap: 0.5rem; margin-bottom: 1rem; }
+.comment.reply { margin-left: 1.25rem; }
+.avatar { display: flex; align-items: center; justify-content: center; width: 1.8rem; height: 1.8rem; border-radius: 50%; background: color-mix(in srgb, var(--ifm-color-primary) 18%, var(--ifm-background-color)); color: var(--ifm-color-primary-darkest); font-size: 0.7rem; font-weight: 700; }
+.commentBody { min-width: 0; }
+.commentMeta { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; font-size: 0.72rem; }
+.commentMeta time { color: var(--ifm-color-emphasis-500); font-size: 0.63rem; white-space: nowrap; }
+.commentBody p { margin: 0.2rem 0; font-size: 0.78rem; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
+.replyContext { color: var(--ifm-color-emphasis-500); font-size: 0.65rem; }
+.commentActions { display: flex; gap: 0.5rem; }
+.commentActions button { border: 0; background: transparent; color: var(--ifm-color-emphasis-600); cursor: pointer; font: inherit; font-size: 0.65rem; padding: 0; }
+.commentActions button:hover { color: var(--ifm-color-primary); }
+.commentComposer { flex: 0 0 auto; border-top: 1px solid var(--ifm-color-emphasis-200); padding: 0.7rem; }
+.commentComposer textarea { display: block; resize: none; }
+.composerFooter { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.45rem; }
+.replying { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem; color: var(--ifm-color-emphasis-600); font-size: 0.67rem; }
+.replying button { border: 0; background: transparent; color: inherit; cursor: pointer; }
+.muted { color: var(--ifm-color-emphasis-500); font-size: 0.72rem; }
+.error { margin: 0; color: var(--ifm-color-danger); font-size: 0.7rem; }
+.loadError { margin-top: 1rem; border: 1px solid var(--ifm-color-emphasis-200); border-radius: 8px; padding: 1rem; }
+
+@media (max-width: 900px) {
+  .workspace { display: flex; height: auto; flex-direction: column; overflow: visible; }
+  .pdfFrame { height: 70vh; min-height: 480px; flex: none; }
+  .discussion { min-height: 420px; border-top: 1px solid var(--ifm-color-emphasis-200); border-left: 0; }
+  .commentList { max-height: 32rem; }
+}
+
+@media (max-width: 650px) {
+  .page { width: min(100% - 0.75rem, 1600px); }
+  .pageHeader h1 { display: none; }
+  .annotationForm { grid-template-columns: 4.5rem minmax(0, 1fr); }
+  .annotationForm textarea { grid-column: 1 / -1; }
+  .annotationForm .primaryButton { grid-column: 1 / -1; justify-self: end; }
+}

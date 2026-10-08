@@ -1,0 +1,272 @@
+@media (min-width: 997px) {
+  .sidebar {
+    display: flex;
+    width: var(--doc-sidebar-width);
+    height: 100%;
+    flex-direction: column;
+    padding-top: var(--ifm-navbar-height);
+    font-family: var(--ifm-font-family-base);
+    font-size: var(--site-chrome-font-size);
+  }
+
+  .sidebarWithHideableNavbar {
+    padding-top: 0;
+  }
+
+  .sidebarHidden {
+    visibility: hidden;
+    opacity: 0;
+  }
+
+  .sidebarLogo {
+    display: flex !important;
+    align-items: center;
+    min-height: var(--ifm-navbar-height);
+    max-height: var(--ifm-navbar-height);
+    margin: 0 var(--ifm-navbar-padding-horizontal);
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+
+  .sidebarLogo img {
+    height: 2rem;
+    margin-right: 0.5rem;
+  }
+
+  .sidebarControls {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.35rem 0.5rem 0.25rem;
+  }
+
+  .collapseButton {
+    display: inline-flex;
+    width: 22px;
+    height: 22px;
+    min-height: 22px;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0.3rem;
+    background: transparent;
+    color: var(--ifm-color-emphasis-600);
+    cursor: pointer;
+  }
+
+  .collapseButton:hover {
+    background: var(--ifm-menu-color-background-hover);
+  }
+
+  .collapseButton:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--ifm-color-primary) 28%, transparent);
+    outline-offset: -2px;
+  }
+
+  .collapseButton > svg {
+    display: block;
+    width: 17px;
+    height: 17px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.5;
+  }
+
+  .bookSwitcher {
+    position: relative;
+    min-width: 0;
+    flex: 1;
+    font-family: var(--ifm-font-family-base);
+  }
+
+  .bookTrigger {
+    display: flex;
+    width: 100%;
+    min-height: 2.35rem;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.45rem 0.75rem;
+    border: 0;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--ifm-menu-color);
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color var(--ifm-transition-fast) var(--ifm-transition-timing-default);
+  }
+
+  .bookTrigger:hover,
+  .bookTrigger[aria-expanded='true'] {
+    background: var(--ifm-menu-color-background-hover);
+  }
+
+  .bookTrigger:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--ifm-color-primary) 28%, transparent);
+    outline-offset: -2px;
+  }
+
+  .bookIcon {
+    width: 1.05rem;
+    height: 1.05rem;
+    flex: none;
+    fill: none;
+    stroke: var(--ifm-color-emphasis-600);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.35;
+  }
+
+  .bookCopy {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.05rem;
+  }
+
+  .bookTitle {
+    overflow: hidden;
+    color: var(--ifm-menu-color);
+    font-size: var(--site-chrome-font-size);
+    font-weight: 600;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sidebar :global(.menu__link) {
+    align-items: center;
+    font-family: var(--ifm-font-family-base);
+    font-size: var(--site-chrome-font-size);
+    line-height: 1.3;
+  }
+
+  .sidebar :global(.menu__link--sublist-caret)::after,
+  .sidebar :global(.menu__caret)::before {
+    width: 17px;
+    min-width: 17px;
+    height: 17px;
+    background-size: 17px 17px;
+  }
+
+  .chevron {
+    width: 17px;
+    height: 17px;
+    flex: none;
+    fill: none;
+    stroke: var(--ifm-color-emphasis-600);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.5;
+  }
+
+  .bookMenu {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 0.25rem);
+    left: 0;
+    width: 100%;
+    padding: 0.3rem;
+    border: 1px solid var(--ifm-color-emphasis-200);
+    border-radius: 0.5rem;
+    background: var(--ifm-background-surface-color);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  }
+
+  .bookOption {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.5rem 0.6rem;
+    overflow: hidden;
+    border: 0;
+    border-radius: 0.35rem;
+    background: transparent;
+    color: var(--ifm-menu-color);
+    font-family: inherit;
+    font-size: var(--site-chrome-font-size);
+    font-weight: 500;
+    line-height: 1.3;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .bookOption > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .bookOption:hover,
+  .bookOption:focus-visible,
+  .bookOptionSelected {
+    background: var(--ifm-menu-color-background-hover);
+  }
+
+  .bookOptionRow {
+    display: flex;
+    align-items: center;
+    border-radius: 0.35rem;
+  }
+
+  .bookOptionRow:hover {
+    background: var(--ifm-menu-color-background-hover);
+  }
+
+  .bookOptionRow:hover .bookOption {
+    background: transparent;
+  }
+
+  .addBook {
+    width: 100%;
+    margin-top: 0.25rem;
+    padding: 0.5rem 0.6rem;
+    border: 0;
+    border-top: 1px solid var(--ifm-color-emphasis-200);
+    background: transparent;
+    color: var(--ifm-color-primary);
+    font: 600 var(--site-chrome-font-size)/1.3 var(--ifm-font-family-base);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .bookError {
+    display: block;
+    padding: 0.4rem 0.6rem;
+    color: var(--ifm-color-danger);
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+
+  .emptySelection {
+    display: block;
+    padding: 0.5rem 0.6rem;
+    color: var(--ifm-color-emphasis-500);
+    font: 500 var(--site-chrome-font-size)/1.3 var(--ifm-font-family-base);
+  }
+
+  .bookOption:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--ifm-color-primary) 28%, transparent);
+    outline-offset: -2px;
+  }
+
+  .checkmark {
+    flex: none;
+    color: var(--ifm-color-primary);
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+}
+
+.sidebarLogo {
+  display: none;
+}

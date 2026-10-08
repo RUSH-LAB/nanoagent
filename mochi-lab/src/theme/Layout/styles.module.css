@@ -1,0 +1,49 @@
+html,
+body {
+  height: 100%;
+}
+
+.skipToContent {
+  position: absolute;
+  top: -100%;
+  left: 0;
+  z-index: 9999;
+  padding: 8px 16px;
+  background: var(--ifm-color-primary);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+  border-radius: 0 0 4px 0;
+}
+
+.skipToContent:focus {
+  top: 0;
+  outline: 2px solid var(--ifm-color-primary-dark);
+  outline-offset: 2px;
+  color: #fff;
+}
+
+.mainWrapper {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  max-width: var(--ifm-container-width);
+  margin: 0 auto;
+  width: 100%;
+}
+
+:global(.docusaurus-mt-lg) {
+  margin-top: 3rem;
+}
+
+:global(#__docusaurus) {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  /* The CommandBar is fixed to the bottom of the viewport, so reserve its strip
+     or it would sit over the end of the page and the footer. It is mounted in
+     theme/Root, above the router, and this rule stays here because the selector
+     is the whole app and this is the stylesheet that dresses it. */
+  padding-bottom: var(--site-cli-height);
+}

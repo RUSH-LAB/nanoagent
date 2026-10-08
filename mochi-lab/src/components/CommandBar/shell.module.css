@@ -1,0 +1,336 @@
+/**
+ * The window itself: the strip docked to the bottom of the viewport, the edge
+ * it is resized by, and the panes inside it.
+ *
+ * --site-cli-row (custom.css) is the prompt line's height. --site-cli-height is
+ * the total strip the window occupies, which useGeometry republishes on the
+ * root element as it opens, collapses and resizes; page padding and
+ * --site-shell-height both derive from it, so the window never covers content.
+ * Nothing in this file may hard-code that total: the height of the body is set
+ * inline from state and the row is a variable, and those two are exactly what
+ * the published value is composed from.
+ *
+ * Focus rings are written the way the rest of the site writes them, a 2px
+ * outline in the primary colour (see src/components/CommandPalette and
+ * src/css/directory.module.css), and only under :focus-visible, so a pointer
+ * click never draws one. Offsets go inward on anything that touches the
+ * window's edge, because an outward ring there is painted over the page.
+ */
+
+.bar {
+  --cli-title: 1rem;
+  --cli-dialog-title: var(--site-h3-font-size, 1.25rem);
+  --cli-text: 0.875rem;
+  --cli-label: 0.8125rem;
+  --cli-meta: 0.71875rem;
+  --cli-micro: 0.65625rem;
+
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--ifm-color-emphasis-300);
+  background: var(--ifm-background-surface-color, var(--ifm-background-color));
+  box-shadow: 0 -12px 40px rgba(15, 23, 42, 0.12);
+  font-family: var(--ifm-font-family-base);
+}
+
+[data-theme='dark'] .bar {
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.barCollapsed {
+  box-shadow: none;
+}
+
+/* ── Drag handle ────────────────────────────────────────────────── */
+
+/* Sits on the window's top edge. Taller than it looks so the grab target is
+   comfortable, with the visible rule drawn by the grip. */
+.handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 10px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.grip {
+  width: 42px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--ifm-color-emphasis-300);
+  transition: background 0.15s ease;
+}
+
+.handle:hover .grip,
+.barDragging .grip {
+  background: var(--ifm-color-primary);
+}
+
+/* The handle is a real keyboard control: useGeometry puts it in the tab order
+   and resizes the window from the arrows, Home and End, so the ring marks a
+   stop that does something. It draws inside the 10px strip, because the handle
+   is the window's top edge and an outward ring would land on the page above
+   it. */
+.handle:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: -2px;
+}
+
+.barDragging {
+  user-select: none;
+}
+
+/* ── Window body ────────────────────────────────────────────────── */
+
+/* Height is set inline from the resizable state. The panes scroll and the
+   completion list is pinned under them, so completions never push the prompt
+   off the bottom of the window. */
+.body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+}
+
+/* The rail and the panes share the window's height; the completion list sits
+   under both. */
+.workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The composer follows the same column geometry as the conversation above it:
+   the rail gets window controls, and every pane gets its own input. */
+.composerDock {
+  display: flex;
+  flex-shrink: 0;
+  min-height: var(--site-cli-row);
+  background: var(--ifm-background-surface-color, var(--ifm-background-color));
+}
+
+.windowControls {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.3rem;
+  width: 264px;
+  padding: 0.6rem 0.75rem;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  border-right: 1px solid var(--ifm-color-emphasis-200);
+  background: color-mix(in srgb, var(--ifm-background-surface-color) 92%, var(--ifm-color-emphasis-100));
+}
+
+.windowControls button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ifm-color-emphasis-600);
+  cursor: pointer;
+}
+
+.windowControls button:hover:not(:disabled) {
+  border-color: var(--ifm-color-emphasis-300);
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-color-primary);
+}
+
+.windowControls button:disabled { opacity: 0.35; cursor: default; }
+.windowControls button:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: -2px; }
+
+.composerPanes {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.composerCell {
+  flex: 1;
+  min-width: 0;
+}
+
+.composerCell > div { height: 100%; }
+
+.composerCell + .composerCell {
+  border-left: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.composerCellActive {
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--ifm-color-primary) 60%, transparent);
+}
+
+.panes {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ── Panes ──────────────────────────────────────────────────────── */
+
+.pane {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--ifm-background-color);
+  cursor: text;
+}
+
+.pane + .pane {
+  border-left: 1px solid var(--ifm-color-emphasis-200);
+}
+
+/* Only worth marking once there is more than one, which is also the only time
+   the header renders. */
+.paneActive:not(:only-child) {
+  background: var(--ifm-background-color);
+  box-shadow: inset 0 2px 0 var(--ifm-color-primary);
+}
+
+.paneHead {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 58px;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  color: var(--ifm-color-emphasis-600);
+  font-size: var(--cli-meta);
+  cursor: default;
+}
+
+.paneActive .paneName {
+  color: var(--ifm-font-color-base);
+}
+
+.paneName { flex: 1; min-width: 0; overflow: hidden; color: var(--ifm-font-color-base); font-size: var(--cli-label); font-weight: 600; line-height: 1.35; letter-spacing: -0.005em; text-overflow: ellipsis; white-space: nowrap; }
+.paneStatus { flex-shrink: 0; color: var(--ifm-color-emphasis-500); font-size: var(--cli-meta); }
+.paneStatus::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 0.3rem; border-radius: 50%; background: #22c55e; vertical-align: 1px; }
+
+.membersButton {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 30px;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ifm-color-emphasis-600);
+  font: inherit;
+  font-size: var(--cli-meta);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.membersButton span {
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--ifm-color-emphasis-200);
+  color: var(--ifm-font-color-base);
+  font-size: var(--cli-micro);
+}
+
+.membersButton:hover { border-color: var(--ifm-color-primary); color: var(--ifm-color-primary); }
+.membersButton:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: 2px; }
+
+.paneClose {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 7px;
+  border: none;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.paneClose:hover {
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-color-danger);
+}
+
+/* Sits well inside the pane header, so the ring can breathe. */
+.paneClose:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 1px;
+}
+
+/* ── A channel pane's own output ────────────────────────────────── */
+
+/* What the CLI said back, in a pane that is showing somebody else's
+   conversation. It is a sibling of the transcript rather than a part of it, so
+   a note, a refusal or an answer from /ai is on screen wherever the reader has
+   scrolled the conversation to; inside the box it would be appended below the
+   fold and never seen.
+
+   The box is content shaped, so the ordinary case of one line costs one line
+   and no rule renders at all when there is nothing to say. The ceiling is a
+   share of the pane rather than a number of rows: a long answer scrolls here
+   instead of squeezing the conversation out of the window. */
+.paneLocal {
+  flex: 0 1 auto;
+  max-height: 40%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.25rem 0;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+}
+
+@media (max-width: 768px) {
+  /* Columns this narrow are unreadable, so sessions stack instead. */
+  .panes {
+    flex-direction: column;
+  }
+
+  .paneStatus { display: none; }
+
+  .windowControls { width: 210px; }
+
+  .composerPanes { flex-direction: column; }
+
+  .composerCell + .composerCell {
+    border-left: 0;
+    border-top: 1px solid var(--ifm-color-emphasis-200);
+  }
+
+  .pane + .pane {
+    border-left: none;
+    border-top: 1px solid var(--ifm-color-emphasis-200);
+  }
+}
+
+/* ── Reduced motion ─────────────────────────────────────────────── */
+
+/* The grip's colour change is the only thing this window animates. Asking for
+   less motion keeps every state and simply arrives at it at once. */
+@media (prefers-reduced-motion: reduce) {
+  .grip {
+    transition: none;
+  }
+}

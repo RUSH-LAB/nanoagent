@@ -1,0 +1,27 @@
+.root { display: contents; }
+
+/* The current chat sits under the stable agent name so a generated chat title
+   never hides who the user is talking to. */
+.identity { display: grid; flex: 1; grid-template-columns: minmax(0, auto) 14px; align-items: center; min-width: 0; max-width: 100%; padding: 0.25rem 0.4rem; border: 0; border-radius: 8px; background: transparent; color: var(--ifm-font-color-base); font: inherit; text-align: left; cursor: pointer; }
+.identity:hover { background: var(--ifm-color-emphasis-100); }
+.identity:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: 1px; }
+.agentName, .chatName { grid-column: 1; overflow: hidden; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.agentName { font-size: var(--cli-label); font-weight: 700; }
+.chatName { color: var(--ifm-color-emphasis-500); font-size: var(--cli-micro); }
+.chevron { grid-column: 2; grid-row: 1 / span 2; margin-left: 0.25rem; color: var(--ifm-color-emphasis-500); }
+
+.menu { position: absolute; z-index: 12; top: 66px; left: 1rem; display: flex; flex-direction: column; width: min(390px, calc(100% - 2rem)); max-height: calc(100% - 74px); overflow: hidden; border: 1px solid var(--ifm-color-emphasis-300); border-radius: 12px; background: var(--ifm-background-surface-color, var(--ifm-background-color)); box-shadow: 0 16px 45px rgba(15, 23, 42, 0.22); }
+.head { display: flex; flex-shrink: 0; align-items: center; gap: 0.75rem; padding: 0.65rem 0.7rem; border-bottom: 1px solid var(--ifm-color-emphasis-200); }
+.head span { flex: 1; overflow: hidden; color: var(--ifm-color-emphasis-600); font-size: var(--cli-meta); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.head button { flex-shrink: 0; padding: 0.35rem 0.55rem; border: 1px solid var(--ifm-color-primary); border-radius: 7px; background: var(--ifm-color-primary); color: #fff; font: inherit; font-size: var(--cli-meta); font-weight: 650; cursor: pointer; }
+.list { min-height: 0; overflow-y: auto; padding: 0.35rem; }
+.row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.12rem 0.75rem; width: 100%; min-height: 50px; padding: 0.5rem 2rem 0.5rem 0.6rem; border: 0; border-radius: 8px; background: transparent; color: var(--ifm-font-color-base); font: inherit; text-align: left; cursor: pointer; }
+.row:hover { background: var(--ifm-color-emphasis-100); }
+.rowActive { background: color-mix(in srgb, var(--ifm-color-primary) 10%, transparent); }
+.title { grid-column: 1 / -1; overflow: hidden; font-size: var(--cli-label); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.meta { color: var(--ifm-color-emphasis-500); font-size: var(--cli-micro); }
+.check { position: absolute; top: 50%; right: 0.7rem; color: var(--ifm-color-primary); font-weight: 750; transform: translateY(-50%); }
+.empty { margin: 0; padding: 1.2rem 0.75rem; color: var(--ifm-color-emphasis-500); font-size: var(--cli-label); text-align: center; }
+.manage { flex-shrink: 0; padding: 0.6rem 0.75rem; border: 0; border-top: 1px solid var(--ifm-color-emphasis-200); background: transparent; color: var(--ifm-color-primary); font: inherit; font-size: var(--cli-meta); text-align: left; cursor: pointer; }
+.manage:hover { background: var(--ifm-color-emphasis-100); }
+.head button:focus-visible, .row:focus-visible, .manage:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: -2px; }

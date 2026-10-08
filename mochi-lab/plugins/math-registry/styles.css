@@ -1,0 +1,22 @@
+[data-theme='dark'] .math-block--theorem,
+[data-theme='dark'] .math-block--lemma,
+[data-theme='dark'] .math-block--proposition,
+[data-theme='dark'] .math-block--corollary { background-color: #1e2a3a !important; border-color: #3a4a5c !important; }
+[data-theme='dark'] .math-block--definition { background-color: #1a2e1a !important; border-color: #2e4a2e !important; }
+[data-theme='dark'] .math-block--remark { background-color: #2e2a1a !important; border-color: #4a4428 !important; }
+[data-theme='dark'] .math-block--example { background-color: #261e30 !important; border-color: #3e3050 !important; }
+[data-theme='dark'] .math-block--proof { border-left-color: #555 !important; }
+[data-theme='dark'] .numbered-algorithm { border-color: #3a4a5c !important; }
+[data-theme='dark'] .numbered-algorithm > div:first-child { border-bottom-color: #3a4a5c !important; }
+.numbered-figure p { margin-bottom: 0 !important; }
+.numbered-table--cols-center th, .numbered-table--cols-center td { text-align: center !important; }
+.numbered-table--cols-left th, .numbered-table--cols-left td { text-align: left !important; }
+.numbered-table--cols-right th, .numbered-table--cols-right td { text-align: right !important; }
+[data-theme='dark'] .numbered-figure figcaption,
+[data-theme='dark'] .numbered-table > div:first-child { color: #aaa !important; }
+@media print {
+  .math-block--theorem, .math-block--lemma, .math-block--proposition,
+  .math-block--corollary, .math-block--definition, .math-block--remark,
+  .math-block--example, .math-block--proof, .numbered-algorithm,
+  .numbered-figure, .numbered-table { page-break-inside: avoid; break-inside: avoid; }
+}

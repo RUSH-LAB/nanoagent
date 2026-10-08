@@ -1,0 +1,13 @@
+node_modules/
+build/
+.docusaurus/
+.cache-loader/
+.DS_Store
+*.log*
+.env
+.env.*
+/var/
+/raw/
+/.worktrees/
+/.claude/worktrees/
+/progress/

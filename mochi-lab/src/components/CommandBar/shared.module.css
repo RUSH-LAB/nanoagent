@@ -1,0 +1,156 @@
+/**
+ * The primitives every pane of the CLI is built from.
+ *
+ * A pane shows one of two things, an assistant conversation or a channel, and
+ * they have to look like the same window: the same scroll box, the same row
+ * height, the same colour for a system line. Keeping those rules here rather
+ * than in each transcript's own stylesheet is what makes that true by
+ * construction; duplicating them once per transcript is how the two drift a
+ * pixel apart and the split window starts to look like two applications.
+ *
+ * The keyboard cap is here for the same reason: the empty-pane banner and the
+ * prompt row's hints both draw one, and they are in different files.
+ *
+ * "Jump to newest" is here for a third reason on top of those two: in a split
+ * window both transcripts can be showing one at the same moment, so two pills
+ * of different colours in two different corners is not a stylistic difference,
+ * it is the same control drawn twice. The box it floats in is here with it,
+ * because a floating control without its positioning context is half a rule.
+ */
+
+/* ── The pane box ───────────────────────────────────────────────── */
+
+/* The scroll box, plus whatever must float over it rather than scroll with it.
+   A transcript needs this the moment it has something pinned to a corner, and
+   both of them do. */
+.viewport {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ── The scroll box ─────────────────────────────────────────────── */
+
+.transcript {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0.9rem 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ifm-color-emphasis-300) transparent;
+}
+
+/* What a pane says when it has nothing in it yet. */
+.banner {
+  padding: 0.2rem var(--site-page-gutter);
+  color: var(--ifm-color-emphasis-500);
+  font-size: var(--cli-label);
+}
+
+.slash {
+  color: var(--ifm-color-primary);
+  font-weight: 700;
+}
+
+/* ── Entry rows ─────────────────────────────────────────────────── */
+
+/* One line of transcript, whoever wrote it. A chat message is this row with
+   two extra columns in front of it (transcript.module.css), which is why the
+   box model is stated once, here. */
+.entry {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.38rem 1.15rem;
+  font-size: var(--cli-text);
+  line-height: 1.55;
+}
+
+.entryMark {
+  flex-shrink: 0;
+  color: var(--ifm-color-primary);
+}
+
+/* Replies arrive as plain text with real newlines, so keep them. */
+.entryText {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ── Entry kinds ────────────────────────────────────────────────── */
+
+/* An entry's kind is applied as shared[entry.kind], so all four names have to
+   exist in this stylesheet even where the rule adds nothing: a missing one
+   would put the literal string "undefined" into the class list. What a typed
+   line and an answer share is that they are the window's ordinary voice, so
+   they are one rule with two names rather than two identical rules. */
+.input,
+.output {
+  color: var(--ifm-font-color-base);
+}
+
+.system {
+  color: var(--ifm-color-emphasis-500);
+  font-style: italic;
+}
+
+.error {
+  color: var(--ifm-color-danger);
+}
+
+/* ── Back to the newest line ────────────────────────────────────── */
+
+/* Floated over the corner of the pane rather than placed at the end of the
+   scrolled content, which is the difference that matters: the scroll box is a
+   live region, so a control living inside it is announced as one more thing
+   that just arrived, and its height would count towards the box's own scroll
+   height and shift the answer to "is the reader at the bottom". Out here it is
+   a fixed corner of the pane, on screen wherever the reader has scrolled to.
+
+   A pill with an edge and a shadow, because it lies over the last line of the
+   transcript: without both it reads as part of the text it is covering. */
+.jump {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.5rem;
+  z-index: 2;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 999px;
+  background: var(--ifm-background-surface-color, var(--ifm-background-color));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  color: var(--ifm-color-primary);
+  font-family: inherit;
+  font-size: var(--cli-meta);
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.jump:hover {
+  border-color: var(--ifm-color-primary);
+}
+
+.jump:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 1px;
+}
+
+/* On a dark surface the same shadow is invisible, and the pill loses the edge
+   that separates it from the line underneath. */
+[data-theme='dark'] .jump {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Keyboard caps ──────────────────────────────────────────────── */
+
+.kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 4px;
+  background: var(--ifm-color-emphasis-100);
+  font-family: inherit;
+  font-size: var(--cli-micro);
+  line-height: 1.5;
+}

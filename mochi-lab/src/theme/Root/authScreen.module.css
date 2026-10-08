@@ -1,0 +1,258 @@
+/* The sign-in screen. Rendered above Docusaurus's theme, so it cannot rely on
+   Infima variables being applied yet and sets its own colors. */
+
+.page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 1.5rem;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 380px;
+  padding: 2rem;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+/* A group of fields and its button, for the screens whose card holds more than
+   one form. On the sign-in screen the card is itself the form, and its own flex
+   column already stretches the inputs and the button to full width; a nested
+   form is an ordinary block and would leave the button sized to its label. */
+.stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.logo {
+  width: 64px;
+  height: 64px;
+  align-self: center;
+  border-radius: 50%;
+  margin-bottom: 0.75rem;
+}
+
+.title {
+  margin: 0;
+  text-align: center;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #1e293b;
+}
+
+.tagline {
+  margin: 0.25rem 0 1.5rem;
+  text-align: center;
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+/* The development shortcut. Visually the primary action when it is present,
+   since on a local machine it is the one anybody actually wants. */
+.rootButton {
+  padding: 0.65rem;
+  border: none;
+  border-radius: 8px;
+  background: #0f766e;
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rootButton:hover:not(:disabled) {
+  background: #0d5f59;
+}
+
+.rootButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.googleButton {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.62rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1e293b;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.googleButton span {
+  color: #4285f4;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.googleButton:hover:not(:disabled) { background: #f8fafc; border-color: #94a3b8; }
+.googleButton:disabled { opacity: 0.6; cursor: default; }
+
+.rootHint {
+  margin: 0.4rem 0 0;
+  text-align: center;
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+/* A rule with the word "or" sitting in a gap in the middle of it. */
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 1.1rem 0;
+  color: #94a3b8;
+  font-size: 0.78rem;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.divider span {
+  padding: 0 0.7rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.field em {
+  font-weight: 400;
+  font-style: normal;
+  color: #94a3b8;
+}
+
+.field input {
+  padding: 0.6rem 0.7rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: #0f172a;
+  background: #ffffff;
+}
+
+.passwordInput {
+  position: relative;
+  display: flex;
+}
+
+.passwordInput input {
+  width: 100%;
+  padding-right: 3.8rem;
+}
+
+.passwordToggle {
+  position: absolute;
+  top: 50%;
+  right: 0.7rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #2568c2;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.passwordToggle:hover {
+  text-decoration: underline;
+}
+
+.passwordToggle:focus-visible {
+  outline: 2px solid #2568c2;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.field input:focus {
+  outline: none;
+  border-color: #2568c2;
+  box-shadow: 0 0 0 3px rgba(37, 104, 194, 0.15);
+}
+
+.hint {
+  margin: -0.4rem 0 0.9rem;
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.error {
+  margin: 0 0 0.9rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: 8px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 0.85rem;
+}
+
+.submit {
+  padding: 0.65rem;
+  border: none;
+  border-radius: 8px;
+  background: #2568c2;
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.submit:hover:not(:disabled) {
+  background: #1a4888;
+}
+
+.submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.switch {
+  margin-top: 0.9rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #2568c2;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.switch:hover {
+  text-decoration: underline;
+}
+
+/* Phones: let the card use the full width and sit near the top, so the
+   on-screen keyboard does not push the submit button out of view. */
+@media (max-width: 480px) {
+  .page {
+    align-items: flex-start;
+    padding: 1rem;
+    padding-top: 2rem;
+  }
+
+  .card {
+    padding: 1.5rem;
+  }
+}

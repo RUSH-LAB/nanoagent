@@ -1,0 +1,222 @@
+/* The workspace switcher, standing where the site brand used to.
+
+   It keeps the theme's own .navbar__brand, .navbar__logo, and .navbar__title
+   classes so that its height, gaps, and truncation match the navbar exactly.
+   What is here is only the difference between a link and a menu button. */
+
+.wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+}
+
+.homeLink {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 40px;
+  min-width: 0;
+  padding: 0.22rem 0.35rem 0.22rem 0.25rem;
+  border: none;
+  border-radius: 8px 4px 4px 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+}
+
+.homeLink:hover {
+  background: var(--ifm-color-emphasis-200);
+  color: inherit;
+  text-decoration: none;
+}
+
+.homeLink:focus-visible,
+.menuTrigger:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+}
+
+.menuTrigger {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 4px 8px 8px 4px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.menuTrigger:hover,
+.menuTrigger[aria-expanded='true'] {
+  background: var(--ifm-color-emphasis-200);
+}
+
+.logo {
+  height: 2rem;
+  width: 2rem;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.name {
+  display: block;
+  max-width: 11rem;
+  font-size: 0.88rem;
+  line-height: 1.05;
+}
+
+.identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.caret {
+  flex: none;
+  opacity: 0.6;
+  transition: transform 120ms ease;
+}
+
+.menuTrigger[aria-expanded='true'] .caret {
+  transform: rotate(180deg);
+}
+
+/* The menu. Positioned against .wrapper rather than the navbar, so it hangs
+   from the button whatever the logo's width turns out to be. */
+.menu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  z-index: calc(var(--ifm-z-index-fixed) + 1);
+  min-width: 18rem;
+  padding: 0.5rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 14px;
+  background: var(--ifm-background-surface-color);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+
+.heading {
+  margin: 0.2rem 0.5rem 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.55rem;
+  border: none;
+  border-radius: 9px;
+  background: none;
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.option:hover:not(:disabled) {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.option:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* A fixed slot for the tick, so the names line up whether or not one is there. */
+.slot {
+  display: flex;
+  flex: none;
+  width: 14px;
+  color: var(--ifm-color-primary);
+}
+
+.workspaceMark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--ifm-color-primary) 13%, var(--ifm-background-color));
+  color: var(--ifm-color-primary);
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.check {
+  display: block;
+}
+
+.label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.optionName {
+  font-size: 0.9rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.current .optionName {
+  color: var(--ifm-color-primary);
+}
+
+.meta {
+  font-size: 0.75rem;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.error {
+  margin: 0.3rem 0.5rem 0;
+  font-size: 0.78rem;
+  color: #991b1b;
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.5rem 0.2rem;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.manage {
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.manage:hover {
+  color: var(--ifm-color-primary);
+  text-decoration: none;
+}
+
+/* Phones: the navbar is already tight, so the workspace name gives way to the
+   logo and the caret rather than pushing the menu toggle off the row. */
+@media (max-width: 600px) {
+  .identity {
+    display: none;
+  }
+}

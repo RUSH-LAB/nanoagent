@@ -1,0 +1,17 @@
+/**
+ * The invitation page. One question and one thing to do about it, so the layout
+ * is a heading, a sentence, and whichever next step applies.
+ */
+
+.next {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.7rem;
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 10px;
+  background: var(--ifm-background-surface-color, var(--ifm-background-color));
+  max-width: 46ch;
+}
