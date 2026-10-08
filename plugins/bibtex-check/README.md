@@ -39,7 +39,8 @@ all are right. Sample files are in `tests/fixtures/`.
 
 ```text
 .
-├── nanoagent.yaml   # manifest: id, runtime, permissions, tools, tasks
+├── nanoagent.yaml   # manifest (a slimconfig ManifestConfig): id, runtime, permissions, tools, tasks
+├── contract.py      # each tool's and task's typed input and output: slimconfig Output classes
 ├── README.md
 ├── LICENSE
 ├── pyproject.toml
@@ -47,11 +48,16 @@ all are right. Sample files are in `tests/fixtures/`.
 ├── .gitignore
 ├── .env             # needed environment variable names (none here)
 ├── run.sh           # exits 0 when this environment can run the plugin
-├── schemas/         # <tool>-input.json / <tool>-output.json, one pair per tool
 ├── src/plugin/      # the MCP server (__main__.py, its TOOLS table) and the tools
 ├── tests/           # tests, and sample inputs in fixtures/
 └── verifier/        # deterministic verifier package, one module per tool
 ```
+
+`contract.py` types every value: the server builds each call's input into its
+class and checks its output against its own, and NanoAgent and the verifier
+get the same classes. A record's missing venue or DOI is `null`, as is an
+entry's record when it has none. `verifier/` imports only the standard library
+and `contract`.
 
 ## Develop and run
 

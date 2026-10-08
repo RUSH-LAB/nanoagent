@@ -3,9 +3,8 @@ _ > nanoagent.cli.plugin.PluginAgentConfig:
 # The BibTeX check plugin's check-bibtex task, worked by an agent on the sample files.
 plugin: plugins/bibtex-check
 task: check-bibtex
-arguments:
-  - reference=inputs/reference.bib
-  - raw=inputs/raw.bib
+# The task's input, a contract.ParseInput as JSON.
+arguments: examples/bibtex_check/configs/step1_check_bibtex_arguments.json
 inputs:
   - plugins/bibtex-check/tests/fixtures/reference.bib
   - plugins/bibtex-check/tests/fixtures/raw.bib

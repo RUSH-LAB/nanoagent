@@ -1,0 +1,110 @@
+/* The BibTeX Hallucination Check page, on top of kit/kit.css. Kit variables only, so it follows
+   the host's light and dark themes. */
+
+/* Inputs: two numbered file cards side by side, stacked on phones. */
+.inputs { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.drop-title { display: flex; align-items: center; gap: 10px; }
+.step-number {
+  display: inline-grid; place-items: center; flex: none;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 13px; font-weight: 700;
+}
+.check-area { display: grid; gap: 8px; }
+.check-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 16px; }
+.check-row > .button.ghost { min-height: 44px; color: var(--accent); }
+.page-notice:empty { display: none; }
+
+/* A previous result while a new check runs, or after the files changed. */
+.previous-label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; margin-bottom: -8px; }
+.results:empty { display: none; }
+.results.dimmed { opacity: .5; pointer-events: none; transition: opacity .2s; }
+
+/* The summary card. */
+.summary { display: grid; gap: 14px; }
+.eyebrow { font-size: 12px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.summary .headline { font-size: 24px; font-weight: 700; letter-spacing: -.015em; }
+.tallies { display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px; }
+.tally {
+  display: grid; gap: 2px; min-width: 110px; padding: 10px 14px;
+  border-radius: var(--radius-sm); background: var(--tone-soft);
+  border: 1px solid color-mix(in srgb, var(--tone) 30%, transparent);
+}
+.tally-value { font-size: 22px; font-weight: 700; color: var(--tone); line-height: 1.1; }
+.tally-label { font-size: 13px; font-weight: 560; }
+.tally-note { align-self: center; flex-basis: 100%; }
+
+/* Filters and the report actions above the list. */
+.list-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.list-tools .segmented { flex: 1 1 auto; }
+.entry-search { max-width: 260px; }
+.list-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; margin-left: auto; }
+.save-status:empty { display: none; }
+.save-status { margin-top: -8px; }
+
+/* One card per entry. */
+.entries { display: grid; gap: 10px; container-type: inline-size; }
+.entry {
+  display: grid; gap: 6px; padding: 14px 16px; min-width: 0;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  border-left: 4px solid var(--border-strong);
+}
+.entry.is-hallucinated { border-left-color: var(--bad); }
+.entry.is-real { border-left-color: var(--ok); }
+.entry.is-unchecked { border-left-color: var(--neutral); }
+.entry-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.entry-key { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.entry-title { font-weight: 600; overflow-wrap: anywhere; }
+.entry-meta { overflow-wrap: anywhere; }
+.entry.is-real .entry-title { font-weight: 520; }
+.match-line { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; color: var(--muted); font-size: 13px; }
+.match-line .icon { color: var(--ok); }
+.none-shown { padding: 16px; text-align: center; }
+
+/* What differs. */
+.diff { display: grid; gap: 8px; margin-top: 4px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); }
+.diff-head { font-size: 13.5px; overflow-wrap: anywhere; }
+.diff-head code { font-size: 12.5px; }
+.diff-rows { display: grid; gap: 0; margin: 0; }
+.diff-row {
+  display: grid; grid-template-columns: 76px minmax(0, 1fr) minmax(0, 1fr); gap: 4px 14px;
+  padding: 7px 0; border-top: 1px solid var(--border); font-size: 13.5px;
+}
+.diff-row dt { font-weight: 600; color: var(--muted); }
+.diff-row dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.diff-row .diff-wide { grid-column: 2 / -1; }
+.diff-row .who { display: none; }
+.diff-labels { border-top: 0; padding: 0 0 2px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.diff-row .theirs .value { color: var(--muted); }
+.diff mark { padding: 0 2px; font-weight: 600; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.author-changes { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.unreadable { background: var(--bad-soft); }
+
+@container (max-width: 520px) {
+  .diff-row { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .diff-row .diff-wide { grid-column: auto; }
+  .diff-labels { display: none; }
+  .diff-row dd { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 8px; }
+  .diff-row dd.diff-wide { display: block; }
+  .diff-row .who { display: inline; color: var(--muted); font-size: 12.5px; }
+}
+
+/* The checker's own summary. */
+.answer.card { padding: 4px 18px; }
+.answer.card > summary { padding: 12px 0; }
+.answer-text { line-height: 1.6; overflow-wrap: anywhere; }
+.empty-card { padding: 8px 20px 20px; }
+
+@media (max-width: 640px) {
+  .inputs { grid-template-columns: minmax(0, 1fr); }
+  .check-row { display: grid; justify-items: stretch; }
+  .check-row .run-button { justify-items: stretch; text-align: center; }
+  .check-row .run-button .button { width: 100%; }
+  .summary .headline { font-size: 20px; }
+  .tally { min-width: 0; flex: 1 1 90px; }
+  .list-actions { margin-left: 0; }
+  .entry-search { max-width: none; flex: 1 1 100%; }
+}
+
+/* The Check button turns into Cancel while running, so the run card's own Stop would repeat it. */
+.run-head > .button:not(.ghost) { display: none; }
