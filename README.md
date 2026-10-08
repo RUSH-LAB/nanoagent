@@ -19,7 +19,8 @@ contract. Every plugin is a folder with this standard layout
 (`nanoagent.plugin.manifest.REQUIRED_FILES` / `REQUIRED_FOLDERS`):
 
 ```text
-nanoagent.yaml   # manifest: id, runtime, permissions, tools, tasks
+nanoagent.yaml   # manifest (a slimconfig ManifestConfig): id, runtime, permissions, tools, tasks
+contract.py      # each tool's and task's typed input and output: slimconfig Output classes
 README.md
 LICENSE
 pyproject.toml
@@ -27,10 +28,11 @@ uv.lock
 .gitignore
 .env             # environment variable NAMEs the plugin needs, never values
 run.sh           # exits 0 when this environment can run the plugin
-schemas/         # only the JSON Schemas the tools reference
 src/             # the plugin's code, organized as it likes
 tests/           # at least one test_*.py
 verifier/        # deterministic verifier package, .py files only
+ui/              # the front end: a static web page, ui/index.html
+product/         # the product page: product.yaml and icon.svg
 ```
 
 Nothing else may sit at the top level. The only exceptions are what tools create in a
@@ -39,9 +41,10 @@ checkout: `.git`, `.venv`, `__pycache__`, `.pytest_cache`, `.ruff_cache`, `.mypy
 
 The rules a plugin must follow are listed in one place, the docstring of
 `nanoagent.plugin.manifest`. These are the layout above, a `.env` holding
-names only, an exact `nanoagent.yaml` with no unknown keys, schemas under
-`schemas/`, unique tools and tasks, a deterministic verifier, and no extra
-files. NanoAgent refuses to load a plugin that breaks any rule, and `PluginError` lists every
+names only, a `contract.py` of declarations only, a `nanoagent.yaml` that
+fills `ManifestConfig` under slimconfig's rules (tables keyed by the
+contract's `Tool` and `Task`), a deterministic verifier, a `ui/` and a
+`product/` (below), and no extra files. NanoAgent refuses to load a plugin that breaks any rule, and `PluginError` lists every
 violation at once (`nanoagent plugin inspect <path>` prints them). The web
 host refuses to start with such a plugin. Every tool call checks the rules
 again, so a plugin edited after it loaded is refused too.
@@ -49,11 +52,15 @@ again, so a plugin edited after it loaded is refused too.
 Before each launch NanoAgent runs `run.sh` with the plugin's environment: `NANOAGENT_WORKSPACE` plus each `.env`
 name taken from NanoAgent's own environment. It refuses to launch unless
 `run.sh` exits 0. It then starts the declared MCP runtime with that same
-environment, validates every input and output against its schema, and runs the
-verifier before and after each tool call.
+environment, builds every input and output into its contract class
+(`slimconfig.build_output`), and runs the verifier, which gets the same typed
+values, before and after each tool call. Every JSON Schema NanoAgent shows (to
+MCP, the agent and the web) is `slimconfig.output_schema` of a contract class.
+A tool that fails raises; NanoAgent sees an MCP error, never an `ok: false`.
 
-Every task in `nanoagent.yaml` declares its `runner`, its `input` schema and a
-`reference`:
+Every task in `nanoagent.yaml` declares its `runner` and a `reference`; its
+input class is the contract's `TASKS` entry. A run config's `arguments` is the
+path of a JSON file holding that input:
 
 - **`runner`:** `tool` means one tool called directly with the task's input.
   `agent` means an agent works the task with the task's tools.
@@ -129,11 +136,62 @@ only to its workspace, which NanoAgent passes as `NANOAGENT_WORKSPACE`.
 - **One plugin process per run.** An agent run keeps one plugin process
   (`nanoagent.plugin.PluginSession`) for the whole task, so a plugin can hold
   state, such as a browser, between calls. `run.sh` runs once. Every call is
-  still checked against the rules, both schemas and the verifier.
+  still checked against the rules, both contract classes and the verifier.
 - **Images.** A tool response's `images` field (a list of
   `{"media_type": "image/png", "data": <base64>}`) is shown to the model as
   images, not text. Only the Bedrock backend supports this; the OpenAI-
   compatible backends refuse it.
+
+### Plugin front ends
+
+What people see of a plugin lives in two folders, and nowhere else.
+
+`product/` is the plugin's product page, what a catalog such as Mochi's apps
+page shows before anyone opens it. It holds exactly two files.
+`product.yaml` fills `ProductConfig`: a `tagline`, a `summary`, 2 to 4
+`highlights` and 2 to 5 `steps`, written for the people who use the plugin
+rather than for developers. `icon.svg` is the app icon, at most 64 KB, and
+it may only draw: no scripts, event handlers, embedded content, or links
+outside itself. `GET /v1/plugins` returns both as each plugin's `product`,
+with the icon as a `data:` URL for an `<img>`. Where the plugin may connect
+and write comes from its manifest's `permissions`, so the page never restates
+them.
+
+Every plugin also ships its own front end in `ui/`, a static web page:
+`ui/index.html` and the HTML, JS, CSS, images and fonts it loads, at most
+5 MB, with nothing built at load time. Mochi shows it in a sandboxed iframe.
+NanoAgent serves it at `GET /v1/plugins/<id>/ui/<path>` under a
+Content-Security-Policy with `connect-src 'none'`, so the page can't reach the
+network and talks to NanoAgent only through the host's `postMessage` bridge,
+protocol `nanoagent.ui/v1`. The bridge's methods are `describe`, `runTask`,
+`prompt`, `cancel`, and `workspace.list` / `read` / `write`
+([docs/plans/plugin-ui.md](docs/plans/plugin-ui.md)).
+
+`runTask` uses `POST /v1/workspaces/<ws>/plugins/<id>/tasks/<task>/runs`,
+which runs a task the verified way (reference, tools or agent, then
+`verify_task`) in that workspace and streams `task.*` events. It shares its
+runner, `nanoagent.plugin.tasks.run_task`, with `nanoagent plugin run` and
+`agent`.
+
+`ui/` is split into a shared UI kit and the plugin's own page.
+`ui/index.html` and `ui/kit/` are the kit: the same bytes in every built-in
+plugin (a test checks them against the template's), changed only in the
+template. `ui/app.js` and `ui/app.css` are the plugin's, next to any other
+static files it adds. `nanoagent plugin new` starts every plugin with the
+kit and a default page, a full-page chat with the plugin's agent, which
+never shows its tools. Each plugin then designs its page around what people
+come to do: `app.js` passes `mountApp` a layout, `({plugin, workspace}) =>
+Element`, built from `ui/kit/components.js`. The kit has an app shell with
+the chat in a drawer (`appShell`, `chatDrawer`), inputs (`dateInput`,
+`segmented`, `chipToggles`, `chipRow`, `chipsInput`, `numberStepper`, and
+`fileDrop`, which writes the user's file to the workspace for the task), a
+run with plain-language steps, Stop and its outcome (`taskRun`,
+`runButton`), the verdict and errors in plain words (`verdictBanner`,
+`errorCard`), results (`card`, `dataTable`, `meter`, `statusPill`,
+`disclosure`, `emptyState`), workspace files and a JSON state file
+(`jsonStore`), and Mochi's look in light and dark down to narrow widths
+(`kit.css`). The full API is in
+[docs/plans/plugin-ui.md](docs/plans/plugin-ui.md).
 
 Each declared plugin tool is also available as a regular NanoAgent `Tool`
 through `nanoagent.plugin.plugin_tools(manifest, workspace, names)`.
@@ -150,10 +208,19 @@ The web service publishes the plugin directories listed under `plugins` in its
   stream.
 
 The workspace is a persistent folder named by the caller, under the
-`workspaces` root in `WebConfig`. Files the tools save stay there.
-`GET /v1/workspaces/{workspace}/files` lists them, and
-`GET` or `DELETE /v1/workspaces/{workspace}/files/{path}` reads or removes one.
-On Railway, mount a volume at `/data`, or the workspaces are lost on every
+`workspaces` root in `WebConfig`. Files the tools save stay there, and the
+caller manages them through these endpoints under `/v1/workspaces/{workspace}`:
+
+- `GET files` lists every file and folder.
+- `GET`, `PUT` and `DELETE` on `files/{path}` read, save or remove one file.
+  `PUT ?create=1` refuses to replace an existing file. Saves are capped at
+  `max_file_bytes`.
+- `POST` and `DELETE` on `folders/{path}` create a folder, or remove one and
+  everything in it.
+- `POST move` with `{"from", "to"}` renames or moves a file or folder.
+
+Paths stay inside the workspace and never cross a symlink. A name already
+taken returns 409. On Railway, mount a volume at `/data`, or the workspaces are lost on every
 deploy.
 
 ### Plugin environments

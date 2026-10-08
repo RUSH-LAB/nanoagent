@@ -3,17 +3,20 @@
 A verifier is plain code, never a model: the same input (and the same workspace files) must
 always give the same verdict. ``verifier/__init__.py`` defines three functions, each returning
 ``valid``/``score``/``message``/``details``; other modules in ``verifier/`` are imported
-relatively (``from .ids import ARXIV_ID``):
+relatively (``from .ids import ARXIV_ID``), and the plugin's contract as ``contract``:
 
     def verify_input(tool, value): ...                                  # tool: its name
     def verify_output(tool, input_value, output_value, workspace): ...  # workspace: the folder path
     def verify_task(task, arguments, reference, workspace): ...  # once the whole task is done
 
+Every value is an instance of its contract class (see :mod:`nanoagent.plugin.contract`), already
+checked against its type: a verifier checks what a value means, never its shape.
 ``verify_input`` / ``verify_output`` check each tool call; ``verify_task`` checks the outcome of a
-task, against ``reference``: the pinned output of the task's reference tool, or None.
+task, against ``reference``: the pinned output of the task's reference tool, or None. A result's
+``details`` may hold contract instances and Enum members; they are recorded as their JSON.
 
 Determinism is enforced twice. :func:`check_verifier` reads every module before anything runs:
-each may import only :data:`ALLOWED_IMPORTS` and its own package, and may not reach builtins that
+each may import only :data:`ALLOWED_IMPORTS`, ``contract`` and its own package, and may not reach builtins that
 load or run code, private attributes, or file-writing methods. Each call then runs in a fresh interpreter (see
 ``_verifier_sandbox.py``) with networking and process launching disabled and new imports
 blocked, and the function is called twice: two different verdicts fail the run.
@@ -27,7 +30,10 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from nanoagent.plugin.manifest import PluginManifest
 
 # Pure, deterministic standard-library modules: no clock, randomness, environment, network or
 # processes.
@@ -167,7 +173,7 @@ def _problems(tree: ast.Module) -> list[str]:
         problems += [
             f"{line}: imports {module!r}"
             for module in modules
-            if module.split(".")[0] not in ALLOWED_IMPORTS
+            if module.split(".")[0] not in ALLOWED_IMPORTS | {"contract"}
         ]
         if isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
             problems.append(f"{line}: uses {node.id}()")
@@ -189,37 +195,53 @@ def _missing_functions(tree: ast.Module) -> list[str]:
             problems.append(f"{name}() must take {count} positional argument(s)")
     return problems
 
-def verify_input(root: str | Path, tool: str, value: dict[str, Any]) -> Verification:
-    return _call(root, "verify_input", [tool, value])
+def verify_input(manifest: PluginManifest, tool: str, value: dict[str, Any]) -> Verification:
+    return _call(manifest.root, "verify_input", [tool, value], [None, manifest.tool(tool).input_class])
 
 
 def verify_output(
-    root: str | Path,
+    manifest: PluginManifest,
     tool: str,
     input_value: dict[str, Any],
     output_value: dict[str, Any],
     workspace: Path,
 ) -> Verification:
-    return _call(root, "verify_output", [tool, input_value, output_value, str(workspace.resolve())])
+    definition = manifest.tool(tool)
+    return _call(
+        manifest.root,
+        "verify_output",
+        [tool, input_value, output_value, str(workspace.resolve())],
+        [None, definition.input_class, definition.output_class, None],
+    )
 
 
 def verify_task(
-    root: str | Path,
+    manifest: PluginManifest,
     task: str,
     arguments: dict[str, Any],
     reference: dict[str, Any] | None,
     workspace: Path,
 ) -> Verification:
-    return _call(root, "verify_task", [task, arguments, reference, str(workspace.resolve())])
+    definition = manifest.task(task)
+    pinned = None if definition.reference is None else manifest.tool(definition.reference).output_class
+    return _call(
+        manifest.root,
+        "verify_task",
+        [task, arguments, reference, str(workspace.resolve())],
+        [None, definition.input_class, pinned, None],
+    )
 
 
-def _call(root: str | Path, name: str, arguments: list[Any]) -> Verification:
-    folder = Path(root).resolve() / "verifier"
+def _call(root: Path, name: str, arguments: list[Any], classes: list[str | None]) -> Verification:
+    """Run ``name`` in the sandbox; each argument with a class is built into that contract class."""
+    folder = root.resolve() / "verifier"
     check_verifier(folder)
     request = {
         "verifier": str(folder),
+        "contract": str(root.resolve() / "contract.py"),
         "function": name,
         "arguments": arguments,
+        "classes": classes,
         "modules": sorted(ALLOWED_IMPORTS),
     }
     completed = subprocess.run(

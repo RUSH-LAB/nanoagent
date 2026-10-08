@@ -7,17 +7,32 @@ raises :class:`PluginError` listing every broken rule at once:
    :data:`REQUIRED_FOLDERS`; ``src/`` holds at least one file and ``tests/`` at least one
    ``test_*.py``.
 2. ``.env`` lists the environment variables the plugin needs: one ``NAME`` per line, no values.
-3. ``nanoagent.yaml`` matches :data:`MANIFEST_SCHEMA` exactly: no missing or unknown keys.
-4. Every tool's input and output is a valid JSON Schema file under ``schemas/``.
-5. Tool names and task ids are unique, and every task uses only declared tools. A task's
-   ``runner`` is ``tool`` (exactly one tool, called directly with the task's input, so the task's
-   ``input`` is that tool's input schema) or ``agent`` (an agent works the task with its tools).
-   A ``reference`` tool, when set, takes the task's input and is not one of the task's tools:
-   NanoAgent runs it before the task and pins its output for :func:`verify_task`.
+3. ``contract.py`` declares every tool's and task's typed input and output, and nothing but
+   declarations (see :mod:`nanoagent.plugin.contract`).
+4. ``nanoagent.yaml`` fills :class:`ManifestConfig` under slimconfig's rules: it names its class
+   (``_ > nanoagent.plugin.manifest.ManifestConfig:``), sets every field and no other, and its
+   ``tools`` and ``tasks`` are tables keyed by the contract's ``Tool`` and ``Task``.
+5. Every task uses only declared tools. A task's ``runner`` is ``tool`` (exactly one tool,
+   called directly with the task's input, so the task's input class is that tool's) or
+   ``agent`` (an agent works the task with its tools). A ``reference`` tool, when set, takes
+   the task's input and is not one of the task's tools: NanoAgent runs it before the task and
+   pins its output for :func:`verify_task`.
 6. ``verifier/`` is a deterministic verifier package (see :mod:`nanoagent.plugin.verifier`).
 7. Nothing else: the top level holds only the standard layout (and :data:`TOOL_ARTIFACTS`),
-   ``schemas/`` only the JSON files the manifest references, and ``verifier/`` only ``.py``
-   files. ``src/`` and ``tests/`` are the plugin's own to organize.
+   and ``verifier/`` only ``.py`` files. ``src/`` and ``tests/`` are the plugin's own to
+   organize.
+8. ``ui/`` is the plugin's front end: a static web page, ``ui/index.html`` and the files it
+   loads, only :data:`UI_SUFFIXES` and at most :data:`UI_MAX_BYTES` in total. A host shows it in
+   a sandboxed frame that talks to NanoAgent only through the ``nanoagent.ui/v1`` bridge
+   (docs/plans/plugin-ui.md). ``ui/index.html`` and ``ui/kit/`` are the shared UI kit, copied
+   from the template unchanged; ``ui/app.js`` and ``ui/app.css`` are the plugin's own page, and
+   it may add its own static assets beside them.
+9. ``product/`` is the plugin's product page, what a catalog shows people before they open it,
+   and holds exactly :data:`PRODUCT_FILES`. ``product.yaml`` fills :class:`ProductConfig`
+   (``_ > nanoagent.plugin.manifest.ProductConfig:``): a tagline, a summary, 2 to 4 highlights
+   and 2 to 5 steps, none blank. ``icon.svg`` is the app's icon: an SVG of at most
+   :data:`ICON_MAX_BYTES` that draws only, with no script, event handler, embedded content or
+   link outside itself.
 
 Every tool call re-checks the rules (see :mod:`nanoagent.plugin.runtime`), so a plugin edited
 after it was loaded is refused as well.
@@ -25,25 +40,30 @@ after it was loaded is refused as well.
 
 from __future__ import annotations
 
-import json
+import base64
+import dataclasses
+import enum
 import re
-import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
-import yaml
-from jsonschema import Draft202012Validator, SchemaError
+from omegaconf import MISSING, OmegaConf
+from slimconfig import Config, load_config, merge_specs, output_schema
 
+from nanoagent.plugin.contract import CONTRACT, contract_module, contract_problems, read_contract
 from nanoagent.plugin.verifier import verifier_problems
 
 SPEC = "nanoagent.plugin/v1"
 PLUGIN_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+HOSTNAME = re.compile(r"^[^/:\s]+$")  # a hostname only: no scheme, port, or path
 MANIFEST = "nanoagent.yaml"
 # The standard plugin layout: every plugin has these at its root.
 REQUIRED_FILES = (
     MANIFEST,
+    CONTRACT,  # every tool's and task's typed input and output (see nanoagent.plugin.contract)
     "README.md",
     "LICENSE",
     "pyproject.toml",
@@ -53,93 +73,118 @@ REQUIRED_FILES = (
     "run.sh",  # exits 0 when this environment can run the plugin; run before every launch
 )
 REQUIRED_FOLDERS = (
-    "schemas",  # every tool's input and output JSON Schema
     "src",
     "tests",
     "verifier",  # the deterministic verifier package (see nanoagent.plugin.verifier)
+    "ui",  # the front end: a static web page, ui/index.html
+    "product",  # the product page a catalog shows: product.yaml and icon.svg
 )
+PRODUCT = "product/product.yaml"
+PRODUCT_FILES = ("product.yaml", "icon.svg")
+ICON_MAX_BYTES = 64 * 1024
+# SVG elements that run, embed or fetch something rather than draw.
+ICON_FORBIDDEN = frozenset({"script", "foreignObject", "iframe", "embed", "object", "image", "use", "a"})
+# What a front end may hold: static web files, nothing built or run at load.
+UI_SUFFIXES = frozenset(
+    {".html", ".js", ".mjs", ".css", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".woff", ".woff2", ".json", ".md"}
+)
+UI_MAX_BYTES = 5 * 1024 * 1024
 # What git, uv, Python and the test tools create in a checkout: allowed anywhere, never checked.
 TOOL_ARTIFACTS = frozenset(
     {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".DS_Store"}
 )
 
-_TEXT = {"type": "string", "pattern": r"\S"}
-_TEXTS = {"type": "array", "minItems": 1, "items": _TEXT}
-_SCHEMA_FILE = {"type": "string", "pattern": r"^schemas/[^\s]+\.json$"}
+
+class Status(enum.Enum):
+    READY = "ready"
+    IN_DEVELOPMENT = "in-development"  # listed by a catalog, never run
 
 
-STATUSES = ("ready", "in-development")
+class Runner(enum.Enum):
+    TOOL = "tool"
+    AGENT = "agent"
 
 
-def _record(required: dict[str, Any]) -> dict[str, Any]:
-    """An object with exactly the keys ``required``, each matching its schema."""
-    return {
-        "type": "object",
-        "required": list(required),
-        "properties": required,
-        "additionalProperties": False,
-    }
+class RuntimeType(enum.Enum):
+    MCP_STDIO = "mcp_stdio"
 
 
-# The whole of `nanoagent.yaml`: every key required, no other key allowed.
-MANIFEST_SCHEMA = _record(
-    {
-        "spec": {"const": SPEC},
-        "id": {"type": "string", "pattern": PLUGIN_ID.pattern},
-        "name": _TEXT,
-        "version": _TEXT,
-        # The shelf a catalog files the plugin under, such as "Research".
-        "group": _TEXT,
-        # Whether hosts may run it: "ready", or "in-development" (listed, never run).
-        "status": {"enum": list(STATUSES)},
-        "runtime": _record(
-            {"type": {"const": "mcp_stdio"}, "command": {"oneOf": [_TEXT, _TEXTS]}}
-        ),
-        "permissions": _record(
-            {
-                # Hostnames only: no scheme, port, or path.
-                "network": _record(
-                    {"hosts": {"type": "array", "items": {"type": "string", "pattern": r"^[^/:\s]+$"}}}
-                ),
-                "filesystem": _record(
-                    {"write": {"type": "array", "items": {"const": "workspace"}}}
-                ),
-            }
-        ),
-        "tools": {
-            "type": "array",
-            "minItems": 1,
-            "items": _record(
-                {"name": _TEXT, "description": _TEXT, "input": _SCHEMA_FILE, "output": _SCHEMA_FILE}
-            ),
-        },
-        "tasks": {
-            "type": "array",
-            "minItems": 1,
-            "items": _record(
-                {
-                    "id": _TEXT,
-                    "description": _TEXT,
-                    "runner": {"enum": ["tool", "agent"]},
-                    "tools": _TEXTS,
-                    "input": _SCHEMA_FILE,
-                    "reference": {"oneOf": [_TEXT, {"type": "null"}]},
-                    "instructions": _TEXT,
-                }
-            ),
-        },
-    }
-)
+class WriteScope(enum.Enum):
+    WORKSPACE = "workspace"
 
 
-# What a catalog needs to list a plugin: the identifying head of `nanoagent.yaml`. The rest may
-# be unfinished while the plugin is in development, since a host never runs it then.
-LISTING_KEYS = ("spec", "id", "name", "version", "group", "status")
-LISTING_SCHEMA = {
-    "type": "object",
-    "required": list(LISTING_KEYS),
-    "properties": {key: MANIFEST_SCHEMA["properties"][key] for key in LISTING_KEYS},
-}
+@dataclass
+class ListingConfig(Config):
+    """What a catalog needs to list a plugin: the identifying head of `nanoagent.yaml`."""
+
+    id: str = MISSING
+    name: str = MISSING
+    version: str = MISSING
+    # The shelf a catalog files the plugin under, such as "Research".
+    group: str = MISSING
+    status: Status = MISSING
+
+
+@dataclass
+class RuntimeConfig(Config):
+    type: RuntimeType = MISSING
+    # The MCP server's command line, run in the plugin folder.
+    command: list[str] = MISSING
+
+
+@dataclass
+class NetworkConfig(Config):
+    hosts: list[str] = MISSING
+
+
+@dataclass
+class FilesystemConfig(Config):
+    write: list[WriteScope] = MISSING
+
+
+@dataclass
+class PermissionsConfig(Config):
+    network: NetworkConfig = field(default_factory=NetworkConfig)
+    filesystem: FilesystemConfig = field(default_factory=FilesystemConfig)
+
+
+@dataclass
+class ProductConfig(Config):
+    """``product/product.yaml``: the plugin as a catalog presents it to the people who use it."""
+
+    # One line on what it does for you.
+    tagline: str = MISSING
+    # A few sentences on what it is.
+    summary: str = MISSING
+    # What sets it apart, one short sentence each.
+    highlights: list[str] = MISSING
+    # How you use it, in order.
+    steps: list[str] = MISSING
+
+
+@dataclass
+class ToolConfig(Config):
+    description: str = MISSING
+
+
+@dataclass
+class TaskConfig(Config):
+    description: str = MISSING
+    runner: Runner = MISSING
+    # The tools the task may use, by name.
+    tools: list[str] = MISSING
+    # The tool whose output is pinned as the task's ground truth, by name, or null.
+    reference: str | None = MISSING
+    instructions: str = MISSING
+
+
+@dataclass
+class ManifestConfig(ListingConfig):
+    """The whole of `nanoagent.yaml`. Each plugin's file fills a subclass that adds its tables,
+    ``tools: dict[contract.Tool, ToolConfig]`` and ``tasks: dict[contract.Task, TaskConfig]``."""
+
+    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    permissions: PermissionsConfig = field(default_factory=PermissionsConfig)
 
 
 class PluginError(ValueError):
@@ -155,10 +200,12 @@ class PluginError(ValueError):
 class ToolDefinition:
     name: str
     description: str
-    input_path: str
-    output_path: str
-    input: dict[str, Any]
+    input_class: str  # the contract's input class, by name
+    output_class: str
+    input: dict[str, Any]  # its JSON Schema
     output: dict[str, Any]
+    input_type: type = field(compare=False, repr=False)
+    output_type: type = field(compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -167,16 +214,26 @@ class TaskDefinition:
     description: str
     runner: str  # "tool" or "agent"
     tools: tuple[str, ...]
-    input_path: str
+    input_class: str
     input: dict[str, Any]
     reference: str | None  # the tool whose output is pinned as the task's ground truth
     instructions: str
+    input_type: type = field(compare=False, repr=False)
 
 
 @dataclass(frozen=True)
 class Permissions:
     network_hosts: tuple[str, ...]
     filesystem_write: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Product:
+    tagline: str
+    summary: str
+    highlights: tuple[str, ...]
+    steps: tuple[str, ...]
+    icon: str  # icon.svg as a data: URL, for an <img>, where an SVG cannot run anything
 
 
 @dataclass(frozen=True)
@@ -190,6 +247,7 @@ class PluginManifest:
     runtime: str
     command: tuple[str, ...]
     permissions: Permissions
+    product: Product
     env: tuple[str, ...]
     tools: tuple[ToolDefinition, ...]
     tasks: tuple[TaskDefinition, ...]
@@ -209,7 +267,7 @@ class PluginManifest:
 
     def public(self) -> dict[str, Any]:
         return {
-            "spec": "nanoagent.plugin/v1",
+            "spec": SPEC,
             "id": self.id,
             "name": self.name,
             "version": self.version,
@@ -221,12 +279,19 @@ class PluginManifest:
                 "network": {"hosts": list(self.permissions.network_hosts)},
                 "filesystem": {"write": list(self.permissions.filesystem_write)},
             },
+            "product": {
+                "tagline": self.product.tagline,
+                "summary": self.product.summary,
+                "highlights": list(self.product.highlights),
+                "steps": list(self.product.steps),
+                "icon": self.product.icon,
+            },
             "tools": [
                 {
                     "name": tool.name,
                     "description": tool.description,
-                    "input": tool.input_path,
-                    "output": tool.output_path,
+                    "input": tool.input_class,
+                    "output": tool.output_class,
                 }
                 for tool in self.tools
             ],
@@ -236,7 +301,7 @@ class PluginManifest:
                     "description": task.description,
                     "runner": task.runner,
                     "tools": list(task.tools),
-                    "input": task.input_path,
+                    "input": task.input_class,
                     "reference": task.reference,
                     "instructions": task.instructions,
                 }
@@ -248,6 +313,10 @@ class PluginManifest:
 def _layout_violations(root: Path) -> list[str]:
     violations = [f"missing {name}" for name in REQUIRED_FILES if not (root / name).is_file()]
     violations += [f"missing {name}/" for name in REQUIRED_FOLDERS if not (root / name).is_dir()]
+    if (root / "ui").is_dir():
+        violations += _ui_violations(root / "ui")
+    if (root / "product").is_dir():
+        violations += _product_violations(root / "product")
     if (root / "src").is_dir() and not any(path.is_file() for path in (root / "src").rglob("*")):
         violations.append("src/ holds no files")
     if (root / "tests").is_dir() and not any((root / "tests").rglob("test_*.py")):
@@ -263,14 +332,82 @@ def _layout_violations(root: Path) -> list[str]:
     return violations
 
 
-def _unreferenced_schemas(root: Path, referenced: set[str]) -> list[str]:
-    return [
-        f"unexpected {path.relative_to(root).as_posix()}: schemas/ holds only the schemas tools and tasks reference"
-        for path in sorted((root / "schemas").rglob("*"))
-        if path.is_file()
-        and path.relative_to(root).as_posix() not in referenced
-        and not TOOL_ARTIFACTS & set(path.relative_to(root).parts)
+def _product_violations(folder: Path) -> list[str]:
+    """``product/`` holds exactly its files, and ``icon.svg`` only draws (rule 9)."""
+    names = {path.name for path in folder.iterdir() if path.name not in TOOL_ARTIFACTS}
+    violations = [f"missing product/{name}" for name in PRODUCT_FILES if name not in names]
+    violations += [f"unexpected product/{name}" for name in sorted(names - set(PRODUCT_FILES))]
+    icon = folder / "icon.svg"
+    if icon.is_file():
+        violations += _icon_violations(icon)
+    return violations
+
+
+def _local(name: str) -> str:
+    """An XML element or attribute name without its namespace."""
+    return name.rpartition("}")[2]
+
+
+def _icon_violations(icon: Path) -> list[str]:
+    size = icon.stat().st_size
+    if size > ICON_MAX_BYTES:
+        return [f"product/icon.svg holds {size} bytes, over the {ICON_MAX_BYTES}-byte limit"]
+    try:
+        root = ElementTree.fromstring(icon.read_bytes())
+    except ElementTree.ParseError as error:
+        return [f"product/icon.svg is not well-formed XML: {error}"]
+    if root.tag != "{http://www.w3.org/2000/svg}svg":
+        return ["product/icon.svg must be an <svg> in the SVG namespace"]
+    violations: list[str] = []
+    for element in root.iter():
+        tag = _local(element.tag)
+        if tag in ICON_FORBIDDEN:
+            violations.append(f"product/icon.svg may only draw, not hold <{tag}>")
+        if tag == "style" and ("url(" in (element.text or "") or "@import" in (element.text or "")):
+            violations.append("product/icon.svg may not load anything from its <style>")
+        for name, value in element.attrib.items():
+            if _local(name).lower().startswith("on"):
+                violations.append(f"product/icon.svg may not set the event handler {_local(name)}")
+            elif _local(name) == "href" and not value.startswith("#"):
+                violations.append(f"product/icon.svg may not link outside itself: {value!r}")
+    return violations
+
+
+def _product(root: Path) -> tuple[Product | None, list[str]]:
+    """``product/product.yaml`` and ``icon.svg`` as the :class:`Product` a catalog shows, or its violations."""
+    try:
+        config = load_config(ProductConfig, [str(root / PRODUCT)])
+    except Exception as error:  # noqa: BLE001 - every way the file fails is a violation
+        return None, [f"{PRODUCT}: {type(error).__name__}: {error}"]
+    violations = [f"{PRODUCT} {name} is blank" for name in ("tagline", "summary") if not getattr(config, name).strip()]
+    for name, low, high in (("highlights", 2, 4), ("steps", 2, 5)):
+        items = getattr(config, name)
+        if not low <= len(items) <= high:
+            violations.append(f"{PRODUCT} {name} must hold {low} to {high} entries, not {len(items)}")
+        if not all(item.strip() for item in items):
+            violations.append(f"{PRODUCT} {name} has a blank entry")
+    icon = base64.b64encode((root / "product" / "icon.svg").read_bytes()).decode()
+    return Product(
+        tagline=config.tagline.strip(),
+        summary=config.summary.strip(),
+        highlights=tuple(item.strip() for item in config.highlights),
+        steps=tuple(item.strip() for item in config.steps),
+        icon=f"data:image/svg+xml;base64,{icon}",
+    ), violations
+
+
+def _ui_violations(ui: Path) -> list[str]:
+    files = [path for path in sorted(ui.rglob("*")) if path.is_file() and not TOOL_ARTIFACTS & set(path.relative_to(ui).parts)]
+    violations = [] if (ui / "index.html").is_file() else ["missing ui/index.html"]
+    violations += [
+        f"unexpected ui/{path.relative_to(ui).as_posix()}: ui/ holds only static web files"
+        for path in files
+        if path.suffix.lower() not in UI_SUFFIXES
     ]
+    size = sum(path.stat().st_size for path in files)
+    if size > UI_MAX_BYTES:
+        violations.append(f"ui/ holds {size} bytes, over the {UI_MAX_BYTES}-byte limit")
+    return violations
 
 
 def _env_names(path: Path) -> tuple[tuple[str, ...], list[str]]:
@@ -291,38 +428,68 @@ def _env_names(path: Path) -> tuple[tuple[str, ...], list[str]]:
     return tuple(names), violations
 
 
-def _schema_file(root: Path, relative: str) -> tuple[dict[str, Any] | None, list[str]]:
-    path = (root / relative).resolve()
-    if not path.is_relative_to(root / "schemas") or not path.is_file():
-        return None, [f"{relative} not found under schemas/"]
-    try:
-        schema = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        return None, [f"{relative} is not JSON: {error}"]
-    if not isinstance(schema, dict):
-        return None, [f"{relative} must hold a JSON object"]
-    try:
-        Draft202012Validator.check_schema(schema)
-    except SchemaError as error:
-        return None, [f"{relative} is not a valid JSON Schema: {error.message}"]
-    return schema, []
-
-
-def _read_manifest(root: Path) -> tuple[dict[str, Any] | None, list[str]]:
-    """``nanoagent.yaml`` when it matches :data:`MANIFEST_SCHEMA`, and its violations."""
-    try:
-        raw = yaml.safe_load((root / MANIFEST).read_text(encoding="utf-8"))
-    except yaml.YAMLError as error:
-        return None, [f"{MANIFEST} is not YAML: {error}"]
-    errors = sorted(
-        Draft202012Validator(MANIFEST_SCHEMA).iter_errors(raw),
-        key=lambda error: [str(part) for part in error.absolute_path],
-    )
-    violations = [
-        f"{MANIFEST} {'.'.join(str(part) for part in error.absolute_path) or '(top level)'}: {error.message}"
-        for error in errors
+def _listing_violations(config: ListingConfig) -> list[str]:
+    violations = [] if PLUGIN_ID.fullmatch(config.id) else [f"{MANIFEST} id {config.id!r} is not a plugin id"]
+    return violations + [
+        f"{MANIFEST} {name} is blank" for name in ("name", "version", "group") if not getattr(config, name).strip()
     ]
-    return (None if violations else raw), violations
+
+
+def _manifest_class(contract: Any) -> type:
+    """The plugin's own :class:`ManifestConfig`: its tables keyed by its contract's Tool and Task."""
+    return dataclasses.make_dataclass(
+        "PluginManifestConfig",
+        [
+            ("tools", dict[contract.Tool, ToolConfig], MISSING),
+            ("tasks", dict[contract.Task, TaskConfig], MISSING),
+        ],
+        bases=(ManifestConfig,),
+        module=__name__,
+    )
+
+
+def _config_violations(config: Any) -> list[str]:
+    """The rules a config class cannot state: non-blank text, hostnames, and how tasks use tools."""
+    violations = _listing_violations(config)
+    if not config.runtime.command or not all(part.strip() for part in config.runtime.command):
+        violations.append(f"{MANIFEST} runtime.command must be a non-empty list of words")
+    violations += [
+        f"{MANIFEST} permissions.network.hosts: {host!r} is not a hostname"
+        for host in config.permissions.network.hosts
+        if not HOSTNAME.fullmatch(host)
+    ]
+    violations += [
+        f"{MANIFEST} tools.{tool.value}.description is blank"
+        for tool, entry in config.tools.items()
+        if not entry.description.strip()
+    ]
+    names = {tool.value for tool in config.tools}
+    for key, task in config.tasks.items():
+        where = f"{MANIFEST} tasks.{key.value}"
+        violations += [f"{where}.{name} is blank" for name in ("description", "instructions") if not getattr(task, name).strip()]
+        if not task.tools:
+            violations.append(f"{where}.tools is empty")
+        unknown = sorted(set(task.tools) - names)
+        if unknown:
+            violations.append(f"task {key.value!r} uses undeclared tools: {', '.join(unknown)}")
+        if task.reference is not None and task.reference not in names:
+            violations.append(f"task {key.value!r}: reference {task.reference!r} is not a declared tool")
+    return violations
+
+
+def _usage_violations(config: Any, contract: Any) -> list[str]:
+    """Each task's input class fits how it runs: its one tool's input, and its reference's."""
+    violations: list[str] = []
+    for key, task in config.tasks.items():
+        given = contract.tasks[key.value]
+        if task.runner is Runner.TOOL and (len(task.tools) != 1 or contract.tools[task.tools[0]][0] is not given):
+            violations.append(f"task {key.value!r}: a tool runner has exactly one tool, and takes that tool's input")
+        if task.reference is not None and (task.reference in task.tools or contract.tools[task.reference][0] is not given):
+            violations.append(
+                f"task {key.value!r}: reference {task.reference!r} must be a declared tool outside the task's tools,"
+                " taking the task's input"
+            )
+    return violations
 
 
 def load_manifest(source: str | Path) -> PluginManifest:
@@ -337,84 +504,78 @@ def load_manifest(source: str | Path) -> PluginManifest:
         violations += env_violations
     if (root / "verifier").is_dir():
         violations += verifier_problems(root / "verifier")
-    raw = None
-    if (root / MANIFEST).is_file():
-        raw, manifest_violations = _read_manifest(root)
-        violations += manifest_violations
+    if not (root / CONTRACT).is_file() or not (root / MANIFEST).is_file():
+        raise PluginError(root, violations)
+    problems = contract_problems(root / CONTRACT)
+    if problems:
+        raise PluginError(root, violations + problems)
 
-    tools: list[ToolDefinition] = []
-    tasks: list[TaskDefinition] = []
-    if raw is not None:
-        for item in raw["tools"]:
-            input_schema, input_violations = _schema_file(root, item["input"])
-            output_schema, output_violations = _schema_file(root, item["output"])
-            violations += input_violations + output_violations
-            if input_schema is not None and output_schema is not None:
-                tools.append(
-                    ToolDefinition(
-                        name=item["name"].strip(),
-                        description=item["description"].strip(),
-                        input_path=item["input"],
-                        output_path=item["output"],
-                        input=input_schema,
-                        output=output_schema,
-                    )
-                )
-        if (root / "schemas").is_dir():
-            violations += _unreferenced_schemas(
-                root,
-                {item[key] for item in raw["tools"] for key in ("input", "output")}
-                | {item["input"] for item in raw["tasks"]},
-            )
-        names = [item["name"].strip() for item in raw["tools"]]
-        violations += [f"tool {name!r} is declared twice" for name in sorted({n for n in names if names.count(n) > 1})]
-        inputs = {item["name"].strip(): item["input"] for item in raw["tools"]}
-        for item in raw["tasks"]:
-            task_id, runner, task_tools, reference = item["id"].strip(), item["runner"], item["tools"], item["reference"]
-            unknown = sorted(set(task_tools) - set(names))
-            if unknown:
-                violations.append(f"task {task_id!r} uses undeclared tools: {', '.join(unknown)}")
-            if runner == "tool" and (len(task_tools) != 1 or inputs.get(task_tools[0]) != item["input"]):
-                violations.append(f"task {task_id!r}: a tool runner has exactly one tool, and takes that tool's input")
-            if reference is not None and (reference in task_tools or inputs.get(reference) != item["input"]):
-                violations.append(
-                    f"task {task_id!r}: reference {reference!r} must be a declared tool outside the task's tools,"
-                    " taking the task's input"
-                )
-            input_schema, input_violations = _schema_file(root, item["input"])
-            violations += input_violations
-            if input_schema is not None:
-                tasks.append(
-                    TaskDefinition(
-                        id=task_id,
-                        description=item["description"].strip(),
-                        runner=runner,
-                        tools=tuple(task_tools),
-                        input_path=item["input"],
-                        input=input_schema,
-                        reference=reference,
-                        instructions=item["instructions"].strip(),
-                    )
-                )
-        ids = [item["id"].strip() for item in raw["tasks"]]
-        violations += [f"task {task_id!r} is declared twice" for task_id in sorted({i for i in ids if ids.count(i) > 1})]
+    try:
+        with contract_module(root) as module:
+            contract, contract_violations = read_contract(module)
+            violations += contract_violations
+            if contract is None:
+                raise PluginError(root, violations)
+            config = load_config(_manifest_class(module), [str(root / MANIFEST)])
+    except PluginError:
+        raise
+    except Exception as error:  # noqa: BLE001 - every way the contract or the manifest fails is a violation
+        raise PluginError(root, [*violations, f"{type(error).__name__}: {error}"]) from error
+    violations += _config_violations(config)
+    product = None
+    if (root / PRODUCT).is_file() and (root / "product" / "icon.svg").is_file():
+        product, product_violations = _product(root)
+        violations += product_violations
+    if not violations:
+        violations += _usage_violations(config, contract)
     if violations:
         raise PluginError(root, violations)
 
-    command = raw["runtime"]["command"]
-    permissions = raw["permissions"]
+    tools = []
+    for key, entry in config.tools.items():
+        input_type, output_type = contract.tools[key.value]
+        tools.append(
+            ToolDefinition(
+                name=key.value,
+                description=entry.description.strip(),
+                input_class=input_type.__name__,
+                output_class=output_type.__name__,
+                input=output_schema(input_type),
+                output=output_schema(output_type),
+                input_type=input_type,
+                output_type=output_type,
+            )
+        )
+    tasks = []
+    for key, task in config.tasks.items():
+        input_type = contract.tasks[key.value]
+        tasks.append(
+            TaskDefinition(
+                id=key.value,
+                description=task.description.strip(),
+                runner=task.runner.value,
+                tools=tuple(task.tools),
+                input_class=input_type.__name__,
+                input=output_schema(input_type),
+                reference=task.reference,
+                instructions=task.instructions.strip(),
+                input_type=input_type,
+            )
+        )
     return PluginManifest(
         root=root,
-        id=raw["id"],
-        name=raw["name"].strip(),
-        version=raw["version"].strip(),
-        group=raw["group"].strip(),
-        status=raw["status"],
-        runtime="mcp_stdio",
-        command=tuple(shlex.split(command) if isinstance(command, str) else command),
+        id=config.id,
+        name=config.name.strip(),
+        version=config.version.strip(),
+        group=config.group.strip(),
+        status=config.status.value,
+        runtime=config.runtime.type.value,
+        command=tuple(config.runtime.command),
         permissions=Permissions(
-            tuple(permissions["network"]["hosts"]), tuple(permissions["filesystem"]["write"])
+            tuple(config.permissions.network.hosts),
+            tuple(scope.value for scope in config.permissions.filesystem.write),
         ),
+        product=product,
         env=env,
         tools=tuple(tools),
         tasks=tuple(tasks),
@@ -448,30 +609,29 @@ class PluginListing:
 def load_listing(source: str | Path) -> PluginManifest | PluginListing:
     """A ``ready`` plugin, which must pass every rule, or an in-development one's listing.
 
-    An in-development plugin need only name itself correctly, so a plugin being built cannot
-    stop a host that lists it; a ``ready`` one is held to all of :func:`load_manifest`.
+    An in-development plugin need only name itself correctly (:class:`ListingConfig`), so a
+    plugin being built cannot stop a host that lists it; a ``ready`` one is held to all of
+    :func:`load_manifest`.
     """
     root = Path(source).expanduser().resolve()
+    if not (root / MANIFEST).is_file():
+        raise PluginError(root, [f"{MANIFEST} not found"])
     try:
-        raw = yaml.safe_load((root / MANIFEST).read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        raise PluginError(root, [f"{MANIFEST} not found"]) from None
-    except yaml.YAMLError as error:
-        raise PluginError(root, [f"{MANIFEST} is not YAML: {error}"]) from None
-    violations = [
-        f"{MANIFEST} {'.'.join(str(part) for part in error.absolute_path) or '(top level)'}: {error.message}"
-        for error in Draft202012Validator(LISTING_SCHEMA).iter_errors(raw)
-    ]
+        merged = OmegaConf.to_container(merge_specs([str(root / MANIFEST)]), resolve=False)
+        head = {name: merged[name] for name in (f.name for f in dataclasses.fields(ListingConfig)) if name in merged}
+        listing = load_config(ListingConfig, [head])
+    except ValueError as error:
+        raise PluginError(root, [f"{MANIFEST}: {error}"]) from None
+    violations = _listing_violations(listing)
     if violations:
         raise PluginError(root, violations)
-    if raw["status"] == "ready":
+    if listing.status is Status.READY:
         return load_manifest(root)
     return PluginListing(
         root=root,
-        id=raw["id"],
-        name=raw["name"].strip(),
-        version=raw["version"].strip(),
-        group=raw["group"].strip(),
-        status=raw["status"],
+        id=listing.id,
+        name=listing.name.strip(),
+        version=listing.version.strip(),
+        group=listing.group.strip(),
+        status=listing.status.value,
     )
-

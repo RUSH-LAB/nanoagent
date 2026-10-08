@@ -34,12 +34,14 @@ class WebConfig(AgentDefinitionConfig):
     max_concurrency: int = MISSING
     request_timeout: float = MISSING
     max_request_bytes: int = MISSING
+    # The largest file a caller may save into its workspace.
+    max_file_bytes: int = MISSING
     max_output_chars: int = MISSING
     heartbeat_seconds: float = MISSING
     include_reasoning: bool = MISSING
 
     def __post_init__(self) -> None:
-        for name in ("port", "max_concurrency", "max_request_bytes", "max_output_chars"):
+        for name in ("port", "max_concurrency", "max_request_bytes", "max_file_bytes", "max_output_chars"):
             value = getattr(self, name)
             if isinstance(value, int) and value < 1:
                 raise ValueError(f"{name} must be >= 1, got {value}")

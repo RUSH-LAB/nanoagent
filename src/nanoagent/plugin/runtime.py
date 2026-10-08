@@ -2,7 +2,9 @@
 
 A session runs the plugin's ``run.sh`` once, starts its MCP server once and keeps it for every call,
 so a plugin can hold state (a browser, a game) for the whole of one task run. Each call re-checks
-the plugin rules, validates both schemas and runs the verifier on its input and output.
+the plugin rules, builds its input and output into their contract classes (see
+:mod:`nanoagent.plugin.contract`) and runs the verifier on both. A tool that fails raises; the
+MCP server reports it as an error result, and the call raises it again here.
 :func:`call_tool` is a session of one call.
 """
 
@@ -21,7 +23,7 @@ import anyio
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import get_default_environment, stdio_client
 from mcp.types import TextContent
-from jsonschema import ValidationError, validate
+from slimconfig import build_output
 
 from nanoagent.core.tool import Tool, ToolText
 from nanoagent.plugin.manifest import PluginManifest, load_manifest
@@ -87,10 +89,10 @@ async def call_tool_async(
 
 def _check_input(manifest: PluginManifest, tool: str, arguments: dict[str, Any]) -> None:
     try:
-        validate(arguments, manifest.tool(tool).input)
-    except ValidationError as error:
-        raise ValueError(f"invalid input for {tool}: {error.message}") from error
-    input_check = verify_input(manifest.root, tool, arguments)
+        build_output(arguments, manifest.tool(tool).input_type)
+    except ValueError as error:
+        raise ValueError(f"invalid input for {tool}: {error}") from error
+    input_check = verify_input(manifest, tool, arguments)
     if not input_check.valid:
         raise ValueError(f"plugin input verification failed: {input_check.message}")
 
@@ -169,23 +171,23 @@ class PluginSession:
         definition = manifest.tool(tool)
         with anyio.fail_after(self.timeout):
             result = await self._session.call_tool(tool, arguments=arguments)
-        response = _response(manifest, result)
-        if not isinstance(response, dict):
-            raise RuntimeError(f"{manifest.id} returned a non-object response")
+        response = _response(manifest, tool, result)
         try:
-            validate(response, definition.output)
-        except ValidationError as error:
-            raise RuntimeError(f"invalid output from {tool}: {error.message}") from error
-        output_check = verify_output(manifest.root, tool, arguments, response, self.workspace)
+            build_output(response, definition.output_type)
+        except ValueError as error:
+            raise RuntimeError(f"invalid output from {tool}: {error}") from error
+        output_check = verify_output(manifest, tool, arguments, response, self.workspace)
         if not output_check.valid:
             raise RuntimeError(f"plugin output verification failed: {output_check.message}")
         return response
 
 
-def _response(manifest: PluginManifest, result: Any) -> Any:
+def _response(manifest: PluginManifest, tool: str, result: Any) -> Any:
+    text = [item.text for item in result.content if isinstance(item, TextContent)]
+    if result.isError:
+        raise RuntimeError(f"{manifest.id} {tool} failed: {' '.join(text) or 'no message'}")
     if result.structuredContent is not None:
         return result.structuredContent
-    text = [item.text for item in result.content if isinstance(item, TextContent)]
     if len(text) != 1:
         raise RuntimeError(f"{manifest.id} must return exactly one MCP text result")
     try:
@@ -226,8 +228,6 @@ class PluginTool(Tool):
             response = await call_tool_async(
                 self._manifest, self.NAME, arguments, workspace=self._workspace
             )
-        if not response.get("ok", False):
-            raise RuntimeError(str(response.get("error", "plugin tool failed")))
         images = response.pop("images", [])
         return ToolText(json.dumps(response), images=images)
 

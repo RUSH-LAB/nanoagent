@@ -47,6 +47,7 @@ api_token: ${oc.env:NANOAGENT_API_TOKEN}
 max_concurrency: 8
 request_timeout: 180.0
 max_request_bytes: 262144
+max_file_bytes: 10485760
 max_output_chars: 50000
 heartbeat_seconds: 10.0
 include_reasoning: false

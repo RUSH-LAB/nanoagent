@@ -21,26 +21,25 @@ import asyncio
 import json
 import shutil
 import sys
-import tempfile
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from jsonschema import validate
 from omegaconf import MISSING
-from slimconfig import Config, Folder, Layout, Output, Run
+from slimconfig import Config, Folder, Layout, Output, Run, load_output, plain_output
 
 from nanoagent import __version__
 from nanoagent.harness.nanoagent import NanoAgentConfig
 from nanoagent.llm.bedrock import BedrockConfig
-from nanoagent.core.agent import AgentResult
-from nanoagent.plugin import PluginError, PluginManifest, PluginSession, call_tool, load_manifest, plugin_tools, verify_task
+from nanoagent.core.agent import Agent
+from nanoagent.plugin import PluginError, PluginManifest, load_manifest
 from nanoagent.plugin.manifest import TaskDefinition
 from nanoagent.plugin.scaffold import create_plugin
+from nanoagent.plugin.tasks import run_task
 from nanoagent.plugin.verifier import Verification
 from nanoagent.runtime.build import build_agent
-from nanoagent.runtime.config import AgentDefinitionConfig, parse_kv_list
+from nanoagent.runtime.config import AgentDefinitionConfig
 from nanoagent.trajectory.atif import AtifTrajectory, to_atif
 
 _USAGE = """usage:
@@ -56,9 +55,8 @@ class PluginRunConfig(Config):
     plugin: str = MISSING
     # One of the plugin's tasks whose runner is `tool`.
     task: str = MISSING
-    # The task's input as `key=value` tokens (see parse_kv_list). A value that parses as JSON but
-    # must stay a string is double-quoted: arxiv_id="1706.03762".
-    arguments: list[str] = MISSING
+    # The task's input: a JSON file of its contract input class (see nanoagent.plugin.contract).
+    arguments: str = MISSING
     # Files the task reads, copied to workspace/inputs/<file name>; [] for none.
     inputs: list[str] = MISSING
     # Seconds the plugin may take per tool call, launch included.
@@ -70,7 +68,7 @@ class PluginAgentConfig(Config):
     plugin: str = MISSING
     # One of the plugin's tasks whose runner is `agent`.
     task: str = MISSING
-    arguments: list[str] = MISSING
+    arguments: str = MISSING
     inputs: list[str] = MISSING
     timeout: float = MISSING
     # The model, and the agent loop's limits.
@@ -126,6 +124,11 @@ def _task(config: PluginRunConfig | PluginAgentConfig, runner: str) -> tuple[Plu
     return manifest, task
 
 
+def _arguments(path: str, task: TaskDefinition) -> dict[str, Any]:
+    """The task's input from its JSON file, checked into the task's contract input class."""
+    return plain_output(load_output(path, task.input_type))
+
+
 def stage_inputs(paths: list[str], workspace: Path) -> None:
     """Copy each input file to ``workspace/inputs/<file name>``."""
     names = [Path(path).name for path in paths]
@@ -138,8 +141,21 @@ def stage_inputs(paths: list[str], workspace: Path) -> None:
         shutil.copyfile(path, workspace / "inputs" / path.name)
 
 
+def _print_event(kind: str, data: dict[str, Any]) -> None:
+    """A task's progress, as lines in run.log."""
+    if kind == "task.tool":
+        print(f"tool: {data['name']}({json.dumps(data['arguments'])}){' ERROR' if data['isError'] else ''}")
+    elif kind == "task.result":
+        print(json.dumps(data["response"], indent=2))
+    elif kind == "task.answer":
+        print(f"agent: {data['text']}")
+    elif kind == "task.verdict":
+        print(f"verdict: {'valid' if data['valid'] else 'INVALID'} ({data['score']:.2f}) {data['message']}")
+    elif kind == "task.reference":
+        print(f"reference: {data['tool']}")
+
+
 def _verdict(task: TaskDefinition, verification: Verification) -> PluginVerdict:
-    print(f"verdict: {'valid' if verification.valid else 'INVALID'} ({verification.score:.2f}) {verification.message}")
     return PluginVerdict(task=task.id, **verification.to_dict())
 
 
@@ -151,24 +167,22 @@ class PluginRun(Run):
 
     def main(self) -> int:
         manifest, task = _task(self.config, "tool")
-        [tool] = task.tools
-        workspace = Path(self.layout.workspace)
-        arguments = parse_kv_list(self.config.arguments)
-        stage_inputs(self.config.inputs, workspace)
-        response = call_tool(manifest, tool, arguments, workspace=workspace, timeout=self.config.timeout)
-        self.layout.result = PluginResult(plugin=manifest.id, task=task.id, tool=tool, response=response)
-        print(json.dumps(response, indent=2))
-        self.layout.verdict = _verdict(task, verify_task(manifest.root, task.id, arguments, None, workspace))
-        return 0 if response.get("ok") and self.layout.verdict.valid else 1
-
-
-def _agent_prompt(manifest: PluginManifest, task: TaskDefinition, arguments: dict[str, Any]) -> tuple[str, str]:
-    system = (
-        f"You work one task with the {manifest.name} plugin's tools. Every file a tool saves goes "
-        "into your workspace; paths you pass to tools are relative to it.\n\n"
-        f"Task: {task.description}.\n{task.instructions}"
-    )
-    return system, f"Task input:\n{json.dumps(arguments, indent=2)}"
+        outcome = asyncio.run(
+            run_task(
+                manifest,
+                task,
+                _arguments(self.config.arguments, task),
+                Path(self.layout.workspace),
+                make_agent=None,
+                timeout=self.config.timeout,
+                on_event=_print_event,
+                stage=lambda folder: stage_inputs(self.config.inputs, folder),
+            )
+        )
+        response = outcome.response
+        self.layout.result = PluginResult(plugin=manifest.id, task=task.id, tool=task.tools[0], response=response)
+        self.layout.verdict = _verdict(task, outcome.verdict)
+        return 0 if self.layout.verdict.valid else 1
 
 
 class PluginAgent(Run):
@@ -179,51 +193,40 @@ class PluginAgent(Run):
 
     def main(self) -> int:
         manifest, task = _task(self.config, "agent")
-        workspace = Path(self.layout.workspace)
-        arguments = parse_kv_list(self.config.arguments)
-        validate(arguments, task.input)
-        stage_inputs(self.config.inputs, workspace)
 
-        reference = None
-        if task.reference is not None:
-            # The reference tool writes nowhere the agent can see.
-            with tempfile.TemporaryDirectory(prefix=f"nanoagent-{manifest.id}-reference-") as scratch:
-                stage_inputs(self.config.inputs, Path(scratch))
-                reference = call_tool(manifest, task.reference, arguments, workspace=Path(scratch), timeout=self.config.timeout)
-            if not reference.get("ok"):
-                raise RuntimeError(f"reference tool {task.reference} failed: {reference.get('error')}")
-        self.layout.reference = PluginReference(tool=task.reference, response=reference)
+        def make_agent(system_prompt: str) -> Agent:
+            definition = AgentDefinitionConfig(
+                model=self.config.llm.runtime(),
+                agent=self.config.harness.runtime(system_prompt=system_prompt),
+                tools=[],
+                tools_dir=None,
+                allowed_tools=None,
+            )
+            return build_agent(definition)
 
-        system, user = _agent_prompt(manifest, task, arguments)
-        definition = AgentDefinitionConfig(
-            model=self.config.llm.runtime(),
-            agent=self.config.harness.runtime(system_prompt=system),
-            tools=[],
-            tools_dir=None,
-            allowed_tools=None,
+        outcome = asyncio.run(
+            run_task(
+                manifest,
+                task,
+                _arguments(self.config.arguments, task),
+                Path(self.layout.workspace),
+                make_agent=make_agent,
+                timeout=self.config.timeout,
+                on_event=_print_event,
+                stage=lambda folder: stage_inputs(self.config.inputs, folder),
+            )
         )
-        agent = build_agent(definition)
-
-        async def work() -> AgentResult:
-            # One plugin process for the whole task, so its tools can keep state between calls.
-            async with PluginSession(manifest, workspace, timeout=self.config.timeout) as session:
-                for tool in plugin_tools(manifest, workspace, task.tools, session=session):
-                    agent.add_tool(tool)
-                return await agent.run(user)
-
-        print(f"user: {user}")
-        result = asyncio.run(work())
-        print(f"agent: {result.answer}")
+        self.layout.reference = PluginReference(tool=task.reference, response=outcome.reference)
         self.layout.messages = AtifTrajectory.from_dict(
             to_atif(
-                result,
+                outcome.agent,
                 session_id=str(uuid.uuid4()),
                 harness="nanoagent",
                 harness_version=__version__,
                 model=self.config.llm.model,
             )
         )
-        self.layout.verdict = _verdict(task, verify_task(manifest.root, task.id, arguments, reference, workspace))
+        self.layout.verdict = _verdict(task, outcome.verdict)
         return 0 if self.layout.verdict.valid else 1
 
 

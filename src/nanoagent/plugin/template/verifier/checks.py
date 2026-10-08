@@ -13,8 +13,6 @@ def result(valid, message, *, score=None, **details):
 
 
 def destination_problem(destination):
-    if not isinstance(destination, str):
-        return "destination must be a string"
     path = Path(destination)
     if path.is_absolute() or ".." in path.parts or not path.parts:
         return "destination must stay inside the plugin workspace"

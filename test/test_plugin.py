@@ -1,12 +1,76 @@
 from __future__ import annotations
 
-import json
+import base64
 import re
 from pathlib import Path
 
 import pytest
 
 from nanoagent.plugin import call_tool, load_manifest, plugin_tools
+
+
+CONTRACT = """from dataclasses import dataclass
+from enum import Enum
+from typing import Annotated
+
+from slimconfig import Output
+
+
+class Tool(Enum):
+    ECHO = "echo"
+
+
+class Task(Enum):
+    ECHO = "echo"
+
+
+@dataclass
+class EchoInput(Output):
+    value: Annotated[str, "The value to echo"]
+
+
+@dataclass
+class EchoOutput(Output):
+    value: str
+
+
+TOOLS = {Tool.ECHO: (EchoInput, EchoOutput)}
+TASKS = {Task.ECHO: EchoInput}
+"""
+
+MANIFEST = """_ > nanoagent.plugin.manifest.ManifestConfig:
+id: echo
+name: Echo
+version: 1.0.0
+group: Testing
+status: ready
+runtime > nanoagent.plugin.manifest.RuntimeConfig:
+  type: mcp_stdio
+  command: [echo-server]
+permissions > nanoagent.plugin.manifest.PermissionsConfig:
+  network > nanoagent.plugin.manifest.NetworkConfig: {hosts: []}
+  filesystem > nanoagent.plugin.manifest.FilesystemConfig: {write: [workspace]}
+tools > dict[contract.Tool, nanoagent.plugin.manifest.ToolConfig]:
+  echo:
+    description: Echo input
+tasks > dict[contract.Task, nanoagent.plugin.manifest.TaskConfig]:
+  echo:
+    description: Echo input
+    runner: tool
+    tools: [echo]
+    reference: null
+    instructions: Echo the supplied value.
+"""
+
+
+PRODUCT = """_ > nanoagent.plugin.manifest.ProductConfig:
+tagline: Echo what you say
+summary: It repeats its input.
+highlights: [Exact, Instant]
+steps: [Say something, Hear it back]
+"""
+
+ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4"/></svg>\n'
 
 
 def write_plugin(root: Path) -> Path:
@@ -20,66 +84,26 @@ def write_plugin(root: Path) -> Path:
         "run.sh": "exit 0\n",
         "src/echo.py": "",
         "tests/test_echo.py": "",
+        "ui/index.html": "<!doctype html><title>Echo</title>\n",
+        "product/product.yaml": PRODUCT,
+        "product/icon.svg": ICON,
         "verifier/__init__.py": (
             "def verify_input(tool, value):\n"
-            "    return {'valid': bool(value.get('value')), 'score': 1.0, 'message': 'ok', 'details': {}}\n"
+            "    return {'valid': bool(value.value), 'score': 1.0, 'message': 'ok', 'details': {}}\n"
             "def verify_output(tool, input_value, output_value, workspace):\n"
-            "    valid = output_value.get('value') == input_value.get('value')\n"
+            "    valid = output_value.value == input_value.value\n"
             "    return {'valid': valid, 'score': float(valid), 'message': 'ok' if valid else 'mismatch',"
             " 'details': {}}\n"
             "def verify_task(task, arguments, reference, workspace):\n"
             "    return {'valid': True, 'score': 1.0, 'message': 'checked per call', 'details': {}}\n"
         ),
-        "schemas/input.json": json.dumps(
-            {
-                "type": "object",
-                "required": ["value"],
-                "properties": {"value": {"type": "string"}},
-                "additionalProperties": False,
-            }
-        ),
-        "schemas/output.json": json.dumps(
-            {
-                "type": "object",
-                "required": ["ok", "value"],
-                "properties": {"ok": {"const": True}, "value": {"type": "string"}},
-                "additionalProperties": False,
-            }
-        ),
+        "contract.py": CONTRACT,
     }.items():
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
     manifest = root / "nanoagent.yaml"
-    manifest.write_text(
-        """spec: nanoagent.plugin/v1
-id: echo
-name: Echo
-version: 1.0.0
-group: Testing
-status: ready
-runtime:
-  type: mcp_stdio
-  command: [echo-server]
-permissions:
-  network: {hosts: []}
-  filesystem: {write: [workspace]}
-tools:
-  - name: echo
-    description: Echo input
-    input: schemas/input.json
-    output: schemas/output.json
-tasks:
-  - id: echo
-    description: Echo input
-    runner: tool
-    tools: [echo]
-    input: schemas/input.json
-    reference: null
-    instructions: Echo the supplied value.
-""",
-        encoding="utf-8",
-    )
+    manifest.write_text(MANIFEST, encoding="utf-8")
     return manifest
 
 
@@ -96,7 +120,7 @@ def test_rejects_missing_standard_file(tmp_path: Path) -> None:
         load_manifest(path.parent)
 
 
-@pytest.mark.parametrize("name", ["src", "tests", "schemas", "verifier"])
+@pytest.mark.parametrize("name", ["src", "tests", "ui", "product", "verifier"])
 def test_rejects_missing_standard_folder(tmp_path: Path, name: str) -> None:
     import shutil
 
@@ -138,9 +162,9 @@ def test_validates_tool_input_before_launch(tmp_path: Path) -> None:
 def test_runs_standard_verifier(tmp_path: Path) -> None:
     from nanoagent.plugin import verify_input, verify_output
 
-    write_plugin(tmp_path)
-    assert verify_input(tmp_path, "echo", {"value": "yes"}).score == 1
-    assert verify_output(tmp_path, "echo", {"value": "yes"}, {"ok": True, "value": "no"}, tmp_path).valid is False
+    manifest = load_manifest(write_plugin(tmp_path).parent)
+    assert verify_input(manifest, "echo", {"value": "yes"}).score == 1
+    assert verify_output(manifest, "echo", {"value": "yes"}, {"value": "no"}, tmp_path).valid is False
 
 
 @pytest.mark.parametrize(
@@ -168,12 +192,50 @@ def test_rejects_verifier_without_the_standard_functions(tmp_path: Path) -> None
         load_manifest(tmp_path)
 
 
-def test_rejects_schemas_outside_the_schemas_folder(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("change", "problem"),
+    [
+        ("import os\n", "contract.py:1: imports 'os'"),
+        ("from __future__ import annotations\n", "contract.py:1: imports '__future__'"),
+        ("print('loaded')\n", "contract.py:1: holds a Expr"),
+        ("def f():\n    pass\n", "contract.py:1: holds a FunctionDef"),
+        ("X = open('secret')\n", "contract.py:1: uses a Call"),
+    ],
+)
+def test_contract_holds_only_declarations(tmp_path: Path, change: str, problem: str) -> None:
+    from nanoagent.plugin import PluginError
+
+    write_plugin(tmp_path)
+    (tmp_path / "contract.py").write_text(change + CONTRACT, encoding="utf-8")
+    with pytest.raises(PluginError) as error:
+        load_manifest(tmp_path)
+    assert problem in error.value.violations[0]
+
+
+def test_contract_fields_are_required_and_typed(tmp_path: Path) -> None:
+    write_plugin(tmp_path)
+    contract = tmp_path / "contract.py"
+    contract.write_text(CONTRACT.replace("value: str\n", "value: str = 'x'\n"), encoding="utf-8")
+    with pytest.raises(ValueError, match="value has a default: every field is required"):
+        load_manifest(tmp_path)
+    contract.write_text(CONTRACT.replace("value: str\n", "value: set\n"), encoding="utf-8")
+    with pytest.raises(ValueError, match="cannot be typed"):
+        load_manifest(tmp_path)
+
+
+def test_every_tool_has_a_contract_entry(tmp_path: Path) -> None:
+    write_plugin(tmp_path)
+    contract = tmp_path / "contract.py"
+    contract.write_text(CONTRACT.replace('    ECHO = "echo"\n\n\nclass Task', '    ECHO = "echo"\n    MORE = "more"\n\n\nclass Task'))
+    with pytest.raises(ValueError, match="TOOLS must map every Tool member"):
+        load_manifest(tmp_path)
+
+
+def test_manifest_keys_are_the_contract_tools(tmp_path: Path) -> None:
     path = write_plugin(tmp_path)
-    (tmp_path / "input.json").write_text((tmp_path / "schemas/input.json").read_text(), encoding="utf-8")
-    path.write_text(path.read_text().replace("input: schemas/input.json", "input: input.json"))
-    with pytest.raises(ValueError, match="schemas/"):
-        load_manifest(path.parent)
+    path.write_text(path.read_text().replace("  echo:\n    description: Echo input\ntasks", "  ech:\n    description: Echo input\ntasks"))
+    with pytest.raises(ValueError, match="'ech' is not a valid Tool|ech"):
+        load_manifest(tmp_path)
 
 
 def test_fails_a_verifier_whose_two_calls_disagree(tmp_path: Path) -> None:
@@ -192,7 +254,7 @@ def test_fails_a_verifier_whose_two_calls_disagree(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     with pytest.raises(RuntimeError, match="not deterministic"):
-        verify_input(tmp_path, "echo", {"value": "yes"})
+        verify_input(load_manifest(tmp_path), "echo", {"value": "yes"})
 
 
 @pytest.mark.asyncio
@@ -202,14 +264,18 @@ async def test_exposes_plugin_as_agent_tools(tmp_path: Path) -> None:
     assert tool.to_openai_spec()["function"]["parameters"]["required"] == ["value"]
 
 
-SERVER = """import json
-import os
+SERVER = """import os
+import sys
 from pathlib import Path
 
 import anyio
 from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
+from slimconfig import build_output, output_schema, plain_output
+
+sys.path.insert(0, os.getcwd())
+from contract import EchoInput, EchoOutput
 
 server = Server("echo")
 CALLS = []
@@ -217,17 +283,18 @@ CALLS = []
 
 @server.list_tools()
 async def list_tools():
-    schema = lambda name: json.loads(Path("schemas", name).read_text())
-    return [types.Tool(name="echo", description="Echo input",
-                       inputSchema=schema("input.json"), outputSchema=schema("output.json"))]
+    return [types.Tool(name="echo", inputSchema=output_schema(EchoInput), outputSchema=output_schema(EchoOutput))]
 
 
 @server.call_tool()
 async def call_tool(name, arguments):
-    Path(os.environ["NANOAGENT_WORKSPACE"], "echo.txt").write_text(arguments["value"])
-    CALLS.append(arguments["value"])
+    given = build_output(arguments, EchoInput)
+    if given.value == "fail":
+        raise ValueError("asked to fail")
+    Path(os.environ["NANOAGENT_WORKSPACE"], "echo.txt").write_text(given.value)
+    CALLS.append(given.value)
     # Every value this process has seen: one process for a session keeps them all.
-    return {"ok": True, "value": "+".join(CALLS)}
+    return plain_output(EchoOutput(value="+".join(CALLS)))
 
 
 async def main():
@@ -254,8 +321,7 @@ def test_plugin_run_writes_a_slimconfig_run_folder(tmp_path: Path, monkeypatch: 
         f"""_ > nanoagent.cli.plugin.PluginRunConfig:
 plugin: {plugin}
 task: echo
-arguments:
-  - value=hello
+arguments: {tmp_path / "arguments.json"}
 inputs:
   - {tmp_path / "given.txt"}
 timeout: 60.0
@@ -263,13 +329,14 @@ timeout: 60.0
         encoding="utf-8",
     )
     (tmp_path / "given.txt").write_text("a file the task reads", encoding="utf-8")
+    (tmp_path / "arguments.json").write_text('{"value": "hello"}', encoding="utf-8")
     home = tmp_path / "run"
     monkeypatch.setattr(sys, "argv", ["nanoagent", "plugin", "run"])
     with pytest.raises(SystemExit) as exit_:
         main(["run", f"config={config}", f"home={home}"])
     assert exit_.value.code == 0
     run = load_layout(home, PluginRunLayout)
-    assert run.result.response == {"ok": True, "value": "hello"}
+    assert run.result.response == {"value": "hello"}
     assert (run.workspace / "echo.txt").read_text() == "hello"
     assert (run.workspace / "inputs" / "given.txt").read_text() == "a file the task reads"
     assert run.verdict.valid is True
@@ -282,12 +349,67 @@ def test_verifier_package_may_import_its_own_modules(tmp_path: Path) -> None:
     (tmp_path / "verifier" / "rules.py").write_text("import re\nVALUE = re.compile('^y')\n", encoding="utf-8")
     init = tmp_path / "verifier" / "__init__.py"
     init.write_text(
-        init.read_text().replace("bool(value.get('value'))", "bool(VALUE.match(value['value']))")
-        + "from .rules import VALUE\n",
+        init.read_text().replace("bool(value.value)", "isinstance(value, EchoInput) and bool(VALUE.match(value.value))")
+        + "from contract import EchoInput\nfrom .rules import VALUE\n",
         encoding="utf-8",
     )
-    assert verify_input(tmp_path, "echo", {"value": "yes"}).valid is True
-    assert verify_input(tmp_path, "echo", {"value": "no"}).valid is False
+    manifest = load_manifest(tmp_path)
+    assert verify_input(manifest, "echo", {"value": "yes"}).valid is True
+    assert verify_input(manifest, "echo", {"value": "no"}).valid is False
+
+
+def test_product_is_what_a_catalog_shows(tmp_path: Path) -> None:
+    from nanoagent.plugin import PluginError
+
+    write_plugin(tmp_path)
+    product = load_manifest(tmp_path).public()["product"]
+    assert product == {
+        "tagline": "Echo what you say",
+        "summary": "It repeats its input.",
+        "highlights": ["Exact", "Instant"],
+        "steps": ["Say something", "Hear it back"],
+        "icon": "data:image/svg+xml;base64," + base64.b64encode(ICON.encode()).decode(),
+    }
+    page = tmp_path / "product" / "product.yaml"
+    page.write_text(
+        PRODUCT.replace("tagline: Echo what you say", "tagline: ' '")
+        .replace("highlights: [Exact, Instant]", "highlights: [Exact]")
+        .replace("steps: [Say something, Hear it back]", "steps: [Say something, '']")
+    )
+    (tmp_path / "product" / "notes.txt").write_text("draft\n")
+    with pytest.raises(PluginError) as error:
+        load_manifest(tmp_path)
+    assert error.value.violations == [
+        "unexpected product/notes.txt",
+        "product/product.yaml tagline is blank",
+        "product/product.yaml highlights must hold 2 to 4 entries, not 1",
+        "product/product.yaml steps has a blank entry",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("icon", "problem"),
+    [
+        ('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', "not hold <script>"),
+        ('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>', "event handler onload"),
+        (
+            '<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="http://www.w3.org/1999/xlink">'
+            '<path x:href="https://example.com/a.svg"/></svg>',
+            "link outside itself",
+        ),
+        ('<svg xmlns="http://www.w3.org/2000/svg"><style>@import "x.css";</style></svg>', "from its <style>"),
+        ("<svg/>", "SVG namespace"),
+        ("<svg", "not well-formed"),
+    ],
+)
+def test_the_icon_only_draws(tmp_path: Path, icon: str, problem: str) -> None:
+    from nanoagent.plugin import PluginError
+
+    write_plugin(tmp_path)
+    (tmp_path / "product" / "icon.svg").write_text(icon)
+    with pytest.raises(PluginError) as error:
+        load_manifest(tmp_path)
+    assert any(problem in violation for violation in error.value.violations), error.value.violations
 
 
 def test_reports_every_broken_rule_at_once(tmp_path: Path) -> None:
@@ -300,12 +422,12 @@ def test_reports_every_broken_rule_at_once(tmp_path: Path) -> None:
     path.write_text(path.read_text().replace("name: Echo\n", "name: Echo\nauthor: someone\n"))
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
-    assert error.value.violations == [
+    assert error.value.violations[:3] == [
         "missing run.sh",
         "tests/ holds no test_*.py",
         ".env line 1 must be a variable NAME with no value",
-        "nanoagent.yaml (top level): Additional properties are not allowed ('author' was unexpected)",
     ]
+    assert "sets `author`, which is not a field of" in error.value.violations[3]
 
 
 def test_refuses_a_plugin_edited_after_it_loaded(tmp_path: Path) -> None:
@@ -321,14 +443,14 @@ def test_allows_tool_artifacts_but_refuses_extra_files(tmp_path: Path) -> None:
     from nanoagent.plugin import PluginError
 
     write_plugin(tmp_path)
-    for artifact in (".git/HEAD", ".venv/pyvenv.cfg", "verifier/__pycache__/x.pyc", "schemas/.DS_Store"):
+    for artifact in (".git/HEAD", ".venv/pyvenv.cfg", "verifier/__pycache__/x.pyc", "src/.DS_Store"):
         (tmp_path / artifact).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / artifact).write_text("", encoding="utf-8")
     load_manifest(tmp_path)
 
     (tmp_path / "downloads").mkdir()
     (tmp_path / "notes.txt").write_text("", encoding="utf-8")
-    (tmp_path / "schemas" / "old.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "schemas").mkdir()
     (tmp_path / "verifier" / "data.csv").write_text("", encoding="utf-8")
     (tmp_path / "src" / "data.csv").write_text("", encoding="utf-8")
     with pytest.raises(PluginError) as error:
@@ -336,8 +458,8 @@ def test_allows_tool_artifacts_but_refuses_extra_files(tmp_path: Path) -> None:
     assert error.value.violations == [
         "unexpected downloads",
         "unexpected notes.txt",
+        "unexpected schemas",
         "unexpected verifier/data.csv: only .py files belong there",
-        "unexpected schemas/old.json: schemas/ holds only the schemas tools and tasks reference",
     ]
 
 
@@ -353,6 +475,24 @@ def _layout(folder: Path) -> set[str]:
 @pytest.mark.parametrize("plugin", sorted(path.name for path in (ROOT / "plugins").iterdir() if path.is_dir()))
 def test_every_built_in_plugin_follows_every_rule(plugin: str) -> None:
     assert load_manifest(ROOT / "plugins" / plugin).id == plugin
+
+
+@pytest.mark.parametrize("plugin", sorted(path.name for path in (ROOT / "plugins").iterdir() if path.is_dir()))
+def test_every_built_in_plugin_ships_the_template_ui_kit(plugin: str) -> None:
+    template = ROOT / "src" / "nanoagent" / "plugin" / "template" / "ui"
+    ui = ROOT / "plugins" / plugin / "ui"
+
+    def kit(folder: Path) -> dict[str, bytes]:
+        from nanoagent.plugin.manifest import TOOL_ARTIFACTS
+
+        files = [folder / "index.html", *sorted((folder / "kit").rglob("*"))]
+        return {
+            path.relative_to(folder).as_posix(): path.read_bytes()
+            for path in files
+            if path.is_file() and not TOOL_ARTIFACTS & set(path.relative_to(folder).parts)
+        }
+
+    assert kit(ui) == kit(template)
 
 
 def test_plugin_new_creates_a_plugin_shaped_like_the_reference(tmp_path: Path) -> None:
@@ -378,8 +518,8 @@ def _echo_plugin(tmp_path: Path) -> Path:
     verifier = plugin / "verifier" / "__init__.py"
     verifier.write_text(
         verifier.read_text().replace(
-            "output_value.get('value') == input_value.get('value')",
-            "output_value.get('value').endswith(input_value.get('value'))",
+            "output_value.value == input_value.value",
+            "output_value.value.endswith(input_value.value)",
         ),
         encoding="utf-8",
     )
@@ -393,6 +533,8 @@ async def test_a_session_keeps_one_plugin_process_for_every_call(tmp_path: Path)
     async with PluginSession(manifest, tmp_path, timeout=60) as session:
         assert (await session.call("echo", {"value": "a"}))["value"] == "a"
         assert (await session.call("echo", {"value": "b"}))["value"] == "a+b"
+        with pytest.raises(RuntimeError, match="echo echo failed: asked to fail"):
+            await session.call("echo", {"value": "fail"})
     with pytest.raises(RuntimeError, match="not open"):
         await session.call("echo", {"value": "c"})
 
@@ -413,3 +555,18 @@ async def test_plugin_tool_images_reach_the_model_as_images() -> None:
 
     text, is_error = await Shot().invoke()
     assert (str(text), is_error, text.images) == ("{}", False, [{"media_type": "image/png", "data": "iVBORw=="}])
+
+
+def test_ui_is_a_static_web_page(tmp_path: Path) -> None:
+    from nanoagent.plugin import PluginError
+
+    write_plugin(tmp_path)
+    (tmp_path / "ui" / "index.html").unlink()
+    (tmp_path / "ui" / "app.js").write_text("", encoding="utf-8")
+    (tmp_path / "ui" / "server.py").write_text("", encoding="utf-8")
+    with pytest.raises(PluginError) as error:
+        load_manifest(tmp_path)
+    assert error.value.violations == [
+        "missing ui/index.html",
+        "unexpected ui/server.py: ui/ holds only static web files",
+    ]
