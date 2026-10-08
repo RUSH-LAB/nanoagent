@@ -13,6 +13,8 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+from contract import Acted, ClickInput, DragInput, Image, MediaType, Position, Screenshot, ScreenshotInput
+
 RECORD = "board.json"
 
 
@@ -24,25 +26,25 @@ class Play:
         self.live = None
         self.fen = None
 
-    def open_board(self, fen: str, *, workspace: Path) -> dict:
+    def open_board(self, given: Position, workspace: Path) -> Screenshot:
         if self.live is not None:
             raise ValueError("the board is already open")
-        self.live = self._open_live(fen)
-        self.fen = fen
+        self.live = self._open_live(given.fen)
+        self.fen = given.fen
         self._record(workspace)
-        return self.screenshot()
+        return self.screenshot(ScreenshotInput(), workspace)
 
-    def screenshot(self) -> dict:
+    def screenshot(self, given: ScreenshotInput, workspace: Path) -> Screenshot:
         png, width, height = self._board().shot()
-        image = {"media_type": "image/png", "data": base64.b64encode(png).decode("ascii")}
-        return {"ok": True, "width": width, "height": height, "images": [image]}
+        image = Image(media_type=MediaType.PNG, data=base64.b64encode(png).decode("ascii"))
+        return Screenshot(width=width, height=height, images=[image])
 
-    def drag(self, from_xy: list[float], to_xy: list[float], *, workspace: Path) -> dict:
-        self._board().mouse([from_xy, to_xy])
+    def drag(self, given: DragInput, workspace: Path) -> Acted:
+        self._board().mouse([given.from_xy, given.to_xy])
         return self._record(workspace)
 
-    def click(self, xy: list[float], *, workspace: Path) -> dict:
-        self._board().mouse([xy])
+    def click(self, given: ClickInput, workspace: Path) -> Acted:
+        self._board().mouse([given.xy])
         return self._record(workspace)
 
     def close(self) -> None:
@@ -55,8 +57,8 @@ class Play:
             raise ValueError("the board is not open: call open_board first")
         return self.live
 
-    def _record(self, workspace: Path) -> dict:
+    def _record(self, workspace: Path) -> Acted:
         moves = self.live.moves()
         record = {"fen": self.fen, "moves": moves, "positions": self.live.positions(moves)}
         (workspace / RECORD).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-        return {"ok": True}
+        return Acted()

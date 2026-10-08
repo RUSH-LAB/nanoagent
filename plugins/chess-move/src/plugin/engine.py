@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
-import sys
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Self
-
-sys.path.insert(0, str(Path(os.environ["MSA_ROOT"]) / "src"))
 
 from msa import LOCALDB
 from msa.score import wp_from_cp, wp_from_mate

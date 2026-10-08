@@ -4,45 +4,42 @@ from .checks import RECORD, fen_problem, point_problem, record, record_problem, 
 
 
 def verify_open_input(value):
-    problem = fen_problem(value.get("fen"))
+    problem = fen_problem(value.fen)
     if problem:
         return result(False, problem)
     return result(True, "input is valid")
 
 
 def verify_screenshot_input(value):
-    if value:
-        return result(False, "screenshot takes no input")
     return result(True, "input is valid")
 
 
 def verify_drag_input(value):
-    for name in ("from_xy", "to_xy"):
-        problem = point_problem(name, value.get(name))
+    for name, point in (("from_xy", value.from_xy), ("to_xy", value.to_xy)):
+        problem = point_problem(name, point)
         if problem:
             return result(False, problem)
-    if value["from_xy"] == value["to_xy"]:
+    if value.from_xy == value.to_xy:
         return result(False, "a drag that ends where it started moves nothing")
     return result(True, "input is valid")
 
 
 def verify_click_input(value):
-    problem = point_problem("xy", value.get("xy"))
+    problem = point_problem("xy", value.xy)
     if problem:
         return result(False, problem)
     return result(True, "input is valid")
 
 
 def verify_shot_output(input_value, output_value, workspace):
-    images = output_value.get("images")
-    if not isinstance(images, list) or len(images) != 1:
+    images = output_value.images
+    if len(images) != 1:
         return result(False, "a screenshot is exactly one image")
-    image = images[0]
-    if image.get("media_type") != "image/png" or not image.get("data"):
+    if not images[0].data:
         return result(False, "the image must be a PNG, base64 in `data`")
-    if not all(isinstance(output_value.get(side), int) and output_value[side] > 0 for side in ("width", "height")):
+    if output_value.width < 1 or output_value.height < 1:
         return result(False, "the screenshot must say how many pixels wide and high the board is")
-    return result(True, f"the board is {output_value['width']}x{output_value['height']} pixels")
+    return result(True, f"the board is {output_value.width}x{output_value.height} pixels")
 
 
 def verify_opened_output(input_value, output_value, workspace):
@@ -53,7 +50,7 @@ def verify_opened_output(input_value, output_value, workspace):
     acted = verify_acted_output(input_value, output_value, workspace)
     if not acted["valid"]:
         return acted
-    if record(workspace)["fen"] != input_value["fen"]:
+    if record(workspace)["fen"] != input_value.fen:
         return result(False, f"{RECORD} records another starting position")
     return shot
 

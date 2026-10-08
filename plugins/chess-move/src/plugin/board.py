@@ -2,22 +2,18 @@
 
 Started the way msa's arena starts a match (`msa.arena.session`): the server from `msa.web.build`
 with chess alone and the page `driven`, so the page never asks the engine for a reply; msa's own
-headless Chrome (`msa.cdp.Headless`, at $CHROME_BIN); and `msa.arena.Page`, which crops the board
+headless Chrome (`msa.cdp.Headless`, the first one installed); and `msa.arena.Page`, which crops the board
 out of the page and works it with the real mouse over CDP. The game is set up from the FEN with
 the side to move as the player's seat.
 """
 
 from __future__ import annotations
 
-import os
 import socket
-import sys
 import tempfile
 import threading
 from contextlib import ExitStack
 from pathlib import Path
-
-sys.path.insert(0, str(Path(os.environ["MSA_ROOT"]) / "src"))
 
 from msa import web
 from msa.arena import Page

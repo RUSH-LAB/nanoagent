@@ -1,0 +1,11 @@
+_ > nanoagent.plugin.manifest.ProductConfig:
+tagline: "An agent that plays chess on a real board"
+summary: "It looks at a live chess board, chooses a move for the side to play and makes it with the mouse, the way a person would. Stockfish scores the move."
+highlights:
+  - "Sees the board as a screenshot, like a player"
+  - "Moves pieces by dragging and clicking"
+  - "Each move is scored by Stockfish"
+steps:
+  - "Start from any position"
+  - "It reads the board and picks a move"
+  - "It plays the move and Stockfish scores it"

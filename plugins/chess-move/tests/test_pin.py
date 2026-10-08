@@ -10,10 +10,10 @@ from plugin.uci import parse_fen, parse_perft, parse_score
 def test_pins_every_legal_move_with_its_position_and_win_probability() -> None:
     engine = FakeEngine()
     pinned = pin_moves(FEN, engine=engine)
-    assert pinned["fen"] == FEN and pinned["nodes"] == NODES and pinned["best"] == "c3d5"
-    assert [entry["move"] for entry in pinned["moves"]] == sorted(AFTER)
-    assert {entry["move"]: round(entry["win_prob"], 2) for entry in pinned["moves"]} == WIN_PROB
-    assert {entry["move"]: entry["position"] for entry in pinned["moves"]} == AFTER
+    assert pinned.fen == FEN and pinned.nodes == NODES and pinned.best == "c3d5"
+    assert [entry.move for entry in pinned.moves] == sorted(AFTER)
+    assert {entry.move: round(entry.win_prob, 2) for entry in pinned.moves} == WIN_PROB
+    assert {entry.move: entry.position for entry in pinned.moves} == AFTER
     # One search per legal move, each at the same node count: the same position pins the same way.
     assert engine.searched == [(move, NODES) for move in sorted(AFTER)]
 

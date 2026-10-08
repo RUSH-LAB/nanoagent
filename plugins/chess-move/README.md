@@ -36,10 +36,11 @@ with no agent move, an illegal one, or more than one agent move fails.
 
 ## mind-sports-arena
 
-msa's checkout is found at `MSA_ROOT` (its `src/msa` is added to `sys.path`; it is a virtual
-project with no wheel). `LOCALDB` is where msa's `sandbox.sh` builds Stockfish, and `CHROME_BIN`
-is the browser `msa.cdp.Headless` opens the page in. `run.sh` checks all three before every
-launch and refuses with a clear message if any is missing.
+msa is a uv dependency: an editable install of the mind-sports-arena checkout beside
+NanoAgent's (`[tool.uv.sources]` in `pyproject.toml`). msa finds its own `node_modules` and the
+Stockfish its `sandbox.sh` builds from that checkout, and `msa.cdp.Headless` opens the page in
+the first Chrome installed where Chrome installs itself. `run.sh` checks the board, Stockfish and the browser before
+every launch and refuses with a clear message if any is missing.
 
 This plugin needs msa's chess app to start from a FEN. The smallest change — a `fen` attribute on
 `UciGame` that `_position` sends to the engine, and `side` counted from that FEN — lives on
@@ -49,19 +50,26 @@ This plugin needs msa's chess app to start from a FEN. The smallest change — a
 
 ```text
 .
-├── nanoagent.yaml   # manifest: tools, tasks (play-move: runner agent, reference pin_moves)
+├── nanoagent.yaml   # manifest (a slimconfig ManifestConfig): tools, tasks (play-move: runner agent, reference pin_moves)
+├── contract.py      # each tool's and task's typed input and output: slimconfig Output classes
 ├── README.md
 ├── LICENSE
 ├── pyproject.toml
 ├── uv.lock
 ├── .gitignore
-├── .env             # MSA_ROOT, LOCALDB, CHROME_BIN — names only
-├── run.sh           # checks the three variables, Stockfish, node_modules and the browser
-├── schemas/
-├── src/plugin/      # the MCP server (__main__.py) and one module per tool
+├── .env             # no variables
+├── run.sh           # checks Stockfish, node_modules and the browser
+├── src/plugin/      # the MCP server (__main__.py, its IMPLEMENTATIONS table) and one module per tool
 ├── tests/
 └── verifier/        # deterministic verifier, one module per tool, play.py for the task
 ```
+
+`contract.py` types every value: the server builds each call's input into its class and checks
+its output against its own, and NanoAgent and the verifier get the same classes. A failing tool
+raises, and the MCP server returns the error. The screenshot's `images` are what NanoAgent
+forwards to the model as images. `verifier/` imports only the standard library and `contract`;
+it checks what the types cannot (a FEN's and a move's spelling, points of two non-negative
+pixels, a win probability between 0 and 1) and reads `board.json` from the workspace.
 
 ## Develop and run
 
@@ -69,7 +77,7 @@ This plugin needs msa's chess app to start from a FEN. The smallest change — a
 uv sync --extra dev
 uv run pytest
 uv run ruff check .
-MSA_ROOT=<mind-sports-arena> LOCALDB=<msa>/local/db CHROME_BIN=<chrome> bash run.sh
+bash run.sh
 # From the NanoAgent root:
 .venv/bin/nanoagent plugin inspect plugins/chess-move
 bash examples/chess_move/runs/step1_play_move.sh

@@ -5,17 +5,34 @@ from pathlib import Path
 
 import pytest
 from fakes import AFTER, FEN, WIN_PROB
+from slimconfig import build_output
 
 import verifier
+from contract import TOOLS, PinOutput, Position, Tool
 
 ARGUMENTS = {"fen": FEN}
 REFERENCE = {
-    "ok": True,
     "fen": FEN,
     "nodes": 200_000,
     "best": "c3d5",
     "moves": [{"move": move, "position": AFTER[move], "win_prob": WIN_PROB[move]} for move in sorted(AFTER)],
 }
+
+
+# The verifier gets contract instances, as NanoAgent's sandbox builds them from JSON.
+def verify_input(tool: str, value: dict) -> dict:
+    return verifier.verify_input(tool, build_output(value, TOOLS[Tool(tool)][0]))
+
+
+def verify_output(tool: str, value: dict, output: dict, workspace: str) -> dict:
+    given, made = TOOLS[Tool(tool)]
+    return verifier.verify_output(tool, build_output(value, given), build_output(output, made), workspace)
+
+
+def verify_task(arguments: dict, reference: dict, workspace: str) -> dict:
+    return verifier.verify_task(
+        "play-move", build_output(arguments, Position), build_output(reference, PinOutput), workspace
+    )
 
 
 def workspace(tmp_path: Path, moves: list[str], *, fen: str = FEN, positions: list[str] | None = None) -> str:
@@ -25,13 +42,13 @@ def workspace(tmp_path: Path, moves: list[str], *, fen: str = FEN, positions: li
 
 
 def test_approves_the_best_move_at_a_full_score(tmp_path: Path) -> None:
-    verdict = verifier.verify_task("play-move", ARGUMENTS, REFERENCE, workspace(tmp_path, ["c3d5"]))
+    verdict = verify_task(ARGUMENTS, REFERENCE, workspace(tmp_path, ["c3d5"]))
     assert verdict["valid"] is True and verdict["score"] == 1.0
     assert verdict["details"]["move"] == "c3d5" and verdict["details"]["loss"] == 0.0
 
 
 def test_approves_a_weak_move_at_the_win_probability_it_gave_away(tmp_path: Path) -> None:
-    verdict = verifier.verify_task("play-move", ARGUMENTS, REFERENCE, workspace(tmp_path, ["a2a3"]))
+    verdict = verify_task(ARGUMENTS, REFERENCE, workspace(tmp_path, ["a2a3"]))
     assert verdict["valid"] is True
     assert verdict["score"] == pytest.approx(1.0 - (0.92 - 0.49))
     assert verdict["details"]["best"] == "c3d5"
@@ -39,12 +56,12 @@ def test_approves_a_weak_move_at_the_win_probability_it_gave_away(tmp_path: Path
 
 def test_approves_the_agents_move_when_the_engine_answered_it(tmp_path: Path) -> None:
     # The agent's move is the first; what follows is the opponent's and is not scored.
-    verdict = verifier.verify_task("play-move", ARGUMENTS, REFERENCE, workspace(tmp_path, ["c3d5", "f1e1"]))
+    verdict = verify_task(ARGUMENTS, REFERENCE, workspace(tmp_path, ["c3d5", "f1e1"]))
     assert verdict["valid"] is True and verdict["details"]["move"] == "c3d5"
 
 
 def test_refuses_a_task_with_no_board_record(tmp_path: Path) -> None:
-    verdict = verifier.verify_task("play-move", ARGUMENTS, REFERENCE, str(tmp_path))
+    verdict = verify_task(ARGUMENTS, REFERENCE, str(tmp_path))
     assert verdict["valid"] is False and verdict["score"] == 0.0
     assert "no board.json" in verdict["message"]
 
@@ -57,55 +74,56 @@ def test_refuses_a_task_with_no_board_record(tmp_path: Path) -> None:
     ],
 )
 def test_refuses_no_move_and_a_second_move_of_the_agents_own(tmp_path: Path, moves: list[str], message: str) -> None:
-    verdict = verifier.verify_task("play-move", ARGUMENTS, REFERENCE, workspace(tmp_path, moves))
+    verdict = verify_task(ARGUMENTS, REFERENCE, workspace(tmp_path, moves))
     assert verdict["valid"] is False and verdict["score"] == 0.0 and message in verdict["message"]
 
 
 def test_refuses_a_move_the_position_does_not_have(tmp_path: Path) -> None:
     moved = {"fen": FEN, "moves": ["e2e4"], "positions": [AFTER["c3d5"]]}
     (tmp_path / "board.json").write_text(json.dumps(moved))
-    verdict = verifier.verify_task("play-move", ARGUMENTS, REFERENCE, str(tmp_path))
+    verdict = verify_task(ARGUMENTS, REFERENCE, str(tmp_path))
     assert verdict["valid"] is False and verdict["score"] == 0.0
     assert "not a legal move" in verdict["message"] and verdict["details"]["legal"] == sorted(AFTER)
 
 
 def test_refuses_a_record_whose_position_is_not_the_one_the_move_leads_to(tmp_path: Path) -> None:
     where = workspace(tmp_path, ["c3d5"], positions=[AFTER["a2a3"]])
-    verdict = verifier.verify_task("play-move", ARGUMENTS, REFERENCE, where)
+    verdict = verify_task(ARGUMENTS, REFERENCE, where)
     assert verdict["valid"] is False and "is not the one c3d5 leads to" in verdict["message"]
 
 
 def test_refuses_a_game_played_from_another_position(tmp_path: Path) -> None:
     where = workspace(tmp_path, ["c3d5"], fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
-    verdict = verifier.verify_task("play-move", ARGUMENTS, REFERENCE, where)
+    verdict = verify_task(ARGUMENTS, REFERENCE, where)
     assert verdict["valid"] is False and "another position" in verdict["message"]
 
 
 def test_refuses_a_malformed_record(tmp_path: Path) -> None:
     (tmp_path / "board.json").write_text(json.dumps({"fen": FEN, "moves": ["c3d5"], "positions": []}))
-    verdict = verifier.verify_task("play-move", ARGUMENTS, REFERENCE, str(tmp_path))
+    verdict = verify_task(ARGUMENTS, REFERENCE, str(tmp_path))
     assert verdict["valid"] is False and "one position per move" in verdict["message"]
 
 
 def test_refuses_an_unknown_task_and_an_unknown_tool() -> None:
-    assert verifier.verify_task("other", ARGUMENTS, REFERENCE, ".")["valid"] is False
-    assert verifier.verify_input("other", {})["valid"] is False
+    with pytest.raises(ValueError, match="is not a valid Task"):
+        verifier.verify_task("other", build_output(ARGUMENTS, Position), build_output(REFERENCE, PinOutput), ".")
+    with pytest.raises(ValueError, match="is not a valid Tool"):
+        verifier.verify_input("other", build_output(ARGUMENTS, Position))
 
 
 def test_checks_each_tools_input(tmp_path: Path) -> None:
-    assert verifier.verify_input("pin_moves", ARGUMENTS)["valid"] is True
-    assert verifier.verify_input("pin_moves", {"fen": "not a position"})["valid"] is False
-    assert verifier.verify_input("screenshot", {})["valid"] is True
-    assert verifier.verify_input("screenshot", {"fen": FEN})["valid"] is False
-    assert verifier.verify_input("drag", {"from_xy": [1, 2], "to_xy": [3, 4]})["valid"] is True
-    assert verifier.verify_input("drag", {"from_xy": [1, 2], "to_xy": [1, 2]})["valid"] is False
-    assert verifier.verify_input("drag", {"from_xy": [1, -2], "to_xy": [3, 4]})["valid"] is False
-    assert verifier.verify_input("click", {"xy": [1, 2]})["valid"] is True
-    assert verifier.verify_input("click", {"xy": [1]})["valid"] is False
+    assert verify_input("pin_moves", ARGUMENTS)["valid"] is True
+    assert verify_input("pin_moves", {"fen": "not a position"})["valid"] is False
+    assert verify_input("screenshot", {})["valid"] is True
+    assert verify_input("drag", {"from_xy": [1, 2], "to_xy": [3, 4]})["valid"] is True
+    assert verify_input("drag", {"from_xy": [1, 2], "to_xy": [1, 2]})["valid"] is False
+    assert verify_input("drag", {"from_xy": [1, -2], "to_xy": [3, 4]})["valid"] is False
+    assert verify_input("click", {"xy": [1, 2]})["valid"] is True
+    assert verify_input("click", {"xy": [1]})["valid"] is False
 
 
 def test_checks_the_pinned_moves(tmp_path: Path) -> None:
-    good = verifier.verify_output("pin_moves", ARGUMENTS, REFERENCE, str(tmp_path))
+    good = verify_output("pin_moves", ARGUMENTS, REFERENCE, str(tmp_path))
     assert good["valid"] is True and good["details"]["best"] == "c3d5"
     for broken, problem in [
         ({"best": "f1e1"}, "highest win probability"),
@@ -113,25 +131,20 @@ def test_checks_the_pinned_moves(tmp_path: Path) -> None:
         ({"moves": []}, "no pinned move"),
         ({"fen": AFTER["c3d5"]}, "another position"),
         ({"moves": [{"move": "c3d5", "position": FEN, "win_prob": 0.9}]}, "same side to move"),
+        ({"moves": [{"move": "c3d5", "position": AFTER["c3d5"], "win_prob": 1.5}]}, "not between 0 and 1"),
     ]:
-        verdict = verifier.verify_output("pin_moves", ARGUMENTS, REFERENCE | broken, str(tmp_path))
+        verdict = verify_output("pin_moves", ARGUMENTS, REFERENCE | broken, str(tmp_path))
         assert verdict["valid"] is False and problem in verdict["message"]
 
 
 def test_checks_the_board_tools_output(tmp_path: Path) -> None:
-    shot = {"ok": True, "width": 676, "height": 676, "images": [{"media_type": "image/png", "data": "QQ=="}]}
+    shot = {"width": 676, "height": 676, "images": [{"media_type": "image/png", "data": "QQ=="}]}
     where = workspace(tmp_path, [])
-    assert verifier.verify_output("screenshot", {}, shot, where)["valid"] is True
-    assert verifier.verify_output("open_board", ARGUMENTS, shot, where)["valid"] is True
-    assert verifier.verify_output("open_board", {"fen": AFTER["c3d5"]}, shot, where)["valid"] is False
-    assert verifier.verify_output("screenshot", {}, shot | {"images": []}, where)["valid"] is False
-    assert verifier.verify_output("screenshot", {}, shot | {"width": 0}, where)["valid"] is False
-    assert verifier.verify_output("drag", {}, {"ok": True}, where)["valid"] is True
-    assert verifier.verify_output("drag", {}, {"ok": True}, str(tmp_path / "empty"))["valid"] is False
-    # A structured failure is the plugin saying what went wrong, not a verifier failure.
-    assert verifier.verify_output("click", {}, {"ok": False, "error": "no board"}, where) == {
-        "valid": True,
-        "score": 0.0,
-        "message": "plugin returned a structured failure",
-        "details": {},
-    }
+    assert verify_output("screenshot", {}, shot, where)["valid"] is True
+    assert verify_output("open_board", ARGUMENTS, shot, where)["valid"] is True
+    assert verify_output("open_board", {"fen": AFTER["c3d5"]}, shot, where)["valid"] is False
+    assert verify_output("screenshot", {}, shot | {"images": []}, where)["valid"] is False
+    assert verify_output("screenshot", {}, shot | {"width": 0}, where)["valid"] is False
+    drag = {"from_xy": [1, 2], "to_xy": [3, 4]}
+    assert verify_output("drag", drag, {}, where)["valid"] is True
+    assert verify_output("drag", drag, {}, str(tmp_path / "empty"))["valid"] is False

@@ -25,9 +25,9 @@ def fen_problem(fen):
 
 
 def point_problem(name, point):
-    if not isinstance(point, list) or len(point) != 2:
+    if len(point) != 2:
         return f"{name} must be [x, y]"
-    if any(not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0 for value in point):
+    if any(value < 0 for value in point):
         return f"{name} must be two pixel counts, neither negative"
     return None
 
