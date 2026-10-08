@@ -4,8 +4,10 @@ import json
 from pathlib import Path
 
 import pytest
+from slimconfig import build_output
 
 import verifier
+from contract import TOOLS, PinOutput, Tool, WeekInput
 
 AS_OF = "2026-10-02"
 ARGUMENTS = {"as_of": AS_OF}
@@ -16,7 +18,6 @@ def constituent(ticker: str, start_close: float, end_close: float) -> dict:
 
 
 REFERENCE = {
-    "ok": True,
     "as_of": AS_OF,
     "start": "2026-09-25",
     "listed_at": "Oct 6, 2026 3:08 PM",
@@ -30,10 +31,22 @@ REFERENCE = {
 }
 
 
+# The verifier gets contract instances, as NanoAgent's sandbox builds them from JSON.
+def verify_input(tool: str, value: dict) -> dict:
+    return verifier.verify_input(tool, build_output(value, TOOLS[Tool(tool)][0]))
+
+
+def verify_output(tool: str, value: dict, output: dict, workspace: Path) -> dict:
+    given, made = TOOLS[Tool(tool)]
+    return verifier.verify_output(tool, build_output(value, given), build_output(output, made), str(workspace))
+
+
 def verdict(tmp_path: Path, tickers, *, arguments=ARGUMENTS, reference=REFERENCE) -> dict:
     if tickers is not None:
         (tmp_path / "tickers.json").write_text(json.dumps({"tickers": tickers}))
-    return verifier.verify_task("nasdaq-down-5", arguments, reference, str(tmp_path))
+    return verifier.verify_task(
+        "nasdaq-down-5", build_output(arguments, WeekInput), build_output(reference, PinOutput), str(tmp_path)
+    )
 
 
 @pytest.mark.parametrize("tickers", [["ALNY", "KDP"], ["KDP", "ALNY"]])
@@ -86,16 +99,18 @@ def test_refuses_a_missing_malformed_or_mismatched_answer(
 
 
 def test_checks_tool_inputs_and_outputs(tmp_path: Path) -> None:
-    assert verifier.verify_input("get_closes", {"tickers": ["AAPL"] * 26, "date": AS_OF})["valid"] is False
-    assert verifier.verify_input("get_closes", {"tickers": ["AAPL"], "date": "10/02/2026"})["valid"] is False
-    assert verifier.verify_input("pin_week", ARGUMENTS)["valid"] is True
-    assert verifier.verify_output("pin_week", ARGUMENTS, REFERENCE, str(tmp_path))["valid"] is True
-    assert verifier.verify_output("pin_week", {"as_of": "2026-10-01"}, REFERENCE, str(tmp_path))["valid"] is False
-    closes = {"ok": True, "date": AS_OF, "closes": [{"ticker": "MSFT", "close": 1.0}]}
-    assert (
-        verifier.verify_output("get_closes", {"tickers": ["AAPL"], "date": AS_OF}, closes, str(tmp_path))["valid"]
-        is False
-    )
+    tickers = [f"T{index}" for index in range(26)]
+    assert verify_input("get_closes", {"tickers": tickers, "date": AS_OF})["valid"] is False
+    assert verify_input("get_closes", {"tickers": [], "date": AS_OF})["valid"] is False
+    assert verify_input("get_closes", {"tickers": ["AAPL", "AAPL"], "date": AS_OF})["valid"] is False
+    assert verify_input("get_closes", {"tickers": ["AAPL"], "date": "10/02/2026"})["valid"] is False
+    assert verify_input("submit_tickers", {"tickers": ["aapl"]})["valid"] is False
+    assert verify_input("pin_week", ARGUMENTS)["valid"] is True
+    assert verify_input("list_constituents", {"as_of": "Oct 2"})["valid"] is False
+    assert verify_output("pin_week", ARGUMENTS, REFERENCE, tmp_path)["valid"] is True
+    assert verify_output("pin_week", {"as_of": "2026-10-01"}, REFERENCE, tmp_path)["valid"] is False
+    closes = {"date": AS_OF, "closes": [{"ticker": "MSFT", "close": 1.0}]}
+    assert verify_output("get_closes", {"tickers": ["AAPL"], "date": AS_OF}, closes, tmp_path)["valid"] is False
     (tmp_path / "tickers.json").write_text(json.dumps({"tickers": ["AAPL"]}))
-    saved = {"ok": True, "path": str(tmp_path / "tickers.json"), "tickers": 1}
-    assert verifier.verify_output("submit_tickers", {"tickers": ["MSFT"]}, saved, str(tmp_path))["valid"] is False
+    saved = {"path": str(tmp_path / "tickers.json"), "tickers": 1}
+    assert verify_output("submit_tickers", {"tickers": ["MSFT"]}, saved, tmp_path)["valid"] is False

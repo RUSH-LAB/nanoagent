@@ -16,7 +16,7 @@ def result(valid, message, *, score=None, **details):
 
 
 def tickers_problem(tickers, *, most=None):
-    """What is wrong with a list of ticker symbols, or None."""
+    """What is wrong with a list of ticker symbols (a tool's input, or the answer file's), or None."""
     if not isinstance(tickers, list) or not all(
         isinstance(ticker, str) and TICKER.fullmatch(ticker) for ticker in tickers
     ):
@@ -30,11 +30,11 @@ def tickers_problem(tickers, *, most=None):
 
 def week_problem(input_value, output_value):
     """What is wrong with a week's `as_of`, `start` and constituents, or None."""
-    if output_value.get("as_of") != input_value["as_of"]:
+    if output_value.as_of != input_value.as_of:
         return "the week ends on another day"
-    if not DATE.fullmatch(output_value.get("start", "")) or not output_value["start"] < input_value["as_of"]:
+    if not DATE.fullmatch(output_value.start) or not output_value.start < input_value.as_of:
         return "the week's start is not a date before as_of"
-    tickers = [row["ticker"] for row in output_value.get("constituents", [])]
+    tickers = [row.ticker for row in output_value.constituents]
     if not tickers or len(set(tickers)) != len(tickers):
         return "the constituents are empty or list a ticker twice"
     return None

@@ -1,40 +1,37 @@
-spec: nanoagent.plugin/v1
+_ > nanoagent.plugin.manifest.ManifestConfig:
 id: nasdaq-drawdown
 name: Nasdaq-100 Weekly Drawdown
 version: 0.1.0
 group: Finance
-status: in-development
-runtime:
+status: ready
+
+runtime > nanoagent.plugin.manifest.RuntimeConfig:
   type: mcp_stdio
   command: [uv, run, --frozen, python, -m, plugin]
-permissions:
-  network:
+
+permissions > nanoagent.plugin.manifest.PermissionsConfig:
+  network > nanoagent.plugin.manifest.NetworkConfig:
     hosts: [api.nasdaq.com]
-  filesystem:
+  filesystem > nanoagent.plugin.manifest.FilesystemConfig:
     write: [workspace]
-tools:
-  - name: pin_week
+
+# One entry per contract.Tool; its input and output classes are contract.TOOLS's.
+tools > dict[contract.Tool, nanoagent.plugin.manifest.ToolConfig]:
+  pin_week:
     description: Pin every Nasdaq-100 constituent's close on a session and 5 sessions earlier
-    input: schemas/pin-input.json
-    output: schemas/pin-output.json
-  - name: list_constituents
+  list_constituents:
     description: List the Nasdaq-100 constituents and the 5-session week ending on a date
-    input: schemas/constituents-input.json
-    output: schemas/constituents-output.json
-  - name: get_closes
+  get_closes:
     description: Get each ticker's daily close on a trading session
-    input: schemas/closes-input.json
-    output: schemas/closes-output.json
-  - name: submit_tickers
+  submit_tickers:
     description: Submit the tickers that fell at least 5% over the week, written to tickers.json
-    input: schemas/submit-input.json
-    output: schemas/submit-output.json
-tasks:
-  - id: nasdaq-down-5
+
+# One entry per contract.Task; its input class is contract.TASKS's.
+tasks > dict[contract.Task, nanoagent.plugin.manifest.TaskConfig]:
+  nasdaq-down-5:
     description: List the Nasdaq-100 constituents that fell by at least 5% over the week ending on a date
     runner: agent
     tools: [list_constituents, get_closes, submit_tickers]
-    input: schemas/pin-input.json
     reference: pin_week
     instructions: |-
       The week is the 5 trading sessions ending on as_of: each constituent's change is its close on as_of over its close on the session 5 sessions earlier, minus 1. It fell by at least 5% when that change is -5% or lower.

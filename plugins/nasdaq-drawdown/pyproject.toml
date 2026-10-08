@@ -7,7 +7,7 @@ name = "nanoagent-nasdaq-drawdown"
 version = "0.1.0"
 description = "The Nasdaq-100 constituents that fell at least 5% over a week, from Nasdaq's API"
 requires-python = ">=3.12"
-dependencies = ["mcp>=1.27,<2"]
+dependencies = ["mcp>=1.27,<2", "slimconfig"]
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
@@ -15,9 +15,12 @@ dev = ["pytest", "ruff"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.uv.sources]
+slimconfig = { git = "https://github.com/zeyuyang8/slimconfig", branch = "master" }
+
 [tool.ruff]
 line-length = 120
 
 [tool.pytest.ini_options]
-# tests/ import the verifier package from the plugin root.
+# tests/ import contract.py and the verifier package from the plugin root.
 pythonpath = ["."]

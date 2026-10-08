@@ -64,7 +64,8 @@ missing, extra and non-constituent tickers.
 
 ```text
 .
-├── nanoagent.yaml   # manifest: id, runtime, permissions, tools, tasks
+├── nanoagent.yaml   # manifest (a slimconfig ManifestConfig): id, runtime, permissions, tools, tasks
+├── contract.py      # each tool's and task's typed input and output: slimconfig Output classes
 ├── README.md
 ├── LICENSE
 ├── pyproject.toml
@@ -72,11 +73,16 @@ missing, extra and non-constituent tickers.
 ├── .gitignore
 ├── .env             # environment variable NAMEs this plugin needs (none here)
 ├── run.sh           # exits 0 when this environment can run the plugin
-├── schemas/         # <tool>-input.json / <tool>-output.json, one pair per tool
 ├── src/plugin/      # the MCP server (__main__.py, its TOOLS table), the Nasdaq client and the tools
 ├── tests/
 └── verifier/        # deterministic verifier package, one module per tool
 ```
+
+`contract.py` types every value: the server builds each call's input into its
+class and checks its output against its own, and NanoAgent and the verifier
+get the same classes. `verifier/` imports only the standard library and
+`contract`. Its input checks hold what a type cannot: dates are YYYY-MM-DD,
+tickers are distinct Nasdaq symbols, and `get_closes` takes 1 to 25 of them.
 
 ## Develop and run
 

@@ -12,7 +12,7 @@ KEPT = Decimal("0.95")
 
 
 def verify_input(value):
-    if not isinstance(value.get("as_of"), str) or not DATE.fullmatch(value["as_of"]):
+    if not DATE.fullmatch(value.as_of):
         return result(False, "as_of must be YYYY-MM-DD")
     return result(True, "input is valid")
 
@@ -21,18 +21,18 @@ def verify_output(input_value, output_value, workspace):
     problem = week_problem(input_value, output_value)
     if problem:
         return result(False, problem)
-    for row in output_value["constituents"]:
-        if not row["start_close"] > 0 or not row["end_close"] > 0:
-            return result(False, f"{row['ticker']} has a close that is not positive")
-    return result(True, "the week is pinned", constituents=len(output_value["constituents"]))
+    for row in output_value.constituents:
+        if not row.start_close > 0 or not row.end_close > 0:
+            return result(False, f"{row.ticker} has a close that is not positive")
+    return result(True, "the week is pinned", constituents=len(output_value.constituents))
 
 
 def _week(reference):
     """Each pinned constituent: whether it fell by at least 5%, and its change in percent, to the cent."""
     found = {}
-    for row in reference["constituents"]:
-        start, end = Decimal(str(row["start_close"])), Decimal(str(row["end_close"]))
-        found[row["ticker"]] = (end <= start * KEPT, float(((end / start - 1) * 100).quantize(Decimal("0.01"))))
+    for row in reference.constituents:
+        start, end = Decimal(str(row.start_close)), Decimal(str(row.end_close))
+        found[row.ticker] = (end <= start * KEPT, float(((end / start - 1) * 100).quantize(Decimal("0.01"))))
     return found
 
 
@@ -42,7 +42,7 @@ def verify_task(arguments, reference, workspace):
     week = _week(reference)
     expected = {ticker for ticker, (fell, _) in week.items() if fell}
     report = {"expected": {ticker: week[ticker][1] for ticker in sorted(expected)}}
-    if reference["as_of"] != arguments["as_of"]:
+    if reference.as_of != arguments.as_of:
         return result(False, "the pinned week ends on another day", score=0.0, **report)
     path = Path(workspace) / ANSWER
     if not path.is_file():
