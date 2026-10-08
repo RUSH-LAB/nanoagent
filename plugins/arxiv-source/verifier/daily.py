@@ -12,40 +12,42 @@ NEW_ID = re.compile(r"^\d{4}\.\d{5}$")
 
 
 def verify_input(value):
-    people = value.get("people")
-    if not isinstance(people, list) or not people or len(set(people)) != len(people):
-        return result(False, "people must be a non-empty list of distinct names")
-    if not isinstance(value.get("date"), str) or not DATE.fullmatch(value["date"]):
+    people = value.people
+    if not people or len(set(people)) != len(people) or not all(person.strip() for person in people):
+        return result(False, "people must be a non-empty list of distinct, non-blank names")
+    if not DATE.fullmatch(value.date):
         return result(False, "date must be YYYY-MM-DD")
     return result(True, "input is valid")
 
 
 def verify_output(input_value, output_value, workspace):
-    if output_value.get("date") != input_value["date"]:
+    if output_value.date != input_value.date:
         return result(False, "listing is for another date")
-    if [person["name"] for person in output_value.get("people", [])] != input_value["people"]:
+    if [person.name for person in output_value.people] != input_value.people:
         return result(False, "listing does not cover exactly the requested people, in order")
-    for person in output_value["people"]:
-        for paper in person["papers"]:
-            if not NEW_ID.fullmatch(paper["arxiv_id"]) or not paper["published"].startswith(input_value["date"]):
-                return result(False, f"{paper['arxiv_id']} is not a YYMM.NNNNN paper first submitted on the date")
+    for person in output_value.people:
+        for paper in person.papers:
+            if not NEW_ID.fullmatch(paper.arxiv_id) or not paper.published.startswith(input_value.date):
+                return result(False, f"{paper.arxiv_id} is not a YYMM.NNNNN paper first submitted on the date")
     return result(True, "listing is well formed")
 
 
 def _expected(reference):
-    """Every paper the pinned listing shows, by id (a paper by several people appears once)."""
+    """Every paper the pinned listing (a contract DailyOutput) shows, by id (a paper by several
+    people appears once)."""
     papers = {}
-    for person in reference["people"]:
-        for paper in person["papers"]:
-            papers[paper["arxiv_id"]] = paper
+    for person in reference.people:
+        for paper in person.papers:
+            papers[paper.arxiv_id] = paper
     return papers
 
 
 def _entry_problems(entry, record, link):
+    """``entry``: a digest entry as the digest file holds it; ``record``: a contract DailyPaper."""
     problems = []
-    if entry.get("title") != record["title"]:
+    if entry.get("title") != record.title:
         problems.append("title differs from the arXiv record")
-    if entry.get("authors") != record["authors"]:
+    if entry.get("authors") != record.authors:
         problems.append("authors differ from the arXiv record")
     lines = entry.get("summary", "").split("\n") if isinstance(entry.get("summary"), str) else []
     if len(lines) != 2 or not all(line.strip() for line in lines):
@@ -58,7 +60,7 @@ def _entry_problems(entry, record, link):
 def verify_task(arguments, reference, workspace):
     """Approve the digest only when every paper the pinned arXiv listing shows for the monitored
     people on the date is an exact entry and has its source saved under docs/raw/."""
-    date = arguments["date"]
+    date = arguments.date
     expected = _expected(reference)
     path = Path(workspace) / "docs" / f"digest-{date}.json"
     if not path.is_file():
@@ -85,7 +87,7 @@ def verify_task(arguments, reference, workspace):
     for paper, record in expected.items():
         if paper not in listed:
             problems.setdefault(paper, []).append("published but missing from the digest")
-        folder = Path(workspace) / "docs" / "raw" / raw_folder_name(record["title"], record["authors"], paper, date)
+        folder = Path(workspace) / "docs" / "raw" / raw_folder_name(record.title, record.authors, paper, date)
         if not folder.is_dir() or not any(child.is_file() for child in folder.rglob("*")):
             problems.setdefault(paper, []).append(f"no saved source in docs/raw/{folder.name}")
 

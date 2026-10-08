@@ -3,8 +3,7 @@ _ > nanoagent.cli.plugin.PluginRunConfig:
 # The built-in arXiv source plugin.
 plugin: plugins/arxiv-source
 task: search-papers
-arguments:
-  - query=ti:"attention is all you need"
-  - max_results=5
+# The task's input, a contract.SearchInput as JSON.
+arguments: examples/arxiv_source/configs/step2_search_papers_arguments.json
 inputs: []
 timeout: 300.0

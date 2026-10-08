@@ -8,6 +8,8 @@ import urllib.request
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
+from contract import DownloadInput, DownloadOutput
+
 ARXIV_ID = re.compile(r"^(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?/\d{7})(?:v\d+)?$", re.IGNORECASE)
 MAX_DOWNLOAD = 100 * 1024 * 1024
 MAX_EXTRACTED = 500 * 1024 * 1024
@@ -84,17 +86,11 @@ def unpack_source(data: bytes, destination: Path) -> list[str]:
         return ["main.tex"]
 
 
-def download_source(
-    arxiv_id: str,
-    destination: str,
-    *,
-    workspace: Path,
-    opener=urllib.request.urlopen,
-) -> dict:
-    paper = str(arxiv_id).strip()
+def download_source(given: DownloadInput, workspace: Path, *, opener=urllib.request.urlopen) -> DownloadOutput:
+    paper = given.arxiv_id.strip()
     if not ARXIV_ID.fullmatch(paper):
         raise ValueError("invalid arXiv id")
-    folder = resolve_destination(workspace, destination)
+    folder = resolve_destination(workspace, given.destination)
     folder.mkdir(parents=True, exist_ok=False)
     url = f"https://export.arxiv.org/e-print/{paper}"
     try:
@@ -105,4 +101,4 @@ def download_source(
         if folder.exists() and not any(folder.iterdir()):
             folder.rmdir()
         raise
-    return {"ok": True, "arxiv_id": paper, "source_url": url, "folder": str(folder), "files": files}
+    return DownloadOutput(arxiv_id=paper, source_url=url, folder=str(folder), files=files)

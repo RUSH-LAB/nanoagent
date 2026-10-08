@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from fakes import Response, tar_bytes
 
+from contract import DownloadInput
 from plugin.download import download_source, unpack_source
 
 
@@ -32,23 +33,21 @@ def test_rejects_path_traversal(tmp_path: Path) -> None:
 
 def test_downloads_from_arxiv_eprint_endpoint(tmp_path: Path) -> None:
     result = download_source(
-        "1706.03762v7",
-        "attention",
+        DownloadInput(arxiv_id="1706.03762v7", destination="attention"),
+        tmp_path,
         opener=lambda request: Response(tar_bytes({"main.tex": b"attention"})),
-        workspace=tmp_path,
     )
-    assert result["ok"] is True
-    assert result["source_url"].endswith("/1706.03762v7")
-    assert result["files"] == ["main.tex"]
+    assert result.source_url.endswith("/1706.03762v7")
+    assert result.files == ["main.tex"]
 
 
 def test_rejects_invalid_id_and_existing_destination(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="invalid"):
-        download_source("../../secret", "bad", workspace=tmp_path)
+        download_source(DownloadInput(arxiv_id="../../secret", destination="bad"), tmp_path)
     existing = tmp_path / "existing"
     existing.mkdir()
     with pytest.raises(FileExistsError):
-        download_source("1706.03762", "existing", workspace=tmp_path)
+        download_source(DownloadInput(arxiv_id="1706.03762", destination="existing"), tmp_path)
 
     with pytest.raises(ValueError, match="workspace"):
-        download_source("1706.03762", "../outside", workspace=tmp_path)
+        download_source(DownloadInput(arxiv_id="1706.03762", destination="../outside"), tmp_path)

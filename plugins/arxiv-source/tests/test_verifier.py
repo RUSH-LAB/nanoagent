@@ -4,10 +4,12 @@ import json
 from pathlib import Path
 
 import pytest
+from slimconfig import build_output
 
 import plugin.naming
 import verifier
 import verifier.naming
+from contract import TOOLS, DailyInput, DailyOutput, Tool
 
 DATE = "2026-09-09"
 PAPER = {
@@ -17,8 +19,19 @@ PAPER = {
     "published": "2026-09-09T06:36:05Z",
     "abs_url": "http://arxiv.org/abs/2609.10630v1",
 }
-REFERENCE = {"ok": True, "date": DATE, "people": [{"name": "Yoshua Bengio", "papers": [PAPER]}]}
+REFERENCE = {"date": DATE, "people": [{"name": "Yoshua Bengio", "papers": [PAPER]}]}
 ARGUMENTS = {"people": ["Yoshua Bengio"], "date": DATE}
+
+
+# The verifier gets contract instances, as NanoAgent's sandbox builds them from JSON.
+def verify_input(tool: str, value: dict) -> dict:
+    return verifier.verify_input(tool, build_output(value, TOOLS[Tool(tool)][0]))
+
+
+def verify_task(arguments: dict, reference: dict, workspace: Path) -> dict:
+    return verifier.verify_task(
+        "daily-digest", build_output(arguments, DailyInput), build_output(reference, DailyOutput), str(workspace)
+    )
 
 
 def entry(**changes):
@@ -49,7 +62,7 @@ def test_the_verifier_and_the_plugin_name_folders_alike() -> None:
 
 
 def test_approves_a_complete_digest(tmp_path: Path) -> None:
-    verdict = verifier.verify_task("daily-digest", ARGUMENTS, REFERENCE, str(workspace(tmp_path, [entry()])))
+    verdict = verify_task(ARGUMENTS, REFERENCE, workspace(tmp_path, [entry()]))
     assert verdict["valid"] is True and verdict["score"] == 1.0
 
 
@@ -65,6 +78,17 @@ def test_approves_a_complete_digest(tmp_path: Path) -> None:
     ],
 )
 def test_refuses_an_incomplete_or_wrong_digest(tmp_path: Path, entries: list[dict], saved: bool, problem: str) -> None:
-    verdict = verifier.verify_task("daily-digest", ARGUMENTS, REFERENCE, str(workspace(tmp_path, entries, saved=saved)))
+    verdict = verify_task(ARGUMENTS, REFERENCE, workspace(tmp_path, entries, saved=saved))
     assert verdict["valid"] is False
     assert any(problem in found for found_list in verdict["details"]["problems"].values() for found in found_list)
+
+
+def test_checks_what_the_types_cannot_say() -> None:
+    assert verify_input("list_daily_papers", ARGUMENTS)["valid"] is True
+    assert verify_input("list_daily_papers", ARGUMENTS | {"people": ["Yoshua Bengio", " "]})["valid"] is False
+    assert verify_input("list_daily_papers", ARGUMENTS | {"date": "9 Sep 2026"})["valid"] is False
+    assert verify_input("write_digest", {"date": DATE, "entries": [entry()]})["valid"] is True
+    assert verify_input("write_digest", {"date": DATE, "entries": [entry(arxiv_id="2609.10630v1")]})["valid"] is False
+    assert verify_input("search_papers", {"query": "ti:x", "max_results": 51})["valid"] is False
+    blank = {"query": " ", "max_results": 1, "destination": "papers"}
+    assert verify_input("save_search_results", blank)["valid"] is False

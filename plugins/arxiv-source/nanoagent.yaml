@@ -1,76 +1,65 @@
-spec: nanoagent.plugin/v1
+_ > nanoagent.plugin.manifest.ManifestConfig:
 id: arxiv-source
 name: arXiv Search and Source Downloader
 version: 0.3.0
 group: Research
 status: ready
-runtime:
+
+runtime > nanoagent.plugin.manifest.RuntimeConfig:
   type: mcp_stdio
   command: [uv, run, --frozen, python, -m, plugin]
-permissions:
-  network:
+
+permissions > nanoagent.plugin.manifest.PermissionsConfig:
+  network > nanoagent.plugin.manifest.NetworkConfig:
     hosts: [export.arxiv.org]
-  filesystem:
+  filesystem > nanoagent.plugin.manifest.FilesystemConfig:
     write: [workspace]
-tools:
-  - name: search_papers
+
+# One entry per contract.Tool; its input and output classes are contract.TOOLS's.
+tools > dict[contract.Tool, nanoagent.plugin.manifest.ToolConfig]:
+  search_papers:
     description: Search arXiv and return the matching papers' metadata
-    input: schemas/search-input.json
-    output: schemas/search-output.json
-  - name: download_source
+  download_source:
     description: Download and safely unpack an arXiv paper source archive
-    input: schemas/download-input.json
-    output: schemas/download-output.json
-  - name: save_search_results
+  save_search_results:
     description: Search arXiv, then download and unpack every result's source archive
-    input: schemas/save-input.json
-    output: schemas/save-output.json
-  - name: list_daily_papers
+  list_daily_papers:
     description: List the papers arXiv shows for each person, first submitted on a date
-    input: schemas/daily-input.json
-    output: schemas/daily-output.json
-  - name: save_raw_paper
+  save_raw_paper:
     description: Save a paper's source under docs/raw/{first_author_name}-{paper_short_name}-{arxiv_id}-{date}
-    input: schemas/raw-input.json
-    output: schemas/raw-output.json
-  - name: write_digest
+  write_digest:
     description: Write the daily digest as docs/digest-{date}.json and .md
-    input: schemas/digest-input.json
-    output: schemas/digest-output.json
-tasks:
-  - id: search-papers
+
+# One entry per contract.Task; its input class is contract.TASKS's.
+tasks > dict[contract.Task, nanoagent.plugin.manifest.TaskConfig]:
+  search-papers:
     description: Find arXiv papers matching a query
     runner: tool
     tools: [search_papers]
-    input: schemas/search-input.json
     reference: null
     instructions: Search arXiv with the query and return the matching papers, best match first.
-  - id: save-paper-source
+  save-paper-source:
     description: Save an arXiv paper source archive into a folder
     runner: tool
     tools: [download_source]
-    input: schemas/download-input.json
     reference: null
     instructions: Validate the arXiv ID, download its source, unpack it safely, and return the saved files.
-  - id: save-search-results
+  save-search-results:
     description: Search arXiv and save the source of every matching paper
     runner: tool
     tools: [save_search_results]
-    input: schemas/save-input.json
     reference: null
     instructions: Search arXiv with the query, then download and unpack each result's source into its own folder.
-  - id: find-and-save-paper
+  find-and-save-paper:
     description: Find the paper a request describes and save its source
     runner: agent
     tools: [search_papers, download_source]
-    input: schemas/search-input.json
     reference: null
     instructions: Search arXiv for the requested paper, pick the result that matches the request, then download and unpack its source.
-  - id: daily-digest
+  daily-digest:
     description: Write a digest of the monitored people's new arXiv papers for a date, saving each paper's source
     runner: agent
     tools: [search_papers, save_raw_paper, write_digest]
-    input: schemas/daily-input.json
     reference: list_daily_papers
     instructions: |-
       For each person, call search_papers with the query au:"<full name>" AND submittedDate:[YYYYMMDD0000 TO YYYYMMDD2359] for the date (max_results 50); these are the papers first submitted that day. A paper by several monitored people is one paper.

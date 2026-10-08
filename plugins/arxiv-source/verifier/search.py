@@ -11,9 +11,9 @@ def verify_input(value):
 
 
 def verify_output(input_value, output_value, workspace):
-    if output_value.get("query") != input_value["query"].strip():
+    if output_value.query != input_value.query.strip():
         return result(False, "output query differs from the requested query")
-    problem = papers_problem(output_value.get("papers", []), input_value)
+    problem = papers_problem(output_value.papers, input_value)
     if problem:
         return result(False, problem)
-    return result(True, "search results are well formed", papers=len(output_value["papers"]))
+    return result(True, "search results are well formed", papers=len(output_value.papers))

@@ -3,7 +3,7 @@
 NanoAgent's built-in reference plugin: the `nanoagent.plugin/v1` contract,
 and the structure `nanoagent plugin new` gives every new plugin. The
 plugin is a standard MCP server over stdio; NanoAgent owns its launch command,
-environment, schema validation and lifecycle.
+environment, input and output checks and lifecycle.
 
 ## Tools
 
@@ -47,7 +47,8 @@ It has the standard plugin layout, which NanoAgent requires:
 
 ```text
 .
-├── nanoagent.yaml   # manifest
+├── nanoagent.yaml   # manifest (a slimconfig ManifestConfig): id, runtime, permissions, tools, tasks
+├── contract.py      # each tool's and task's typed input and output: slimconfig Output classes
 ├── README.md
 ├── LICENSE
 ├── pyproject.toml
@@ -55,14 +56,19 @@ It has the standard plugin layout, which NanoAgent requires:
 ├── .gitignore
 ├── .env             # needed environment variable names (none here)
 ├── run.sh           # checks this environment can run the plugin
-├── schemas/         # <tool>-input.json / <tool>-output.json
-├── src/plugin/      # the MCP server and its tools
+├── src/plugin/      # the MCP server (__main__.py, its IMPLEMENTATIONS table) and the tools
 ├── tests/
 └── verifier/        # deterministic verifier package, one module per tool
 ```
 
-`verifier/` is deterministic: it imports only `re` and `pathlib`, and checks
-inputs (arXiv ids, queries, result counts, destinations) and outputs. For
+`contract.py` types every value: the server builds each call's input into its
+class and checks its output against its own, and NanoAgent and the verifier
+get the same classes. A failing tool raises, and the MCP server returns an
+error result.
+
+`verifier/` is deterministic: it imports only the standard library and
+`contract`, and checks what the types cannot say about inputs (arXiv ids,
+dates, people, queries, result counts, destinations) and outputs. For
 outputs it checks that the papers are well formed and unique and within
 `max_results`, that every folder is the requested one inside the workspace,
 and that its files are exactly the declared ones.
