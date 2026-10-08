@@ -8,6 +8,7 @@ import {
   nanoagentPluginsFrom,
   nanoagentProjectFrom,
   nanoagentWebArgs,
+  npmInstallProblems,
   portIsAvailable,
   usesLocalNanoAgent,
   waitForNanoAgent,
@@ -90,5 +91,32 @@ describe('local process supervisor configuration', () => {
     fs.mkdirSync(path.join(project, 'plugins', 'arxiv-source'), {recursive: true});
     fs.writeFileSync(path.join(project, 'plugins', 'arxiv-source', 'nanoagent.yaml'), '');
     assert.deepEqual(nanoagentPluginsFrom({NANOAGENT_PROJECT_DIR: project}), [path.join(project, 'plugins', 'arxiv-source')]);
+  });
+
+  it('names every way node_modules differs from the lockfile', () => {
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-npm-'));
+    const write = (file, value) => {
+      fs.mkdirSync(path.dirname(path.join(project, file)), {recursive: true});
+      fs.writeFileSync(path.join(project, file), JSON.stringify(value));
+    };
+    assert.deepEqual(npmInstallProblems(project), ['node_modules is not installed']);
+
+    write('package.json', {dependencies: {a: '^1.0.0', b: '^2.0.0'}});
+    write('package-lock.json', {packages: {
+      '': {dependencies: {a: '^1.0.0'}},
+      'node_modules/a': {version: '1.1.0'},
+      'node_modules/c': {version: '3.0.0'},
+      'node_modules/skipped': {version: '1.0.0', optional: true},
+    }});
+    write('node_modules/.package-lock.json', {packages: {
+      'node_modules/a': {version: '1.0.0'},
+      'node_modules/d': {version: '4.0.0'},
+    }});
+    assert.deepEqual(npmInstallProblems(project), [
+      'package-lock.json is out of date for b',
+      'node_modules/a is 1.0.0, the lockfile has 1.1.0',
+      'node_modules/c is not installed',
+      'node_modules/d is installed but not in the lockfile',
+    ]);
   });
 });

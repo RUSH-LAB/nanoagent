@@ -119,8 +119,14 @@ export default function NavbarContent(): ReactNode {
   const blogCollection = currentCollection?.type === 'blog'
     ? currentCollection
     : collections.find(collection => collection.type === 'blog');
-  const configuredItems: NavbarItemConfig[] = hasConcreteWorkspace
-    ? [
+  // A workspace's items all come from its site, and appear together once it
+  // is known (from this tab's cache, the browser's memory, or one read); none
+  // is drawn from the URL alone ahead of the rest.
+  const configuredItems: NavbarItemConfig[] = !hasConcreteWorkspace
+    ? items
+    : !workspaceSite
+      ? []
+      : [
         bookCollection && {
           label: 'Book',
           to: workspaceDocumentHref(bookCollection.landingPath || bookCollection.pathPrefix, workspaceSlug, ''),
@@ -135,8 +141,7 @@ export default function NavbarContent(): ReactNode {
         },
         appsItem(workspaceSlug),
         workspaceItem(workspaceSlug),
-      ].filter((item): item is NavbarItemConfig => Boolean(item))
-    : items;
+      ].filter((item): item is NavbarItemConfig => Boolean(item));
   // Content links in the config are deliberately workspace-neutral so the
   // static build can render them. Once a workspace is present in the URL,
   // keep it in every navbar destination instead of falling back to the user's

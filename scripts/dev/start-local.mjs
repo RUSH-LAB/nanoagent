@@ -132,6 +132,60 @@ function run(command, args, options) {
   });
 }
 
+const MANIFEST_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
+
+/**
+ * How an npm checkout's installed packages differ from what it declares: package.json against
+ * package-lock.json, and package-lock.json against the copy npm writes into node_modules on every
+ * install. Empty when they agree. A lockfile package that is optional and absent was skipped for
+ * this platform, not forgotten.
+ */
+export function npmInstallProblems(projectRoot) {
+  const read = file => JSON.parse(fs.readFileSync(path.join(projectRoot, file), 'utf8'));
+  const installedFile = path.join(projectRoot, 'node_modules', '.package-lock.json');
+  if (!fs.existsSync(installedFile)) return ['node_modules is not installed'];
+  const manifest = read('package.json');
+  const lock = read('package-lock.json');
+  const installed = read('node_modules/.package-lock.json').packages;
+  const problems = [];
+  for (const field of MANIFEST_FIELDS) {
+    const declared = manifest[field] ?? {};
+    const locked = lock.packages[''][field] ?? {};
+    for (const name of new Set([...Object.keys(declared), ...Object.keys(locked)])) {
+      if (declared[name] !== locked[name]) problems.push(`package-lock.json is out of date for ${name}`);
+    }
+  }
+  for (const [key, entry] of Object.entries(lock.packages)) {
+    if (!key) continue;
+    const present = installed[key];
+    if (!present && !entry.optional) problems.push(`${key} is not installed`);
+    else if (present && present.version !== entry.version) {
+      problems.push(`${key} is ${present.version}, the lockfile has ${entry.version}`);
+    }
+  }
+  for (const key of Object.keys(installed)) {
+    if (!lock.packages[key]) problems.push(`${key} is installed but not in the lockfile`);
+  }
+  return problems;
+}
+
+/**
+ * Startup stops, before any service runs, when Mochi's node_modules or NanoAgent's .venv differ
+ * from their lockfiles, naming the command that brings them up to date. Nothing is installed here.
+ */
+async function checkDependencies(env, nanoagentRoot) {
+  const problems = npmInstallProblems(root);
+  if (problems.length) {
+    throw new Error(`Mochi's node_modules does not match its lockfile; run npm install:\n  ${problems.join('\n  ')}`);
+  }
+  if (!usesLocalNanoAgent(env)) return;
+  try {
+    await run('uv', ['sync', '--locked', '--check', '--inexact', '--extra', 'web'], {cwd: nanoagentRoot, env, stdio: 'inherit'});
+  } catch {
+    throw new Error(`NanoAgent's .venv does not match its uv.lock (above); run uv sync --inexact --extra web in ${nanoagentRoot}`);
+  }
+}
+
 async function preparePiRunner(env, nanoagentRoot) {
   const piRunnerRoot = path.join(nanoagentRoot, 'js', 'pi-runner');
   const piRunnerEntry = path.join(piRunnerRoot, 'dist', 'index.js');
@@ -178,6 +232,7 @@ export async function startLocal(argv = process.argv.slice(2)) {
   if (usesLocalNanoAgent(env) && !env.OPENROUTER_API_KEY?.trim()) {
     throw new Error('Local NanoAgent requires OPENROUTER_API_KEY. Add it to .env, then run npm start again.');
   }
+  await checkDependencies(env, nanoagentRoot);
   if (usesLocalNanoAgent(env)) await preparePiRunner(env, nanoagentRoot);
   const apiPort = validatedPort(env.EDITOR_PORT, 'EDITOR_PORT');
   const sitePort = validatedPort(env.SITE_PORT || 3000, 'SITE_PORT');

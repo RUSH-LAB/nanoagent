@@ -12,7 +12,7 @@ const METHOD_COLORS = {
 };
 
 const GLOBAL_API_PATHS = new Set([
-  '/api/health', '/api/workspaces', '/api/preferences', '/api/users',
+  '/api/health', '/api/workspaces', '/api/workspace-site', '/api/preferences', '/api/users',
   '/api/users/me', '/api/logs', '/api/perf', '/api/debug/memory',
   '/api/debug/routes',
 ]);
@@ -168,6 +168,11 @@ const CATEGORIES = [
     icon: '📄',
     description: 'Workspace-scoped Markdown document operations backed by the database.',
     endpoints: [
+      {
+        method: 'GET', path: '/api/workspace-site', description: 'One workspace you belong to and its site settings, by slug, in a single read. The navbar draws a workspace from this.',
+        request: '?slug=mochi',
+        response: '{ "workspace": { "id": "...", "slug": "mochi", "name": "Mochi", "role": "owner" }, "site": { "navigation": [], "collections": [] } }',
+      },
       {
         method: 'GET', path: '/api/workspaces/:id/documents/tree', description: 'List workspace documents from database rows.',
         request: 'Query: ?prefix=docs&include=metadata (both optional)',
@@ -374,8 +379,8 @@ const CATEGORIES = [
         response: '{ "defaultProfile": "native-deepseek", "profiles": [{ "id": "native-deepseek", "label": "DeepSeek V4 Flash · NanoAgent", "harness": "native", "model": "deepseek/deepseek-v4-flash-0731", "available": true }] }',
       },
       {
-        method: 'GET', path: '/api/agent-files', description: 'List the files in your private agent workspace: what the apps you ran saved for you.',
-        response: '{ "files": [{ "path": "attention/ms.tex", "size": 1234, "modified": 1759680000.0 }], "truncated": false }',
+        method: 'GET', path: '/api/agent-files', description: 'List the files and folders in your private agent workspace: what the apps you ran saved for you, and what you made.',
+        response: '{ "files": [{ "path": "attention/ms.tex", "size": 1234, "modified": 1759680000.0 }], "folders": ["attention"], "truncated": false }',
       },
       {
         method: 'GET', path: '/api/agent-files/content', description: 'Open one file from your agent workspace. Images and PDFs are shown as themselves, other text as plain text, anything else is downloaded.',
@@ -388,8 +393,37 @@ const CATEGORIES = [
         response: '{ "deleted": true }',
       },
       {
+        method: 'PUT', path: '/api/agent-files/content', description: 'Save a file in your agent workspace, making its folders. With create=1 it refuses to replace an existing file (409). Owners and editors only.',
+        request: '?path=notes/idea.md[&create=1]\n\n(raw file contents)',
+        response: '{ "path": "notes/idea.md", "size": 120, "modified": 1759680000.0 }',
+      },
+      {
+        method: 'POST', path: '/api/agent-files/folder', description: 'Create a folder, and any above it, in your agent workspace. Owners and editors only.',
+        request: '?path=papers/drafts',
+        response: '{ "created": true }',
+      },
+      {
+        method: 'DELETE', path: '/api/agent-files/folder', description: 'Delete a folder and everything in it from your agent workspace. Owners and editors only.',
+        request: '?path=papers/drafts',
+        response: '{ "deleted": true }',
+      },
+      {
+        method: 'POST', path: '/api/agent-files/move', description: 'Rename or move a file or folder in your agent workspace; nothing may already be at the target (409). Owners and editors only.',
+        request: '{ "from": "notes/idea.md", "to": "papers/idea.md" }',
+        response: '{ "moved": true }',
+      },
+      {
         method: 'GET', path: '/api/apps', description: 'List the apps (NanoAgent plugin packages) the private NanoAgent service publishes, with README, tasks, tool schemas and permissions.',
         response: '{ "apps": [{ "id": "arxiv-source", "name": "arXiv Source Downloader", "version": "0.1.0", "permissions": { "network": { "hosts": ["export.arxiv.org"] }, "filesystem": { "write": ["workspace"] } }, "tasks": [{ "id": "save-paper-source", "tools": ["download_source"] }], "tools": [{ "name": "download_source", "inputSchema": {}, "outputSchema": {} }], "readme": "# ..." }] }',
+      },
+      {
+        method: 'GET', path: '/api/apps/:id/ui/:path', description: 'A file of an app\'s own page (its ui/ folder), with NanoAgent\'s Content-Security-Policy. Public and outside any workspace: the page runs in a sandboxed frame, and its requests carry no session.',
+        response: '<!doctype html>...',
+      },
+      {
+        method: 'POST', path: '/api/apps/:id/tasks/:task/runs', description: 'Run one task of an app in your agent workspace, streaming NanoAgent\'s task events as server-sent events; closing the stream cancels the run. Owners and editors only.',
+        request: '{ "arguments": { "arxiv_id": "1706.03762" } }',
+        response: 'event: task.started\ndata: {"type":"task.started","runId":"...","task":"save-paper-source"}\n\nevent: task.verdict\ndata: {"type":"task.verdict","runId":"...","valid":true,"score":1,"message":"...","details":{}}\n\nevent: task.done\ndata: {"type":"task.done","runId":"..."}',
       },
       {
         method: 'GET', path: '/api/agents', description: 'List the reusable AI agents defined for this workspace.',

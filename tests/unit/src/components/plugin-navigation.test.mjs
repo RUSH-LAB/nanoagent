@@ -14,7 +14,7 @@ describe('plugin navigation', () => {
     const nav = pluginNavigation(apps, '', base);
     assert.equal(nav.allGroups, true);
     assert.deepEqual(nav.groups.map(group => [group.title, group.permalink]), [
-      ['All groups', base], ['Life', `${base}?group=Life`], ['Research', `${base}?group=Research`],
+      ['All', base], ['Life', `${base}?group=Life`], ['Research', `${base}?group=Research`],
     ]);
     assert.deepEqual(nav.links.map(link => link.id), ['arxiv-source', 'bibtex-check', 'meal-suggestion']);
     assert.equal(nav.links[0].permalink, `${base}?app=arxiv-source`);
@@ -45,6 +45,6 @@ describe('plugin navigation', () => {
     const nav = pluginNavigation([], '', base);
     assert.deepEqual(nav.links, []);
     assert.equal(nav.app, null);
-    assert.deepEqual(nav.groups.map(group => group.title), ['All groups']);
+    assert.deepEqual(nav.groups.map(group => group.title), ['All']);
   });
 });

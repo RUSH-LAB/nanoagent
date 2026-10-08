@@ -9,7 +9,7 @@ import own from './styles.module.css';
 export {pluginNavigation} from './navigation';
 
 /**
- * The Plugins sidebar, shaped like a blog's: the group switcher (All groups,
+ * The Plugins sidebar, shaped like a blog's: the group switcher (All,
  * or one group), the only place a group is chosen, then the plugins in view. Plugins declare their
  * group in their NanoAgent manifest; where the reader is lives in the URL
  * (?group=, ?app=), so every entry is a plain link.
@@ -50,7 +50,7 @@ function GroupSwitcher({navigation}) {
         onClick={() => setOpen(value => !value)}
       >
         <GroupIcon />
-        <span className={styles.groupTitle}>{navigation.allGroups ? 'All groups' : navigation.activeGroup ?? navigation.unknownGroup}</span>
+        <span className={styles.groupTitle}>{navigation.allGroups ? 'All' : navigation.activeGroup ?? navigation.unknownGroup}</span>
         <svg className={styles.chevron} viewBox="0 0 16 16" aria-hidden="true">
           <path d="m4 6 4 4 4-4" />
         </svg>

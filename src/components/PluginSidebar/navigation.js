@@ -32,7 +32,7 @@ export function pluginNavigation(apps, search, base) {
     allGroups: !requestedGroup,
     activeGroup,
     groups: [
-      {title: 'All groups', all: true, permalink: base},
+      {title: 'All', all: true, permalink: base},
       ...groups.map(title => ({title, all: false, permalink: groupHref(title)})),
     ],
     plugins,
