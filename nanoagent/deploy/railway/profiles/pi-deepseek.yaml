@@ -1,0 +1,20 @@
+# Railway's server-approved PI/OpenRouter pairing.
+_ > nanoagent.runtime.config.HarnessProfileConfig:
+
+label: DeepSeek V4 Flash · PI
+model: deepseek/deepseek-v4-flash-0731
+
+harness > nanoagent.runtime.config.HarnessConfig:
+  type: pi
+  command:
+    - node
+    - --use-env-proxy
+    - js/pi-runner/dist/index.js
+  cwd: null
+  options:
+    - provider=openrouter
+    - api_key_env=OPENROUTER_API_KEY
+    - thinking_level=off
+    - system_prompt=You are an assistant embedded in a collaborative knowledge application.
+
+model_overrides > nanoagent.runtime.config.ModelPart:

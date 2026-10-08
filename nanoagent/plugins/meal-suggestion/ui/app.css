@@ -1,0 +1,14 @@
+/* Meal Suggestion's page: the ranges table and the recommended dishes; everything else is the kit's. */
+
+.ms-ranges { width: 100%; border-collapse: collapse; }
+.ms-ranges th, .ms-ranges td { padding: 4px 6px; text-align: left; font-size: 14px; }
+.ms-ranges thead th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+.ms-ranges tbody th { font-weight: 500; white-space: nowrap; }
+.ms-ranges input { width: 100%; min-width: 64px; }
+
+.ms-dishes { display: grid; gap: 12px; margin: 0; padding-left: 20px; }
+.ms-dish-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ms-dish-head a { font-weight: 600; }
+.ms-servings { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.ms-dish p { margin: 2px 0 0; }
+.ms-liked { display: flex; flex-wrap: wrap; gap: 6px; }

@@ -1,0 +1,9 @@
+_ > nanoagent.cli.plugin.PluginRunConfig:
+
+# The built-in arXiv source plugin.
+plugin: plugins/arxiv-source
+task: save-paper-source
+# The task's input, a contract.DownloadInput as JSON.
+arguments: examples/arxiv_source/configs/step1_save_paper_source_arguments.json
+inputs: []
+timeout: 300.0

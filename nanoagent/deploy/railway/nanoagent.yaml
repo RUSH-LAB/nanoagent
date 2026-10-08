@@ -1,0 +1,53 @@
+_ > nanoagent.web.config.WebConfig:
+
+model > nanoagent.runtime.config.ModelConfig:
+  model: deepseek/deepseek-v4-flash-0731
+  provider: openrouter
+  base_url: null
+  api_key: null
+  aws_region: null
+  aws_profile: null
+  temperature: 0.0
+  max_tokens: 2048
+  request_timeout: 120.0
+  max_retries: 2
+  extra_body: []
+  input_price: 0.065
+  output_price: 0.18
+
+agent > nanoagent.runtime.config.AgentConfig:
+  system_prompt: |
+    You are an assistant embedded in a collaborative knowledge application.
+    Follow the application's additional instructions and answer the user directly.
+  # The NanoAgent loop runs plugin prompts (chat uses the PI profile): room to search, then
+  # download, then answer, with the cost cap as the real bound.
+  max_steps: 6
+  cost_limit: 0.10
+  token_limit: 65536
+  context_window: null
+  hooks: []
+  skills: null
+  context_files: []
+  events: null
+
+tools: []
+tools_dir: null
+allowed_tools: []
+
+default_profile: pi-deepseek
+profiles:
+  - deploy/railway/profiles/pi-deepseek.yaml
+plugins: []
+# Mount a Railway volume at /data, or these are lost on every deploy.
+workspaces: /data/workspaces
+
+host: 0.0.0.0
+port: ${oc.env:PORT,8787}
+api_token: ${oc.env:NANOAGENT_API_TOKEN}
+max_concurrency: 8
+request_timeout: 180.0
+max_request_bytes: 262144
+max_file_bytes: 10485760
+max_output_chars: 50000
+heartbeat_seconds: 10.0
+include_reasoning: false

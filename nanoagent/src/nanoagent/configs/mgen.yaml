@@ -1,0 +1,77 @@
+# The default `mgen` config: a general coding agent on Claude Opus 5.5 through Amazon Bedrock.
+#
+#     mgen -p "what does src/nanoagent/runtime/build.py do?"
+#
+# Every `mgen` flag overrides a leaf of THIS file, and `mgen --dump-config` prints the result —
+# so an invocation you liked can be saved as a config and stops being an invocation.
+#
+# The model block below points at Bedrock in us-west-2. To reach something else, copy this
+# file, change the model block, and point $MGEN_CONFIG at yours. `provider:` is resolved by
+# nanoagent.inference.providers — sglang, openrouter, or bedrock.
+#
+# Dialect notes (slimconfig >= 0.14): the file names the class it fills on `_ >`, every block
+# filling a nested class names it on its own key, and free-form knob maps are `key=value` token
+# lists (see nanoagent.runtime.config.parse_kv_list).
+
+_ > nanoagent.runtime.config.InteractiveConfig:
+
+model > nanoagent.runtime.config.ModelConfig:
+  model: us.anthropic.claude-opus-5-5  # --model overrides it
+  provider: bedrock         # sglang, openrouter, or bedrock
+  base_url: null            # sglang/openrouter only
+  api_key: null             # openrouter reads OPENROUTER_API_KEY when this is null
+  aws_region: us-west-2     # bedrock; null uses the AWS SDK resolution chain
+  aws_profile: null         # null uses the AWS SDK credential chain
+  temperature: null         # omitted from the request
+  max_tokens: 8192
+  request_timeout: 900.0
+  max_retries: 4
+  extra_body: []            # e.g. ["repetition_penalty=1.05"]
+  input_price: 0.0
+  output_price: 0.0
+
+agent > nanoagent.runtime.config.AgentConfig:
+  # A terminal session is open-ended, so the budget is generous where a benchmark's is not.
+  max_steps: 60
+  cost_limit: null
+  token_limit: null
+  context_window: null
+  hooks: []
+  skills: null
+  # The checkout's own instructions, on by default: a coding agent that has not read them
+  # proposes changes the project rejects on sight. Missing files are skipped.
+  context_files:
+    - CLAUDE.md
+    - AGENTS.md
+  events: null
+  system_prompt: |
+    You are a coding agent working in a checkout of this repository, driven from a terminal.
+
+    Work from evidence: read before you edit, run what you can, and say what you actually did.
+    Keep changes surgical — every changed line should trace to what was asked. When something
+    is ambiguous, say which readings you see rather than picking one silently.
+
+    Finish by stating the outcome plainly: what changed, what you verified, and what you did
+    not. If a step failed, show the output rather than summarising it away.
+
+# read / write / edit, plus a shell. This IS the toolset; --allowedTools narrows it by name
+# (bash, read, write, edit, python) without editing this list.
+# Resolved against the CWD first, then against the configs shipped inside the installed
+# package (nanoagent.extensions.resolve_config) — so `mgen` works from any directory.
+tools:
+  - tools/files.yaml
+  - tools/bash.yaml
+  - tools/python.yaml
+tools_dir: null             # the agent may not write itself new tools
+allowed_tools: null         # null = everything `tools` loaded
+
+task: null                  # the positional prompt overrides it
+output: outputs/mgen        # explicit session folder; there is no fallback output path
+yolo: false                 # confirm each tool call (--dangerously-skip-permissions flips it)
+resume: null                # -r / -c set it
+commands: []
+models: []                  # ModelConfig files; /model switches by file stem
+theme: {}
+images: false
+profiles: []                # HarnessProfileConfig files; non-empty routes chat/-p through one
+profile: null               # selected profile id (the profile filename stem)

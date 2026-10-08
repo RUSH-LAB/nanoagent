@@ -1,0 +1,43 @@
+_ > nanoagent.plugin.manifest.ManifestConfig:
+id: chess-move
+name: Chess Move
+version: 0.1.0
+group: Games
+status: ready
+
+runtime > nanoagent.plugin.manifest.RuntimeConfig:
+  type: mcp_stdio
+  command: [uv, run, --frozen, python, -m, plugin]
+
+permissions > nanoagent.plugin.manifest.PermissionsConfig:
+  network > nanoagent.plugin.manifest.NetworkConfig:
+    hosts: [127.0.0.1]
+  filesystem > nanoagent.plugin.manifest.FilesystemConfig:
+    write: [workspace]
+
+# One entry per contract.Tool; its input and output classes are contract.TOOLS's.
+tools > dict[contract.Tool, nanoagent.plugin.manifest.ToolConfig]:
+  pin_moves:
+    description: Score every legal move of a chess position with Stockfish and pin each one's resulting position and win probability
+  open_board:
+    description: Open the chess app on a position, playing the side to move, and return a screenshot of the board
+  screenshot:
+    description: Return a screenshot of the live chess board
+  drag:
+    description: Press the mouse at one point of the board screenshot, drag it to another and release it there
+  click:
+    description: Click the mouse at one point of the board screenshot
+
+# One entry per contract.Task; its input class is contract.TASKS's.
+tasks > dict[contract.Task, nanoagent.plugin.manifest.TaskConfig]:
+  play-move:
+    description: Read the chess board on screen, choose a move for the side to move, and play it with the mouse
+    runner: agent
+    tools: [open_board, screenshot, drag, click]
+    reference: pin_moves
+    instructions: |-
+      Call open_board once with the task's fen. It opens the chess app on that position with you playing the side to move, and returns a screenshot of the board drawn from your side.
+      Coordinates are pixels in the board screenshot, from its top-left corner: x to the right, y down.
+      Choose the best move you can for the side to move, then play it with the mouse: drag the piece from the centre of its square to the centre of the target square, or click the piece and then the target square. A pawn reaching the last rank becomes a queen.
+      Take a screenshot to check the move landed. Play exactly one move; the opponent does not reply.
+      Finish by naming the move you played in UCI notation (for example e2e4).

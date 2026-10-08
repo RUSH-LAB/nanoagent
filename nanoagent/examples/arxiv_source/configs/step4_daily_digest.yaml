@@ -1,0 +1,30 @@
+_ > nanoagent.cli.plugin.PluginAgentConfig:
+
+# The built-in arXiv source plugin's daily-digest task, worked by an agent.
+plugin: plugins/arxiv-source
+task: daily-digest
+# The task's input, a contract.DailyInput as JSON.
+arguments: examples/arxiv_source/configs/step4_daily_digest_arguments.json
+inputs: []
+timeout: 300.0
+
+llm > nanoagent.llm.bedrock.BedrockConfig:
+  model: us.anthropic.claude-opus-5-5
+  region: us-west-2
+  profile: codex-DO-NOT-DELETE
+  temperature: null
+  max_tokens: 4096
+  max_attempts: 5
+  read_timeout: 300.0
+  input_price: 0.0
+  output_price: 0.0
+
+harness > nanoagent.harness.nanoagent.NanoAgentConfig:
+  max_steps: 30
+  cost_limit: null
+  token_limit: null
+  context_window: null
+  hooks: []
+  skills: null
+  context_files: []
+  events: null

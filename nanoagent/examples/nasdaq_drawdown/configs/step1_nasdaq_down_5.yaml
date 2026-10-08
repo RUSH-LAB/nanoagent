@@ -1,0 +1,32 @@
+_ > nanoagent.cli.plugin.PluginAgentConfig:
+
+# The Nasdaq drawdown plugin's nasdaq-down-5 task, worked by an agent: the Nasdaq-100
+# constituents that fell at least 5% over the 5 sessions ending Friday 2026-10-02.
+plugin: plugins/nasdaq-drawdown
+task: nasdaq-down-5
+# The task's input, a contract.WeekInput as JSON.
+arguments: examples/nasdaq_drawdown/configs/step1_nasdaq_down_5_arguments.json
+inputs: []
+# Seconds per tool call: the reference, pin_week, fetches every constituent's closes (~5 minutes).
+timeout: 900.0
+
+llm > nanoagent.llm.bedrock.BedrockConfig:
+  model: us.anthropic.claude-opus-5-5
+  region: us-west-2
+  profile: codex-DO-NOT-DELETE
+  temperature: null
+  max_tokens: 4096
+  max_attempts: 5
+  read_timeout: 300.0
+  input_price: 0.0
+  output_price: 0.0
+
+harness > nanoagent.harness.nanoagent.NanoAgentConfig:
+  max_steps: 30
+  cost_limit: null
+  token_limit: null
+  context_window: null
+  hooks: []
+  skills: null
+  context_files: []
+  events: null

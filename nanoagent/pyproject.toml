@@ -1,0 +1,146 @@
+[build-system]
+requires = ["setuptools>=77.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nanoagent"
+# One source of truth: nanoagent.__version__ (see [tool.setuptools.dynamic] below).
+dynamic = ["version"]
+description = "A minimal, clean-room agent loop with structured tool calling — and the batch/REPL/CLI drivers around it"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+# 3.12+: the package is written against the 3.12 typing syntax (`X | None` at runtime under
+# `from __future__ import annotations`, `type` aliases, PEP 695-era generics).
+requires-python = ">=3.12"
+# The core loop (nanoagent.core.agent) imports the stdlib and nothing else — these are what the
+# layers around it need. `openai` is listed but the loop never sees it: all transport goes through
+# nanoagent.inference.backends.build_backend, which imports the SDK only when the sglang backend is
+# actually built, so any object satisfying the `ChatModel` duck-type is a usable model.
+dependencies = [
+    "jsonschema>=4.23",
+    "mcp>=1.27,<2",
+    # The OpenAI-compatible client the sglang backend speaks. Floor at 1.40: the backend imports
+    # `DefaultAsyncHttpxClient` from the package root and reads `completion_tokens_details` off the
+    # usage object, neither of which exists on the 0.x SDK.
+    #
+    # httpx is deliberately NOT a direct dependency. openai 1.x/2.x builds on `httpx` and openai
+    # >=3 on the renamed `httpx2` fork; the Limits/Timeout objects the backend configures the
+    # client with have to come from whichever one the installed SDK uses, so it resolves that
+    # module off the SDK itself (see inference/backends/sglang.py). Declaring `httpx` here would
+    # pull in a second, unrelated copy and invite exactly the mismatch that resolution avoids.
+    "openai>=1.40",
+    # The Bedrock Converse client behind the default `mgen` model. Imported only when the bedrock
+    # backend is built.
+    "boto3>=1.35",
+    # The YAML/config layer: `_default:` composition, typed schema loading, `key=value` tokens.
+    # Floor at 0.14: the new dialect — `Config` schemas, `_ >` declarations on every file and
+    # block, Enum-keyed mappings, no `Any` fields. nanoagent's schemas (see nanoagent.runtime.config)
+    # are written against it (open string-keyed data lives in `key=value` token lists and
+    # per-entry files instead). The loader API is unchanged between 0.14 and 0.15.
+    # Follow SlimConfig's GitHub development branch; NanoAgent and SlimConfig evolve together.
+    "slimconfig @ git+https://github.com/zeyuyang8/slimconfig.git@master",
+    # Struct-mode merge onto the all-MISSING dataclass schemas in nanoagent.runtime.config, and the
+    # tool-manifest reader in nanoagent.extensions.
+    "omegaconf>=2.2",
+    # `key=value` token values led by `[` / `{` parse as YAML flow collections (see
+    # nanoagent.runtime.config._parse_kv_value). Also required transitively by slimconfig and
+    # omegaconf, but imported directly here, so declared directly.
+    "pyyaml",
+    # Terminal rendering for `run`/`chat` (streaming, tool-call panels, the live batch progress).
+    "rich",
+    # The `browse` trajectory viewer, and nothing else.
+    "textual",
+]
+authors = [
+    {name = "Zeyu Yang"},
+]
+keywords = ["llm", "agent", "tool-calling", "rollout", "trajectory", "repl"]
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+# ASGI web host for server-side application integrations. Kept optional so the batch / training
+# package does not acquire an HTTP framework merely because it imports nanoagent.
+web = ["jsonschema>=4.23", "starlette>=0.41", "uvicorn>=0.30"]
+# Optional third-party harness. It is launched behind the subprocess boundary rather than
+# imported into NanoAgent's server process, but this extra makes a single-environment setup easy.
+hermes = ["hermes-agent==0.19.0"]
+# The serve side (nanoagent.inference.serve / router): `ensure_weights` fetches missing shards
+# through huggingface_hub, and mode=router/multinode fronts the engines with sglang_router. SGLang
+# itself is NOT a dependency — the engine is exec'd as the `sglang serve` CLI, so the serving env
+# owns that pin (it decides the CUDA/torch stack) and this package never constrains it. Both
+# imports are inside the functions that need them, so an agent-only install pays nothing.
+serve = ["huggingface-hub", "sglang-router>=0.3.2"]
+# orjson is a drop-in C accelerator for the tool-calling JSON path; nanoagent.inference.fast_json
+# falls back to the stdlib when it is absent.
+fast = ["orjson"]
+# The token-level client (config.tokenizer, and backend="sglang_native" which requires it):
+# transformers owns `apply_chat_template`, so it is what renders a conversation to input_ids. Not
+# a base dependency — an install that only ever sends text never loads it, and
+# nanoagent.inference.tokenizer imports it inside load_tokenizer to keep that true.
+tokens = ["transformers"]
+# Official dataset loading and Docker-based rule scoring for SWE-bench. Kept optional because
+# ordinary question/answer benchmarks need neither Hugging Face datasets nor Docker bindings.
+swebench = ["swebench>=5,<6"]
+# examples/meal_suggestion's step 1 reads Food.com's recipes, a Parquet file.
+examples = ["pyarrow>=25"]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    # Starlette's TestClient transport; Starlette itself comes from the `web` extra in CI.
+    "httpx>=0.27",
+    # Only `repl.commands.inline_image` touches it, to read an image's pixel size — and it falls
+    # back to a guess when the import fails, so Pillow is a test dependency, not a runtime one.
+    "pillow",
+]
+
+[project.urls]
+Homepage = "https://github.com/zeyuyang8/nanoagent"
+Repository = "https://github.com/zeyuyang8/nanoagent"
+
+# So it is `nanoagent chat ...` rather than `python3 -m nanoagent chat ...`. Same entry point
+# either way — __main__.py and this both call cli.main.
+[project.scripts]
+nanoagent = "nanoagent.cli.main:main"
+# The coding-CLI face of the same agent, in Claude Code's flag grammar — its own name because
+# `mgen -p "..."` is what a script written against `claude` already says.
+mgen = "nanoagent.cli.mgen:main"
+nanoagent-hermes-runner = "nanoagent.harness.adapters.hermes:main"
+nanoagent-codex-runner = "nanoagent.harness.adapters.codex:main"
+nanoagent-claude-runner = "nanoagent.harness.adapters.claude:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "nanoagent.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["nanoagent*"]
+
+# src/nanoagent/configs/ ships INSIDE the package, unlike the repo-root configs/ (which are
+# serving examples). These are not examples: `mgen` with no arguments loads configs/mgen.yaml, and
+# that file names the three tool manifests. A default toolset that lives outside the wheel is a
+# default toolset an installed `mgen` cannot find. See nanoagent.extensions.resolve_config.
+# Package data belongs to the top-level package alongside ``py.typed``.
+[tool.setuptools.package-data]
+nanoagent = ["py.typed", "configs/*.yaml", "configs/tools/*.yaml", "web/schema/*.json", "plugin/template/**/*"]
+
+[tool.ruff]
+line-length = 150
+
+[tool.ruff.lint]
+# Pinned, not inherited: ruff's default selection has widened across releases, so an unpinned
+# config silently changes what "clean" means on every upgrade. These four are the set this
+# package was written against — likely bugs, not style.
+select = ["E4", "E7", "E9", "F"]
+extend-ignore = ["E203"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# Each plugin under plugins/ is its own uv project and runs its own tests.
+testpaths = ["test"]

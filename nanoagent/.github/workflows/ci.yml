@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  # Automatic CI is intentionally disabled. Run this workflow manually when needed.
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          # No uv.lock here (a library pins nothing), so key the cache on pyproject.toml —
+          # otherwise setup-uv warns that the cache can never be invalidated.
+          cache-dependency-glob: pyproject.toml
+          # Both matrix legs resolve the same glob, so without a suffix they race for one
+          # cache key and the loser warns "unable to reserve cache".
+          cache-suffix: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            js/client/package-lock.json
+            js/pi-runner/package-lock.json
+      - run: uv python install ${{ matrix.python-version }}
+      # Install the web extra for ASGI tests. Deliberately omit `serve`: those tests stub
+      # huggingface_hub and sglang_router, so installing them would only slow CI and hide an
+      # accidental module-level import.
+      - name: Install
+        run: |
+          uv venv --python ${{ matrix.python-version }}
+          uv pip install -e ".[dev,web]"
+      - name: Lint
+        run: uv run ruff check .
+      - name: Test
+        run: uv run pytest -q
+      - name: TypeScript client
+        working-directory: js/client
+        run: npm ci && npm test && git diff --exit-code -- src/events.generated.ts src/request.generated.ts
+      - name: PI runner
+        working-directory: js/pi-runner
+        run: npm ci && npm test
+
+  production:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
+      - run: uv python install 3.12
+      - name: Validate Railway configuration
+        env:
+          PORT: "8787"
+          NANOAGENT_API_TOKEN: ci-secret
+        run: |
+          uv sync --python 3.12 --extra web --no-dev
+          uv run python -c "from nanoagent.runtime.config import load_config_args; from nanoagent.web.config import WebConfig; from nanoagent.web.runtime import RunHost; cfg = load_config_args(WebConfig, ['web_cfg=deploy/railway/nanoagent.yaml']); host = RunHost(cfg); assert cfg.host == '0.0.0.0'; assert cfg.port == 8787; assert host.profiles['defaultProfile'] == 'pi-deepseek'"
+      - name: Build production container
+        run: docker build --tag nanoagent-ci .

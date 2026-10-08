@@ -1,0 +1,11 @@
+_ > nanoagent.plugin.manifest.ProductConfig:
+tagline: "Meals that hit your nutrition targets"
+summary: "Choose breakfast, lunch or dinner, set your targets for calories, protein, fat, sodium, sugar, fiber and more, and say what you will and will not eat. It picks the Food.com dishes and servings that fit best."
+highlights:
+  - "Finds the best combination, not just a good one"
+  - "Respects every target and food preference"
+  - "Uses real Food.com recipes and their nutrition"
+steps:
+  - "Build the recipes from Food.com"
+  - "Pick a meal, your targets and your preferences"
+  - "Get dishes, servings and the meal's totals"

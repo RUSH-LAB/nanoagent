@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nanoagent-chess-move"
+version = "0.1.0"
+description = "Play one chess move with the mouse on mind-sports-arena's live board, scored by Stockfish"
+requires-python = ">=3.12"
+# mind-sports-arena's msa is the chess app, its board page and its board drawing: an editable
+# install of the checkout beside NanoAgent's, so msa finds its own node_modules and engine builds.
+dependencies = ["mcp>=1.27,<2", "mind-sports-arena", "slimconfig"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv.sources]
+mind-sports-arena = { path = "../../../mind-sports-arena", editable = true }
+slimconfig = { git = "https://github.com/zeyuyang8/slimconfig", branch = "master" }
+
+[tool.ruff]
+line-length = 120
+
+[tool.pytest.ini_options]
+# tests/ import contract.py and the verifier package from the plugin root.
+pythonpath = ["."]
