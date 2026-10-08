@@ -1,0 +1,133 @@
+/* The nasdaq-drawdown page, on the kit's variables only, so it follows the host's light and dark
+   themes. A fall is never shown by colour alone: it always carries its signed number. */
+
+/* Week picker */
+
+.picker-card { display: grid; gap: 14px; }
+.picker-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: 14px 24px; align-items: end; }
+.picker-grid .run-button { align-self: end; }
+.picker-grid .run-button .small-text { line-height: 1.4; }
+.recent { display: grid; gap: 6px; padding-top: 12px; border-top: 1px solid var(--border); }
+.recent-label { font-size: 13px; font-weight: 600; color: var(--muted); }
+.recent .chip .icon { color: var(--ok); }
+.recent .chip.tone-warn .icon { color: var(--warn); }
+
+/* First visit */
+
+.intro-card { display: grid; gap: 14px; }
+.intro-summary { color: var(--muted); max-width: 680px; }
+
+/* While a new run is on, the previous result stays, dimmed */
+
+.result-area:empty { display: none; }
+.result-area.stale { opacity: .45; pointer-events: none; transition: opacity .2s; }
+
+/* Result card */
+
+.result-card { display: grid; gap: 16px; }
+.result-head { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.result-titles { flex: 1 1 260px; display: grid; gap: 4px; min-width: 0; }
+.result-headline { font-size: 22px; font-weight: 680; letter-spacing: -.015em; }
+.result-week { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Faller list: a row per stock on wide screens, a small card per stock on narrow ones */
+
+.faller-block { display: grid; gap: 4px; container-type: inline-size; }
+.fallers { list-style: none; margin: 0; padding: 0; display: grid; }
+.faller {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1.3fr) minmax(70px, 1fr) 84px 150px;
+  grid-template-areas: "ticker name bar change closes" ". tag tag tag tag";
+  align-items: center;
+  gap: 2px 14px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.fallers .faller:last-child { border-bottom: 0; }
+.faller-head { padding-top: 0; padding-bottom: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.faller-head span:nth-child(1) { grid-area: ticker; }
+.faller-head span:nth-child(3) { grid-area: bar; }
+.faller-head span:nth-child(4) { grid-area: change; }
+.faller-head span:nth-child(5) { grid-area: closes; }
+.faller-head .numeric { text-align: right; }
+.faller-ticker { grid-area: ticker; font-family: var(--mono); font-weight: 700; font-size: 13.5px; }
+.faller-name { grid-area: name; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.faller-bar { grid-area: bar; height: 10px; border-radius: var(--radius-pill); background: var(--surface-2); overflow: hidden; display: flex; justify-content: flex-end; }
+.faller-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--down); opacity: .85; }
+.faller-change { grid-area: change; text-align: right; font-weight: 680; color: var(--down); }
+.faller-closes { grid-area: closes; text-align: right; font-size: 13px; white-space: nowrap; }
+.faller-tag { grid-area: tag; justify-self: start; }
+.faller-block > .button { justify-self: start; margin-top: 6px; }
+
+@container (max-width: 560px) {
+  .faller-head { display: none; }
+  .faller {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "ticker change" "name name" "bar bar" "closes closes" "tag tag";
+    gap: 6px 10px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .fallers .faller:last-child { border-bottom: 1px solid var(--border); }
+  .faller-ticker { font-size: 15px; }
+  .faller-change { font-size: 15px; }
+  .faller-bar { justify-content: flex-start; }
+  .faller-closes { text-align: left; }
+}
+
+/* Just missed */
+
+.near-misses { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 13.5px; }
+.near-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.near { color: var(--muted); }
+.near strong { color: var(--text); font-family: var(--mono); }
+.near .numeric { color: var(--text); font-weight: 600; }
+
+/* All-companies strip */
+
+.strip { margin: 0; display: grid; gap: 6px; padding: 14px 16px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+.strip-plot { position: relative; height: calc(var(--lanes) * 9px + 12px); margin: 0 6px; }
+.strip-dot {
+  position: absolute;
+  bottom: calc(var(--lane) * 9px + 4px);
+  width: 8px; height: 8px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: var(--neutral);
+  opacity: .55;
+}
+.strip-dot.fell { background: var(--down); opacity: 1; }
+.strip-dot.rose { background: var(--up); opacity: .7; }
+.strip-line { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px solid var(--border-strong); }
+.strip-line.cut { border-left: 2px dashed var(--down); }
+.strip-axis { position: relative; height: 16px; margin: 0 6px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.strip-tick { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.strip-tick:first-child { transform: none; }
+.strip-tick:last-child { transform: translateX(-100%); }
+.strip-tick.cut { color: var(--down); font-weight: 600; }
+.strip-caption { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+.strip-caption > span { display: inline-flex; align-items: center; gap: 5px; }
+.strip-key { width: 8px; height: 8px; border-radius: 50%; background: var(--neutral); opacity: .55; }
+.strip-key.fell { background: var(--down); opacity: 1; }
+.strip-key.rose { background: var(--up); opacity: .7; }
+
+/* All-companies table */
+
+.mono-strong { font-family: var(--mono); font-weight: 650; }
+.change { font-weight: 620; font-variant-numeric: tabular-nums; }
+.change.down { color: var(--down); }
+.change.up { color: var(--up); }
+
+/* Disclosures */
+
+.result-card .prose { white-space: pre-wrap; line-height: 1.6; max-width: 720px; }
+.about-list { margin: 0; padding-left: 18px; display: grid; gap: 4px; color: var(--muted); }
+
+@media (max-width: 640px) {
+  .picker-grid { grid-template-columns: minmax(0, 1fr); }
+  .result-headline { font-size: 19px; }
+  .strip { padding: 12px 10px 10px; }
+}
