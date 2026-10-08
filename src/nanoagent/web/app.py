@@ -7,6 +7,7 @@ import json
 import logging
 import mimetypes
 import secrets
+import shutil
 import sys
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -56,6 +57,17 @@ def _plugin_entry(manifest: PluginManifest) -> dict[str, Any]:
     for task, definition in zip(entry["tasks"], manifest.tasks, strict=True):
         task["inputSchema"] = definition.input
     return entry
+
+
+def _staged_from(workspace: Path) -> Callable[[Path], None]:
+    """How a web task stages its inputs: they are already the caller's workspace files, so the
+    workspace needs nothing and the reference tool's scratch folder gets a copy of it."""
+
+    def stage(folder: Path) -> None:
+        if folder != workspace:
+            shutil.copytree(workspace, folder, dirs_exist_ok=True)
+
+    return stage
 
 
 def _ui_file(manifest: PluginManifest, path: str) -> Path | None:
@@ -385,8 +397,7 @@ def create_app(
                         make_agent=make_agent,
                         timeout=cfg.request_timeout,
                         on_event=emit,
-                        # A web task reads the workspace's own files: nothing to stage.
-                        stage=lambda _folder: None,
+                        stage=_staged_from(folder),
                     )
             except asyncio.CancelledError:
                 emit("task.error", {"message": "cancelled"})

@@ -242,6 +242,21 @@ def test_runs_a_tool_task_the_verified_way(client: TestClient, workspaces: Path)
     assert (workspaces / "alice" / "echo.txt").read_text() == "hi"
 
 
+def test_a_reference_tool_sees_the_workspace_files(tmp_path: Path) -> None:
+    from nanoagent.web.app import _staged_from
+
+    workspace = tmp_path / "workspace"
+    (workspace / "inputs").mkdir(parents=True)
+    (workspace / "inputs" / "raw.bib").write_text("@misc{a}")
+    stage = _staged_from(workspace)
+    stage(workspace)
+    assert sorted(path.name for path in workspace.rglob("*")) == ["inputs", "raw.bib"]
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    stage(scratch)
+    assert (scratch / "inputs" / "raw.bib").read_text() == "@misc{a}"
+
+
 def test_task_runs_report_bad_requests_and_failures(client: TestClient) -> None:
     runs = "/v1/workspaces/alice/plugins/echo/tasks"
     assert client.post(f"{runs}/missing/runs", json={"arguments": {}}).status_code == 404
