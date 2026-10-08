@@ -6,14 +6,12 @@ from pathlib import Path
 import pytest
 
 FIXTURES = Path(__file__).parent / "fixtures"
-INGREDIENTS = "inputs/ingredients.json"
 RECIPES = "inputs/recipes.json"
 
 
 @pytest.fixture
 def workspace(tmp_path: Path) -> Path:
-    """A workspace with the sample ingredients and recipes staged as NanoAgent stages `inputs:`."""
+    """A workspace with the sample recipes, an excerpt of Food.com's, staged as NanoAgent stages `inputs:`."""
     (tmp_path / "inputs").mkdir()
-    for name in ("ingredients.json", "recipes.json"):
-        shutil.copyfile(FIXTURES / name, tmp_path / "inputs" / name)
+    shutil.copyfile(FIXTURES / "recipes.json", tmp_path / RECIPES)
     return tmp_path

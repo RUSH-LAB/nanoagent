@@ -1,18 +1,41 @@
-"""The ingredient and recipe files, each recipe's nutrition per serving, and the agent's tools."""
+"""The recipes file, a contract Cookbook, and the agent's tools."""
 
 from __future__ import annotations
 
 import json
+import re
+from dataclasses import asdict
 from pathlib import Path
 
-NUTRIENTS = ("kcal", "protein", "fat", "carbs", "fiber")
-MEALS = ("breakfast", "lunch", "dinner")
-# The file submit_meal writes and the task's verifier reads, relative to the workspace.
+from slimconfig import build_output
+
+from contract import (
+    Cookbook,
+    CookbookRecipe,
+    Like,
+    Meal,
+    Nutrient,
+    Nutrition,
+    NutritionInput,
+    NutritionOutput,
+    Recipe,
+    RecipesInput,
+    RecipesOutput,
+    Restrictions,
+    SubmitDayInput,
+    SubmitDayOutput,
+    SubmitInput,
+    SubmitOutput,
+)
+
+NUTRIENTS = tuple(nutrient.value for nutrient in Nutrient)
+# The files submit_meal and submit_day write and the tasks' verifiers read, relative to the workspace.
 SUGGESTION = "meal.json"
+DAY = "day.json"
 
 
-def _input_file(workspace: Path, path: str) -> dict:
-    """The JSON object in the input file ``path``, which must stay inside ``workspace``."""
+def load_recipes(workspace: Path, path: str) -> dict[str, CookbookRecipe]:
+    """The recipes of the Cookbook in ``path``, which must stay inside ``workspace``."""
     relative = Path(path)
     root = workspace.resolve()
     file = (root / relative).resolve()
@@ -20,96 +43,116 @@ def _input_file(workspace: Path, path: str) -> dict:
         raise ValueError(f"{path} must stay inside the plugin workspace")
     if not file.is_file():
         raise FileNotFoundError(f"no input file at {path}")
-    data = json.loads(file.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or not data:
-        raise ValueError(f"{path} must hold a non-empty JSON object")
-    return data
-
-
-def load_ingredients(workspace: Path, path: str) -> dict[str, dict[str, float]]:
-    """Each ingredient's kcal and grams of protein, fat, carbs and fiber per 100 g."""
-    ingredients = _input_file(workspace, path)
-    for name, values in ingredients.items():
-        if not isinstance(values, dict) or set(values) != set(NUTRIENTS):
-            raise ValueError(f"ingredient {name!r} must give exactly {', '.join(NUTRIENTS)} per 100 g")
-        if any(isinstance(value, bool) or not isinstance(value, int | float) or value < 0 for value in values.values()):
-            raise ValueError(f"ingredient {name!r} has a nutrient that is not a non-negative number")
-    return ingredients
-
-
-def load_recipes(workspace: Path, path: str, ingredients: dict | None = None) -> dict[str, dict]:
-    """Each recipe's meals, tags and grams of each ingredient per serving; with ``ingredients``,
-    every ingredient a recipe uses must be one of them."""
-    recipes = _input_file(workspace, path)
+    recipes = build_output(json.loads(file.read_text(encoding="utf-8")), Cookbook).recipes
+    if not recipes:
+        raise ValueError(f"{path} holds no recipes")
     for name, recipe in recipes.items():
-        if not isinstance(recipe, dict) or set(recipe) != {"meals", "tags", "ingredients"}:
-            raise ValueError(f"recipe {name!r} must give exactly meals, tags and ingredients")
-        if not recipe["meals"] or not set(recipe["meals"]) <= set(MEALS):
-            raise ValueError(f"recipe {name!r} must be for one or more of {', '.join(MEALS)}")
-        if not isinstance(recipe["tags"], list) or not all(isinstance(tag, str) for tag in recipe["tags"]):
-            raise ValueError(f"recipe {name!r} tags must be a list of strings")
-        uses = recipe["ingredients"]
-        if not isinstance(uses, dict) or not uses:
-            raise ValueError(f"recipe {name!r} must use at least one ingredient")
-        for ingredient, grams in uses.items():
-            if isinstance(grams, bool) or not isinstance(grams, int | float) or grams <= 0:
-                raise ValueError(f"recipe {name!r} must use a positive number of grams of {ingredient!r}")
-            if ingredients is not None and ingredient not in ingredients:
-                raise ValueError(f"recipe {name!r} uses {ingredient!r}, which is not in the ingredients file")
+        if not recipe.meals:
+            raise ValueError(f"recipe {name!r} must be for one or more meals")
+        if recipe.servings < 1:
+            raise ValueError(f"recipe {name!r} must make at least one serving")
+        if any(value < 0 for value in asdict(recipe.per_serving).values()):
+            raise ValueError(f"recipe {name!r} has a negative nutrient per serving")
     return recipes
 
 
-def per_serving(recipe: dict, ingredients: dict) -> dict[str, float]:
-    """One serving's kcal and grams of each nutrient: the sum over its ingredients of grams / 100 x per 100 g."""
-    return {
-        nutrient: sum(grams / 100 * ingredients[name][nutrient] for name, grams in recipe["ingredients"].items())
-        for nutrient in NUTRIENTS
-    }
+def per_serving(recipe: CookbookRecipe) -> dict[str, float]:
+    """One serving's kcal, mg of cholesterol and sodium, and grams of each other nutrient."""
+    return asdict(recipe.per_serving)
 
 
-def matches(recipe: dict, meal: str, preference: dict) -> bool:
+def matches(recipe: CookbookRecipe, meal: Meal, restrictions: Restrictions) -> bool:
     """Whether the recipe is for ``meal`` and has every required tag and no excluded one."""
-    tags = set(recipe["tags"])
-    return meal in recipe["meals"] and set(preference["require"]) <= tags and not tags & set(preference["exclude"])
+    tags = set(recipe.tags)
+    return meal in recipe.meals and set(restrictions.require) <= tags and not tags & set(restrictions.exclude)
 
 
-def rounded(values: dict[str, float]) -> dict[str, float]:
-    return {key: round(value, 3) for key, value in values.items()}
+def liked(recipe: CookbookRecipe, likes: list[Like]) -> list[str]:
+    """The likes the recipe matches: those with a word (or its plural, -s or -es) that is a word of
+    one of its ingredients or tags, case aside, outside the like's ignored phrases."""
+    texts = [text.lower() for text in (*recipe.ingredients, *recipe.tags)]
+    return [like.name for like in likes if any(_mentions(text, like) for text in texts)]
 
 
-def list_recipes(recipes: str, meal: str, preference: dict, *, workspace: Path) -> dict:
-    """The recipes for ``meal`` that meet the preference, by name."""
-    found = load_recipes(workspace, recipes)
-    return {
-        "ok": True,
-        "recipes": [
-            {"name": name, "tags": recipe["tags"]}
+def _mentions(text: str, like: Like) -> bool:
+    """Whether ``text`` (lowercase) has one of the like's words, once its ignored phrases are taken out."""
+    for phrase in like.ignore:
+        text = re.sub(rf"\b{re.escape(phrase.strip().lower())}\b", " ", text)
+    return any(re.search(rf"\b{re.escape(word.strip().lower())}(?:s|es)?\b", text) for word in like.words)
+
+
+def score(recipe: CookbookRecipe, likes: list[Like]) -> float:
+    """The recipe's preference score: the sum of the weights of the likes it matches."""
+    matched = set(liked(recipe, likes))
+    return sum(like.weight for like in likes if like.name in matched)
+
+
+def check_likes(likes: list[Like]) -> None:
+    names = [like.name for like in likes]
+    if len(set(names)) != len(names) or not all(name.strip() for name in names):
+        raise ValueError("each like must have a name, each name once")
+    for like in likes:
+        if not like.words or not all(word.strip() for word in like.words):
+            raise ValueError(f"like {like.name!r} must give one or more words")
+
+
+def rounded(values: dict[str, float]) -> Nutrition:
+    return Nutrition(**{key: round(value, 3) for key, value in values.items()})
+
+
+def list_recipes(given: RecipesInput, workspace: Path) -> RecipesOutput:
+    """The recipes for the meal that meet the restrictions, by name, each with its nutrition per
+    serving and its preference score."""
+    check_likes(given.likes)
+    found = load_recipes(workspace, given.recipes)
+    return RecipesOutput(
+        recipes=[
+            Recipe(
+                name=name,
+                tags=recipe.tags,
+                per_serving=recipe.per_serving,
+                liked=liked(recipe, given.likes),
+                score=score(recipe, given.likes),
+            )
             for name, recipe in sorted(found.items())
-            if matches(recipe, meal, preference)
-        ],
-    }
+            if matches(recipe, given.meal, given.restrictions)
+        ]
+    )
 
 
-def nutrition(ingredients: str, recipes: str, recipe: str, *, workspace: Path) -> dict:
-    """One serving of ``recipe``: its ingredients' grams and its nutrition."""
-    foods = load_ingredients(workspace, ingredients)
-    found = load_recipes(workspace, recipes, foods)
-    if recipe not in found:
-        raise ValueError(f"no recipe named {recipe!r}")
-    return {
-        "ok": True,
-        "recipe": recipe,
-        "ingredients": found[recipe]["ingredients"],
-        "per_serving": rounded(per_serving(found[recipe], foods)),
-    }
+def nutrition(given: NutritionInput, workspace: Path) -> NutritionOutput:
+    """One serving of the recipe: its ingredients and its nutrition."""
+    found = load_recipes(workspace, given.recipes)
+    if given.recipe not in found:
+        raise ValueError(f"no recipe named {given.recipe!r}")
+    recipe = found[given.recipe]
+    return NutritionOutput(recipe=given.recipe, ingredients=recipe.ingredients, per_serving=recipe.per_serving)
 
 
-def submit_meal(dishes: list[dict], *, workspace: Path) -> dict:
+def submit_meal(given: SubmitInput, workspace: Path) -> SubmitOutput:
     """Write the suggestion, each dish's recipe and whole servings, to `meal.json`, replacing an
     earlier one."""
-    names = [dish["recipe"] for dish in dishes]
-    if not dishes or len(set(names)) != len(names):
+    names = [dish.recipe for dish in given.dishes]
+    if not given.dishes or len(set(names)) != len(names):
         raise ValueError("dishes must name at least one recipe, each once")
     path = workspace.resolve() / SUGGESTION
+    dishes = [{"recipe": dish.recipe, "servings": dish.servings} for dish in given.dishes]
     path.write_text(json.dumps({"dishes": dishes}, indent=2) + "\n", encoding="utf-8")
-    return {"ok": True, "path": str(path), "dishes": len(dishes)}
+    return SubmitOutput(path=str(path), dishes=len(given.dishes))
+
+
+def submit_day(given: SubmitDayInput, workspace: Path) -> SubmitDayOutput:
+    """Write the day's plan, each meal's dishes, to `day.json`, replacing an earlier one."""
+    if not given.meals:
+        raise ValueError("a day has one or more meals")
+    for meal, dishes in given.meals.items():
+        names = [dish.recipe for dish in dishes]
+        if not dishes or len(set(names)) != len(names):
+            raise ValueError(f"{meal.value} must name at least one recipe, each once")
+    path = workspace.resolve() / DAY
+    meals = {
+        meal.value: [{"recipe": dish.recipe, "servings": dish.servings} for dish in dishes]
+        for meal, dishes in given.meals.items()
+    }
+    path.write_text(json.dumps({"meals": meals}, indent=2) + "\n", encoding="utf-8")
+    return SubmitDayOutput(path=str(path), dishes=sum(len(dishes) for dishes in given.meals.values()))

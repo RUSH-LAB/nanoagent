@@ -4,119 +4,104 @@ from pathlib import Path
 
 from .checks import result
 from .meals import (
-    MEALS,
-    NUTRIENTS,
+    MAX_SERVINGS,
     ROUNDING,
     SUGGESTION,
+    as_dishes,
+    bounds_problem,
     constraint_problems,
     dish_problems,
     eligible,
+    likes_problem,
     load,
+    load_recipes,
+    meal_score,
+    nutrition_problem,
     path_problem,
     per_serving,
-    preference_problem,
     rounded,
+    score,
+    share,
     totals,
 )
 
 
 def verify_input(value):
-    for name in ("ingredients", "recipes"):
-        problem = path_problem(value.get(name), name)
-        if problem:
-            return result(False, problem)
-    if value.get("meal") not in MEALS:
-        return result(False, f"meal must be one of {', '.join(MEALS)}")
-    constraints = value.get("constraints")
-    if not isinstance(constraints, dict) or not set(constraints) <= set(NUTRIENTS):
-        return result(False, f"constraints must bound only {', '.join(NUTRIENTS)}")
-    for nutrient, bound in constraints.items():
-        if not isinstance(bound, dict) or not bound or not set(bound) <= {"min", "max"}:
-            return result(False, f"the {nutrient} constraint must give a min, a max or both")
-        if bound.get("min", 0) > bound.get("max", float("inf")):
-            return result(False, f"the {nutrient} constraint's min is above its max")
-    problem = preference_problem(value.get("preference"))
+    problem = path_problem(value.recipes, "recipes") or likes_problem(value.likes) or bounds_problem(value.constraints)
     if problem:
         return result(False, problem)
-    objective = value.get("objective")
-    if not isinstance(objective, dict) or objective.get("sense") not in ("maximize", "minimize"):
-        return result(False, "objective sense must be maximize or minimize")
-    if objective.get("nutrient") not in NUTRIENTS:
-        return result(False, f"objective nutrient must be one of {', '.join(NUTRIENTS)}")
-    servings = value.get("max_servings")
-    if isinstance(servings, bool) or not isinstance(servings, int) or servings < 1:
-        return result(False, "max_servings must be a positive whole number")
+    if not 1 <= value.max_servings <= MAX_SERVINGS:
+        return result(False, f"max_servings must be a whole number from 1 to {MAX_SERVINGS}")
     return result(True, "input is valid")
 
 
 def verify_output(input_value, output_value, workspace):
-    """The pinned plan is a feasible meal, and its objective and each recipe's nutrition are the
-    files' (that the plan is optimal rests on the solver)."""
-    ingredients = load(workspace, input_value["ingredients"])
-    recipes = load(workspace, input_value["recipes"])
-    names = eligible(recipes, input_value["meal"], input_value["preference"])
-    pinned = output_value.get("recipes", {})
-    if sorted(pinned) != names:
-        return result(False, "the pinned recipes are not exactly the meal's recipes that meet the preference")
+    """The pinned plan is a feasible meal, its score is its dishes' and no more than the pinned worst
+    is below it, and each recipe's nutrition and score are the file's (that the plan is the best and
+    the worst the least rests on the solver)."""
+    recipes = load_recipes(workspace, input_value.recipes)
+    names = eligible(recipes, input_value.meal, input_value.restrictions)
+    if sorted(output_value.recipes) != names or sorted(output_value.scores) != names:
+        return result(False, "the pinned recipes are not exactly the meal's recipes that meet the restrictions")
     for name in names:
-        expected = per_serving(recipes[name], ingredients)
-        if any(abs(pinned[name][nutrient] - expected[nutrient]) > ROUNDING for nutrient in NUTRIENTS):
-            return result(False, f"the pinned nutrition of {name} differs from the input files")
-    plan = output_value.get("plan")
-    problems = dish_problems(plan, recipes, input_value)
+        if nutrition_problem(output_value.recipes[name], per_serving(recipes[name])):
+            return result(False, f"the pinned nutrition of {name} differs from the recipes file")
+        if abs(output_value.scores[name] - score(recipes[name], input_value.likes)) > ROUNDING:
+            return result(False, f"the pinned score of {name} is not the sum of its likes' weights")
+    plan = as_dishes(output_value.plan)
+    problems = dish_problems(plan, recipes, input_value.meal, input_value.restrictions, input_value.max_servings)
     if problems:
         return result(False, "the plan is not a meal of the allowed recipes", problems=problems)
-    plan_totals = totals(plan, recipes, ingredients)
-    problems = constraint_problems(plan_totals, input_value["constraints"])
+    problems = constraint_problems(totals(plan, recipes), input_value.constraints)
     if problems:
         return result(False, "the plan breaks a constraint", problems=problems)
-    if abs(output_value.get("objective", float("nan")) - plan_totals[input_value["objective"]["nutrient"]]) > ROUNDING:
-        return result(False, "the pinned objective is not the plan's total")
+    if abs(output_value.score - meal_score(plan, recipes, input_value.likes)) > ROUNDING:
+        return result(False, "the pinned score is not the plan's")
+    if output_value.worst > output_value.score + ROUNDING:
+        return result(False, "the pinned worst score is above the best")
     return result(True, "the plan is a feasible meal", plan=plan)
-
-
-def _score(sense, value, optimum):
-    """1.0 at the optimum. Maximize: value / optimum; minimize: optimum / value. Nutrients are never
-    negative, so a feasible meal scores in (0, 1], and a value short of the optimum has a non-zero
-    denominator."""
-    if abs(value - optimum) <= ROUNDING:
-        return 1.0
-    return value / optimum if sense == "maximize" else optimum / value
 
 
 def verify_task(arguments, reference, workspace):
     """Valid when meal.json is a meal of whole servings of the allowed recipes whose totals, recomputed
-    from the input files, meet every constraint. The score is how close its objective comes to the
-    pinned optimum (see _score); a feasible but suboptimal meal is valid with a score below 1."""
+    from the recipes file, meet every constraint. The score is where its preference score falls
+    between the pinned worst and best (see meals.share); a feasible meal that is not the best is valid with
+    a score below 1."""
     path = Path(workspace) / SUGGESTION
-    optimum = {"plan": reference["plan"], "objective": reference["objective"]}
+    optimum = {"plan": as_dishes(reference.plan), "score": reference.score, "worst": reference.worst}
     if not path.is_file():
         return result(False, f"no suggestion at {SUGGESTION}", score=0.0, optimum=optimum)
     dishes = load(workspace, SUGGESTION).get("dishes")
-    ingredients = load(workspace, arguments["ingredients"])
-    recipes = load(workspace, arguments["recipes"])
-    problems = dish_problems(dishes, recipes, arguments)
-    if problems:
-        return result(False, "the dishes break the preference or the servings", score=0.0, problems=problems, dishes=dishes)
-    meal_totals = totals(dishes, recipes, ingredients)
-    problems = constraint_problems(meal_totals, arguments["constraints"])
+    recipes = load_recipes(workspace, arguments.recipes)
+    problems = dish_problems(dishes, recipes, arguments.meal, arguments.restrictions, arguments.max_servings)
     if problems:
         return result(
-            False, "the meal breaks a constraint", score=0.0, problems=problems, dishes=dishes, totals=rounded(meal_totals)
+            False, "the dishes break the restrictions or the servings", score=0.0, problems=problems, dishes=dishes
+        )
+    meal_totals = totals(dishes, recipes)
+    problems = constraint_problems(meal_totals, arguments.constraints)
+    if problems:
+        return result(
+            False,
+            "the meal breaks a constraint",
+            score=0.0,
+            problems=problems,
+            dishes=dishes,
+            totals=rounded(meal_totals),
         )
 
-    sense, nutrient = arguments["objective"]["sense"], arguments["objective"]["nutrient"]
-    value = meal_totals[nutrient]
-    beaten = value > optimum["objective"] + ROUNDING if sense == "maximize" else value < optimum["objective"] - ROUNDING
-    if beaten:
-        return result(False, f"the meal beats the pinned optimum's {nutrient}: the reference is wrong", score=0.0)
-    score = round(_score(sense, value, optimum["objective"]), 6)
+    value = meal_score(dishes, recipes, arguments.likes)
+    if value > reference.score + ROUNDING or value < reference.worst - ROUNDING:
+        return result(
+            False, "the meal's preference score is outside the pinned range: the reference is wrong", score=0.0
+        )
     return result(
         True,
-        f"the meal meets every constraint and the preference; {sense} {nutrient}: {value:.2f} "
-        f"against the optimum {optimum['objective']:.2f}",
-        score=score,
+        f"the meal meets every constraint and the restrictions; preference score {value:g} against the best "
+        f"{reference.score:g} (worst {reference.worst:g})",
+        score=round(share(value, reference.score, reference.worst), 6),
         dishes=dishes,
         totals=rounded(meal_totals),
+        preference=value,
         optimum=optimum,
     )

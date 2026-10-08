@@ -54,15 +54,24 @@ Five everyday agent tasks on one page. Each task states what the agent receives,
 
 ## 5. Meal Suggestion
 
-**Description.** Propose dishes for today's breakfast, lunch, or dinner that together meet the nutrition constraints and the food preference.
+**Description.** Propose the dishes for a meal, or for a whole day of meals, that the eater likes best while staying within nutrition bounds. Two variants: `suggest-meal` (one meal) and `plan-day` (breakfast, lunch and dinner together).
 
 **Input.**
 
-- Nutrition constraints (for example, at least 50 g of protein, at most 1000 kcal, and at least 10 g of fiber).
-- A food preference (for example, vegetarian or no dairy).
-- A list of ingredients and their nutrition information.
-- A list of recipes and the ingredients in each, per serving.
+- A recipe file: 444 Food.com recipes (CC0), each with its source link, servings, nutrition per serving (kcal, protein, fat, saturated fat, cholesterol, sodium, carbs, fiber, sugar), ingredient names, steps and Food.com tags.
+- Nutrition bounds: a minimum, a maximum or both for any nutrient. `plan-day` takes bounds for each meal and for the whole day, and both must hold (for example, dinner at least 25 g of protein, the day 1600 to 2200 kcal).
+- Restrictions: tags every dish must have or must not have (for example, no `Meat`). These are hard filters.
+- Likes: each a set of words, phrases to ignore and a weight, positive for a like and negative for a dislike (for example, dairy = milk, cheese, yogurt, butter, cream, ignoring "peanut butter", weight 2).
+- The most whole servings of any one recipe.
 
-**Output.** A suggestion for today's breakfast, lunch, or dinner that satisfies the nutrition constraints and the food preference.
+**Output.** The dishes and whole servings for the meal, or for each meal of the day.
 
-**Verifier.** Score the suggested dishes together by linear programming. Together they must satisfy the nutrition constraints, and the score measures how well they meet the user's preferences. Report the score and the suggested dishes.
+**Preference score.** A recipe matches a like when one of the like's words appears as a word in its ingredients or tags, outside the ignored phrases. A recipe's score is the sum of the weights of the likes it matches. A meal's or a day's score is the sum of its dishes' scores, each dish counted once however many servings it has.
+
+**Reference.** A mixed-integer linear program solved exactly with HiGHS. For each eligible (meal, recipe) pair there are two variables: whole servings $x$ from 0 to the maximum, and a 0/1 dish indicator $y$, linked by $y \le x \le \text{max} \cdot y$. Each meal's nutrient totals respect its own bounds, the day's totals respect the day's bounds, and each meal has at least one serving. The objective maximizes $\sum s_r y$, where $s_r$ is the recipe's score. A second solve minimizes the same sum, which gives the lowest score any valid choice can get.
+
+**Verifier.** Recompute each meal's totals and the day's from the recipe file. The answer is valid only when every dish is allowed for its meal, servings are within range, and every bound holds. The score is $(v - \text{worst}) / (\text{best} - \text{worst})$, where $v$ is the answer's preference score: 1.0 at the optimum and 0.0 at the worst valid choice. Ties for the optimum all score 1.0.
+
+**Result.** On the sample tasks, the agent's single meal and full day both matched the solver's optimum (score 1.0). The solver plans a day in 0.3 s. Over all 261 eligible recipes, the agent never submitted a day plan: it used up its 16,000-token reply limit while comparing the three meals' recipes. The sample therefore uses 67 recipes (Food.com's `Healthy` tag).
+
+**Limitations.** Since every liked dish adds to the score, the optimum favors many small dishes. Food.com's tags are sometimes wrong (a `Vegan` dish that lists cheese), and its ingredient amounts don't line up with its ingredient names, so only the names are kept.

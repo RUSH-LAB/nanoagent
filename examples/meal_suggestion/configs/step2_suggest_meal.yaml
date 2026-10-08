@@ -1,0 +1,33 @@
+_ > nanoagent.cli.plugin.PluginAgentConfig:
+
+# The meal-suggestion plugin's suggest-meal task, worked by an agent on step 1's Food.com recipes.
+plugin: plugins/meal-suggestion
+task: suggest-meal
+# The task's input, a contract.SolveInput as JSON: a dinner with no Meat, Poultry or Dessert recipe,
+# at least 30 g of protein and 10 g of fiber, at most 1000 kcal and 1500 mg of sodium, for an eater
+# who loves dairy, likes chocolate and dislikes mushrooms.
+arguments: examples/meal_suggestion/configs/step2_suggest_meal_arguments.json
+inputs:
+  - examples/meal_suggestion/outputs/step1_build_foodcom_recipes/recipes.json
+timeout: 300.0
+
+llm > nanoagent.llm.bedrock.BedrockConfig:
+  model: us.anthropic.claude-opus-5-5
+  region: us-west-2
+  profile: codex-DO-NOT-DELETE
+  temperature: null
+  max_tokens: 4096
+  max_attempts: 5
+  read_timeout: 300.0
+  input_price: 0.0
+  output_price: 0.0
+
+harness > nanoagent.harness.nanoagent.NanoAgentConfig:
+  max_steps: 30
+  cost_limit: null
+  token_limit: null
+  context_window: null
+  hooks: []
+  skills: null
+  context_files: []
+  events: null

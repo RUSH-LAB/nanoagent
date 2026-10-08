@@ -1,6 +1,7 @@
+"""The MCP server: each call's input built into its contract class, its output checked against its own."""
+
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from typing import Any
@@ -9,55 +10,49 @@ import anyio
 from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
+from slimconfig import build_output, output_schema, plain_output
 
-from plugin import list_recipes, nutrition, solve, submit_meal
-
-
-def _schema(name: str) -> dict[str, Any]:
-    return json.loads((Path.cwd() / "schemas" / name).read_text())
-
+from contract import TOOLS, Tool
+from plugin import list_recipes, nutrition, solve, solve_day, submit_day, submit_meal
 
 server = Server("meal-suggestion")
 # NanoAgent names the one folder this plugin may write to; every tool reads its input files there.
 WORKSPACE_ENV = "NANOAGENT_WORKSPACE"
-
-
-# name -> (description, schema file stem, implementation)
-TOOLS = {
-    "solve": ("Find the best meal of whole servings that meets the constraints and the preference", "solve", solve),
-    "list_recipes": ("List the recipes for a meal that meet a food preference", "recipes", list_recipes),
-    "nutrition": ("Give one serving of a recipe, its ingredients and its nutrition", "nutrition", nutrition),
-    "submit_meal": ("Write the suggested meal, each dish's recipe and servings, to meal.json", "submit", submit_meal),
+# Each tool's implementation: (its input, the workspace) -> its output, as contract.TOOLS types them.
+IMPLEMENTATIONS = {
+    Tool.SOLVE: solve,
+    Tool.LIST_RECIPES: list_recipes,
+    Tool.NUTRITION: nutrition,
+    Tool.SUBMIT_MEAL: submit_meal,
+    Tool.SOLVE_DAY: solve_day,
+    Tool.SUBMIT_DAY: submit_day,
 }
 
 
 @server.list_tools()
 async def list_tools() -> list[types.Tool]:
     return [
-        types.Tool(
-            name=name,
-            description=description,
-            inputSchema=_schema(f"{stem}-input.json"),
-            outputSchema=_schema(f"{stem}-output.json"),
-        )
-        for name, (description, stem, _) in TOOLS.items()
+        types.Tool(name=tool.value, inputSchema=output_schema(given), outputSchema=output_schema(made))
+        for tool, (given, made) in TOOLS.items()
     ]
 
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    try:
-        if name not in TOOLS:
-            raise ValueError(f"unknown tool {name!r}")
-        _, _, function = TOOLS[name]
-        return function(**arguments, workspace=Path(os.environ[WORKSPACE_ENV]))
-    except Exception as error:  # noqa: BLE001 - MCP boundary returns structured failures
-        return {"ok": False, "error": str(error)}
+    # A failure raises; the MCP server returns it as an error result.
+    tool = Tool(name)
+    given, made = TOOLS[tool]
+    output = IMPLEMENTATIONS[tool](build_output(arguments, given), Path(os.environ[WORKSPACE_ENV]))
+    if not isinstance(output, made):
+        raise TypeError(f"{name} returned {type(output).__name__}, not {made.__name__}")
+    return plain_output(output)
 
 
 def main() -> None:
     if WORKSPACE_ENV not in os.environ:
         raise SystemExit(f"{WORKSPACE_ENV} is not set: NanoAgent passes the plugin's workspace folder")
+    if set(IMPLEMENTATIONS) != set(Tool):
+        raise SystemExit("IMPLEMENTATIONS must implement every contract.Tool")
 
     async def run() -> None:
         async with stdio_server() as (read, write):

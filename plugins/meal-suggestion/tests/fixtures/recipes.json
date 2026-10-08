@@ -1,73 +1,669 @@
 {
-  "oatmeal with blueberries and peanut butter": {
-    "meals": ["breakfast"],
-    "tags": ["vegetarian", "dairy"],
-    "ingredients": {"rolled oats": 60, "milk, 2%": 200, "blueberries": 80, "peanut butter": 16}
-  },
-  "greek yogurt bowl": {
-    "meals": ["breakfast"],
-    "tags": ["vegetarian", "dairy"],
-    "ingredients": {"greek yogurt, nonfat": 200, "blueberries": 75, "rolled oats": 30, "banana": 60}
-  },
-  "scrambled eggs on toast": {
-    "meals": ["breakfast"],
-    "tags": ["vegetarian", "gluten"],
-    "ingredients": {"eggs": 120, "whole wheat bread": 60, "spinach": 30, "olive oil": 5}
-  },
-  "peanut butter banana toast": {
-    "meals": ["breakfast"],
-    "tags": ["vegetarian", "vegan", "gluten"],
-    "ingredients": {"whole wheat bread": 60, "peanut butter": 32, "banana": 100}
-  },
-  "tofu scramble": {
-    "meals": ["breakfast"],
-    "tags": ["vegetarian", "vegan", "gluten"],
-    "ingredients": {"tofu, firm": 150, "spinach": 50, "whole wheat bread": 40, "olive oil": 5}
-  },
-  "chickpea quinoa salad": {
-    "meals": ["lunch", "dinner"],
-    "tags": ["vegetarian", "vegan"],
-    "ingredients": {"chickpeas, cooked": 150, "quinoa, cooked": 150, "spinach": 40, "avocado": 50, "olive oil": 10}
-  },
-  "lentil soup": {
-    "meals": ["lunch", "dinner"],
-    "tags": ["vegetarian", "vegan"],
-    "ingredients": {"lentils, cooked": 250, "tomato sauce": 100, "spinach": 50, "olive oil": 5}
-  },
-  "chicken rice bowl": {
-    "meals": ["lunch", "dinner"],
-    "tags": ["meat"],
-    "ingredients": {"chicken breast, cooked": 150, "brown rice, cooked": 180, "broccoli, cooked": 100, "olive oil": 5}
-  },
-  "black bean burrito bowl": {
-    "meals": ["lunch", "dinner"],
-    "tags": ["vegetarian", "dairy"],
-    "ingredients": {
-      "black beans, cooked": 150,
-      "brown rice, cooked": 150,
-      "avocado": 50,
-      "cheddar cheese": 30,
-      "tomato sauce": 60
-    }
-  },
-  "tofu broccoli stir-fry": {
-    "meals": ["dinner"],
-    "tags": ["vegetarian", "vegan"],
-    "ingredients": {"tofu, firm": 200, "broccoli, cooked": 150, "brown rice, cooked": 150, "olive oil": 10}
-  },
-  "baked salmon with quinoa": {
-    "meals": ["dinner"],
-    "tags": ["fish"],
-    "ingredients": {"salmon, cooked": 150, "quinoa, cooked": 150, "broccoli, cooked": 100, "olive oil": 5}
-  },
-  "whole wheat pasta with lentil marinara": {
-    "meals": ["dinner"],
-    "tags": ["vegetarian", "dairy", "gluten"],
-    "ingredients": {
-      "whole wheat pasta, cooked": 200,
-      "lentils, cooked": 100,
-      "tomato sauce": 150,
-      "cheddar cheese": 20
+  "source": "Food.com recipes (Kaggle irkaal/foodcom-recipes-and-reviews, version 2, CC0): https://www.kaggle.com/api/v1/datasets/download/irkaal/foodcom-recipes-and-reviews/recipes.parquet?datasetVersionNumber=2",
+  "recipes": {
+    "Asian Style Savory Baked Tofu": {
+      "url": "https://www.food.com/recipe/asian-style-savory-baked-tofu-81284",
+      "meals": [
+        "lunch"
+      ],
+      "tags": [
+        "< 4 Hours",
+        "Asian",
+        "Beans",
+        "Chinese",
+        "Low Cholesterol",
+        "Lunch/Snacks",
+        "Oven",
+        "Savory",
+        "Soy/Tofu",
+        "Vegan",
+        "Very Low Carbs"
+      ],
+      "servings": 4,
+      "per_serving": {
+        "kcal": 133.4,
+        "protein": 8.0,
+        "fat": 10.4,
+        "saturated_fat": 1.7,
+        "cholesterol": 0.0,
+        "sodium": 513.7,
+        "carbs": 2.9,
+        "fiber": 0.9,
+        "sugar": 0.9
+      },
+      "ingredients": [
+        "firm tofu",
+        "tamari soy sauce",
+        "sake",
+        "dry sherry",
+        "rice vinegar",
+        "cider vinegar",
+        "garlic clove",
+        "onions",
+        "water"
+      ],
+      "steps": [
+        "For best results, tofu should be \"pressed\" in order to remove excess liquid and absorb the flavors of the marinade.",
+        "Press tofu block between two plates, weighted down with a cast iron pan, large bowl of water, or heavy cans, for about 30 minutes.",
+        "Halfway through, you may dump the plate of water and flip the tofu block.",
+        "To make marinade, simply whisk together the ingredients in a bowl.",
+        "After tofu is pressed, cut the block into small cubes or triangles.",
+        "Place pieces of tofu into baking dish, and cover with the marinade.",
+        "The tofu can sit overnight in the marinade, or can be prepared right away.",
+        "Preheat oven to 375 degrees.",
+        "Bake tofu about 35-45 minutes, or until all the liquid is absorbed.",
+        "Tofu can be eaten by itself, or added to stir-frys, salads, soups or sandwiches."
+      ]
+    },
+    "Bacon and Egg Cups": {
+      "url": "https://www.food.com/recipe/bacon-and-egg-cups-116152",
+      "meals": [
+        "breakfast"
+      ],
+      "tags": [
+        "< 30 Mins",
+        "Breakfast",
+        "Easy",
+        "Free Of...",
+        "Meat",
+        "Pork",
+        "Very Low Carbs"
+      ],
+      "servings": 3,
+      "per_serving": {
+        "kcal": 216.3,
+        "protein": 14.4,
+        "fat": 16.7,
+        "saturated_fat": 5.5,
+        "cholesterol": 382.9,
+        "sodium": 275.3,
+        "carbs": 0.8,
+        "fiber": 0.0,
+        "sugar": 0.4
+      },
+      "ingredients": [
+        "eggs",
+        "bacon",
+        "cheese",
+        "salt",
+        "pepper"
+      ],
+      "steps": [
+        "Preheat oven to 350 degrees.",
+        "Pre- Cook Bacon for 5-10 minutes.",
+        "Using a muffin/cupcake pan, line the holes with a slice of bacon, pressing the bacon around the sides of the hole, not on the bottom.",
+        "Crack one egg into each hole.",
+        "Sprinkle with salt and pepper and cheese if desired.",
+        "Bake at 350 degrees for 20 minutes or until the egg is the doneness you like.",
+        "These bacon and egg cups should pop right out of the pan."
+      ]
+    },
+    "Baja Black Beans, Corn and Rice": {
+      "url": "https://www.food.com/recipe/baja-black-beans-corn-and-rice-55768",
+      "meals": [
+        "lunch",
+        "dinner"
+      ],
+      "tags": [
+        "< 60 Mins",
+        "Beans",
+        "Black Beans",
+        "Brown Rice",
+        "Citrus",
+        "Corn",
+        "Easy",
+        "Fruit",
+        "Lunch/Snacks",
+        "Mexican",
+        "One Dish Meal",
+        "Onions",
+        "Potluck",
+        "Rice",
+        "Spicy",
+        "Stove Top",
+        "Vegan",
+        "Vegetable"
+      ],
+      "servings": 6,
+      "per_serving": {
+        "kcal": 396.4,
+        "protein": 12.4,
+        "fat": 5.4,
+        "saturated_fat": 0.9,
+        "cholesterol": 0.0,
+        "sodium": 203.0,
+        "carbs": 78.0,
+        "fiber": 11.0,
+        "sugar": 6.1
+      },
+      "ingredients": [
+        "cooked brown rice",
+        "black beans",
+        "corn",
+        "fresh tomatoes",
+        "red onion",
+        "cilantro",
+        "fresh lime juice",
+        "olive oil",
+        "salt",
+        "fresh ground pepper"
+      ],
+      "steps": [
+        "Cook brown rice.",
+        "In a medium bowl, combine black beans, corn, tomatoes, onion, cilantro, jalapeno, lime juice, oil, salt, pepper and hot sauce.",
+        "To serve, Place a scoop of hot rice in a bowl or on a plate, top with a generous scoop of the black bean mixture.",
+        "Stir together before eating."
+      ]
+    },
+    "Baked Chicken Breasts": {
+      "url": "https://www.food.com/recipe/baked-chicken-breasts-45246",
+      "meals": [
+        "dinner"
+      ],
+      "tags": [
+        "< 4 Hours",
+        "Chicken",
+        "Chicken Breast",
+        "Meat",
+        "One Dish Meal",
+        "Oven",
+        "Poultry",
+        "Weeknight"
+      ],
+      "servings": 4,
+      "per_serving": {
+        "kcal": 421.4,
+        "protein": 41.9,
+        "fat": 22.9,
+        "saturated_fat": 11.9,
+        "cholesterol": 133.0,
+        "sodium": 767.4,
+        "carbs": 10.1,
+        "fiber": 0.0,
+        "sugar": 2.6
+      },
+      "ingredients": [
+        "boneless skinless chicken breasts",
+        "swiss cheese",
+        "herb seasoned stuffing mix",
+        "oleo"
+      ],
+      "steps": [
+        "Butter a 13x9-inch baking dish and arrange breasts in dish.",
+        "Top with cheese slices.",
+        "Mix soup and apple juice together till well combined.",
+        "Spoon evenly over chicken breasts.",
+        "Sprinkle stuffing mix over soup.",
+        "Drizzle butter over crumbs.",
+        "Bake at 350° for 50 minutes to an hour, or till chicken is tender."
+      ]
+    },
+    "Baked Chicken Tenders": {
+      "url": "https://www.food.com/recipe/baked-chicken-tenders-194400",
+      "meals": [
+        "lunch"
+      ],
+      "tags": [
+        "< 30 Mins",
+        "Chicken",
+        "Easy",
+        "Inexpensive",
+        "Lunch/Snacks",
+        "Meat",
+        "Poultry"
+      ],
+      "servings": 3,
+      "per_serving": {
+        "kcal": 354.4,
+        "protein": 41.4,
+        "fat": 13.1,
+        "saturated_fat": 4.5,
+        "cholesterol": 115.2,
+        "sodium": 861.9,
+        "carbs": 15.2,
+        "fiber": 1.0,
+        "sugar": 1.7
+      },
+      "ingredients": [
+        "light mayonnaise",
+        "parmesan cheese"
+      ],
+      "steps": [
+        "Preheat Oven to 425°F.",
+        "Mix chicken tenders and mayonnaise in a bowl to lightly coat chicken with mayonnaise.",
+        "Mix bread crumbs and cheese in a gallon-size zippie bag.",
+        "Prepare baking sheet with cooking spray.",
+        "Put 1-2 chicken tenders in the zippie bag with the bread crumbs and shake to coat.",
+        "Place chicken tenders in a single layer on prepared baking sheet.",
+        "Continue until all tenders are coated and on the baking sheet.",
+        "Bake in preheated oven for 8 minutes.  Gently flip each one, so as not to remove the breading, and bake an additional 8 minutes.",
+        "Serve with your favorite dipping sauce."
+      ]
+    },
+    "Baked Old-Fastioned Oatmeal": {
+      "url": "https://www.food.com/recipe/baked-old-fastioned-oatmeal-58309",
+      "meals": [
+        "breakfast"
+      ],
+      "tags": [
+        "< 60 Mins",
+        "Breakfast",
+        "Healthy",
+        "Oven"
+      ],
+      "servings": 4,
+      "per_serving": {
+        "kcal": 395.2,
+        "protein": 12.7,
+        "fat": 9.3,
+        "saturated_fat": 3.9,
+        "cholesterol": 109.5,
+        "sodium": 539.5,
+        "carbs": 67.0,
+        "fiber": 4.5,
+        "sugar": 30.0
+      },
+      "ingredients": [
+        "oatmeal",
+        "baking powder",
+        "salt",
+        "milk",
+        "eggs",
+        "applesauce",
+        "brown sugar",
+        "vanilla yogurt"
+      ],
+      "steps": [
+        "Preheat oven to 325 degrees F.",
+        "In a large bowl combine the oatmeal, baking powder and salt.",
+        "Mix in milk, eggs, applesauce, brown sugar.",
+        "Pour into a greased casserole dish.",
+        "Bake at 325 for 45 minutes.",
+        "Serve hot, topping each with vanilla yogurt."
+      ]
+    },
+    "Black Bean and Couscous Salad": {
+      "url": "https://www.food.com/recipe/black-bean-and-couscous-salad-21843",
+      "meals": [
+        "dinner"
+      ],
+      "tags": [
+        "< 15 Mins",
+        "Beans",
+        "Black Beans",
+        "Grains",
+        "Healthy",
+        "Low Cholesterol",
+        "One Dish Meal",
+        "Potluck",
+        "Refrigerator",
+        "Southwestern U.S.",
+        "Vegetable"
+      ],
+      "servings": 10,
+      "per_serving": {
+        "kcal": 226.7,
+        "protein": 9.7,
+        "fat": 5.0,
+        "saturated_fat": 0.8,
+        "cholesterol": 0.0,
+        "sodium": 99.9,
+        "carbs": 37.4,
+        "fiber": 7.5,
+        "sugar": 0.9
+      },
+      "ingredients": [
+        "couscous",
+        "chicken broth",
+        "extra virgin olive oil",
+        "fresh lime juice",
+        "red wine vinegar",
+        "ground cumin",
+        "green onions",
+        "red bell pepper",
+        "fresh cilantro",
+        "frozen corn kernels",
+        "black beans"
+      ],
+      "steps": [
+        "Bring chicken broth to a boil in a 2-quart or larger sauce pan and stir in the couscous.",
+        "Cover the pot and remove from heat.",
+        "Let stand for 5 minutes.",
+        "In a large bowl, whisk together the olive oil, lime juice, vinegar and cumin.",
+        "Add green onions, red pepper, cilantro, corn and beans, and toss to coat.",
+        "Fluff the couscous well, breaking up any chunks.",
+        "Add to the bowl with the vegetables and mix well.",
+        "Season with salt and pepper to taste and serve at once or refrigerate until ready to serve."
+      ]
+    },
+    "Cheese Enchilada Stack": {
+      "url": "https://www.food.com/recipe/cheese-enchilada-stack-104312",
+      "meals": [
+        "dinner"
+      ],
+      "tags": [
+        "< 30 Mins",
+        "Beginner Cook",
+        "Cheese",
+        "Easy",
+        "High In...",
+        "Inexpensive",
+        "One Dish Meal",
+        "Oven",
+        "Potluck",
+        "Southwestern U.S.",
+        "Tex Mex"
+      ],
+      "servings": 4,
+      "per_serving": {
+        "kcal": 563.9,
+        "protein": 28.2,
+        "fat": 30.4,
+        "saturated_fat": 18.3,
+        "cholesterol": 89.5,
+        "sodium": 1490.0,
+        "carbs": 47.0,
+        "fiber": 7.5,
+        "sugar": 10.3
+      },
+      "ingredients": [
+        "corn tortillas",
+        "sharp cheddar cheese",
+        "green onion",
+        "green chilies"
+      ],
+      "steps": [
+        "Preheat oven to 400 degrees.",
+        "Spray square 8x8 baking pan with pam (the garlic one is good).",
+        "Line pan with layer of corn tortillas.",
+        "Top with 1/3 sauce, cheese, chilis, and onions.",
+        "Top with second layer of tortillas.",
+        "Top with second layer of 1/3 sauce, cheese, chilis, and onions.",
+        "Top with final layer of tortillas.",
+        "End with final layer of 1/3 sauce, cheese, chilis, and onions.",
+        "Bake until bubbly (approximately 10-15 min.).",
+        "You can use green sauce and 2 cups cubed chicken.",
+        "Or black beans.",
+        "Or ground beef seasoned with taco mix."
+      ]
+    },
+    "Chickpea Burger": {
+      "url": "https://www.food.com/recipe/chickpea-burger-338863",
+      "meals": [
+        "lunch"
+      ],
+      "tags": [
+        "< 30 Mins",
+        "Beans",
+        "Healthy",
+        "Low Cholesterol",
+        "Lunch/Snacks"
+      ],
+      "servings": 8,
+      "per_serving": {
+        "kcal": 127.6,
+        "protein": 5.7,
+        "fat": 1.8,
+        "saturated_fat": 0.3,
+        "cholesterol": 23.2,
+        "sodium": 250.7,
+        "carbs": 22.7,
+        "fiber": 4.3,
+        "sugar": 1.8
+      },
+      "ingredients": [
+        "carrot",
+        "garlic clove",
+        "chickpeas",
+        "ground cumin",
+        "ground coriander",
+        "egg",
+        "plain flour",
+        "tomatoes",
+        "red onion"
+      ],
+      "steps": [
+        "Peel the carrots, grate them coarsely and set them aside.",
+        "Peel and roughly chop the garlic.",
+        "Drain and rinse the chickpeas and put them into a food processor with the garlic, ground spices, salt and pepper. Slightly process to obtain a rough paste then add the carrot, egg, and flour and process briefly until evenly mixed but slightly rugged.",
+        "Heat the oil in a frying pan and divide the mixture into 8. Fry in batches for 2–3 minutes on each side, until golden, then drain on kitchen paper.",
+        "Keep opened chickpea can to cut round shapes in bread slices. Toast each slice in toaster or in frying pan.",
+        "Serve with slices of tomato and red onions and mayonnaise."
+      ]
+    },
+    "Chickpea Curry (Garbanzos)": {
+      "url": "https://www.food.com/recipe/chickpea-curry-garbanzos-25360",
+      "meals": [
+        "dinner"
+      ],
+      "tags": [
+        "< 15 Mins",
+        "Asian",
+        "Beans",
+        "Curries",
+        "Easy",
+        "Indian",
+        "Low Cholesterol",
+        "One Dish Meal",
+        "Spicy",
+        "Stove Top",
+        "Vegan"
+      ],
+      "servings": 2,
+      "per_serving": {
+        "kcal": 437.6,
+        "protein": 13.0,
+        "fat": 16.4,
+        "saturated_fat": 2.2,
+        "cholesterol": 0.0,
+        "sodium": 1267.0,
+        "carbs": 62.0,
+        "fiber": 12.2,
+        "sugar": 4.1
+      },
+      "ingredients": [
+        "chickpeas",
+        "onion",
+        "fresh ginger",
+        "garlic cloves",
+        "curry powder",
+        "salt",
+        "tomatoes",
+        "olive oil",
+        "water"
+      ],
+      "steps": [
+        "Saute onions in olive oil for 3 minutes.",
+        "Add ginger, garlic and curry powder (I use about 3 teaspoon for medium-spicy), stir and cook for another minute or so.",
+        "Add chickpeas and salt and a tablespoon or so of water.",
+        "Cook and stir about a minute.",
+        "Add tomatoes and cook for 5 minutes, stirring gently.",
+        "Add another spoonful of water if it seems dry or if it's burning or sticking.",
+        "Serve with flatbread and rice."
+      ]
+    },
+    "Chickpeas With Spinach (Greek)": {
+      "url": "https://www.food.com/recipe/chickpeas-with-spinach-greek-81968",
+      "meals": [
+        "dinner"
+      ],
+      "tags": [
+        "< 60 Mins",
+        "Beans",
+        "European",
+        "Greek",
+        "Greens",
+        "Healthy",
+        "Low Cholesterol",
+        "One Dish Meal",
+        "Spinach",
+        "Vegetable"
+      ],
+      "servings": 4,
+      "per_serving": {
+        "kcal": 310.2,
+        "protein": 13.3,
+        "fat": 6.2,
+        "saturated_fat": 0.8,
+        "cholesterol": 0.0,
+        "sodium": 602.7,
+        "carbs": 54.2,
+        "fiber": 12.6,
+        "sugar": 5.1
+      },
+      "ingredients": [
+        "onions",
+        "garlic cloves",
+        "olive oil",
+        "chickpeas",
+        "fresh tomatoes",
+        "red pepper flakes",
+        "paprika",
+        "oregano",
+        "frozen spinach",
+        "lemon"
+      ],
+      "steps": [
+        "In a large saucepan, over medium heat, saute the onions and garlic in the olive oil until the onions are tender.",
+        "Add the chickpeas, tomatoes, pepper flakes (to suit your taste), and oregano,and paprika.",
+        "Cover and simmer for about 18 minutes, stirring occasionally.",
+        "Add spinach and cook about 7 minutes longer, or until spinach is cooked.",
+        "Add the lemon juice (I usually like to add the juice of about 1 1/2 lemons. Add the juice of 1 lemon, taste and adjust to your own, personal taste), salt and pepper."
+      ]
+    },
+    "Classic Potato Salad": {
+      "url": "https://www.food.com/recipe/classic-potato-salad-22747",
+      "meals": [
+        "lunch"
+      ],
+      "tags": [
+        "< 15 Mins",
+        "Easy",
+        "European",
+        "German",
+        "Inexpensive",
+        "Lunch/Snacks",
+        "Potato",
+        "Potluck",
+        "Vegetable"
+      ],
+      "servings": 8,
+      "per_serving": {
+        "kcal": 237.9,
+        "protein": 8.7,
+        "fat": 3.6,
+        "saturated_fat": 1.1,
+        "cholesterol": 116.6,
+        "sodium": 372.8,
+        "carbs": 43.4,
+        "fiber": 5.3,
+        "sugar": 6.2
+      },
+      "ingredients": [
+        "potatoes",
+        "mayonnaise",
+        "cider vinegar",
+        "sugar",
+        "yellow mustard",
+        "salt",
+        "garlic powder",
+        "pepper",
+        "celery ribs",
+        "onion",
+        "hard-boiled eggs",
+        "paprika"
+      ],
+      "steps": [
+        "Boil peeled potatoes in salted water until done. Cool to room temperature.",
+        "Place diced potatoes in large bowl.",
+        "Mix mayonnaise, cider vinegar, sugar, mustard, salt, garlic powder, and pepper in another bowl.",
+        "Add to potatoes.",
+        "Add celery and onions and mix well.",
+        "Stir in eggs.",
+        "Sprinkle a little paprika on top."
+      ]
+    },
+    "Easy Vegan Pancakes": {
+      "url": "https://www.food.com/recipe/easy-vegan-pancakes-63509",
+      "meals": [
+        "breakfast"
+      ],
+      "tags": [
+        "< 30 Mins",
+        "Breakfast",
+        "Healthy",
+        "High In...",
+        "Low Cholesterol",
+        "Vegan"
+      ],
+      "servings": 4,
+      "per_serving": {
+        "kcal": 424.3,
+        "protein": 13.0,
+        "fat": 6.8,
+        "saturated_fat": 0.9,
+        "cholesterol": 0.0,
+        "sodium": 1205.1,
+        "carbs": 77.1,
+        "fiber": 3.0,
+        "sugar": 12.6
+      },
+      "ingredients": [
+        "all-purpose flour",
+        "sugar",
+        "baking powder",
+        "salt",
+        "soymilk",
+        "water",
+        "cinnamon"
+      ],
+      "steps": [
+        "In a large bowl, lightly mix all ingredients until just combined.",
+        "Overmixing will make the pancakes tough.",
+        "Leave mixture on the counter to rest for 3-5 minutes and then fold it onto itself two or three times, lightly to make sure that the batter is fairly well incorporated.",
+        "Cook on a greased skillet or griddle over medium to medium high heat until golden.",
+        "If there are large lumps, carefully break them apart with the spatula while the pancakes are cooking.",
+        "Serve immediately."
+      ]
+    },
+    "Egg Casserole for Two": {
+      "url": "https://www.food.com/recipe/egg-casserole-for-two-206038",
+      "meals": [
+        "breakfast"
+      ],
+      "tags": [
+        "< 30 Mins",
+        "Breakfast",
+        "Cheese",
+        "Easy",
+        "Oven"
+      ],
+      "servings": 2,
+      "per_serving": {
+        "kcal": 300.9,
+        "protein": 22.1,
+        "fat": 16.4,
+        "saturated_fat": 7.5,
+        "cholesterol": 314.1,
+        "sodium": 716.9,
+        "carbs": 15.1,
+        "fiber": 0.8,
+        "sugar": 1.6
+      },
+      "ingredients": [
+        "eggs",
+        "milk",
+        "green onion",
+        "cheddar cheese",
+        "ham"
+      ],
+      "steps": [
+        "Preheat oven to 350 degrees.",
+        "Spray small 2-cup capacity oval baker with vegetable spray.",
+        "In bowl, combine eggs, milk, bread, green onion, cheese and ham; mix well.",
+        "Pour egg mixture into baker.",
+        "Bake 20-25 minutes or until egg mixture is set."
+      ]
     }
   }
 }

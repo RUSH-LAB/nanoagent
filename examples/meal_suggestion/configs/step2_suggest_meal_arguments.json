@@ -1,0 +1,22 @@
+{
+  "recipes": "inputs/recipes.json",
+  "meal": "dinner",
+  "constraints": {
+    "protein": {"min": 30, "max": null},
+    "kcal": {"min": null, "max": 1000},
+    "fiber": {"min": 10, "max": null},
+    "sodium": {"min": null, "max": 1500}
+  },
+  "restrictions": {"require": [], "exclude": ["Meat", "Poultry", "Dessert"]},
+  "likes": [
+    {
+      "name": "dairy",
+      "words": ["milk", "cheese", "yogurt", "butter", "cream"],
+      "ignore": ["peanut butter", "almond butter", "apple butter", "coconut milk", "coconut cream", "almond milk", "soy milk", "cream of tartar"],
+      "weight": 2
+    },
+    {"name": "chocolate", "words": ["chocolate", "cocoa"], "ignore": [], "weight": 1},
+    {"name": "mushrooms", "words": ["mushroom"], "ignore": [], "weight": -2}
+  ],
+  "max_servings": 2
+}
