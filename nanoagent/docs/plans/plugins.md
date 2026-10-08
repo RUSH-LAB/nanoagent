@@ -95,8 +95,8 @@ Departures from this plan, found while building:
   up to 25 tickers per call. `pin_week` makes about 100 requests, so the example's `timeout` is
   900 s.
 - Task 4: msa's chess app now starts from a FEN (`msa/engines.py`, uncommitted in msa). The board
-  runs `driven`, so the engine never replies to the agent's move. `.env` declares `MSA_ROOT`,
-  `LOCALDB` and `CHROME_BIN`.
+  runs `driven`, so the engine never replies to the agent's move. `.env` declares nothing: the
+  plugin finds msa, Stockfish and Chrome itself.
 - Task 5: a meal needs at least one dish; valid means feasible plus the preference, and the score
   is total / optimum (maximize) or optimum / total (minimize).
 - Task 1: title, author and year are required fields; an entry missing one is unparseable.

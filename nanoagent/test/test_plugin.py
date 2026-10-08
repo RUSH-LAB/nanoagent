@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import base64
+import functools
 import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -73,18 +77,56 @@ steps: [Say something, Hear it back]
 ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4"/></svg>\n'
 
 
+README = """# Echo
+
+## Tools
+
+`echo` repeats its input.
+
+## Layout
+
+The template's.
+
+## Develop and run
+
+`uv run pytest`
+"""
+
+PYPROJECT = """[project]
+name = "nanoagent-echo"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+"""
+
+
+@functools.cache
+def _uv_lock() -> str:
+    """The fixture's lock, as this machine's uv writes it, so the template's run.sh accepts it."""
+    with tempfile.TemporaryDirectory() as folder:
+        (Path(folder) / "pyproject.toml").write_text(PYPROJECT, encoding="utf-8")
+        subprocess.run(["uv", "lock", "--quiet"], cwd=folder, check=True)
+        return (Path(folder) / "uv.lock").read_text(encoding="utf-8")
+
+
 def write_plugin(root: Path) -> Path:
+    from nanoagent.plugin.manifest import TEMPLATE
+
+    shutil.copytree(TEMPLATE / "ui" / "kit", root / "ui" / "kit")
     for name, content in {
-        "README.md": "# Echo\n",
-        "LICENSE": "MIT\n",
-        "pyproject.toml": "[project]\nname = 'echo'\nversion = '1.0.0'\n",
-        "uv.lock": "",
-        ".gitignore": ".venv/\n",
+        "README.md": README,
+        "LICENSE": (TEMPLATE / "LICENSE").read_text().replace("{{year}}", "2026").replace("{{name}}", "Echo"),
+        "pyproject.toml": PYPROJECT,
+        "uv.lock": _uv_lock(),
+        ".gitignore": (TEMPLATE / "dot.gitignore").read_text(),
         ".env": "# no variables\n",
-        "run.sh": "exit 0\n",
+        "run.sh": (TEMPLATE / "run.sh").read_text(),
         "src/echo.py": "",
-        "tests/test_echo.py": "",
-        "ui/index.html": "<!doctype html><title>Echo</title>\n",
+        "tests/test_verifier.py": "",
+        "ui/index.html": (TEMPLATE / "ui" / "index.html").read_text(),
         "product/product.yaml": PRODUCT,
         "product/icon.svg": ICON,
         "verifier/__init__.py": (
@@ -141,7 +183,8 @@ def test_env_names_variables_without_values(tmp_path: Path) -> None:
 
 def test_failing_run_sh_stops_the_launch(tmp_path: Path) -> None:
     write_plugin(tmp_path)
-    (tmp_path / "run.sh").write_text("echo 'API_KEY is not set' >&2\nexit 1\n", encoding="utf-8")
+    with (tmp_path / "run.sh").open("a", encoding="utf-8") as run_sh:
+        run_sh.write("echo 'API_KEY is not set' >&2\nexit 1\n")
     with pytest.raises(RuntimeError, match="API_KEY is not set"):
         call_tool(load_manifest(tmp_path), "echo", {"value": "x"}, workspace=tmp_path)
 
@@ -417,14 +460,14 @@ def test_reports_every_broken_rule_at_once(tmp_path: Path) -> None:
 
     path = write_plugin(tmp_path)
     (tmp_path / "run.sh").unlink()
-    (tmp_path / "tests" / "test_echo.py").unlink()
+    (tmp_path / "tests" / "test_verifier.py").unlink()
     (tmp_path / ".env").write_text("TOKEN=secret\n", encoding="utf-8")
     path.write_text(path.read_text().replace("name: Echo\n", "name: Echo\nauthor: someone\n"))
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
     assert error.value.violations[:3] == [
         "missing run.sh",
-        "tests/ holds no test_*.py",
+        "missing tests/test_verifier.py",
         ".env line 1 must be a variable NAME with no value",
     ]
     assert "sets `author`, which is not a field of" in error.value.violations[3]
@@ -475,24 +518,6 @@ def _layout(folder: Path) -> set[str]:
 @pytest.mark.parametrize("plugin", sorted(path.name for path in (ROOT / "plugins").iterdir() if path.is_dir()))
 def test_every_built_in_plugin_follows_every_rule(plugin: str) -> None:
     assert load_manifest(ROOT / "plugins" / plugin).id == plugin
-
-
-@pytest.mark.parametrize("plugin", sorted(path.name for path in (ROOT / "plugins").iterdir() if path.is_dir()))
-def test_every_built_in_plugin_ships_the_template_ui_kit(plugin: str) -> None:
-    template = ROOT / "src" / "nanoagent" / "plugin" / "template" / "ui"
-    ui = ROOT / "plugins" / plugin / "ui"
-
-    def kit(folder: Path) -> dict[str, bytes]:
-        from nanoagent.plugin.manifest import TOOL_ARTIFACTS
-
-        files = [folder / "index.html", *sorted((folder / "kit").rglob("*"))]
-        return {
-            path.relative_to(folder).as_posix(): path.read_bytes()
-            for path in files
-            if path.is_file() and not TOOL_ARTIFACTS & set(path.relative_to(folder).parts)
-        }
-
-    assert kit(ui) == kit(template)
 
 
 def test_plugin_new_creates_a_plugin_shaped_like_the_reference(tmp_path: Path) -> None:
@@ -570,3 +595,29 @@ def test_ui_is_a_static_web_page(tmp_path: Path) -> None:
         "missing ui/index.html",
         "unexpected ui/server.py: ui/ holds only static web files",
     ]
+
+
+@pytest.mark.parametrize(
+    ("path", "edit", "problem"),
+    [
+        ("ui/kit/dom.js", lambda text: text + "// mine\n", "ui/kit/dom.js is not the template's"),
+        ("ui/kit/extra.js", lambda text: "", "unexpected ui/kit/extra.js: ui/kit/ holds only the template's kit"),
+        ("LICENSE", lambda text: text.replace("The Echo authors", "Someone"), "LICENSE must be the template's MIT license"),
+        (".gitignore", lambda text: text.replace("*.pyc\n", ""), ".gitignore must ignore *.pyc"),
+        ("run.sh", lambda text: "exit 0\n", "run.sh must begin with the template's checks"),
+        ("README.md", lambda text: text.replace("# Echo", "# Repeat"), "README.md must open with # Echo"),
+        ("README.md", lambda text: text.replace("## Layout\n", ""), "README.md must have the sections"),
+        ("README.md", lambda text: text.replace("`echo`", "echo"), "README.md ## Tools does not name echo"),
+        ("pyproject.toml", lambda text: text.replace("nanoagent-echo", "echo"), "must name the project nanoagent-echo"),
+        ("pyproject.toml", lambda text: text.replace('pythonpath = ["."]', ""), "plugin root on pytest's path"),
+    ],
+)
+def test_standard_files_are_the_templates(tmp_path: Path, path: str, edit, problem: str) -> None:
+    from nanoagent.plugin import PluginError
+
+    write_plugin(tmp_path)
+    file = tmp_path / path
+    file.write_text(edit(file.read_text() if file.exists() else ""), encoding="utf-8")
+    with pytest.raises(PluginError) as error:
+        load_manifest(tmp_path)
+    assert [violation for violation in error.value.violations if problem in violation], error.value.violations

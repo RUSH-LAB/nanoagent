@@ -11,7 +11,7 @@ from nanoagent.core.agent import Reply, ToolCall
 from nanoagent.runtime.config import load_config_args
 from nanoagent.web.app import create_app
 from nanoagent.web.config import WebConfig
-from test_plugin import SERVER, write_plugin
+from test_plugin import README, SERVER, write_plugin
 
 ROOT = Path(__file__).resolve().parents[1]
 TOKEN = "plugin-test-secret"
@@ -64,7 +64,7 @@ def client(
 def test_lists_plugins_with_readme_and_schemas(client: TestClient) -> None:
     [plugin] = client.get("/v1/plugins").json()["plugins"]
     assert plugin["id"] == "echo"
-    assert plugin["readme"] == "# Echo\n"
+    assert plugin["readme"] == README
     assert plugin["tools"][0]["inputSchema"]["required"] == ["value"]
     assert plugin["tasks"][0]["tools"] == ["echo"]
 

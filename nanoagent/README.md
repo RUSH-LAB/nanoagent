@@ -29,7 +29,7 @@ uv.lock
 .env             # environment variable NAMEs the plugin needs, never values
 run.sh           # exits 0 when this environment can run the plugin
 src/             # the plugin's code, organized as it likes
-tests/           # at least one test_*.py
+tests/           # the plugin's tests, including test_verifier.py
 verifier/        # deterministic verifier package, .py files only
 ui/              # the front end: a static web page, ui/index.html
 product/         # the product page: product.yaml and icon.svg
@@ -44,7 +44,13 @@ The rules a plugin must follow are listed in one place, the docstring of
 names only, a `contract.py` of declarations only, a `nanoagent.yaml` that
 fills `ManifestConfig` under slimconfig's rules (tables keyed by the
 contract's `Tool` and `Task`), a deterministic verifier, a `ui/` and a
-`product/` (below), and no extra files. NanoAgent refuses to load a plugin that breaks any rule, and `PluginError` lists every
+`product/` (below), no extra files, and standard files that are the
+template's (`nanoagent/plugin/template/`, what `nanoagent plugin new`
+writes): its `LICENSE` naming the plugin, its `.gitignore` entries, its
+`run.sh` checks first (a plugin adds its own after them), a `README.md`
+opening with `# <name>` with the sections Tools, Layout and Develop and run
+and every tool named under Tools, and a `pyproject.toml` naming the project
+`nanoagent-<id>`. NanoAgent refuses to load a plugin that breaks any rule, and `PluginError` lists every
 violation at once (`nanoagent plugin inspect <path>` prints them). The web
 host refuses to start with such a plugin. Every tool call checks the rules
 again, so a plugin edited after it loaded is refused too.
@@ -174,9 +180,8 @@ runner, `nanoagent.plugin.tasks.run_task`, with `nanoagent plugin run` and
 `agent`.
 
 `ui/` is split into a shared UI kit and the plugin's own page.
-`ui/index.html` and `ui/kit/` are the kit: the same bytes in every built-in
-plugin (a test checks them against the template's), changed only in the
-template. `ui/app.js` and `ui/app.css` are the plugin's, next to any other
+`ui/index.html` and `ui/kit/` are the kit: the template's bytes in every
+plugin (the loader refuses any other), changed only in the template. `ui/app.js` and `ui/app.css` are the plugin's, next to any other
 static files it adds. `nanoagent plugin new` starts every plugin with the
 kit and a default page, a full-page chat with the plugin's agent, which
 never shows its tools. Each plugin then designs its page around what people
