@@ -1,7 +1,7 @@
 // The nasdaq-drawdown page's own pieces: New York week rules, the join of the agent's prices with
 // the verifier's list, the faller list, the change strip, the verdict and error wording.
 
-import { banner, dataTable, disclosure, h, icon, verdictBanner } from "./kit/components.js";
+import { banner, dataTable, disclosure, h, icon } from "./kit/components.js";
 
 export const NEW_YORK = "America/New_York";
 const DAY = 86400000;
@@ -11,12 +11,12 @@ const FALLER_LIMIT = 15;
 // ----- Dates (YYYY-MM-DD strings, calendar arithmetic in UTC) -----
 
 const toDate = (iso) => new Date(`${iso}T12:00:00Z`);
-export const addDays = (iso, days) => new Date(toDate(iso).getTime() + days * DAY).toISOString().slice(0, 10);
+const addDays = (iso, days) => new Date(toDate(iso).getTime() + days * DAY).toISOString().slice(0, 10);
 const weekday = (iso) => toDate(iso).getUTCDay();
 const isWeekend = (iso) => weekday(iso) === 0 || weekday(iso) === 6;
 
 /** The latest weekday strictly before `iso`. */
-export function weekdayBefore(iso) {
+function weekdayBefore(iso) {
   let day = addDays(iso, -1);
   while (isWeekend(day)) day = addDays(day, -1);
   return day;
@@ -67,20 +67,22 @@ export function formatWeek(start, asOf) {
 // ----- Numbers -----
 
 /** "−14.16%", "+2.10%", "0.00%" with a true minus sign. */
-export function formatChange(percent) {
+function formatChange(percent) {
   const text = `${Math.abs(percent).toFixed(2)}%`;
   return percent < 0 ? `−${text}` : percent > 0 ? `+${text}` : text;
 }
 
-const PRICE = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-export const formatPrice = (value) => PRICE.format(value);
+// Closing prices to the cent: Nasdaq's split-adjusted closes carry more decimals (71.145), which
+// read as noise beside the others.
+const PRICE = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const formatPrice = (value) => PRICE.format(value);
 
 // The verifier's rule, `end <= start × 0.95`, in exact integer arithmetic (closes have at most 4 decimals).
 const fellFivePercent = (start, end) => Math.round(end * 10000) * 100 <= Math.round(start * 10000) * 95;
 const changeOf = (start, end) => Math.round((end / start - 1) * 10000) / 100;
 
 /** "Apple Inc. Common Stock" → "Apple Inc." */
-export function shortName(name) {
+function shortName(name) {
   const short = name
     .replace(/\s+(\([A-Z]{2}\)\s+)?((Class|Series) [A-Z]\s+)?(Common Stock|Common Shares|Ordinary Shares|Capital Stock|American Depositary Shares|New York Registry Shares|Subordinate Voting Shares)\b.*$/, "")
     .replace(/,$/, "")
@@ -139,9 +141,19 @@ function rowsOf(week) {
 
 const listed = (map) => Object.entries(map ?? {}).map(([ticker, change]) => `${ticker} (${formatChange(change)})`).join(", ");
 
-/** The verdict in this page's words (design 3.5). */
-export function verdictWords(verdict) {
-  if (verdict.valid) return { tone: "ok", title: "Checked. The list matches Nasdaq's closing prices exactly.", score: "" };
+/**
+ * The verdict in this page's words (design 3.5): plain words only. The checker's own `message` and
+ * `details` are not shown, even folded away: they are a developer's wording of the list above.
+ * @param {object} verdict A `task.verdict`.
+ * @param {number} fallers How many stocks the card lists, so an empty week reads as a sentence.
+ */
+function verdictBanner(verdict, fallers) {
+  if (verdict.valid) {
+    const title = fallers
+      ? "Checked. The list matches Nasdaq's closing prices exactly."
+      : "Checked. Nasdaq's closing prices confirm that no company fell 5% or more.";
+    return banner({ tone: "ok", title });
+  }
   const details = verdict.details ?? {};
   const lines = [
     Object.keys(details.missing ?? {}).length ? `It missed: ${listed(details.missing)}` : null,
@@ -149,9 +161,10 @@ export function verdictWords(verdict) {
     details.not_constituents?.length ? `Not in the Nasdaq-100: ${details.not_constituents.join(", ")}` : null,
   ].filter(Boolean);
   if (lines.length) {
-    return { tone: "warn", title: "The agent's list was off.", body: "The list below is the corrected one, recomputed from Nasdaq's prices.", lines, score: `Match score ${Math.round((verdict.score ?? 0) * 100)}%` };
+    const score = typeof verdict.score === "number" ? ` Match score ${Math.round(verdict.score * 100)}%.` : "";
+    return banner({ tone: "warn", title: "The agent's list was off.", body: `The list below is the corrected one, recomputed from Nasdaq's prices.${score}`, lines });
   }
-  return { tone: "bad", title: "The agent did not finish its answer, so it could not be checked.", body: "The list below comes straight from Nasdaq's prices, so you can still use it.", score: "" };
+  return banner({ tone: "bad", title: "The agent did not finish its answer, so it could not be checked.", body: "The list below comes straight from Nasdaq's prices, so you can still use it." });
 }
 
 /** Known task errors in plain words (design 6), tried before the kit's common ones. */
@@ -160,7 +173,7 @@ export const ERROR_RULES = [
   {
     id: "holiday",
     match: /(\d{4}-\d{2}-\d{2}) is not a Nasdaq-100 trading session/,
-    text: (_, found) => `Markets were closed on ${formatDay(found[1])} (a holiday?). Pick another day.`,
+    text: (_, found) => `The market was closed on ${formatDay(found[1])}, so there is no closing price for that day. Pick another day.`,
   },
   { id: "future", match: "is not a past day in New York", text: "That day's trading isn't over yet. Pick an earlier day." },
   { id: "history", match: /index history before .* too short/, text: "Nasdaq can't give enough history for that week. Try a more recent week." },
@@ -191,9 +204,11 @@ export function failedCallNote(tool) {
 function fallerList(fallers, priced, week) {
   const deepest = Math.max(...fallers.map((one) => Math.abs(one.change)), 5);
   const missed = week.verdict.details.missing ?? {};
+  // Without every company's prices the closes column is left out altogether, so the list does not
+  // end in an empty band (design 6, "verdict without names or closes").
+  const withCloses = priced && Boolean(week.start);
   const item = (one) => {
     const row = one.row;
-    const closes = priced && row?.start_close && row?.end_close ? `${formatPrice(row.start_close)} → ${formatPrice(row.end_close)}` : null;
     return h(
       "li",
       { class: "faller" },
@@ -201,7 +216,7 @@ function fallerList(fallers, priced, week) {
       h("span", { class: "faller-name", title: row?.name ?? null, text: row?.short ?? "" }),
       h("span", { class: "faller-bar", "aria-hidden": "true" }, h("span", { style: `width: ${Math.max(4, (Math.abs(one.change) / deepest) * 100)}%` })),
       h("span", { class: "faller-change numeric", text: formatChange(one.change) }),
-      h("span", { class: "faller-closes numeric muted" }, closes ? [closes] : []),
+      withCloses ? h("span", { class: "faller-closes numeric muted", text: row ? `${formatPrice(row.start_close)} → ${formatPrice(row.end_close)}` : "" }) : null,
       one.ticker in missed ? h("span", { class: "pill tone-warn faller-tag", text: "Agent missed this" }) : null,
     );
   };
@@ -213,7 +228,7 @@ function fallerList(fallers, priced, week) {
     h("span"),
     h("span", { text: "Fall" }),
     h("span", { class: "numeric", text: "Change" }),
-    h("span", { class: "numeric", text: priced && week.start ? `Close ${formatDay(week.start, { weekday: false, year: false })} → ${formatDay(week.as_of, { weekday: false, year: false })}` : "" }),
+    withCloses ? h("span", { class: "numeric", text: `Close ${formatDay(week.start, { weekday: false, year: false })} → ${formatDay(week.as_of, { weekday: false, year: false })}` }) : null,
   );
   const more =
     fallers.length > FALLER_LIMIT
@@ -227,7 +242,7 @@ function fallerList(fallers, priced, week) {
           },
         })
       : null;
-  return h("div", { class: "faller-block" }, head, list, more);
+  return h("div", { class: `faller-block${withCloses ? "" : " no-closes"}` }, head, list, more);
 }
 
 function strip(rows) {
@@ -264,7 +279,7 @@ function strip(rows) {
       h("span", {}, h("span", { class: "strip-key fell" }), "Fell 5% or more"),
       h("span", {}, h("span", { class: "strip-key" }), "Fell less"),
       h("span", {}, h("span", { class: "strip-key rose" }), "Rose"),
-      h("span", { text: "One dot per company, from the prices collected during this run." }),
+      h("span", { text: "One dot per company, from the prices collected for this week." }),
     ),
   );
 }
@@ -302,10 +317,12 @@ export function resultCard(week, { saved = false, actions = [] } = {}) {
     .sort((a, b) => a.change - b.change);
   const total = rows.length || null;
   const priced = rows.length > 0 && rows.every((row) => row.change !== null);
-  const of = total ? `${fallers.length} of ${total}` : String(fallers.length);
+  const counted = total ? (fallers.length === total ? "All" : `${fallers.length} of ${total}`) : String(fallers.length);
   const headline = fallers.length
-    ? `${fallers.length === total ? "All" : of} Nasdaq-100 ${fallers.length === 1 ? "stock" : "stocks"} fell 5% or more`
-    : `None of the ${total ?? ""} Nasdaq-100 stocks fell 5% or more`.replace("  ", " ");
+    ? `${counted} Nasdaq-100 ${fallers.length === 1 ? "stock" : "stocks"} fell 5% or more`
+    : total
+      ? `None of the ${total} Nasdaq-100 stocks fell 5% or more`
+      : "No Nasdaq-100 stock fell 5% or more";
   const nearMisses = priced
     ? rows
         .filter((row) => !row.fell && row.change <= -4)
@@ -321,7 +338,7 @@ export function resultCard(week, { saved = false, actions = [] } = {}) {
       actions.length ? h("div", { class: "card-actions" }, actions) : null,
     ),
     saved ? h("p", { class: "muted small-text" }, `Saved on ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(week.ran_at))}. Nothing new was fetched.`) : null,
-    verdictBanner(week.verdict, verdictWords),
+    verdictBanner(week.verdict, fallers.length),
     fallers.length ? fallerList(fallers, priced, week) : null,
     nearMisses.length
       ? h("p", { class: "near-misses" }, h("span", { class: "near-label", text: "Just missed" }), nearMisses.map((row) => h("span", { class: "near", title: row.name }, h("strong", { text: row.ticker }), ` ${row.short} `, h("span", { class: "numeric", text: formatChange(row.change) }))))

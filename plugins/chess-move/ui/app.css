@@ -22,8 +22,9 @@
 .board-legend:empty { display: none; }
 
 .chessboard {
+  /* The two square colours keep about 2:1 contrast with each other, as a printed board does. */
   --sq-light: color-mix(in srgb, var(--accent) 12%, var(--surface));
-  --sq-dark: color-mix(in srgb, var(--accent) 46%, var(--surface));
+  --sq-dark: color-mix(in srgb, var(--accent) 54%, var(--surface));
   --arrow-best: color-mix(in srgb, var(--ok) 85%, var(--text));
   position: relative;
   width: 100%;
@@ -38,8 +39,8 @@
   container-type: inline-size;
 }
 html[data-theme="dark"] .chessboard {
-  --sq-light: color-mix(in srgb, var(--accent) 44%, var(--surface));
-  --sq-dark: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  --sq-light: color-mix(in srgb, var(--accent) 52%, var(--surface));
+  --sq-dark: color-mix(in srgb, var(--accent) 16%, var(--surface));
 }
 .board-grid { display: grid; grid-template-columns: repeat(8, 1fr); width: 100%; height: 100%; }
 .sq {
@@ -67,10 +68,12 @@ html[data-theme="dark"] .chessboard {
 }
 .coord.rank { top: 3px; left: 4px; }
 .coord.file { bottom: 3px; right: 4px; }
-.sq.light .coord { color: color-mix(in srgb, var(--sq-dark) 70%, var(--text)); }
-.sq.dark .coord { color: var(--sq-light); }
-html[data-theme="dark"] .sq.light .coord { color: var(--bg); }
-html[data-theme="dark"] .sq.dark .coord { color: color-mix(in srgb, var(--sq-light) 40%, var(--text)); }
+/* One ink for both square colours: dark in the light theme, light in the dark one, each with a halo
+   of its square's colour, so a corner label stays legible where a piece reaches into the corner. */
+.coord { color: color-mix(in srgb, var(--text) 88%, var(--sq-dark)); }
+html[data-theme="dark"] .coord { color: var(--text); }
+.sq.light .coord { text-shadow: 0 0 2px var(--sq-light), 0 0 2px var(--sq-light); }
+.sq.dark .coord { text-shadow: 0 0 2px var(--sq-dark), 0 0 2px var(--sq-dark); }
 /* Black pieces get a light halo in the dark theme, so they read on dark squares. */
 html[data-theme="dark"] .piece.b { filter: drop-shadow(0 0 1.5px rgb(255 255 255 / .55)); }
 .piece {
@@ -109,6 +112,8 @@ html[data-theme="dark"] .piece.b { filter: drop-shadow(0 0 1.5px rgb(255 255 255
 .live-checks .icon { margin-top: 1px; }
 
 /* Setup */
+
+.notice:empty { display: none; }
 
 /* The preset chips wrap where there is room and scroll sideways on a phone. */
 @media (min-width: 641px) {
@@ -198,4 +203,3 @@ html[data-theme="dark"] .piece.b { filter: drop-shadow(0 0 1.5px rgb(255 255 255
   .board-card.card.large { padding: 12px; }
   .move-words { font-size: 16px; }
 }
-.notice:empty { display: none; }

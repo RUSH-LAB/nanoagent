@@ -2,7 +2,7 @@
 // the checked list. The chat with the plugin's agent lives in a drawer. Design:
 // docs/plans/plugin-ui-nasdaq-drawdown.md.
 
-import { announce, appShell, banner, card, chipRow, dateInput, errorCard, h, howItWorks, icon, isoDate, listFiles, mountApp, parseToolOutput, readJSON, runButton, skeleton, taskRun, writeJSON } from "./kit/components.js";
+import { announce, appShell, banner, card, chipRow, dateInput, errorCard, explainError, h, howItWorks, icon, isoDate, listFiles, mountApp, parseToolOutput, readJSON, runButton, skeleton, taskRun, writeJSON } from "./kit/components.js";
 import { ERROR_RULES, NEW_YORK, checkSavedWeek, dayProblem, errorFix, failedCallNote, formatDay, formatWeek, resultCard, savedChipLabel, weekFromRun, weekPicks } from "./drawdown.js";
 
 const TASK = "nasdaq-down-5";
@@ -18,9 +18,11 @@ const STEPS = [
 ];
 
 mountApp(async ({ plugin }) => {
+  // These two cannot be recovered from on the page, and the message reaches a reader, so it says
+  // what is wrong without naming the task or its argument.
   const task = plugin.tasks.find((one) => one.id === TASK);
-  if (!task) throw new Error(`This page runs the plugin's "${TASK}" task, which the plugin no longer lists.`);
-  if (!task.inputSchema?.properties?.as_of) throw new Error(`The "${TASK}" task no longer takes the week's last day (as_of).`);
+  if (!task) throw new Error("This version of Nasdaq-100 Weekly Drawdown no longer offers the weekly check this page is built around.");
+  if (!task.inputSchema?.properties?.as_of) throw new Error("This version of Nasdaq-100 Weekly Drawdown no longer takes the week's last day, which this page asks for.");
 
   const today = isoDate({ timeZone: NEW_YORK });
   const picks = weekPicks(today);
@@ -31,7 +33,7 @@ mountApp(async ({ plugin }) => {
 
   const suggestionsFor = (asOf) => [
     `Which Nasdaq-100 stocks rose the most in the week ending ${formatDay(asOf, { weekday: false })}?`,
-    `What did NVDA close at on ${formatDay(asOf, { weekday: false })}?`,
+    `What was NVDA's closing price on ${formatDay(asOf, { weekday: false })}?`,
     "Which companies are in the Nasdaq-100 right now?",
   ];
   const shell = appShell({
@@ -67,6 +69,7 @@ mountApp(async ({ plugin }) => {
   const recentProblem = h("p", { class: "small-text error-text", hidden: true });
 
   const run = taskRun({ task: TASK, title: "Finding the fallers", steps: STEPS, onEvent: track, onFinish: finished });
+  run.element.tabIndex = -1; // so starting a run can put the keyboard in the progress card (`start`)
   const go = runButton({
     label: "Find the fallers",
     run,
@@ -84,7 +87,9 @@ mountApp(async ({ plugin }) => {
 
   // ----- Results -----
 
-  const result = h("div", { class: "result-area", "aria-live": "polite" });
+  // Not a live region: a whole result card is far too much for a screen reader to read out. Each
+  // outcome announces one sentence instead, below.
+  const result = h("div", { class: "result-area" });
   const intro = card(
     { className: "intro-card" },
     h("p", { class: "intro-summary", text: plugin.product.summary }),
@@ -106,6 +111,9 @@ mountApp(async ({ plugin }) => {
     else show(h("div", { class: "card large" }, skeleton({ lines: 3, block: true })));
     recent.select(null);
     run.start({ as_of: asOf });
+    // Starting disables "Find the fallers" and replaces a "Run again" button, either of which drops
+    // the keyboard to the top of the page; the progress card is where the run now is.
+    run.element.focus({ preventScroll: true });
     run.element.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
   }
 
@@ -113,7 +121,7 @@ mountApp(async ({ plugin }) => {
     switch (name) {
       case "task.started":
       case "task.reference":
-        controller.step("pin", { detail: "Every company's close on both days, to check the agent's answer. This part takes a few minutes.", progress: "indeterminate" });
+        controller.step("pin", { detail: "Every company's close on both days, so the agent's answer can be checked — the slowest part of the run.", progress: "indeterminate" });
         break;
       case "task.tool":
         trackTool(data, controller);
@@ -149,7 +157,9 @@ mountApp(async ({ plugin }) => {
 
   async function finished(outcome) {
     const { asOf } = progress;
-    if (outcome.verdict) {
+    // `details.expected` is the list the result card shows (the verifier's own recomputation), so a
+    // verdict without it is shown as a problem rather than drawn from the agent's numbers.
+    if (outcome.verdict?.details?.expected) {
       const week = weekFromRun(asOf, outcome);
       shown = week;
       show(resultCard(week));
@@ -163,18 +173,13 @@ mountApp(async ({ plugin }) => {
       return;
     }
     shown = null;
+    const message = outcome.error ?? (outcome.verdict ? `the check returned no list: ${outcome.verdict.message}` : "The run ended without checking an answer.");
     const fix = outcome.error ? errorFix(outcome.error, today) : null;
     const actions = fix
       ? [h("button", { type: "button", class: "button primary small", text: `Use ${formatDay(fix, { year: false })}`, onclick: () => (picker.set(fix), picker.setCaption(caption(fix)), refreshButton(), go.button.focus()) })]
       : [h("button", { type: "button", class: "button small", onclick: () => start(asOf) }, icon("refresh", { size: 15 }), "Run again")];
-    show(
-      errorCard({
-        message: outcome.error ?? "The run ended without checking an answer.",
-        rules: ERROR_RULES,
-        title: outcome.startFailed ? "Couldn't start" : undefined,
-        actions,
-      }),
-    );
+    show(errorCard({ message, rules: ERROR_RULES, title: outcome.startFailed ? "Couldn't start" : undefined, actions }));
+    announce(explainError(message, ERROR_RULES).text);
   }
 
   // ----- Recent weeks (one file per week in the workspace) -----

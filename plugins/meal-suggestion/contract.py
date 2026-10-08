@@ -19,6 +19,7 @@ class Tool(Enum):
 class Task(Enum):
     SUGGEST_MEAL = "suggest-meal"
     PLAN_DAY = "plan-day"
+    RECOMMEND_MEAL = "recommend-meal"
 
 
 class Meal(Enum):
@@ -224,4 +225,4 @@ TOOLS = {
     Tool.SOLVE_DAY: (DayInput, DayOutput),
     Tool.SUBMIT_DAY: (SubmitDayInput, SubmitDayOutput),
 }
-TASKS = {Task.SUGGEST_MEAL: SolveInput, Task.PLAN_DAY: DayInput}
+TASKS = {Task.SUGGEST_MEAL: SolveInput, Task.PLAN_DAY: DayInput, Task.RECOMMEND_MEAL: SolveInput}

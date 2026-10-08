@@ -55,6 +55,12 @@ const UNAVAILABLE = "The chess board isn't available on this server right now.";
 
 const other = (side) => (side === "w" ? "b" : "w");
 const percent = (value) => `${Math.round(value * 100)}%`;
+// The verifier's score, in two decimals, unless they would read as a perfect (or a zero) score the
+// run did not earn: 0.998 stays 0.998 beside "Excellent".
+const scoreText = (score) => {
+  const text = score.toFixed(2);
+  return (text === "1.00" && score < 1) || (text === "0.00" && score > 0) ? score.toFixed(3) : text;
+};
 // The agent writes a little markdown; the page shows plain text.
 // Its closing "Move played: c3d5" line repeats what the result card already says, so it is dropped.
 const plainText = (text) =>
@@ -275,6 +281,8 @@ function chessPage({ plugin }) {
         announce(`The agent played ${move.said}.`);
       }
       run.step("move", { detail: move ? `${move.words} (${move.short})` : record.moves[0] });
+      // The board no longer shows the position the side to move faced.
+      turn.textContent = move && after ? `The agent played ${move.short}` : "The agent moved a piece";
     });
   }
 
@@ -411,7 +419,9 @@ function chessPage({ plugin }) {
       : arrows.length > 1
         ? "The numbered arrows show the agent's moves, in order."
         : arrows.length
-          ? "The arrow shows the agent's move."
+          ? entry.verdict.valid
+            ? "The arrow shows the agent's move."
+            : "The arrow shows the move the agent tried."
           : "";
   }
 
@@ -433,7 +443,7 @@ function chessPage({ plugin }) {
     const { verdict } = entry;
     const details = verdict.details ?? {};
     const mover = SIDE_NAMES[entry.side];
-    const score = typeof verdict.score === "number" ? verdict.score.toFixed(2) : null;
+    const score = typeof verdict.score === "number" ? scoreText(verdict.score) : null;
     const button = (label, onclick, primary = false, extra = "") => h("button", { type: "button", class: `button${primary ? " primary" : ""} ${extra}`.trim(), text: label, onclick });
     const moved = verdict.valid ? describeMove(entry.board, details.move) : null;
     const best = verdict.valid ? describeMove(entry.board, details.best) : null;
@@ -450,13 +460,15 @@ function chessPage({ plugin }) {
     if (verdict.valid) {
       body.push(h("p", { class: "move-words" }, moved?.words ?? details.move, " ", h("span", { class: "move-short", text: moved?.short ?? "" })));
       const lost = Math.round((details.loss ?? 0) * 100);
+      const bestMove = details.move === details.best;
       body.push(
         h(
           "div",
           { class: "chances" },
           h("h3", { text: `${mover}'s winning chances` }),
-          meter({ label: "After the agent's move", value: details.win_prob, valueText: percent(details.win_prob), tone: look.tone === "ok" ? "ok" : look.tone }),
-          meter({ label: details.move === details.best ? "After Stockfish's best move" : `After Stockfish's best, ${best?.short ?? details.best}`, value: details.best_win_prob, valueText: percent(details.best_win_prob), tone: "info" }),
+          // The best move's own meter would repeat this one, to the last digit.
+          meter({ label: bestMove ? "After this move" : "After the agent's move", value: details.win_prob, valueText: percent(details.win_prob), tone: look.tone === "ok" ? "ok" : look.tone }),
+          bestMove ? null : meter({ label: `After Stockfish's best, ${best?.short ?? details.best}`, value: details.best_win_prob, valueText: percent(details.best_win_prob), tone: "info" }),
           details.loss > 0 ? h("p", { class: "muted small-text", text: lost ? `It gave away ${plural(lost, "point")} of winning chance.` : "It gave away less than one point of winning chance." }) : null,
         ),
       );

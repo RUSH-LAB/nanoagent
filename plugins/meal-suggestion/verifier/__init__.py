@@ -3,6 +3,7 @@
 from contract import Task, Tool
 
 from . import day, nutrition, recipes, solve, submit, submit_day
+from .checks import result
 
 TOOLS = {
     Tool.SOLVE: solve,
@@ -12,8 +13,15 @@ TOOLS = {
     Tool.SOLVE_DAY: day,
     Tool.SUBMIT_DAY: submit_day,
 }
+
+
+def _per_call(arguments, reference, workspace):
+    """A task whose outcome is its tool call's output, already checked by verify_output."""
+    return result(True, "the tool call was verified")
+
+
 # task -> its outcome check, verify_task(arguments, reference, workspace)
-TASKS = {Task.SUGGEST_MEAL: solve.verify_task, Task.PLAN_DAY: day.verify_task}
+TASKS = {Task.SUGGEST_MEAL: solve.verify_task, Task.PLAN_DAY: day.verify_task, Task.RECOMMEND_MEAL: _per_call}
 
 
 def verify_input(tool, value):

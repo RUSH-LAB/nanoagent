@@ -91,6 +91,19 @@ best, (score - worst) / (best - worst): 1.0 at the best, 0.0 at the worst, and
 of them scores 1.0. A meal scoring outside the pinned range means the
 reference is wrong, and fails.
 
+### Recommend a meal, and the page
+
+`recommend-meal` takes `suggest-meal`'s input and runs `solve` alone, no agent:
+the exact recommendation in a few seconds. `ui/` is the plugin's page for it:
+a meal, a min and a max for each nutrient, what the eater likes and does not
+like, and the recommended recipes, each with its servings, the likes it
+matches and its Food.com link. The page carries the Food.com recipes itself
+(`ui/recipes.js`, step 1's `recipes.json` as a module) and stages them as
+`inputs/recipes.json` before a run. A typed word is a like of weight +1, or -1
+for a dislike; a food group (`dairy`, `meat`, `seafood`, `chocolate`, `eggs`,
+`mushrooms`) stands for its words and ignored phrases, any other word for
+itself. Recipes tagged `Dessert` are left out.
+
 ### Plan a day
 
 `plan-day` takes the recipes file, `meals` (each meal of the day and the bounds

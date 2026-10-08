@@ -240,9 +240,6 @@ export function chessBoard({ label = "Chess board", onEdit } = {}) {
       bottom = side;
       render();
     },
-    get bottom() {
-      return bottom;
-    },
     /** "view" (look only), "edit" (the person changes the position) or "locked" (a run is on). */
     setMode(next) {
       mode = next;

@@ -56,6 +56,7 @@
 .faller-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--down); opacity: .85; }
 .faller-change { grid-area: change; text-align: right; font-weight: 680; color: var(--down); }
 .faller-closes { grid-area: closes; text-align: right; font-size: 13px; white-space: nowrap; }
+.no-closes .faller { grid-template-columns: 64px minmax(0, 1.3fr) minmax(70px, 1fr) 84px; grid-template-areas: "ticker name bar change" ". tag tag tag"; }
 .faller-tag { grid-area: tag; justify-self: start; }
 .faller-block > .button { justify-self: start; margin-top: 6px; }
 
@@ -71,6 +72,7 @@
     border-radius: var(--radius);
     background: var(--surface);
   }
+  .no-closes .faller { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "ticker change" "name name" "bar bar" "tag tag"; }
   .fallers .faller:last-child { border-bottom: 1px solid var(--border); }
   .faller-ticker { font-size: 15px; }
   .faller-change { font-size: 15px; }

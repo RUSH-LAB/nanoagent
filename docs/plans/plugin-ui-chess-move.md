@@ -1,7 +1,7 @@
 # Plan: the chess-move page (`plugins/chess-move/ui/`)
 
 The chess-move plugin's own page replaces the template's full-page chat. It is a static page on
-the `nanoagent.ui/v1` bridge (docs/plans/plugin-ui.md), built from `components.js` blocks plus a
+the `nanoagent.ui/v1` bridge (docs/plans/plugin-ui.md), built from the shared kit's blocks (`ui/kit/components.js`) plus a
 chess board this plugin owns.
 
 ## 1. The user job
@@ -142,9 +142,9 @@ sheet. Under 360 px the rank and file labels move inside the squares' corners.
 
 ## 4. Components
 
-Every component is a function returning an Element, built with `h()`; the layout is passed to
-`mountApp(layout)` in `app.js`. Plugin-only modules live in `ui/chess.js` (rules and FEN) and
-`ui/board.js` (drawing); the rest comes from `components.js` or the kit additions in section 7.
+Every part is a function or a kit component built with `h()`; the page is passed to
+`mountApp(page)` in `app.js`. Plugin-only modules live in `ui/chess.js` (rules and FEN) and
+`ui/board.js` (drawing); the rest comes from `ui/kit/components.js`.
 
 ### 4.1 Header
 
@@ -159,9 +159,13 @@ Plugin icon (`product/icon.svg` copied into `ui/`), name and tagline from `descr
 - Pieces: SVG pieces shipped in `ui/pieces/` (12 files; a permissively licensed set such as
   cburnett under its BSD-style license, with attribution in `ui/pieces/LICENSE`). Not Unicode
   glyphs: they render differently per font and are unreadable in dark mode.
-- Square colours from theme tokens: light `--sq-light #e9edf5`, `--sq-dark #9fb0d1` (the accent
-  family); dark theme `--sq-light #4a5266`, `--sq-dark #2e3446`. White pieces keep a dark
+- Square colours are mixes of the kit's `--accent` into `--surface`, so they follow the host's
+  theme: light 12 % and 54 %, dark 52 % and 16 %. Each pair keeps about 2.1:1 contrast with
+  itself, the way a printed board does (lichess's board is 2.3:1). White pieces keep a dark
   outline and black pieces a light inner stroke, so both read on both themes.
+- The rank and file labels are one ink per theme (dark in light, light in dark, 4.9:1 or better
+  against both square colours), each with a 2 px halo of its own square's colour so a label stays
+  legible where a piece reaches into the corner.
 - Overlays: last-move square tint, a solid accent arrow (`--accent`: `#3b5998` / `#8ea6d6`) for
   the agent's move, a dashed muted arrow for Stockfish's best move when different, a soft
   red ring for "not legal" in the illegal-move verdict.
@@ -185,15 +189,16 @@ Plugin icon (`product/icon.svg` copied into `ui/`), name and tagline from `descr
   | Mate in one | `6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1` | White |
   | Opening | `rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1` | White |
   | Black to move | `rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1` | Black |
-  | Empty board | (two kings only, e1 and e8) | White |
+  | Kings only | `4k3/8/8/8/8/8/8/4K3 w - - 0 1` | White |
 
-  Each preset is confirmed to echo unchanged through the plugin's Stockfish (`engine.fen`) when
-  the page is built, so no preset can hit the "Stockfish reads the position as" error.
+  Each preset was confirmed to echo unchanged through the plugin's Stockfish (`engine.fen`) while
+  the page was built, so no preset can hit the "Stockfish reads the position as" error. The chips
+  wrap on a wide panel and scroll sideways on a phone.
 - **Side to move**: a two-option segmented control. Changing it flips the board to that side
   and updates the button label ("Play a move as Black").
 - **Edit pieces** (disclosure, closed by default): a palette of the 12 pieces plus an eraser.
   Click a palette piece then squares to place it; drag pieces on the board to move them; drag one
-  off the board to remove it. Buttons: "Clear", "Start position". Castling rights are not asked:
+  off the board to remove it. Buttons: "Clear the board", "Starting position". Castling rights are not asked:
   the page grants each right exactly when the king and that rook stand on their home squares;
   en passant is always "-"; counters are "0 1". This is the canonical form Stockfish echoes for
   edited positions.
@@ -207,7 +212,9 @@ Plugin icon (`product/icon.svg` copied into `ui/`), name and tagline from `descr
   - "Pawns can't stand on the first or last rank."
   - "Black is in check but it's White's turn: that can't happen." (side not to move in check,
     from a small attack test in `chess.js`)
-  - "That doesn't look like a chess position." (pasted FEN fails the pattern)
+  The pasted FEN's own problem ("That doesn't look like a chess position.") stays on its field,
+  not under the board. The line under the Play button names the paste problem, or, for a problem
+  of the board itself, points at the list: "Fix the position first."
 
 ### 4.4 Play button (kit: run button)
 
@@ -231,7 +238,9 @@ steps, each pending / active (spinner) / done:
 Details:
 - After every `task.tool` whose `name` is `drag` or `click` (the names are read, never shown)
   the page calls `workspace.read {path: "board.json"}`, parses it, and if `moves` grew, animates
-  the move on the board and fills the "moved a piece" step's sub-line ("Knight c3 → d5").
+  the move on the board and fills the "moved a piece" step's sub-line ("Knight c3 → d5"). The
+  board's caption then reads "The agent played Nxd5": the position on screen is no longer the one
+  the side to move faced.
 - A `drag` or `click` that leaves `moves` empty (a miss) shows a muted sub-line "A try didn't
   land; the agent is checking the board" under the looking step. An `isError: true` tool event
   is treated the same way: it is the agent's to recover from; the verdict decides.
@@ -254,21 +263,25 @@ Built from `task.verdict`, the start FEN and the last `board.json` read (re-read
   | < 0.20 | Mistake | warn |
   | ≥ 0.20 | Blunder | bad |
 
-  Score shown at the right as "1.00" with `aria-label` "score 1.00 out of 1".
+  Score shown at the right as "1.00" with `aria-label` "score 1.00 out of 1". Two decimals, except
+  where they would round a score the run did not earn to a perfect (or a zero) one: an "Excellent"
+  move whose score is 0.9982 shows "0.998", so the grade and the number never disagree.
 - **Move in words**, from `details.move` (UCI) and the start FEN: the piece on the from-square,
   "takes <piece> on <square>" when the target is occupied (or en passant: pawn to an empty
   diagonal square), "castles kingside/queenside" when a king moves two files, "and becomes a
   queen" for a promotion suffix. A short algebraic form (`Nxd5`, `O-O`, `e8=Q`) beside it, in
   muted text, without check marks or disambiguation (the page has no move generator; it says
   only what it can derive for sure).
-- **Winning chances**: two horizontal meters, "after this move" (`details.win_prob`) and "after
-  the best" (`details.best_win_prob`, with the best move in words when different). Percent,
-  rounded. When different: "It gave away N points of winning chance." (N = round(loss × 100)).
+- **Winning chances**: a horizontal meter for the move played (`details.win_prob`), and, when the
+  move was not Stockfish's best, a second one for it (`details.best_win_prob`, labelled with that
+  move), plus "It gave away N points of winning chance." (N = round(loss × 100)). For the best move
+  the second meter is left out: it would repeat the first to the last digit.
 - **Checked line** (plain words of the verdict): "Checked by Stockfish: a legal move, played on
   the board, and the best one in this position." or "... and Stockfish's best was Nxd5."
   The raw `message` is in "How this was checked".
-- **The agent's words**: `task.answer.text`, rendered as plain text (markdown bold stripped),
-  first three lines with "more".
+- **The agent's words**: `task.answer.text`, rendered as plain text (markdown bold stripped, and
+  the closing "Move played: c3d5" line dropped: the card already says the move), first three lines
+  with "more".
 - **App reply** (rare): if `board.json` has `moves[1]`, a muted line "The board's engine
   answered with ...; that move is not scored."
 - **How this was checked** (disclosure): "Before the agent saw the board, Stockfish scored every
@@ -349,7 +362,9 @@ or another tab is not this run's result.
   - "played N moves": "The agent moved more than once. Only one move counts, so this run
     doesn't score." The arrows show each recorded move of the agent's, numbered.
   - "not a legal move": "The agent tried <move in words>, which isn't legal here." Red ring on
-    the target square.
+    the target square, and the board stays on the start position: the record of a move that
+    cannot be played says nothing about where the pieces ended up. The legend under the board says
+    the arrow shows the move the agent *tried*, not one it played.
   - "position recorded after ... is not the one": "The board's record didn't match the move, so
     it can't be scored."
   - "played from another position": "The board started from a different position than the
@@ -372,21 +387,24 @@ or another tab is not this run's result.
 
 ```
 plugins/chess-move/ui/
-├── index.html        # loads app.js as a module, Inter from ./fonts
-├── app.js            # mountApp(chessLayout)
-├── layout.js         # chessLayout: header, board, setup / progress / result, recent, chat drawer
+├── index.html        # the template's, unchanged: kit/kit.css, app.css, app.js
+├── kit/              # the template's kit, unchanged (components.js, bridge.js, ... kit.css)
+├── app.js            # the whole page: header, board, setup / progress / result, recent, chat drawer
 ├── board.js          # the SVG board, arrows, highlights, editing, animation
 ├── chess.js          # FEN parse/serialize, live checks, attack test, move-in-words
-├── components.js     # the template's (kit), unchanged
-├── bridge.js         # the template's, unchanged
-├── style.css         # the template's tokens moved to Mochi's (Inter, #3b5998 / #8ea6d6, 14-20 px radii) + this page's styles
-├── pieces/           # 12 SVG pieces + LICENSE
-└── fonts/            # Inter woff2 (OFL) + LICENSE
+├── app.css           # this page's styles, every colour from the kit's variables
+├── pieces/           # 12 SVG pieces + LICENSE.md
+└── fonts/            # Inter woff2 (OFL) + LICENSE.md
 ```
 
-All static, under the 5 MB limit, no build step. Tests that can run here: `chess.js` (FEN round
-trip, castling rights from the placement, live checks, move-in-words for capture, castling, en
-passant and promotion) against the fixture positions in `tests/fakes.py`, and the layout against
-recorded event streams made from `examples/chess_move/outputs/step1_play_move/` (its
-`verdict.json`, `workspace/board.json` and agent answer) plus the failing verdicts of
-`tests/test_verifier.py`.
+All static, under the 5 MB limit, no build step. The page is one `app.js` rather than a separate
+`layout.js`: the board, the setup, the progress and the result all read and write the same
+position, so splitting them only moved the state across files.
+
+Checked while building, with a host page that replays the plugin's own events (fixtures built by
+`verifier.verify_task` over the example run in `examples/chess_move/outputs/step1_play_move/` and
+real `pin_moves` output, so every verdict and answer on screen is one the plugin can produce):
+best move, excellent, blunder, illegal move, two moves, no move, a board reply, a stop, and each
+error row of section 6, in light and dark and at 420 px. `chess.js` was checked separately against
+the fixture positions (FEN round trip, castling rights from the placement, the live checks, and
+move-in-words for a capture, castling, en passant and a promotion).
