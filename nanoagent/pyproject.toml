@@ -76,9 +76,6 @@ hermes = ["hermes-agent==0.19.0"]
 # owns that pin (it decides the CUDA/torch stack) and this package never constrains it. Both
 # imports are inside the functions that need them, so an agent-only install pays nothing.
 serve = ["huggingface-hub", "sglang-router>=0.3.2"]
-# orjson is a drop-in C accelerator for the tool-calling JSON path; nanoagent.inference.fast_json
-# falls back to the stdlib when it is absent.
-fast = ["orjson"]
 # The token-level client (config.tokenizer, and backend="sglang_native" which requires it):
 # transformers owns `apply_chat_template`, so it is what renders a conversation to input_ids. Not
 # a base dependency — an install that only ever sends text never loads it, and

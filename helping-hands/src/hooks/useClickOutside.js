@@ -1,8 +1,8 @@
 import {useEffect, useRef} from 'react';
 
 /**
- * Dismiss-on-outside-click effect shared by ShareButton, the Comments reaction
- * picker, the TipTapEditor export menu, and Annotations.
+ * Dismiss-on-outside-click effect shared by the sidebar, row, and workspace
+ * menus.
  *
  * While `active` is truthy, a single `document` `mousedown` listener is
  * attached; it calls `handler(event)` whenever the click lands outside the

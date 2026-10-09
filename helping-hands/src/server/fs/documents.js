@@ -1,11 +1,9 @@
 'use strict';
 
 /**
- * The document repository (see postgres/documents.js) served from the
- * workspace file system. A document is a Markdown file; its id is the node id,
- * its revision check is still `updatedAt`, and its versions are the node's
- * revisions in the change log. Every route that uses documents works unchanged
- * whichever store CONTENT_STORE selects.
+ * The document repository, served from the workspace file system. A document
+ * is a Markdown file; its id is the node id, its revision check is still
+ * `updatedAt`, and its versions are the node's revisions in the change log.
  */
 const {checkPath, prefixOf, titleOf} = require('../postgres/documents');
 const {isMarkdown} = require('./store');

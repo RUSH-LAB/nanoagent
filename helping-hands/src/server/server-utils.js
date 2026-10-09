@@ -100,65 +100,6 @@ function numericParam(raw, def, max) {
   return Math.min(Number.isNaN(n) ? def : n, max);
 }
 
-function makeRateLimiter() {
-  const rateLimits = {};
-  function rateLimit(key, maxPerMinute) {
-    const now = Date.now();
-    if (!rateLimits[key]) rateLimits[key] = [];
-    rateLimits[key] = rateLimits[key].filter(t => now - t < 60000);
-    if (rateLimits[key].length >= maxPerMinute) return false;
-    rateLimits[key].push(now);
-    return true;
-  }
-  rateLimit._store = rateLimits;
-  return rateLimit;
-}
-
-function makeCache() {
-  const store = {};
-  function cached(key, ttlMs, fn) {
-    const entry = store[key];
-    if (entry && Date.now() - entry.time < ttlMs) return entry.data;
-    const data = fn();
-    store[key] = {data, time: Date.now()};
-    return data;
-  }
-  function invalidateCache(pattern) {
-    for (const key of Object.keys(store)) {
-      if (!pattern || key.includes(pattern)) delete store[key];
-    }
-  }
-  cached.invalidate = invalidateCache;
-  cached._store = store;
-  return cached;
-}
-
-function makePresenceStore() {
-  const presenceStore = {};
-
-  function cleanStalePresence() {
-    const now = Date.now();
-    const STALE_MS = 30000;
-    for (const filePath of Object.keys(presenceStore)) {
-      const users = presenceStore[filePath];
-      for (const userId of Object.keys(users)) {
-        if (now - users[userId].lastSeen > STALE_MS) {
-          delete users[userId];
-        }
-      }
-      if (Object.keys(users).length === 0) {
-        delete presenceStore[filePath];
-      }
-    }
-    const fileKeys = Object.keys(presenceStore);
-    if (fileKeys.length > MAX_PRESENCE_FILES) {
-      fileKeys.slice(MAX_PRESENCE_FILES).forEach(k => delete presenceStore[k]);
-    }
-  }
-
-  return {store: presenceStore, clean: cleanStalePresence};
-}
-
 module.exports = {
   ALLOWED_EXTS,
   IMAGE_EXTS,
@@ -173,7 +114,4 @@ module.exports = {
   contentPathToUrl,
   sanitizeText,
   numericParam,
-  makeRateLimiter,
-  makeCache,
-  makePresenceStore,
 };

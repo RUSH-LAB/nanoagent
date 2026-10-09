@@ -12,3 +12,4 @@ build/
 /.worktrees/
 /.claude/worktrees/
 /progress/
+/plugins/client-components.generated.js

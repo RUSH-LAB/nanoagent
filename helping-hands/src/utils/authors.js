@@ -5,10 +5,8 @@
  * for up to three authors, or the first three names followed by ', et al.'
  * once there are more than three.
  *
- * Named distinctly from the divergent `formatAuthors` helpers elsewhere in the
- * codebase (CitationGraph, CitationAutocomplete, PaperRecommendations) and the
- * inline author formatting on the content-search page, which intentionally
- * format author lists in other ways.
+ * Named distinctly from the inline author formatting on the content-search
+ * page, which intentionally formats author lists another way.
  *
  * @param {string[]} authors  List of author names.
  * @returns {string}  The formatted author list.
