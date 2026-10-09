@@ -13,7 +13,7 @@ const labelFor = user => user?.name || user?.email || 'someone';
 const slugify = name => String(name ?? '').normalize('NFKD').toLowerCase()
   .replace(/[^a-z0-9]+/g, '-').replace(/^-+/, '').slice(0, 40).replace(/-+$/, '');
 
-function createPostgresOrg({pool, auth, now = () => new Date().toISOString(), newId = () => crypto.randomUUID()}) {
+function createPostgresOrg({pool, auth, removeMemberChannels = null, now = () => new Date().toISOString(), newId = () => crypto.randomUUID()}) {
   if (!auth?.api) throw new Error('Better Auth is required for PostgreSQL workspace lifecycle');
   const scoped = (userId, workspaceId, operation) => withRequestContext(pool, {userId, workspaceId}, operation);
 
@@ -197,6 +197,23 @@ function createPostgresOrg({pool, auth, now = () => new Date().toISOString(), ne
     return {removed: before};
   }
 
+  /** Leave a workspace. Better Auth refuses the last owner; it runs no member hooks, so channels are cleared here. */
+  async function leaveWorkspace({headers, orgId, actorId}) {
+    if (!removeMemberChannels) throw new Error('Leaving a workspace requires removeMemberChannels');
+    const before = await scoped(actorId, orgId, async client => (await client.query(
+      `select m.id as "memberId", coalesce(u.display_name, u.email) as label
+         from workspace_member m join app_user u on u.id = m.user_id
+        where m.workspace_id = $1 and m.user_id = $2`, [orgId, actorId],
+    )).rows[0] ?? null);
+    if (!before) return {error: 'not-found'};
+    await auth.api.leaveOrganization({body: {organizationId: orgId}, headers: fromNodeHeaders(headers)});
+    await removeMemberChannels({member: {userId: actorId}, organization: {id: orgId}});
+    await scoped(actorId, orgId, client => record(client, {
+      orgId, action: 'member.leave', actorId, targetId: actorId, targetLabel: before.label,
+    }));
+    return {left: true};
+  }
+
   async function listAudit(orgId, limit = AUDIT_LIMIT, actorId) {
     const capped = Math.min(Math.max(Number(limit) || AUDIT_LIMIT, 1), AUDIT_LIMIT);
     return scoped(actorId, orgId, async client => (await client.query(
@@ -210,6 +227,7 @@ function createPostgresOrg({pool, auth, now = () => new Date().toISOString(), ne
     ROLES, MANAGER_ROLES, SLUG_RE, FIRST_CHANNEL, AUDIT_LIMIT, canManage, labelFor, slugify,
     listMemberships, getOrganization, listMembers, createWorkspace, archiveWorkspace, deleteWorkspace,
     listInvitations, invitationForLink, invite, cancelInvitation, acceptInvitation, setMemberRole, removeMember,
+    leaveWorkspace,
     listAudit,
     slugForOrg: () => null,
     primaryOrgId: () => null,

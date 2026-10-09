@@ -32,8 +32,9 @@ function isOwnApi(input) {
 
 const GLOBAL_API_PATHS = [
   '/api/auth/', '/api/workspaces', '/api/workspace-site', '/api/invite/', '/api/health',
-  '/api/dev-login', '/api/users', '/api/users/', '/api/logs', '/api/debug/',
-  '/api/preferences', '/api/perf', '/api/public/',
+  '/api/users', '/api/users/', '/api/logs', '/api/debug/',
+  '/api/preferences', '/api/perf', '/api/public/', '/api/market', '/api/market/',
+  '/api/admin/', '/api/signup-policy',
 ];
 
 const workspaceIds = new Map();

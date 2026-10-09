@@ -95,6 +95,12 @@ function PluginList({navigation}) {
             </Link>
           </li>
         ))}
+        <li className="menu__list-item">
+          <Link className={clsx('menu__link', styles.categoryLink, own.marketplace)} to="/marketplace">
+            <svg className={own.plus} viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+            <span className={styles.taxonomyTitle}>Browse Marketplace</span>
+          </Link>
+        </li>
       </ul>
     </nav>
   );

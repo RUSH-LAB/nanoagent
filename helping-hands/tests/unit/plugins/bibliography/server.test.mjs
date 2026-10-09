@@ -298,7 +298,7 @@ describe('POST /api/references', () => {
     const {ctx, counts} = fsCtx({[BIB]: ''}, {rateLimitAllow: false});
     const r = await invoke(routes, {plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references', ctx});
     assert.deepEqual([r.status, r.payload], [429, {error: 'Too many requests. Try again in a minute.'}]);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'bibliography:add-ref:127.0.0.1', maxPerMinute: 20}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'bibliography:add-ref:test-user', maxPerMinute: 20}]);
     assert.deepEqual([counts.read, counts.write], [0, 0]);
   });
 
@@ -534,7 +534,7 @@ describe('POST /api/references/enrich', () => {
     const {ctx, counts} = fsCtx({[BIB]: bib(REFS)}, {rateLimitAllow: false});
     const r = await invoke(routes, {plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references/enrich', ctx});
     assert.equal(r.status, 429);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'bibliography:enrich-ref:127.0.0.1', maxPerMinute: 10}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'bibliography:enrich-ref:test-user', maxPerMinute: 10}]);
     assert.deepEqual([counts.read, counts.write], [0, 0]);
   });
 
@@ -815,7 +815,7 @@ function impactFixture(entries, content = {}) {
 
 async function invokeImpact(fsMock, cached) {
   const url = new URL('http://localhost/api/references/impact');
-  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   let captured = null;
   const ctx = {
@@ -930,7 +930,7 @@ describe('POST /api/references/track', () => {
     const ctx = makeCtx({rateLimitAllow: false, readBody: async () => { reads++; return {}; }});
     const r = await invoke(routes, {plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references/track', ctx});
     assert.deepEqual([r.status, r.payload], [429, {error: 'Too many requests. Try again in a minute.'}]);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'bibliography:track-ref:127.0.0.1', maxPerMinute: 10}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'bibliography:track-ref:test-user', maxPerMinute: 10}]);
     assert.equal(reads, 0);
   });
 
@@ -974,7 +974,7 @@ describe('POST /api/references/track-all', () => {
     const {ctx, counts} = fsCtx({[BIB]: bib({a: {title: 'A'}})}, {rateLimitAllow: false});
     const r = await invoke(routes, {plugin: BIBLIOGRAPHY, method: 'POST', path: '/api/references/track-all', ctx});
     assert.deepEqual([r.status, r.payload], [429, {error: 'Too many requests. Try again in a minute.'}]);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'bibliography:track-all:127.0.0.1', maxPerMinute: 2}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'bibliography:track-all:test-user', maxPerMinute: 2}]);
     assert.equal(counts.read, 0);
   });
 

@@ -317,7 +317,7 @@ describe('POST /api/content', () => {
     const r = await invoke(routes, {method: 'POST', path: '/api/content', ctx, auth: ada});
     assert.equal(r.status, 429);
     assert.equal(reads, 0);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'content:127.0.0.1', maxPerMinute: 60}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'content:ada', maxPerMinute: 60}]);
   });
 });
 

@@ -94,12 +94,13 @@ function serverCtx(files = {}) {
       rateLimit: (key, perMinute) => { calls.rateLimit.push({key, perMinute}); return true; },
       pluginProvides: {references: {load: () => ({})}},
       ai: {complete: async request => ({text: request.prompt}), describe: () => ({available: true})},
+      aiMeter: {assertAllowed: async () => {}, record: async () => {}},
     },
   };
 }
 
 const REQ = {
-  socket: {remoteAddress: '127.0.0.1'},
+  socket: {remoteAddress: '127.0.0.1'}, caller: 'test-user',
   auth: {userId: 'u1', orgId: 'o1', orgRole: 'admin'},
   context: {userId: 'u1', workspaceId: 'o1', membershipId: 'm1', role: 'editor'},
 };

@@ -1,6 +1,6 @@
 'use strict';
 const fallbackProfiles = require('../../ai-profiles.json');
-const {agentWorkspaceId} = require('../agent-workspace');
+const {budgetRefusal} = require('../ai-metering');
 // Route module organized from server/index.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
@@ -41,6 +41,9 @@ const SYSTEM_PROMPTS = {
 // longer than that to write would be cut off mid sentence. A comment line costs
 // nothing, is ignored by every SSE client, and resets the timer.
 const HEARTBEAT_MS = 10_000;
+
+// Apps keep their files in the workspace file system, so they run only where it is enabled.
+const APPS_NEED_FS = 'Apps need the workspace file system, which needs PostgreSQL (DATABASE_URL)';
 
 /**
  * The CORS header set, echoing the caller's origin the way server/index.js
@@ -203,42 +206,44 @@ function completionPayload(result) {
   };
 }
 
+/**
+ * One buffered completion, checked against the budget first and charged after.
+ * Shared by the inline and the writing-assistant endpoints.
+ */
+async function meteredCompletion(req, res, ctx, kind, overrides, preferredHarness) {
+  const {json, ai, aiMeter} = ctx;
+  try {
+    await aiMeter.assertAllowed(req.context);
+    const {error, request, status} = await composeStoredRequest(req, ctx, overrides, preferredHarness);
+    if (error) return json(res, status || 400, {error});
+    // Which model answers is server/ai.js's business. This one composes the
+    // message and reports whatever comes back.
+    const result = await ai.complete(request);
+    await aiMeter.record(req.context, kind, result, {ran: Boolean(result.text)});
+    if (result.error) return json(res, result.status || 502, {error: result.error});
+    return json(res, 200, completionPayload(result));
+  } catch (error) {
+    const refusal = budgetRefusal(error);
+    if (refusal) return json(res, refusal.status, refusal.body);
+    return json(res, 500, {error: 'AI request failed. Please try again later.'});
+  }
+}
+
 module.exports = async function ai_routes(req, res, url, pathname, ctx) {
-  const {json, rateLimit, ai, CORS_ORIGIN} = ctx;
+  const {json, rateLimit, ai, aiMeter, CORS_ORIGIN} = ctx;
 
   // A separate budget keeps editor pauses from consuming the CLI chat limit.
   // The type is forced server-side so this endpoint can never become a second
   // unrestricted assistant surface.
   if (req.method === 'POST' && pathname === '/api/ai/inline-complete') {
-    const caller = req.auth?.userId || req.socket.remoteAddress;
-    if (!rateLimit(`ai-inline:${caller}`, 30)) return json(res, 429, {error: 'Too many inline completions. Try again in a minute.'});
-    try {
-      const {error, request, status} = await composeStoredRequest(req, ctx, {type: 'inline'}, INLINE_HARNESS);
-      if (error) return json(res, status || 400, {error});
-      const result = await ai.complete(request);
-      if (result.error) return json(res, result.status || 502, {error: result.error});
-      return json(res, 200, completionPayload(result));
-    } catch {
-      return json(res, 500, {error: 'AI request failed. Please try again later.'});
-    }
+    if (!await rateLimit(`ai-inline:${req.caller}`, 30)) return json(res, 429, {error: 'Too many inline completions. Try again in a minute.'});
+    return meteredCompletion(req, res, ctx, 'inline', {type: 'inline'}, INLINE_HARNESS);
   }
 
   // ── AI writing assistant (v2 – /api/ai/complete) ──
   if (req.method === 'POST' && pathname === '/api/ai/complete') {
-    if (!rateLimit(`ai-complete:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
-    try {
-      const {error, request, status} = await composeStoredRequest(req, ctx);
-      if (error) return json(res, status || 400, {error});
-
-      // Which model answers, and whether by HTTP or by the CLI on this machine,
-      // is server/ai.js's business. This one composes the message and reports
-      // whatever comes back.
-      const result = await ai.complete(request);
-      if (result.error) return json(res, result.status || 502, {error: result.error});
-      return json(res, 200, completionPayload(result));
-    } catch {
-      return json(res, 500, {error: 'AI request failed. Please try again later.'});
-    }
+    if (!await rateLimit(`ai-complete:${req.caller}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    return meteredCompletion(req, res, ctx, 'complete', {}, null);
   }
 
   // ── The same answer, written as it is composed ──
@@ -250,26 +255,30 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     // gate, and one office behind one address should not share a budget.
     const rateKey = inlineStream ? 'ai-inline-stream' : 'ai-stream';
     const rateMax = inlineStream ? 30 : 10;
-    if (!rateLimit(`${rateKey}:${req.auth?.userId}`, rateMax)) return json(res, 429, {
+    if (!await rateLimit(`${rateKey}:${req.caller}`, rateMax)) return json(res, 429, {
       error: inlineStream ? 'Too many inline completions. Try again in a minute.' : 'Too many requests. Try again in a minute.',
     });
 
     let composed;
     try {
+      await aiMeter.assertAllowed(req.context);
       composed = await composeStoredRequest(
         req,
         ctx,
         inlineStream ? {type: 'inline'} : {},
         inlineStream ? INLINE_HARNESS : null,
       );
-    } catch {
+    } catch (error) {
+      const refusal = budgetRefusal(error);
+      if (refusal) return json(res, refusal.status, refusal.body);
       return json(res, 500, {error: 'AI request failed. Please try again later.'});
     }
     if (composed.error) return json(res, composed.status || 400, {error: composed.error});
+    const kind = inlineStream ? 'inline' : composed.request.app ? 'app' : 'chat';
     // An app's agent acts through the app's tools, which is editing, not reading.
     if (composed.request.app) {
       ctx.requireWorkspacePermission(req.context, 'content:edit');
-      composed.request.workspace = agentWorkspaceId(req.context);
+      if (!ctx.agentSync) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
     }
 
     res.writeHead(200, {
@@ -298,22 +307,31 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
       if (writable(res)) res.write(': ping\n\n');
     }, HEARTBEAT_MS);
 
+    // Whether the run got far enough to cost anything, for a run that ends
+    // without NanoAgent's price (postgres/tenancy.js charges its cap instead).
+    let ran = false;
+    let result = null;
     try {
-      const answer = () => ai.stream({
+      const answer = workspace => ai.stream({
         ...composed.request,
+        ...(workspace ? {workspace} : {}),
         signal: controller.signal,
-        onDelta: (text) => sendEvent(res, 'delta', {text}),
+        onDelta: (text) => {
+          ran = true;
+          sendEvent(res, 'delta', {text});
+        },
         // The current client ignores these structured lifecycle events. They
         // establish the wire contract for future tool progress without
         // changing text streaming or inventing a second transport later.
         onEvent: event => {
+          if (event.type === 'step.completed') ran = true;
           if (event.type !== 'output_text.delta') sendEvent(res, 'agent', event);
         },
       });
       // An app's agent works on a copy of the member's agent folder, and what
       // it writes there is kept in the workspace file system (fs/agent-sync.js).
-      const result = composed.request.app && ctx.agentSync
-        ? await ctx.agentSync.run(req.context, composed.request.workspace, answer)
+      result = composed.request.app
+        ? await ctx.agentSync.run(req.context, answer)
         : await answer();
       if (result.error) sendEvent(res, 'error', {error: result.error, status: result.status || 502});
       else sendEvent(res, 'done', {
@@ -329,6 +347,11 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     } catch {
       sendEvent(res, 'error', {error: 'AI request failed. Please try again later.', status: 500});
     } finally {
+      try {
+        await aiMeter.record(req.context, kind, result, {ran});
+      } catch (error) {
+        console.error('[ai] Could not record assistant usage:', error.message);
+      }
       clearInterval(heartbeat);
       // Dropped before the response is ended, because ending it emits the same
       // 'close' and an abort then would be aimed at nothing.
@@ -356,3 +379,4 @@ module.exports.DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT;
 module.exports.composeRequest = composeRequest;
 module.exports.composeStoredRequest = composeStoredRequest;
 module.exports.corsHeaders = corsHeaders;
+module.exports.APPS_NEED_FS = APPS_NEED_FS;

@@ -238,7 +238,7 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
   // route. Nothing is persisted, and the browser still receives an inert tree
   // rather than executable MDX.
   if (req.method === 'POST' && contentPath === '/api/content/preview') {
-    if (!rateLimit(`content:${req.socket.remoteAddress}`, 60)) {
+    if (!await rateLimit(`content:${req.caller}`, 60)) {
       return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     }
     try {
@@ -259,7 +259,7 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
 
   // ── Create ──
   if (req.method === 'POST' && contentPath === '/api/content') {
-    if (!rateLimit(`content:${req.socket.remoteAddress}`, 60)) {
+    if (!await rateLimit(`content:${req.caller}`, 60)) {
       return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     }
     try {
@@ -280,7 +280,7 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
 
   // ── Save ──
   if (req.method === 'PUT' && contentPath === '/api/content') {
-    if (!rateLimit(`content:${req.socket.remoteAddress}`, 60)) {
+    if (!await rateLimit(`content:${req.caller}`, 60)) {
       return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     }
     try {

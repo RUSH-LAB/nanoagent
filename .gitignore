@@ -15,6 +15,8 @@ downloads/
 eggs/
 .eggs/
 lib/
+# Mochi's plugin source keeps modules in lib/ directories.
+!helping-hands/**/lib/
 lib64/
 parts/
 sdist/

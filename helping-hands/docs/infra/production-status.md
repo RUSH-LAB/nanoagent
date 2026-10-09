@@ -15,7 +15,8 @@ uploaded bytes.
 | Source and CI | Private GitHub repository | Stores the application and runs automated PostgreSQL checks. |
 | Database and objects | Neon PostgreSQL | Stores workspace records, asset metadata, and binary object payloads with row-level workspace isolation. |
 | Domain and DNS | Cloudflare | Proxies `mochi-lab.org` to the Railway application and manages application and email DNS. |
-| Transactional email | Resend | Sends account verification, password-reset, and workspace-invitation email from the verified Mochi mail domain. |
+| Sign-in | GitHub OAuth App | The only way to sign in, in the browser and, through device approval, in the `mochi` command-line client. |
+| Transactional email | Resend | Sends workspace-invitation email from the verified Mochi mail domain. |
 | Application hosting | Railway | Builds the repository container and serves the public application. |
 | Agent runtime | NanoAgent, private Railway service | Mochi calls NanoAgent over its private authenticated endpoint. |
 
@@ -30,8 +31,8 @@ supervisor starts the website, API, and adjacent NanoAgent checkout together.
 
 ## What has been completed for production
 
-- Authentication uses Better Auth with server-side sessions and secure cookie
-  support for a same-origin deployment.
+- Authentication uses Better Auth with GitHub as the only sign-in, server-side
+  sessions, and secure cookie support for a same-origin deployment.
 - Workspace identity comes from the URL and every workspace request is checked
   again by the server.
 - PostgreSQL is the authoritative data model, with a restricted runtime role
@@ -42,8 +43,8 @@ supervisor starts the website, API, and adjacent NanoAgent checkout together.
   records against PostgreSQL.
 - Uploaded asset metadata and bytes use PostgreSQL instead of a local
   `var/objects` directory or a separate object-storage service.
-- Resend support covers verification, password reset, and workspace
-  invitations. DNS and real email delivery were verified.
+- Resend support covers workspace invitations. DNS and real email delivery
+  were verified.
 - The repository includes a production `Dockerfile`, Railway configuration,
   `/api/health`, and documented production environment requirements.
 - Unit, integration, PostgreSQL, isolation, and production-build checks have

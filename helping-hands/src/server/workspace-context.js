@@ -27,9 +27,9 @@ const PERMISSIONS = Object.freeze({
 });
 
 const GLOBAL_API_PATHS = new Set([
-  '/api/health', '/api/dev-login', '/api/workspaces', '/api/workspace-site', '/api/preferences',
+  '/api/health', '/api/workspaces', '/api/workspace-site', '/api/preferences',
   '/api/users', '/api/users/me', '/api/logs', '/api/perf',
-  '/api/debug/memory', '/api/debug/routes',
+  '/api/debug/memory', '/api/debug/routes', '/api/signup-policy',
 ]);
 
 /** Endpoints whose data is user-global, platform-global, or pre-authentication. */
@@ -38,8 +38,10 @@ function isGlobalApiPath(pathname) {
   return GLOBAL_API_PATHS.has(value)
     || value.startsWith('/api/auth/')
     || value.startsWith('/api/public/')
+    || value.startsWith('/api/admin/')
     || /^\/api\/invite\/[^/]+(?:\/accept)?$/.test(value)
     || /^\/api\/apps\/[^/]+\/ui\/.+$/.test(value)
+    || /^\/api\/market(?:\/[^/]+(?:\/package)?)?$/.test(value)
     || /^\/api\/users\/[^/]+\/role$/.test(value);
 }
 

@@ -3,8 +3,7 @@
 `mochi` keeps a workspace's files in sync with a local folder in both
 directions, so you can edit them with any editor. The server stays the source
 of truth: every write goes through the workspace file system API, with the same
-permissions and revision checks as the Workspace page. The server must run with
-`CONTENT_STORE=fs`.
+permissions and revision checks as the Workspace page.
 
 Install the command once from the repository root:
 
@@ -20,9 +19,9 @@ mochi clone https://mochi-lab.org my-workspace ~/Mochi/my-workspace
 mochi sync ~/Mochi/my-workspace
 ```
 
-`login` signs in with email and password and stores the session token in
-`~/.config/mochi/credentials.json`, readable only by you. Accounts that sign in
-only with Google cannot use the command yet. `sync` runs until you stop it. It
+`login` prints a link and a code. Open the link in a browser, sign in with
+GitHub if asked, and approve the code; the command then stores its session token
+in `~/.config/mochi/credentials.json`, readable only by you. `sync` runs until you stop it. It
 syncs within a second of a local change and checks the server every 30 seconds.
 
 ## What syncs
@@ -33,6 +32,28 @@ syncs within a second of a local change and checks the server every 30 seconds.
   `.mochi/` locally, `.plugins/` in the workspace.
 - Renaming or moving a file moves it in the workspace, keeping its history and
   who can see it. A new file inherits its folder's access.
+
+## Online-only files
+
+The workspace's drive lives in the cloud and is shared with its members; the
+local folder is a cache of it. Choose what is kept locally:
+
+```bash
+mochi clone https://mochi-lab.org my-workspace ~/Mochi/my-workspace papers notes
+mochi online-only ~/Mochi/my-workspace papers/2024
+mochi download ~/Mochi/my-workspace papers/2024
+```
+
+- `clone` with folder names downloads only those top-level folders; every
+  other top-level folder starts online only. Without names it downloads all.
+- `online-only` keeps a folder or file in the workspace only. Sync uploads any
+  pending edit under it, then removes the local copy. A file you create or move
+  into an online-only folder is uploaded and then removed, so it moves to the
+  cloud.
+- `download` keeps it locally again, and sync downloads it.
+
+Both commands only change `online_only` in `.mochi/config.yaml`; a running
+`mochi sync` applies them on its next cycle, within 30 seconds.
 
 ## Conflicts
 

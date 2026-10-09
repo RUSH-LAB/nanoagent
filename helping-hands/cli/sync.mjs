@@ -12,6 +12,11 @@
  * Every file takes part, text or binary, except anything with a path segment
  * starting with a dot, on either side: .mochi/ itself, editor swap files, and
  * the workspace's .plugins/.
+ *
+ * Paths in `onlineOnly` stay in the workspace without a local copy. A synced
+ * file under one is synced once more, so a pending local edit is uploaded,
+ * then its unchanged local copy is removed. A file created or moved under one
+ * locally is uploaded the same way and then removed, so it moves to the cloud.
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -21,6 +26,7 @@ export const STATE_DIR = '.mochi';
 
 export const hashOf = body => crypto.createHash('sha256').update(body).digest('hex');
 const hidden = relative => relative.split('/').some(part => part.startsWith('.'));
+const under = (relative, paths) => paths.some(prefix => relative === prefix || relative.startsWith(`${prefix}/`));
 
 /** The file changed again between planning and writing; the next cycle replans. */
 class LocalChanged extends Error {}
@@ -92,12 +98,15 @@ async function conflictedCopyPath(root, relative, host, day) {
  * `{id, rev, hash}`, and `saveState` persists it after every operation so an
  * interrupted cycle resumes where it stopped. `rejected` remembers paths the
  * server refused, by hash, so they are retried only after the file changes.
+ * `onlineOnly` lists the workspace paths kept without a local copy.
  * Returns the number of operations performed.
  */
-export async function syncOnce({root, api, state, saveState, rejected = new Map(), host, day, log = () => {}}) {
-  const remote = new Map((await api.list()).filter(file => !hidden(file.path)).map(file => [file.path, file]));
-  const local = await walk(root);
+export async function syncOnce({root, api, state, saveState, rejected = new Map(), onlineOnly = [], host, day, log = () => {}}) {
   const base = {...state.files};
+  const remote = new Map((await api.list())
+    .filter(file => !hidden(file.path) && (!under(file.path, onlineOnly) || base[file.path]))
+    .map(file => [file.path, file]));
+  const local = await walk(root);
   let operations = 0;
 
   const record = async (relative, entry) => {
@@ -207,6 +216,19 @@ export async function syncOnce({root, api, state, saveState, rejected = new Map(
       if (localHash !== undefined) rejected.set(relative, localHash);
       log(`could not sync ${relative}: ${error.message}`);
     }
+  }
+
+  for (const [relative, entry] of Object.entries(state.files)) {
+    if (!under(relative, onlineOnly)) continue;
+    try {
+      await removeLocal(root, relative, entry.hash);
+    } catch (error) {
+      // Edited since it was synced: the next cycle uploads it first.
+      if (error instanceof LocalChanged) continue;
+      throw error;
+    }
+    await record(relative, null);
+    log(`${relative} is online only`);
   }
   return operations;
 }

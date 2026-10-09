@@ -1,18 +1,22 @@
 'use strict';
-const {agentWorkspaceId} = require('../agent-workspace');
-const {corsHeaders} = require('./ai');
+const {APPS_NEED_FS, corsHeaders} = require('./ai');
+const {agentFolder, prepareHome} = require('../fs/agent-sync');
+const {FsError} = require('../fs/store');
+const {budgetRefusal} = require('../ai-metering');
 
 // Apps: the NanoAgent plugin packages the private NanoAgent service publishes,
-// and the caller's own agent workspace, where those apps leave their files and
-// the caller manages them: list, read, save, delete, folders, moves.
+// and the caller's own agent folder, `home/<user>/agent/` in the workspace file
+// system, where those apps leave their files and the app pages list, read and
+// save them.
 // Each app's own page (its ui/ folder) is served from /api/apps/{id}/ui/ and
 // shown in a sandboxed frame (src/components/PluginFrame), which runs the app's
 // tasks through /api/apps/{id}/tasks/{task}/runs. A prompt for an app goes
 // through /api/ai/stream with an appId and runs on that app's NanoAgent agent
 // inside the same workspace (routes/ai.js).
 //
-// The workspace is private: its id is derived from the caller's own workspace
-// membership (agent-workspace.js), so no request can name anyone else's.
+// The folder is private: its path comes from the caller's own identity, so no
+// request can name anyone else's. Each run works on a copy of it in a scratch
+// folder of NanoAgent's own (fs/agent-sync.js).
 
 // Shown in the browser as themselves; everything else is text or a download.
 // Never HTML or SVG, which would run in Mochi's origin.
@@ -25,7 +29,7 @@ function contentTypeFor(path, body) {
   return text ? {type: 'text/plain; charset=utf-8', inline: true} : {type: 'application/octet-stream', inline: false};
 }
 
-const ROUTES = new Set(['/api/apps', '/api/agent-files', '/api/agent-files/content', '/api/agent-files/folder', '/api/agent-files/move']);
+const ROUTES = new Set(['/api/apps', '/api/agent-files', '/api/agent-files/content']);
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const UI_ROUTE = /^\/api\/apps\/([^/]+)\/ui\/(.+)$/;
 const TASK_RUN_ROUTE = /^\/api\/apps\/([^/]+)\/tasks\/([^/]+)\/runs$/;
@@ -76,13 +80,20 @@ async function serveUiFile(res, json, ai, app, raw) {
 }
 
 /**
- * One task run in the caller's own agent workspace, NanoAgent's `task.*`
+ * One task run on the caller's own agent folder, NanoAgent's `task.*`
  * events passed through as they arrive. A caller who hangs up cancels the run.
  */
 async function streamTaskRun(req, res, ctx, app, task) {
-  const {json, readBody, requireWorkspacePermission, ai, CORS_ORIGIN} = ctx;
+  const {json, readBody, requireWorkspacePermission, ai, aiMeter, CORS_ORIGIN} = ctx;
   // A task acts through the app's tools, which is editing, not reading.
   requireWorkspacePermission(req.context, 'content:edit');
+  try {
+    await aiMeter.assertAllowed(req.context);
+  } catch (error) {
+    const refusal = budgetRefusal(error);
+    if (refusal) return json(res, refusal.status, refusal.body);
+    throw error;
+  }
   if (!PLUGIN_ID.test(app)) return json(res, 404, {error: `No app named ${app}`});
   if (!task || task.length > 100) return json(res, 400, {error: 'task must be a task id'});
   let body;
@@ -96,17 +107,19 @@ async function streamTaskRun(req, res, ctx, app, task) {
     return json(res, 400, {error: 'Request body must be {"arguments": {...}}'});
   }
 
-  const workspace = agentWorkspaceId(req.context);
+  if (!ctx.agentSync) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
   const controller = new AbortController();
   const onClose = () => controller.abort();
   // The run itself, which leaves the response open: the stream ends only after
   // the run's files are written back (below), so a page that reloads its files
   // on task.done finds them.
-  const runTask = async () => {
+  const runTask = async workspace => {
     res.on('close', onClose);
     try {
       const result = await ai.taskRun({workspace, app, task, args, signal: controller.signal});
       if (result.error) return json(res, result.status, {error: result.error});
+      // A task run's events carry no price, so it is charged at NanoAgent's per-run cap.
+      await aiMeter.record(req.context, 'task', null, {ran: true});
       res.writeHead(200, {
         ...corsHeaders(req, CORS_ORIGIN),
         'Content-Type': 'text/event-stream',
@@ -136,11 +149,10 @@ async function streamTaskRun(req, res, ctx, app, task) {
     }
   };
 
-  // With the workspace file system, the run works on a copy of the member's
-  // agent folder and its results are written back there (fs/agent-sync.js).
+  // The run works on a copy of the member's agent folder, and its results are
+  // written back there (fs/agent-sync.js).
   try {
-    if (ctx.agentSync) await ctx.agentSync.run(req.context, workspace, runTask);
-    else await runTask();
+    await ctx.agentSync.run(req.context, runTask);
   } catch (error) {
     if (!res.headersSent) return json(res, error.status || 502, {error: error.message});
     console.error('[apps] The run finished but its files could not be written back:', error);
@@ -152,7 +164,7 @@ async function streamTaskRun(req, res, ctx, app, task) {
 }
 
 module.exports = async function app_routes(req, res, url, pathname, ctx) {
-  const {json, readBody, readRawBody, requireWorkspacePermission, ai} = ctx;
+  const {json, readRawBody, requireWorkspacePermission, ai} = ctx;
   const ui = UI_ROUTE.exec(pathname);
   if (ui && req.method === 'GET') return serveUiFile(res, json, ai, ui[1], ui[2]);
   const taskRun = TASK_RUN_ROUTE.exec(pathname);
@@ -166,9 +178,6 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
     return streamTaskRun(req, res, ctx, taskRun[1], task);
   }
   if (!ROUTES.has(pathname)) return;
-  const reply = (result, value = result.value) => (result.error
-    ? json(res, result.status, {error: result.error})
-    : json(res, 200, value));
 
   if (req.method === 'GET' && pathname === '/api/apps') {
     requireWorkspacePermission(req.context, 'content:read');
@@ -177,75 +186,58 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
     return json(res, 200, {apps: result.value.plugins});
   }
 
-  const workspace = agentWorkspaceId(req.context);
+  const fs = ctx.workspaceFs;
+  if (!fs) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
+  const scope = req.context;
+  const folder = agentFolder(scope);
   if (req.method === 'GET' && pathname === '/api/agent-files') {
-    requireWorkspacePermission(req.context, 'content:read');
-    return reply(await ai.workspaceFiles(workspace));
-  }
-
-  if (req.method === 'POST' && pathname === '/api/agent-files/move') {
-    requireWorkspacePermission(req.context, 'content:edit');
-    let body;
-    try {
-      body = await readBody(req);
-    } catch {
-      return json(res, 400, {error: 'Request body must be {"from": path, "to": path}'});
-    }
-    if (typeof body?.from !== 'string' || typeof body?.to !== 'string') {
-      return json(res, 400, {error: 'Request body must be {"from": path, "to": path}'});
-    }
-    return reply(await ai.moveWorkspaceEntry(workspace, body.from, body.to));
+    requireWorkspacePermission(scope, 'content:read');
+    const files = (await fs.list(scope, {prefix: folder})).filter(node => node.kind === 'file');
+    return json(res, 200, {files: files.map(node => ({path: node.path.slice(folder.length + 1), size: node.size}))});
   }
 
   const path = url.searchParams.get('path');
   if (!path || path.length > 1000) return json(res, 400, {error: 'path is required'});
-
-  if (pathname === '/api/agent-files/folder') {
-    if (req.method !== 'POST' && req.method !== 'DELETE') return;
-    requireWorkspacePermission(req.context, 'content:edit');
-    return reply(req.method === 'POST'
-      ? await ai.makeWorkspaceFolder(workspace, path)
-      : await ai.deleteWorkspaceFolder(workspace, path));
-  }
-
   if (pathname !== '/api/agent-files/content') return;
 
-  if (req.method === 'PUT') {
-    requireWorkspacePermission(req.context, 'content:edit');
-    let body;
-    try {
-      body = await readRawBody(req);
-    } catch {
-      return json(res, 413, {error: 'File is too large'});
+  try {
+    if (req.method === 'PUT') {
+      requireWorkspacePermission(scope, 'content:edit');
+      let body;
+      try {
+        body = await readRawBody(req);
+      } catch {
+        return json(res, 413, {error: 'File is too large'});
+      }
+      await prepareHome(fs, scope);
+      const create = url.searchParams.get('create') === '1';
+      const node = await fs.write(scope, `${folder}/${path}`, body, create ? {baseRev: 0} : {});
+      return json(res, 200, {path, size: node.size});
     }
-    // A large save can outlast the 30 s idle limit server/index.js sets; ai.js bounds the wait.
-    req.setTimeout(0);
-    return reply(await ai.saveWorkspaceFile(workspace, path, body, {create: url.searchParams.get('create') === '1'}));
-  }
 
-  if (req.method === 'GET') {
-    requireWorkspacePermission(req.context, 'content:read');
-    const result = await ai.workspaceFile(workspace, path);
-    if (result.error) return json(res, result.status, {error: result.error});
-    const {type, inline: viewable} = contentTypeFor(path, result.value);
-    const inline = viewable && url.searchParams.get('download') !== '1';
-    const filename = path.split('/').pop().replace(/["\\\r\n]/g, '_');
-    const origin = req.headers.origin;
-    res.writeHead(200, {
-      'Content-Type': type,
-      'Content-Length': result.value.length,
-      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${filename}"`,
-      'Cache-Control': 'private, no-store',
-      'X-Content-Type-Options': 'nosniff',
-      'Access-Control-Allow-Origin': origin || '*',
-      ...(origin ? {'Access-Control-Allow-Credentials': 'true'} : {}),
-      'Vary': 'Origin',
-    });
-    return res.end(result.value);
+    if (req.method === 'GET') {
+      requireWorkspacePermission(scope, 'content:read');
+      const found = await fs.read(scope, `${folder}/${path}`);
+      if (!found) return json(res, 404, {error: 'file not found'});
+      const {type, inline: viewable} = contentTypeFor(path, found.body);
+      const inline = viewable && url.searchParams.get('download') !== '1';
+      const filename = path.split('/').pop().replace(/["\\\r\n]/g, '_');
+      const origin = req.headers.origin;
+      res.writeHead(200, {
+        'Content-Type': type,
+        'Content-Length': found.body.length,
+        'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${filename}"`,
+        'Cache-Control': 'private, no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Access-Control-Allow-Origin': origin || '*',
+        ...(origin ? {'Access-Control-Allow-Credentials': 'true'} : {}),
+        'Vary': 'Origin',
+      });
+      return res.end(found.body);
+    }
+  } catch (error) {
+    if (error instanceof FsError) return json(res, error.status, {error: error.message, code: error.code});
+    throw error;
   }
-
-  if (req.method === 'DELETE') {
-    requireWorkspacePermission(req.context, 'content:edit');
-    return reply(await ai.deleteWorkspaceFile(workspace, path));
-  }
+  return undefined;
 };

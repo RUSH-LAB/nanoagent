@@ -3,95 +3,116 @@
 /**
  * A plugin run as a client of the workspace file system.
  *
- * NanoAgent runs a plugin task in a folder of its own (agent-workspace.js
- * names it). That folder is now scratch space: before a run it is filled from
- * the member's `home/<user>/agent/` folder, and after the run whatever the run
- * created, changed, or deleted is written back there, as that member. The
- * file system is where the files live; NanoAgent keeps nothing that matters.
+ * NanoAgent runs a plugin in a scratch folder made for that one run: before it,
+ * the folder is filled from the member's `home/<user>/agent/` folder; after it,
+ * what the run created, changed, or deleted is written back there, as that
+ * member, and the folder is removed. The file system is where the files live;
+ * NanoAgent keeps nothing between runs.
  *
- * A member's runs take turns, because they share NanoAgent's folder.
+ * Writing back is measured against the revisions the run started from, so an
+ * edit the member made while the run went on is never overwritten: a file both
+ * changed is kept twice, the run's version as a conflicted copy beside it.
  */
 const crypto = require('crypto');
+const {FsError} = require('./store');
 
 const sha256 = body => crypto.createHash('sha256').update(body).digest('hex');
 const agentFolder = scope => `home/${scope.userId}/agent`;
+const collided = error => error instanceof FsError && error.status === 409;
 
 function unwrap(result, doing) {
   if (result.error) throw Object.assign(new Error(`NanoAgent could not ${doing}: ${result.error}`), {status: result.status});
   return result.value;
 }
 
+/** Where the run's version of `path` goes when the member changed it too. */
+function conflictPath(path, workspace) {
+  const slash = path.lastIndexOf('/');
+  const dot = path.lastIndexOf('.');
+  const split = dot > slash + 1 ? dot : path.length;
+  return `${path.slice(0, split)} (agent run ${workspace.slice(0, 8)})${path.slice(split)}`;
+}
+
+/** A member's home is private to them before the first file lands in it. */
+async function prepareHome(fs, scope) {
+  const home = `home/${scope.userId}`;
+  await fs.transaction(scope, async tree => {
+    if (await tree.nodeAt(home)) return;
+    await tree.mkdir(home);
+    await tree.setAccess(home, 'private');
+  });
+}
+
 function createAgentSync({ai, fs}) {
-  const turns = new Map();
-
-  /** Run `operation` after every earlier run of this member's has finished. */
-  function inTurn(key, operation) {
-    const previous = turns.get(key) ?? Promise.resolve();
-    // An earlier run's failure is its own caller's to report; this one starts regardless.
-    const next = previous.catch(() => {}).then(operation);
-    turns.set(key, next);
-    return next.finally(() => { if (turns.get(key) === next) turns.delete(key); });
-  }
-
-  /** Empty NanoAgent's folder, then copy the member's agent folder into it. */
+  /** Copy the member's agent folder into the run's folder: what was sent, by path, with its revision. */
   async function push(scope, workspace) {
-    const listing = unwrap(await ai.workspaceFiles(workspace), 'list its workspace');
-    for (const file of listing.files) unwrap(await ai.deleteWorkspaceFile(workspace, file.path), `clear ${file.path}`);
-    for (const folder of [...listing.folders].sort((a, b) => b.length - a.length)) {
-      unwrap(await ai.deleteWorkspaceFolder(workspace, folder), `clear ${folder}`);
-    }
     const folder = agentFolder(scope);
+    const sent = new Map();
     for (const file of await fs.readMany(scope, {prefix: folder})) {
       const relative = file.path.slice(folder.length + 1);
       unwrap(await ai.saveWorkspaceFile(workspace, relative, file.body, {create: true}), `receive ${relative}`);
+      sent.set(relative, {rev: file.rev, contentHash: file.contentHash});
+    }
+    return sent;
+  }
+
+  /** Keep the run's `body` at `target`, unless the member changed it since `baseRev`. */
+  async function keep(scope, target, body, baseRev, workspace) {
+    try {
+      await fs.write(scope, target, body, {baseRev});
+    } catch (error) {
+      if (!collided(error)) throw error;
+      await fs.write(scope, conflictPath(target, workspace), body, {baseRev: 0});
     }
   }
 
-  /** Write what the run left in NanoAgent's folder back into the member's agent folder. */
-  async function pull(scope, workspace) {
+  /** Write what the run changed in its folder back into the member's agent folder. */
+  async function pull(scope, workspace, sent) {
     const folder = agentFolder(scope);
     const listing = unwrap(await ai.workspaceFiles(workspace), 'list its workspace');
-    const before = new Map((await fs.readMany(scope, {prefix: folder})).map(file => [file.path, file]));
-    const after = new Set();
-    for (const file of listing.files) {
-      const target = `${folder}/${file.path}`;
-      after.add(target);
-      const body = unwrap(await ai.workspaceFile(workspace, file.path), `send ${file.path}`);
-      if (before.get(target)?.contentHash === sha256(body)) continue;
-      await fs.write(scope, target, body);
+    if (listing.truncated) {
+      throw new Error(`NanoAgent listed only part of the run's folder (${listing.files.length} files); nothing was written back`);
     }
-    for (const target of before.keys()) {
-      if (!after.has(target)) await fs.remove(scope, target);
+    const left = new Set();
+    for (const file of listing.files) {
+      left.add(file.path);
+      const body = unwrap(await ai.workspaceFile(workspace, file.path), `send ${file.path}`);
+      const base = sent.get(file.path);
+      if (base?.contentHash === sha256(body)) continue;
+      await keep(scope, `${folder}/${file.path}`, body, base?.rev ?? 0, workspace);
+    }
+    for (const [relative, base] of sent) {
+      if (left.has(relative)) continue;
+      try {
+        await fs.remove(scope, `${folder}/${relative}`, {baseRev: base.rev});
+      } catch (error) {
+        // The member edited it during the run; their edit stays.
+        if (!collided(error)) throw error;
+      }
     }
   }
 
   return Object.freeze({
     /**
-     * Prepare NanoAgent's folder, run `operation` (the task), and write the
-     * results back, even when the run fails or is cancelled part way.
+     * Prepare a folder for one run, run `operation(workspace)` (the task) in it,
+     * and write the results back, even when the run fails or is cancelled part
+     * way. The folder is removed either way.
      */
-    run(scope, workspace, operation) {
-      return inTurn(workspace, async () => {
-        await prepareHome(scope);
-        await push(scope, workspace);
+    async run(scope, operation) {
+      await prepareHome(fs, scope);
+      const workspace = crypto.randomBytes(16).toString('hex');
+      try {
+        const sent = await push(scope, workspace);
         try {
-          return await operation();
+          return await operation(workspace);
         } finally {
-          await pull(scope, workspace);
+          await pull(scope, workspace, sent);
         }
-      });
+      } finally {
+        unwrap(await ai.deleteWorkspace(workspace), 'remove its workspace');
+      }
     },
   });
-
-  /** A member's home is private to them before the first file lands in it. */
-  async function prepareHome(scope) {
-    const home = `home/${scope.userId}`;
-    await fs.transaction(scope, async tree => {
-      if (await tree.nodeAt(home)) return;
-      await tree.mkdir(home);
-      await tree.setAccess(home, 'private');
-    });
-  }
 }
 
-module.exports = {agentFolder, createAgentSync};
+module.exports = {agentFolder, conflictPath, createAgentSync, prepareHome};

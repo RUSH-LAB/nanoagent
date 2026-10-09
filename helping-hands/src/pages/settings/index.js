@@ -3,7 +3,9 @@ import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import Link from '@docusaurus/Link';
 import {useLocation} from '@docusaurus/router';
+import Avatar from '@site/src/components/Avatar';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
+import {clientPlatform} from '@site/src/platform/client';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import useWorkspaceSubscriptions, {
   isBookSubscribed, isGroupSubscribed, orderByPreference,
@@ -12,12 +14,24 @@ import pageStyles from '@site/src/css/page.module.css';
 import API_BASE, {apiJson} from '@site/src/utils/api';
 import {WORKSPACE_CONTENT_CACHE_MS} from '@site/src/utils/workspaceContent';
 import {
-  loadWorkspaces, switchWorkspace, createWorkspace, workspaceSlugFromPath,
+  loadWorkspaces, workspaceSlugFromPath,
 } from '@site/src/utils/workspaces';
+import {PaneHeading, Skeleton} from './_parts';
+import WorkspaceControls from './_WorkspaceControls';
+import DangerZone from './_DangerZone';
 import styles from './styles.module.css';
 
+/** GitHub's mark (Octicons mark-github). */
+function GitHubMark() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="currentColor">
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+    </svg>
+  );
+}
+
 function SettingsApp() {
-  const { authClient } = require('@site/src/utils/authClient');
+  const { authClient, signOutAndForget } = require('@site/src/utils/authClient');
   const location = useLocation();
   const workspaceSlug = workspaceSlugFromPath(location.pathname);
 
@@ -27,9 +41,6 @@ function SettingsApp() {
   // Three states rather than two, so a slow load does not read as a failed one.
   const [workspaces, setWorkspaces] = useState(undefined);
   const [activeId, setActiveId] = useState(null);
-  const [newWorkspace, setNewWorkspace] = useState('');
-  const [switching, setSwitching] = useState(false);
-  const [workspaceError, setWorkspaceError] = useState(null);
   const [subscriptionGroups, setSubscriptionGroups] = useState({});
   const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
   const [subscriptionsSaving, setSubscriptionsSaving] = useState(false);
@@ -173,83 +184,122 @@ function SettingsApp() {
     });
   };
 
-  /**
-   * Run one of the workspace writes. Both reload the page on success, from
-   * within src/utils/workspaces, so there is nothing to do here but report a
-   * refusal and hand the buttons back.
-   */
-  const workspaceAction = useCallback(async (write) => {
-    setSwitching(true);
-    setWorkspaceError(null);
-    try {
-      await write();
-    } catch (err) {
-      setWorkspaceError(err.message);
-      setSwitching(false);
-    }
-  }, []);
-
   const user = session?.user;
+  const [signingOut, setSigningOut] = useState(false);
+  const signOut = async () => {
+    setSigningOut(true);
+    try {
+      await signOutAndForget();
+    } finally {
+      clientPlatform.location.assign('/');
+    }
+  };
+  const panes = [
+    {id: 'account', group: 'account', label: 'Account'},
+    {id: 'navigation', group: 'account', label: 'Navigation'},
+    ...(activeWorkspace ? [{id: 'workspace', group: 'workspace', label: 'General'}] : []),
+    ...(activeWorkspace ? [{id: 'danger', group: 'danger', label: 'Danger zone'}] : []),
+  ];
+  const [visible, setVisible] = useState(panes[0].id);
+  const paneIds = panes.map(item => item.id).join(' ');
+  // Highlights the section nearest the top of the viewport as the page scrolls.
+  useEffect(() => {
+    const sections = paneIds.split(' ').map(id => document.getElementById(id)).filter(Boolean);
+    const observer = new IntersectionObserver(entries => {
+      const top = entries.filter(entry => entry.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if (top) setVisible(top.target.id);
+    }, {rootMargin: '-20% 0px -60% 0px'});
+    sections.forEach(section => observer.observe(section));
+    return () => observer.disconnect();
+  }, [paneIds]);
+  const navItem = item => (
+    <a
+      key={item.id}
+      href={`#${item.id}`}
+      className={item.id === visible ? styles.navActive : undefined}
+      aria-current={item.id === visible ? 'location' : undefined}
+    >{item.label}</a>
+  );
+  const subscriptionsFeedback = (preferencesError || subscriptionsStatus) && (
+    <span
+      className={subscriptionsStatus?.type === 'success' && !preferencesError ? styles.saved : styles.error}
+      role={subscriptionsStatus?.type === 'error' || preferencesError ? 'alert' : 'status'}
+    >{preferencesError || subscriptionsStatus.message}</span>
+  );
+  const orderButtons = (title, index, count, move) => (
+    <span className={styles.orderButtons}>
+      <button
+        type="button"
+        disabled={subscriptionsSaving || index === 0}
+        aria-label={`Move ${title} up`}
+        title="Move up"
+        onClick={() => move(index, -1)}
+      >↑</button>
+      <button
+        type="button"
+        disabled={subscriptionsSaving || index === count - 1}
+        aria-label={`Move ${title} down`}
+        title="Move down"
+        onClick={() => move(index, 1)}
+      >↓</button>
+    </span>
+  );
+
   return (
     <div className={`${pageStyles.pageContainer} ${pageStyles.wide}`}>
       <header className={styles.pageHeader}>
-        <span className={styles.eyebrow}>Settings</span>
-        <div className={styles.headerRow}>
-          <div>
-            <h1 className={styles.heading}>Settings</h1>
-            <p>Manage your account and workspace access.</p>
-          </div>
-          {activeWorkspace && (
-            <div className={styles.workspaceContext}>
-              <span className={styles.workspaceMark} aria-hidden="true">
-                {activeWorkspace.name.trim().charAt(0).toUpperCase() || 'W'}
-              </span>
-              <span>
-                <strong>{activeWorkspace.name}</strong>
-                <small>{activeWorkspace.role}</small>
-              </span>
-            </div>
-          )}
-        </div>
+        <h1 className={styles.heading}>Settings</h1>
+        <p>Manage your account and workspace access.</p>
       </header>
 
       <div className={styles.settingsLayout}>
         <nav className={styles.settingsNav} aria-label="Settings sections">
-          <a href="#account"><strong>Account</strong><span>Identity and session</span></a>
-          <a href="#subscriptions"><strong>Subscriptions</strong><span>Books and blog groups</span></a>
-          <a href="#workspaces"><strong>Workspaces</strong><span>Access and switching</span></a>
+          <span className={styles.navGroup}>Account</span>
+          {panes.filter(item => item.group === 'account').map(navItem)}
+          <span className={styles.navGroup}>{activeWorkspace ? `Workspace · ${activeWorkspace.name}` : 'Workspace'}</span>
+          {panes.filter(item => item.group === 'workspace').map(navItem)}
+          <span className={styles.navDivider} />
+          {panes.filter(item => item.group === 'danger').map(navItem)}
+          {activeWorkspace && (
+            <Link to={`/w/${encodeURIComponent(activeWorkspace.slug)}/people`}>Members ↗</Link>
+          )}
         </nav>
 
         <div className={styles.settingsContent}>
-          <section id="account" className={styles.section}>
-            <div className={styles.sectionHeading}>
-              <div><h2>Account</h2><p>Your personal identity and session.</p></div>
-            </div>
-            {session === undefined ? (
-              <p className={styles.muted}>Loading account…</p>
-            ) : user ? (
-              <dl className={styles.account}>
-                <dt>Email</dt><dd>{user.email}</dd>
-                <dt>Name</dt><dd>{user.name || <em>Not set</em>}</dd>
-              </dl>
+          <section id="account" className={styles.pane}>
+            <PaneHeading title="Account" description="Your name and picture come from GitHub each time you sign in." />
+            {session === undefined ? <Skeleton rows={1} /> : user ? (
+              <section className={styles.group}>
+                <div className={styles.identity}>
+                  <Avatar user={user} size={48} />
+                  <div className={styles.identityText}>
+                    <strong>{user.name}</strong>
+                    <span><GitHubMark /> Signed in with GitHub</span>
+                  </div>
+                  <button type="button" className="button button--secondary button--sm" disabled={signingOut} onClick={signOut}>
+                    {signingOut ? 'Signing out…' : 'Sign out'}
+                  </button>
+                </div>
+              </section>
             ) : (
-              <p className={styles.muted}>Authentication is disabled; requests use the local development account.</p>
+              <p className={styles.notice}>Authentication is disabled; requests use the local development account.</p>
             )}
           </section>
 
-          <section id="subscriptions" className={styles.section}>
-            <div className={styles.sectionHeading}>
-              <div><h2>Subscriptions</h2><p>Choose which books and blog groups appear in your navigation.</p></div>
-            </div>
-            {!preferenceWorkspace || !site || preferencesLoading || subscriptionsLoading ? (
-              <p className={styles.muted}>Loading subscriptions…</p>
-            ) : (
-              <div className={styles.subscriptionColumns}>
-                <div className={styles.subscriptionGroup}>
-                  <h3>Books</h3>
+          <section id="navigation" className={styles.pane}>
+            <PaneHeading
+              title="Navigation"
+              description="Choose which books and blog groups appear in your navigation, and in what order."
+              aside={subscriptionsFeedback}
+            />
+            {!preferenceWorkspace || !site || preferencesLoading || subscriptionsLoading ? <Skeleton rows={4} /> : (
+              <>
+                <section className={styles.group}>
+                  <h2 className={styles.groupTitle}>Books</h2>
                   {books.length ? orderedBooks.map((book, index) => (
-                    <div className={styles.subscriptionOptionRow} key={book.key}>
-                      <label className={styles.subscriptionOption}>
+                    <div className={styles.optionRow} key={book.key}>
+                      <label className={styles.option}>
                         <input
                           type="checkbox"
                           checked={isBookSubscribed(subscriptions, book.key)}
@@ -258,120 +308,61 @@ function SettingsApp() {
                         />
                         <span>{book.title}</span>
                       </label>
-                      <span className={styles.orderButtons}>
-                        <button
-                          type="button"
-                          disabled={subscriptionsSaving || index === 0}
-                          aria-label={`Move ${book.title} up`}
-                          title="Move up"
-                          onClick={() => reorderBooks(index, -1)}
-                        >↑</button>
-                        <button
-                          type="button"
-                          disabled={subscriptionsSaving || index === orderedBooks.length - 1}
-                          aria-label={`Move ${book.title} down`}
-                          title="Move down"
-                          onClick={() => reorderBooks(index, 1)}
-                        >↓</button>
-                      </span>
+                      {orderButtons(book.title, index, orderedBooks.length, reorderBooks)}
                     </div>
-                  )) : <p className={styles.muted}>No books yet.</p>}
-                </div>
-                <div className={styles.subscriptionGroup}>
-                  <h3>Blog groups</h3>
-                  {blogs.length ? blogs.map(collection => (
-                    <div className={styles.blogSubscriptions} key={collection.key}>
-                      {blogs.length > 1 && <h4>{collection.title}</h4>}
-                      {(subscriptionGroups[collection.key] ?? []).length
-                        ? orderByPreference(
-                          subscriptionGroups[collection.key],
-                          subscriptions?.groupOrder?.[collection.key],
-                        ).map((title, index, orderedGroups) => (
-                          <div className={styles.subscriptionOptionRow} key={title}>
-                            <label className={styles.subscriptionOption}>
-                              <input
-                                type="checkbox"
-                                checked={isGroupSubscribed(subscriptions, collection.key, title)}
-                                disabled={subscriptionsSaving}
-                                onChange={() => toggleGroupSubscription(collection.key, title)}
-                              />
-                              <span>{title}</span>
-                            </label>
-                            <span className={styles.orderButtons}>
-                              <button
-                                type="button"
-                                disabled={subscriptionsSaving || index === 0}
-                                aria-label={`Move ${title} up`}
-                                title="Move up"
-                                onClick={() => reorderGroups(collection.key, index, -1)}
-                              >↑</button>
-                              <button
-                                type="button"
-                                disabled={subscriptionsSaving || index === orderedGroups.length - 1}
-                                aria-label={`Move ${title} down`}
-                                title="Move down"
-                                onClick={() => reorderGroups(collection.key, index, 1)}
-                              >↓</button>
-                            </span>
-                          </div>
-                        ))
-                        : <p className={styles.muted}>No groups yet.</p>}
-                    </div>
-                  )) : <p className={styles.muted}>No blog groups yet.</p>}
-                </div>
-              </div>
-            )}
-            {(preferencesError || subscriptionsStatus) && (
-              <p
-                className={subscriptionsStatus?.type === 'success' && !preferencesError ? styles.saved : styles.error}
-                role={subscriptionsStatus?.type === 'error' || preferencesError ? 'alert' : 'status'}
-              >{preferencesError || subscriptionsStatus.message}</p>
+                  )) : <p className={styles.empty}>No books yet.</p>}
+                </section>
+                {blogs.length ? blogs.map(collection => {
+                  const orderedGroups = orderByPreference(
+                    subscriptionGroups[collection.key] ?? [],
+                    subscriptions?.groupOrder?.[collection.key],
+                  );
+                  return (
+                    <section className={styles.group} key={collection.key}>
+                      <h2 className={styles.groupTitle}>{blogs.length > 1 ? collection.title : 'Blog groups'}</h2>
+                      {orderedGroups.length ? orderedGroups.map((title, index) => (
+                        <div className={styles.optionRow} key={title}>
+                          <label className={styles.option}>
+                            <input
+                              type="checkbox"
+                              checked={isGroupSubscribed(subscriptions, collection.key, title)}
+                              disabled={subscriptionsSaving}
+                              onChange={() => toggleGroupSubscription(collection.key, title)}
+                            />
+                            <span>{title}</span>
+                          </label>
+                          {orderButtons(title, index, orderedGroups.length,
+                            (from, direction) => reorderGroups(collection.key, from, direction))}
+                        </div>
+                      )) : <p className={styles.empty}>No groups yet.</p>}
+                    </section>
+                  );
+                }) : (
+                  <section className={styles.group}>
+                    <h2 className={styles.groupTitle}>Blog groups</h2>
+                    <p className={styles.empty}>No blog groups yet.</p>
+                  </section>
+                )}
+              </>
             )}
           </section>
 
-          <section id="workspaces" className={styles.section}>
-            <div className={styles.sectionTitleRow}>
-              <div className={styles.sectionHeading}>
-                <div><h2>Workspaces</h2><p>Switch organizations or create a new one.</p></div>
-              </div>
-              {activeWorkspace && <Link className={styles.textButton} to={`/w/${encodeURIComponent(activeWorkspace.slug)}/people`}>Manage people</Link>}
-            </div>
+          {activeWorkspace && (
+            <section id="workspace" className={styles.pane}>
+              <PaneHeading
+                title={activeWorkspace.name}
+                description={`You are ${/^[aeiou]/i.test(activeWorkspace.role) ? 'an' : 'a'} ${activeWorkspace.role} of this workspace.`}
+              />
+              <WorkspaceControls key={activeWorkspace.id} workspace={activeWorkspace} />
+            </section>
+          )}
 
-            {workspaces === undefined ? <p className={styles.muted}>Loading workspaces…</p>
-              : workspaces === null ? <p className={styles.error}>Could not load your workspaces.</p>
-                : workspaces.length === 0 ? <p className={styles.muted}>You are not in a workspace yet. Create one or follow an invitation link.</p>
-                  : (
-                    <ul className={styles.workspaces}>
-                      {workspaces.map((workspace) => (
-                        <li key={workspace.id} className={`${styles.workspace} ${workspace.id === activeId ? styles.workspaceActive : ''}`}>
-                          <span className={styles.workspaceMark} aria-hidden="true">{workspace.name.trim().charAt(0).toUpperCase() || 'W'}</span>
-                          <span className={styles.workspaceIdentity}>
-                            <strong>{workspace.name}</strong>
-                            <em>{workspace.role} · {workspace.memberCount} {workspace.memberCount === 1 ? 'member' : 'members'}</em>
-                          </span>
-                          {workspace.id === activeId ? <span className={styles.currentBadge}>Current</span> : (
-                            <button type="button" className={styles.secondaryButton} disabled={switching} onClick={() => workspaceAction(() => switchWorkspace(workspace))}>
-                              Switch
-                            </button>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-
-            <form className={styles.createWorkspace} onSubmit={(e) => {
-              e.preventDefault();
-              workspaceAction(() => createWorkspace({name: newWorkspace}));
-            }}>
-              <label htmlFor="new-workspace">Create workspace</label>
-              <div className={styles.inlineForm}>
-                <input id="new-workspace" type="text" value={newWorkspace} onChange={(e) => setNewWorkspace(e.target.value)} placeholder="Workspace name" minLength={2} maxLength={60} required />
-                <button type="submit" className={styles.primaryButton} disabled={switching || newWorkspace.trim().length < 2}>Create</button>
-              </div>
-            </form>
-            {workspaceError && <p className={styles.error} role="alert">{workspaceError}</p>}
-          </section>
-
+          {activeWorkspace && (
+            <section id="danger" className={styles.pane}>
+              <PaneHeading title="Danger zone" description="Leaving this workspace." />
+              <DangerZone key={activeWorkspace.id} workspace={activeWorkspace} />
+            </section>
+          )}
         </div>
       </div>
     </div>

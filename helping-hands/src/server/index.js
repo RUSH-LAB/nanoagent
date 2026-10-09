@@ -16,7 +16,8 @@ const {
 } = require('./server-utils');
 
 const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
-const {auth, resolveIdentity, isPublicPath, productionAuthError, AUTH_ENABLED} = require('./auth');
+const {auth, tenancy, resolveIdentity, isPublicPath, productionAuthError, AUTH_ENABLED} = require('./auth');
+const {createAiMeter} = require('./ai-metering');
 const {
   createWorkspaceContextResolver, matchWorkspaceApiPath, storageScope,
   workspaceDispatchPath,
@@ -32,6 +33,9 @@ const roles = postgresServices?.roles ?? require('./roles');
 const chat = contextualChat(postgresServices?.chat ?? require('./chat'));
 const org = contextualOrg(postgresServices?.org ?? require('./org'));
 const ai = require('./ai');
+const {createGithub} = require('./github');
+// Every assistant call is checked against its workspace's budget and charged to it.
+const aiMeter = createAiMeter(tenancy);
 const {createAgentSync} = require('./fs/agent-sync');
 // The per-workspace data layer. See server/store/index.js: the only way a route
 // module is allowed to reach the thirteen features' data, because it is the
@@ -51,9 +55,8 @@ const {servePublicPage} = require('./public-pages');
 const {resolveWorkspaceSite} = require('./workspace-site');
 const objectStorage = createObjectStorage(process.env, {pool: postgresDatabase.pool});
 const assets = postgresServices?.assets ?? require('./assets');
-// Uploads through the store CONTENT_STORE selects (see asset-store.js).
+// Uploads: the workspace file system with PostgreSQL, else the legacy store (see asset-store.js).
 const assetStore = postgresServices?.assetStore ?? createLegacyAssetStore({assets, objectStorage});
-const contentStore = postgresServices?.contentStore ?? 'legacy';
 const objectDeletions = postgresServices?.objectDeletions
   ?? createObjectDeletionQueue({db: require('./db').db});
 const {compileDocument, compileMarkdown, parseFrontmatter, splitBlogPost} = require('./mdx');
@@ -81,7 +84,7 @@ const {toNodeHandler} = require('better-auth/node');
 const developmentAuth = postgresDatabase.enabled
   ? require('./postgres-dev-auth')
   : require('./dev-auth');
-const {DEV_AUTOLOGIN, ensureRootUser, ensureDevelopmentWorkspace, handleDevLogin, ROOT_USERNAME} = developmentAuth;
+const {ensureRootUser, ensureDevelopmentWorkspace} = developmentAuth;
 const PORT = process.env.EDITOR_PORT || process.env.PORT || 3001;
 const {name: platformName} = platformConfig();
 
@@ -297,10 +300,17 @@ function cleanStalePresence() {
 const presenceCleanupTimer = setInterval(cleanStalePresence, 30000);
 presenceCleanupTimer.unref?.();
 
-// ── In-memory rate limiter ──
+// ── Rate limits ──
+// With PostgreSQL the counters live in the database, shared by every process
+// and kept across restarts (postgres/tenancy.js). Without it, in this process.
+async function rateLimit(key, maxPerMinute) {
+  if (tenancy) return (await tenancy.consume(`api:${key}`, {window: 60, max: maxPerMinute})).allowed;
+  return memoryRateLimit(key, maxPerMinute);
+}
+
 const rateLimits = {};
 const MAX_RATE_LIMIT_KEYS = 10000;
-function rateLimit(key, maxPerMinute) {
+function memoryRateLimit(key, maxPerMinute) {
   const now = Date.now();
   if (!rateLimits[key]) rateLimits[key] = [];
   rateLimits[key] = rateLimits[key].filter(t => now - t < 60000);
@@ -352,6 +362,11 @@ const cacheCleanupTimer = setInterval(() => {
   }
 }, 60000);
 cacheCleanupTimer.unref?.();
+
+const rateLimitSweepTimer = tenancy ? setInterval(() => {
+  tenancy.sweepRateLimits().catch(error => console.error('[rate-limit] Sweep failed:', error.message));
+}, 10 * 60_000) : null;
+rateLimitSweepTimer?.unref?.();
 
 let objectCleanupRunning = false;
 async function cleanPendingObjects() {
@@ -473,6 +488,9 @@ const ctx = {
   chat,
   org,
   ai,
+  aiMeter,
+  // Sign-up policy, limits, usage, and platform administration; null without PostgreSQL.
+  tenancy,
   // Where the per-workspace features keep their data. The collection factory
   // rather than the whole store module, because it is the only part of it a
   // handler has any business with: the rest is how a store gets built, and a
@@ -495,12 +513,15 @@ const ctx = {
   cleanPendingObjects,
   assets,
   assetStore,
-  // The workspace file system, present when CONTENT_STORE=fs.
-  contentStore,
+  // The workspace file system; PostgreSQL only.
   workspaceFs: postgresServices?.fs ?? null,
   publicFs: postgresServices?.publicFs ?? null,
   crdt: postgresServices?.crdt ?? null,
   crdtHub: postgresServices?.crdtHub ?? null,
+  // The plugin marketplace's uploads; PostgreSQL only.
+  market: postgresServices?.market ?? null,
+  // Where the marketplace fetches a plugin's source.
+  github: createGithub(),
   // Plugin runs work on a copy of the member's agent folder (fs/agent-sync.js).
   agentSync: postgresServices?.fs ? createAgentSync({ai, fs: postgresServices.fs}) : null,
   compileDocument,
@@ -521,7 +542,7 @@ const routeModules = [
   // Content from the database, compiled per request.
   require('./routes/content'),
   require('./routes/assets'),
-  // The workspace file system, when CONTENT_STORE=fs.
+  // The workspace file system; PostgreSQL only.
   require('./routes/fs'),
   // What workspaces publish, for anyone.
   require('./routes/public'),
@@ -539,9 +560,11 @@ const routeModules = [
   require('./routes/stats'),
   require('./routes/chat'),
   require('./routes/org'),
+  require('./routes/admin'),
   require('./routes/agents'),
   require('./routes/ai'),
   require('./routes/apps'),
+  require('./routes/market'),
   // Plugin endpoints run after the core ones. A plugin extends the site; it
   // does not get to shadow the routes the site is made of. Each is wrapped so
   // that what reaches it is the narrow plugin API, never this ctx.
@@ -552,7 +575,7 @@ const routeModules = [
 // http server, and rebuilding it per request would re-wrap on every call.
 const authHandler = toNodeHandler(auth);
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   req.setTimeout(30000);
   const reqId = ++requestCounter;
   const start = Date.now();
@@ -603,13 +626,6 @@ const server = http.createServer(async (req, res) => {
     return authHandler(req, res);
   }
 
-  // ── Passwordless local sign-in ──
-  // Development only, and guarded again inside: the handler answers 404 unless
-  // DEV_AUTOLOGIN is set outside production, and 403 to anything off loopback.
-  if (req.method === 'POST' && pathname === '/api/dev-login') {
-    return handleDevLogin(req, res, auth, json, readBody);
-  }
-
   // ── Identity ──
   // Resolved once, before any handler runs, and attached to the request rather
   // than to `ctx`: `ctx` is a single module-level object shared by every
@@ -621,6 +637,11 @@ const server = http.createServer(async (req, res) => {
     return json(res, resolved.status, {error: resolved.error});
   }
   req.auth = resolved.ok ? resolved.identity : null;
+  // Who a rate limit counts against: the account, or before sign-in the client
+  // address. Behind Cloudflare and Railway the socket address is the proxy's,
+  // which would put every visitor in one bucket.
+  req.caller = req.auth?.userId
+    ?? String(req.headers['cf-connecting-ip'] || req.headers['x-real-ip'] || req.socket.remoteAddress || 'unknown');
 
   // Operational diagnostics are platform-wide rather than workspace data.
   // In authenticated deployments they belong to the separate platform-admin
@@ -650,7 +671,7 @@ const server = http.createServer(async (req, res) => {
 
   // ── Health check ──
   if (req.method === 'GET' && pathname === '/api/health') {
-    return json(res, 200, {status: 'ok', contentStore, uptime: process.uptime(), memory: process.memoryUsage().heapUsed});
+    return json(res, 200, {status: 'ok', uptime: process.uptime(), memory: process.memoryUsage().heapUsed});
   }
 
   // ── Memory debug endpoint ──
@@ -699,6 +720,28 @@ const server = http.createServer(async (req, res) => {
 
   json(res, 404, {error: 'Not found', path: pathname, hint: 'GET /api/health for server status'});
 
+}
+
+/**
+ * The answer to a request whose handler threw. A refusal that carries its own
+ * status (a permission or tenancy limit) is sent as such; anything else is
+ * logged and answered 500. Either way the failure stays with this request: an
+ * unhandled rejection would shut the server down for every workspace.
+ */
+function failRequest(req, res, error) {
+  const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 ? error.status : 500;
+  if (status === 500) console.error(`[server] ${req.method} ${req.url} failed:`, error);
+  if (res.headersSent) {
+    if (!res.writableEnded) res.end();
+    return;
+  }
+  json(res, status, status === 500
+    ? {error: 'The server could not complete that request'}
+    : {error: error.message, ...(error.code ? {code: error.code} : {})});
+}
+
+const server = http.createServer((req, res) => {
+  handleRequest(req, res).catch(error => failRequest(req, res, error));
 });
 
 // ── Route diagnostics: scan the server source to report handler stats ──
@@ -770,16 +813,12 @@ if (_authRefusal) {
   process.exit(1);
 }
 
-// Create the root account and make it an owner. Does nothing unless
-// DEV_AUTOLOGIN is on, so a production database never grows a well-known
-// account just because this module loaded.
-const rootReady = ensureRootUser(auth).catch(err => {
-  console.error(`\n  ${err.message}\n`);
-  return null;
-});
 const developmentWorkspace = !AUTH_ENABLED ? ensureDevelopmentWorkspace() : null;
 
-postgresDatabase.ready.then(() => server.listen(PORT, async () => {
+// The root account exists before the first request, so root's first GitHub
+// sign-in finds it. A server that cannot provision its administrator does not
+// start.
+postgresDatabase.ready.then(() => (AUTH_ENABLED ? ensureRootUser(auth) : null)).then(root => server.listen(PORT, async () => {
   const startupNs = process.hrtime.bigint() - _startupTime;
   const startupMs = Number(startupNs / 1_000_000n);
   const memMB = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
@@ -804,24 +843,20 @@ postgresDatabase.ready.then(() => server.listen(PORT, async () => {
     ? `  Assistant: ${assistant.provider} (${assistant.model})`
     : `  Assistant: unavailable. ${assistant.reason}`);
 
-  const root = await rootReady;
   cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));
   if (developmentWorkspace) {
     console.log(`  Development workspace: "${developmentWorkspace.name}" (${developmentWorkspace.slug})`);
   }
   if (root) {
-    console.log(`  Dev sign-in: one click as "${root.username}" (owner)${root.created ? ', account created' : ''}`);
-    console.log(`  Root password: ${root.passwordFile}`);
-    const {workspace, demo} = root;
+    console.log(`  Root: GitHub ${root.login} (owner)${root.created ? ', account created' : ''}`);
+    const {workspace} = root;
     if (workspace?.error) console.log(`  Workspace: none (${workspace.error})`);
     else if (workspace?.created) console.log(`  Workspace: "${workspace.name}" ready, with #${workspace.channel}`);
-    if (demo?.error) console.log(`  Second workspace: none (${demo.error})`);
-    else if (demo?.name) console.log(`  Second workspace: "${demo.name}", empty, to switch to from the navbar`);
   }
   console.log('');
 })).catch(error => {
-  console.error(`\n  PostgreSQL startup failed: ${error.message}\n`);
-  process.exitCode = 1;
+  console.error(`\n  Startup failed: ${error.message}\n`);
+  process.exit(1);
 });
 
 let shutdownPromise = null;

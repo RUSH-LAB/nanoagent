@@ -63,7 +63,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   const flashcards = collection('flashcards');
 
   if (req.method === 'POST' && pathname === '/api/flashcards') {
-    if (!rateLimit(`flashcards:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`flashcards:${req.caller}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {front, back, tags, sourcePath} = body;
@@ -106,7 +106,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   }
 
   if (req.method === 'POST' && pathname === '/api/flashcards/review') {
-    if (!rateLimit(`fc-review:${req.socket.remoteAddress}`, 120)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`fc-review:${req.caller}`, 120)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {cardId, quality} = body;
@@ -173,7 +173,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   }
 
   if (req.method === 'POST' && pathname === '/api/glossary') {
-    if (!rateLimit(`glossary:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`glossary:${req.caller}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       if (req.context && requireWorkspacePermission) requireWorkspacePermission(req.context, 'content:edit');
       const body = await readBody(req);
@@ -263,7 +263,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   }
 
   if (req.method === 'POST' && pathname === '/api/quicknotes') {
-    if (!rateLimit(`quicknotes:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`quicknotes:${req.caller}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {text, color} = body;
@@ -315,7 +315,7 @@ module.exports = async function study_knowledge_routes(req, res, url, pathname, 
   }
 
   if (req.method === 'PUT' && pathname === '/api/preferences') {
-    if (!rateLimit(`prefs:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`prefs:${req.caller}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {preferences} = body;

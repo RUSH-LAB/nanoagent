@@ -99,7 +99,7 @@ describe('POST /api/flashcards', () => {
     const ctx = makeCtx({rateLimitAllow: false, readBody: async () => { reads++; return {}; }});
     const r = await invoke(routes, {method: 'POST', path: '/api/flashcards', ctx});
     assert.deepEqual([r.status, r.payload], [429, {error: 'Too many requests. Try again in a minute.'}]);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'flashcards:127.0.0.1', maxPerMinute: 30}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'flashcards:test-user', maxPerMinute: 30}]);
     assert.deepEqual([reads, ctx.calls.saveJSON.length], [0, 0]);
   });
 
@@ -212,7 +212,7 @@ describe('POST /api/flashcards/review', () => {
     const ctx = makeCtx({rateLimitAllow: false});
     const r = await invoke(routes, {method: 'POST', path: '/api/flashcards/review', ctx});
     assert.equal(r.status, 429);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'fc-review:127.0.0.1', maxPerMinute: 120}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'fc-review:test-user', maxPerMinute: 120}]);
   });
 
   const GUARDS = [
@@ -340,7 +340,7 @@ describe('POST /api/glossary', () => {
     const ctx = makeCtx({rateLimitAllow: false});
     const r = await invoke(routes, {method: 'POST', path: '/api/glossary', ctx});
     assert.equal(r.status, 429);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'glossary:127.0.0.1', maxPerMinute: 30}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'glossary:test-user', maxPerMinute: 30}]);
   });
 
   const GUARDS = [
@@ -488,7 +488,7 @@ describe('POST and DELETE /api/quicknotes', () => {
     const ctx = makeCtx({rateLimitAllow: false});
     const r = await invoke(routes, {method: 'POST', path: '/api/quicknotes', ctx});
     assert.equal(r.status, 429);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'quicknotes:127.0.0.1', maxPerMinute: 30}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'quicknotes:test-user', maxPerMinute: 30}]);
   });
 
   const GUARDS = [
@@ -625,7 +625,7 @@ describe('/api/preferences', () => {
     const ctx = makeCtx({rateLimitAllow: false});
     const r = await invoke(routes, {method: 'PUT', path: '/api/preferences', ctx});
     assert.equal(r.status, 429);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'prefs:127.0.0.1', maxPerMinute: 30}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'prefs:test-user', maxPerMinute: 30}]);
   });
 
   // The store key is the session subject now, so only the preference payload

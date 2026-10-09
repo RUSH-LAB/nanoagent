@@ -130,17 +130,6 @@
   font-size: 0.84rem;
 }
 
-.roleGuide {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.65rem 1.25rem;
-  margin-bottom: 0.9rem;
-  padding: 0.7rem 0.8rem;
-  border-radius: 9px;
-  background: var(--ifm-color-emphasis-100);
-  color: var(--ifm-color-emphasis-600);
-  font-size: 0.76rem;
-}
 
 .roleBadge {
   display: inline-flex;
@@ -165,33 +154,9 @@
   overflow-x: auto;
 }
 
-.tableHead,
-.userRow {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.1fr) minmax(180px, 1fr) 110px 150px;
-  min-width: 680px;
-  align-items: center;
-  gap: 0.75rem;
-}
 
-.tableHead {
-  padding: 0.55rem 0.7rem;
-  color: var(--ifm-color-emphasis-500);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
 
-.userRow {
-  padding: 0.65rem 0.7rem;
-  border-top: 1px solid var(--ifm-color-emphasis-100);
-  font-size: 0.84rem;
-}
 
-.userRow:hover {
-  background: var(--ifm-color-emphasis-100);
-}
 
 .userIdentity {
   display: flex;
@@ -297,4 +262,121 @@
   .search {
     width: 100%;
   }
+}
+
+.role_suspended {
+  border-color: var(--ifm-color-danger-lighter);
+  background: var(--ifm-color-danger-contrast-background);
+  color: var(--ifm-color-danger-darkest);
+}
+
+/* The accounts and workspaces tables (_Tenancy.js). */
+.tenancyHead,
+.tenancyRow {
+  display: grid;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.tenancyHead {
+  padding: 0.55rem 0.7rem;
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tenancyRow {
+  padding: 0.65rem 0.7rem;
+  border-top: 1px solid var(--ifm-color-emphasis-100);
+  font-size: 0.84rem;
+}
+
+.accountGrid {
+  grid-template-columns: minmax(220px, 1.4fr) 140px 100px 150px minmax(300px, 1.6fr);
+  min-width: 960px;
+}
+
+.workspaceGrid {
+  grid-template-columns: minmax(220px, 1.4fr) 90px 150px 150px 150px;
+  min-width: 800px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ifm-color-primary);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.linkButton:disabled {
+  color: var(--ifm-color-emphasis-400);
+  cursor: not-allowed;
+}
+
+.policyForm,
+.limitsEditor {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.limitsEditor {
+  padding: 0.75rem 0.7rem 0.9rem;
+  border-top: 1px dashed var(--ifm-color-emphasis-200);
+  background: var(--ifm-color-emphasis-100);
+}
+
+.policyForm label,
+.limitsEditor label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.policyForm input,
+.policyForm select,
+.policyForm textarea,
+.limitsEditor input {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 8px;
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  font-weight: 400;
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.auditList {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.84rem;
+}
+
+.auditList li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--ifm-color-emphasis-100);
 }

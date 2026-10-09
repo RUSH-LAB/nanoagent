@@ -60,7 +60,7 @@ module.exports = async function asset_routes(req, res, url, pathname, ctx) {
   }
 
   if (req.method === 'PUT') {
-    if (!rateLimit(`asset:${req.context.workspaceId}:${req.context.userId}`, 30)) {
+    if (!await rateLimit(`asset:${req.context.workspaceId}:${req.context.userId}`, 30)) {
       return json(res, 429, {error: 'Too many uploads. Try again in a minute.'});
     }
     try {

@@ -155,7 +155,7 @@ async function invokeCalendar({ fs, cached, schedule = [] }) {
     // read them from a file it named itself, so they were every workspace's.
     ...newStore().seed('schedule', Object.fromEntries(schedule.map((it, i) => [`s${i}`, it]))).ctxFields,
   };
-  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   await miscToolsRoutes(req, cap.res, new URL('http://localhost/api/calendar'), '/api/calendar', ctx);
   return cap.get();
 }
@@ -276,7 +276,7 @@ async function invokeIntegrity({documents = ['exists.md'], references = {}, snap
     json: cap.json,
   };
   const req = {
-    method: 'GET', socket: {remoteAddress: '127.0.0.1'},
+    method: 'GET', socket: {remoteAddress: '127.0.0.1'}, caller: 'test-user',
     context: {userId: 'test-user', workspaceId: 'test-org', membershipId: 'm1', role: 'owner'},
   };
   await miscToolsRoutes(req, cap.res, new URL('http://localhost/api/integrity'), '/api/integrity', ctx);

@@ -379,38 +379,18 @@ const CATEGORIES = [
         response: '{ "defaultProfile": "native-deepseek", "profiles": [{ "id": "native-deepseek", "label": "DeepSeek V4 Flash · NanoAgent", "harness": "native", "model": "deepseek/deepseek-v4-flash-0731", "available": true }] }',
       },
       {
-        method: 'GET', path: '/api/agent-files', description: 'List the files and folders in your private agent workspace: what the apps you ran saved for you, and what you made.',
-        response: '{ "files": [{ "path": "attention/ms.tex", "size": 1234, "modified": 1759680000.0 }], "folders": ["attention"], "truncated": false }',
+        method: 'GET', path: '/api/agent-files', description: 'List the files in your private agent folder (home/<you>/agent in the workspace file system): what the apps you ran saved for you, and what you made. Manage it like any other folder through /api/fs.',
+        response: '{ "files": [{ "path": "attention/ms.tex", "size": 1234 }] }',
       },
       {
-        method: 'GET', path: '/api/agent-files/content', description: 'Open one file from your agent workspace. Images and PDFs are shown as themselves, other text as plain text, anything else is downloaded.',
+        method: 'GET', path: '/api/agent-files/content', description: 'Open one file from your agent folder. Images and PDFs are shown as themselves, other text as plain text, anything else is downloaded.',
         request: '?path=attention/ms.tex',
         response: '(file bytes)',
       },
       {
-        method: 'DELETE', path: '/api/agent-files/content', description: 'Delete one file from your agent workspace. Owners and editors only.',
-        request: '?path=attention/ms.tex',
-        response: '{ "deleted": true }',
-      },
-      {
-        method: 'PUT', path: '/api/agent-files/content', description: 'Save a file in your agent workspace, making its folders. With create=1 it refuses to replace an existing file (409). Owners and editors only.',
+        method: 'PUT', path: '/api/agent-files/content', description: 'Save a file in your agent folder, making its folders. With create=1 it refuses to replace an existing file (409). Owners and editors only.',
         request: '?path=notes/idea.md[&create=1]\n\n(raw file contents)',
-        response: '{ "path": "notes/idea.md", "size": 120, "modified": 1759680000.0 }',
-      },
-      {
-        method: 'POST', path: '/api/agent-files/folder', description: 'Create a folder, and any above it, in your agent workspace. Owners and editors only.',
-        request: '?path=papers/drafts',
-        response: '{ "created": true }',
-      },
-      {
-        method: 'DELETE', path: '/api/agent-files/folder', description: 'Delete a folder and everything in it from your agent workspace. Owners and editors only.',
-        request: '?path=papers/drafts',
-        response: '{ "deleted": true }',
-      },
-      {
-        method: 'POST', path: '/api/agent-files/move', description: 'Rename or move a file or folder in your agent workspace; nothing may already be at the target (409). Owners and editors only.',
-        request: '{ "from": "notes/idea.md", "to": "papers/idea.md" }',
-        response: '{ "moved": true }',
+        response: '{ "path": "notes/idea.md", "size": 120 }',
       },
       {
         method: 'GET', path: '/api/apps', description: 'List the apps (NanoAgent plugin packages) the private NanoAgent service publishes, with README, tasks, tool schemas and permissions.',
@@ -893,8 +873,9 @@ export default function ApiDocs() {
             <code>/api/health</code>, invitation previews, and <code>/api/auth/*</code> requires a Better Auth{' '}
             session carried by a same-origin HttpOnly cookie. A missing or invalid session is a <code>401</code>.
             Every workspace endpoint shown below includes the explicit <code>/api/workspaces/:workspaceId</code> prefix and
-            revalidate membership on the server. Sign up and sign in with email at{' '}
-            <code>/api/auth/sign-up/email</code> and <code>/api/auth/sign-in/email</code>.
+            revalidate membership on the server. Sign in with GitHub at <code>/api/auth/sign-in/social</code>;{' '}
+            a client without a browser gets a bearer token through <code>/api/auth/device/code</code> and{' '}
+            <code>/api/auth/device/token</code>, approved at <code>/device</code>.
           </p>
         </div>
 

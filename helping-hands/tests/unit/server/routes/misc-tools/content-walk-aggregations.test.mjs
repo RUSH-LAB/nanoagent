@@ -107,7 +107,7 @@ const passThroughCached = (_key, _ttl, fn) => fn();
 async function runHandler(pathname, { fs, cached = passThroughCached }) {
   let captured = null;
   const url = new URL(`http://localhost${pathname}`);
-  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   const ctx = {
     fs, path,

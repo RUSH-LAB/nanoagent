@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {authClient} from '@site/src/utils/authClient';
 import API_BASE from '@site/src/utils/api';
@@ -6,88 +6,37 @@ import {clientPlatform} from '@site/src/platform/client';
 import styles from './authScreen.module.css';
 
 /**
- * The sign-in and sign-up screen, shown in place of the site whenever nobody is
- * signed in.
+ * The sign-in screen, shown in place of the site whenever nobody is signed in.
  *
- * Two modes on one form rather than two routes, because the gate renders above
- * the router: at this point Docusaurus has not decided what page you are on, so
- * there is nowhere to navigate to.
- *
- * Accounts use an email address and password. Display names are optional and
- * are not credentials.
- *
- * With `devAutoLogin` there is also a one-click sign-in as root. The server
- * performs an ordinary password sign-in on our behalf and refuses unless it is
- * outside production, explicitly enabled, and called from loopback, so the
- * button is a shortcut past the keyboard rather than past authentication.
+ * GitHub is the only way in. Signing in for the first time creates the account,
+ * under the GitHub account's verified primary email, when the server's sign-up
+ * policy (open, invitation, or allowlist) admits that address; the screen says
+ * which policy applies. GitHub sends the browser back to the page it left.
  */
-export default function AuthScreen({ devAutoLogin = false, googleAuthEnabled = false, unreachable = null }) {
+export default function AuthScreen({ unreachable = null }) {
   const {siteConfig} = useDocusaurusContext();
-  const [mode, setMode] = useState('signin');
-  const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [policy, setPolicy] = useState(null);
 
-  const signingIn = mode === 'signin';
+  useEffect(() => {
+    fetch(`${API_BASE}/api/signup-policy`, {credentials: 'include'})
+      .then(res => (res.ok ? res.json() : null))
+      .then(setPolicy)
+      .catch(() => setPolicy(null));
+  }, []);
 
-  async function signInAsRoot() {
-    setError(null);
-    setBusy(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/dev-login`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-      const body = await res.json();
-      if (!res.ok) {
-        throw new Error(body.error || 'Development sign-in was refused.');
-      }
-      clientPlatform.location.reload();
-    } catch (err) {
-      setError(
-        err?.message?.includes('fetch')
-          ? 'Could not reach the API server on port 3001. Is it running?'
-          : err.message,
-      );
-      setBusy(false);
-    }
-  }
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setError(null);
-    setBusy(true);
-    try {
-      const result = signingIn
-        ? await authClient.signIn.email({email, password})
-        : await authClient.signUp.email({email, password, name: name || email.split('@')[0]});
-
-      if (result?.error) {
-        setError(result.error.message || 'Something went wrong. Please try again.');
-        return;
-      }
-      clientPlatform.location.reload();
-    } catch (err) {
-      setError(err?.message || 'Could not reach the API server. Is it running on port 3001?');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function signInWithGoogle() {
+  async function signInWithGitHub() {
     setError(null);
     setBusy(true);
     try {
       const result = await authClient.signIn.social({
-        provider: 'google',
+        provider: 'github',
         callbackURL: clientPlatform.location.href(),
       });
-      if (result?.error) setError(result.error.message || 'Google sign-in failed.');
+      if (result?.error) setError(result.error.message || 'GitHub sign-in failed.');
     } catch (err) {
-      setError(err?.message || 'Google sign-in failed.');
+      setError(err?.message || 'GitHub sign-in failed.');
     } finally {
       setBusy(false);
     }
@@ -95,89 +44,17 @@ export default function AuthScreen({ devAutoLogin = false, googleAuthEnabled = f
 
   return (
     <div className={styles.page}>
-      <form className={styles.card} onSubmit={handleSubmit}>
+      <div className={styles.card}>
         <img src="/img/mochi.jpg" alt="" className={styles.logo} />
         <h1 className={styles.title}>{siteConfig.title}</h1>
-        <p className={styles.tagline}>
-          {signingIn ? 'Sign in to continue' : 'Create an account'}
-        </p>
+        <p className={styles.tagline}>Sign in to continue</p>
 
-        {googleAuthEnabled && (
-          <>
-            <button type="button" className={styles.googleButton} onClick={signInWithGoogle} disabled={busy}>
-              <span aria-hidden="true">G</span>
-              Continue with Google
-            </button>
-            <div className={styles.divider}><span>or use email</span></div>
-          </>
-        )}
-
-        {devAutoLogin && signingIn && (
-          <>
-            <button
-              type="button"
-              className={styles.rootButton}
-              onClick={signInAsRoot}
-              disabled={busy}
-            >
-              Sign in as root
-            </button>
-            <p className={styles.rootHint}>
-              Local development. No password needed.
-            </p>
-            <div className={styles.divider}><span>or</span></div>
-          </>
-        )}
-
-        <label className={styles.field}>
-          <span>Email</span>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-            autoFocus
-            required
-          />
-        </label>
-
-        {!signingIn && (
-            <label className={styles.field}>
-              <span>Display name <em>(optional)</em></span>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                autoComplete="name"
-              />
-            </label>
-        )}
-
-        <label className={styles.field}>
-          <span>Password</span>
-          <span className={styles.passwordInput}>
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete={signingIn ? 'current-password' : 'new-password'}
-              minLength={8}
-              required
-            />
-            <button
-              type="button"
-              className={styles.passwordToggle}
-              onClick={() => setShowPassword((visible) => !visible)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-              aria-pressed={showPassword}
-            >
-              {showPassword ? 'Hide' : 'Show'}
-            </button>
-          </span>
-        </label>
-
-        {!signingIn && (
-          <p className={styles.hint}>At least 8 characters.</p>
+        {policy && policy.signupMode !== 'open' && (
+          <p className={styles.hint}>
+            {policy.signupMode === 'invite'
+              ? 'New accounts are by invitation. Sign in with the GitHub account whose primary email was invited.'
+              : 'New accounts are limited to approved addresses.'}
+          </p>
         )}
 
         {unreachable && !error && (
@@ -189,18 +66,10 @@ export default function AuthScreen({ devAutoLogin = false, googleAuthEnabled = f
 
         {error && <p className={styles.error} role="alert">{error}</p>}
 
-        <button type="submit" className={styles.submit} disabled={busy}>
-          {busy ? 'Working...' : signingIn ? 'Sign in' : 'Create account'}
+        <button type="button" className={styles.githubButton} onClick={signInWithGitHub} disabled={busy}>
+          {busy ? 'Working...' : 'Continue with GitHub'}
         </button>
-
-        <button
-          type="button"
-          className={styles.switch}
-          onClick={() => { setMode(signingIn ? 'signup' : 'signin'); setError(null); }}
-        >
-          {signingIn ? 'No account? Create one' : 'Already have an account? Sign in'}
-        </button>
-      </form>
+      </div>
     </div>
   );
 }

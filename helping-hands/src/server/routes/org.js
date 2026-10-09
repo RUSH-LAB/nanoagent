@@ -23,6 +23,7 @@ const INVITATION_RE = /^\/api\/org\/invitations\/([^/]+)$/;
  */
 const INVITE_READ_RE = /^\/api\/invite\/([^/]+)$/;
 const INVITE_ACCEPT_RE = /^\/api\/invite\/([^/]+)\/accept$/;
+const {workspaceLimitRefusal} = require('./workspaces');
 
 /**
  * Answer a refusal from Better Auth.
@@ -34,6 +35,7 @@ const INVITE_ACCEPT_RE = /^\/api\/invite\/([^/]+)\/accept$/;
  * for a person.
  */
 function sendRefusal(json, res, err) {
+  if (err?.name === 'TenancyError') return json(res, err.status, {error: err.message, code: err.code});
   const status = Number.isInteger(err?.statusCode) ? err.statusCode : 500;
   if (status >= 500 || !err?.body?.message) {
     return json(res, 500, {error: 'The organization service could not complete that change'});
@@ -45,7 +47,7 @@ function sendRefusal(json, res, err) {
 }
 
 module.exports = async function org_routes(req, res, url, pathname, ctx) {
-  const {json, readBody, rateLimit, org} = ctx;
+  const {json, readBody, rateLimit, org, tenancy} = ctx;
 
   const orgPath = req.context && req.workspacePath
     ? `/api/org${req.workspacePath === '/' ? '' : req.workspacePath}`
@@ -77,7 +79,7 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
   const inviteAccept = INVITE_ACCEPT_RE.exec(pathname);
   if (inviteAccept && req.method === 'POST') {
     if (!req.auth?.userId) return json(res, 401, {error: 'Sign in to accept an invitation'});
-    if (!rateLimit(`invite-accept:${req.auth.userId}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`invite-accept:${req.auth.userId}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const result = await org.acceptInvitation(req.auth, {
         headers: req.headers, invitationId: inviteAccept[1],
@@ -105,13 +107,15 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
   }
 
   if (req.method === 'POST' && orgPath === '/api/org') {
-    if (!rateLimit(`org-create:${userId}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`org-create:${userId}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     let body;
     try {
       body = await readBody(req);
     } catch {
       return json(res, 400, {error: 'Invalid request'});
     }
+    const refusal = await workspaceLimitRefusal(tenancy, userId);
+    if (refusal) return json(res, 409, refusal);
     try {
       const result = await org.createWorkspace(req.auth, {headers: req.headers, name: body.name, slug: body.slug});
       if (result.error === 'invalid-name') return json(res, 400, {error: 'A workspace name is 2 to 60 characters', code: 'invalid-name'});
@@ -163,7 +167,7 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
   // ── Invite an address ──
   if (req.method === 'POST' && orgPath === '/api/org/invitations') {
     if (!manages) return json(res, 403, {error: 'Only the workspace owner can invite people'});
-    if (!rateLimit(`org-invite:${userId}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`org-invite:${userId}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     let body;
     try {
       body = await readBody(req);
@@ -171,6 +175,8 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
       return json(res, 400, {error: 'Invalid request'});
     }
     try {
+      // Members and pending invitations together may not pass the member limit.
+      await tenancy?.inviteAllowance(req.context);
       const result = await org.invite(req.context, {headers: req.headers, email: body.email, role: body.role});
       if (result.error === 'invalid-email') return json(res, 400, {error: 'An email address is required', code: 'invalid-email'});
       if (result.error === 'invalid-role') return json(res, 400, {error: `Role must be one of ${org.ROLES.join(', ')}`, code: 'invalid-role'});
@@ -208,7 +214,7 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
     // ── Change someone's role ──
     if (req.method === 'POST' && action === 'role') {
       if (!manages) return json(res, 403, {error: 'Only the workspace owner can change roles'});
-      if (!rateLimit(`org-role:${userId}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+      if (!await rateLimit(`org-role:${userId}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       let role;
       try {
         ({role} = await readBody(req));
@@ -228,7 +234,7 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
     // ── Remove someone from the organization ──
     if (req.method === 'DELETE' && !action) {
       if (!manages) return json(res, 403, {error: 'Only the workspace owner can remove people'});
-      if (!rateLimit(`org-remove:${userId}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+      if (!await rateLimit(`org-remove:${userId}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       try {
         const result = await org.removeMember(req.context, {headers: req.headers, memberId});
         if (result.error === 'not-found') return json(res, 404, {error: 'No such member of this organization', code: 'not-found'});

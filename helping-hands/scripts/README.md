@@ -33,42 +33,38 @@ BETTER_AUTH_SECRET=...
 PG_SSL=require
 PG_SSL_REJECT_UNAUTHORIZED=true
 ENABLE_AUTH=true
-DEV_AUTOLOGIN=false
 PLATFORM_NAME=Mochi Lab
 PLATFORM_TAGLINE=Collaborative knowledge workspaces
-# Optional: enables the "Continue with Google" sign-in button.
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+ROOT_GITHUB_LOGIN=your-github-login
 ```
 
-For Google OAuth, register `http://localhost:3001/api/auth/callback/google` as
-the local authorized redirect URI. Add the corresponding HTTPS callback under
-your `SITE_URL` for deployment. Without both Google values, Mochi keeps the
-ordinary email/password form and hides the Google button.
+GitHub is the only way to sign in, so the server refuses to start with
+authentication on unless all three GitHub values are set. Create an OAuth App
+under GitHub Settings → Developer settings → OAuth Apps with the homepage
+`http://localhost:3000` and the authorization callback URL
+`http://localhost:3001/api/auth/callback/github`. A GitHub OAuth App takes one
+callback URL, so a deployment uses its own app, with the callback
+`<SITE_URL>/api/auth/callback/github`.
 
-In local PostgreSQL mode, `root@mochi.local` / `root@mochi.local` is the fixed
-development root login. The first successful login repairs that account's
-password and makes it an owner of the `mochi` workspace.
+`ROOT_GITHUB_LOGIN` names the GitHub account that administers the platform.
+Every start resolves it to GitHub's numeric account id, creates that account's
+user if the database has none, and makes it a platform administrator and an
+owner of the `mochi` workspace, so its first GitHub sign-in lands there. A
+start that cannot reach GitHub's API fails.
 
 ### Content store
 
-`CONTENT_STORE` chooses where documents, uploads, app records, and chat live:
-`legacy` (the default: the original tables) or `fs` (the workspace file system,
-[docs/plans/workspace-filesystem.md](../docs/plans/workspace-filesystem.md)).
-Both stay in the schema. To move a database to the file system, review a dry
-run, import, then switch:
+Documents, uploads, app records, and chat live in the workspace file system
+([docs/plans/workspace-filesystem.md](../docs/plans/workspace-filesystem.md)).
+The original tables stay in the schema; to copy their content into the file
+system, review a dry run, then import:
 
 ```bash
 npm run fs:import            # what would be imported; writes nothing
 npm run fs:import -- --apply # copy, verified by SHA-256; the legacy tables are untouched
 ```
-
-```dotenv
-CONTENT_STORE=fs
-```
-
-Switching back to `legacy` serves the original tables again; edits made under
-`fs` stay in the file system.
 
 Production-only verification values can also live in `.env` and are only
 needed for the Resend verification command:

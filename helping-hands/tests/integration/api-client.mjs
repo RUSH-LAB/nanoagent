@@ -1,6 +1,6 @@
 const GLOBAL_PATHS = [
   '/api/auth/', '/api/workspaces', '/api/invite/', '/api/health',
-  '/api/dev-login', '/api/users', '/api/users/', '/api/logs', '/api/debug/',
+  '/api/users', '/api/users/', '/api/logs', '/api/debug/',
   '/api/preferences', '/api/perf',
 ];
 

@@ -38,6 +38,7 @@ const {PROJECT_ROOT, VAR_DIR} = require('./paths');
 const {numericParam, within} = require('./server-utils');
 const {memoryObjectStorage} = require('./object-storage');
 const {fsBlobs} = require('./fs/assets');
+const {budgetRefusal} = require('./ai-metering');
 
 // One process-level fallback keeps non-PostgreSQL tests and explicitly
 // no-database development coherent across requests without writing to disk.
@@ -407,7 +408,7 @@ function buildPluginApi({name, dir, requires = [], commands = [], ctx, req}) {
     });
   }
   if (asked.has('blobs')) {
-    // With CONTENT_STORE=fs a plugin's blobs are files in the workspace file system.
+    // With PostgreSQL a plugin's blobs are files in the workspace file system.
     api.blobs = ctx.workspaceFs
       ? fsBlobs(name, {orgId: recordScope.workspaceId, userId: recordScope.userId, fs: ctx.workspaceFs})
       : blobsCapability(name, {
@@ -420,7 +421,20 @@ function buildPluginApi({name, dir, requires = [], commands = [], ctx, req}) {
   }
   if (asked.has('ai')) {
     api.ai = Object.freeze({
-      complete: request => ctx.ai.complete(request),
+      // Charged to the workspace and member like any other assistant call. A
+      // spent budget answers in ai.complete's own {error, status} shape.
+      complete: async request => {
+        try {
+          await ctx.aiMeter.assertAllowed(requestScope);
+        } catch (error) {
+          const refusal = budgetRefusal(error);
+          if (refusal) return {error: refusal.body.error, status: refusal.status};
+          throw error;
+        }
+        const result = await ctx.ai.complete(request);
+        await ctx.aiMeter.record(requestScope, 'plugin', result, {ran: Boolean(result.text)});
+        return result;
+      },
       describe: () => ctx.ai.describe(),
     });
   }

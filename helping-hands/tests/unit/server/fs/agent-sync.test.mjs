@@ -5,7 +5,7 @@ import {as, migratedDatabase} from './_pglite.mjs';
 
 const require = createRequire(import.meta.url);
 const {createPostgresFs} = require('../../../../src/server/fs/store.js');
-const {createAgentSync} = require('../../../../src/server/fs/agent-sync.js');
+const {conflictPath, createAgentSync} = require('../../../../src/server/fs/agent-sync.js');
 
 /** NanoAgent's workspace API over one in-memory folder per workspace id. */
 function fakeNanoAgent() {
@@ -14,16 +14,15 @@ function fakeNanoAgent() {
   return {
     folders,
     of,
+    removed: [],
+    truncated: false,
     async workspaceFiles(workspace) {
       const files = [...of(workspace)].map(([path, body]) => ({path, size: body.length}));
-      const parents = new Set(files.flatMap(file => file.path.split('/').slice(0, -1)
-        .map((part, index, parts) => parts.slice(0, index + 1).join('/'))));
-      return {value: {files, folders: [...parents]}};
+      return {value: {files, folders: [], truncated: this.truncated}};
     },
     async workspaceFile(workspace, path) { return {value: of(workspace).get(path)}; },
     async saveWorkspaceFile(workspace, path, body) { of(workspace).set(path, Buffer.from(body)); return {value: {}}; },
-    async deleteWorkspaceFile(workspace, path) { of(workspace).delete(path); return {value: {}}; },
-    async deleteWorkspaceFolder() { return {value: {}}; },
+    async deleteWorkspace(workspace) { folders.delete(workspace); this.removed.push(workspace); return {value: {deleted: true}}; },
   };
 }
 
@@ -39,17 +38,18 @@ describe('plugin runs as file system clients', () => {
   });
   after(() => db?.close());
 
-  it('gives a run the member\'s agent folder and keeps what it wrote', async () => {
+  it('gives a run the member\'s agent folder, keeps what it wrote, and removes its folder', async () => {
     const nano = fakeNanoAgent();
     const sync = createAgentSync({ai: nano, fs});
     await fs.mkdir(alice, 'home/alice');
     await fs.setAccess(alice, 'home/alice', 'private');
     await fs.write(alice, 'home/alice/agent/input.txt', 'question');
     await fs.write(alice, 'home/alice/agent/stale.txt', 'old');
-    nano.of('w1').set('leftover.txt', Buffer.from('from an earlier run'));
 
-    await sync.run(alice, 'w1', async () => {
-      const folder = nano.of('w1');
+    let used;
+    await sync.run(alice, async workspace => {
+      used = workspace;
+      const folder = nano.of(workspace);
       assert.deepEqual([...folder.keys()].sort(), ['input.txt', 'stale.txt']);
       folder.set('answers/out.md', Buffer.from('# Answer'));
       folder.set('input.txt', Buffer.from('question, edited'));
@@ -60,33 +60,74 @@ describe('plugin runs as file system clients', () => {
     assert.equal((await fs.read(alice, 'home/alice/agent/input.txt')).body.toString(), 'question, edited');
     assert.equal(await fs.stat(alice, 'home/alice/agent/stale.txt'), null);
     assert.equal(await fs.stat(as('bob'), 'home/alice/agent/answers/out.md'), null);
+    assert.deepEqual(nano.removed, [used]);
+    assert.equal(nano.folders.size, 0);
+  });
+
+  it('gives every run a folder of its own, so runs need not wait for each other', async () => {
+    const nano = fakeNanoAgent();
+    const sync = createAgentSync({ai: nano, fs});
+    const seen = [];
+    await Promise.all([sync.run(alice, async w => seen.push(w)), sync.run(alice, async w => seen.push(w))]);
+    assert.equal(new Set(seen).size, 2);
+  });
+
+  it('keeps the member\'s edits made during the run', async () => {
+    const nano = fakeNanoAgent();
+    const sync = createAgentSync({ai: nano, fs});
+    await fs.write(alice, 'home/alice/agent/both.md', 'start');
+    await fs.write(alice, 'home/alice/agent/kept.md', 'start');
+    let used;
+    await sync.run(alice, async workspace => {
+      used = workspace;
+      // The member writes while the run goes on.
+      await fs.write(alice, 'home/alice/agent/both.md', 'member');
+      await fs.write(alice, 'home/alice/agent/kept.md', 'member');
+      await fs.write(alice, 'home/alice/agent/added.md', 'member');
+      nano.of(workspace).set('both.md', Buffer.from('agent'));
+      nano.of(workspace).delete('kept.md');
+    });
+    assert.equal((await fs.read(alice, 'home/alice/agent/both.md')).body.toString(), 'member');
+    assert.equal((await fs.read(alice, `home/alice/agent/both (agent run ${used.slice(0, 8)}).md`)).body.toString(), 'agent');
+    assert.equal((await fs.read(alice, 'home/alice/agent/kept.md')).body.toString(), 'member');
+    assert.equal((await fs.read(alice, 'home/alice/agent/added.md')).body.toString(), 'member');
+  });
+
+  it('writes nothing back from a listing NanoAgent cut short', async () => {
+    const nano = fakeNanoAgent();
+    nano.truncated = true;
+    await fs.write(alice, 'home/alice/agent/safe.md', 'here');
+    await assert.rejects(() => createAgentSync({ai: nano, fs}).run(alice, async workspace => {
+      nano.of(workspace).clear();
+    }), /only part/);
+    assert.equal((await fs.read(alice, 'home/alice/agent/safe.md')).body.toString(), 'here');
+    assert.equal(nano.folders.size, 0);
   });
 
   it('writes results back even when the run fails', async () => {
     const nano = fakeNanoAgent();
     const sync = createAgentSync({ai: nano, fs});
-    await assert.rejects(() => sync.run(alice, 'w2', async () => {
-      nano.of('w2').set('partial.txt', Buffer.from('half done'));
+    await assert.rejects(() => sync.run(alice, async workspace => {
+      nano.of(workspace).set('partial.txt', Buffer.from('half done'));
       throw new Error('cancelled');
     }), /cancelled/);
     assert.equal((await fs.read(alice, 'home/alice/agent/partial.txt')).body.toString(), 'half done');
-  });
-
-  it('runs one member\'s tasks in turn', async () => {
-    const nano = fakeNanoAgent();
-    const sync = createAgentSync({ai: nano, fs});
-    const order = [];
-    const first = sync.run(alice, 'w3', async () => { order.push('first starts'); await new Promise(r => setTimeout(r, 20)); order.push('first ends'); });
-    const second = sync.run(alice, 'w3', async () => { order.push('second starts'); });
-    await Promise.all([first, second]);
-    assert.deepEqual(order, ['first starts', 'first ends', 'second starts']);
+    assert.equal(nano.folders.size, 0);
   });
 
   it('makes a member\'s home private when a run creates it', async () => {
     const bob = as('bob');
     const nano = fakeNanoAgent();
-    await createAgentSync({ai: nano, fs}).run(bob, 'w4', async () => { nano.of('w4').set('note.md', Buffer.from('mine')); });
+    await createAgentSync({ai: nano, fs}).run(bob, async workspace => { nano.of(workspace).set('note.md', Buffer.from('mine')); });
     assert.equal((await fs.stat(bob, 'home/bob')).access, 'private');
     assert.equal(await fs.stat(alice, 'home/bob/agent/note.md'), null);
+  });
+});
+
+describe('conflictPath', () => {
+  it('names the run before the extension', () => {
+    assert.equal(conflictPath('a/b.tar.gz', 'abcdef1234'), 'a/b.tar (agent run abcdef12).gz');
+    assert.equal(conflictPath('a/.env', 'abcdef1234'), 'a/.env (agent run abcdef12)');
+    assert.equal(conflictPath('notes', 'abcdef1234'), 'notes (agent run abcdef12)');
   });
 });

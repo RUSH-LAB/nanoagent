@@ -4,7 +4,8 @@ import styles from './styles.module.css';
 /**
  * An app's product page: its plugin's product/ folder as NanoAgent sends it
  * (tagline, summary, highlights, steps and icon), and its settings: the
- * permissions in its manifest and what they mean for the user's privacy. `onOpen` switches to the app itself.
+ * permissions in its manifest and what they mean for the user's privacy. `actions` are the buttons under
+ * its summary: Open on the Plugins page, Download in the marketplace.
  */
 
 const ICONS = {
@@ -32,8 +33,8 @@ function Icon({name}) {
 
 /**
  * The app's settings, in a user's words, from its manifest permissions: what
- * it may touch, and what that means for the user's data. The workspace an app
- * saves to is the caller's own (server/agent-workspace.js).
+ * it may touch, and what that means for the user's data. The folder an app
+ * saves to is the caller's own (server/fs/agent-sync.js).
  */
 function settingsOf(permissions) {
   const hosts = permissions.network.hosts;
@@ -59,7 +60,7 @@ function settingsOf(permissions) {
   ];
 }
 
-export default function AppProduct({app, onOpen}) {
+export default function AppProduct({app, actions}) {
   const {product} = app;
   if (!product) {
     return <div className={styles.error}>NanoAgent sent {app.name} without its product page (the plugin's product/ folder).</div>;
@@ -74,9 +75,7 @@ export default function AppProduct({app, onOpen}) {
           <h1 className={styles.name}>{app.name}</h1>
           <p className={styles.tagline}>{product.tagline}</p>
           <p className={styles.summary}>{product.summary}</p>
-          <button type="button" className={`button button--primary button--lg ${styles.open}`} onClick={onOpen}>
-            Open app
-          </button>
+          <div className={styles.actions}>{actions}</div>
         </div>
       </header>
 

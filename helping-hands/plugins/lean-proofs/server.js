@@ -49,7 +49,7 @@ module.exports = async function leanProofRoutes(req, res, _url, pathname, api) {
   }
 
   if (req.method === 'POST' && pathname === '/api/lean-proofs/formalize') {
-    if (!api.rateLimit(`formalize:${api.caller.userId || 'anonymous'}`, 6)) {
+    if (!await api.rateLimit(`formalize:${api.caller.userId || 'anonymous'}`, 6)) {
       return api.respond(res, 429, {error: 'Too many formalization requests. Try again in a minute.'});
     }
     let body;
@@ -72,7 +72,7 @@ module.exports = async function leanProofRoutes(req, res, _url, pathname, api) {
     if (!localExecutionAllowed(req)) {
       return api.respond(res, 403, {error: 'Local Lean execution is available only on loopback development servers'});
     }
-    if (!api.rateLimit(`check:${api.caller.userId || 'anonymous'}`, 20)) {
+    if (!await api.rateLimit(`check:${api.caller.userId || 'anonymous'}`, 20)) {
       return api.respond(res, 429, {error: 'Too many Lean checks. Try again in a minute.'});
     }
     let body;

@@ -1,46 +1,16 @@
 /**
- * The root account, and passwordless sign-in for local development.
+ * The root account and the development workspace, on SQLite.
  *
- * Typing a password into your own laptop on every restart is friction with no
- * security value, so `npm start` signs you in automatically. The dangerous way
- * to build that is a branch that skips authentication; this is not that. Root
- * is an ordinary account: a real row in the user table, with a real password,
- * signing in through the ordinary endpoint. The only unusual part is that the
- * server knows the password and will perform that sign-in on request.
- *
- * Which makes the guards the important part of this file. Auto-login requires
- * all three:
- *
- *   1. DEV_AUTOLOGIN=true, which only `npm start` sets.
- *   2. NODE_ENV is not 'production', so a production build cannot opt in by
- *      setting one stray variable.
- *   3. The request arrives from the loopback interface. Even with the flag on,
- *      a machine reachable from the network will not hand a session to it.
- *
- * Root is also the first owner, which closes a real gap: with no owner, PUT
- * /api/users/:id/role answers 403 to everyone and the admin page can never
- * grant anyone anything.
+ * Root is the GitHub account named by ROOT_GITHUB_LOGIN (root-account.js),
+ * provisioned at every start with authentication on. It is also the first
+ * owner, which closes a real gap: with no owner, PUT /api/users/:id/role
+ * answers 403 to everyone and the admin page can never grant anyone anything.
  */
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
-const {DATA_DIR} = require('./paths');
 const {setRole, getRole} = require('./roles');
 const {db} = require('./db');
 const chat = require('./chat');
-
-const IS_PRODUCTION = process.env.NODE_ENV === 'production';
-
-/** Whether the passwordless local sign-in is available at all. */
-const DEV_AUTOLOGIN = process.env.DEV_AUTOLOGIN === 'true' && !IS_PRODUCTION;
-
-const ROOT_USERNAME = process.env.ROOT_USERNAME || 'root';
-// Captured at load like the rest of the configuration, rather than read on
-// every call: a password that could change between provisioning the account
-// and signing into it is a password that will eventually not match.
-const ROOT_PASSWORD_ENV = process.env.ROOT_PASSWORD || null;
-const ROOT_EMAIL = process.env.ROOT_EMAIL || 'root@mochi.local';
-const ROOT_NAME = process.env.ROOT_NAME || 'Root';
+const {ensureRootAccount} = require('./root-account');
 
 /** The organization root starts in, and the one channel inside it. */
 const ROOT_ORG_NAME = process.env.ROOT_ORG_NAME || 'Mochi Lab';
@@ -49,37 +19,6 @@ const ROOT_CHANNEL = 'general';
 
 const DEV_USER_ID = 'dev-user';
 const DEV_USER_EMAIL = 'dev-user@mochi.local';
-
-/** Where the generated root password is kept, so you can also sign in by hand. */
-const ROOT_PASSWORD_FILE = path.join(DATA_DIR, '.root-password');
-
-/**
- * The root password: from the environment in a real deployment, otherwise
- * generated once and kept in var/, which git ignores.
- *
- * Persisted rather than regenerated per boot because the account already
- * exists after the first run: a new password each time would not match the
- * stored hash, and every later auto-login would fail. Memoized so a busy
- * dev-login path does not read the file per request, and so the value cannot
- * change under a single process.
- */
-let cachedPassword = null;
-
-function rootPassword() {
-  if (cachedPassword) return cachedPassword;
-  if (ROOT_PASSWORD_ENV) {
-    cachedPassword = ROOT_PASSWORD_ENV;
-    return cachedPassword;
-  }
-  try {
-    cachedPassword = fs.readFileSync(ROOT_PASSWORD_FILE, 'utf-8').trim();
-  } catch {
-    cachedPassword = crypto.randomBytes(24).toString('base64url');
-    fs.mkdirSync(DATA_DIR, {recursive: true});
-    fs.writeFileSync(ROOT_PASSWORD_FILE, cachedPassword, {mode: 0o600});
-  }
-  return cachedPassword;
-}
 
 /**
  * Make `userId` a platform administrator, unless they already are. Returns whether anything
@@ -153,46 +92,13 @@ async function ensureRootWorkspace(auth, userId) {
 
 /**
  * Create the root account if it does not exist, and make sure it is an owner.
- *
- * Returns a small report for the startup banner, or null when auto-login is
- * off, in which case nothing is created: a production database should not grow
- * a well-known account just because this module was imported.
+ * Returns a small report for the startup banner.
  */
-async function ensureRootUser(auth) {
-  if (!DEV_AUTOLOGIN) return null;
-
-  const password = rootPassword();
-  let created = false;
-  let userId;
-
-  try {
-    const result = await auth.api.signUpEmail({
-      body: {email: ROOT_EMAIL, password, name: ROOT_NAME},
-    });
-    userId = result.user.id;
-    created = true;
-  } catch (err) {
-    // Already exists, which is the common case on every run after the first.
-    // Sign in instead to learn the id; a failure here is a real problem worth
-    // surfacing, usually a stale .root-password against an older database.
-    try {
-      const result = await auth.api.signInEmail({body: {email: ROOT_EMAIL, password}});
-      userId = result.user.id;
-    } catch {
-      throw new Error(
-        `Could not provision the root account: ${err.message}. ` +
-        `If ${ROOT_PASSWORD_FILE} no longer matches the database, delete both ` +
-        `it and var/data/mochi.db, or set ROOT_PASSWORD.`
-      );
-    }
-  }
-
+async function ensureRootUser(auth, options) {
+  const {userId, login, created} = await ensureRootAccount(auth, options);
   const grantedPlatformAdmin = grantPlatformAdmin(userId);
   const workspace = await ensureRootWorkspace(auth, userId);
-  return {
-    userId, username: ROOT_USERNAME, email: ROOT_EMAIL, created, grantedPlatformAdmin,
-    workspace, passwordFile: ROOT_PASSWORD_FILE,
-  };
+  return {userId, login, created, grantedPlatformAdmin, workspace};
 }
 
 /**
@@ -254,61 +160,12 @@ function ensureDevelopmentWorkspace() {
   return workspace;
 }
 
-/**
- * Whether the request came from this machine.
- *
- * IPv4-mapped IPv6 (::ffff:127.0.0.1) is what a dual-stack listener reports for
- * a v4 loopback connection, so it counts too. A proxied request is not trusted
- * here: x-forwarded-for is client-controlled, and honouring it would let a
- * remote caller claim to be local.
- */
-function isLoopback(req) {
-  const addr = req.socket?.remoteAddress;
-  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
-}
-
-/**
- * Sign in as root without a password, for local development only.
- *
- * Performs an ordinary email-and-password sign-in server-side using the
- * password this process already knows, so the session it returns is
- * indistinguishable from one obtained by typing that password into the form.
- * There is no separate session-minting path to get wrong.
- */
-async function handleDevLogin(req, res, auth, json) {
-  if (!DEV_AUTOLOGIN) {
-    return json(res, 404, {error: 'Not found', path: '/api/dev-login'});
-  }
-  if (!isLoopback(req)) {
-    return json(res, 403, {error: 'Development sign-in is available from localhost only'});
-  }
-  try {
-    const result = await auth.api.signInEmail({
-      body: {email: ROOT_EMAIL, password: rootPassword()},
-      returnHeaders: true,
-    });
-    const cookies = result.headers?.getSetCookie?.() ?? [];
-    if (cookies.length && typeof res.setHeader === 'function') res.setHeader('Set-Cookie', cookies);
-    return json(res, 200, {user: result.response.user});
-  } catch (err) {
-    return json(res, 500, {error: `Development sign-in failed: ${err.message}`});
-  }
-}
-
 module.exports = {
-  DEV_AUTOLOGIN,
-  ROOT_USERNAME,
-  ROOT_EMAIL,
-  ROOT_NAME,
-  ROOT_PASSWORD_FILE,
   ROOT_ORG_NAME,
   ROOT_ORG_SLUG,
   ROOT_CHANNEL,
-  rootPassword,
   grantPlatformAdmin,
   ensureRootWorkspace,
   ensureRootUser,
   ensureDevelopmentWorkspace,
-  isLoopback,
-  handleDevLogin,
 };

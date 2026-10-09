@@ -279,7 +279,7 @@ describe('GET /api/recommendations', () => {
     const {ctx, counts} = fsCtx({[BIB]: bib({a: {title: 'A'}})}, {rateLimitAllow: false});
     const r = await invoke(routes, {method: 'GET', path: '/api/recommendations', ctx});
     assert.deepEqual([r.status, r.payload], [429, {error: 'Too many requests. Try again in a minute.'}]);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'recommendations:127.0.0.1', maxPerMinute: 10}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'recommendations:test-user', maxPerMinute: 10}]);
     assert.equal(counts.read, 0);
   });
 
@@ -340,7 +340,7 @@ describe('POST /api/recommendations/add', () => {
     const ctx = makeCtx({rateLimitAllow: false, readBody: async () => { reads++; return {}; }});
     const r = await invoke(routes, {method: 'POST', path: '/api/recommendations/add', ctx});
     assert.equal(r.status, 429);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'add-rec:127.0.0.1', maxPerMinute: 20}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'add-rec:test-user', maxPerMinute: 20}]);
     assert.equal(reads, 0);
   });
 

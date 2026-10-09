@@ -212,21 +212,45 @@ The web service publishes the plugin directories listed under `plugins` in its
   that has the plugin's tools. The body is a run request and the reply is a run
   stream.
 
-The workspace is a persistent folder named by the caller, under the
-`workspaces` root in `WebConfig`. Files the tools save stay there, and the
-caller manages them through these endpoints under `/v1/workspaces/{workspace}`:
+The workspace is a scratch folder for one run, named by the caller, under the
+`workspaces` root in `WebConfig`. The caller fills it before the run, reads it
+back after, and then removes it, through these endpoints under
+`/v1/workspaces/{workspace}`:
 
 - `GET files` lists every file and folder.
-- `GET`, `PUT` and `DELETE` on `files/{path}` read, save or remove one file.
-  `PUT ?create=1` refuses to replace an existing file. Saves are capped at
-  `max_file_bytes`.
-- `POST` and `DELETE` on `folders/{path}` create a folder, or remove one and
-  everything in it.
-- `POST move` with `{"from", "to"}` renames or moves a file or folder.
+- `GET` and `PUT` on `files/{path}` read or save one file. `PUT ?create=1`
+  refuses to replace an existing file. Saves are capped at `max_file_bytes`.
+- `DELETE` on the workspace itself removes it and everything in it.
 
 Paths stay inside the workspace and never cross a symlink. A name already
-taken returns 409. On Railway, mount a volume at `/data`, or the workspaces are lost on every
-deploy.
+taken returns 409. NanoAgent keeps nothing between runs, so no volume is needed.
+
+### Plugin packages and the marketplace
+
+A package is a plugin in one file, for Mochi's marketplace (`/marketplace`),
+where people download plugins and share their own. `nanoagent plugin pack
+<folder> <file.tar.gz>` writes one: the plugin, which must follow every rule,
+under a single `<id>/` folder, without what its `.gitignore` ignores, packed
+the same way every time (`nanoagent.plugin.package`). To use a downloaded one,
+unpack it with `tar xzf` and run it like any plugin folder. The web service
+serves packages but never runs them:
+
+- `GET /v1/packages` lists the plugin directories under `packages` in its
+  `WebConfig` (on Railway, every built-in plugin) with their catalog entries.
+- `GET /v1/packages/{id}` downloads one.
+- `POST /v1/packages/inspect` checks an uploaded package without running any
+  of it. The package must unpack to plain files under one folder named by the
+  plugin id, within the limits in `nanoagent.plugin.package`. The plugin is then
+  loaded in a separate Python process with an empty environment, so a manifest
+  cannot interpolate the host's secrets. The reply is the plugin's catalog
+  entry, or 422 with every broken rule.
+- `POST /v1/packages/source?path=<folder>` packs a plugin from its source: the
+  body is a repository archive (GitHub's `.tar.gz` of one commit, its files
+  under one top folder), and `path` the plugin's folder in it. Only that folder
+  is unpacked, under the same limits, and it is packed in the same isolated
+  process, then checked as above. The reply is `{"package": <catalog entry>,
+  "data": <the package, base64>}`, or 422 with every broken rule. Mochi
+  publishes plugins to its marketplace this way, from a GitHub URL.
 
 ### Plugin environments
 

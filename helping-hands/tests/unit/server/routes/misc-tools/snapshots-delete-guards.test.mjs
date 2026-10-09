@@ -55,7 +55,7 @@ async function runRoute({
   };
   const pathname = '/api/snapshots';
   const url = new URL(`http://localhost${pathname}`);
-  const req = { method: 'DELETE', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'DELETE', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   await routes(req, res, url, pathname, ctx);
   return {
@@ -84,7 +84,7 @@ describe('DELETE /api/snapshots rate limit', () => {
     // handler, distinguishing it from the snapshots and snapshots-restore
     // handlers that share the same 429 and 400 strings.
     assert.equal(rateLimitCalls.length, 1);
-    assert.deepEqual(rateLimitCalls[0], { key: 'snapshots-delete:127.0.0.1', limit: 30 });
+    assert.deepEqual(rateLimitCalls[0], { key: 'snapshots-delete:test-user', limit: 30 });
   });
 });
 

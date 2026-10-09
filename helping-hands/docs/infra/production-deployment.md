@@ -9,8 +9,11 @@ It calls NanoAgent over Railway's private network; NanoAgent is never public.
 
 - A PostgreSQL database separate from development, with a direct schema-owner
   URL and a pooled restricted `mochi_runtime` URL.
-- An HTTPS transactional-email webhook for verification, password reset, and
-  workspace invitations.
+- A GitHub OAuth App whose callback is `<SITE_URL>/api/auth/callback/github`,
+  for `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`; GitHub is the only
+  sign-in. `ROOT_GITHUB_LOGIN` names the GitHub account that administers the
+  platform; every start provisions it.
+- An HTTPS transactional-email webhook for workspace invitations.
 - A container host with HTTPS termination and secret management.
 - A private NanoAgent service with its model-provider key and a shared
   `NANOAGENT_API_TOKEN`.
@@ -29,7 +32,7 @@ The probe writes one random object below an existing workspace, verifies its
 bytes and metadata, deletes it, and confirms deletion. It never reads or
 modifies a business asset.
 
-For account email, verify `mochi-lab.org` in Resend, configure
+For invitation email, verify `mochi-lab.org` in Resend, configure
 `RESEND_API_KEY`, `MAIL_FROM`, and `MAIL_TEST_TO`, then send one deployment
 probe:
 
@@ -37,8 +40,8 @@ probe:
 npm run mail:verify
 ```
 
-`MAIL_TEST_TO` is used only by this command. The application sends verification,
-password-reset, and invitation messages to their actual recipients.
+`MAIL_TEST_TO` is used only by this command. The application sends invitation
+messages to their actual recipients.
 
 ## Release sequence
 
@@ -49,7 +52,7 @@ password-reset, and invitation messages to their actual recipients.
 4. Freeze legacy writes and repeat the approved imports with `--apply`.
 5. Run `npm run db:postgres:verify` against staging, never production.
 6. Build with `docker build -t mochi-lab .` and deploy the resulting image.
-7. Verify `/api/health`, registration, workspace creation, invitation delivery,
+7. Verify `/api/health`, GitHub sign-in, workspace creation, invitation delivery,
    asset upload, and cross-workspace 404 behavior before switching traffic.
 
 ## Railway

@@ -37,7 +37,7 @@ module.exports = async function workspace_settings_routes(req, res, _url, _pathn
     }
     if (req.method === 'PUT') {
       requireWorkspacePermission(req.context, member ? 'content:read' : 'workspace:manage');
-      if (!rateLimit(`workspace-settings:${req.context.workspaceId}:${req.context.userId}`, 30)) {
+      if (!await rateLimit(`workspace-settings:${req.context.workspaceId}:${req.context.userId}`, 30)) {
         return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       }
       const body = await readBody(req);

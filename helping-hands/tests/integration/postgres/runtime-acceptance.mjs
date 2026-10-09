@@ -12,6 +12,7 @@ import {spawn} from 'node:child_process';
 import {createRequire} from 'node:module';
 import net from 'node:net';
 import {fileURLToPath} from 'node:url';
+import {fakeGithubEnv, signInWithGithub} from './_github.mjs';
 
 const require = createRequire(import.meta.url);
 const {createPool, migrate, grantRuntimeAccess, assertRuntimeRoleIsNotOwner} = require('../../../src/server/postgres/client.js');
@@ -40,11 +41,22 @@ const origin = `http://127.0.0.1:${port}`;
 const email = `postgres-smoke-${token}@example.invalid`;
 const memberEmail = `postgres-member-${token}@example.invalid`;
 const slug = `postgres-smoke-${token.slice(0, 20)}`;
+// GitHub's accounts for this run, with ids no other run uses.
+const githubId = offset => 2_000_000_000 + parseInt(token.slice(0, 6), 16) * 4 + offset;
+const githubUsers = {
+  root: {id: githubId(0), login: `smoke-root-${token.slice(0, 8)}`, name: 'Smoke Root', email: null, verified: true},
+  owner: {id: githubId(1), login: `smoke-owner-${token.slice(0, 8)}`, name: 'PostgreSQL Smoke', email, verified: true},
+  member: {id: githubId(2), login: `smoke-member-${token.slice(0, 8)}`, name: 'PostgreSQL Member', email: memberEmail, verified: true},
+};
 let server;
 let userId;
 let memberUserId;
+let rootUserId;
 let workspaceId;
 let logs = '';
+
+// Rate limits are kept in PostgreSQL per client address, so each run uses its own.
+const clientIp = `203.0.113.${1 + (parseInt(token.slice(0, 2), 16) % 250)}`;
 
 function request(path, {method = 'GET', cookie, body} = {}) {
   return fetch(`${origin}${path}`, {
@@ -52,6 +64,8 @@ function request(path, {method = 'GET', cookie, body} = {}) {
     headers: {
       ...(body === undefined ? {} : {'content-type': 'application/json'}),
       ...(cookie ? {cookie} : {}),
+      'x-real-ip': clientIp,
+      origin,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
     redirect: 'manual',
@@ -66,13 +80,11 @@ async function json(response, expectedStatus) {
   return body;
 }
 
-function sessionCookie(response) {
-  const values = typeof response.headers.getSetCookie === 'function'
-    ? response.headers.getSetCookie()
-    : [response.headers.get('set-cookie')].filter(Boolean);
-  const pair = values.map(value => value.split(';', 1)[0]).find(value => value.startsWith('better-auth.session_token='));
-  assert.ok(pair, 'sign-up response set a Better Auth session cookie');
-  return pair;
+/** The id of the user whose GitHub account is `github`. */
+async function userIdOf(github) {
+  return (await migrationPool.query(
+    "select user_id from auth_account where provider_id = 'github' and account_id = $1", [String(github.id)],
+  )).rows[0]?.user_id;
 }
 
 async function waitForServer() {
@@ -98,10 +110,15 @@ async function stopServer() {
   if (server.exitCode === null) server.kill('SIGKILL');
 }
 
+// Sign-up defaults to invitation only; this run's addresses are allowed for its length.
+let savedAllowlist = null;
+
 try {
   await migrate(migrationPool);
   await grantRuntimeAccess(migrationPool, runtimePool);
   await assertRuntimeRoleIsNotOwner(runtimePool);
+  savedAllowlist = (await migrationPool.query('select signup_allowlist from platform_policy')).rows[0].signup_allowlist;
+  await migrationPool.query("update platform_policy set signup_allowlist = array_append(signup_allowlist, '@example.invalid')");
 
   server = spawn(process.execPath, ['src/server/index.js'], {
     cwd: repositoryRoot,
@@ -109,7 +126,8 @@ try {
       ...process.env,
       NODE_ENV: 'test',
       ENABLE_AUTH: 'true',
-      DEV_AUTOLOGIN: 'false',
+      ...fakeGithubEnv(Object.values(githubUsers)),
+      ROOT_GITHUB_LOGIN: githubUsers.root.login,
       EDITOR_PORT: String(port),
       BETTER_AUTH_URL: origin,
       BETTER_AUTH_SECRET: `postgres-smoke-${token}`.padEnd(48, 'x'),
@@ -120,21 +138,17 @@ try {
   server.stderr.on('data', chunk => { logs += chunk; process.stderr.write(chunk); });
   await waitForServer();
 
-  const signUpResponse = await request('/api/auth/sign-up/email', {
-    method: 'POST',
-    body: {name: 'PostgreSQL Smoke', email, password: `Smoke-${token}!`},
-  });
-  const signedUp = await json(signUpResponse, 200);
-  const cookie = sessionCookie(signUpResponse);
-  userId = signedUp.user.id;
+  // The server provisioned root from ROOT_GITHUB_LOGIN before it listened.
+  rootUserId = await userIdOf(githubUsers.root);
+  assert.equal((await migrationPool.query('select 1 from platform_admin where user_id = $1', [rootUserId])).rowCount, 1,
+    'root is provisioned as a platform administrator');
 
-  const memberSignUpResponse = await request('/api/auth/sign-up/email', {
-    method: 'POST',
-    body: {name: 'PostgreSQL Member', email: memberEmail, password: `Member-${token}!`},
-  });
-  const memberSignedUp = await json(memberSignUpResponse, 200);
-  const memberCookie = sessionCookie(memberSignUpResponse);
-  memberUserId = memberSignedUp.user.id;
+  const {cookie} = await signInWithGithub(request, githubUsers.owner.login);
+  assert.ok(cookie, 'the owner signs up with GitHub');
+  userId = await userIdOf(githubUsers.owner);
+  const {cookie: memberCookie} = await signInWithGithub(request, githubUsers.member.login);
+  assert.ok(memberCookie, 'the member signs up with GitHub');
+  memberUserId = await userIdOf(githubUsers.member);
 
   const created = await json(await request('/api/workspaces', {
     method: 'POST', cookie, body: {name: 'PostgreSQL Smoke', slug},
@@ -234,7 +248,12 @@ try {
   const forgedWorkspaceId = crypto.randomUUID();
   await json(await request(`/api/workspaces/${forgedWorkspaceId}/documents/tree`, {cookie}), 404);
 
-  const physical = await migrationPool.query(
+  // Documents and channels are under forced row-level security, so even the
+  // owner role counts them as the workspace's owner.
+  const counter = await migrationPool.connect();
+  await counter.query('begin');
+  await counter.query("select set_config('app.user_id', $1, true), set_config('app.workspace_id', $2, true)", [userId, workspaceId]);
+  const physical = await counter.query(
     `select w.slug,
             (select count(*)::int from workspace_member m where m.workspace_id = w.id) as members,
             (select count(*)::int from document d where d.workspace_id = w.id) as documents,
@@ -243,13 +262,16 @@ try {
        from workspace w where w.id = $1`,
     [workspaceId],
   );
+  await counter.query('commit');
+  counter.release();
   assert.deepEqual(physical.rows[0], {slug, members: 1, documents: 2, settings: 1, channels: 1});
 
   console.log(JSON.stringify({
     ok: true,
     checks: [
       'pg.Pool runtime role is not the schema owner',
-      'Better Auth sign-up persists through PostgreSQL',
+      'root is provisioned from ROOT_GITHUB_LOGIN at startup',
+      'Better Auth GitHub sign-up persists through PostgreSQL',
       'workspace creation provisions membership, settings, and general channel',
       'invitation acceptance, role change, and member removal use Better Auth',
       'an editor writes through RLS and loses access after membership removal',
@@ -260,9 +282,11 @@ try {
   }, null, 2));
 } finally {
   await stopServer();
+  if (savedAllowlist) await migrationPool.query('update platform_policy set signup_allowlist = $1', [savedAllowlist]).catch(() => {});
+  await migrationPool.query('delete from rate_limit_bucket where key like $1', [`%${clientIp}%`]).catch(() => {});
   if (workspaceId) await migrationPool.query('delete from workspace where id = $1', [workspaceId]).catch(() => {});
   if (workspaceId) await migrationPool.query('delete from object_deletion where workspace_id = $1', [workspaceId]).catch(() => {});
-  const users = [userId, memberUserId].filter(Boolean);
+  const users = [userId, memberUserId, rootUserId].filter(Boolean);
   if (users.length) await migrationPool.query('delete from app_user where id = any($1::text[])', [users]).catch(() => {});
   await runtimePool.end();
   await migrationPool.end();

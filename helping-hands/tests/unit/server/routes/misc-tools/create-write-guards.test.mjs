@@ -85,7 +85,7 @@ async function runSnapshotsCreate({
   const pathname = '/api/snapshots';
   const url = new URL(`http://localhost${pathname}`);
   const req = {
-    method: 'POST', socket: { remoteAddress: '127.0.0.1' },
+    method: 'POST', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user',
     context: {userId: 'test-user', workspaceId: 'test-org', membershipId: 'member-1', role: 'owner'},
   };
   const res = { writableEnded: false };
@@ -125,7 +125,7 @@ async function runWhiteboardCreate({
   };
   const pathname = '/api/whiteboard';
   const url = new URL(`http://localhost${pathname}`);
-  const req = { method: 'POST', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'POST', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   await routes(req, res, url, pathname, ctx);
   return {
@@ -149,7 +149,7 @@ describe('POST /api/snapshots (create) in routes/misc-tools.js', () => {
     // distinguishes this create handler from the restore and delete handlers,
     // which share its 429, 400, and 404 strings but use different keys.
     assert.equal(r.rateLimitCalls.length, 1);
-    assert.deepEqual(r.rateLimitCalls[0], { key: 'snapshots:127.0.0.1', limit: 30 });
+    assert.deepEqual(r.rateLimitCalls[0], { key: 'snapshots:test-user', limit: 30 });
   });
 
   it('a path rejected by isValidFilePath returns 400 Invalid path, reads the body once, never loads, saves, or reads the random id', async () => {
@@ -223,7 +223,7 @@ describe('POST /api/snapshots (create) in routes/misc-tools.js', () => {
     assert.equal(stored[0].name, 'My Snapshot');
     assert.equal(stored[0].content, 'hello world');
     assert.equal(typeof stored[0].createdAt, 'string');
-    assert.deepEqual(r.rateLimitCalls[0], { key: 'snapshots:127.0.0.1', limit: 30 });
+    assert.deepEqual(r.rateLimitCalls[0], { key: 'snapshots:test-user', limit: 30 });
   });
 
   it('caps the stored snapshot list at the last 10, dropping the oldest', async () => {
@@ -269,7 +269,7 @@ describe('POST /api/whiteboard (create) in routes/misc-tools.js', () => {
     assert.equal(r.readBodyCount, 0);
     assert.equal(r.loadJSONCount, 0);
     assert.equal(r.saved.length, 0);
-    assert.deepEqual(r.rateLimitCalls[0], { key: 'whiteboard:127.0.0.1', limit: 60 });
+    assert.deepEqual(r.rateLimitCalls[0], { key: 'whiteboard:test-user', limit: 60 });
   });
 
   it('a missing id returns 400 Missing id, never loads or saves', async () => {
@@ -317,7 +317,7 @@ describe('POST /api/whiteboard (create) in routes/misc-tools.js', () => {
     assert.equal(r.saved.length, 1);
     // The persisted record is the same object that is returned, keyed by the id.
     assert.deepEqual(r.store.read('whiteboards')['board-x'], wb);
-    assert.deepEqual(r.rateLimitCalls[0], { key: 'whiteboard:127.0.0.1', limit: 60 });
+    assert.deepEqual(r.rateLimitCalls[0], { key: 'whiteboard:test-user', limit: 60 });
   });
 
   it('clamps oversize inputs: id to 200 characters, element type to 50, text to 1000, and the list to 500 elements', async () => {

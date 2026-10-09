@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import json
 import logging
 import mimetypes
@@ -20,7 +22,16 @@ from nanoagent.core.agent import ChatModel
 from nanoagent.core.agent import Agent
 from nanoagent.extensions import get_hooks
 from nanoagent.plugin import PluginManifest, call_tool_async, load_listing
-from nanoagent.plugin.manifest import TOOL_ARTIFACTS
+from nanoagent.plugin.manifest import TOOL_ARTIFACTS, load_manifest
+from nanoagent.plugin.package import (
+    PACKAGE_MAX_BYTES,
+    SOURCE_MAX_BYTES,
+    PackageError,
+    catalog_entry,
+    inspect_package,
+    pack,
+    pack_source,
+)
 from nanoagent.plugin.tasks import run_task
 from nanoagent.runtime.config import load_config_args
 from nanoagent.web.config import WebConfig
@@ -45,18 +56,6 @@ UI_POLICY = (
     "img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; form-action 'none'; "
     "base-uri 'none'"
 )
-
-
-def _plugin_entry(manifest: PluginManifest) -> dict[str, Any]:
-    """The public manifest with its README and tool and task schemas inlined for remote viewers."""
-    entry = manifest.public()
-    entry["readme"] = (manifest.root / "README.md").read_text(encoding="utf-8")
-    for tool, definition in zip(entry["tools"], manifest.tools, strict=True):
-        tool["inputSchema"] = definition.input
-        tool["outputSchema"] = definition.output
-    for task, definition in zip(entry["tasks"], manifest.tasks, strict=True):
-        task["inputSchema"] = definition.input
-    return entry
 
 
 def _staged_from(workspace: Path) -> Callable[[Path], None]:
@@ -90,7 +89,7 @@ def create_app(
     try:
         from starlette.applications import Starlette
         from starlette.requests import Request
-        from starlette.responses import FileResponse, JSONResponse, StreamingResponse
+        from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
         from starlette.routing import Route
     except ImportError as error:  # pragma: no cover - depends on installation extras
         raise RuntimeError('NanoAgent web support requires `pip install "nanoagent[web]"`') from error
@@ -106,11 +105,22 @@ def create_app(
             raise ValueError(f"duplicate plugin id {entry.id!r} in {path!r}")
         if isinstance(entry, PluginManifest):
             plugins[entry.id] = entry
-            listed.append(_plugin_entry(entry))
+            listed.append(catalog_entry(entry))
         else:
             in_development[entry.id] = entry.name
             listed.append(entry.public())
     plugin_catalog = {"plugins": listed}
+    # Packages offered for download, packed once; they are never run here.
+    packages: dict[str, tuple[dict[str, Any], bytes]] = {}
+    for path in cfg.packages:
+        manifest = load_manifest(path)
+        if manifest.id in packages:
+            raise ValueError(f"duplicate package id {manifest.id!r} in {path!r}")
+        data = pack(manifest.root)
+        packages[manifest.id] = (
+            {**catalog_entry(manifest), "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)},
+            data,
+        )
     plugin_slots = asyncio.Semaphore(cfg.max_concurrency)
     workspaces = Workspaces(cfg.workspaces)
     owned_model: Any = None
@@ -218,15 +228,13 @@ def create_app(
         return in_workspace(lambda: workspaces.files(workspace_id))
 
     async def workspace_file(request: Request) -> Any:
-        """GET sends a file's bytes, PUT saves the body as the file (``?create=1`` refuses to
-        replace one), DELETE removes it."""
+        """GET sends a file's bytes; PUT saves the body as the file (``?create=1`` refuses to
+        replace one)."""
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         workspace_id, path = request.path_params["workspace_id"], request.path_params["path"]
         if request.method == "GET":
             return in_workspace(lambda: FileResponse(workspaces.file(workspace_id, path)))
-        if request.method == "DELETE":
-            return in_workspace(lambda: workspaces.delete_file(workspace_id, path))
         length = request.headers.get("content-length")
         if length and length.isdigit() and int(length) > cfg.max_file_bytes:
             return JSONResponse({"error": "file is too large"}, status_code=413)
@@ -236,30 +244,12 @@ def create_app(
         create = request.query_params.get("create") == "1"
         return in_workspace(lambda: workspaces.write(workspace_id, path, body, create=create))
 
-    async def workspace_folder(request: Request) -> JSONResponse:
-        """POST makes the folder (and its parents); DELETE removes it and everything in it."""
+    async def delete_workspace(request: Request) -> JSONResponse:
+        """Remove the workspace and everything in it, once its run is over."""
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        workspace_id, path = request.path_params["workspace_id"], request.path_params["path"]
-        if request.method == "POST":
-            return in_workspace(lambda: workspaces.make_folder(workspace_id, path))
-        return in_workspace(lambda: workspaces.delete_folder(workspace_id, path))
-
-    async def move_entry(request: Request) -> JSONResponse:
-        """Rename or move a file or folder: the body is ``{"from": path, "to": path}``."""
-        if not authorized(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
-        payload, rejected = await read_json(request)
-        if rejected is not None:
-            return rejected
-        if (
-            not isinstance(payload, dict)
-            or set(payload) != {"from", "to"}
-            or not all(isinstance(payload[key], str) for key in ("from", "to"))
-        ):
-            return JSONResponse({"error": 'body must be {"from": path, "to": path}'}, status_code=400)
         workspace_id = request.path_params["workspace_id"]
-        return in_workspace(lambda: workspaces.move(workspace_id, payload["from"], payload["to"]))
+        return in_workspace(lambda: workspaces.remove(workspace_id))
 
     def run_stream(active: ActiveRun) -> StreamingResponse:
         async def stream() -> AsyncIterator[bytes]:
@@ -327,6 +317,64 @@ def create_app(
         return JSONResponse(
             {"plugin": manifest.id, "task": task.id, "tool": task.tools[0], "output": output}
         )
+
+    async def list_packages(request: Request) -> JSONResponse:
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return JSONResponse({"packages": [entry for entry, _ in packages.values()]})
+
+    async def download_package(request: Request) -> Any:
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        package = packages.get(request.path_params["package_id"])
+        if package is None:
+            return JSONResponse({"error": "package not found"}, status_code=404)
+        entry, data = package
+        return Response(
+            data,
+            media_type="application/gzip",
+            headers={"Content-Disposition": f'attachment; filename="{entry["id"]}-{entry["version"]}.tar.gz"'},
+        )
+
+    async def inspect_upload(request: Request) -> JSONResponse:
+        """Check an uploaded package without running it: its catalog entry, or every reason it is refused."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        length = request.headers.get("content-length")
+        if length and length.isdigit() and int(length) > PACKAGE_MAX_BYTES:
+            return JSONResponse({"error": "package is too large"}, status_code=413)
+        body = await request.body()
+        if len(body) > PACKAGE_MAX_BYTES:
+            return JSONResponse({"error": "package is too large"}, status_code=413)
+        try:
+            async with plugin_slots:
+                entry = await asyncio.to_thread(inspect_package, body)
+        except PackageError as error:
+            return JSONResponse(
+                {"error": f"the package is refused: {'; '.join(error.violations)}", "violations": error.violations},
+                status_code=422,
+            )
+        return JSONResponse({"package": entry})
+
+    async def package_source(request: Request) -> JSONResponse:
+        """Pack the plugin at ``?path=`` in a source archive and check it, running none of it."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        length = request.headers.get("content-length")
+        if length and length.isdigit() and int(length) > SOURCE_MAX_BYTES:
+            return JSONResponse({"error": "source archive is too large"}, status_code=413)
+        body = await request.body()
+        if len(body) > SOURCE_MAX_BYTES:
+            return JSONResponse({"error": "source archive is too large"}, status_code=413)
+        try:
+            async with plugin_slots:
+                entry, data = await asyncio.to_thread(pack_source, body, request.query_params.get("path", ""))
+        except PackageError as error:
+            return JSONResponse(
+                {"error": f"the plugin is refused: {'; '.join(error.violations)}", "violations": error.violations},
+                status_code=422,
+            )
+        return JSONResponse({"package": entry, "data": base64.b64encode(data).decode("ascii")})
 
     async def plugin_ui(request: Request) -> Any:
         """A file of a ready plugin's front end, under the policy that confines it to the bridge."""
@@ -462,6 +510,10 @@ def create_app(
             Route("/v1/runs", start_run, methods=["POST"]),
             Route("/v1/runs/{run_id}", cancel_run, methods=["DELETE"]),
             Route("/v1/plugins", list_plugins, methods=["GET"]),
+            Route("/v1/packages", list_packages, methods=["GET"]),
+            Route("/v1/packages/inspect", inspect_upload, methods=["POST"]),
+            Route("/v1/packages/source", package_source, methods=["POST"]),
+            Route("/v1/packages/{package_id}", download_package, methods=["GET"]),
             Route("/v1/plugins/{plugin_id}/ui/{path:path}", plugin_ui, methods=["GET"]),
             Route(
                 "/v1/workspaces/{workspace_id}/plugins/{plugin_id}/tasks/{task_id}/runs",
@@ -477,14 +529,9 @@ def create_app(
             Route(
                 "/v1/workspaces/{workspace_id}/files/{path:path}",
                 workspace_file,
-                methods=["GET", "PUT", "DELETE"],
+                methods=["GET", "PUT"],
             ),
-            Route(
-                "/v1/workspaces/{workspace_id}/folders/{path:path}",
-                workspace_folder,
-                methods=["POST", "DELETE"],
-            ),
-            Route("/v1/workspaces/{workspace_id}/move", move_entry, methods=["POST"]),
+            Route("/v1/workspaces/{workspace_id}", delete_workspace, methods=["DELETE"]),
             Route(
                 "/v1/plugins/{plugin_id}/tasks/{task_id}", run_plugin_task, methods=["POST"]
             ),

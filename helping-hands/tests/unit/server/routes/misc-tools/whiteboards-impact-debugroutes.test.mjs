@@ -23,7 +23,7 @@ const ALLOWED_EXTS = ['.md', '.mdx'];
 // back to 0 when the elements field is missing.
 async function listWhiteboards(store) {
   const url = new URL('http://localhost/api/whiteboards');
-  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   let captured = null;
   const ctx = {
@@ -79,7 +79,7 @@ describe('GET /api/whiteboards: plural list summary', () => {
 // the echo rather than exercising the analyzer.
 async function debugRoutes(diagnostics) {
   const url = new URL('http://localhost/api/debug/routes');
-  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   let captured = null;
   const ctx = {

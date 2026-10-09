@@ -3,15 +3,36 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {loadRoute, makeCtx, invoke} from '../../_harness.mjs';
 
-const {agentWorkspaceId} = createRequire(import.meta.url)('../../../../src/server/agent-workspace.js');
-
 const routes = loadRoute('apps');
 const context = {workspaceId: 'test-org', userId: 'test-user', membershipId: 'member-1', role: 'owner'};
 const APP = {id: 'echo', name: 'Echo', version: '1.0.0', tasks: [], tools: [], readme: '# Echo\n'};
 
-function ctxWith(ai) {
+/** The workspace file system, as one map of path to bytes, recording what it was asked. */
+function fakeFs(files = {}) {
+  const stored = new Map(Object.entries(files).map(([path, body]) => [path, Buffer.from(body)]));
+  return {
+    stored,
+    writes: [],
+    async list(_scope, {prefix}) {
+      return [...stored].filter(([path]) => path.startsWith(`${prefix}/`)).map(([path, body]) => ({path, kind: 'file', size: body.length}));
+    },
+    async read(_scope, path) { return stored.has(path) ? {node: {path}, body: stored.get(path)} : null; },
+    async write(_scope, path, body, options) {
+      this.writes.push([path, body.toString(), options]);
+      stored.set(path, body);
+      return {path, size: body.length};
+    },
+    async transaction(_scope, operation) {
+      return operation({nodeAt: async () => ({}), mkdir: async () => {}, setAccess: async () => {}});
+    },
+  };
+}
+
+function ctxWith(ai, fs = fakeFs()) {
   const ctx = makeCtx();
   ctx.ai = {...ctx.ai, ...ai};
+  ctx.workspaceFs = fs;
+  ctx.agentSync = {run: (_scope, operation) => operation('run-folder')};
   return ctx;
 }
 
@@ -30,34 +51,17 @@ describe('NanoAgent apps', () => {
     assert.equal(listed.payload.error, 'Could not reach NanoAgent.');
   });
 
-  it('derives one stable, opaque workspace per member of a workspace', () => {
-    const alice = agentWorkspaceId({workspaceId: 'ws-1', userId: 'alice'});
-    assert.match(alice, /^[0-9a-f]{32}$/);
-    assert.equal(agentWorkspaceId({workspaceId: 'ws-1', userId: 'alice'}), alice);
-    assert.notEqual(agentWorkspaceId({workspaceId: 'ws-1', userId: 'bob'}), alice);
-    assert.notEqual(agentWorkspaceId({workspaceId: 'ws-2', userId: 'alice'}), alice);
-  });
-
-  it('lists only the caller\'s own agent workspace', async () => {
-    const asked = [];
-    const ctx = ctxWith({
-      workspaceFiles: async workspace => {
-        asked.push(workspace);
-        return {value: {files: [{path: 'attention/ms.tex', size: 10, modified: 1}], truncated: false}};
-      },
-    });
-    const listed = await invoke(routes, {method: 'GET', path: '/api/agent-files', ctx, requestContext: context});
+  it('lists only the caller\'s own agent folder', async () => {
+    const fs = fakeFs({'home/test-user/agent/attention/ms.tex': '\\section{}', 'home/other/agent/x.md': 'not yours'});
+    const listed = await invoke(routes, {method: 'GET', path: '/api/agent-files', ctx: ctxWith({}, fs), requestContext: context});
     assert.equal(listed.status, 200);
-    assert.deepEqual(asked, [agentWorkspaceId(context)]);
-    assert.equal(listed.payload.files[0].path, 'attention/ms.tex');
+    assert.deepEqual(listed.payload, {files: [{path: 'attention/ms.tex', size: 10}]});
   });
 
   it('serves text as plain text and never as HTML', async () => {
-    const ctx = ctxWith({
-      workspaceFile: async (_workspace, path) => ({value: Buffer.from(path.endsWith('.html') ? '<script>x</script>' : '\\section{Intro}')}),
-    });
+    const fs = fakeFs({'home/test-user/agent/attention/ms.tex': '\\section{Intro}', 'home/test-user/agent/page.html': '<script>x</script>'});
     for (const path of ['attention/ms.tex', 'page.html']) {
-      const served = await invoke(routes, {method: 'GET', path: '/api/agent-files/content', query: `?path=${path}`, ctx, requestContext: context});
+      const served = await invoke(routes, {method: 'GET', path: '/api/agent-files/content', query: `?path=${path}`, ctx: ctxWith({}, fs), requestContext: context});
       assert.equal(served.res.written.status, 200);
       assert.equal(served.res.written.headers['Content-Type'], 'text/plain; charset=utf-8');
       assert.equal(served.res.written.headers['X-Content-Type-Options'], 'nosniff');
@@ -65,77 +69,48 @@ describe('NanoAgent apps', () => {
   });
 
   it('sends a viewable file as an attachment when asked to download it', async () => {
-    const ctx = ctxWith({workspaceFile: async () => ({value: Buffer.from('text')})});
+    const fs = fakeFs({'home/test-user/agent/notes/a.txt': 'text'});
     const served = await invoke(routes, {
-      method: 'GET', path: '/api/agent-files/content', query: '?path=notes/a.txt&download=1', ctx, requestContext: context,
+      method: 'GET', path: '/api/agent-files/content', query: '?path=notes/a.txt&download=1', ctx: ctxWith({}, fs), requestContext: context,
     });
     assert.equal(served.res.written.headers['Content-Disposition'], 'attachment; filename="a.txt"');
   });
 
-  it('does not let a viewer delete workspace files', async () => {
-    const ctx = ctxWith({deleteWorkspaceFile: async () => assert.fail('must not delete')});
+  it('reports a missing file', async () => {
+    const result = await invoke(routes, {method: 'GET', path: '/api/agent-files/content', query: '?path=nope.md', ctx: ctxWith({}), requestContext: context});
+    assert.equal(result.status, 404);
+  });
+
+  it('saves a file to the caller\'s agent folder, refusing to replace one when creating', async () => {
+    const fs = fakeFs();
+    const ctx = ctxWith({}, fs);
+    ctx.readRawBody = async () => Buffer.from('hello');
+    const created = await invoke(routes, {
+      method: 'PUT', path: '/api/agent-files/content', query: '?path=notes/a.md&create=1', ctx, requestContext: context,
+    });
+    assert.equal(created.status, 200);
+    assert.deepEqual(created.payload, {path: 'notes/a.md', size: 5});
+    await invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?path=notes/a.md', ctx, requestContext: context});
+    assert.deepEqual(fs.writes, [
+      ['home/test-user/agent/notes/a.md', 'hello', {baseRev: 0}],
+      ['home/test-user/agent/notes/a.md', 'hello', {}],
+    ]);
+  });
+
+  it('does not let a viewer change the agent folder', async () => {
+    const fs = fakeFs();
+    fs.write = async () => assert.fail('must not save');
     await assert.rejects(
-      invoke(routes, {
-        method: 'DELETE', path: '/api/agent-files/content', query: '?path=a.txt', ctx,
-        requestContext: {...context, role: 'viewer'},
-      }),
+      invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?path=a.txt', ctx: ctxWith({}, fs), requestContext: {...context, role: 'viewer'}}),
       error => error?.status === 403,
     );
   });
 
-  it('saves a file to the caller\'s workspace, refusing to replace one when creating', async () => {
-    const saved = [];
-    const ctx = ctxWith({
-      saveWorkspaceFile: async (...args) => {
-        saved.push(args);
-        return {value: {path: 'notes/a.md', size: 5, modified: 1}};
-      },
-    });
-    ctx.readRawBody = async () => Buffer.from('hello');
-    const result = await invoke(routes, {
-      method: 'PUT', path: '/api/agent-files/content', query: '?path=notes/a.md&create=1', ctx, requestContext: context,
-    });
-    assert.equal(result.status, 200);
-    assert.deepEqual(saved.map(([workspace, path, body, options]) => [workspace, path, body.toString(), options]), [
-      [agentWorkspaceId(context), 'notes/a.md', 'hello', {create: true}],
-    ]);
-  });
-
-  it('makes and deletes folders, and moves entries', async () => {
-    const calls = [];
-    const record = name => async (...args) => { calls.push([name, ...args.slice(1)]); return {value: {ok: true}}; };
-    const ctx = ctxWith({
-      makeWorkspaceFolder: record('make'),
-      deleteWorkspaceFolder: record('delete'),
-      moveWorkspaceEntry: record('move'),
-    });
-    await invoke(routes, {method: 'POST', path: '/api/agent-files/folder', query: '?path=papers', ctx, requestContext: context});
-    await invoke(routes, {method: 'DELETE', path: '/api/agent-files/folder', query: '?path=papers', ctx, requestContext: context});
-    await invoke(routes, {method: 'POST', path: '/api/agent-files/move', body: {from: 'a.md', to: 'b/a.md'}, ctx, requestContext: context});
-    assert.deepEqual(calls, [['make', 'papers'], ['delete', 'papers'], ['move', 'a.md', 'b/a.md']]);
-    const bad = await invoke(routes, {method: 'POST', path: '/api/agent-files/move', body: {from: 'a.md'}, ctx, requestContext: context});
-    assert.equal(bad.status, 400);
-  });
-
-  it('relays a name already taken as a conflict', async () => {
-    const ctx = ctxWith({makeWorkspaceFolder: async () => ({error: 'papers already exists', status: 409})});
-    const result = await invoke(routes, {method: 'POST', path: '/api/agent-files/folder', query: '?path=papers', ctx, requestContext: context});
+  it('refuses agent files without the workspace file system', async () => {
+    const ctx = ctxWith({}, null);
+    const result = await invoke(routes, {method: 'GET', path: '/api/agent-files', ctx, requestContext: context});
     assert.equal(result.status, 409);
-    assert.equal(result.payload.error, 'papers already exists');
-  });
-
-  it('does not let a viewer change the workspace', async () => {
-    const ctx = ctxWith({saveWorkspaceFile: async () => assert.fail('must not save')});
-    for (const request of [
-      {method: 'PUT', path: '/api/agent-files/content', query: '?path=a.txt'},
-      {method: 'POST', path: '/api/agent-files/folder', query: '?path=a'},
-      {method: 'POST', path: '/api/agent-files/move', body: {from: 'a', to: 'b'}},
-    ]) {
-      await assert.rejects(
-        invoke(routes, {...request, ctx, requestContext: {...context, role: 'viewer'}}),
-        error => error?.status === 403,
-      );
-    }
+    assert.equal(result.payload.code, 'fs-disabled');
   });
 });
 
@@ -205,7 +180,7 @@ describe('an app\'s task runs', () => {
   });
   const PATH = '/api/apps/arxiv-source/tasks/daily-digest/runs';
 
-  it('runs in the caller\'s own workspace and passes the event stream through', async () => {
+  it('runs on a copy of the caller\'s agent folder and passes the event stream through', async () => {
     const asked = [];
     const events = ['event: task.started\ndata: {"type":"task.started","runId":"r","task":"daily-digest"}\n\n', ': heartbeat\n\n', 'event: task.done\ndata: {"type":"task.done","runId":"r"}\n\n'];
     const ctx = ctxWith({taskRun: async request => { asked.push(request); return {value: stream(events)}; }});
@@ -213,7 +188,7 @@ describe('an app\'s task runs', () => {
       method: 'POST', path: PATH, body: {arguments: {people: ['Ada']}}, ctx, requestContext: context,
     });
     assert.equal(asked.length, 1);
-    assert.equal(asked[0].workspace, agentWorkspaceId(context));
+    assert.equal(asked[0].workspace, 'run-folder');
     assert.equal(asked[0].app, 'arxiv-source');
     assert.equal(asked[0].task, 'daily-digest');
     assert.deepEqual(asked[0].args, {people: ['Ada']});
@@ -233,6 +208,14 @@ describe('an app\'s task runs', () => {
       const result = await invoke(routes, {method: 'POST', path: PATH, body, ctx, requestContext: context});
       assert.equal(result.status, 400);
     }
+  });
+
+  it('refuses to run without the workspace file system', async () => {
+    const ctx = ctxWith({taskRun: async () => assert.fail('must not run')});
+    ctx.agentSync = null;
+    const result = await invoke(routes, {method: 'POST', path: PATH, body: {arguments: {}}, ctx, requestContext: context});
+    assert.equal(result.status, 409);
+    assert.equal(result.payload.code, 'fs-disabled');
   });
 
   it('relays a refusal from NanoAgent before any stream starts', async () => {

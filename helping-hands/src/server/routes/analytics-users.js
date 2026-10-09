@@ -42,7 +42,7 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
 
   // ── Analytics: record pageview ──
   if (req.method === 'POST' && pathname === '/api/analytics/pageview') {
-    if (!rateLimit(`pageview:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`pageview:${req.caller}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {path: pagePath, referrer, userAgent} = body;
@@ -125,7 +125,7 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
 
   // ── Users: set role ──
   if (req.method === 'PUT' && SET_ROLE_RE.test(pathname)) {
-    if (!rateLimit(`set-role:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`set-role:${req.caller}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
       const userId = parts[3]; // /api/users/:id/role

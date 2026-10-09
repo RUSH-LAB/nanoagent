@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import Link from '@docusaurus/Link';
 import {useLocation} from '@docusaurus/router';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
-import {signOutAndForget} from '@site/src/utils/authClient';
+import Avatar from '@site/src/components/Avatar';
+import {authClient, signOutAndForget} from '@site/src/utils/authClient';
 import {clientPlatform} from '@site/src/platform/client';
 import styles from './styles.module.css';
 
@@ -19,12 +20,6 @@ import styles from './styles.module.css';
  * or React reports a hydration mismatch. The button therefore ships as a
  * neutral placeholder and fills itself in a moment later.
  */
-
-/** The letter shown in the circle: the first of the username, or a fallback. */
-function initialOf(user) {
-  const source = user?.username || user?.name || user?.email || '';
-  return source.trim().charAt(0).toUpperCase() || '·';
-}
 
 function labelOf(user) {
   return user?.username || user?.name || user?.email || 'Account';
@@ -51,9 +46,10 @@ export default function UserButton({ mobile = false }) {
   useEffect(() => {
     if (!authEnabled) return undefined;
     let cancelled = false;
-    fetch('/api/auth/get-session', {credentials: 'include'})
-      .then((response) => response.ok ? response.json() : null)
-      .then((result) => { if (!cancelled) setUser(result?.user ?? null); })
+    // Through authClient, which addresses the API's origin; a relative path
+    // reaches the site's own server in development and never finds a session.
+    authClient.getSession()
+      .then((result) => { if (!cancelled) setUser(result?.data?.user ?? null); })
       .catch(() => { /* signed out or API down; the button still links to settings */ });
     return () => { cancelled = true; };
   }, [authEnabled]);
@@ -106,7 +102,7 @@ export default function UserButton({ mobile = false }) {
   if (!user) {
     return (
       <Link className={styles.button} to={settingsPath} title="Account and settings" aria-label="Account">
-        <span className={styles.avatar} aria-hidden="true">{initialOf(user)}</span>
+        <span className={styles.signedOut} aria-hidden="true" />
       </Link>
     );
   }
@@ -122,7 +118,7 @@ export default function UserButton({ mobile = false }) {
         aria-expanded={open}
         onClick={() => setOpen(value => !value)}
       >
-        <span className={styles.avatar} aria-hidden="true">{initialOf(user)}</span>
+        <Avatar user={user} />
       </button>
       {open ? (
         <div className={styles.menu} role="menu">

@@ -30,4 +30,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
-CMD ["sh", "-c", "node scripts/db/bootstrap-runtime-role.mjs && node scripts/db/repair-runtime-ownership.mjs && node scripts/db/apply-schema.mjs && if [ \"${PROVISION_ROOT_USER:-false}\" = \"true\" ]; then NODE_ENV=development node scripts/db/provision-production-root.mjs; fi && exec npm run start:production"]
+CMD ["sh", "-c", "node scripts/db/bootstrap-runtime-role.mjs && node scripts/db/repair-runtime-ownership.mjs && node scripts/db/apply-schema.mjs && exec npm run start:production"]

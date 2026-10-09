@@ -258,7 +258,7 @@ describe('rate-limit gates on the mutation handlers', () => {
       const ctx = makeCtx({rateLimitAllow: false, readBody: async () => { reads++; return {}; }});
       const r = await invoke(routes, {method, path: p, ctx});
       assert.deepEqual([r.status, r.payload], [429, {error: 'Too many requests. Try again in a minute.'}]);
-      assert.deepEqual(ctx.calls.rateLimit, [{key: key + '127.0.0.1', maxPerMinute: limit}]);
+      assert.deepEqual(ctx.calls.rateLimit, [{key: key + 'test-user', maxPerMinute: limit}]);
       assert.equal(reads, 0);
     });
   }

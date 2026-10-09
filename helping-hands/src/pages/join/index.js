@@ -13,7 +13,7 @@ import styles from './styles.module.css';
  *
  * Readable signed out, which is the whole point: whoever arrives here has no
  * account yet and needs to know which workspace this is, who asked them, and
- * above all which address to make an account with. The server serves those four
+ * above all which address their GitHub account must have. The server serves those four
  * fields for a pending invitation and 404s everything else, so a stale link
  * cannot be used to learn that an organization has been in touch with an
  * address.
@@ -73,6 +73,18 @@ function Join() {
 
   useEffect(() => { load(); }, [load]);
 
+  // GitHub sends the browser back here, so the invitation is still on screen.
+  const signIn = async () => {
+    setBusy(true);
+    setMessage(null);
+    const {authClient} = require('@site/src/utils/authClient');
+    const result = await authClient.signIn.social({provider: 'github', callbackURL: window.location.href});
+    if (result?.error) {
+      setMessage(result.error.message || 'GitHub sign-in failed.');
+      setBusy(false);
+    }
+  };
+
   const accept = async () => {
     setBusy(true);
     setMessage(null);
@@ -130,10 +142,12 @@ function Join() {
       {!account && (
         <div className={styles.next}>
           <p className={dir.note}>
-            Sign in as {invitation.email} to accept, or create an account with that
-            address. Any other address will be refused.
+            Sign in with the GitHub account whose primary email is {invitation.email}{' '}
+            to accept. Any other address will be refused.
           </p>
-          <Link className={dir.cta} to="/settings">Sign in or sign up</Link>
+          <button type="button" className={dir.cta} onClick={signIn} disabled={busy}>
+            {busy ? 'Working…' : 'Continue with GitHub'}
+          </button>
         </div>
       )}
 
@@ -141,7 +155,8 @@ function Join() {
         <div className={styles.next}>
           <p className={dir.note}>
             You are signed in as {account.email}, and this invitation is for{' '}
-            {invitation.email}. Sign out and back in as the invited address.
+            {invitation.email}. Sign out and back in with the GitHub account whose primary
+            email is the invited address.
           </p>
         </div>
       )}

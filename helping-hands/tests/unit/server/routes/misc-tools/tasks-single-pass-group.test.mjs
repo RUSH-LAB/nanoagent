@@ -22,7 +22,7 @@ async function getTasks(store) {
     json: (_res, status, body) => { captured = { status, body }; return captured; },
   };
   const url = new URL('http://localhost/api/tasks');
-  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   await miscToolsRoutes(req, res, url, '/api/tasks', ctx);
   return captured;

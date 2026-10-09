@@ -28,7 +28,7 @@ async function postTask({ title = 'My task', description, status, priority } = {
     sanitizeText: (s) => s,
     json: (_res, code, body) => { captured = { status: code, body }; },
   };
-  const req = { method: 'POST', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'POST', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   const url = new URL('http://localhost/api/tasks');
   await miscRoutes(req, res, url, '/api/tasks', ctx);
@@ -50,7 +50,7 @@ async function putTask({ id = 't1', status, title, description, priority } = {},
     sanitizeText: (s) => s,
     json: (_res, code, body) => { captured = { status: code, body }; },
   };
-  const req = { method: 'PUT', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'PUT', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   const url = new URL('http://localhost/api/tasks');
   await miscRoutes(req, res, url, '/api/tasks', ctx);

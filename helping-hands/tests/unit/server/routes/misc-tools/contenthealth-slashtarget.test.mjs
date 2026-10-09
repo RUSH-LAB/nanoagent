@@ -176,7 +176,7 @@ function makePassThroughCached() {
 async function invoke({ fs, cached }) {
   const pathname = '/api/content-health';
   const url = new URL(`http://localhost${pathname}`);
-  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   let captured = null;
   const ctx = {

@@ -1,5 +1,6 @@
 /** Browser authentication through Better Auth's HttpOnly session cookie. */
 import {createAuthClient} from 'better-auth/react';
+import {deviceAuthorizationClient} from 'better-auth/client/plugins';
 import API_BASE from './api';
 import {clientPlatform} from '../platform/client.js';
 import {WORKSPACE_SITE_STORAGE_PREFIX} from '../hooks/useWorkspaceSite.js';
@@ -12,9 +13,11 @@ const AUTH_BASE_URL = API_BASE
 export const authClient = createAuthClient({
   baseURL: AUTH_BASE_URL,
   fetchOptions: {credentials: 'include'},
+  // Approving the command-line client's device code (pages/device.js).
+  plugins: [deviceAuthorizationClient()],
 });
 
-export const {useSession, signIn, signUp, signOut} = authClient;
+export const {useSession, signIn, signOut} = authClient;
 
 const CLI_SESSIONS_KEY = 'mochi-cli-sessions';
 

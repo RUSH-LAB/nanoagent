@@ -64,7 +64,7 @@ async function runSuggest() {
     },
   };
   const pathname = '/api/suggest';
-  const req = { method: 'GET', headers: {}, socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'GET', headers: {}, socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   await routes(req, res, url, pathname, ctx);
   return { replies, getCalls };

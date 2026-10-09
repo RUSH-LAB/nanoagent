@@ -108,7 +108,7 @@ async function runContentHealth({ cached, fs }) {
   };
   const pathname = '/api/content-health';
   const url = new URL(`http://localhost${pathname}`);
-  const req = { method: 'GET', headers: {}, socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'GET', headers: {}, socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   await routes(req, res, url, pathname, ctx);
   return { replies, cachedCalls };

@@ -145,6 +145,10 @@ function contextualOrg(adapter) {
     deleteWorkspace(context) {
       return adapter.deleteWorkspace(workspaceContext(context));
     },
+    leaveWorkspace(context, input) {
+      const verified = workspaceContext(context);
+      return adapter.leaveWorkspace({...input, orgId: verified.workspaceId, actorId: verified.userId});
+    },
   });
 }
 

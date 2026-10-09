@@ -51,6 +51,17 @@ const postgresCoreSchema = Object.freeze({
   },
 });
 
+// The device-authorization plugin's codes (auth.js), on auth_device_code.
+const postgresDeviceCodeSchema = Object.freeze({
+  deviceCode: {
+    modelName: 'auth_device_code',
+    fields: {
+      deviceCode: 'device_code', userCode: 'user_code', userId: 'user_id', expiresAt: 'expires_at',
+      lastPolledAt: 'last_polled_at', pollingInterval: 'polling_interval', clientId: 'client_id',
+    },
+  },
+});
+
 /** Preserve PostgreSQL's physical session-table mapping when adding behavior. */
 function authSessionOptions({postgresEnabled = false, cookieCacheMaxAge = 60} = {}) {
   return {
@@ -89,12 +100,20 @@ const postgresOrganizationSchema = Object.freeze({
   },
 });
 
-function organizationOptions({postgresEnabled = false, isProduction = false, sendInvitationEmail, hooks} = {}) {
+function organizationOptions({postgresEnabled = false, isProduction = false, sendInvitationEmail, hooks, tenancy = null} = {}) {
   return {
     ac: workspaceAccessControl,
     roles: workspaceRoles,
     creatorRole: 'owner',
     cancelPendingInvitationsOnReInvite: true,
+    ...(tenancy ? {
+      // Workspaces are created through POST /api/workspaces, which validates
+      // the name and slug; Better Auth's own endpoint is closed to browsers.
+      // Server calls (no session, an explicit userId) still pass.
+      allowUserToCreateOrganization: false,
+      organizationLimit: user => tenancy.workspaceLimitReached(user.id),
+      membershipLimit: async (_user, workspace) => (await tenancy.limitsFor(workspace.id)).maxMembers,
+    } : {}),
     // Mochi's hard-delete endpoint first writes asset keys to the durable
     // deletion outbox. Bypassing it through Better Auth would orphan blobs.
     disableOrganizationDeletion: true,
@@ -109,6 +128,7 @@ module.exports = {
   workspaceAccessControl,
   workspaceRoles,
   postgresCoreSchema,
+  postgresDeviceCodeSchema,
   authSessionOptions,
   postgresOrganizationSchema,
   organizationOptions,

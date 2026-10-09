@@ -96,7 +96,7 @@ module.exports = async function analysis_admin_routes(req, res, url, pathname, c
   }
 
   if (req.method === 'POST' && pathname === '/api/streak') {
-    if (!rateLimit(`streak:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`streak:${req.caller}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       // Identity comes from the session, so the shape, length, and

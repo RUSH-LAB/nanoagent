@@ -190,7 +190,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
 
   // ── Create snapshot ──
   if (req.method === 'POST' && pathname === '/api/snapshots') {
-    if (!rateLimit(`snapshots:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`snapshots:${req.caller}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {path: filePath, name} = body;
@@ -234,7 +234,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
 
   // ── Restore file from snapshot ──
   if (req.method === 'POST' && pathname === '/api/snapshots/restore') {
-    if (!rateLimit(`snapshots-restore:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`snapshots-restore:${req.caller}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {path: filePath, snapshotId} = body;
@@ -258,7 +258,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
 
   // ── Delete snapshot ──
   if (req.method === 'DELETE' && pathname === '/api/snapshots') {
-    if (!rateLimit(`snapshots-delete:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`snapshots-delete:${req.caller}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       if (req.context && requireWorkspacePermission) requireWorkspacePermission(req.context, 'content:edit');
       const body = await readBody(req);
@@ -288,7 +288,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     const whiteboards = collection('whiteboards');
 
     if (req.method === 'POST') {
-      if (!rateLimit(`whiteboard:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+      if (!await rateLimit(`whiteboard:${req.caller}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       try {
         if (req.context && requireWorkspacePermission) requireWorkspacePermission(req.context, 'content:edit');
         const body = await readBody(req);
@@ -322,7 +322,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       return json(res, 400, {error: 'Missing id parameter. Use GET /api/whiteboards to list all.'});
     }
     if (req.method === 'DELETE') {
-      if (!rateLimit(`whiteboard-del:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+      if (!await rateLimit(`whiteboard-del:${req.caller}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       if (req.context && requireWorkspacePermission) requireWorkspacePermission(req.context, 'content:edit');
       const id = url.searchParams.get('id');
       if (!id) return json(res, 400, {error: 'Missing id parameter'});
@@ -397,7 +397,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
     const tasks = collection('tasks');
 
     if (req.method === 'POST') {
-      if (!rateLimit(`tasks:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+      if (!await rateLimit(`tasks:${req.caller}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       try {
         const body = await readBody(req);
         const {title, description, status, priority} = body;
@@ -432,7 +432,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       return json(res, 200, {tasks: mine, grouped, counts: {todo: grouped.todo.length, doing: grouped.doing.length, done: grouped.done.length}});
     }
     if (req.method === 'PUT') {
-      if (!rateLimit(`tasks:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+      if (!await rateLimit(`tasks:${req.caller}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       try {
         const body = await readBody(req);
         const {id, status, title, description, priority} = body;
@@ -452,7 +452,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
       }
     }
     if (req.method === 'DELETE') {
-      if (!rateLimit(`tasks-del:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+      if (!await rateLimit(`tasks-del:${req.caller}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       try {
         const body = await readBody(req);
         const {id} = body;
@@ -481,7 +481,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
 
   // ── Quick Note: fast capture to a document row ──
   if (req.method === 'POST' && pathname === '/api/quicknote') {
-    if (!rateLimit(`quicknote:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`quicknote:${req.caller}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {text, title} = body;

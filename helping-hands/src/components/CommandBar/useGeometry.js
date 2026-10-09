@@ -16,9 +16,9 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 import {clientPlatform} from '@site/src/platform/client';
 
 /* Pane geometry. The height is the user's to set, so it is remembered across
-   visits and clamped to something usable on any viewport. */
+   visits and clamped to something usable on any viewport. The window itself
+   always starts collapsed, so a page load never opens it over the content. */
 const HEIGHT_KEY = 'mochi-cli-height';
-const COLLAPSED_KEY = 'mochi-cli-collapsed';
 const RAIL_KEY = 'mochi-cli-rail';
 const DEFAULT_HEIGHT = 500;
 const MIN_HEIGHT = 140;
@@ -43,18 +43,11 @@ const COARSE_STEP_PX = 64;
 
 const maxHeight = () => Math.round(window.innerHeight * 0.8);
 
-function storedCollapsed() {
-  return clientPlatform.storage.getItem(COLLAPSED_KEY) === '1';
-}
-
 /** Never taller than most of the viewport, never shorter than one usable pane. */
 const clampHeight = (h) => Math.min(Math.max(h, MIN_HEIGHT), maxHeight());
 
 export default function useGeometry() {
-  // BrowserOnly guarantees this runs in the browser. Reading the persisted
-  // value in the initializer prevents one open-frame render (and its chat
-  // requests) before the mount effect discovers that the CLI was closed.
-  const [collapsed, setCollapsedState] = useState(storedCollapsed);
+  const [collapsed, setCollapsedState] = useState(true);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [dragging, setDragging] = useState(false);
   const [railOpen, setRailOpenState] = useState(true);
@@ -100,7 +93,6 @@ export default function useGeometry() {
   }, []);
 
   useEffect(() => {
-    let startCollapsed = storedCollapsed();
     let startHeight = DEFAULT_HEIGHT;
     // Shown unless it has been closed, so the conversations are there to be
     // found rather than behind a control nobody knows about.
@@ -109,8 +101,7 @@ export default function useGeometry() {
     if (Number.isFinite(saved)) startHeight = clampHeight(saved);
     heightRef.current = startHeight;
     setHeight(startHeight);
-    setCollapsedState(startCollapsed);
-    publishFootprint(startCollapsed, startHeight);
+    publishFootprint(true, startHeight);
     // The variable outlives the component unless it is taken back, and a page
     // padded for a window that is no longer mounted has a hole in it. The
     // record of what was published goes with it, or a remount would find its
@@ -152,7 +143,6 @@ export default function useGeometry() {
   const setCollapsed = useCallback((next) => {
     setCollapsedState(next);
     publishFootprint(next, heightRef.current);
-    clientPlatform.storage.setItem(COLLAPSED_KEY, next ? '1' : '0');
   }, [publishFootprint]);
 
   const setRailOpen = useCallback((next) => {

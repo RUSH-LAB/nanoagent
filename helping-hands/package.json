@@ -29,7 +29,7 @@
     "proofs:test": "node --test 'tests/unit/plugins/lean-proofs/**/*.test.mjs' && npm run proofs:check",
     "docusaurus": "docusaurus",
     "start": "node scripts/dev/start-local.mjs",
-    "start:site": "ENABLE_AUTH=true DEV_AUTOLOGIN=false docusaurus start --no-open",
+    "start:site": "ENABLE_AUTH=true docusaurus start --no-open",
     "start:production": "NODE_ENV=production ENABLE_AUTH=true node src/server/index.js",
     "build": "docusaurus build",
     "build:auth": "ENABLE_AUTH=true docusaurus build",

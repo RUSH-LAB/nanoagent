@@ -26,7 +26,7 @@ describe('POST /api/analytics/pageview', () => {
     const ctx = makeCtx({rateLimitAllow: false, readBody: async () => { reads++; return {}; }});
     const r = await invoke(routes, {method: 'POST', path: '/api/analytics/pageview', ctx});
     assert.deepEqual([r.status, r.payload], [429, {error: 'Too many requests. Try again in a minute.'}]);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'pageview:127.0.0.1', maxPerMinute: 60}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'pageview:test-user', maxPerMinute: 60}]);
     assert.equal(reads, 0);
     assert.deepEqual(ctx.calls.saveJSON, []);
   });
@@ -265,7 +265,7 @@ describe('PUT /api/users/:id/role', () => {
     const ctx = makeCtx({rateLimitAllow: false});
     const r = await invoke(routes, {method: 'PUT', path: ROLE_PATH, ctx});
     assert.deepEqual([r.status, r.payload], [429, {error: 'Too many requests. Try again in a minute.'}]);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'set-role:127.0.0.1', maxPerMinute: 10}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'set-role:test-user', maxPerMinute: 10}]);
   });
 
   const ROLE_ERR = 'Invalid role. Must be admin, user';

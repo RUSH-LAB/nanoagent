@@ -12,7 +12,7 @@ const { numericParam } = miscToolsRoutes;
 // response that the handler hands to `json(res, status, payload)`.
 async function invoke({ method = 'GET', pathname, search = '', ctx = {} }) {
   const url = new URL(`http://localhost${pathname}${search}`);
-  const req = { method, socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method, socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   let captured = null;
   const fullCtx = {

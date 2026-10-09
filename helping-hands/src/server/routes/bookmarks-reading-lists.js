@@ -35,7 +35,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
 
   // ── Bookmarks: add ──
   if (req.method === 'POST' && pathname === '/api/bookmarks') {
-    if (!rateLimit(`bookmarks:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`bookmarks:${req.caller}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {path: pagePath, title} = body;
@@ -137,7 +137,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
 
   // ── Reading Lists: create ──
   if (req.method === 'POST' && pathname === '/api/reading-lists') {
-    if (!rateLimit(`reading-lists:${req.socket.remoteAddress}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`reading-lists:${req.caller}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {name, description} = body;
@@ -177,7 +177,7 @@ module.exports = async function bookmarks_reading_lists_routes(req, res, url, pa
 
   // ── Reading Lists: add item ──
   if (req.method === 'POST' && READING_LIST_ITEMS_RE.test(pathname)) {
-    if (!rateLimit(`rl-items:${req.socket.remoteAddress}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`rl-items:${req.caller}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const parts = pathname.split('/');
       const listId = decodeURIComponent(parts[3]);

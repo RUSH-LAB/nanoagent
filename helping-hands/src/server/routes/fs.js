@@ -65,7 +65,7 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
   } = ctx;
   if (!fs) {
     return json(res, 409, {
-      error: 'The workspace file system is not enabled on this server (CONTENT_STORE=legacy)', code: 'fs-disabled',
+      error: 'The workspace file system needs PostgreSQL (DATABASE_URL)', code: 'fs-disabled',
     });
   }
   const scope = req.context;

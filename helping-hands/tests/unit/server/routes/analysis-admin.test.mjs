@@ -162,7 +162,7 @@ describe('POST /api/streak', () => {
     const ctx = makeCtx({rateLimitAllow: false, readBody: async () => { reads++; return {}; }});
     const r = await invoke(routes, {method: 'POST', path: '/api/streak', ctx});
     assert.deepEqual([r.status, r.payload], [429, {error: 'Too many requests. Try again in a minute.'}]);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'streak:127.0.0.1', maxPerMinute: 30}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'streak:test-user', maxPerMinute: 30}]);
     assert.deepEqual([reads, ctx.calls.loadJSON.length], [0, 0]);
   });
 

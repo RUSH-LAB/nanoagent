@@ -22,7 +22,7 @@ function sampleBoard(id) {
 // own-property guard exercises the real global Object.hasOwn.
 async function getWhiteboard(store, id) {
   const url = new URL(`http://localhost/api/whiteboard?id=${encodeURIComponent(id)}`);
-  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   let captured = null;
   const ctx = {
@@ -43,7 +43,7 @@ async function getWhiteboard(store, id) {
 // saveJSON, WHITEBOARDS_FILE, and json from ctx.
 async function deleteWhiteboard(store, id) {
   const url = new URL(`http://localhost/api/whiteboard?id=${encodeURIComponent(id)}`);
-  const req = { method: 'DELETE', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'DELETE', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   let captured = null;
   const scoped = newStore().seed('whiteboards', store);

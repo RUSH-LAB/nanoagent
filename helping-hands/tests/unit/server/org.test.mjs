@@ -14,6 +14,7 @@ import {createRequire} from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {githubAccount} from './_github-account.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -37,20 +38,7 @@ let otherOrgId;
 
 const headersFor = name => ({cookie: who[name].cookie});
 
-const signUp = async (username) => {
-  const res = await auth.api.signUpEmail({
-    body: {
-      email: `${username}@test.invalid`,
-      password: 'correcthorsebattery',
-      name: username,
-    },
-    returnHeaders: true,
-  });
-  return {
-    id: res.response.user.id,
-    cookie: res.headers.getSetCookie()[0].split(';')[0],
-  };
-};
+const signUp = username => githubAccount(auth, username);
 
 before(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-org-'));
@@ -346,16 +334,7 @@ describe('inviting', () => {
   // The link is not a key to the organization: it is an offer to one address,
   // and Better Auth checks the accepting session against it.
   it('is accepted only by the account it was addressed to', async () => {
-    const gil = await (async () => {
-      const res = await auth.api.signUpEmail({
-        body: {email: invited, password: 'correcthorsebattery', name: 'gil'},
-        returnHeaders: true,
-      });
-      return {
-        id: res.response.user.id,
-        cookie: res.headers.getSetCookie()[0].split(';')[0],
-      };
-    })();
+    const gil = await githubAccount(auth, 'gil', invited);
     who.gil = gil;
 
     const {invitation} = await org.invite({headers: headersFor('ada'), orgId, actorId: who.ada.id, email: invited});

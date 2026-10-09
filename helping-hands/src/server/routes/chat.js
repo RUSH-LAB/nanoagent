@@ -89,7 +89,7 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
   // ── Channels: create ──
   if (req.method === 'POST' && pathname === '/api/chat/channels') {
     if (!['owner', 'editor'].includes(orgRole)) return json(res, 403, {error: 'Only workspace editors can create channels'});
-    if (!rateLimit(`chat-create:${userId}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`chat-create:${userId}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const {name, topic, kind} = await readBody(req);
       const result = await chat.createChannel(req.context, {name, topic, kind});
@@ -102,7 +102,7 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
 
   // ── Direct messages: open (or reopen) one ──
   if (req.method === 'POST' && pathname === '/api/chat/dm') {
-    if (!rateLimit(`chat-dm:${userId}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`chat-dm:${userId}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const {userId: otherUserId} = await readBody(req);
       if (!otherUserId || typeof otherUserId !== 'string') {
@@ -142,7 +142,7 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
 
     // ── Rename, or set the topic ──
     if (req.method === 'PATCH' && !action) {
-      if (!rateLimit(`chat-edit:${userId}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+      if (!await rateLimit(`chat-edit:${userId}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       try {
         const body = await readBody(req);
         // Only the keys actually sent are touched, so setting a topic cannot
@@ -168,7 +168,7 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
 
     // ── Delete it, and everything said in it ──
     if (req.method === 'DELETE' && !action) {
-      if (!rateLimit(`chat-delete:${userId}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+      if (!await rateLimit(`chat-delete:${userId}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       const result = await chat.deleteChannel(req.context, channelId);
       if (result.error) return sendError(json, res, result.error);
       return json(res, 200, {deleted: result.deleted});
@@ -186,7 +186,7 @@ module.exports = async function chat_routes(req, res, url, pathname, ctx) {
 
     // ── Post ──
     if (req.method === 'POST' && action === 'messages') {
-      if (!rateLimit(`chat-post:${userId}`, 120)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+      if (!await rateLimit(`chat-post:${userId}`, 120)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
       try {
         const {body} = await readBody(req);
         const result = await chat.postMessage(req.context, channelId, body);

@@ -125,7 +125,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
   // ── References: add entry ──
   if (req.method === 'POST' && pathname === '/api/references') {
     if (!canManagePapers) return respond(res, 403, {error: 'You do not have permission to add papers'});
-    if (!rateLimit(`add-ref:${req.socket.remoteAddress}`, 20)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`add-ref:${req.caller}`, 20)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody();
       const {key: requestedKey, entry} = body || {};
@@ -372,7 +372,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
   // ── References: enrich (POST - apply enriched data to references.yaml) ──
   if (req.method === 'POST' && pathname === '/api/references/enrich') {
     if (!canManagePapers) return respond(res, 403, {error: 'You do not have permission to edit papers'});
-    if (!rateLimit(`enrich-ref:${req.socket.remoteAddress}`, 10)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`enrich-ref:${req.caller}`, 10)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody();
       const {key: citationKey, fields} = body;
@@ -666,7 +666,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
   if (req.method === 'POST' && discussionsPath) {
     const citationKey = decodeKey(discussionsPath[1]);
     if (!citationKey || !await paperRecords.has(citationKey)) return respond(res, 404, {error: 'Reference not found'});
-    if (!rateLimit(`paper-comment:${caller.userId}`, 30)) return respond(res, 429, {error: 'Too many comments. Try again in a minute.'});
+    if (!await rateLimit(`paper-comment:${caller.userId}`, 30)) return respond(res, 429, {error: 'Too many comments. Try again in a minute.'});
     try {
       const request = await readBody();
       const body = sanitize(request?.body || '').slice(0, 10_000);
@@ -707,7 +707,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
   // ── References: update one protocol record ──
   if (req.method === 'PATCH' && paperPath) {
     if (!canManagePapers) return respond(res, 403, {error: 'You do not have permission to edit papers'});
-    if (!rateLimit(`update-ref:${req.socket.remoteAddress}`, 30)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`update-ref:${req.caller}`, 30)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
     const encodedKey = paperPath[1];
     let citationKey;
     try {
@@ -860,7 +860,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
 
   if (req.method === 'POST' && pathname === '/api/references/track') {
     if (!canManagePapers) return respond(res, 403, {error: 'You do not have permission to edit papers'});
-    if (!rateLimit(`track-ref:${req.socket.remoteAddress}`, 10)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`track-ref:${req.caller}`, 10)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody();
       const {key} = body;
@@ -907,7 +907,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
 
   if (req.method === 'POST' && pathname === '/api/references/track-all') {
     if (!canManagePapers) return respond(res, 403, {error: 'You do not have permission to edit papers'});
-    if (!rateLimit(`track-all:${req.socket.remoteAddress}`, 2)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`track-all:${req.caller}`, 2)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const refs = await readPapers();
 
@@ -975,7 +975,7 @@ module.exports = async function bibliography_routes(req, res, url, pathname, api
 
   if (req.method === 'POST' && pathname === '/api/references/import-bibtex') {
     if (!canManagePapers) return respond(res, 403, {error: 'You do not have permission to import papers'});
-    if (!rateLimit(`import-bibtex:${req.socket.remoteAddress}`, 5)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`import-bibtex:${req.caller}`, 5)) return respond(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody();
       const {bibtex} = body;

@@ -57,9 +57,9 @@ async function folder(t) {
   return {root, state, read, put, exists};
 }
 
-async function syncUntilQuiet(local, server, rejected = new Map()) {
+async function syncUntilQuiet(local, server, rejected = new Map(), onlineOnly = []) {
   const options = {
-    root: local.root, api: server.api, state: local.state, rejected,
+    root: local.root, api: server.api, state: local.state, rejected, onlineOnly,
     saveState: async () => {}, host: 'laptop', day: '2026-10-07',
   };
   while (await syncOnce(options));
@@ -172,4 +172,41 @@ test('binary files sync, and dot paths stay on their own side', async t => {
   assert.deepEqual([...server.files.get('photo.png').body], [0, 255, 1, 254]);
   assert.equal(server.files.has('.draft.md'), false);
   assert.equal(await local.exists('.plugins'), false);
+});
+
+test('online-only folders stay in the workspace, after pending local edits are uploaded', async t => {
+  const local = await folder(t);
+  const server = fakeServer({'index.md': 'home', 'papers/a.pdf': 'A', 'papers/old/b.pdf': 'B'});
+  await syncUntilQuiet(local, server, new Map(), ['papers/old']);
+  assert.equal(await local.read('papers/a.pdf'), 'A');
+  assert.equal(await local.exists('papers/old'), false);
+
+  await local.put('papers/a.pdf', 'A2');
+  await local.put('papers/new.pdf', 'N');
+  await syncUntilQuiet(local, server, new Map(), ['papers']);
+  assert.equal(server.text('papers/a.pdf'), 'A2');
+  assert.equal(server.text('papers/new.pdf'), 'N');
+  assert.equal(server.text('papers/old/b.pdf'), 'B');
+  assert.equal(await local.exists('papers'), false);
+  assert.deepEqual(Object.keys(local.state.files), ['index.md']);
+
+  server.write('papers/a.pdf', 'A3');
+  await syncUntilQuiet(local, server, new Map(), ['papers']);
+  assert.equal(await local.exists('papers'), false);
+
+  await syncUntilQuiet(local, server);
+  assert.equal(await local.read('papers/a.pdf'), 'A3');
+  assert.equal(await local.read('papers/old/b.pdf'), 'B');
+});
+
+test('moving a local file into an online-only folder moves it to the cloud', async t => {
+  const local = await folder(t);
+  const server = fakeServer({'draft.md': 'text'});
+  await syncUntilQuiet(local, server);
+  await fs.mkdir(path.join(local.root, 'archive'));
+  await fs.rename(path.join(local.root, 'draft.md'), path.join(local.root, 'archive/draft.md'));
+  await syncUntilQuiet(local, server, new Map(), ['archive']);
+  assert.deepEqual([...server.files.keys()], ['archive/draft.md']);
+  assert.deepEqual(server.calls.filter(call => call[0] !== 'put'), [['move', 'draft.md', 'archive/draft.md']]);
+  assert.equal(await local.exists('archive'), false);
 });

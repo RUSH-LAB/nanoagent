@@ -68,7 +68,7 @@ async function runQuickNote({
   };
   const pathname = '/api/quicknote';
   const url = new URL(`http://localhost${pathname}`);
-  const req = { method: 'POST', socket: { remoteAddress } };
+  const req = { method: 'POST', socket: { remoteAddress }, caller: 'test-user' };
   const res = { writableEnded: false };
   await routes(req, res, url, pathname, ctx);
   return { captured, rateLimitCalls, readBodyCount, fsExistsCount, fsWriteCount };
@@ -87,7 +87,7 @@ describe('POST /api/quicknote guards in routes/misc-tools.js', () => {
     // and from the plural quicknotes handler in study-knowledge.js, that share the
     // 429 string but throttle under their own keys and limits.
     assert.equal(r.rateLimitCalls.length, 1);
-    assert.deepEqual(r.rateLimitCalls[0], { key: 'quicknote:127.0.0.1', limit: 20 });
+    assert.deepEqual(r.rateLimitCalls[0], { key: 'quicknote:test-user', limit: 20 });
   });
 
   it('an absent text is falsy, returning 400 Missing or empty text, reading the body once, never touching the filesystem', async () => {

@@ -6,12 +6,14 @@ import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
 import {PGlite} from '@electric-sql/pglite';
 import {Kysely, PGliteDialect} from 'kysely';
+import {githubAccount} from './_github-account.mjs';
 
 const require = createRequire(import.meta.url);
 const {betterAuth} = require('better-auth');
 const {organization} = require('better-auth/plugins/organization');
+const {deviceAuthorization} = require('better-auth/plugins/device-authorization');
 const {
-  organizationOptions, postgresCoreSchema, authSessionOptions,
+  organizationOptions, postgresCoreSchema, postgresDeviceCodeSchema, authSessionOptions,
 } = require('../../../src/server/workspace-auth.js');
 const {createWorkspaceProvisioning} = require('../../../src/server/workspace-provisioning.js');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -22,8 +24,6 @@ describe('Better Auth on the PostgreSQL workspace schema', () => {
   let auth;
   let owner;
   let workspace;
-
-  const cookieFrom = result => result.headers.getSetCookie()[0].split(';')[0];
 
   before(async () => {
     pg = new PGlite();
@@ -43,11 +43,14 @@ describe('Better Auth on the PostgreSQL workspace schema', () => {
       session: authSessionOptions({postgresEnabled: true}),
       secret: 'postgres-better-auth-test-secret'.padEnd(48, 'x'),
       baseURL: 'http://localhost:3001',
-      emailAndPassword: {enabled: true},
-      plugins: [organization(organizationOptions({
-        postgresEnabled: true,
-        hooks: provisioning.hooks,
-      }))],
+      socialProviders: {github: {clientId: 'test-client', clientSecret: 'test-secret'}},
+      plugins: [
+        organization(organizationOptions({
+          postgresEnabled: true,
+          hooks: provisioning.hooks,
+        })),
+        deviceAuthorization({schema: postgresDeviceCodeSchema}),
+      ],
     });
   });
 
@@ -62,12 +65,21 @@ describe('Better Auth on the PostgreSQL workspace schema', () => {
     await kysely?.destroy();
   });
 
+  it('keeps GitHub accounts and device codes in the aliased tables', async () => {
+    const dev = await githubAccount(auth, 'Dev', 'dev@postgres.invalid');
+    assert.equal((await pg.query(
+      "select count(*)::int as n from auth_account where user_id = $1 and provider_id = 'github'", [dev.id],
+    )).rows[0].n, 1);
+    const code = await auth.api.deviceCode({body: {client_id: 'mochi-cli'}});
+    await auth.api.deviceVerify({query: {user_code: code.user_code}, headers: {cookie: dev.cookie}});
+    await auth.api.deviceApprove({body: {userCode: code.user_code}, headers: {cookie: dev.cookie}});
+    assert.deepEqual((await pg.query(
+      'select user_id, status, client_id from auth_device_code where device_code = $1', [code.device_code],
+    )).rows, [{user_id: dev.id, status: 'approved', client_id: 'mochi-cli'}]);
+  });
+
   it('creates organizations and owner memberships in the aliased tables', async () => {
-    const signup = await auth.api.signUpEmail({
-      body: {name: 'Ada', email: 'ada@postgres.invalid', password: 'correcthorsebattery'},
-      returnHeaders: true,
-    });
-    owner = {id: signup.response.user.id, cookie: cookieFrom(signup)};
+    owner = await githubAccount(auth, 'Ada', 'ada@postgres.invalid');
     workspace = await auth.api.createOrganization({
       body: {name: 'Research Lab', slug: 'research-lab', userId: owner.id},
     });
@@ -86,24 +98,21 @@ describe('Better Auth on the PostgreSQL workspace schema', () => {
   });
 
   it('uses Better Auth for invitation, role, and membership transitions', async () => {
-    const invited = await auth.api.signUpEmail({
-      body: {name: 'Grace', email: 'grace@postgres.invalid', password: 'correcthorsebattery'},
-      returnHeaders: true,
-    });
+    const invited = await githubAccount(auth, 'Grace', 'grace@postgres.invalid');
     const invitation = await auth.api.createInvitation({
       body: {email: 'grace@postgres.invalid', role: 'viewer', organizationId: workspace.id},
       headers: {cookie: owner.cookie},
     });
     const accepted = await auth.api.acceptInvitation({
       body: {invitationId: invitation.id},
-      headers: {cookie: cookieFrom(invited)},
+      headers: {cookie: invited.cookie},
     });
     const general = (await pg.query(
       "select id from channel where workspace_id = $1 and name = 'general'", [workspace.id],
     )).rows[0];
     assert.equal((await pg.query(
       'select count(*)::int as n from channel_member where channel_id = $1 and user_id = $2',
-      [general.id, invited.response.user.id],
+      [general.id, invited.id],
     )).rows[0].n, 1);
     await auth.api.updateMemberRole({
       body: {memberId: accepted.member.id, role: 'editor', organizationId: workspace.id},
@@ -122,7 +131,7 @@ describe('Better Auth on the PostgreSQL workspace schema', () => {
     )).rows[0].n, 0);
     assert.equal((await pg.query(
       'select count(*)::int as n from channel_member where channel_id = $1 and user_id = $2',
-      [general.id, invited.response.user.id],
+      [general.id, invited.id],
     )).rows[0].n, 0);
   });
 

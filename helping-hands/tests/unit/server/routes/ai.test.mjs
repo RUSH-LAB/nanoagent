@@ -80,7 +80,7 @@ describe('POST /api/ai/complete', () => {
     const ctx = makeCtx({rateLimitAllow: false, readBody: async () => { reads++; return {}; }});
     const r = await invoke(routes, {method: 'POST', path: '/api/ai/complete', ctx});
     assert.deepEqual([r.status, r.payload], [429, {error: 'Too many requests. Try again in a minute.'}]);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'ai-complete:127.0.0.1', maxPerMinute: 10}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'ai-complete:test-user', maxPerMinute: 10}]);
     assert.equal(reads, 0);
   });
 
@@ -282,12 +282,19 @@ describe('POST /api/ai/stream', () => {
 
   it('sends an app prompt to that app with no profile or site instructions', async () => {
     const ctx = makeCtx();
+    ctx.agentSync = {run: (_scope, operation) => operation('run-folder')};
     const r = await ask({body: {prompt: 'save 1706.03762', appId: 'arxiv-source'}, ctx, requestContext: WORKSPACE});
     assert.equal(r.res.written.status, 200);
     assert.deepEqual(ctx.calls.ai[0].app, 'arxiv-source');
-    assert.match(ctx.calls.ai[0].workspace, /^[0-9a-f]{32}$/);
+    assert.equal(ctx.calls.ai[0].workspace, 'run-folder');
     assert.equal('profile' in ctx.calls.ai[0], false);
     assert.equal('instructions' in ctx.calls.ai[0], false);
+  });
+
+  it('refuses an app prompt without the workspace file system', async () => {
+    const r = await ask({body: {prompt: 'p', appId: 'echo'}, requestContext: WORKSPACE});
+    assert.equal(r.status, 409);
+    assert.equal(r.payload.code, 'fs-disabled');
   });
 
   it('does not let a viewer run an app', async () => {

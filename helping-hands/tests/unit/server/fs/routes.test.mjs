@@ -69,7 +69,7 @@ describe('file system API', () => {
     assert.deepEqual(later.payload.changes, []);
   });
 
-  it('says clearly when the server uses the legacy store', async () => {
+  it('says clearly when the server has no file system', async () => {
     const legacy = await invoke(fsRoutes, {ctx: makeCtx(), path: '/api/fs/tree', requestContext: alice});
     assert.equal(legacy.status, 409);
     assert.equal(legacy.payload.code, 'fs-disabled');

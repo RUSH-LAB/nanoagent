@@ -4,7 +4,7 @@ import {createRequire} from 'node:module';
 
 const require = createRequire(import.meta.url);
 const routes = require('../../../../plugins/lean-proofs/server');
-const request = method => ({method, socket: {remoteAddress: '127.0.0.1'}});
+const request = method => ({method, socket: {remoteAddress: '127.0.0.1'}, caller: 'test-user'});
 
 function api(body, overrides = {}) {
   const replies = [];

@@ -88,7 +88,7 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
 
   // ── Trash: permanently empty trash ──
   if (req.method === 'DELETE' && pathname === '/api/trash/empty') {
-    if (!rateLimit(`trash-empty:${req.socket.remoteAddress}`, 2)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`trash-empty:${req.caller}`, 2)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       if (!req.context) return json(res, 404, {error: 'Workspace not found'});
       requireWorkspacePermission(req.context, 'content:delete');
@@ -166,7 +166,7 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
 
   // ── Folder: create ──
   if (req.method === 'POST' && pathname === '/api/folder') {
-    if (!rateLimit(`create-folder:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`create-folder:${req.caller}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {path: dirPath} = body;
@@ -184,7 +184,7 @@ module.exports = async function graph_trash_files_routes(req, res, url, pathname
 
   // ── Folder: delete (empty only) ──
   if (req.method === 'DELETE' && pathname === '/api/folder') {
-    if (!rateLimit(`del-folder:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`del-folder:${req.caller}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const {path: dirPath} = body;

@@ -2,7 +2,7 @@
 
 /**
  * Uploaded workspace files (images, PDFs, data), as one interface over either
- * store CONTENT_STORE selects:
+ * store: the workspace file system with PostgreSQL, the legacy store without:
  *
  *   list(context)                     [{id, path, contentType, byteSize, sha256, createdAt}]
  *   read(context, {id} | {path})      {asset, body} or null

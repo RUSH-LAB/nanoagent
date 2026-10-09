@@ -1,5 +1,6 @@
 import React from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import Link from '@docusaurus/Link';
 import {useLocation} from '@docusaurus/router';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import AppProduct from '@site/src/components/AppProduct';
@@ -42,7 +43,14 @@ function MaintenanceNotice({app}) {
 function AppDetail({app, workspace}) {
   const [open, setOpen] = React.useState(false);
   if (app.status !== 'ready') return <MaintenanceNotice app={app} />;
-  if (!open) return <AppProduct app={app} onOpen={() => setOpen(true)} />;
+  if (!open) {
+    return (
+      <AppProduct
+        app={app}
+        actions={<button type="button" className="button button--primary button--lg" onClick={() => setOpen(true)}>Open app</button>}
+      />
+    );
+  }
   return (
     <article className={styles.detail}>
       <header className={styles.detailHeader}>
@@ -66,7 +74,12 @@ function AppsColumns() {
   if (!slug) content = <p className={styles.muted}>Open Plugins from a workspace.</p>;
   else if (error) content = <div className={styles.error}>{error}</div>;
   else if (apps && !apps.length) {
-    content = <p className={styles.muted}>NanoAgent publishes no apps. List plugin directories under <code>plugins</code> in its web config.</p>;
+    content = (
+      <p className={styles.muted}>
+        NanoAgent publishes no apps. List plugin directories under <code>plugins</code> in its web config,
+        or <Link to="/marketplace">browse the marketplace</Link>.
+      </p>
+    );
   } else if (apps && navigation.unknownGroup) {
     content = <div className={styles.error}>No plugin group named {navigation.unknownGroup}.</div>;
   } else if (apps && navigation.requestedApp && !navigation.app) {

@@ -102,7 +102,6 @@ export function prepareNeonEnvironment({
     PG_SSL: values.PG_SSL || 'require',
     PG_SSL_REJECT_UNAUTHORIZED: values.PG_SSL_REJECT_UNAUTHORIZED || 'true',
     ENABLE_AUTH: values.ENABLE_AUTH || 'true',
-    DEV_AUTOLOGIN: values.DEV_AUTOLOGIN || 'false',
     BETTER_AUTH_SECRET: values.BETTER_AUTH_SECRET || randomBytes(32).toString('hex'),
   };
   delete output.PG_DRIVER;
@@ -152,6 +151,7 @@ const commands = Object.freeze({
     const env = loadPostgresEnvironment();
     run(process.execPath, ['tests/integration/postgres/rls-acceptance.mjs'], env);
     run(process.execPath, ['tests/integration/postgres/runtime-acceptance.mjs'], env);
+    run(process.execPath, ['tests/integration/postgres/tenancy-acceptance.mjs'], env);
   },
   serve() {
     run(process.execPath, ['src/server/index.js'], loadPostgresEnvironment());

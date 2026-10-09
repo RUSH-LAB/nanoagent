@@ -123,7 +123,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
   // ── Preprint tracking: batch check all ──
   // ── Recommendations: get paper recommendations based on bibliography ──
   if (req.method === 'GET' && pathname === '/api/recommendations') {
-    if (!rateLimit(`recommendations:${req.socket.remoteAddress}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`recommendations:${req.caller}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const https = require('https');
       const paperRecords = ctx.references.openPapers?.(collection, scopeFor(req));
@@ -228,7 +228,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
     if (workspaceRole && !['owner', 'editor', 'admin'].includes(workspaceRole)) {
       return json(res, 403, {error: 'You do not have permission to add papers'});
     }
-    if (!rateLimit(`add-rec:${req.socket.remoteAddress}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    if (!await rateLimit(`add-rec:${req.caller}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     try {
       const body = await readBody(req);
       const { title, authors, year, venue, url: paperUrl, arxivId } = body;

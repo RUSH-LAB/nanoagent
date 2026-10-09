@@ -19,7 +19,7 @@ describe('Neon PostgreSQL tooling', () => {
     ]) assert.ok(pkg.scripts[script], `${script} is present`);
 
     const acceptance = read('tests/integration/postgres/runtime-acceptance.mjs');
-    assert.match(acceptance, /\/api\/auth\/sign-up\/email/);
+    assert.match(acceptance, /ROOT_GITHUB_LOGIN/);
     assert.match(acceptance, /\/api\/workspaces/);
     assert.match(acceptance, /assertRuntimeRoleIsNotOwner/);
   });

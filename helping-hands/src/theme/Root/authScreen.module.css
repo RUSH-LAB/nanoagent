@@ -76,7 +76,7 @@
   cursor: default;
 }
 
-.googleButton {
+.githubButton {
   display: flex;
   gap: 0.65rem;
   align-items: center;
@@ -91,21 +91,8 @@
   cursor: pointer;
 }
 
-.googleButton span {
-  color: #4285f4;
-  font-size: 1rem;
-  font-weight: 800;
-}
-
-.googleButton:hover:not(:disabled) { background: #f8fafc; border-color: #94a3b8; }
-.googleButton:disabled { opacity: 0.6; cursor: default; }
-
-.rootHint {
-  margin: 0.4rem 0 0;
-  text-align: center;
-  font-size: 0.78rem;
-  color: #94a3b8;
-}
+.githubButton:hover:not(:disabled) { background: #f8fafc; border-color: #94a3b8; }
+.githubButton:disabled { opacity: 0.6; cursor: default; }
 
 /* A rule with the word "or" sitting in a gap in the middle of it. */
 .divider {
@@ -152,40 +139,6 @@
   font-weight: 400;
   color: #0f172a;
   background: #ffffff;
-}
-
-.passwordInput {
-  position: relative;
-  display: flex;
-}
-
-.passwordInput input {
-  width: 100%;
-  padding-right: 3.8rem;
-}
-
-.passwordToggle {
-  position: absolute;
-  top: 50%;
-  right: 0.7rem;
-  padding: 0;
-  border: none;
-  background: none;
-  color: #2568c2;
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-  transform: translateY(-50%);
-}
-
-.passwordToggle:hover {
-  text-decoration: underline;
-}
-
-.passwordToggle:focus-visible {
-  outline: 2px solid #2568c2;
-  outline-offset: 2px;
-  border-radius: 2px;
 }
 
 .field input:focus {

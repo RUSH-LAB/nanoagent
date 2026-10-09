@@ -106,7 +106,7 @@ module.exports = async function agent_routes(req, res, _url, pathname, ctx) {
 
   if (req.method === 'POST' && pathname === '/api/agents') {
     requireWorkspacePermission(req.context, 'content:edit');
-    if (!rateLimit(`agents-write:${req.auth?.userId}`, 30)) {
+    if (!await rateLimit(`agents-write:${req.auth?.userId}`, 30)) {
       return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     }
     try {

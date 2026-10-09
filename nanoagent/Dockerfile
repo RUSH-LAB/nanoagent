@@ -2,6 +2,11 @@ FROM node:22-bookworm-slim
 
 COPY --from=ghcr.io/astral-sh/uv:0.12.22 /uv /uvx /bin/
 
+# uv fetches git-sourced dependencies (slimconfig) with the git executable.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 ENV UV_COMPILE_BYTECODE=1
@@ -23,6 +28,8 @@ RUN cd js/pi-runner \
     && npm prune --omit=dev
 
 COPY deploy ./deploy
+# Offered for download as packages (deploy/railway/nanoagent.yaml), never run in this image.
+COPY plugins ./plugins
 
 ENV PATH="/app/.venv/bin:${PATH}"
 ENV PORT=8787

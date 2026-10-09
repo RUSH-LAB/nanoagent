@@ -439,7 +439,7 @@ export function makeCtx(overrides = {}) {
   const workspaceSettingsLayer = require('../../src/server/workspace-settings.js').createWorkspaceSettings({db: sharedDb});
   const assetLayer = require('../../src/server/assets.js').createAssets({db: sharedDb});
 
-  const calls = {json: [], loadJSON: [], saveJSON: [], rateLimit: [], invalidateCache: [], cached: [], ai: []};
+  const calls = {json: [], loadJSON: [], saveJSON: [], rateLimit: [], invalidateCache: [], cached: [], ai: [], aiUsage: []};
   const cache = {};
   const rateLimits = {};
   const presenceStore = {};
@@ -487,6 +487,17 @@ export function makeCtx(overrides = {}) {
     // something. What it was asked is recorded in calls.ai. A test that needs a
     // refusal replaces the whole object, as makeCtx does for every override:
     // makeCtx({ai: {complete: async () => ({error: '...', status: 503})}}).
+    // The budget check and usage record every assistant call passes through
+    // (server/ai-metering.js). It allows everything and records each charge in
+    // calls.aiUsage; a suite testing a spent budget replaces assertAllowed.
+    aiMeter: {
+      assertAllowed: async () => {},
+      record: async (context, kind, result, {ran}) => {
+        calls.aiUsage.push({context, kind, result, ran});
+      },
+    },
+    // Tenancy (postgres/tenancy.js) exists only with PostgreSQL.
+    tenancy: null,
     ai: {
       complete: async (request) => {
         calls.ai.push(request);
@@ -781,6 +792,8 @@ export async function invoke(routes, opts = {}) {
   };
   const req = {
     method, url: pathname + search, headers, socket: {remoteAddress: '127.0.0.1'}, auth,
+    // What server/index.js sets: the account, or before sign-in the client address.
+    caller: auth?.userId ?? '127.0.0.1',
     context: requestContext,
     setTimeout() { return this; },
     workspacePath: requestContext

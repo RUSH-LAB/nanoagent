@@ -435,9 +435,10 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
         signal: controller.signal,
       });
       if (!response.ok) {
-        // A rejected path, a missing file, a name already taken or a file too large
-        // is the caller's to know about; anything else is ours.
-        const status = [400, 404, 409, 413].includes(response.status) ? response.status : 502;
+        // A rejected path, a missing file, a name already taken, a file too large or
+        // a package that breaks the plugin rules is the caller's to know about;
+        // anything else is ours.
+        const status = [400, 404, 409, 413, 422].includes(response.status) ? response.status : 502;
         return {error: await responseError(response), status};
       }
       return {
@@ -487,7 +488,6 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     }
   }
   const filePath = (workspace, path) => inWorkspace(workspace, `/files/${encodedPath(path)}`);
-  const folderPath = (workspace, path) => inWorkspace(workspace, `/folders/${encodedPath(path)}`);
 
   return Object.freeze({
     complete: request => stream({...request, onDelta: undefined}),
@@ -496,18 +496,20 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     plugins: () => nanoFetch('/v1/plugins'),
     pluginUiFile: (app, path) => nanoFetch(`/v1/plugins/${encodeURIComponent(app)}/ui/${encodedPath(path)}`, {bytes: true}),
     taskRun,
+    // The marketplace: NanoAgent's own plugin packages, and the package it packs
+    // and checks from the plugin at `path` in a repository archive.
+    packages: () => nanoFetch('/v1/packages'),
+    packageFile: id => nanoFetch(`/v1/packages/${encodeURIComponent(id)}`, {bytes: true, waitMs: timeoutMs}),
+    packageSource: (archive, path) => nanoFetch(`/v1/packages/source?path=${encodeURIComponent(path)}`, {
+      method: 'POST', body: archive, contentType: 'application/gzip', waitMs: timeoutMs,
+    }),
     workspaceFiles: workspace => nanoFetch(`/v1/workspaces/${encodeURIComponent(workspace)}/files`),
     workspaceFile: (workspace, path) => nanoFetch(filePath(workspace, path), {bytes: true, waitMs: timeoutMs}),
-    deleteWorkspaceFile: (workspace, path) => nanoFetch(filePath(workspace, path), {method: 'DELETE'}),
     saveWorkspaceFile: (workspace, path, body, {create = false} = {}) => nanoFetch(
       `${filePath(workspace, path)}${create ? '?create=1' : ''}`,
       {method: 'PUT', body, contentType: 'application/octet-stream', waitMs: timeoutMs},
     ),
-    makeWorkspaceFolder: (workspace, path) => nanoFetch(folderPath(workspace, path), {method: 'POST'}),
-    deleteWorkspaceFolder: (workspace, path) => nanoFetch(folderPath(workspace, path), {method: 'DELETE'}),
-    moveWorkspaceEntry: (workspace, from, to) => nanoFetch(inWorkspace(workspace, '/move'), {
-      method: 'POST', body: JSON.stringify({from, to}), contentType: 'application/json',
-    }),
+    deleteWorkspace: workspace => nanoFetch(inWorkspace(workspace, ''), {method: 'DELETE'}),
     describe() {
       const endpoint = endpointFrom(env);
       if (endpoint.error) return {available: false, reason: endpoint.error};
@@ -543,10 +545,7 @@ module.exports = {
   taskRun: gateway.taskRun,
   workspaceFiles: gateway.workspaceFiles,
   workspaceFile: gateway.workspaceFile,
-  deleteWorkspaceFile: gateway.deleteWorkspaceFile,
   saveWorkspaceFile: gateway.saveWorkspaceFile,
-  makeWorkspaceFolder: gateway.makeWorkspaceFolder,
-  deleteWorkspaceFolder: gateway.deleteWorkspaceFolder,
-  moveWorkspaceEntry: gateway.moveWorkspaceEntry,
+  deleteWorkspace: gateway.deleteWorkspace,
   describe: gateway.describe,
 };

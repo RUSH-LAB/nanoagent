@@ -33,7 +33,7 @@ function sampleBoard(id) {
 // rejected request can be proven never to persist.
 async function getWhiteboardNoId(store) {
   const url = new URL('http://localhost/api/whiteboard');
-  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   let captured = null;
   const scoped = newStore().seed('whiteboards', store);
@@ -56,7 +56,7 @@ async function getWhiteboardNoId(store) {
 // only count calls so the missing-id 400 can be proven to fire before either runs.
 async function deleteWhiteboardNoId(store, { rateLimitOk = true } = {}) {
   const url = new URL('http://localhost/api/whiteboard');
-  const req = { method: 'DELETE', socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method: 'DELETE', socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   let captured = null;
   const scoped = newStore().seed('whiteboards', store);
@@ -100,7 +100,7 @@ describe('DELETE /api/whiteboard missing-id guard in routes/misc-tools.js', () =
     // The rate limiter is consulted first with the delete-specific key and limit,
     // and it allowed the request, so this 400 is the id guard, not the 429.
     assert.equal(rateLimitCalls.length, 1);
-    assert.deepEqual(rateLimitCalls[0], { key: 'whiteboard-del:127.0.0.1', limit: 30 });
+    assert.deepEqual(rateLimitCalls[0], { key: 'whiteboard-del:test-user', limit: 30 });
     // The missing-id 400 short-circuits before the store is read or written.
     assert.equal(loadCalls, 0);
     assert.equal(saveCalls, 0);
@@ -115,7 +115,7 @@ describe('DELETE /api/whiteboard missing-id guard in routes/misc-tools.js', () =
     // returns 429 without ever loading or saving the store. That ordering is why
     // the missing-id 400 above is stated for the rate-limiter-allowing case.
     assert.equal(rateLimitCalls.length, 1);
-    assert.deepEqual(rateLimitCalls[0], { key: 'whiteboard-del:127.0.0.1', limit: 30 });
+    assert.deepEqual(rateLimitCalls[0], { key: 'whiteboard-del:test-user', limit: 30 });
     assert.equal(loadCalls, 0);
     assert.equal(saveCalls, 0);
   });

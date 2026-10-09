@@ -111,7 +111,7 @@ describe('POST /api/bookmarks', () => {
     const ctx = makeCtx({rateLimitAllow: false, readBody: async () => { reads++; return {}; }});
     const r = await invoke(routes, {method: 'POST', path: '/api/bookmarks', ctx});
     assert.equal(r.status, 429);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'bookmarks:127.0.0.1', maxPerMinute: 30}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'bookmarks:test-user', maxPerMinute: 30}]);
     assert.equal(reads, 0);
   });
 
@@ -310,7 +310,7 @@ describe('POST /api/reading-lists (create)', () => {
     const ctx = makeCtx({rateLimitAllow: false});
     const r = await invoke(routes, {method: 'POST', path: '/api/reading-lists', ctx});
     assert.equal(r.status, 429);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'reading-lists:127.0.0.1', maxPerMinute: 30}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'reading-lists:test-user', maxPerMinute: 30}]);
     assert.deepEqual(ctx.calls.loadJSON, []);
   });
 
@@ -396,7 +396,7 @@ describe('POST /api/reading-lists/:id/items (add)', () => {
     const ctx = makeCtx({rateLimitAllow: false, readBody: async () => { reads++; return {}; }});
     const r = await invoke(routes, {method: 'POST', path: ITEMS_PATH, ctx});
     assert.equal(r.status, 429);
-    assert.deepEqual(ctx.calls.rateLimit, [{key: 'rl-items:127.0.0.1', maxPerMinute: 60}]);
+    assert.deepEqual(ctx.calls.rateLimit, [{key: 'rl-items:test-user', maxPerMinute: 60}]);
     assert.equal(reads, 0);
   });
 

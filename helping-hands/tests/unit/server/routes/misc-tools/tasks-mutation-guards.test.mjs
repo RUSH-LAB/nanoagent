@@ -55,7 +55,7 @@ async function runTasks({
   };
   const pathname = '/api/tasks';
   const url = new URL(`http://localhost${pathname}`);
-  const req = { method, socket: { remoteAddress: '127.0.0.1' } };
+  const req = { method, socket: { remoteAddress: '127.0.0.1' }, caller: 'test-user' };
   const res = { writableEnded: false };
   await routes(req, res, url, pathname, ctx);
   return {
@@ -76,7 +76,7 @@ describe('POST /api/tasks guard branches in routes/misc-tools.js', () => {
     assert.equal(r.loadJSONCount, 0);
     assert.equal(r.saved.length, 0);
     assert.equal(r.rateLimitCalls.length, 1);
-    assert.deepEqual(r.rateLimitCalls[0], { key: 'tasks:127.0.0.1', limit: 60 });
+    assert.deepEqual(r.rateLimitCalls[0], { key: 'tasks:test-user', limit: 60 });
   });
 
   it('an omitted title returns 400 Missing title, reads the body once, never loads or saves', async () => {
@@ -128,7 +128,7 @@ describe('PUT /api/tasks guard branches in routes/misc-tools.js', () => {
     assert.equal(r.loadJSONCount, 0);
     assert.equal(r.saved.length, 0);
     assert.equal(r.rateLimitCalls.length, 1);
-    assert.deepEqual(r.rateLimitCalls[0], { key: 'tasks:127.0.0.1', limit: 60 });
+    assert.deepEqual(r.rateLimitCalls[0], { key: 'tasks:test-user', limit: 60 });
   });
 
   it('an omitted id returns 400 Missing id, reads the body once, never loads or saves', async () => {
@@ -185,7 +185,7 @@ describe('DELETE /api/tasks guard branches in routes/misc-tools.js', () => {
     assert.equal(r.rateLimitCalls.length, 1);
     // The DELETE limiter is distinct from POST and PUT: key 'tasks-del:' with
     // limit 30, not 'tasks:' with limit 60.
-    assert.deepEqual(r.rateLimitCalls[0], { key: 'tasks-del:127.0.0.1', limit: 30 });
+    assert.deepEqual(r.rateLimitCalls[0], { key: 'tasks-del:test-user', limit: 30 });
   });
 
   it('an omitted id returns 400 Missing id, reads the body once, never loads or saves', async () => {

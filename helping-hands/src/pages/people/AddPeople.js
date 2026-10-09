@@ -71,7 +71,7 @@ export default function AddPeople({call, onResult, onChanged, onClose}) {
         </button>
       </form>
       <p className={dir.note}>
-        The recipient creates their own account and password before accepting.
+        The recipient accepts by signing in with a GitHub account whose primary email is the invited address.
       </p>
       {invited && (
         <p className={styles.linkRow}>

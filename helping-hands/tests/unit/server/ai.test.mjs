@@ -355,3 +355,22 @@ describe('NanoAgent plugin API', () => {
     assert.deepEqual(await gateway.plugins(), {error: 'Could not reach NanoAgent.', status: 502});
   });
 });
+
+describe('NanoAgent plugin packages', () => {
+  it('sends a repository archive to be packed and relays why it is refused', async () => {
+    const sent = [];
+    const gateway = ai.createNanoAgentGateway({
+      env: {NANOAGENT_URL: 'https://agent.internal', NANOAGENT_API_TOKEN: 'secret'},
+      fetchImpl: async (url, init) => {
+        sent.push({url, init});
+        return response([], {status: 422, error: 'the package is refused: missing LICENSE'});
+      },
+    });
+    const refused = await gateway.packageSource(Buffer.from('archive'), 'plugins/my notes');
+    assert.deepEqual(refused, {error: 'the package is refused: missing LICENSE', status: 422});
+    assert.equal(sent[0].url, 'https://agent.internal/v1/packages/source?path=plugins%2Fmy%20notes');
+    assert.equal(sent[0].init.method, 'POST');
+    assert.equal(sent[0].init.headers['Content-Type'], 'application/gzip');
+    assert.equal(sent[0].init.headers.Authorization, 'Bearer secret');
+  });
+});

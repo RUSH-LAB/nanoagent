@@ -26,7 +26,7 @@ module.exports = async function public_routes(req, res, url, pathname, ctx) {
   if (req.method !== 'GET') return json(res, 405, {error: 'Public content is read-only'});
   if (!publicFs) {
     return json(res, 409, {
-      error: 'Publishing needs the workspace file system (CONTENT_STORE=fs)', code: 'fs-disabled',
+      error: 'Publishing needs the workspace file system, which needs PostgreSQL (DATABASE_URL)', code: 'fs-disabled',
     });
   }
   let slug;

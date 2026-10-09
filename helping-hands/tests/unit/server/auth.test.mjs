@@ -2,8 +2,8 @@
  * server/auth.js: the single place the API decides who is calling.
  *
  * The enabled-mode cases are not mocked. They stand up a real Better Auth
- * instance over a throwaway SQLite file, sign a real account up through the
- * real endpoint, and hand the resulting token back to resolveIdentity. That is
+ * instance over a throwaway SQLite file, create GitHub accounts and sessions
+ * through its own adapter, and hand the session cookie back to resolveIdentity. That is
  * worth the few milliseconds: the thing most likely to break here is the wiring
  * between Better Auth, the schema in migrations/, and the identity shape the
  * handlers destructure, and none of that is exercised by a stub.
@@ -17,6 +17,7 @@ import {createRequire} from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {githubAccount, sessionCookie} from './_github-account.mjs';
 
 const require = createRequire(import.meta.url);
 const AUTH_PATH = require.resolve('../../../src/server/auth.js');
@@ -25,7 +26,7 @@ const DB_PATH = require.resolve('../../../src/server/db.js');
 /** Load a fresh copy of server/auth.js (and its db) under the given environment. */
 function loadAuth(env) {
   const saved = {};
-  for (const k of ['ENABLE_AUTH', 'DATABASE_FILE', 'BETTER_AUTH_SECRET']) saved[k] = process.env[k];
+  for (const k of ['ENABLE_AUTH', 'DATABASE_FILE', 'BETTER_AUTH_SECRET', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET']) saved[k] = process.env[k];
   for (const [k, v] of Object.entries(env)) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
@@ -45,7 +46,7 @@ function loadAuth(env) {
 }
 
 const req = headers => ({headers});
-const cookieFrom = result => result.headers.getSetCookie()[0].split(';')[0];
+const GITHUB = {GITHUB_CLIENT_ID: 'test-client', GITHUB_CLIENT_SECRET: 'test-secret'};
 const disabled = loadAuth({ENABLE_AUTH: undefined, DATABASE_FILE: undefined});
 
 describe('isPublicPath', () => {
@@ -57,7 +58,7 @@ describe('isPublicPath', () => {
 
   // Gating sign-in behind sign-in would lock everybody out, so the whole Better
   // Auth prefix is public and does its own authorization.
-  for (const p of ['/api/auth/sign-in/email', '/api/auth/sign-up/email', '/api/auth/get-session']) {
+  for (const p of ['/api/auth/sign-in/social', '/api/auth/callback/github', '/api/auth/device/token', '/api/auth/get-session']) {
     it(`treats ${p} as public, because that is where a caller goes to get a session`, () => {
       assert.equal(disabled.isPublicPath(p), true);
     });
@@ -161,18 +162,11 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
       ENABLE_AUTH: 'true',
       DATABASE_FILE: dbFile,
       BETTER_AUTH_SECRET: 'test-secret-'.padEnd(48, 'x'),
+      ...GITHUB,
     });
 
-    const signUp = async (username, email) => {
-      const res = await enabled.auth.api.signUpEmail({
-        body: {email, password: 'correcthorsebattery', name: username},
-        returnHeaders: true,
-      });
-      const body = res.response ?? res;
-      return {id: body.user.id, cookie: cookieFrom(res)};
-    };
-    alice = await signUp('alice', 'alice@test.invalid');
-    bob = await signUp('bob', 'bob@test.invalid');
+    alice = await githubAccount(enabled.auth, 'alice');
+    bob = await githubAccount(enabled.auth, 'bob');
   });
 
   after(() => {
@@ -187,7 +181,7 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
 
   it('created real rows in the SQL database', () => {
     assert.ok(alice.id, 'alice has a generated id');
-    assert.match(alice.cookie, /^better-auth\.session_token=/, 'sign-up set a session cookie');
+    assert.match(alice.cookie, /^better-auth\.session_token=/, 'the session is a session cookie');
     assert.notEqual(alice.id, bob.id, 'two accounts are two users');
   });
 
@@ -228,13 +222,7 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
   }
 
   it('rejects a token belonging to a revoked session', async () => {
-    const {cookie, id} = await (async () => {
-      const res = await enabled.auth.api.signUpEmail({
-        body: {email: 'carol@test.invalid', password: 'correcthorsebattery', name: 'carol'},
-        returnHeaders: true,
-      });
-      return {cookie: cookieFrom(res), id: res.response.user.id};
-    })();
+    const {cookie, id} = await githubAccount(enabled.auth, 'carol');
 
     const before = await enabled.resolveIdentity(req({cookie}));
     assert.equal(before.identity.userId, id, 'the session works to begin with');
@@ -250,29 +238,56 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
     assert.equal(enabled.auth.api.signInUsername, undefined);
   });
 
-  it('refuses the wrong password', async () => {
+  // GitHub is the only way in.
+  it('refuses email and password sign-up and sign-in', async () => {
     await assert.rejects(
-      () => enabled.auth.api.signInEmail({body: {email: 'alice@test.invalid', password: 'not-the-password'}}),
+      () => enabled.auth.api.signUpEmail({body: {email: 'mallory@test.invalid', password: 'correcthorsebattery', name: 'mallory'}}),
+    );
+    await assert.rejects(
+      () => enabled.auth.api.signInEmail({body: {email: 'alice@test.invalid', password: 'correcthorsebattery'}}),
+    );
+  });
+
+  // The command-line client's way in: a device code, approved by a browser
+  // session, exchanged for a bearer token.
+  it('signs the command-line client in through an approved device code', async () => {
+    const code = await enabled.auth.api.deviceCode({body: {client_id: 'mochi-cli'}});
+    assert.match(code.verification_uri, /\/device$/);
+    await enabled.auth.api.deviceVerify({query: {user_code: code.user_code}, headers: {cookie: alice.cookie}});
+    await enabled.auth.api.deviceApprove({body: {userCode: code.user_code}, headers: {cookie: alice.cookie}});
+    const token = await enabled.auth.api.deviceToken({body: {
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code', device_code: code.device_code, client_id: 'mochi-cli',
+    }});
+    const result = await enabled.resolveIdentity(req({authorization: `Bearer ${token.access_token}`}));
+    assert.equal(result.identity.userId, alice.id);
+  });
+
+  it('refuses a device code to any other client', async () => {
+    await assert.rejects(() => enabled.auth.api.deviceCode({body: {client_id: 'someone-else'}}));
+  });
+
+  it('offers GitHub as its only social provider', () => {
+    assert.deepEqual(Object.keys(enabled.auth.options.socialProviders), ['github']);
+  });
+
+  it('copies the GitHub profile onto the account at every sign-in', () => {
+    assert.equal(enabled.auth.options.socialProviders.github.overrideUserInfoOnSignIn, true);
+  });
+
+  // The address an account gets is trusted by invitations and the sign-up
+  // policy, so GitHub must have verified it.
+  it('refuses to create an account whose email GitHub has not verified', async () => {
+    const {internalAdapter} = await enabled.auth.$context;
+    await assert.rejects(
+      () => internalAdapter.createUser({name: 'mallory', email: 'mallory@test.invalid', emailVerified: false}),
+      /Verify your primary email address on GitHub/,
     );
   });
 
   // These three use their own accounts rather than alice and bob, so that
   // creating an organization here cannot change what the assertions above,
   // which expect an account in none, resolve to.
-  const account = async (name) => {
-    const res = await enabled.auth.api.signUpEmail({
-      body: {email: `${name}@test.invalid`, password: 'correcthorsebattery', name},
-      returnHeaders: true,
-    });
-    return {id: res.response.user.id, cookie: cookieFrom(res)};
-  };
-  const signIn = async (name) => {
-    const result = await enabled.auth.api.signInEmail({
-      body: {email: `${name}@test.invalid`, password: 'correcthorsebattery'},
-      returnHeaders: true,
-    });
-    return cookieFrom(result);
-  };
+  const account = name => githubAccount(enabled.auth, name);
 
   // Better Auth leaves the active organization unset until something calls
   // set-active, and everything under /api/chat needs one, so a session opens in
@@ -282,7 +297,7 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
     const org = await enabled.auth.api.createOrganization({
       body: {name: 'Dana Co', slug: 'dana-co', userId: dana.id},
     });
-    const result = await enabled.resolveIdentity(req({cookie: await signIn('dana')}));
+    const result = await enabled.resolveIdentity(req({cookie: await sessionCookie(enabled.auth, dana.id)}));
     assert.equal(result.identity.orgId, org.id);
     assert.equal(result.identity.orgRole, 'owner', 'with the role the membership gives');
   });
@@ -322,6 +337,17 @@ describe('orgRoleFor', () => {
   });
 });
 
+describe('loading with ENABLE_AUTH=true', () => {
+  for (const missing of ['GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET']) {
+    it(`refuses to load without ${missing}`, () => {
+      assert.throws(
+        () => loadAuth({ENABLE_AUTH: 'true', DATABASE_FILE: undefined, ...GITHUB, [missing]: undefined}),
+        /GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET/,
+      );
+    });
+  }
+});
+
 describe('ENABLE_AUTH parsing', () => {
   // Only the exact string 'true' turns authentication on, so a stray value can
   // never half-enable it.
@@ -336,6 +362,8 @@ describe('productionAuthError', () => {
   const configured = {
     NODE_ENV: 'production',
     ENABLE_AUTH: 'true',
+    ...GITHUB,
+    ROOT_GITHUB_LOGIN: 'root-login',
     MAIL_WEBHOOK_URL: 'https://mail.example.test/send',
     BETTER_AUTH_SECRET: 'production-test-secret'.padEnd(48, 'x'),
     SITE_URL: 'https://mochi.example.test',
@@ -353,9 +381,19 @@ describe('productionAuthError', () => {
     });
   }
 
+  for (const missing of ['GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET']) {
+    it(`requires ${missing} in production`, () => {
+      assert.match(disabled.productionAuthError({...configured, [missing]: undefined}), /GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET/);
+    });
+  }
+
+  it('requires ROOT_GITHUB_LOGIN in production', () => {
+    assert.match(disabled.productionAuthError({...configured, ROOT_GITHUB_LOGIN: ' '}), /ROOT_GITHUB_LOGIN/);
+  });
+
   it('requires transactional email in production', () => {
     assert.match(
-      disabled.productionAuthError({NODE_ENV: 'production', ENABLE_AUTH: 'true'}),
+      disabled.productionAuthError({...configured, MAIL_WEBHOOK_URL: undefined}),
       /RESEND_API_KEY.*MAIL_FROM.*MAIL_WEBHOOK_URL/,
     );
   });
@@ -392,7 +430,7 @@ describe('productionAuthError', () => {
     }), /DATABASE_MIGRATION_URL/);
   });
 
-  it('permits production once authentication and email are configured', () => {
+  it('permits production once authentication, GitHub, and email are configured', () => {
     assert.equal(disabled.productionAuthError(configured), null);
   });
 

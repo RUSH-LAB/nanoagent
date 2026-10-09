@@ -1,14 +1,12 @@
 /**
- * server/dev-auth.js: the root account and the passwordless local sign-in.
+ * server/dev-auth.js: the root account and the development workspace on SQLite.
  *
- * This is the one place in the codebase that hands out a session without a
- * password, so the tests that matter most are the ones proving it refuses. Each
- * of the three guards is checked on its own, because a guard that only works
- * while the other two also hold is a guard that will be removed by someone
- * "simplifying" it.
+ * Root is the GitHub account named by ROOT_GITHUB_LOGIN. GitHub's API is the
+ * one part replaced, by a fake that answers for the profiles a test names;
+ * everything from the account rows to the session is the real Better Auth.
  *
- * The module reads its flags once at load, so each configuration is a fresh
- * require.
+ * The modules read their configuration once at load, so each configuration is
+ * a fresh require.
  */
 import {describe, it, before, after} from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,6 +14,7 @@ import {createRequire} from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {sessionCookie} from './_github-account.mjs';
 
 const require = createRequire(import.meta.url);
 const DEV_AUTH_PATH = require.resolve('../../../src/server/dev-auth.js');
@@ -28,12 +27,11 @@ const CHAT_PATH = require.resolve('../../../src/server/chat.js');
 const MODULE_PATHS = [DEV_AUTH_PATH, AUTH_PATH, DB_PATH, ROLES_PATH, CHAT_PATH];
 
 const ENV_KEYS = [
-  'DEV_AUTOLOGIN', 'NODE_ENV', 'DATABASE_FILE', 'BETTER_AUTH_SECRET',
-  'ENABLE_AUTH', 'ROOT_PASSWORD', 'ROOT_USERNAME', 'ROOT_EMAIL',
+  'NODE_ENV', 'DATABASE_FILE', 'BETTER_AUTH_SECRET', 'ENABLE_AUTH', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET',
 ];
 
-/** Load fresh copies of dev-auth (and, on request, auth/db) under `env`. */
-function load(env, {withAuth = false} = {}) {
+/** Load fresh copies of dev-auth, auth, and db under `env`. */
+function load(env) {
   const saved = Object.fromEntries(ENV_KEYS.map(k => [k, process.env[k]]));
   for (const [k, v] of Object.entries(env)) {
     if (v === undefined) delete process.env[k];
@@ -42,12 +40,12 @@ function load(env, {withAuth = false} = {}) {
   for (const p of MODULE_PATHS) delete require.cache[p];
   try {
     const devAuth = require('../../../src/server/dev-auth.js');
-    const auth = withAuth ? require('../../../src/server/auth.js').auth : null;
+    const auth = require('../../../src/server/auth.js').auth;
     // Required here, not by the caller: the finally below restores the
     // environment, so a later require would load db.js against the default
     // DATABASE_FILE and read a different database than the one under test.
-    const roles = withAuth ? require('../../../src/server/roles.js') : null;
-    const db = withAuth ? require('../../../src/server/db.js').db : null;
+    const roles = require('../../../src/server/roles.js');
+    const db = require('../../../src/server/db.js').db;
     return {devAuth, auth, roles, db};
   } finally {
     for (const [k, v] of Object.entries(saved)) {
@@ -58,93 +56,18 @@ function load(env, {withAuth = false} = {}) {
   }
 }
 
-/** A request from `address`, shaped the way node's http server presents one. */
-const reqFrom = address => ({socket: {remoteAddress: address}, headers: {}});
-
-/** Capture what a handler passes to json(res, status, body). */
-function capture() {
-  const calls = [];
-  return {calls, json: (_res, status, body) => { calls.push({status, body}); }};
+/** GitHub's users API, knowing only `profiles`. */
+function fakeGithub(...profiles) {
+  return async url => {
+    const profile = profiles.find(p => url.endsWith(`/users/${p.login}`));
+    return profile
+      ? {ok: true, status: 200, json: async () => profile}
+      : {ok: false, status: 404, json: async () => ({message: 'Not Found'})};
+  };
 }
 
-describe('DEV_AUTOLOGIN', () => {
-  it('is off when the flag is unset', () => {
-    assert.equal(load({DEV_AUTOLOGIN: undefined}).devAuth.DEV_AUTOLOGIN, false);
-  });
-
-  it('is on for exactly the string "true" outside production', () => {
-    assert.equal(load({DEV_AUTOLOGIN: 'true', NODE_ENV: undefined}).devAuth.DEV_AUTOLOGIN, true);
-  });
-
-  // A production build must not be one stray variable away from giving out
-  // sessions, so NODE_ENV overrides the flag rather than merely warning.
-  it('is off in production even with the flag set', () => {
-    assert.equal(load({DEV_AUTOLOGIN: 'true', NODE_ENV: 'production'}).devAuth.DEV_AUTOLOGIN, false);
-  });
-
-  for (const value of ['1', 'yes', 'TRUE', 'false', '']) {
-    it(`stays off for DEV_AUTOLOGIN=${JSON.stringify(value)}`, () => {
-      assert.equal(load({DEV_AUTOLOGIN: value, NODE_ENV: undefined}).devAuth.DEV_AUTOLOGIN, false);
-    });
-  }
-});
-
-describe('isLoopback', () => {
-  const LOCAL = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
-  for (const addr of LOCAL) {
-    it(`accepts ${addr}`, () => {
-      assert.equal(load({}).devAuth.isLoopback(reqFrom(addr)), true);
-    });
-  }
-
-  // 127.0.0.2 is loopback by netmask but is not what node reports for a normal
-  // local connection, and accepting a whole /8 widens the door for no gain.
-  const REMOTE = ['192.168.1.10', '10.0.0.5', '::ffff:192.168.1.10', '203.0.113.7', '127.0.0.2', undefined];
-  for (const addr of REMOTE) {
-    it(`rejects ${String(addr)}`, () => {
-      assert.equal(load({}).devAuth.isLoopback(reqFrom(addr)), false);
-    });
-  }
-
-  it('rejects a request with no socket at all', () => {
-    assert.equal(load({}).devAuth.isLoopback({headers: {}}), false);
-  });
-});
-
-describe('handleDevLogin refuses', () => {
-  it('answers 404 when auto-login is off, revealing nothing about the route', async () => {
-    const {devAuth} = load({DEV_AUTOLOGIN: undefined});
-    const {calls, json} = capture();
-    await devAuth.handleDevLogin(reqFrom('127.0.0.1'), {}, null, json);
-    assert.equal(calls[0].status, 404);
-    assert.deepEqual(calls[0].body, {error: 'Not found', path: '/api/dev-login'});
-  });
-
-  it('answers 404 in production even with the flag set', async () => {
-    const {devAuth} = load({DEV_AUTOLOGIN: 'true', NODE_ENV: 'production'});
-    const {calls, json} = capture();
-    await devAuth.handleDevLogin(reqFrom('127.0.0.1'), {}, null, json);
-    assert.equal(calls[0].status, 404);
-  });
-
-  // The flag being on is not enough: a machine reachable from the network must
-  // not hand a root session to whoever asks.
-  it('answers 403 to a non-loopback caller with the flag on', async () => {
-    const {devAuth} = load({DEV_AUTOLOGIN: 'true', NODE_ENV: undefined});
-    const {calls, json} = capture();
-    await devAuth.handleDevLogin(reqFrom('192.168.1.50'), {}, null, json);
-    assert.equal(calls[0].status, 403);
-    assert.match(calls[0].body.error, /localhost only/);
-  });
-
-  it('never reaches the auth API on a refused request', async () => {
-    const {devAuth} = load({DEV_AUTOLOGIN: 'true', NODE_ENV: undefined});
-    const {json} = capture();
-    // A null `auth` would throw if the handler touched it; a clean return proves
-    // the guard rejected before any sign-in was attempted.
-    await devAuth.handleDevLogin(reqFrom('8.8.8.8'), {}, null, json);
-  });
-});
+const ROOT = {id: 4242, login: 'root-login', name: 'Root Person', email: null, avatar_url: 'https://avatars.test/4242'};
+const asRoot = {login: ROOT.login, fetchImpl: fakeGithub(ROOT)};
 
 describe('the no-auth development identity', () => {
   it('gets a real owner membership without bypassing workspace authorization', () => {
@@ -153,7 +76,7 @@ describe('the no-auth development identity', () => {
       const {devAuth, db} = load({
         DATABASE_FILE: path.join(dir, 'development.db'),
         BETTER_AUTH_SECRET: 'test-secret-'.padEnd(48, 'd'),
-      }, {withAuth: true});
+      });
       const first = devAuth.ensureDevelopmentWorkspace();
       const second = devAuth.ensureDevelopmentWorkspace();
       assert.equal(second.id, first.id, 'provisioning is idempotent');
@@ -183,51 +106,66 @@ describe('the root account', () => {
   before(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-root-'));
     ({devAuth, auth, roles, db} = load({
-      DEV_AUTOLOGIN: 'true',
       NODE_ENV: undefined,
       ENABLE_AUTH: 'true',
+      GITHUB_CLIENT_ID: 'test-client',
+      GITHUB_CLIENT_SECRET: 'test-secret',
       DATABASE_FILE: path.join(dir, 'root.db'),
       BETTER_AUTH_SECRET: 'test-secret-'.padEnd(48, 'y'),
-      ROOT_PASSWORD: 'root-test-password',
-      ROOT_EMAIL: 'root@test.invalid',
-    }, {withAuth: true}));
+    }));
   });
 
   after(() => {
     try { fs.rmSync(dir, {recursive: true, force: true}); } catch { /* already gone */ }
   });
 
-  it('is created on the first call, as a real row', async () => {
-    const report = await devAuth.ensureRootUser(auth);
-    assert.equal(report.created, true);
-    assert.equal(report.username, 'root');
-    assert.ok(report.userId, 'has a generated id');
+  /** The GitHub account id root's user signs in with. */
+  const githubIdOf = userId => db
+    .prepare('SELECT accountId FROM account WHERE userId = ? AND providerId = ?').get(userId, 'github')?.accountId;
+
+  it('needs ROOT_GITHUB_LOGIN', async () => {
+    await assert.rejects(() => devAuth.ensureRootUser(auth, {login: '', fetchImpl: fakeGithub()}), /ROOT_GITHUB_LOGIN/);
   });
 
-  // Every restart after the first takes the sign-in path instead, which is the
-  // branch that broke first in development.
+  it('fails when GitHub has no such user', async () => {
+    await assert.rejects(
+      () => devAuth.ensureRootUser(auth, {login: 'nobody-here', fetchImpl: fakeGithub(ROOT)}),
+      /GitHub has no user nobody-here/,
+    );
+  });
+
+  it('is created on the first call, tied to the GitHub account id', async () => {
+    const report = await devAuth.ensureRootUser(auth, asRoot);
+    assert.equal(report.created, true);
+    assert.equal(report.login, ROOT.login);
+    assert.equal(githubIdOf(report.userId), String(ROOT.id));
+    const user = db.prepare('SELECT name, email, emailVerified FROM "user" WHERE id = ?').get(report.userId);
+    assert.deepEqual(user, {name: ROOT.name, email: '4242+root-login@users.noreply.github.com', emailVerified: 1});
+  });
+
   it('is reused, not recreated, on a second call', async () => {
-    const first = await devAuth.ensureRootUser(auth);
-    const second = await devAuth.ensureRootUser(auth);
+    const first = await devAuth.ensureRootUser(auth, asRoot);
+    const second = await devAuth.ensureRootUser(auth, asRoot);
     assert.equal(second.created, false, 'the account already existed');
     assert.equal(second.userId, first.userId, 'and it is the same account');
   });
 
-  it('can sign in with the password it was created with', async () => {
-    const result = await auth.api.signInEmail({
-      body: {email: 'root@test.invalid', password: 'root-test-password'},
-    });
-    assert.ok(result.token, 'root is an ordinary account with a working password');
+  // A login can be renamed and claimed by someone else; the id cannot.
+  it('follows the GitHub account id, not the login', async () => {
+    const first = await devAuth.ensureRootUser(auth, asRoot);
+    const renamed = {...ROOT, login: 'root-renamed'};
+    const again = await devAuth.ensureRootUser(auth, {login: renamed.login, fetchImpl: fakeGithub(renamed)});
+    assert.equal(again.userId, first.userId);
   });
 
   it('grants root the platform administrator role', async () => {
-    const report = await devAuth.ensureRootUser(auth);
+    const report = await devAuth.ensureRootUser(auth, asRoot);
     assert.equal(roles.getRole(report.userId), 'admin');
   });
 
   it('reports no change when root is already a platform administrator', async () => {
-    await devAuth.ensureRootUser(auth);
-    const again = await devAuth.ensureRootUser(auth);
+    await devAuth.ensureRootUser(auth, asRoot);
+    const again = await devAuth.ensureRootUser(auth, asRoot);
     assert.equal(again.grantedPlatformAdmin, false);
   });
 
@@ -235,28 +173,33 @@ describe('the root account', () => {
   // takes the role with it. The JSON store had no such link, which is how three
   // owners accumulated for a root that only ever existed once.
   it('leaves no orphan role behind when the account is deleted', async () => {
-    const report = await devAuth.ensureRootUser(auth);
+    const report = await devAuth.ensureRootUser(auth, asRoot);
     assert.equal(roles.getRole(report.userId), 'admin');
     db.prepare('DELETE FROM "user" WHERE id = ?').run(report.userId);
     assert.equal(roles.getRole(report.userId), 'user', 'the role went with the user');
     assert.equal(roles.adminCount(), 0, 'and left no administrator row behind');
   });
 
-  it('hands out a session to a loopback caller', async () => {
-    await devAuth.ensureRootUser(auth);
-    const {calls, json} = capture();
-    const headers = {};
-    const res = {setHeader: (name, value) => { headers[name] = value; }};
-    await devAuth.handleDevLogin(reqFrom('127.0.0.1'), res, auth, json);
-    assert.equal(calls[0].status, 200);
-    assert.equal('token' in calls[0].body, false, 'the session is not readable by JavaScript');
-    assert.match(headers['Set-Cookie'][0], /HttpOnly/, 'the session is an HttpOnly cookie');
-    assert.equal(calls[0].body.user.name, devAuth.ROOT_NAME);
+  // Somebody who already has root's public GitHub email, say from before
+  // GitHub was the only sign-in, becomes root rather than gaining a twin.
+  it('links GitHub to a verified account that already has root\'s email', async () => {
+    const withEmail = {...ROOT, id: 5151, login: 'root-with-email', email: 'Root@Example.test'};
+    const {internalAdapter} = await auth.$context;
+    const existing = await internalAdapter.createUser({name: 'Old Root', email: 'root@example.test', emailVerified: true});
+    const report = await devAuth.ensureRootUser(auth, {login: withEmail.login, fetchImpl: fakeGithub(withEmail)});
+    assert.equal(report.userId, existing.id);
+    assert.equal(githubIdOf(existing.id), '5151');
   });
 
-  it('creates nothing at all when auto-login is off', async () => {
-    const off = load({DEV_AUTOLOGIN: undefined}).devAuth;
-    assert.equal(await off.ensureRootUser(auth), null);
+  it('refuses to link GitHub to an unverified account with root\'s email', async () => {
+    const withEmail = {...ROOT, id: 6161, login: 'root-unverified', email: 'unverified@example.test'};
+    const at = new Date().toISOString();
+    db.prepare('INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, ?, ?)')
+      .run('unverified-user', 'Unverified', 'unverified@example.test', at, at);
+    await assert.rejects(
+      () => devAuth.ensureRootUser(auth, {login: withEmail.login, fetchImpl: fakeGithub(withEmail)}),
+      /An unverified account already uses unverified@example.test/,
+    );
   });
 
   /** The id of the organization with `slug`, whichever of the two it is. */
@@ -266,7 +209,7 @@ describe('the root account', () => {
   // this a fresh database answers 409 to every chat endpoint and the CLI opens
   // on an empty rail.
   it('gives root an organization with a #general in it', async () => {
-    await devAuth.ensureRootUser(auth);
+    await devAuth.ensureRootUser(auth, asRoot);
     const channels = db
       .prepare('SELECT name, kind FROM channel WHERE organizationId = ?')
       .all(orgIdOf(devAuth.ROOT_ORG_SLUG));
@@ -274,24 +217,17 @@ describe('the root account', () => {
   });
 
   it('provisions the workspace once, not on every start', async () => {
-    const again = await devAuth.ensureRootUser(auth);
+    const again = await devAuth.ensureRootUser(auth, asRoot);
     assert.equal(again.workspace.created, false, 'the workspace was already there');
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM channel').get().n, 1,
       'root keeps exactly one lifecycle-provisioned channel');
   });
 
-  // The whole point of provisioning it: the one-click sign-in lands somewhere
-  // with something in it.
-  it('signs root in to its workspace', async () => {
-    await devAuth.ensureRootUser(auth);
-    const {calls, json} = capture();
-    const headers = {};
-    const res = {setHeader: (name, value) => { headers[name] = value; }};
-    await devAuth.handleDevLogin(reqFrom('127.0.0.1'), res, auth, json);
-
-    const session = await auth.api.getSession({
-      headers: {cookie: headers['Set-Cookie'][0].split(';')[0]},
-    });
+  // The whole point of provisioning it: root's sign-in lands somewhere with
+  // something in it.
+  it('opens root\'s sessions in its workspace', async () => {
+    const {userId} = await devAuth.ensureRootUser(auth, asRoot);
+    const session = await auth.api.getSession({headers: {cookie: await sessionCookie(auth, userId)}});
     assert.equal(session.session.activeOrganizationId, orgIdOf(devAuth.ROOT_ORG_SLUG));
   });
 });

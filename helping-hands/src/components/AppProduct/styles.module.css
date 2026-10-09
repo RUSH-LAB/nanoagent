@@ -66,8 +66,14 @@
   color: var(--ifm-color-emphasis-700);
 }
 
-.open {
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
   margin-top: 1.5rem;
+}
+
+.actions :global(.button) {
   border-radius: 999px;
 }
 

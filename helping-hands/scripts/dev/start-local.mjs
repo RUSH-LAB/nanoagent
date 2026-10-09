@@ -21,8 +21,6 @@ export function environmentFor({base = process.env, envFile = localEnvFile} = {}
     throw new Error('Run npm run db:postgres:setup before npm start');
   }
   env.ENABLE_AUTH = 'true';
-  env.DEV_AUTOLOGIN = 'false';
-  env.POSTGRES_ROOT_LOGIN = 'true';
   return env;
 }
 
@@ -73,6 +71,8 @@ export function nanoagentWebArgs(env = process.env) {
     `port=${nanoagentPort}`,
     'api_token=null',
     `plugins=${JSON.stringify(nanoagentPluginsFrom(env))}`,
+    // The same plugins, offered for download in the marketplace (/marketplace).
+    `packages=${JSON.stringify(nanoagentPluginsFrom(env))}`,
     `workspaces=${JSON.stringify(path.join(root, 'var', 'agent-workspaces'))}`,
   ];
 }
