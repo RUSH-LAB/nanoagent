@@ -1,17 +1,30 @@
-name: PostgreSQL acceptance
+name: Helping Hands PostgreSQL acceptance
 
 on:
   pull_request:
+    branches: [production]
     paths:
-      - '.github/workflows/postgresql-acceptance.yml'
-      - 'package-lock.json'
-      - 'package.json'
-      - 'scripts/db/**'
-      - 'src/server/**'
-      - 'tests/unit/server/postgres-*.test.mjs'
-      - 'tests/integration/postgres/**'
+      - '.github/workflows/helping-hands-postgres.yml'
+      - 'helping-hands/package-lock.json'
+      - 'helping-hands/package.json'
+      - 'helping-hands/scripts/db/**'
+      - 'helping-hands/src/server/**'
+      - 'helping-hands/tests/unit/server/postgres-*.test.mjs'
+      - 'helping-hands/tests/integration/postgres/**'
   push:
-    branches: [main]
+    branches: [production]
+    paths:
+      - '.github/workflows/helping-hands-postgres.yml'
+      - 'helping-hands/package-lock.json'
+      - 'helping-hands/package.json'
+      - 'helping-hands/scripts/db/**'
+      - 'helping-hands/src/server/**'
+      - 'helping-hands/tests/unit/server/postgres-*.test.mjs'
+      - 'helping-hands/tests/integration/postgres/**'
+
+defaults:
+  run:
+    working-directory: helping-hands
 
 jobs:
   postgres:
@@ -42,6 +55,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: helping-hands/package-lock.json
       - run: npm ci
       - name: Create non-owner runtime role
         run: >-

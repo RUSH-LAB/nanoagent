@@ -54,12 +54,15 @@ password-reset, and invitation messages to their actual recipients.
 
 ## Railway
 
-Create the public Mochi service from the GitHub repository and select the release branch.
-Railway will use `railway.toml` and the root `Dockerfile`. Add every value from
+Create the public Mochi service from `RUSH-LAB/nanoagent`, branch `production`,
+with root directory `helping-hands`, config file `/helping-hands/railway.toml`,
+and watch path `/helping-hands/**`. Railway will use that `railway.toml` and
+`helping-hands/Dockerfile`. Add every value from
 the database, authentication, and email configuration described above to the
 service variables; do not upload `.env`.
 
-Create a second, private service from the standalone NanoAgent repository. Run
+Create a second, private service from the same repository and branch, with
+root directory `nanoagent` and watch path `/nanoagent/**`. Run
 `nanoagent web` with a web config that binds
 `0.0.0.0:$PORT`, reads
 `NANOAGENT_API_TOKEN` from the environment, and keeps `tools: []` for the first
