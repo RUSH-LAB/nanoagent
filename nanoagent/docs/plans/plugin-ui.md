@@ -21,8 +21,9 @@ All require the operator bearer token, like every `/v1` route.
 
 - `GET /v1/plugins` (existing): each task entry also carries `inputSchema` (the task's input JSON
   Schema).
-- `GET /v1/plugins/{plugin_id}/ui/{path}`: a file from the plugin's `ui/`, with its content type
-  and this Content-Security-Policy:
+- `GET /v1/plugins` (existing): each plugin also carries `uiVersion`, a digest of its `ui/`.
+- `GET /v1/plugins/{plugin_id}/ui/{uiVersion}/{path}`: a file from the plugin's `ui/` at its
+  current version (any other is 404), cached forever (`immutable`), with its content type and this Content-Security-Policy:
   `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'` (no `frame-ancestors`: who may
   frame the page is the host's choice, and its site and API may be different origins).
   A path outside `ui/` is 404.
@@ -41,7 +42,7 @@ All require the operator bearer token, like every `/v1` route.
 ## 3. The Mochi host
 
 - The apps page shows the plugin's page in
-  `<iframe sandbox="allow-scripts allow-forms" src="/api/apps/{id}/ui/index.html">` in place of
+  `<iframe sandbox="allow-scripts allow-forms" src="/api/apps/{id}/ui/{uiVersion}/index.html">` in place of
   the chat box. No `allow-same-origin`, so the page has an opaque origin.
 - `/api/apps/{id}/ui/*` proxies NanoAgent's UI route with the server's token and passes the CSP
   header through. It is public (no login): a sandboxed page's subresource requests carry no

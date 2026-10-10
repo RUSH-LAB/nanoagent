@@ -201,16 +201,20 @@ def _events(response) -> list[dict]:
 def test_serves_the_plugin_front_end_confined_to_the_bridge(client: TestClient) -> None:
     from nanoagent.web.app import UI_POLICY
 
-    page = client.get("/v1/plugins/echo/ui/index.html")
+    [plugin] = client.get("/v1/plugins").json()["plugins"]
+    ui = f"/v1/plugins/echo/ui/{plugin['uiVersion']}"
+    page = client.get(f"{ui}/index.html")
     assert page.status_code == 200
     assert page.headers["content-type"].startswith("text/html")
     assert page.headers["content-security-policy"] == UI_POLICY
+    assert page.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert "connect-src 'none'" in UI_POLICY
-    assert client.get("/v1/plugins/echo/ui/../nanoagent.yaml").status_code == 404
-    assert client.get("/v1/plugins/echo/ui/missing.js").status_code == 404
-    assert client.get("/v1/plugins/missing/ui/index.html").status_code == 404
+    assert client.get(f"{ui}/../nanoagent.yaml").status_code == 404
+    assert client.get(f"{ui}/missing.js").status_code == 404
+    assert client.get("/v1/plugins/echo/ui/0000000000000000/index.html").status_code == 404
+    assert client.get(f"/v1/plugins/missing/ui/{plugin['uiVersion']}/index.html").status_code == 404
     client.headers.pop("Authorization")
-    assert client.get("/v1/plugins/echo/ui/index.html").status_code == 401
+    assert client.get(f"{ui}/index.html").status_code == 401
 
 
 def test_lists_each_tasks_input_schema(client: TestClient) -> None:

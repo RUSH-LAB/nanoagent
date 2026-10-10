@@ -69,6 +69,16 @@ def _staged_from(workspace: Path) -> Callable[[Path], None]:
     return stage
 
 
+def _ui_version(manifest: PluginManifest) -> str:
+    """A digest of the plugin's ``ui/``: its files' URLs carry it, so a browser may keep them forever."""
+    ui = manifest.root / "ui"
+    digest = hashlib.sha256()
+    for path in sorted(ui.rglob("*")):
+        if path.is_file() and not TOOL_ARTIFACTS & set(path.relative_to(ui).parts):
+            digest.update(path.relative_to(ui).as_posix().encode() + b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()[:16]
+
+
 def _ui_file(manifest: PluginManifest, path: str) -> Path | None:
     """The file ``path`` names in the plugin's ``ui/``, or None for anything outside it."""
     ui = (manifest.root / "ui").resolve()
@@ -97,6 +107,7 @@ def create_app(
     run_host = host or RunHost(cfg)
     # Ready plugins run; in-development ones are only listed, as under maintenance.
     plugins: dict[str, PluginManifest] = {}
+    ui_versions: dict[str, str] = {}
     in_development: dict[str, str] = {}
     listed: list[dict[str, Any]] = []
     for path in cfg.plugins:
@@ -105,7 +116,8 @@ def create_app(
             raise ValueError(f"duplicate plugin id {entry.id!r} in {path!r}")
         if isinstance(entry, PluginManifest):
             plugins[entry.id] = entry
-            listed.append(catalog_entry(entry))
+            ui_versions[entry.id] = _ui_version(entry)
+            listed.append({**catalog_entry(entry), "uiVersion": ui_versions[entry.id]})
         else:
             in_development[entry.id] = entry.name
             listed.append(entry.public())
@@ -377,18 +389,24 @@ def create_app(
         return JSONResponse({"package": entry, "data": base64.b64encode(data).decode("ascii")})
 
     async def plugin_ui(request: Request) -> Any:
-        """A file of a ready plugin's front end, under the policy that confines it to the bridge."""
+        """A file of a ready plugin's front end at its current version, under the policy that confines it to the bridge."""
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        manifest = plugins.get(request.path_params["plugin_id"])
-        target = None if manifest is None else _ui_file(manifest, request.path_params["path"])
+        plugin_id = request.path_params["plugin_id"]
+        manifest = plugins.get(plugin_id)
+        current = manifest is not None and request.path_params["version"] == ui_versions[plugin_id]
+        target = _ui_file(manifest, request.path_params["path"]) if current else None
         if target is None:
             return JSONResponse({"error": "not found"}, status_code=404)
         media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
         return FileResponse(
             target,
             media_type=media_type,
-            headers={"Content-Security-Policy": UI_POLICY, "X-Content-Type-Options": "nosniff"},
+            headers={
+                "Content-Security-Policy": UI_POLICY,
+                "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "public, max-age=31536000, immutable",
+            },
         )
 
     task_runs: dict[str, asyncio.Task[Any]] = {}
@@ -514,7 +532,7 @@ def create_app(
             Route("/v1/packages/inspect", inspect_upload, methods=["POST"]),
             Route("/v1/packages/source", package_source, methods=["POST"]),
             Route("/v1/packages/{package_id}", download_package, methods=["GET"]),
-            Route("/v1/plugins/{plugin_id}/ui/{path:path}", plugin_ui, methods=["GET"]),
+            Route("/v1/plugins/{plugin_id}/ui/{version}/{path:path}", plugin_ui, methods=["GET"]),
             Route(
                 "/v1/workspaces/{workspace_id}/plugins/{plugin_id}/tasks/{task_id}/runs",
                 start_task_run,

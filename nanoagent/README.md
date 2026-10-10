@@ -152,8 +152,8 @@ only to its workspace, which NanoAgent passes as `NANOAGENT_WORKSPACE`.
 
 What people see of a plugin lives in two folders, and nowhere else.
 
-`product/` is the plugin's product page, what a catalog such as Mochi's apps
-page shows before anyone opens it. It holds exactly two files.
+`product/` is the plugin's product page, what a catalog such as Mochi's
+marketplace shows before anyone downloads it. It holds exactly two files.
 `product.yaml` fills `ProductConfig`: a `tagline`, a `summary`, 2 to 4
 `highlights` and 2 to 5 `steps`, written for the people who use the plugin
 rather than for developers. `icon.svg` is the app icon, at most 64 KB, and
@@ -165,8 +165,11 @@ them.
 
 Every plugin also ships its own front end in `ui/`, a static web page:
 `ui/index.html` and the HTML, JS, CSS, images and fonts it loads, at most
-5 MB, with nothing built at load time. Mochi shows it in a sandboxed iframe.
-NanoAgent serves it at `GET /v1/plugins/<id>/ui/<path>` under a
+5 MB, with nothing built at load time. Mochi shows it in a sandboxed iframe,
+and nothing of its own around it: choosing the app opens this page, so how
+the app introduces itself and starts is the page's to design.
+NanoAgent serves it at `GET /v1/plugins/<id>/ui/<uiVersion>/<path>`, where
+`uiVersion` is the catalog's digest of `ui/` and the files are cached forever, under a
 Content-Security-Policy with `connect-src 'none'`, so the page can't reach the
 network and talks to NanoAgent only through the host's `postMessage` bridge,
 protocol `nanoagent.ui/v1`. The bridge's methods are `describe`, `runTask`,

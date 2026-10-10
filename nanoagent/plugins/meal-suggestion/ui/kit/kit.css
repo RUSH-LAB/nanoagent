@@ -1,11 +1,13 @@
 /* The plugin UI kit's styles, shared by every plugin page. They match the host site (Mochi):
-   Inter, accent #3b5998 (dark #8ea6d6), 14-20 px rounded cards, soft borders. Light and dark
-   come from the host through html[data-theme]. A page's own app.css loads after this file and
-   should use these variables, never fixed colours, so it follows the theme too. */
+   Inter, accent #3b5998 (dark #8ea6d6), 14-20 px rounded cards, soft borders. The page
+   background and surface are the host's own (Infima's), so the frame is invisible and a page's
+   cards sit on the host page. Light and dark come from the host through html[data-theme]. A
+   page's own app.css loads after this file and should use these variables, never fixed
+   colours, so it follows the theme too. */
 
 :root {
   color-scheme: light;
-  --bg: #f6f7fb;
+  --bg: #ffffff;
   --surface: #ffffff;
   --surface-2: #f1f3f8;
   --border: #e3e6ee;
@@ -35,14 +37,17 @@
   --radius: 16px;
   --radius-lg: 20px;
   --radius-pill: 999px;
+  /* The host's column already pads the frame, so a page keeps only room for focus rings and
+     card shadows at its edges, and starts flush with the host's own content. */
+  --page-inset: 4px;
   --sans: Inter, "Inter var", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 html[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #111318;
-  --surface: #1a1d24;
+  --bg: #1b1b1d;
+  --surface: #242526;
   --surface-2: #232733;
   --border: #2d3240;
   --border-strong: #3c4253;
@@ -508,7 +513,7 @@ html[data-theme="dark"] .segment input:checked + .segment-text { background: var
 
 .app { min-height: 100vh; }
 .app-header { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
-.app-header-inner { display: flex; align-items: center; gap: 12px; max-width: var(--page-max); margin: 0 auto; padding: 12px 20px; }
+.app-header-inner { display: flex; align-items: center; gap: 12px; max-width: var(--page-max); padding: var(--page-inset) var(--page-inset) 14px; }
 .app-icon { width: 40px; height: 40px; border-radius: 12px; flex: none; }
 .app-titles { display: grid; gap: 1px; min-width: 0; flex: 1; }
 .app-titles h1 { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -518,7 +523,7 @@ html[data-theme="dark"] .segment input:checked + .segment-text { background: var
 .app { --page-max: 1040px; }
 .app.width-wide { --page-max: 1240px; }
 .app.width-narrow { --page-max: 760px; }
-.page { display: grid; gap: 18px; align-content: start; max-width: var(--page-max); margin: 0 auto; padding: 20px 20px 40px; }
+.page { display: grid; gap: 18px; align-content: start; max-width: var(--page-max); padding: 20px var(--page-inset) 40px; }
 
 .columns { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr) var(--aside-width); align-items: start; }
 .columns.aside-left { grid-template-columns: var(--aside-width) minmax(0, 1fr); }
@@ -696,19 +701,19 @@ html[data-theme="dark"] .segment input:checked + .segment-text { background: var
 
 @media (max-width: 640px) {
   body { font-size: 14.5px; }
-  .app-header-inner { padding: 10px 14px; gap: 10px; flex-wrap: wrap; }
+  .app-header-inner { padding: var(--page-inset) var(--page-inset) 10px; gap: 10px; flex-wrap: wrap; }
   .app-icon { width: 34px; height: 34px; border-radius: 10px; }
   .app-tagline { display: none; }
   .app-nav { order: 3; flex-basis: 100%; }
   .ask-button { padding: 0; width: 40px; min-height: 40px; }
   .ask-button .button-label { display: none; }
-  .page { padding: 14px 14px 32px; gap: 14px; }
+  .page { padding: 14px var(--page-inset) 32px; gap: 14px; }
   .card { padding: 16px; }
   .card.large { padding: 18px 16px; }
   .button { min-height: 40px; }
   .button.small { min-height: 34px; }
   .chip { min-height: 36px; }
-  .chips.scroll { margin: 0 -14px; padding: 0 14px 2px; }
+  .chips.scroll { margin: 0 calc(-1 * var(--page-inset)); padding: 0 var(--page-inset) 2px; }
   .card-head { flex-wrap: wrap; }
   .run-button { justify-items: stretch; }
   .run-button .button { width: 100%; }
@@ -716,8 +721,8 @@ html[data-theme="dark"] .segment input:checked + .segment-text { background: var
     position: sticky;
     bottom: 0;
     z-index: 5;
-    margin: 0 -14px;
-    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+    margin: 0 calc(-1 * var(--page-inset));
+    padding: 10px var(--page-inset) calc(10px + env(safe-area-inset-bottom));
     background: var(--surface);
     border-top: 1px solid var(--border);
     box-shadow: var(--shadow-lg);
