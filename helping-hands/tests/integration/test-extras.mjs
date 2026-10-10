@@ -2,10 +2,14 @@
 // ─────────────────────────────────────────────────────────────
 // Extra endpoint coverage tests for the Mochi Lab editor server
 // Usage:  node tests/integration/test-extras.mjs
-// Requires the server running on http://localhost:3001
+// Requires the server running on http://localhost:3001, and a GitHub sign-in
+// saved by `node cli/mochi.mjs login http://localhost:3001`
 // ─────────────────────────────────────────────────────────────
 
+import {signedInHeaders} from './api-client.mjs';
+
 const BASE = process.env.API_URL || 'http://localhost:3001';
+const SIGNED_IN = signedInHeaders(BASE);
 // Sample document path exercised across the endpoint tests below.
 const SAMPLE_DOC = 'content/books/math/0-intro.md';
 
@@ -42,7 +46,7 @@ function section(title) {
 // ── Helpers ──
 async function api(method, path, body) {
   const url = path.startsWith('http') ? path : `${BASE}${path}`;
-  const init = { method, headers: {} };
+  const init = { method, headers: { ...SIGNED_IN } };
   if (body !== undefined && body !== null) {
     init.headers['Content-Type'] = 'application/json';
     init.body = JSON.stringify(body);

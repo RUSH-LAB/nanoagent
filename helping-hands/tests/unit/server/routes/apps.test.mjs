@@ -114,26 +114,43 @@ describe('NanoAgent apps', () => {
   });
 });
 
+/** Run `load` with the GitHub OAuth values server/auth.js requires at load. */
+function withGithubEnv(load) {
+  const env = {GITHUB_CLIENT_ID: 'test-client', GITHUB_CLIENT_SECRET: 'test-secret'};
+  const saved = Object.fromEntries(Object.keys(env).map(k => [k, process.env[k]]));
+  Object.assign(process.env, env);
+  try {
+    return load();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
 describe('an app\'s own page', () => {
   const require = createRequire(import.meta.url);
-  const {isPublicPath} = require('../../../../src/server/auth.js');
+  const {isPublicPath} = withGithubEnv(() => require('../../../../src/server/auth.js'));
   const {isGlobalApiPath} = require('../../../../src/server/workspace-context.js');
   const CSP = "default-src 'self'; connect-src 'none'";
-  const page = (body, headers = {'content-type': 'text/html; charset=utf-8', 'content-security-policy': CSP}) =>
+  const CACHE = 'public, max-age=31536000, immutable';
+  const page = (body, headers = {'content-type': 'text/html; charset=utf-8', 'content-security-policy': CSP, 'cache-control': CACHE}) =>
     ({value: Buffer.from(body), headers: new Headers(headers)});
 
   it('serves a ui/ file to anyone, with NanoAgent\'s content type and Content-Security-Policy', async () => {
     const asked = [];
     const ctx = ctxWith({pluginUiFile: async (...args) => { asked.push(args); return page('<!doctype html>'); }});
-    const served = await invoke(routes, {method: 'GET', path: '/api/apps/chess-move/ui/js/app%20main.js', ctx, auth: null});
-    assert.deepEqual(asked, [['chess-move', 'js/app main.js']]);
+    const served = await invoke(routes, {method: 'GET', path: '/api/apps/chess-move/ui/0123456789abcdef/js/app%20main.js', ctx, auth: null});
+    assert.deepEqual(asked, [['chess-move', '0123456789abcdef', 'js/app main.js']]);
     assert.equal(served.written.status, 200);
     assert.equal(served.written.headers['Content-Type'], 'text/html; charset=utf-8');
     assert.equal(served.written.headers['Content-Security-Policy'], CSP);
+    assert.equal(served.written.headers['Cache-Control'], CACHE);
     assert.equal(served.written.headers['Access-Control-Allow-Origin'], '*');
     assert.equal(served.written.body.toString(), '<!doctype html>');
-    assert.equal(isPublicPath('/api/apps/chess-move/ui/index.html'), true);
-    assert.equal(isGlobalApiPath('/api/apps/chess-move/ui/index.html'), true);
+    assert.equal(isPublicPath('/api/apps/chess-move/ui/0123456789abcdef/index.html'), true);
+    assert.equal(isGlobalApiPath('/api/apps/chess-move/ui/0123456789abcdef/index.html'), true);
     assert.equal(isPublicPath('/api/apps/chess-move/tasks/move/runs'), false);
     assert.equal(isGlobalApiPath('/api/apps/chess-move/tasks/move/runs'), false);
   });
@@ -141,33 +158,39 @@ describe('an app\'s own page', () => {
   it('refuses any path that could leave ui/', async () => {
     const ctx = ctxWith({pluginUiFile: async () => assert.fail('must not ask NanoAgent')});
     for (const path of [
-      '/api/apps/chess-move/ui/../nanoagent.yaml',
-      '/api/apps/chess-move/ui/%2e%2e/nanoagent.yaml',
-      '/api/apps/chess-move/ui/a/%2E%2E/%2E%2E/x',
-      '/api/apps/chess-move/ui/..%2Fnanoagent.yaml',
-      '/api/apps/chess-move/ui/a%5C..%5Cx',
-      '/api/apps/chess-move/ui/a//b',
-      '/api/apps/chess-move/ui/./index.html',
-      '/api/apps/chess-move/ui/%zz',
-      '/api/apps/Chess/ui/index.html',
+      '/api/apps/chess-move/ui/0123456789abcdef/../nanoagent.yaml',
+      '/api/apps/chess-move/ui/0123456789abcdef/%2e%2e/nanoagent.yaml',
+      '/api/apps/chess-move/ui/0123456789abcdef/a/%2E%2E/%2E%2E/x',
+      '/api/apps/chess-move/ui/0123456789abcdef/..%2Fnanoagent.yaml',
+      '/api/apps/chess-move/ui/0123456789abcdef/a%5C..%5Cx',
+      '/api/apps/chess-move/ui/0123456789abcdef/a//b',
+      '/api/apps/chess-move/ui/0123456789abcdef/./index.html',
+      '/api/apps/chess-move/ui/0123456789abcdef/%zz',
+      '/api/apps/Chess/ui/0123456789abcdef/index.html',
+      '/api/apps/chess-move/ui/latest/index.html',
     ]) {
       const result = await invoke(routes, {method: 'GET', path, ctx, auth: null});
       assert.equal(result.status, 404, path);
     }
   });
 
-  it('relays a missing file and refuses one sent without its policy', async () => {
+  it('relays a missing file and refuses one sent without its policy or caching', async () => {
     const missing = await invoke(routes, {
-      method: 'GET', path: '/api/apps/chess-move/ui/nope.js', auth: null,
+      method: 'GET', path: '/api/apps/chess-move/ui/0123456789abcdef/nope.js', auth: null,
       ctx: ctxWith({pluginUiFile: async () => ({error: 'not found', status: 404})}),
     });
     assert.equal(missing.status, 404);
     const unguarded = await invoke(routes, {
-      method: 'GET', path: '/api/apps/chess-move/ui/index.html', auth: null,
+      method: 'GET', path: '/api/apps/chess-move/ui/0123456789abcdef/index.html', auth: null,
       ctx: ctxWith({pluginUiFile: async () => page('<script>', {'content-type': 'text/html'})}),
     });
     assert.equal(unguarded.status, 502);
     assert.equal(unguarded.written, null);
+    const uncached = await invoke(routes, {
+      method: 'GET', path: '/api/apps/chess-move/ui/0123456789abcdef/index.html', auth: null,
+      ctx: ctxWith({pluginUiFile: async () => page('<script>', {'content-type': 'text/html', 'content-security-policy': CSP})}),
+    });
+    assert.equal(uncached.status, 502);
   });
 });
 

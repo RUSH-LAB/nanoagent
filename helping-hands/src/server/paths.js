@@ -44,19 +44,8 @@ const ACCESS_LOG = nodePath.join(PROJECT_ROOT, ...ACCESS_LOG_SEGS);
 /** The absolute path of the JSON store for `name`. */
 const dataFile = name => nodePath.join(PROJECT_ROOT, ...dataFileSegs(name));
 
-/**
- * The organization whose content is published at the site's bare routes.
- *
- * One workspace's tree has to be, or every existing URL would move: `/math`
- * would become `/mochi/math` and the 181 files that link to each other would
- * all be wrong at once. The rest are served under their own slug. Read from the
- * same environment variable the server provisions root's workspace with, so the
- * build and the API cannot disagree about which one is primary.
- */
-const PRIMARY_ORG_SLUG = process.env.ROOT_ORG_SLUG || 'mochi';
-
 module.exports = {
-  PROJECT_ROOT, PRIMARY_ORG_SLUG,
+  PROJECT_ROOT,
   VAR_SEGS, DATA_SEGS, LOGS_SEGS, TRASH_SEGS,
   ACCESS_LOG_SEGS, dataFileSegs,
   VAR_DIR, DATA_DIR, LOGS_DIR, TRASH_DIR, ACCESS_LOG,

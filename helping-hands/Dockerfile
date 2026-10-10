@@ -6,15 +6,13 @@ RUN npm ci
 COPY . .
 ARG SITE_URL=http://localhost:3000
 ENV NODE_ENV=production
-ENV ENABLE_AUTH=true
 ENV SITE_URL=$SITE_URL
-RUN npm run build:auth
+RUN npm run build
 
 FROM node:22-bookworm-slim AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production
-ENV ENABLE_AUTH=true
 ENV PORT=3000
 
 COPY package.json package-lock.json ./

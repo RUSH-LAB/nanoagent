@@ -8,7 +8,7 @@ const {budgetRefusal} = require('../ai-metering');
 // and the caller's own agent folder, `home/<user>/agent/` in the workspace file
 // system, where those apps leave their files and the app pages list, read and
 // save them.
-// Each app's own page (its ui/ folder) is served from /api/apps/{id}/ui/ and
+// Each app's own page (its ui/ folder) is served from /api/apps/{id}/ui/{uiVersion}/ and
 // shown in a sandboxed frame (src/components/PluginFrame), which runs the app's
 // tasks through /api/apps/{id}/tasks/{task}/runs. A prompt for an app goes
 // through /api/ai/stream with an appId and runs on that app's NanoAgent agent
@@ -31,7 +31,8 @@ function contentTypeFor(path, body) {
 
 const ROUTES = new Set(['/api/apps', '/api/agent-files', '/api/agent-files/content']);
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const UI_ROUTE = /^\/api\/apps\/([^/]+)\/ui\/(.+)$/;
+const UI_ROUTE = /^\/api\/apps\/([^/]+)\/ui\/([^/]+)\/(.+)$/;
+const UI_VERSION = /^[0-9a-f]{16}$/;
 const TASK_RUN_ROUTE = /^\/api\/apps\/([^/]+)\/tasks\/([^/]+)\/runs$/;
 
 /**
@@ -58,22 +59,27 @@ function uiFilePath(raw) {
  * runs in a sandboxed frame with an opaque origin, so its own requests carry no
  * session, and module scripts and fonts are fetched with CORS from origin
  * `null`, hence `*`. NanoAgent's Content-Security-Policy, which keeps the page
- * off the network, goes with every file; a file without one is refused.
+ * off the network, goes with every file; a file without one is refused. The
+ * path names the ui/ folder's version, so NanoAgent lets browsers keep each
+ * file forever, and a plugin opened again loads without a request.
  */
-async function serveUiFile(res, json, ai, app, raw) {
+async function serveUiFile(res, json, ai, app, version, raw) {
   const path = uiFilePath(raw);
-  if (!PLUGIN_ID.test(app) || !path) return json(res, 404, {error: 'Not found'});
-  const result = await ai.pluginUiFile(app, path);
+  if (!PLUGIN_ID.test(app) || !UI_VERSION.test(version) || !path) return json(res, 404, {error: 'Not found'});
+  const result = await ai.pluginUiFile(app, version, path);
   if (result.error) return json(res, result.status, {error: result.error});
   const type = result.headers.get('content-type');
   const policy = result.headers.get('content-security-policy');
-  if (!type || !policy) return json(res, 502, {error: 'NanoAgent sent a plugin page without its content type or Content-Security-Policy'});
+  const caching = result.headers.get('cache-control');
+  if (!type || !policy || !caching) {
+    return json(res, 502, {error: 'NanoAgent sent a plugin page without its content type, Content-Security-Policy or Cache-Control'});
+  }
   res.writeHead(200, {
     'Content-Type': type,
     'Content-Length': result.value.length,
     'Content-Security-Policy': policy,
     'X-Content-Type-Options': 'nosniff',
-    'Cache-Control': 'no-cache',
+    'Cache-Control': caching,
     'Access-Control-Allow-Origin': '*',
   });
   return res.end(result.value);
@@ -166,7 +172,7 @@ async function streamTaskRun(req, res, ctx, app, task) {
 module.exports = async function app_routes(req, res, url, pathname, ctx) {
   const {json, readRawBody, requireWorkspacePermission, ai} = ctx;
   const ui = UI_ROUTE.exec(pathname);
-  if (ui && req.method === 'GET') return serveUiFile(res, json, ai, ui[1], ui[2]);
+  if (ui && req.method === 'GET') return serveUiFile(res, json, ai, ui[1], ui[2], ui[3]);
   const taskRun = TASK_RUN_ROUTE.exec(pathname);
   if (taskRun && req.method === 'POST') {
     let task;

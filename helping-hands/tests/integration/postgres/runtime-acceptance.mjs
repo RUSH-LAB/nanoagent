@@ -125,7 +125,6 @@ try {
     env: {
       ...process.env,
       NODE_ENV: 'test',
-      ENABLE_AUTH: 'true',
       ...fakeGithubEnv(Object.values(githubUsers)),
       ROOT_GITHUB_LOGIN: githubUsers.root.login,
       EDITOR_PORT: String(port),

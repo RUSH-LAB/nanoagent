@@ -2,8 +2,8 @@
 
 /**
  * The root account on PostgreSQL: the GitHub account named by ROOT_GITHUB_LOGIN
- * (root-account.js), provisioned at every start with authentication on, made a
- * platform administrator and an owner of the root workspace.
+ * (root-account.js), provisioned at every start, made a platform administrator
+ * and an owner of the root workspace.
  */
 const crypto = require('crypto');
 const postgres = require('./postgres/database');
@@ -43,5 +43,4 @@ async function ensureRootUser(auth, options) {
 
 module.exports = {
   ensureRootUser,
-  ensureDevelopmentWorkspace: () => null,
 };

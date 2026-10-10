@@ -80,7 +80,7 @@ function GroupSwitcher({navigation}) {
   );
 }
 
-function PluginList({navigation}) {
+function PluginList({navigation, marketplaceHref}) {
   return (
     <nav className={clsx('menu thin-scrollbar', styles.menu)} aria-label="Plugins">
       <ul className="menu__list">
@@ -96,7 +96,7 @@ function PluginList({navigation}) {
           </li>
         ))}
         <li className="menu__list-item">
-          <Link className={clsx('menu__link', styles.categoryLink, own.marketplace)} to="/marketplace">
+          <Link className={clsx('menu__link', styles.categoryLink, own.marketplace)} to={marketplaceHref}>
             <svg className={own.plus} viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
             <span className={styles.taxonomyTitle}>Browse Marketplace</span>
           </Link>
@@ -114,7 +114,8 @@ function DoubleChevron() {
   );
 }
 
-export default function PluginSidebar({navigation, collapsed, onCollapse}) {
+/** `marketplaceHref` is the marketplace in the reader's workspace, so the navbar keeps it. */
+export default function PluginSidebar({navigation, marketplaceHref, collapsed, onCollapse}) {
   return (
     <div className={clsx(styles.sidebar, collapsed && styles.sidebarHidden)}>
       <div className={styles.sidebarControls}>
@@ -129,7 +130,7 @@ export default function PluginSidebar({navigation, collapsed, onCollapse}) {
           <DoubleChevron />
         </button>
       </div>
-      <PluginList navigation={navigation} />
+      <PluginList navigation={navigation} marketplaceHref={marketplaceHref} />
     </div>
   );
 }

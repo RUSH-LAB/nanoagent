@@ -155,7 +155,6 @@ try {
     env: {
       ...process.env,
       NODE_ENV: 'test',
-      ENABLE_AUTH: 'true',
       ...fakeGithubEnv(Object.values(github)),
       ROOT_GITHUB_LOGIN: github.root.login,
       NANOAGENT_URL: 'off',

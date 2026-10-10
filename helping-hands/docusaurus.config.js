@@ -29,10 +29,6 @@ const config = {
 
   customFields: {
     platformName,
-    // Whether the sign-in gate is shown. The API server reads the same
-    // variable to decide whether it requires a session, so the two can never
-    // disagree. `npm start` sets it.
-    authEnabled: process.env.ENABLE_AUTH === 'true',
   },
 
   future: {

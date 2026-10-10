@@ -1,14 +1,14 @@
 /**
  * server/auth.js: the single place the API decides who is calling.
  *
- * The enabled-mode cases are not mocked. They stand up a real Better Auth
+ * The resolveIdentity cases are not mocked. They stand up a real Better Auth
  * instance over a throwaway SQLite file, create GitHub accounts and sessions
  * through its own adapter, and hand the session cookie back to resolveIdentity. That is
  * worth the few milliseconds: the thing most likely to break here is the wiring
  * between Better Auth, the schema in migrations/, and the identity shape the
  * handlers destructure, and none of that is exercised by a stub.
  *
- * The module reads ENABLE_AUTH and DATABASE_FILE once at load, so cases that
+ * The module reads its environment once at load, so cases that
  * need a different configuration reload it through a fresh require.
  */
 import {describe, it, before, after} from 'node:test';
@@ -26,7 +26,7 @@ const DB_PATH = require.resolve('../../../src/server/db.js');
 /** Load a fresh copy of server/auth.js (and its db) under the given environment. */
 function loadAuth(env) {
   const saved = {};
-  for (const k of ['ENABLE_AUTH', 'DATABASE_FILE', 'BETTER_AUTH_SECRET', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET']) saved[k] = process.env[k];
+  for (const k of ['DATABASE_FILE', 'BETTER_AUTH_SECRET', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET']) saved[k] = process.env[k];
   for (const [k, v] of Object.entries(env)) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
@@ -47,12 +47,12 @@ function loadAuth(env) {
 
 const req = headers => ({headers});
 const GITHUB = {GITHUB_CLIENT_ID: 'test-client', GITHUB_CLIENT_SECRET: 'test-secret'};
-const disabled = loadAuth({ENABLE_AUTH: undefined, DATABASE_FILE: undefined});
+const authModule = loadAuth({DATABASE_FILE: undefined, ...GITHUB});
 
 describe('isPublicPath', () => {
   for (const p of ['/api/health']) {
     it(`treats ${p} as public`, () => {
-      assert.equal(disabled.isPublicPath(p), true);
+      assert.equal(authModule.isPublicPath(p), true);
     });
   }
 
@@ -60,13 +60,13 @@ describe('isPublicPath', () => {
   // Auth prefix is public and does its own authorization.
   for (const p of ['/api/auth/sign-in/social', '/api/auth/callback/github', '/api/auth/device/token', '/api/auth/get-session']) {
     it(`treats ${p} as public, because that is where a caller goes to get a session`, () => {
-      assert.equal(disabled.isPublicPath(p), true);
+      assert.equal(authModule.isPublicPath(p), true);
     });
   }
 
   for (const p of ['/api/users', '/api/users/me', '/api/logs', '/api/preferences', '/api/feed', '/api/feed/rss', '/api/feed/atom', '/api/workspaces/ws/feed/rss', '/api/authx', '/']) {
     it(`treats ${p} as requiring a session`, () => {
-      assert.equal(disabled.isPublicPath(p), false);
+      assert.equal(authModule.isPublicPath(p), false);
     });
   }
 });
@@ -77,7 +77,7 @@ describe('isPublicPath', () => {
 // the invitation is a different path and still needs the session.
 describe('isPublicPath for an invitation link', () => {
   it('lets the link itself be read', () => {
-    assert.equal(disabled.isPublicPath('/api/invite/inv_abc123'), true);
+    assert.equal(authModule.isPublicPath('/api/invite/inv_abc123'), true);
   });
 
   const GUARDED = [
@@ -90,18 +90,18 @@ describe('isPublicPath for an invitation link', () => {
   ];
   for (const p of GUARDED) {
     it(`still requires a session for ${p}`, () => {
-      assert.equal(disabled.isPublicPath(p), false);
+      assert.equal(authModule.isPublicPath(p), false);
     });
   }
 });
 
 describe('isSafeId', () => {
   it('accepts a generated Better Auth id', () => {
-    assert.equal(disabled.isSafeId('vWm7Ls6392wGlXsU6kfwCyrfVx3Ng5T8'), true);
+    assert.equal(authModule.isSafeId('vWm7Ls6392wGlXsU6kfwCyrfVx3Ng5T8'), true);
   });
 
   it('accepts an id of exactly the 200 character limit', () => {
-    assert.equal(disabled.isSafeId('u'.repeat(200)), true);
+    assert.equal(authModule.isSafeId('u'.repeat(200)), true);
   });
 
   const REJECTED = [
@@ -116,7 +116,7 @@ describe('isSafeId', () => {
   ];
   for (const [name, id] of REJECTED) {
     it(`rejects ${name}`, () => {
-      assert.equal(disabled.isSafeId(id), false);
+      assert.equal(authModule.isSafeId(id), false);
     });
   }
 
@@ -124,33 +124,12 @@ describe('isSafeId', () => {
   // handlers' own-key guards, not this check, are what keep them honest.
   for (const id of ['toString', 'valueOf', 'hasOwnProperty']) {
     it(`accepts the inherited-but-harmless id ${JSON.stringify(id)}`, () => {
-      assert.equal(disabled.isSafeId(id), true);
+      assert.equal(authModule.isSafeId(id), true);
     });
   }
 });
 
-describe('resolveIdentity with ENABLE_AUTH unset', () => {
-  it('reports itself disabled', () => {
-    assert.equal(disabled.AUTH_ENABLED, false);
-  });
-
-  it('resolves every request to the development identity', async () => {
-    const result = await disabled.resolveIdentity(req({}));
-    assert.deepEqual(result, {ok: true, identity: disabled.DEV_IDENTITY});
-    assert.equal(result.identity.userId, 'dev-user');
-  });
-
-  it('ignores a token entirely rather than trying to verify it', async () => {
-    const result = await disabled.resolveIdentity(req({authorization: 'Bearer garbage'}));
-    assert.deepEqual(result.identity, disabled.DEV_IDENTITY);
-  });
-
-  it('hands out a frozen identity, so a handler cannot rewrite the caller', () => {
-    assert.throws(() => { disabled.DEV_IDENTITY.userId = 'someone-else'; }, TypeError);
-  });
-});
-
-describe('resolveIdentity with ENABLE_AUTH=true', () => {
+describe('resolveIdentity', () => {
   let enabled;
   let dbFile;
   let alice;   // {id, cookie}
@@ -159,7 +138,6 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
   before(async () => {
     dbFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-auth-')), 'test.db');
     enabled = loadAuth({
-      ENABLE_AUTH: 'true',
       DATABASE_FILE: dbFile,
       BETTER_AUTH_SECRET: 'test-secret-'.padEnd(48, 'x'),
       ...GITHUB,
@@ -173,10 +151,6 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
     for (const suffix of ['', '-wal', '-shm']) {
       try { fs.rmSync(dbFile + suffix); } catch { /* already gone */ }
     }
-  });
-
-  it('reports itself enabled', () => {
-    assert.equal(enabled.AUTH_ENABLED, true);
   });
 
   it('created real rows in the SQL database', () => {
@@ -329,31 +303,21 @@ describe('resolveIdentity with ENABLE_AUTH=true', () => {
 
 describe('orgRoleFor', () => {
   it('returns null when the caller has no active organization', () => {
-    assert.equal(disabled.orgRoleFor('any-user', null), null);
+    assert.equal(authModule.orgRoleFor('any-user', null), null);
   });
 
   it('returns null rather than throwing when the membership is absent', () => {
-    assert.equal(disabled.orgRoleFor('nobody', 'no-such-org'), null);
+    assert.equal(authModule.orgRoleFor('nobody', 'no-such-org'), null);
   });
 });
 
-describe('loading with ENABLE_AUTH=true', () => {
+describe('loading', () => {
   for (const missing of ['GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET']) {
     it(`refuses to load without ${missing}`, () => {
       assert.throws(
-        () => loadAuth({ENABLE_AUTH: 'true', DATABASE_FILE: undefined, ...GITHUB, [missing]: undefined}),
+        () => loadAuth({DATABASE_FILE: undefined, ...GITHUB, [missing]: undefined}),
         /GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET/,
       );
-    });
-  }
-});
-
-describe('ENABLE_AUTH parsing', () => {
-  // Only the exact string 'true' turns authentication on, so a stray value can
-  // never half-enable it.
-  for (const value of ['1', 'yes', 'TRUE', 'false', '']) {
-    it(`stays disabled for ENABLE_AUTH=${JSON.stringify(value)}`, () => {
-      assert.equal(loadAuth({ENABLE_AUTH: value}).AUTH_ENABLED, false);
     });
   }
 });
@@ -361,7 +325,6 @@ describe('ENABLE_AUTH parsing', () => {
 describe('productionAuthError', () => {
   const configured = {
     NODE_ENV: 'production',
-    ENABLE_AUTH: 'true',
     ...GITHUB,
     ROOT_GITHUB_LOGIN: 'root-login',
     MAIL_WEBHOOK_URL: 'https://mail.example.test/send',
@@ -370,43 +333,32 @@ describe('productionAuthError', () => {
     DATABASE_URL: 'postgres://app:secret@db/mochi',
     DATABASE_MIGRATION_URL: 'postgres://owner:secret@db/mochi',
   };
-  // The same values as above: a production server may only start on the exact
-  // string that turns authentication on, because every other value leaves
-  // resolveIdentity returning DEV_IDENTITY to everybody.
-  for (const value of ['1', 'yes', 'TRUE', 'false', '', undefined]) {
-    it(`refuses production with ENABLE_AUTH=${JSON.stringify(value)}`, () => {
-      const error = disabled.productionAuthError({NODE_ENV: 'production', ENABLE_AUTH: value});
-      assert.ok(error, 'a production server without authentication must not start');
-      assert.match(error, /ENABLE_AUTH/, 'the refusal has to name the variable to set');
-    });
-  }
-
   for (const missing of ['GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET']) {
     it(`requires ${missing} in production`, () => {
-      assert.match(disabled.productionAuthError({...configured, [missing]: undefined}), /GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET/);
+      assert.match(authModule.productionAuthError({...configured, [missing]: undefined}), /GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET/);
     });
   }
 
   it('requires ROOT_GITHUB_LOGIN in production', () => {
-    assert.match(disabled.productionAuthError({...configured, ROOT_GITHUB_LOGIN: ' '}), /ROOT_GITHUB_LOGIN/);
+    assert.match(authModule.productionAuthError({...configured, ROOT_GITHUB_LOGIN: ' '}), /ROOT_GITHUB_LOGIN/);
   });
 
   it('requires transactional email in production', () => {
     assert.match(
-      disabled.productionAuthError({...configured, MAIL_WEBHOOK_URL: undefined}),
+      authModule.productionAuthError({...configured, MAIL_WEBHOOK_URL: undefined}),
       /RESEND_API_KEY.*MAIL_FROM.*MAIL_WEBHOOK_URL/,
     );
   });
 
   it('requires both Resend settings when either is present', () => {
     assert.match(
-      disabled.productionAuthError({...configured, MAIL_WEBHOOK_URL: undefined, RESEND_API_KEY: 're_test'}),
+      authModule.productionAuthError({...configured, MAIL_WEBHOOK_URL: undefined, RESEND_API_KEY: 're_test'}),
       /RESEND_API_KEY and MAIL_FROM/,
     );
   });
 
   it('accepts direct Resend delivery instead of a webhook', () => {
-    assert.equal(disabled.productionAuthError({
+    assert.equal(authModule.productionAuthError({
       ...configured,
       MAIL_WEBHOOK_URL: undefined,
       RESEND_API_KEY: 're_test',
@@ -415,15 +367,15 @@ describe('productionAuthError', () => {
   });
 
   it('requires an explicit strong session secret in production', () => {
-    assert.match(disabled.productionAuthError({...configured, BETTER_AUTH_SECRET: undefined}), /BETTER_AUTH_SECRET/);
+    assert.match(authModule.productionAuthError({...configured, BETTER_AUTH_SECRET: undefined}), /BETTER_AUTH_SECRET/);
   });
 
   it('requires an HTTPS same-origin site URL in production', () => {
-    assert.match(disabled.productionAuthError({...configured, SITE_URL: 'http://example.test'}), /HTTPS SITE_URL/);
+    assert.match(authModule.productionAuthError({...configured, SITE_URL: 'http://example.test'}), /HTTPS SITE_URL/);
   });
 
   it('requires a separate PostgreSQL migration connection in production', () => {
-    assert.match(disabled.productionAuthError({
+    assert.match(authModule.productionAuthError({
       ...configured,
       DATABASE_MIGRATION_URL: undefined,
       DATABASE_URL: 'postgres://app:secret@db/mochi',
@@ -431,20 +383,20 @@ describe('productionAuthError', () => {
   });
 
   it('permits production once authentication, GitHub, and email are configured', () => {
-    assert.equal(disabled.productionAuthError(configured), null);
+    assert.equal(authModule.productionAuthError(configured), null);
   });
 
   // Development is the case where running without authentication is the point:
   // the test suites do it deliberately.
   for (const nodeEnv of [undefined, 'development', 'test']) {
     it(`permits NODE_ENV=${JSON.stringify(nodeEnv)} without authentication`, () => {
-      assert.equal(disabled.productionAuthError({NODE_ENV: nodeEnv}), null);
+      assert.equal(authModule.productionAuthError({NODE_ENV: nodeEnv}), null);
     });
   }
 
   it('reads process.env when called with no argument', () => {
     // Whatever the suite runs under, the default-argument path must agree with
     // passing that same environment explicitly. This is what index.js calls.
-    assert.equal(disabled.productionAuthError(), disabled.productionAuthError(process.env));
+    assert.equal(authModule.productionAuthError(), authModule.productionAuthError(process.env));
   });
 });

@@ -16,7 +16,7 @@ const {
 } = require('./server-utils');
 
 const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
-const {auth, tenancy, resolveIdentity, isPublicPath, productionAuthError, AUTH_ENABLED} = require('./auth');
+const {auth, tenancy, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
 const {createAiMeter} = require('./ai-metering');
 const {
   createWorkspaceContextResolver, matchWorkspaceApiPath, storageScope,
@@ -81,10 +81,10 @@ const NO_REFERENCES = Object.freeze({
   paperForStorage: value => value,
 });
 const {toNodeHandler} = require('better-auth/node');
-const developmentAuth = postgresDatabase.enabled
-  ? require('./postgres-dev-auth')
-  : require('./dev-auth');
-const {ensureRootUser, ensureDevelopmentWorkspace} = developmentAuth;
+const rootProvisioning = postgresDatabase.enabled
+  ? require('./postgres-root-user')
+  : require('./root-user');
+const {ensureRootUser} = rootProvisioning;
 const PORT = process.env.EDITOR_PORT || process.env.PORT || 3001;
 const {name: platformName} = platformConfig();
 
@@ -123,15 +123,13 @@ function appendAccessLog(line) {
  * has no way to express somebody else. The same rule, and the same reason, as
  * the workspace URL resolver above.
  *
- * The primary workspace fallback exists only in the explicitly unauthenticated
- * local-development mode. Authenticated requests must already have the
- * RequestContext resolved from their URL.
+ * A request without a RequestContext resolved from its URL has no workspace.
  */
 function scopeFor(req) {
   if (req?.context) return storageScope(req.context);
   const auth = req?.auth;
   return {
-    workspaceId: !AUTH_ENABLED ? org.primaryOrgId() : null,
+    workspaceId: null,
     userId: auth?.userId ?? null,
     membershipId: null,
     role: null,
@@ -623,6 +621,12 @@ async function handleRequest(req, res) {
     for (const [name, value] of Object.entries(corsHeaders(req))) {
       res.setHeader(name, value);
     }
+    // Better Auth rate-limits by the address in cf-connecting-ip or x-real-ip,
+    // which the proxies in front of a deployment set. A request with neither
+    // came straight to this server, so its address is the socket's.
+    if (!req.headers['cf-connecting-ip'] && !req.headers['x-real-ip']) {
+      req.headers['x-real-ip'] = req.socket.remoteAddress;
+    }
     return authHandler(req, res);
   }
 
@@ -644,9 +648,9 @@ async function handleRequest(req, res) {
     ?? String(req.headers['cf-connecting-ip'] || req.headers['x-real-ip'] || req.socket.remoteAddress || 'unknown');
 
   // Operational diagnostics are platform-wide rather than workspace data.
-  // In authenticated deployments they belong to the separate platform-admin
-  // role and never follow a workspace owner/editor role.
-  if (AUTH_ENABLED && ['/api/logs', '/api/perf', '/api/debug/memory', '/api/debug/routes'].includes(pathname)) {
+  // They belong to the separate platform-admin role and never follow a
+  // workspace owner/editor role.
+  if (['/api/logs', '/api/perf', '/api/debug/memory', '/api/debug/routes'].includes(pathname)) {
     if (!await roles.isAdmin(req.auth?.userId)) {
       return json(res, 403, {error: 'Only platform administrators can view operational diagnostics'});
     }
@@ -813,12 +817,10 @@ if (_authRefusal) {
   process.exit(1);
 }
 
-const developmentWorkspace = !AUTH_ENABLED ? ensureDevelopmentWorkspace() : null;
-
 // The root account exists before the first request, so root's first GitHub
 // sign-in finds it. A server that cannot provision its administrator does not
 // start.
-postgresDatabase.ready.then(() => (AUTH_ENABLED ? ensureRootUser(auth) : null)).then(root => server.listen(PORT, async () => {
+postgresDatabase.ready.then(() => ensureRootUser(auth)).then(root => server.listen(PORT, async () => {
   const startupNs = process.hrtime.bigint() - _startupTime;
   const startupMs = Number(startupNs / 1_000_000n);
   const memMB = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
@@ -844,15 +846,10 @@ postgresDatabase.ready.then(() => (AUTH_ENABLED ? ensureRootUser(auth) : null)).
     : `  Assistant: unavailable. ${assistant.reason}`);
 
   cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));
-  if (developmentWorkspace) {
-    console.log(`  Development workspace: "${developmentWorkspace.name}" (${developmentWorkspace.slug})`);
-  }
-  if (root) {
-    console.log(`  Root: GitHub ${root.login} (owner)${root.created ? ', account created' : ''}`);
-    const {workspace} = root;
-    if (workspace?.error) console.log(`  Workspace: none (${workspace.error})`);
-    else if (workspace?.created) console.log(`  Workspace: "${workspace.name}" ready, with #${workspace.channel}`);
-  }
+  console.log(`  Root: GitHub ${root.login} (owner)${root.created ? ', account created' : ''}`);
+  const {workspace} = root;
+  if (workspace?.error) console.log(`  Workspace: none (${workspace.error})`);
+  else if (workspace?.created) console.log(`  Workspace: "${workspace.name}" ready, with #${workspace.channel}`);
   console.log('');
 })).catch(error => {
   console.error(`\n  Startup failed: ${error.message}\n`);

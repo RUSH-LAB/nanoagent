@@ -22,17 +22,8 @@
  * fetches and the explicit CORS policy carry the cookie without exposing it to
  * JavaScript.
  *
- * Two modes, selected by ENABLE_AUTH:
- *
- *   ENABLE_AUTH=true   Real sessions. Every non-public request must carry a
- *                      valid one; anything else is a 401 before any handler
- *                      runs. This is what `npm start` uses.
- *   anything else      Every request resolves to DEV_IDENTITY. This is what the
- *                      test suites use, so they need no login step.
- *
- * The trust boundary is identical either way: handlers read identity only from
- * `req.auth`. ENABLE_AUTH changes who the server believes you are, never
- * whether the client gets to decide.
+ * Every non-public request must carry a valid session; anything else is a 401
+ * before any handler runs. Handlers read identity only from `req.auth`.
  */
 const fs = require('fs');
 const path = require('path');
@@ -53,13 +44,12 @@ const {
 } = require('./workspace-auth');
 const {createWorkspaceProvisioning} = require('./workspace-provisioning');
 
-const AUTH_ENABLED = process.env.ENABLE_AUTH === 'true';
 const PORT = process.env.EDITOR_PORT || process.env.PORT || 3001;
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID?.trim();
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET?.trim();
-if (AUTH_ENABLED && !(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET)) {
-  throw new Error('ENABLE_AUTH=true requires GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET: GitHub is the only way to sign in.');
+if (!(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET)) {
+  throw new Error('Mochi requires GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET: GitHub is the only way to sign in.');
 }
 const SITE_URL = (process.env.SITE_URL || 'http://localhost:3000').replace(/\/$/, '');
 // The one client allowed to ask for a device code (cli/mochi.mjs).
@@ -79,28 +69,16 @@ const workspaceProvisioning = createWorkspaceProvisioning({
 /**
  * Why a production server may not start, or null when it may.
  *
- * The two modes below are a development convenience that becomes a hole the
- * moment the process is reachable by anyone else. With ENABLE_AUTH off,
- * resolveIdentity hands every caller DEV_IDENTITY without looking at the
- * request: not a weak session, no session, and the same one for everybody. The
- * failure is silent, because a server in that state serves every page
- * correctly to whoever asks.
- *
- * So it is refused rather than warned about. The check is deliberately narrow:
- * it fires only when NODE_ENV says production, which is the one context where
- * the answer is never "the author is running the tests". Everything else about
- * how the server is deployed is somebody else's judgement.
+ * A misconfigured production server is refused rather than warned about. The
+ * check is deliberately narrow: it fires only when NODE_ENV says production.
+ * Everything else about how the server is deployed is somebody else's
+ * judgement.
  *
  * Pure, and takes the environment as an argument, so the refusal is testable
  * without spawning a process and setting real variables.
  */
 function productionAuthError(env = process.env) {
   if (env.NODE_ENV !== 'production') return null;
-  if (env.ENABLE_AUTH !== 'true') {
-    return 'Refusing to start: NODE_ENV is production but ENABLE_AUTH is not "true", '
-      + 'so every request would resolve to the shared development identity and no '
-      + 'sign-in would be required. Set ENABLE_AUTH=true.';
-  }
   if (!env.GITHUB_CLIENT_ID?.trim() || !env.GITHUB_CLIENT_SECRET?.trim()) {
     return 'Refusing to start: production requires GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET, the only way to sign in.';
   }
@@ -326,17 +304,6 @@ const auth = betterAuth({
 });
 
 /**
- * The identity every request carries when ENABLE_AUTH is off. A stable id keeps
- * the JSON stores keyed consistently across restarts.
- */
-const DEV_IDENTITY = Object.freeze({
-  userId: 'dev-user',
-  orgId: null,
-  orgRole: null,
-  sessionId: null,
-});
-
-/**
  * Endpoints reachable without a session. Health is public, and /api/auth/* is
  * where a caller goes to get a session. Workspace feeds live below an explicit
  * workspace URL and use the same membership boundary as other workspace data.
@@ -421,8 +388,6 @@ function orgRoleFor(userId, orgId) {
  * error}` describing the rejection to send back verbatim.
  */
 async function resolveIdentity(req) {
-  if (!AUTH_ENABLED) return {ok: true, identity: DEV_IDENTITY};
-
   let session;
   try {
     session = await auth.api.getSession({headers: fromNodeHeaders(req.headers)});
@@ -464,8 +429,6 @@ module.exports = {
   isPublicPath,
   isSafeId,
   orgRoleFor,
-  AUTH_ENABLED,
-  DEV_IDENTITY,
   PUBLIC_PATHS,
   PUBLIC_PATTERNS,
   workspaceAccessControl,

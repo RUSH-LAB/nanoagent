@@ -230,7 +230,6 @@ function createPostgresOrg({pool, auth, removeMemberChannels = null, now = () =>
     leaveWorkspace,
     listAudit,
     slugForOrg: () => null,
-    primaryOrgId: () => null,
     allOrganizations: async () => (await pool.query('select * from list_scheduled_workspaces()')).rows.map(row => ({
       id: row.id, slug: row.slug, name: row.name, ownerId: row.owner_id,
     })),

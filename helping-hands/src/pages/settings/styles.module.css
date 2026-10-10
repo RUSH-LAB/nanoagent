@@ -233,15 +233,6 @@
   font-size: 0.85rem;
 }
 
-.notice {
-  margin: 0;
-  padding: 0.9rem 1.1rem;
-  border: 1px dashed var(--ifm-color-emphasis-300);
-  border-radius: 12px;
-  color: var(--ifm-color-emphasis-700);
-  font-size: 0.88rem;
-}
-
 .dangerZone {
   border-color: color-mix(in srgb, var(--ifm-color-danger) 35%, var(--ifm-color-emphasis-200));
 }

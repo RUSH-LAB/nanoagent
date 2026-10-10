@@ -869,7 +869,7 @@ export default function ApiDocs() {
             Base URL: <code>http://localhost:3001</code> (configurable via <code>EDITOR_PORT</code> env var). All request/response bodies are JSON unless noted otherwise.
           </p>
           <p style={{color: '#9ca3af', fontSize: '0.85rem'}}>
-            <strong>Authentication.</strong> With <code>ENABLE_AUTH=true</code>, every endpoint except{' '}
+            <strong>Authentication.</strong> Every endpoint except{' '}
             <code>/api/health</code>, invitation previews, and <code>/api/auth/*</code> requires a Better Auth{' '}
             session carried by a same-origin HttpOnly cookie. A missing or invalid session is a <code>401</code>.
             Every workspace endpoint shown below includes the explicit <code>/api/workspaces/:workspaceId</code> prefix and

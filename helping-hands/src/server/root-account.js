@@ -30,7 +30,7 @@ async function githubProfile(login, fetchImpl) {
  * gets the GitHub account linked, the way Better Auth links at sign-in.
  */
 async function ensureRootAccount(auth, {login = process.env.ROOT_GITHUB_LOGIN?.trim(), fetchImpl = fetch} = {}) {
-  if (!login) throw new Error('ENABLE_AUTH=true requires ROOT_GITHUB_LOGIN, the GitHub account that administers the platform.');
+  if (!login) throw new Error('Mochi requires ROOT_GITHUB_LOGIN, the GitHub account that administers the platform.');
   const profile = await githubProfile(login, fetchImpl);
   const {internalAdapter} = await auth.$context;
   const key = {issuer: createOAuthAccountIssuer('github'), accountId: String(profile.id)};

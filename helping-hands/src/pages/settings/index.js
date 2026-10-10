@@ -35,7 +35,7 @@ function SettingsApp() {
   const location = useLocation();
   const workspaceSlug = workspaceSlugFromPath(location.pathname);
 
-  // undefined is loading, null is a confirmed signed-out development session.
+  // undefined is loading, null is no session.
   const [session, setSession] = useState(undefined);
   // undefined until the request answers, then the list, or null if it failed.
   // Three states rather than two, so a slow load does not read as a failed one.
@@ -282,9 +282,7 @@ function SettingsApp() {
                   </button>
                 </div>
               </section>
-            ) : (
-              <p className={styles.notice}>Authentication is disabled; requests use the local development account.</p>
-            )}
+            ) : null}
           </section>
 
           <section id="navigation" className={styles.pane}>

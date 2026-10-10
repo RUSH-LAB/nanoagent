@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Link from '@docusaurus/Link';
 import {useLocation} from '@docusaurus/router';
-import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Avatar from '@site/src/components/Avatar';
 import {authClient, signOutAndForget} from '@site/src/utils/authClient';
 import {clientPlatform} from '@site/src/platform/client';
@@ -32,8 +31,6 @@ function workspaceSlugFromPath(pathname) {
 }
 
 export default function UserButton({ mobile = false }) {
-  const { siteConfig } = useDocusaurusContext();
-  const authEnabled = siteConfig.customFields?.authEnabled;
   const [user, setUser] = useState(null);
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -44,7 +41,6 @@ export default function UserButton({ mobile = false }) {
     : '/settings';
 
   useEffect(() => {
-    if (!authEnabled) return undefined;
     let cancelled = false;
     // Through authClient, which addresses the API's origin; a relative path
     // reaches the site's own server in development and never finds a session.
@@ -52,7 +48,7 @@ export default function UserButton({ mobile = false }) {
       .then((result) => { if (!cancelled) setUser(result?.data?.user ?? null); })
       .catch(() => { /* signed out or API down; the button still links to settings */ });
     return () => { cancelled = true; };
-  }, [authEnabled]);
+  }, []);
 
   useEffect(() => {
     if (!open) return undefined;

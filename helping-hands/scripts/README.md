@@ -27,12 +27,11 @@ npm run db:postgres:setup
 It must contain the following values; never commit real secrets:
 
 ```dotenv
-DATABASE_URL=postgresql://mochi_runtime:...@...-pooler.../neondb?sslmode=require
-DATABASE_MIGRATION_URL=postgresql://neondb_owner:...@.../neondb?sslmode=require
+DATABASE_URL=postgresql://mochi_runtime:...@...-pooler.../neondb?sslmode=verify-full
+DATABASE_MIGRATION_URL=postgresql://neondb_owner:...@.../neondb?sslmode=verify-full
 BETTER_AUTH_SECRET=...
 PG_SSL=require
 PG_SSL_REJECT_UNAUTHORIZED=true
-ENABLE_AUTH=true
 PLATFORM_NAME=Mochi Lab
 PLATFORM_TAGLINE=Collaborative knowledge workspaces
 GITHUB_CLIENT_ID=...
@@ -40,9 +39,9 @@ GITHUB_CLIENT_SECRET=...
 ROOT_GITHUB_LOGIN=your-github-login
 ```
 
-GitHub is the only way to sign in, so the server refuses to start with
-authentication on unless all three GitHub values are set. Create an OAuth App
-under GitHub Settings → Developer settings → OAuth Apps with the homepage
+GitHub is the only way to sign in, so the server refuses to start unless all
+three GitHub values are set. Create an OAuth App under GitHub Settings →
+Developer settings → OAuth Apps with the homepage
 `http://localhost:3000` and the authorization callback URL
 `http://localhost:3001/api/auth/callback/github`. A GitHub OAuth App takes one
 callback URL, so a deployment uses its own app, with the callback

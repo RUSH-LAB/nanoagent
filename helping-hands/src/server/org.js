@@ -25,7 +25,6 @@
  */
 const crypto = require('crypto');
 const {fromNodeHeaders} = require('better-auth/node');
-const {PRIMARY_ORG_SLUG} = require('./paths');
 const {db} = require('./db');
 const {auth} = require('./auth');
 const audit = require('./audit');
@@ -122,7 +121,7 @@ function findMember(orgId, memberId) {
  * An organization with no channels answers every chat read with an empty list
  * and offers a new arrival nothing to click, which reads as a broken product
  * rather than an empty one. The same reasoning, and the same channel name, as
- * the root workspace in ./dev-auth.
+ * the root workspace in ./root-user.
  */
 const FIRST_CHANNEL = 'general';
 
@@ -179,39 +178,6 @@ function slugForOrg(orgId) {
 
 /** For the tests, and for anything that does eventually learn to rename. */
 slugForOrg.forget = orgId => (orgId ? slugCache.delete(orgId) : slugCache.clear());
-
-/**
- * The id of the workspace a caller with no active one is treated as being in.
- *
- * The primary workspace id used only by explicitly unauthenticated local mode
- * and public compatibility endpoints.
- *
- * Two callers have no active workspace: the public feeds, which nobody is
- * signed in to, and every request when ENABLE_AUTH is off, which is the test
- * test suites. Sending those to the primary workspace is
- * what makes both behave as they did when there was only one.
- *
- * Returns null when the primary workspace does not exist yet, which is a clean
- * checkout before anything has been provisioned. The store turns that into a
- * 409 rather than inventing somewhere to write.
- *
- * Memoized like slugForOrg, and for the same reason: asked on every request
- * that touches data, and the answer cannot change. Only a hit is remembered,
- * because a miss during provisioning is a moment rather than a fact.
- */
-let primaryOrgIdCache = null;
-
-function primaryOrgId() {
-  if (primaryOrgIdCache) return primaryOrgIdCache;
-  const row = db.prepare('SELECT id FROM organization WHERE slug = ?').get(PRIMARY_ORG_SLUG);
-  if (row?.id) primaryOrgIdCache = row.id;
-  return row?.id ?? null;
-}
-
-/** For the tests, which create and destroy workspaces within one process. */
-primaryOrgId.forget = () => {
-  primaryOrgIdCache = null;
-};
 
 /**
  * Every workspace on this server, oldest first.
@@ -535,7 +501,7 @@ module.exports = {
   AUDIT_LIMIT: audit.LIMIT,
   listAudit: audit.list,
   canManage, labelFor,
-  slugify, slugTaken, availableSlug, slugForOrg, primaryOrgId, allOrganizations,
+  slugify, slugTaken, availableSlug, slugForOrg, allOrganizations,
   listMemberships, createWorkspace, archiveWorkspace, deleteWorkspace,
   getOrganization, listMembers, findMember,
   listInvitations, invitationForLink, invite, cancelInvitation, acceptInvitation,

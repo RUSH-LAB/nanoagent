@@ -3,7 +3,6 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import Link from '@docusaurus/Link';
 import {useLocation} from '@docusaurus/router';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
-import AppProduct from '@site/src/components/AppProduct';
 import Layout from '@theme/Layout';
 import PluginFrame from '@site/src/components/PluginFrame';
 import PluginSidebar, {pluginNavigation} from '@site/src/components/PluginSidebar';
@@ -15,9 +14,9 @@ import styles from './styles.module.css';
 /**
  * The apps NanoAgent publishes: its `nanoagent.plugin/v1` packages.
  *
- * An app opens on its product page (AppProduct), from the product section of
- * its manifest. Open shows its own front end, the page in its ui/ folder, in a
- * sandboxed frame (PluginFrame). Through the frame's
+ * Choosing an app shows its own front end, the page in its ui/ folder, in a
+ * sandboxed frame (PluginFrame), and nothing of ours around it: what the app
+ * says about itself and how it starts are its developer's. Through the frame's
  * bridge the page runs the app's tasks and prompts its NanoAgent agent; what
  * the apps save lands in the caller's own workspace (src/pages/workspace).
  * NanoAgent owns the agent's model, instructions and the checks on every tool
@@ -39,29 +38,10 @@ function MaintenanceNotice({app}) {
   );
 }
 
-/** A ready app opens on its product page; Open shows the app itself, and About returns to it. */
+/** A ready app is its own page; one still being built is our notice. */
 function AppDetail({app, workspace}) {
-  const [open, setOpen] = React.useState(false);
   if (app.status !== 'ready') return <MaintenanceNotice app={app} />;
-  if (!open) {
-    return (
-      <AppProduct
-        app={app}
-        actions={<button type="button" className="button button--primary button--lg" onClick={() => setOpen(true)}>Open app</button>}
-      />
-    );
-  }
-  return (
-    <article className={styles.detail}>
-      <header className={styles.detailHeader}>
-        <h1>{app.name}</h1>
-        <button type="button" className="button button--secondary button--sm" onClick={() => setOpen(false)}>
-          About {app.name}
-        </button>
-      </header>
-      <PluginFrame app={app} workspace={workspace} />
-    </article>
-  );
+  return <PluginFrame app={app} workspace={workspace} />;
 }
 
 function AppsColumns() {
@@ -93,7 +73,12 @@ function AppsColumns() {
       sidebarKey="plugins"
       showSidebarOnMobile
       renderSidebar={({collapsed, onCollapse}) => (
-        <PluginSidebar navigation={navigation} collapsed={collapsed} onCollapse={onCollapse} />
+        <PluginSidebar
+          navigation={navigation}
+          marketplaceHref={slug ? `/w/${encodeURIComponent(slug)}/marketplace` : '/marketplace'}
+          collapsed={collapsed}
+          onCollapse={onCollapse}
+        />
       )}
     >
       <BrowserOnly fallback={<div style={{padding: 40, textAlign: 'center'}}>Loading...</div>}>

@@ -23,7 +23,6 @@ describe('local process supervisor configuration', () => {
     assert.equal(env.DATABASE_URL, 'postgres://runtime');
     assert.equal(env.DATABASE_MIGRATION_URL, 'postgres://owner');
     assert.equal(env.EDITOR_PORT, '4101');
-    assert.equal(env.ENABLE_AUTH, 'true');
   });
 
   it('reports how to prepare a missing PostgreSQL environment file', () => {

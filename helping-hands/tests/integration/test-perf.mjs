@@ -2,12 +2,14 @@
 // -----------------------------------------------------------------
 // Performance regression tests for the Mochi Lab editor server
 // Usage:  node tests/integration/test-perf.mjs
-// Requires the server running on http://localhost:3001
+// Requires the server running on http://localhost:3001, and a GitHub sign-in
+// saved by `node cli/mochi.mjs login http://localhost:3001`
 // -----------------------------------------------------------------
 
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {signedInHeaders} from './api-client.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
@@ -15,6 +17,7 @@ const SNAPSHOT_DIR = join(PROJECT_ROOT, 'snapshots');
 const SNAPSHOT_PATH = join(SNAPSHOT_DIR, 'perf-baseline.json');
 
 const BASE = process.env.API_URL || 'http://localhost:3001';
+const SIGNED_IN = signedInHeaders(BASE);
 const ITERATIONS = 5;
 
 // -- Colors --
@@ -60,7 +63,7 @@ function fmtMs(ms) {
 async function timeRequest(method, path) {
   const url = `${BASE}${path}`;
   const start = performance.now();
-  const res = await fetch(url, { method });
+  const res = await fetch(url, { method, headers: SIGNED_IN });
   // consume body to ensure full response is received
   await res.text();
   const elapsed = performance.now() - start;

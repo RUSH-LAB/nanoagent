@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import NavbarLogo from '@theme/Navbar/Logo';
-import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import { useThemeConfig } from '@docusaurus/theme-common';
 import { useLocation } from '@docusaurus/router';
@@ -47,9 +46,7 @@ function Check() {
 }
 
 export default function WorkspaceSwitcher() {
-  const { siteConfig } = useDocusaurusContext();
   const { navbar } = useThemeConfig();
-  const authEnabled = siteConfig.customFields?.authEnabled;
   const location = useLocation();
   const workspaceSite = useWorkspaceSite();
 
@@ -75,7 +72,6 @@ export default function WorkspaceSwitcher() {
   }, [open]);
 
   useEffect(() => {
-    if (!authEnabled) return undefined;
     let cancelled = false;
     loadWorkspaces()
       .then(({ memberships, activeId: active }) => {
@@ -85,7 +81,7 @@ export default function WorkspaceSwitcher() {
       })
       .catch(() => { /* the brand stays the brand */ });
     return () => { cancelled = true; };
-  }, [authEnabled]);
+  }, []);
 
   const routeSlug = workspaceSlugFromPath(location.pathname);
   // A workspace URL is authoritative. Never replace an unknown or still

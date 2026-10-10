@@ -1,12 +1,15 @@
 .frame {
   display: block;
   width: 100%;
-  height: calc(100vh - var(--ifm-navbar-height) - 8rem);
+  /* The content column's height, less its top and bottom padding. */
+  height: calc(100vh - var(--ifm-navbar-height) - var(--site-content-top) - 3rem);
   min-height: 480px;
-  margin-top: 1.25rem;
-  border: 1px solid var(--ifm-color-emphasis-300);
-  border-radius: 14px;
-  background: var(--ifm-background-surface-color);
+  /* No box of our own: the page paints the host's background (kit.css), so it reads as ours. */
+  border: 0;
+}
+
+.frame[hidden] {
+  display: none;
 }
 
 .muted {

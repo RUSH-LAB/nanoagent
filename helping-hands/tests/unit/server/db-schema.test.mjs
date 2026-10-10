@@ -30,16 +30,23 @@ describe('server/migrations matches the installed better-auth', () => {
     // A fresh file, so the migrations under test are the only thing that has
     // ever touched this database.
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-schema-'));
-    const saved = process.env.DATABASE_FILE;
-    process.env.DATABASE_FILE = path.join(dir, 'schema.db');
+    const env = {
+      DATABASE_FILE: path.join(dir, 'schema.db'),
+      GITHUB_CLIENT_ID: 'test-client',
+      GITHUB_CLIENT_SECRET: 'test-secret',
+    };
+    const saved = Object.fromEntries(Object.keys(env).map(k => [k, process.env[k]]));
+    Object.assign(process.env, env);
     delete require.cache[AUTH_PATH];
     delete require.cache[DB_PATH];
     try {
       ({db} = require('../../../src/server/db.js'));
       ({auth} = require('../../../src/server/auth.js'));
     } finally {
-      if (saved === undefined) delete process.env.DATABASE_FILE;
-      else process.env.DATABASE_FILE = saved;
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
       delete require.cache[AUTH_PATH];
       delete require.cache[DB_PATH];
     }

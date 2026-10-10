@@ -494,7 +494,7 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     stream,
     profiles,
     plugins: () => nanoFetch('/v1/plugins'),
-    pluginUiFile: (app, path) => nanoFetch(`/v1/plugins/${encodeURIComponent(app)}/ui/${encodedPath(path)}`, {bytes: true}),
+    pluginUiFile: (app, version, path) => nanoFetch(`/v1/plugins/${encodeURIComponent(app)}/ui/${encodeURIComponent(version)}/${encodedPath(path)}`, {bytes: true}),
     taskRun,
     // The marketplace: NanoAgent's own plugin packages, and the package it packs
     // and checks from the plugin at `path` in a repository archive.
@@ -543,6 +543,9 @@ module.exports = {
   plugins: gateway.plugins,
   pluginUiFile: gateway.pluginUiFile,
   taskRun: gateway.taskRun,
+  packages: gateway.packages,
+  packageFile: gateway.packageFile,
+  packageSource: gateway.packageSource,
   workspaceFiles: gateway.workspaceFiles,
   workspaceFile: gateway.workspaceFile,
   saveWorkspaceFile: gateway.saveWorkspaceFile,

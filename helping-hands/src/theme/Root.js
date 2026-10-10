@@ -1,6 +1,5 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
-import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import { useLocation } from '@docusaurus/router';
 import PageTracker from '@site/src/components/Analytics/PageTracker';
 import {clientPlatform} from '@site/src/platform/client';
@@ -32,9 +31,8 @@ function IdleCommandBar() {
  *
  * Sessions come from Better Auth against the local SQL database, so this runs
  * entirely against our own API server; there is no third-party identity
- * service. `ENABLE_AUTH` decides whether the gate exists at all, and it is the
- * same flag the API server reads, so the two can never disagree about whether
- * a session is required.
+ * service. The gate always applies, as the API server always requires a
+ * session.
  *
  * The workspace list doubles as the session probe: it is already protected by
  * the server's identity gate and returns the verified user id. That keeps cold
@@ -167,19 +165,6 @@ function AuthGate({ children }) {
 }
 
 export default function Root({ children }) {
-  const { siteConfig } = useDocusaurusContext();
-  const authEnabled = siteConfig.customFields?.authEnabled;
-
-  if (!authEnabled) {
-    return (
-      <>
-        {children}
-        <IdleCommandBar />
-        <PageTracker />
-      </>
-    );
-  }
-
   return (
     <>
       <BrowserOnly

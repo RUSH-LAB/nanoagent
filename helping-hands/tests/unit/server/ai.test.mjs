@@ -255,6 +255,12 @@ describe('NanoAgent gateway', () => {
 });
 
 describe('NanoAgent plugin API', () => {
+  it('is exported for the routes: every gateway method', () => {
+    for (const name of Object.keys(ai.createNanoAgentGateway())) {
+      assert.equal(typeof ai[name], 'function', `ai.${name} is not exported`);
+    }
+  });
+
   it('reads the plugin catalog with the service token', async () => {
     const seen = [];
     const gateway = ai.createNanoAgentGateway({
@@ -309,10 +315,10 @@ describe('NanoAgent plugin API', () => {
         };
       },
     });
-    const file = await gateway.pluginUiFile('chess-move', 'js/app main.js');
+    const file = await gateway.pluginUiFile('chess-move', '0123456789abcdef', 'js/app main.js');
     assert.equal(file.value.toString(), '<html>');
     assert.equal(file.headers.get('content-security-policy'), "default-src 'self'");
-    assert.deepEqual(seen, [['http://127.0.0.1:8787/v1/plugins/chess-move/ui/js/app%20main.js', 'Bearer secret']]);
+    assert.deepEqual(seen, [['http://127.0.0.1:8787/v1/plugins/chess-move/ui/0123456789abcdef/js/app%20main.js', 'Bearer secret']]);
   });
 
   it('starts a task run in a workspace and hands back its event stream', async () => {

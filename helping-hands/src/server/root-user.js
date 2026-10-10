@@ -1,12 +1,11 @@
 /**
- * The root account and the development workspace, on SQLite.
+ * The root account, on SQLite.
  *
  * Root is the GitHub account named by ROOT_GITHUB_LOGIN (root-account.js),
- * provisioned at every start with authentication on. It is also the first
- * owner, which closes a real gap: with no owner, PUT /api/users/:id/role
- * answers 403 to everyone and the admin page can never grant anyone anything.
+ * provisioned at every start. It is also the first owner, which closes a real
+ * gap: with no owner, PUT /api/users/:id/role answers 403 to everyone and the
+ * admin page can never grant anyone anything.
  */
-const crypto = require('crypto');
 const {setRole, getRole} = require('./roles');
 const {db} = require('./db');
 const chat = require('./chat');
@@ -16,9 +15,6 @@ const {ensureRootAccount} = require('./root-account');
 const ROOT_ORG_NAME = process.env.ROOT_ORG_NAME || 'Mochi Lab';
 const ROOT_ORG_SLUG = process.env.ROOT_ORG_SLUG || 'mochi';
 const ROOT_CHANNEL = 'general';
-
-const DEV_USER_ID = 'dev-user';
-const DEV_USER_EMAIL = 'dev-user@mochi.local';
 
 /**
  * Make `userId` a platform administrator, unless they already are. Returns whether anything
@@ -101,65 +97,6 @@ async function ensureRootUser(auth, options) {
   return {userId, login, created, grantedPlatformAdmin, workspace};
 }
 
-/**
- * Provision the fixed identity used when authentication is disabled.
- *
- * The no-auth mode is only for local development and integration tests, but it
- * still goes through the real workspace resolver. Giving that identity an
- * ordinary owner membership keeps the request boundary identical to
- * production instead of adding a membership bypass that could drift into a
- * deployed configuration.
- */
-function ensureDevelopmentWorkspace() {
-  const at = new Date().toISOString();
-  let workspace;
-  db.transaction(() => {
-    db.prepare(
-      `INSERT OR IGNORE INTO "user"
-         (id, name, email, emailVerified, createdAt, updatedAt)
-       VALUES (?, ?, ?, 1, ?, ?)`,
-    ).run(DEV_USER_ID, 'Development User', DEV_USER_EMAIL, at, at);
-
-    workspace = db.prepare(
-      `SELECT id, name, slug FROM organization
-        WHERE status = 'active'
-        ORDER BY CASE WHEN slug = ? THEN 0 ELSE 1 END, createdAt, rowid
-        LIMIT 1`,
-    ).get(ROOT_ORG_SLUG);
-
-    if (!workspace) {
-      let slug = ROOT_ORG_SLUG;
-      if (db.prepare('SELECT 1 FROM organization WHERE slug = ?').get(slug)) slug = `${ROOT_ORG_SLUG}-dev`;
-      const id = crypto.randomUUID();
-      db.prepare(
-        `INSERT INTO organization (id, name, slug, createdAt, status, createdBy)
-         VALUES (?, ?, ?, ?, 'active', ?)`,
-      ).run(id, ROOT_ORG_NAME, slug, at, DEV_USER_ID);
-      workspace = {id, name: ROOT_ORG_NAME, slug};
-    }
-
-    const membership = db.prepare(
-      'SELECT id FROM member WHERE organizationId = ? AND userId = ?',
-    ).get(workspace.id, DEV_USER_ID);
-    if (!membership) {
-      db.prepare(
-        `INSERT INTO member (id, organizationId, userId, role, createdAt)
-         VALUES (?, ?, ?, 'owner', ?)`,
-      ).run(crypto.randomUUID(), workspace.id, DEV_USER_ID, at);
-    }
-    db.prepare(
-      `INSERT OR IGNORE INTO workspace_settings (organizationId, value, updatedAt)
-       VALUES (?, '{}', ?)`,
-    ).run(workspace.id, at);
-  })();
-
-  const channel = db.prepare(
-    'SELECT id FROM channel WHERE organizationId = ? AND name = ?',
-  ).get(workspace.id, ROOT_CHANNEL);
-  if (!channel) chat.createChannel(workspace.id, DEV_USER_ID, {name: ROOT_CHANNEL});
-  return workspace;
-}
-
 module.exports = {
   ROOT_ORG_NAME,
   ROOT_ORG_SLUG,
@@ -167,5 +104,4 @@ module.exports = {
   grantPlatformAdmin,
   ensureRootWorkspace,
   ensureRootUser,
-  ensureDevelopmentWorkspace,
 };

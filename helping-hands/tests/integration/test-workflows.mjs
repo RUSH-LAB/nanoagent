@@ -4,7 +4,8 @@ import {createApiClient} from './api-client.mjs';
 // End-to-end user workflow tests for Mochi Lab
 // Tests 3 complete user journeys (12 tests total)
 // Usage:  node tests/integration/test-workflows.mjs
-// Requires the server running on http://localhost:3001
+// Requires the server running on http://localhost:3001, and a GitHub sign-in
+// saved by `node cli/mochi.mjs login http://localhost:3001`
 // ─────────────────────────────────────────────────────────────
 
 const BASE = process.env.API_URL || 'http://localhost:3001';

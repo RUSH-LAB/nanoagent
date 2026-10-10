@@ -20,7 +20,6 @@ export function environmentFor({base = process.env, envFile = localEnvFile} = {}
   if (!env.DATABASE_URL || !env.DATABASE_MIGRATION_URL) {
     throw new Error('Run npm run db:postgres:setup before npm start');
   }
-  env.ENABLE_AUTH = 'true';
   return env;
 }
 

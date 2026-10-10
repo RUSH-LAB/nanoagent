@@ -4,8 +4,9 @@ import styles from './styles.module.css';
 /**
  * An app's product page: its plugin's product/ folder as NanoAgent sends it
  * (tagline, summary, highlights, steps and icon), and its settings: the
- * permissions in its manifest and what they mean for the user's privacy. `actions` are the buttons under
- * its summary: Open on the Plugins page, Download in the marketplace.
+ * permissions in its manifest and what they mean for the user's privacy. The
+ * marketplace shows it before a download; an installed app is its own page.
+ * `actions` are the marketplace's buttons under its summary.
  */
 
 const ICONS = {

@@ -14,12 +14,13 @@ export default function PluginFrame({app, workspace}) {
   const frame = useRef(null);
   const host = useRef(null);
   const {colorMode} = useColorMode();
-  const src = `${API_BASE}/api/apps/${encodeURIComponent(app.id)}/ui/index.html`;
+  const src = `${API_BASE}/api/apps/${encodeURIComponent(app.id)}/ui/${encodeURIComponent(app.uiVersion)}/index.html`;
   const [page, setPage] = useState({src: null, error: null});
 
   // A frame shows whatever comes back, an error included, and cannot tell this
-  // page what it was. So the page is fetched once first, to show a plugin
-  // without a working UI as the error it is.
+  // page what it was. So the page is also fetched here, to show a plugin
+  // without a working UI as the error it is. The frame loads at the same time,
+  // hidden until this check passes, so opening a plugin waits on neither.
   useEffect(() => {
     let cancelled = false;
     fetch(src).then(
@@ -34,9 +35,8 @@ export default function PluginFrame({app, workspace}) {
     return () => { cancelled = true; };
   }, [src, app.name]);
 
-  const ready = page.src === src && !page.error;
+  // The host listens before the frame loads: the page asks to `describe` once.
   useEffect(() => {
-    if (!ready) return undefined;
     const bridge = createBridgeHost({
       frameWindow: () => frame.current?.contentWindow ?? null,
       plugin: app,
@@ -53,22 +53,26 @@ export default function PluginFrame({app, workspace}) {
     };
     // The theme reaches a running host through setTheme below, not a new host.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, app, workspace.id]);
+  }, [app, workspace.id]);
 
   useEffect(() => {
     host.current?.setTheme(colorMode);
   }, [colorMode]);
 
-  if (page.src !== src) return <p className={styles.muted}>Loading {app.name}…</p>;
-  if (page.error) return <div className={styles.error}>{page.error}</div>;
+  const checked = page.src === src;
+  if (checked && page.error) return <div className={styles.error}>{page.error}</div>;
   return (
-    <iframe
-      ref={frame}
-      className={styles.frame}
-      title={app.name}
-      sandbox="allow-scripts allow-forms"
-      src={src}
-      onLoad={() => host.current?.setTheme(colorMode)}
-    />
+    <>
+      {!checked && <p className={styles.muted}>Loading {app.name}…</p>}
+      <iframe
+        ref={frame}
+        className={styles.frame}
+        title={app.name}
+        sandbox="allow-scripts allow-forms"
+        src={src}
+        hidden={!checked}
+        onLoad={() => host.current?.setTheme(colorMode)}
+      />
+    </>
   );
 }

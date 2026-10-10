@@ -95,7 +95,6 @@ function contextualOrg(adapter) {
     canManage: adapter.canManage,
     invitationForLink: adapter.invitationForLink,
     slugForOrg: adapter.slugForOrg,
-    primaryOrgId: adapter.primaryOrgId,
     allOrganizations: adapter.allOrganizations,
 
     listMemberships(identity) {

@@ -28,7 +28,7 @@ describe('request-context domain service boundary', () => {
     let call;
     const org = contextualOrg({
       ROLES: ['owner', 'editor', 'viewer'], canManage: role => role === 'owner',
-      invitationForLink() {}, slugForOrg() {}, primaryOrgId() {}, allOrganizations() {},
+      invitationForLink() {}, slugForOrg() {}, allOrganizations() {},
       setMemberRole(input) { call = input; return {changed: true}; },
     });
     await org.setMemberRole(context, {headers: {cookie: 'session'}, memberId: 'member-b', role: 'viewer'});

@@ -45,9 +45,13 @@ before(async () => {
   const saved = {
     DATABASE_FILE: process.env.DATABASE_FILE,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
+    GITHUB_CLIENT_ID: process.env.GITHUB_CLIENT_ID,
+    GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET,
   };
   process.env.DATABASE_FILE = path.join(dir, 'org.db');
   process.env.BETTER_AUTH_SECRET = 'org-test-secret-'.padEnd(48, 'x');
+  process.env.GITHUB_CLIENT_ID = 'test-client';
+  process.env.GITHUB_CLIENT_SECRET = 'test-secret';
   for (const m of MODULES) delete require.cache[require.resolve(m)];
   try {
     ({db} = require('../../../src/server/db.js'));

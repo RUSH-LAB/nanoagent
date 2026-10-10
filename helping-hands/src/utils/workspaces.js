@@ -23,7 +23,7 @@ let workspaceValue = null;
 
 export const WORKSPACE_PAGE_ROOTS = new Set([
   'analytics', 'bibliography', 'channels', 'compare', 'content-search', 'documents', 'files', 'flashcards',
-  'glossary', 'graph', 'mindmap', 'people', 'reading-lists',
+  'glossary', 'graph', 'marketplace', 'mindmap', 'people', 'reading-lists',
   'recommendations', 'settings', 'stats', 'tasks', 'timeline', 'whiteboard',
 ]);
 

@@ -101,7 +101,6 @@ export function prepareNeonEnvironment({
     DATABASE_URL: runtimeUrl.toString(),
     PG_SSL: values.PG_SSL || 'require',
     PG_SSL_REJECT_UNAUTHORIZED: values.PG_SSL_REJECT_UNAUTHORIZED || 'true',
-    ENABLE_AUTH: values.ENABLE_AUTH || 'true',
     BETTER_AUTH_SECRET: values.BETTER_AUTH_SECRET || randomBytes(32).toString('hex'),
   };
   delete output.PG_DRIVER;
