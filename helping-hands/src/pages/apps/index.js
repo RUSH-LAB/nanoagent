@@ -6,7 +6,7 @@ import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import Layout from '@theme/Layout';
 import PluginFrame from '@site/src/components/PluginFrame';
 import PluginSidebar, {pluginNavigation} from '@site/src/components/PluginSidebar';
-import ThreeColumnLayout from '@site/src/components/ThreeColumnLayout';
+import TwoColumnLayout from '@site/src/components/TwoColumnLayout';
 import useWorkspaceApps from '@site/src/hooks/useWorkspaceApps';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import styles from './styles.module.css';
@@ -69,7 +69,7 @@ function AppsColumns() {
   }
 
   return (
-    <ThreeColumnLayout
+    <TwoColumnLayout
       sidebarKey="plugins"
       showSidebarOnMobile
       renderSidebar={({collapsed, onCollapse}) => (
@@ -84,7 +84,7 @@ function AppsColumns() {
       <BrowserOnly fallback={<div style={{padding: 40, textAlign: 'center'}}>Loading...</div>}>
         {() => <ErrorBoundary>{content}</ErrorBoundary>}
       </BrowserOnly>
-    </ThreeColumnLayout>
+    </TwoColumnLayout>
   );
 }
 

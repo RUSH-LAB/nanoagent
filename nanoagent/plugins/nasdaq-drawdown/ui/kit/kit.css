@@ -520,8 +520,7 @@ html[data-theme="dark"] .segment input:checked + .segment-text { background: var
 .app-tagline { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .app-nav { display: flex; min-width: 0; }
 .app-actions { display: flex; align-items: center; gap: 8px; flex: none; }
-.app { --page-max: 1040px; }
-.app.width-wide { --page-max: 1240px; }
+.app { --page-max: none; }
 .app.width-narrow { --page-max: 760px; }
 .page { display: grid; gap: 18px; align-content: start; max-width: var(--page-max); padding: 20px var(--page-inset) 40px; }
 

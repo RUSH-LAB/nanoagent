@@ -1,4 +1,4 @@
-/* Blog layout: same reading column as docs, minus the chapter sidebar */
+/* Blog layout: same full-width reading column as docs, minus the chapter sidebar */
 
 /* The shared navbar-to-title gap; the docs half of the pair is pinned under
    "Page top spacing" in src/css/custom.css. Unscoped, so it holds at every
@@ -8,12 +8,9 @@
 }
 
 @media (min-width: 997px) {
-  /* The 4rem gutters sit inside the cap, and .row gives 1rem of each side
-     back with its negative margins, so the net addition over the column sum
-     is 6rem. That lands the columns below on exactly --site-prose-width and
-     --site-toc-width, matching the docs layout. */
+  /* No cap: the post takes whatever the TOC leaves, as in the docs layout. */
   .blogContainer {
-    max-width: calc(var(--site-content-width) + 6rem);
+    max-width: none;
     padding-left: 4rem;
     padding-right: 4rem;
   }
@@ -24,7 +21,7 @@
        table holds it above the space left by the TOC and the TOC wraps onto a
        line of its own below the post. */
     min-width: 0;
-    max-width: var(--site-prose-col) !important;
+    max-width: none !important;
   }
 
   .blogTocCol {

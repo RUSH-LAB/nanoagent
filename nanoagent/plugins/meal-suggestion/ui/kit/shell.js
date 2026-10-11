@@ -17,7 +17,7 @@ import { applyTheme, h, icon } from "./dom.js";
  * @param {Node[]} [options.actions] Header buttons before the chat button.
  * @param {false|object} [options.chat] `false` for no chat; otherwise {@link chatDrawer} options
  *   plus `buttonLabel` (default "Ask the agent"; on narrow screens the button is icon-only).
- * @param {"normal"|"wide"|"narrow"} [options.width] The content's max width: 1040, 1240 or 760 px.
+ * @param {"normal"|"wide"|"narrow"} [options.width] "normal" and "wide" fill the frame; "narrow" caps the content at 760 px.
  * @param {...Node} children The page's content, put in `main`.
  * @returns {{element: HTMLElement, main: HTMLElement, header: HTMLElement, drawer: ReturnType<typeof chatDrawer>|null}}
  */
