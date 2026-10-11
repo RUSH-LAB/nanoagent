@@ -5,7 +5,7 @@ description: Open a pull request from the current development branch into `produ
 
 # Open a pull request into production
 
-`production` in `RUSH-LAB/nanoagent` is what Railway runs. Merging into it
+`production` in `zeyuyang8/helpinghands` is what Railway runs. Merging into it
 deploys Mochi (`helping-hands/`) and/or NanoAgent (`nanoagent/`), whichever
 directory changed. The rules are in `helping-hands/docs/infra/release-policy.md`;
 read it before starting.
@@ -55,7 +55,7 @@ Record:
 ## 3. Reuse an open pull request
 
 ```bash
-gh pr list --repo RUSH-LAB/nanoagent --base production --head <branch> --state open
+gh pr list --repo zeyuyang8/helpinghands --base production --head <branch> --state open
 ```
 
 If one exists, don't open another. Report its URL and go to step 5.
@@ -65,7 +65,7 @@ If one exists, don't open another. Report its URL and go to step 5.
 Write the body to a temp file and run:
 
 ```bash
-gh pr create --repo RUSH-LAB/nanoagent --base production --head <branch> \
+gh pr create --repo zeyuyang8/helpinghands --base production --head <branch> \
   --title "<one-line summary of the release>" --body-file <file>
 ```
 
@@ -93,7 +93,7 @@ The body, written for whoever reviews and merges it:
 ## 5. Report
 
 ```bash
-gh pr checks <number> --repo RUSH-LAB/nanoagent
+gh pr checks <number> --repo zeyuyang8/helpinghands
 ```
 
 Give the user the PR URL, the services it redeploys, any migrations, and the CI

@@ -6,7 +6,7 @@ production. Uncommitted files and development branches never deploy.
 ## Branch rules
 
 - Mochi (`helping-hands/`) and NanoAgent (`nanoagent/`) share one repository,
-  `RUSH-LAB/nanoagent`.
+  `zeyuyang8/helpinghands`.
 - `production` is what Railway runs and must always be deployable. Change it
   only by merging a pull request after CI passes; never push to it directly.
 - Develop on another branch and open a pull request into `production` when it

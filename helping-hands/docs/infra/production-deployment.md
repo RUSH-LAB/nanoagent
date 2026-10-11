@@ -57,7 +57,7 @@ messages to their actual recipients.
 
 ## Railway
 
-Create the public Mochi service from `RUSH-LAB/nanoagent`, branch `production`,
+Create the public Mochi service from `zeyuyang8/helpinghands`, branch `production`,
 with root directory `helping-hands`, config file `/helping-hands/railway.toml`,
 and watch path `/helping-hands/**`. Railway will use that `railway.toml` and
 `helping-hands/Dockerfile`. Add every value from
