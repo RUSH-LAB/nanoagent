@@ -2,7 +2,7 @@
 // the checked list. The chat with the plugin's agent lives in a drawer. Design:
 // docs/plans/plugin-ui-nasdaq-drawdown.md.
 
-import { announce, appShell, banner, card, chipRow, dateInput, errorCard, explainError, h, howItWorks, icon, isoDate, listFiles, mountApp, parseToolOutput, readJSON, runButton, skeleton, taskRun, writeJSON } from "./kit/components.js";
+import { announce, appShell, banner, card, chipRow, dateInput, errorCard, explainError, h, howItWorks, icon, isoDate, listFiles, parseToolOutput, readJSON, runButton, skeleton, taskRun, writeJSON } from "./kit/components.js";
 import { ERROR_RULES, NEW_YORK, checkSavedWeek, dayProblem, errorFix, failedCallNote, formatDay, formatWeek, resultCard, savedChipLabel, weekFromRun, weekPicks } from "./drawdown.js";
 
 const TASK = "nasdaq-down-5";
@@ -17,7 +17,7 @@ const STEPS = [
   { id: "check", label: "Checking the agent's answer" },
 ];
 
-mountApp(async ({ plugin }) => {
+export default async function page({ plugin }) {
   // These two cannot be recovered from on the page, and the message reaches a reader, so it says
   // what is wrong without naming the task or its argument.
   const task = plugin.tasks.find((one) => one.id === TASK);
@@ -224,4 +224,4 @@ mountApp(async ({ plugin }) => {
   refreshButton();
   shell.main.append(pickerCard, run.element, result, intro);
   return shell.element;
-});
+}

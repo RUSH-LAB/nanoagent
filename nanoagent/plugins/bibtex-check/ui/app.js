@@ -14,7 +14,6 @@ import {
   h,
   howItWorks,
   icon,
-  mountApp,
   parseToolOutput,
   plural,
   runButton,
@@ -45,7 +44,7 @@ const LABELS = {
 const SEARCH_FROM = 12;
 const FOLD_REAL_FROM = 30;
 
-mountApp(layout);
+export default layout;
 
 async function layout({ plugin }) {
   if (!plugin.tasks.some((task) => task.id === TASK)) throw new Error(`This plugin has no ${TASK} task, which this page runs.`);

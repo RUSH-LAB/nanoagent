@@ -1,7 +1,7 @@
 // The arXiv page: Find papers and save their sources, a Daily digest of the people you follow, and
 // the Library of what is saved. Chat with the plugin's agent sits in the drawer.
 // Design: docs/plans/plugin-ui-arxiv-source.md.
-import { appShell, banner, h, jsonStore, listFiles, mountApp, segmented } from "./kit/components.js";
+import { appShell, banner, h, jsonStore, listFiles, segmented } from "./kit/components.js";
 import { digestView } from "./digest.js";
 import { findView } from "./find.js";
 import { libraryView, libraryItems } from "./library.js";
@@ -179,4 +179,4 @@ async function arxivLayout({ plugin }) {
   return shell.element;
 }
 
-mountApp(arxivLayout);
+export default arxivLayout;

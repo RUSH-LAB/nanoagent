@@ -3,10 +3,12 @@
 
 import { request, startRun } from "./bridge.js";
 import { h, icon, nextId } from "./dom.js";
+import { currentSession, metricsLine } from "./session.js";
 
 /**
  * A conversation with the plugin's agent. The agent's tool calls are its own business and are not
- * shown. The host keeps the conversation for the page's lifetime.
+ * shown. The host keeps the conversation with the session, so a resumed session shows it again
+ * and continues it. Each answer says what it cost and how long it took.
  * @param {object} options
  * @param {Node} [options.intro] What the empty log shows.
  * @param {string} [options.placeholder] Default "Message the agent".
@@ -25,6 +27,11 @@ export function chatPanel({ intro, placeholder = "Message the agent", suggestion
   const chips = h("div", { class: "chips chat-suggestions", role: "group", "aria-label": "Suggestions" });
   let runId = null;
   let fresh = true;
+  for (const { prompt, answer } of currentSession()?.chat ?? []) {
+    if (fresh) log.replaceChildren();
+    fresh = false;
+    log.append(h("div", { class: "message user" }, h("p", { text: prompt })), h("div", { class: "message agent" }, h("p", { text: answer })));
+  }
 
   const scroll = () => {
     log.scrollTop = log.scrollHeight;
@@ -86,6 +93,7 @@ export function chatPanel({ intro, placeholder = "Message the agent", suggestion
             break;
           case "chat.answer":
             write(data.text ?? "");
+            if (data.metrics) turn.append(h("p", { class: "message-metrics", text: metricsLine(data.metrics) }));
             break;
           case "chat.error":
             turn.append(h("p", { class: "error-text", role: "alert", text: data.message === "cancelled" ? "Stopped." : data.message }));

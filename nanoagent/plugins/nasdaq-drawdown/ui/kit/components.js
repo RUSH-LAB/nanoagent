@@ -1,6 +1,6 @@
 // The plugin UI kit: one import for a plugin page's app.js.
 //
-//   import { mountApp, appShell, taskRun, ... } from "./kit/components.js";
+//   import { appShell, taskRun, ... } from "./kit/components.js";
 //
 // Every file in kit/ is shared, byte for byte, by every built-in plugin; a page adds its own
 // pieces in its own files next to app.js. See docs/plans/plugin-ui.md for the whole API.
@@ -13,4 +13,5 @@ export { COMMON_ERRORS, block, errorCard, explainError, parseToolOutput, runButt
 export { chatDrawer, chatPanel } from "./chat.js";
 export { schemaForm, stringList } from "./forms.js";
 export { filesPanel, jsonStore, listFiles, readFile, readJSON, readText, writeJSON, writeText } from "./workspace.js";
-export { appShell, chatLayout, mountApp } from "./shell.js";
+export { appShell, chatLayout } from "./shell.js";
+export { currentSession, formatCost, formatSeconds, metricsLine } from "./session.js";

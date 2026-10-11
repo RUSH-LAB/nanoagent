@@ -19,7 +19,6 @@ import {
   icon,
   labeled,
   meter,
-  mountApp,
   plural,
   readJSON,
   runButton,
@@ -663,4 +662,4 @@ function chessPage({ plugin }) {
   return shell.element;
 }
 
-mountApp(chessPage);
+export default chessPage;
