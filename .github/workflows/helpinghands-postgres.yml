@@ -4,27 +4,27 @@ on:
   pull_request:
     branches: [production]
     paths:
-      - '.github/workflows/helping-hands-postgres.yml'
-      - 'helping-hands/package-lock.json'
-      - 'helping-hands/package.json'
-      - 'helping-hands/scripts/db/**'
-      - 'helping-hands/src/server/**'
-      - 'helping-hands/tests/unit/server/postgres-*.test.mjs'
-      - 'helping-hands/tests/integration/postgres/**'
+      - '.github/workflows/helpinghands-postgres.yml'
+      - 'helpinghands/package-lock.json'
+      - 'helpinghands/package.json'
+      - 'helpinghands/scripts/db/**'
+      - 'helpinghands/src/server/**'
+      - 'helpinghands/tests/unit/server/postgres-*.test.mjs'
+      - 'helpinghands/tests/integration/postgres/**'
   push:
     branches: [production]
     paths:
-      - '.github/workflows/helping-hands-postgres.yml'
-      - 'helping-hands/package-lock.json'
-      - 'helping-hands/package.json'
-      - 'helping-hands/scripts/db/**'
-      - 'helping-hands/src/server/**'
-      - 'helping-hands/tests/unit/server/postgres-*.test.mjs'
-      - 'helping-hands/tests/integration/postgres/**'
+      - '.github/workflows/helpinghands-postgres.yml'
+      - 'helpinghands/package-lock.json'
+      - 'helpinghands/package.json'
+      - 'helpinghands/scripts/db/**'
+      - 'helpinghands/src/server/**'
+      - 'helpinghands/tests/unit/server/postgres-*.test.mjs'
+      - 'helpinghands/tests/integration/postgres/**'
 
 defaults:
   run:
-    working-directory: helping-hands
+    working-directory: helpinghands
 
 jobs:
   postgres:
@@ -55,7 +55,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: helping-hands/package-lock.json
+          cache-dependency-path: helpinghands/package-lock.json
       - run: npm ci
       - name: Create non-owner runtime role
         run: >-

@@ -58,9 +58,9 @@ messages to their actual recipients.
 ## Railway
 
 Create the public Mochi service from `zeyuyang8/helpinghands`, branch `production`,
-with root directory `helping-hands`, config file `/helping-hands/railway.toml`,
-and watch path `/helping-hands/**`. Railway will use that `railway.toml` and
-`helping-hands/Dockerfile`. Add every value from
+with root directory `helpinghands`, config file `/helpinghands/railway.toml`,
+and watch path `/helpinghands/**`. Railway will use that `railway.toml` and
+`helpinghands/Dockerfile`. Add every value from
 the database, authentication, and email configuration described above to the
 service variables; do not upload `.env`.
 

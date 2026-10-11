@@ -1,4 +1,4 @@
-# The NanoAgent that Mochi's contract check (helping-hands/scripts/maintenance/verify-nanoagent.mjs)
+# The NanoAgent that Mochi's contract check (helpinghands/scripts/maintenance/verify-nanoagent.mjs)
 # runs against, owned here so it always matches this checkout's configuration. The check sets
 # model.base_url to its fake model, port, and workspaces.
 _ > nanoagent.web.config.WebConfig:

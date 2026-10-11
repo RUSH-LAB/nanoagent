@@ -6,8 +6,8 @@ description: Open a pull request from the current development branch into `produ
 # Open a pull request into production
 
 `production` in `zeyuyang8/helpinghands` is what Railway runs. Merging into it
-deploys Mochi (`helping-hands/`) and/or NanoAgent (`nanoagent/`), whichever
-directory changed. The rules are in `helping-hands/docs/infra/release-policy.md`;
+deploys Mochi (`helpinghands/`) and/or NanoAgent (`nanoagent/`), whichever
+directory changed. The rules are in `helpinghands/docs/infra/release-policy.md`;
 read it before starting.
 
 This skill opens the pull request. It never merges: merging deploys, so only
@@ -41,9 +41,9 @@ If there are no commits, stop: there is nothing to release.
 
 Record:
 
-- **Services:** Mochi if anything under `helping-hands/` changed, NanoAgent if
+- **Services:** Mochi if anything under `helpinghands/` changed, NanoAgent if
   anything under `nanoagent/` changed.
-- **Migrations:** new files under `helping-hands/src/server/postgres/migrations/`.
+- **Migrations:** new files under `helpinghands/src/server/postgres/migrations/`.
   Railway applies them before the new Mochi container starts, and they are not
   rolled back with the image.
 - **Contract:** changes under `nanoagent/src/nanoagent/web/` or

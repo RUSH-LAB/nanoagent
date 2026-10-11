@@ -106,7 +106,7 @@ describe('Neon PostgreSQL tooling', () => {
 
   it('runs the acceptance command against an official PostgreSQL CI service', () => {
     // CI lives at the repository root, one level above this package.
-    const workflow = yaml.load(read('../.github/workflows/helping-hands-postgres.yml'));
+    const workflow = yaml.load(read('../.github/workflows/helpinghands-postgres.yml'));
     assert.equal(workflow.jobs.postgres.services.postgres.image, 'postgres:17-alpine');
     assert.equal(workflow.jobs.postgres.env.PG_SSL, 'disable');
     assert.ok(workflow.jobs.postgres.steps.some(step => step.run === 'npm run test:postgres'));

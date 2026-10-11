@@ -4,20 +4,20 @@ on:
   pull_request:
     branches: [production]
     paths:
-      - '.github/workflows/helping-hands-quality.yml'
-      - 'helping-hands/**'
+      - '.github/workflows/helpinghands-quality.yml'
+      - 'helpinghands/**'
       - 'nanoagent/**'
   push:
     branches: [production]
     paths:
-      - '.github/workflows/helping-hands-quality.yml'
-      - 'helping-hands/**'
+      - '.github/workflows/helpinghands-quality.yml'
+      - 'helpinghands/**'
       - 'nanoagent/**'
   workflow_dispatch:
 
 defaults:
   run:
-    working-directory: helping-hands
+    working-directory: helpinghands
 
 jobs:
   quality:
@@ -29,7 +29,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: helping-hands/package-lock.json
+          cache-dependency-path: helpinghands/package-lock.json
       - uses: astral-sh/setup-uv@v6
       - name: Install Mochi
         run: npm ci
@@ -53,12 +53,14 @@ jobs:
       matrix:
         include:
           - name: This Mochi against production NanoAgent
-            changed: helping-hands
-            mochi: .
+            changed: helpinghands
+            mochi: ./helpinghands
             nanoagent: ../production
           - name: Production Mochi against this NanoAgent
             changed: nanoagent
-            mochi: ../production
+            # Production still has Mochi under its name before the rename; change this to
+            # ../production/helpinghands once the rename is in production.
+            mochi: ../production/helping-hands
             nanoagent: .
     defaults:
       run:
@@ -86,11 +88,11 @@ jobs:
         if: steps.side.outputs.changed == 'true'
       - name: Install Mochi
         if: steps.side.outputs.changed == 'true'
-        working-directory: ${{ matrix.mochi }}/helping-hands
+        working-directory: ${{ matrix.mochi }}
         run: npm ci
       - name: Live NanoAgent contract across versions
         if: steps.side.outputs.changed == 'true'
-        working-directory: ${{ matrix.mochi }}/helping-hands
+        working-directory: ${{ matrix.mochi }}
         env:
           NANOAGENT_PROJECT_DIR: ${{ github.workspace }}/${{ matrix.nanoagent }}/nanoagent
         run: npm run nanoagent:verify
