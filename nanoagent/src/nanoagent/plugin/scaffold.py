@@ -13,9 +13,7 @@ import subprocess
 from datetime import date
 from pathlib import Path
 
-from nanoagent.plugin.manifest import PLUGIN_ID, TOOL_ARTIFACTS, PluginManifest, load_manifest
-
-TEMPLATE = Path(__file__).with_name("template")
+from nanoagent.plugin.manifest import PLUGIN_ID, TEMPLATE, TOOL_ARTIFACTS, PluginManifest, load_manifest
 
 
 def create_plugin(folder: Path) -> PluginManifest:

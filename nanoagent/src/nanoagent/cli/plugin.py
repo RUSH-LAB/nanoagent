@@ -2,6 +2,7 @@
 
     nanoagent plugin new <folder>
     nanoagent plugin inspect <path>
+    nanoagent plugin pack <folder> <file.tar.gz>                                   # for a marketplace
     nanoagent plugin run config=<run.yaml> home=<run folder> [-- key=value ...]    # runner: tool
     nanoagent plugin agent config=<run.yaml> home=<run folder> [-- key=value ...]  # runner: agent
 
@@ -35,6 +36,7 @@ from nanoagent.llm.bedrock import BedrockConfig
 from nanoagent.core.agent import Agent
 from nanoagent.plugin import PluginError, PluginManifest, load_manifest
 from nanoagent.plugin.manifest import TaskDefinition
+from nanoagent.plugin.package import pack
 from nanoagent.plugin.scaffold import create_plugin
 from nanoagent.plugin.tasks import run_task
 from nanoagent.plugin.verifier import Verification
@@ -45,6 +47,7 @@ from nanoagent.trajectory.atif import AtifTrajectory, to_atif
 _USAGE = """usage:
   nanoagent plugin new <folder>
   nanoagent plugin inspect <path>
+  nanoagent plugin pack <folder> <file.tar.gz>
   nanoagent plugin run config=<run.yaml> home=<run folder> [-- key=value ...]
   nanoagent plugin agent config=<run.yaml> home=<run folder> [-- key=value ...]"""
 
@@ -247,6 +250,15 @@ def main(argv: list[str] | None = None) -> int:
             print(error, file=sys.stderr)
             return 1
         print(json.dumps(manifest.public(), indent=2))
+        return 0
+    if argv[:1] == ["pack"] and len(argv) == 3:
+        try:
+            data = pack(Path(argv[1]))
+        except PluginError as error:
+            print(error, file=sys.stderr)
+            return 1
+        Path(argv[2]).write_bytes(data)
+        print(f"packed {argv[1]} into {argv[2]} ({len(data)} bytes)")
         return 0
     if argv[:1] in (["run"], ["agent"]):
         # slimconfig's launcher reads `config=` / `home=` / `-- overrides` from sys.argv.
