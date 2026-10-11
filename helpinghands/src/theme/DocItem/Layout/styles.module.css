@@ -1,0 +1,6 @@
+/* The theme's rule for its own container: the first block under the header
+   or at the top of the article starts flush. */
+.docItemContainer header + *,
+.docItemContainer article > *:first-child {
+  margin-top: 0;
+}

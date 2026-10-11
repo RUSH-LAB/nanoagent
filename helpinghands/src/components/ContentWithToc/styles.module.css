@@ -1,0 +1,28 @@
+/* The columns keep Infima's gutter: each has --ifm-spacing-horizontal on both
+   sides, and the grid gives it back with a negative margin, so the outer edges
+   of the text line up with the container's padding. */
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0 calc(var(--ifm-spacing-horizontal) * -1);
+}
+
+.prose,
+.toc {
+  padding: 0 var(--ifm-spacing-horizontal);
+}
+
+/* The prose takes whatever the fixed TOC leaves. */
+@media (min-width: 1201px) {
+  .withToc {
+    grid-template-columns: minmax(0, 1fr) var(--site-toc-col);
+  }
+}
+
+/* Below this a desktop window has too little width to be worth splitting off
+   a TOC; on a phone the columns stack, as Infima's row wraps them. */
+@media (min-width: 997px) and (max-width: 1200px) {
+  .toc {
+    display: none;
+  }
+}

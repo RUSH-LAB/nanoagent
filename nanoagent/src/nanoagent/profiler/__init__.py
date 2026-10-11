@@ -185,6 +185,8 @@ class RunProfile:
     usage: dict[str, int]
     cost: float
     steps: tuple[StepProfile, ...] = ()
+    # From the run's start to its first streamed token; None when nothing was streamed.
+    ttft_s: float | None = None
 
     @property
     def model_s(self) -> float:
@@ -198,12 +200,19 @@ class RunProfile:
     def overhead_s(self) -> float:
         return max(0.0, self.duration_s - self.model_s - self.tools_s)
 
+    @property
+    def generation_s(self) -> float:
+        """Time spent streaming tokens: each model call's first token to its last, summed."""
+        return sum(call.generation_s or 0.0 for step in self.steps for call in step.model_calls)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "duration_s": self.duration_s,
             "model_s": self.model_s,
             "tools_s": self.tools_s,
             "overhead_s": self.overhead_s,
+            "ttft_s": self.ttft_s,
+            "generation_s": self.generation_s,
             "usage": dict(self.usage),
             "cost": self.cost,
             "steps": [step.to_dict() for step in self.steps],
@@ -215,6 +224,7 @@ class _ModelCallTimer:
     kind: str
     started: float
     clock: Clock
+    on_first: Callable[[float], None]
     first_delta: float | None = None
 
     def on_delta(self, kind: str, text: str) -> None:
@@ -222,6 +232,7 @@ class _ModelCallTimer:
         del kind
         if text and self.first_delta is None:
             self.first_delta = self.clock()
+            self.on_first(self.first_delta)
 
     def finish(
         self,
@@ -274,7 +285,7 @@ class StepProfiler:
         self._finished = False
 
     def start_model_call(self, kind: str = "agent") -> _ModelCallTimer:
-        return _ModelCallTimer(kind, self._owner._clock(), self._owner._clock)
+        return _ModelCallTimer(kind, self._owner._clock(), self._owner._clock, self._owner._first_token)
 
     def finish_model_call(
         self,
@@ -344,8 +355,13 @@ class Profiler:
     def __init__(self, *, clock: Clock = time.perf_counter) -> None:
         self._clock = clock
         self._started = clock()
+        self._first: float | None = None
         self._steps: list[StepProfile] = []
         self._active: StepProfiler | None = None
+
+    def _first_token(self, at: float) -> None:
+        if self._first is None:
+            self._first = at
 
     def start_step(self, step: int) -> StepProfiler:
         if self._active is not None:
@@ -370,6 +386,7 @@ class Profiler:
             usage=usage,
             cost=cost,
             steps=tuple(self._steps),
+            ttft_s=None if self._first is None else max(0.0, self._first - self._started),
         )
 
 
@@ -385,7 +402,8 @@ def merge_profiles(profiles: list[RunProfile]) -> RunProfile:
         duration += profile.duration_s
         for step in profile.steps:
             steps.append(replace(step, step=len(steps) + 1))
-    return RunProfile(duration_s=duration, usage=usage, cost=cost, steps=tuple(steps))
+    ttft = profiles[0].ttft_s if profiles else None
+    return RunProfile(duration_s=duration, usage=usage, cost=cost, steps=tuple(steps), ttft_s=ttft)
 
 
 __all__ = [

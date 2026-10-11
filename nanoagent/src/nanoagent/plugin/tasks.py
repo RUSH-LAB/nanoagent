@@ -103,7 +103,8 @@ async def run_task(
     async with PluginSession(manifest, workspace, timeout=timeout) as session:
         for tool in plugin_tools(manifest, workspace, task.tools, session=session):
             agent.add_tool(tool)
-        result = await agent.run(user, on_step=on_step)
+        # Streamed, though nothing reads the text, so the run's profile measures time to first token.
+        result = await agent.run(user, on_step=on_step, on_delta=lambda _kind, _text: None)
     on_event("task.answer", {"text": result.answer})
     verdict = await _verdict(manifest, task, arguments, reference, workspace, on_event)
     return TaskOutcome(reference=reference, response=None, agent=result, verdict=verdict)

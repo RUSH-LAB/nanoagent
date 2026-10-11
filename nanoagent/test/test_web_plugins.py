@@ -21,9 +21,11 @@ class ScriptedModel:
     def __init__(self) -> None:
         self.prompts: list[str] = []
 
-    async def query(self, messages, tools, **_):
+    async def query(self, messages, tools, on_delta=None, **_):
         results = [message["content"] for message in messages if message["role"] == "tool"]
         if results:
+            if on_delta is not None:
+                on_delta("content", "echoed")
             return Reply(content=f"echoed {results[-1]}")
         self.prompts.append(messages[0]["content"])
         return Reply(content=None, tool_calls=[ToolCall("call-1", "echo", '{"value": "hi"}')])
@@ -108,8 +110,9 @@ def test_runs_a_prompt_in_the_callers_workspace(
             for line in response.iter_lines()
             if line.startswith("data: ")
         ]
-    assert [event["type"] for event in events] == ["start", "tool", "step", "done"]
+    assert [event["type"] for event in events] == ["start", "tool", "step", "delta", "done"]
     assert events[0]["profile"] == "plugin-echo"
+    assert events[-1]["metrics"]["ttft_s"] is not None
     assert events[1]["name"] == "echo" and not events[1]["is_error"]
     assert "hi" in events[-1]["answer"]
     assert "You operate the Echo plugin" in model.prompts[0]
@@ -257,6 +260,9 @@ def test_runs_a_tool_task_the_verified_way(client: TestClient, workspaces: Path)
     assert [event["type"] for event in events] == ["task.started", "task.result", "task.verdict", "task.done"]
     assert events[1]["response"] == {"value": "hi"}
     assert events[2]["valid"] is True
+    metrics = events[3]["metrics"]
+    assert metrics["model"] is None and metrics["cost"] == 0.0 and metrics["ttft_s"] is None
+    assert metrics["duration_s"] > 0
     assert len({event["runId"] for event in events}) == 1
     assert (workspaces / "alice" / "echo.txt").read_text() == "hi"
 
@@ -283,6 +289,7 @@ def test_task_runs_report_bad_requests_and_failures(client: TestClient) -> None:
     events = _events(client.post(f"{runs}/echo/runs", json={"arguments": {"value": 42}}))
     # The input is checked before the task starts.
     assert [event["type"] for event in events] == ["task.error", "task.done"]
+    assert "metrics" not in events[-1]
     assert "42" in next(event for event in events if event["type"] == "task.error")["message"]
 
 
@@ -326,4 +333,9 @@ def test_runs_an_agent_task_with_only_its_tools(
     ]
     assert events[1]["name"] == "echo" and events[1]["isError"] is False
     assert events[3]["valid"] is True
+    # Task runs stream the model, so time to first token is measured.
+    metrics = events[4]["metrics"]
+    assert metrics["model"] == config.model.model
+    assert metrics["ttft_s"] is not None and metrics["ttft_s"] <= metrics["duration_s"]
+    assert metrics["generation_s"] >= 0
     assert "Echo the value with the echo tool." in model.prompts[-1]
