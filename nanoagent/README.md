@@ -29,7 +29,7 @@ uv.lock
 .env             # environment variable NAMEs the plugin needs, never values
 run.sh           # exits 0 when this environment can run the plugin
 src/             # the plugin's code, organized as it likes
-tests/           # at least one test_*.py
+tests/           # the plugin's tests, including test_verifier.py
 verifier/        # deterministic verifier package, .py files only
 ui/              # the front end: a static web page, ui/index.html
 product/         # the product page: product.yaml and icon.svg
@@ -44,7 +44,13 @@ The rules a plugin must follow are listed in one place, the docstring of
 names only, a `contract.py` of declarations only, a `nanoagent.yaml` that
 fills `ManifestConfig` under slimconfig's rules (tables keyed by the
 contract's `Tool` and `Task`), a deterministic verifier, a `ui/` and a
-`product/` (below), and no extra files. NanoAgent refuses to load a plugin that breaks any rule, and `PluginError` lists every
+`product/` (below), no extra files, and standard files that are the
+template's (`nanoagent/plugin/template/`, what `nanoagent plugin new`
+writes): its `LICENSE` naming the plugin, its `.gitignore` entries, its
+`run.sh` checks first (a plugin adds its own after them), a `README.md`
+opening with `# <name>` with the sections Tools, Layout and Develop and run
+and every tool named under Tools, and a `pyproject.toml` naming the project
+`nanoagent-<id>`. NanoAgent refuses to load a plugin that breaks any rule, and `PluginError` lists every
 violation at once (`nanoagent plugin inspect <path>` prints them). The web
 host refuses to start with such a plugin. Every tool call checks the rules
 again, so a plugin edited after it loaded is refused too.
@@ -146,8 +152,8 @@ only to its workspace, which NanoAgent passes as `NANOAGENT_WORKSPACE`.
 
 What people see of a plugin lives in two folders, and nowhere else.
 
-`product/` is the plugin's product page, what a catalog such as Mochi's apps
-page shows before anyone opens it. It holds exactly two files.
+`product/` is the plugin's product page, what a catalog such as Mochi's
+marketplace shows before anyone downloads it. It holds exactly two files.
 `product.yaml` fills `ProductConfig`: a `tagline`, a `summary`, 2 to 4
 `highlights` and 2 to 5 `steps`, written for the people who use the plugin
 rather than for developers. `icon.svg` is the app icon, at most 64 KB, and
@@ -159,8 +165,11 @@ them.
 
 Every plugin also ships its own front end in `ui/`, a static web page:
 `ui/index.html` and the HTML, JS, CSS, images and fonts it loads, at most
-5 MB, with nothing built at load time. Mochi shows it in a sandboxed iframe.
-NanoAgent serves it at `GET /v1/plugins/<id>/ui/<path>` under a
+5 MB, with nothing built at load time. Mochi shows it in a sandboxed iframe,
+and nothing of its own around it: choosing the app opens this page, so how
+the app introduces itself and starts is the page's to design.
+NanoAgent serves it at `GET /v1/plugins/<id>/ui/<uiVersion>/<path>`, where
+`uiVersion` is the catalog's digest of `ui/` and the files are cached forever, under a
 Content-Security-Policy with `connect-src 'none'`, so the page can't reach the
 network and talks to NanoAgent only through the host's `postMessage` bridge,
 protocol `nanoagent.ui/v1`. The bridge's methods are `describe`, `runTask`,
@@ -174,9 +183,8 @@ runner, `nanoagent.plugin.tasks.run_task`, with `nanoagent plugin run` and
 `agent`.
 
 `ui/` is split into a shared UI kit and the plugin's own page.
-`ui/index.html` and `ui/kit/` are the kit: the same bytes in every built-in
-plugin (a test checks them against the template's), changed only in the
-template. `ui/app.js` and `ui/app.css` are the plugin's, next to any other
+`ui/index.html` and `ui/kit/` are the kit: the template's bytes in every
+plugin (the loader refuses any other), changed only in the template. `ui/app.js` and `ui/app.css` are the plugin's, next to any other
 static files it adds. `nanoagent plugin new` starts every plugin with the
 kit and a default page, a full-page chat with the plugin's agent, which
 never shows its tools. Each plugin then designs its page around what people
@@ -207,21 +215,45 @@ The web service publishes the plugin directories listed under `plugins` in its
   that has the plugin's tools. The body is a run request and the reply is a run
   stream.
 
-The workspace is a persistent folder named by the caller, under the
-`workspaces` root in `WebConfig`. Files the tools save stay there, and the
-caller manages them through these endpoints under `/v1/workspaces/{workspace}`:
+The workspace is a scratch folder for one run, named by the caller, under the
+`workspaces` root in `WebConfig`. The caller fills it before the run, reads it
+back after, and then removes it, through these endpoints under
+`/v1/workspaces/{workspace}`:
 
 - `GET files` lists every file and folder.
-- `GET`, `PUT` and `DELETE` on `files/{path}` read, save or remove one file.
-  `PUT ?create=1` refuses to replace an existing file. Saves are capped at
-  `max_file_bytes`.
-- `POST` and `DELETE` on `folders/{path}` create a folder, or remove one and
-  everything in it.
-- `POST move` with `{"from", "to"}` renames or moves a file or folder.
+- `GET` and `PUT` on `files/{path}` read or save one file. `PUT ?create=1`
+  refuses to replace an existing file. Saves are capped at `max_file_bytes`.
+- `DELETE` on the workspace itself removes it and everything in it.
 
 Paths stay inside the workspace and never cross a symlink. A name already
-taken returns 409. On Railway, mount a volume at `/data`, or the workspaces are lost on every
-deploy.
+taken returns 409. NanoAgent keeps nothing between runs, so no volume is needed.
+
+### Plugin packages and the marketplace
+
+A package is a plugin in one file, for Mochi's marketplace (`/marketplace`),
+where people download plugins and share their own. `nanoagent plugin pack
+<folder> <file.tar.gz>` writes one: the plugin, which must follow every rule,
+under a single `<id>/` folder, without what its `.gitignore` ignores, packed
+the same way every time (`nanoagent.plugin.package`). To use a downloaded one,
+unpack it with `tar xzf` and run it like any plugin folder. The web service
+serves packages but never runs them:
+
+- `GET /v1/packages` lists the plugin directories under `packages` in its
+  `WebConfig` (on Railway, every built-in plugin) with their catalog entries.
+- `GET /v1/packages/{id}` downloads one.
+- `POST /v1/packages/inspect` checks an uploaded package without running any
+  of it. The package must unpack to plain files under one folder named by the
+  plugin id, within the limits in `nanoagent.plugin.package`. The plugin is then
+  loaded in a separate Python process with an empty environment, so a manifest
+  cannot interpolate the host's secrets. The reply is the plugin's catalog
+  entry, or 422 with every broken rule.
+- `POST /v1/packages/source?path=<folder>` packs a plugin from its source: the
+  body is a repository archive (GitHub's `.tar.gz` of one commit, its files
+  under one top folder), and `path` the plugin's folder in it. Only that folder
+  is unpacked, under the same limits, and it is packed in the same isolated
+  process, then checked as above. The reply is `{"package": <catalog entry>,
+  "data": <the package, base64>}`, or 422 with every broken rule. Mochi
+  publishes plugins to its marketplace this way, from a GitHub URL.
 
 ### Plugin environments
 

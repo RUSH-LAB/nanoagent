@@ -1,9 +1,10 @@
-"""Persistent caller workspaces: the folders plugin runs write into and their owners manage.
+"""Scratch workspaces: the folder one plugin run reads and writes, removed by the caller after it.
 
-The caller names a workspace with an opaque id (Mochi derives one per user per workspace) and
-NanoAgent keeps it under one configured root. Every path that reaches a file or folder is checked
-to stay inside its workspace and to cross no symlink, so neither a request nor a symlink a plugin
-left behind can reach anything else on the host.
+The caller names a workspace with an opaque id (Mochi makes a new one for every run, fills it
+before the run, reads it back after, then removes it) and NanoAgent keeps it under one configured
+root, so NanoAgent holds no file that matters between runs. Every path that reaches a file or
+folder is checked to stay inside its workspace and to cross no symlink, so neither a request nor a
+symlink a plugin left behind can reach anything else on the host.
 
 Failures are exceptions the web layer turns into statuses: ``ValueError`` for a malformed request,
 ``FileNotFoundError`` for nothing there, ``FileExistsError`` for something already there.
@@ -96,6 +97,8 @@ class Workspaces:
         path.write_bytes(data)
         return _entry(folder, path)
 
+    # COMPAT(mochi-workspace-edits): what Mochi on production asks of a workspace besides saving
+    # files. Remove with the routes in nanoagent.web.app.
     def delete_file(self, workspace_id: str, relative: str) -> dict[str, Any]:
         self.file(workspace_id, relative).unlink()
         return {"deleted": True}
@@ -128,3 +131,13 @@ class Workspaces:
         destination.parent.mkdir(parents=True, exist_ok=True)
         origin.rename(destination)
         return {"moved": True}
+
+    def remove(self, workspace_id: str) -> dict[str, Any]:
+        """Remove the workspace and everything in it; one that was never made has nothing to remove."""
+        folder = self.folder(workspace_id)
+        if folder.is_symlink():
+            raise FileNotFoundError(workspace_id)
+        if not folder.exists():
+            return {"deleted": False}
+        shutil.rmtree(folder)
+        return {"deleted": True}

@@ -1,0 +1,12 @@
+_ > nanoagent.runtime.config.HarnessProfileConfig:
+
+label: Fake model · NanoAgent
+model: fake
+
+harness > nanoagent.runtime.config.HarnessConfig:
+  type: nanoagent
+  command: null
+  cwd: null
+  options: []
+
+model_overrides > nanoagent.runtime.config.ModelPart:

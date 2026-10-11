@@ -37,9 +37,15 @@ that fails raises; NanoAgent sees an MCP error.
 To add a tool: add a `Tool` member, its input and output classes and its
 `TOOLS` entry to `contract.py`; write `src/plugin/<tool>.py`, taking its input
 and the workspace and returning its output; write a `verifier/<tool>.py` with
-`verify_input` / `verify_output`, and a test. Then register it in
-`src/plugin/__main__.py` (`IMPLEMENTATIONS`), `verifier/__init__.py` (`TOOLS`)
-and `nanoagent.yaml` (`tools`).
+`verify_input` / `verify_output`, and tests for both. Then register it in
+`src/plugin/__main__.py` (`IMPLEMENTATIONS`), `verifier/__init__.py` (`TOOLS`),
+`nanoagent.yaml` (`tools`) and this README's Tools table.
+
+`LICENSE`, `ui/index.html` and `ui/kit/` stay the template's, `.gitignore`
+keeps its entries, `run.sh` keeps its checks first (add the plugin's own after
+them), and this README keeps its title and sections: NanoAgent refuses a plugin
+that changes them (rules 8 and 10 of `nanoagent.plugin.manifest`). Renaming the
+plugin means renaming it in `nanoagent.yaml`, this title and `LICENSE` together.
 
 To add a task, add a `Task` member and its `TASKS` input class to
 `contract.py`, and declare it in `nanoagent.yaml` with its `runner` (`tool` or

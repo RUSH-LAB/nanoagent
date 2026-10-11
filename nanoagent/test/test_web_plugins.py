@@ -11,7 +11,7 @@ from nanoagent.core.agent import Reply, ToolCall
 from nanoagent.runtime.config import load_config_args
 from nanoagent.web.app import create_app
 from nanoagent.web.config import WebConfig
-from test_plugin import SERVER, write_plugin
+from test_plugin import README, SERVER, write_plugin
 
 ROOT = Path(__file__).resolve().parents[1]
 TOKEN = "plugin-test-secret"
@@ -55,6 +55,7 @@ def client(
         [
             "web_cfg=deploy/railway/nanoagent.yaml",
             f"plugins=[{tmp_path}]",
+            "packages=[]",
             f"workspaces={workspaces}",
         ],
     )
@@ -64,7 +65,7 @@ def client(
 def test_lists_plugins_with_readme_and_schemas(client: TestClient) -> None:
     [plugin] = client.get("/v1/plugins").json()["plugins"]
     assert plugin["id"] == "echo"
-    assert plugin["readme"] == "# Echo\n"
+    assert plugin["readme"] == README
     assert plugin["tools"][0]["inputSchema"]["required"] == ["value"]
     assert plugin["tasks"][0]["tools"] == ["echo"]
 
@@ -112,7 +113,7 @@ def test_runs_a_prompt_in_the_callers_workspace(
     assert events[1]["name"] == "echo" and not events[1]["is_error"]
     assert "hi" in events[-1]["answer"]
     assert "You operate the Echo plugin" in model.prompts[0]
-    # The file outlives the run, and its owner can list and read it.
+    # The file stays until the caller removes the workspace; until then it can be listed and read.
     assert (workspaces / "alice" / "echo.txt").read_text() == "hi"
     [listed] = client.get("/v1/workspaces/alice/files").json()["files"]
     assert listed["path"] == "echo.txt" and listed["size"] == 2
@@ -142,8 +143,6 @@ def test_workspace_files_stay_inside_their_workspace(client: TestClient, workspa
     assert client.get("/v1/workspaces/alice/files/escape").status_code == 404
     assert client.get("/v1/workspaces/alice/files/papers/../../secret.txt").status_code in {400, 404}
     assert client.get("/v1/workspaces/bad.id/files").status_code == 400
-    assert client.delete("/v1/workspaces/alice/files/papers/ms.tex").json() == {"deleted": True}
-    assert not (workspaces / "alice" / "papers" / "ms.tex").exists()
 
 
 def test_refuses_to_run_a_plugin_in_development(tmp_path: Path, workspaces: Path) -> None:
@@ -156,6 +155,7 @@ def test_refuses_to_run_a_plugin_in_development(tmp_path: Path, workspaces: Path
         [
             "web_cfg=deploy/railway/nanoagent.yaml",
             f"plugins=[{tmp_path}]",
+            "packages=[]",
             f"workspaces={workspaces}",
             "api_token=null",
             "host=127.0.0.1",
@@ -171,7 +171,7 @@ def test_refuses_to_run_a_plugin_in_development(tmp_path: Path, workspaces: Path
     assert client.post("/v1/plugins/echo/tasks/echo", json={"value": "hi"}).status_code == 409
 
 
-def test_manages_workspace_files_and_folders(client: TestClient, workspaces: Path) -> None:
+def test_saves_workspace_files_then_removes_the_workspace(client: TestClient, workspaces: Path) -> None:
     files = "/v1/workspaces/alice/files"
     # Create: a new file makes its folders; create=1 refuses to replace it.
     saved = client.put(f"{files}/notes/draft.md?create=1", content=b"# Draft")
@@ -180,13 +180,27 @@ def test_manages_workspace_files_and_folders(client: TestClient, workspaces: Pat
     # Save: a plain PUT replaces the contents.
     assert client.put(f"{files}/notes/draft.md", content=b"# Final").json()["size"] == 7
     assert client.get(f"{files}/notes/draft.md").text == "# Final"
-    # Folders, including empty ones, are listed.
+    listing = client.get(files).json()
+    assert listing["folders"] == ["notes"]
+    assert [entry["path"] for entry in listing["files"]] == ["notes/draft.md"]
+    # Paths stay inside the workspace, and files have a size limit.
+    assert client.put(f"{files}/../escape.txt", content=b"x").status_code in {400, 404}
+    too_big = b"x" * (10 * 1024 * 1024 + 1)
+    assert client.put(f"{files}/big.bin", content=too_big).status_code == 413
+    # Removing the workspace takes everything in it; removing it again finds nothing.
+    assert client.delete("/v1/workspaces/alice").json() == {"deleted": True}
+    assert not (workspaces / "alice").exists()
+    assert client.delete("/v1/workspaces/alice").json() == {"deleted": False}
+    assert client.delete("/v1/workspaces/bad.id").status_code == 400
+
+
+def test_keeps_the_workspace_edits_mochi_on_production_makes(client: TestClient, workspaces: Path) -> None:
+    """COMPAT(mochi-workspace-edits): remove with the routes."""
+    files = "/v1/workspaces/alice/files"
+    client.put(f"{files}/notes/draft.md", content=b"# Final")
     assert client.post("/v1/workspaces/alice/folders/papers/empty").json() == {"created": True}
     assert client.post("/v1/workspaces/alice/folders/papers/empty").status_code == 409
-    listing = client.get(files).json()
-    assert listing["folders"] == ["notes", "papers", "papers/empty"]
-    assert [entry["path"] for entry in listing["files"]] == ["notes/draft.md"]
-    # Move a file, then a folder; a folder may not move inside itself.
+    assert client.get(files).json()["folders"] == ["notes", "papers", "papers/empty"]
     move = "/v1/workspaces/alice/move"
     assert client.post(move, json={"from": "notes/draft.md", "to": "papers/draft.md"}).json() == {
         "moved": True
@@ -196,15 +210,10 @@ def test_manages_workspace_files_and_folders(client: TestClient, workspaces: Pat
     assert (workspaces / "alice" / "archive" / "draft.md").read_text() == "# Final"
     assert client.post(move, json={"from": "missing", "to": "x"}).status_code == 404
     assert client.post(move, json={"from": "a"}).status_code == 400
-    # Delete a folder and everything in it.
+    assert client.delete(f"{files}/archive/draft.md").json() == {"deleted": True}
     assert client.delete("/v1/workspaces/alice/folders/archive").json() == {"deleted": True}
     assert not (workspaces / "alice" / "archive").exists()
-    # Paths stay inside the workspace, and files have a size limit.
-    assert client.put(f"{files}/../escape.txt", content=b"x").status_code in {400, 404}
     assert client.post("/v1/workspaces/alice/folders/a/../../b").status_code in {400, 404}
-    too_big = b"x" * (10 * 1024 * 1024 + 1)
-    assert client.put(f"{files}/big.bin", content=too_big).status_code == 413
-
 
 
 def _events(response) -> list[dict]:
@@ -214,16 +223,26 @@ def _events(response) -> list[dict]:
 def test_serves_the_plugin_front_end_confined_to_the_bridge(client: TestClient) -> None:
     from nanoagent.web.app import UI_POLICY
 
-    page = client.get("/v1/plugins/echo/ui/index.html")
+    [plugin] = client.get("/v1/plugins").json()["plugins"]
+    ui = f"/v1/plugins/echo/ui/{plugin['uiVersion']}"
+    page = client.get(f"{ui}/index.html")
     assert page.status_code == 200
     assert page.headers["content-type"].startswith("text/html")
     assert page.headers["content-security-policy"] == UI_POLICY
+    assert page.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert "connect-src 'none'" in UI_POLICY
+    assert client.get(f"{ui}/../nanoagent.yaml").status_code == 404
+    assert client.get(f"{ui}/missing.js").status_code == 404
+    assert client.get("/v1/plugins/echo/ui/0000000000000000/index.html").status_code == 404
+    assert client.get(f"/v1/plugins/missing/ui/{plugin['uiVersion']}/index.html").status_code == 404
+    # COMPAT(mochi-unversioned-ui): the path without the version, which is never cached for good.
+    legacy = client.get("/v1/plugins/echo/ui/index.html")
+    assert legacy.status_code == 200 and legacy.content == page.content
+    assert legacy.headers["content-security-policy"] == UI_POLICY
+    assert "cache-control" not in legacy.headers
     assert client.get("/v1/plugins/echo/ui/../nanoagent.yaml").status_code == 404
-    assert client.get("/v1/plugins/echo/ui/missing.js").status_code == 404
-    assert client.get("/v1/plugins/missing/ui/index.html").status_code == 404
     client.headers.pop("Authorization")
-    assert client.get("/v1/plugins/echo/ui/index.html").status_code == 401
+    assert client.get(f"{ui}/index.html").status_code == 401
 
 
 def test_lists_each_tasks_input_schema(client: TestClient) -> None:
@@ -292,7 +311,7 @@ def test_runs_an_agent_task_with_only_its_tools(
     monkeypatch.setenv("NANOAGENT_API_TOKEN", TOKEN)
     config = load_config_args(
         WebConfig,
-        ["web_cfg=deploy/railway/nanoagent.yaml", f"plugins=[{tmp_path}]", f"workspaces={workspaces}"],
+        ["web_cfg=deploy/railway/nanoagent.yaml", f"plugins=[{tmp_path}]", "packages=[]", f"workspaces={workspaces}"],
     )
     client = TestClient(create_app(config, plugin_model=model), headers={"Authorization": f"Bearer {TOKEN}"})
     events = _events(

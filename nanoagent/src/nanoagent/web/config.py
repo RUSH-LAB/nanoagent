@@ -26,7 +26,10 @@ class WebConfig(AgentDefinitionConfig):
     # Plugin directories (`nanoagent.plugin/v1` packages) published at /v1/plugins; their
     # single-tool tasks can be run directly. Ids must be unique, checked where they load.
     plugins: list[str] = MISSING
-    # Root of the persistent caller workspaces plugin prompts run in (see nanoagent.web.workspaces).
+    # Plugin directories offered for download at /v1/packages (a marketplace's built-in plugins);
+    # never run here. Each must follow every rule; ids must be unique, checked where they load.
+    packages: list[str] = MISSING
+    # Root of the scratch workspaces plugin runs use, one per run (see nanoagent.web.workspaces).
     workspaces: str = MISSING
     host: str = MISSING
     port: int = MISSING

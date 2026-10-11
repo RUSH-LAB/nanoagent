@@ -4,8 +4,8 @@ A plugin is a folder. :func:`load_manifest` loads it only when every rule holds,
 raises :class:`PluginError` listing every broken rule at once:
 
 1. Layout: the folder has every file in :data:`REQUIRED_FILES` and every folder in
-   :data:`REQUIRED_FOLDERS`; ``src/`` holds at least one file and ``tests/`` at least one
-   ``test_*.py``.
+   :data:`REQUIRED_FOLDERS`; ``src/`` holds at least one file and ``tests/`` holds
+   :data:`VERIFIER_TEST`, the verifier's own test.
 2. ``.env`` lists the environment variables the plugin needs: one ``NAME`` per line, no values.
 3. ``contract.py`` declares every tool's and task's typed input and output, and nothing but
    declarations (see :mod:`nanoagent.plugin.contract`).
@@ -24,15 +24,21 @@ raises :class:`PluginError` listing every broken rule at once:
 8. ``ui/`` is the plugin's front end: a static web page, ``ui/index.html`` and the files it
    loads, only :data:`UI_SUFFIXES` and at most :data:`UI_MAX_BYTES` in total. A host shows it in
    a sandboxed frame that talks to NanoAgent only through the ``nanoagent.ui/v1`` bridge
-   (docs/plans/plugin-ui.md). ``ui/index.html`` and ``ui/kit/`` are the shared UI kit, copied
-   from the template unchanged; ``ui/app.js`` and ``ui/app.css`` are the plugin's own page, and
-   it may add its own static assets beside them.
+   (docs/plans/plugin-ui.md). ``ui/index.html`` and ``ui/kit/`` are the shared UI kit, the
+   :data:`TEMPLATE`'s byte for byte; ``ui/app.js`` and ``ui/app.css`` are the plugin's own page,
+   and it may add its own static assets beside them.
 9. ``product/`` is the plugin's product page, what a catalog shows people before they open it,
    and holds exactly :data:`PRODUCT_FILES`. ``product.yaml`` fills :class:`ProductConfig`
    (``_ > nanoagent.plugin.manifest.ProductConfig:``): a tagline, a summary, 2 to 4 highlights
    and 2 to 5 steps, none blank. ``icon.svg`` is the app's icon: an SVG of at most
    :data:`ICON_MAX_BYTES` that draws only, with no script, event handler, embedded content or
    link outside itself.
+10. The standard files are the :data:`TEMPLATE`'s, what ``nanoagent plugin new`` writes:
+    ``LICENSE`` is its license with a year and the plugin's ``name``; ``.gitignore`` ignores
+    every path it ignores; ``run.sh`` begins with its checks, and a plugin adds its own after
+    them; ``README.md`` opens with ``# <name>`` and has its sections (:data:`README_SECTIONS`, in
+    order), naming every tool under ``## Tools``; ``pyproject.toml`` names the project
+    ``nanoagent-<id>`` and puts the plugin root on pytest's path.
 
 Every tool call re-checks the rules (see :mod:`nanoagent.plugin.runtime`), so a plugin edited
 after it was loaded is refused as well.
@@ -44,6 +50,7 @@ import base64
 import dataclasses
 import enum
 import re
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -60,6 +67,10 @@ PLUGIN_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 HOSTNAME = re.compile(r"^[^/:\s]+$")  # a hostname only: no scheme, port, or path
 MANIFEST = "nanoagent.yaml"
+# What `nanoagent plugin new` copies; rules 8 and 10 hold every plugin's standard files to it.
+TEMPLATE = Path(__file__).with_name("template")
+VERIFIER_TEST = "tests/test_verifier.py"
+README_SECTIONS = ("## Tools", "## Layout", "## Develop and run")
 # The standard plugin layout: every plugin has these at its root.
 REQUIRED_FILES = (
     MANIFEST,
@@ -319,8 +330,9 @@ def _layout_violations(root: Path) -> list[str]:
         violations += _product_violations(root / "product")
     if (root / "src").is_dir() and not any(path.is_file() for path in (root / "src").rglob("*")):
         violations.append("src/ holds no files")
-    if (root / "tests").is_dir() and not any((root / "tests").rglob("test_*.py")):
-        violations.append("tests/ holds no test_*.py")
+    if (root / "tests").is_dir() and not (root / VERIFIER_TEST).is_file():
+        violations.append(f"missing {VERIFIER_TEST}")
+    violations += _template_violations(root)
     standard = {*REQUIRED_FILES, *REQUIRED_FOLDERS, *TOOL_ARTIFACTS}
     violations += [f"unexpected {path.name}" for path in sorted(root.iterdir()) if path.name not in standard]
     if (root / "verifier").is_dir():
@@ -396,9 +408,25 @@ def _product(root: Path) -> tuple[Product | None, list[str]]:
     ), violations
 
 
+def _kit(ui: Path) -> dict[str, bytes]:
+    """The shared UI kit in ``ui``: ``index.html`` and ``kit/``, by path."""
+    files = [ui / "index.html", *sorted((ui / "kit").rglob("*"))]
+    return {
+        path.relative_to(ui).as_posix(): path.read_bytes()
+        for path in files
+        if path.is_file() and not TOOL_ARTIFACTS & set(path.relative_to(ui).parts)
+    }
+
+
 def _ui_violations(ui: Path) -> list[str]:
     files = [path for path in sorted(ui.rglob("*")) if path.is_file() and not TOOL_ARTIFACTS & set(path.relative_to(ui).parts)]
-    violations = [] if (ui / "index.html").is_file() else ["missing ui/index.html"]
+    kit, template = _kit(ui), _kit(TEMPLATE / "ui")
+    violations = [
+        f"missing ui/{name}" if name not in kit else f"ui/{name} is not the template's"
+        for name in sorted(template)
+        if kit.get(name) != template[name]
+    ]
+    violations += [f"unexpected ui/{name}: ui/kit/ holds only the template's kit" for name in sorted(kit.keys() - template.keys())]
     violations += [
         f"unexpected ui/{path.relative_to(ui).as_posix()}: ui/ holds only static web files"
         for path in files
@@ -407,6 +435,66 @@ def _ui_violations(ui: Path) -> list[str]:
     size = sum(path.stat().st_size for path in files)
     if size > UI_MAX_BYTES:
         violations.append(f"ui/ holds {size} bytes, over the {UI_MAX_BYTES}-byte limit")
+    return violations
+
+
+def _template_violations(root: Path) -> list[str]:
+    """``.gitignore`` and ``run.sh`` start from the template's (rule 10)."""
+    violations: list[str] = []
+    if (root / ".gitignore").is_file():
+        ignored = set((root / ".gitignore").read_text(encoding="utf-8").splitlines())
+        violations += [
+            f".gitignore must ignore {line}"
+            for line in (TEMPLATE / "dot.gitignore").read_text(encoding="utf-8").splitlines()
+            if line not in ignored
+        ]
+    template = (TEMPLATE / "run.sh").read_text(encoding="utf-8")
+    if (root / "run.sh").is_file() and not (root / "run.sh").read_text(encoding="utf-8").startswith(template):
+        violations.append("run.sh must begin with the template's checks; add the plugin's own after them")
+    return violations
+
+
+def _named_violations(root: Path, config: Any) -> list[str]:
+    """``LICENSE``, ``README.md`` and ``pyproject.toml`` name the plugin as the template's do (rule 10)."""
+    checks = (("LICENSE", _license_violations), ("README.md", _readme_violations), ("pyproject.toml", _pyproject_violations))
+    return [
+        violation
+        for name, check in checks
+        if (root / name).is_file()
+        for violation in check((root / name).read_text(encoding="utf-8"), config)
+    ]
+
+
+def _license_violations(text: str, config: Any) -> list[str]:
+    name = config.name.strip()
+    pattern = re.escape((TEMPLATE / "LICENSE").read_text(encoding="utf-8"))
+    pattern = pattern.replace(re.escape("{{year}}"), r"\d{4}").replace(re.escape("{{name}}"), re.escape(name))
+    return [] if re.fullmatch(pattern, text) else [f"LICENSE must be the template's MIT license for The {name} authors"]
+
+
+def _readme_violations(text: str, config: Any) -> list[str]:
+    name = config.name.strip()
+    lines = text.splitlines()
+    violations = [] if lines[:1] == [f"# {name}"] else [f"README.md must open with # {name}"]
+    headings = [number for number, line in enumerate(lines) if line.startswith("## ")]
+    if [lines[number] for number in headings if lines[number] in README_SECTIONS] != list(README_SECTIONS):
+        return [*violations, f"README.md must have the sections {', '.join(README_SECTIONS)}, once each and in that order"]
+    start = lines.index(README_SECTIONS[0])
+    tools = "\n".join(lines[start : headings[headings.index(start) + 1]])
+    missing = [tool.value for tool in config.tools if f"`{tool.value}`" not in tools]
+    return violations + ([f"README.md {README_SECTIONS[0]} does not name {', '.join(missing)}"] if missing else [])
+
+
+def _pyproject_violations(text: str, config: Any) -> list[str]:
+    try:
+        pyproject = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        return [f"pyproject.toml: {error}"]
+    violations = []
+    if pyproject.get("project", {}).get("name") != f"nanoagent-{config.id}":
+        violations.append(f"pyproject.toml must name the project nanoagent-{config.id}")
+    if "." not in pyproject.get("tool", {}).get("pytest", {}).get("ini_options", {}).get("pythonpath", []):
+        violations.append('pyproject.toml must put the plugin root on pytest\'s path: pythonpath = ["."]')
     return violations
 
 
@@ -521,7 +609,7 @@ def load_manifest(source: str | Path) -> PluginManifest:
         raise
     except Exception as error:  # noqa: BLE001 - every way the contract or the manifest fails is a violation
         raise PluginError(root, [*violations, f"{type(error).__name__}: {error}"]) from error
-    violations += _config_violations(config)
+    violations += _config_violations(config) + _named_violations(root, config)
     product = None
     if (root / PRODUCT).is_file() and (root / "product" / "icon.svg").is_file():
         product, product_violations = _product(root)
