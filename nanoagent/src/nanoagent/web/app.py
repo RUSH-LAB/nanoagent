@@ -241,12 +241,14 @@ def create_app(
 
     async def workspace_file(request: Request) -> Any:
         """GET sends a file's bytes; PUT saves the body as the file (``?create=1`` refuses to
-        replace one)."""
+        replace one); DELETE removes it (COMPAT(mochi-workspace-edits))."""
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         workspace_id, path = request.path_params["workspace_id"], request.path_params["path"]
         if request.method == "GET":
             return in_workspace(lambda: FileResponse(workspaces.file(workspace_id, path)))
+        if request.method == "DELETE":
+            return in_workspace(lambda: workspaces.delete_file(workspace_id, path))
         length = request.headers.get("content-length")
         if length and length.isdigit() and int(length) > cfg.max_file_bytes:
             return JSONResponse({"error": "file is too large"}, status_code=413)
@@ -255,6 +257,34 @@ def create_app(
             return JSONResponse({"error": "file is too large"}, status_code=413)
         create = request.query_params.get("create") == "1"
         return in_workspace(lambda: workspaces.write(workspace_id, path, body, create=create))
+
+    # COMPAT(mochi-workspace-edits): Mochi on production deletes files, makes and deletes folders,
+    # and moves entries in a workspace. Remove these routes once the Mochi that only saves files
+    # and removes whole workspaces is released.
+    async def workspace_folder(request: Request) -> JSONResponse:
+        """POST makes the folder (and its parents); DELETE removes it and everything in it."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        workspace_id, path = request.path_params["workspace_id"], request.path_params["path"]
+        if request.method == "POST":
+            return in_workspace(lambda: workspaces.make_folder(workspace_id, path))
+        return in_workspace(lambda: workspaces.delete_folder(workspace_id, path))
+
+    async def move_entry(request: Request) -> JSONResponse:
+        """Rename or move a file or folder: the body is ``{"from": path, "to": path}``."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        payload, rejected = await read_json(request)
+        if rejected is not None:
+            return rejected
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"from", "to"}
+            or not all(isinstance(payload[key], str) for key in ("from", "to"))
+        ):
+            return JSONResponse({"error": 'body must be {"from": path, "to": path}'}, status_code=400)
+        workspace_id = request.path_params["workspace_id"]
+        return in_workspace(lambda: workspaces.move(workspace_id, payload["from"], payload["to"]))
 
     async def delete_workspace(request: Request) -> JSONResponse:
         """Remove the workspace and everything in it, once its run is over."""
@@ -394,20 +424,21 @@ def create_app(
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         plugin_id = request.path_params["plugin_id"]
         manifest = plugins.get(plugin_id)
-        current = manifest is not None and request.path_params["version"] == ui_versions[plugin_id]
-        target = _ui_file(manifest, request.path_params["path"]) if current else None
+        if manifest is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        headers = {"Content-Security-Policy": UI_POLICY, "X-Content-Type-Options": "nosniff"}
+        version, _, path = request.path_params["path"].partition("/")
+        if version == ui_versions[plugin_id]:
+            headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            # COMPAT(mochi-unversioned-ui): Mochi on production asks for ui/{path} without the
+            # version. Remove once the Mochi that sends it is released.
+            path = request.path_params["path"]
+        target = _ui_file(manifest, path)
         if target is None:
             return JSONResponse({"error": "not found"}, status_code=404)
         media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-        return FileResponse(
-            target,
-            media_type=media_type,
-            headers={
-                "Content-Security-Policy": UI_POLICY,
-                "X-Content-Type-Options": "nosniff",
-                "Cache-Control": "public, max-age=31536000, immutable",
-            },
-        )
+        return FileResponse(target, media_type=media_type, headers=headers)
 
     task_runs: dict[str, asyncio.Task[Any]] = {}
 
@@ -532,7 +563,7 @@ def create_app(
             Route("/v1/packages/inspect", inspect_upload, methods=["POST"]),
             Route("/v1/packages/source", package_source, methods=["POST"]),
             Route("/v1/packages/{package_id}", download_package, methods=["GET"]),
-            Route("/v1/plugins/{plugin_id}/ui/{version}/{path:path}", plugin_ui, methods=["GET"]),
+            Route("/v1/plugins/{plugin_id}/ui/{path:path}", plugin_ui, methods=["GET"]),
             Route(
                 "/v1/workspaces/{workspace_id}/plugins/{plugin_id}/tasks/{task_id}/runs",
                 start_task_run,
@@ -547,8 +578,14 @@ def create_app(
             Route(
                 "/v1/workspaces/{workspace_id}/files/{path:path}",
                 workspace_file,
-                methods=["GET", "PUT"],
+                methods=["GET", "PUT", "DELETE"],
             ),
+            Route(
+                "/v1/workspaces/{workspace_id}/folders/{path:path}",
+                workspace_folder,
+                methods=["POST", "DELETE"],
+            ),
+            Route("/v1/workspaces/{workspace_id}/move", move_entry, methods=["POST"]),
             Route("/v1/workspaces/{workspace_id}", delete_workspace, methods=["DELETE"]),
             Route(
                 "/v1/plugins/{plugin_id}/tasks/{task_id}", run_plugin_task, methods=["POST"]

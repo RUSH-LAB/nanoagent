@@ -39,3 +39,58 @@ jobs:
         run: npm run build
       - name: Live NanoAgent contract
         run: npm run nanoagent:verify
+
+  # Railway deploys Mochi and NanoAgent separately, so whichever side changed must work with the
+  # other side as it is in production: this Mochi against production's NanoAgent, and production's
+  # Mochi against this NanoAgent. A side that did not change is production's already.
+  cross-version:
+    if: github.event_name == 'pull_request'
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: This Mochi against production NanoAgent
+            changed: helping-hands
+            mochi: ${{ github.workspace }}
+            nanoagent: ${{ github.workspace }}/../production
+          - name: Production Mochi against this NanoAgent
+            changed: nanoagent
+            mochi: ${{ github.workspace }}/../production
+            nanoagent: ${{ github.workspace }}
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Did this side change
+        id: side
+        run: |
+          if git diff --quiet origin/production...HEAD -- ${{ matrix.changed }}/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check out production
+        if: steps.side.outputs.changed == 'true'
+        run: git worktree add ../production origin/production
+      - uses: actions/setup-node@v4
+        if: steps.side.outputs.changed == 'true'
+        with:
+          node-version: 22
+      - uses: astral-sh/setup-uv@v6
+        if: steps.side.outputs.changed == 'true'
+      - name: Install Mochi
+        if: steps.side.outputs.changed == 'true'
+        working-directory: ${{ matrix.mochi }}/helping-hands
+        run: npm ci
+      - name: Live NanoAgent contract across versions
+        if: steps.side.outputs.changed == 'true'
+        working-directory: ${{ matrix.mochi }}/helping-hands
+        env:
+          NANOAGENT_PROJECT_DIR: ${{ matrix.nanoagent }}/nanoagent
+        run: npm run nanoagent:verify

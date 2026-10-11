@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 
 /**
- * Live contract check: Mochi adapter -> NanoAgent web host -> fake OpenAI API.
+ * Live contract check: every call Mochi's NanoAgent client makes, against a
+ * running NanoAgent web host and a fake OpenAI API.
  *
- * No provider credential is used. By default this verifies the adjacent
- * NanoAgent checkout; set NANOAGENT_PROJECT_DIR to verify another checkout.
+ * NanoAgent is started from its own contract configuration
+ * (nanoagent/deploy/contract/nanoagent.yaml), so this check holds for any pair
+ * of checkouts: by default the adjacent one, or the one NANOAGENT_PROJECT_DIR
+ * names. CI runs it across versions, this Mochi against production's NanoAgent
+ * and production's Mochi against this NanoAgent. No provider credential is used.
  */
 
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
+import {execFileSync, spawn} from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -37,7 +42,7 @@ async function unusedPort() {
 }
 
 async function waitForHealth(url, child, stderr) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < 1200; attempt += 1) {
     if (child.exitCode !== null) throw new Error(`NanoAgent exited (${child.exitCode}): ${stderr()}`);
     try {
       const response = await fetch(`${url}/health`);
@@ -97,106 +102,138 @@ let nanoagent = null;
 try {
   const modelPort = await listen(fakeModel);
   const agentPort = await unusedPort();
-  const configPath = path.join(temporary, 'web.yaml');
-  const profilePath = path.join(temporary, 'native-fake.yaml');
-  fs.writeFileSync(profilePath, `_ > nanoagent.runtime.config.HarnessProfileConfig:
-
-label: Fake model · NanoAgent
-model: fake
-
-harness > nanoagent.runtime.config.HarnessConfig:
-  type: native
-  command: null
-  cwd: null
-  options: []
-
-model_overrides > nanoagent.runtime.config.ModelPart:
-`, 'utf8');
-  fs.writeFileSync(configPath, `_ > nanoagent.web.config.WebConfig:
-
-default_profile: native-fake
-profiles:
-  - ${profilePath}
-
-model > nanoagent.runtime.config.ModelConfig:
-  model: fake
-  provider: sglang
-  base_url: http://127.0.0.1:${modelPort}/v1
-  api_key: null
-  temperature: 0.0
-  max_tokens: 64
-  request_timeout: 5.0
-  max_retries: 0
-  extra_body: []
-  input_price: 0.0
-  output_price: 0.0
-
-agent > nanoagent.runtime.config.AgentConfig:
-  system_prompt: You are Mochi's deterministic integration verifier.
-  max_steps: 2
-  cost_limit: null
-  token_limit: 1000
-  context_window: null
-  hooks: []
-  skills: null
-  context_files: []
-  events: null
-tools: []
-tools_dir: null
-allowed_tools: []
-host: 127.0.0.1
-port: ${agentPort}
-api_token: null
-max_concurrency: 2
-request_timeout: 10.0
-max_request_bytes: 16384
-max_output_chars: 1000
-heartbeat_seconds: 1.0
-include_reasoning: false
-`, 'utf8');
 
   let stderr = '';
   nanoagent = spawn('uv', [
     'run', '--project', nanoagentProject, '--extra', 'web',
-    'python', '-m', 'nanoagent', 'web', `web_cfg=${configPath}`,
+    'python', '-m', 'nanoagent', 'web',
+    'web_cfg=deploy/contract/nanoagent.yaml',
+    `model.base_url=http://127.0.0.1:${modelPort}/v1`,
+    `port=${agentPort}`,
+    `workspaces=${path.join(temporary, 'workspaces')}`,
   ], {cwd: nanoagentProject, stdio: ['ignore', 'ignore', 'pipe']});
   nanoagent.stderr.setEncoding('utf8');
   nanoagent.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-8000); });
 
   const url = `http://127.0.0.1:${agentPort}`;
   await waitForHealth(url, nanoagent, () => stderr);
-  const deltas = [];
   const gateway = createNanoAgentGateway({env: {NANOAGENT_URL: url}});
-  const profiles = await gateway.profiles();
-  assert.equal(profiles.defaultProfile, 'native-fake');
-  const result = await gateway.stream({
-    input: 'Say where this answer came from.',
-    messages: [{role: 'user', content: 'This is a prior turn.'}],
-    instructions: 'Answer briefly.',
-    onDelta: text => deltas.push(text),
-  });
 
-  assert.equal(result.text, 'hello from nanoagent');
-  assert.equal(result.profile, 'native-fake');
-  assert.equal(result.harness, 'native');
-  assert.equal(result.model, 'fake');
-  assert.deepEqual(deltas, ['hello from ', 'nanoagent']);
-  assert.equal(result.stopReason, 'answer');
-  assert.equal(result.usage.total_tokens, 10);
-  assert.equal(result.usage.cached_tokens, 4);
-  assert.equal(result.metrics.steps.length, 1);
-  assert.equal(result.metrics.steps[0].usage.cached_tokens, 4);
-  assert.ok(result.metrics.steps[0].model_calls[0].ttft_s >= 0);
-  assert.ok(result.metrics.steps[0].model_calls[0].generation_s >= 0);
-  assert.ok(result.metrics.duration_s >= result.metrics.model_s);
-  assert.equal(modelRequest.stream, true);
-  assert.match(modelRequest.messages[0].content, /deterministic integration verifier/);
-  assert.match(modelRequest.messages[0].content, /Application instructions:\nAnswer briefly\./);
-  assert.deepEqual(modelRequest.messages.slice(1), [
-    {role: 'user', content: 'This is a prior turn.'},
-    {role: 'user', content: 'Say where this answer came from.'},
-  ]);
-  console.log('NanoAgent integration verified: streamed text, token/cache usage, timing profile, history, instructions, and completion.');
+  const PLUGIN = 'meal-suggestion';
+  const pluginRoot = path.join(nanoagentProject, 'plugins', PLUGIN);
+  const workspace = `contract-${crypto.randomUUID()}`;
+  const ok = result => {
+    assert.equal(result.error, undefined, `NanoAgent answered ${result.status}: ${result.error}`);
+    return result.value;
+  };
+  let listed = null;
+  let offered = null;
+
+  // One check per method of the client, in order; a method without one fails the run.
+  const checks = {
+    describe() {
+      assert.equal(gateway.describe().available, true);
+    },
+    async profiles() {
+      assert.equal((await gateway.profiles()).defaultProfile, 'nanoagent-fake');
+    },
+    async stream() {
+      const deltas = [];
+      const result = await gateway.stream({
+        input: 'Say where this answer came from.',
+        messages: [{role: 'user', content: 'This is a prior turn.'}],
+        instructions: 'Answer briefly.',
+        onDelta: text => deltas.push(text),
+      });
+      assert.equal(result.text, 'hello from nanoagent');
+      assert.equal(result.profile, 'nanoagent-fake');
+      assert.equal(result.harness, 'nanoagent');
+      assert.equal(result.model, 'fake');
+      assert.deepEqual(deltas, ['hello from ', 'nanoagent']);
+      assert.equal(result.stopReason, 'answer');
+      assert.equal(result.usage.total_tokens, 10);
+      assert.equal(result.usage.cached_tokens, 4);
+      assert.equal(result.metrics.steps.length, 1);
+      assert.equal(result.metrics.steps[0].usage.cached_tokens, 4);
+      assert.ok(result.metrics.steps[0].model_calls[0].ttft_s >= 0);
+      assert.ok(result.metrics.steps[0].model_calls[0].generation_s >= 0);
+      assert.ok(result.metrics.duration_s >= result.metrics.model_s);
+      assert.equal(modelRequest.stream, true);
+      assert.match(modelRequest.messages[0].content, /deterministic integration verifier/);
+      assert.match(modelRequest.messages[0].content, /Application instructions:\nAnswer briefly\./);
+      assert.deepEqual(modelRequest.messages.slice(1), [
+        {role: 'user', content: 'This is a prior turn.'},
+        {role: 'user', content: 'Say where this answer came from.'},
+      ]);
+    },
+    async complete() {
+      assert.equal((await gateway.complete({input: 'Again.'})).text, 'hello from nanoagent');
+    },
+    async plugins() {
+      const plugin = ok(await gateway.plugins()).plugins.find(entry => entry.id === PLUGIN);
+      assert.ok(plugin, `${PLUGIN} is not listed`);
+      assert.match(plugin.readme, /\S/);
+      assert.ok(plugin.tasks.every(task => task.inputSchema));
+      listed = plugin;
+    },
+    async pluginUiFile() {
+      const page = ok(await gateway.pluginUiFile(PLUGIN, listed.uiVersion, 'index.html'));
+      assert.deepEqual(page, fs.readFileSync(path.join(pluginRoot, 'ui', 'index.html')));
+    },
+    async taskRun() {
+      // Arguments that fail the task's input are refused inside the run, on its event stream.
+      const stream = ok(await gateway.taskRun({workspace, app: PLUGIN, task: listed.tasks[0].id, args: {}}));
+      const events = (await new Response(stream).text()).split('\n')
+        .filter(line => line.startsWith('data: ')).map(line => JSON.parse(line.slice(6)));
+      assert.deepEqual(events.map(event => event.type).slice(-2), ['task.error', 'task.done']);
+    },
+    async packages() {
+      const entry = ok(await gateway.packages()).packages.find(item => item.id === PLUGIN);
+      assert.ok(entry, `${PLUGIN} is not offered as a package`);
+      assert.match(entry.sha256, /^[0-9a-f]{64}$/);
+      offered = entry;
+    },
+    async packageFile() {
+      const data = ok(await gateway.packageFile(PLUGIN));
+      assert.equal(crypto.createHash('sha256').update(data).digest('hex'), offered.sha256);
+    },
+    async packageSource() {
+      // A source archive as GitHub sends one: a tree under one top folder, here NanoAgent's
+      // tracked files as they are now (`git stash create` commits them without touching anything).
+      const git = args => execFileSync('git', args, {cwd: nanoagentProject, maxBuffer: 64 * 1024 * 1024});
+      const tree = git(['stash', 'create']).toString('utf8').trim() || 'HEAD';
+      const archive = git(['archive', '--format=tar.gz', '--prefix=nanoagent-contract/', tree, `plugins/${PLUGIN}`]);
+      const packed = ok(await gateway.packageSource(archive, `plugins/${PLUGIN}`));
+      assert.equal(packed.package.id, PLUGIN);
+      assert.ok(Buffer.from(packed.data, 'base64').length > 0);
+    },
+    async saveWorkspaceFile() {
+      ok(await gateway.saveWorkspaceFile(workspace, 'notes/a.md', Buffer.from('# A'), {create: true}));
+      assert.equal((await gateway.saveWorkspaceFile(workspace, 'notes/a.md', Buffer.from('x'), {create: true})).status, 409);
+    },
+    async workspaceFiles() {
+      const listing = ok(await gateway.workspaceFiles(workspace));
+      assert.deepEqual(listing.files.map(file => file.path), ['notes/a.md']);
+      assert.deepEqual(listing.folders, ['notes']);
+    },
+    async workspaceFile() {
+      assert.equal(ok(await gateway.workspaceFile(workspace, 'notes/a.md')).toString('utf8'), '# A');
+    },
+    async deleteWorkspace() {
+      assert.deepEqual(ok(await gateway.deleteWorkspace(workspace)), {deleted: true});
+      assert.deepEqual(ok(await gateway.workspaceFiles(workspace)).files, []);
+    },
+  };
+
+  assert.deepEqual(
+    Object.keys(gateway).sort(), Object.keys(checks).sort(),
+    'every method of the NanoAgent client needs a check here, and every check a method',
+  );
+  for (const [name, check] of Object.entries(checks)) {
+    await check();
+    console.log(`ok ${name}`);
+  }
+  console.log(`NanoAgent contract verified against ${nanoagentProject}: all ${Object.keys(checks).length} client calls.`);
 } finally {
   await stop(nanoagent);
   await new Promise(resolve => fakeModel.close(resolve));

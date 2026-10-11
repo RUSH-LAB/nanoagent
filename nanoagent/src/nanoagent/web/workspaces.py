@@ -97,6 +97,41 @@ class Workspaces:
         path.write_bytes(data)
         return _entry(folder, path)
 
+    # COMPAT(mochi-workspace-edits): what Mochi on production asks of a workspace besides saving
+    # files. Remove with the routes in nanoagent.web.app.
+    def delete_file(self, workspace_id: str, relative: str) -> dict[str, Any]:
+        self.file(workspace_id, relative).unlink()
+        return {"deleted": True}
+
+    def make_folder(self, workspace_id: str, relative: str) -> dict[str, Any]:
+        _, path = self._path(workspace_id, relative, create=True)
+        if path.exists():
+            raise FileExistsError(relative)
+        path.mkdir(parents=True)
+        return {"created": True}
+
+    def delete_folder(self, workspace_id: str, relative: str) -> dict[str, Any]:
+        """Remove the folder at ``relative`` and everything in it."""
+        _, path = self._path(workspace_id, relative)
+        if not path.is_dir():
+            raise FileNotFoundError(relative)
+        shutil.rmtree(path)
+        return {"deleted": True}
+
+    def move(self, workspace_id: str, source: str, target: str) -> dict[str, Any]:
+        """Rename or move a file or folder; nothing may already be at ``target``."""
+        _, origin = self._path(workspace_id, source)
+        _, destination = self._path(workspace_id, target)
+        if not origin.exists():
+            raise FileNotFoundError(source)
+        if destination.exists():
+            raise FileExistsError(target)
+        if origin.is_dir() and destination.is_relative_to(origin):
+            raise ValueError("a folder cannot move inside itself")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        origin.rename(destination)
+        return {"moved": True}
+
     def remove(self, workspace_id: str) -> dict[str, Any]:
         """Remove the workspace and everything in it; one that was never made has nothing to remove."""
         folder = self.folder(workspace_id)

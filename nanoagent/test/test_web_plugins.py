@@ -194,6 +194,28 @@ def test_saves_workspace_files_then_removes_the_workspace(client: TestClient, wo
     assert client.delete("/v1/workspaces/bad.id").status_code == 400
 
 
+def test_keeps_the_workspace_edits_mochi_on_production_makes(client: TestClient, workspaces: Path) -> None:
+    """COMPAT(mochi-workspace-edits): remove with the routes."""
+    files = "/v1/workspaces/alice/files"
+    client.put(f"{files}/notes/draft.md", content=b"# Final")
+    assert client.post("/v1/workspaces/alice/folders/papers/empty").json() == {"created": True}
+    assert client.post("/v1/workspaces/alice/folders/papers/empty").status_code == 409
+    assert client.get(files).json()["folders"] == ["notes", "papers", "papers/empty"]
+    move = "/v1/workspaces/alice/move"
+    assert client.post(move, json={"from": "notes/draft.md", "to": "papers/draft.md"}).json() == {
+        "moved": True
+    }
+    assert client.post(move, json={"from": "papers", "to": "papers/empty/inner"}).status_code == 400
+    assert client.post(move, json={"from": "papers", "to": "archive"}).status_code == 200
+    assert (workspaces / "alice" / "archive" / "draft.md").read_text() == "# Final"
+    assert client.post(move, json={"from": "missing", "to": "x"}).status_code == 404
+    assert client.post(move, json={"from": "a"}).status_code == 400
+    assert client.delete(f"{files}/archive/draft.md").json() == {"deleted": True}
+    assert client.delete("/v1/workspaces/alice/folders/archive").json() == {"deleted": True}
+    assert not (workspaces / "alice" / "archive").exists()
+    assert client.post("/v1/workspaces/alice/folders/a/../../b").status_code in {400, 404}
+
+
 def _events(response) -> list[dict]:
     return [json.loads(line[len("data: "):]) for line in response.text.splitlines() if line.startswith("data: ")]
 
@@ -213,6 +235,12 @@ def test_serves_the_plugin_front_end_confined_to_the_bridge(client: TestClient) 
     assert client.get(f"{ui}/missing.js").status_code == 404
     assert client.get("/v1/plugins/echo/ui/0000000000000000/index.html").status_code == 404
     assert client.get(f"/v1/plugins/missing/ui/{plugin['uiVersion']}/index.html").status_code == 404
+    # COMPAT(mochi-unversioned-ui): the path without the version, which is never cached for good.
+    legacy = client.get("/v1/plugins/echo/ui/index.html")
+    assert legacy.status_code == 200 and legacy.content == page.content
+    assert legacy.headers["content-security-policy"] == UI_POLICY
+    assert "cache-control" not in legacy.headers
+    assert client.get("/v1/plugins/echo/ui/../nanoagent.yaml").status_code == 404
     client.headers.pop("Authorization")
     assert client.get(f"{ui}/index.html").status_code == 401
 
