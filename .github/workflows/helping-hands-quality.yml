@@ -54,12 +54,12 @@ jobs:
         include:
           - name: This Mochi against production NanoAgent
             changed: helping-hands
-            mochi: ${{ github.workspace }}
-            nanoagent: ${{ github.workspace }}/../production
+            mochi: .
+            nanoagent: ../production
           - name: Production Mochi against this NanoAgent
             changed: nanoagent
-            mochi: ${{ github.workspace }}/../production
-            nanoagent: ${{ github.workspace }}
+            mochi: ../production
+            nanoagent: .
     defaults:
       run:
         working-directory: .
@@ -92,5 +92,5 @@ jobs:
         if: steps.side.outputs.changed == 'true'
         working-directory: ${{ matrix.mochi }}/helping-hands
         env:
-          NANOAGENT_PROJECT_DIR: ${{ matrix.nanoagent }}/nanoagent
+          NANOAGENT_PROJECT_DIR: ${{ github.workspace }}/${{ matrix.nanoagent }}/nanoagent
         run: npm run nanoagent:verify

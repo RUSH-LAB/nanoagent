@@ -247,17 +247,18 @@ try {
   const forgedWorkspaceId = crypto.randomUUID();
   await json(await request(`/api/workspaces/${forgedWorkspaceId}/documents/tree`, {cookie}), 404);
 
-  // Documents and channels are under forced row-level security, so even the
-  // owner role counts them as the workspace's owner.
+  // Documents and chat are files in the workspace file system, under forced
+  // row-level security, so even the owner role counts them as the workspace's
+  // owner: the two Markdown documents, and the general channel's name entry.
   const counter = await migrationPool.connect();
   await counter.query('begin');
   await counter.query("select set_config('app.user_id', $1, true), set_config('app.workspace_id', $2, true)", [userId, workspaceId]);
   const physical = await counter.query(
     `select w.slug,
             (select count(*)::int from workspace_member m where m.workspace_id = w.id) as members,
-            (select count(*)::int from document d where d.workspace_id = w.id) as documents,
+            (select count(*)::int from fs_node n where n.workspace_id = w.id and n.kind = 'file' and n.path like 'smoke/%.mdx') as documents,
             (select count(*)::int from workspace_settings s where s.workspace_id = w.id) as settings,
-            (select count(*)::int from channel c where c.workspace_id = w.id and c.name = 'general') as channels
+            (select count(*)::int from fs_node n where n.workspace_id = w.id and n.path = 'chat/.names/general.json') as channels
        from workspace w where w.id = $1`,
     [workspaceId],
   );
