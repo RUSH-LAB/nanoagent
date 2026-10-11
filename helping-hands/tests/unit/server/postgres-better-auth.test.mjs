@@ -7,6 +7,7 @@ import {createRequire} from 'node:module';
 import {PGlite} from '@electric-sql/pglite';
 import {Kysely, PGliteDialect} from 'kysely';
 import {githubAccount} from './_github-account.mjs';
+import {pgQuery} from './fs/_pglite.mjs';
 
 const require = createRequire(import.meta.url);
 const {betterAuth} = require('better-auth');
@@ -33,7 +34,7 @@ describe('Better Auth on the PostgreSQL workspace schema', () => {
     kysely = new Kysely({dialect: new PGliteDialect({pglite: pg})});
     const pool = {
       async connect() {
-        return {query: (...args) => pg.query(...args), release() {}};
+        return {query: pgQuery(pg), release() {}};
       },
     };
     const provisioning = createWorkspaceProvisioning({postgres: {enabled: true, pool}});

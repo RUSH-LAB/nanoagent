@@ -118,7 +118,7 @@ describe('server/migrations matches the installed better-auth', () => {
     }
   });
 
-  it('indexes member by userId and organizationId, which orgRoleFor looks up on', () => {
+  it('indexes member by userId and organizationId, which membership lookups use', () => {
     const indexes = db.prepare('PRAGMA index_list(member)').all().map(r => r.name);
     assert.ok(indexes.includes('member_userId_idx'), 'member_userId_idx is missing');
     assert.ok(indexes.includes('member_organizationId_idx'), 'member_organizationId_idx is missing');

@@ -166,7 +166,7 @@ async function firstOrganizationOf(userId) {
       .get(userId);
     return row?.organizationId ?? null;
   } catch {
-    // Same reason as orgRoleFor: on a database predating the plugin the tables
+    // On a database predating the organization plugin the tables
     // are missing, which means no organization, not a failed sign-in.
     return null;
   }
@@ -352,37 +352,6 @@ function isSafeId(id) {
 }
 
 /**
- * The caller's role in their active organization, or null when they have not
- * selected one. Better Auth keeps the active organization on the session and
- * the role on the membership, so the role needs this one indexed lookup.
- */
-function orgRoleFor(userId, orgId) {
-  if (!orgId) return null;
-  if (postgres.enabled) {
-    try {
-      const {withRequestContext} = require('./postgres/client');
-      return withRequestContext(postgres.pool, {userId, workspaceId: orgId}, async client =>
-        (await client.query(
-          'select role from workspace_member where user_id = $1 and workspace_id = $2 limit 1', [userId, orgId],
-        )).rows[0]?.role ?? null);
-    } catch {
-      return null;
-    }
-  }
-  try {
-    const row = db
-      .prepare('SELECT role FROM member WHERE userId = ? AND organizationId = ? LIMIT 1')
-      .get(userId, orgId);
-    return row?.role ?? null;
-  } catch {
-    // The organization tables may not exist yet on a database created before
-    // the plugin was added. A missing role is not a reason to reject the
-    // request; it just means no organization permissions.
-    return null;
-  }
-}
-
-/**
  * Resolve the caller. Never throws and never returns a partial identity:
  * either `{ok: true, identity}` with a verified user, or `{ok: false, status,
  * error}` describing the rejection to send back verbatim.
@@ -414,7 +383,6 @@ async function resolveIdentity(req) {
     identity: Object.freeze({
       userId,
       orgId,
-      orgRole: await orgRoleFor(userId, orgId),
       sessionId: session.session?.id ?? null,
     }),
   };
@@ -428,7 +396,6 @@ module.exports = {
   productionAuthError,
   isPublicPath,
   isSafeId,
-  orgRoleFor,
   PUBLIC_PATHS,
   PUBLIC_PATTERNS,
   workspaceAccessControl,

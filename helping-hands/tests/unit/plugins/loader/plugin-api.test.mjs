@@ -101,7 +101,7 @@ function serverCtx(files = {}) {
 
 const REQ = {
   socket: {remoteAddress: '127.0.0.1'}, caller: 'test-user',
-  auth: {userId: 'u1', orgId: 'o1', orgRole: 'admin'},
+  auth: {userId: 'u1', orgId: 'o1'},
   context: {userId: 'u1', workspaceId: 'o1', membershipId: 'm1', role: 'editor'},
 };
 
@@ -170,7 +170,7 @@ describe('the always-there surface', () => {
     const {ctx} = serverCtx();
     const api = buildPluginApi({
       name: 'demo', requires: [], ctx,
-      req: {socket: {}, auth: {userId: 'u1', orgId: 'stale-workspace', orgRole: 'owner'}},
+      req: {socket: {}, auth: {userId: 'u1', orgId: 'stale-workspace'}},
     });
     assert.deepEqual({...api.caller}, {userId: null, workspaceId: null, role: null});
   });

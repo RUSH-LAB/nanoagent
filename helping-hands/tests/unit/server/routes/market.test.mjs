@@ -33,7 +33,7 @@ describe('the plugin marketplace', () => {
       return {value: {package: entryFor(id, version, size ? Number(size) : 7), data: archive.toString('base64')}};
     },
   };
-  const as = userId => ({userId, orgId: null, orgRole: null});
+  const as = userId => ({userId, orgId: null});
   const call = (userId, method, path, url) => invoke(routes, {
     ctx, method, path, auth: userId ? as(userId) : null, ...(url === undefined ? {} : {body: {url}}),
   });

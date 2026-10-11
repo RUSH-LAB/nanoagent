@@ -9,7 +9,7 @@ const routes = require('../../../../src/server/routes/org.js');
 describe('organization route context boundary', () => {
   it('passes the verified identity separately when accepting an invitation', async () => {
     const calls = [];
-    const identity = {userId: 'invitee', orgId: null, orgRole: null, sessionId: 'session-1'};
+    const identity = {userId: 'invitee', orgId: null, sessionId: 'session-1'};
     const ctx = makeCtx({
       org: {
         acceptInvitation: async (...args) => {

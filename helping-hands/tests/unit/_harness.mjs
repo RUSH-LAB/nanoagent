@@ -696,7 +696,6 @@ function emitter() {
 export const TEST_IDENTITY = Object.freeze({
   userId: 'test-user',
   orgId: null,
-  orgRole: null,
   sessionId: null,
 });
 
@@ -837,7 +836,7 @@ export async function invoke(routes, opts = {}) {
         userId: fallbackScope.userId,
         workspaceId: fallbackScope.workspaceId,
         membershipId: 'test-membership',
-        role: req.auth.orgRole ?? 'owner',
+        role: 'owner',
       },
     };
     const api = buildPluginApi({

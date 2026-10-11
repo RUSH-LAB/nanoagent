@@ -11,7 +11,7 @@ const context = (workspaceId, userId = 'user-1', role = 'owner') =>
 const callContent = (ctx, workspaceId, options) => invoke(content, {
   ...options,
   ctx,
-  auth: {userId: 'user-1', orgId: 'stale-session-workspace', orgRole: 'viewer'},
+  auth: {userId: 'user-1', orgId: 'stale-session-workspace'},
   requestContext: context(workspaceId),
 });
 const scope = workspaceId => ({workspaceId, userId: 'user-1'});

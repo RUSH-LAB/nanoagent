@@ -198,7 +198,7 @@ describe('GET /api/users/me', () => {
     // Signed in as TEST_IDENTITY, who holds no role, so naming a real editor in
     // the query buys the caller nothing.
     assert.deepEqual([r.status, r.payload], [200, {
-      userId: TEST_IDENTITY.userId, orgId: null, orgRole: null, role: 'user',
+      userId: TEST_IDENTITY.userId, orgId: null, role: 'user',
     }]);
   });
 
@@ -206,14 +206,14 @@ describe('GET /api/users/me', () => {
     const ctx = makeCtx({users: ACCOUNTS});
     const r = await invoke(routes, {path: '/api/users/me', ctx, auth: asUser('u1')});
     assert.deepEqual([r.status, r.payload], [200, {
-      userId: 'u1', orgId: null, orgRole: null, role: 'user',
+      userId: 'u1', orgId: null, role: 'user',
     }]);
   });
 
   it('passes the active organization through from the session', async () => {
-    const auth = {userId: 'u1', orgId: 'org_1', orgRole: 'admin', sessionId: 'sess_1'};
+    const auth = {userId: 'u1', orgId: 'org_1', sessionId: 'sess_1'};
     const r = await invoke(routes, {path: '/api/users/me', ctx: makeCtx({users: ACCOUNTS}), auth});
-    assert.deepEqual([r.payload.orgId, r.payload.orgRole], ['org_1', 'admin']);
+    assert.equal(r.payload.orgId, 'org_1');
   });
 
   it('falls back to viewer for an account with no role', async () => {

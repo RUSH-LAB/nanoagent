@@ -62,15 +62,13 @@ describe('PostgreSQL runtime boundary', () => {
       return 42;
     });
     assert.equal(value, 42);
-    assert.deepEqual(fake.calls.map(call => call.sql), [
-      'begin',
-      "select set_config('app.user_id', $1, true)",
-      "select set_config('app.workspace_id', $1, true)",
+    // The transaction and the identity go in one round trip, as quoted literals.
+    assert.deepEqual(fake.calls.map(call => call.sql.replace(/\s+/g, ' ')), [
+      "begin; select set_config('app.user_id', 'u1', true), set_config('app.workspace_id', 'w1', true)",
       'select 1',
       'commit',
     ]);
-    assert.deepEqual(fake.calls[1].params, ['u1']);
-    assert.deepEqual(fake.calls[2].params, ['w1']);
+    assert.equal(fake.calls[0].params, undefined);
     assert.equal(fake.released, 1);
   });
 

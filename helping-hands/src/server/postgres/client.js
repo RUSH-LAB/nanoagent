@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const {Pool: PgPool} = require('pg');
+const {Pool: PgPool, escapeLiteral} = require('pg');
 
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 const MIGRATION_LOCK = 786234901;
@@ -71,9 +71,11 @@ async function withRequestContext(pool, context, operation) {
   if (!context?.userId) throw new Error('A verified user context is required');
   const client = await pool.connect();
   try {
-    await client.query('begin');
-    await client.query("select set_config('app.user_id', $1, true)", [String(context.userId)]);
-    await client.query("select set_config('app.workspace_id', $1, true)", [String(context.workspaceId ?? '')]);
+    // One round trip for the transaction and the identity its policies read. A
+    // query without parameters goes over PostgreSQL's simple protocol, which
+    // takes several statements, so the values are quoted literals.
+    await client.query(`begin; select set_config('app.user_id', ${escapeLiteral(String(context.userId))}, true),
+      set_config('app.workspace_id', ${escapeLiteral(String(context.workspaceId ?? ''))}, true)`);
     const result = await operation(client);
     await client.query('commit');
     return result;

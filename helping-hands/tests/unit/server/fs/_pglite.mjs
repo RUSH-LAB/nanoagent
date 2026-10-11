@@ -13,6 +13,14 @@ import {PGlite} from '@electric-sql/pglite';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 
+/**
+ * `client.query` as pg answers it, over a PGlite database: a query without
+ * parameters is a simple query, which may hold several statements and answers
+ * with the last one's result.
+ */
+export const pgQuery = db => (sql, params) => (params === undefined ? db.exec(sql).then(results => results.at(-1)) : db.query(sql, params))
+  .then(result => ({...result, rowCount: result.affectedRows ?? result.rows.length}));
+
 export async function migratedDatabase() {
   const db = new PGlite();
   const migrationsDir = path.join(root, 'src/server/postgres/migrations');
@@ -43,7 +51,7 @@ export async function migratedDatabase() {
     async connect() {
       await db.exec('set role mochi_runtime');
       return {
-        query: (sql, params) => db.query(sql, params).then(result => ({...result, rowCount: result.affectedRows ?? result.rows.length})),
+        query: pgQuery(db),
         release: () => { db.exec('reset role'); },
       };
     },

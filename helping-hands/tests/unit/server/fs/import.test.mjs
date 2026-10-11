@@ -2,7 +2,7 @@ import {after, before, describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import {createRequire} from 'node:module';
-import {as, migratedDatabase} from './_pglite.mjs';
+import {as, migratedDatabase, pgQuery} from './_pglite.mjs';
 
 const require = createRequire(import.meta.url);
 const {importLegacyContent} = require('../../../../src/server/fs/import.js');
@@ -20,7 +20,7 @@ describe('importing legacy content into the file system', () => {
     const database = await migratedDatabase();
     db = database.db;
     // The schema owner's connection, which row-level security does not restrict.
-    owner = {async connect() { return {query: (sql, params) => db.query(sql, params), release() {}}; }};
+    owner = {async connect() { return {query: pgQuery(db), release() {}}; }};
     fs = createPostgresFs({pool: database.pool});
     await db.exec(`
       insert into document(id, workspace_id, path, title, markdown, visibility, created_by, created_at, updated_at, deleted_at) values

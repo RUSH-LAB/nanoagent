@@ -164,7 +164,6 @@ describe('resolveIdentity', () => {
     assert.equal(result.ok, true);
     assert.equal(result.identity.userId, alice.id);
     assert.equal(result.identity.orgId, null, 'no organization selected yet');
-    assert.equal(result.identity.orgRole, null);
     assert.ok(result.identity.sessionId, 'carries the session id');
   });
 
@@ -273,7 +272,6 @@ describe('resolveIdentity', () => {
     });
     const result = await enabled.resolveIdentity(req({cookie: await sessionCookie(enabled.auth, dana.id)}));
     assert.equal(result.identity.orgId, org.id);
-    assert.equal(result.identity.orgRole, 'owner', 'with the role the membership gives');
   });
 
   // The hook fires only when a session is created, so a session issued before
@@ -290,24 +288,12 @@ describe('resolveIdentity', () => {
     });
     const after = await enabled.resolveIdentity(req({cookie: erin.cookie}));
     assert.equal(after.identity.orgId, org.id, 'the same token now resolves into it');
-    assert.equal(after.identity.orgRole, 'owner');
   });
 
   it('leaves a caller who belongs to no organization in none', async () => {
     const frank = await account('frank');
     const result = await enabled.resolveIdentity(req({cookie: frank.cookie}));
     assert.equal(result.identity.orgId, null, 'no organization is not the same as the wrong one');
-    assert.equal(result.identity.orgRole, null);
-  });
-});
-
-describe('orgRoleFor', () => {
-  it('returns null when the caller has no active organization', () => {
-    assert.equal(authModule.orgRoleFor('any-user', null), null);
-  });
-
-  it('returns null rather than throwing when the membership is absent', () => {
-    assert.equal(authModule.orgRoleFor('nobody', 'no-such-org'), null);
   });
 });
 

@@ -119,8 +119,8 @@ module.exports = async function analytics_users_routes(req, res, url, pathname, 
   if (req.method === 'GET' && pathname === '/api/users/me') {
     // The caller is whoever the verified session says they are. The old
     // `?userId=` form let anyone read anyone's role by asking for it.
-    const {userId, orgId, orgRole} = req.auth;
-    return json(res, 200, {userId, orgId, orgRole, role: await getRole(userId)});
+    const {userId, orgId} = req.auth;
+    return json(res, 200, {userId, orgId, role: await getRole(userId)});
   }
 
   // ── Users: set role ──
