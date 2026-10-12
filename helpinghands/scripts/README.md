@@ -7,18 +7,17 @@ details grouped by responsibility.
 ## Local setup
 
 Prerequisites are Node.js 22.19+, npm, Python 3.12, and `uv`. PostgreSQL mode also
-requires access to an isolated Mochi Lab Neon development branch. Local
-PostgreSQL and Docker are not required. Clone NanoAgent beside this repository,
+requires access to the Mochi Lab Neon project; local development uses its
+`development` branch ([docs/infra/neon-postgres-setup.md](../docs/infra/neon-postgres-setup.md)).
+Local PostgreSQL and Docker are not required. Clone NanoAgent beside this repository,
 or set `NANOAGENT_PROJECT_DIR` to its checkout path.
 
 Install the JavaScript dependencies and prepare the Neon branch:
 
 ```bash
 npm ci
-npm install --global neon@latest
-neon auth
-neon link --project-id curly-rice-08210507 --branch production -y
-neon checkout dev-my-laptop
+npx neon login
+npx neon env pull
 npm run neon:deploy
 npm run db:postgres:setup
 ```

@@ -12,6 +12,7 @@
   "scripts": {
     "neon:plan": "neon config plan --config infra/neon.ts",
     "neon:deploy": "neon deploy --config infra/neon.ts",
+    "db:sync": "neon branches reset development --parent",
     "new:plugin": "node scripts/dev/create-plugin.mjs",
     "db:postgres:bootstrap": "node scripts/db/postgres.mjs bootstrap",
     "db:postgres:prepare": "node scripts/db/postgres.mjs prepare",
@@ -81,7 +82,8 @@
   "devDependencies": {
     "@docusaurus/module-type-aliases": "^3.10.0",
     "@docusaurus/types": "^3.10.0",
-    "@electric-sql/pglite": "^0.5.8"
+    "@electric-sql/pglite": "^0.5.8",
+    "neon": "^8.3.5"
   },
   "browserslist": {
     "production": [
