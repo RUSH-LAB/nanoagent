@@ -51,6 +51,19 @@ fn main() {
                 .build()?;
             supervisor.start(app.handle().clone());
             app.manage(supervisor);
+            // A signal (Ctrl+C on `npm run desktop`, kill) quits like the menu does, so the
+            // services are stopped rather than left running.
+            #[cfg(unix)]
+            {
+                use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+                let mut signals = signal_hook::iterator::Signals::new([SIGHUP, SIGINT, SIGTERM])?;
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    if signals.forever().next().is_some() {
+                        handle.exit(0);
+                    }
+                });
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
