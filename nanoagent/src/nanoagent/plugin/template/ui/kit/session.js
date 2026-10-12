@@ -4,7 +4,7 @@
 
 import { request } from "./bridge.js";
 import { formatDuration, h, plural } from "./dom.js";
-import { dataTable, emptyState } from "./display.js";
+import { dataTable, emptyState, howItWorks } from "./display.js";
 
 let current = null;
 
@@ -106,10 +106,11 @@ function callsTable(calls) {
  * The dashboard: the person's sessions with this plugin, what they cost in all, and each
  * session's runs; from here they start a new session or resume one.
  * @param {object} options
+ * @param {object} options.plugin The catalog entry from `describe`; with no sessions yet, its product says what a session does.
  * @param {(session: object) => void} options.onOpen With what `session.start` or `session.resume` answered.
  * @returns {{element: HTMLElement, refresh: () => Promise<void>}}
  */
-export function dashboard({ onOpen }) {
+export function dashboard({ plugin, onOpen }) {
   const status = h("p", { class: "muted", role: "status" });
   const totals = h("div", { class: "stats" });
   const list = h("div");
@@ -151,6 +152,22 @@ export function dashboard({ onOpen }) {
       status.textContent = problem.message;
       return;
     }
+    // With no sessions the empty state's own button starts one, so the header's would repeat it.
+    newButton.hidden = !sessions.length;
+    if (!sessions.length) {
+      totals.replaceChildren();
+      const start = h("button", { type: "button", class: "button primary", text: "Start your first session" });
+      start.addEventListener("click", () => open("session.start", {}, start));
+      list.replaceChildren(
+        h(
+          "section",
+          { class: "card dashboard-empty" },
+          emptyState({ icon: "play", title: "No sessions yet", body: plugin.product.summary, actions: [start] }, howItWorks(plugin.product.steps)),
+        ),
+      );
+      details.hidden = true;
+      return;
+    }
     const runs = sessions.reduce((sum, one) => sum + one.runs, 0);
     const timed = sessions.filter((one) => one.ttftS != null);
     const timedRuns = timed.reduce((sum, one) => sum + one.runs, 0);
@@ -160,11 +177,6 @@ export function dashboard({ onOpen }) {
       stat("Cost", formatCost(sessions.reduce((sum, one) => sum + one.cost, 0))),
       stat("Average first token", timedRuns ? formatSeconds(timed.reduce((sum, one) => sum + one.ttftS * one.runs, 0) / timedRuns) : "—"),
     );
-    if (!sessions.length) {
-      list.replaceChildren(emptyState({ title: "No sessions yet", body: "Start a session to use this plugin. You can leave it and resume it here later." }));
-      details.hidden = true;
-      return;
-    }
     list.replaceChildren(
       dataTable({
         caption: "Sessions",

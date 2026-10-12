@@ -534,12 +534,17 @@ html[data-theme="dark"] .segment input:checked + .segment-text { background: var
 .kit-tab:disabled { opacity: .5; cursor: default; }
 .kit-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .dashboard { display: grid; gap: 18px; }
+/* A status line or list with nothing in it yet takes no row, so it adds no gap. */
+.dashboard > :empty { display: none; }
 .dashboard-head, .session-details-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .stats { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .stat { display: grid; gap: 2px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
 .stat-label { color: var(--muted); font-size: 12.5px; }
 .stat-value { font-size: 20px; font-weight: 650; }
 .session-details { display: grid; gap: 12px; }
+.dashboard-empty { border-style: dashed; }
+.dashboard-empty .empty-state { padding: 32px 16px 12px; }
+.dashboard-empty .how-it-works { width: 100%; max-width: 760px; margin-top: 14px; }
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .run-metrics, .message-metrics { margin: 0; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 
