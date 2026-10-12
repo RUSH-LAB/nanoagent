@@ -85,7 +85,7 @@ function listMembers(orgId, viewerId) {
   return db
     .prepare(
       `SELECT m.id AS memberId, m.role, m.createdAt AS joinedAt,
-              u.id, COALESCE(u.name, u.email) AS username, u.name, u.email,
+              u.id, COALESCE(u.name, u.email) AS username, u.name, u.email, u.image,
               (SELECT c.id FROM channel c
                  JOIN channel_member mine ON mine.channelId = c.id AND mine.userId = ?
                  JOIN channel_member theirs ON theirs.channelId = c.id

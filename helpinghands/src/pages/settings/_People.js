@@ -3,6 +3,7 @@ import API_BASE, {apiFetch} from '@site/src/utils/api';
 import {openConversation} from '@site/src/components/CommandBar/openConversation';
 import {clientPlatform} from '@site/src/platform/client';
 import dir from '@site/src/css/directory.module.css';
+import Avatar from '@site/src/components/Avatar';
 import RowMenu from '@site/src/components/RowMenu';
 import {PaneHeading, Skeleton} from './_parts';
 import AddPeople, {CopyLink} from './_AddPeople';
@@ -29,35 +30,6 @@ const ROLE_NOTE = {
   editor: 'Create, edit, and publish workspace content.',
   viewer: 'Read content and participate in comments.',
 };
-
-/** The letter in the circle, and a stable colour for it. */
-function initialOf(person) {
-  return (person.name || person.email || '?').trim().charAt(0).toUpperCase();
-}
-
-/**
- * A hue derived from the account id, so the same person is the same colour on
- * every visit and in every browser without storing a preference for it.
- */
-function hueOf(id) {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) % 360;
-  return hash;
-}
-
-/** Their GitHub picture, or their initial on a colour of their own. */
-function Avatar({person}) {
-  if (person.image) return <img className={styles.avatar} src={person.image} alt="" aria-hidden="true" />;
-  return (
-    <span
-      className={styles.avatar}
-      style={{'--avatar-hue': hueOf(person.id ?? person.email)}}
-      aria-hidden="true"
-    >
-      {initialOf(person)}
-    </span>
-  );
-}
 
 /** A date a person reads, without a time nobody asked about. */
 function dayOf(value) {
@@ -243,7 +215,7 @@ export default function People({workspace}) {
           {shown.map((person) => (
             <li key={person.memberId} className={`${styles.grid} ${styles.row}`}>
               <span className={styles.person}>
-                <Avatar person={person} />
+                <Avatar user={person} size={32} />
                 <span className={dir.identity}>
                   <span className={dir.name}>
                     {person.username}
@@ -312,7 +284,7 @@ export default function People({workspace}) {
             {invitations.map(invitation => (
               <li key={invitation.id} className={`${styles.grid} ${styles.row}`}>
                 <span className={styles.person}>
-                  <Avatar person={{email: invitation.email}} />
+                  <Avatar user={{email: invitation.email}} size={32} />
                   <span className={dir.identity}>
                     <span className={dir.name}>{invitation.email}</span>
                     <span className={dir.detail}>invited by {invitation.invitedBy}</span>

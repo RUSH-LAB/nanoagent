@@ -34,7 +34,6 @@
 .list { margin: 0; padding: 0; list-style: none; }
 .person { display: flex; align-items: center; gap: 0.7rem; min-height: 52px; padding: 0.48rem; border-radius: 10px; }
 .person:hover { background: var(--ifm-color-emphasis-100); }
-.avatar { display: grid; flex-shrink: 0; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--ifm-color-emphasis-200); color: var(--ifm-color-emphasis-700); font-size: var(--cli-meta); font-weight: 750; }
 .identity { display: flex; flex: 1; min-width: 0; flex-direction: column; }
 .name, .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .name { font-size: 0.78rem; font-weight: 650; }

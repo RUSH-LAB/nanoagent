@@ -4,28 +4,6 @@
  * shared, in src/css/directory.module.css.
  */
 
-/* Coloured by a hue derived from the account id, so a face is recognisable
-   before the name is read. */
-.avatar {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: hsl(var(--avatar-hue, 220) 70% 92%);
-  color: hsl(var(--avatar-hue, 220) 55% 30%);
-  font-size: 0.85rem;
-  font-weight: 700;
-  object-fit: cover;
-}
-
-[data-theme='dark'] .avatar {
-  background: hsl(var(--avatar-hue, 220) 40% 24%);
-  color: hsl(var(--avatar-hue, 220) 70% 82%);
-}
-
 /* ── Cards ──────────────────────────────────────────────────────── */
 
 .card {
@@ -192,68 +170,94 @@
 
 /* ── Adding somebody ────────────────────────────────────────────── */
 
-/* Opens under the heading rather than over the page: nothing here is urgent
-   enough to take the whole screen away. */
-.panel {
-  padding: 0.9rem 1rem 1rem;
-  border: 1px solid var(--ifm-color-emphasis-300);
-  border-radius: 10px;
-  background: var(--ifm-background-surface-color, var(--ifm-background-color));
-}
-
-.panelTabs {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  margin-bottom: 0.8rem;
-}
-
+/* Opens under the heading as a card like the ones below it: nothing here is
+   urgent enough to take the whole screen away. */
 .panelClose {
-  margin-left: auto;
-  padding: 0 0.3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
   border: none;
+  border-radius: 6px;
   background: none;
-  color: var(--ifm-color-emphasis-500);
-  font-size: 1.1rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 1.2rem;
   line-height: 1;
   cursor: pointer;
 }
 
 .panelClose:hover {
-  color: var(--ifm-color-danger);
+  background: var(--ifm-color-emphasis-200);
+  color: var(--ifm-font-color-base);
 }
 
 .panelForm {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-  margin-bottom: 0.5rem;
+  align-items: stretch;
+  gap: 0.5rem;
+  padding: 1rem 1rem 0;
+}
+
+.panelInput,
+.panelSelect {
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 8px;
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  font-size: 0.88rem;
 }
 
 .panelInput {
   flex: 1;
-  min-width: 12ch;
-  padding: 0.3rem 0.6rem;
-  border: 1px solid var(--ifm-color-emphasis-300);
-  border-radius: 6px;
-  background: var(--ifm-background-color);
-  color: var(--ifm-font-color-base);
-  font-size: 0.9rem;
+  min-width: 14ch;
+}
+
+.panelSelect {
+  padding-right: 1.8rem;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 0.9rem center, right 0.6rem center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  text-transform: capitalize;
+  cursor: pointer;
+  appearance: none;
+}
+
+.panelInput:focus,
+.panelSelect:focus {
+  border-color: var(--ifm-color-primary);
+  outline: 2px solid color-mix(in srgb, var(--ifm-color-primary) 25%, transparent);
+  outline-offset: 0;
+}
+
+.panelHint {
+  margin: 0;
+  padding: 0.6rem 1rem 1rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.8rem;
 }
 
 .linkRow {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin: 0.6rem 0 0;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  background: color-mix(in srgb, var(--ifm-color-success) 6%, transparent);
+  border-radius: 0 0 12px 12px;
 }
 
 /* The link is for copying, so it wraps rather than scrolls: a link cut off at
    the edge of its box is one somebody will paste half of. */
 .link {
   flex: 1;
-  padding: 0.25rem 0.5rem;
+  padding: 0.35rem 0.6rem;
   border-radius: 6px;
   background: var(--ifm-color-emphasis-100);
   font-size: 0.78rem;

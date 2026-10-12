@@ -44,7 +44,7 @@
 .agentRow:hover .editAgent, .editAgent:focus { display: block; }
 .agentManaging .editAgent { display: block; }
 .agentAvatar, .personAvatar { position: relative; display: grid; flex-shrink: 0; place-items: center; width: 28px; height: 28px; border-radius: 8px; color: #fff; font-size: var(--cli-meta); font-weight: 750; }
-.personAvatar { border-radius: 50%; background: var(--ifm-color-emphasis-300); color: var(--ifm-color-emphasis-800); }
+.personAvatar { border-radius: 50%; }
 .onlineDot { position: absolute; right: -1px; bottom: -1px; width: 7px; height: 7px; border: 1.5px solid var(--ifm-background-surface-color); border-radius: 50%; background: #22c55e; }
 .agent_violet { background: #8b5cf6; }.agent_blue { background: #3b82f6; }.agent_emerald { background: #10b981; }.agent_amber { background: #f59e0b; }.agent_rose { background: #f43f5e; }.agent_slate { background: #64748b; }
 

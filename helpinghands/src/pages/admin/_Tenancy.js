@@ -1,4 +1,5 @@
 import React, {useCallback, useEffect, useState} from 'react';
+import Avatar from '@site/src/components/Avatar';
 import {apiRequest} from '@site/src/utils/api';
 import {clientPlatform} from '@site/src/platform/client';
 import styles from './styles.module.css';
@@ -165,7 +166,7 @@ export function AccountsCard({myUserId}) {
         {shown.length === 0 ? <p className={styles.empty}>No accounts match.</p> : shown.map(user => (
           <div className={`${styles.tenancyRow} ${styles.accountGrid}`} key={user.id}>
             <span className={styles.userIdentity}>
-              <i aria-hidden="true">{label(user).charAt(0).toUpperCase()}</i>
+              <Avatar user={user} size={30} />
               <span>
                 <strong>{label(user)}{user.id === myUserId && <small> · You</small>}</strong>
                 <small className={styles.email}>{user.email}{user.emailVerified ? '' : ' · unverified'}</small>

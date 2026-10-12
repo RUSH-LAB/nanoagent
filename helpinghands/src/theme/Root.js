@@ -41,8 +41,8 @@ function IdleCommandBar() {
  * Signing in is not the whole of arriving. Channels, direct messages, the people
  * directory, and invitations all belong to an organization, and an account in
  * none of them would be let through to find every one of those answering 409.
- * An empty workspace answer sends the user to OnboardingScreen to create a
- * workspace or open an invitation.
+ * An empty workspace answer sends the user to OnboardingScreen to open an
+ * invitation.
  *
  * Children remain visible while that short request resolves. Protected data is
  * never in the static shell and still comes only from authenticated APIs, so
@@ -86,7 +86,6 @@ function AuthGate({ children }) {
   const { loadWorkspaces } = require('@site/src/utils/workspaces');
   const [status, setStatus] = useState(CHECKING);
   const [detail, setDetail] = useState(null);
-  const [user, setUser] = useState(null);
   // null until asked, then the number of workspaces this account belongs to.
   const [workspaces, setWorkspaces] = useState(null);
 
@@ -98,7 +97,6 @@ function AuthGate({ children }) {
     loadWorkspaces({fresh: true})
       .then((workspaceData) => {
         if (cancelled) return;
-        setUser({id: workspaceData.userId});
         // Asked before the site is shown rather than after, so nobody sees a
         // workspace's worth of empty pages first. A failure here counts as
         // "has one": the workspace screen is for an account that provably has
@@ -137,7 +135,6 @@ function AuthGate({ children }) {
       return (
         <Deferred>
           <OnboardingScreen
-            user={user}
             onSignOut={() => import('@site/src/utils/authClient')
               .then(({signOutAndForget}) => signOutAndForget())
               .then(() => clientPlatform.location.reload())}
