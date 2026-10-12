@@ -105,30 +105,4 @@ function createCrdt({fs}) {
   });
 }
 
-/**
- * Editors listening for a file's changes, by node id, as server-sent event
- * streams. One process holds them; a deployment with several would relay
- * through PostgreSQL LISTEN/NOTIFY instead.
- */
-function createCrdtHub() {
-  const listeners = new Map();
-  return Object.freeze({
-    listen(nodeId, send) {
-      if (!listeners.has(nodeId)) listeners.set(nodeId, new Set());
-      listeners.get(nodeId).add(send);
-      return () => {
-        listeners.get(nodeId)?.delete(send);
-        if (!listeners.get(nodeId)?.size) listeners.delete(nodeId);
-      };
-    },
-    has: nodeId => Boolean(listeners.get(nodeId)?.size),
-    /** Send `update` to every editor of the node, its sender included: applying one twice changes nothing. */
-    broadcast(nodeId, update) {
-      if (!update || update.length <= 2) return;
-      const encoded = Buffer.from(update).toString('base64');
-      for (const send of listeners.get(nodeId) ?? []) send(encoded);
-    },
-  });
-}
-
-module.exports = {TEXT, createCrdt, createCrdtHub, replaceText};
+module.exports = {TEXT, createCrdt, replaceText};

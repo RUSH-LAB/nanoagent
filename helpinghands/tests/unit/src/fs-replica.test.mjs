@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {describe, it} from 'node:test';
 
 const {memoryStore} = await import('../../../src/utils/documentCache.js');
-const {createFsReplica} = await import('../../../src/utils/fsReplica.js');
+const {createFsReplica, startFsSync} = await import('../../../src/utils/fsReplica.js');
 
 const scope = {userId: 'ada', workspaceId: 'lab'};
 const root = '/api/workspaces/lab/fs';
@@ -123,5 +123,32 @@ describe('browser file system replica', () => {
     await replica.remember(scope, 'b.md', {text: 'b', rev: 3});
     assert.equal((await replica.read(scope, 'kept.md')).text, 'kept');
     assert.deepEqual([...(await replica.held(scope)).keys()].sort(), ['b.md', 'kept.md']);
+  });
+
+  it('refreshes when the push channel connects and after each batch, queueing a batch that arrives mid-refresh', async () => {
+    let handlers = null;
+    let closed = false;
+    const subscribe = (workspaceId, given) => {
+      assert.equal(workspaceId, 'lab');
+      handlers = given;
+      return {stream: () => null, close: () => { closed = true; }};
+    };
+    const finish = [];
+    let refreshes = 0;
+    const replica = {refresh: () => { refreshes += 1; return new Promise(resolve => finish.push(resolve)); }};
+    const stop = startFsSync(scope, replica, subscribe);
+    assert.equal(refreshes, 0);
+    handlers.ready();
+    handlers.changes({cursor: 3, structural: false, changes: []});
+    handlers.changes({cursor: 4, structural: true, changes: []});
+    assert.equal(refreshes, 1);
+    finish.shift()();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(refreshes, 2);
+    finish.shift()();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(refreshes, 2);
+    stop();
+    assert.equal(closed, true);
   });
 });

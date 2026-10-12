@@ -6,7 +6,7 @@ import {as, migratedDatabase} from './_pglite.mjs';
 
 const require = createRequire(import.meta.url);
 const {createPostgresFs} = require('../../../../src/server/fs/store.js');
-const {createCrdt, createCrdtHub, replaceText} = require('../../../../src/server/fs/crdt.js');
+const {createCrdt, replaceText} = require('../../../../src/server/fs/crdt.js');
 
 const editor = (userId, role) => ({...as(userId), role});
 const alice = editor('alice', 'owner');
@@ -94,17 +94,5 @@ describe('mergeable Markdown', () => {
     text.insert(0, 'The quick brown fox');
     replaceText(text, 'The quick red fox');
     assert.equal(text.toString(), 'The quick red fox');
-  });
-
-  it('sends updates to every listener of a node', () => {
-    const hub = createCrdtHub();
-    const received = [];
-    const stop = hub.listen('n1', update => received.push(update));
-    hub.broadcast('n1', new Uint8Array([1, 2, 3]));
-    hub.broadcast('n1', new Uint8Array([0, 0]));
-    stop();
-    hub.broadcast('n1', new Uint8Array([4, 5, 6]));
-    assert.deepEqual(received, [Buffer.from([1, 2, 3]).toString('base64')]);
-    assert.equal(hub.has('n1'), false);
   });
 });

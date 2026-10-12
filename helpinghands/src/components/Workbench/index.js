@@ -236,6 +236,8 @@ export default function Workbench({workspace}) {
         toast.warning(`${detail.path} changed while you were offline, so your edit was saved as ${detail.conflictedCopy}.`, {duration: 0});
       } else if (detail.error) {
         toast.error(`Your offline edit to ${detail.path} could not be uploaded: ${detail.error}`, {duration: 0});
+      } else if (detail.disconnected) {
+        toast.error('The server stopped sending this workspace\'s changes. Reload the page to follow them again.', {duration: 0});
       }
       load();
     };

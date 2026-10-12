@@ -4,18 +4,21 @@
  * kept on this computer (pinned). The least recently opened unpinned files are
  * evicted beyond FS_REPLICA_LIMIT.
  *
- * The replica follows the server's change feed (/fs/changes) from a cursor.
- * When anything changed it lists the tree again, fetches the cached files whose
- * revision moved, and drops the ones that are gone. Saves made while the server
- * cannot be reached wait in an outbox, each naming the revision it was based
- * on. On upload a save that the server refuses as stale is kept as a conflicted
- * copy beside the file, never discarded.
+ * The replica follows the server's change feed (/fs/changes) from a cursor,
+ * read whenever the workspace's push channel (fsEvents.js) connects or says
+ * something changed. When anything changed it lists the tree again, fetches
+ * the cached files whose revision moved, and drops the ones that are gone.
+ * Saves made while the server cannot be reached wait in an outbox, each
+ * naming the revision it was based on. On upload a save that the server
+ * refuses as stale is kept as a conflicted copy beside the file, never
+ * discarded.
  *
  * Entries are keyed by user and workspace, in the same store as the document
  * cache (documentCache.js), so signing out clears both.
  */
 import API_BASE, {apiFetch} from './api.js';
 import {browserStore, isOffline} from './documentCache.js';
+import {subscribeWorkspace} from './fsEvents.js';
 
 export const FS_REPLICA_LIMIT = 300;
 export const FS_SYNC_EVENT = 'mochi:fs-sync';
@@ -212,11 +215,20 @@ export function fsReplica() {
   return shared;
 }
 
-/** Keep one workspace's replica current while a page is open. Returns a function that stops it. */
-export function startFsSync(scope, replica = fsReplica(), intervalMs = 30_000) {
+/**
+ * Keep one workspace's replica current while a page is open: it refreshes
+ * when the push channel connects (catching up on what it missed) and after
+ * every batch of changes. Returns a function that stops it.
+ */
+export function startFsSync(scope, replica = fsReplica(), subscribe = subscribeWorkspace) {
   let running = false;
+  let again = false;
+  // A batch that arrives during a refresh is read by one more refresh, never dropped.
   const run = async () => {
-    if (running || document.visibilityState === 'hidden') return;
+    if (running) {
+      again = true;
+      return;
+    }
     running = true;
     try {
       await replica.refresh(scope);
@@ -225,14 +237,16 @@ export function startFsSync(scope, replica = fsReplica(), intervalMs = 30_000) {
     } finally {
       running = false;
     }
+    if (again) {
+      again = false;
+      run();
+    }
   };
-  const timer = window.setInterval(run, intervalMs);
-  window.addEventListener('online', run);
-  window.addEventListener('focus', run);
-  run();
-  return () => {
-    window.clearInterval(timer);
-    window.removeEventListener('online', run);
-    window.removeEventListener('focus', run);
-  };
+  const channel = subscribe(scope.workspaceId, {
+    ready: run,
+    changes: run,
+    closed: () => window.dispatchEvent(new CustomEvent(FS_SYNC_EVENT, {detail: {scope, disconnected: true}})),
+  });
+  if (channel.stream()) run();
+  return () => channel.close();
 }

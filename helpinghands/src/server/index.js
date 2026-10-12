@@ -515,7 +515,7 @@ const ctx = {
   workspaceFs: postgresServices?.fs ?? null,
   publicFs: postgresServices?.publicFs ?? null,
   crdt: postgresServices?.crdt ?? null,
-  crdtHub: postgresServices?.crdtHub ?? null,
+  fsHub: postgresServices?.fsHub ?? null,
   // The plugin marketplace's uploads; PostgreSQL only.
   market: postgresServices?.market ?? null,
   // Plugin sessions and what their runs cost; PostgreSQL only.

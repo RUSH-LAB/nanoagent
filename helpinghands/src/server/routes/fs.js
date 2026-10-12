@@ -18,15 +18,19 @@
  *   GET    share?path=                who a shared node is shared with
  *   GET    history?path=              every revision, newest first
  *   GET    revision?path=&seq=        the bytes of one revision
- *   GET    changes?since=&limit=      the change feed sync clients follow
+ *   GET    changes?since=&limit=      the change feed sync clients follow, and catch up from after a reconnect
+ *   GET    events                     the workspace's push channel (fs/events.js), server-sent events:
+ *                                     `ready` {stream, cursor}, then `changes` {cursor, structural, changes}
+ *                                     batches and `update` {nodeId, update, rev} for the files it follows
  *
  * Markdown files are mergeable (fs/crdt.js):
  *
- *   GET    crdt?path=                 the Yjs document as one update; X-Rev is its revision
+ *   GET    crdt?path=&stream=         the Yjs document as one update; X-Rev is its revision.
+ *                                     With `stream`, that event stream receives its updates from now on
  *   POST   crdt?path=                 apply an editor's Yjs update; the merged text is a new revision
- *   GET    crdt/events?path=          server-sent `update` events, base64 Yjs updates, for live editing
+ *   DELETE follow?stream=&node=       stop sending a stream a file's updates
  */
-const ROUTE = /^\/api\/fs\/(tree|stat|file|folder|move|node|restore|trash|access|share|history|revision|changes|crdt|crdt\/events)$/;
+const ROUTE = /^\/api\/fs\/(tree|stat|file|folder|move|node|restore|trash|access|share|history|revision|changes|events|crdt|follow)$/;
 const HEARTBEAT_MS = 25_000;
 
 function fail(json, res, error) {
@@ -61,7 +65,7 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
   const match = ROUTE.exec(pathname);
   if (!match || !req.context) return;
   const {
-    json, readBody, readRawBody, requireWorkspacePermission, workspaceFs: fs, crdt, crdtHub, invalidateCache, cacheKey, CORS_ORIGIN,
+    json, readBody, readRawBody, requireWorkspacePermission, workspaceFs: fs, crdt, fsHub, invalidateCache, cacheKey, CORS_ORIGIN,
   } = ctx;
   if (!fs) {
     return json(res, 409, {
@@ -110,8 +114,8 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
       });
       changed();
       // Anyone editing this file live sees the plain write as a change too.
-      if (crdt && crdtHub.has(node.id) && /\.mdx?$/i.test(node.path)) {
-        crdtHub.broadcast(node.id, (await crdt.state(scope, node.path)).changes);
+      if (crdt && fsHub.followed(scope.workspaceId, node.id) && /\.mdx?$/i.test(node.path)) {
+        fsHub.broadcast(scope.workspaceId, node.id, (await crdt.state(scope, node.path)).changes, node.rev);
       }
       return json(res, 200, {node});
     }
@@ -191,8 +195,14 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
 
     if (action === 'crdt' && req.method === 'GET') {
       permit('content:read');
+      // Followed before it is read, so no update falls between the two.
+      if (param('stream')) {
+        const node = await fs.stat(scope, param('path'));
+        if (!node) return json(res, 404, {error: 'Not found', code: 'not-found'});
+        fsHub.follow(scope, param('stream'), node.id);
+      }
       const state = await crdt.state(scope, param('path'));
-      if (state.changes) crdtHub.broadcast(state.nodeId, state.changes);
+      if (state.changes) fsHub.broadcast(scope.workspaceId, state.nodeId, state.changes, state.rev);
       res.setHeader('X-Rev', String(state.rev));
       res.setHeader('X-Node-Id', state.nodeId);
       return sendBytes(req, res, {
@@ -205,15 +215,20 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
       permit('content:edit');
       const update = await readRawBody(req);
       const {node, changes} = await crdt.merge(scope, param('path'), update);
-      crdtHub.broadcast(node.id, changes);
+      fsHub.broadcast(scope.workspaceId, node.id, changes, node.rev);
       changed();
       return json(res, 200, {node});
     }
 
-    if (action === 'crdt/events' && req.method === 'GET') {
+    if (action === 'follow' && req.method === 'DELETE') {
       permit('content:read');
-      const node = await fs.stat(scope, param('path'));
-      if (!node) return json(res, 404, {error: 'Not found', code: 'not-found'});
+      fsHub.unfollow(scope, param('stream'), param('node'));
+      return json(res, 200, {following: false});
+    }
+
+    if (action === 'events' && req.method === 'GET') {
+      permit('content:read');
+      const cursor = await fs.head(scope);
       const origin = req.headers.origin;
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -227,12 +242,14 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
       res.flushHeaders?.();
       // The stream outlives the server's idle limit; the heartbeat keeps proxies from closing it.
       req.setTimeout(0);
-      res.write(': listening\n\n');
-      const stop = crdtHub.listen(node.id, update => res.write(`event: update\ndata: ${update}\n\n`));
+      const closed = new Promise(resolve => res.on('close', resolve));
+      const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      const stream = fsHub.listen(scope, cursor, send, () => res.end());
+      send('ready', {stream: stream.id, cursor});
       const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), HEARTBEAT_MS);
-      await new Promise(resolve => res.on('close', resolve));
+      await closed;
       clearInterval(heartbeat);
-      stop();
+      stream.stop();
       return res.end();
     }
 
