@@ -45,8 +45,7 @@
 }
 
 .publishForm input,
-.search,
-.select {
+.search {
   padding: 0.55rem 0.8rem;
   border: 1px solid var(--ifm-color-emphasis-300);
   border-radius: 10px;
@@ -90,11 +89,6 @@
   border-color: var(--ifm-color-primary);
   background: var(--ifm-color-primary);
   color: #fff;
-}
-
-.shelf {
-  margin: 0 0 1rem;
-  font-size: 1.25rem;
 }
 
 .grid {

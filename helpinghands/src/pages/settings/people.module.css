@@ -1,32 +1,8 @@
 /**
  * What the people directory has that the channel one does not: a face, a role,
- * and the record of who changed whose. The heading, search box and buttons are
- * shared, in src/css/directory.module.css.
+ * and the record of who changed whose. The cards and buttons are the settings
+ * page's, in styles.module.css; the search box is src/css/directory.module.css.
  */
-
-/* ── Cards ──────────────────────────────────────────────────────── */
-
-.card {
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 12px;
-  background: var(--ifm-background-surface-color);
-}
-
-.cardHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  min-height: 3.25rem;
-  padding: 0.6rem 1rem;
-  border-bottom: 1px solid var(--ifm-color-emphasis-200);
-}
-
-.cardTitle {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 650;
-}
 
 .empty {
   margin: 0;
@@ -43,7 +19,7 @@
   grid-template-columns: minmax(0, 1fr) 7.5rem 8.5rem 8.5rem;
   align-items: center;
   gap: 1rem;
-  padding: 0 1rem;
+  padding: 0 1.1rem;
 }
 
 .columns {
@@ -73,7 +49,7 @@
 
 .rows > .row:last-child {
   border-bottom: none;
-  border-radius: 0 0 12px 12px;
+  border-radius: 0 0 11px 11px;
 }
 
 .row:hover,
@@ -243,7 +219,7 @@
   flex-wrap: wrap;
   align-items: stretch;
   gap: 0.5rem;
-  padding: 1rem 1rem 0;
+  padding: 1rem 1.1rem 0;
 }
 
 .panelInput,
@@ -282,7 +258,7 @@
 
 .panelHint {
   margin: 0;
-  padding: 0.6rem 1rem 1rem;
+  padding: 0.6rem 1.1rem 1rem;
   color: var(--ifm-color-emphasis-600);
   font-size: 0.8rem;
 }
@@ -291,10 +267,9 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.75rem 1rem;
+  padding: 0.75rem 1.1rem;
   border-top: 1px solid var(--ifm-color-emphasis-200);
   background: color-mix(in srgb, var(--ifm-color-success) 6%, transparent);
-  border-radius: 0 0 12px 12px;
 }
 
 /* The link is for copying, so it wraps rather than scrolls: a link cut off at
