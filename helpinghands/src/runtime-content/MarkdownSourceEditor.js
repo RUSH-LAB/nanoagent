@@ -1,13 +1,13 @@
 import React, {useCallback, useMemo, useRef} from 'react';
 import CodeMirror from '@uiw/react-codemirror';
-import {markdown} from '@codemirror/lang-markdown';
 import {EditorView} from '@codemirror/view';
 import {useColorMode} from '@docusaurus/theme-common';
 import API_BASE, {apiFetch} from '@site/src/utils/api';
 import {toast} from '@site/src/components/Toast/toast';
-import {readEvents, releaseBody, SSE_CONTENT_TYPE} from '@site/src/utils/eventStream';
+import {readEvents, SSE_CONTENT_TYPE} from '@site/src/utils/eventStream';
 import {contextFromText} from '../components/CommandBar/selectionContext';
 import {hideContextSelection, showContextSelection} from '../components/CommandBar/contextSelectionEvent';
+import {languageExtensions, markdownLanguage} from '../components/Workbench/languages';
 import {inlineCompletion} from './inlineCompletion';
 
 function editorSelection({file, title}) {
@@ -79,23 +79,12 @@ export default function MarkdownSourceEditor({
         after,
       ].join('\n'),
     };
-    const send = (path, requestBody = payload) => apiFetch(`${API_BASE}${path}`, {
+    const response = await apiFetch(`${API_BASE}/api/ai/inline-stream`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify(payload),
       signal,
     });
-    let response = await send('/api/ai/inline-stream');
-    // During local development the browser hot-reloads while the Node API does
-    // not. Keep suggestions working until that process is restarted.
-    if (response.status === 404) {
-      await releaseBody(response);
-      response = await send('/api/ai/stream', {
-        ...payload,
-        type: 'continue',
-        profileId: 'pi-deepseek',
-      });
-    }
     const contentType = response.headers?.get?.('content-type') ?? '';
     const streamed = response.ok
       && contentType.includes(SSE_CONTENT_TYPE)
@@ -158,8 +147,7 @@ export default function MarkdownSourceEditor({
   }, [documentPath, onCompletionMetrics]);
 
   const extensions = useMemo(() => [
-    markdown(),
-    EditorView.lineWrapping,
+    ...languageExtensions(markdownLanguage),
     inlineCompletion({request: requestCompletion}),
     editorSelection({file: documentPath, title: documentTitle}),
   ], [documentPath, documentTitle, requestCompletion]);

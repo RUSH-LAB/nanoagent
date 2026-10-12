@@ -11,7 +11,8 @@ import Editor from './Editor';
 import {openLiveDocument} from './liveDocument';
 import {appFor} from './apps';
 import Explorer, {ContextMenu} from './Explorer';
-import {basename, buildTree, comparePath, dirname, invalidName, join, movedPath, tabChanges, within} from './tree';
+import QuickOpen from './QuickOpen';
+import {basename, buildTree, comparePath, dirname, join, movedPath, tabChanges, within} from './tree';
 import {editorViews} from './viewState';
 import styles from './styles.module.css';
 
@@ -43,6 +44,8 @@ const MARKDOWN = /\.mdx?$/i;
 const PDF = /\.pdf$/i;
 // Past this a file is downloaded rather than loaded into the editor.
 const EDIT_LIMIT = 2 * 1024 * 1024;
+// How many recently opened files quick open remembers per workspace.
+const RECENT_LIMIT = 20;
 
 const unsaved = tab => tab.kind === 'text' && tab.text !== tab.saved;
 
@@ -57,6 +60,7 @@ export default function Workbench({workspace}) {
   const history = useHistory();
   const readOnly = workspace.role === 'viewer';
   const expandedKey = `mochi:workbench-expanded:${workspace.id}`;
+  const recentKey = `mochi:workbench-recent:${workspace.id}`;
 
   const [listing, setListing] = useState(null);
   const [loadError, setLoadError] = useState(null);
@@ -71,6 +75,8 @@ export default function Workbench({workspace}) {
   const [held, setHeld] = useState(() => new Map());
   const [offline, setOffline] = useState(false);
   const [plugins, setPlugins] = useState([]);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [recent, setRecent] = useState(() => JSON.parse(localStorage.getItem(recentKey) ?? '[]'));
   const tabsRef = useRef(tabs);
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
@@ -114,16 +120,24 @@ export default function Workbench({workspace}) {
   }, [refreshHeld]);
 
   useEffect(() => { sessionStorage.setItem(expandedKey, JSON.stringify([...expanded])); }, [expandedKey, expanded]);
+  useEffect(() => { localStorage.setItem(recentKey, JSON.stringify(recent)); }, [recentKey, recent]);
 
-  // ⌘S saves the open file wherever focus is, rather than saving the web page.
+  // ⌘S saves the open file wherever focus is, rather than saving the web page;
+  // ⌘P opens quick open rather than printing it.
   useEffect(() => {
-    const saveShortcut = event => {
-      if (event.key.toLowerCase() !== 's' || !(event.metaKey || event.ctrlKey)) return;
-      event.preventDefault();
-      if (activePath) save(activePath);
+    const shortcut = event => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === 's') {
+        event.preventDefault();
+        if (activePath) save(activePath);
+      } else if (key === 'p' && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        setQuickOpen(current => !current);
+      }
     };
-    window.addEventListener('keydown', saveShortcut);
-    return () => window.removeEventListener('keydown', saveShortcut);
+    window.addEventListener('keydown', shortcut);
+    return () => window.removeEventListener('keydown', shortcut);
   });
 
   // Unsaved text is lost with the tab, so leaving the page asks first.
@@ -168,6 +182,7 @@ export default function Workbench({workspace}) {
 
   const open = useCallback(file => {
     setActivePath(file.path);
+    setRecent(current => [file.path, ...current.filter(path => path !== file.path)].slice(0, RECENT_LIMIT));
     if (tabsRef.current.some(tab => tab.path === file.path)) return;
     if (MARKDOWN.test(file.path) && scopeRef.current) {
       openLive(file);
@@ -520,27 +535,29 @@ export default function Workbench({workspace}) {
 
   const startCreate = (mode, parent = targetFolder()) => {
     expandTo(parent);
-    setEditing({mode, parent});
+    setEditing({mode, parent, status: 'naming'});
   };
 
-  const commitEdit = name => {
+  // The input stays open, pending, until the server answers; a failure keeps
+  // what was typed and shows why. An answer for an edit since replaced is dropped.
+  const commitEdit = async name => {
     const edit = editing;
-    setEditing(null);
-    const problem = invalidName(name);
-    if (problem) {
-      toast.error(problem);
+    const pending = {...edit, status: 'pending'};
+    setEditing(pending);
+    const path = join(edit.mode === 'rename' ? dirname(edit.node.path) : edit.parent, name);
+    let result;
+    try {
+      if (edit.mode === 'rename') result = await api.moveEntry(edit.node.path, path);
+      else if (edit.mode === 'folder') result = await api.makeFolder(path);
+      else result = await api.saveFile(path, '', {create: true});
+    } catch (error) {
+      setEditing(current => (current === pending ? {...edit, status: {error: error.message}} : current));
       return;
     }
-    if (edit.mode === 'rename') {
-      const to = join(dirname(edit.node.path), name);
-      run(() => api.moveEntry(edit.node.path, to), () => followMoves([[edit.node.path, to]]));
-    } else if (edit.mode === 'folder') {
-      const path = join(edit.parent, name);
-      run(() => api.makeFolder(path), () => { setExpanded(current => new Set(current).add(path)); setSelected({type: 'folder', path}); });
-    } else {
-      const path = join(edit.parent, name);
-      run(() => api.saveFile(path, '', {create: true}), entry => { setSelected({type: 'file', ...entry}); open(entry); });
-    }
+    setEditing(current => (current === pending ? null : current));
+    if (edit.mode === 'rename') run(() => result, () => { followMoves([[edit.node.path, path]]); expandTo(dirname(path)); });
+    else if (edit.mode === 'folder') run(() => result, () => { expandTo(path); setSelected({type: 'folder', path}); });
+    else run(() => result, entry => { expandTo(dirname(path)); setSelected({type: 'file', ...entry}); open(entry); });
   };
 
   const toggle = path => setExpanded(current => {
@@ -619,7 +636,7 @@ export default function Workbench({workspace}) {
         node.accessExplicit ? [{label: 'Visible to: same as its folder', run: () => share(node, null)}] : [],
       ) : [],
       node && !readOnly ? [
-        {label: 'Rename…', shortcut: 'F2', run: () => setEditing({mode: 'rename', node})},
+        {label: 'Rename…', shortcut: 'F2', run: () => setEditing({mode: 'rename', node, status: 'naming'})},
         {label: 'Delete', shortcut: '⌫', danger: true, run: () => remove(node)},
       ] : [],
       !node ? [{label: 'Show Trash', run: openTrash}] : [],
@@ -673,9 +690,10 @@ export default function Workbench({workspace}) {
             onOpen={open}
             onCommitEdit={commitEdit}
             onCancelEdit={() => setEditing(null)}
+            onRetypeEdit={() => setEditing(current => ({...current, status: 'naming'}))}
             onContextMenu={showMenu}
             onMove={move}
-            onRename={node => setEditing({mode: 'rename', node})}
+            onRename={node => setEditing({mode: 'rename', node, status: 'naming'})}
             onDelete={remove}
           />
         )}
@@ -716,6 +734,19 @@ export default function Workbench({workspace}) {
         />
       </section>
       {menu && <ContextMenu menu={menu} onClose={closeMenu} />}
+      {quickOpen && listing && (
+        <QuickOpen
+          files={listing.files}
+          recent={recent}
+          onPick={file => {
+            setQuickOpen(false);
+            expandTo(dirname(file.path));
+            setSelected(file);
+            open(file);
+          }}
+          onClose={() => setQuickOpen(false)}
+        />
+      )}
     </div>
   );
 }

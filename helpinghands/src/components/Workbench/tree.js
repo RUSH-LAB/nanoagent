@@ -1,12 +1,17 @@
 /**
- * The workspace listing as an explorer tree, and the path arithmetic the
- * explorer's actions need. Paths are workspace-relative and '/'-separated;
- * the root folder is ''.
+ * The workspace listing as an explorer tree, the path arithmetic the
+ * explorer's actions need, and quick open's ranking. Paths are
+ * workspace-relative and '/'-separated; the root folder is ''.
  */
+
+import {fuzzyMatch} from '../../utils/fuzzyMatch.js';
 
 export const basename = path => path.split('/').at(-1);
 export const dirname = path => path.split('/').slice(0, -1).join('/');
 export const join = (folder, name) => (folder ? `${folder}/${name}` : name);
+
+// Names in order, numbers by value (step2 before step10), ignoring case.
+const byName = (a, b) => a.localeCompare(b, undefined, {numeric: true, sensitivity: 'base'});
 
 /** Whether `path` is `folder` or lies inside it. */
 export const within = (path, folder) => path === folder || path.startsWith(`${folder}/`);
@@ -20,9 +25,10 @@ export const comparePath = (file, against) => `${file}/@${against}`;
 
 /**
  * `{files, folders}` from the API as nested nodes, folders before files and
- * each sorted by name, as VS Code shows them. A folder is a path or an object
- * with one, whose other fields (such as `access`) the node keeps. A folder
- * implied by a file's path but absent from `folders` is still shown.
+ * each sorted by name with numbers in order (step2 before step10), as VS Code
+ * shows them. A folder is a path or an object with one, whose other fields
+ * (such as `access`) the node keeps. A folder implied by a file's path but
+ * absent from `folders` is still shown.
  */
 export function buildTree(files, folders) {
   const root = {type: 'folder', path: '', name: '', children: new Map()};
@@ -48,10 +54,34 @@ export function buildTree(files, folders) {
     if (node.type === 'file') return node;
     const children = [...node.children.values()]
       .map(order)
-      .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'folder' ? -1 : 1));
+      .sort((a, b) => (a.type === b.type ? byName(a.name, b.name) : a.type === 'folder' ? -1 : 1));
     return {...node, children};
   };
   return order(root);
+}
+
+/**
+ * Quick open's rows, `{file, indices}`, for `query`. An empty query lists the
+ * `recent` paths that still exist, most recent first, then every other file
+ * in path order. Otherwise every file whose path matches, best score first;
+ * equal scores put recent files first, then the shorter path, then path order.
+ */
+export function quickOpenRows(files, recent, query) {
+  const recency = path => {
+    const index = recent.indexOf(path);
+    return index === -1 ? recent.length : index;
+  };
+  if (!query) {
+    return [...files]
+      .sort((a, b) => recency(a.path) - recency(b.path) || byName(a.path, b.path))
+      .map(file => ({file, indices: []}));
+  }
+  return files
+    .map(file => ({file, ...fuzzyMatch(query, file.path)}))
+    .filter(row => row.match)
+    .sort((a, b) => b.score - a.score || recency(a.file.path) - recency(b.file.path)
+      || a.file.path.length - b.file.path.length || byName(a.file.path, b.file.path))
+    .map(({file, indices}) => ({file, indices}));
 }
 
 /** The visible rows of the tree, depth-first, given which folders are open. */
@@ -64,11 +94,34 @@ export function visibleRows(tree, expanded, depth = 0) {
   return rows;
 }
 
-/** Why `name` cannot be an entry's name, or null when it can. */
+/** Why `name` cannot be an entry's name, or null when it can. A `/` in it makes nested folders. */
 export function invalidName(name) {
   if (!name.trim()) return 'A name is required';
-  if (name.includes('/') || name.includes('\\')) return 'A name cannot contain / or \\';
-  if (name === '.' || name === '..') return 'That name is reserved';
+  if (name.includes('\\')) return 'A name cannot contain \\';
+  const parts = name.split('/');
+  if (parts.some(part => !part)) return 'A name cannot start or end with /, or contain //';
+  if (parts.some(part => part === '.' || part === '..')) return '. and .. are reserved';
+  return null;
+}
+
+/**
+ * Why `name` cannot be created in `folder` of `tree`, or null when it can: an
+ * invalid name, a sibling already there, or a file where the path needs a
+ * folder. `current` is the path being renamed, which may keep its own name.
+ */
+export function entryProblem(tree, folder, name, current = null) {
+  const problem = invalidName(name);
+  if (problem) return problem;
+  const path = join(folder, name);
+  if (current && path !== current && within(path, current)) return 'A folder cannot move inside itself';
+  const parts = path.split('/');
+  let node = tree;
+  for (const [index, part] of parts.entries()) {
+    node = node.children.find(child => child.name === part);
+    if (!node) return null;
+    if (index === parts.length - 1) return node.path === current ? null : `${node.path} already exists`;
+    if (node.type === 'file') return `${node.path} is a file`;
+  }
   return null;
 }
 

@@ -188,6 +188,22 @@
   font: inherit;
 }
 
+.nameInputInvalid {
+  border-color: var(--ifm-color-danger);
+}
+
+/* A new or renamed entry waiting for the server. */
+.rowPending {
+  opacity: 0.6;
+}
+
+.nameError {
+  margin: 0 0.6rem 0.2rem 0;
+  color: var(--ifm-color-danger-dark);
+  font-size: 0.75rem;
+  white-space: normal;
+}
+
 .emptyTree,
 .loadError {
   margin: 0.75rem 0.9rem;
@@ -270,6 +286,65 @@
   color: var(--ifm-color-primary);
   font-size: 0.75rem;
   cursor: pointer;
+}
+
+/* ── Quick open ── */
+
+.quickOpenOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+
+.quickOpen {
+  display: flex;
+  width: min(560px, 92vw);
+  max-height: 60vh;
+  flex-direction: column;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 6px;
+  background: var(--ifm-background-surface-color);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
+  font-size: 0.8125rem;
+}
+
+.quickOpenInput {
+  margin: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--wb-focus);
+  border-radius: 4px;
+  background: var(--ifm-background-color);
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.quickOpenList {
+  margin: 0;
+  padding: 0 0.3rem 0.3rem;
+  overflow: auto;
+  list-style: none;
+}
+
+.quickOpenRow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.quickOpenFolder {
+  overflow: hidden;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
 }
 
 /* ── Context menu ── */

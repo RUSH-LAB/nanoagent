@@ -8,7 +8,7 @@ import {keymap} from '@codemirror/view';
 import {yCollab, yUndoManagerKeymap} from 'y-codemirror.next';
 import {useColorMode} from '@docusaurus/theme-common';
 import {changedRange} from '@site/src/server/fs/textDiff';
-import {languageFor} from './languages';
+import {languageExtensions, languageFor} from './languages';
 import {basename, dirname} from './tree';
 import {liveSelection, relativeSelection, textStateJSON} from './viewState';
 import styles from './styles.module.css';
@@ -52,7 +52,7 @@ function LiveEditor({tab, saved, readOnly, language, colorMode, onCursor, onView
   const [initial] = useState(() => tab.live.text.toString());
   const [selection] = useState(() => liveSelection(tab.live.text, saved));
   const extensions = useMemo(() => [
-    ...language.extensions,
+    ...languageExtensions(language),
     yCollab(tab.live.text, null, {undoManager: tab.live.undoManager}),
     keymap.of(yUndoManagerKeymap),
     unifiedMergeView({original: tab.opened, mergeControls: false, gutter: true}),
@@ -90,7 +90,7 @@ function TextEditor({tab, saved, readOnly, language, colorMode, onChange, onCurs
   const [initial] = useState(() => textStateJSON(saved, tab.text));
   const [original] = useState(tab.saved);
   const extensions = useMemo(
-    () => [...language.extensions, unifiedMergeView({original, mergeControls: Boolean(tab.conflict), gutter: true})],
+    () => [...languageExtensions(language), unifiedMergeView({original, mergeControls: Boolean(tab.conflict), gutter: true})],
     // The editor is opened again when a conflict starts or ends (TabContent's key).
     [language, original],
   );
@@ -133,7 +133,7 @@ function TextEditor({tab, saved, readOnly, language, colorMode, onChange, onCurs
 /** A compare tab: its text, read only, with the text it is compared with above each change; unchanged stretches fold away. */
 function CompareEditor({tab, language, colorMode}) {
   const extensions = useMemo(() => [
-    ...language.extensions,
+    ...languageExtensions(language),
     unifiedMergeView({original: tab.original, mergeControls: false, gutter: true, collapseUnchanged: {margin: 3}}),
   ], [language, tab.original]);
   return (
