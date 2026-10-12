@@ -2,12 +2,12 @@ name: NanoAgent CI
 
 on:
   pull_request:
-    branches: [production]
+    branches: [production, devmode]
     paths:
       - '.github/workflows/nanoagent-ci.yml'
       - 'nanoagent/**'
   push:
-    branches: [production]
+    branches: [production, devmode]
     paths:
       - '.github/workflows/nanoagent-ci.yml'
       - 'nanoagent/**'
