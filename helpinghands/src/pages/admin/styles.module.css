@@ -165,20 +165,6 @@
   gap: 0.6rem;
 }
 
-.userIdentity > i {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--ifm-color-primary) 13%, transparent);
-  color: var(--ifm-color-primary);
-  font-style: normal;
-  font-weight: 750;
-}
-
 .userIdentity > span {
   display: flex;
   min-width: 0;

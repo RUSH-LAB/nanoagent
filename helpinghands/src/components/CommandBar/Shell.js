@@ -118,7 +118,7 @@ function WindowControls({railOpen, onRailOpenChange, onCollapse, onSplit, splitD
 
 /** One pane: its header, whichever transcript it is showing, and its refusals. */
 function Pane({
-  session, index, count, label, agent, currentChat, agentChats, channel, isActive, conversation, youId,
+  session, index, count, label, agent, currentChat, agentChats, channel, person, isActive, conversation, youId,
   onFocus, onClose, onLoadOlder, onDeleteMessage, onCancel, onStartChat, onCreateAgent,
   onOpenChat, onManageChats, onManageMembers,
 }) {
@@ -156,7 +156,7 @@ function Pane({
       aria-label={count > 1 ? `Session ${index + 1}: ${heading}` : heading}
     >
       <header className={styles.paneHead}>
-        <ConversationIcon agent={agent} channel={channel} label={label} />
+        <ConversationIcon agent={agent} channel={channel} person={person} label={label} />
         {agent ? (
           <AgentChatPicker
             sessionId={session.id}
@@ -654,7 +654,7 @@ export default function Shell({workspaceKey = 'unscoped'}) {
                   onEditChannel={setChannelEditor}
                   onEditPerson={setPersonEditor}
                   onBrowsePeople={() => routerHistory.push(scopeWorkspacePath(
-                    '/people',
+                    '/settings#people',
                     typeof window === 'undefined' ? '' : window.location.pathname,
                   ))}
                   onBrowseChannels={() => routerHistory.push(scopeWorkspacePath(
@@ -676,6 +676,10 @@ export default function Shell({workspaceKey = 'unscoped'}) {
                     currentChat={chatOf(session)}
                     agentChats={sessions.chats.filter(chatItem => chatItem.agentId === session.target?.agentId)}
                     channel={channelOf(session)}
+                    // A direct message wears the face of whoever it is with.
+                    person={channelOf(session)?.kind === 'dm'
+                      ? (chat.members ?? []).find(member => member.id === channelOf(session).peerId) ?? null
+                      : null}
                     isActive={session.id === active.id}
                     conversation={session.target?.channelId ? chat.conversation(session.target.channelId) : null}
                     youId={chat.you?.userId ?? null}

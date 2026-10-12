@@ -43,7 +43,7 @@ import styles from './composer.module.css';
 
 /* How many people or channels a mention popup offers at once. Past this the
    list stops being a glance and starts being a directory, which is what the
-   /people and /channels pages are for. */
+   People settings pane and the /channels page are for. */
 const MENTION_LIMIT = 8;
 
 /* The word under the caret that mention completion works on: a sigil at the

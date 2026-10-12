@@ -137,7 +137,7 @@ export async function mountApp(layout) {
   }
 
   const tabs = frameTabs();
-  const board = dashboard({ onOpen: (opened) => openSession(opened) });
+  const board = dashboard({ plugin: described.plugin, onOpen: (opened) => openSession(opened) });
   const home = appShell({ plugin: described.plugin, chat: false }, board.element);
   const page = h("div", { class: "kit-session", hidden: true });
   tabs.onShow = (tab) => {

@@ -4,7 +4,7 @@ import {clientPlatform} from '@site/src/platform/client';
 import styles from './styles.module.css';
 
 /** Leaving the current workspace, which the server refuses to its only owner. */
-export default function DangerZone({workspace}) {
+export default function Leave({workspace}) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const owner = workspace.role === 'owner';
@@ -23,7 +23,7 @@ export default function DangerZone({workspace}) {
   }
 
   return (
-    <section className={`${styles.group} ${styles.dangerZone}`}>
+    <section className={`${styles.group} ${styles.leave}`}>
       <div className={styles.row}>
         <div className={styles.rowLabel}>
           <strong>Leave {workspace.name}</strong>

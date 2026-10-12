@@ -1,0 +1,285 @@
+/**
+ * What the people directory has that the channel one does not: a face, a role,
+ * and the record of who changed whose. The heading, search box and buttons are
+ * shared, in src/css/directory.module.css.
+ */
+
+/* ── Cards ──────────────────────────────────────────────────────── */
+
+.card {
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 12px;
+  background: var(--ifm-background-surface-color);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 3.25rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.empty {
+  margin: 0;
+  padding: 1rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.88rem;
+}
+
+/* ── Rows: the same four columns in every card, so a role or a date sits
+   under the one above it. ─────────────────────────────────────── */
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 7.5rem 8.5rem 8.5rem;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 1rem;
+}
+
+.columns {
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  min-height: 3.5rem;
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-100);
+  transition: background 0.12s ease;
+}
+
+.rows > .row:last-child {
+  border-bottom: none;
+  border-radius: 0 0 12px 12px;
+}
+
+.row:hover,
+.row:focus-within {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.when {
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.82rem;
+}
+
+.expired {
+  color: var(--ifm-color-danger);
+  font-size: 0.82rem;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.15rem;
+}
+
+/* Keeps Message in line on the one row without a menu: your own. */
+.menuSlot {
+  width: 26px;
+}
+
+/* ── Roles ──────────────────────────────────────────────────────── */
+
+.role {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+/* Only the two that carry authority are coloured. A badge on everyone is a
+   badge on nobody. */
+.role_owner {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.role_editor {
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+}
+
+[data-theme='dark'] .role_owner {
+  color: #fbbf24;
+}
+
+[data-theme='dark'] .role_editor {
+  color: #93c5fd;
+}
+
+/* The pill itself is the menu: a caret says so, and a border on hover. */
+.roleSelect {
+  padding-right: 1.5rem;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 0.75rem center, right 0.5rem center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  font-family: inherit;
+  cursor: pointer;
+  appearance: none;
+}
+
+.roleSelect:hover:not(:disabled),
+.roleSelect:focus-visible {
+  border-color: currentColor;
+  outline: none;
+}
+
+.roleSelect:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── Adding somebody ────────────────────────────────────────────── */
+
+/* Opens under the heading as a card like the ones below it: nothing here is
+   urgent enough to take the whole screen away. */
+.panelClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.panelClose:hover {
+  background: var(--ifm-color-emphasis-200);
+  color: var(--ifm-font-color-base);
+}
+
+.panelForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.5rem;
+  padding: 1rem 1rem 0;
+}
+
+.panelInput,
+.panelSelect {
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 8px;
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  font-size: 0.88rem;
+}
+
+.panelInput {
+  flex: 1;
+  min-width: 14ch;
+}
+
+.panelSelect {
+  padding-right: 1.8rem;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 0.9rem center, right 0.6rem center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  text-transform: capitalize;
+  cursor: pointer;
+  appearance: none;
+}
+
+.panelInput:focus,
+.panelSelect:focus {
+  border-color: var(--ifm-color-primary);
+  outline: 2px solid color-mix(in srgb, var(--ifm-color-primary) 25%, transparent);
+  outline-offset: 0;
+}
+
+.panelHint {
+  margin: 0;
+  padding: 0.6rem 1rem 1rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.8rem;
+}
+
+.linkRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  background: color-mix(in srgb, var(--ifm-color-success) 6%, transparent);
+  border-radius: 0 0 12px 12px;
+}
+
+/* The link is for copying, so it wraps rather than scrolls: a link cut off at
+   the edge of its box is one somebody will paste half of. */
+.link {
+  flex: 1;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  background: var(--ifm-color-emphasis-100);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+/* Phones: the columns fold under the name, and the column labels go. */
+@media (max-width: 700px) {
+  .columns {
+    display: none;
+  }
+
+  .grid {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 0.4rem 0.75rem;
+  }
+
+  .person {
+    grid-column: 1 / -1;
+  }
+
+  .rowActions {
+    grid-column: 3;
+  }
+}

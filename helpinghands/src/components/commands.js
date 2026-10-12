@@ -184,7 +184,7 @@ export const PAGE_COMMANDS = [
   {id: 'tasks', name: 'tasks', category: 'Tools', icon: icons.list, title: 'Tasks', description: 'Kanban board', href: '/tasks'},
   {id: 'compare', name: 'compare', category: 'Tools', icon: icons.pages, title: 'Compare', description: 'Diff two documents side by side', href: '/compare'},
   {id: 'search', name: 'search', category: 'Tools', icon: icons.search, title: 'Content Search', description: 'Full-text search across content', href: '/content-search'},
-  {id: 'people', name: 'people', category: 'Tools', icon: icons.list, title: 'People', description: 'Everyone in your organization', href: '/people'},
+  {id: 'people', name: 'people', category: 'Tools', icon: icons.list, title: 'People', description: 'Everyone in your organization', href: '/settings#people'},
   {id: 'apps', name: 'apps', category: 'Tools', icon: icons.grid, title: 'Apps', description: 'Apps built on NanoAgent, and their tasks', href: '/apps'},
   {id: 'marketplace', name: 'marketplace', category: 'Tools', icon: icons.grid, title: 'Marketplace', description: 'Download NanoAgent plugins, or share your own', href: '/marketplace'},
   {id: 'workspace', name: 'workspace', category: 'Tools', icon: icons.pages, title: 'Workspace', description: 'Files the apps saved for you', href: '/workspace'},

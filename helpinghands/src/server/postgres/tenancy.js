@@ -339,7 +339,7 @@ function createPostgresTenancy({pool}) {
       const spendByUser = new Map((await client.query('select * from platform_user_ai_spend()')).rows
         .map(row => [row.user_id, Number(row.ai_30d_usd)]));
       const rows = (await client.query(
-        `select u.id, u.email, u.display_name as name, u.email_verified as "emailVerified",
+        `select u.id, u.email, u.display_name as name, u.image, u.email_verified as "emailVerified",
                 u.created_at as "createdAt", u.banned_at as "bannedAt", u.ban_reason as "banReason",
                 u.max_workspaces as "maxWorkspaces", p.user_id is not null as admin,
                 (select count(*)::int from auth_session s where s.user_id = u.id and s.expires_at > now()) as sessions,

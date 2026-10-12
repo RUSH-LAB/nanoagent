@@ -173,29 +173,12 @@ export default function WorkspaceSwitcher() {
               <span className={styles.workspaceMark} aria-hidden="true">
                 {workspace.name.trim().charAt(0).toUpperCase() || 'W'}
               </span>
-              <span className={styles.label}>
-                <span className={styles.optionName}>{workspace.name}</span>
-                <span className={styles.meta}>
-                  {workspace.role}, {workspace.memberCount}{' '}
-                  {workspace.memberCount === 1 ? 'person' : 'people'}
-                </span>
-              </span>
+              <span className={styles.optionName}>{workspace.name}</span>
               <span className={styles.slot}>{workspace.id === active.id && <Check />}</span>
             </button>
           ))}
 
           {error && <p className={styles.error} role="alert">{error}</p>}
-
-          <div className={styles.footer}>
-            {/* Creating and leaving both live on the settings page, which has
-                room to explain them. This is the switcher, not the manager. */}
-            <Link className={styles.manage} to={`/w/${active.slug}/people`} onClick={() => setOpen(false)}>
-              People
-            </Link>
-            <Link className={styles.manage} to={`/w/${active.slug}/settings`} onClick={() => setOpen(false)}>
-              Workspace settings <span aria-hidden="true">→</span>
-            </Link>
-          </div>
         </div>
       )}
     </div>

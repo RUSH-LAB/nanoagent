@@ -119,8 +119,8 @@ function Join() {
         <p className={dir.note}>
           Open the command bar at the bottom of any page to start talking, or see{' '}
           <Link to={joinedWorkspace
-            ? `/w/${encodeURIComponent(joinedWorkspace.slug)}/people`
-            : '/people'}>who else is here</Link>.
+            ? `/w/${encodeURIComponent(joinedWorkspace.slug)}/settings#people`
+            : '/settings#people'}>who else is here</Link>.
         </p>
       </div>
     );

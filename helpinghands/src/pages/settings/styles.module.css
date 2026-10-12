@@ -1,85 +1,9 @@
 /* Page */
 
-.pageHeader {
-  margin-bottom: 2rem;
-}
-
-.heading {
-  margin: 0 0 0.3rem;
-  font-size: clamp(1.8rem, 3.5vw, 2.3rem);
-  letter-spacing: -0.03em;
-}
-
-.pageHeader p {
-  margin: 0;
-  color: var(--ifm-color-emphasis-600);
-}
-
 .placeholder {
   padding: 3rem;
   text-align: center;
   color: var(--ifm-color-emphasis-500);
-}
-
-.settingsLayout {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 2.5rem;
-  align-items: start;
-}
-
-/* Sidebar: one entry per pane, grouped by whose settings they are. */
-
-.settingsNav {
-  position: sticky;
-  top: calc(var(--ifm-navbar-height) + 1.5rem);
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-
-.navGroup {
-  overflow: hidden;
-  margin: 1.1rem 0 0.35rem;
-  padding: 0 0.75rem;
-  color: var(--ifm-color-emphasis-500);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.navGroup:first-child {
-  margin-top: 0;
-}
-
-.navDivider {
-  margin: 0.75rem 0.75rem 0.5rem;
-  border-top: 1px solid var(--ifm-color-emphasis-200);
-}
-
-.settingsNav a {
-  padding: 0.45rem 0.75rem;
-  border-radius: 8px;
-  color: var(--ifm-color-emphasis-800);
-  font-size: 0.88rem;
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.settingsNav a:hover,
-.settingsNav a:focus-visible {
-  background: var(--ifm-color-emphasis-100);
-  color: var(--ifm-font-color-base);
-  text-decoration: none;
-}
-
-.settingsNav a.navActive {
-  background: color-mix(in srgb, var(--ifm-color-primary) 10%, transparent);
-  color: var(--ifm-color-primary);
-  font-weight: 650;
 }
 
 /* Pane */
@@ -87,7 +11,6 @@
 .settingsContent {
   display: grid;
   min-width: 0;
-  max-width: 760px;
   gap: 3rem;
 }
 
@@ -107,15 +30,9 @@
 }
 
 .paneHeading h2 {
-  margin: 0 0 0.2rem;
+  margin: 0;
   font-size: 1.3rem;
   letter-spacing: -0.015em;
-}
-
-.paneHeading p {
-  margin: 0;
-  color: var(--ifm-color-emphasis-600);
-  font-size: 0.88rem;
 }
 
 /* A group is one card of rows; a row is a label on the left and its control
@@ -218,14 +135,6 @@
   background: var(--ifm-color-emphasis-0);
 }
 
-.groupNote {
-  margin: 0;
-  padding: 0.75rem 1.1rem;
-  border-top: 1px solid var(--ifm-color-emphasis-200);
-  color: var(--ifm-color-emphasis-600);
-  font-size: 0.78rem;
-}
-
 .empty {
   margin: 0;
   padding: 0.25rem 1.1rem 1rem;
@@ -233,7 +142,7 @@
   font-size: 0.85rem;
 }
 
-.dangerZone {
+.leave {
   border-color: color-mix(in srgb, var(--ifm-color-danger) 35%, var(--ifm-color-emphasis-200));
 }
 
@@ -310,51 +219,6 @@
 .orderButtons button:disabled {
   cursor: default;
   opacity: 0.25;
-}
-
-/* Usage */
-
-.meters {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem 1.75rem;
-  padding: 0.4rem 1.1rem 1rem;
-}
-
-.meterLabel {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.35rem;
-  font-size: 0.82rem;
-}
-
-.meterLabel span:last-child {
-  color: var(--ifm-color-emphasis-600);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.meterTrack {
-  height: 6px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--ifm-color-emphasis-200);
-}
-
-.meterFill,
-.meterFull {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-}
-
-.meterFill {
-  background: var(--ifm-color-primary);
-}
-
-.meterFull {
-  background: var(--ifm-color-danger);
 }
 
 /* Controls */
@@ -449,26 +313,6 @@
   to { background-position: -100% 0; }
 }
 
-@media (max-width: 996px) {
-  .settingsLayout {
-    grid-template-columns: 1fr;
-    gap: 1.5rem;
-  }
-
-  .settingsNav {
-    position: static;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.25rem;
-  }
-
-  .navGroup,
-  .navDivider {
-    display: none;
-  }
-}
-
 @media (max-width: 700px) {
   .row {
     align-items: stretch;
@@ -487,9 +331,5 @@
   .input {
     width: auto;
     flex: 1;
-  }
-
-  .meters {
-    grid-template-columns: 1fr;
   }
 }

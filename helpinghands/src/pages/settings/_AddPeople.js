@@ -1,7 +1,7 @@
 import React, {useState} from 'react';
 import {linkFor, copyLink} from '@site/src/utils/invite';
 import dir from '@site/src/css/directory.module.css';
-import styles from './styles.module.css';
+import styles from './people.module.css';
 
 const ROLES = ['viewer', 'editor', 'owner'];
 
@@ -47,9 +47,9 @@ export default function AddPeople({call, onResult, onChanged, onClose}) {
   };
 
   return (
-    <section className={styles.panel}>
-      <div className={styles.panelTabs}>
-        <strong>Invite by email</strong>
+    <section className={styles.card}>
+      <div className={styles.cardHead}>
+        <h2 className={styles.cardTitle}>Invite by email</h2>
         <button type="button" className={styles.panelClose} onClick={onClose} aria-label="Close">&times;</button>
       </div>
       <form className={styles.panelForm} onSubmit={submit}>
@@ -63,21 +63,21 @@ export default function AddPeople({call, onResult, onChanged, onClose}) {
           required
           autoFocus
         />
-        <select className={dir.select} value={role} onChange={event => setRole(event.target.value)} aria-label="Role">
+        <select className={styles.panelSelect} value={role} onChange={event => setRole(event.target.value)} aria-label="Role">
           {ROLES.map(value => <option key={value} value={value}>{value}</option>)}
         </select>
-        <button type="submit" className={`${dir.action} ${dir.primary}`} disabled={busy || !email.trim()}>
-          Invite
+        <button type="submit" className={dir.cta} disabled={busy || !email.trim()}>
+          {busy ? 'Inviting…' : 'Send invite'}
         </button>
       </form>
-      <p className={dir.note}>
-        The recipient accepts by signing in with a GitHub account whose primary email is the invited address.
+      <p className={styles.panelHint}>
+        They accept by signing in with a GitHub account whose primary email is this address.
       </p>
       {invited && (
-        <p className={styles.linkRow}>
+        <div className={styles.linkRow}>
           <code className={styles.link}>{linkFor(invited.id)}</code>
           <CopyLink invitationId={invited.id} onResult={onResult} />
-        </p>
+        </div>
       )}
     </section>
   );

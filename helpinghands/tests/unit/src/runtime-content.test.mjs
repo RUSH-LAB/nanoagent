@@ -15,7 +15,7 @@ describe('core runtime workspace routes', () => {
     }});
     const paths = routes.map(route => route.path);
     assert.equal(paths[0], '/w/:workspaceSlug/documents');
-    for (const page of ['settings', 'people', 'analytics', 'graph', 'tasks']) {
+    for (const page of ['settings', 'analytics', 'graph', 'tasks']) {
       assert.ok(paths.includes(`/w/:workspaceSlug/${page}`));
     }
     assert.deepEqual(data, {routeBasePath: 'w'});

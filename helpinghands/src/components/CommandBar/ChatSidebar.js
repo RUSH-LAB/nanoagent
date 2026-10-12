@@ -1,4 +1,5 @@
 import React, {useState} from 'react';
+import Avatar from '@site/src/components/Avatar';
 import {copyLink} from '@site/src/utils/invite';
 import styles from './rail.module.css';
 
@@ -33,10 +34,10 @@ export function ConversationIcon({agent = null, channel = null, person = null, l
     );
   }
   if (person || channel?.kind === 'dm') {
-    const name = person ? personLabel(person) : (channelLabel(channel) || label);
     return (
       <span className={styles.personAvatar} aria-hidden="true">
-        {name.slice(0, 1).toUpperCase()}<i className={styles.onlineDot} />
+        <Avatar user={person ?? {name: channelLabel(channel) || label}} size={28} />
+        <i className={styles.onlineDot} />
       </span>
     );
   }

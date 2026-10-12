@@ -45,7 +45,7 @@ function createPostgresOrg({pool, auth, removeMemberChannels = null, now = () =>
   async function listMembers(orgId, viewerId) {
     return scoped(viewerId, orgId, async client => (await client.query(
       `select m.id as "memberId", m.role, m.created_at as "joinedAt", u.id,
-              coalesce(u.display_name, u.email) as username, u.display_name as name, u.email,
+              coalesce(u.display_name, u.email) as username, u.display_name as name, u.email, u.image,
               (select c.id from channel c
                 join channel_member mine on mine.channel_id = c.id and mine.user_id = $1
                 join channel_member theirs on theirs.channel_id = c.id and theirs.user_id = u.id and theirs.user_id <> mine.user_id
