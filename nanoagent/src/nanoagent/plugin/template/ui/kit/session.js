@@ -128,6 +128,13 @@ export function dashboard({ plugin, onOpen }) {
     }
   };
   newButton.addEventListener("click", () => open("session.start", {}, newButton));
+  const startButton = h("button", { type: "button", class: "button primary", text: "Start your first session" });
+  startButton.addEventListener("click", () => open("session.start", {}, startButton));
+  const empty = h(
+    "section",
+    { class: "card dashboard-empty" },
+    emptyState({ icon: "play", title: "No sessions yet", body: plugin.product.summary, actions: [startButton] }, howItWorks(plugin.product.steps)),
+  );
 
   async function showDetails(session) {
     details.hidden = false;
@@ -156,15 +163,7 @@ export function dashboard({ plugin, onOpen }) {
     newButton.hidden = !sessions.length;
     if (!sessions.length) {
       totals.replaceChildren();
-      const start = h("button", { type: "button", class: "button primary", text: "Start your first session" });
-      start.addEventListener("click", () => open("session.start", {}, start));
-      list.replaceChildren(
-        h(
-          "section",
-          { class: "card dashboard-empty" },
-          emptyState({ icon: "play", title: "No sessions yet", body: plugin.product.summary, actions: [start] }, howItWorks(plugin.product.steps)),
-        ),
-      );
+      list.replaceChildren(empty);
       details.hidden = true;
       return;
     }
