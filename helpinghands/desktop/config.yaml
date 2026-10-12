@@ -1,0 +1,13 @@
+# The desktop app's build inputs and loopback ports. scripts/stage.mjs reads it at build time and
+# bundles it; src-tauri/src/supervisor.rs reads the bundled copy at run time.
+
+# Mochi's site and API, on one origin: http://localhost:<port>. Away from npm start's 3000/3001
+# and 8787, so the app and a development checkout run side by side.
+port: 47310
+nanoagent_port: 47311
+
+# Bundled runtimes. Node runs the Mochi server and NanoAgent's PI runner; uv installs NanoAgent's
+# Python environment (uv.lock) on first launch and runs its plugins.
+node_version: 22.23.3
+uv_version: 0.12.22
+python_version: "3.12"

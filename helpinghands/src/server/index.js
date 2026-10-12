@@ -823,7 +823,9 @@ if (_authRefusal) {
 // The root account exists before the first request, so root's first GitHub
 // sign-in finds it. A server that cannot provision its administrator does not
 // start.
-postgresDatabase.ready.then(() => ensureRootUser(auth)).then(root => server.listen(PORT, async () => {
+// The desktop app's server is for this machine only (see productionAuthError).
+const LISTEN_HOST = process.env.MOCHI_DESKTOP === '1' ? '127.0.0.1' : undefined;
+postgresDatabase.ready.then(() => ensureRootUser(auth)).then(root => server.listen(PORT, LISTEN_HOST, async () => {
   const startupNs = process.hrtime.bigint() - _startupTime;
   const startupMs = Number(startupNs / 1_000_000n);
   const memMB = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
