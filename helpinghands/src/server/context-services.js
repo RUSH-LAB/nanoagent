@@ -103,6 +103,9 @@ function contextualOrg(adapter) {
     createWorkspace(identity, input) {
       return adapter.createWorkspace({...input, actorId: userContext(identity).userId});
     },
+    pendingInvitationsFor(identity) {
+      return adapter.pendingInvitationsFor(userContext(identity).userId);
+    },
     acceptInvitation(identity, input) {
       return adapter.acceptInvitation({...input, actorId: userContext(identity).userId});
     },

@@ -75,6 +75,13 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
     });
   }
 
+  // ── The invitations waiting for the signed-in account's address ──
+  // For somebody who signed in without following their link: the onboarding
+  // screen lists these so they need not go back to the email for it.
+  if (pathname === '/api/users/me/invitations' && req.method === 'GET') {
+    return json(res, 200, {invitations: await org.pendingInvitationsFor(req.auth)});
+  }
+
   // ── Accepting one, as the account it was sent to ──
   const inviteAccept = INVITE_ACCEPT_RE.exec(pathname);
   if (inviteAccept && req.method === 'POST') {

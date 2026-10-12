@@ -126,6 +126,19 @@ function createPostgresOrg({pool, auth, removeMemberChannels = null, now = () =>
     };
   }
 
+  async function pendingInvitationsFor(userId) {
+    return (await pool.query(
+      `select i.id, i.role, w.name as organization, coalesce(u.display_name, u.email, 'someone') as "invitedBy"
+         from app_user me
+         join workspace_invitation i on i.email = lower(me.email)
+         join workspace w on w.id = i.workspace_id and w.status = 'active'
+         left join app_user u on u.id = i.invited_by
+        where me.id = $1 and i.status = 'pending' and i.expires_at > now()
+        order by i.created_at`,
+      [userId],
+    )).rows;
+  }
+
   async function invite({headers, orgId, actorId, email, role = 'viewer'}) {
     if (!ROLES.includes(role)) return {error: 'invalid-role'};
     const clean = String(email ?? '').trim().toLowerCase();
@@ -226,7 +239,7 @@ function createPostgresOrg({pool, auth, removeMemberChannels = null, now = () =>
   return {
     ROLES, MANAGER_ROLES, SLUG_RE, FIRST_CHANNEL, AUDIT_LIMIT, canManage, labelFor, slugify,
     listMemberships, getOrganization, listMembers, createWorkspace, archiveWorkspace, deleteWorkspace,
-    listInvitations, invitationForLink, invite, cancelInvitation, acceptInvitation, setMemberRole, removeMember,
+    listInvitations, invitationForLink, pendingInvitationsFor, invite, cancelInvitation, acceptInvitation, setMemberRole, removeMember,
     leaveWorkspace,
     listAudit,
     slugForOrg: () => null,

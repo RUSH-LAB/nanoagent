@@ -326,6 +326,18 @@ describe('inviting', () => {
     assert.equal(org.listAudit(orgId)[0].action, 'member.invite-cancel');
   });
 
+  it('lists the pending invitations sent to an account\'s own address, and only those', async () => {
+    const {invitation} = await org.invite({headers: headersFor('ada'), orgId, actorId: who.ada.id, email: 'DEV@test.invalid', role: 'editor'});
+    await org.invite({headers: headersFor('ada'), orgId, actorId: who.ada.id, email: invited});
+    assert.deepEqual(org.pendingInvitationsFor(who.dev.id), [
+      {id: invitation.id, role: 'editor', organization: 'Team', invitedBy: 'ada'},
+    ]);
+    assert.deepEqual(org.pendingInvitationsFor(who.bea.id), []);
+
+    await org.cancelInvitation({headers: headersFor('ada'), orgId, actorId: who.ada.id, invitationId: invitation.id});
+    assert.deepEqual(org.pendingInvitationsFor(who.dev.id), [], 'a withdrawn invitation is not offered');
+  });
+
   it('will not withdraw an invitation belonging to another organization', async () => {
     const {invitation} = await org.invite({headers: headersFor('ada'), orgId, actorId: who.ada.id, email: invited});
     const result = await org.cancelInvitation({

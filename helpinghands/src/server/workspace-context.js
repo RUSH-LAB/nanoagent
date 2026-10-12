@@ -29,7 +29,7 @@ const PERMISSIONS = Object.freeze({
 const GLOBAL_API_PATHS = new Set([
   '/api/health', '/api/workspaces', '/api/workspace-site', '/api/preferences',
   '/api/users', '/api/users/me', '/api/logs', '/api/perf',
-  '/api/debug/memory', '/api/debug/routes', '/api/signup-policy',
+  '/api/debug/memory', '/api/debug/routes', '/api/signup-policy', '/api/users/me/invitations',
 ]);
 
 /** Endpoints whose data is user-global, platform-global, or pre-authentication. */

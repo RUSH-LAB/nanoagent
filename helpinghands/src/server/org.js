@@ -365,6 +365,26 @@ function invitationForLink(invitationId) {
 }
 
 /**
+ * The pending, unexpired invitations sent to the caller's own address, so an
+ * account that signed in without following its link can still find them.
+ */
+function pendingInvitationsFor(userId) {
+  return db
+    .prepare(
+      `SELECT i.id, i.role, i.expiresAt, o.name AS organization, u.name AS invitedBy
+         FROM "user" me
+         JOIN invitation i ON lower(i.email) = lower(me.email)
+         JOIN organization o ON o.id = i.organizationId
+         LEFT JOIN "user" u ON u.id = i.inviterId
+        WHERE me.id = ? AND i.status = 'pending'
+        ORDER BY i.createdAt`,
+    )
+    .all(userId)
+    .filter(row => new Date(row.expiresAt).getTime() >= Date.now())
+    .map(({id, role, organization, invitedBy}) => ({id, role, organization, invitedBy: invitedBy || 'someone'}));
+}
+
+/**
  * Invite an email address into the organization.
  *
  * There is no mail server, so nothing is sent: the invitation is a row, and the
@@ -504,6 +524,6 @@ module.exports = {
   slugify, slugTaken, availableSlug, slugForOrg, allOrganizations,
   listMemberships, createWorkspace, archiveWorkspace, deleteWorkspace,
   getOrganization, listMembers, findMember,
-  listInvitations, invitationForLink, invite, cancelInvitation, acceptInvitation,
+  listInvitations, invitationForLink, pendingInvitationsFor, invite, cancelInvitation, acceptInvitation,
   setMemberRole, removeMember,
 };
