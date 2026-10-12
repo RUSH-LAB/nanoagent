@@ -103,6 +103,8 @@ export interface RunMetrics {
   model_s: number;
   tools_s: number;
   overhead_s: number;
+  ttft_s: number | null;
+  generation_s: number;
   usage: Usage;
   cost: number;
   steps: StepMetrics[];

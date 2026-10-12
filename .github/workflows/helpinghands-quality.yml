@@ -56,12 +56,6 @@ jobs:
             changed: helpinghands
             mochi: ./helpinghands
             nanoagent: ../production
-          - name: Production Mochi against this NanoAgent
-            changed: nanoagent
-            # Production still has Mochi under its name before the rename; change this to
-            # ../production/helpinghands once the rename is in production.
-            mochi: ../production/helping-hands
-            nanoagent: .
     defaults:
       run:
         working-directory: .

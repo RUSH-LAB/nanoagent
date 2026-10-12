@@ -229,6 +229,18 @@ try {
       [`${w2.id}/too-big`, w2.id, blob, blob.length, crypto.createHash('sha256').update(blob).digest('hex')]),
     /storage-limit-reached/,
   );
+  const notes = Buffer.from('More than sixteen bytes of notes.');
+  const notesHash = crypto.createHash('sha256').update(notes).digest('hex');
+  await asMember(alice.id, w2.id,
+    'insert into fs_content(workspace_id, hash, body, size) values ($1, $2, $3, $4)',
+    [w2.id, notesHash, notes, notes.length]);
+  await assert.rejects(
+    asMember(alice.id, w2.id,
+      `insert into fs_node(id, workspace_id, path, kind, content_hash, size, rev)
+       values ($1, $2, 'notes/too-big.md', 'file', $3, $4, 1)`,
+      [crypto.randomUUID(), w2.id, notesHash, notes.length]),
+    /storage-limit-reached/,
+  );
   check('the database refuses bytes past the storage limit', true);
 
   // ── Platform administration ──
@@ -269,6 +281,7 @@ try {
     "select id from workspace_invitation where workspace_id = $1 and lower(email) = $2 and status = 'pending'", [w2.id, bob.email],
   )).rows[0];
   await json(await request(`/api/invite/${bobInvite.id}/accept`, {method: 'POST', cookie: bob.cookie}), 200);
+  check('a member joins a workspace that is out of storage', true);
   await migrationPool.query('delete from platform_admin where user_id = $1', [alice.id]);
   await migrationPool.query('insert into platform_admin(user_id) values ($1)', [dave.id]);
   const shared = await json(await request('/api/auth/delete-user', {method: 'POST', cookie: alice.cookie, body: {}}), 409);
