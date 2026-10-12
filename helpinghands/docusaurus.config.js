@@ -8,7 +8,7 @@ import {themes as prismThemes} from 'prism-react-renderer';
 const { loadBuildPlugins, writeClientComponentRegistry } = require('./plugins/loader');
 const runtimeContentPlugin = require('./src/runtime-content');
 const {platformConfig} = require('./src/platform');
-const {isGatedPageRequest, signInUrl} = require('./src/utils/signIn');
+const {asksForSession, redirectFor} = require('./src/utils/signIn');
 
 // This file describes one deployable application, not one workspace. A
 // workspace's title, logo, homepage, navigation, and collections are loaded
@@ -22,7 +22,7 @@ const apiOrigin = `http://localhost:${process.env.EDITOR_PORT || 3001}`;
 
 /** The development server's half of the sign-in gate; see the api-proxy plugin below. */
 async function signInGate(req, res, next) {
-  if (!isGatedPageRequest(req)) return next();
+  if (!asksForSession(req)) return next();
   let session;
   try {
     const answer = await fetch(`${apiOrigin}/api/auth/get-session`, {headers: {cookie: req.headers.cookie || ''}});
@@ -32,8 +32,9 @@ async function signInGate(req, res, next) {
     res.writeHead(502, {'Content-Type': 'text/plain; charset=utf-8'});
     return res.end(`Could not reach the API server at ${apiOrigin} to check the session: ${err.message}`);
   }
-  if (session?.user) return next();
-  res.writeHead(302, {Location: signInUrl(req.url), 'Cache-Control': 'no-store'});
+  const redirect = redirectFor(req, Boolean(session?.user));
+  if (!redirect) return next();
+  res.writeHead(302, {Location: redirect, 'Cache-Control': 'no-store'});
   res.end();
 }
 

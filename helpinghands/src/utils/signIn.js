@@ -35,17 +35,34 @@ function isOpenPage(pathname) {
     || PUBLISHED.test(pathname);
 }
 
+/** The sign-in page, with or without its trailing slash. */
+function isSignInPage(pathname) {
+  return pathname.replace(/\/$/, '') === SIGN_IN_PATH;
+}
+
 /**
- * Whether a request is for a page that needs a session: a browser navigation
- * (it accepts HTML) to a page rather than a file, and not an open page.
- * Scripts, styles, and images carry no workspace data and pass.
+ * Whether the answer to a request depends on the session: a browser navigation
+ * (it accepts HTML) to a page rather than a file, which is either a page that
+ * needs a session or the sign-in page, which somebody signed in skips. Scripts,
+ * styles, and images carry no workspace data and pass.
  */
-function isGatedPageRequest({method, headers, url}) {
+function asksForSession({method, headers, url}) {
   if (method !== 'GET' && method !== 'HEAD') return false;
   if (!String(headers.accept || '').includes('text/html')) return false;
   const {pathname} = new URL(url, 'http://localhost');
   if (/\.[^/]+$/.test(pathname) && !pathname.endsWith('.html')) return false;
-  return !isOpenPage(pathname);
+  return isSignInPage(pathname) || !isOpenPage(pathname);
+}
+
+/**
+ * Where a request that asks for the session goes instead, or null to serve it:
+ * somebody signed out to the sign-in page, and somebody signed in from the
+ * sign-in page to where they were going.
+ */
+function redirectFor({url}, signedIn) {
+  const {pathname, search} = new URL(url, 'http://localhost');
+  if (isSignInPage(pathname)) return signedIn ? nextFrom(search) : null;
+  return signedIn ? null : signInUrl(url);
 }
 
 /** The sign-in page, remembering where the visitor was going. */
@@ -63,4 +80,4 @@ function nextFrom(search) {
   return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : '/';
 }
 
-module.exports = {SIGN_IN_PATH, isOpenPage, isGatedPageRequest, signInUrl, nextFrom};
+module.exports = {isOpenPage, isSignInPage, asksForSession, redirectFor, signInUrl, nextFrom};

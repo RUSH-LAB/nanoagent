@@ -3,7 +3,7 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {authClient} from '@site/src/utils/authClient';
 import API_BASE from '@site/src/utils/api';
 import {clientPlatform} from '@site/src/platform/client';
-import {SIGN_IN_PATH, nextFrom} from '@site/src/utils/signIn';
+import {isSignInPage, nextFrom} from '@site/src/utils/signIn';
 import styles from './authScreen.module.css';
 
 /**
@@ -35,7 +35,7 @@ export default function AuthScreen({ unreachable = null }) {
     try {
       const result = await authClient.signIn.social({
         provider: 'github',
-        callbackURL: clientPlatform.location.pathname().replace(/\/$/, '') === SIGN_IN_PATH
+        callbackURL: isSignInPage(clientPlatform.location.pathname())
           ? `${clientPlatform.location.origin()}${nextFrom(clientPlatform.location.search())}`
           : clientPlatform.location.href(),
       });

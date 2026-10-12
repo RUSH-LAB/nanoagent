@@ -17,7 +17,7 @@ const {
 
 const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
 const {auth, tenancy, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
-const {isGatedPageRequest, signInUrl} = require('../utils/signIn');
+const {asksForSession, redirectFor} = require('../utils/signIn');
 const {createAiMeter} = require('./ai-metering');
 const {
   createWorkspaceContextResolver, matchWorkspaceApiPath, storageScope,
@@ -612,8 +612,9 @@ async function handleRequest(req, res) {
     const root = path.join(PROJECT_ROOT, 'build');
     // A page that needs a session is never sent to a visitor without one, who
     // goes to the sign-in page instead of seeing the page and then losing it.
-    if (isGatedPageRequest(req) && !(await resolveIdentity(req)).ok) {
-      res.writeHead(302, {Location: signInUrl(req.url), 'Cache-Control': 'no-store'});
+    const redirect = asksForSession(req) && redirectFor(req, (await resolveIdentity(req)).ok);
+    if (redirect) {
+      res.writeHead(302, {Location: redirect, 'Cache-Control': 'no-store'});
       return res.end();
     }
     // A published document's page carries its title and content as HTML.
