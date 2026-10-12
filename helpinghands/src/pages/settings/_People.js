@@ -7,6 +7,7 @@ import Avatar from '@site/src/components/Avatar';
 import RowMenu from '@site/src/components/RowMenu';
 import {PaneHeading, Skeleton} from './_parts';
 import AddPeople, {CopyLink} from './_AddPeople';
+import RolePicker, {ROLE_NOTE, roleClass} from './_RolePicker';
 import styles from './people.module.css';
 
 /**
@@ -22,14 +23,6 @@ import styles from './people.module.css';
  * and not security: the server decides, and it decides again for every request
  * whatever this page chose to render.
  */
-
-const ROLES = ['owner', 'editor', 'viewer'];
-
-const ROLE_NOTE = {
-  owner: 'Everything, including making other owners.',
-  editor: 'Create, edit, and publish workspace content.',
-  viewer: 'Read content and participate in comments.',
-};
 
 /** A date a person reads, without a time nobody asked about. */
 function dayOf(value) {
@@ -232,18 +225,15 @@ export default function People({workspace}) {
                   demoting yourself is leaving, which needs its own flow. */}
               <span>
                 {canManage && !person.you ? (
-                  <select
-                    className={`${styles.role} ${styles[`role_${person.role}`] ?? ''} ${styles.roleSelect}`}
+                  <RolePicker
+                    className={`${roleClass(person.role)} ${styles.roleTrigger}`}
                     value={person.role}
                     disabled={busyId === person.memberId}
-                    onChange={e => changeRole(person, e.target.value)}
-                    aria-label={`Role for ${person.username}`}
-                    title={ROLE_NOTE[person.role]}
-                  >
-                    {ROLES.map(role => <option key={role} value={role}>{role}</option>)}
-                  </select>
+                    onChange={role => changeRole(person, role)}
+                    label={`Role for ${person.username}`}
+                  />
                 ) : (
-                  <span className={`${styles.role} ${styles[`role_${person.role}`] ?? ''}`} title={ROLE_NOTE[person.role]}>
+                  <span className={roleClass(person.role)} title={ROLE_NOTE[person.role]}>
                     {person.role}
                   </span>
                 )}
@@ -291,7 +281,7 @@ export default function People({workspace}) {
                   </span>
                 </span>
                 <span>
-                  <span className={`${styles.role} ${styles[`role_${invitation.role}`] ?? ''}`}>{invitation.role}</span>
+                  <span className={roleClass(invitation.role)}>{invitation.role}</span>
                 </span>
                 <span className={invitation.expired ? styles.expired : styles.when}>
                   {invitation.expired ? 'Expired' : `Expires ${dayOf(invitation.expiresAt)}`}

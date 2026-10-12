@@ -3,15 +3,18 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {authClient} from '@site/src/utils/authClient';
 import API_BASE from '@site/src/utils/api';
 import {clientPlatform} from '@site/src/platform/client';
+import {SIGN_IN_PATH, nextFrom} from '@site/src/utils/signIn';
 import styles from './authScreen.module.css';
 
 /**
- * The sign-in screen, shown in place of the site whenever nobody is signed in.
+ * The sign-in screen: the sign-in page (pages/signin), and in place of the site
+ * when the API server cannot be reached.
  *
  * GitHub is the only way in. Signing in for the first time creates the account,
  * under the GitHub account's verified primary email, when the server's sign-up
  * policy (open, invitation, or allowlist) admits that address; the screen says
- * which policy applies. GitHub sends the browser back to the page it left.
+ * which policy applies. GitHub sends the browser back to the page it left, or
+ * from the sign-in page to the page the visitor was sent there from.
  */
 export default function AuthScreen({ unreachable = null }) {
   const {siteConfig} = useDocusaurusContext();
@@ -32,7 +35,9 @@ export default function AuthScreen({ unreachable = null }) {
     try {
       const result = await authClient.signIn.social({
         provider: 'github',
-        callbackURL: clientPlatform.location.href(),
+        callbackURL: clientPlatform.location.pathname().replace(/\/$/, '') === SIGN_IN_PATH
+          ? `${clientPlatform.location.origin()}${nextFrom(clientPlatform.location.search())}`
+          : clientPlatform.location.href(),
       });
       if (result?.error) setError(result.error.message || 'GitHub sign-in failed.');
     } catch (err) {

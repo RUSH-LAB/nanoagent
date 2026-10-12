@@ -8,6 +8,7 @@ import {themes as prismThemes} from 'prism-react-renderer';
 const { loadBuildPlugins, writeClientComponentRegistry } = require('./plugins/loader');
 const runtimeContentPlugin = require('./src/runtime-content');
 const {platformConfig} = require('./src/platform');
+const {isGatedPageRequest, signInUrl} = require('./src/utils/signIn');
 
 // This file describes one deployable application, not one workspace. A
 // workspace's title, logo, homepage, navigation, and collections are loaded
@@ -16,6 +17,25 @@ const {platformConfig} = require('./src/platform');
 const {name: platformName, tagline: platformTagline} = platformConfig();
 
 writeClientComponentRegistry();
+
+const apiOrigin = `http://localhost:${process.env.EDITOR_PORT || 3001}`;
+
+/** The development server's half of the sign-in gate; see the api-proxy plugin below. */
+async function signInGate(req, res, next) {
+  if (!isGatedPageRequest(req)) return next();
+  let session;
+  try {
+    const answer = await fetch(`${apiOrigin}/api/auth/get-session`, {headers: {cookie: req.headers.cookie || ''}});
+    if (!answer.ok) throw new Error(`get-session returned ${answer.status}`);
+    session = await answer.json();
+  } catch (err) {
+    res.writeHead(502, {'Content-Type': 'text/plain; charset=utf-8'});
+    return res.end(`Could not reach the API server at ${apiOrigin} to check the session: ${err.message}`);
+  }
+  if (session?.user) return next();
+  res.writeHead(302, {Location: signInUrl(req.url), 'Cache-Control': 'no-store'});
+  res.end();
+}
 
 // ── Main config ────────────────────────────────────────────────────────────
 /** @type {import('@docusaurus/types').Config} */
@@ -93,13 +113,23 @@ const config = {
     // The development site serves the API from its own origin, as the
     // production server does, by passing /api to the API server
     // (scripts/dev/start-local.mjs). Compression is off so event streams
-    // reach the browser as they are written.
+    // reach the browser as they are written. A page that needs a session is
+    // gated here as the production server gates it (src/utils/signIn.js), by
+    // asking the API server whether the request's cookie is signed in.
     () => ({
       name: 'api-proxy',
       configureWebpack: () => ({
         devServer: {
           compress: false,
-          proxy: [{context: ['/api'], target: `http://localhost:${process.env.EDITOR_PORT || 3001}`}],
+          proxy: [{context: ['/api'], target: apiOrigin}],
+          // Docusaurus has its own setupMiddlewares, and the two are composed by
+          // concatenating what each returns, so this one returns nothing and
+          // mounts the gate on the app directly, ahead of everything the
+          // development server mounts once the list is assembled.
+          setupMiddlewares: (middlewares, devServer) => {
+            devServer.app.use(signInGate);
+            return [];
+          },
         },
       }),
     }),
