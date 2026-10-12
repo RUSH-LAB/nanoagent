@@ -360,6 +360,14 @@ describe('productionAuthError', () => {
     assert.match(authModule.productionAuthError({...configured, SITE_URL: 'http://example.test'}), /HTTPS SITE_URL/);
   });
 
+  it('lets the desktop app use exactly its loopback origin over HTTP', () => {
+    const desktop = {...configured, MOCHI_DESKTOP: '1', EDITOR_PORT: '47310'};
+    assert.equal(authModule.productionAuthError({...desktop, SITE_URL: 'http://localhost:47310'}), null);
+    for (const SITE_URL of ['http://example.test', 'http://localhost:3000', 'https://mochi.example.test']) {
+      assert.match(authModule.productionAuthError({...desktop, SITE_URL}), /SITE_URL=http:\/\/localhost:47310/);
+    }
+  });
+
   it('requires a separate PostgreSQL migration connection in production', () => {
     assert.match(authModule.productionAuthError({
       ...configured,
