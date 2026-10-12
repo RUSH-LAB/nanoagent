@@ -1,7 +1,7 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  basename, buildTree, dirname, invalidName, join, movedPath, visibleRows, within,
+  basename, buildTree, dirname, invalidName, join, movedPath, tabChanges, visibleRows, within,
 } from '../../../../src/components/Workbench/tree.js';
 
 const files = [
@@ -54,5 +54,32 @@ describe('workbench tree', () => {
     assert.ok(invalidName(' '));
     assert.ok(invalidName('a/b'));
     assert.ok(invalidName('..'));
+  });
+
+  it('reads a batch of changes made elsewhere as moves to follow, then deletes and writes at the paths they lead to', () => {
+    const {moves, deleted, written} = tabChanges([
+      {seq: 1, op: 'write', path: 'papers/a/ms.tex'},
+      {seq: 2, op: 'move', fromPath: 'papers/a', path: 'archive/a'},
+      {seq: 3, op: 'move', fromPath: 'papers/a/ms.tex', path: 'archive/a/ms.tex'},
+      {seq: 4, op: 'delete', path: 'old'},
+      {seq: 5, op: 'write', path: 'old/notes.md'},
+      {seq: 6, op: 'delete', path: 'old/notes.md'},
+      {seq: 7, op: 'delete', path: 'gone.md'},
+      {seq: 8, op: 'create', path: 'gone.md'},
+      {seq: 9, op: 'write', path: 'readme.md'},
+      {seq: 10, op: 'write', path: 'readme.md'},
+      {seq: 11, op: 'access', path: 'readme.md'},
+    ]);
+    assert.deepEqual(moves, [['papers/a', 'archive/a'], ['papers/a/ms.tex', 'archive/a/ms.tex']]);
+    assert.deepEqual([...deleted].sort(), ['old', 'old/notes.md']);
+    assert.deepEqual([...written], [['archive/a/ms.tex', 1], ['gone.md', 8], ['readme.md', 10]]);
+  });
+
+  it('forgets a delete at a path something then moved to', () => {
+    const {deleted} = tabChanges([
+      {seq: 1, op: 'delete', path: 'a.md'},
+      {seq: 2, op: 'move', fromPath: 'b.md', path: 'a.md'},
+    ]);
+    assert.deepEqual([...deleted], []);
   });
 });

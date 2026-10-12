@@ -15,6 +15,7 @@
  */
 const Y = require('yjs');
 const {FsError, cleanPath, isMarkdown} = require('./store');
+const {changedRange} = require('./textDiff');
 
 const TEXT = 'markdown';
 // Above Yjs's random 32-bit client ids, so the server's never collide with an editor's.
@@ -23,16 +24,11 @@ const asBuffer = value => (Buffer.isBuffer(value) ? value : Buffer.from(value));
 
 /** Edit `text` into `target` by replacing only the part between their common prefix and suffix. */
 function replaceText(text, target) {
-  const current = text.toString();
-  if (current === target) return;
-  let start = 0;
-  while (start < current.length && start < target.length && current[start] === target[start]) start += 1;
-  let end = 0;
-  while (end < current.length - start && end < target.length - start
-    && current[current.length - 1 - end] === target[target.length - 1 - end]) end += 1;
+  const range = changedRange(text.toString(), target);
+  if (!range) return;
   text.doc.transact(() => {
-    if (current.length - start - end > 0) text.delete(start, current.length - start - end);
-    if (target.length - start - end > 0) text.insert(start, target.slice(start, target.length - end));
+    if (range.to > range.from) text.delete(range.from, range.to - range.from);
+    if (range.insert) text.insert(range.from, range.insert);
   });
 }
 

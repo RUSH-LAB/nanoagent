@@ -1,9 +1,11 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import clsx from 'clsx';
 import CodeMirror from '@uiw/react-codemirror';
+import {Transaction} from '@codemirror/state';
 import {keymap} from '@codemirror/view';
 import {yCollab, yUndoManagerKeymap} from 'y-codemirror.next';
 import {useColorMode} from '@docusaurus/theme-common';
+import {changedRange} from '@site/src/server/fs/textDiff';
 import {languageFor} from './languages';
 import {basename} from './tree';
 import styles from './styles.module.css';
@@ -47,6 +49,40 @@ function LiveEditor({tab, readOnly, language, colorMode, onCursor}) {
   );
 }
 
+/**
+ * A text file. Text the workbench reads in from elsewhere is applied as the
+ * one span that differs, outside the undo history, so the cursor and scroll
+ * stay where they were. As in LiveEditor, `value` is only the starting text.
+ */
+function TextEditor({tab, readOnly, language, colorMode, onChange, onCursor}) {
+  const [initial] = useState(tab.text);
+  const view = useRef(null);
+  useEffect(() => {
+    const range = view.current && changedRange(view.current.state.doc.toString(), tab.text);
+    if (!range) return;
+    view.current.dispatch({changes: range, annotations: [Transaction.remote.of(true), Transaction.addToHistory.of(false)]});
+  }, [tab.text]);
+  return (
+    <CodeMirror
+      className={styles.codemirror}
+      value={initial}
+      height="100%"
+      theme={colorMode === 'dark' ? 'dark' : 'light'}
+      extensions={language.extensions}
+      editable={!readOnly}
+      onCreateEditor={editor => { view.current = editor; }}
+      onChange={onChange}
+      onUpdate={update => {
+        if (!update.selectionSet && !update.docChanged) return;
+        const head = update.state.selection.main.head;
+        const line = update.state.doc.lineAt(head);
+        onCursor({line: line.number, column: head - line.from + 1});
+      }}
+      basicSetup={{highlightActiveLine: true, foldGutter: true}}
+    />
+  );
+}
+
 function TabContent({tab, readOnly, fileUrl, onChange, onCursor}) {
   const {colorMode} = useColorMode();
   const language = useMemo(() => languageFor(tab.path), [tab.path]);
@@ -66,24 +102,7 @@ function TabContent({tab, readOnly, fileUrl, onChange, onCursor}) {
       </div>
     );
   }
-  return (
-    <CodeMirror
-      className={styles.codemirror}
-      value={tab.text}
-      height="100%"
-      theme={colorMode === 'dark' ? 'dark' : 'light'}
-      extensions={language.extensions}
-      editable={!readOnly}
-      onChange={onChange}
-      onUpdate={update => {
-        if (!update.selectionSet && !update.docChanged) return;
-        const head = update.state.selection.main.head;
-        const line = update.state.doc.lineAt(head);
-        onCursor({line: line.number, column: head - line.from + 1});
-      }}
-      basicSetup={{highlightActiveLine: true, foldGutter: true}}
-    />
-  );
+  return <TextEditor tab={tab} readOnly={readOnly} language={language} colorMode={colorMode} onChange={onChange} onCursor={onCursor} />;
 }
 
 function liveLabel(status) {
@@ -94,7 +113,9 @@ function liveLabel(status) {
   return 'All changes saved';
 }
 
-export default function Editor({tabs, activePath, readOnly, fileUrl, appLink = () => null, onActivate, onClose, onChange}) {
+export default function Editor({
+  tabs, activePath, readOnly, fileUrl, appLink = () => null, onActivate, onClose, onChange, onSaveAsNew, onDiscard,
+}) {
   const [cursor, setCursor] = useState(null);
   const tab = tabs.find(item => item.path === activePath);
   useEffect(() => setCursor(null), [activePath]);
@@ -130,6 +151,9 @@ export default function Editor({tabs, activePath, readOnly, fileUrl, appLink = (
             onAuxClick={event => { if (event.button === 1) onClose(item.path); }}
           >
             <span className={styles.tabName}>{basename(item.path)}</span>
+            {(item.changedElsewhere || item.deleted) && (
+              <span className={styles.tabElsewhere}>{item.deleted ? 'Deleted elsewhere' : 'Changed elsewhere'}</span>
+            )}
             <button
               type="button"
               className={clsx(styles.tabClose, dirty(item) && styles.tabDirty)}
@@ -145,6 +169,13 @@ export default function Editor({tabs, activePath, readOnly, fileUrl, appLink = (
           <a className={styles.appLink} href={appLink(tab.path).href}>Open in {appLink(tab.path).title}</a>
         )}
       </div>
+      {tab.deleted && (
+        <div className={styles.elsewhereBar} role="alert">
+          <span>Deleted elsewhere. Your unsaved edits are only in this tab.</span>
+          <button type="button" className="button button--primary button--sm" onClick={() => onSaveAsNew(tab.path)}>Save as new</button>
+          <button type="button" className="button button--secondary button--sm" onClick={() => onDiscard(tab.path)}>Discard</button>
+        </div>
+      )}
       <div className={styles.editorBody}>
         <TabContent
           key={tab.path}

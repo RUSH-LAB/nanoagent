@@ -417,6 +417,32 @@
   background: var(--wb-hover);
 }
 
+/* A tab whose file was changed or deleted elsewhere while it had unsaved edits. */
+.tabElsewhere {
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--ifm-color-warning-contrast-background);
+  color: var(--ifm-color-warning-darkest);
+  font-size: 0.7rem;
+}
+
+/* What a tab whose file was deleted elsewhere can do with its unsaved edits. */
+.elsewhereBar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.9rem;
+  border-bottom: 1px solid var(--wb-border);
+  background: var(--ifm-color-warning-contrast-background);
+  color: var(--ifm-color-warning-darkest);
+  font-size: 0.8rem;
+}
+
+.elsewhereBar span {
+  flex: 1;
+}
+
 .breadcrumbs {
   flex: none;
   padding: 0.25rem 0.9rem;

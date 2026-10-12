@@ -69,3 +69,30 @@ export function invalidName(name) {
 export function movedPath(path, from, to) {
   return within(path, from) ? to + path.slice(from.length) : path;
 }
+
+/**
+ * What changes made elsewhere (utils/fsEvents.js), in feed order, mean for
+ * open files: `moves` as `[from, to]` pairs to follow in order, then the paths
+ * they lead to that were `deleted` (a folder stands for everything in it), and
+ * the newest revision `written` at each path.
+ */
+export function tabChanges(changes) {
+  const moves = [];
+  let deleted = new Set();
+  let written = new Map();
+  for (const change of changes) {
+    if (change.op === 'move') {
+      const {fromPath: from, path: to} = change;
+      moves.push([from, to]);
+      deleted = new Set([...deleted].filter(path => !within(path, to)));
+      written = new Map([...written].map(([path, rev]) => [movedPath(path, from, to), rev]));
+    } else if (change.op === 'delete') {
+      deleted.add(change.path);
+      written = new Map([...written].filter(([path]) => !within(path, change.path)));
+    } else if (change.op === 'write' || change.op === 'create' || change.op === 'restore') {
+      deleted.delete(change.path);
+      written.set(change.path, change.seq);
+    }
+  }
+  return {moves, deleted, written};
+}

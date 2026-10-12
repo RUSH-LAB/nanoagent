@@ -3,6 +3,7 @@ import {useHistory, useLocation} from '@docusaurus/router';
 import {toast} from '@site/src/components/Toast/toast';
 import API_BASE, {apiJson} from '@site/src/utils/api';
 import {isOffline} from '@site/src/utils/documentCache';
+import {followWorkspaceChanges} from '@site/src/utils/fsEvents';
 import {FS_SYNC_EVENT, fsReplica, startFsSync} from '@site/src/utils/fsReplica';
 import {loadWorkspaces, navigateClient} from '@site/src/utils/workspaces';
 import * as api from './api';
@@ -10,7 +11,7 @@ import Editor from './Editor';
 import {openLiveDocument} from './liveDocument';
 import {appFor} from './apps';
 import Explorer, {ContextMenu} from './Explorer';
-import {basename, buildTree, dirname, invalidName, join, movedPath, within} from './tree';
+import {basename, buildTree, dirname, invalidName, join, movedPath, tabChanges, within} from './tree';
 import styles from './styles.module.css';
 
 /**
@@ -21,7 +22,9 @@ import styles from './styles.module.css';
  * every explorer action through ./api. The open file is kept in ?path=.
  *
  * A save names the revision the tab was read at, so an edit made elsewhere in
- * the meantime is reported rather than overwritten. Who can see a file or
+ * the meantime is reported rather than overwritten. Open tabs follow what the
+ * workspace's push channel reports was done elsewhere: renames, deletes, and
+ * writes, which a tab without unsaved edits reads in. Who can see a file or
  * folder (the workspace, only you, or anyone) is set from its context menu.
  *
  * This browser keeps a replica (utils/fsReplica.js): the tree, and the text
@@ -35,6 +38,8 @@ const MARKDOWN = /\.mdx?$/i;
 const PDF = /\.pdf$/i;
 // Past this a file is downloaded rather than loaded into the editor.
 const EDIT_LIMIT = 2 * 1024 * 1024;
+
+const unsaved = tab => tab.kind === 'text' && tab.text !== tab.saved;
 
 function kindOf(file) {
   if (IMAGE.test(file.path)) return 'image';
@@ -68,7 +73,7 @@ export default function Workbench({workspace}) {
 
   const tree = useMemo(() => (listing ? buildTree(listing.files, listing.folders) : null), [listing]);
   const dirtyPaths = useMemo(
-    () => new Set(tabs.filter(tab => tab.kind === 'text' && tab.text !== tab.saved).map(tab => tab.path)),
+    () => new Set(tabs.filter(unsaved).map(tab => tab.path)),
     [tabs],
   );
 
@@ -85,16 +90,6 @@ export default function Workbench({workspace}) {
       setListing(data);
       setLoadError(null);
       setOffline(false);
-      // A tab with no unsaved edits follows a newer revision saved elsewhere.
-      for (const tab of tabsRef.current) {
-        const file = data.files.find(item => item.path === tab.path);
-        if (tab.kind !== 'text' || !file || tab.text !== tab.saved || tab.rev === undefined || file.rev === tab.rev) continue;
-        api.readFile(tab.path).then(result => {
-          if (result.binary) return;
-          updateTab(tab.path, {text: result.text, saved: result.text, rev: result.rev});
-          if (scopeRef.current) replica.remember(scopeRef.current, tab.path, result);
-        }).catch(error => console.error(`[workspace] Could not refresh ${tab.path}:`, error));
-      }
       refreshHeld();
       return data;
     } catch (error) {
@@ -319,9 +314,10 @@ export default function Workbench({workspace}) {
       });
   };
 
-  const close = path => {
+  // `discard` closes a tab with unsaved edits without asking.
+  const close = (path, {discard = false} = {}) => {
     const tab = tabsRef.current.find(item => item.path === path);
-    if (tab?.kind === 'text' && tab.text !== tab.saved && !window.confirm(`Discard unsaved changes to ${basename(path)}?`)) return;
+    if (!discard && tab && unsaved(tab) && !window.confirm(`Discard unsaved changes to ${basename(path)}?`)) return;
     const index = tabsRef.current.findIndex(item => item.path === path);
     const remaining = tabsRef.current.filter(item => item.path !== path);
     tab?.live?.close();
@@ -329,23 +325,92 @@ export default function Workbench({workspace}) {
     if (activePath === path) setActivePath(remaining[Math.min(index, remaining.length - 1)]?.path ?? null);
   };
 
-  // A rename or move carries open tabs, the selection and open folders along.
-  const followMove = (from, to) => {
+  // Renames and moves, `[from, to]` in order, carry open tabs, the selection and open folders along.
+  const followMoves = moves => {
+    const moved = path => moves.reduce((current, [from, to]) => movedPath(current, from, to), path);
     // A live document is bound to its path, so a moved one is opened again there.
-    const reopen = tabsRef.current.filter(tab => tab.kind === 'live' && within(tab.path, from));
+    const reopen = tabsRef.current.filter(tab => tab.kind === 'live' && moved(tab.path) !== tab.path);
     for (const tab of reopen) tab.live?.close();
     setTabs(current => current
       .filter(tab => !reopen.includes(tab))
-      .map(tab => ({...tab, path: movedPath(tab.path, from, to)})));
-    for (const tab of reopen) openLive({path: movedPath(tab.path, from, to)});
-    setActivePath(current => current && movedPath(current, from, to));
-    setSelected(current => current && {...current, path: movedPath(current.path, from, to)});
-    setExpanded(current => new Set([...current].map(path => movedPath(path, from, to))));
+      .map(tab => ({...tab, path: moved(tab.path)})));
+    for (const tab of reopen) openLive({path: moved(tab.path)});
+    setActivePath(current => current && moved(current));
+    setSelected(current => current && {...current, path: moved(current.path)});
+    setExpanded(current => new Set([...current].map(moved)));
+    return moved;
+  };
+
+  // Changes made elsewhere, in feed order. Open tabs follow renames. A deleted
+  // tab closes, unless it has unsaved edits, which it then offers to save as a
+  // new file. A write is read into a tab without unsaved edits, and marks one
+  // with them as changed elsewhere. Live tabs read in writes themselves
+  // (liveDocument.js).
+  const followElsewhere = changes => {
+    const {moves, deleted, written} = tabChanges(changes);
+    const moved = moves.length ? followMoves(moves) : path => path;
+    const opened = tabsRef.current.map(tab => ({tab, path: moved(tab.path)}));
+    const closing = [];
+    for (const {tab, path} of opened) {
+      if (![...deleted].some(gone => within(path, gone))) continue;
+      if (unsaved(tab)) {
+        updateTab(path, {deleted: true});
+        continue;
+      }
+      closing.push(path);
+      // A moved live tab was closed and is opening again; it closes itself once it finds its tab gone.
+      if (path === tab.path) tab.live?.close();
+    }
+    if (closing.length) {
+      const remaining = opened.map(({path}) => path).filter(path => !closing.includes(path));
+      setTabs(current => current.filter(tab => !closing.includes(tab.path)));
+      setActivePath(current => (current && closing.includes(current) ? remaining.at(-1) ?? null : current));
+    }
+    for (const {tab, path} of opened) {
+      const rev = written.get(path);
+      if (rev === undefined || tab.kind !== 'text' || tab.loading || tab.saving || !(rev > tab.rev)) continue;
+      if (unsaved(tab)) {
+        updateTab(path, {changedElsewhere: true, deleted: false});
+        continue;
+      }
+      api.readFile(path).then(result => {
+        if (result.binary) return;
+        // Edits typed while it was read keep the tab, which is then marked instead.
+        setTabs(current => current.map(item => {
+          if (item.path !== path || !(result.rev > item.rev)) return item;
+          return unsaved(item)
+            ? {...item, changedElsewhere: true, deleted: false}
+            : {...item, text: result.text, saved: result.text, rev: result.rev, changedElsewhere: false};
+        }));
+        if (scopeRef.current) fsReplica().remember(scopeRef.current, path, result);
+      }).catch(error => toast.error(`Could not read the change to ${path}: ${error.message}`));
+    }
+  };
+  const followRef = useRef(followElsewhere);
+  followRef.current = followElsewhere;
+
+  useEffect(() => followWorkspaceChanges(workspace.id, {
+    changes: list => followRef.current(list),
+    missed: api.changesBetween,
+    failed: error => toast.error(`Could not read what changed in the workspace while it was disconnected, so open tabs may be out of date: ${error.message}`, {duration: 0}),
+  }), [workspace.id]);
+
+  // A tab with unsaved edits whose file was deleted elsewhere saves them as the file again.
+  const saveAsNew = path => {
+    const tab = tabsRef.current.find(item => item.path === path);
+    const text = tab.text;
+    api.saveFile(path, text, {create: true})
+      .then(entry => {
+        updateTab(path, {saved: text, rev: entry.rev, deleted: false, changedElsewhere: false});
+        if (scopeRef.current) fsReplica().remember(scopeRef.current, path, {text, rev: entry.rev});
+        load();
+      })
+      .catch(error => toast.error(error.message));
   };
 
   const move = (from, folder) => {
     const to = join(folder, basename(from));
-    run(() => api.moveEntry(from, to), () => { followMove(from, to); expandTo(folder); });
+    run(() => api.moveEntry(from, to), () => { followMoves([[from, to]]); expandTo(folder); });
   };
 
   const remove = node => {
@@ -380,7 +445,7 @@ export default function Workbench({workspace}) {
     }
     if (edit.mode === 'rename') {
       const to = join(dirname(edit.node.path), name);
-      run(() => api.moveEntry(edit.node.path, to), () => followMove(edit.node.path, to));
+      run(() => api.moveEntry(edit.node.path, to), () => followMoves([[edit.node.path, to]]));
     } else if (edit.mode === 'folder') {
       const path = join(edit.parent, name);
       run(() => api.makeFolder(path), () => { setExpanded(current => new Set(current).add(path)); setSelected({type: 'folder', path}); });
@@ -551,6 +616,8 @@ export default function Workbench({workspace}) {
           appLink={appLink}
           onActivate={setActivePath}
           onClose={close}
+          onSaveAsNew={saveAsNew}
+          onDiscard={path => close(path, {discard: true})}
           onChange={(path, text) => updateTab(path, {text})}
         />
       </section>

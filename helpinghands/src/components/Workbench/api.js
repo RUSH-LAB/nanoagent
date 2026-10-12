@@ -77,6 +77,17 @@ export async function listMembers() {
   return (await apiRequest('/api/members', undefined, {failureLabel: 'Could not list the members'})).members;
 }
 
+/** The workspace's changes after `since` up to `until`, oldest first, from the change feed. */
+export async function changesBetween(since, until) {
+  const changes = [];
+  for (let cursor = since; ;) {
+    const page = await apiRequest(`/api/fs/changes?since=${cursor}`, undefined, {failureLabel: 'Could not read what changed in the workspace'});
+    changes.push(...page.changes.filter(change => change.seq <= until));
+    if (!page.more || page.cursor >= until) return changes;
+    cursor = page.cursor;
+  }
+}
+
 export async function listTrash() {
   return (await apiRequest('/api/fs/tree?deleted=1', undefined, {failureLabel: 'Could not load the trash'})).nodes;
 }
