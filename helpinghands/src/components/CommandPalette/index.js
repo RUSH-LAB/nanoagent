@@ -1,6 +1,7 @@
 import React, {useState, useEffect, useRef, useMemo, useCallback} from 'react';
 import {useHistory} from '@docusaurus/router';
 import {fuzzyMatch} from '@site/src/utils/fuzzyMatch';
+import Highlight from '@site/src/components/Highlight';
 import {icons, useCommands, commandHaystack} from '@site/src/components/commands';
 import styles from './styles.module.css';
 
@@ -156,7 +157,9 @@ export default function CommandPalette() {
               >
                 <span className={styles.itemIcon}>{cmd.icon}</span>
                 <span className={styles.itemText}>
-                  <span className={styles.itemTitle}>{cmd.title}</span>
+                  <span className={styles.itemTitle}>
+                    {cmd.title && <Highlight text={cmd.title} indices={query.trim() ? fuzzyMatch(query, cmd.title).indices : []} />}
+                  </span>
                   <span className={styles.itemDescription}>{cmd.description}</span>
                 </span>
               </button>

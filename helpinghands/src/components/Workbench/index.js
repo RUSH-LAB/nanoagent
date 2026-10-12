@@ -10,6 +10,7 @@ import Editor from './Editor';
 import {openLiveDocument} from './liveDocument';
 import {appFor} from './apps';
 import Explorer, {ContextMenu} from './Explorer';
+import QuickOpen from './QuickOpen';
 import {basename, buildTree, dirname, join, movedPath, within} from './tree';
 import styles from './styles.module.css';
 
@@ -35,6 +36,8 @@ const MARKDOWN = /\.mdx?$/i;
 const PDF = /\.pdf$/i;
 // Past this a file is downloaded rather than loaded into the editor.
 const EDIT_LIMIT = 2 * 1024 * 1024;
+// How many recently opened files quick open remembers per workspace.
+const RECENT_LIMIT = 20;
 
 function kindOf(file) {
   if (IMAGE.test(file.path)) return 'image';
@@ -47,6 +50,7 @@ export default function Workbench({workspace}) {
   const history = useHistory();
   const readOnly = workspace.role === 'viewer';
   const expandedKey = `mochi:workbench-expanded:${workspace.id}`;
+  const recentKey = `mochi:workbench-recent:${workspace.id}`;
 
   const [listing, setListing] = useState(null);
   const [loadError, setLoadError] = useState(null);
@@ -61,6 +65,8 @@ export default function Workbench({workspace}) {
   const [held, setHeld] = useState(() => new Map());
   const [offline, setOffline] = useState(false);
   const [plugins, setPlugins] = useState([]);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [recent, setRecent] = useState(() => JSON.parse(localStorage.getItem(recentKey) ?? '[]'));
   const tabsRef = useRef(tabs);
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
@@ -113,16 +119,24 @@ export default function Workbench({workspace}) {
   }, [refreshHeld]);
 
   useEffect(() => { sessionStorage.setItem(expandedKey, JSON.stringify([...expanded])); }, [expandedKey, expanded]);
+  useEffect(() => { localStorage.setItem(recentKey, JSON.stringify(recent)); }, [recentKey, recent]);
 
-  // ⌘S saves the open file wherever focus is, rather than saving the web page.
+  // ⌘S saves the open file wherever focus is, rather than saving the web page;
+  // ⌘P opens quick open rather than printing it.
   useEffect(() => {
-    const saveShortcut = event => {
-      if (event.key.toLowerCase() !== 's' || !(event.metaKey || event.ctrlKey)) return;
-      event.preventDefault();
-      if (activePath) save(activePath);
+    const shortcut = event => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === 's') {
+        event.preventDefault();
+        if (activePath) save(activePath);
+      } else if (key === 'p' && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        setQuickOpen(current => !current);
+      }
     };
-    window.addEventListener('keydown', saveShortcut);
-    return () => window.removeEventListener('keydown', saveShortcut);
+    window.addEventListener('keydown', shortcut);
+    return () => window.removeEventListener('keydown', shortcut);
   });
 
   // Unsaved text is lost with the tab, so leaving the page asks first.
@@ -164,6 +178,7 @@ export default function Workbench({workspace}) {
 
   const open = useCallback(file => {
     setActivePath(file.path);
+    setRecent(current => [file.path, ...current.filter(path => path !== file.path)].slice(0, RECENT_LIMIT));
     if (tabsRef.current.some(tab => tab.path === file.path)) return;
     if (MARKDOWN.test(file.path) && scopeRef.current) {
       openLive(file);
@@ -556,6 +571,19 @@ export default function Workbench({workspace}) {
         />
       </section>
       {menu && <ContextMenu menu={menu} onClose={closeMenu} />}
+      {quickOpen && listing && (
+        <QuickOpen
+          files={listing.files}
+          recent={recent}
+          onPick={file => {
+            setQuickOpen(false);
+            expandTo(dirname(file.path));
+            setSelected(file);
+            open(file);
+          }}
+          onClose={() => setQuickOpen(false)}
+        />
+      )}
     </div>
   );
 }

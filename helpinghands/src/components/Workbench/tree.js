@@ -1,12 +1,17 @@
 /**
- * The workspace listing as an explorer tree, and the path arithmetic the
- * explorer's actions need. Paths are workspace-relative and '/'-separated;
- * the root folder is ''.
+ * The workspace listing as an explorer tree, the path arithmetic the
+ * explorer's actions need, and quick open's ranking. Paths are
+ * workspace-relative and '/'-separated; the root folder is ''.
  */
+
+import {fuzzyMatch} from '../../utils/fuzzyMatch.js';
 
 export const basename = path => path.split('/').at(-1);
 export const dirname = path => path.split('/').slice(0, -1).join('/');
 export const join = (folder, name) => (folder ? `${folder}/${name}` : name);
+
+// Names in order, numbers by value (step2 before step10), ignoring case.
+const byName = (a, b) => a.localeCompare(b, undefined, {numeric: true, sensitivity: 'base'});
 
 /** Whether `path` is `folder` or lies inside it. */
 export const within = (path, folder) => path === folder || path.startsWith(`${folder}/`);
@@ -42,10 +47,34 @@ export function buildTree(files, folders) {
     if (node.type === 'file') return node;
     const children = [...node.children.values()]
       .map(order)
-      .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}) : a.type === 'folder' ? -1 : 1));
+      .sort((a, b) => (a.type === b.type ? byName(a.name, b.name) : a.type === 'folder' ? -1 : 1));
     return {...node, children};
   };
   return order(root);
+}
+
+/**
+ * Quick open's rows, `{file, indices}`, for `query`. An empty query lists the
+ * `recent` paths that still exist, most recent first, then every other file
+ * in path order. Otherwise every file whose path matches, best score first;
+ * equal scores put recent files first, then the shorter path, then path order.
+ */
+export function quickOpenRows(files, recent, query) {
+  const recency = path => {
+    const index = recent.indexOf(path);
+    return index === -1 ? recent.length : index;
+  };
+  if (!query) {
+    return [...files]
+      .sort((a, b) => recency(a.path) - recency(b.path) || byName(a.path, b.path))
+      .map(file => ({file, indices: []}));
+  }
+  return files
+    .map(file => ({file, ...fuzzyMatch(query, file.path)}))
+    .filter(row => row.match)
+    .sort((a, b) => b.score - a.score || recency(a.file.path) - recency(b.file.path)
+      || a.file.path.length - b.file.path.length || byName(a.file.path, b.file.path))
+    .map(({file, indices}) => ({file, indices}));
 }
 
 /** The visible rows of the tree, depth-first, given which folders are open. */

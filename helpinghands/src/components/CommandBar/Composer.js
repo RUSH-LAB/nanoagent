@@ -105,8 +105,8 @@ function rankMentions(mention, people, channels) {
     .filter((row) => row.key)
     .map((row) => ({row, hit: fuzzyMatch(mention.query, row.key)}))
     .filter(({hit}) => hit.match)
-    // A prefix beats a substring beats a subsequence; ties keep directory order,
-    // which is the order the rail already showed them in.
+    // A prefix beats a word start beats a scattered match; ties keep directory
+    // order, which is the order the rail already showed them in.
     .sort((a, b) => b.hit.score - a.hit.score)
     .slice(0, MENTION_LIMIT)
     .map(({row}) => row);

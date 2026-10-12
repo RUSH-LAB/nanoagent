@@ -1,7 +1,7 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  basename, buildTree, dirname, entryProblem, invalidName, join, movedPath, visibleRows, within,
+  basename, buildTree, dirname, entryProblem, invalidName, join, movedPath, quickOpenRows, visibleRows, within,
 } from '../../../../src/components/Workbench/tree.js';
 
 const files = [
@@ -77,5 +77,28 @@ describe('workbench tree', () => {
     assert.equal(entryProblem(tree, '', 'a//b'), invalidName('a//b'));
     assert.equal(entryProblem(tree, '', 'readme.md', 'readme.md'), null);
     assert.equal(entryProblem(tree, '', 'papers/inner', 'papers'), 'A folder cannot move inside itself');
+  });
+});
+
+describe('quick open', () => {
+  const paths = rows => rows.map(row => row.file.path);
+  const many = [
+    {path: 'step10.md'}, {path: 'step2.md'}, {path: 'src/tree.js'}, {path: 'src/test/tree.test.js'}, {path: 'notes.txt'},
+  ];
+
+  it('lists recent files first for an empty query, then the rest in path order', () => {
+    assert.deepEqual(paths(quickOpenRows(many, ['notes.txt', 'gone.md', 'src/tree.js'], '')), [
+      'notes.txt', 'src/tree.js', 'src/test/tree.test.js', 'step2.md', 'step10.md',
+    ]);
+  });
+
+  it('ranks matches by score, then recent, then the shorter path', () => {
+    assert.deepEqual(paths(quickOpenRows(many, [], 'tree')), ['src/tree.js', 'src/test/tree.test.js']);
+    assert.deepEqual(paths(quickOpenRows(many, [], 'step')), ['step2.md', 'step10.md']);
+    assert.deepEqual(paths(quickOpenRows(many, ['step10.md'], 'step')), ['step10.md', 'step2.md']);
+  });
+
+  it('drops what does not match and carries the matched indices', () => {
+    assert.deepEqual(quickOpenRows(many, [], 'ntx'), [{file: {path: 'notes.txt'}, indices: [0, 6, 7]}]);
   });
 });
