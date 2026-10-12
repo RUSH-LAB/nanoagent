@@ -61,7 +61,7 @@ function createFsHub({fs, batchMs = BATCH_MS}) {
     } finally {
       stream.reading = false;
     }
-    if (changes.length) {
+    if (changes.length && !stream.stopped) {
       stream.send('changes', {
         cursor: stream.cursor, structural: changes.some(change => change.op !== 'write'), changes: changes.map(eventOf),
       });
@@ -78,26 +78,38 @@ function createFsHub({fs, batchMs = BATCH_MS}) {
 
   return Object.freeze({
     /**
-     * Open a stream for `scope` whose change feed starts after `cursor`.
-     * `send(event, data)` writes to it; `close()` ends it.
+     * Open a stream for `scope` whose change feed starts at the latest change
+     * its member may see, read once the stream is listening so that no change
+     * falls between the two. `send(event, data)` writes to it; `close()` ends it.
      */
-    listen(scope, cursor, send, close) {
+    async listen(scope, send, close) {
       const stream = {
-        id: crypto.randomUUID(), scope, cursor, send, close, follows: new Set(),
-        timer: null, reading: false, again: false, stopped: false,
+        id: crypto.randomUUID(), scope, cursor: null, send, close, follows: new Map(),
+        timer: null, reading: true, again: false, stopped: false,
       };
       if (!workspaces.has(scope.workspaceId)) workspaces.set(scope.workspaceId, new Map());
       workspaces.get(scope.workspaceId).set(stream.id, stream);
-      return {
-        id: stream.id,
-        stop() {
-          stream.stopped = true;
-          clearTimeout(stream.timer);
-          const streams = workspaces.get(scope.workspaceId);
-          streams?.delete(stream.id);
-          if (!streams?.size) workspaces.delete(scope.workspaceId);
-        },
+      const stop = () => {
+        stream.stopped = true;
+        clearTimeout(stream.timer);
+        const streams = workspaces.get(scope.workspaceId);
+        streams?.delete(stream.id);
+        if (!streams?.size) workspaces.delete(scope.workspaceId);
       };
+      try {
+        stream.cursor = await fs.head(scope);
+      } catch (error) {
+        stop();
+        throw error;
+      } finally {
+        stream.reading = false;
+      }
+      // A change committed while the head was read is read from the feed now.
+      if (stream.again) {
+        stream.again = false;
+        schedule(stream);
+      }
+      return {id: stream.id, cursor: stream.cursor, stop};
     },
 
     /** Something in the workspace changed: each of its streams reads the feed shortly. */
@@ -105,16 +117,24 @@ function createFsHub({fs, batchMs = BATCH_MS}) {
       for (const stream of streamsOf(workspaceId)) schedule(stream);
     },
 
-    /** Send the caller's stream `id` the live updates of the node `nodeId`. */
+    /**
+     * Send the caller's stream `id` the live updates of the node `nodeId`.
+     * Follows are counted, so a document closed while another opens on the
+     * same node (a rename reopens it) leaves the new one followed.
+     */
     follow(scope, id, nodeId) {
       const stream = owned(scope, id);
       if (!stream) throw new FsError(404, 'no-stream', 'No such event stream');
-      stream.follows.add(nodeId);
+      stream.follows.set(nodeId, (stream.follows.get(nodeId) ?? 0) + 1);
     },
 
-    /** Stop sending `nodeId`'s updates to the caller's stream `id`; nothing to stop once the stream is gone. */
+    /** Take back one follow of `nodeId` by the caller's stream `id`; nothing to take back once the stream is gone. */
     unfollow(scope, id, nodeId) {
-      owned(scope, id)?.follows.delete(nodeId);
+      const follows = owned(scope, id)?.follows;
+      const count = follows?.get(nodeId);
+      if (!count) return;
+      if (count > 1) follows.set(nodeId, count - 1);
+      else follows.delete(nodeId);
     },
 
     followed: (workspaceId, nodeId) => [...streamsOf(workspaceId)].some(stream => stream.follows.has(nodeId)),

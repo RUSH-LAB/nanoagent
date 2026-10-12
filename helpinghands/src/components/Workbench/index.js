@@ -422,7 +422,7 @@ export default function Workbench({workspace}) {
     if (activePath === path) setActivePath(remaining[Math.min(index, remaining.length - 1)]?.path ?? null);
   };
 
-  // Renames and moves, `[from, to]` in order, carry open tabs, the selection and open folders along.
+  // Renames and moves, `[from, to]` in order, carry open tabs, the selection, open folders and recent files along.
   const followMoves = moves => {
     const moved = path => moves.reduce((current, [from, to]) => movedPath(current, from, to), path);
     // A live document is bound to its path, so a moved one is opened again there.
@@ -436,6 +436,7 @@ export default function Workbench({workspace}) {
     setActivePath(current => current && moved(current));
     setSelected(current => current && {...current, path: moved(current.path)});
     setExpanded(current => new Set([...current].map(moved)));
+    setRecent(current => current.map(moved));
     return moved;
   };
 

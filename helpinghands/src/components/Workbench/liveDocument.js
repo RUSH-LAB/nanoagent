@@ -112,17 +112,25 @@ export async function openLiveDocument({scope, workspaceId, path, readOnly, onSt
   });
 
   // With the channel connected, the read follows the file on it first, so no
-  // update falls between the two.
+  // update falls between the two. The server counts follows, so each stream
+  // is asked once, and close() takes that one back.
   async function pull() {
     const stream = channel.stream();
-    const response = await apiFetch(`${root}/crdt?${query}${stream ? `&stream=${encodeURIComponent(stream)}` : ''}`);
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || `Could not open ${path} (${response.status})`);
+    const follow = stream && stream !== followed ? stream : null;
+    if (follow) followed = follow;
+    let response;
+    try {
+      response = await apiFetch(`${root}/crdt?${query}${follow ? `&stream=${encodeURIComponent(follow)}` : ''}`);
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `Could not open ${path} (${response.status})`);
+      }
+    } catch (error) {
+      if (follow && followed === follow) followed = null;
+      throw error;
     }
     nodeId = response.headers.get('X-Node-Id');
     seen(Number(response.headers.get('X-Rev')));
-    if (stream) followed = stream;
     Y.applyUpdate(doc, new Uint8Array(await response.arrayBuffer()), FROM_SERVER);
   }
 

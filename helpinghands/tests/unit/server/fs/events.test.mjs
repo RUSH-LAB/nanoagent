@@ -36,9 +36,9 @@ async function waitFor(condition) {
 }
 
 /** A stream as the hub sees it, recording what it is sent. */
-function streamOf(hub, scope, cursor) {
+async function streamOf(hub, scope) {
   const sent = [];
-  const stream = hub.listen(scope, cursor, (event, data) => sent.push({event, data}), () => sent.push({event: 'closed'}));
+  const stream = await hub.listen(scope, (event, data) => sent.push({event, data}), () => sent.push({event: 'closed'}));
   return {...stream, sent, batches: () => sent.filter(item => item.event === 'changes').map(item => item.data)};
 }
 
@@ -58,7 +58,7 @@ describe('workspace push channel', () => {
   after(() => db?.close());
 
   it('sends a burst of changes as one typed batch, marked structural or content-only', async () => {
-    const stream = streamOf(hub, alice, await fs.head(alice));
+    const stream = await streamOf(hub, alice);
     await fs.write(alice, 'notes/a.txt', 'one');
     await fs.write(bob, 'notes/b.txt', 'two');
     await waitFor(() => stream.batches().length === 1);
@@ -85,8 +85,8 @@ describe('workspace push channel', () => {
   });
 
   it('tells each stream only what its member may see', async () => {
-    const mine = streamOf(hub, alice, await fs.head(alice));
-    const theirs = streamOf(hub, bob, await fs.head(bob));
+    const mine = await streamOf(hub, alice);
+    const theirs = await streamOf(hub, bob);
     await fs.transaction(alice, async tree => {
       await tree.write('journal/today.md', 'dear diary');
       await tree.setAccess('journal', 'private');
@@ -103,22 +103,41 @@ describe('workspace push channel', () => {
   });
 
   it('stops scheduling a stream once it is stopped', async () => {
-    const stream = streamOf(hub, alice, await fs.head(alice));
+    const stream = await streamOf(hub, alice);
     stream.stop();
     await fs.write(alice, 'notes/quiet.txt', 'shh');
     await new Promise(resolve => setTimeout(resolve, 60));
     assert.deepEqual(stream.sent, []);
   });
 
+  it('reads a change committed while the stream read where its feed starts', async () => {
+    const late = {seq: 6, nodeId: 'n', op: 'write', kind: 'file', path: 'late.txt', fromPath: null};
+    const racing = createFsHub({batchMs: 5, fs: {
+      async head() {
+        racing.changed('lab');
+        return 5;
+      },
+      changes: async (_scope, {since}) => ({changes: since < 6 ? [late] : [], cursor: 6, more: false}),
+    }});
+    const stream = await streamOf(racing, alice);
+    assert.equal(stream.cursor, 5);
+    await waitFor(() => stream.batches().length === 1);
+    assert.deepEqual(stream.batches()[0].changes.map(change => change.path), ['late.txt']);
+    stream.stop();
+  });
+
   it('sends live updates only to the streams following the file, and only its own member may follow', async () => {
     const node = await fs.write(alice, 'notes/live.md', 'Live.\n');
-    const following = streamOf(hub, alice, 0);
-    const other = streamOf(hub, bob, 0);
+    const following = await streamOf(hub, alice);
+    const other = await streamOf(hub, bob);
     assert.throws(() => hub.follow(alice, other.id, node.id), {code: 'no-stream'});
+    hub.follow(alice, following.id, node.id);
     hub.follow(alice, following.id, node.id);
     assert.equal(hub.followed('lab', node.id), true);
     hub.broadcast('lab', node.id, new Uint8Array([1, 2, 3]), 7);
     hub.broadcast('lab', node.id, new Uint8Array([0, 0]), 8);
+    hub.unfollow(alice, following.id, node.id);
+    assert.equal(hub.followed('lab', node.id), true, 'one follow is still held');
     hub.unfollow(alice, following.id, node.id);
     hub.broadcast('lab', node.id, new Uint8Array([4, 5, 6]), 9);
     const updates = stream => stream.sent.filter(item => item.event === 'update').map(item => item.data);

@@ -228,7 +228,10 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
 
     if (action === 'events' && req.method === 'GET') {
       permit('content:read');
-      const cursor = await fs.head(scope);
+      // Listened for first: a browser gone while the stream opens still stops it.
+      const closed = new Promise(resolve => res.on('close', resolve));
+      const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      const stream = await fsHub.listen(scope, send, () => res.end());
       const origin = req.headers.origin;
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -242,10 +245,7 @@ module.exports = async function fs_routes(req, res, url, pathname, ctx) {
       res.flushHeaders?.();
       // The stream outlives the server's idle limit; the heartbeat keeps proxies from closing it.
       req.setTimeout(0);
-      const closed = new Promise(resolve => res.on('close', resolve));
-      const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-      const stream = fsHub.listen(scope, cursor, send, () => res.end());
-      send('ready', {stream: stream.id, cursor});
+      send('ready', {stream: stream.id, cursor: stream.cursor});
       const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), HEARTBEAT_MS);
       await closed;
       clearInterval(heartbeat);

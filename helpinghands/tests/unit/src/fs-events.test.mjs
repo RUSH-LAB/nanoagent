@@ -11,7 +11,7 @@ function fakeChannel() {
   channel.subscribe = (workspaceId, handlers) => {
     assert.equal(workspaceId, 'lab');
     channel.handlers = handlers;
-    return {stream: () => null, close: () => { channel.closed = true; }};
+    return {stream: () => null, cursor: () => channel.cursor ?? null, close: () => { channel.closed = true; }};
   };
   return channel;
 }
@@ -62,5 +62,19 @@ describe('followWorkspaceChanges', () => {
     await settle();
     assert.deepEqual(failures, ['offline']);
     assert.deepEqual(seen, [[6]]);
+  });
+
+  it('follows a channel that was already connected from where it is, and catches up after its reconnection', async () => {
+    const channel = fakeChannel();
+    channel.cursor = 4;
+    const reads = [];
+    followWorkspaceChanges('lab', {
+      changes: () => {},
+      missed: async (since, until) => { reads.push([since, until]); return []; },
+      failed: error => assert.fail(error),
+    }, channel.subscribe);
+    channel.handlers.ready({stream: 's2', cursor: 9});
+    await settle();
+    assert.deepEqual(reads, [[4, 9]]);
   });
 });

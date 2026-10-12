@@ -17,7 +17,8 @@ const channels = new Map();
 /**
  * Follow `workspaceId`'s channel with `handlers` named by event (`ready`,
  * `changes`, `update`, and `closed` when the server refused the stream, which
- * is not retried). `stream()` is the connected stream's id, or null.
+ * is not retried). `stream()` is the connected stream's id, or null, and
+ * `cursor()` where the changes it has handed on end, or null before `ready`.
  */
 export function subscribeWorkspace(workspaceId, handlers) {
   let channel = channels.get(workspaceId);
@@ -25,15 +26,20 @@ export function subscribeWorkspace(workspaceId, handlers) {
     const source = new EventSource(`${API_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/fs/events`, {
       withCredentials: true,
     });
-    channel = {source, stream: null, handlers: new Set()};
+    channel = {source, stream: null, cursor: null, handlers: new Set()};
     const current = channel;
     const each = (name, data) => { for (const handler of [...current.handlers]) handler[name]?.(data); };
     source.addEventListener('ready', event => {
       const ready = JSON.parse(event.data);
       current.stream = ready.stream;
+      current.cursor = ready.cursor;
       each('ready', ready);
     });
-    source.addEventListener('changes', event => each('changes', JSON.parse(event.data)));
+    source.addEventListener('changes', event => {
+      const batch = JSON.parse(event.data);
+      current.cursor = batch.cursor;
+      each('changes', batch);
+    });
     source.addEventListener('update', event => each('update', JSON.parse(event.data)));
     source.addEventListener('error', () => {
       current.stream = null;
@@ -47,6 +53,7 @@ export function subscribeWorkspace(workspaceId, handlers) {
   joined.handlers.add(handlers);
   return {
     stream: () => joined.stream,
+    cursor: () => joined.cursor,
     close() {
       joined.handlers.delete(handlers);
       if (joined.handlers.size) return;
@@ -110,6 +117,8 @@ export function followWorkspaceChanges(workspaceId, {changes, missed, failed}, s
       else follow(batch.changes, batch.cursor);
     },
   });
+  // A channel already connected sends no `ready` until it reconnects; it is followed from where it is.
+  followed = channel.cursor();
   return () => {
     stopped = true;
     channel.close();
