@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import {linkFor, copyLink} from '@site/src/utils/invite';
 import dir from '@site/src/css/directory.module.css';
 import RolePicker from './_RolePicker';
+import card from './styles.module.css';
 import styles from './people.module.css';
 
 export function CopyLink({invitationId, onResult}) {
@@ -46,9 +47,9 @@ export default function AddPeople({call, onResult, onChanged, onClose}) {
   };
 
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHead}>
-        <h2 className={styles.cardTitle}>Invite by email</h2>
+    <section className={card.group}>
+      <div className={card.groupHead}>
+        <h4 className={card.groupTitle}>Invite by email</h4>
         <button type="button" className={styles.panelClose} onClick={onClose} aria-label="Close">&times;</button>
       </div>
       <form className={styles.panelForm} onSubmit={submit}>
@@ -63,7 +64,7 @@ export default function AddPeople({call, onResult, onChanged, onClose}) {
           autoFocus
         />
         <RolePicker className={styles.fieldTrigger} value={role} onChange={setRole} label="Role" />
-        <button type="submit" className={dir.cta} disabled={busy || !email.trim()}>
+        <button type="submit" className={card.primaryButton} disabled={busy || !email.trim()}>
           {busy ? 'Inviting…' : 'Send invite'}
         </button>
       </form>

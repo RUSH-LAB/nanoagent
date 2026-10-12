@@ -11,8 +11,8 @@ import styles from './styles.module.css';
  * The plugin marketplace (server/routes/market.js), as a gallery: NanoAgent's
  * own plugins and the ones people publish from GitHub, as `nanoagent plugin
  * pack` packages to download and run on your own machine. A tile opens the
- * plugin's product page in place of the gallery; `?plugin=` names it and `?by=` an author's
- * shelf, so either can be linked. Nothing here runs a plugin, and a published
+ * plugin's product page in place of the gallery; `?plugin=` names it, so it can
+ * be linked. Nothing here runs a plugin, and a published
  * one is checked against the plugin rules but not reviewed, so the page says so.
  */
 
@@ -105,7 +105,7 @@ function Publish({onPublished}) {
   );
 }
 
-function Detail({plugin, onBack, onAuthor, onChanged}) {
+function Detail({plugin, onBack, onChanged}) {
   const [state, setState] = React.useState({busy: false, error: null});
   const author = authorOf(plugin);
 
@@ -150,7 +150,7 @@ function Detail({plugin, onBack, onAuthor, onChanged}) {
       <nav className={styles.crumbs}>
         <button type="button" className={styles.link} onClick={onBack}>← Marketplace</button>
         <span>
-          by <button type="button" className={styles.link} onClick={() => onAuthor(author.id)}>{author.name}</button>
+          by {author.name}
           {plugin.repository && (
             <> · {plugin.repository.owner}/{plugin.repository.repo} at <code>{plugin.repository.commit.slice(0, 7)}</code></>
           )}
@@ -171,7 +171,6 @@ function Marketplace() {
   const history = useHistory();
   const params = new URLSearchParams(location.search);
   const openId = params.get('plugin');
-  const by = params.get('by');
   const [state, setState] = React.useState({plugins: null, error: null});
   const [query, setQuery] = React.useState('');
   const [group, setGroup] = React.useState(null);
@@ -197,15 +196,12 @@ function Marketplace() {
   };
 
   const plugins = state.plugins ?? [];
-  const authors = [...new Map(plugins.map(plugin => [authorOf(plugin).id, authorOf(plugin)])).values()];
   const groups = [...new Set(plugins.map(plugin => plugin.group))].sort();
   const needle = query.trim().toLowerCase();
-  const shown = plugins.filter(plugin => (!by || authorOf(plugin).id === by)
-    && (!group || plugin.group === group)
+  const shown = plugins.filter(plugin => (!group || plugin.group === group)
     && (!needle || [plugin.name, plugin.product.tagline, plugin.product.summary, authorOf(plugin).name]
       .some(text => text.toLowerCase().includes(needle))));
   const open = plugins.find(plugin => plugin.id === openId);
-  const shelf = by && authors.find(author => author.id === by);
 
   if (open) {
     return (
@@ -213,7 +209,6 @@ function Marketplace() {
         <Detail
           plugin={open}
           onBack={() => navigate({plugin: null})}
-          onAuthor={author => navigate({plugin: null, by: author})}
           onChanged={async id => {
             await load();
             navigate({plugin: id});
@@ -251,10 +246,6 @@ function Marketplace() {
           value={query}
           onChange={event => setQuery(event.target.value)}
         />
-        <select className={styles.select} value={by ?? ''} onChange={event => navigate({by: event.target.value})}>
-          <option value="">Every author</option>
-          {authors.map(author => <option key={author.id} value={author.id}>{author.name}</option>)}
-        </select>
       </div>
       <div className={styles.chips} role="group" aria-label="Plugin group">
         {[null, ...groups].map(name => (
@@ -269,7 +260,6 @@ function Marketplace() {
         ))}
       </div>
 
-      {shelf && <h2 className={styles.shelf}>Plugins by {shelf.name}</h2>}
       {state.error && <div className={styles.error}>{state.error}</div>}
       {state.plugins && !shown.length && <p className={styles.empty}>No plugins match.</p>}
       <div className={styles.grid}>

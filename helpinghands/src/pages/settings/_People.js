@@ -8,6 +8,7 @@ import RowMenu from '@site/src/components/RowMenu';
 import {PaneHeading, Skeleton} from './_parts';
 import AddPeople, {CopyLink} from './_AddPeople';
 import RolePicker, {ROLE_NOTE, roleClass} from './_RolePicker';
+import card from './styles.module.css';
 import styles from './people.module.css';
 
 /**
@@ -167,7 +168,7 @@ export default function People({workspace}) {
         aside={canManage && (
           <button
             type="button"
-            className={dir.cta}
+            className={card.primaryButton}
             onClick={() => { setAdding(v => !v); setMessage(null); }}
             aria-expanded={Boolean(adding)}
           >
@@ -189,9 +190,9 @@ export default function People({workspace}) {
         <p className={message.kind === 'error' ? dir.error : dir.ok} role="status">{message.text}</p>
       )}
 
-      <section className={styles.card}>
-        <div className={styles.cardHead}>
-          <h2 className={styles.cardTitle}>Members</h2>
+      <section className={card.group}>
+        <div className={card.groupHead}>
+          <h4 className={card.groupTitle}>Members</h4>
           <input
             className={dir.search}
             type="search"
@@ -266,9 +267,9 @@ export default function People({workspace}) {
       </section>
 
       {invitations.length > 0 && (
-        <section className={styles.card}>
-          <div className={styles.cardHead}>
-            <h2 className={styles.cardTitle}>Invitations</h2>
+        <section className={card.group}>
+          <div className={card.groupHead}>
+            <h4 className={card.groupTitle}>Invitations</h4>
           </div>
           <ul className={styles.rows}>
             {invitations.map(invitation => (

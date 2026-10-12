@@ -5,7 +5,7 @@ import styles from './styles.module.css';
 export function PaneHeading({title, aside}) {
   return (
     <div className={styles.paneHeading}>
-      <h2>{title}</h2>
+      <h3>{title}</h3>
       {aside}
     </div>
   );
