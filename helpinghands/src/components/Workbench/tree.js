@@ -58,11 +58,34 @@ export function visibleRows(tree, expanded, depth = 0) {
   return rows;
 }
 
-/** Why `name` cannot be an entry's name, or null when it can. */
+/** Why `name` cannot be an entry's name, or null when it can. A `/` in it makes nested folders. */
 export function invalidName(name) {
   if (!name.trim()) return 'A name is required';
-  if (name.includes('/') || name.includes('\\')) return 'A name cannot contain / or \\';
-  if (name === '.' || name === '..') return 'That name is reserved';
+  if (name.includes('\\')) return 'A name cannot contain \\';
+  const parts = name.split('/');
+  if (parts.some(part => !part)) return 'A name cannot start or end with /, or contain //';
+  if (parts.some(part => part === '.' || part === '..')) return '. and .. are reserved';
+  return null;
+}
+
+/**
+ * Why `name` cannot be created in `folder` of `tree`, or null when it can: an
+ * invalid name, a sibling already there, or a file where the path needs a
+ * folder. `current` is the path being renamed, which may keep its own name.
+ */
+export function entryProblem(tree, folder, name, current = null) {
+  const problem = invalidName(name);
+  if (problem) return problem;
+  const path = join(folder, name);
+  if (current && path !== current && within(path, current)) return 'A folder cannot move inside itself';
+  const parts = path.split('/');
+  let node = tree;
+  for (const [index, part] of parts.entries()) {
+    node = node.children.find(child => child.name === part);
+    if (!node) return null;
+    if (index === parts.length - 1) return node.path === current ? null : `${node.path} already exists`;
+    if (node.type === 'file') return `${node.path} is a file`;
+  }
   return null;
 }
 

@@ -10,7 +10,7 @@ import Editor from './Editor';
 import {openLiveDocument} from './liveDocument';
 import {appFor} from './apps';
 import Explorer, {ContextMenu} from './Explorer';
-import {basename, buildTree, dirname, invalidName, join, movedPath, within} from './tree';
+import {basename, buildTree, dirname, join, movedPath, within} from './tree';
 import styles from './styles.module.css';
 
 /**
@@ -365,27 +365,29 @@ export default function Workbench({workspace}) {
 
   const startCreate = (mode, parent = targetFolder()) => {
     expandTo(parent);
-    setEditing({mode, parent});
+    setEditing({mode, parent, status: 'naming'});
   };
 
-  const commitEdit = name => {
+  // The input stays open, pending, until the server answers; a failure keeps
+  // what was typed and shows why. An answer for an edit since replaced is dropped.
+  const commitEdit = async name => {
     const edit = editing;
-    setEditing(null);
-    const problem = invalidName(name);
-    if (problem) {
-      toast.error(problem);
+    const pending = {...edit, status: 'pending'};
+    setEditing(pending);
+    const path = join(edit.mode === 'rename' ? dirname(edit.node.path) : edit.parent, name);
+    let result;
+    try {
+      if (edit.mode === 'rename') result = await api.moveEntry(edit.node.path, path);
+      else if (edit.mode === 'folder') result = await api.makeFolder(path);
+      else result = await api.saveFile(path, '', {create: true});
+    } catch (error) {
+      setEditing(current => (current === pending ? {...edit, status: {error: error.message}} : current));
       return;
     }
-    if (edit.mode === 'rename') {
-      const to = join(dirname(edit.node.path), name);
-      run(() => api.moveEntry(edit.node.path, to), () => followMove(edit.node.path, to));
-    } else if (edit.mode === 'folder') {
-      const path = join(edit.parent, name);
-      run(() => api.makeFolder(path), () => { setExpanded(current => new Set(current).add(path)); setSelected({type: 'folder', path}); });
-    } else {
-      const path = join(edit.parent, name);
-      run(() => api.saveFile(path, '', {create: true}), entry => { setSelected({type: 'file', ...entry}); open(entry); });
-    }
+    setEditing(current => (current === pending ? null : current));
+    if (edit.mode === 'rename') run(() => result, () => { followMove(edit.node.path, path); expandTo(dirname(path)); });
+    else if (edit.mode === 'folder') run(() => result, () => { expandTo(path); setSelected({type: 'folder', path}); });
+    else run(() => result, entry => { expandTo(dirname(path)); setSelected({type: 'file', ...entry}); open(entry); });
   };
 
   const toggle = path => setExpanded(current => {
@@ -462,7 +464,7 @@ export default function Workbench({workspace}) {
         node.accessExplicit ? [{label: 'Visible to: same as its folder', run: () => share(node, null)}] : [],
       ) : [],
       node && !readOnly ? [
-        {label: 'Rename…', shortcut: 'F2', run: () => setEditing({mode: 'rename', node})},
+        {label: 'Rename…', shortcut: 'F2', run: () => setEditing({mode: 'rename', node, status: 'naming'})},
         {label: 'Delete', shortcut: '⌫', danger: true, run: () => remove(node)},
       ] : [],
       !node ? [{label: 'Show Trash', run: openTrash}] : [],
@@ -516,9 +518,10 @@ export default function Workbench({workspace}) {
             onOpen={open}
             onCommitEdit={commitEdit}
             onCancelEdit={() => setEditing(null)}
+            onRetypeEdit={() => setEditing(current => ({...current, status: 'naming'}))}
             onContextMenu={showMenu}
             onMove={move}
-            onRename={node => setEditing({mode: 'rename', node})}
+            onRename={node => setEditing({mode: 'rename', node, status: 'naming'})}
             onDelete={remove}
           />
         )}

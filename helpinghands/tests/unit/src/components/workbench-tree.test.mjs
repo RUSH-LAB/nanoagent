@@ -1,7 +1,7 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  basename, buildTree, dirname, invalidName, join, movedPath, visibleRows, within,
+  basename, buildTree, dirname, entryProblem, invalidName, join, movedPath, visibleRows, within,
 } from '../../../../src/components/Workbench/tree.js';
 
 const files = [
@@ -55,10 +55,27 @@ describe('workbench tree', () => {
     assert.equal(movedPath('x.md', 'x.md', 'y.md'), 'y.md');
   });
 
-  it('refuses names that are not one path segment', () => {
+  it('refuses names that are not workspace paths, and allows / for nested folders', () => {
     assert.equal(invalidName('ok.md'), null);
+    assert.equal(invalidName('a/b/ok.md'), null);
     assert.ok(invalidName(' '));
-    assert.ok(invalidName('a/b'));
+    assert.ok(invalidName('a\\b'));
+    assert.ok(invalidName('/a'));
+    assert.ok(invalidName('a/'));
+    assert.ok(invalidName('a//b'));
     assert.ok(invalidName('..'));
+    assert.ok(invalidName('a/./b'));
+  });
+
+  it('finds the problem with a new or renamed entry in the local tree', () => {
+    const tree = buildTree(files, ['papers', 'papers/attention']);
+    assert.equal(entryProblem(tree, '', 'new.md'), null);
+    assert.equal(entryProblem(tree, 'papers', 'attention/new/ms.tex'), null);
+    assert.equal(entryProblem(tree, '', 'readme.md'), 'readme.md already exists');
+    assert.equal(entryProblem(tree, 'papers', 'attention'), 'papers/attention already exists');
+    assert.equal(entryProblem(tree, '', 'readme.md/x.md'), 'readme.md is a file');
+    assert.equal(entryProblem(tree, '', 'a//b'), invalidName('a//b'));
+    assert.equal(entryProblem(tree, '', 'readme.md', 'readme.md'), null);
+    assert.equal(entryProblem(tree, '', 'papers/inner', 'papers'), 'A folder cannot move inside itself');
   });
 });
