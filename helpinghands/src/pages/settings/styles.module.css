@@ -1,0 +1,495 @@
+/* Page */
+
+.pageHeader {
+  margin-bottom: 2rem;
+}
+
+.heading {
+  margin: 0 0 0.3rem;
+  font-size: clamp(1.8rem, 3.5vw, 2.3rem);
+  letter-spacing: -0.03em;
+}
+
+.pageHeader p {
+  margin: 0;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.placeholder {
+  padding: 3rem;
+  text-align: center;
+  color: var(--ifm-color-emphasis-500);
+}
+
+.settingsLayout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 2.5rem;
+  align-items: start;
+}
+
+/* Sidebar: one entry per pane, grouped by whose settings they are. */
+
+.settingsNav {
+  position: sticky;
+  top: calc(var(--ifm-navbar-height) + 1.5rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.navGroup {
+  overflow: hidden;
+  margin: 1.1rem 0 0.35rem;
+  padding: 0 0.75rem;
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.navGroup:first-child {
+  margin-top: 0;
+}
+
+.navDivider {
+  margin: 0.75rem 0.75rem 0.5rem;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.settingsNav a {
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
+  color: var(--ifm-color-emphasis-800);
+  font-size: 0.88rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.settingsNav a:hover,
+.settingsNav a:focus-visible {
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-font-color-base);
+  text-decoration: none;
+}
+
+.settingsNav a.navActive {
+  background: color-mix(in srgb, var(--ifm-color-primary) 10%, transparent);
+  color: var(--ifm-color-primary);
+  font-weight: 650;
+}
+
+/* Pane */
+
+.settingsContent {
+  display: grid;
+  min-width: 0;
+  max-width: 760px;
+  gap: 3rem;
+}
+
+.pane {
+  display: grid;
+  gap: 1.25rem;
+  scroll-margin-top: calc(var(--ifm-navbar-height) + 1.5rem);
+}
+
+.paneHeading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.paneHeading h2 {
+  margin: 0 0 0.2rem;
+  font-size: 1.3rem;
+  letter-spacing: -0.015em;
+}
+
+.paneHeading p {
+  margin: 0;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.88rem;
+}
+
+/* A group is one card of rows; a row is a label on the left and its control
+   on the right. */
+
+.group {
+  overflow: hidden;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 12px;
+  background: var(--ifm-background-surface-color);
+}
+
+.groupTitle {
+  margin: 0;
+  padding: 0.85rem 1.1rem 0.5rem;
+  font-size: 0.95rem;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  min-height: 3.5rem;
+  padding: 0.75rem 1.1rem;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.group > .row:first-child,
+.groupTitle + .row {
+  border-top: 0;
+}
+
+.rowLabel {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 0.15rem;
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.rowLabel strong {
+  font-weight: 600;
+}
+
+.rowLabel span {
+  overflow-wrap: anywhere;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.8rem;
+}
+
+.rowValue {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.88rem;
+  text-align: right;
+}
+
+.rowControl {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+}
+
+.identityText {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 0.1rem;
+}
+
+.identityText strong {
+  font-size: 1rem;
+}
+
+.identityText span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.85rem;
+}
+
+.groupFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 0.75rem 1.1rem;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  background: var(--ifm-color-emphasis-0);
+}
+
+.groupNote {
+  margin: 0;
+  padding: 0.75rem 1.1rem;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.78rem;
+}
+
+.empty {
+  margin: 0;
+  padding: 0.25rem 1.1rem 1rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.85rem;
+}
+
+.dangerZone {
+  border-color: color-mix(in srgb, var(--ifm-color-danger) 35%, var(--ifm-color-emphasis-200));
+}
+
+/* Navigation choices: a checkbox row whose order buttons show on hover. */
+
+.optionRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 0.6rem 0 1.1rem;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.groupTitle + .optionRow {
+  border-top: 0;
+}
+
+.optionRow:hover {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.option {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 2.75rem;
+  margin: 0;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.option input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--ifm-color-primary);
+}
+
+.orderButtons {
+  display: inline-flex;
+  flex: none;
+  gap: 0.15rem;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.optionRow:hover .orderButtons,
+.orderButtons:focus-within {
+  opacity: 1;
+}
+
+.orderButtons button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ifm-color-emphasis-600);
+  font: 600 0.9rem/1 var(--ifm-font-family-base);
+  cursor: pointer;
+}
+
+.orderButtons button:hover:not(:disabled) {
+  background: var(--ifm-color-emphasis-200);
+  color: var(--ifm-font-color-base);
+}
+
+.orderButtons button:disabled {
+  cursor: default;
+  opacity: 0.25;
+}
+
+/* Usage */
+
+.meters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem 1.75rem;
+  padding: 0.4rem 1.1rem 1rem;
+}
+
+.meterLabel {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.82rem;
+}
+
+.meterLabel span:last-child {
+  color: var(--ifm-color-emphasis-600);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.meterTrack {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ifm-color-emphasis-200);
+}
+
+.meterFill,
+.meterFull {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.meterFill {
+  background: var(--ifm-color-primary);
+}
+
+.meterFull {
+  background: var(--ifm-color-danger);
+}
+
+/* Controls */
+
+.input {
+  width: 15rem;
+  min-width: 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 8px;
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  font-size: 0.88rem;
+}
+
+.input:focus {
+  border-color: var(--ifm-color-primary);
+  outline: 2px solid color-mix(in srgb, var(--ifm-color-primary) 25%, transparent);
+  outline-offset: 0;
+}
+
+.primaryButton,
+.secondaryButton {
+  flex: none;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.primaryButton {
+  border-color: var(--ifm-color-primary);
+  background: var(--ifm-color-primary);
+  color: white;
+}
+
+.primaryButton:hover:not(:disabled) {
+  background: var(--ifm-color-primary-dark);
+}
+
+.secondaryButton {
+  border-color: var(--ifm-color-emphasis-300);
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+}
+
+.secondaryButton:hover:not(:disabled) {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Status */
+
+.saved,
+.error {
+  font-size: 0.82rem;
+}
+
+.saved {
+  color: var(--ifm-color-success-dark);
+}
+
+.error {
+  color: var(--ifm-color-danger-dark);
+}
+
+.muted {
+  color: var(--ifm-color-emphasis-500);
+}
+
+.skeletonBar {
+  display: block;
+  width: 45%;
+  height: 0.8rem;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--ifm-color-emphasis-200), var(--ifm-color-emphasis-100), var(--ifm-color-emphasis-200));
+  background-size: 200% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+@media (max-width: 996px) {
+  .settingsLayout {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .settingsNav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .navGroup,
+  .navDivider {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .rowValue {
+    text-align: left;
+  }
+
+  .rowControl {
+    flex-wrap: wrap;
+  }
+
+  .input {
+    width: auto;
+    flex: 1;
+  }
+
+  .meters {
+    grid-template-columns: 1fr;
+  }
+}

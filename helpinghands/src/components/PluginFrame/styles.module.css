@@ -1,0 +1,26 @@
+.frame {
+  display: block;
+  width: 100%;
+  /* The content column's height, less its top and bottom padding. */
+  height: calc(100vh - var(--ifm-navbar-height) - var(--site-content-top) - 3rem);
+  min-height: 480px;
+  /* No box of our own: the page paints the host's background (kit.css), so it reads as ours. */
+  border: 0;
+}
+
+.frame[hidden] {
+  display: none;
+}
+
+.muted {
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.9rem;
+}
+
+.error {
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  border: 1px solid var(--ifm-color-danger-light);
+  background: var(--ifm-color-danger-contrast-background);
+}

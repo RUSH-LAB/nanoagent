@@ -524,6 +524,25 @@ html[data-theme="dark"] .segment input:checked + .segment-text { background: var
 .app.width-narrow { --page-max: 760px; }
 .page { display: grid; gap: 18px; align-content: start; max-width: var(--page-max); padding: 20px var(--page-inset) 40px; }
 
+/* The frame's tabs (kit/shell.js), over every plugin's page, and the Dashboard (kit/session.js). */
+.kit-tabs { display: flex; gap: 4px; height: var(--kit-tabs-height); box-sizing: border-box; padding: var(--page-inset) var(--page-inset) 10px; }
+:root { --kit-tabs-height: 46px; }
+.kit-session > .chat-page { height: calc(100vh - var(--kit-tabs-height)); }
+.kit-tab { appearance: none; border: 1px solid transparent; background: transparent; color: var(--muted); font: inherit; font-size: 13.5px; font-weight: 600; padding: 6px 12px; border-radius: var(--radius-pill); cursor: pointer; max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kit-tab:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
+.kit-tab[aria-selected="true"] { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-soft); }
+.kit-tab:disabled { opacity: .5; cursor: default; }
+.kit-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.dashboard { display: grid; gap: 18px; }
+.dashboard-head, .session-details-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.stats { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.stat { display: grid; gap: 2px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.stat-label { color: var(--muted); font-size: 12.5px; }
+.stat-value { font-size: 20px; font-weight: 650; }
+.session-details { display: grid; gap: 12px; }
+.row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.run-metrics, .message-metrics { margin: 0; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
 .columns { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr) var(--aside-width); align-items: start; }
 .columns.aside-left { grid-template-columns: var(--aside-width) minmax(0, 1fr); }
 .columns.aside-left .column-aside { order: -1; }

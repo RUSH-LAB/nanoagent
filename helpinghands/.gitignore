@@ -1,0 +1,15 @@
+node_modules/
+build/
+.docusaurus/
+.cache-loader/
+.DS_Store
+*.log*
+.env
+.env.*
+!.env.example
+/var/
+/raw/
+/.worktrees/
+/.claude/worktrees/
+/progress/
+/plugins/client-components.generated.js

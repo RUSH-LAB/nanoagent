@@ -1,0 +1,160 @@
+'use strict';
+// Route module organized from server/index.js. Each handler runs with the shared
+// `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
+// dispatcher in server/index.js detects a sent response via res.writableEnded.
+
+// Object keys that must never be used as map keys in the analytics/user stores,
+// since assigning them can pollute Object.prototype. Hoisted and frozen so the
+// pageview, set-role, and presence handlers below share one immutable, read-only guard list.
+const PROTO_KEYS = Object.freeze(['__proto__', 'constructor', 'prototype']);
+
+// The two key spaces the analytics collection holds: one row per counted page,
+// prefixed, and one row for the recent list. Prefixed rather than a second
+// domain because they are written by the same request and read by the same one.
+const COUNT_KEY = 'count:';
+const RECENT_KEY = 'recent';
+
+/** How many recent pageviews are kept. The list is a tail, not a log. */
+const RECENT_LIMIT = 100;
+
+// Set-role route matcher for PUT /api/users/:id/role. Hoisted to module scope so
+// the RegExp is built once at module load instead of re-allocated on every request
+// that falls through the earlier handlers to the set-role dispatch check below. The
+// pattern is stateless (no /g, no /y), and .test() on a non-global regex never reads
+// or mutates lastIndex, so one shared instance returns the same boolean every call.
+const SET_ROLE_RE = /^\/api\/users\/[^/]+\/role$/;
+
+
+module.exports = async function analytics_users_routes(req, res, url, pathname, ctx) {
+  const {
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, _routeDiagnostics
+  } = ctx;
+
+  // Platform administration is independent of workspace membership.
+  const {getRole, setRole, listUsers, isAdmin, isValidRole, ROLES, adminCount} = ctx.roles;
+
+  // ── Analytics ──
+  //
+  // The workspace's, not a reader's: how often each of its pages was opened,
+  // and the last hundred opens. Two key spaces in the one collection, because
+  // they are two views of the same event and are written together.
+  const analytics = collection('analytics');
+
+  // ── Analytics: record pageview ──
+  if (req.method === 'POST' && pathname === '/api/analytics/pageview') {
+    if (!await rateLimit(`pageview:${req.caller}`, 60)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    try {
+      const body = await readBody(req);
+      const {path: pagePath, referrer, userAgent} = body;
+      if (!pagePath || typeof pagePath !== 'string') return json(res, 400, {error: 'Missing path'});
+      if (pagePath.length > 500) return json(res, 400, {error: 'Path too long'});
+      if (PROTO_KEYS.includes(pagePath)) return json(res, 400, {error: "Invalid path"});
+      if (referrer !== undefined && typeof referrer !== "string") return json(res, 400, {error: "referrer must be a string"});
+      if (userAgent !== undefined && typeof userAgent !== "string") return json(res, 400, {error: "userAgent must be a string"});
+      const scope = scopeFor(req);
+      const safePath = sanitizeText(pagePath);
+      // One row per counted page rather than one row holding the whole map:
+      // this is the busiest write in the product, one per page load, and a
+      // read-modify-write over a shared value loses counts whenever two land
+      // together. update() is a transaction, so the increment is not a race.
+      await analytics.update(scope, COUNT_KEY + safePath, n => (typeof n === 'number' ? n : 0) + 1);
+      await analytics.update(scope, RECENT_KEY, list => [
+        {
+          path: safePath,
+          referrer: referrer ? sanitizeText(referrer) : null,
+          userAgent: userAgent ? sanitizeText(userAgent) : null,
+          timestamp: new Date().toISOString(),
+        },
+        ...(Array.isArray(list) ? list : []),
+      ].slice(0, RECENT_LIMIT));
+      return json(res, 200, {success: true});
+    } catch {
+      return json(res, 400, {error: 'Invalid request'});
+    }
+  }
+
+  // ── Analytics: get stats ──
+  if (req.method === 'GET' && pathname === '/api/analytics') {
+    const stored = await analytics.entries(scopeFor(req));
+    // Rebuilt into the {path: count} map the clients render. A plain object
+    // literal rather than a prototype-less one because that is what the payload
+    // has always been; the write path refuses the three keys that would make
+    // the difference matter.
+    const pageviews = {};
+    for (const [key, value] of Object.entries(stored)) {
+      if (key.startsWith(COUNT_KEY)) pageviews[key.slice(COUNT_KEY.length)] = value;
+    }
+    return json(res, 200, {
+      pageviews,
+      recent: stored[RECENT_KEY] ?? [],
+    });
+  }
+
+  // ── Users: list all ──
+  if (req.method === 'GET' && pathname === '/api/users') {
+    // Every account on the server, with its email, across every organization.
+    // That is the site owner's view and nobody else's: a member of one
+    // organization has no business reading the address book of another, and
+    // this answered anyone with a session until it was closed. The roster a
+    // member is entitled to is their own organization's, at GET /api/org/members.
+    if (!await isAdmin(req.auth.userId)) {
+      return json(res, 403, {error: 'Only platform administrators can list every account', code: 'not-platform-admin'});
+    }
+    // Keyed by id, the shape /admin already renders. The list comes from the
+    // user table, so an account with no role assigned still appears, as a
+    // viewer, which is how you give it one.
+    const users = Object.fromEntries(
+      (await listUsers()).map(u => [u.id, {
+        role: u.role,
+        email: u.email,
+        name: u.name,
+        username: u.username,
+        addedAt: u.addedAt,
+      }]),
+    );
+    return json(res, 200, {users});
+  }
+
+  // ── Users: get current user's role ──
+  if (req.method === 'GET' && pathname === '/api/users/me') {
+    // The caller is whoever the verified session says they are. The old
+    // `?userId=` form let anyone read anyone's role by asking for it.
+    const {userId, orgId} = req.auth;
+    return json(res, 200, {userId, orgId, role: await getRole(userId)});
+  }
+
+  // ── Users: set role ──
+  if (req.method === 'PUT' && SET_ROLE_RE.test(pathname)) {
+    if (!await rateLimit(`set-role:${req.caller}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    try {
+      const parts = pathname.split('/');
+      const userId = parts[3]; // /api/users/:id/role
+      const body = await readBody(req);
+      const {role} = body;
+      if (!isValidRole(role)) return json(res, 400, {error: `Invalid role. Must be ${ROLES.join(', ')}`});
+      // The requester is the session holder. It used to be `body.requesterId`,
+      // so granting yourself ownership was a matter of naming an existing owner
+      // in the JSON you posted.
+      if (!await isAdmin(req.auth.userId)) {
+        return json(res, 403, {error: 'Only platform administrators can change platform roles'});
+      }
+      // Removing the last administrator would leave nobody able to restore one.
+      // no way back short of editing the database by hand.
+      if (role !== 'admin' && await getRole(userId) === 'admin' && await adminCount() <= 1) {
+        return json(res, 409, {error: 'Cannot remove the last platform administrator'});
+      }
+      // Email and name belong to the account, not the role, so they are no
+      // longer writable here; the role table holds only the role.
+      if (!await setRole(userId, role)) return json(res, 404, {error: 'No such user'});
+      return json(res, 200, {success: true, user: {userId, role}});
+    } catch {
+      return json(res, 400, {error: 'Invalid request'});
+    }
+  }
+
+};
+
+// Set-role route matcher, exposed for direct unit testing (see
+// tests/next-analyticsusers-setrole-re-hoist.test.mjs). The PUT /api/users/:id/role
+// handler uses it to guard its dispatch.
+module.exports.SET_ROLE_RE = SET_ROLE_RE;

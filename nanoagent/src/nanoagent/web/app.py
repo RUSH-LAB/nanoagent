@@ -11,6 +11,7 @@ import mimetypes
 import secrets
 import shutil
 import sys
+import time
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -32,7 +33,7 @@ from nanoagent.plugin.package import (
     pack,
     pack_source,
 )
-from nanoagent.plugin.tasks import run_task
+from nanoagent.plugin.tasks import TaskOutcome, run_task
 from nanoagent.runtime.config import load_config_args
 from nanoagent.web.config import WebConfig
 from nanoagent.web.plugin_agent import plugin_profile
@@ -67,6 +68,19 @@ def _staged_from(workspace: Path) -> Callable[[Path], None]:
             shutil.copytree(workspace, folder, dirs_exist_ok=True)
 
     return stage
+
+
+def _task_metrics(outcome: TaskOutcome, duration_s: float, model: str) -> dict[str, Any]:
+    """What a finished task cost and how long it took; a tool task calls no model."""
+    profile = outcome.agent.profile if outcome.agent is not None else None
+    return {
+        "model": model if profile is not None else None,
+        "cost": profile.cost if profile is not None else 0.0,
+        "usage": dict(profile.usage) if profile is not None else {},
+        "ttft_s": profile.ttft_s if profile is not None else None,
+        "generation_s": profile.generation_s if profile is not None else 0.0,
+        "duration_s": duration_s,
+    }
 
 
 def _ui_version(manifest: PluginManifest) -> str:
@@ -484,9 +498,12 @@ def create_app(
             )
 
         async def work() -> None:
+            # Only a task that finished has metrics; one that failed or was stopped reports none.
+            done: dict[str, Any] = {}
+            started = time.perf_counter()
             try:
                 async with plugin_slots:
-                    await run_task(
+                    outcome = await run_task(
                         manifest,
                         task,
                         payload["arguments"],
@@ -496,13 +513,14 @@ def create_app(
                         on_event=emit,
                         stage=_staged_from(folder),
                     )
+                done["metrics"] = _task_metrics(outcome, time.perf_counter() - started, cfg.model.model)
             except asyncio.CancelledError:
                 emit("task.error", {"message": "cancelled"})
             except Exception as error:  # noqa: BLE001 - the stream reports every failure
                 emit("task.error", {"message": f"{type(error).__name__}: {error}"})
             finally:
                 task_runs.pop(run_id, None)
-                emit("task.done", {})
+                emit("task.done", done)
 
         task_runs[run_id] = asyncio.create_task(work())
 

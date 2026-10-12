@@ -6,6 +6,7 @@ import { request, startRun } from "./bridge.js";
 import { banner, disclosure } from "./display.js";
 import { announce, formatDuration, h, humanize, icon, pretty } from "./dom.js";
 import { schemaForm } from "./forms.js";
+import { metricsLine } from "./session.js";
 
 /**
  * A `task.tool` event's `output` (the tool's JSON text) parsed, or null when it is not JSON.
@@ -35,6 +36,8 @@ export function parseToolOutput(output) {
  * @property {Array<{name: string, arguments: object, output: string, isError: boolean, data: object|null}>} tools
  *   Every `task.tool` event, with `data` the parsed output.
  * @property {number} seconds How long it took.
+ * @property {{model: string|null, cost: number, usage: object, ttft_s: number|null, generation_s: number, duration_s: number}|null} metrics
+ *   What the run cost and how long it took, from `task.done`; null for a run that did not finish.
  * @property {boolean} [startFailed] True when the host refused to start the run (show "Couldn't start").
  */
 
@@ -75,6 +78,7 @@ export function taskRun({ task, title = "Working on it", steps, onEvent, onFinis
   let outcome = null;
 
   const titleText = h("h2", { class: "run-title", text: title });
+  const metricsText = h("p", { class: "run-metrics", hidden: true });
   const clock = h("span", { class: "run-clock", "aria-hidden": "true" });
   const stop = h("button", { type: "button", class: "button small" }, icon("stop", { size: 15 }), h("span", { text: stopLabel }));
   const toggle = h("button", { type: "button", class: "button ghost small", hidden: true, "aria-expanded": "true", text: "Hide steps" });
@@ -90,6 +94,7 @@ export function taskRun({ task, title = "Working on it", steps, onEvent, onFinis
     "section",
     { class: "card run-card", hidden: true, "aria-label": title },
     h("header", { class: "run-head" }, h("span", { class: "run-spinner", "aria-hidden": "true" }), titleText, clock, toggle, stop),
+    metricsText,
     list,
   );
 
@@ -159,6 +164,8 @@ export function taskRun({ task, title = "Working on it", steps, onEvent, onFinis
     }
     element.dataset.status = outcome.status;
     titleText.textContent = words;
+    metricsText.hidden = !outcome.metrics;
+    if (outcome.metrics) metricsText.textContent = metricsLine(outcome.metrics);
     clock.textContent = "";
     stop.hidden = true;
     toggle.hidden = false;
@@ -200,7 +207,8 @@ export function taskRun({ task, title = "Working on it", steps, onEvent, onFinis
     start(args) {
       if (busy) return Promise.reject(new Error(`A run of ${task} is already in progress.`));
       busy = true;
-      outcome = { status: "unchecked", verdict: null, error: null, answer: null, result: null, tools: [], seconds: 0 };
+      outcome = { status: "unchecked", verdict: null, error: null, answer: null, result: null, tools: [], seconds: 0, metrics: null };
+      metricsText.hidden = true;
       current = -1;
       for (const row of rows) {
         setState(row, "pending");
@@ -248,6 +256,7 @@ export function taskRun({ task, title = "Working on it", steps, onEvent, onFinis
               outcome.status = outcome.error === "cancelled" ? "cancelled" : "error";
               break;
           }
+          if (name === "task.done") outcome.metrics = data.metrics ?? null;
           if (name === "task.reference" && generic) step("start", { detail: "Prepared the answer key" });
           onEvent?.(name, data, controller);
           if (name === "task.done") done();
@@ -492,7 +501,10 @@ export function runControls({ task, start, onEvent, onFinish, label = "Run" }) {
         if (name === "task.verdict") outcome = data.valid ? { text: "Finished: valid", tone: "ok" } : { text: "Finished: not valid", tone: "bad" };
         if (name === "task.error") outcome = { text: "Failed", tone: "bad" };
         onEvent(name, data);
-        if (name === "task.done") finish(`${outcome.text} in ${formatDuration((Date.now() - began) / 1000)}`, outcome.tone);
+        if (name === "task.done") {
+          const took = `${outcome.text} in ${formatDuration((Date.now() - began) / 1000)}`;
+          finish(data.metrics ? `${took} · ${metricsLine(data.metrics)}` : took, outcome.tone);
+        }
       });
       if (runButtonElement.disabled) cancelButton.hidden = false;
     } catch (problem) {

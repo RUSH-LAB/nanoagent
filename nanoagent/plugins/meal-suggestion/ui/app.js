@@ -1,7 +1,7 @@
 // Meal Suggestion's page: pick a meal, set nutrient ranges and what you like, and get the recipes
 // the recommend-meal task's linear program chooses from the built-in Food.com recipes.
 
-import { appShell, mountApp } from "./kit/shell.js";
+import { appShell } from "./kit/shell.js";
 import { banner, card } from "./kit/display.js";
 import { h } from "./kit/dom.js";
 import { chipsInput, segmented } from "./kit/inputs.js";
@@ -175,4 +175,4 @@ async function page({ plugin }) {
   return shell.element;
 }
 
-mountApp(page);
+export default page;

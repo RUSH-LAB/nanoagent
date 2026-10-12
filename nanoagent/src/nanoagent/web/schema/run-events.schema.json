@@ -67,11 +67,13 @@
         "model_s": {"type": "number", "minimum": 0},
         "tools_s": {"type": "number", "minimum": 0},
         "overhead_s": {"type": "number", "minimum": 0},
+        "ttft_s": {"type": ["number", "null"], "minimum": 0},
+        "generation_s": {"type": "number", "minimum": 0},
         "usage": {"$ref": "#/$defs/Usage"},
         "cost": {"type": "number", "minimum": 0},
         "steps": {"type": "array", "items": {"$ref": "#/$defs/StepMetrics"}}
       },
-      "required": ["duration_s", "model_s", "tools_s", "overhead_s", "usage", "cost", "steps"]
+      "required": ["duration_s", "model_s", "tools_s", "overhead_s", "ttft_s", "generation_s", "usage", "cost", "steps"]
     },
     "StartEvent": {
       "allOf": [

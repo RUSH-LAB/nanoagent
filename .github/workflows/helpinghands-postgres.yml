@@ -1,0 +1,66 @@
+name: Helping Hands PostgreSQL acceptance
+
+on:
+  pull_request:
+    branches: [production]
+    paths:
+      - '.github/workflows/helpinghands-postgres.yml'
+      - 'helpinghands/package-lock.json'
+      - 'helpinghands/package.json'
+      - 'helpinghands/scripts/db/**'
+      - 'helpinghands/src/server/**'
+      - 'helpinghands/tests/unit/server/postgres-*.test.mjs'
+      - 'helpinghands/tests/integration/postgres/**'
+  push:
+    branches: [production]
+    paths:
+      - '.github/workflows/helpinghands-postgres.yml'
+      - 'helpinghands/package-lock.json'
+      - 'helpinghands/package.json'
+      - 'helpinghands/scripts/db/**'
+      - 'helpinghands/src/server/**'
+      - 'helpinghands/tests/unit/server/postgres-*.test.mjs'
+      - 'helpinghands/tests/integration/postgres/**'
+
+defaults:
+  run:
+    working-directory: helpinghands
+
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: mochi
+          POSTGRES_USER: mochi_owner
+          POSTGRES_PASSWORD: mochi_owner_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mochi_owner -d mochi"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://mochi_runtime:mochi_runtime_ci@127.0.0.1:5432/mochi
+      DATABASE_MIGRATION_URL: postgres://mochi_owner:mochi_owner_ci@127.0.0.1:5432/mochi
+      PG_DRIVER: pg
+      PG_SSL: disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: helpinghands/package-lock.json
+      - run: npm ci
+      - name: Create non-owner runtime role
+        run: >-
+          docker exec ${{ job.services.postgres.id }}
+          psql -v ON_ERROR_STOP=1 -U mochi_owner -d mochi
+          -c "create role mochi_runtime login password 'mochi_runtime_ci' nosuperuser nocreatedb nocreaterole noinherit nobypassrls"
+      - name: Run real PostgreSQL acceptance tests
+        run: npm run test:postgres
