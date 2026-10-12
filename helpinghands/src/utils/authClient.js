@@ -6,7 +6,8 @@ import {clientPlatform} from '../platform/client.js';
 import {WORKSPACE_SITE_STORAGE_PREFIX} from '../hooks/useWorkspaceSite.js';
 import {documentCache} from './documentCache.js';
 
-const AUTH_BASE_URL = `${API_BASE || clientPlatform.location.origin()}/api/auth`;
+// Without an API origin Better Auth uses the page's own, at its default /api/auth.
+const AUTH_BASE_URL = API_BASE ? `${API_BASE}/api/auth` : undefined;
 
 export const authClient = createAuthClient({
   baseURL: AUTH_BASE_URL,
