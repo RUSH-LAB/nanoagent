@@ -1,7 +1,7 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  basename, buildTree, dirname, invalidName, join, movedPath, tabChanges, visibleRows, within,
+  basename, buildTree, comparePath, dirname, invalidName, join, movedPath, tabChanges, visibleRows, within,
 } from '../../../../src/components/Workbench/tree.js';
 
 const files = [
@@ -47,6 +47,15 @@ describe('workbench tree', () => {
     assert.equal(movedPath('papers/a/ms.tex', 'papers/a', 'archive/a'), 'archive/a/ms.tex');
     assert.equal(movedPath('papers/ab/ms.tex', 'papers/a', 'archive/a'), 'papers/ab/ms.tex');
     assert.equal(movedPath('x.md', 'x.md', 'y.md'), 'y.md');
+  });
+
+  it('keeps a compare tab below its file, so it follows the file\'s renames and deletion', () => {
+    const tab = comparePath('papers/a/ms.tex', 12);
+    assert.equal(dirname(tab), 'papers/a/ms.tex');
+    assert.equal(movedPath(tab, 'papers/a/ms.tex', 'papers/a/main.tex'), comparePath('papers/a/main.tex', 12));
+    assert.equal(movedPath(tab, 'papers', 'archive'), comparePath('archive/a/ms.tex', 12));
+    assert.equal(within(tab, 'papers/a/ms.tex'), true);
+    assert.equal(within(tab, 'papers/a/ms'), false);
   });
 
   it('refuses names that are not one path segment', () => {

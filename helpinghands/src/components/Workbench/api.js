@@ -41,6 +41,21 @@ export async function readFile(path) {
   return {text: await response.text(), rev};
 }
 
+/** Every revision of `path`'s content, newest first, each `{seq, at, actorId, size}` among others. */
+export async function history(path) {
+  return (await apiRequest(`/api/fs/history?${query(path)}`, undefined, {failureLabel: `Could not list the revisions of ${path}`})).revisions;
+}
+
+/** The text of `path` as of its revision `seq`. */
+export async function readRevision(path, seq) {
+  const response = await apiFetch(`${API_BASE}/api/fs/revision?${query(path)}&seq=${seq}`);
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || `Could not read that revision of ${path} (${response.status})`);
+  }
+  return response.text();
+}
+
 /** Save `text` at `path`. `baseRev` is the revision it was read at; `create` requires that nothing is there yet. */
 export async function saveFile(path, text, {create = false, baseRev} = {}) {
   const revision = create ? 0 : baseRev;

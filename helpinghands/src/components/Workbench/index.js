@@ -11,7 +11,7 @@ import Editor from './Editor';
 import {openLiveDocument} from './liveDocument';
 import {appFor} from './apps';
 import Explorer, {ContextMenu} from './Explorer';
-import {basename, buildTree, dirname, invalidName, join, movedPath, tabChanges, within} from './tree';
+import {basename, buildTree, comparePath, dirname, invalidName, join, movedPath, tabChanges, within} from './tree';
 import {editorViews} from './viewState';
 import styles from './styles.module.css';
 
@@ -23,10 +23,11 @@ import styles from './styles.module.css';
  * every explorer action through ./api. The open file is kept in ?path=.
  *
  * A save names the revision the tab was read at, so an edit made elsewhere in
- * the meantime is reported rather than overwritten. Open tabs follow what the
+ * the meantime is merged rather than overwritten. Open tabs follow what the
  * workspace's push channel reports was done elsewhere: renames, deletes, and
  * writes, which a tab without unsaved edits reads in. Who can see a file or
- * folder (the workspace, only you, or anyone) is set from its context menu.
+ * folder (the workspace, only you, or anyone) is set from its context menu,
+ * which also compares a text file with an earlier revision and restores it.
  *
  * This browser keeps a replica (utils/fsReplica.js): the tree, and the text
  * files opened or kept on this computer. Without a network the explorer shows
@@ -158,7 +159,7 @@ export default function Workbench({workspace}) {
           live.close();
           return;
         }
-        updateTab(file.path, {live, loading: false});
+        updateTab(file.path, {live, opened: live.text.toString(), loading: false});
       })
       .catch(error => updateTab(file.path, {loading: false, error: isOffline(error)
         ? `${basename(file.path)} is not kept on this computer, and the server cannot be reached.`
@@ -236,7 +237,9 @@ export default function Workbench({workspace}) {
         updateTab(detail.path, {rev: detail.rev});
         toast.success(`Uploaded your offline edit to ${basename(detail.path)}.`);
       } else if (detail.conflictedCopy) {
-        toast.warning(`${detail.path} changed while you were offline, so your edit was saved as ${detail.conflictedCopy}.`, {duration: 0});
+        toast.warning(`${detail.path} changed while you were offline, so your edit was saved as ${detail.conflictedCopy}.`, {
+          duration: 0, actionLabel: 'Compare', action: () => compareCopy(detail.path, detail.conflictedCopy),
+        });
       } else if (detail.error) {
         toast.error(`Your offline edit to ${detail.path} could not be uploaded: ${detail.error}`, {duration: 0});
       } else if (detail.disconnected) {
@@ -303,7 +306,7 @@ export default function Workbench({workspace}) {
     updateTab(path, {saving: true});
     api.saveFile(path, text, {baseRev: tab.rev})
       .then(entry => {
-        updateTab(path, {saving: false, saved: text, rev: entry.rev});
+        updateTab(path, {saving: false, saved: text, rev: entry.rev, conflict: false});
         if (scopeRef.current) fsReplica().remember(scopeRef.current, path, {text, rev: entry.rev});
         load();
       })
@@ -316,10 +319,80 @@ export default function Workbench({workspace}) {
           toast.info(`You are offline. ${basename(path)} is saved on this computer and will upload when you reconnect.`);
           return;
         }
-        toast.error(error.code === 'stale-revision'
-          ? `${basename(path)} was changed elsewhere. Copy your edits, close the tab, and open it again.`
-          : error.message);
+        if (error.code !== 'stale-revision') {
+          toast.error(error.message);
+          return;
+        }
+        // Saved elsewhere since it was read: the tab now compares the user's
+        // text with that save, to merge change by change and save over it.
+        try {
+          const fresh = await api.readFile(path);
+          if (fresh.binary) throw new Error(`${path} is no longer text`);
+          setTabs(current => current.map(item => (item.path === path
+            ? {...item, saved: fresh.text, rev: fresh.rev, conflict: item.text !== fresh.text, changedElsewhere: false}
+            : item)));
+        } catch (readError) {
+          toast.error(`${basename(path)} was changed elsewhere, and that change could not be read: ${readError.message}`);
+        }
       });
+  };
+
+  const readText = async path => {
+    const result = await api.readFile(path);
+    if (result.binary) throw new Error(`${path} is not text, so it cannot be compared`);
+    return result;
+  };
+
+  // A compare tab at `path` (tree.js comparePath), whose texts `read` resolves.
+  const compare = (path, title, read) => {
+    setActivePath(path);
+    if (tabsRef.current.some(tab => tab.path === path)) return;
+    setTabs(current => [...current, {path, kind: 'diff', title, loading: true}]);
+    read()
+      .then(texts => updateTab(path, {...texts, loading: false}))
+      .catch(error => updateTab(path, {loading: false, error: error.message}));
+  };
+
+  // The file now against its revision `seq`, the `number`th of its content.
+  const compareRevision = (file, seq, number) => compare(comparePath(file, seq), `${basename(file)} ↔ revision ${number}`, async () => {
+    const [original, current] = await Promise.all([api.readRevision(file, seq), readText(file)]);
+    return {original, text: current.text, rev: current.rev, restorable: true};
+  });
+
+  // A conflicted copy against the file it was made from, which kept the path.
+  const compareCopy = (file, copy) => compare(comparePath(copy, 'original'), `${basename(copy)} ↔ ${basename(file)}`, async () => {
+    const [theirs, yours] = await Promise.all([readText(file), readText(copy)]);
+    return {original: theirs.text, text: yours.text};
+  });
+
+  // The revisions to compare with, as a menu where the context menu was.
+  const chooseRevision = async (node, position) => {
+    let revisions;
+    try {
+      revisions = await api.history(node.path);
+    } catch (error) {
+      toast.error(error.message);
+      return;
+    }
+    // The newest revision is the file as it is now.
+    if (revisions.length < 2) {
+      toast.info(`${node.path} has no earlier revisions.`);
+      return;
+    }
+    setMenu({...position, items: revisions.slice(1).map((revision, index) => {
+      const number = revisions.length - 1 - index;
+      return {label: `Revision ${number}, ${new Date(revision.at).toLocaleString()}`, run: () => compareRevision(node.path, revision.seq, number)};
+    })});
+  };
+
+  // The compared revision is written back over the file as it was when compared.
+  const restoreRevision = path => {
+    const tab = tabsRef.current.find(item => item.path === path);
+    const file = dirname(path);
+    run(() => api.saveFile(file, tab.original, {baseRev: tab.rev}), () => {
+      close(path);
+      toast.success(`Restored ${file} to that revision`);
+    });
   };
 
   // `discard` closes a tab with unsaved edits without asking.
@@ -520,6 +593,7 @@ export default function Workbench({workspace}) {
   // folder, or the empty explorer), separated as VS Code separates them.
   const showMenu = (event, node) => {
     event.preventDefault();
+    const position = {x: event.clientX, y: event.clientY};
     const file = node?.type === 'file';
     const groups = [
       file ? [
@@ -530,6 +604,7 @@ export default function Workbench({workspace}) {
           label: held.get(node.path)?.pinned ? '✓ Kept on this computer' : 'Keep on this computer',
           run: () => togglePinned(node),
         }] : []),
+        ...(kindOf(node) === 'text' ? [{label: 'Compare with Revision…', run: () => chooseRevision(node, position)}] : []),
       ] : [],
       !readOnly && !file ? [
         {label: 'New File…', run: () => startCreate('file', node?.path ?? '')},
@@ -550,7 +625,7 @@ export default function Workbench({workspace}) {
       !node ? [{label: 'Show Trash', run: openTrash}] : [],
     ].filter(group => group.length);
     const items = groups.flatMap((group, index) => (index ? ['separator', ...group] : group));
-    setMenu({x: event.clientX, y: event.clientY, items});
+    setMenu({...position, items});
   };
   const closeMenu = useCallback(() => setMenu(null), []);
 
@@ -632,7 +707,9 @@ export default function Workbench({workspace}) {
           viewOf={views.get}
           onActivate={setActivePath}
           onClose={close}
+          onSave={save}
           onSaveAsNew={saveAsNew}
+          onRestore={restoreRevision}
           onDiscard={path => close(path, {discard: true})}
           onChange={(path, text) => updateTab(path, {text})}
           onView={views.set}

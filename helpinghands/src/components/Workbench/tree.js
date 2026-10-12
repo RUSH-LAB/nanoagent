@@ -12,6 +12,13 @@ export const join = (folder, name) => (folder ? `${folder}/${name}` : name);
 export const within = (path, folder) => path === folder || path.startsWith(`${folder}/`);
 
 /**
+ * The tab comparing `file` with `against` (a revision, or the file a
+ * conflicted copy was made from). It lies below the file, where no other
+ * entry can, so it follows the file's renames and closes with its deletion.
+ */
+export const comparePath = (file, against) => `${file}/@${against}`;
+
+/**
  * `{files, folders}` from the API as nested nodes, folders before files and
  * each sorted by name, as VS Code shows them. A folder is a path or an object
  * with one, whose other fields (such as `access`) the node keeps. A folder
