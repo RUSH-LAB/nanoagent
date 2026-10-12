@@ -16,7 +16,7 @@ const {
 } = require('./server-utils');
 
 const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
-const {auth, tenancy, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
+const {auth, tenancy, githubUsers, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
 const {asksForSession, redirectFor} = require('../utils/signIn');
 const {createAiMeter} = require('./ai-metering');
 const {
@@ -513,6 +513,7 @@ const ctx = {
   cleanPendingObjects,
   assets,
   assetStore,
+  githubUsers,
   // The workspace file system; PostgreSQL only.
   workspaceFs: postgresServices?.fs ?? null,
   publicFs: postgresServices?.publicFs ?? null,

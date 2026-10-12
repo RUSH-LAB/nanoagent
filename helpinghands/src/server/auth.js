@@ -40,8 +40,11 @@ const db = postgres.enabled ? null : require('./db').db;
 const {DATA_DIR} = require('./paths');
 const {sendMail} = require('./mail');
 const {
-  organizationOptions, workspaceAccessControl, workspaceRoles, postgresCoreSchema, postgresDeviceCodeSchema, authSessionOptions,
+  organizationOptions, workspaceAccessControl, workspaceRoles, githubUserFields, githubProfileFields,
+  postgresCoreSchema, postgresDeviceCodeSchema, authSessionOptions,
 } = require('./workspace-auth');
+const {createGithubUsers} = require('./github-users');
+const {createPostgresGithubUsers} = require('./postgres/github-users');
 const {createWorkspaceProvisioning} = require('./workspace-provisioning');
 
 const PORT = process.env.EDITOR_PORT || process.env.PORT || 3001;
@@ -58,6 +61,17 @@ const CLI_CLIENT_ID = 'mochi-cli';
 // Sign-up policy, workspace and member limits, suspension, and the rate-limit
 // store shared by every server process (postgres/tenancy.js).
 const tenancy = postgres.enabled ? createPostgresTenancy({pool: postgres.pool}) : null;
+
+// Accounts by GitHub username, which blog posts name their authors by.
+const githubUsers = postgres.enabled ? createPostgresGithubUsers({pool: postgres.pool}) : createGithubUsers({db});
+
+/**
+ * Before a user row takes a GitHub username, take it from whichever account
+ * held it: GitHub gave a renamed account's old name to whoever signs in with it now.
+ */
+async function claimGithubLogin(user) {
+  if (user.githubLogin) await githubUsers.release(user.githubLogin);
+}
 
 // Channels are files when the workspace file system serves content; required
 // when first needed, because the services module requires this one.
@@ -188,7 +202,10 @@ const auth = betterAuth({
   // Better Auth recognizes pg.Pool directly and builds its own Kysely adapter.
   // Passing an already-created Kysely instance is not a supported input shape.
   database: postgres.enabled ? postgres.pool : db,
-  ...(postgres.enabled ? postgresCoreSchema : {}),
+  ...(postgres.enabled ? postgresCoreSchema : {user: {additionalFields: githubUserFields}}),
+  // An account is what GitHub says it is: every sign-in copies the name,
+  // picture, username and bio, so nothing may edit them in between.
+  disabledPaths: ['/update-user'],
   ...(tenancy ? {
     user: {
       ...postgresCoreSchema.user,
@@ -239,9 +256,12 @@ const auth = betterAuth({
     ...(process.env.SITE_URL ? [process.env.SITE_URL] : []),
   ],
   socialProviders: {
-    // Every sign-in copies the GitHub account's name, picture and primary
-    // email onto the user, so what Mochi shows is what GitHub says now.
-    github: {clientId: GITHUB_CLIENT_ID, clientSecret: GITHUB_CLIENT_SECRET, overrideUserInfoOnSignIn: true},
+    // Every sign-in copies the GitHub account's name, picture, primary email,
+    // username and bio onto the user, so what Mochi shows is what GitHub says now.
+    github: {
+      clientId: GITHUB_CLIENT_ID, clientSecret: GITHUB_CLIENT_SECRET, overrideUserInfoOnSignIn: true,
+      mapProfileToUser: githubProfileFields,
+    },
   },
   // Every session opens in an organization when the account has one. Written
   // as the session row is created rather than patched afterwards, so there is
@@ -259,10 +279,15 @@ const auth = betterAuth({
           if (!user.emailVerified) {
             throw new APIError('FORBIDDEN', {message: 'Verify your primary email address on GitHub, then sign in again.', code: 'email-unverified'});
           }
-          if (!tenancy || !context?.request) return;
-          const decision = await tenancy.signupDecision(user.email);
-          if (!decision.allowed) throw new APIError('FORBIDDEN', {message: decision.message, code: 'signup-closed'});
+          if (tenancy && context?.request) {
+            const decision = await tenancy.signupDecision(user.email);
+            if (!decision.allowed) throw new APIError('FORBIDDEN', {message: decision.message, code: 'signup-closed'});
+          }
+          await claimGithubLogin(user);
         },
+      },
+      update: {
+        before: claimGithubLogin,
       },
     },
     session: {
@@ -398,6 +423,7 @@ async function resolveIdentity(req) {
 module.exports = {
   auth,
   tenancy,
+  githubUsers,
   workspaceProvisioning,
   resolveIdentity,
   productionAuthError,

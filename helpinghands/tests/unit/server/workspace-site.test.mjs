@@ -60,28 +60,14 @@ describe('workspace site configuration', () => {
     assert.throws(() => validateWorkspaceSite({navigation: 'bad'}), /array/);
     assert.throws(() => validateWorkspaceSite({navigation: [{label: 'Bad', path: '../outside'}]}), /workspace-relative/);
     assert.throws(() => validateWorkspaceSite({collections: [{key: 'x', type: 'plugin', pathPrefix: 'x', title: 'X'}]}), /docs or blog/);
-    assert.throws(() => validateWorkspaceSite({authors: {ada: {name: 'Ada', url: 'javascript:alert(1)'}}}), /HTTP URL/);
     assert.throws(() => validateWorkspaceSite({plugins: []}), /object/);
     assert.throws(() => validateWorkspaceSite({plugins: {'../bad': {enabled: true}}}), /Invalid plugin name/);
   });
 
-  it('keeps inert per-workspace blog author presentation data', () => {
-    const site = validateWorkspaceSite({authors: {
-      ada: {
-        name: 'Ada Lovelace',
-        title: 'Mathematician',
-        url: 'https://example.com',
-        image_url: 'https://example.com/ada.png',
-        socials: {github: 'https://github.com/ada'},
-      },
-    }});
-    assert.deepEqual(site.authors.ada, {
-      name: 'Ada Lovelace', title: 'Mathematician', url: 'https://example.com', imageUrl: 'https://example.com/ada.png',
-      socials: {github: 'https://github.com/ada'},
-    });
-    assert.throws(() => validateWorkspaceSite({authors: {
-      ada: {name: 'Ada', socials: {github: 'javascript:alert(1)'}},
-    }}), /HTTP URL/);
+  it('keeps no authors of its own: posts name theirs by GitHub username', () => {
+    const site = validateWorkspaceSite({authors: {ada: {name: 'Ada'}}, authoring: {defaultAuthor: 'ada'}});
+    assert.equal('authors' in site, false);
+    assert.deepEqual(site.authoring, {quickNotesPath: null});
   });
 
   it('keeps the native blog sidebar title and reading-time setting', () => {

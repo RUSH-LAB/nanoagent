@@ -59,7 +59,7 @@ const SNAPSHOT_LIMIT = 10;
 
 module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) {
   const {
-    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, documents, workspaceSettings, requireWorkspacePermission, _routeDiagnostics
+    appendAccessLog, walkDir, flatFiles, json, readBody, readRawBody, loadJSON, saveJSON, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, orgSlugFor, contentRootFor, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS, collection, scopeFor, documents, workspaceSettings, requireWorkspacePermission, githubUsers, _routeDiagnostics
   } = ctx;
 
   // ── Content duplicate detection ──
@@ -502,6 +502,14 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
           code: 'quicknote-path-not-configured',
         });
       }
+      // The note's author is the caller, by GitHub username.
+      const author = await githubUsers.loginOf(req.context.userId);
+      if (!author) {
+        return json(res, 409, {
+          error: 'Sign in with GitHub again so Mochi knows your GitHub username',
+          code: 'github-login-unknown',
+        });
+      }
 
       const now = new Date();
       const datePrefix = now.toISOString().slice(0, 10); // YYYY-MM-DD
@@ -533,7 +541,7 @@ module.exports = async function misc_tools_routes(req, res, url, pathname, ctx) 
         '---',
         `slug: ${slug}`,
         `title: "${frontmatterTitle.replace(/"/g, '\\"')}"`,
-        ...(site.authoring.defaultAuthor ? [`authors: [${site.authoring.defaultAuthor}]`] : []),
+        `authors: [${author}]`,
         `tags: [quick-note]`,
         `draft: true`,
         '---',

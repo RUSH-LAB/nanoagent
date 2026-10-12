@@ -437,6 +437,7 @@ export function makeCtx(overrides = {}) {
   const documentLayer = documents ?? makeDocuments(sharedDb);
   const preferenceLayer = require('../../src/server/preferences.js').createPreferences({db: sharedDb});
   const workspaceSettingsLayer = require('../../src/server/workspace-settings.js').createWorkspaceSettings({db: sharedDb});
+  const githubUsersLayer = require('../../src/server/github-users.js').createGithubUsers({db: sharedDb});
   const assetLayer = require('../../src/server/assets.js').createAssets({db: sharedDb});
 
   const calls = {json: [], loadJSON: [], saveJSON: [], rateLimit: [], invalidateCache: [], cached: [], ai: [], aiUsage: []};
@@ -637,6 +638,7 @@ export function makeCtx(overrides = {}) {
     documents: documentLayer,
     preferences: preferenceLayer,
     workspaceSettings: workspaceSettingsLayer,
+    githubUsers: githubUsersLayer,
     assets: assetLayer,
     compileDocument: (doc, settings) => require('../../src/server/mdx.js').compileMarkdown(doc.markdown, settings),
     compileMarkdown: (markdown, settings) => require('../../src/server/mdx.js').compileMarkdown(markdown, settings),

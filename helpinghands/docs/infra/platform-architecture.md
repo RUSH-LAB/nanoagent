@@ -74,8 +74,10 @@ an installed plugin and store data through its scoped APIs; it cannot supply a
 package, module path, command, or JavaScript option.
 
 Workspace-owned presentation is validated data in `workspace_settings`:
-branding, homepage, navigation, docs/blog collection definitions, authors, and
-feature switches. Documents and references are PostgreSQL rows. Asset metadata
+branding, homepage, navigation, docs/blog collection definitions, and feature
+switches. A workspace keeps no author records: a blog post names its authors by
+GitHub username, and the byline is each account's GitHub name, avatar and bio,
+copied at every sign-in. Documents and references are PostgreSQL rows. Asset metadata
 and bytes are both PostgreSQL data: metadata lives in `asset`, and the payload
 and integrity fields live in `object_blob`. No runtime asset depends on a
 machine-local directory or a second storage service. Every cache key, job,

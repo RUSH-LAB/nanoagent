@@ -15,6 +15,7 @@ import useWorkspaceSubscriptions, {
 } from '@site/src/hooks/useWorkspaceSubscriptions';
 import API_BASE, {apiFetch, apiJson, invalidateApiJson} from '@site/src/utils/api';
 import {loadWorkspaces, navigateClient} from '@site/src/utils/workspaces';
+import {authClient} from '@site/src/utils/authClient';
 import {
   DOCUMENT_SYNC_EVENT, documentCache, isOffline, startDocumentSync,
 } from '@site/src/utils/documentCache';
@@ -510,6 +511,7 @@ function DocumentBody({
               document: documentResult.data.document,
               markdown: documentResult.data.markdown,
               frontmatter: documentResult.data.frontmatter || {},
+              authors: documentResult.data.authors,
               documents: listed,
               homeLayout,
               ...readyBase,
@@ -527,6 +529,7 @@ function DocumentBody({
               document: documentResult.data.document,
               markdown: documentResult.data.markdown,
               frontmatter: documentResult.data.frontmatter || {},
+              authors: documentResult.data.authors,
               documents: listed,
               ...readyBase,
             });
@@ -630,6 +633,7 @@ function DocumentBody({
             tree: detail.data.tree,
             markdown: detail.data.markdown,
             frontmatter: detail.data.frontmatter || {},
+            authors: detail.data.authors,
             document: detail.data.document,
           };
         }
@@ -659,6 +663,7 @@ function DocumentBody({
       tree: saved.tree,
       markdown: saved.markdown,
       frontmatter: saved.frontmatter ?? current.frontmatter,
+      authors: saved.authors ?? current.authors,
       document: {...current.document, ...saved.document},
       documents: (current.documents || []).map(item => item.path === saved.document.path
         ? {...item, title: saved.document.title, updatedAt: saved.document.updatedAt}
@@ -676,11 +681,17 @@ function DocumentBody({
         ? adjacent.document.path.slice(0, adjacent.document.path.lastIndexOf('/'))
         : collection?.pathPrefix;
       const targetCollection = adjacent ? {...collection, pathPrefix: directory} : collection;
+      // A post's author is whoever starts it, by GitHub username.
+      let author = null;
+      if (targetCollection?.type === 'blog') {
+        author = (await authClient.getSession()).data?.user?.githubLogin;
+        if (!author) throw new Error('Sign in with GitHub again so Mochi knows your GitHub username.');
+      }
       const draft = newDocumentDraft({
         collection: targetCollection,
         title,
         existingPaths: (state.documents || []).map(item => item.path),
-        defaultAuthor: state.site?.authoring?.defaultAuthor,
+        author,
         group,
         sidebarPosition: adjacent && collection?.type !== 'blog'
           ? adjacentDocumentPosition(state.documents || [], adjacent.document.path, adjacent.direction)
@@ -722,6 +733,7 @@ function DocumentBody({
         markdown: undefined,
         tree: undefined,
         frontmatter: {},
+        authors: undefined,
       }));
       const destination = collection?.pathPrefix
         ? `/w/${encodeURIComponent(workspaceSlug)}/documents/${collection.pathPrefix}`
@@ -986,7 +998,7 @@ function DocumentBody({
       workspaceSlug,
       collectionPath: collection.pathPrefix,
       showReadingTime: collection.showReadingTime,
-      authors: state.site?.authors,
+      authors: state.authors,
       previous,
       next,
       onEdit: canEdit ? () => setEditing(true) : null,
