@@ -97,7 +97,14 @@ function productionAuthError(env = process.env) {
   if (!env.BETTER_AUTH_SECRET || env.BETTER_AUTH_SECRET.length < 32) {
     return 'Refusing to start: production requires BETTER_AUTH_SECRET with at least 32 characters.';
   }
-  if (!env.SITE_URL || !/^https:\/\//i.test(env.SITE_URL)) {
+  if (env.MOCHI_DESKTOP === '1') {
+    // The desktop app (desktop/) serves one user on loopback, where no proxy terminates TLS;
+    // index.js binds 127.0.0.1 only, so the plain-HTTP origin never leaves the machine.
+    const origin = `http://localhost:${env.EDITOR_PORT}`;
+    if (env.SITE_URL !== origin) {
+      return `Refusing to start: the desktop app requires SITE_URL=${origin}, its loopback origin.`;
+    }
+  } else if (!env.SITE_URL || !/^https:\/\//i.test(env.SITE_URL)) {
     return 'Refusing to start: production requires an HTTPS SITE_URL for same-origin session cookies.';
   }
   if (!env.DATABASE_URL) {

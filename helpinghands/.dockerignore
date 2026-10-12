@@ -4,6 +4,7 @@
 build
 node_modules
 var
+desktop
 .env
 .env.*
 !.env.postgres.remote.example
