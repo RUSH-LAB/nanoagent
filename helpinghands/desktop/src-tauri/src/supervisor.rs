@@ -108,6 +108,33 @@ impl Supervisor {
         self.data.join("settings.env")
     }
 
+    /// The services this app has running: one `pid<TAB>program` line each.
+    fn pid_file(&self) -> PathBuf {
+        self.data.join("services.pid")
+    }
+
+    /// Stop the services a previous run left behind when it was killed or crashed: each
+    /// recorded process that is still running the program it was started with.
+    #[cfg(unix)]
+    fn stop_leftovers(&self) {
+        let Ok(text) = fs::read_to_string(self.pid_file()) else { return };
+        for (pid, program) in text.lines().filter_map(|line| line.split_once('\t')) {
+            let Ok(pid) = pid.parse::<libc::pid_t>() else { continue };
+            let command = Command::new("ps").args(["-p", &pid.to_string(), "-o", "command="]).output();
+            let running = command.is_ok_and(|output| String::from_utf8_lossy(&output.stdout).starts_with(program));
+            if !running {
+                continue;
+            }
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+            let deadline = Instant::now() + STOP_TIMEOUT;
+            while Instant::now() < deadline && unsafe { libc::kill(pid, 0) } == 0 {
+                thread::sleep(Duration::from_millis(100));
+            }
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+        let _ = fs::remove_file(self.pid_file());
+    }
+
     /// Run startup on its own thread; the window's splash follows it through `status`.
     pub fn start(self: &Arc<Self>, app: AppHandle) {
         if let Some(window) = app.get_webview_window("main") {
@@ -166,6 +193,8 @@ impl Supervisor {
         let text = fs::read_to_string(&settings_file).map_err(|error| format!("{}: {error}", settings_file.display()))?;
         let settings = parse_env(&text).map_err(|error| format!("{}: {error}", settings_file.display()))?;
 
+        #[cfg(unix)]
+        self.stop_leftovers();
         let (port, nanoagent_port) = (self.config.port, self.config.nanoagent_port);
         let occupied: Vec<String> = [port, nanoagent_port].into_iter().filter(|&port| listening(port)).map(|port| port.to_string()).collect();
         if !occupied.is_empty() {
@@ -291,6 +320,10 @@ impl Supervisor {
             .stderr(open_log_append(log)?)
             .spawn()
             .map_err(|error| format!("could not start {name} ({}): {error}", program.display()))?;
+        let record = format!("{}\t{}\n", child.id(), program.display());
+        fs::OpenOptions::new().create(true).append(true).open(self.pid_file())
+            .and_then(|mut file| file.write_all(record.as_bytes()))
+            .map_err(|error| format!("{}: {error}", self.pid_file().display()))?;
         self.services.lock().unwrap().push(Service { name, child, log: log.to_path_buf() });
         Ok(())
     }
@@ -362,6 +395,7 @@ impl Supervisor {
             let _ = service.child.kill();
             let _ = service.child.wait();
         }
+        let _ = fs::remove_file(self.pid_file());
     }
 }
 

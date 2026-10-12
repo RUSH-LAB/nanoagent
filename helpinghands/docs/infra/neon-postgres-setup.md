@@ -26,35 +26,40 @@ user, session, workspace, membership, and invitation lifecycle.
 
 No local PostgreSQL or Docker installation is required.
 
+## Branches
+
+The Neon project `curly-rice-08210507` has one branch per environment:
+
+| Branch | Used by |
+| --- | --- |
+| `production` | Railway's Mochi service (mochi-lab.org) |
+| `development` | Local development: `npm start` and `npm run test:postgres` |
+
+`.neon` names the project and the `development` branch, so Neon commands run
+from this folder act on `development`. Nothing local connects to `production`.
+
+`npm run db:sync` resets `development` to production's current data, discarding
+whatever changed in `development`; stop the local server first. Schema changes
+need no syncing: migrations apply to `development` when the local server
+starts, and to `production` when Railway deploys. Nothing is copied from
+`development` to `production`.
+
 ## Set up a new machine
 
-Install the project and Neon CLI:
+Install the project, which includes the Neon CLI, and sign in to Neon:
 
 ```bash
 git clone <repository-url>
-cd mochi-lab
+cd helpinghands/helpinghands
 npm ci
-npm install --global neon@latest
-neon auth
-```
-
-Link the existing Neon project:
-
-```bash
-neon link --project-id curly-rice-08210507 --branch production -y
-```
-
-Do not run acceptance tests against the production branch. Create or select an
-isolated branch for the machine:
-
-```bash
-neon checkout dev-my-laptop
+npx neon login
+npx neon env pull
 npm run neon:deploy
 ```
 
-`neon checkout` pulls the branch's pooled and direct owner URLs into the
-git-ignored `.env`. `neon:deploy` applies the configuration declared in
-`infra/neon.ts`.
+`neon env pull` writes the `development` branch's pooled and direct owner URLs
+into the git-ignored `.env`. `neon:deploy` applies the configuration declared
+in `infra/neon.ts`.
 
 Prepare the application role and schema:
 
@@ -73,9 +78,6 @@ The setup command:
 6. Creates or repairs the restricted runtime role.
 7. Applies versioned migrations and grants the runtime role only the required
    table, sequence, and function privileges.
-
-When switching branches, setup keeps the existing runtime password but updates
-both connection hosts to the newly checked-out Neon branch.
 
 After setup succeeds, keep `.env`; it is the single local configuration file
 for the database, NanoAgent, and optional verification commands.
@@ -119,9 +121,9 @@ first request after a long pause can be slower than subsequent requests.
 
 ```bash
 npm run neon:plan             # Preview infra/neon.ts changes
-npm run neon:deploy           # Apply infra/neon.ts to the linked branch
-neon checkout <branch-name>   # Change the branch recorded in .neon
-neon env pull                 # Refresh Neon-managed variables in .env
+npm run neon:deploy           # Apply infra/neon.ts to the development branch
+npx neon env pull             # Refresh Neon-managed variables in .env
+npm run db:sync               # Reset development to production's data (discards development's changes)
 
 npm run db:postgres:prepare   # Regenerate the private local environment
 npm run db:postgres:bootstrap # Create or repair mochi_runtime
@@ -130,13 +132,10 @@ npm run db:postgres:verify    # Run the RLS/outbox probe
 npm run test:postgres         # Run the complete database acceptance suite
 ```
 
-Always test migrations on an isolated Neon branch before applying them to
-production.
-
 ## Local files and secrets
 
-- `.neon` stores the linked organization, project, and branch IDs. It contains
-  no database password, is git-ignored, and can be recreated with `neon link`.
+- `.neon` names the Neon organization, project, and the `development` branch.
+  It contains no database password and is committed.
 - `.env` contains Neon credentials and Mochi's other private local configuration. It is
   git-ignored and must remain mode `0600`.
 - `infra/neon.ts` is committed configuration-as-code. Because it is not at the
@@ -148,20 +147,12 @@ accidental disclosure.
 
 ## Troubleshooting
 
-### `neon` is not found
-
-Install the CLI globally and restart the shell:
-
-```bash
-npm install --global neon@latest
-```
-
 ### Setup cannot find a connection URL
 
 Refresh the linked branch environment, then retry setup:
 
 ```bash
-neon env pull
+npx neon env pull
 npm run db:postgres:setup
 ```
 

@@ -5,7 +5,6 @@
   "identifier": "lab.mochi.desktop",
   "build": {
     "frontendDist": "../splash",
-    "beforeDevCommand": {"script": "node scripts/stage.mjs", "wait": true},
     "beforeBuildCommand": "node scripts/stage.mjs"
   },
   "app": {

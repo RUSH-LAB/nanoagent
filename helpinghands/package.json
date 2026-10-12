@@ -12,6 +12,7 @@
   "scripts": {
     "neon:plan": "neon config plan --config infra/neon.ts",
     "neon:deploy": "neon deploy --config infra/neon.ts",
+    "db:sync": "neon branches reset development --parent",
     "new:plugin": "node scripts/dev/create-plugin.mjs",
     "db:postgres:bootstrap": "node scripts/db/postgres.mjs bootstrap",
     "db:postgres:prepare": "node scripts/db/postgres.mjs prepare",
@@ -29,6 +30,7 @@
     "proofs:test": "node --test 'tests/unit/plugins/lean-proofs/**/*.test.mjs' && npm run proofs:check",
     "docusaurus": "docusaurus",
     "start": "node scripts/dev/start-local.mjs",
+    "desktop": "npm --prefix desktop install --no-audit --no-fund && npm --prefix desktop run build && open \"desktop/src-tauri/target/release/bundle/macos/Mochi Lab.app\"",
     "start:site": "docusaurus start --no-open",
     "start:production": "NODE_ENV=production node src/server/index.js",
     "build": "docusaurus build",
@@ -83,7 +85,8 @@
   "devDependencies": {
     "@docusaurus/module-type-aliases": "^3.10.0",
     "@docusaurus/types": "^3.10.0",
-    "@electric-sql/pglite": "^0.5.8"
+    "@electric-sql/pglite": "^0.5.8",
+    "neon": "^8.3.5"
   },
   "browserslist": {
     "production": [

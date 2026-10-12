@@ -58,11 +58,15 @@ messages to their actual recipients.
 ## Railway
 
 Create the public Mochi service from `zeyuyang8/helpinghands`, branch `production`,
-with root directory `helpinghands`, config file `/helpinghands/railway.toml`,
-and watch path `/helpinghands/**`. Railway will use that `railway.toml` and
-`helpinghands/Dockerfile`. Add every value from
+with root directory `helpinghands` and watch path `/helpinghands/**`. Railway
+reads `railway.toml` from the root directory, which sets the build
+(`Dockerfile`), the pre-deploy migrations, and the health check; keep those
+there rather than in the service settings. Add every value from
 the database, authentication, and email configuration described above to the
-service variables; do not upload `.env`.
+service variables; do not upload `.env`. `DATABASE_URL` and
+`DATABASE_MIGRATION_URL` point at the Neon `production` branch
+([neon-postgres-setup.md](neon-postgres-setup.md)). GitHub sign-in uses its own
+OAuth App, with the callback `https://mochi-lab.org/api/auth/callback/github`.
 
 Create a second, private service from the same repository and branch, with
 root directory `nanoagent` and watch path `/nanoagent/**`. Run
