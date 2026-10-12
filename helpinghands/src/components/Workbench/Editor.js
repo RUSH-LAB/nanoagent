@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import clsx from 'clsx';
 import CodeMirror from '@uiw/react-codemirror';
+import {historyField} from '@codemirror/commands';
 import {Transaction} from '@codemirror/state';
 import {keymap} from '@codemirror/view';
 import {yCollab, yUndoManagerKeymap} from 'y-codemirror.next';
@@ -8,6 +9,7 @@ import {useColorMode} from '@docusaurus/theme-common';
 import {changedRange} from '@site/src/server/fs/textDiff';
 import {languageFor} from './languages';
 import {basename} from './tree';
+import {liveSelection, relativeSelection, textStateJSON} from './viewState';
 import styles from './styles.module.css';
 
 /**
@@ -16,33 +18,53 @@ import styles from './styles.module.css';
  * shared document, edits merge with everyone else's as they are typed, and
  * there is nothing to save. Other text opens in CodeMirror and is saved on ⌘S;
  * images and PDFs open as previews; anything else can only be downloaded. The
- * workbench owns every tab's state.
+ * workbench owns every tab's state, including where its editor was left
+ * (viewState.js): an editor starts from its tab's record and reports every
+ * change of selection, text and scroll to it.
  */
 
-/** A Markdown file bound to its shared document. */
-function LiveEditor({tab, readOnly, language, colorMode, onCursor}) {
+/** Scroll a new editor to where it was left, and report where it is scrolled to. */
+function followScroll(editor, saved, onView) {
+  const top = saved?.scrollTop;
+  if (top) editor.requestMeasure({read: () => null, write: () => { editor.scrollDOM.scrollTop = top; }});
+  editor.scrollDOM.addEventListener('scroll', () => onView({scrollTop: editor.scrollDOM.scrollTop}));
+}
+
+const reportCursor = (update, onCursor) => {
+  const head = update.state.selection.main.head;
+  const line = update.state.doc.lineAt(head);
+  onCursor({line: line.number, column: head - line.from + 1});
+};
+
+/**
+ * A Markdown file bound to its shared document. Its undo history is the
+ * document's, so it outlives the editor.
+ */
+function LiveEditor({tab, saved, readOnly, language, colorMode, onCursor, onView}) {
   // The editor starts from the document's text; from then on the binding keeps
   // the two in step. The wrapper copies `value` into the editor only when the
   // prop changes, so it is the same string for the editor's whole life.
   const [initial] = useState(() => tab.live.text.toString());
+  const [selection] = useState(() => liveSelection(tab.live.text, saved));
   const extensions = useMemo(() => [
     ...language.extensions,
-    yCollab(tab.live.text, null),
+    yCollab(tab.live.text, null, {undoManager: tab.live.undoManager}),
     keymap.of(yUndoManagerKeymap),
   ], [language, tab.live]);
   return (
     <CodeMirror
       className={styles.codemirror}
       value={initial}
+      selection={selection}
       height="100%"
       theme={colorMode === 'dark' ? 'dark' : 'light'}
       extensions={extensions}
       editable={!readOnly}
+      onCreateEditor={editor => followScroll(editor, saved, onView)}
       onUpdate={update => {
         if (!update.selectionSet && !update.docChanged) return;
-        const head = update.state.selection.main.head;
-        const line = update.state.doc.lineAt(head);
-        onCursor({line: line.number, column: head - line.from + 1});
+        reportCursor(update, onCursor);
+        onView(relativeSelection(tab.live.text, update.state.selection.main));
       }}
       basicSetup={{highlightActiveLine: true, foldGutter: true, history: false}}
     />
@@ -50,12 +72,13 @@ function LiveEditor({tab, readOnly, language, colorMode, onCursor}) {
 }
 
 /**
- * A text file. Text the workbench reads in from elsewhere is applied as the
- * one span that differs, outside the undo history, so the cursor and scroll
- * stay where they were. As in LiveEditor, `value` is only the starting text.
+ * A text file. Text the workbench reads in from elsewhere, including while its
+ * tab was hidden, is applied as the one span that differs, outside the undo
+ * history, so the cursor and scroll stay where they were. As in LiveEditor,
+ * `value` is only the starting text.
  */
-function TextEditor({tab, readOnly, language, colorMode, onChange, onCursor}) {
-  const [initial] = useState(tab.text);
+function TextEditor({tab, saved, readOnly, language, colorMode, onChange, onCursor, onView}) {
+  const [initial] = useState(() => textStateJSON(saved, tab.text));
   const view = useRef(null);
   useEffect(() => {
     const range = view.current && changedRange(view.current.state.doc.toString(), tab.text);
@@ -65,32 +88,35 @@ function TextEditor({tab, readOnly, language, colorMode, onChange, onCursor}) {
   return (
     <CodeMirror
       className={styles.codemirror}
-      value={initial}
+      value={initial.doc}
+      initialState={{json: initial, fields: {history: historyField}}}
       height="100%"
       theme={colorMode === 'dark' ? 'dark' : 'light'}
       extensions={language.extensions}
       editable={!readOnly}
-      onCreateEditor={editor => { view.current = editor; }}
+      onCreateEditor={editor => {
+        view.current = editor;
+        followScroll(editor, saved, onView);
+      }}
       onChange={onChange}
       onUpdate={update => {
         if (!update.selectionSet && !update.docChanged) return;
-        const head = update.state.selection.main.head;
-        const line = update.state.doc.lineAt(head);
-        onCursor({line: line.number, column: head - line.from + 1});
+        reportCursor(update, onCursor);
+        onView({state: update.state});
       }}
       basicSetup={{highlightActiveLine: true, foldGutter: true}}
     />
   );
 }
 
-function TabContent({tab, readOnly, fileUrl, onChange, onCursor}) {
+function TabContent({tab, saved, readOnly, fileUrl, onChange, onCursor, onView}) {
   const {colorMode} = useColorMode();
   const language = useMemo(() => languageFor(tab.path), [tab.path]);
 
   if (tab.loading) return <p className={styles.placeholder}>Opening…</p>;
   if (tab.error) return <p className={styles.placeholder}>{tab.error}</p>;
   if (tab.kind === 'live') {
-    return <LiveEditor tab={tab} readOnly={readOnly} language={language} colorMode={colorMode} onCursor={onCursor} />;
+    return <LiveEditor tab={tab} saved={saved} readOnly={readOnly} language={language} colorMode={colorMode} onCursor={onCursor} onView={onView} />;
   }
   if (tab.kind === 'image') return <div className={styles.media}><img src={fileUrl(tab.path)} alt={tab.path} /></div>;
   if (tab.kind === 'pdf') return <iframe className={styles.pdf} src={fileUrl(tab.path)} title={tab.path} />;
@@ -102,7 +128,7 @@ function TabContent({tab, readOnly, fileUrl, onChange, onCursor}) {
       </div>
     );
   }
-  return <TextEditor tab={tab} readOnly={readOnly} language={language} colorMode={colorMode} onChange={onChange} onCursor={onCursor} />;
+  return <TextEditor tab={tab} saved={saved} readOnly={readOnly} language={language} colorMode={colorMode} onChange={onChange} onCursor={onCursor} onView={onView} />;
 }
 
 function liveLabel(status) {
@@ -114,7 +140,7 @@ function liveLabel(status) {
 }
 
 export default function Editor({
-  tabs, activePath, readOnly, fileUrl, appLink = () => null, onActivate, onClose, onChange, onSaveAsNew, onDiscard,
+  tabs, activePath, readOnly, fileUrl, appLink = () => null, viewOf, onActivate, onClose, onChange, onView, onSaveAsNew, onDiscard,
 }) {
   const [cursor, setCursor] = useState(null);
   const tab = tabs.find(item => item.path === activePath);
@@ -180,10 +206,12 @@ export default function Editor({
         <TabContent
           key={tab.path}
           tab={tab}
+          saved={viewOf(tab.path)}
           readOnly={readOnly}
           fileUrl={fileUrl}
           onChange={text => onChange(tab.path, text)}
           onCursor={setCursor}
+          onView={patch => onView(tab.path, patch)}
         />
       </div>
       <div className={styles.statusBar}>

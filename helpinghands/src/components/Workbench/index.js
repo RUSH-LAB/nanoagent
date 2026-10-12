@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useHistory, useLocation} from '@docusaurus/router';
 import {toast} from '@site/src/components/Toast/toast';
 import API_BASE, {apiJson} from '@site/src/utils/api';
-import {isOffline} from '@site/src/utils/documentCache';
+import {browserStore, isOffline} from '@site/src/utils/documentCache';
 import {followWorkspaceChanges} from '@site/src/utils/fsEvents';
 import {FS_SYNC_EVENT, fsReplica, startFsSync} from '@site/src/utils/fsReplica';
 import {loadWorkspaces, navigateClient} from '@site/src/utils/workspaces';
@@ -12,6 +12,7 @@ import {openLiveDocument} from './liveDocument';
 import {appFor} from './apps';
 import Explorer, {ContextMenu} from './Explorer';
 import {basename, buildTree, dirname, invalidName, join, movedPath, tabChanges, within} from './tree';
+import {editorViews} from './viewState';
 import styles from './styles.module.css';
 
 /**
@@ -31,6 +32,9 @@ import styles from './styles.module.css';
  * files opened or kept on this computer. Without a network the explorer shows
  * the replica, kept files open, and saves wait to upload; each row says
  * whether its file is in the cloud only, on this computer, kept, or waiting.
+ * It also keeps where each tab's editor was left (viewState.js): switching
+ * tabs keeps the selection, scroll and undo history, and reopening a file
+ * after a reload keeps the selection and scroll.
  */
 
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
@@ -70,6 +74,7 @@ export default function Workbench({workspace}) {
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
   tabsRef.current = tabs;
+  const views = useMemo(() => editorViews(browserStore(), () => scopeRef.current), []);
 
   const tree = useMemo(() => (listing ? buildTree(listing.files, listing.folders) : null), [listing]);
   const dirtyPaths = useMemo(
@@ -140,11 +145,14 @@ export default function Workbench({workspace}) {
   // Markdown opens live once this browser knows whose replica it is.
   const openLive = useCallback(file => {
     setTabs(current => [...current, {path: file.path, kind: 'live', loading: true}]);
-    openLiveDocument({
-      scope: scopeRef.current, workspaceId: workspace.id, path: file.path, readOnly,
-      onStatus: liveStatus => updateTab(file.path, {liveStatus}),
-    })
-      .then(live => {
+    Promise.all([
+      openLiveDocument({
+        scope: scopeRef.current, workspaceId: workspace.id, path: file.path, readOnly,
+        onStatus: liveStatus => updateTab(file.path, {liveStatus}),
+      }),
+      views.load(file.path),
+    ])
+      .then(([live]) => {
         // A tab closed while it opened takes its document with it.
         if (!tabsRef.current.some(tab => tab.path === file.path)) {
           live.close();
@@ -155,7 +163,7 @@ export default function Workbench({workspace}) {
       .catch(error => updateTab(file.path, {loading: false, error: isOffline(error)
         ? `${basename(file.path)} is not kept on this computer, and the server cannot be reached.`
         : error.message}));
-  }, [readOnly, workspace.id]);
+  }, [readOnly, workspace.id, views]);
 
   const open = useCallback(file => {
     setActivePath(file.path);
@@ -170,7 +178,7 @@ export default function Workbench({workspace}) {
     (async () => {
       const replica = fsReplica();
       const current = scopeRef.current;
-      const kept = current ? await replica.read(current, file.path) : null;
+      const [kept] = await Promise.all([current ? replica.read(current, file.path) : null, views.load(file.path)]);
       // This browser's copy is current when it holds the listed revision or an unsent edit.
       if (kept && (kept.pending || kept.rev === file.rev)) {
         updateTab(file.path, {text: kept.text, saved: kept.text, loading: false, rev: kept.rev});
@@ -195,7 +203,7 @@ export default function Workbench({workspace}) {
           : error.message});
       }
     })();
-  }, [openLive, refreshHeld]);
+  }, [openLive, refreshHeld, views]);
 
   // The installed plugins, for which app opens which file.
   useEffect(() => {
@@ -321,6 +329,7 @@ export default function Workbench({workspace}) {
     const index = tabsRef.current.findIndex(item => item.path === path);
     const remaining = tabsRef.current.filter(item => item.path !== path);
     tab?.live?.close();
+    views.close(path);
     setTabs(remaining);
     if (activePath === path) setActivePath(remaining[Math.min(index, remaining.length - 1)]?.path ?? null);
   };
@@ -331,6 +340,7 @@ export default function Workbench({workspace}) {
     // A live document is bound to its path, so a moved one is opened again there.
     const reopen = tabsRef.current.filter(tab => tab.kind === 'live' && moved(tab.path) !== tab.path);
     for (const tab of reopen) tab.live?.close();
+    views.move(moved).catch(error => console.error('[workspace] Could not move where the renamed tabs were left:', error));
     setTabs(current => current
       .filter(tab => !reopen.includes(tab))
       .map(tab => ({...tab, path: moved(tab.path)})));
@@ -358,6 +368,7 @@ export default function Workbench({workspace}) {
         continue;
       }
       closing.push(path);
+      views.close(path);
       // A moved live tab was closed and is opening again; it closes itself once it finds its tab gone.
       if (path === tab.path) tab.live?.close();
     }
@@ -420,7 +431,11 @@ export default function Workbench({workspace}) {
     if (!window.confirm(`Delete ${folder ? `the folder ${node.path} and everything in it` : node.path}?${warning}`)) return;
     run(() => (folder ? api.deleteFolder(node.path) : api.deleteFile(node.path)), () => {
       const remaining = tabsRef.current.filter(tab => !within(tab.path, node.path));
-      for (const tab of tabsRef.current) if (within(tab.path, node.path)) tab.live?.close();
+      for (const tab of tabsRef.current) {
+        if (!within(tab.path, node.path)) continue;
+        tab.live?.close();
+        views.close(tab.path);
+      }
       setTabs(remaining);
       setActivePath(current => (current && within(current, node.path) ? remaining.at(-1)?.path ?? null : current));
       setSelected(null);
@@ -614,11 +629,13 @@ export default function Workbench({workspace}) {
           readOnly={readOnly}
           fileUrl={(path, options) => api.fileUrl(workspace.id, path, options)}
           appLink={appLink}
+          viewOf={views.get}
           onActivate={setActivePath}
           onClose={close}
           onSaveAsNew={saveAsNew}
           onDiscard={path => close(path, {discard: true})}
           onChange={(path, text) => updateTab(path, {text})}
+          onView={views.set}
         />
       </section>
       {menu && <ContextMenu menu={menu} onClose={closeMenu} />}

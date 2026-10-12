@@ -148,9 +148,14 @@ export async function openLiveDocument({scope, workspaceId, path, readOnly, onSt
   }
   await keep();
 
+  // One undo history per document, so it outlives the editor showing it. Only
+  // edits typed in an editor are tracked (y-codemirror adds its origin), never
+  // what is read in from the server.
+  const text = doc.getText('markdown');
   return {
     doc,
-    text: doc.getText('markdown'),
+    text,
+    undoManager: new Y.UndoManager(text, {trackedOrigins: new Set()}),
     flush: send,
     close() {
       closed = true;
