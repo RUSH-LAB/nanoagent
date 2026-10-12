@@ -231,11 +231,11 @@ const auth = betterAuth({
   // dispatcher still checks it for every scoped request, so removing a member
   // takes effect immediately. The short lifetime bounds session revocation.
   session: authSessionOptions({postgresEnabled: postgres.enabled}),
-  // The Docusaurus dev server and the production site are separate origins from
-  // this API, so both have to be named or Better Auth rejects their requests.
+  // Browsers reach this API through the site's origin: the development site
+  // proxies /api here (docusaurus.config.js), so that origin has to be named
+  // or Better Auth rejects its requests.
   trustedOrigins: [
-    'http://localhost:3000',
-    'http://localhost:3001',
+    `http://localhost:${process.env.SITE_PORT || 3000}`,
     ...(process.env.SITE_URL ? [process.env.SITE_URL] : []),
   ],
   socialProviders: {

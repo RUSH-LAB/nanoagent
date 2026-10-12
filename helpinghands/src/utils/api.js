@@ -1,25 +1,19 @@
 import {clientPlatform} from '../platform/client.js';
 
 /**
- * Base URL for API requests. A desktop shell can point the shared frontend at
- * the hosted API without teaching feature code about its packaging.
+ * Base URL for API requests: the page's own origin, which serves the API in
+ * production and proxies it in development (docusaurus.config.js). A desktop
+ * shell can point the shared frontend at the hosted API without teaching
+ * feature code about its packaging.
  */
-export function resolveApiBase({configured, hostname} = {}) {
+export function resolveApiBase({configured} = {}) {
   if (typeof configured === 'string' && configured.trim()) {
     return configured.trim().replace(/\/$/, '');
   }
-  return hostname && hostname !== 'localhost' ? '' : 'http://localhost:3001';
+  return '';
 }
 
-const runtimeConfig = clientPlatform.runtimeConfig();
-const locationHostname = (() => {
-  const href = clientPlatform.location.href();
-  try { return href ? new URL(href).hostname : ''; } catch { return ''; }
-})();
-const API_BASE = resolveApiBase({
-  configured: runtimeConfig.apiBaseUrl,
-  hostname: locationHostname,
-});
+const API_BASE = resolveApiBase({configured: clientPlatform.runtimeConfig().apiBaseUrl});
 
 /** Whether `input` addresses our own API. */
 function isOwnApi(input) {

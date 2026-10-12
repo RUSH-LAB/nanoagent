@@ -117,8 +117,8 @@ function uniqueViolation(error, nodePath) {
     : error;
 }
 
-/** One transaction's file system operations, bound to its client and scope. */
-function operations(client, scope) {
+/** One transaction's file system operations, bound to its client and scope. `logged` is told of each change. */
+function operations(client, scope, logged = () => {}) {
   const workspaceId = requireWorkspace(scope);
 
   async function nodeAt(nodePath, {lock = false} = {}) {
@@ -136,6 +136,7 @@ function operations(client, scope) {
     )).rows[0].seq);
     await client.query('update fs_node set rev = $1 where id = $2', [seq, node.id]);
     node.rev = seq;
+    logged();
     return seq;
   }
 
@@ -475,14 +476,25 @@ function operations(client, scope) {
       )).rows;
       return {changes: rows, cursor: rows.length ? rows.at(-1).seq : Number(since) || 0, more: rows.length === bounded};
     },
+
+    /** The seq of the latest change the caller may see, where a change feed that starts now begins. */
+    async head() {
+      return Number((await client.query('select coalesce(max(seq), 0) as seq from fs_change')).rows[0].seq);
+    },
   };
 }
 
-function createPostgresFs({pool}) {
-  const run = (scope, operation) => withRequestContext(pool, {
-    userId: scope?.userId,
-    workspaceId: requireWorkspace(scope),
-  }, client => operation(operations(client, scope)));
+/** `onChange(workspaceId)` runs after each transaction that changed something commits (fs/events.js). */
+function createPostgresFs({pool, onChange = () => {}}) {
+  async function run(scope, operation) {
+    let changed = false;
+    const result = await withRequestContext(pool, {
+      userId: scope?.userId,
+      workspaceId: requireWorkspace(scope),
+    }, client => operation(operations(client, scope, () => { changed = true; })));
+    if (changed) onChange(scope.workspaceId);
+    return result;
+  }
 
   return Object.freeze({
     /** Run several operations in one transaction: `transaction(scope, async fs => …)`. */
@@ -520,6 +532,7 @@ function createPostgresFs({pool}) {
     history: (scope, nodePath) => run(scope, fs => fs.history(nodePath)),
     readRevision: (scope, nodePath, seq) => run(scope, fs => fs.readRevision(nodePath, seq)),
     changes: (scope, options) => run(scope, fs => fs.changes(options)),
+    head: scope => run(scope, fs => fs.head()),
   });
 }
 

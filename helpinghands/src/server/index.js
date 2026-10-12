@@ -156,7 +156,8 @@ function cacheKey(orgId, name) {
 }
 
 // Production is same-origin by default. Development keeps the permissive
-// origin echo because the Docusaurus and API dev servers use different ports.
+// origin echo for clients served from elsewhere; the development site itself
+// is same-origin through its /api proxy (docusaurus.config.js).
 const CORS_ORIGIN = process.env.CORS_ORIGIN
   || (process.env.NODE_ENV === 'production' ? process.env.SITE_URL : '*');
 
@@ -515,7 +516,7 @@ const ctx = {
   workspaceFs: postgresServices?.fs ?? null,
   publicFs: postgresServices?.publicFs ?? null,
   crdt: postgresServices?.crdt ?? null,
-  crdtHub: postgresServices?.crdtHub ?? null,
+  fsHub: postgresServices?.fsHub ?? null,
   // The plugin marketplace's uploads; PostgreSQL only.
   market: postgresServices?.market ?? null,
   // Plugin sessions and what their runs cost; PostgreSQL only.

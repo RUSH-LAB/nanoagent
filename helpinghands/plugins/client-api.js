@@ -1,9 +1,7 @@
-/** Shared browser transport for plugin pages, independent of src/. */
-export const API_BASE = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-  ? ''
-  : 'http://localhost:3001';
-
+/**
+ * Shared browser transport for plugin pages, independent of src/. The page's
+ * own origin serves the API (src/utils/api.js).
+ */
 export function pluginFetch(path, init = {}) {
-  const target = String(path).startsWith('http') ? path : `${API_BASE}${path}`;
-  return fetch(target, {...init, credentials: 'include'});
+  return fetch(path, {...init, credentials: 'include'});
 }

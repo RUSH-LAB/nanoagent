@@ -238,6 +238,8 @@ export async function startLocal(argv = process.argv.slice(2)) {
   if (apiPort === sitePort) {
     throw new Error('EDITOR_PORT and SITE_PORT must be different');
   }
+  // The site proxies /api to EDITOR_PORT, and the API trusts requests from SITE_PORT.
+  env.SITE_PORT = String(sitePort);
   const ports = [apiPort, sitePort];
   if (usesLocalNanoAgent(env)) ports.push(nanoagentPort);
   const checks = await Promise.all(ports.map(port => portIsAvailable(port)));
