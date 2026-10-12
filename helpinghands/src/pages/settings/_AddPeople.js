@@ -1,9 +1,8 @@
 import React, {useState} from 'react';
 import {linkFor, copyLink} from '@site/src/utils/invite';
 import dir from '@site/src/css/directory.module.css';
+import RolePicker from './_RolePicker';
 import styles from './people.module.css';
-
-const ROLES = ['viewer', 'editor', 'owner'];
 
 export function CopyLink({invitationId, onResult}) {
   return (
@@ -63,9 +62,7 @@ export default function AddPeople({call, onResult, onChanged, onClose}) {
           required
           autoFocus
         />
-        <select className={styles.panelSelect} value={role} onChange={event => setRole(event.target.value)} aria-label="Role">
-          {ROLES.map(value => <option key={value} value={value}>{value}</option>)}
-        </select>
+        <RolePicker className={styles.fieldTrigger} value={role} onChange={setRole} label="Role" />
         <button type="submit" className={dir.cta} disabled={busy || !email.trim()}>
           {busy ? 'Inviting…' : 'Send invite'}
         </button>

@@ -197,8 +197,8 @@ function SettingsApp() {
   const panes = [
     {id: 'account', scope: 'user', label: 'Account'},
     {id: 'navigation', scope: 'user', label: 'Navigation'},
+    ...(activeWorkspace ? [{id: 'membership', scope: 'user', label: 'Membership'}] : []),
     ...(activeWorkspace ? [{id: 'people', scope: 'workspace', label: 'People'}] : []),
-    ...(activeWorkspace ? [{id: 'membership', scope: 'workspace', label: 'Membership'}] : []),
   ];
   // Your settings and the workspace's are separate tabs; the hash names the tab.
   const scope = panes.find(item => `#${item.id}` === location.hash)?.scope ?? 'user';
@@ -336,19 +336,19 @@ function SettingsApp() {
                 </>
               )}
             </section>
+
+            {activeWorkspace && (
+              <section id="membership" className={styles.pane}>
+                <PaneHeading title="Membership" />
+                <Leave key={activeWorkspace.id} workspace={activeWorkspace} />
+              </section>
+            )}
           </>
         )}
 
         {scope === 'workspace' && (
           <section id="people" className={styles.pane}>
             <People key={activeWorkspace.id} workspace={activeWorkspace} />
-          </section>
-        )}
-
-        {scope === 'workspace' && (
-          <section id="membership" className={styles.pane}>
-            <PaneHeading title="Membership" />
-            <Leave key={activeWorkspace.id} workspace={activeWorkspace} />
           </section>
         )}
       </div>

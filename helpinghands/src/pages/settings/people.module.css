@@ -145,7 +145,7 @@
 }
 
 /* The pill itself is the menu: a caret says so, and a border on hover. */
-.roleSelect {
+.roleTrigger {
   padding-right: 1.5rem;
   background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
                     linear-gradient(135deg, currentColor 50%, transparent 50%);
@@ -154,18 +154,63 @@
   background-repeat: no-repeat;
   font-family: inherit;
   cursor: pointer;
-  appearance: none;
 }
 
-.roleSelect:hover:not(:disabled),
-.roleSelect:focus-visible {
+.roleTrigger:hover:not(:disabled),
+.roleTrigger:focus-visible {
   border-color: currentColor;
   outline: none;
 }
 
-.roleSelect:disabled {
+.roleTrigger:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* ── Role picker ────────────────────────────────────────────────── */
+
+.picker {
+  position: relative;
+  display: inline-flex;
+}
+
+.pickerMenu {
+  left: 0;
+  width: 17rem;
+}
+
+/* Two classes, to outrank the shared item's padding and nowrap whichever
+   stylesheet loads last. */
+.pickerMenu .pickerItem {
+  position: relative;
+  display: grid;
+  gap: 0.1rem;
+  padding-left: 1.6rem;
+  white-space: normal;
+}
+
+/* A check beside the role already held, rather than a highlight that a hover
+   would be mistaken for. */
+.pickerItem[aria-selected='true']::before {
+  content: '✓';
+  position: absolute;
+  top: 0.4rem;
+  left: 0.55rem;
+  color: var(--ifm-color-primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.pickerName {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.pickerNote {
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.76rem;
+  line-height: 1.35;
 }
 
 /* ── Adding somebody ────────────────────────────────────────────── */
@@ -202,7 +247,7 @@
 }
 
 .panelInput,
-.panelSelect {
+.fieldTrigger {
   padding: 0.45rem 0.7rem;
   border: 1px solid var(--ifm-color-emphasis-300);
   border-radius: 8px;
@@ -217,7 +262,7 @@
   min-width: 14ch;
 }
 
-.panelSelect {
+.fieldTrigger {
   padding-right: 1.8rem;
   background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
                     linear-gradient(135deg, currentColor 50%, transparent 50%);
@@ -226,11 +271,10 @@
   background-repeat: no-repeat;
   text-transform: capitalize;
   cursor: pointer;
-  appearance: none;
 }
 
 .panelInput:focus,
-.panelSelect:focus {
+.fieldTrigger:focus-visible {
   border-color: var(--ifm-color-primary);
   outline: 2px solid color-mix(in srgb, var(--ifm-color-primary) 25%, transparent);
   outline-offset: 0;

@@ -3,6 +3,7 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 import { useLocation } from '@docusaurus/router';
 import PageTracker from '@site/src/components/Analytics/PageTracker';
 import {clientPlatform} from '@site/src/platform/client';
+import {isOpenPage, signInUrl} from '@site/src/utils/signIn';
 
 const CommandBar = lazy(() => import('@site/src/components/CommandBar'));
 const AuthScreen = lazy(() => import('@site/src/theme/Root/AuthScreen'));
@@ -44,9 +45,9 @@ function IdleCommandBar() {
  * An empty workspace answer sends the user to OnboardingScreen to open an
  * invitation.
  *
- * Children remain visible while that short request resolves. Protected data is
- * never in the static shell and still comes only from authenticated APIs, so
- * first paint need not wait on the network.
+ * Children remain visible while that short request resolves. A visitor without
+ * a session never gets here on a page that needs one: the server that sends the
+ * page redirects them to the sign-in page first (src/utils/signIn.js).
  */
 
 /** What the gate knows about the session, and how it found out. */
@@ -54,31 +55,6 @@ const CHECKING = 'checking';
 const SIGNED_IN = 'signed-in';
 const SIGNED_OUT = 'signed-out';
 const UNREACHABLE = 'unreachable';
-
-/**
- * The pages that have to render outside the gate.
- *
- * An invitation link is followed by somebody who has no account yet, and often
- * no idea which address to make one with. /join is written for exactly that
- * visitor: it reads the invitation without a session and says which workspace,
- * who sent it, and which address it names. Behind the gate, every invitation
- * link led to the sign-in form instead, which is the one place the answer is not.
- *
- * It is also exempt from the workspace check, because it is how somebody with no
- * workspace gets one.
- */
-const UNGATED = ['/join'];
-
-function isUngated(pathname) {
-  return UNGATED.some((page) => pathname === page || pathname.startsWith(`${page}/`));
-}
-
-/**
- * A workspace's documents, which a visitor who is signed out may read when the
- * workspace publishes them. The page itself asks the public API and says
- * "not found" for anything unpublished, so the gate lets these through.
- */
-const PUBLISHED = /^\/w\/[^/]+\/documents(?:\/|$)/;
 
 function AuthGate({ children }) {
   // Required lazily, inside BrowserOnly, because workspace discovery reads the
@@ -123,7 +99,18 @@ function AuthGate({ children }) {
   // change, and a pathname read from window during one render would still say
   // /join on the next.
   const {pathname} = useLocation();
-  const ungated = isUngated(pathname);
+  const ungated = isOpenPage(pathname);
+  const signedOut = status === SIGNED_OUT && !ungated;
+
+  // The server sends nobody without a session a page that needs one, so this
+  // is a session that ended after the page was sent.
+  useEffect(() => {
+    if (signedOut) {
+      clientPlatform.location.assign(signInUrl(
+        `${pathname}${clientPlatform.location.search()}${clientPlatform.location.hash()}`,
+      ));
+    }
+  }, [signedOut, pathname]);
 
   // The static shell is safe to paint immediately: protected data only arrives
   // from authenticated API calls. Keeping it visible avoids a blank first
@@ -152,11 +139,11 @@ function AuthGate({ children }) {
   }
 
   if (ungated) return <>{children}</>;
-  if (status === SIGNED_OUT && PUBLISHED.test(pathname)) return <>{children}</>;
+  if (signedOut) return null;
 
   return (
     <Deferred>
-      <AuthScreen unreachable={status === UNREACHABLE ? detail : null} />
+      <AuthScreen unreachable={detail} />
     </Deferred>
   );
 }
