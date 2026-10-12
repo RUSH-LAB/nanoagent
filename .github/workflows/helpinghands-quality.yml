@@ -56,6 +56,10 @@ jobs:
             changed: helpinghands
             mochi: ./helpinghands
             nanoagent: ../production
+          - name: Production Mochi against this NanoAgent
+            changed: nanoagent
+            mochi: ../production/helpinghands
+            nanoagent: .
     defaults:
       run:
         working-directory: .
