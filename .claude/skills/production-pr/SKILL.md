@@ -1,6 +1,6 @@
 ---
 name: production-pr
-description: Open a pull request from the current development branch into `production`, the branch Railway deploys. Use when the user wants to ship, release, deploy, or "open a PR to production".
+description: Open the release pull request from `devmode` into `production`, the branch Railway deploys. Use when the user wants to ship, release, deploy, or "open a PR to production".
 ---
 
 # Open a pull request into production
@@ -23,7 +23,9 @@ git branch --show-current
 git status --short
 ```
 
-- The current branch must not be `production`.
+- The current branch must be `devmode`, the only branch released into
+  `production`. Any other branch goes into `devmode` first, in a pull request
+  with `--base devmode`.
 - Uncommitted and untracked files do not ship. If there are any, list them and
   ask whether to commit them first. Never commit or stash on your own.
 - The branch must be pushed with nothing missing from either side:

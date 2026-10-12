@@ -2,13 +2,13 @@ name: Helping Hands quality and NanoAgent contract
 
 on:
   pull_request:
-    branches: [production]
+    branches: [production, devmode]
     paths:
       - '.github/workflows/helpinghands-quality.yml'
       - 'helpinghands/**'
       - 'nanoagent/**'
   push:
-    branches: [production]
+    branches: [production, devmode]
     paths:
       - '.github/workflows/helpinghands-quality.yml'
       - 'helpinghands/**'
