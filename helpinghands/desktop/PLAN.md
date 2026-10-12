@@ -7,11 +7,11 @@ in the product is rewritten.
 ## Use
 
 ```bash
-cd helpinghands/desktop
-npm install
-npm run dev      # stage, build, and run the app
-npm run build    # stage and bundle: src-tauri/target/release/bundle/{macos,dmg}/
+cd helpinghands
+npm run desktop  # build the release app (src-tauri/target/release/bundle/{macos,dmg}/) and open it
 ```
+
+Live development uses `npm start` in the browser. The desktop app is always the release build.
 
 Needs Node 22, Rust, and Mochi's own `npm install` (the site build and the server's traced
 dependencies come from it). The app needs nothing installed where it runs.
@@ -35,7 +35,7 @@ Mochi Lab.app
 ```
 
 `scripts/stage.mjs` produces the resources and downloads the runtimes (checksums verified)
-before every `tauri dev` and `tauri build`.
+before every `tauri build`.
 
 At launch the supervisor:
 

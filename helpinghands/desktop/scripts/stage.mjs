@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
  * Stages everything the desktop app bundles, for the target Tauri is building
- * (TAURI_ENV_TARGET_TRIPLE, which Tauri sets for beforeDevCommand and
- * beforeBuildCommand):
+ * (TAURI_ENV_TARGET_TRIPLE, which Tauri sets for beforeBuildCommand):
  *
  *   src-tauri/resources/mochi/      the Mochi server, the node_modules files it loads, and the site
  *                                   built for the desktop origin
@@ -130,7 +129,7 @@ async function stageMochi() {
   for (const entry of ['package.json', 'package-lock.json', 'src', 'plugins']) {
     copy(path.join(mochiRoot, entry), path.join(out, entry));
   }
-  run('npm', ['ci', '--omit=dev', '--no-bin-links', '--no-audit', '--no-fund'], {cwd: out});
+  run('npm', ['ci', '--omit=dev', '--no-bin-links', '--no-audit', '--no-fund', '--loglevel=error'], {cwd: out});
   // The server's production dependencies include the whole Docusaurus toolchain, which builds
   // the site above and never runs in the server.
   const entries = [path.join(out, 'src', 'server', 'index.js')];
@@ -172,7 +171,7 @@ async function stageNanoAgent() {
   for (const entry of ['package.json', 'package-lock.json', 'tsconfig.json', 'src']) {
     copy(path.join(nanoagentRoot, 'js', 'pi-runner', entry), path.join(runner, entry));
   }
-  run('npm', ['ci', '--include=dev', '--ignore-scripts', '--no-audit', '--no-fund'], {cwd: runner});
+  run('npm', ['ci', '--include=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--loglevel=error'], {cwd: runner});
   run('npm', ['run', 'build'], {cwd: runner});
   await trimNodeModules(runner, [path.join(runner, 'dist', 'index.js')]);
 }
@@ -181,7 +180,7 @@ async function main() {
   const target = process.env.TAURI_ENV_TARGET_TRIPLE;
   const platform = TARGETS[target];
   if (!platform) {
-    throw new Error(`TAURI_ENV_TARGET_TRIPLE is ${JSON.stringify(target)}; run this through npm run dev or npm run build (targets: ${Object.keys(TARGETS).join(', ')})`);
+    throw new Error(`TAURI_ENV_TARGET_TRIPLE is ${JSON.stringify(target)}; run this through npm run build (targets: ${Object.keys(TARGETS).join(', ')})`);
   }
   fs.rmSync(resources, {recursive: true, force: true});
   fs.mkdirSync(resources, {recursive: true});
