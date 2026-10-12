@@ -30,7 +30,7 @@ describe('workspaceAssetHref', () => {
   it('resolves a relative image beside its database document', () => {
     assert.equal(
       workspaceAssetHref('./assets/plot.png', 'workspace 1', 'books/chapter/page.md'),
-      'http://localhost:3001/api/workspaces/workspace%201/assets?path=books%2Fchapter%2Fassets%2Fplot.png',
+      '/api/workspaces/workspace%201/assets?path=books%2Fchapter%2Fassets%2Fplot.png',
     );
   });
 

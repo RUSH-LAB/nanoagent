@@ -87,9 +87,8 @@ describe('runtime API configuration', () => {
     assert.equal(resolveApiBase({configured: ' https://api.example.com/ ', hostname: 'tauri.localhost'}), 'https://api.example.com');
   });
 
-  it('preserves the web development and same-origin defaults', () => {
-    assert.equal(resolveApiBase({hostname: 'localhost'}), 'http://localhost:3001');
-    assert.equal(resolveApiBase({hostname: 'mochi.example'}), '');
-    assert.equal(resolveApiBase(), 'http://localhost:3001');
+  it('otherwise uses the page\'s own origin', () => {
+    assert.equal(resolveApiBase({configured: ' '}), '');
+    assert.equal(resolveApiBase(), '');
   });
 });

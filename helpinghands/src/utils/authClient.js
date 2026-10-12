@@ -6,9 +6,7 @@ import {clientPlatform} from '../platform/client.js';
 import {WORKSPACE_SITE_STORAGE_PREFIX} from '../hooks/useWorkspaceSite.js';
 import {documentCache} from './documentCache.js';
 
-const AUTH_BASE_URL = API_BASE
-  ? `${API_BASE}/api/auth`
-  : `${clientPlatform.location.origin() || 'http://localhost:3000'}/api/auth`;
+const AUTH_BASE_URL = `${API_BASE || clientPlatform.location.origin()}/api/auth`;
 
 export const authClient = createAuthClient({
   baseURL: AUTH_BASE_URL,

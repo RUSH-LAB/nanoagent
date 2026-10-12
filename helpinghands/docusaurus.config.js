@@ -90,6 +90,20 @@ const config = {
     // removable without taking workspace navigation with it.
     [runtimeContentPlugin, {routeBasePath: 'w'}],
 
+    // The development site serves the API from its own origin, as the
+    // production server does, by passing /api to the API server
+    // (scripts/dev/start-local.mjs). Compression is off so event streams
+    // reach the browser as they are written.
+    () => ({
+      name: 'api-proxy',
+      configureWebpack: () => ({
+        devServer: {
+          compress: false,
+          proxy: [{context: ['/api'], target: `http://localhost:${process.env.EDITOR_PORT || 3001}`}],
+        },
+      }),
+    }),
+
     // Every plugin's build half, in alphabetical order, configured by its own
     // plugin.json rather than from here.
     ...loadBuildPlugins(),
