@@ -13,9 +13,10 @@ export const within = (path, folder) => path === folder || path.startsWith(`${fo
 
 /**
  * `{files, folders}` from the API as nested nodes, folders before files and
- * each sorted by name, as VS Code shows them. A folder is a path or an object
- * with one, whose other fields (such as `access`) the node keeps. A folder
- * implied by a file's path but absent from `folders` is still shown.
+ * each sorted by name with numbers in order (step2 before step10), as VS Code
+ * shows them. A folder is a path or an object with one, whose other fields
+ * (such as `access`) the node keeps. A folder implied by a file's path but
+ * absent from `folders` is still shown.
  */
 export function buildTree(files, folders) {
   const root = {type: 'folder', path: '', name: '', children: new Map()};
@@ -41,7 +42,7 @@ export function buildTree(files, folders) {
     if (node.type === 'file') return node;
     const children = [...node.children.values()]
       .map(order)
-      .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'folder' ? -1 : 1));
+      .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}) : a.type === 'folder' ? -1 : 1));
     return {...node, children};
   };
   return order(root);

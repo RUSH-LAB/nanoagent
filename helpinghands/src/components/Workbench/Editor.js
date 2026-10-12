@@ -4,7 +4,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import {keymap} from '@codemirror/view';
 import {yCollab, yUndoManagerKeymap} from 'y-codemirror.next';
 import {useColorMode} from '@docusaurus/theme-common';
-import {languageFor} from './languages';
+import {languageExtensions, languageFor} from './languages';
 import {basename} from './tree';
 import styles from './styles.module.css';
 
@@ -24,7 +24,7 @@ function LiveEditor({tab, readOnly, language, colorMode, onCursor}) {
   // prop changes, so it is the same string for the editor's whole life.
   const [initial] = useState(() => tab.live.text.toString());
   const extensions = useMemo(() => [
-    ...language.extensions,
+    ...languageExtensions(language),
     yCollab(tab.live.text, null),
     keymap.of(yUndoManagerKeymap),
   ], [language, tab.live]);
@@ -50,6 +50,7 @@ function LiveEditor({tab, readOnly, language, colorMode, onCursor}) {
 function TabContent({tab, readOnly, fileUrl, onChange, onCursor}) {
   const {colorMode} = useColorMode();
   const language = useMemo(() => languageFor(tab.path), [tab.path]);
+  const extensions = useMemo(() => languageExtensions(language), [language]);
 
   if (tab.loading) return <p className={styles.placeholder}>Opening…</p>;
   if (tab.error) return <p className={styles.placeholder}>{tab.error}</p>;
@@ -72,7 +73,7 @@ function TabContent({tab, readOnly, fileUrl, onChange, onCursor}) {
       value={tab.text}
       height="100%"
       theme={colorMode === 'dark' ? 'dark' : 'light'}
-      extensions={language.extensions}
+      extensions={extensions}
       editable={!readOnly}
       onChange={onChange}
       onUpdate={update => {

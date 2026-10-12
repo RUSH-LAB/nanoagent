@@ -20,6 +20,12 @@ describe('workbench tree', () => {
     assert.equal(tree.children[1].children[0].path, 'papers/attention');
   });
 
+  it('sorts numbers in names by value and ignores case', () => {
+    const names = ['step10.py', 'Step2.py', 'step1.py'];
+    const tree = buildTree(names.map(path => ({path, size: 1, modified: 1})), []);
+    assert.deepEqual(tree.children.map(node => node.name), ['step1.py', 'Step2.py', 'step10.py']);
+  });
+
   it('shows a folder a file implies even when the listing omits it', () => {
     const tree = buildTree([{path: 'a/b/c.txt', size: 1, modified: 1}], []);
     assert.equal(tree.children[0].children[0].children[0].path, 'a/b/c.txt');

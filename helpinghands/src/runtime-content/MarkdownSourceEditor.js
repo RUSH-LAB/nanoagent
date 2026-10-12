@@ -1,6 +1,5 @@
 import React, {useCallback, useMemo, useRef} from 'react';
 import CodeMirror from '@uiw/react-codemirror';
-import {markdown} from '@codemirror/lang-markdown';
 import {EditorView} from '@codemirror/view';
 import {useColorMode} from '@docusaurus/theme-common';
 import API_BASE, {apiFetch} from '@site/src/utils/api';
@@ -8,6 +7,7 @@ import {toast} from '@site/src/components/Toast/toast';
 import {readEvents, SSE_CONTENT_TYPE} from '@site/src/utils/eventStream';
 import {contextFromText} from '../components/CommandBar/selectionContext';
 import {hideContextSelection, showContextSelection} from '../components/CommandBar/contextSelectionEvent';
+import {languageExtensions, markdownLanguage} from '../components/Workbench/languages';
 import {inlineCompletion} from './inlineCompletion';
 
 function editorSelection({file, title}) {
@@ -147,8 +147,7 @@ export default function MarkdownSourceEditor({
   }, [documentPath, onCompletionMetrics]);
 
   const extensions = useMemo(() => [
-    markdown(),
-    EditorView.lineWrapping,
+    ...languageExtensions(markdownLanguage),
     inlineCompletion({request: requestCompletion}),
     editorSelection({file: documentPath, title: documentTitle}),
   ], [documentPath, documentTitle, requestCompletion]);
