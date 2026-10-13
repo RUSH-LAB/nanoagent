@@ -104,8 +104,8 @@ after 10 s. Links that open a new window open in the system browser.
   own.
 - **Auto-update.** `tauri-plugin-updater` fetches a public `latest.json`, and this repository is
   private. It needs a public release location first.
-- **Signing.** Local builds are unsigned. On other Macs, Gatekeeper blocks them until CI signs and
-  notarizes them (`.github/workflows/helpinghands-desktop.yml`, which needs the Apple secrets).
+- **Signing.** The macOS app is ad-hoc signed, not notarized (no Apple Developer ID). Built on the
+  Mac it runs on, it opens as is; downloaded, it opens after right-click → Open.
 - **Windows.** There is no plugin sandbox, and NanoAgent runs each plugin's `run.sh` with `bash`.
 - **One Mochi process.** Mochi keeps the connected computers in memory, as it does every other
   live connection (`src/server/fs/events.js`). Running several Mochi processes would need them

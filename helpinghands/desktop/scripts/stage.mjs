@@ -42,25 +42,6 @@ function run(command, args, options = {}) {
   execFileSync(command, args, {stdio: 'inherit', shell: process.platform === 'win32', ...options});
 }
 
-/**
- * Sign the native code inside the resources (Node addons) for notarization, with the identity
- * Tauri signs the app with. Tauri signs the app and the sidecars itself, not files in resources.
- */
-function signResources(identity) {
-  const native = [];
-  const walk = folder => {
-    for (const entry of fs.readdirSync(folder, {withFileTypes: true})) {
-      const file = path.join(folder, entry.name);
-      if (entry.isDirectory()) walk(file);
-      else if (/\.(node|dylib)$/.test(entry.name)) native.push(file);
-    }
-  };
-  walk(resources);
-  for (const file of native) {
-    run('codesign', ['--force', '--options', 'runtime', '--timestamp', '--sign', identity, file]);
-  }
-}
-
 function copy(from, to) {
   fs.cpSync(from, to, {recursive: true, filter: source => !SKIP.has(path.basename(source))});
 }
@@ -171,8 +152,6 @@ async function main() {
   fs.copyFileSync(path.join(desktop, 'config.yaml'), path.join(resources, 'config.yaml'));
   const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {cwd: mochiRoot, encoding: 'utf8'}).trim();
   fs.writeFileSync(path.join(resources, 'stamp'), `${new Date().toISOString().replace(/[:.]/g, '-')}-${commit}\n`);
-  // Set when this build is signed (see .github/workflows/helpinghands-desktop.yml), as Tauri reads it.
-  if (target.endsWith('apple-darwin') && process.env.APPLE_SIGNING_IDENTITY) signResources(process.env.APPLE_SIGNING_IDENTITY);
 }
 
 main().catch(error => {
