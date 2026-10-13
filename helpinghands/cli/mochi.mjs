@@ -8,6 +8,7 @@
  *   mochi sync <dir>                                    keep that folder in sync until stopped
  *   mochi online-only <dir> <path>                      keep a folder or file in the workspace only
  *   mochi download <dir> <path>                         keep it in the local folder again
+ *   mochi publish <server> <github-url>                 publish a plugin to the marketplace, or update it
  *
  * The server stays the source of truth and every write goes through the
  * workspace file system API (/fs), with the same permissions and revision
@@ -142,7 +143,8 @@ async function login(server) {
         body: {grant_type: DEVICE_GRANT, device_code: code.device_code, client_id: CLIENT_ID},
       })).data.access_token;
     } catch (error) {
-      if (error.message === 'authorization_pending') continue;
+      // A restarting server is unreachable or answers 502-504 for a moment; the code outlives it.
+      if (error.message === 'authorization_pending' || error.status === 0 || error.status >= 502) continue;
       if (error.message === 'slow_down') {
         interval += 5000;
         continue;
@@ -298,6 +300,14 @@ async function download(folder, value) {
   console.log(`${target} will be downloaded; mochi sync downloads it.`);
 }
 
+/** Publish a NanoAgent plugin from a public GitHub repository, as the marketplace page does. */
+async function publish(server, url) {
+  if (!url) fail('Usage: mochi publish <server> <github-url>');
+  const request = connect(server, await tokenFor(server));
+  const {plugin} = (await request('POST', '/api/market', {body: {url}})).data;
+  console.log(`Published ${plugin.id} ${plugin.version} to ${server}/marketplace`);
+}
+
 const [command, ...args] = process.argv.slice(2);
 const commands = {
   login: () => login(serverUrl(args[0])),
@@ -305,9 +315,10 @@ const commands = {
   sync: () => sync(args[0]),
   'online-only': () => onlineOnly(args[0], args[1]),
   download: () => download(args[0], args[1]),
+  publish: () => publish(serverUrl(args[0]), args[1]),
 };
 if (!commands[command]) {
   fail('Usage: mochi login <server> | mochi clone <server> <workspace> <folder> [top-level folder...] | mochi sync <folder>'
-    + ' | mochi online-only <folder> <path> | mochi download <folder> <path>');
+    + ' | mochi online-only <folder> <path> | mochi download <folder> <path> | mochi publish <server> <github-url>');
 }
 await commands[command]();
