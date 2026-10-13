@@ -322,6 +322,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
           docs.push({
             path: document.path,
             name,
+            title: document.title,
             words: new Set(tokens),
             tf: termFrequencies(tokens),
             length: tokens.length,
@@ -372,7 +373,7 @@ module.exports = async function research_tools_routes(req, res, url, pathname, c
           snippet = file.firstLines.replace(/\n/g, ' ').slice(0, 100) +
             (file.firstLines.length > 100 ? '...' : '');
         }
-        results.push({path: file.path, name: file.name, snippet, score});
+        results.push({path: file.path, name: file.name, title: file.title, snippet, score});
       }
       return json(res, 200, {results});
     } catch {

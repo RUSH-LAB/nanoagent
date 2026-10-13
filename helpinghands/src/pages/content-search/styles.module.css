@@ -1,0 +1,268 @@
+/* ── Search page ───────────────────────────────────────────────── */
+/* The results column, and the field above it, share one measure. */
+.resultsPage {
+  --search-column: 42rem;
+  padding-top: 1.25rem;
+}
+
+/* For screen readers and the tab title; the field says what the page is. */
+.title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── Front page: the field alone, a little above the middle ────── */
+.home {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: calc(var(--site-shell-height) * 0.8);
+}
+
+/* ── The field: a pill, as a search engine draws it ────────────── */
+.form {
+  width: 100%;
+  max-width: var(--search-column, 42rem);
+}
+
+.formHome {
+  max-width: 36rem;
+  margin: 0 auto;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 3rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 999px;
+  background: var(--ifm-background-surface-color);
+  padding: 0 0.6rem 0 1.1rem;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+.field:hover,
+.field:focus-within {
+  border-color: transparent;
+  box-shadow: 0 1px 6px rgba(32, 33, 36, 0.28);
+}
+
+[data-theme='dark'] .field:hover,
+[data-theme='dark'] .field:focus-within {
+  border-color: var(--ifm-color-emphasis-400);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+
+.fieldIcon {
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  color: var(--ifm-color-emphasis-500);
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--ifm-font-color-base);
+  font-family: inherit;
+  font-size: 1rem;
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--ifm-color-emphasis-500);
+}
+
+.clear {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--ifm-color-emphasis-600);
+  cursor: pointer;
+}
+
+.clear:hover {
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-font-color-base);
+}
+
+.clear svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+.homeActions {
+  display: flex;
+  justify-content: center;
+  margin-top: 1.75rem;
+}
+
+.submit {
+  height: 2.25rem;
+  border: 1px solid var(--ifm-color-emphasis-100);
+  border-radius: 0.5rem;
+  background: var(--ifm-color-emphasis-100);
+  padding: 0 1.1rem;
+  color: var(--ifm-color-emphasis-800);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.875rem;
+}
+
+.submit:hover {
+  border-color: var(--ifm-color-emphasis-300);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+  color: var(--ifm-font-color-base);
+}
+
+/* ── Results page header: the field, then a tab per kind ───────── */
+.resultsHeader {
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.tabs {
+  display: flex;
+  gap: 1.5rem;
+  min-height: 2.75rem;
+  margin-top: 0.5rem;
+  padding-left: 1.1rem;
+  overflow-x: auto;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: -1px;
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: none;
+  padding: 0.6rem 0.1rem;
+  color: var(--ifm-color-emphasis-700);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  color: var(--ifm-font-color-base);
+}
+
+.tabActive {
+  border-bottom-color: var(--ifm-color-primary);
+  color: var(--ifm-color-primary);
+  font-weight: 600;
+}
+
+.tabCount {
+  color: var(--ifm-color-emphasis-500);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+/* ── Results ───────────────────────────────────────────────────── */
+.column {
+  max-width: var(--search-column);
+  padding: 0 1.1rem;
+}
+
+.status {
+  margin: 0;
+  padding: 0.85rem 0 1.25rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.82rem;
+}
+
+.status > * + * {
+  margin-left: 0.6rem;
+}
+
+.error {
+  color: var(--ifm-color-danger-dark);
+}
+
+.empty {
+  color: var(--ifm-font-color-base);
+}
+
+.empty p {
+  margin: 0 0 0.75rem;
+}
+
+.empty ul {
+  margin: 0;
+  color: var(--ifm-color-emphasis-700);
+}
+
+/* ── Loading: bars where the results will be ───────────────────── */
+.placeholder {
+  display: flex;
+  flex-direction: column;
+  gap: 1.9rem;
+}
+
+.placeholderRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.placeholderRow span {
+  display: block;
+  height: 0.7rem;
+  border-radius: 0.3rem;
+  background: var(--ifm-color-emphasis-200);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.placeholderRow .placeholderCrumb {
+  width: 30%;
+}
+
+.placeholderRow .placeholderTitle {
+  width: 55%;
+  height: 1.1rem;
+}
+
+.placeholderRow .placeholderText {
+  width: 90%;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (max-width: 576px) {
+  .tabs {
+    gap: 1rem;
+    padding-left: 0;
+  }
+
+  .column {
+    padding: 0;
+  }
+}

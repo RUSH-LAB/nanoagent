@@ -16,6 +16,7 @@ import ErrorPageContent from '@theme/ErrorPageContent';
 import type {Props} from '@theme/Layout';
 import ReadingProgress from '@site/src/components/ReadingProgress';
 import CommandPalette from '@site/src/components/CommandPalette';
+import SearchDialog from '@site/src/components/SearchDialog';
 import ToastContainer from '@site/src/components/Toast';
 import styles from './styles.module.css';
 
@@ -38,6 +39,7 @@ export default function Layout(props: Props): ReactNode {
       </a>
 
       <BrowserOnly>{() => <CommandPalette />}</BrowserOnly>
+      <BrowserOnly>{() => <SearchDialog />}</BrowserOnly>
       <ReadingProgress />
       <ToastContainer />
 
