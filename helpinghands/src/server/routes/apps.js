@@ -3,6 +3,7 @@ const {APPS_NEED_FS, corsHeaders} = require('./ai');
 const {agentFolder, prepareHome} = require('../fs/agent-sync');
 const {FsError} = require('../fs/store');
 const {budgetRefusal} = require('../ai-metering');
+const {forRun} = require('../ai-settings');
 const {createSseParser} = require('../ai');
 
 // Apps: the marketplace plugins a workspace added (workspace-apps.js), which an
@@ -96,11 +97,12 @@ async function serveUiFile(res, json, ai, sha256, version, raw) {
  * events passed through as they arrive. A caller who hangs up cancels the run.
  */
 async function streamTaskRun(req, res, ctx, app, task) {
-  const {json, readBody, requireWorkspacePermission, ai, aiMeter, CORS_ORIGIN} = ctx;
+  const {json, readBody, requireWorkspacePermission, aiMeter, CORS_ORIGIN} = ctx;
   // A task acts through the app's tools, which is editing, not reading.
   requireWorkspacePermission(req.context, 'content:edit');
+  const ai = await ctx.aiFor(req.auth?.userId);
   try {
-    await aiMeter.assertAllowed(req.context);
+    await aiMeter.assertAllowed(req.context, ai);
   } catch (error) {
     const refusal = budgetRefusal(error);
     if (refusal) return json(res, refusal.status, refusal.body);
@@ -127,7 +129,7 @@ async function streamTaskRun(req, res, ctx, app, task) {
     if (error.name === 'SessionError') return json(res, error.status, {error: error.message});
     throw error;
   }
-  const opened = await ctx.workspaceApps.open(req.context, app);
+  const opened = await ctx.workspaceApps.open(req.context, app, ai);
   if (opened.error) return json(res, opened.status, {error: opened.error});
   const install = opened.value.sha256;
   const controller = new AbortController();
@@ -138,7 +140,9 @@ async function streamTaskRun(req, res, ctx, app, task) {
   const runTask = async workspace => {
     res.on('close', onClose);
     try {
-      const result = await ai.taskRun({workspace, install, task, args, signal: controller.signal});
+      // A task runs on the member's Apps model and settings; it takes no instructions.
+      const {model, settings} = forRun(await ctx.aiSettings(req.auth?.userId), 'apps');
+      const result = await ai.taskRun({workspace, install, task, args, choice: {model, settings}, signal: controller.signal});
       if (result.error) return json(res, result.status, {error: result.error});
       // A finished task's task.done says what it cost and how long it took; a
       // run without it (failed, stopped, or cut off) is charged at the cap.
@@ -176,7 +180,7 @@ async function streamTaskRun(req, res, ctx, app, task) {
             model: metrics.model,
             usage: metrics.usage,
             metrics,
-          }, {ran: true, pluginId: app, sessionId, task});
+          }, {ran: true, local: ai.local, pluginId: app, sessionId, task});
         } catch (error) {
           console.error('[apps] Could not record task usage:', error.message);
         }
@@ -190,7 +194,7 @@ async function streamTaskRun(req, res, ctx, app, task) {
   // The run works on a copy of the member's agent folder, and its results are
   // written back there (fs/agent-sync.js).
   try {
-    await ctx.agentSync.run(req.context, runTask);
+    await ctx.agentSync.run(req.context, ai, runTask);
   } catch (error) {
     if (!res.headersSent) return json(res, error.status || 502, {error: error.message});
     console.error('[apps] The run finished but its files could not be written back:', error);

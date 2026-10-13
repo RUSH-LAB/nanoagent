@@ -40,14 +40,14 @@ describe('plugin runs as file system clients', () => {
 
   it('gives a run the member\'s agent folder, keeps what it wrote, and removes its folder', async () => {
     const nano = fakeNanoAgent();
-    const sync = createAgentSync({ai: nano, fs});
+    const sync = createAgentSync({fs});
     await fs.mkdir(alice, 'home/alice');
     await fs.setAccess(alice, 'home/alice', 'private');
     await fs.write(alice, 'home/alice/agent/input.txt', 'question');
     await fs.write(alice, 'home/alice/agent/stale.txt', 'old');
 
     let used;
-    await sync.run(alice, async workspace => {
+    await sync.run(alice, nano, async workspace => {
       used = workspace;
       const folder = nano.of(workspace);
       assert.deepEqual([...folder.keys()].sort(), ['input.txt', 'stale.txt']);
@@ -66,19 +66,19 @@ describe('plugin runs as file system clients', () => {
 
   it('gives every run a folder of its own, so runs need not wait for each other', async () => {
     const nano = fakeNanoAgent();
-    const sync = createAgentSync({ai: nano, fs});
+    const sync = createAgentSync({fs});
     const seen = [];
-    await Promise.all([sync.run(alice, async w => seen.push(w)), sync.run(alice, async w => seen.push(w))]);
+    await Promise.all([sync.run(alice, nano, async w => seen.push(w)), sync.run(alice, nano, async w => seen.push(w))]);
     assert.equal(new Set(seen).size, 2);
   });
 
   it('keeps the member\'s edits made during the run', async () => {
     const nano = fakeNanoAgent();
-    const sync = createAgentSync({ai: nano, fs});
+    const sync = createAgentSync({fs});
     await fs.write(alice, 'home/alice/agent/both.md', 'start');
     await fs.write(alice, 'home/alice/agent/kept.md', 'start');
     let used;
-    await sync.run(alice, async workspace => {
+    await sync.run(alice, nano, async workspace => {
       used = workspace;
       // The member writes while the run goes on.
       await fs.write(alice, 'home/alice/agent/both.md', 'member');
@@ -97,7 +97,7 @@ describe('plugin runs as file system clients', () => {
     const nano = fakeNanoAgent();
     nano.truncated = true;
     await fs.write(alice, 'home/alice/agent/safe.md', 'here');
-    await assert.rejects(() => createAgentSync({ai: nano, fs}).run(alice, async workspace => {
+    await assert.rejects(() => createAgentSync({fs}).run(alice, nano, async workspace => {
       nano.of(workspace).clear();
     }), /only part/);
     assert.equal((await fs.read(alice, 'home/alice/agent/safe.md')).body.toString(), 'here');
@@ -106,8 +106,8 @@ describe('plugin runs as file system clients', () => {
 
   it('writes results back even when the run fails', async () => {
     const nano = fakeNanoAgent();
-    const sync = createAgentSync({ai: nano, fs});
-    await assert.rejects(() => sync.run(alice, async workspace => {
+    const sync = createAgentSync({fs});
+    await assert.rejects(() => sync.run(alice, nano, async workspace => {
       nano.of(workspace).set('partial.txt', Buffer.from('half done'));
       throw new Error('cancelled');
     }), /cancelled/);
@@ -118,7 +118,7 @@ describe('plugin runs as file system clients', () => {
   it('makes a member\'s home private when a run creates it', async () => {
     const bob = as('bob');
     const nano = fakeNanoAgent();
-    await createAgentSync({ai: nano, fs}).run(bob, async workspace => { nano.of(workspace).set('note.md', Buffer.from('mine')); });
+    await createAgentSync({fs}).run(bob, nano, async workspace => { nano.of(workspace).set('note.md', Buffer.from('mine')); });
     assert.equal((await fs.stat(bob, 'home/bob')).access, 'private');
     assert.equal(await fs.stat(alice, 'home/bob/agent/note.md'), null);
   });

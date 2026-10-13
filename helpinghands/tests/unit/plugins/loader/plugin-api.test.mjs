@@ -94,6 +94,7 @@ function serverCtx(files = {}) {
       rateLimit: (key, perMinute) => { calls.rateLimit.push({key, perMinute}); return true; },
       pluginProvides: {references: {load: () => ({})}},
       ai: {complete: async request => ({text: request.prompt}), describe: () => ({available: true})},
+      aiFor: async function () { return this.ai; },
       aiMeter: {assertAllowed: async () => {}, record: async () => {}},
     },
   };

@@ -7,7 +7,8 @@ from typing import Protocol
 
 from nanoagent.core import workspace
 from nanoagent.core.agent import Agent, AgentResult, StopReason
-from nanoagent.harness.base import ProgressSink, RunnerCapabilities, RunnerRequest, RunnerResult
+from nanoagent.harness.base import ProgressSink, RunnerCapabilities, RunnerRequest, RunnerResult, RunnerUnavailableError
+from nanoagent.inference.providers import MissingKeyError
 from nanoagent.runtime.build import build_agent
 from nanoagent.runtime.config import AgentConfig, AgentDefinitionConfig
 from nanoagent.runtime.model import Model
@@ -66,12 +67,18 @@ class NanoAgentRunner:
         agent_factory: AgentFactory | None = None,
     ) -> None:
         self._cfg = cfg
-        self._model = None if agent_factory is not None else Model.from_config(cfg.model)
+        # Built on the first run, like a PI profile's credentials are only needed when it runs.
+        self._model: Model | None = None
         self._factory = agent_factory or self._configured_agent
 
     def _configured_agent(self, instructions: str | None) -> tuple[Agent, str]:
         clean = instructions.strip() if instructions else ""
         suffix = f"Application instructions:\n{clean}" if clean else None
+        if self._model is None:
+            try:
+                self._model = Model.from_config(self._cfg.model)
+            except MissingKeyError as error:
+                raise RunnerUnavailableError(str(error)) from None
         agent = build_agent(self._cfg, model=self._model, prompt_suffix=suffix)
         return agent, agent.system_prompt
 
@@ -130,6 +137,14 @@ class NanoAgentRunner:
                 raise
             result = terminal_snapshot
         return RunnerResult.from_agent_result(result)
+
+    def forget_model(self) -> Model | None:
+        """Drop the model the first run built, so the next builds one with the credentials set now.
+
+        Runs in flight may still use it, so the caller closes it later.
+        """
+        model, self._model = self._model, None
+        return model
 
     async def aclose(self) -> None:
         if self._model is not None:

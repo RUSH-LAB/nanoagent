@@ -180,9 +180,12 @@ describe('NanoAgent gateway', () => {
     assert.equal((await gateway.complete({prompt: 'legacy shape', system: 'instruction'})).text, 'finished');
   });
 
-  it('forwards only a profile id, never browser-owned model configuration', () => {
-    assert.deepEqual(ai.nanoRequest({input: 'x', profile: 'native-test', model: 'ignored'}), {
-      input: 'x', messages: [], profile: 'native-test',
+  it('forwards the run\'s choice of profile or model, and its settings, as routes/ai.js composed them', () => {
+    assert.deepEqual(ai.nanoRequest({input: 'x', profile: 'native-test', settings: {max_tokens: 10}, extra: 'dropped'}), {
+      input: 'x', messages: [], profile: 'native-test', settings: {max_tokens: 10},
+    });
+    assert.deepEqual(ai.nanoRequest({input: 'x', model: {provider: 'anthropic', model: 'claude'}}), {
+      input: 'x', messages: [], model: {provider: 'anthropic', model: 'claude'},
     });
   });
 
@@ -191,10 +194,12 @@ describe('NanoAgent gateway', () => {
     const catalog = {
       defaultProfile: 'native-test',
       profiles: [{
-        id: 'native-test', label: 'Native Test', harness: 'native', model: 'test-model',
+        id: 'native-test', label: 'Native Test', harness: 'nanoagent', provider: 'openrouter', model: 'test-model',
+        uses: ['chat', 'apps'], price: {input: 0.1, output: 0.2}, contextWindow: 1000, reasoning: false,
         available: true, unavailableReason: null,
         capabilities: {streaming: true, history: true},
       }],
+      limits: {max_steps: 6, cost_limit: 0.1, token_limit: 100, max_tokens: 50, capped: true},
     };
     const gateway = ai.createNanoAgentGateway({
       env: {NANOAGENT_URL: 'http://agent'},
@@ -203,6 +208,9 @@ describe('NanoAgent gateway', () => {
     assert.deepEqual(await gateway.profiles(), ai.normalizeProfileCatalog(catalog));
     assert.deepEqual(await gateway.profiles(), ai.normalizeProfileCatalog(catalog));
     assert.equal(calls, 1);
+    const [profile] = (await gateway.profiles()).profiles;
+    assert.deepEqual([profile.uses, profile.price, profile.contextWindow], [['chat', 'apps'], {input: 0.1, output: 0.2}, 1000]);
+    assert.equal((await gateway.profiles()).limits.capped, true);
   });
 
   it('maps terminal failures and incomplete streams to Mochi errors', async () => {
@@ -256,9 +264,10 @@ describe('NanoAgent gateway', () => {
 
 describe('NanoAgent plugin API', () => {
   it('is exported for the routes: every gateway method', () => {
-    for (const name of Object.keys(ai.createNanoAgentGateway())) {
-      assert.equal(typeof ai[name], 'function', `ai.${name} is not exported`);
+    for (const [name, value] of Object.entries(ai.createNanoAgentGateway())) {
+      assert.equal(typeof ai[name], typeof value, `ai.${name} is not exported`);
     }
+    assert.equal(ai.local, false);
   });
 
   it('reads an install and sends a package to install, with the service token', async () => {

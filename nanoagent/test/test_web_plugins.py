@@ -184,9 +184,19 @@ def test_runs_a_prompt_in_the_callers_workspace(
     }
 
 
-def test_plugin_runs_reject_profile_selection(client: TestClient) -> None:
-    response = client.post(f"{runs(client)}/runs", json={"input": "x", "profile": "pi-deepseek"})
-    assert response.status_code == 400
+def test_plugin_runs_choose_an_apps_profile_within_the_limits(client: TestClient) -> None:
+    refused = client.post(f"{runs(client)}/runs", json={"input": "x", "profile": "pi-deepseek"})
+    assert refused.status_code == 400 and "cannot run apps" in refused.json()["error"]
+    chosen = client.post(f"{runs(client)}/runs", json={"input": "x", "profile": "app-deepseek", "settings": {"max_steps": 3}})
+    assert chosen.status_code == 200
+    assert _events(chosen)[-1]["model"] == "deepseek/deepseek-v4-flash-0731"
+    over = client.post(f"{runs(client)}/runs", json={"input": "x", "settings": {"max_steps": 99}})
+    assert over.status_code == 400 and "at most 6" in over.json()["error"]
+    thinking = client.post(f"{runs(client)}/runs", json={"input": "x", "settings": {"thinking_level": "high"}})
+    assert thinking.status_code == 400 and "thinking_level" in thinking.json()["error"]
+    # Mochi's NanoAgent runs only its profiles: a run cannot name a model of its own.
+    named = client.post(f"{runs(client)}/runs", json={"input": "x", "model": {"provider": "openrouter", "model": "x/y"}})
+    assert named.status_code == 400 and "configured profiles" in named.json()["error"]
     assert client.post(f"/v1/workspaces/alice/installs/{SHA}/runs", json={"input": "x"}).status_code == 404
     assert client.post(f"/v1/workspaces/../installs/{client.sha}/runs", json={"input": "x"}).status_code == 404
 
@@ -315,6 +325,15 @@ def test_a_reference_tool_sees_the_workspace_files(tmp_path: Path) -> None:
     scratch.mkdir()
     stage(scratch)
     assert (scratch / "inputs" / "raw.bib").read_text() == "@misc{a}"
+
+
+def test_task_runs_choose_their_settings_within_the_limits(client: TestClient) -> None:
+    tasks = f"{runs(client)}/tasks/echo/runs"
+    chosen = client.post(tasks, json={"arguments": {"value": "hi"}, "profile": "app-deepseek", "settings": {"max_steps": 2}})
+    assert chosen.status_code == 200 and _events(chosen)[-1]["metrics"]["duration_s"] > 0
+    over = client.post(tasks, json={"arguments": {"value": "hi"}, "settings": {"cost_limit": 5}})
+    assert over.status_code == 400 and "at most 0.1" in over.json()["error"]
+    assert client.post(tasks, json={"arguments": {"value": "hi"}, "extra": 1}).status_code == 400
 
 
 def test_task_runs_report_bad_requests_and_failures(client: TestClient) -> None:

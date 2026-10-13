@@ -9,9 +9,8 @@
     h1 { text-align: center; }
     #message { text-align: center; }
     pre { white-space: pre-wrap; max-height: 50vh; overflow: auto; background: #fff1f0; color: #a8071a; padding: 12px; border-radius: 6px; font-size: 12px; }
-    textarea { width: 100%; box-sizing: border-box; height: 240px; font: 12px ui-monospace, monospace; }
-    code { font-size: 12px; }
     .actions { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
+    .button, button { padding: 6px 12px; border: 1px solid #bbb; border-radius: 6px; background: #fff; color: #333; font: inherit; text-decoration: none; cursor: pointer; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -20,36 +19,20 @@
     <h1>Mochi Lab</h1>
     <p id="message">Starting…</p>
     <pre id="error" hidden></pre>
-    <form id="setup" hidden>
-      <p>
-        Paste Mochi's environment settings, in the format of its <code>.env</code>: the PostgreSQL
-        connections, GitHub sign-in, mail, <code>BETTER_AUTH_SECRET</code>, and NanoAgent's
-        <code>OPENROUTER_API_KEY</code>. They are saved, readable only by you, at
-        <code id="settings"></code>.
-      </p>
-      <textarea id="contents" spellcheck="false" placeholder="DATABASE_URL=…"></textarea>
-      <pre id="setup-error" hidden></pre>
-      <div class="actions"><button type="submit">Save and start</button></div>
-    </form>
     <div class="actions" id="failed-actions" hidden>
       <button id="retry">Retry</button>
-      <button id="replace">Replace settings</button>
+      <a class="button" href="keys.html">API keys</a>
     </div>
   </main>
   <script>
     // Follows the supervisor (src-tauri/src/supervisor.rs) through its `status` command.
     const invoke = (command, args) => window.__TAURI_INTERNALS__.invoke(command, args);
     const $ = id => document.getElementById(id);
-    let editing = false;
-
-    function render({phase, message, settings}) {
-      $('settings').textContent = settings;
-      const setup = phase === 'setup' || (phase === 'failed' && editing);
+    function render({phase, message}) {
       $('message').textContent = phase === 'failed' ? 'Mochi Lab stopped.' : message;
-      $('error').hidden = phase !== 'failed' || setup;
+      $('error').hidden = phase !== 'failed';
       $('error').textContent = phase === 'failed' ? message : '';
-      $('setup').hidden = !setup;
-      $('failed-actions').hidden = phase !== 'failed' || setup;
+      $('failed-actions').hidden = phase !== 'failed';
     }
 
     async function poll() {
@@ -57,19 +40,7 @@
       setTimeout(poll, 300);
     }
 
-    $('setup').addEventListener('submit', async event => {
-      event.preventDefault();
-      try {
-        await invoke('save_settings', {contents: $('contents').value});
-        editing = false;
-        $('setup-error').hidden = true;
-      } catch (error) {
-        $('setup-error').hidden = false;
-        $('setup-error').textContent = String(error);
-      }
-    });
     $('retry').addEventListener('click', () => invoke('retry'));
-    $('replace').addEventListener('click', () => { editing = true; });
     poll();
   </script>
 </body>

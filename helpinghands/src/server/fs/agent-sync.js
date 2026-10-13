@@ -43,9 +43,9 @@ async function prepareHome(fs, scope) {
   });
 }
 
-function createAgentSync({ai, fs}) {
+function createAgentSync({fs}) {
   /** Copy the member's agent folder into the run's folder: what was sent, by path, with its revision. */
-  async function push(scope, workspace) {
+  async function push(scope, ai, workspace) {
     const folder = agentFolder(scope);
     const sent = new Map();
     for (const file of await fs.readMany(scope, {prefix: folder})) {
@@ -67,7 +67,7 @@ function createAgentSync({ai, fs}) {
   }
 
   /** Write what the run changed in its folder back into the member's agent folder. */
-  async function pull(scope, workspace, sent) {
+  async function pull(scope, ai, workspace, sent) {
     const folder = agentFolder(scope);
     const listing = unwrap(await ai.workspaceFiles(workspace), 'list its workspace');
     if (listing.truncated) {
@@ -94,19 +94,19 @@ function createAgentSync({ai, fs}) {
 
   return Object.freeze({
     /**
-     * Prepare a folder for one run, run `operation(workspace)` (the task) in it,
-     * and write the results back, even when the run fails or is cancelled part
-     * way. The folder is removed either way.
+     * Prepare a folder for one run on the NanoAgent `ai`, run
+     * `operation(workspace)` (the task) in it, and write the results back, even
+     * when the run fails or is cancelled part way. The folder is removed either way.
      */
-    async run(scope, operation) {
+    async run(scope, ai, operation) {
       await prepareHome(fs, scope);
       const workspace = crypto.randomBytes(16).toString('hex');
       try {
-        const sent = await push(scope, workspace);
+        const sent = await push(scope, ai, workspace);
         try {
           return await operation(workspace);
         } finally {
-          await pull(scope, workspace, sent);
+          await pull(scope, ai, workspace, sent);
         }
       } finally {
         unwrap(await ai.deleteWorkspace(workspace), 'remove its workspace');

@@ -67,7 +67,7 @@ def main() -> None:
 
     async def run() -> None:
         async with stdio_server() as (read, write):
-            # stdout is the MCP channel, already held by the transport; msa prints its progress.
+            # stdout is the MCP channel, already held by the transport; nothing else may print to it.
             sys.stdout = sys.stderr
             try:
                 await server.run(read, write, server.create_initialization_options())

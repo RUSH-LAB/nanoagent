@@ -1,6 +1,6 @@
 _ > nanoagent.cli.plugin.PluginAgentConfig:
 
-# The chess-move plugin's play-move task, worked by an agent on a live mind-sports-arena board.
+# The chess-move plugin's play-move task, worked by an agent on a live board.
 plugin: plugins/chess-move
 task: play-move
 # A middle-game Italian: white's knight on c3 forks black's queen on d5, which is sitting on d5

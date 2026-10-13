@@ -1,11 +1,11 @@
-export const PROFILE_CATALOG = Object.freeze({
-  defaultProfile: 'native-fast',
-  profiles: [
-    {id: 'native-fast', label: 'Fast · NanoAgent', harness: 'native', model: 'fast', available: true},
-    {id: 'native-smart', label: 'Smart · NanoAgent', harness: 'native', model: 'smart', available: true},
-    {id: 'hermes-fast', label: 'Fast · Hermes Agent', harness: 'hermes', model: 'fast', available: true},
-    {id: 'hermes-smart', label: 'Smart · Hermes Agent', harness: 'hermes', model: 'smart', available: true},
-    {id: 'pi-fast', label: 'Fast · PI', harness: 'pi', model: 'fast', available: false, unavailableReason: 'PI runner is not installed'},
+export const AI = Object.freeze({
+  defaults: {chat: 'openrouter/org/fast'},
+  settings: {behaviour: {}, instructions: ''},
+  models: [
+    {key: 'openrouter/org/fast', choice: {provider: 'openrouter', model: 'org/fast'}, label: 'Fast', provider: 'openrouter', model: 'org/fast', uses: ['chat', 'inline'], available: true},
+    {key: 'openrouter/org/smart', choice: {provider: 'openrouter', model: 'org/smart'}, label: 'Smart', provider: 'openrouter', model: 'org/smart', uses: ['chat', 'inline'], available: true},
+    {key: 'openrouter/org/apps', choice: {provider: 'openrouter', model: 'org/apps'}, label: 'Apps', provider: 'openrouter', model: 'org/apps', uses: ['apps'], available: true},
+    {key: 'openrouter/org/off', choice: {provider: 'openrouter', model: 'org/off'}, label: 'Off', provider: 'openrouter', model: 'org/off', uses: ['chat'], available: false, unavailableReason: 'Needs your OpenRouter key: add it under API keys'},
   ],
 });
 
@@ -13,10 +13,8 @@ export function makeCtx(options = {}) {
   const target = options.target === undefined
     ? {chatId: 'chat-1', agentId: 'mochi', label: 'Chat'}
     : options.target;
-  const profileCatalog = options.profileCatalog ?? PROFILE_CATALOG;
-  const agent = options.agent ?? {id: 'mochi', name: 'Mochi', profileId: 'native-fast'};
   const chatItem = options.chatItem === undefined
-    ? (target?.chatId ? {id: target.chatId, agentId: target.agentId, profileId: 'native-fast'} : null)
+    ? (target?.chatId ? {id: target.chatId, agentId: target.agentId} : null)
     : options.chatItem;
   const log = {notes: [], fails: [], calls: []};
   return {
@@ -24,11 +22,11 @@ export function makeCtx(options = {}) {
     ctx: {
       session: {id: options.sessionId ?? 's1', target},
       sessions: {
-        setChatProfile: (chatId, profileId) => log.calls.push(['setChatProfile', chatId, profileId]),
+        setChatModel: (chatId, choice) => log.calls.push(['setChatModel', chatId, choice]),
       },
-      agent,
+      agent: {id: 'mochi', name: 'Mochi'},
       chatItem,
-      profileCatalog,
+      ai: options.ai ?? AI,
       note: text => log.notes.push(text),
       fail: text => log.fails.push(text),
     },

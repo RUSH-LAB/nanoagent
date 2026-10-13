@@ -1,7 +1,7 @@
 # Plan: the chess-move page (`plugins/chess-move/ui/`)
 
 The chess-move plugin's own page replaces the template's full-page chat. It is a static page on
-the `nanoagent.ui/v1` bridge (docs/plans/plugin-ui.md), built from the shared kit's blocks (`ui/kit/components.js`) plus a
+the `nanoagent.ui/v1` bridge (docs/plans/plugin-ui.md), built from the shared kit's blocks (`kit/components.js`) plus a
 chess board this plugin owns.
 
 ## 1. The user job
@@ -31,7 +31,7 @@ copy button.
 | After `open_board` and every `drag`/`click`, the plugin writes `board.json` in the user's workspace: `{fen, moves: [uci...], positions: [fen...]}`. `moves[0]` is the agent's move; an odd index is the app's reply and is not scored. | `src/plugin/play.py`, `README.md` |
 | The verdict on success: `valid: true`, `score = 1 - loss`, `details {move, win_prob, best, best_win_prob, loss}`; `win_prob` is the mover's win probability after the move, 0 to 1. | `verifier/play.py`, `examples/chess_move/outputs/step1_play_move/verdict.json` |
 | The verdict on failure: `valid: false`, `score: 0`, and one of the messages "there is no board.json", "the agent played no move", "the agent played N moves: ...", "X is not a legal move in this position" (`details.legal`), "the position recorded after X is not the one X leads to", "the game was played from another position", or a malformed-record message. | `verifier/play.py`, `verifier/checks.py`, `tests/test_verifier.py` |
-| A run needs msa's board, Stockfish and Chrome. Without them the run fails with a `task.error` carrying `run.sh`'s message (e.g. "no Stockfish at ..."), or `runTask` itself is refused while the plugin is under maintenance (409). | `run.sh`, `src/nanoagent/web/app.py` |
+| A run needs Chrome; the plugin carries its board and builds its Stockfish when it is installed. Without Chrome the run fails with a `task.error` carrying `run.sh`'s message ("no Chrome installed ..."), or `runTask` itself is refused while the plugin is under maintenance (409). | `run.sh`, `src/nanoagent/web/app.py` |
 | A run takes about one to two minutes (the example: two agent turns plus one Stockfish search per legal move at 200,000 nodes). The server's request timeout bounds it. | `examples/chess_move`, `src/plugin/pin.py` |
 | The chat agent (`prompt`) gets the plugin's tools with no shared session, so every tool call is its own process: the chat agent **cannot** play a move on the live board (a `drag` after `open_board` finds no board). Chat is for talking about chess, not for playing. | `src/nanoagent/web/plugin_agent.py` |
 
@@ -144,7 +144,7 @@ sheet. Under 360 px the rank and file labels move inside the squares' corners.
 
 Every part is a function or a kit component built with `h()`; the page is passed to
 `mountApp(page)` in `app.js`. Plugin-only modules live in `ui/chess.js` (rules and FEN) and
-`ui/board.js` (drawing); the rest comes from `ui/kit/components.js`.
+`ui/board.js` (drawing); the rest comes from `kit/components.js`.
 
 ### 4.1 Header
 
@@ -387,8 +387,6 @@ or another tab is not this run's result.
 
 ```
 plugins/chess-move/ui/
-├── index.html        # the template's, unchanged: kit/kit.css, app.css, app.js
-├── kit/              # the template's kit, unchanged (components.js, bridge.js, ... kit.css)
 ├── app.js            # the whole page: header, board, setup / progress / result, recent, chat drawer
 ├── board.js          # the SVG board, arrows, highlights, editing, animation
 ├── chess.js          # FEN parse/serialize, live checks, attack test, move-in-words

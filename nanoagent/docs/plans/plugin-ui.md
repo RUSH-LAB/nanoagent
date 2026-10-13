@@ -7,13 +7,13 @@ access to Mochi's session, cookies or the network.
 
 ## 1. The rule (NanoAgent, `nanoagent.plugin.manifest`)
 
-- `ui/` joins `REQUIRED_FOLDERS`. `ui/index.html` must exist.
+- `ui/` joins `REQUIRED_FOLDERS`. `ui/app.js` must exist.
 - `ui/` holds only static web files: `.html .js .mjs .css .svg .png .jpg .jpeg .gif .webp .ico
   .woff .woff2 .json .md`, at most 5 MB in total. Nothing is built at load time; a plugin that
   uses a bundler commits the built files.
-- `nanoagent plugin new` ships a default UI and the shared UI kit (section 5), so every plugin
-  starts with one. `ui/index.html` and `ui/kit/` are the kit; `ui/app.js` and `ui/app.css` are the
-  plugin's own page.
+- `nanoagent plugin new` ships a default page (section 5), so every plugin starts with one.
+  `ui/app.js` and `ui/app.css` are the plugin's own page; NanoAgent serves it with its own
+  `index.html` and shared UI kit `kit/`.
 
 ## 2. NanoAgent web endpoints
 
@@ -42,8 +42,9 @@ All require the operator bearer token, like every `/v1` route.
 ## 3. The Mochi host
 
 - The apps page shows the plugin's page in
-  `<iframe sandbox="allow-scripts allow-forms" src="/api/apps/{id}/ui/{uiVersion}/index.html">` in place of
-  the chat box. No `allow-same-origin`, so the page has an opaque origin.
+  `<iframe sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox" src="/api/apps/{id}/ui/{uiVersion}/index.html">`
+  in place of the chat box. No `allow-same-origin`, so the page has an opaque origin; its links
+  open in a new tab.
 - `/api/apps/{id}/ui/*` proxies NanoAgent's UI route with the server's token and passes the CSP
   header through. It is public (no login): a sandboxed page's subresource requests carry no
   cookies, and the files are the plugin's published assets.
@@ -78,26 +79,28 @@ conversation for the page's lifetime. The host also sends `{protocol, event: "ho
 
 ## 5. The UI kit and a plugin's page
 
-`src/nanoagent/plugin/template/ui/` is split into a shared kit and the plugin's own page:
+A page is served from one URL folder, `ui/{uiVersion}/`, holding NanoAgent's frame and the
+plugin's own page:
 
 ```
-ui/
-  index.html     shared: loads kit/kit.css, then app.css, then app.js as a module
-  kit/           shared, byte for byte the template's in every built-in plugin
+src/nanoagent/plugin/page/   NanoAgent's, served to every plugin
+  index.html     loads kit/kit.css, then app.css, then app.js as a module
+  kit/
     components.js  the one import a page needs (re-exports every module below)
     bridge.js      the nanoagent.ui/v1 client
-    dom.js  display.js  inputs.js  run.js  chat.js  workspace.js  forms.js  shell.js
+    dom.js  display.js  inputs.js  run.js  chat.js  markdown.js  workspace.js  forms.js  shell.js
     kit.css        the look: Mochi's tokens, light and dark, narrow widths
-  app.js         the plugin's page: mountApp(layout)
+plugins/<id>/ui/             the plugin's
+  app.js         the plugin's page, its default export
   app.css        the plugin's own styles (near-empty in the template)
   ...            any other static files the page needs (its own .js modules, images, fonts)
 ```
 
-A plugin owns `app.js`, `app.css` and whatever else it adds beside them; it never edits
-`index.html` or `kit/`. `test/test_plugin.py` checks every built-in plugin's `index.html` and
-`kit/` against the template's. NanoAgent itself does not refuse a third-party plugin whose kit
-differs: the rule (manifest rule 8) only names the split. A kit change is made in the template
-and copied to every plugin.
+A plugin ships only its own files; every plugin gets the kit of the NanoAgent that serves it,
+so a kit change reaches every plugin when NanoAgent is deployed, and a plugin's package never
+goes stale. `uiVersion` digests both halves, so a new kit is a new URL. COMPAT(plugin-kit): a
+package made before this still carries its own `ui/index.html` and `ui/kit/`; NanoAgent accepts
+it and never serves them.
 
 The template's `app.js` is `mountApp()`: the whole page is a chat over `prompt`, with the
 plugin's icon, name and tagline until the first message; the agent's tool calls are not shown.
@@ -140,8 +143,9 @@ Every export has JSDoc in its module; components return `{element, ...}` with a 
 |---|---|
 | `bridge.js` | `request(method, params)`, `startRun(method, params, onEvent)` (events through `*.done`, early ones buffered), `on(event, handler)`, `hasHost()`, `PROTOCOL` |
 | `dom.js` | `h(tag, attrs, ...children)`, `icon(name)` (`ICON_NAMES`), `applyTheme`, `announce(text)` (screen readers), `humanize`, `pretty`, `formatSize`, `formatDuration`, `plural`, `nextId` |
-| `shell.js` | `mountApp(layout)` (describe, theme, `host.theme`, a plain message outside a host or when the host is silent; `layout` may be async), `appShell({plugin, nav, actions, chat, width})` (header with icon, name, tagline, chat button; `main` for the page; `drawer`), `chatLayout` (the default page) |
-| `chat.js` | `chatPanel({intro, placeholder, suggestions, prepare, onTurnDone})` (suggestion chips fill the box, never send; `prepare` adds the page's context), `chatDrawer({title, note, ...})` (right panel on wide screens, full-screen sheet under 640 px, focus trap, Escape, focus returns to the opener) |
+| `shell.js` | `mountApp(layout)` (describe, theme, `host.theme`, a plain message outside a host or when the host is silent; `layout` may be async), `appShell({plugin, nav, actions, chat, width})` (header with icon, name, tagline, chat button; `main` for the page; `drawer`), `chatLayout(context, options)` (the default page: a full-page `chatPanel` with `options`) |
+| `chat.js` | `chatPanel({intro, placeholder, suggestions, prepare, render, onTurnDone})` (answers as Markdown; `render[tool](output, {arguments, send})` draws a tool's result above the answer, and the session keeps it; suggestion chips fill the box, never send; `prepare` adds the page's context), `chatDrawer({title, note, ...})` (right panel on wide screens, full-screen sheet under 640 px, focus trap, Escape, focus returns to the opener) |
+| `markdown.js` | `markdown(text)`: Markdown (paragraphs, headings, lists, quotes, fenced code, inline code, bold, italics, links) as DOM nodes, never HTML |
 | `run.js` | `taskRun({task, title, steps, onEvent, onFinish})`: runs `runTask` with a progress card (forward-only steps with detail lines, progress bars and notes, elapsed time, Stop) and resolves with the outcome `{status: valid\|invalid\|error\|cancelled\|unchecked, verdict, error, answer, result, tools (with parsed outputs), seconds, startFailed}`; `runButton({label, onClick, run, cancelWhileBusy, note, block})` with `setBlocked(reason)`; `verdictBanner(verdict, words)` (plain words, score in words, raw message and details under "Details"); `explainError(message, rules)`, `errorCard({message, rules, title, actions})`, `COMMON_ERRORS` (stopped, maintenance, timeouts, network); `parseToolOutput`; developer views `taskView`, `runControls`, `toolItem`, `verdictView`, `block` |
 | `inputs.js` | `labeled` (label, hint, inline error), `segmented` (one of a few; also filter chips with counts), `chipToggles` (several on/off), `chipRow` (presets, quick picks, examples, saved runs; scrolls sideways), `chipsInput` (a list of short strings), `numberStepper`, `dateInput` (quick-pick chips, checks with a one-click fix), `isoDate({timeZone, days})`, `fileDrop` (drop, choose, paste or pick a workspace file; checked with `inspect`, written to a fixed path with `workspace.write` at once; `restore()` shows a file left by an earlier visit), `workspacePicker`, `copyText`, `copyButton` and `copyField` (say plainly when the sandbox refuses the clipboard) |
 | `display.js` | `card` (16 px, `size: "large"` 20 px), `statusPill`, `banner` (tones `ok`, `warn`, `bad`, `info`, `neutral`; always an icon and words), `disclosure`, `meter` (a value with an optional target band), `dataTable` (sortable, filterable, "Show all N", one card per row when its container is narrow), `emptyState`, `howItWorks(plugin.product.steps)`, `skeleton`, `actionBar` (sticky at the bottom on narrow screens), `columns` (two columns, one under 880 px) |
@@ -166,7 +170,7 @@ template as text. A plugin that wants Inter everywhere adds the `.woff2` files a
 `@font-face` rule in its own `app.css`.
 
 Previewing a page needs a host: a throwaway page outside the repo that frames a copy of `ui/`
-with `sandbox="allow-scripts allow-forms"`, serves it with CORS (module scripts of an
+with the same `sandbox`, serves it with CORS (module scripts of an
 opaque-origin frame are fetched in CORS mode) and answers the bridge from recorded fixtures.
 
 ## Build

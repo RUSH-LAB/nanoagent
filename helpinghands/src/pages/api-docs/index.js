@@ -356,7 +356,7 @@ const CATEGORIES = [
     endpoints: [
       {
         method: 'POST', path: '/api/ai/complete', description: 'Generate AI text completions. Supports continue, improve, explain, summarize, and inline modes. Rate-limited to 10/min per IP.',
-        request: '{ "prompt": "The transformer architecture...", "messages": [{ "role": "user", "content": "Earlier question" }, { "role": "assistant", "content": "Earlier answer" }], "type": "continue", "agentId": "researcher", "profileId": "native-deepseek" }\n\nValid types: "continue", "improve", "explain", "summarize", "inline". The optional agentId selects a trusted workspace-defined identity; profileId selects only from the server-provided profile catalog.',
+        request: '{ "prompt": "The transformer architecture...", "messages": [{ "role": "user", "content": "Earlier question" }, { "role": "assistant", "content": "Earlier answer" }], "type": "continue", "agentId": "researcher" }\n\nValid types: "continue", "improve", "explain", "summarize", "inline". The optional agentId selects a trusted workspace-defined identity. The run uses your Chat model from Settings → AI, on your computer in Mochi Lab; model {"provider", "model"} chooses another for this request.',
         response: '{ "text": "...generated continuation..." }',
       },
       {
@@ -375,8 +375,30 @@ const CATEGORIES = [
         response: 'event: agent\ndata: {"type":"tool.completed","call":{"name":"download_source"}}\n\nevent: delta\ndata: {"text":"..."}\n\nevent: done\ndata: {"text":"...complete answer..."}',
       },
       {
-        method: 'GET', path: '/api/ai/profiles', description: 'List the server-approved NanoAgent harness and model profiles, including current availability.',
-        response: '{ "defaultProfile": "native-deepseek", "profiles": [{ "id": "native-deepseek", "label": "DeepSeek V4 Flash · NanoAgent", "harness": "native", "model": "deepseek/deepseek-v4-flash-0731", "available": true }] }',
+        method: 'GET', path: '/api/ai/profiles', description: 'List the NanoAgent profiles on your computer, in Mochi Lab, with what each is for (chat, inline, apps), price, availability, and the limits a run may ask for.',
+        response: '{ "defaultProfile": "pi-deepseek", "profiles": [{ "id": "pi-deepseek", "label": "DeepSeek V4 Flash · PI", "harness": "pi", "provider": "openrouter", "model": "deepseek/deepseek-v4-flash-0731", "uses": ["chat", "inline"], "price": { "input": 0.05, "output": 0.2 }, "available": true }], "limits": { "capped": false } }',
+      },
+      {
+        method: 'GET', path: '/api/ai/settings', description: 'Your AI settings, for your computer in Mochi Lab: NanoAgent behaviour and your own instructions, beside the one model chat, inline completion and apps all run on.',
+        response: '{ "settings": { "behaviour": { "thinking": "low" }, "instructions": "" }, "model": { "provider": "openrouter", "model": "deepseek/deepseek-v4-flash-0731" } }',
+      },
+      {
+        method: 'PUT', path: '/api/ai/settings', description: 'Save your AI settings, whole.',
+        request: '{ "settings": { "behaviour": { "maxSteps": 20 }, "instructions": "Cite sources." } }',
+        response: '{ "settings": { ... } }',
+      },
+      {
+        method: 'GET', path: '/api/ai/models', description: 'The models you may choose: every model on your computer, available once Mochi Lab holds its provider\'s key.',
+        response: '{ "connected": true, "device": "laptop", "models": [{ "key": "anthropic/claude-sonnet-4-5", "choice": { "provider": "anthropic", "model": "claude-sonnet-4-5" }, "label": "Claude Sonnet 4.5", "uses": ["chat", "inline"], "available": false, "unavailableReason": "Needs your Anthropic key: add it under API keys" }], "defaults": { "chat": "openrouter/deepseek/deepseek-v4-flash-0731" }, "limits": { "capped": false } }',
+      },
+      {
+        method: 'GET', path: '/api/runner/status', description: 'Whether Mochi Lab is connected for you, what it calls your computer, and which API keys it holds (never their values).',
+        response: '{ "connected": true, "device": "laptop", "keys": [{ "env": "OPENROUTER_API_KEY", "label": "OpenRouter", "set": true }] }',
+      },
+      {
+        method: 'PUT', path: '/api/runner/keys', description: 'Set (a key) or remove (null) API keys in Mochi Lab. Mochi passes them on and keeps nothing; your runs use them at once.',
+        request: '{ "changes": { "ANTHROPIC_API_KEY": "sk-ant-..." } }',
+        response: '{ "saved": true }',
       },
       {
         method: 'GET', path: '/api/agent-files', description: 'List the files in your private agent folder (home/<you>/agent in the workspace file system): what the apps you ran saved for you, and what you made. Manage it like any other folder through /api/fs.',
@@ -407,12 +429,12 @@ const CATEGORIES = [
       },
       {
         method: 'GET', path: '/api/agents', description: 'List the reusable AI agents defined for this workspace.',
-        response: '{ "agents": [{ "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "profileId": "native-deepseek", "color": "blue" }] }',
+        response: '{ "agents": [{ "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "color": "blue" }] }',
       },
       {
-        method: 'POST', path: '/api/agents', description: 'Create a workspace agent. Owners and editors can manage agents.',
-        request: '{ "name": "Researcher", "description": "Finds evidence", "instructions": "Check claims and cite evidence.", "profileId": "native-deepseek", "color": "blue" }',
-        response: '{ "agent": { "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "profileId": "native-deepseek", "color": "blue" } }',
+        method: 'POST', path: '/api/agents', description: 'Create a workspace agent: a name and instructions. Owners and editors can manage agents. An agent chooses no model; each member\'s chats with it run on their own (Settings → AI).',
+        request: '{ "name": "Researcher", "description": "Finds evidence", "instructions": "Check claims and cite evidence.", "color": "blue" }',
+        response: '{ "agent": { "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "color": "blue" } }',
       },
       {
         method: 'PATCH', path: '/api/agents/:id', description: 'Update an existing workspace agent.',

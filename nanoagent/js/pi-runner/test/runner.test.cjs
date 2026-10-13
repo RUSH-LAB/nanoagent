@@ -12,8 +12,33 @@ test("PI runner validates server-owned options", async () => {
     systemPrompt: "You are a helpful assistant.",
     awsRegion: undefined,
     awsProfile: undefined,
+    temperature: undefined,
+    maxTokens: undefined,
   });
   assert.throws(() => parseOptions({provider: "openrouter"}), /model.*required/);
+});
+
+test("PI runner takes a run's temperature and output limit", async () => {
+  const {parseOptions} = await import("../dist/index.js");
+  const options = parseOptions({provider: "openrouter", model: "m", temperature: 0.4, max_tokens: 512});
+  assert.equal(options.temperature, 0.4);
+  assert.equal(options.maxTokens, 512);
+  assert.throws(() => parseOptions({provider: "openrouter", model: "m", temperature: 3}), /temperature/);
+  assert.throws(() => parseOptions({provider: "openrouter", model: "m", max_tokens: 0}), /max_tokens/);
+});
+
+test("PI catalog lists providers with their credentials, and models with their prices", () => {
+  const child = spawnSync(process.execPath, ["dist/models.js"], {
+    encoding: "utf8",
+    env: {PATH: process.env.PATH, OPENROUTER_API_KEY: "sk-test"},
+  });
+  assert.equal(child.status, 0, child.stderr);
+  const {providers, models} = JSON.parse(child.stdout);
+  assert.equal(providers.find((provider) => provider.id === "openrouter").keySet, true);
+  assert.equal(providers.find((provider) => provider.id === "anthropic").keySet, false);
+  const model = models.find((entry) => entry.provider === "openrouter");
+  assert.equal(typeof model.contextWindow, "number");
+  assert.equal(typeof model.cost.input, "number");
 });
 
 test("PI usage maps to NanoAgent fields", async () => {

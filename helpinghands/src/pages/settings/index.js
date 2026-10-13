@@ -1,20 +1,15 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import {useLocation} from '@docusaurus/router';
 import Avatar from '@site/src/components/Avatar';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import {clientPlatform} from '@site/src/platform/client';
-import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
-import useWorkspaceSubscriptions, {
-  isBookSubscribed, isGroupSubscribed, orderByPreference,
-} from '@site/src/hooks/useWorkspaceSubscriptions';
-import API_BASE, {apiJson} from '@site/src/utils/api';
-import {WORKSPACE_CONTENT_CACHE_MS} from '@site/src/utils/workspaceContent';
 import {workspaceSlugFromPath} from '@site/src/utils/workspaces';
 import {useAccount} from '@site/src/utils/account';
-import {PaneHeading, Skeleton} from './_parts';
+import {PaneHeading} from './_parts';
 import TwoColumnLayout from '@site/src/components/TwoColumnLayout';
+import Ai from './_Ai';
 import Leave from './_Leave';
 import People from './_People';
 import Plugins from './_Plugins';
@@ -37,125 +32,7 @@ function SettingsApp() {
 
   const {account: user, workspaces, defaultWorkspaceId} = useAccount();
   const activeId = workspaces.find(workspace => workspace.slug === workspaceSlug)?.id ?? defaultWorkspaceId;
-  const [subscriptionGroups, setSubscriptionGroups] = useState({});
-  const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
-  const [subscriptionsSaving, setSubscriptionsSaving] = useState(false);
-  const [subscriptionsStatus, setSubscriptionsStatus] = useState(null);
   const activeWorkspace = workspaces.find(workspace => workspace.id === activeId) ?? null;
-  const {workspace: routeWorkspace, site} = useWorkspaceSite();
-  const preferenceWorkspace = routeWorkspace?.id === activeId ? routeWorkspace : activeWorkspace;
-  const {
-    subscriptions, loading: preferencesLoading, error: preferencesError, saveSubscriptions,
-  } = useWorkspaceSubscriptions(preferenceWorkspace);
-  const books = (site?.collections ?? []).filter(collection => collection.type === 'docs');
-  const blogs = (site?.collections ?? []).filter(collection => collection.type === 'blog');
-  const orderedBooks = orderByPreference(books, subscriptions?.bookOrder, book => book.key);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!preferenceWorkspace?.id || !site) {
-      setSubscriptionGroups({});
-      return () => { cancelled = true; };
-    }
-    const blogCollections = site.collections.filter(collection => collection.type === 'blog');
-    setSubscriptionsLoading(blogCollections.length > 0);
-    Promise.all(blogCollections.map(async collection => {
-      const configured = (collection.groups ?? []).map(group => group.title);
-      const result = await apiJson(
-        `${API_BASE}/api/workspaces/${encodeURIComponent(preferenceWorkspace.id)}/documents/tree?prefix=${encodeURIComponent(collection.pathPrefix)}&include=metadata`,
-        {cacheMs: WORKSPACE_CONTENT_CACHE_MS},
-      );
-      const derived = result.ok
-        ? (result.data.documents ?? [])
-          .map(document => document.frontmatter?.group?.trim() || 'Ungrouped')
-        : [];
-      const seen = new Set();
-      const titles = [...configured, ...derived.sort((a, b) => a.localeCompare(b))]
-        .filter(title => {
-          const identity = title.toLocaleLowerCase();
-          if (seen.has(identity)) return false;
-          seen.add(identity);
-          return true;
-        });
-      return [collection.key, titles];
-    }))
-      .then(entries => {
-        if (!cancelled) setSubscriptionGroups(Object.fromEntries(entries));
-      })
-      .catch(error => {
-        if (!cancelled) setSubscriptionsStatus({type: 'error', message: error.message});
-      })
-      .finally(() => {
-        if (!cancelled) setSubscriptionsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [preferenceWorkspace?.id, site]);
-
-  const saveSubscriptionChoice = useCallback(async next => {
-    setSubscriptionsSaving(true);
-    setSubscriptionsStatus(null);
-    try {
-      await saveSubscriptions(next);
-      setSubscriptionsStatus({type: 'success', message: 'Saved'});
-    } catch (error) {
-      setSubscriptionsStatus({type: 'error', message: error.message});
-    } finally {
-      setSubscriptionsSaving(false);
-    }
-  }, [saveSubscriptions]);
-
-  const toggleBookSubscription = key => {
-    const selected = orderedBooks
-      .filter(book => isBookSubscribed(subscriptions, book.key))
-      .map(book => book.key);
-    const nextBooks = selected.includes(key)
-      ? selected.filter(item => item !== key)
-      : [...selected, key];
-    void saveSubscriptionChoice({...subscriptions, books: nextBooks});
-  };
-
-  const toggleGroupSubscription = (collectionKey, title) => {
-    const available = orderByPreference(
-      subscriptionGroups[collectionKey] ?? [],
-      subscriptions?.groupOrder?.[collectionKey],
-    );
-    const selected = available.filter(group => isGroupSubscribed(subscriptions, collectionKey, group));
-    const nextGroups = selected.includes(title)
-      ? selected.filter(group => group !== title)
-      : [...selected, title];
-    void saveSubscriptionChoice({
-      ...subscriptions,
-      groups: {...subscriptions?.groups, [collectionKey]: nextGroups},
-    });
-  };
-
-  const moveItem = (items, sourceIndex, direction) => {
-    const targetIndex = sourceIndex + direction;
-    if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= items.length) return null;
-    const next = [...items];
-    const [moved] = next.splice(sourceIndex, 1);
-    next.splice(targetIndex, 0, moved);
-    return next;
-  };
-
-  const reorderBooks = (index, direction) => {
-    const nextOrder = moveItem(orderedBooks.map(book => book.key), index, direction);
-    if (nextOrder) void saveSubscriptionChoice({...subscriptions, bookOrder: nextOrder});
-  };
-
-  const reorderGroups = (collectionKey, index, direction) => {
-    const orderedGroups = orderByPreference(
-      subscriptionGroups[collectionKey] ?? [],
-      subscriptions?.groupOrder?.[collectionKey],
-    );
-    const nextOrder = moveItem(orderedGroups, index, direction);
-    if (!nextOrder) return;
-    void saveSubscriptionChoice({
-      ...subscriptions,
-      groupOrder: {...subscriptions?.groupOrder, [collectionKey]: nextOrder},
-    });
-  };
-
   const [signingOut, setSigningOut] = useState(false);
   const signOut = async () => {
     setSigningOut(true);
@@ -168,7 +45,7 @@ function SettingsApp() {
   const groups = [
     {id: 'user', label: 'User', panes: [
       {id: 'account', label: 'Account'},
-      {id: 'navigation', label: 'Navigation'},
+      {id: 'ai', label: 'AI'},
       ...(activeWorkspace ? [{id: 'membership', label: 'Membership'}] : []),
     ]},
     ...(activeWorkspace ? [{id: 'workspace', label: 'Workspace', panes: [
@@ -190,35 +67,12 @@ function SettingsApp() {
     sections.forEach(section => observer.observe(section));
     return () => observer.disconnect();
   }, [paneIds]);
-  const subscriptionsFeedback = (preferencesError || subscriptionsStatus) && (
-    <span
-      className={subscriptionsStatus?.type === 'success' && !preferencesError ? styles.saved : styles.error}
-      role={subscriptionsStatus?.type === 'error' || preferencesError ? 'alert' : 'status'}
-    >{preferencesError || subscriptionsStatus.message}</span>
-  );
-  const orderButtons = (title, index, count, move) => (
-    <span className={styles.orderButtons}>
-      <button
-        type="button"
-        disabled={subscriptionsSaving || index === 0}
-        aria-label={`Move ${title} up`}
-        title="Move up"
-        onClick={() => move(index, -1)}
-      >↑</button>
-      <button
-        type="button"
-        disabled={subscriptionsSaving || index === count - 1}
-        aria-label={`Move ${title} down`}
-        title="Move down"
-        onClick={() => move(index, 1)}
-      >↓</button>
-    </span>
-  );
 
   return (
     <TwoColumnLayout
       sidebarKey="settings"
       showSidebarOnMobile
+      evenGutters
       renderSidebar={({collapsed, onCollapse}) => (
         <SettingsSidebar
           groups={groups}
@@ -249,60 +103,8 @@ function SettingsApp() {
             ) : null}
           </section>
 
-          <section id="navigation" className={styles.pane}>
-            <PaneHeading title="Navigation" aside={subscriptionsFeedback} />
-            {!preferenceWorkspace || !site || preferencesLoading || subscriptionsLoading ? <Skeleton rows={4} /> : (
-              <>
-                <section className={styles.group}>
-                  <div className={styles.groupHead}><h4 className={styles.groupTitle}>Books</h4></div>
-                  {books.length ? orderedBooks.map((book, index) => (
-                    <div className={styles.optionRow} key={book.key}>
-                      <label className={styles.option}>
-                        <input
-                          type="checkbox"
-                          checked={isBookSubscribed(subscriptions, book.key)}
-                          disabled={subscriptionsSaving}
-                          onChange={() => toggleBookSubscription(book.key)}
-                        />
-                        <span>{book.title}</span>
-                      </label>
-                      {orderButtons(book.title, index, orderedBooks.length, reorderBooks)}
-                    </div>
-                  )) : <p className={styles.empty}>No books yet.</p>}
-                </section>
-                {blogs.length ? blogs.map(collection => {
-                  const orderedGroups = orderByPreference(
-                    subscriptionGroups[collection.key] ?? [],
-                    subscriptions?.groupOrder?.[collection.key],
-                  );
-                  return (
-                    <section className={styles.group} key={collection.key}>
-                      <div className={styles.groupHead}><h4 className={styles.groupTitle}>{blogs.length > 1 ? collection.title : 'Blog groups'}</h4></div>
-                      {orderedGroups.length ? orderedGroups.map((title, index) => (
-                        <div className={styles.optionRow} key={title}>
-                          <label className={styles.option}>
-                            <input
-                              type="checkbox"
-                              checked={isGroupSubscribed(subscriptions, collection.key, title)}
-                              disabled={subscriptionsSaving}
-                              onChange={() => toggleGroupSubscription(collection.key, title)}
-                            />
-                            <span>{title}</span>
-                          </label>
-                          {orderButtons(title, index, orderedGroups.length,
-                            (from, direction) => reorderGroups(collection.key, from, direction))}
-                        </div>
-                      )) : <p className={styles.empty}>No groups yet.</p>}
-                    </section>
-                  );
-                }) : (
-                  <section className={styles.group}>
-                    <div className={styles.groupHead}><h4 className={styles.groupTitle}>Blog groups</h4></div>
-                    <p className={styles.empty}>No blog groups yet.</p>
-                  </section>
-                )}
-              </>
-            )}
+          <section id="ai" className={styles.pane}>
+            <Ai />
           </section>
 
           {activeWorkspace && (

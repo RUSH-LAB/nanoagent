@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- The live board: chessgroundx (copied into chessgroundx/, its version in its package.json)
+     drawing the game plugin.board serves. The page is the board alone; the screenshot is #board. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chess Move</title>
+<link rel="stylesheet" href="/chessgroundx/assets/chessground.base.css">
+<link rel="stylesheet" href="/chessgroundx/assets/chessground.brown.css">
+<link rel="stylesheet" href="/chessgroundx/assets/chessground.cburnett.css">
+<style>
+  html, body { margin: 0; background: #eae6df; }
+  #board { width: 640px; height: 640px; margin: 20px; }
+  /* chessgroundx writes the coordinates and leaves where they go to the page: the files along the
+     bottom edge, the ranks up the right one, each in its own square's corner. */
+  .cg-wrap coords { position: absolute; display: flex; pointer-events: none; user-select: none;
+                   font: 600 13px/1 sans-serif; color: rgba(0, 0, 0, .55); }
+  .cg-wrap coords coord { flex: 1; }
+  .cg-wrap coords.bottom { left: 0; bottom: 0; width: 100%; flex-direction: row; }
+  .cg-wrap coords.bottom coord { padding: 0 0 3px 4px; }
+  .cg-wrap coords.side { top: 0; right: 0; height: 100%; flex-direction: column-reverse; }
+  .cg-wrap coords.side coord { padding: 4px 4px 0 0; }
+  .cg-wrap coords.bottom.black { flex-direction: row-reverse; }
+  .cg-wrap coords.side.black { flex-direction: column; }
+</style>
+</head>
+<body data-busy="true">
+<div id="board"></div>
+<script type="module" src="/board.js"></script>
+</body>
+</html>

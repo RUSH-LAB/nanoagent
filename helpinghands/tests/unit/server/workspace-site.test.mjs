@@ -49,11 +49,11 @@ describe('workspace site configuration', () => {
   });
 
   it('keeps the workspace-selected home page presentation', () => {
-    assert.equal(validateWorkspaceSite({site: {homeLayout: 'title'}}).site.homeLayout, 'title');
     assert.equal(validateWorkspaceSite({site: {homeLayout: 'library'}}).site.homeLayout, 'library');
     assert.equal(validateWorkspaceSite({site: {homeLayout: 'document', homeDocument: 'welcome.md'}}).site.homeLayout, 'document');
     assert.throws(() => validateWorkspaceSite({site: {homeLayout: 'document'}}), /homeDocument is required/);
-    assert.throws(() => validateWorkspaceSite({site: {homeLayout: 'custom'}}), /title, library, or document/);
+    assert.throws(() => validateWorkspaceSite({site: {homeLayout: 'title'}}), /library or document/);
+    assert.throws(() => validateWorkspaceSite({site: {homeLayout: 'custom'}}), /library or document/);
   });
 
   it('rejects executable or unbounded configuration shapes', () => {

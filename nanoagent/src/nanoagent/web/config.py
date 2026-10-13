@@ -13,9 +13,10 @@ from nanoagent.runtime.config import AgentDefinitionConfig
 class WebConfig(AgentDefinitionConfig):
     """A server-owned agent definition and its HTTP/runtime bounds.
 
-    Requests cannot override the inherited model or tool fields. They may provide conversation
-    history and additional instructions; operators remain the only parties able to select
-    credentials, backends and executable capabilities.
+    Requests cannot override the inherited tool fields. They may provide conversation history,
+    additional instructions, and settings within this host's limits; they choose a model only
+    among the profiles, unless ``run_models`` lets them name one. Operators remain the only parties
+    able to select credentials, backends and executable capabilities.
     """
 
     default_profile: str = MISSING
@@ -29,8 +30,8 @@ class WebConfig(AgentDefinitionConfig):
     packages: list[str] = MISSING
     # Where packages are installed to run (see nanoagent.plugin.install), one folder per sha256.
     installs: str = MISSING
-    # What every plugin process runs in (see nanoagent.plugin.sandbox): `bwrap`, or `none`, which
-    # confines nothing.
+    # What every plugin process runs in (see nanoagent.plugin.sandbox): `bwrap`, `seatbelt` on
+    # macOS, or `none`, which confines nothing.
     sandbox: str = MISSING
     # Root of the scratch workspaces plugin runs use, one per run (see nanoagent.web.workspaces).
     workspaces: str = MISSING
@@ -45,6 +46,10 @@ class WebConfig(AgentDefinitionConfig):
     max_output_chars: int = MISSING
     heartbeat_seconds: float = MISSING
     include_reasoning: bool = MISSING
+    # Whether a run may name its own model (any in the PI catalog its credentials reach) and set
+    # its settings beyond the limits above: for a NanoAgent its member runs for themselves (Mochi
+    # Lab), whose keys and spending are theirs. Loopback hosts only.
+    run_models: bool = MISSING
 
     def __post_init__(self) -> None:
         for name in ("port", "max_concurrency", "max_request_bytes", "max_file_bytes", "max_output_chars"):
@@ -62,7 +67,9 @@ class WebConfig(AgentDefinitionConfig):
         loopback = self.host in {"127.0.0.1", "localhost", "::1"}
         if not loopback and not self.api_token:
             raise ValueError("api_token is required when the web host is not loopback-only")
-        if self.sandbox not in {"bwrap", "none", MISSING}:
-            raise ValueError(f"sandbox must be bwrap or none, got {self.sandbox!r}")
+        if self.sandbox not in {"bwrap", "seatbelt", "none", MISSING}:
+            raise ValueError(f"sandbox must be bwrap, seatbelt or none, got {self.sandbox!r}")
+        if self.run_models is True and isinstance(self.host, str) and not loopback:
+            raise ValueError("run_models is for a NanoAgent its member runs on their own computer (a loopback host)")
         if self.agent.events is not None:
             raise ValueError("agent.events must be null for the web host; run events are streamed")

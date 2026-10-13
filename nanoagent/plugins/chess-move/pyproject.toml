@@ -5,11 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "nanoagent-chess-move"
 version = "0.1.0"
-description = "Play one chess move with the mouse on mind-sports-arena's live board, scored by Stockfish"
+description = "Play one chess move with the mouse on a live board, scored by Stockfish"
 requires-python = ">=3.12"
-# mind-sports-arena's msa is the chess app, its board page and its board drawing: an editable
-# install of the checkout beside NanoAgent's, so msa finds its own node_modules and engine builds.
-dependencies = ["mcp>=1.27,<2", "mind-sports-arena", "slimconfig"]
+# chess-move-stockfish (src/chess-move-stockfish/) is Stockfish, compiled into its wheel when this plugin is
+# installed; websockets is how plugin.chrome talks to Chrome.
+dependencies = ["chess-move-stockfish", "mcp>=1.27,<2", "slimconfig", "websockets>=15,<18"]
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
@@ -18,7 +18,7 @@ dev = ["pytest", "ruff"]
 where = ["src"]
 
 [tool.uv.sources]
-mind-sports-arena = { path = "../../../mind-sports-arena", editable = true }
+chess-move-stockfish = { path = "src/chess-move-stockfish" }
 slimconfig = { git = "https://github.com/zeyuyang8/slimconfig", branch = "master" }
 
 [tool.ruff]

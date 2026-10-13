@@ -59,13 +59,6 @@
   background: var(--ifm-color-emphasis-200);
 }
 
-.logo {
-  height: 2rem;
-  width: 2rem;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
 .name {
   display: block;
   max-width: 11rem;
@@ -188,4 +181,49 @@
   .identity {
     display: none;
   }
+}
+
+/* The way to make another workspace: a row like the workspaces above it,
+   after a rule, quieter than they are since it is rarely wanted. */
+.create {
+  position: relative;
+  margin-top: 0.5rem;
+  color: var(--ifm-color-emphasis-700);
+  text-decoration: none;
+}
+
+.create::before {
+  content: '';
+  position: absolute;
+  top: -0.3rem;
+  right: 0.25rem;
+  left: 0.25rem;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.create:hover {
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-font-color-base);
+  text-decoration: none;
+}
+
+.create .optionName {
+  font-weight: 500;
+}
+
+.createMark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1.5px dashed var(--ifm-color-emphasis-400);
+  border-radius: 9px;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.create:hover .createMark {
+  border-color: var(--ifm-color-emphasis-600);
+  color: var(--ifm-font-color-base);
 }

@@ -32,6 +32,7 @@ export const utils = require('../../src/server/server-utils.js');
 
 /** Builds the narrow object a plugin's handler is handed. */
 const {buildPluginApi} = require('../../src/server/plugin-api.js');
+const aiSettings = require('../../src/server/ai-settings.js');
 const workspaceContext = require('../../src/server/workspace-context.js');
 
 /**
@@ -517,15 +518,25 @@ export function makeCtx(overrides = {}) {
       profiles: async () => ({
         defaultProfile: 'native-test',
         profiles: [{
-          id: 'native-test', label: 'Test', harness: 'native', model: 'test-model',
+          id: 'native-test', label: 'Test', harness: 'nanoagent', provider: 'openrouter', model: 'test-model',
+          uses: ['chat', 'apps'], price: {input: 1, output: 2}, contextWindow: 1000, reasoning: false,
           available: true, unavailableReason: null, capabilities: {},
         }, {
-          id: 'pi-test', label: 'PI Test', harness: 'pi', model: 'test-model',
+          id: 'pi-test', label: 'PI Test', harness: 'pi', provider: 'openrouter', model: 'test-model',
+          uses: ['chat', 'inline'], price: {input: 1, output: 2}, contextWindow: 1000, reasoning: true,
           available: true, unavailableReason: null, capabilities: {},
         }],
+        limits: {max_steps: 6, cost_limit: 0.1, token_limit: 65536, max_tokens: 2048, capped: true},
       }),
       describe: () => ({available: true, provider: 'nanoagent', model: 'test-model'}),
+      local: false,
     },
+    // Every member's runs go to ctx.ai, as with Settings → AI on Mochi servers
+    // (server/runner.js); a suite testing the member's own computer replaces it.
+    aiFor: async function () { return this.ai; },
+    // The member's Settings → AI: none chosen, unless a suite sets ctx.settings.
+    aiSettings: async function () { return this.settings ?? aiSettings.stored(null); },
+    runners: {status: () => ({connected: false, device: null, keys: []}), computer: () => null},
     PROJECT_ROOT: root,
     /**
      * The caller's content root. Ignores the organization id in production

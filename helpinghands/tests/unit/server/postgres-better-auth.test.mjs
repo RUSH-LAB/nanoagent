@@ -45,6 +45,7 @@ describe('Better Auth on the PostgreSQL workspace schema', () => {
       session: authSessionOptions({postgresEnabled: true}),
       secret: 'postgres-better-auth-test-secret'.padEnd(48, 'x'),
       baseURL: 'http://localhost:3001',
+      advanced: {database: {joins: true}},
       socialProviders: {github: {clientId: 'test-client', clientSecret: 'test-secret'}},
       plugins: [
         organization(organizationOptions({
@@ -65,6 +66,13 @@ describe('Better Auth on the PostgreSQL workspace schema', () => {
 
   after(async () => {
     await kysely?.destroy();
+  });
+
+  it('finds a session and its user in the aliased tables with joins on', async () => {
+    const eve = await githubAccount(auth, 'Eve', 'eve@postgres.invalid');
+    const session = await auth.api.getSession({headers: {cookie: eve.cookie}, query: {disableCookieCache: true}});
+    assert.equal(session.user.id, eve.id);
+    assert.equal(session.session.userId, eve.id);
   });
 
   it('keeps GitHub accounts and device codes in the aliased tables', async () => {

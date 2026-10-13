@@ -1,38 +1,45 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect} from 'react';
+import clsx from 'clsx';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import Layout from '@theme/Layout';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import {navigateClient} from '@site/src/utils/workspaces';
 import {workspaceDocumentHref} from '@site/src/utils/documentUrls';
+import styles from './workspaceHome.module.css';
 
+/**
+ * A workspace's home, /w/:slug, where the workspace name in the navbar goes.
+ * For now it is the workspace's name and nothing else, laid out as a Markdown
+ * page whose first heading is the page's banner, so that the workspace's own
+ * home document can take its place without a new design.
+ *
+ * An owner who chose one page as the workspace's home (site.homeLayout
+ * 'document') is sent to that page instead.
+ */
 function WorkspaceHome() {
   const {slug, workspace, site, loading, error} = useWorkspaceSite();
-  const [navigationError, setNavigationError] = useState(null);
+  const pinned = site?.site?.homeLayout === 'document' && site.site.homeDocument;
 
   useEffect(() => {
-    if (loading || error || !slug || !workspace || !site) return;
-    try {
-      const target = site.site?.homeDocument
-        ? workspaceDocumentHref(site.site.homeDocument, slug, '')
-        : `/w/${encodeURIComponent(slug)}/documents`;
-      navigateClient(target, {replace: true});
-    } catch (reason) {
-      setNavigationError(reason.message);
+    if (!loading && !error && slug && pinned) {
+      navigateClient(workspaceDocumentHref(site.site.homeDocument, slug, ''), {replace: true});
     }
-  }, [error, loading, site, slug, workspace]);
+  }, [error, loading, pinned, site, slug]);
 
-  return error || navigationError
-    ? <p>{error || navigationError}</p>
-    : <p>Opening workspace…</p>;
+  if (error) return <p className={styles.message}>{error}</p>;
+  if (!workspace || !site || pinned) return null;
+  return (
+    <article className={clsx('markdown', styles.page)}>
+      <h1>{site.site?.title || workspace.name}</h1>
+    </article>
+  );
 }
 
 export default function WorkspaceHomeRoute() {
   return (
-    <Layout title="Workspace">
-      <main className="container margin-vert--lg">
-        <BrowserOnly fallback={<p>Opening workspace…</p>}>
-          {() => <WorkspaceHome />}
-        </BrowserOnly>
+    <Layout title="Home">
+      <main className={styles.home}>
+        <BrowserOnly fallback={null}>{() => <WorkspaceHome />}</BrowserOnly>
       </main>
     </Layout>
   );

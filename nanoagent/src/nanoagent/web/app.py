@@ -8,6 +8,8 @@ import hashlib
 import json
 import logging
 import mimetypes
+import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -22,9 +24,13 @@ from typing import Any
 from nanoagent.core.agent import ChatModel
 from nanoagent.core.agent import Agent
 from nanoagent.extensions import get_hooks
+from nanoagent.harness.catalog import catalog_command, find_model, load_catalog
+from nanoagent.harness.choice import NATIVE_PROVIDERS, RunModel
+from nanoagent.harness.registry import loop_model
+from nanoagent.inference.providers import MissingKeyError
 from nanoagent.plugin import PluginManifest, sandbox
 from nanoagent.plugin.install import InstallError, Installed, Installs, ui_version
-from nanoagent.plugin.manifest import TOOL_ARTIFACTS, load_manifest
+from nanoagent.plugin.manifest import PAGE, is_page_path, load_manifest, page_files, ui_files
 from nanoagent.plugin.package import (
     PACKAGE_MAX_BYTES,
     SOURCE_MAX_BYTES,
@@ -35,10 +41,18 @@ from nanoagent.plugin.package import (
     pack_source,
 )
 from nanoagent.plugin.tasks import TaskOutcome, run_task
-from nanoagent.runtime.config import load_config_args
+from nanoagent.runtime.config import AgentConfig, load_config_args
 from nanoagent.web.config import WebConfig
 from nanoagent.web.plugin_agent import plugin_profile
-from nanoagent.web.runtime import ActiveRun, RunHost, ValidationError, validate_run_request
+from nanoagent.web.runtime import (
+    ActiveRun,
+    RunChoice,
+    RunHost,
+    ValidationError,
+    check_choice,
+    validate_run_choice,
+    validate_run_request,
+)
 from nanoagent.web.workspaces import Workspaces
 
 
@@ -53,6 +67,8 @@ def _sse(event: dict[str, Any]) -> bytes:
 # Manifests name none now (a workspace tags its plugins), so every catalog entry says one. Remove
 # once the Mochi that tags plugins per workspace is released.
 COMPAT_GROUP = {"group": "Plugins"}
+# The credentials PUT /v1/keys may set: a provider's API key, as PI and the loop read it.
+KEY_NAME = re.compile(r"[A-Z][A-Z0-9_]*_API_KEY|HF_TOKEN")
 
 
 # How a host serves a plugin's front end: its own files only, and no network of its own, so the
@@ -91,12 +107,14 @@ def _task_metrics(outcome: TaskOutcome, duration_s: float, model: str) -> dict[s
 
 
 def _ui_file(manifest: PluginManifest, path: str) -> Path | None:
-    """The file ``path`` names in the plugin's ``ui/``, or None for anything outside it."""
+    """The file ``path`` names in the page as served, :data:`PAGE`'s or the plugin's own in its
+    ``ui/``, or None for anything else."""
+    path = path or "index.html"
+    if is_page_path(path):
+        return next((file for file in page_files() if file.relative_to(PAGE).as_posix() == path), None)
     ui = (manifest.root / "ui").resolve()
-    target = (ui / (path or "index.html")).resolve()
-    if not target.is_relative_to(ui) or not target.is_file() or TOOL_ARTIFACTS & set(target.relative_to(ui).parts):
-        return None
-    return target
+    target = (ui / path).resolve()
+    return target if target.is_relative_to(ui) and target in ui_files(ui) else None
 
 
 def create_app(
@@ -154,6 +172,61 @@ def create_app(
             owned_model = Model.from_config(cfg.model)
         return owned_model
 
+    # PI's catalog of providers and models (nanoagent.harness.catalog), loaded once per set of keys.
+    catalog_state: dict[str, Any] = {}
+    # Models built with keys since replaced: runs in flight may still use them, so they close at shutdown.
+    retired: list[Any] = []
+
+    async def pi_catalog() -> dict[str, Any] | None:
+        """The catalog, or None when no profile runs on PI."""
+        pi = next((config for config in run_host.registry.configs.values() if config.harness.type == "pi"), None)
+        if pi is None:
+            return None
+        if "value" not in catalog_state:
+            command = catalog_command(pi.harness.command or ["nanoagent-pi-runner"])
+            catalog_state["value"] = await load_catalog(command, pi.harness.cwd)
+        return catalog_state["value"]
+
+    async def prices_of(model: RunModel) -> tuple[float, float]:
+        """What ``model`` costs per million input and output tokens, from the catalog."""
+        catalog = await pi_catalog()
+        entry = find_model(catalog, model.provider, model.model) if catalog else None
+        if entry is None:
+            raise ValidationError(f"unknown model {model.provider}/{model.model}")
+        return entry["cost"]["input"], entry["cost"]["output"]
+
+    async def plugin_model_for(choice: RunChoice) -> tuple[ChatModel, str, AgentConfig, Callable[[], Any] | None]:
+        """The model, its name, limits, and (for one built for this run) its closer for a plugin run."""
+        try:
+            return await build_plugin_model(choice)
+        except MissingKeyError as error:
+            raise ValidationError(str(error)) from None
+
+    async def build_plugin_model(choice: RunChoice) -> tuple[ChatModel, str, AgentConfig, Callable[[], Any] | None]:
+        if choice.profile is None and choice.model is None and choice.settings is None:
+            return model_for_plugins(), cfg.model.model, cfg.agent, None
+        config = None
+        if choice.profile is not None:
+            try:
+                config = run_host.registry.config(choice.profile)
+            except KeyError as error:
+                raise ValidationError(error.args[0]) from None
+            if config.harness.type != "nanoagent":
+                raise ValidationError(f"profile {choice.profile!r} cannot run apps: it has no tools")
+        prices = await prices_of(choice.model) if choice.model is not None else None
+        try:
+            model_cfg, agent_cfg = loop_model(cfg, config, model=choice.model, settings=choice.settings, prices=prices)
+        except ValueError as error:
+            raise ValidationError(str(error)) from None
+        if plugin_model is not None:
+            return plugin_model, model_cfg.model, agent_cfg, None
+        if model_cfg == cfg.model:
+            return model_for_plugins(), model_cfg.model, agent_cfg, None
+        from nanoagent.runtime.model import Model
+
+        model = Model.from_config(model_cfg)
+        return model, model_cfg.model, agent_cfg, model.aclose
+
     def authorized(request: Request) -> bool:
         if cfg.api_token is None:
             return True
@@ -188,9 +261,81 @@ def create_app(
         )
 
     async def profiles(request: Request) -> JSONResponse:
+        """The profiles, each with what it is for, its price and context when known, and the host's limits."""
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return JSONResponse(run_host.profiles)
+        try:
+            catalog = await pi_catalog()
+        except Exception as error:  # noqa: BLE001 - a broken PI runner is the caller's to know about
+            return JSONResponse({"error": f"the PI catalog failed: {error}"}, status_code=502)
+        listing = run_host.profiles
+        configs = run_host.registry.configs
+        names = {provider["id"]: provider["name"] for provider in catalog["providers"]} if catalog else {}
+        for profile in listing["profiles"]:
+            profile["providerName"] = names.get(profile["provider"])
+            entry = find_model(catalog, profile["provider"], profile["model"]) if catalog and profile["provider"] else None
+            config = configs.get(profile["id"])
+            if config is not None and config.harness.type == "nanoagent":
+                # The loop charges its own configured prices.
+                model_cfg, _ = loop_model(cfg, config)
+                profile["price"] = {"input": model_cfg.input_price, "output": model_cfg.output_price}
+            else:
+                profile["price"] = entry["cost"] if entry else None
+            profile["contextWindow"] = entry["contextWindow"] if entry else None
+            profile["reasoning"] = entry["reasoning"] if entry else None
+        return JSONResponse(listing)
+
+    async def models(request: Request) -> JSONResponse:
+        """Every model a run may name here, with which providers hold credentials (run_models only)."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        if not cfg.run_models:
+            return JSONResponse({"error": "this NanoAgent runs only its configured profiles"}, status_code=404)
+        try:
+            catalog = await pi_catalog()
+        except Exception as error:  # noqa: BLE001
+            return JSONResponse({"error": f"the PI catalog failed: {error}"}, status_code=502)
+        if catalog is None:
+            return JSONResponse({"error": "no profile runs on PI, which names the models"}, status_code=404)
+        return JSONResponse({
+            "providers": catalog["providers"],
+            # A model the NanoAgent loop reaches also runs apps, whose tools need the loop.
+            "models": [{**entry, "apps": entry["provider"] in NATIVE_PROVIDERS} for entry in catalog["models"]],
+            "limits": run_host.profiles["limits"],
+        })
+
+    async def set_keys(request: Request) -> JSONResponse:
+        """Set (a key) or remove (null) provider API keys, for every run from now on.
+
+        The caller keeps them (Mochi Lab's supervisor); this process only holds them in its
+        environment, which PI's runs and the catalog inherit, and forgets every model built
+        with the old ones.
+        """
+        nonlocal owned_model
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        payload, rejected = await read_json(request)
+        if rejected is not None:
+            return rejected
+        changes = payload.get("changes") if isinstance(payload, dict) else None
+        if not isinstance(changes, dict) or not changes:
+            return JSONResponse({"error": "changes must name at least one key"}, status_code=400)
+        for name, value in changes.items():
+            if not KEY_NAME.fullmatch(name):
+                return JSONResponse({"error": f"{name} is not a provider's API key"}, status_code=400)
+            if value is not None and (not isinstance(value, str) or not value or value != value.strip() or " " in value):
+                return JSONResponse({"error": f"{name} must be one key, without spaces, or null"}, status_code=400)
+        for name, value in changes.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        catalog_state.clear()
+        if owned_model is not None:
+            retired.append(owned_model)
+            owned_model = None
+        retired.extend(run_host.registry.forget_models())
+        return JSONResponse({"keys": sorted(changes)})
 
     async def start_run(request: Request) -> JSONResponse | StreamingResponse:
         if not authorized(request):
@@ -199,7 +344,10 @@ def create_app(
         if rejected is not None:
             return rejected
         try:
-            active = await run_host.start(validate_run_request(payload))
+            run = validate_run_request(payload)
+            check_choice(cfg, RunChoice(run.profile, run.model, run.settings))
+            prices = await prices_of(run.model) if run.model is not None else None
+            active = await run_host.start(run, prices=prices)
         except ValidationError as error:
             return JSONResponse({"error": str(error)}, status_code=400)
         return run_stream(active)
@@ -228,8 +376,12 @@ def create_app(
         if rejected is not None:
             return rejected
         try:
-            profile = plugin_profile(cfg, model_for_plugins(), manifest, folder)
-            active = await run_host.start(validate_run_request(payload), runner_profile=profile)
+            run = validate_run_request(payload)
+            choice = RunChoice(run.profile, run.model, run.settings)
+            check_choice(cfg, choice)
+            model, model_name, agent_cfg, close = await plugin_model_for(choice)
+            profile = plugin_profile(cfg, model, manifest, folder, model_name=model_name, agent=agent_cfg)
+            active = await run_host.start(run, runner_profile=profile, close=close)
         except ValidationError as error:
             return JSONResponse({"error": str(error)}, status_code=400)
         return run_stream(active)
@@ -491,8 +643,21 @@ def create_app(
         payload, rejected = await read_json(request)
         if rejected is not None:
             return rejected
-        if not isinstance(payload, dict) or set(payload) != {"arguments"} or not isinstance(payload["arguments"], dict):
-            return JSONResponse({"error": 'request body must be {"arguments": {...}}'}, status_code=400)
+        if (
+            not isinstance(payload, dict)
+            or not isinstance(payload.get("arguments"), dict)
+            or set(payload) - {"arguments", "profile", "model", "settings"}
+        ):
+            return JSONResponse(
+                {"error": 'request body must be {"arguments": {...}}, and may choose its "profile", "model" and "settings"'},
+                status_code=400,
+            )
+        try:
+            choice = validate_run_choice({key: value for key, value in payload.items() if key != "arguments"})
+            check_choice(cfg, choice)
+            model, model_name, agent_cfg, close = await plugin_model_for(choice)
+        except ValidationError as error:
+            return JSONResponse({"error": str(error)}, status_code=400)
 
         run_id = f"task_{uuid.uuid4().hex}"
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
@@ -502,14 +667,14 @@ def create_app(
 
         def make_agent(system_prompt: str) -> Agent:
             return Agent(
-                model_for_plugins(),
+                model,
                 [],
                 system_prompt=system_prompt,
-                max_steps=cfg.agent.max_steps,
-                cost_limit=cfg.agent.cost_limit,
-                token_limit=cfg.agent.token_limit,
-                context_window=cfg.agent.context_window,
-                hooks=get_hooks(cfg.agent.hooks),
+                max_steps=agent_cfg.max_steps,
+                cost_limit=agent_cfg.cost_limit,
+                token_limit=agent_cfg.token_limit,
+                context_window=agent_cfg.context_window,
+                hooks=get_hooks(agent_cfg.hooks),
             )
 
         async def work() -> None:
@@ -528,13 +693,15 @@ def create_app(
                         on_event=emit,
                         stage=_staged_from(folder),
                     )
-                done["metrics"] = _task_metrics(outcome, time.perf_counter() - started, cfg.model.model)
+                done["metrics"] = _task_metrics(outcome, time.perf_counter() - started, model_name)
             except asyncio.CancelledError:
                 emit("task.error", {"message": "cancelled"})
             except Exception as error:  # noqa: BLE001 - the stream reports every failure
                 emit("task.error", {"message": f"{type(error).__name__}: {error}"})
             finally:
                 task_runs.pop(run_id, None)
+                if close is not None:
+                    await close()
                 emit("task.done", done)
 
         task_runs[run_id] = asyncio.create_task(work())
@@ -584,11 +751,15 @@ def create_app(
             await run_host.aclose()
             if owned_model is not None:
                 await owned_model.aclose()
+            for model in retired:
+                await model.aclose()
 
     return Starlette(
         routes=[
             Route("/health", health, methods=["GET"]),
             Route("/v1/profiles", profiles, methods=["GET"]),
+            Route("/v1/models", models, methods=["GET"]),
+            Route("/v1/keys", set_keys, methods=["PUT"]),
             Route("/v1/runs", start_run, methods=["POST"]),
             Route("/v1/runs/{run_id}", cancel_run, methods=["DELETE"]),
             Route("/v1/plugins", list_plugins, methods=["GET"]),

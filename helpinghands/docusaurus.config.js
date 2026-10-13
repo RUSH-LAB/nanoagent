@@ -122,7 +122,8 @@ const config = {
       configureWebpack: () => ({
         devServer: {
           compress: false,
-          proxy: [{context: ['/api'], target: apiOrigin}],
+          // `ws`: Mochi Lab's relay connects to /api/runner as a WebSocket (src/server/runner.js).
+          proxy: [{context: ['/api'], target: apiOrigin, ws: true}],
           // Docusaurus has its own setupMiddlewares, and the two are composed by
           // concatenating what each returns, so this one returns nothing and
           // mounts the gate on the app directly, ahead of everything the
@@ -146,9 +147,11 @@ const config = {
     {tagName: 'link', attributes: {rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: 'anonymous'}},
   ],
 
+  // Inter for the interface; Instrument Serif for a workspace's name on its
+  // home page (runtime-content/workspaceHome.module.css).
   stylesheets: [
     {
-      href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
+      href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif&display=swap',
       type: 'text/css',
     },
   ],
@@ -165,11 +168,9 @@ const config = {
         },
       },
       navbar: {
+        // No logo: the corner names the workspace you are in (WorkspaceSwitcher),
+        // and a picture beside it read as either the workspace or the app.
         title: platformName,
-        logo: {
-          alt: `${platformName} logo`,
-          src: 'img/mochi.jpg',
-        },
         items: [
           // Content navigation belongs to the workspace and is supplied by
           // workspace_settings after the URL workspace has been verified.

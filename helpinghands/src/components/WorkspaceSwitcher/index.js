@@ -2,14 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import NavbarLogo from '@theme/Navbar/Logo';
-import useBaseUrl from '@docusaurus/useBaseUrl';
-import { useThemeConfig } from '@docusaurus/theme-common';
 import { useLocation } from '@docusaurus/router';
 import { useClickOutside } from '@site/src/hooks/useClickOutside';
 import { switchWorkspace, workspaceSlugFromPath } from '@site/src/utils/workspaces';
 import { useAccount } from '@site/src/utils/account';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
-import API_BASE from '@site/src/utils/api';
 import styles from './styles.module.css';
 
 /**
@@ -22,9 +19,10 @@ import styles from './styles.module.css';
  * every channel, person, and invitation on the page refers to, so that is the
  * more useful of the two to have on screen.
  *
- * Falls back to the ordinary logo when there is no workspace to name: signed
- * out, or a URL naming a workspace you are not in. The workspaces are the auth
- * gate's answer (utils/account.js), known before the navbar is drawn.
+ * Falls back to the ordinary brand (the site's name) when there is no
+ * workspace to name: signed out, or a URL naming a workspace you are not in.
+ * The workspaces are the auth gate's answer (utils/account.js), known before
+ * the navbar is drawn.
  */
 
 /** Marks the workspace you are in, in the list of the ones you could be in. */
@@ -44,7 +42,6 @@ function Check() {
 }
 
 export default function WorkspaceSwitcher() {
-  const { navbar } = useThemeConfig();
   const location = useLocation();
   const workspaceSite = useWorkspaceSite();
 
@@ -53,8 +50,6 @@ export default function WorkspaceSwitcher() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const wrapper = useRef(null);
-  // Unconditional, because it is a hook: the early return below is beneath it.
-  const platformLogoUrl = useBaseUrl(navbar.logo?.src ?? '');
 
   useClickOutside(wrapper, () => setOpen(false), open);
 
@@ -78,16 +73,10 @@ export default function WorkspaceSwitcher() {
   // Nothing to name yet, or nothing to name at all. The stock logo, untouched.
   if (!active) return <NavbarLogo />;
 
-  const logoAssetId = workspaceSite.slug === routeSlug
-    ? workspaceSite.site?.site?.logoAssetId
-    : null;
-  const logoUrl = logoAssetId
-    ? `${API_BASE}/api/workspaces/${encodeURIComponent(active.id)}/assets?id=${encodeURIComponent(logoAssetId)}`
-    : platformLogoUrl;
   const displayName = workspaceSite.slug === routeSlug
     ? workspaceSite.site?.site?.title || active.name
     : active.name;
-  const homeHref = `/w/${encodeURIComponent(active.slug)}/documents`;
+  const homeHref = `/w/${encodeURIComponent(active.slug)}`;
 
   async function choose(workspace) {
     if (workspace.slug === active?.slug) {
@@ -119,11 +108,6 @@ export default function WorkspaceSwitcher() {
         title={`${displayName} home`}
         aria-label={`Open ${displayName} home`}
       >
-        {navbar.logo && (
-          <div className="navbar__logo">
-            <img src={logoUrl} alt="" className={styles.logo} />
-          </div>
-        )}
         <span className={styles.identity}>
           <b className={clsx('navbar__title', 'text--truncate', styles.name)}>{displayName}</b>
         </span>
@@ -163,6 +147,20 @@ export default function WorkspaceSwitcher() {
           ))}
 
           {error && <p className={styles.error} role="alert">{error}</p>}
+
+          <Link
+            to="/new-workspace"
+            role="menuitem"
+            className={clsx(styles.option, styles.create)}
+            onClick={() => setOpen(false)}
+          >
+            <span className={styles.createMark} aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="14" height="14">
+                <path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </span>
+            <span className={styles.optionName}>New Workspace</span>
+          </Link>
         </div>
       )}
     </div>

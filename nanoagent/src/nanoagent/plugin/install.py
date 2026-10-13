@@ -8,7 +8,8 @@ A host runs only what it installed here. :meth:`Installs.install` takes a packag
    from this host's environment (it would load differently here than in isolation), and, in a
    sandbox, one that asks for environment variables, which a sandbox never passes on;
 3. runs ``uv sync`` in the sandbox (``nanoagent.plugin.sandbox``), reaching only the package
-   indexes and GitHub, so the plugin's environment is built before any run, which is offline.
+   indexes and GitHub (its file host too, for a build that fetches a large file from a repo), so
+   the plugin's environment is built before any run, which is offline.
 
 A sha256 names one package's exact bytes, so an install never changes. Installs live as long as
 the process: one that starts again has none, and its caller installs again.
@@ -27,12 +28,19 @@ from pathlib import Path
 from typing import Any
 
 from nanoagent.plugin import sandbox
-from nanoagent.plugin.manifest import TOOL_ARTIFACTS, PluginManifest, load_manifest
+from nanoagent.plugin.manifest import PAGE, PluginManifest, load_manifest, page_files, ui_files
 from nanoagent.plugin.package import PackageError, catalog_entry, inspect_package, unpack
 
 SHA256 = re.compile(r"[0-9a-f]{64}")
-# Where `uv sync` fetches a plugin's dependencies: the package index and git sources on GitHub.
-INSTALL_HOSTS = ("pypi.org", "files.pythonhosted.org", "github.com", "codeload.github.com")
+# Where `uv sync` fetches a plugin's dependencies: the package index, git sources on GitHub, and the
+# host GitHub serves a repo's large files from, which a dependency's build may fetch.
+INSTALL_HOSTS = (
+    "pypi.org",
+    "files.pythonhosted.org",
+    "github.com",
+    "codeload.github.com",
+    "media.githubusercontent.com",
+)
 SYNC = ("uv", "sync", "--frozen", "--no-dev")
 SYNC_TIMEOUT = 600.0
 
@@ -42,12 +50,12 @@ class InstallError(RuntimeError):
 
 
 def ui_version(manifest: PluginManifest) -> str:
-    """A digest of the plugin's ``ui/``: its files' URLs carry it, so a browser may keep them forever."""
-    ui = manifest.root / "ui"
+    """A digest of the page as served, the plugin's ``ui/`` in :data:`PAGE`: its files' URLs carry
+    it, so a browser may keep them forever."""
     digest = hashlib.sha256()
-    for path in sorted(ui.rglob("*")):
-        if path.is_file() and not TOOL_ARTIFACTS & set(path.relative_to(ui).parts):
-            digest.update(path.relative_to(ui).as_posix().encode() + b"\0" + path.read_bytes() + b"\0")
+    for base, files in ((PAGE, page_files()), (manifest.root / "ui", ui_files(manifest.root / "ui"))):
+        for path in files:
+            digest.update(path.relative_to(base).as_posix().encode() + b"\0" + path.read_bytes() + b"\0")
     return digest.hexdigest()[:16]
 
 

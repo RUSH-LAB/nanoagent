@@ -1,182 +1,113 @@
-// The arXiv page: Find papers and save their sources, a Daily digest of the people you follow, and
-// the Library of what is saved. Chat with the plugin's agent sits in the drawer.
-// Design: docs/plans/plugin-ui-arxiv-source.md.
-import { appShell, banner, h, jsonStore, listFiles, segmented } from "./kit/components.js";
-import { digestView } from "./digest.js";
-import { findView } from "./find.js";
-import { libraryView, libraryItems } from "./library.js";
+// The arXiv page: a chat with the plugin's agent. What its tools return is drawn as cards: the
+// papers a search found, each with a button to save its source, the sources it saved, and the
+// digests it wrote. Design: docs/plans/plugin-ui-arxiv-source.md.
+import { chatLayout, copyButton, h, icon, markdown, plural } from "./kit/components.js";
 
-const STATE = ".arxiv-source/state.json";
-const VIEWS = ["find", "digest", "library"];
+const DAY = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const SHOWN = 5;
+const AUTHORS = 4;
+const LONG = 200; // an abstract longer than this shows two lines and "More"
 
-/** The workspace's file list, shared by every view and refreshed after each run. */
-function filesHub() {
-  const listeners = new Set();
-  const hub = {
-    list: [],
-    loaded: false,
-    error: null,
-    async refresh() {
-      try {
-        hub.list = await listFiles();
-        hub.error = null;
-      } catch (problem) {
-        hub.error = problem.message;
-      }
-      hub.loaded = true;
-      listeners.forEach((listener) => listener(hub.list));
-      return hub.list;
-    },
-    on(listener) {
-      listeners.add(listener);
-    },
-    has: (prefix) => hub.list.some((file) => file.path.startsWith(prefix)),
-  };
-  return hub;
+/** "1706.03762v7" -> "1706.03762". */
+const baseId = (id) => id.replace(/v\d+$/, "");
+const pdfUrl = (absUrl) => absUrl.replace("/abs/", "/pdf/");
+
+const external = (href, label) => h("a", { href, target: "_blank", rel: "noopener noreferrer" }, label);
+
+function authorLine(authors) {
+  if (authors.length <= AUTHORS) return authors.join(", ");
+  return `${authors.slice(0, AUTHORS).join(", ")} and ${plural(authors.length - AUTHORS, "other")}`;
 }
 
-/** One run at a time on the page: whoever holds it names what it is doing ("Saving 2 of 5"). */
-function runLock() {
-  const listeners = new Set();
-  const lock = {
-    holder: null,
-    take(label) {
-      if (lock.holder) return false;
-      lock.holder = label;
-      listeners.forEach((listener) => listener(lock.holder));
-      return true;
+/** A card's heading row: an icon, a title and a note on the right. */
+const head = (name, title, note) => h("header", { class: "result-head" }, icon(name, { size: 16 }), h("h3", { text: title }), note ? h("span", { class: "muted", text: note }) : null);
+
+/** The first `SHOWN` items, and a button that shows the rest. */
+function capped(items, draw) {
+  const list = h("ol", { class: "paper-list" }, items.slice(0, SHOWN).map(draw));
+  if (items.length <= SHOWN) return list;
+  const more = h("button", {
+    type: "button",
+    class: "button ghost small",
+    text: `Show ${items.length - SHOWN} more`,
+    onclick: () => {
+      list.append(...items.slice(SHOWN).map(draw));
+      more.remove();
     },
-    relabel(label) {
-      lock.holder = label;
-      listeners.forEach((listener) => listener(lock.holder));
-    },
-    release() {
-      lock.holder = null;
-      listeners.forEach((listener) => listener(lock.holder));
-    },
-    on(listener) {
-      listeners.add(listener);
-    },
-  };
-  return lock;
+  });
+  return h("div", { class: "capped" }, list, more);
 }
 
-async function arxivLayout({ plugin }) {
-  const store = jsonStore({ path: STATE, version: 1, initial: { people: [], library: {}, digests: {} } });
-  const files = filesHub();
-  let unreadable = null;
-  let memory = null; // the state while the saved file can't be read (nothing is written)
-  const [loaded] = await Promise.allSettled([store.load(), files.refresh()]);
-  if (loaded.status === "rejected") {
-    unreadable = loaded.reason.message;
-    memory = { version: 1, people: [], library: {}, digests: {} };
-  }
-
-  const stateBanner = h("div");
-  const app = {
-    plugin,
-    files,
-    lock: runLock(),
-    state: () => memory ?? store.get(),
-    /** Change the page's state and save it (not while the saved file can't be read). */
-    save(change) {
-      if (memory) {
-        change(memory);
-        return Promise.resolve(memory);
-      }
-      return store.update(change).catch((problem) => {
-        stateBanner.replaceChildren(banner({ tone: "warn", title: "Your settings couldn't be saved.", body: problem.message }));
-      });
+function abstract(text) {
+  if (text.length <= LONG) return h("p", { class: "paper-abstract", text });
+  const body = h("p", { class: "paper-abstract clamped", text });
+  const toggle = h("button", {
+    type: "button",
+    class: "link-button",
+    text: "More",
+    onclick: () => {
+      toggle.textContent = body.classList.toggle("clamped") ? "More" : "Less";
     },
-    go(view, options) {
-      show(view, options);
-    },
-  };
+  });
+  return [body, toggle];
+}
 
-  const find = findView(app);
-  const digest = digestView(app);
-  const library = libraryView(app);
-  const views = { find, digest, library };
+function paperItem(paper, { send }) {
+  const id = baseId(paper.arxiv_id);
+  return h(
+    "li",
+    { class: "paper" },
+    h("h4", { class: "paper-title" }, external(paper.abs_url, paper.title)),
+    h("p", { class: "paper-authors", text: authorLine(paper.authors) }),
+    h("p", { class: "paper-meta muted" }, h("span", { text: DAY.format(new Date(paper.published)) }), h("span", { class: "paper-id" }, h("code", { text: id }), copyButton({ text: id, iconOnly: true, label: `Copy arXiv id ${id}` }))),
+    paper.summary ? abstract(paper.summary) : null,
+    h(
+      "div",
+      { class: "paper-actions" },
+      h("button", { type: "button", class: "button small", onclick: () => send(`Save the source of arXiv ${id}.`) }, icon("folder", { size: 14 }), "Save source"),
+      external(pdfUrl(paper.abs_url), "PDF"),
+      external(paper.abs_url, "Abstract"),
+    ),
+  );
+}
 
-  const tabs = segmented({
-    label: "View",
-    options: [
-      { value: "find", label: "Find" },
-      { value: "digest", label: "Daily digest" },
-      { value: "library", label: "Library", count: "…" },
+/** A saved folder: its path and, behind a toggle, its files. */
+function savedFolder(folder, files) {
+  return h("details", { class: "saved-folder" }, h("summary", {}, h("code", { text: folder }), h("span", { class: "muted", text: ` · ${plural(files.length, "file")}` })), h("ul", { class: "file-list" }, files.map((file) => h("li", {}, h("code", { text: file })))));
+}
+
+function savedItem(paper) {
+  return h("li", { class: "paper" }, h("h4", { class: "paper-title" }, paper.abs_url ? external(paper.abs_url, paper.title) : paper.title), paper.authors ? h("p", { class: "paper-authors", text: authorLine(paper.authors) }) : null, savedFolder(paper.folder, paper.files));
+}
+
+const card = (...children) => h("section", { class: "card result-card" }, children);
+
+// One renderer per tool: its output's shape is contract.py's.
+const render = {
+  search_papers: (data, call) =>
+    card(
+      head("search", data.papers.length ? `${plural(data.papers.length, "paper")} found` : "No papers found", data.query),
+      data.papers.length ? capped(data.papers, (paper) => paperItem(paper, call)) : null,
+    ),
+  save_search_results: (data) => card(head("folder", `Saved ${plural(data.papers.length, "paper")}`, data.folder), capped(data.papers, savedItem)),
+  download_source: (data) => card(head("check", `Saved the source of ${data.arxiv_id}`), savedFolder(data.folder, data.files)),
+  save_raw_paper: (data) => card(head("check", "Saved the source"), h("ol", { class: "paper-list" }, savedItem(data))),
+  list_daily_papers: (data) =>
+    card(
+      head("calendar", `New papers on ${DAY.format(new Date(`${data.date}T12:00:00Z`))}`),
+      data.people.map((person) => h("div", { class: "person" }, h("h4", { text: `${person.name} · ${plural(person.papers.length, "paper")}` }), person.papers.length ? capped(person.papers, (paper) => h("li", { class: "paper" }, h("h4", { class: "paper-title" }, external(paper.abs_url, paper.title)), h("p", { class: "paper-authors", text: authorLine(paper.authors) }))) : null)),
+    ),
+  write_digest: (data) => card(head("file", `Digest of ${plural(data.entries, "paper")}`, data.path), h("div", { class: "digest" }, markdown(data.markdown))),
+};
+
+export default (context) =>
+  chatLayout(context, {
+    placeholder: "Describe the papers you want…",
+    suggestions: [
+      { label: "Find a paper by description", text: "Find the paper that introduced " },
+      { label: "Search a topic", text: "Show me this month's newest papers on " },
+      { label: "Save a paper's source", text: "Save the source of arXiv " },
+      { label: "Daily digest", text: "Write a digest of yesterday's new papers by " },
     ],
-    value: "find",
-    onChange: (value) => show(value),
+    render,
   });
-  tabs.element.classList.add("view-tabs");
-  const countLibrary = () => tabs.setCounts({ library: files.error ? "!" : String(libraryItems(app).length) });
-  files.on(countLibrary);
-
-  const shell = appShell({
-    plugin,
-    nav: tabs.element,
-    width: "normal",
-    chat: {
-      title: "Ask the arXiv agent",
-      buttonLabel: "Ask",
-      note: "Find a paper by description, compare what you saved, or ask about a result. Anything it saves shows up in your Library.",
-      intro: h("div", { class: "chat-intro small" }, h("img", { src: plugin.product.icon, alt: "" }), h("p", { class: "muted", text: "Ask about papers on arXiv or the ones you saved." })),
-      placeholder: "Ask about a paper…",
-      suggestions: [
-        { label: "Find a paper by description", text: "Find the paper that introduced " },
-        { label: "Summarize a saved paper", text: "Summarize the paper saved in papers/" },
-        { label: "Newest papers on a topic", text: "What are this week's newest arXiv papers on " },
-      ],
-      prepare: (text) => {
-        const people = app.state().people;
-        return `(From the arXiv page: save a paper's source in papers/<arxiv id without version>/ so it shows in my Library.${people.length ? ` I follow: ${people.join(", ")}.` : ""})\n\n${text}`;
-      },
-      onTurnDone: () => files.refresh(),
-    },
-  });
-
-  if (unreadable) {
-    stateBanner.replaceChildren(
-      banner({
-        tone: "warn",
-        title: "Your saved settings can't be read, so changes aren't being saved.",
-        body: `The file ${STATE} isn't in a form this page understands. Your papers are untouched.`,
-        details: unreadable,
-        actions: [
-          h("button", {
-            type: "button",
-            class: "button small",
-            text: "Start fresh",
-            onclick: async () => {
-              await store.reset();
-              memory = null;
-              unreadable = null;
-              stateBanner.replaceChildren();
-              digest.refresh();
-            },
-          }),
-        ],
-      }),
-    );
-  }
-  shell.main.append(stateBanner, find.element, digest.element, library.element);
-
-  let current = null;
-  function show(view, options = {}) {
-    if (!VIEWS.includes(view)) view = "find";
-    current = view;
-    tabs.set(view);
-    for (const [name, one] of Object.entries(views)) one.element.hidden = name !== view;
-    // The hash keeps the view across reloads (the opaque-origin frame has no other storage).
-    if (location.hash !== `#${view}`) location.hash = view;
-    views[view].shown?.(options);
-  }
-  window.addEventListener("hashchange", () => {
-    if (location.hash.slice(1) !== current) show(location.hash.slice(1));
-  });
-  show(location.hash.slice(1) || "find");
-  countLibrary();
-  return shell.element;
-}
-
-export default arxivLayout;

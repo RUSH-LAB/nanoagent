@@ -121,7 +121,7 @@ export function navigateClient(pathname, {replace = false} = {}) {
   window.dispatchEvent(event);
 }
 
-/** Navigate to a workspace, preserving tools but opening content at its home. */
+/** Navigate to a workspace's home page. */
 export async function switchWorkspace(workspace) {
   let target = workspace;
   if (typeof workspace === 'string') {
@@ -129,10 +129,5 @@ export async function switchWorkspace(workspace) {
     target = workspaces.find(item => item.id === workspace || item.slug === workspace);
   }
   if (!target?.slug) throw new Error('Workspace not found');
-
-  const current = clientPlatform.location.pathname();
-  const inWorkspace = /^\/w\/[^/]+(\/.*)?$/.exec(current);
-  const suffix = inWorkspace?.[1] || '/documents';
-  const destination = suffix.startsWith('/documents/') ? '/documents' : suffix;
-  navigateClient(`/w/${encodeURIComponent(target.slug)}${destination}`);
+  navigateClient(`/w/${encodeURIComponent(target.slug)}`);
 }

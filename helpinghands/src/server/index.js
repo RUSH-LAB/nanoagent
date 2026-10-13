@@ -39,6 +39,7 @@ const {createGithub} = require('./github');
 const aiMeter = createAiMeter(tenancy);
 const {createAgentSync} = require('./fs/agent-sync');
 const {createWorkspaceApps} = require('./workspace-apps');
+const {createRunners} = require('./runner');
 // The per-workspace data layer. See server/store/index.js: the only way a route
 // module is allowed to reach the thirteen features' data, because it is the
 // only way that applies the organization and the owner without being asked to.
@@ -48,6 +49,9 @@ const store = postgresServices?.store ?? require('./store');
 // everything else here: a test substitutes them.
 const documents = postgresServices?.documents ?? require('./documents');
 const preferences = postgresServices?.preferences ?? require('./preferences');
+// Members' own computers, which run their NanoAgent when Settings → AI says so.
+const runners = createRunners({resolveIdentity});
+const aiSettings = require('./ai-settings');
 const workspaceSettings = postgresServices?.workspaceSettings ?? require('./workspace-settings');
 const {createObjectStorage} = require('./object-storage');
 const {createLegacyAssetStore} = require('./asset-store');
@@ -489,6 +493,11 @@ const ctx = {
   chat,
   org,
   ai,
+  // The NanoAgent a member's runs go to: their own computer's (server/runner.js).
+  aiFor: runners.aiFor,
+  runners,
+  // What a member chose in Settings → AI (ai-settings.js).
+  aiSettings: async userId => aiSettings.stored(userId ? (await preferences.get(userId)).ai : null),
   aiMeter,
   // Sign-up policy, limits, usage, and platform administration; null without PostgreSQL.
   tenancy,
@@ -531,7 +540,7 @@ const ctx = {
   // Where the marketplace fetches a plugin's source.
   github: createGithub(),
   // Plugin runs work on a copy of the member's agent folder (fs/agent-sync.js).
-  agentSync: postgresServices?.fs ? createAgentSync({ai, fs: postgresServices.fs}) : null,
+  agentSync: postgresServices?.fs ? createAgentSync({fs: postgresServices.fs}) : null,
   compileDocument,
   compileMarkdown,
   parseFrontmatter,
@@ -654,6 +663,12 @@ async function handleRequest(req, res) {
   // concurrent callers. Handlers read `req.auth` and nothing else; a `userId`
   // in a query string or body is now ignored wherever it still appears.
   const resolved = await resolveIdentity(req);
+  // The session's refreshed snapshot goes back with the answer, so the next
+  // request is identified without a query. Public answers may be cached, so
+  // they carry no cookie.
+  if (!isPublicPath(pathname)) {
+    for (const cookie of resolved.cookies) res.appendHeader('Set-Cookie', cookie);
+  }
   if (!resolved.ok && pathname.startsWith('/api/') && !isPublicPath(pathname)) {
     return json(res, resolved.status, {error: resolved.error});
   }
@@ -764,6 +779,9 @@ function failRequest(req, res, error) {
 const server = http.createServer((req, res) => {
   handleRequest(req, res).catch(error => failRequest(req, res, error));
 });
+server.on('upgrade', (req, socket, head) => {
+  runners.upgrade(req, socket, head).catch(() => socket.destroy());
+});
 
 // ── Route diagnostics: scan the server source to report handler stats ──
 const _routeDiagnostics = (function analyzeRoutes() {
@@ -837,9 +855,7 @@ if (_authRefusal) {
 // The root account exists before the first request, so root's first GitHub
 // sign-in finds it. A server that cannot provision its administrator does not
 // start.
-// The desktop app's server is for this machine only (see productionAuthError).
-const LISTEN_HOST = process.env.MOCHI_DESKTOP === '1' ? '127.0.0.1' : undefined;
-postgresDatabase.ready.then(() => ensureRootUser(auth)).then(root => server.listen(PORT, LISTEN_HOST, async () => {
+postgresDatabase.ready.then(() => ensureRootUser(auth)).then(root => server.listen(PORT, async () => {
   const startupNs = process.hrtime.bigint() - _startupTime;
   const startupMs = Number(startupNs / 1_000_000n);
   const memMB = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
@@ -901,6 +917,7 @@ function shutdown(exitCode = 0) {
       return;
     }
 
+    runners.close();
     const forceTimer = setTimeout(() => server.closeAllConnections?.(), 10_000);
     forceTimer.unref?.();
     server.close(error => {

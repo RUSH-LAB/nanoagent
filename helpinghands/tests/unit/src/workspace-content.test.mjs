@@ -11,11 +11,9 @@ const site = {
 };
 
 describe('workspace content request planning', () => {
-  it('uses a title-only home for the existing development workspace without imposing it globally', () => {
-    assert.equal(workspaceHomeLayout({}, 'mochi'), 'title');
-    assert.equal(workspaceHomeLayout({}, 'hello-world'), 'library');
-    assert.equal(workspaceHomeLayout({}, 'another-workspace'), 'library');
-    assert.equal(workspaceHomeLayout({site: {homeLayout: 'document'}}, 'mochi'), 'document');
+  it('opens the documents page on the list unless the owner chose a page', () => {
+    assert.equal(workspaceHomeLayout({}), 'library');
+    assert.equal(workspaceHomeLayout({site: {homeLayout: 'document'}}), 'document');
   });
 
   it('uses configured blog collections without assuming a posts directory', () => {

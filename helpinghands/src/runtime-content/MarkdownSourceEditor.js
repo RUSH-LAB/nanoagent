@@ -67,8 +67,8 @@ export default function MarkdownSourceEditor({
   const {colorMode} = useColorMode();
   const reportedFailure = useRef(false);
   const requestCompletion = useCallback(async ({before, after, lineNumber, signal, onUpdate}) => {
+    // The member's Inline model answers (Settings → AI).
     const payload = {
-      profileId: 'pi-deepseek',
       prompt: [
         `Markdown file: ${documentPath || 'untitled.md'}`,
         `Cursor line: ${lineNumber}`,

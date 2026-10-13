@@ -3,8 +3,7 @@
  * Stages everything the desktop app bundles, for the target Tauri is building
  * (TAURI_ENV_TARGET_TRIPLE, which Tauri sets for beforeBuildCommand):
  *
- *   src-tauri/resources/mochi/      the Mochi server, the node_modules files it loads, and the site
- *                                   built for the desktop origin
+ *   src-tauri/resources/runner/     the relay that lends this computer's NanoAgent to Mochi
  *   src-tauri/resources/nanoagent/  NanoAgent's sources, uv.lock, plugins, and the built PI runner
  *   src-tauri/resources/config.yaml this folder's config.yaml
  *   src-tauri/resources/stamp       names this staging; the app installs each stamp once
@@ -119,29 +118,9 @@ async function stageUv(target, platform) {
   fs.copyFileSync(binary, path.join(binaries, `uv-${target}${platform.exe}`));
 }
 
-async function stageMochi() {
-  const out = path.join(resources, 'mochi');
-  const docusaurus = path.join(mochiRoot, 'node_modules', '@docusaurus', 'core', 'bin', 'docusaurus.mjs');
-  run(process.execPath, [docusaurus, 'build', '--out-dir', path.join(out, 'build')], {
-    cwd: mochiRoot,
-    env: {...process.env, NODE_ENV: 'production', SITE_URL: `http://localhost:${config.port}`},
-  });
-  for (const entry of ['package.json', 'package-lock.json', 'src', 'plugins']) {
-    copy(path.join(mochiRoot, entry), path.join(out, entry));
-  }
-  run('npm', ['ci', '--omit=dev', '--no-bin-links', '--no-audit', '--no-fund', '--loglevel=error'], {cwd: out});
-  // The server's production dependencies include the whole Docusaurus toolchain, which builds
-  // the site above and never runs in the server.
-  const entries = [path.join(out, 'src', 'server', 'index.js')];
-  const plugins = path.join(out, 'plugins');
-  for (const plugin of fs.readdirSync(plugins, {withFileTypes: true}).filter(entry => entry.isDirectory())) {
-    // The slots plugins/loader.js loads at run time: the API half and the markdown transform.
-    for (const slot of ['server.js', 'remark.js']) {
-      const file = path.join(plugins, plugin.name, slot);
-      if (fs.existsSync(file)) entries.push(file);
-    }
-  }
-  await trimNodeModules(out, entries);
+// The relay and the protocol it shares with Mochi's server; Node's own modules are all it loads.
+function stageRunner() {
+  copy(path.join(mochiRoot, 'src', 'runner'), path.join(resources, 'runner'));
 }
 
 /** Keep only the files of `out`'s node_modules that `entries` load. */
@@ -187,7 +166,7 @@ async function main() {
   fs.mkdirSync(binaries, {recursive: true});
   await stageNode(target, platform);
   await stageUv(target, platform);
-  await stageMochi();
+  stageRunner();
   await stageNanoAgent();
   fs.copyFileSync(path.join(desktop, 'config.yaml'), path.join(resources, 'config.yaml'));
   const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {cwd: mochiRoot, encoding: 'utf8'}).trim();

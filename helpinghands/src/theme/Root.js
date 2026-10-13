@@ -58,6 +58,12 @@ function IdleCommandBar() {
  * (src/utils/signIn.js).
  */
 
+/**
+ * Pages that stand outside every workspace, such as making a new one. They
+ * carry no command bar, because it always speaks for the workspace you are in.
+ */
+const OUTSIDE_WORKSPACES = ['/new-workspace'];
+
 /** What the gate knows about the session, and how it found out. */
 const CHECKING = 'checking';
 const SIGNED_IN = 'signed-in';
@@ -156,9 +162,10 @@ function AuthGate({ children }) {
     // stuck to the page. It sits beside the children rather than inside them,
     // so the screens that replace the children never carry it, and it waits
     // for a workspace, because every request it makes needs one.
+    const outside = workspaces === 0 || OUTSIDE_WORKSPACES.includes(pathname.replace(/\/$/, ''));
     return (
       <AccountProvider value={account}>
-        {children}{workspaces === 0 ? null : <IdleCommandBar />}
+        {children}{outside ? null : <IdleCommandBar />}
       </AccountProvider>
     );
   }

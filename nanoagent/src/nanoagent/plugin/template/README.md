@@ -41,10 +41,10 @@ and the workspace and returning its output; write a `verifier/<tool>.py` with
 `src/plugin/__main__.py` (`IMPLEMENTATIONS`), `verifier/__init__.py` (`TOOLS`),
 `nanoagent.yaml` (`tools`) and this README's Tools table.
 
-`LICENSE`, `ui/index.html` and `ui/kit/` stay the template's, `.gitignore`
+`LICENSE` stays the template's, `.gitignore`
 keeps its entries, `run.sh` keeps its checks first (add the plugin's own after
 them), and this README keeps its title and sections: NanoAgent refuses a plugin
-that changes them (rules 8 and 10 of `nanoagent.plugin.manifest`). Renaming the
+that changes them (rule 10 of `nanoagent.plugin.manifest`). Renaming the
 plugin means renaming it in `nanoagent.yaml`, this title and `LICENSE` together.
 
 To add a task, add a `Task` member and its `TASKS` input class to

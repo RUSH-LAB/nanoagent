@@ -3,13 +3,11 @@ import assert from 'node:assert/strict';
 import {loadRoute, makeCtx, invoke} from '../../_harness.mjs';
 
 const routes = loadRoute('agents');
-const PROFILE = 'native-test';
 const context = {workspaceId: 'test-org', userId: 'test-user', membershipId: 'member-1', role: 'owner'};
 const body = {
   name: 'Researcher',
   description: 'Finds the evidence',
   instructions: 'Check claims and cite the strongest available evidence.',
-  profileId: PROFILE,
   color: 'blue',
 };
 
@@ -20,12 +18,12 @@ describe('workspace agents', () => {
       id: agent.id,
       name: agent.name,
       instructions: agent.instructions,
-      profileId: agent.profileId,
       builtin: agent.builtin,
-    })), [{id: 'mochi', name: 'Mochi', instructions: '', profileId: 'native-test', builtin: true}]);
+    })), [{id: 'mochi', name: 'Mochi', instructions: '', builtin: true}]);
+    assert.equal('profileId' in listed.payload.agents[0], false);
   });
 
-  it('removes legacy provider selection from stored agents', async () => {
+  it('removes the model stored agents once chose', async () => {
     const ctx = makeCtx();
     const scope = ctx.scopeFor({context});
     await ctx.collection('agents').put(scope, 'mochi', {
@@ -40,12 +38,12 @@ describe('workspace agents', () => {
 
     const migrated = await invoke(routes, {method: 'GET', path: '/api/agents', ctx, requestContext: context});
     assert.equal('provider' in migrated.payload.agents[0], false);
-    assert.equal(migrated.payload.agents[0].profileId, 'native-test');
+    assert.equal('profileId' in migrated.payload.agents[0], false);
     assert.equal('model' in migrated.payload.agents[0], false);
     assert.equal(migrated.payload.agents[0].description, '');
   });
 
-  it('moves an agent from a removed profile to the live default profile', async () => {
+  it('removes the profile a stored agent chose', async () => {
     const ctx = makeCtx();
     const scope = ctx.scopeFor({context});
     await ctx.collection('agents').put(scope, 'mochi', {
@@ -59,7 +57,8 @@ describe('workspace agents', () => {
     });
 
     const migrated = await invoke(routes, {method: 'GET', path: '/api/agents', ctx, requestContext: context});
-    assert.equal(migrated.payload.agents[0].profileId, PROFILE);
+    assert.equal('profileId' in migrated.payload.agents[0], false);
+    assert.equal((await ctx.collection('agents').get(scope, 'mochi')).profileId, undefined);
   });
 
   it('creates, lists, edits, and deletes an agent', async () => {
@@ -68,7 +67,7 @@ describe('workspace agents', () => {
     assert.equal(created.status, 201);
     assert.equal(created.payload.agent.name, 'Researcher');
     assert.equal(created.payload.agent.color, 'blue');
-    assert.equal(created.payload.agent.profileId, PROFILE);
+    assert.equal('profileId' in created.payload.agent, false);
     assert.equal('provider' in created.payload.agent, false);
 
     const id = created.payload.agent.id;
@@ -85,18 +84,15 @@ describe('workspace agents', () => {
     assert.deepEqual(empty.payload.agents.map(agent => agent.id), ['mochi']);
   });
 
-  it('allows configured profiles and rejects arbitrary or legacy selection fields', async () => {
+  it('refuses an agent that chooses a model: each member chooses their own', async () => {
     const ctx = makeCtx();
     const created = await invoke(routes, {method: 'POST', path: '/api/agents', body: {name: 'Plain', instructions: ''}, ctx, requestContext: context});
     assert.equal(created.payload.agent.instructions, '');
-    assert.equal(created.payload.agent.profileId, 'native-test');
-    assert.equal('provider' in created.payload.agent, false);
-
-    const unsupported = await invoke(routes, {method: 'POST', path: '/api/agents', body: {name: 'Bad', profileId: 'other'}, ctx, requestContext: context});
-    assert.deepEqual([unsupported.status, unsupported.payload], [400, {error: 'Unsupported NanoAgent profile'}]);
-
-    const legacy = await invoke(routes, {method: 'POST', path: '/api/agents', body: {name: 'Old', provider: 'codex'}, ctx, requestContext: context});
-    assert.deepEqual([legacy.status, legacy.payload], [400, {error: 'Harness and model selection use a NanoAgent profileId'}]);
+    const refusal = {error: 'An agent chooses no model: each member chooses theirs in Settings → AI'};
+    for (const choice of [{profileId: 'native-test'}, {provider: 'codex'}, {model: 'm'}]) {
+      const refused = await invoke(routes, {method: 'POST', path: '/api/agents', body: {name: 'Bad', ...choice}, ctx, requestContext: context});
+      assert.deepEqual([refused.status, refused.payload], [400, refusal]);
+    }
   });
 
   it('does not delete the built-in Mochi agent', async () => {

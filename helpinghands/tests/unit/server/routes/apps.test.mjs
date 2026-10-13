@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {loadRoute, makeCtx, invoke, fakeSessions, SESSION} from '../../_harness.mjs';
 
+const aiSettings = createRequire(import.meta.url)('../../../../src/server/ai-settings.js');
 const routes = loadRoute('apps');
 const context = {workspaceId: 'test-org', userId: 'test-user', membershipId: 'member-1', role: 'owner'};
 const SHA = 'a'.repeat(64);
@@ -50,7 +51,7 @@ function ctxWith(ai, fs = fakeFs()) {
   const ctx = makeCtx();
   ctx.ai = {...ctx.ai, ...ai};
   ctx.workspaceFs = fs;
-  ctx.agentSync = {run: (_scope, operation) => operation('run-folder')};
+  ctx.agentSync = {run: (_scope, _ai, operation) => operation('run-folder')};
   ctx.sessions = fakeSessions();
   ctx.workspaceApps = fakeApps();
   return ctx;
@@ -285,10 +286,13 @@ describe('an app\'s task runs', () => {
       `${JSON.stringify({type: 'task.done', runId: 'r', metrics}).slice(20)}\n\n`,
     ];
     const ctx = ctxWith({taskRun: async request => { asked.push(request); return {value: stream(events)}; }});
+    ctx.settings = aiSettings.normalize({behaviour: {maxSteps: 3, thinking: 'high'}, instructions: 'x'}).value;
     const result = await invoke(routes, {
       method: 'POST', path: PATH, body: {arguments: {people: ['Ada']}, sessionId: SESSION}, ctx, requestContext: context,
     });
     assert.equal(asked.length, 1);
+    // The one model and the member's settings; a task takes no instructions or thinking.
+    assert.deepEqual(asked[0].choice, {model: {provider: 'openrouter', model: 'deepseek/deepseek-v4-flash-0731'}, settings: {max_steps: 3}});
     assert.equal(asked[0].workspace, 'run-folder');
     assert.equal(asked[0].install, SHA);
     assert.deepEqual(ctx.workspaceApps.calls, [['open', 'arxiv-source']]);
@@ -301,7 +305,7 @@ describe('an app\'s task runs', () => {
     // Charged what task.done says it cost, against the session.
     assert.deepEqual(ctx.calls.aiUsage.map(({context: _, ...call}) => call), [{
       kind: 'task', result: {cost: 0.012, model: 'm', usage: metrics.usage, metrics},
-      ran: true, pluginId: 'arxiv-source', sessionId: SESSION, task: 'daily-digest',
+      ran: true, local: false, pluginId: 'arxiv-source', sessionId: SESSION, task: 'daily-digest',
     }]);
   });
 

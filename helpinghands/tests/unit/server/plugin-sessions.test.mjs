@@ -25,12 +25,13 @@ describe('plugin sessions over PostgreSQL', () => {
     assert.equal(started.title, '');
     await sessions.save(as('alice'), 'chess-move', started.id, {state: {fen: 'start'}});
     for (let turn = 0; turn < CHAT_TURNS + 2; turn += 1) {
-      await sessions.addTurn(as('alice'), 'chess-move', started.id, {prompt: `move ${turn}\nplease`, answer: `ok ${turn}`});
+      await sessions.addTurn(as('alice'), 'chess-move', started.id, {prompt: `move ${turn}\nplease`, answer: `ok ${turn}`, tools: [{name: 'move', arguments: {turn}, output: '{}', isError: false}]});
     }
     const read = await sessions.get(as('alice'), 'chess-move', started.id);
     assert.deepEqual(read.state, {fen: 'start'});
     assert.equal(read.chat.length, CHAT_TURNS);
     assert.equal(read.chat.at(-1).answer, `ok ${CHAT_TURNS + 1}`);
+    assert.deepEqual(read.chat.at(-1).tools, [{name: 'move', arguments: {turn: CHAT_TURNS + 1}, output: '{}', isError: false}]);
     // Named for its first question.
     assert.equal(read.title, 'move 0');
     await sessions.save(as('alice'), 'chess-move', started.id, {state: null, title: 'Opening'});

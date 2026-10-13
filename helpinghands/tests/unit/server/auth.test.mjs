@@ -181,7 +181,7 @@ describe('resolveIdentity', () => {
 
   it('rejects a request with no token', async () => {
     assert.deepEqual(await enabled.resolveIdentity(req({})), {
-      ok: false, status: 401, error: 'Not signed in',
+      ok: false, status: 401, error: 'Not signed in', cookies: [],
     });
   });
 
@@ -205,6 +205,20 @@ describe('resolveIdentity', () => {
     const after = await enabled.resolveIdentity(req({cookie}));
     assert.equal(after.ok, false, 'the same token stops working once signed out');
     assert.equal(after.status, 401);
+  });
+
+  // The snapshot is what spares the next request its query, and also why a
+  // session revoked elsewhere holds until the snapshot's minute is up.
+  it('hands back the session snapshot, which identifies the caller without the session row', async () => {
+    const {cookie, id} = await githubAccount(enabled.auth, 'dave');
+    const first = await enabled.resolveIdentity(req({cookie}));
+    const snapshot = first.cookies.find(value => value.startsWith('better-auth.session_data='));
+    assert.ok(snapshot, 'the session snapshot is set');
+    const cached = `${cookie}; ${snapshot.split(';')[0]}`;
+
+    await enabled.auth.api.signOut({headers: {cookie}});
+    assert.equal((await enabled.resolveIdentity(req({cookie}))).ok, false, 'the session itself is gone');
+    assert.equal((await enabled.resolveIdentity(req({cookie: cached}))).identity.userId, id, 'the snapshot still names its user');
   });
 
   it('does not expose username sign-in', () => {
@@ -358,14 +372,6 @@ describe('productionAuthError', () => {
 
   it('requires an HTTPS same-origin site URL in production', () => {
     assert.match(authModule.productionAuthError({...configured, SITE_URL: 'http://example.test'}), /HTTPS SITE_URL/);
-  });
-
-  it('lets the desktop app use exactly its loopback origin over HTTP', () => {
-    const desktop = {...configured, MOCHI_DESKTOP: '1', EDITOR_PORT: '47310'};
-    assert.equal(authModule.productionAuthError({...desktop, SITE_URL: 'http://localhost:47310'}), null);
-    for (const SITE_URL of ['http://example.test', 'http://localhost:3000', 'https://mochi.example.test']) {
-      assert.match(authModule.productionAuthError({...desktop, SITE_URL}), /SITE_URL=http:\/\/localhost:47310/);
-    }
   });
 
   it('requires a separate PostgreSQL migration connection in production', () => {

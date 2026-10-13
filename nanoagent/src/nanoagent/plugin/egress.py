@@ -5,6 +5,9 @@ A sandbox (``nanoagent.plugin.sandbox``) has no network of its own. Its processe
 :func:`egress` serves out here. That proxy answers ``CONNECT host:443`` for the ``hosts`` it was
 given and nothing else: no other port, no plain HTTP, and no host whose addresses are not all
 public, so a plugin that declares an internal name still cannot reach the private network.
+
+A sandbox that shares the host's network (seatbelt) has no loopback of its own to bridge from:
+:func:`egress_port` serves the same proxy on a loopback port, the only one the sandbox may reach.
 """
 
 from __future__ import annotations
@@ -88,16 +91,36 @@ class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
 
 
+class _TcpServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    daemon_threads = True
+
+
+@contextmanager
+def _serving(server: socketserver.BaseServer) -> Iterator[None]:
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        yield
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def _allowed(hosts: list[str] | tuple[str, ...]) -> type[socketserver.BaseRequestHandler]:
+    return _handler(frozenset(host.lower() for host in hosts))
+
+
 @contextmanager
 def egress(hosts: list[str] | tuple[str, ...]) -> Iterator[Path]:
     """Serve the proxy for ``hosts`` on a new Unix socket while the block runs; its path."""
     with TemporaryDirectory(prefix="nanoagent-egress-") as folder:
         path = Path(folder) / "egress.sock"
-        server = _Server(str(path), _handler(frozenset(host.lower() for host in hosts)))
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
+        with _serving(_Server(str(path), _allowed(hosts))):
             yield path
-        finally:
-            server.shutdown()
-            server.server_close()
+
+
+@contextmanager
+def egress_port(hosts: list[str] | tuple[str, ...]) -> Iterator[int]:
+    """Serve the proxy for ``hosts`` on a new loopback port while the block runs; its number."""
+    server = _TcpServer(("127.0.0.1", 0), _allowed(hosts))
+    with _serving(server):
+        yield server.server_address[1]

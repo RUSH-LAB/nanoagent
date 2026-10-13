@@ -21,12 +21,12 @@ raises :class:`PluginError` listing every broken rule at once:
 7. Nothing else: the top level holds only the standard layout (and :data:`TOOL_ARTIFACTS`),
    and ``verifier/`` only ``.py`` files. ``src/`` and ``tests/`` are the plugin's own to
    organize.
-8. ``ui/`` is the plugin's front end: a static web page, ``ui/index.html`` and the files it
-   loads, only :data:`UI_SUFFIXES` and at most :data:`UI_MAX_BYTES` in total. A host shows it in
-   a sandboxed frame that talks to NanoAgent only through the ``nanoagent.ui/v1`` bridge
-   (docs/plans/plugin-ui.md). ``ui/index.html`` and ``ui/kit/`` are the shared UI kit, the
-   :data:`TEMPLATE`'s byte for byte; ``ui/app.js`` and ``ui/app.css`` are the plugin's own page,
-   and it may add its own static assets beside them.
+8. ``ui/`` is the plugin's own page: ``ui/app.js``, and ``ui/app.css`` and the static assets
+   it loads, only :data:`UI_SUFFIXES` and at most :data:`UI_MAX_BYTES` in total. NanoAgent
+   serves it in its own frame, :data:`PAGE` (``index.html`` and the shared UI kit ``kit/``), so
+   every plugin gets the kit of the NanoAgent that serves it. A host shows the page in a
+   sandboxed frame that talks to NanoAgent only through the ``nanoagent.ui/v1`` bridge
+   (docs/plans/plugin-ui.md).
 9. ``product/`` is the plugin's product page, what a catalog shows people before they open it,
    and holds exactly :data:`PRODUCT_FILES`. ``product.yaml`` fills :class:`ProductConfig`
    (``_ > nanoagent.plugin.manifest.ProductConfig:``): a tagline, a summary, 2 to 4 highlights
@@ -67,8 +67,10 @@ PLUGIN_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 HOSTNAME = re.compile(r"^[^/:\s]+$")  # a hostname only: no scheme, port, or path
 MANIFEST = "nanoagent.yaml"
-# What `nanoagent plugin new` copies; rules 8 and 10 hold every plugin's standard files to it.
+# What `nanoagent plugin new` copies; rule 10 holds every plugin's standard files to it.
 TEMPLATE = Path(__file__).with_name("template")
+# The frame NanoAgent serves every plugin's ui/ in: index.html and the shared UI kit, kit/.
+PAGE = Path(__file__).with_name("page")
 VERIFIER_TEST = "tests/test_verifier.py"
 README_SECTIONS = ("## Tools", "## Layout", "## Develop and run")
 # The standard plugin layout: every plugin has these at its root.
@@ -87,7 +89,7 @@ REQUIRED_FOLDERS = (
     "src",
     "tests",
     "verifier",  # the deterministic verifier package (see nanoagent.plugin.verifier)
-    "ui",  # the front end: a static web page, ui/index.html
+    "ui",  # the plugin's own page, ui/app.js, served in NanoAgent's PAGE
     "product",  # the product page a catalog shows: product.yaml and icon.svg
 )
 PRODUCT = "product/product.yaml"
@@ -404,25 +406,34 @@ def _product(root: Path) -> tuple[Product | None, list[str]]:
     ), violations
 
 
-def _kit(ui: Path) -> dict[str, bytes]:
-    """The shared UI kit in ``ui``: ``index.html`` and ``kit/``, by path."""
-    files = [ui / "index.html", *sorted((ui / "kit").rglob("*"))]
-    return {
-        path.relative_to(ui).as_posix(): path.read_bytes()
-        for path in files
-        if path.is_file() and not TOOL_ARTIFACTS & set(path.relative_to(ui).parts)
-    }
+def is_page_path(relative: str) -> bool:
+    """Whether ``relative``, a path in ``ui/``, is :data:`PAGE`'s: ``index.html`` or in ``kit/``."""
+    return relative == "index.html" or relative.split("/", 1)[0] == "kit"
+
+
+def page_files() -> list[Path]:
+    """:data:`PAGE`'s files: ``index.html`` and ``kit/``."""
+    return [PAGE / "index.html", *sorted(path for path in (PAGE / "kit").rglob("*") if path.is_file() and not TOOL_ARTIFACTS & set(path.parts))]
+
+
+def ui_files(ui: Path) -> list[Path]:
+    """The plugin's own files in ``ui``, without :data:`PAGE`'s paths.
+
+    COMPAT(plugin-kit): a package made before NanoAgent served its kit carries its own
+    ``ui/index.html`` and ``ui/kit/``; they are never read or served.
+    """
+    return [
+        path
+        for path in sorted(ui.rglob("*"))
+        if path.is_file()
+        and not TOOL_ARTIFACTS & set(path.relative_to(ui).parts)
+        and not is_page_path(path.relative_to(ui).as_posix())
+    ]
 
 
 def _ui_violations(ui: Path) -> list[str]:
-    files = [path for path in sorted(ui.rglob("*")) if path.is_file() and not TOOL_ARTIFACTS & set(path.relative_to(ui).parts)]
-    kit, template = _kit(ui), _kit(TEMPLATE / "ui")
-    violations = [
-        f"missing ui/{name}" if name not in kit else f"ui/{name} is not the template's"
-        for name in sorted(template)
-        if kit.get(name) != template[name]
-    ]
-    violations += [f"unexpected ui/{name}: ui/kit/ holds only the template's kit" for name in sorted(kit.keys() - template.keys())]
+    files = ui_files(ui)
+    violations = [] if (ui / "app.js").is_file() else ["missing ui/app.js"]
     violations += [
         f"unexpected ui/{path.relative_to(ui).as_posix()}: ui/ holds only static web files"
         for path in files

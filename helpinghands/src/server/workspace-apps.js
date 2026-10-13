@@ -21,16 +21,16 @@ function createWorkspaceApps({ai, market, plugins}) {
     return {value: offered};
   }
 
-  /** NanoAgent's install of `entry`'s package, sending it first when NanoAgent has none. */
-  async function installed(userId, source, entry) {
-    const found = await ai.install(entry.sha256);
+  /** The install of `entry`'s package on the NanoAgent `on`, sending it first when it has none. */
+  async function installed(on, userId, source, entry) {
+    const found = await on.install(entry.sha256);
     if (found.status !== 404) return found.error ? found : {value: found.value.plugin};
     const data = source === 'upload'
       ? {value: (await market.get(userId, entry.id))?.package}
       : await ai.packageFile(entry.id);
     if (data.error) return data;
     if (!data.value) return {error: `${entry.id} is no longer in the marketplace`, status: 404};
-    const put = await ai.installPackage(entry.sha256, data.value);
+    const put = await on.installPackage(entry.sha256, data.value);
     return put.error ? put : {value: put.value.plugin};
   }
 
@@ -72,19 +72,25 @@ function createWorkspaceApps({ai, market, plugins}) {
     remove: (context, id) => plugins.remove(context, id),
 
     /**
-     * The workspace's app `id`, installed and ready to run: its NanoAgent catalog
-     * entry, with the `sha256` its runs and page are addressed by and its
-     * `uiVersion`; or `{error, status}`, 404 for a plugin the workspace did not add.
+     * The workspace's app `id`, installed and ready to run on the NanoAgent `on`
+     * (Mochi's, which serves its page, unless a run goes to the member's own
+     * computer): its catalog entry, with the `sha256` its runs and page are
+     * addressed by and its `uiVersion`; or `{error, status}`, 404 for a plugin
+     * the workspace did not add.
      */
-    async open(context, id) {
+    async open(context, id, on = ai) {
       const added = await plugins.get(context, id);
       if (!added) return {error: `This workspace has no plugin named ${id}`, status: 404};
-      const offered = await catalog(context.userId);
-      if (offered.error) return offered;
-      const found = offered.value.get(id);
-      if (!found || found.source !== added.source) return {error: `${id} is no longer in the marketplace`, status: 404};
-      const result = await installed(context.userId, found.source, found.entry);
-      return result.error ? result : {value: {...result.value, source: found.source}};
+      // An upload's version comes with the workspace's row; NanoAgent's from its own list.
+      let entry = {id, sha256: added.sha256};
+      if (added.source === 'nanoagent') {
+        const builtIn = await ai.packages();
+        if (builtIn.error) return builtIn;
+        entry = builtIn.value.packages.find(found => found.id === id);
+        if (!entry) return {error: `${id} is no longer in the marketplace`, status: 404};
+      }
+      const result = await installed(on, context.userId, added.source, entry);
+      return result.error ? result : {value: {...result.value, source: added.source}};
     },
   });
 }

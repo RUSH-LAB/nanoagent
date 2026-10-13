@@ -1,5 +1,6 @@
 'use strict';
-const {withRequestContext} = require('./client');
+const {escapeLiteral} = require('pg');
+const {queryInContext, withRequestContext} = require('./client');
 
 /**
  * The plugins each workspace added from the marketplace (migrations 0019,
@@ -18,13 +19,16 @@ function createPostgresWorkspacePlugins({pool}) {
         `select ${COLUMNS} from workspace_plugin order by added_at, plugin_id`,
       )).rows.map(added));
     },
+    /** One of the workspace's plugins, with an upload's current `sha256`, or null. */
     async get(context, id) {
-      return run(context, async client => {
-        const row = (await client.query(
-          `select ${COLUMNS} from workspace_plugin where plugin_id = $1`, [id],
-        )).rows[0];
-        return row ? added(row) : null;
-      });
+      // Opening a plugin asks this, so it is one round trip. An upload's row
+      // goes when its market_plugin does (migration 0019), so it always has one.
+      const [row] = await queryInContext(pool, context,
+        `select w.plugin_id, w.source, w.tags, w.added_at, m.sha256
+           from workspace_plugin w left join market_plugin m on m.id = w.upload_id
+          where w.plugin_id = ${escapeLiteral(id)}`,
+      );
+      return row ? {...added(row), sha256: row.sha256} : null;
     },
     /** Add a plugin from `source` (`nanoagent` or `upload`); adding it again changes nothing. */
     async add(context, id, source) {

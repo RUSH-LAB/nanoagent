@@ -55,8 +55,9 @@ if (!(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET)) {
   throw new Error('Mochi requires GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET: GitHub is the only way to sign in.');
 }
 const SITE_URL = (process.env.SITE_URL || 'http://localhost:3000').replace(/\/$/, '');
-// The one client allowed to ask for a device code (cli/mochi.mjs).
-const CLI_CLIENT_ID = 'mochi-cli';
+// The clients allowed to ask for a device code: the sync client (cli/mochi.mjs)
+// and Mochi Lab's relay (runner/relay.mjs).
+const DEVICE_CLIENT_IDS = new Set(['mochi-cli', 'mochi-desktop']);
 
 // Sign-up policy, workspace and member limits, suspension, and the rate-limit
 // store shared by every server process (postgres/tenancy.js).
@@ -111,14 +112,7 @@ function productionAuthError(env = process.env) {
   if (!env.BETTER_AUTH_SECRET || env.BETTER_AUTH_SECRET.length < 32) {
     return 'Refusing to start: production requires BETTER_AUTH_SECRET with at least 32 characters.';
   }
-  if (env.MOCHI_DESKTOP === '1') {
-    // The desktop app (desktop/) serves one user on loopback, where no proxy terminates TLS;
-    // index.js binds 127.0.0.1 only, so the plain-HTTP origin never leaves the machine.
-    const origin = `http://localhost:${env.EDITOR_PORT}`;
-    if (env.SITE_URL !== origin) {
-      return `Refusing to start: the desktop app requires SITE_URL=${origin}, its loopback origin.`;
-    }
-  } else if (!env.SITE_URL || !/^https:\/\//i.test(env.SITE_URL)) {
+  if (!env.SITE_URL || !/^https:\/\//i.test(env.SITE_URL)) {
     return 'Refusing to start: production requires an HTTPS SITE_URL for same-origin session cookies.';
   }
   if (!env.DATABASE_URL) {
@@ -238,13 +232,14 @@ const auth = betterAuth({
   } : {}),
   // Behind Cloudflare and Railway the socket address is the proxy's. Cloudflare
   // sets cf-connecting-ip; Railway sets x-real-ip for its own domain.
-  advanced: {ipAddress: {ipAddressHeaders: ['cf-connecting-ip', 'x-real-ip']}},
+  // A session and its user come in one query when the cookie cache misses.
+  advanced: {ipAddress: {ipAddressHeaders: ['cf-connecting-ip', 'x-real-ip']}, database: {joins: true}},
   secret: resolveSecret(),
   baseURL: process.env.BETTER_AUTH_URL || process.env.SITE_URL || `http://localhost:${PORT}`,
   basePath: '/api/auth',
   // Verify the signed, HttpOnly session snapshot locally for ordinary API
   // requests instead of querying Neon just to identify the same browser on
-  // every click. Workspace membership is deliberately not cached here: the
+  // every click; resolveIdentity hands back the refreshed snapshot. Workspace membership is deliberately not cached here: the
   // dispatcher still checks it for every scoped request, so removing a member
   // takes effect immediately. The short lifetime bounds session revocation.
   session: authSessionOptions({postgresEnabled: postgres.enabled}),
@@ -311,7 +306,7 @@ const auth = betterAuth({
     bearer(),
     deviceAuthorization({
       verificationUri: `${SITE_URL}/device`,
-      validateClient: clientId => clientId === CLI_CLIENT_ID,
+      validateClient: clientId => DEVICE_CLIENT_IDS.has(clientId),
       ...(postgres.enabled ? {schema: postgresDeviceCodeSchema} : {}),
     }),
     // Better Auth is the organization and member lifecycle engine, and the
@@ -388,22 +383,27 @@ function isSafeId(id) {
 /**
  * Resolve the caller. Never throws and never returns a partial identity:
  * either `{ok: true, identity}` with a verified user, or `{ok: false, status,
- * error}` describing the rejection to send back verbatim.
+ * error}` describing the rejection to send back verbatim. Either way `cookies`
+ * are the Set-Cookie values Better Auth wrote for the response: the session's
+ * refreshed snapshot, so the next request needs no query, or its removal.
  */
 async function resolveIdentity(req) {
   let session;
+  let cookies;
   try {
-    session = await auth.api.getSession({headers: fromNodeHeaders(req.headers)});
+    const result = await auth.api.getSession({headers: fromNodeHeaders(req.headers), returnHeaders: true});
+    session = result.response;
+    cookies = result.headers.getSetCookie();
   } catch {
-    return {ok: false, status: 401, error: 'Invalid or expired session'};
+    return {ok: false, status: 401, error: 'Invalid or expired session', cookies: []};
   }
   if (!session?.user?.id) {
-    return {ok: false, status: 401, error: 'Not signed in'};
+    return {ok: false, status: 401, error: 'Not signed in', cookies};
   }
 
   const userId = session.user.id;
   if (!isSafeId(userId)) {
-    return {ok: false, status: 401, error: 'Invalid session subject'};
+    return {ok: false, status: 401, error: 'Invalid session subject', cookies};
   }
 
   // The session's choice if it has made one, and otherwise the account's first
@@ -414,6 +414,7 @@ async function resolveIdentity(req) {
   const orgId = session.session?.activeOrganizationId ?? await firstOrganizationOf(userId);
   return {
     ok: true,
+    cookies,
     identity: Object.freeze({
       userId,
       orgId,

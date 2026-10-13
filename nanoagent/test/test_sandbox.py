@@ -11,7 +11,7 @@ import pytest
 
 from nanoagent.plugin import egress as egress_module
 from nanoagent.plugin import sandbox
-from nanoagent.plugin.egress import egress
+from nanoagent.plugin.egress import egress, egress_port
 
 
 def _ask(path: Path, request: bytes) -> bytes:
@@ -61,29 +61,45 @@ def test_egress_tunnels_to_a_declared_host(short_tmp: None, monkeypatch: pytest.
 
 
 def test_refuses_an_unknown_sandbox() -> None:
-    with pytest.raises(ValueError, match="bwrap, none"):
+    with pytest.raises(ValueError, match="bwrap, seatbelt, none"):
         sandbox.configure("docker")
 
 
-bwrap = pytest.mark.skipif(
-    not sys.platform.startswith("linux") or shutil.which("bwrap") is None, reason="bwrap runs on Linux"
-)
+def test_egress_port_refuses_an_undeclared_host() -> None:
+    with egress_port(["api.example.com"]) as port, socket.create_connection(("127.0.0.1", port)) as client:
+        client.sendall(_connect("other.example.com"))
+        assert client.recv(1024).startswith(b"HTTP/1.1 403")
 
 
-@pytest.fixture
-def confined() -> None:
-    sandbox.configure("bwrap")
+# Each sandbox this machine has: bwrap on Linux, seatbelt on macOS.
+KINDS = [
+    pytest.param(
+        "bwrap",
+        marks=pytest.mark.skipif(
+            not sys.platform.startswith("linux") or shutil.which("bwrap") is None, reason="bwrap runs on Linux"
+        ),
+    ),
+    pytest.param(
+        "seatbelt",
+        marks=pytest.mark.skipif(
+            sys.platform != "darwin" or not Path("/usr/bin/sandbox-exec").exists(), reason="seatbelt runs on macOS"
+        ),
+    ),
+]
+
+
+@pytest.fixture(params=KINDS)
+def confined(request: pytest.FixtureRequest) -> None:
+    sandbox.configure(request.param)
     yield
     sandbox.configure("none")
 
 
-@bwrap
-def test_bwrap_confines_a_process(confined: None, tmp_path: Path) -> None:
+def test_the_sandbox_confines_a_process(confined: None, tmp_path: Path) -> None:
     sandbox.check(tmp_path)
 
 
-@bwrap
-def test_bwrap_writes_only_where_it_is_given(confined: None, tmp_path: Path) -> None:
+def test_the_sandbox_writes_only_where_it_is_given(confined: None, tmp_path: Path) -> None:
     plugin, workspace, elsewhere = tmp_path / "plugin", tmp_path / "workspace", tmp_path / "elsewhere"
     for folder in (plugin, workspace, elsewhere):
         folder.mkdir()
@@ -101,3 +117,14 @@ def test_bwrap_writes_only_where_it_is_given(confined: None, tmp_path: Path) -> 
     ) as (argv, env):
         output = subprocess.run(argv, env=env, capture_output=True, text=True, check=True).stdout.split("\n")
     assert output[:3] == [f"refused {targets[0]}", f"wrote {targets[1]}", f"refused {targets[2]}"]
+
+
+def test_the_sandbox_reads_only_what_it_is_given(confined: None, tmp_path: Path) -> None:
+    plugin, secret = tmp_path / "plugin", tmp_path / "secret"
+    plugin.mkdir()
+    secret.write_text("x")
+    with sandbox.launch([sys.executable, "-I", "-c", "open(__import__('sys').argv[1])", str(secret)], root=plugin, env={}) as (
+        argv,
+        env,
+    ):
+        assert subprocess.run(argv, env=env, capture_output=True, check=False).returncode != 0

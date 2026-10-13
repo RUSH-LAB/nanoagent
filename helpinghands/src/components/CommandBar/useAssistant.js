@@ -108,7 +108,7 @@ export default function useAssistant(sessions) {
     text,
     agent = null,
     context = '',
-    profileId = null,
+    modelChoice = null,
   ) => {
     // Prior turns ride as structured messages and the new line as the prompt.
     // Read before appending it, or the question would appear in its own history.
@@ -141,7 +141,8 @@ export default function useAssistant(sessions) {
 
     const payload = messages.length ? {prompt: text, messages} : {prompt: text};
     if (context) payload.context = context;
-    if (profileId) payload.profileId = profileId;
+    // The model this chat chose with /model; otherwise the server runs the member's own.
+    if (modelChoice) payload.model = {provider: modelChoice.provider, model: modelChoice.model};
     if (agent) {
       // The server owns the agent definition. Sending only its id prevents a
       // caller from replacing trusted instructions or NanoAgent policy in the

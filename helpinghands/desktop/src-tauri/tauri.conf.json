@@ -18,7 +18,7 @@
     "targets": "all",
     "externalBin": ["binaries/node", "binaries/uv"],
     "resources": {
-      "resources/mochi/": "mochi/",
+      "resources/runner/": "runner/",
       "resources/nanoagent/": "nanoagent/",
       "resources/config.yaml": "config.yaml",
       "resources/stamp": "stamp"

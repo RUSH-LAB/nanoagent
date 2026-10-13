@@ -2,7 +2,7 @@ import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {VERBS} from '../../../../../../src/components/CommandBar/verbs.js';
 import {runCommand} from '../../../../../../src/components/CommandBar/commandRuntime.js';
-import {callsTo, makeCtx, spoke} from './_fakeCtx.mjs';
+import {AI, callsTo, makeCtx, spoke} from './_fakeCtx.mjs';
 
 const verb = name => VERBS.find(command => command.name === name);
 const run = async (name, argLine, options) => {
@@ -12,75 +12,41 @@ const run = async (name, argLine, options) => {
 };
 
 describe('agent runtime commands', () => {
-  it('exposes only /harness and /model', () => {
-    assert.deepEqual(VERBS.map(command => command.name), ['harness', 'model']);
+  it('exposes only /model', () => {
+    assert.deepEqual(VERBS.map(command => command.name), ['model']);
   });
 
-  it('builds picker rows with the current choice first and availability visible', () => {
-    const {ctx} = makeCtx();
-    assert.deepEqual(verb('harness').options(ctx).map(option => ({
-      value: option.value, current: option.current, available: option.available,
-    })), [
-      {value: 'nanoagent', current: true, available: true},
-      {value: 'hermes', current: false, available: true},
-      {value: 'pi', current: false, available: false},
-    ]);
-    assert.deepEqual(verb('model').options(ctx).map(option => option.name), ['fast', 'smart']);
+  it('offers the chat models it may switch to, the current one first', () => {
+    const {ctx} = makeCtx({chatItem: {id: 'chat-1', agentId: 'mochi', modelChoice: {key: 'openrouter/org/smart', choice: {provider: 'openrouter', model: 'org/smart'}}}});
+    assert.deepEqual(verb('model').options(ctx).map(option => [option.value, option.current]), [['openrouter/org/smart', true], ['openrouter/org/fast', false]]);
   });
 
-  it('shows and switches the harness while preserving the current model', async () => {
-    const shown = await run('harness', '');
-    assert.match(shown.log.notes[0], /harness: NanoAgent/);
-    assert.match(shown.log.notes[0], /Hermes Agent/);
-
-    const switched = await run('harness', 'hermes');
-    assert.deepEqual(callsTo(switched.log, 'setChatProfile'), [
-      ['setChatProfile', 'chat-1', 'hermes-fast'],
-    ]);
-    assert.deepEqual(switched.log.notes, ['harness: Hermes Agent · model: fast']);
+  it('shows the model a chat runs on: its own choice, else the member\'s, else the default', async () => {
+    assert.match((await run('model', '')).log.notes[0], /model: Fast \(openrouter\)/);
+    const mine = {...AI, settings: {...AI.settings, chat: {provider: 'openrouter', model: 'org/smart'}}};
+    assert.match((await run('model', '', {ai: mine})).log.notes[0], /model: Smart/);
+    const own = {id: 'chat-1', agentId: 'mochi', modelChoice: {key: 'openrouter/org/smart', choice: {provider: 'openrouter', model: 'org/smart'}}};
+    assert.match((await run('model', '', {chatItem: own})).log.notes[0], /model: Smart/);
   });
 
-  it('accepts NanoAgent as the public name of the native harness', async () => {
-    const made = makeCtx({chatItem: {
-      id: 'chat-1', agentId: 'mochi', profileId: 'hermes-smart',
-    }});
-    await runCommand(verb('harness'), 'NanoAgent', made.ctx);
-    assert.deepEqual(callsTo(made.log, 'setChatProfile'), [
-      ['setChatProfile', 'chat-1', 'native-smart'],
-    ]);
-  });
-
-  it('refuses an unavailable or unknown harness', async () => {
-    const unavailable = await run('harness', 'pi');
-    assert.deepEqual(unavailable.log.fails, [
-      '/harness pi: unavailable: PI runner is not installed',
-    ]);
-    assert.deepEqual(callsTo(unavailable.log, 'setChatProfile'), []);
-
-    const unknown = await run('harness', 'other');
-    assert.match(unknown.log.fails[0], /choose one of/);
-  });
-
-  it('shows and switches models within the current harness', async () => {
-    const shown = await run('model', '');
-    assert.match(shown.log.notes[0], /model: fast/);
-    assert.match(shown.log.notes[0], /smart/);
-
-    const switched = await run('model', 'smart');
-    assert.deepEqual(callsTo(switched.log, 'setChatProfile'), [
-      ['setChatProfile', 'chat-1', 'native-smart'],
-    ]);
-    assert.deepEqual(switched.log.notes, ['model: smart · harness: NanoAgent']);
-  });
-
-  it('refuses unknown models and panes without an open agent chat', async () => {
-    const unknown = await run('model', 'missing');
-    assert.match(unknown.log.fails[0], /choose one of fast, smart/);
-
-    for (const name of ['harness', 'model']) {
-      const closed = await run(name, '', {target: null});
-      assert.deepEqual(closed.log.fails, [`/${name} needs an open agent chat`]);
+  it('switches this chat\'s model by name, key or model id', async () => {
+    for (const name of ['openrouter/org/smart', 'Smart', 'org/smart']) {
+      const switched = await run('model', name);
+      assert.deepEqual(callsTo(switched.log, 'setChatModel'), [
+        ['setChatModel', 'chat-1', {key: 'openrouter/org/smart', choice: {provider: 'openrouter', model: 'org/smart'}}],
+      ]);
+      assert.deepEqual(switched.log.notes, ['model: Smart (openrouter)']);
     }
+  });
+
+  it('refuses unknown, unavailable, and non-chat models, and panes without an open agent chat', async () => {
+    assert.match((await run('model', 'missing')).log.fails[0], /no model matches missing/);
+    assert.match((await run('model', 'org/apps')).log.fails[0], /no model matches/);
+    const off = await run('model', 'off');
+    assert.deepEqual(off.log.fails, ['/model off: unavailable: Needs your OpenRouter key: add it under API keys']);
+    assert.deepEqual(callsTo(off.log, 'setChatModel'), []);
+    const closed = await run('model', '', {target: null});
+    assert.deepEqual(closed.log.fails, ['/model needs an open agent chat']);
   });
 
   it('always answers and keeps command ids unique', async () => {

@@ -56,7 +56,7 @@ def test_packs_a_plugin_the_same_way_every_time_without_what_git_ignores(plugin:
     data = pack(plugin)
     assert data == pack(plugin)
     names = set(_files(data))
-    assert "echo/nanoagent.yaml" in names and "echo/ui/kit/dom.js" in names
+    assert "echo/nanoagent.yaml" in names and "echo/ui/app.js" in names
     assert not [name for name in names if "__pycache__" in name or ".venv" in name]
 
 

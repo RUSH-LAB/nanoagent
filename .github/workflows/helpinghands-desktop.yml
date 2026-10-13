@@ -53,15 +53,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            helpinghands/package-lock.json
-            helpinghands/desktop/package-lock.json
+          cache-dependency-path: helpinghands/desktop/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
       - name: Install WebKitGTK
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      # The site build and the server's traced dependencies come from Mochi's own install.
-      - run: npm ci
       - run: npm ci
         working-directory: helpinghands/desktop
       - run: npm run build -- --target ${{ matrix.target }}

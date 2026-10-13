@@ -4,7 +4,7 @@ const MAX_NAVIGATION_ITEMS = 24;
 const MAX_COLLECTIONS = 32;
 const MAX_BLOG_GROUPS = 100;
 const MAX_PLUGINS = 64;
-const HOME_LAYOUTS = new Set(['title', 'library', 'document']);
+const HOME_LAYOUTS = new Set(['library', 'document']);
 const LEGACY_PLUGIN_FLAGS = Object.freeze({
   bibliography: 'citations',
   'lean-proofs': 'leanProofs',
@@ -124,7 +124,7 @@ function validateWorkspaceSite(value = {}) {
   const rendering = value.rendering ?? {};
   if (!rendering || typeof rendering !== 'object' || Array.isArray(rendering)) throw new TypeError('rendering must be an object');
   if (site.homeLayout != null && !HOME_LAYOUTS.has(site.homeLayout)) {
-    throw new TypeError('site.homeLayout must be title, library, or document');
+    throw new TypeError('site.homeLayout must be library or document');
   }
   const validated = {
     schemaVersion: 2,

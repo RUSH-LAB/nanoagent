@@ -182,14 +182,14 @@ which runs a task the verified way (reference, tools or agent, then
 runner, `nanoagent.plugin.tasks.run_task`, with `nanoagent plugin run` and
 `agent`.
 
-`ui/` is split into a shared UI kit and the plugin's own page.
-`ui/index.html` and `ui/kit/` are the kit: the template's bytes in every
-plugin (the loader refuses any other), changed only in the template. `ui/app.js` and `ui/app.css` are the plugin's, next to any other
-static files it adds. `nanoagent plugin new` starts every plugin with the
-kit and a default page, a full-page chat with the plugin's agent, which
-never shows its tools. Each plugin then designs its page around what people
+`ui/` is the plugin's own page: `ui/app.js` and `ui/app.css`, next to any
+other static files it adds. NanoAgent serves it in its own frame,
+`src/nanoagent/plugin/page/` (`index.html` and the shared UI kit `kit/`), so
+every plugin gets the kit of the NanoAgent serving it. `nanoagent plugin new`
+starts every plugin with a default page, a full-page chat with the plugin's
+agent that draws the tool results it has renderers for. Each plugin then designs its page around what people
 come to do: `app.js` passes `mountApp` a layout, `({plugin, workspace}) =>
-Element`, built from `ui/kit/components.js`. The kit has an app shell with
+Element`, built from `./kit/components.js`. The kit has an app shell with
 the chat in a drawer (`appShell`, `chatDrawer`), inputs (`dateInput`,
 `segmented`, `chipToggles`, `chipRow`, `chipsInput`, `numberStepper`, and
 `fileDrop`, which writes the user's file to the workspace for the task), a

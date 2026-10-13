@@ -1,0 +1,45 @@
+/* A workspace's home: a Markdown page whose first heading is its banner. */
+
+.home {
+  min-height: var(--site-shell-height);
+  background:
+    radial-gradient(48rem 22rem at 50% 0%, color-mix(in srgb, #3b5998 12%, transparent), transparent 70%);
+}
+
+:global([data-theme='dark']) .home {
+  background:
+    radial-gradient(48rem 22rem at 50% 0%, rgba(99, 132, 204, 0.14), transparent 70%);
+}
+
+.page {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: clamp(5rem, 22vh, 11rem) var(--site-page-gutter) 4rem;
+}
+
+/* The banner. custom.css colors and sizes every heading with !important, so
+   this answers in kind. */
+.page > h1:first-child {
+  margin: 0 0 2.5rem;
+  text-align: center;
+  /* Not Georgia: its figures are old-style, so a name like COMP 580 would not
+     sit on one line if Instrument Serif failed to load. */
+  font-family: 'Instrument Serif', 'Times New Roman', serif;
+  font-variant-numeric: lining-nums;
+  font-size: clamp(3.4rem, 8vw, 5.75rem) !important;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: #0f172a !important;
+}
+
+:global([data-theme='dark']) .page > h1:first-child {
+  color: #f1f5f9 !important;
+}
+
+.message {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 4rem var(--site-page-gutter);
+  color: var(--ifm-color-emphasis-600);
+}

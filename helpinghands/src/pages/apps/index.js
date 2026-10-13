@@ -109,6 +109,7 @@ function AppsColumns() {
     <TwoColumnLayout
       sidebarKey="plugins"
       showSidebarOnMobile
+      evenGutters
       renderSidebar={({collapsed, onCollapse}) => (
         <PluginSidebar
           navigation={navigation}

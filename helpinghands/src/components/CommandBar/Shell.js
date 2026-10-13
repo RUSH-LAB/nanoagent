@@ -499,10 +499,10 @@ export default function Shell({workspaceKey = 'unscoped'}) {
     sessions,
     chatItem: chatOf(session),
     agent: agentOf(session),
-    profileCatalog: agentStore.profileCatalog,
+    ai: agentStore.ai,
     note: (text) => sessions.append(session.id, 'system', text),
     fail: (text) => sessions.append(session.id, 'error', text),
-  }), [sessions, chatOf, agentOf, agentStore.profileCatalog]);
+  }), [sessions, chatOf, agentOf, agentStore.ai]);
 
   const activeCommandContext = useMemo(
     () => contextFor(active),
@@ -549,20 +549,14 @@ export default function Shell({workspaceKey = 'unscoped'}) {
     if (session.target?.channelId) say(text, session.id, session.target);
     else {
       const agent = agentOf(session);
-      const activeChat = chatOf(session);
-      assistant.ask(
-        session.id,
-        text,
-        agent,
-        '',
-        activeChat?.profileId || agent?.profileId || agentStore.profileCatalog.defaultProfile,
-      );
+      // The chat's /model choice, if it made one.
+      assistant.ask(session.id, text, agent, '', chatOf(session)?.modelChoice?.choice ?? null);
     }
   }, [
     active, sessions, commands, draftFor, setDraftFor,
     completion.matches, completion.selected, completion.moved,
     completion.selectingArgument, completion.choice,
-    contextFor, say, assistant, agentOf, chatOf, agentStore.profileCatalog.defaultProfile,
+    contextFor, say, assistant, agentOf, chatOf,
   ]);
 
   const runFromMenu = useCallback((command) => {
@@ -808,7 +802,6 @@ export default function Shell({workspaceKey = 'unscoped'}) {
             {agentEditor !== undefined && (
               <AgentEditor
                 agent={agentEditor}
-                profileCatalog={agentStore.profileCatalog}
                 onSave={agentStore.save}
                 onDelete={async (id) => {
                   await agentStore.remove(id);
