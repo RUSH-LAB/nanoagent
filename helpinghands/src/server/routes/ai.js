@@ -447,6 +447,22 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     return json(res, 200, ctx.runners.status(req.auth?.userId));
   }
 
+  // ── The API keys a member gives Mochi itself, for runs while no computer is connected ──
+  if ((req.method === 'GET' || req.method === 'PUT') && pathname === '/api/ai/keys') {
+    if (!ctx.memberKeys) return json(res, 503, {error: 'Keeping API keys needs PostgreSQL'});
+    if (req.method === 'GET') return json(res, 200, {keys: await ctx.memberKeys.list(req.auth.userId)});
+    if (!await rateLimit(`ai-keys:${req.caller}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    let body;
+    try {
+      body = await ctx.readBody(req);
+    } catch {
+      return json(res, 400, {error: 'Request body must be JSON, within the size limit'});
+    }
+    const saved = await ctx.memberKeys.save(req.auth.userId, body?.changes);
+    if (saved.error) return json(res, 400, {error: saved.error});
+    return json(res, 200, {keys: saved.value});
+  }
+
   // ── The API keys on the member's computer: passed on to it, never kept or shown here ──
   if (req.method === 'PUT' && pathname === '/api/runner/keys') {
     if (!await rateLimit(`runner-keys:${req.caller}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});

@@ -94,7 +94,12 @@ function socketFetch(entry) {
   });
 }
 
-function createRunners({resolveIdentity}) {
+/**
+ * `memberKeys` (postgres/member-keys.js) holds the keys members gave Mochi
+ * itself: a member with no computer connected runs on the hosted NanoAgent
+ * with them, and with neither, every run is refused.
+ */
+function createRunners({resolveIdentity, memberKeys = null, env = process.env}) {
   const connected = new Map();
   const offline = createNanoAgentGateway({endpoint: {error: RUNNER_OFFLINE}, local: true});
   const sockets = new WebSocketServer({noServer: true, maxPayload: MAX_PAYLOAD});
@@ -195,9 +200,17 @@ function createRunners({resolveIdentity}) {
       return {value: {saved: true}};
     },
 
-    /** The NanoAgent the member's runs go to: their computer's, refusing every call while it is not connected. */
+    /**
+     * The NanoAgent the member's runs go to: their computer's while it is
+     * connected, else the hosted one with the keys they gave Mochi, else one
+     * refusing every call.
+     */
     async aiFor(userId) {
-      return connected.get(userId)?.gateway ?? offline;
+      const computer = connected.get(userId)?.gateway;
+      if (computer) return computer;
+      const keys = userId && memberKeys ? await memberKeys.values(userId) : {};
+      if (!keys.OPENROUTER_API_KEY) return offline;
+      return createNanoAgentGateway({env, keys, local: true});
     },
 
     /**

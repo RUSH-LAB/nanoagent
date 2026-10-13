@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
 from typing import Any, cast
@@ -22,7 +22,7 @@ from nanoagent.harness import (
     HarnessRegistry as RunnerRegistry,
     HarnessRequest as RunnerRequest,
 )
-from nanoagent.harness.choice import RunModel, RunSettings
+from nanoagent.harness.choice import KEY_NAME, RunModel, RunSettings
 from nanoagent.harness.nanoagent import AgentFactory
 from nanoagent.runtime.config import HarnessProfileConfig, load_registry
 from nanoagent.web.config import WebConfig
@@ -34,7 +34,8 @@ _REQUEST_SCHEMA = json.loads(
     files("nanoagent.web.schema").joinpath("run-request.schema.json").read_text(encoding="utf-8")
 )
 _REQUEST_VALIDATOR = Draft202012Validator(_REQUEST_SCHEMA)
-# What a run chooses for itself, also for task runs, which have no input: its profile, model and settings.
+# What a run chooses for itself, also for task runs, which have no input: its profile, model and
+# settings. Its keys are checked by _run_keys alone, whose errors never quote a value.
 _CHOICE_VALIDATOR = Draft202012Validator(
     {
         "$defs": _REQUEST_SCHEMA["$defs"],
@@ -63,15 +64,18 @@ class RunRequest:
     profile: str | None = None
     model: RunModel | None = None
     settings: RunSettings | None = None
+    keys: dict[str, str] | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
 class RunChoice:
-    """What a run chose: a profile, a model by provider (in place of the profile's), and settings."""
+    """What a run chose: a profile, a model by provider (in place of the profile's), settings, and
+    the provider API keys it brought, its only credentials (never in a repr)."""
 
     profile: str | None = None
     model: RunModel | None = None
     settings: RunSettings | None = None
+    keys: dict[str, str] | None = field(default=None, repr=False)
 
 
 def _first_error(validator: Draft202012Validator, value: Any) -> None:
@@ -82,15 +86,33 @@ def _first_error(validator: Draft202012Validator, value: Any) -> None:
         raise ValidationError(f"{location + ': ' if location else ''}{error.message}")
 
 
+def _run_keys(value: Any) -> dict[str, str]:
+    """The provider API keys a run brought, checked like PUT /v1/keys's; an error names a key, never its value."""
+    if not isinstance(value, dict) or not value:
+        raise ValidationError("keys must name at least one provider API key")
+    for name, key in value.items():
+        if not KEY_NAME.fullmatch(name):
+            raise ValidationError(f"keys: {name} is not a provider's API key")
+        if not isinstance(key, str) or not key or key != key.strip() or " " in key:
+            raise ValidationError(f"keys: {name} must be one key, without spaces")
+    return dict(value)
+
+
 def validate_run_choice(value: dict[str, Any]) -> RunChoice:
-    """The profile, model and settings ``value`` chose."""
-    _first_error(_CHOICE_VALIDATOR, value)
+    """The profile, model, settings and keys ``value`` chose."""
+    _first_error(_CHOICE_VALIDATOR, {key: item for key, item in value.items() if key != "keys"})
     model = value.get("model")
     return RunChoice(
         profile=value.get("profile"),
         model=None if model is None else RunModel(**model),
         settings=RunSettings.from_dict(value.get("settings")),
+        keys=_run_keys(value["keys"]) if "keys" in value else None,
     )
+
+
+def choice_of(request: RunRequest) -> RunChoice:
+    """What ``request`` chose for itself."""
+    return RunChoice(request.profile, request.model, request.settings, request.keys)
 
 
 def run_limits(cfg: WebConfig) -> dict[str, Any]:
@@ -105,8 +127,12 @@ def run_limits(cfg: WebConfig) -> dict[str, Any]:
 
 
 def check_choice(cfg: WebConfig, choice: RunChoice) -> None:
-    """Refuse a model this host does not let runs choose, or a setting above its limit."""
-    if choice.model is not None and not cfg.run_models:
+    """Refuse a model this host does not let runs choose, or a setting above its limit.
+
+    A run that brings its own keys may name any model, as its spending is its own; its settings
+    stay within the limits.
+    """
+    if choice.model is not None and not cfg.run_models and choice.keys is None:
         raise ValidationError("this NanoAgent runs only its configured profiles; choose a profile")
     if cfg.run_models or choice.settings is None:
         return
@@ -123,7 +149,7 @@ def validate_run_request(value: Any) -> RunRequest:
     System messages are rejected in history. Callers use ``instructions`` instead, which is
     appended to the operator-owned base prompt and cannot replace its safety policy.
     """
-    _first_error(_REQUEST_VALIDATOR, value)
+    _first_error(_REQUEST_VALIDATOR, {key: item for key, item in value.items() if key != "keys"} if isinstance(value, dict) else value)
     body = cast(dict[str, Any], value)
     input_text = cast(str, body["input"])
     if not input_text.strip():
@@ -140,6 +166,7 @@ def validate_run_request(value: Any) -> RunRequest:
         profile=choice.profile,
         model=choice.model,
         settings=choice.settings,
+        keys=choice.keys,
     )
 
 
@@ -243,17 +270,19 @@ class RunHost:
     ) -> ActiveRun:
         """Start ``request`` on its profile (its own build of it when it chose a model or settings),
         or on a caller-built ``runner_profile`` that already honors them. ``prices`` price a chosen
-        model; ``close`` releases what was built for this run alone, once it ends."""
+        model; ``close`` releases what was built for this run alone, once it ends. A run with keys always
+        has its own build, which holds them until it ends."""
         if runner_profile is not None:
             profile = runner_profile
         else:
-            choice = RunChoice(request.profile, request.model, request.settings)
-            check_choice(self.cfg, choice)
+            check_choice(self.cfg, choice_of(request))
             try:
-                if request.model is None and request.settings is None:
+                if request.model is None and request.settings is None and request.keys is None:
                     profile = self._runners.resolve(request.profile)
                 else:
-                    profile = self._runners.derive(request.profile, request.model, request.settings, prices=prices)
+                    profile = self._runners.derive(
+                        request.profile, request.model, request.settings, prices=prices, keys=request.keys
+                    )
                     close = profile.runner.aclose
             except (KeyError, ValueError) as error:
                 raise ValidationError(error.args[0]) from None

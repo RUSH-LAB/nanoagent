@@ -109,6 +109,30 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     assert.deepEqual(runners.status('u1'), {connected: false, device: null, keys: []});
   });
 
+  it('runs a member with no computer on the hosted NanoAgent with the key they gave Mochi, off the budget', async () => {
+    const hosted = createRunners({
+      resolveIdentity: async () => ({ok: false}),
+      memberKeys: {values: async userId => (userId === 'u1' ? {OPENROUTER_API_KEY: 'sk-or-member'} : {})},
+      env: {NANOAGENT_URL: nanoUrl, NANOAGENT_API_TOKEN: 'hosted-secret'},
+    });
+    const ai = await hosted.aiFor('u1');
+    assert.equal(ai.local, true);
+    assert.equal((await ai.stream({input: 'hi'})).text, 'hello world');
+    assert.equal(nano.seen[0].authorization, 'Bearer hosted-secret');
+    assert.deepEqual(JSON.parse(nano.seen[0].body).keys, {OPENROUTER_API_KEY: 'sk-or-member'});
+    assert.deepEqual(await (await hosted.aiFor('u2')).stream({input: 'hi'}), {error: RUNNER_OFFLINE, status: 503});
+  });
+
+  it('prefers the member\'s computer to the key they gave Mochi', async () => {
+    runners = createRunners({
+      resolveIdentity: async ({headers}) => (headers.authorization === 'Bearer member-token' ? {ok: true, identity: {userId: 'u1'}} : {ok: false}),
+      memberKeys: {values: async () => { throw new Error('not asked while the computer is connected'); }},
+    });
+    await dialIn();
+    await (await runners.aiFor('u1')).stream({input: 'hi'});
+    assert.equal(JSON.parse(nano.seen[0].body).keys, undefined);
+  });
+
   it('sets the computer\'s API keys by the names it listed, and hears which are set now', async () => {
     const kept = [];
     let announce;

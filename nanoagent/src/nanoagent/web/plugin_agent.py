@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 from nanoagent.core.agent import Agent, ChatModel
@@ -37,11 +38,13 @@ def plugin_profile(
     *,
     model_name: str | None = None,
     agent: AgentConfig | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> RunnerProfile:
     """A one-run profile: NanoAgent's loop with ``manifest``'s tools writing into ``workspace``.
 
-    ``model_name`` names ``model`` when it is not the configured one, and ``agent`` holds the run's
-    limits when it set its own.
+    ``model_name`` names ``model`` when it is not the configured one, ``agent`` holds the run's
+    limits when it set its own, and ``environ`` is what the plugin's variables are set from (see
+    :func:`~nanoagent.plugin.runtime.plugin_env`).
     """
     limits = agent or cfg.agent
 
@@ -55,7 +58,7 @@ def plugin_profile(
         )
         agent = Agent(
             model,
-            [*tools, *plugin_tools(manifest, workspace, session=None)],
+            [*tools, *plugin_tools(manifest, workspace, session=None, environ=environ)],
             system_prompt=prompt,
             max_steps=limits.max_steps,
             cost_limit=limits.cost_limit,

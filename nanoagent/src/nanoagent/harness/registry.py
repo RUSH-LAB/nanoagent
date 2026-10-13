@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass, replace
+from collections.abc import Mapping
 from typing import Any
 
 from slimconfig import stated
@@ -17,10 +18,12 @@ from nanoagent.harness.choice import (
     PI_SETTINGS,
     RunModel,
     RunSettings,
+    keyed_environ,
     refuse_unsupported,
 )
 from nanoagent.harness.nanoagent import AgentFactory, NanoAgentRunner
 from nanoagent.harness.subprocess import SubprocessRunner
+from nanoagent.inference.providers import OPENROUTER_API_KEY_ENV, MissingKeyError
 from nanoagent.runtime.config import (
     AgentDefinitionConfig,
     HarnessProfileConfig,
@@ -217,16 +220,18 @@ class RunnerRegistry:
         settings: RunSettings | None,
         *,
         prices: tuple[float, float] | None = None,
+        keys: Mapping[str, str] | None = None,
     ) -> RunnerProfile:
         """A one-run build of the profile with the run's model and settings; the caller closes its runner.
 
         ``prices`` (USD per million input and output tokens) price a model the profile does not name.
+        ``keys`` are the run's own provider API keys, its only ones (see :func:`build_runner`).
         """
         base = self.resolve(profile_id)
         config = self._configs.get(base.id)
         if config is None or self._cfg is None:
             raise ValueError(f"profile {base.id!r} takes no run model or settings")
-        runner = build_runner(self._cfg, config, model=model, settings=settings, prices=prices)
+        runner = build_runner(self._cfg, config, model=model, settings=settings, prices=prices, keys=keys)
         return replace(
             base,
             model=model.model if model else base.model,
@@ -310,6 +315,18 @@ def loop_model(
     return model_cfg, agent_cfg
 
 
+def keyed_model(model_cfg: Any, keys: Mapping[str, str]) -> Any:
+    """``model_cfg`` reaching its provider with the run's own key, never this host's credentials.
+
+    Raises MissingKeyError (naming the key, never a value) when ``keys`` cannot reach it.
+    """
+    if model_cfg.provider != "openrouter":
+        raise MissingKeyError(f"{model_cfg.provider} models run on this host's own credentials, not a run's keys")
+    if OPENROUTER_API_KEY_ENV not in keys:
+        raise MissingKeyError(f"this run brings no OpenRouter API key ({OPENROUTER_API_KEY_ENV}) to run {model_cfg.model}")
+    return replace(model_cfg, api_key=keys[OPENROUTER_API_KEY_ENV])
+
+
 def build_runner(
     cfg: AgentDefinitionConfig,
     profile: HarnessProfileConfig,
@@ -318,10 +335,18 @@ def build_runner(
     model: RunModel | None = None,
     settings: RunSettings | None = None,
     prices: tuple[float, float] | None = None,
+    keys: Mapping[str, str] | None = None,
 ) -> Runner:
+    """The runner of ``profile``, with a run's model, settings and ``keys`` when it brought them.
+
+    A run's keys are its only provider credentials: the loop's model takes its key from them, and
+    PI's process sees them in place of this process's own keys and is told it may use no others.
+    """
     harness = profile.harness
     if harness.type == "nanoagent":
         model_cfg, agent_cfg = loop_model(cfg, profile, model=model, settings=settings, prices=prices)
+        if keys is not None:
+            model_cfg = keyed_model(model_cfg, keys)
         definition = AgentDefinitionConfig(
             model=model_cfg,
             agent=agent_cfg,
@@ -337,6 +362,8 @@ def build_runner(
     options = parse_kv_list(harness.options)
     if (model is not None or settings is not None) and harness.type != "pi":
         raise ValueError(f"the {harness.type} harness takes no run model or settings")
+    if keys is not None and harness.type != "pi":
+        raise ValueError(f"the {harness.type} harness takes no run keys")
     if harness.type == "pi":
         refuse_unsupported(settings, PI_SETTINGS, "PI")
         if model is not None and model.provider != options.get("provider"):
@@ -345,6 +372,12 @@ def build_runner(
                 options.pop(key, None)
             options["provider"] = model.provider
         options.update(settings.stated() if settings else {})
+        if keys is not None:
+            needed = options.get("api_key_env")
+            if needed is not None and needed not in keys:
+                raise MissingKeyError(f"this run brings no {needed} to run {model.model if model else profile.model}")
+            # Names only: the runner resolves credentials from these alone.
+            options["run_keys"] = sorted(keys)
     if harness.type == "custom":
         capabilities, options = _custom_capabilities(options)
     else:
@@ -355,6 +388,7 @@ def build_runner(
         cwd=harness.cwd,
         options={**options, "model": model.model if model else profile.model},
         capabilities=capabilities,
+        env=None if keys is None else keyed_environ(keys),
     )
 
 
@@ -369,4 +403,5 @@ __all__ = [
     "RunnerRegistry",
     "build_harness",
     "build_runner",
+    "keyed_model",
 ]

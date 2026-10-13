@@ -389,3 +389,32 @@ def test_runs_an_agent_task_with_only_its_tools(
     assert metrics["ttft_s"] is not None and metrics["ttft_s"] <= metrics["duration_s"]
     assert metrics["generation_s"] >= 0
     assert "Echo the value with the echo tool." in model.prompts[-1]
+
+
+def test_plugin_and_task_runs_with_keys_build_their_own_model_with_them(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nanoagent.runtime.model import Model
+
+    built = []
+
+    class KeyedModel(ScriptedModel):
+        async def aclose(self) -> None:
+            pass
+
+    def from_config(cfg):
+        built.append(cfg)
+        return KeyedModel()
+
+    monkeypatch.setattr(Model, "from_config", staticmethod(from_config))
+    keys = {"OPENROUTER_API_KEY": "sk-run"}
+    run = client.post(f"{runs(client)}/runs", json={"input": "echo hi", "keys": keys})
+    assert _events(run)[-1]["type"] == "done" and "sk-run" not in run.text
+    task = client.post(f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}, "keys": keys})
+    assert _events(task)[-1]["type"] == "task.done" and "sk-run" not in task.text
+    # Each run its own model, never the server's shared one, reaching OpenRouter with the run's key.
+    assert [cfg.api_key for cfg in built] == ["sk-run", "sk-run"]
+    # A model the run's keys cannot reach is refused, never run on the server's key.
+    missing = client.post(f"{runs(client)}/runs", json={"input": "x", "keys": {"ANTHROPIC_API_KEY": "sk-ant"}})
+    assert missing.status_code == 400 and "OPENROUTER_API_KEY" in missing.json()["error"]
+    assert client.post(f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}, "keys": {}}).status_code == 400

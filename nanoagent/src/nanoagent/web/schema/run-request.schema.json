@@ -35,6 +35,18 @@
     },
     "settings": {
       "$ref": "#/$defs/Settings"
+    },
+    "keys": {
+      "description": "The run's own provider API keys, by environment variable name: its only credentials. NanoAgent checks them itself, so no error quotes a value.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^(?:[A-Z][A-Z0-9_]*_API_KEY|HF_TOKEN)$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^\\S+$"
+      }
     }
   },
   "required": [

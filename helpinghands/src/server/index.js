@@ -50,7 +50,7 @@ const store = postgresServices?.store ?? require('./store');
 const documents = postgresServices?.documents ?? require('./documents');
 const preferences = postgresServices?.preferences ?? require('./preferences');
 // Members' own computers, which run their NanoAgent when Settings → AI says so.
-const runners = createRunners({resolveIdentity});
+const runners = createRunners({resolveIdentity, memberKeys: postgresServices?.memberKeys ?? null});
 const aiSettings = require('./ai-settings');
 const workspaceSettings = postgresServices?.workspaceSettings ?? require('./workspace-settings');
 const {createObjectStorage} = require('./object-storage');
@@ -493,9 +493,11 @@ const ctx = {
   chat,
   org,
   ai,
-  // The NanoAgent a member's runs go to: their own computer's (server/runner.js).
+  // The NanoAgent a member's runs go to: their own computer's, or the hosted one with their own key (server/runner.js).
   aiFor: runners.aiFor,
   runners,
+  // The API keys members gave Mochi itself; PostgreSQL only.
+  memberKeys: postgresServices?.memberKeys ?? null,
   // What a member chose in Settings → AI (ai-settings.js).
   aiSettings: async userId => aiSettings.stored(userId ? (await preferences.get(userId)).ai : null),
   aiMeter,
