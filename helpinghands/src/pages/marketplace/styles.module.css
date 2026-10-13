@@ -133,6 +133,55 @@
   color: var(--ifm-color-success-lightest);
 }
 
+.more {
+  position: relative;
+}
+
+.moreButton {
+  padding-inline: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.menu {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  width: max-content;
+  margin: 0;
+  padding: 0.3rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 10px;
+  background: var(--ifm-background-surface-color);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  list-style: none;
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.7rem;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.menuDanger {
+  color: var(--ifm-color-danger);
+}
+
 .hint {
   align-self: center;
   color: var(--ifm-color-emphasis-700);

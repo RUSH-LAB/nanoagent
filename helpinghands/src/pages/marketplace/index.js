@@ -7,6 +7,7 @@ import AppProduct from '@site/src/components/AppProduct';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import {forgetWorkspaceApps, workspaceAppsUrl} from '@site/src/hooks/useWorkspaceApps';
+import {useClickOutside} from '@site/src/hooks/useClickOutside';
 import API_BASE, {apiFetch, apiJson} from '@site/src/utils/api';
 import styles from './styles.module.css';
 
@@ -115,43 +116,58 @@ function Publish({onPublished}) {
 }
 
 /**
- * Adding the plugin to the workspace, or removing it: an owner's to do. Anyone
- * else sees whether it is there, and opens it from here when it is.
+ * The page's one button: open the plugin in the workspace, or add it there (an
+ * owner's to do); anyone else is told to ask an owner.
  */
-function WorkspaceAction({plugin, added, workspace, slug, busy, act, onAdded}) {
+function WorkspaceAction({plugin, added, workspace, slug, busy, onAdd}) {
   if (!workspace) return null;
-  const owner = workspace.role === 'owner';
-  const appsHref = `/w/${encodeURIComponent(slug)}/apps?app=${encodeURIComponent(plugin.id)}`;
   if (added) {
-    return (
-      <>
-        <Link className="button button--primary" to={appsHref}>Open in {workspace.name}</Link>
-        {owner && (
-          <button
-            type="button"
-            className="button button--outline button--danger"
-            disabled={busy}
-            onClick={() => {
-              if (!window.confirm(`Remove ${plugin.name} from ${workspace.name}? Its members can no longer use it.`)) return;
-              act(() => send(`/api/apps/${plugin.id}`, {method: 'DELETE'}), () => onAdded(false));
-            }}
-          >
-            Remove from {workspace.name}
-          </button>
-        )}
-      </>
-    );
+    const appsHref = `/w/${encodeURIComponent(slug)}/apps?app=${encodeURIComponent(plugin.id)}`;
+    return <Link className="button button--primary" to={appsHref}>Open in {workspace.name}</Link>;
   }
-  if (!owner) return <span className={styles.hint}>Ask an owner of {workspace.name} to add it.</span>;
+  if (workspace.role !== 'owner') return <span className={styles.hint}>Ask an owner of {workspace.name} to add it.</span>;
+  return <button type="button" className="button button--primary" disabled={busy} onClick={onAdd}>Add to {workspace.name}</button>;
+}
+
+/** The rest of what the reader may do, behind one ⋯ button: `items` of {label, onSelect, danger}. */
+function MoreMenu({items, busy}) {
+  const [open, setOpen] = React.useState(false);
+  const wrapper = React.useRef(null);
+  useClickOutside(wrapper, () => setOpen(false), open);
+  if (!items.length) return null;
   return (
-    <button
-      type="button"
-      className="button button--primary"
-      disabled={busy}
-      onClick={() => act(() => send(`/api/apps/${plugin.id}`, {method: 'PUT'}), () => onAdded(true))}
-    >
-      Add to {workspace.name}
-    </button>
+    <div className={styles.more} ref={wrapper}>
+      <button
+        type="button"
+        className={`button button--outline button--secondary ${styles.moreButton}`}
+        aria-label="More actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={busy}
+        onClick={() => setOpen(value => !value)}
+      >
+        ⋯
+      </button>
+      {open && (
+        <ul className={styles.menu} role="menu">
+          {items.map(({label, onSelect, danger}) => (
+            <li key={label} role="none">
+              <button
+                type="button"
+                role="menuitem"
+                className={`${styles.menuItem} ${danger ? styles.menuDanger : ''}`}
+                onClick={() => {
+                  setOpen(false);
+                  onSelect();
+                }}
+              >
+                {label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -166,33 +182,27 @@ function Detail({plugin, added, workspace, slug, onBack, onChanged, onAdded}) {
     setState({busy: false, error: null});
     return after(result.data);
   };
+  const add = () => act(() => send(`/api/apps/${plugin.id}`, {method: 'PUT'}), () => onAdded(true));
+  const removeFromWorkspace = () => {
+    if (!window.confirm(`Remove ${plugin.name} from ${workspace.name}? Its members can no longer use it.`)) return;
+    act(() => send(`/api/apps/${plugin.id}`, {method: 'DELETE'}), () => onAdded(false));
+  };
   const update = () => act(() => publish(publishUrl(plugin.repository)), data => onChanged(data.plugin.id));
   const remove = () => {
-    if (!window.confirm(`Remove ${plugin.name} from the marketplace? People can no longer download it.`)) return;
+    if (!window.confirm(`Remove ${plugin.name} from the Marketplace? People can no longer download it.`)) return;
     act(() => send(`/api/market/${plugin.id}`, {method: 'DELETE'}), () => onChanged(null));
   };
 
+  const more = [
+    ...(plugin.mine && plugin.repository ? [{label: 'Update from GitHub', onSelect: update}] : []),
+    ...(added && workspace?.role === 'owner' ? [{label: `Remove from ${workspace.name}`, onSelect: removeFromWorkspace, danger: true}] : []),
+    ...(plugin.mine ? [{label: 'Remove from Marketplace', onSelect: remove, danger: true}] : []),
+  ];
   const actions = (
     <>
-      <WorkspaceAction
-        plugin={plugin}
-        added={added}
-        workspace={workspace}
-        slug={slug}
-        busy={state.busy}
-        act={act}
-        onAdded={onAdded}
-      />
-      {plugin.mine && plugin.repository && (
-        <button type="button" className="button button--outline button--secondary" disabled={state.busy} onClick={update}>
-          {state.busy ? 'Checking…' : 'Update from GitHub'}
-        </button>
-      )}
-      {plugin.mine && (
-        <button type="button" className="button button--outline button--danger" disabled={state.busy} onClick={remove}>
-          Remove from marketplace
-        </button>
-      )}
+      <WorkspaceAction plugin={plugin} added={added} workspace={workspace} slug={slug} busy={state.busy} onAdd={add} />
+      <MoreMenu items={more} busy={state.busy} />
+      {state.busy && <span className={styles.hint}>Working…</span>}
     </>
   );
   const meta = (
