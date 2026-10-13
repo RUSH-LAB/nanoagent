@@ -165,6 +165,21 @@ try {
         {role: 'user', content: 'This is a prior turn.'},
         {role: 'user', content: 'Say where this answer came from.'},
       ]);
+      // A run that brings its member's own key is taken, and runs with that key alone: this
+      // host's model is reached with its own credentials, so the run is refused, not run on them.
+      const keyed = createNanoAgentGateway({env: {NANOAGENT_URL: url}, keys: {OPENROUTER_API_KEY: 'sk-or-member'}});
+      modelRequest = null;
+      const refused = await keyed.stream({input: 'Run on my key.'});
+      assert.match(refused.error, /own credentials, not a run's keys/);
+      assert.equal(modelRequest, null);
+    },
+    local() {
+      // Runs on Mochi's own NanoAgent are charged to the workspace.
+      assert.equal(gateway.local, false);
+    },
+    async models() {
+      // A NanoAgent that lets runs choose their model is a member's own (run_models); this is not.
+      assert.equal((await gateway.models()).status, 404);
     },
     async complete() {
       assert.equal((await gateway.complete({input: 'Again.'})).text, 'hello from nanoagent');
@@ -202,8 +217,11 @@ try {
       installed = plugin;
     },
     async installUiFile() {
+      // The page is NanoAgent's own (plugin/page/); the plugin's ui/ holds the rest.
       const page = ok(await gateway.installUiFile(offered.sha256, installed.uiVersion, 'index.html'));
-      assert.deepEqual(page, fs.readFileSync(path.join(pluginRoot, 'ui', 'index.html')));
+      assert.deepEqual(page, fs.readFileSync(path.join(nanoagentProject, 'src', 'nanoagent', 'plugin', 'page', 'index.html')));
+      const script = ok(await gateway.installUiFile(offered.sha256, installed.uiVersion, 'app.js'));
+      assert.deepEqual(script, fs.readFileSync(path.join(pluginRoot, 'ui', 'app.js')));
     },
     async taskRun() {
       // Arguments that fail the task's input are refused inside the run, on its event stream.
