@@ -166,18 +166,19 @@ function createPostgresTenancy({pool}) {
     });
   }
 
-  /** Whether an address may create an account under the current policy. */
-  async function signupDecision(email) {
+  /** Whether a GitHub account, by its address and username, may create an account under the current policy. */
+  async function signupDecision(email, githubLogin) {
     const current = await policy();
     if (current.signupMode === 'open' || allowlisted(current.signupAllowlist, email)) return {allowed: true};
-    if (current.signupMode === 'invite'
-      && (await pool.query('select signup_invitation_exists($1) as invited', [email])).rows[0].invited) {
+    if (current.signupMode === 'invite' && (await pool.query(
+      'select signup_invitation_exists($1) or signup_github_invitation_exists($2) as invited', [email, githubLogin],
+    )).rows[0].invited) {
       return {allowed: true};
     }
     return {
       allowed: false,
       message: current.signupMode === 'invite'
-        ? 'Sign-up is by invitation. Ask a workspace owner to invite this address, then follow the link in the email.'
+        ? 'Sign-up is by invitation. Ask a workspace owner to invite this address or GitHub account, then follow the link they send.'
         : 'Sign-up is limited to approved addresses. Ask an administrator to add yours.',
     };
   }
@@ -210,6 +211,8 @@ function createPostgresTenancy({pool}) {
       asUser(context.userId, context.workspaceId, async client => (await client.query(
         `select (select count(*)::int from workspace_member where workspace_id = $1) as members,
                 (select count(*)::int from workspace_invitation
+                  where workspace_id = $1 and status = 'pending' and expires_at > now())
+                + (select count(*)::int from workspace_github_invitation
                   where workspace_id = $1 and status = 'pending' and expires_at > now()) as pending`,
         [context.workspaceId],
       )).rows[0]),

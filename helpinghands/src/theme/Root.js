@@ -1,9 +1,10 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import { useLocation } from '@docusaurus/router';
 import PageTracker from '@site/src/components/Analytics/PageTracker';
 import {clientPlatform} from '@site/src/platform/client';
 import {isOpenPage, signInUrl} from '@site/src/utils/signIn';
+import {AccountProvider} from '@site/src/utils/account';
 
 const CommandBar = lazy(() => import('@site/src/components/CommandBar'));
 const AuthScreen = lazy(() => import('@site/src/theme/Root/AuthScreen'));
@@ -36,8 +37,15 @@ function IdleCommandBar() {
  * session.
  *
  * The workspace list doubles as the session probe: it is already protected by
- * the server's identity gate and returns the verified user id. That keeps cold
+ * the server's identity gate and returns the signed-in account. That keeps cold
  * startup to one request instead of fetching a session and then memberships.
+ *
+ * Nothing is shown until that request answers, and then every page reads the
+ * answer from utils/account.js instead of asking again. A page drawn before the
+ * session was known would be drawn for a guess, and replaced a moment later by
+ * the page for the real answer; one question with one owner leaves nothing to
+ * guess. The static build has no session to ask about, so its HTML holds no
+ * page either (Root, below).
  *
  * Signing in is not the whole of arriving. Channels, direct messages, the people
  * directory, and invitations all belong to an organization, and an account in
@@ -45,9 +53,9 @@ function IdleCommandBar() {
  * An empty workspace answer sends the user to OnboardingScreen to open an
  * invitation.
  *
- * Children remain visible while that short request resolves. A visitor without
- * a session never gets here on a page that needs one: the server that sends the
- * page redirects them to the sign-in page first (src/utils/signIn.js).
+ * A visitor without a session never gets here on a page that needs one: the
+ * server that sends the page redirects them to the sign-in page first
+ * (src/utils/signIn.js).
  */
 
 /** What the gate knows about the session, and how it found out. */
@@ -56,14 +64,32 @@ const SIGNED_IN = 'signed-in';
 const SIGNED_OUT = 'signed-out';
 const UNREACHABLE = 'unreachable';
 
+/** What useAccount() reads for an answer from GET /api/workspaces, or for nobody signed in. */
+function accountOf(data, refresh) {
+  return {
+    account: data?.account ?? null,
+    userId: data?.userId ?? null,
+    workspaces: data?.workspaces ?? [],
+    defaultWorkspaceId: data?.defaultWorkspaceId ?? null,
+    offline: Boolean(data?.offline),
+    refresh,
+  };
+}
+
 function AuthGate({ children }) {
   // Required lazily, inside BrowserOnly, because workspace discovery reads the
   // authenticated API and should never run during the static build.
   const { loadWorkspaces } = require('@site/src/utils/workspaces');
   const [status, setStatus] = useState(CHECKING);
   const [detail, setDetail] = useState(null);
-  // null until asked, then the number of workspaces this account belongs to.
-  const [workspaces, setWorkspaces] = useState(null);
+  const [data, setData] = useState(null);
+
+  // Asks the server again and keeps the answer, for a page that changed it.
+  const refresh = useCallback(async () => {
+    const next = await loadWorkspaces({fresh: true});
+    setData(next);
+    return next;
+  }, [loadWorkspaces]);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,12 +99,7 @@ function AuthGate({ children }) {
     loadWorkspaces({fresh: true})
       .then((workspaceData) => {
         if (cancelled) return;
-        // Asked before the site is shown rather than after, so nobody sees a
-        // workspace's worth of empty pages first. A failure here counts as
-        // "has one": the workspace screen is for an account that provably has
-        // none, and showing it because a request failed would strand somebody
-        // whose workspace is fine.
-        setWorkspaces(workspaceData?.memberships?.length ?? 1);
+        setData(workspaceData);
         setStatus(SIGNED_IN);
       })
       .catch((err) => {
@@ -94,6 +115,8 @@ function AuthGate({ children }) {
       });
     return () => { cancelled = true; };
   }, []);
+
+  const account = useMemo(() => accountOf(data, refresh), [data, refresh]);
 
   // The router's location, not window's. Leaving /join is a client-side route
   // change, and a pathname read from window during one render would still say
@@ -112,12 +135,10 @@ function AuthGate({ children }) {
     }
   }, [signedOut, pathname]);
 
-  // The static shell is safe to paint immediately: protected data only arrives
-  // from authenticated API calls. Keeping it visible avoids a blank first
-  // screen while the short session check completes.
-  if (status === CHECKING) return <>{children}</>;
+  if (status === CHECKING) return null;
 
   if (status === SIGNED_IN) {
+    const workspaces = account.workspaces.length;
     if (workspaces === 0 && !ungated) {
       return (
         <Deferred>
@@ -135,10 +156,14 @@ function AuthGate({ children }) {
     // stuck to the page. It sits beside the children rather than inside them,
     // so the screens that replace the children never carry it, and it waits
     // for a workspace, because every request it makes needs one.
-    return <>{children}{workspaces === 0 ? null : <IdleCommandBar />}</>;
+    return (
+      <AccountProvider value={account}>
+        {children}{workspaces === 0 ? null : <IdleCommandBar />}
+      </AccountProvider>
+    );
   }
 
-  if (ungated) return <>{children}</>;
+  if (ungated) return <AccountProvider value={account}>{children}</AccountProvider>;
   if (signedOut) return null;
 
   return (
@@ -152,9 +177,9 @@ export default function Root({ children }) {
   return (
     <>
       <BrowserOnly
-        // During the static build there is no session to check, so the server
-        // renders the content itself and the gate takes over on hydration.
-        fallback={<>{children}</>}
+        // During the static build there is no session to check, so no page is
+        // rendered into the HTML: what it would show depends on the session.
+        fallback={null}
       >
         {() => <AuthGate>{children}</AuthGate>}
       </BrowserOnly>

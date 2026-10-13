@@ -35,7 +35,7 @@ const invitedAddress = `dave@invited-${token}.invalid`;
 const githubId = offset => 2_100_000_000 + parseInt(token.slice(0, 5), 16) * 8 + offset;
 const github = Object.fromEntries([
   ['root', null], ['alice', address('alice')], ['bob', address('bob')], ['carol', address('carol')],
-  ['dave', invitedAddress], ['erin', address('erin')],
+  ['dave', invitedAddress], ['erin', address('erin')], ['gus', `gus@elsewhere-${token}.invalid`],
 ].map(([name, email], offset) => [name, {
   id: githubId(offset), login: `${name}-${token}`, name, email, verified: name !== 'erin',
 }]));
@@ -200,6 +200,20 @@ try {
     "select id from workspace_invitation where workspace_id = $1 and lower(email) = $2 and status = 'pending'", [w1.id, invitedAddress],
   )).rows[0];
   await json(await request(`/api/invite/${invitation.id}/accept`, {method: 'POST', cookie: dave.cookie}), 200);
+
+  const githubInvite = (await json(await request(`/api/workspaces/${w2.id}/invitations`, {
+    method: 'POST', cookie: alice.cookie, body: {githubLogin: `@${github.gus.login}`, role: 'viewer'},
+  }), 200)).invitation;
+  check('a GitHub account is invited by its username', githubInvite.githubLogin === github.gus.login && githubInvite.email === null);
+  const notTheirs = await json(await request(`/api/invite/${githubInvite.id}/accept`, {method: 'POST', cookie: bob.cookie}), 403);
+  check('only the invited GitHub account accepts its invitation', notTheirs.code === 'not-recipient');
+  const gus = await signIn('gus');
+  check('an invited GitHub account can sign up while sign-up is by invitation', Boolean(gus.id));
+  const offered = (await json(await request('/api/users/me/invitations', {cookie: gus.cookie}), 200)).invitations;
+  check('the invited GitHub account is offered its invitation', offered.some(offer => offer.id === githubInvite.id));
+  await json(await request(`/api/invite/${githubInvite.id}/accept`, {method: 'POST', cookie: gus.cookie}), 200);
+  check('the invited GitHub account joins', (await request(`/api/workspaces/${w2.id}`, {cookie: gus.cookie})).status === 200);
+  await json(await request(`/api/workspaces/${w2.id}/leave`, {method: 'POST', cookie: gus.cookie}), 200);
 
   await json(await request(`/api/admin/workspaces/${w1.id}/limits`, {method: 'PUT', cookie: alice.cookie, body: {limits: {maxMembers: 2}}}), 200);
   const overLimit = await json(await request(`/api/workspaces/${w1.id}/invitations`, {method: 'POST', cookie: alice.cookie, body: {email: address('bob'), role: 'viewer'}}), 409);

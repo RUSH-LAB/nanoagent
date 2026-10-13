@@ -4,7 +4,8 @@ import Link from '@docusaurus/Link';
 import Layout from '@theme/Layout';
 import {useLocation} from '@docusaurus/router';
 import API_BASE, {apiFetch, invalidateApiJson} from '@site/src/utils/api';
-import {loadWorkspaces, workspaceSlugFromPath} from '@site/src/utils/workspaces';
+import {workspaceSlugFromPath} from '@site/src/utils/workspaces';
+import {useAccount} from '@site/src/utils/account';
 import {DOCUMENT_SYNC_EVENT, documentCache, isOffline} from '@site/src/utils/documentCache';
 import {clientPlatform} from '@site/src/platform/client';
 import SafeDocument from '@site/src/runtime-content/SafeDocument';
@@ -85,8 +86,8 @@ function TreeNode({node, selectedPath, onSelect, held, depth = 0}) {
 function FileManager() {
   const location = useLocation();
   const workspaceSlug = workspaceSlugFromPath(location.pathname);
-  const [workspace, setWorkspace] = useState(null);
-  const [userId, setUserId] = useState(null);
+  const {userId, workspaces} = useAccount();
+  const workspace = workspaces.find(item => item.slug === workspaceSlug) ?? null;
   const [documents, setDocuments] = useState([]);
   const [held, setHeld] = useState(() => new Map());
   const [loadedUpdatedAt, setLoadedUpdatedAt] = useState(null);
@@ -146,25 +147,6 @@ function FileManager() {
       setTree(null);
     }
   }, [apiRoot, selectedPath]);
-
-  useEffect(() => {
-    let cancelled = false;
-    loadWorkspaces()
-      .then(({workspaces, userId}) => {
-        if (cancelled) return;
-        const selected = workspaces.find(item => item.slug === workspaceSlug);
-        if (!selected) throw Object.assign(new Error('This workspace does not exist, or you are not a member.'), {status: 404});
-        setUserId(userId);
-        setWorkspace(selected);
-      })
-      .catch(error => {
-        if (!cancelled) {
-          setStatus('error');
-          setMessage(error.message);
-        }
-      });
-    return () => { cancelled = true; };
-  }, [workspaceSlug]);
 
   useEffect(() => {
     if (!apiRoot || !scope) return;
@@ -429,6 +411,7 @@ function FileManager() {
 
   const grouped = useMemo(() => groupDocuments(documents), [documents]);
 
+  if (!workspace) return <p className={styles.state}>This workspace does not exist, or you are not a member.</p>;
   if (status === 'loading') return <p className={styles.state}>Loading workspace files…</p>;
   if (status === 'error') return <p className={styles.state}>{message}</p>;
 

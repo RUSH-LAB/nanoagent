@@ -5,7 +5,8 @@ import API_BASE, {apiJson} from '@site/src/utils/api';
 import {browserStore, isOffline} from '@site/src/utils/documentCache';
 import {followWorkspaceChanges} from '@site/src/utils/fsEvents';
 import {FS_SYNC_EVENT, fsReplica, startFsSync} from '@site/src/utils/fsReplica';
-import {loadWorkspaces, navigateClient} from '@site/src/utils/workspaces';
+import {navigateClient} from '@site/src/utils/workspaces';
+import {useAccount} from '@site/src/utils/account';
 import * as api from './api';
 import Editor from './Editor';
 import {openLiveDocument} from './liveDocument';
@@ -71,7 +72,9 @@ export default function Workbench({workspace}) {
   const [editing, setEditing] = useState(null);
   const [menu, setMenu] = useState(null);
   const [trash, setTrash] = useState(null);
-  const [scope, setScope] = useState(null);
+  // Who this replica belongs to: the account the gate knows, in this workspace.
+  const {userId} = useAccount();
+  const scope = useMemo(() => (userId ? {userId, workspaceId: workspace.id} : null), [userId, workspace.id]);
   const [held, setHeld] = useState(() => new Map());
   const [offline, setOffline] = useState(false);
   const [plugins, setPlugins] = useState([]);
@@ -235,15 +238,7 @@ export default function Workbench({workspace}) {
   // Leaving the page closes every live document and its stream.
   useEffect(() => () => { for (const tab of tabsRef.current) tab.live?.close(); }, []);
 
-  // Who this replica belongs to, then keep it in step with the server.
-  useEffect(() => {
-    let cancelled = false;
-    loadWorkspaces().then(({userId}) => {
-      if (!cancelled && userId) setScope({userId, workspaceId: workspace.id});
-    }).catch(error => console.error('[workspace] This browser cannot keep files without an account:', error));
-    return () => { cancelled = true; };
-  }, [workspace.id]);
-
+  // Keep the replica in step with the server.
   useEffect(() => {
     if (!scope) return undefined;
     const onSync = ({detail}) => {

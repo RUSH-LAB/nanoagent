@@ -73,7 +73,7 @@ export default function AuthScreen({ unreachable = null }) {
             <LockIcon />
             <span>
               {policy.signupMode === 'invite' ? (
-                <><strong>Invitation only.</strong> New here? Use the GitHub account whose primary email was invited.</>
+                <><strong>Invitation only.</strong> New here? Use the GitHub account that was invited, or one whose primary email was.</>
               ) : (
                 <><strong>Approved addresses only.</strong> New here? Use a GitHub account whose primary email was approved.</>
               )}

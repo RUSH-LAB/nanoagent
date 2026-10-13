@@ -588,12 +588,13 @@ export default function useChat({openChannelIds, paused}) {
   }, [refreshDirectory]);
 
   /**
-   * Invite an address into the organization. Returns the invitation, whose id
-   * is what the link is built from; the rail is too narrow to show that link,
-   * so its caller copies it rather than printing it.
+   * Invite an address or a GitHub account into the organization: `invitee` is
+   * `{email}` or `{githubLogin}`. Returns the invitation, whose id is what the
+   * link is built from; the rail is too narrow to show that link, so its caller
+   * copies it rather than printing it.
    */
-  const invite = useCallback(async (email) => {
-    const {invitation} = await post('/api/invitations', {email});
+  const invite = useCallback(async (invitee) => {
+    const {invitation} = await post('/api/invitations', invitee);
     refreshDirectory();
     return invitation;
   }, [refreshDirectory]);

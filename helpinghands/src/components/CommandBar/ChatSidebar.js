@@ -1,6 +1,6 @@
 import React, {useState} from 'react';
 import Avatar from '@site/src/components/Avatar';
-import {copyLink} from '@site/src/utils/invite';
+import {copyLink, inviteeLabel, inviteeOf} from '@site/src/utils/invite';
 import styles from './rail.module.css';
 
 export function channelLabel(channel) {
@@ -107,15 +107,14 @@ export default function ChatSidebar({
 
   const submitInvite = async (event) => {
     event.preventDefault();
-    const email = invitee.trim();
-    if (!email) return;
+    if (!invitee.trim()) return;
     try {
-      const invitation = await chat.invite(email);
+      const invitation = await chat.invite(inviteeOf(invitee));
       const {copied} = await copyLink(invitation.id);
       setInviting(false);
       setInvitee('');
       setFailure(null);
-      setNotice(copied ? `Invite copied for ${email}` : 'Invite ready in People');
+      setNotice(copied ? `Invite copied for ${inviteeLabel(invitation)}` : 'Invite ready in People');
     } catch (err) { setNotice(null); setFailure(err.message); }
   };
 
@@ -211,7 +210,7 @@ export default function ChatSidebar({
         </Section>
 
         <Section title="People" count={allPeople.length} onBrowse={onBrowsePeople} browseLabel="Manage people" onAdd={chat.you?.canManage ? () => { setInviting(value => !value); setFailure(null); } : null} addLabel="Invite someone">
-          {inviting && <form className={styles.inlineForm} onSubmit={submitInvite}><span>@</span><input type="email" value={invitee} onChange={event => setInvitee(event.target.value)} placeholder="email" autoFocus aria-label="Email address to invite" /></form>}
+          {inviting && <form className={styles.inlineForm} onSubmit={submitInvite}><span>@</span><input type="text" value={invitee} onChange={event => setInvitee(event.target.value)} placeholder="email or GitHub username" autoFocus aria-label="Email address or GitHub username to invite" /></form>}
           {allPeople.map(person => {
             const selfDm = person.you ? chat.channels.find(channel => channel.kind === 'dm' && channel.selfDm) : null;
             const dm = selfDm || (person.dmChannelId ? dmChannels.get(person.dmChannelId) : null);

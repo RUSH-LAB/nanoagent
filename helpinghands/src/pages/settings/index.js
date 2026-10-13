@@ -11,9 +11,8 @@ import useWorkspaceSubscriptions, {
 } from '@site/src/hooks/useWorkspaceSubscriptions';
 import API_BASE, {apiJson} from '@site/src/utils/api';
 import {WORKSPACE_CONTENT_CACHE_MS} from '@site/src/utils/workspaceContent';
-import {
-  loadWorkspaces, workspaceSlugFromPath,
-} from '@site/src/utils/workspaces';
+import {workspaceSlugFromPath} from '@site/src/utils/workspaces';
+import {useAccount} from '@site/src/utils/account';
 import {PaneHeading, Skeleton} from './_parts';
 import TwoColumnLayout from '@site/src/components/TwoColumnLayout';
 import Leave from './_Leave';
@@ -31,23 +30,17 @@ function GitHubMark() {
 }
 
 function SettingsApp() {
-  const { authClient, signOutAndForget } = require('@site/src/utils/authClient');
+  const { signOutAndForget } = require('@site/src/utils/authClient');
   const location = useLocation();
   const workspaceSlug = workspaceSlugFromPath(location.pathname);
 
-  // undefined is loading, null is no session.
-  const [session, setSession] = useState(undefined);
-  // undefined until the request answers, then the list, or null if it failed.
-  // Three states rather than two, so a slow load does not read as a failed one.
-  const [workspaces, setWorkspaces] = useState(undefined);
-  const [activeId, setActiveId] = useState(null);
+  const {account: user, workspaces, defaultWorkspaceId} = useAccount();
+  const activeId = workspaces.find(workspace => workspace.slug === workspaceSlug)?.id ?? defaultWorkspaceId;
   const [subscriptionGroups, setSubscriptionGroups] = useState({});
   const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
   const [subscriptionsSaving, setSubscriptionsSaving] = useState(false);
   const [subscriptionsStatus, setSubscriptionsStatus] = useState(null);
-  const activeWorkspace = Array.isArray(workspaces)
-    ? workspaces.find(workspace => workspace.id === activeId)
-    : null;
+  const activeWorkspace = workspaces.find(workspace => workspace.id === activeId) ?? null;
   const {workspace: routeWorkspace, site} = useWorkspaceSite();
   const preferenceWorkspace = routeWorkspace?.id === activeId ? routeWorkspace : activeWorkspace;
   const {
@@ -56,28 +49,6 @@ function SettingsApp() {
   const books = (site?.collections ?? []).filter(collection => collection.type === 'docs');
   const blogs = (site?.collections ?? []).filter(collection => collection.type === 'blog');
   const orderedBooks = orderByPreference(books, subscriptions?.bookOrder, book => book.key);
-
-  useEffect(() => {
-    let cancelled = false;
-    // getSession rather than the useSession hook: the hook silently never
-    // issued its request, which is what left the auth gate showing the sign-in
-    // form to people who were signed in.
-    authClient.getSession()
-      .then((r) => { if (!cancelled) setSession(r?.data ?? null); })
-      .catch(() => { if (!cancelled) setSession(null); });
-
-    loadWorkspaces()
-      .then((d) => {
-        if (cancelled) return;
-        const memberships = d.workspaces || d.memberships || [];
-        setWorkspaces(memberships);
-        setActiveId(memberships.find(workspace => workspace.slug === workspaceSlug)?.id
-          ?? d.defaultWorkspaceId ?? d.activeId ?? null);
-      })
-      .catch(() => { if (!cancelled) setWorkspaces(null); });
-
-    return () => { cancelled = true; };
-  }, [authClient, workspaceSlug]);
 
   useEffect(() => {
     let cancelled = false;
@@ -184,7 +155,6 @@ function SettingsApp() {
     });
   };
 
-  const user = session?.user;
   const [signingOut, setSigningOut] = useState(false);
   const signOut = async () => {
     setSigningOut(true);
@@ -259,7 +229,7 @@ function SettingsApp() {
           <h2 className={styles.settingsGroupHeading}>User</h2>
           <section id="account" className={styles.pane}>
             <PaneHeading title="Account" />
-            {session === undefined ? <Skeleton rows={1} /> : user ? (
+            {user ? (
               <section className={styles.group}>
                 <div className={styles.identity}>
                   <Avatar user={user} size={48} />
