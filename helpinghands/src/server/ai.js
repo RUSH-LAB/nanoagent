@@ -21,7 +21,7 @@ const DEFAULT_PROFILE_TIMEOUT_MS = 5_000;
 const CANCELLED = 'The AI request was cancelled.';
 const TIMED_OUT = 'The AI request timed out. Please try again.';
 const UNAVAILABLE = 'Could not reach NanoAgent.';
-const RUNNER_OFFLINE = 'Mochi Lab on your computer is not connected. Open it, or switch Settings → AI back to Mochi servers.';
+const RUNNER_OFFLINE = 'Mochi Lab on your computer is not connected. Open it to run your AI.';
 const DEFAULT_PROFILE = fallbackProfiles.defaultProfile;
 const DEFAULT_MODEL = fallbackProfiles.profiles.find(profile => profile.id === DEFAULT_PROFILE).model;
 
