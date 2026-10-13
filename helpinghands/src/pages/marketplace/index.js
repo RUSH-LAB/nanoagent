@@ -91,16 +91,11 @@ function Publish({onPublished}) {
   };
   return (
     <section className={styles.publish}>
-      <h2>Publish your plugin from GitHub</h2>
-      <p>
-        Paste the URL of a NanoAgent plugin in a public GitHub repository (<code>nanoagent plugin new</code> starts
-        one), or of its folder: <code>…/tree/&lt;branch&gt;/&lt;folder&gt;</code>. It is listed under your GitHub
-        account. Publish again to update it.
-      </p>
       <form className={styles.publishForm} onSubmit={submit}>
         <input
           type="url"
           required
+          aria-label="GitHub URL of the plugin to publish"
           placeholder="https://github.com/you/your-plugin"
           value={url}
           onChange={event => setUrl(event.target.value)}

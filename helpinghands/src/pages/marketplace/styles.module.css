@@ -18,20 +18,6 @@
 
 .publish {
   margin-top: 1.25rem;
-  padding: 1.25rem 1.5rem;
-  border: 1px solid var(--ifm-color-emphasis-300);
-  border-radius: 14px;
-}
-
-.publish h2 {
-  margin: 0 0 0.4rem;
-  font-size: 1.1rem;
-}
-
-.publish p {
-  max-width: 80ch;
-  color: var(--ifm-color-emphasis-700);
-  font-size: 0.9rem;
 }
 
 .publishForm {
