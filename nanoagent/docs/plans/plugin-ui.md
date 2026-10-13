@@ -19,15 +19,15 @@ access to Mochi's session, cookies or the network.
 
 All require the operator bearer token, like every `/v1` route.
 
-- `GET /v1/plugins` (existing): each task entry also carries `inputSchema` (the task's input JSON
-  Schema).
-- `GET /v1/plugins` (existing): each plugin also carries `uiVersion`, a digest of its `ui/`.
-- `GET /v1/plugins/{plugin_id}/ui/{uiVersion}/{path}`: a file from the plugin's `ui/` at its
+- `GET /v1/installs/{sha256}`: an installed plugin's catalog entry; each task entry also carries
+  `inputSchema` (the task's input JSON Schema).
+- `GET /v1/installs/{sha256}`: the plugin also carries `uiVersion`, a digest of its `ui/`.
+- `GET /v1/installs/{sha256}/ui/{uiVersion}/{path}`: a file from the plugin's `ui/` at its
   current version (any other is 404), cached forever (`immutable`), with its content type and this Content-Security-Policy:
   `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'` (no `frame-ancestors`: who may
   frame the page is the host's choice, and its site and API may be different origins).
   A path outside `ui/` is 404.
-- `POST /v1/workspaces/{workspace_id}/plugins/{plugin_id}/tasks/{task_id}/runs`, body
+- `POST /v1/workspaces/{workspace_id}/installs/{sha256}/tasks/{task_id}/runs`, body
   `{"arguments": {...}}`: runs one task the verified way, in that workspace, as an SSE stream.
   - `runner: tool`: the tool, then `verify_task`.
   - `runner: agent`: the reference tool (pinned), then an agent with the web host's model and only

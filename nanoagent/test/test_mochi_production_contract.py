@@ -27,6 +27,7 @@ def test_railway_config_is_private_authenticated_and_mochi_compatible(
     assert config.host == "0.0.0.0"
     assert config.port == 9876
     assert config.api_token == "contract-test-secret"
+    assert config.sandbox == "bwrap"
     assert catalog["defaultProfile"] == "pi-deepseek"
     assert catalog["profiles"] == [
         {

@@ -161,7 +161,14 @@ def client(plugin: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Tes
     monkeypatch.setenv("NANOAGENT_API_TOKEN", TOKEN)
     config = load_config_args(
         WebConfig,
-        ["web_cfg=deploy/railway/nanoagent.yaml", f"packages=[{plugin}]", f"workspaces={tmp_path / 'workspaces'}"],
+        [
+            "web_cfg=deploy/railway/nanoagent.yaml",
+            f"packages=[{plugin}]",
+            f"workspaces={tmp_path / 'workspaces'}",
+            f"installs={tmp_path / 'installs'}",
+            "host=127.0.0.1",
+            "sandbox=none",
+        ],
     )
     return TestClient(create_app(config), headers={"Authorization": f"Bearer {TOKEN}"})
 
@@ -194,7 +201,16 @@ def test_packs_a_plugin_from_a_source_archive(client: TestClient, plugin: Path, 
 def test_production_offers_every_built_in_plugin(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.chdir(ROOT)
     monkeypatch.setenv("NANOAGENT_API_TOKEN", TOKEN)
-    config = load_config_args(WebConfig, ["web_cfg=deploy/railway/nanoagent.yaml", f"workspaces={tmp_path}"])
+    config = load_config_args(
+        WebConfig,
+        [
+            "web_cfg=deploy/railway/nanoagent.yaml",
+            f"workspaces={tmp_path}",
+            f"installs={tmp_path / 'installs'}",
+            "host=127.0.0.1",
+            "sandbox=none",
+        ],
+    )
     packages = TestClient(create_app(config), headers={"Authorization": f"Bearer {TOKEN}"}).get("/v1/packages").json()
     built_in = sorted(path.name for path in (ROOT / "plugins").iterdir() if path.is_dir())
     assert sorted(entry["id"] for entry in packages["packages"]) == built_in

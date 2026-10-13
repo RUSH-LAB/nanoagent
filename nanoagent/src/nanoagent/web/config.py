@@ -23,12 +23,15 @@ class WebConfig(AgentDefinitionConfig):
     # `nanoagent.runtime.config.load_registry`). At least one; the default must be among them —
     # both checked where the registry loads, since the files are only read there.
     profiles: list[str] = MISSING
-    # Plugin directories (`nanoagent.plugin/v1` packages) published at /v1/plugins; their
-    # single-tool tasks can be run directly. Ids must be unique, checked where they load.
-    plugins: list[str] = MISSING
-    # Plugin directories offered for download at /v1/packages (a marketplace's built-in plugins);
-    # never run here. Each must follow every rule; ids must be unique, checked where they load.
+    # Plugin directories offered for download at /v1/packages (a marketplace's built-in plugins).
+    # Each must follow every rule; ids must be unique, checked where they load. Like any package,
+    # one runs here only once a caller installs it.
     packages: list[str] = MISSING
+    # Where packages are installed to run (see nanoagent.plugin.install), one folder per sha256.
+    installs: str = MISSING
+    # What every plugin process runs in (see nanoagent.plugin.sandbox): `bwrap`, or `none` for a
+    # loopback-only host, whose plugins are its operator's own.
+    sandbox: str = MISSING
     # Root of the scratch workspaces plugin runs use, one per run (see nanoagent.web.workspaces).
     workspaces: str = MISSING
     host: str = MISSING
@@ -56,7 +59,12 @@ class WebConfig(AgentDefinitionConfig):
             raise ValueError("api_token must be non-empty or null")
         if isinstance(self.profiles, list) and not self.profiles:
             raise ValueError("profiles must contain at least one server-approved profile")
-        if self.host not in {"127.0.0.1", "localhost", "::1"} and not self.api_token:
+        loopback = self.host in {"127.0.0.1", "localhost", "::1"}
+        if not loopback and not self.api_token:
             raise ValueError("api_token is required when the web host is not loopback-only")
+        if self.sandbox not in {"bwrap", "none", MISSING}:
+            raise ValueError(f"sandbox must be bwrap or none, got {self.sandbox!r}")
+        if self.sandbox == "none" and isinstance(self.host, str) and not loopback:
+            raise ValueError("sandbox none is for a loopback-only host; a reachable host runs plugins in bwrap")
         if self.agent.events is not None:
             raise ValueError("agent.events must be null for the web host; run events are streamed")

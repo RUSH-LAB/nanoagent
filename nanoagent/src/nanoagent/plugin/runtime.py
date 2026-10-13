@@ -21,11 +21,12 @@ from typing import Any
 
 import anyio
 from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import get_default_environment, stdio_client
+from mcp.client.stdio import stdio_client
 from mcp.types import TextContent
 from slimconfig import build_output
 
 from nanoagent.core.tool import Tool, ToolText
+from nanoagent.plugin import sandbox
 from nanoagent.plugin.manifest import PluginManifest, load_manifest
 from nanoagent.plugin.verifier import verify_input, verify_output
 
@@ -44,15 +45,16 @@ def plugin_env(manifest: PluginManifest, workspace: Path) -> dict[str, str]:
 
 def preflight(manifest: PluginManifest, env: dict[str, str]) -> None:
     """Run the plugin's `run.sh` in the environment the plugin will get; fail unless it exits 0."""
-    completed = subprocess.run(
-        ["bash", "run.sh"],
-        cwd=manifest.root,
-        env={**get_default_environment(), **env},
-        capture_output=True,
-        text=True,
-        timeout=PREFLIGHT_TIMEOUT,
-        check=False,
-    )
+    with sandbox.launch(["bash", "run.sh"], root=manifest.root, env=env) as (argv, launch_env):
+        completed = subprocess.run(
+            argv,
+            cwd=manifest.root,
+            env=launch_env,
+            capture_output=True,
+            text=True,
+            timeout=PREFLIGHT_TIMEOUT,
+            check=False,
+        )
     if completed.returncode:
         output = (completed.stderr or completed.stdout).strip() or f"exit {completed.returncode}"
         raise RuntimeError(f"{manifest.id} run.sh: this environment cannot run the plugin: {output}")
@@ -116,12 +118,18 @@ class PluginSession:
             raise ValueError(f"plugin workspace {self.workspace} is not a folder")
         env = plugin_env(self.manifest, self.workspace)
         preflight(self.manifest, env)
-        params = StdioServerParameters(
-            command=self.manifest.command[0],
-            args=list(self.manifest.command[1:]),
-            cwd=self.manifest.root,
-            env=env,
+        # A sandboxed plugin's environment was built when it was installed: its runs neither sync
+        # it again nor reach the package index.
+        argv, launch_env = self._stack.enter_context(
+            sandbox.launch(
+                self.manifest.command,
+                root=self.manifest.root,
+                env={**env, "UV_NO_SYNC": "1", "UV_OFFLINE": "1"} if sandbox.current() != "none" else env,
+                writable=[self.workspace],
+                hosts=self.manifest.permissions.network_hosts,
+            )
         )
+        params = StdioServerParameters(command=argv[0], args=argv[1:], cwd=self.manifest.root, env=launch_env)
         try:
             # The connection's own scopes close with the session, so only the waits are bounded.
             read, write = await self._stack.enter_async_context(stdio_client(params))

@@ -10,19 +10,20 @@ import logging
 import mimetypes
 import secrets
 import shutil
+import subprocess
 import sys
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Any
 
 from nanoagent.core.agent import ChatModel
 from nanoagent.core.agent import Agent
 from nanoagent.extensions import get_hooks
-from nanoagent.plugin import PluginManifest, call_tool_async, load_listing
+from nanoagent.plugin import PluginManifest, sandbox
+from nanoagent.plugin.install import InstallError, Installed, Installs, ui_version
 from nanoagent.plugin.manifest import TOOL_ARTIFACTS, load_manifest
 from nanoagent.plugin.package import (
     PACKAGE_MAX_BYTES,
@@ -83,16 +84,6 @@ def _task_metrics(outcome: TaskOutcome, duration_s: float, model: str) -> dict[s
     }
 
 
-def _ui_version(manifest: PluginManifest) -> str:
-    """A digest of the plugin's ``ui/``: its files' URLs carry it, so a browser may keep them forever."""
-    ui = manifest.root / "ui"
-    digest = hashlib.sha256()
-    for path in sorted(ui.rglob("*")):
-        if path.is_file() and not TOOL_ARTIFACTS & set(path.relative_to(ui).parts):
-            digest.update(path.relative_to(ui).as_posix().encode() + b"\0" + path.read_bytes() + b"\0")
-    return digest.hexdigest()[:16]
-
-
 def _ui_file(manifest: PluginManifest, path: str) -> Path | None:
     """The file ``path`` names in the plugin's ``ui/``, or None for anything outside it."""
     ui = (manifest.root / "ui").resolve()
@@ -119,25 +110,15 @@ def create_app(
         raise RuntimeError('NanoAgent web support requires `pip install "nanoagent[web]"`') from error
 
     run_host = host or RunHost(cfg)
-    # Ready plugins run; in-development ones are only listed, as under maintenance.
-    plugins: dict[str, PluginManifest] = {}
-    ui_versions: dict[str, str] = {}
-    in_development: dict[str, str] = {}
-    listed: list[dict[str, Any]] = []
-    for path in cfg.plugins:
-        entry = load_listing(path)
-        if entry.id in plugins or entry.id in in_development:
-            raise ValueError(f"duplicate plugin id {entry.id!r} in {path!r}")
-        if isinstance(entry, PluginManifest):
-            plugins[entry.id] = entry
-            ui_versions[entry.id] = _ui_version(entry)
-            listed.append({**catalog_entry(entry), "uiVersion": ui_versions[entry.id]})
-        else:
-            in_development[entry.id] = entry.name
-            listed.append(entry.public())
-    plugin_catalog = {"plugins": listed}
-    # Packages offered for download, packed once; they are never run here.
+    # Every plugin runs from an install, in the sandbox, which must hold before anything is served.
+    sandbox.configure(cfg.sandbox)
+    installs = Installs(cfg.installs)
+    sandbox.check(installs.root)
+    # Packages offered for download, packed once; one runs only once a caller installs it.
     packages: dict[str, tuple[dict[str, Any], bytes]] = {}
+    # COMPAT(mochi-installs): each package's own folder and its ui/ version, for the routes by
+    # plugin id below.
+    package_manifests: dict[str, tuple[PluginManifest, str]] = {}
     for path in cfg.packages:
         manifest = load_manifest(path)
         if manifest.id in packages:
@@ -147,6 +128,7 @@ def create_app(
             {**catalog_entry(manifest), "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)},
             data,
         )
+        package_manifests[manifest.id] = (manifest, ui_version(manifest))
     plugin_slots = asyncio.Semaphore(cfg.max_concurrency)
     workspaces = Workspaces(cfg.workspaces)
     owned_model: Any = None
@@ -211,16 +193,22 @@ def create_app(
             return JSONResponse({"error": str(error)}, status_code=400)
         return run_stream(active)
 
+    def runnable(request: Request) -> PluginManifest | JSONResponse:
+        """The ready plugin installed as the path's sha256, or the response refusing to run it."""
+        installed = installs.get(request.path_params["sha256"])
+        if installed is None:
+            return JSONResponse({"error": "not installed"}, status_code=404)
+        if installed.manifest.status != "ready":
+            return JSONResponse({"error": f"{installed.manifest.name} is under maintenance"}, status_code=409)
+        return installed.manifest
+
     async def start_plugin_run(request: Request) -> JSONResponse | StreamingResponse:
         """Run a prompt with an agent that operates one plugin inside a caller's workspace."""
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        if request.path_params["plugin_id"] in in_development:
-            name = in_development[request.path_params["plugin_id"]]
-            return JSONResponse({"error": f"{name} is under maintenance"}, status_code=409)
-        manifest = plugins.get(request.path_params["plugin_id"])
-        if manifest is None:
-            return JSONResponse({"error": "plugin not found"}, status_code=404)
+        manifest = runnable(request)
+        if isinstance(manifest, JSONResponse):
+            return manifest
         try:
             folder = workspaces.folder(request.path_params["workspace_id"], create=True)
         except ValueError as error:
@@ -323,56 +311,74 @@ def create_app(
             },
         )
 
+    # COMPAT(mochi-installs): Mochi on production names plugins by id, at /v1/plugins and under
+    # /plugins/{plugin_id}. These serve NanoAgent's own packages by id, each installed the first
+    # time it is asked for. Remove once the Mochi that installs what its workspaces added is released.
+    async def built_in(plugin_id: str) -> Installed | None:
+        package = packages.get(plugin_id)
+        if package is None:
+            return None
+        entry, data = package
+        async with plugin_slots:
+            return await asyncio.to_thread(installs.install, entry["sha256"], data)
+
+    # Listed and their pages served from their own folders, without installing: that Mochi waits
+    # seconds for these, and minutes for a run.
     async def list_plugins(request: Request) -> JSONResponse:
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return JSONResponse(plugin_catalog)
+        listed = [{**entry, "uiVersion": package_manifests[plugin_id][1]} for plugin_id, (entry, _) in packages.items()]
+        return JSONResponse({"plugins": listed})
 
-    async def run_plugin_task(request: Request) -> JSONResponse:
-        """Run a single-tool plugin task: the body is the tool's input, the reply its output."""
+    async def package_ui(request: Request) -> Any:
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        if request.path_params["plugin_id"] in in_development:
-            name = in_development[request.path_params["plugin_id"]]
-            return JSONResponse({"error": f"{name} is under maintenance"}, status_code=409)
-        manifest = plugins.get(request.path_params["plugin_id"])
-        if manifest is None:
-            return JSONResponse({"error": "plugin not found"}, status_code=404)
-        try:
-            task = manifest.task(request.path_params["task_id"])
-        except KeyError as error:
-            return JSONResponse({"error": error.args[0]}, status_code=404)
-        if task.runner != "tool":
-            return JSONResponse(
-                {"error": f"task {task.id!r} has runner {task.runner!r}; only tool tasks run directly"},
-                status_code=400,
-            )
-        payload, rejected = await read_json(request)
-        if rejected is not None:
-            return rejected
-        if not isinstance(payload, dict):
-            return JSONResponse(
-                {"error": "request body must be a JSON object of tool arguments"}, status_code=400
-            )
-        # Each request writes into its own workspace, removed once the reply is built: the
-        # reply carries the tool's output, not the files.
-        async with plugin_slots:
+        if request.path_params["plugin_id"] not in package_manifests:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return ui_file(*package_manifests[request.path_params["plugin_id"]], request.path_params["path"])
+
+    def by_id(handler: Callable[[Request], Any]) -> Callable[[Request], Any]:
+        async def route(request: Request) -> Any:
+            if not authorized(request):
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
             try:
-                with TemporaryDirectory(prefix=f"nanoagent-{manifest.id}-") as workspace:
-                    output = await call_tool_async(
-                        manifest,
-                        task.tools[0],
-                        payload,
-                        workspace=Path(workspace),
-                        timeout=cfg.request_timeout,
-                    )
-            except ValueError as error:
-                return JSONResponse({"error": str(error)}, status_code=400)
-            except (RuntimeError, TimeoutError) as error:
-                return JSONResponse({"error": str(error) or "plugin run timed out"}, status_code=502)
-        return JSONResponse(
-            {"plugin": manifest.id, "task": task.id, "tool": task.tools[0], "output": output}
-        )
+                installed = await built_in(request.path_params["plugin_id"])
+            except (PackageError, InstallError, subprocess.TimeoutExpired) as error:
+                return JSONResponse({"error": str(error)}, status_code=502)
+            if installed is None:
+                return JSONResponse({"error": "plugin not found"}, status_code=404)
+            request.path_params["sha256"] = installed.entry["sha256"]
+            return await handler(request)
+
+        return route
+
+    async def install(request: Request) -> JSONResponse:
+        """GET: the plugin installed as this sha256. PUT: install the body, the package with that sha256."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        sha256 = request.path_params["sha256"]
+        if request.method == "GET":
+            installed = installs.get(sha256)
+            if installed is None:
+                return JSONResponse({"error": "not installed"}, status_code=404)
+            return JSONResponse({"plugin": installed.entry})
+        length = request.headers.get("content-length")
+        if length and length.isdigit() and int(length) > PACKAGE_MAX_BYTES:
+            return JSONResponse({"error": "package is too large"}, status_code=413)
+        body = await request.body()
+        if len(body) > PACKAGE_MAX_BYTES:
+            return JSONResponse({"error": "package is too large"}, status_code=413)
+        try:
+            async with plugin_slots:
+                installed: Installed = await asyncio.to_thread(installs.install, sha256, body)
+        except PackageError as error:
+            return JSONResponse(
+                {"error": f"the package is refused: {'; '.join(error.violations)}", "violations": error.violations},
+                status_code=422,
+            )
+        except (InstallError, subprocess.TimeoutExpired) as error:
+            return JSONResponse({"error": str(error)}, status_code=502)
+        return JSONResponse({"plugin": installed.entry})
 
     async def list_packages(request: Request) -> JSONResponse:
         if not authorized(request):
@@ -433,25 +439,26 @@ def create_app(
         return JSONResponse({"package": entry, "data": base64.b64encode(data).decode("ascii")})
 
     async def plugin_ui(request: Request) -> Any:
-        """A file of a ready plugin's front end at its current version, under the policy that confines it to the bridge."""
+        """A file of an installed plugin's front end, under the policy that confines it to the bridge."""
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        plugin_id = request.path_params["plugin_id"]
-        manifest = plugins.get(plugin_id)
-        if manifest is None:
+        installed = installs.get(request.path_params["sha256"])
+        if installed is None:
             return JSONResponse({"error": "not found"}, status_code=404)
-        headers = {"Content-Security-Policy": UI_POLICY, "X-Content-Type-Options": "nosniff"}
-        version, _, path = request.path_params["path"].partition("/")
-        if version == ui_versions[plugin_id]:
-            headers["Cache-Control"] = "public, max-age=31536000, immutable"
-        else:
-            # COMPAT(mochi-unversioned-ui): Mochi on production asks for ui/{path} without the
-            # version. Remove once the Mochi that sends it is released.
-            path = request.path_params["path"]
-        target = _ui_file(manifest, path)
+        return ui_file(installed.manifest, installed.entry["uiVersion"], request.path_params["path"])
+
+    def ui_file(manifest: PluginManifest, ui_version: str, versioned_path: str) -> Any:
+        version, _, path = versioned_path.partition("/")
+        target = _ui_file(manifest, path) if version == ui_version else None
         if target is None:
             return JSONResponse({"error": "not found"}, status_code=404)
         media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        headers = {
+            "Content-Security-Policy": UI_POLICY,
+            "X-Content-Type-Options": "nosniff",
+            # An install never changes, and neither does its ui/ at that version.
+            "Cache-Control": "public, max-age=31536000, immutable",
+        }
         return FileResponse(target, media_type=media_type, headers=headers)
 
     task_runs: dict[str, asyncio.Task[Any]] = {}
@@ -460,12 +467,9 @@ def create_app(
         """Run one plugin task the verified way in a caller's workspace, streaming `task.*` events."""
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        if request.path_params["plugin_id"] in in_development:
-            name = in_development[request.path_params["plugin_id"]]
-            return JSONResponse({"error": f"{name} is under maintenance"}, status_code=409)
-        manifest = plugins.get(request.path_params["plugin_id"])
-        if manifest is None:
-            return JSONResponse({"error": "plugin not found"}, status_code=404)
+        manifest = runnable(request)
+        if isinstance(manifest, JSONResponse):
+            return manifest
         try:
             task = manifest.task(request.path_params["task_id"])
             folder = workspaces.folder(request.path_params["workspace_id"], create=True)
@@ -581,17 +585,26 @@ def create_app(
             Route("/v1/packages/inspect", inspect_upload, methods=["POST"]),
             Route("/v1/packages/source", package_source, methods=["POST"]),
             Route("/v1/packages/{package_id}", download_package, methods=["GET"]),
-            Route("/v1/plugins/{plugin_id}/ui/{path:path}", plugin_ui, methods=["GET"]),
+            Route("/v1/installs/{sha256}", install, methods=["GET", "PUT"]),
+            Route("/v1/installs/{sha256}/ui/{path:path}", plugin_ui, methods=["GET"]),
             Route(
-                "/v1/workspaces/{workspace_id}/plugins/{plugin_id}/tasks/{task_id}/runs",
+                "/v1/workspaces/{workspace_id}/installs/{sha256}/tasks/{task_id}/runs",
                 start_task_run,
                 methods=["POST"],
             ),
             Route(
-                "/v1/workspaces/{workspace_id}/plugins/{plugin_id}/runs",
+                "/v1/workspaces/{workspace_id}/installs/{sha256}/runs",
                 start_plugin_run,
                 methods=["POST"],
             ),
+            # COMPAT(mochi-installs): the routes by plugin id, above.
+            Route("/v1/plugins/{plugin_id}/ui/{path:path}", package_ui, methods=["GET"]),
+            Route(
+                "/v1/workspaces/{workspace_id}/plugins/{plugin_id}/tasks/{task_id}/runs",
+                by_id(start_task_run),
+                methods=["POST"],
+            ),
+            Route("/v1/workspaces/{workspace_id}/plugins/{plugin_id}/runs", by_id(start_plugin_run), methods=["POST"]),
             Route("/v1/workspaces/{workspace_id}/files", list_files, methods=["GET"]),
             Route(
                 "/v1/workspaces/{workspace_id}/files/{path:path}",
@@ -605,9 +618,6 @@ def create_app(
             ),
             Route("/v1/workspaces/{workspace_id}/move", move_entry, methods=["POST"]),
             Route("/v1/workspaces/{workspace_id}", delete_workspace, methods=["DELETE"]),
-            Route(
-                "/v1/plugins/{plugin_id}/tasks/{task_id}", run_plugin_task, methods=["POST"]
-            ),
         ],
         lifespan=lifespan,
     )

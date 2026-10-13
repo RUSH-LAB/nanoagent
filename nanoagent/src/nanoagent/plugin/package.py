@@ -139,8 +139,8 @@ def _isolated(*args: str) -> dict[str, Any]:
     return json.loads(completed.stdout)
 
 
-def inspect_package(data: bytes) -> dict[str, Any]:
-    """The catalog entry of the plugin in the package ``data``, with its ``sha256`` and ``size``."""
+def unpack(data: bytes, folder: Path) -> str:
+    """Open the package ``data`` into the existing ``folder``; its one top folder's name."""
     if len(data) > PACKAGE_MAX_BYTES:
         raise PackageError([f"the package is over the {PACKAGE_MAX_BYTES}-byte limit"])
     try:
@@ -148,11 +148,17 @@ def inspect_package(data: bytes) -> dict[str, Any]:
             top, members = _members(archive)
             if not PLUGIN_ID.fullmatch(top):
                 raise PackageError([f"the package folder {top!r} is not a plugin id"])
-            with TemporaryDirectory(prefix="nanoagent-package-") as folder:
-                archive.extractall(folder, members=members, filter="data")
-                result = _isolated(str(Path(folder) / top))
+            archive.extractall(folder, members=members, filter="data")
     except tarfile.TarError as error:
         raise PackageError([f"the package is not a .tar.gz archive: {error}"]) from None
+    return top
+
+
+def inspect_package(data: bytes) -> dict[str, Any]:
+    """The catalog entry of the plugin in the package ``data``, with its ``sha256`` and ``size``."""
+    with TemporaryDirectory(prefix="nanoagent-package-") as folder:
+        top = unpack(data, Path(folder))
+        result = _isolated(str(Path(folder) / top))
     if "violations" in result:
         raise PackageError(result["violations"])
     entry = result["plugin"]

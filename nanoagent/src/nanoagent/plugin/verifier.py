@@ -32,6 +32,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from nanoagent.plugin import sandbox
+
 if TYPE_CHECKING:
     from nanoagent.plugin.manifest import PluginManifest
 
@@ -196,7 +198,7 @@ def _missing_functions(tree: ast.Module) -> list[str]:
     return problems
 
 def verify_input(manifest: PluginManifest, tool: str, value: dict[str, Any]) -> Verification:
-    return _call(manifest.root, "verify_input", [tool, value], [None, manifest.tool(tool).input_class])
+    return _call(manifest.root, "verify_input", [tool, value], [None, manifest.tool(tool).input_class], None)
 
 
 def verify_output(
@@ -212,6 +214,7 @@ def verify_output(
         "verify_output",
         [tool, input_value, output_value, str(workspace.resolve())],
         [None, definition.input_class, definition.output_class, None],
+        workspace,
     )
 
 
@@ -229,11 +232,15 @@ def verify_task(
         "verify_task",
         [task, arguments, reference, str(workspace.resolve())],
         [None, definition.input_class, pinned, None],
+        workspace,
     )
 
 
-def _call(root: Path, name: str, arguments: list[Any], classes: list[str | None]) -> Verification:
-    """Run ``name`` in the sandbox; each argument with a class is built into that contract class."""
+def _call(
+    root: Path, name: str, arguments: list[Any], classes: list[str | None], workspace: Path | None
+) -> Verification:
+    """Run ``name`` in the sandbox; each argument with a class is built into that contract class.
+    The verifier may read ``workspace``, the run's folder, and write nothing."""
     folder = root.resolve() / "verifier"
     check_verifier(folder)
     request = {
@@ -244,16 +251,19 @@ def _call(root: Path, name: str, arguments: list[Any], classes: list[str | None]
         "classes": classes,
         "modules": sorted(ALLOWED_IMPORTS),
     }
-    completed = subprocess.run(
-        # -B: no __pycache__ written into the plugin.
-        [sys.executable, "-I", "-B", str(_SANDBOX)],
-        input=json.dumps(request),
-        capture_output=True,
-        text=True,
-        timeout=TIMEOUT,
-        cwd=folder.parent,
-        check=False,
-    )
+    # -B: no __pycache__ written into the plugin.
+    readable = [] if workspace is None else [workspace]
+    with sandbox.launch([sys.executable, "-I", "-B", str(_SANDBOX)], root=root, env={}, readable=readable) as (argv, env):
+        completed = subprocess.run(
+            argv,
+            input=json.dumps(request),
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT,
+            cwd=folder.parent,
+            env=env,
+            check=False,
+        )
     if completed.returncode:
         reason = completed.stderr.strip().splitlines()[-1:] or [f"exit {completed.returncode}"]
         raise RuntimeError(f"verifier {name}() failed: {reason[0]}")
