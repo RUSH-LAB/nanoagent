@@ -223,7 +223,7 @@ as apps:
 
 Every process a plugin brings (its `run.sh`, MCP server, verifier, and the
 `uv sync` that installs it) runs in the sandbox `WebConfig.sandbox` names
-(`nanoagent.plugin.sandbox`). On Railway that is `bwrap`: new namespaces, an
+(`nanoagent.plugin.sandbox`). `bwrap` gives it new namespaces, an
 empty environment, the system and the plugin's own folder read-only, and only
 the run's workspace to write. Its only network is an HTTPS proxy
 (`nanoagent.plugin.egress`) that reaches the hosts the plugin declares in
@@ -231,8 +231,10 @@ the run's workspace to write. Its only network is an HTTPS proxy
 reaches the package index and GitHub. A sandboxed plugin gets no environment
 variables, so one that declares any is refused. The server proves the sandbox
 holds before it serves anything, and refuses to start if it does not.
-`sandbox: none` runs plugins as plain processes, for a loopback-only host
-whose plugins are its operator's own, such as a laptop.
+`sandbox: none` runs plugins as plain processes. Railway runs `none` for now,
+because its containers refuse bwrap the namespaces it needs, so add only the
+plugins you trust; what to build instead is in
+[docs/plans/plugin-sandbox.md](docs/plans/plugin-sandbox.md).
 
 The workspace is a scratch folder for one run, named by the caller, under the
 `workspaces` root in `WebConfig`. The caller fills it before the run, reads it

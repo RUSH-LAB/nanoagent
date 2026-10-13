@@ -29,8 +29,8 @@ class WebConfig(AgentDefinitionConfig):
     packages: list[str] = MISSING
     # Where packages are installed to run (see nanoagent.plugin.install), one folder per sha256.
     installs: str = MISSING
-    # What every plugin process runs in (see nanoagent.plugin.sandbox): `bwrap`, or `none` for a
-    # loopback-only host, whose plugins are its operator's own.
+    # What every plugin process runs in (see nanoagent.plugin.sandbox): `bwrap`, or `none`, which
+    # confines nothing.
     sandbox: str = MISSING
     # Root of the scratch workspaces plugin runs use, one per run (see nanoagent.web.workspaces).
     workspaces: str = MISSING
@@ -64,7 +64,5 @@ class WebConfig(AgentDefinitionConfig):
             raise ValueError("api_token is required when the web host is not loopback-only")
         if self.sandbox not in {"bwrap", "none", MISSING}:
             raise ValueError(f"sandbox must be bwrap or none, got {self.sandbox!r}")
-        if self.sandbox == "none" and isinstance(self.host, str) and not loopback:
-            raise ValueError("sandbox none is for a loopback-only host; a reachable host runs plugins in bwrap")
         if self.agent.events is not None:
             raise ValueError("agent.events must be null for the web host; run events are streamed")

@@ -48,8 +48,9 @@ packages:
 workspaces: /tmp/nanoagent-workspaces
 # Installed packages, one folder per sha256; Mochi installs again after a restart.
 installs: /tmp/nanoagent-installs
-# Anyone may publish a plugin, so every plugin process runs in bwrap (nanoagent.plugin.sandbox).
-sandbox: bwrap
+# Plugins run as plain processes for now: Railway's containers refuse bwrap the namespaces it
+# needs. Anyone may publish a plugin, so this must become a sandbox (docs/plans/plugin-sandbox.md).
+sandbox: none
 
 host: 0.0.0.0
 port: ${oc.env:PORT,8787}
