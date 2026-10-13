@@ -37,7 +37,7 @@ export default function ApiKeys({computer, onSaved}) {
       });
       setValue('');
       setReplacing(false);
-      await (connected ? onSaved() : loadKept());
+      await Promise.all([onSaved(), connected ? null : loadKept()]);
       setState(null);
     } catch (err) {
       setState({error: err.message});

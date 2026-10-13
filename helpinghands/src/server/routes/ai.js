@@ -289,9 +289,9 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     }
     if (composed.error) return json(res, composed.status || 400, {error: composed.error});
     const kind = inlineStream ? 'inline' : composed.request.app ? 'app' : 'chat';
-    // An app's agent acts through the app's tools, which is editing, not reading.
+    // An app's agent acts through the app's tools, on the member's own files.
     if (composed.request.app) {
-      ctx.requireWorkspacePermission(req.context, 'content:edit');
+      ctx.requireWorkspacePermission(req.context, 'apps:use');
       if (!ctx.agentSync || !ctx.sessions || !ctx.workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
       try {
         await ctx.sessions.assertOwned(req.context, composed.request.app, composed.session);
@@ -432,11 +432,14 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     return json(res, 200, {settings: normalized.value});
   }
 
-  // ── The models a member may choose: every one their own computer's keys reach ──
+  // ── The models a member may choose: every one their own computer's keys reach, else Mochi's own profiles ──
   if (req.method === 'GET' && pathname === '/api/ai/models') {
     const computer = ctx.runners.status(req.auth?.userId);
     const gateway = ctx.runners.computer(req.auth?.userId);
-    if (!gateway) return json(res, 200, {connected: false, device: null, providers: [], models: [], defaults: {}, limits: null});
+    if (!gateway) {
+      const catalog = await (await ctx.aiFor(req.auth?.userId)).profiles();
+      return json(res, 200, {connected: false, device: null, ...hostedModels(catalog)});
+    }
     const [listing, catalog] = await Promise.all([gateway.models(), gateway.profiles()]);
     if (listing.error) return json(res, listing.status, {error: listing.error});
     return json(res, 200, {connected: true, device: computer.device, ...localModels(listing.value, catalog)});
@@ -510,6 +513,46 @@ function localModels(listing, catalog) {
       apps: keyOf(catalog.profiles.find(profile => profile.uses.includes('apps'))),
     },
     limits: listing.limits,
+  };
+}
+
+/** Mochi's hosted NanoAgent's profiles as models, for a member with no computer connected: available once Mochi keeps their key. */
+function hostedModels(catalog) {
+  const keyOf = profile => `${profile.provider}/${profile.model}`;
+  const models = new Map();
+  for (const profile of catalog.profiles.filter(entry => entry.provider)) {
+    const key = keyOf(profile);
+    const known = models.get(key);
+    if (known) {
+      known.uses = [...new Set([...known.uses, ...profile.uses])];
+      continue;
+    }
+    models.set(key, {
+      key,
+      choice: {provider: profile.provider, model: profile.model},
+      label: profile.label,
+      provider: profile.provider,
+      providerName: profile.providerName ?? profile.provider,
+      model: profile.model,
+      uses: profile.uses,
+      available: profile.available,
+      unavailableReason: profile.unavailableReason,
+      price: profile.price,
+      contextWindow: profile.contextWindow,
+      reasoning: profile.reasoning,
+    });
+  }
+  const byDefault = catalog.profiles.find(profile => profile.id === catalog.defaultProfile);
+  const forApps = catalog.profiles.find(profile => profile.uses.includes('apps'));
+  return {
+    providers: [],
+    models: [...models.values()],
+    defaults: {
+      chat: byDefault?.provider ? keyOf(byDefault) : null,
+      inline: byDefault?.provider ? keyOf(byDefault) : null,
+      apps: forApps?.provider ? keyOf(forApps) : null,
+    },
+    limits: catalog.limits,
   };
 }
 

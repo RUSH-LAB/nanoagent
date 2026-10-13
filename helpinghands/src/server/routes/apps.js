@@ -98,8 +98,8 @@ async function serveUiFile(res, json, ai, sha256, version, raw) {
  */
 async function streamTaskRun(req, res, ctx, app, task) {
   const {json, readBody, requireWorkspacePermission, aiMeter, CORS_ORIGIN} = ctx;
-  // A task acts through the app's tools, which is editing, not reading.
-  requireWorkspacePermission(req.context, 'content:edit');
+  // A task acts through the app's tools, on the member's own files.
+  requireWorkspacePermission(req.context, 'apps:use');
   const ai = await ctx.aiFor(req.auth?.userId);
   try {
     await aiMeter.assertAllowed(req.context, ai);
@@ -219,7 +219,7 @@ async function sessionRoute(req, res, ctx, app, id) {
       return json(res, 200, {sessions: await ctx.sessions.list(req.context, app)});
     }
     if (id === null && req.method === 'POST') {
-      requireWorkspacePermission(req.context, 'content:edit');
+      requireWorkspacePermission(req.context, 'apps:use');
       return json(res, 200, {session: await ctx.sessions.create(req.context, app)});
     }
     if (id !== null && req.method === 'GET') {
@@ -227,7 +227,7 @@ async function sessionRoute(req, res, ctx, app, id) {
       return json(res, 200, {session: await ctx.sessions.get(req.context, app, id)});
     }
     if (id !== null && req.method === 'PUT') {
-      requireWorkspacePermission(req.context, 'content:edit');
+      requireWorkspacePermission(req.context, 'apps:use');
       let body;
       try {
         body = await readBody(req);
@@ -344,7 +344,7 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
 
   try {
     if (req.method === 'PUT') {
-      requireWorkspacePermission(scope, 'content:edit');
+      requireWorkspacePermission(scope, 'apps:use');
       let body;
       try {
         body = await readRawBody(req);

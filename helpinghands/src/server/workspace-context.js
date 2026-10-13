@@ -14,16 +14,18 @@ const WORKSPACE_ROLES = Object.freeze(['owner', 'editor', 'viewer']);
 // while the data migration changes the stored values.
 const LEGACY_ROLE_MAP = Object.freeze({owner: 'owner', admin: 'editor', member: 'viewer'});
 
+// `apps:use` is running the workspace's apps in the member's own sessions, on
+// their own files (home/<user>/agent/), which every member may.
 const PERMISSIONS = Object.freeze({
   owner: new Set([
     'workspace:manage', 'members:manage', 'content:read', 'content:create',
-    'content:edit', 'content:publish', 'content:delete', 'comments:write',
+    'content:edit', 'content:publish', 'content:delete', 'comments:write', 'apps:use',
   ]),
   editor: new Set([
     'content:read', 'content:create', 'content:edit', 'content:publish',
-    'comments:write',
+    'comments:write', 'apps:use',
   ]),
-  viewer: new Set(['content:read', 'comments:write']),
+  viewer: new Set(['content:read', 'comments:write', 'apps:use']),
 });
 
 const GLOBAL_API_PATHS = new Set([

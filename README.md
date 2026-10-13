@@ -1,4 +1,4 @@
-# helpinghands
+# nanoagent
 
 Run from `helpinghands/`:
 

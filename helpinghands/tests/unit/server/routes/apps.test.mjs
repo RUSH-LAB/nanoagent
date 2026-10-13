@@ -170,13 +170,9 @@ describe('NanoAgent apps', () => {
     ]);
   });
 
-  it('does not let a viewer change the agent folder', async () => {
-    const fs = fakeFs();
-    fs.write = async () => assert.fail('must not save');
-    await assert.rejects(
-      invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?path=a.txt', ctx: ctxWith({}, fs), requestContext: {...context, role: 'viewer'}}),
-      error => error?.status === 403,
-    );
+  it('lets a viewer change their own agent folder', async () => {
+    const result = await invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?path=a.txt', ctx: ctxWith({}, fakeFs()), requestContext: {...context, role: 'viewer'}});
+    assert.equal(result.status, 200);
   });
 
   it('refuses agent files without the workspace file system', async () => {
@@ -327,15 +323,13 @@ describe('an app\'s task runs', () => {
     assert.equal(unnamed.status, 400);
   });
 
-  it('is for owners and editors only, and needs arguments as an object', async () => {
+  it('is for every member, viewers included, and needs arguments as an object', async () => {
     const ctx = ctxWith({taskRun: async () => assert.fail('must not run')});
-    await assert.rejects(
-      invoke(routes, {method: 'POST', path: PATH, body: {arguments: {}, sessionId: SESSION}, ctx, requestContext: {...context, role: 'viewer'}}),
-      error => error?.status === 403,
-    );
     for (const body of [{}, {arguments: [], sessionId: SESSION}, {arguments: 'x', sessionId: SESSION}, 'not json']) {
-      const result = await invoke(routes, {method: 'POST', path: PATH, body, ctx, requestContext: context});
-      assert.equal(result.status, 400);
+      for (const role of ['editor', 'viewer']) {
+        const result = await invoke(routes, {method: 'POST', path: PATH, body, ctx, requestContext: {...context, role}});
+        assert.equal(result.status, 400);
+      }
     }
   });
 
@@ -405,11 +399,11 @@ describe('an app\'s sessions', () => {
     assert.equal((await invoke(routes, {method: 'GET', path: `${PATH}/not-an-id`, ctx, requestContext: context})).status, 404);
   });
 
-  it('lets a viewer read sessions but not start or save one', async () => {
+  it('lets a viewer read and start their own sessions', async () => {
     const ctx = ctxWith({});
     const viewer = {...context, role: 'viewer'};
     assert.equal((await invoke(routes, {method: 'GET', path: PATH, ctx, requestContext: viewer})).status, 200);
-    await assert.rejects(invoke(routes, {method: 'POST', path: PATH, ctx, requestContext: viewer}), error => error?.status === 403);
+    assert.equal((await invoke(routes, {method: 'POST', path: PATH, ctx, requestContext: viewer})).status, 200);
   });
 
   it('needs PostgreSQL', async () => {

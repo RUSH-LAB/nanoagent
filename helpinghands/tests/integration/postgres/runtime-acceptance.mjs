@@ -218,6 +218,13 @@ try {
   const roster = await json(await request(`/api/workspaces/${workspaceId}/members`, {cookie}), 200);
   const member = roster.members.find(candidate => candidate.id === memberUserId);
   assert.equal(member.role, 'viewer');
+  // A viewer keeps their own plugin files: their home is theirs to write (fs_may_write).
+  await json(await request(`/api/workspaces/${workspaceId}/agent-files/content?path=notes.txt&create=1`, {
+    method: 'PUT', cookie: memberCookie, body: 'kept by a viewer',
+  }), 200);
+  await json(await request(`/api/workspaces/${workspaceId}/documents`, {
+    method: 'POST', cookie: memberCookie, body: {path: 'smoke/viewer.mdx', markdown: '# Not a viewer\'s to write'},
+  }), 403);
   const promoted = await json(await request(`/api/workspaces/${workspaceId}/members/${member.memberId}/role`, {
     method: 'POST', cookie, body: {role: 'editor'},
   }), 200);
