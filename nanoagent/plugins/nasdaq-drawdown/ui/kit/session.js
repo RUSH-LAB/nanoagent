@@ -184,7 +184,12 @@ export function dashboard({ plugin, onOpen }) {
         columns: [
           { key: "title", label: "Session", value: titled, primary: true },
           { key: "updatedAt", label: "Last used", render: (session) => when(session.updatedAt) },
-          { key: "runs", label: "Runs", numeric: true },
+          {
+            key: "runs",
+            label: "Runs",
+            numeric: true,
+            render: (session) => h("button", { type: "button", class: "button small ghost tabular", title: "Show this session's runs", text: String(session.runs), onclick: () => showDetails(session) }),
+          },
           { key: "cost", label: "Cost", numeric: true, render: (session) => formatCost(session.cost) },
           { key: "ttftS", label: "First token (avg)", numeric: true, render: (session) => formatSeconds(session.ttftS) },
           {
@@ -194,7 +199,7 @@ export function dashboard({ plugin, onOpen }) {
             render: (session) => {
               const resume = h("button", { type: "button", class: "button small primary", text: "Resume" });
               resume.addEventListener("click", () => open("session.resume", { id: session.id }, resume));
-              return h("div", { class: "row-actions" }, h("button", { type: "button", class: "button small", text: "Runs", onclick: () => showDetails(session) }), resume);
+              return h("div", { class: "row-actions" }, resume);
             },
           },
         ],
