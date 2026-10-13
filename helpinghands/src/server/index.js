@@ -38,6 +38,7 @@ const {createGithub} = require('./github');
 // Every assistant call is checked against its workspace's budget and charged to it.
 const aiMeter = createAiMeter(tenancy);
 const {createAgentSync} = require('./fs/agent-sync');
+const {createWorkspaceApps} = require('./workspace-apps');
 // The per-workspace data layer. See server/store/index.js: the only way a route
 // module is allowed to reach the thirteen features' data, because it is the
 // only way that applies the organization and the owner without being asked to.
@@ -523,6 +524,10 @@ const ctx = {
   market: postgresServices?.market ?? null,
   // Plugin sessions and what their runs cost; PostgreSQL only.
   sessions: postgresServices?.sessions ?? null,
+  // The plugins each workspace added from the marketplace, run from NanoAgent's installs; PostgreSQL only.
+  workspaceApps: postgresServices
+    ? createWorkspaceApps({ai, market: postgresServices.market, plugins: postgresServices.workspacePlugins})
+    : null,
   // Where the marketplace fetches a plugin's source.
   github: createGithub(),
   // Plugin runs work on a copy of the member's agent folder (fs/agent-sync.js).

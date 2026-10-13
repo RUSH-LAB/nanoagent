@@ -69,10 +69,12 @@ export function nanoagentWebArgs(env = process.env) {
     'host=127.0.0.1',
     `port=${nanoagentPort}`,
     'api_token=null',
-    `plugins=${JSON.stringify(nanoagentPluginsFrom(env))}`,
-    // The same plugins, offered for download in the marketplace (/marketplace).
+    // Plugins run as you, like any program you start; the server runs them in bwrap.
+    'sandbox=none',
+    // NanoAgent's own plugins, in the marketplace (/marketplace) for workspaces to add.
     `packages=${JSON.stringify(nanoagentPluginsFrom(env))}`,
     `workspaces=${JSON.stringify(path.join(root, 'var', 'agent-workspaces'))}`,
+    `installs=${JSON.stringify(path.join(root, 'var', 'nanoagent-installs'))}`,
   ];
 }
 

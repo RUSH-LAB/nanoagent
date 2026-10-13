@@ -126,8 +126,8 @@ try {
     assert.equal(result.error, undefined, `NanoAgent answered ${result.status}: ${result.error}`);
     return result.value;
   };
-  let listed = null;
   let offered = null;
+  let installed = null;
 
   // One check per method of the client, in order; a method without one fails the run.
   const checks = {
@@ -169,24 +169,6 @@ try {
     async complete() {
       assert.equal((await gateway.complete({input: 'Again.'})).text, 'hello from nanoagent');
     },
-    async plugins() {
-      const plugin = ok(await gateway.plugins()).plugins.find(entry => entry.id === PLUGIN);
-      assert.ok(plugin, `${PLUGIN} is not listed`);
-      assert.match(plugin.readme, /\S/);
-      assert.ok(plugin.tasks.every(task => task.inputSchema));
-      listed = plugin;
-    },
-    async pluginUiFile() {
-      const page = ok(await gateway.pluginUiFile(PLUGIN, listed.uiVersion, 'index.html'));
-      assert.deepEqual(page, fs.readFileSync(path.join(pluginRoot, 'ui', 'index.html')));
-    },
-    async taskRun() {
-      // Arguments that fail the task's input are refused inside the run, on its event stream.
-      const stream = ok(await gateway.taskRun({workspace, app: PLUGIN, task: listed.tasks[0].id, args: {}}));
-      const events = (await new Response(stream).text()).split('\n')
-        .filter(line => line.startsWith('data: ')).map(line => JSON.parse(line.slice(6)));
-      assert.deepEqual(events.map(event => event.type).slice(-2), ['task.error', 'task.done']);
-    },
     async packages() {
       const entry = ok(await gateway.packages()).packages.find(item => item.id === PLUGIN);
       assert.ok(entry, `${PLUGIN} is not offered as a package`);
@@ -206,6 +188,29 @@ try {
       const packed = ok(await gateway.packageSource(archive, `plugins/${PLUGIN}`));
       assert.equal(packed.package.id, PLUGIN);
       assert.ok(Buffer.from(packed.data, 'base64').length > 0);
+    },
+    async install() {
+      // A fresh NanoAgent has installed nothing.
+      assert.equal((await gateway.install(offered.sha256)).status, 404);
+    },
+    async installPackage() {
+      const plugin = ok(await gateway.installPackage(offered.sha256, ok(await gateway.packageFile(PLUGIN)))).plugin;
+      assert.equal(plugin.id, PLUGIN);
+      assert.match(plugin.readme, /\S/);
+      assert.ok(plugin.tasks.every(task => task.inputSchema));
+      assert.deepEqual(ok(await gateway.install(offered.sha256)).plugin, plugin);
+      installed = plugin;
+    },
+    async installUiFile() {
+      const page = ok(await gateway.installUiFile(offered.sha256, installed.uiVersion, 'index.html'));
+      assert.deepEqual(page, fs.readFileSync(path.join(pluginRoot, 'ui', 'index.html')));
+    },
+    async taskRun() {
+      // Arguments that fail the task's input are refused inside the run, on its event stream.
+      const stream = ok(await gateway.taskRun({workspace, install: offered.sha256, task: installed.tasks[0].id, args: {}}));
+      const events = (await new Response(stream).text()).split('\n')
+        .filter(line => line.startsWith('data: ')).map(line => JSON.parse(line.slice(6)));
+      assert.deepEqual(events.map(event => event.type).slice(-2), ['task.error', 'task.done']);
     },
     async saveWorkspaceFile() {
       ok(await gateway.saveWorkspaceFile(workspace, 'notes/a.md', Buffer.from('# A'), {create: true}));

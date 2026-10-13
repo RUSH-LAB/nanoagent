@@ -5,11 +5,12 @@ const {FsError} = require('../fs/store');
 const {budgetRefusal} = require('../ai-metering');
 const {createSseParser} = require('../ai');
 
-// Apps: the NanoAgent plugin packages the private NanoAgent service publishes,
-// and the caller's own agent folder, `home/<user>/agent/` in the workspace file
-// system, where those apps leave their files and the app pages list, read and
-// save them.
-// Each app's own page (its ui/ folder) is served from /api/apps/{id}/ui/{uiVersion}/ and
+// Apps: the marketplace plugins a workspace added (workspace-apps.js), which an
+// owner adds and removes at /api/apps/{id}, and the caller's own agent folder,
+// `home/<user>/agent/` in the workspace file system, where those apps leave
+// their files and the app pages list, read and save them.
+// Opening an app (GET /api/apps/{id}) has NanoAgent install its package, by
+// sha256; its own page (its ui/ folder) is served from /api/apps/{sha256}/ui/{uiVersion}/ and
 // shown in a sandboxed frame (src/components/PluginFrame), which runs the app's
 // tasks through /api/apps/{id}/tasks/{task}/runs. A prompt for an app goes
 // through /api/ai/stream with an appId and runs on that app's NanoAgent agent
@@ -32,7 +33,9 @@ function contentTypeFor(path, body) {
 
 const ROUTES = new Set(['/api/apps', '/api/agent-files', '/api/agent-files/content']);
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const APP_ROUTE = /^\/api\/apps\/([^/]+)$/;
 const UI_ROUTE = /^\/api\/apps\/([^/]+)\/ui\/([^/]+)\/(.+)$/;
+const SHA256 = /^[0-9a-f]{64}$/;
 const UI_VERSION = /^[0-9a-f]{16}$/;
 const TASK_RUN_ROUTE = /^\/api\/apps\/([^/]+)\/tasks\/([^/]+)\/runs$/;
 const SESSIONS_ROUTE = /^\/api\/apps\/([^/]+)\/sessions(?:\/([^/]+))?$/;
@@ -66,10 +69,10 @@ function uiFilePath(raw) {
  * path names the ui/ folder's version, so NanoAgent lets browsers keep each
  * file forever, and a plugin opened again loads without a request.
  */
-async function serveUiFile(res, json, ai, app, version, raw) {
+async function serveUiFile(res, json, ai, sha256, version, raw) {
   const path = uiFilePath(raw);
-  if (!PLUGIN_ID.test(app) || !UI_VERSION.test(version) || !path) return json(res, 404, {error: 'Not found'});
-  const result = await ai.pluginUiFile(app, version, path);
+  if (!SHA256.test(sha256) || !UI_VERSION.test(version) || !path) return json(res, 404, {error: 'Not found'});
+  const result = await ai.installUiFile(sha256, version, path);
   if (result.error) return json(res, result.status, {error: result.error});
   const type = result.headers.get('content-type');
   const policy = result.headers.get('content-security-policy');
@@ -117,13 +120,16 @@ async function streamTaskRun(req, res, ctx, app, task) {
     return json(res, 400, {error: 'Request body must be {"arguments": {...}, "sessionId": "<session id>"}'});
   }
 
-  if (!ctx.agentSync || !ctx.sessions) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
+  if (!ctx.agentSync || !ctx.sessions || !ctx.workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
   try {
     await ctx.sessions.assertOwned(req.context, app, sessionId);
   } catch (error) {
     if (error.name === 'SessionError') return json(res, error.status, {error: error.message});
     throw error;
   }
+  const opened = await ctx.workspaceApps.open(req.context, app);
+  if (opened.error) return json(res, opened.status, {error: opened.error});
+  const install = opened.value.sha256;
   const controller = new AbortController();
   const onClose = () => controller.abort();
   // The run itself, which leaves the response open: the stream ends only after
@@ -132,7 +138,7 @@ async function streamTaskRun(req, res, ctx, app, task) {
   const runTask = async workspace => {
     res.on('close', onClose);
     try {
-      const result = await ai.taskRun({workspace, app, task, args, signal: controller.signal});
+      const result = await ai.taskRun({workspace, install, task, args, signal: controller.signal});
       if (result.error) return json(res, result.status, {error: result.error});
       // A finished task's task.done says what it cost and how long it took; a
       // run without it (failed, stopped, or cut off) is charged at the cap.
@@ -237,6 +243,32 @@ async function sessionRoute(req, res, ctx, app, id) {
   return json(res, 405, {error: 'Method not allowed'});
 }
 
+/**
+ * One of the workspace's apps: GET opens it, installed and ready to run; PUT
+ * adds the marketplace plugin of that id and DELETE removes it, an owner's to do.
+ */
+async function appRoute(req, res, ctx, id) {
+  const {json, requireWorkspacePermission, workspaceApps} = ctx;
+  if (!PLUGIN_ID.test(id)) return json(res, 404, {error: `No plugin named ${id}`});
+  if (!workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
+  if (req.method === 'GET') {
+    requireWorkspacePermission(req.context, 'content:read');
+    const opened = await workspaceApps.open(req.context, id);
+    return opened.error ? json(res, opened.status, {error: opened.error}) : json(res, 200, {app: opened.value});
+  }
+  if (req.method === 'PUT') {
+    requireWorkspacePermission(req.context, 'workspace:manage');
+    const added = await workspaceApps.add(req.context, id);
+    return added.error ? json(res, added.status, {error: added.error}) : json(res, 200, {app: added.value});
+  }
+  if (req.method === 'DELETE') {
+    requireWorkspacePermission(req.context, 'workspace:manage');
+    if (!await workspaceApps.remove(req.context, id)) return json(res, 404, {error: `This workspace has no plugin named ${id}`});
+    return json(res, 200, {removed: id});
+  }
+  return json(res, 405, {error: 'Method not allowed'});
+}
+
 module.exports = async function app_routes(req, res, url, pathname, ctx) {
   const {json, readRawBody, requireWorkspacePermission, ai} = ctx;
   const ui = UI_ROUTE.exec(pathname);
@@ -253,13 +285,16 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
   }
   const sessions = SESSIONS_ROUTE.exec(pathname);
   if (sessions) return sessionRoute(req, res, ctx, sessions[1], sessions[2] ?? null);
+  const app = APP_ROUTE.exec(pathname);
+  if (app) return appRoute(req, res, ctx, app[1]);
   if (!ROUTES.has(pathname)) return;
 
   if (req.method === 'GET' && pathname === '/api/apps') {
     requireWorkspacePermission(req.context, 'content:read');
-    const result = await ai.plugins();
+    if (!ctx.workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
+    const result = await ctx.workspaceApps.list(req.context);
     if (result.error) return json(res, result.status, {error: result.error});
-    return json(res, 200, {apps: result.value.plugins});
+    return json(res, 200, {apps: result.value});
   }
 
   const fs = ctx.workspaceFs;

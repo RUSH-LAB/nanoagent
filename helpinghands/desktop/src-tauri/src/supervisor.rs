@@ -230,6 +230,7 @@ impl Supervisor {
         self.set("starting", "Starting NanoAgent…");
         let plugins = serde_json::to_string(&plugin_folders(&nanoagent.join("plugins"))?).unwrap();
         let workspaces = self.data.join("agent-workspaces");
+        let installs = self.data.join("nanoagent-installs");
         let python = nanoagent.join(".venv").join(if cfg!(windows) { "Scripts/python.exe" } else { "bin/python" });
         let nanoagent_args = vec![
             "-m".to_string(), "nanoagent".into(), "web".into(),
@@ -237,9 +238,11 @@ impl Supervisor {
             "host=127.0.0.1".into(),
             format!("port={nanoagent_port}"),
             "api_token=null".into(),
-            format!("plugins={plugins}"),
+            // The desktop runs plugins as the user who runs it, like any program they start.
+            "sandbox=none".into(),
             format!("packages={plugins}"),
             format!("workspaces={}", serde_json::to_string(&workspaces.display().to_string()).unwrap()),
+            format!("installs={}", serde_json::to_string(&installs.display().to_string()).unwrap()),
         ];
         self.spawn("NanoAgent", &python, &nanoagent_args, &nanoagent, &env, &logs.join("nanoagent.log"))?;
         if !self.wait_until("NanoAgent", NANOAGENT_TIMEOUT, || nanoagent_ready(nanoagent_port))? {

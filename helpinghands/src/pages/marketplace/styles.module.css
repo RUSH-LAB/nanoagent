@@ -140,8 +140,31 @@
 }
 
 .name {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
   margin: 0;
   font-size: 1rem;
+}
+
+.added {
+  padding: 0 0.45rem;
+  border: 1px solid var(--ifm-color-success);
+  border-radius: 999px;
+  color: var(--ifm-color-success-darkest);
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+[data-theme='dark'] .added {
+  color: var(--ifm-color-success-lightest);
+}
+
+.hint {
+  align-self: center;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.9rem;
 }
 
 .author {

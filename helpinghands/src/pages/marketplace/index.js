@@ -1,19 +1,24 @@
 import React from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import Link from '@docusaurus/Link';
 import {useHistory, useLocation} from '@docusaurus/router';
 import Layout from '@theme/Layout';
 import AppProduct from '@site/src/components/AppProduct';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
+import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
+import {forgetWorkspaceApps, workspaceAppsUrl} from '@site/src/hooks/useWorkspaceApps';
 import API_BASE, {apiFetch, apiJson} from '@site/src/utils/api';
 import styles from './styles.module.css';
 
 /**
  * The plugin marketplace (server/routes/market.js), as a gallery: NanoAgent's
- * own plugins and the ones people publish from GitHub, as `nanoagent plugin
- * pack` packages to download and run on your own machine. A tile opens the
- * plugin's product page in place of the gallery; `?plugin=` names it, so it can
- * be linked. Nothing here runs a plugin, and a published
- * one is checked against the plugin rules but not reviewed, so the page says so.
+ * own plugins and the ones people publish from GitHub. A workspace's owner adds
+ * a plugin to the workspace (server/routes/apps.js), and then every member uses
+ * it on the Plugins page, where NanoAgent runs it in a sandbox: it reaches only
+ * the hosts it declares and writes only to the member's agent folder. A tile
+ * opens the plugin's product page in place of the gallery; `?plugin=` names
+ * it, so it can be linked. A published plugin is checked against the plugin
+ * rules but not reviewed, so the page says so.
  */
 
 const kilobytes = size => `${Math.max(1, Math.round(size / 1024))} KB`;
@@ -44,7 +49,7 @@ const publish = url => send('/api/market', {
   method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({url}),
 });
 
-function Tile({plugin, onOpen}) {
+function Tile({plugin, added, onOpen}) {
   const author = authorOf(plugin);
   return (
     <button type="button" className={styles.tile} onClick={() => onOpen(plugin)}>
@@ -53,7 +58,10 @@ function Tile({plugin, onOpen}) {
         <img src={plugin.product.icon} alt="" />
       </div>
       <div className={styles.tileBody}>
-        <h2 className={styles.name}>{plugin.name}</h2>
+        <h2 className={styles.name}>
+          {plugin.name}
+          {added && <span className={styles.added}>Added</span>}
+        </h2>
         <p className={styles.author}>
           by {author.name}
           {author.id === NANOAGENT && <span className={styles.official}>Official</span>}
@@ -105,7 +113,48 @@ function Publish({onPublished}) {
   );
 }
 
-function Detail({plugin, onBack, onChanged}) {
+/**
+ * Adding the plugin to the workspace, or removing it: an owner's to do. Anyone
+ * else sees whether it is there, and opens it from here when it is.
+ */
+function WorkspaceAction({plugin, added, workspace, slug, busy, act, onAdded}) {
+  if (!workspace) return null;
+  const owner = workspace.role === 'owner';
+  const appsHref = `/w/${encodeURIComponent(slug)}/apps?app=${encodeURIComponent(plugin.id)}`;
+  if (added) {
+    return (
+      <>
+        <Link className="button button--primary button--lg" to={appsHref}>Open in {workspace.name}</Link>
+        {owner && (
+          <button
+            type="button"
+            className="button button--outline button--danger button--lg"
+            disabled={busy}
+            onClick={() => {
+              if (!window.confirm(`Remove ${plugin.name} from ${workspace.name}? Its members can no longer use it.`)) return;
+              act(() => send(`/api/apps/${plugin.id}`, {method: 'DELETE'}), () => onAdded(false));
+            }}
+          >
+            Remove from {workspace.name}
+          </button>
+        )}
+      </>
+    );
+  }
+  if (!owner) return <span className={styles.hint}>Ask an owner of {workspace.name} to add it.</span>;
+  return (
+    <button
+      type="button"
+      className="button button--primary button--lg"
+      disabled={busy}
+      onClick={() => act(() => send(`/api/apps/${plugin.id}`, {method: 'PUT'}), () => onAdded(true))}
+    >
+      Add to {workspace.name}
+    </button>
+  );
+}
+
+function Detail({plugin, added, workspace, slug, onBack, onChanged, onAdded}) {
   const [state, setState] = React.useState({busy: false, error: null});
   const author = authorOf(plugin);
 
@@ -124,7 +173,16 @@ function Detail({plugin, onBack, onChanged}) {
 
   const actions = (
     <>
-      <a className="button button--primary button--lg" href={`${API_BASE}/api/market/${plugin.id}/package`} download>
+      <WorkspaceAction
+        plugin={plugin}
+        added={added}
+        workspace={workspace}
+        slug={slug}
+        busy={state.busy}
+        act={act}
+        onAdded={onAdded}
+      />
+      <a className="button button--outline button--primary button--lg" href={`${API_BASE}/api/market/${plugin.id}/package`} download>
         Download ({kilobytes(plugin.size)})
       </a>
       {plugin.repository && (
@@ -159,8 +217,9 @@ function Detail({plugin, onBack, onChanged}) {
       {state.error && <div className={styles.error}>{state.error}</div>}
       <AppProduct app={plugin} actions={actions} />
       <p className={styles.notice}>
-        Download it, unpack it with <code>tar xzf</code>, and run it with <code>nanoagent plugin</code> on your own
-        machine.{author.id !== NANOAGENT && ' Published plugins are checked against the plugin rules but not reviewed, so read its code before you run it.'}
+        Added to a workspace, it runs in a sandbox: it reaches only the hosts it lists and writes only to each
+        member's agent folder. Or download it and run it with <code>nanoagent plugin</code> on your own machine.
+        {author.id !== NANOAGENT && ' Published plugins are checked against the plugin rules but not reviewed, so read its code before you add it.'}
       </p>
     </section>
   );
@@ -169,6 +228,10 @@ function Detail({plugin, onBack, onChanged}) {
 function Marketplace() {
   const location = useLocation();
   const history = useHistory();
+  const {slug, workspace} = useWorkspaceSite();
+  const workspaceId = workspace?.id ?? null;
+  // The ids of the plugins the workspace added, or null outside one.
+  const [added, setAdded] = React.useState(null);
   const params = new URLSearchParams(location.search);
   const openId = params.get('plugin');
   const [state, setState] = React.useState({plugins: null, error: null});
@@ -184,6 +247,24 @@ function Marketplace() {
       : {plugins: null, error: result.data.error || `Could not load the marketplace (${result.status})`});
   }, []);
   React.useEffect(() => { load(); }, [load]);
+  React.useEffect(() => {
+    if (!workspaceId) return undefined;
+    let cancelled = false;
+    apiJson(workspaceAppsUrl(workspaceId), {fresh: true}).then(
+      result => !cancelled && result.ok && setAdded(new Set(result.data.apps.map(app => app.id))),
+      () => {},
+    );
+    return () => { cancelled = true; };
+  }, [workspaceId]);
+  const markAdded = (id, isAdded) => {
+    forgetWorkspaceApps(workspaceId);
+    setAdded(current => {
+      const next = new Set(current);
+      if (isAdded) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
 
   const navigate = changes => {
     const next = new URLSearchParams(location.search);
@@ -208,6 +289,10 @@ function Marketplace() {
       <main className={styles.page}>
         <Detail
           plugin={open}
+          added={Boolean(added?.has(open.id))}
+          workspace={added ? workspace : null}
+          slug={slug}
+          onAdded={isAdded => markAdded(open.id, isAdded)}
           onBack={() => navigate({plugin: null})}
           onChanged={async id => {
             await load();
@@ -223,7 +308,11 @@ function Marketplace() {
       <header className={styles.header}>
         <div>
           <h1>Marketplace</h1>
-          <p>Plugins for NanoAgent: download one, or publish your own from GitHub.</p>
+          <p>
+            {workspace
+              ? `Plugins for ${workspace.name}: add one, and everyone in the workspace can use it on the Plugins page.`
+              : 'Plugins for NanoAgent: add one to a workspace, or publish your own from GitHub.'}
+          </p>
         </div>
         <button type="button" className="button button--primary" onClick={() => setPublishing(value => !value)}>
           {publishing ? 'Cancel' : '+ Publish a plugin'}
@@ -263,7 +352,14 @@ function Marketplace() {
       {state.error && <div className={styles.error}>{state.error}</div>}
       {state.plugins && !shown.length && <p className={styles.empty}>No plugins match.</p>}
       <div className={styles.grid}>
-        {shown.map(plugin => <Tile key={plugin.id} plugin={plugin} onOpen={chosen => navigate({plugin: chosen.id})} />)}
+        {shown.map(plugin => (
+          <Tile
+            key={plugin.id}
+            plugin={plugin}
+            added={Boolean(added?.has(plugin.id))}
+            onOpen={chosen => navigate({plugin: chosen.id})}
+          />
+        ))}
       </div>
     </main>
   );
@@ -271,7 +367,7 @@ function Marketplace() {
 
 export default function MarketplacePage() {
   return (
-    <Layout title="Marketplace" description="NanoAgent plugins to download and share">
+    <Layout title="Marketplace" description="NanoAgent plugins to add to your workspace and share">
       <BrowserOnly fallback={<div style={{padding: 40, textAlign: 'center'}}>Loading...</div>}>
         {() => <ErrorBoundary><Marketplace /></ErrorBoundary>}
       </BrowserOnly>

@@ -282,13 +282,17 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     // An app's agent acts through the app's tools, which is editing, not reading.
     if (composed.request.app) {
       ctx.requireWorkspacePermission(req.context, 'content:edit');
-      if (!ctx.agentSync || !ctx.sessions) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
+      if (!ctx.agentSync || !ctx.sessions || !ctx.workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
       try {
         await ctx.sessions.assertOwned(req.context, composed.request.app, composed.session);
       } catch (error) {
         if (error.name === 'SessionError') return json(res, error.status, {error: error.message});
         throw error;
       }
+      // The app runs as the workspace added it: NanoAgent's install of its package.
+      const opened = await ctx.workspaceApps.open(req.context, composed.request.app);
+      if (opened.error) return json(res, opened.status, {error: opened.error});
+      composed.request.install = opened.value.sha256;
     }
 
     res.writeHead(200, {

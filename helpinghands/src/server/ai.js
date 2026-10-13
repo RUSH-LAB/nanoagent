@@ -13,6 +13,8 @@ const fallbackProfiles = require('../ai-profiles.json');
 
 const DEFAULT_URL = 'http://127.0.0.1:8787';
 const DEFAULT_TIMEOUT_MS = 190_000;
+// NanoAgent's own bound on building a plugin's environment (nanoagent.plugin.install), and then some.
+const INSTALL_TIMEOUT_MS = 620_000;
 const DEFAULT_MAX_STREAM_BYTES = 2 * 1024 * 1024;
 const DEFAULT_PROFILE_CACHE_MS = 30_000;
 const DEFAULT_PROFILE_TIMEOUT_MS = 5_000;
@@ -234,7 +236,7 @@ function publicMetrics(value) {
 
 /**
  * A run event as the browser may see it. A tool call's arguments and output stay
- * private, except on an app run (`app`): that app's own page shows them to the
+ * private, except on an app run (`install`): that app's own page shows them to the
  * person who ran it, on the files of their own workspace.
  */
 function publicEvent(event, {app = false} = {}) {
@@ -273,6 +275,7 @@ function publicEvent(event, {app = false} = {}) {
 
 function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fetch(...args)} = {}) {
   const timeoutMs = positiveNumber(env.NANOAGENT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
+  const installTimeoutMs = INSTALL_TIMEOUT_MS;
   const maxStreamBytes = positiveNumber(env.NANOAGENT_MAX_STREAM_BYTES, DEFAULT_MAX_STREAM_BYTES);
   const profileCacheMs = positiveNumber(env.NANOAGENT_PROFILE_CACHE_MS, DEFAULT_PROFILE_CACHE_MS);
   const profileTimeoutMs = positiveNumber(
@@ -331,10 +334,10 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
 
     let reader;
     try {
-      // An app prompt runs on that plugin's agent, inside the caller's workspace;
-      // anything else on a configured profile.
-      const path = request.app
-        ? `/v1/workspaces/${encodeURIComponent(request.workspace)}/plugins/${encodeURIComponent(request.app)}/runs`
+      // An app prompt runs on the agent of the plugin installed as `install`, inside
+      // the caller's workspace; anything else on a configured profile.
+      const path = request.install
+        ? `/v1/workspaces/${encodeURIComponent(request.workspace)}/installs/${encodeURIComponent(request.install)}/runs`
         : '/v1/runs';
       const response = await fetchImpl(`${endpoint.url}${path}`, {
         method: 'POST',
@@ -369,7 +372,7 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
           return;
         }
         if (event.type === 'done' || event.type === 'error') terminal = event;
-        const normalized = publicEvent(event, {app: Boolean(request.app)});
+        const normalized = publicEvent(event, {app: Boolean(request.install)});
         if (normalized) request.onEvent?.(normalized);
       });
 
@@ -462,11 +465,11 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
    * stream as it arrives, otherwise `{error, status}`. Aborting `signal` closes
    * the stream, which cancels the run.
    */
-  async function taskRun({workspace, app, task, args, signal}) {
+  async function taskRun({workspace, install, task, args, signal}) {
     const endpoint = endpointFrom(env);
     if (endpoint.error) return {error: endpoint.error, status: 503};
     try {
-      const path = inWorkspace(workspace, `/plugins/${encodeURIComponent(app)}/tasks/${encodeURIComponent(task)}/runs`);
+      const path = inWorkspace(workspace, `/installs/${encodeURIComponent(install)}/tasks/${encodeURIComponent(task)}/runs`);
       const response = await fetchImpl(`${endpoint.url}${path}`, {
         method: 'POST',
         headers: {
@@ -495,8 +498,15 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     complete: request => stream({...request, onDelta: undefined}),
     stream,
     profiles,
-    plugins: () => nanoFetch('/v1/plugins'),
-    pluginUiFile: (app, version, path) => nanoFetch(`/v1/plugins/${encodeURIComponent(app)}/ui/${encodeURIComponent(version)}/${encodedPath(path)}`, {bytes: true}),
+    // Plugins run from installs, each the package with that sha256; NanoAgent
+    // installs one when it is sent, and has none after it restarts.
+    install: sha256 => nanoFetch(`/v1/installs/${encodeURIComponent(sha256)}`),
+    installPackage: (sha256, data) => nanoFetch(`/v1/installs/${encodeURIComponent(sha256)}`, {
+      method: 'PUT', body: data, contentType: 'application/gzip', waitMs: installTimeoutMs,
+    }),
+    installUiFile: (sha256, version, path) => nanoFetch(
+      `/v1/installs/${encodeURIComponent(sha256)}/ui/${encodeURIComponent(version)}/${encodedPath(path)}`, {bytes: true},
+    ),
     taskRun,
     // The marketplace: NanoAgent's own plugin packages, and the package it packs
     // and checks from the plugin at `path` in a repository archive.
@@ -542,8 +552,9 @@ module.exports = {
   complete: gateway.complete,
   stream: gateway.stream,
   profiles: gateway.profiles,
-  plugins: gateway.plugins,
-  pluginUiFile: gateway.pluginUiFile,
+  install: gateway.install,
+  installPackage: gateway.installPackage,
+  installUiFile: gateway.installUiFile,
   taskRun: gateway.taskRun,
   packages: gateway.packages,
   packageFile: gateway.packageFile,

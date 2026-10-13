@@ -17,6 +17,7 @@ import {PaneHeading, Skeleton} from './_parts';
 import TwoColumnLayout from '@site/src/components/TwoColumnLayout';
 import Leave from './_Leave';
 import People from './_People';
+import Plugins from './_Plugins';
 import SettingsSidebar from './_Sidebar';
 import styles from './styles.module.css';
 
@@ -170,7 +171,10 @@ function SettingsApp() {
       {id: 'navigation', label: 'Navigation'},
       ...(activeWorkspace ? [{id: 'membership', label: 'Membership'}] : []),
     ]},
-    ...(activeWorkspace ? [{id: 'workspace', label: 'Workspace', panes: [{id: 'people', label: 'People'}]}] : []),
+    ...(activeWorkspace ? [{id: 'workspace', label: 'Workspace', panes: [
+      {id: 'people', label: 'People'},
+      {id: 'plugins', label: 'Plugins'},
+    ]}] : []),
   ];
   const paneIds = groups.flatMap(group => group.panes.map(pane => pane.id)).join(' ');
   const [visible, setVisible] = useState('account');
@@ -314,6 +318,9 @@ function SettingsApp() {
             <h2 className={styles.settingsGroupHeading}>Workspace</h2>
             <section id="people" className={styles.pane}>
               <People key={activeWorkspace.id} workspace={activeWorkspace} />
+            </section>
+            <section id="plugins" className={styles.pane}>
+              <Plugins key={activeWorkspace.id} workspace={activeWorkspace} />
             </section>
           </div>
         )}

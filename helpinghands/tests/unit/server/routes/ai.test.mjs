@@ -280,13 +280,23 @@ describe('POST /api/ai/stream', () => {
     assert.equal(result.res.writes.at(-1), 'event: done\ndata: {"text":"a completion"}\n\n');
   });
 
+  // The workspace added one app, arxiv-source, which NanoAgent has installed as SHA.
+  const SHA = 'a'.repeat(64);
+  const workspaceApps = {
+    open: async (_context, id) => (id === 'arxiv-source'
+      ? {value: {id, sha256: SHA}}
+      : {error: `This workspace has no plugin named ${id}`, status: 404}),
+  };
+
   it('sends an app prompt to that app with no profile or site instructions', async () => {
     const ctx = makeCtx();
     ctx.agentSync = {run: (_scope, operation) => operation('run-folder')};
     ctx.sessions = fakeSessions();
+    ctx.workspaceApps = workspaceApps;
     const r = await ask({body: {prompt: 'save 1706.03762', appId: 'arxiv-source', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
     assert.equal(r.res.written.status, 200);
     assert.deepEqual(ctx.calls.ai[0].app, 'arxiv-source');
+    assert.equal(ctx.calls.ai[0].install, SHA);
     assert.equal(ctx.calls.ai[0].workspace, 'run-folder');
     assert.equal('profile' in ctx.calls.ai[0], false);
     assert.equal('instructions' in ctx.calls.ai[0], false);
@@ -300,10 +310,21 @@ describe('POST /api/ai/stream', () => {
     const ctx = makeCtx();
     ctx.agentSync = {run: () => assert.fail('must not run')};
     ctx.sessions = fakeSessions();
+    ctx.workspaceApps = workspaceApps;
     const unnamed = await ask({body: {prompt: 'p', appId: 'echo'}, ctx, requestContext: WORKSPACE});
     assert.equal(unnamed.status, 400);
     const foreign = await ask({body: {prompt: 'p', appId: 'chess-move', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
     assert.equal(foreign.status, 404);
+  });
+
+  it('runs an app prompt only on an app the workspace added', async () => {
+    const ctx = makeCtx();
+    ctx.agentSync = {run: () => assert.fail('must not run')};
+    ctx.sessions = fakeSessions();
+    ctx.workspaceApps = workspaceApps;
+    const r = await ask({body: {prompt: 'p', appId: 'echo', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
+    assert.equal(r.status, 404);
+    assert.equal(r.payload.error, 'This workspace has no plugin named echo');
   });
 
   it('refuses an app prompt without the workspace file system', async () => {
