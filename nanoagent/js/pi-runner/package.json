@@ -6,8 +6,8 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zeyuyang8/nanoagent.git",
-    "directory": "js/pi-runner"
+    "url": "git+https://github.com/RUSH-LAB/nanoagent.git",
+    "directory": "nanoagent/js/pi-runner"
   },
   "bin": {
     "nanoagent-pi-runner": "dist/index.js"

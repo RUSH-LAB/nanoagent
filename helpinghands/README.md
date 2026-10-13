@@ -37,9 +37,7 @@ to a member's own computer, so `npm start` prints a sign-in link once; open it,
 signed in as the account you test with, and approve the code. Your runs then use
 the local NanoAgent, and Settings → AI can set its API key (until `npm start`
 stops; `.env`'s keys are where it starts).
-The installer never overwrites an existing checkout or local environment file.
-Set `NANOAGENT_REPOSITORY` and `NANOAGENT_REF` before running it to reproduce
-against a fork or a specific branch/tag.
+The installer never overwrites an existing local environment file.
 
 The local NanoAgent also publishes every plugin package built into the
 NanoAgent checkout, in its `plugins/` directory (such as `plugins/arxiv-source`).

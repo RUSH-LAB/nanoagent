@@ -98,8 +98,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/zeyuyang8/nanoagent"
-Repository = "https://github.com/zeyuyang8/nanoagent"
+Homepage = "https://github.com/RUSH-LAB/nanoagent"
+Repository = "https://github.com/RUSH-LAB/nanoagent"
 
 # So it is `nanoagent chat ...` rather than `python3 -m nanoagent chat ...`. Same entry point
 # either way — __main__.py and this both call cli.main.

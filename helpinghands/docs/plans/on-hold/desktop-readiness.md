@@ -72,7 +72,7 @@ window.__MOCHI_RUNTIME_CONFIG__ = {
 
 ### 4. Distribution
 
-- Start with macOS signing and notarization.
+- macOS builds are ad-hoc signed; notarization needs an Apple Developer ID.
 - Add crash reporting and privacy controls.
 - Ship signed auto-updates with beta and stable channels.
 - Add Windows signing and Linux packages after the workflow is stable.

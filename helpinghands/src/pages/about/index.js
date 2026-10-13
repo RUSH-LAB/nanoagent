@@ -261,7 +261,7 @@ export default function AboutPage() {
               Docusaurus
             </a>.
             Source on{' '}
-            <a href="https://github.com/zeyuyang8/mochi-lab" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--ifm-color-primary)' }}>
+            <a href="https://github.com/RUSH-LAB/nanoagent" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--ifm-color-primary)' }}>
               GitHub
             </a>.
           </p>

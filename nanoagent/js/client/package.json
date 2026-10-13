@@ -5,8 +5,8 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zeyuyang8/nanoagent.git",
-    "directory": "js/client"
+    "url": "git+https://github.com/RUSH-LAB/nanoagent.git",
+    "directory": "nanoagent/js/client"
   },
   "publishConfig": {
     "access": "public"

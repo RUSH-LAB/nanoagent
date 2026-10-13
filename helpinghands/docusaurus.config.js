@@ -65,8 +65,8 @@ const config = {
   url: process.env.SITE_URL || 'http://localhost:3000',
   baseUrl: '/',
 
-  organizationName: 'zeyuyang8',
-  projectName: 'mochi-lab',
+  organizationName: 'RUSH-LAB',
+  projectName: 'nanoagent',
 
   onBrokenLinks: 'throw',
   onBrokenAnchors: 'ignore',
