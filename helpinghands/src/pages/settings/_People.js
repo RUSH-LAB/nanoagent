@@ -7,6 +7,7 @@ import Avatar from '@site/src/components/Avatar';
 import RowMenu from '@site/src/components/RowMenu';
 import {PaneHeading, Skeleton} from './_parts';
 import AddPeople, {CopyLink} from './_AddPeople';
+import {inviteeLabel} from '@site/src/utils/invite';
 import RolePicker, {ROLE_NOTE, roleClass} from './_RolePicker';
 import card from './styles.module.css';
 import styles from './people.module.css';
@@ -141,7 +142,7 @@ export default function People({workspace}) {
     setMessage(null);
     try {
       await workspaceCall(`/invitations/${invitation.id}`, {method: 'DELETE'});
-      setMessage({kind: 'ok', text: `The invitation to ${invitation.email} is withdrawn.`});
+      setMessage({kind: 'ok', text: `The invitation to ${inviteeLabel(invitation)} is withdrawn.`});
       await load();
     } catch (err) {
       setMessage({kind: 'error', text: err.message});
@@ -275,9 +276,14 @@ export default function People({workspace}) {
             {invitations.map(invitation => (
               <li key={invitation.id} className={`${styles.grid} ${styles.row}`}>
                 <span className={styles.person}>
-                  <Avatar user={{email: invitation.email}} size={32} />
+                  <Avatar
+                    user={invitation.githubLogin
+                      ? {name: invitation.githubLogin, image: `https://github.com/${encodeURIComponent(invitation.githubLogin)}.png?size=64`}
+                      : {email: invitation.email}}
+                    size={32}
+                  />
                   <span className={dir.identity}>
-                    <span className={dir.name}>{invitation.email}</span>
+                    <span className={dir.name}>{inviteeLabel(invitation)}</span>
                     <span className={dir.detail}>invited by {invitation.invitedBy}</span>
                   </span>
                 </span>
@@ -290,7 +296,7 @@ export default function People({workspace}) {
                 <span className={styles.rowActions}>
                   {!invitation.expired && <CopyLink invitationId={invitation.id} onResult={setMessage} />}
                   <RowMenu
-                    label={`More for ${invitation.email}`}
+                    label={`More for ${inviteeLabel(invitation)}`}
                     items={[{
                       label: 'Withdraw the invitation',
                       danger: true,

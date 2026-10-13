@@ -3,7 +3,8 @@ import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import Link from '@docusaurus/Link';
 import API_BASE, {apiFetch} from '@site/src/utils/api';
-import {loadWorkspaces} from '@site/src/utils/workspaces';
+import {useAccount} from '@site/src/utils/account';
+import {inviteeLabel} from '@site/src/utils/invite';
 import pageStyles from '@site/src/css/page.module.css';
 import dir from '@site/src/css/directory.module.css';
 import styles from './styles.module.css';
@@ -13,13 +14,15 @@ import styles from './styles.module.css';
  *
  * Readable signed out, which is the whole point: whoever arrives here has no
  * account yet and needs to know which workspace this is, who asked them, and
- * above all which address their GitHub account must have. The server serves those four
- * fields for a pending invitation and 404s everything else, so a stale link
- * cannot be used to learn that an organization has been in touch with an
- * address.
+ * above all which GitHub account, or which address their GitHub account must
+ * have. The server serves those fields for a pending invitation and 404s
+ * everything else, so a stale link cannot be used to learn that an organization
+ * has been in touch with somebody.
  *
- * Accepting is a different request, and it needs the session whose address the
- * invitation names. Better Auth checks that; this page only explains it.
+ * Accepting is a different request, and it needs the session the invitation
+ * names. The server checks that; this page only explains it. Who is signed in
+ * is the auth gate's answer (utils/account.js), known before this page is drawn,
+ * so the page waits only for the invitation.
  */
 
 async function call(path, init) {
@@ -34,8 +37,8 @@ async function call(path, init) {
 }
 
 function Join() {
+  const {account, refresh} = useAccount();
   const [invitation, setInvitation] = useState(null);
-  const [account, setAccount] = useState(null);
   const [status, setStatus] = useState('loading');
   const [message, setMessage] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -58,16 +61,6 @@ function Join() {
     } catch (err) {
       setStatus('gone');
       setMessage(err.message);
-      return;
-    }
-    // Who, if anyone, is signed in here. Required here rather than imported so
-    // the auth client, which initializes browser-only state, never runs at build time.
-    try {
-      const {authClient} = require('@site/src/utils/authClient');
-      const session = await authClient.getSession();
-      setAccount(session?.data?.user ?? null);
-    } catch {
-      setAccount(null);
     }
   }, [id]);
 
@@ -90,7 +83,9 @@ function Join() {
     setMessage(null);
     try {
       const joined = await call(`/api/invite/${encodeURIComponent(id)}/accept`, {method: 'POST'});
-      const {workspaces} = await loadWorkspaces({fresh: true});
+      // The gate learns the new workspace too, or it would still count the
+      // account's workspaces as they were before it joined.
+      const {workspaces} = await refresh();
       setJoinedWorkspace(workspaces.find(workspace => workspace.id === joined.organizationId) ?? null);
       setStatus('joined');
     } catch (err) {
@@ -128,13 +123,20 @@ function Join() {
 
   // Signed in as somebody, but not the somebody this was sent to. Saying so is
   // the useful part: on a shared machine this is the likeliest way to arrive.
-  const mismatched = account && account.email?.toLowerCase() !== invitation.email.toLowerCase();
+  // A GitHub invitation is compared by username here; accepting checks GitHub's id.
+  const invitee = inviteeLabel(invitation);
+  const mismatched = account && (invitation.githubLogin
+    ? account.githubLogin?.toLowerCase() !== invitation.githubLogin.toLowerCase()
+    : account.email?.toLowerCase() !== invitation.email.toLowerCase());
+  const wanted = invitation.githubLogin
+    ? `the GitHub account ${invitee}`
+    : `the GitHub account whose primary email is ${invitee}`;
 
   return (
     <div className={pageStyles.pageContainer}>
       <h1 className={dir.title}>Join {invitation.organization}</h1>
       <p className={dir.note}>
-        {invitation.invitedBy} invited <strong>{invitation.email}</strong> to join as {invitation.role}.
+        {invitation.invitedBy} invited <strong>{invitee}</strong> to join as {invitation.role}.
       </p>
 
       {message && <p className={dir.error} role="status">{message}</p>}
@@ -142,8 +144,7 @@ function Join() {
       {!account && (
         <div className={styles.next}>
           <p className={dir.note}>
-            Sign in with the GitHub account whose primary email is {invitation.email}{' '}
-            to accept. Any other address will be refused.
+            Sign in with {wanted} to accept. Any other account will be refused.
           </p>
           <button type="button" className={dir.cta} onClick={signIn} disabled={busy}>
             {busy ? 'Working…' : 'Continue with GitHub'}
@@ -154,9 +155,8 @@ function Join() {
       {mismatched && (
         <div className={styles.next}>
           <p className={dir.note}>
-            You are signed in as {account.email}, and this invitation is for{' '}
-            {invitation.email}. Sign out and back in with the GitHub account whose primary
-            email is the invited address.
+            You are signed in as {invitation.githubLogin ? `@${account.githubLogin}` : account.email}, and
+            this invitation is for {invitee}. Sign out and back in with {wanted}.
           </p>
         </div>
       )}

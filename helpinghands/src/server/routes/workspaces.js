@@ -46,6 +46,7 @@ module.exports = async function workspace_routes(req, res, url, pathname, ctx) {
     }));
     return json(res, 200, {
       userId,
+      account: req.auth.account,
       workspaces,
       // Navigation preference only; scoped endpoints never authorize from it.
       defaultWorkspaceId: req.auth?.orgId ?? workspaces[0]?.id ?? null,

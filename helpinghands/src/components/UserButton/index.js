@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import Link from '@docusaurus/Link';
 import {useLocation} from '@docusaurus/router';
 import Avatar from '@site/src/components/Avatar';
-import {authClient, signOutAndForget} from '@site/src/utils/authClient';
+import {signOutAndForget} from '@site/src/utils/authClient';
+import {useAccount} from '@site/src/utils/account';
 import {clientPlatform} from '@site/src/platform/client';
 import styles from './styles.module.css';
 
@@ -13,11 +14,8 @@ import styles from './styles.module.css';
  * theme/NavbarItem/ComponentTypes.js, and placed after the search bar in
  * docusaurus.config.js.
  *
- * The session is fetched after mount rather than during render. The navbar is
- * part of every statically built page, so there is no session at build time and
- * the markup has to be identical on the server and on the first client render
- * or React reports a hydration mismatch. The button therefore ships as a
- * neutral placeholder and fills itself in a moment later.
+ * Who you are is the auth gate's answer (utils/account.js), which is known
+ * before any page, this navbar included, is drawn.
  */
 
 function labelOf(user) {
@@ -31,7 +29,7 @@ function workspaceSlugFromPath(pathname) {
 }
 
 export default function UserButton({ mobile = false }) {
-  const [user, setUser] = useState(null);
+  const {account: user} = useAccount();
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const menuRef = useRef(null);
@@ -39,16 +37,6 @@ export default function UserButton({ mobile = false }) {
   const settingsPath = workspaceSlug && !workspaceSlug.startsWith(':')
     ? `/w/${encodeURIComponent(workspaceSlug)}/settings`
     : '/settings';
-
-  useEffect(() => {
-    let cancelled = false;
-    // Through authClient, which addresses the API's origin; a relative path
-    // reaches the site's own server in development and never finds a session.
-    authClient.getSession()
-      .then((result) => { if (!cancelled) setUser(result?.data?.user ?? null); })
-      .catch(() => { /* signed out or API down; the button still links to settings */ });
-    return () => { cancelled = true; };
-  }, []);
 
   useEffect(() => {
     if (!open) return undefined;

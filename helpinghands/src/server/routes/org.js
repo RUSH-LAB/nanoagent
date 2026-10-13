@@ -68,6 +68,7 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
       invitation: {
         id: invitation.id,
         email: invitation.email,
+        githubLogin: invitation.githubLogin,
         role: invitation.role,
         organization: invitation.organization,
         invitedBy: invitation.invitedBy,
@@ -92,6 +93,9 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
         headers: req.headers, invitationId: inviteAccept[1],
       });
       if (result.error === 'not-found') return json(res, 404, {error: 'This invitation is not valid any more', code: 'invitation-not-found'});
+      if (result.error === 'not-recipient') {
+        return json(res, 403, {error: `This invitation is for the GitHub account @${result.githubLogin}`, code: 'not-recipient'});
+      }
       return json(res, 200, {joined: true, organizationId: result.organizationId});
     } catch (err) {
       return sendRefusal(json, res, err);
@@ -171,7 +175,8 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
     return json(res, 200, {invitations: await org.listInvitations(req.context)});
   }
 
-  // ── Invite an address ──
+  // ── Invite an address or a GitHub account ──
+  // A body names `email` or `githubLogin`, the username of a GitHub account.
   if (req.method === 'POST' && orgPath === '/api/org/invitations') {
     if (!manages) return json(res, 403, {error: 'Only the workspace owner can invite people'});
     if (!await rateLimit(`org-invite:${userId}`, 20)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
@@ -184,8 +189,16 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
     try {
       // Members and pending invitations together may not pass the member limit.
       await tenancy?.inviteAllowance(req.context);
-      const result = await org.invite(req.context, {headers: req.headers, email: body.email, role: body.role});
+      const result = body.githubLogin !== undefined
+        ? await org.inviteGithub(req.context, {headers: req.headers, githubLogin: body.githubLogin, role: body.role})
+        : await org.invite(req.context, {headers: req.headers, email: body.email, role: body.role});
       if (result.error === 'invalid-email') return json(res, 400, {error: 'An email address is required', code: 'invalid-email'});
+      if (result.error === 'invalid-github-login') return json(res, 400, {error: 'That is not a GitHub username', code: 'invalid-github-login'});
+      if (result.error === 'github-user-not-found') {
+        return json(res, 404, {error: `GitHub has no user ${body.githubLogin}`, code: 'github-user-not-found'});
+      }
+      if (result.error === 'already-member') return json(res, 409, {error: 'That GitHub account is already in this workspace', code: 'already-member'});
+      if (result.error === 'forbidden') return json(res, 403, {error: 'Only the workspace owner can invite people', code: 'forbidden'});
       if (result.error === 'invalid-role') return json(res, 400, {error: `Role must be one of ${org.ROLES.join(', ')}`, code: 'invalid-role'});
       return json(res, 200, {invitation: result.invitation});
     } catch (err) {
@@ -202,6 +215,7 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
         headers: req.headers, invitationId: invitationMatch[1],
       });
       if (result.error === 'not-found') return json(res, 404, {error: 'No such invitation', code: 'not-found'});
+      if (result.error === 'forbidden') return json(res, 403, {error: 'Only the workspace owner can withdraw an invitation', code: 'forbidden'});
       return json(res, 200, {cancelled: result.cancelled});
     } catch (err) {
       return sendRefusal(json, res, err);

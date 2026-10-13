@@ -14,8 +14,8 @@ import useWorkspaceSubscriptions, {
   isGroupSubscribed, orderByPreference,
 } from '@site/src/hooks/useWorkspaceSubscriptions';
 import API_BASE, {apiFetch, apiJson, invalidateApiJson} from '@site/src/utils/api';
-import {loadWorkspaces, navigateClient} from '@site/src/utils/workspaces';
-import {authClient} from '@site/src/utils/authClient';
+import {navigateClient} from '@site/src/utils/workspaces';
+import {useAccount} from '@site/src/utils/account';
 import {
   DOCUMENT_SYNC_EVENT, documentCache, isOffline, startDocumentSync,
 } from '@site/src/utils/documentCache';
@@ -403,6 +403,7 @@ function DocumentBody({
   subcategoryRequested,
 }) {
   const {siteConfig} = useDocusaurusContext();
+  const {account, userId, workspaces} = useAccount();
   const [state, setState] = useState({status: LOADING});
   const [editing, setEditing] = useState(false);
   // A visitor has no member preferences to read.
@@ -425,14 +426,10 @@ function DocumentBody({
         // A signed-out visitor reads what the workspace publishes, through the
         // public API, without this browser's cache of member documents.
         let workspace;
-        let userId = null;
         let publicSite = null;
-        try {
-          const account = await loadWorkspaces();
-          userId = account.userId;
-          workspace = account.workspaces.find(item => item.slug === workspaceSlug);
-        } catch (err) {
-          if (err.status !== 401) throw err;
+        if (userId) {
+          workspace = workspaces.find(item => item.slug === workspaceSlug);
+        } else {
           const published = await apiJson(`${API_BASE}/api/public/${encodeURIComponent(workspaceSlug)}`, {
             cacheMs: WORKSPACE_CONTENT_CACHE_MS,
           });
@@ -608,7 +605,7 @@ function DocumentBody({
     return () => {
       cancelled = true;
     };
-  }, [workspaceSlug, documentPath, editRequested]);
+  }, [workspaceSlug, documentPath, editRequested, userId, workspaces]);
 
   // Keep this browser's copy of the workspace current while the page is open,
   // and show what the background sync did with edits saved offline.
@@ -684,7 +681,7 @@ function DocumentBody({
       // A post's author is whoever starts it, by GitHub username.
       let author = null;
       if (targetCollection?.type === 'blog') {
-        author = (await authClient.getSession()).data?.user?.githubLogin;
+        author = account?.githubLogin;
         if (!author) throw new Error('Sign in with GitHub again so Mochi knows your GitHub username.');
       }
       const draft = newDocumentDraft({
@@ -709,7 +706,7 @@ function DocumentBody({
     } catch (error) {
       window.alert(error.message);
     }
-  }, [state.documents, state.site, state.workspaceId, state.workspaceRole, workspaceSlug]);
+  }, [account, state.documents, state.site, state.workspaceId, state.workspaceRole, workspaceSlug]);
 
   const deleteDocument = useCallback(async (document, collection) => {
     if (!state.workspaceId || state.workspaceRole !== 'owner') return;

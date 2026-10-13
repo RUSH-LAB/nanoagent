@@ -6,7 +6,8 @@ import useBaseUrl from '@docusaurus/useBaseUrl';
 import { useThemeConfig } from '@docusaurus/theme-common';
 import { useLocation } from '@docusaurus/router';
 import { useClickOutside } from '@site/src/hooks/useClickOutside';
-import { getCachedWorkspaces, loadWorkspaces, switchWorkspace, workspaceSlugFromPath } from '@site/src/utils/workspaces';
+import { switchWorkspace, workspaceSlugFromPath } from '@site/src/utils/workspaces';
+import { useAccount } from '@site/src/utils/account';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import API_BASE from '@site/src/utils/api';
 import styles from './styles.module.css';
@@ -21,12 +22,9 @@ import styles from './styles.module.css';
  * every channel, person, and invitation on the page refers to, so that is the
  * more useful of the two to have on screen.
  *
- * Falls back to the ordinary logo, unchanged, in every case where there is no
- * workspace to name: authentication off, signed out, the API unreachable, and
- * the static build. That fallback is also what makes hydration safe. The navbar
- * is part of every prerendered page, so the first client render has to match the
- * HTML exactly or React reports a mismatch; rendering the stock logo until the
- * request answers is the same markup the build produced.
+ * Falls back to the ordinary logo when there is no workspace to name: signed
+ * out, or a URL naming a workspace you are not in. The workspaces are the auth
+ * gate's answer (utils/account.js), known before the navbar is drawn.
  */
 
 /** Marks the workspace you are in, in the list of the ones you could be in. */
@@ -50,9 +48,7 @@ export default function WorkspaceSwitcher() {
   const location = useLocation();
   const workspaceSite = useWorkspaceSite();
 
-  const cached = getCachedWorkspaces();
-  const [workspaces, setWorkspaces] = useState(cached?.memberships ?? null);
-  const [activeId, setActiveId] = useState(cached?.activeId ?? null);
+  const { workspaces, defaultWorkspaceId: activeId } = useAccount();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -71,25 +67,13 @@ export default function WorkspaceSwitcher() {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [open]);
 
-  useEffect(() => {
-    let cancelled = false;
-    loadWorkspaces()
-      .then(({ memberships, activeId: active }) => {
-        if (cancelled) return;
-        setWorkspaces(memberships ?? []);
-        setActiveId(active ?? null);
-      })
-      .catch(() => { /* the brand stays the brand */ });
-    return () => { cancelled = true; };
-  }, []);
-
   const routeSlug = workspaceSlugFromPath(location.pathname);
   // A workspace URL is authoritative. Never replace an unknown or still
   // loading URL workspace with the session's default workspace: doing so
   // briefly displays one organization's identity inside another tab.
   const active = routeSlug
-    ? workspaces?.find((workspace) => workspace.slug === routeSlug)
-    : workspaces?.find((workspace) => workspace.id === activeId);
+    ? workspaces.find((workspace) => workspace.slug === routeSlug)
+    : workspaces.find((workspace) => workspace.id === activeId);
 
   // Nothing to name yet, or nothing to name at all. The stock logo, untouched.
   if (!active) return <NavbarLogo />;

@@ -12,7 +12,7 @@ valuable at much larger scale.
 | Client | React + Docusaurus | Application shell, navigation, document rendering |
 | API | Node.js HTTP server | Authentication gate, request context, domain orchestration |
 | Agent runtime | Private NanoAgent service | Model access, bounded agent loop, tool policy, usage and cost |
-| Identity control plane | Better Auth | Users, sessions, workspaces, members, invitations |
+| Identity control plane | Better Auth | Users, sessions, workspaces, members, email invitations (GitHub-account invitations are Mochi's own) |
 | Transactional data | PostgreSQL | Authoritative workspace and product records |
 | Binary data | PostgreSQL `object_blob` rows | Uploaded asset bytes and integrity metadata |
 | Side-effect delivery | PostgreSQL outbox | Retriable non-database side effects |

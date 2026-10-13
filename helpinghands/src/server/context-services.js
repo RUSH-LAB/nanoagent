@@ -125,6 +125,10 @@ function contextualOrg(adapter) {
       const verified = workspaceContext(context);
       return adapter.invite({...input, orgId: verified.workspaceId, actorId: verified.userId});
     },
+    inviteGithub(context, input) {
+      const verified = workspaceContext(context);
+      return adapter.inviteGithub({...input, orgId: verified.workspaceId, actorId: verified.userId});
+    },
     cancelInvitation(context, input) {
       const verified = workspaceContext(context);
       return adapter.cancelInvitation({...input, orgId: verified.workspaceId, actorId: verified.userId});

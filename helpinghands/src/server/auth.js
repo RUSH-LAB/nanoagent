@@ -280,7 +280,7 @@ const auth = betterAuth({
             throw new APIError('FORBIDDEN', {message: 'Verify your primary email address on GitHub, then sign in again.', code: 'email-unverified'});
           }
           if (tenancy && context?.request) {
-            const decision = await tenancy.signupDecision(user.email);
+            const decision = await tenancy.signupDecision(user.email, user.githubLogin);
             if (!decision.allowed) throw new APIError('FORBIDDEN', {message: decision.message, code: 'signup-closed'});
           }
           await claimGithubLogin(user);
@@ -314,9 +314,11 @@ const auth = betterAuth({
       validateClient: clientId => clientId === CLI_CLIENT_ID,
       ...(postgres.enabled ? {schema: postgresDeviceCodeSchema} : {}),
     }),
-    // Better Auth is the sole organization/member/invitation lifecycle engine
-    // in both SQLite and PostgreSQL. The PostgreSQL option aliases its logical
-    // models onto Mochi's workspace-named control-plane tables.
+    // Better Auth is the organization and member lifecycle engine, and the
+    // email invitation one, in both SQLite and PostgreSQL; invitations to a
+    // GitHub account are org.js's own, accepted through Better Auth's
+    // addMember. The PostgreSQL option aliases its logical models onto Mochi's
+    // workspace-named control-plane tables.
     organization(organizationOptions({
       postgresEnabled: postgres.enabled,
       isProduction: IS_PRODUCTION,
@@ -416,6 +418,14 @@ async function resolveIdentity(req) {
       userId,
       orgId,
       sessionId: session.session?.id ?? null,
+      // Who the session is, as the browser's gate shows it (GET /api/workspaces).
+      account: Object.freeze({
+        id: userId,
+        name: session.user.name,
+        email: session.user.email,
+        image: session.user.image ?? null,
+        githubLogin: session.user.githubLogin ?? null,
+      }),
     }),
   };
 }

@@ -12,18 +12,7 @@
  */
 const {createOAuthAccountIssuer} = require('better-auth/db');
 const {githubProfileFields} = require('./workspace-auth');
-
-const TIMEOUT_MS = 30000;
-
-/** GitHub's public profile of `login`. Throws when GitHub does not answer with one. */
-async function githubProfile(login, fetchImpl) {
-  const response = await fetchImpl(`https://api.github.com/users/${encodeURIComponent(login)}`, {
-    headers: {Accept: 'application/vnd.github+json', 'User-Agent': 'mochi-root-account'},
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`GitHub has no user ${login} (HTTP ${response.status})`);
-  return response.json();
-}
+const {githubProfile} = require('./github-users');
 
 /**
  * The root user's id, creating the user and its GitHub account when this
@@ -33,6 +22,7 @@ async function githubProfile(login, fetchImpl) {
 async function ensureRootAccount(auth, {login = process.env.ROOT_GITHUB_LOGIN?.trim(), fetchImpl = fetch} = {}) {
   if (!login) throw new Error('Mochi requires ROOT_GITHUB_LOGIN, the GitHub account that administers the platform.');
   const profile = await githubProfile(login, fetchImpl);
+  if (!profile) throw new Error(`GitHub has no user ${login}`);
   const {internalAdapter} = await auth.$context;
   const key = {issuer: createOAuthAccountIssuer('github'), accountId: String(profile.id)};
 
