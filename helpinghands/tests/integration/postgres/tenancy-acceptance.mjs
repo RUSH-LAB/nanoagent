@@ -228,8 +228,9 @@ try {
   // ── Assistant budget ──
   await asMember(alice.id, w1.id,
     "insert into ai_usage(workspace_id, user_id, kind, cost_usd) values ($1, $2, 'chat', 1.25)", [w1.id, alice.id]);
-  const spent = await json(await request(`/api/workspaces/${w1.id}/ai/complete`, {method: 'POST', cookie: alice.cookie, body: {prompt: 'hello'}}), 429);
-  check('a spent daily assistant budget refuses the next call', spent.code === 'ai-budget-daily');
+  // Every run is on the member's own computer or their own key, never on the workspace's budget.
+  const keyless = await json(await request(`/api/workspaces/${w1.id}/ai/complete`, {method: 'POST', cookie: alice.cookie, body: {prompt: 'hello'}}), 503);
+  check('a member with neither Mochi Lab nor a key of their own is told to add one', /Add your OpenRouter key/.test(keyless.error));
   const usage = (await json(await request(`/api/workspaces/${w1.id}/usage`, {cookie: dave.cookie}), 200)).usage;
   check('members see what their workspace has used against its limits',
     usage.ai.today === 1.25 && usage.limits.maxMembers === 2 && usage.members === 2);
