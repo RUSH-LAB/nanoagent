@@ -14,6 +14,8 @@ type Props = {
   sidebarKey?: string | null;
   sidebarClassName?: string;
   showSidebarOnMobile?: boolean;
+  /** A page rather than a document: as much room on the right of the content as on its left. */
+  evenGutters?: boolean;
 };
 
 function ExpandIcon(): ReactNode {
@@ -31,6 +33,7 @@ export default function TwoColumnLayout({
   sidebarKey = null,
   sidebarClassName,
   showSidebarOnMobile = false,
+  evenGutters = false,
 }: Props): ReactNode {
   const [collapsed, setCollapsed] = useState(false);
   const toggleSidebar = useCallback(() => setCollapsed(value => !value), []);
@@ -67,7 +70,7 @@ export default function TwoColumnLayout({
           </aside>
         )}
         <main className={clsx(styles.main, (!renderSidebar || collapsed) && styles.mainExpanded)}>
-          <div className={clsx('container padding-bottom--lg', styles.content)}>
+          <div className={clsx('container padding-bottom--lg', styles.content, evenGutters && styles.contentEven)}>
             {children}
           </div>
         </main>

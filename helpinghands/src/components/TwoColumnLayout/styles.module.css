@@ -57,6 +57,11 @@
     padding-left: 2rem;
   }
 
+  /* Pages such as Settings and Plugins; the blog and the docs keep their narrower right side. */
+  .contentEven {
+    padding-right: 2rem;
+  }
+
   .main {
     flex-grow: 1;
     max-width: calc(100% - var(--doc-sidebar-width));

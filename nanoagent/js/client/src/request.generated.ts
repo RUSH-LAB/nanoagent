@@ -24,4 +24,24 @@ export interface RunRequest {
   metadata?: {
     [k: string]: unknown;
   };
+  model?: Model;
+  settings?: Settings;
+  /**
+   * The run's own provider API keys, by environment variable name: its only credentials. NanoAgent checks them itself, so no error quotes a value.
+   */
+  keys?: {
+    [k: string]: string;
+  };
+}
+export interface Model {
+  provider: string;
+  model: string;
+}
+export interface Settings {
+  thinking_level?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  temperature?: number;
+  max_tokens?: number;
+  max_steps?: number;
+  cost_limit?: number;
+  token_limit?: number;
 }

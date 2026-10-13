@@ -3,9 +3,14 @@
   "profiles": [
     {
       "id": "pi-deepseek",
-      "label": "DeepSeek V4 Flash · PI",
+      "label": "DeepSeek V4 Flash \u00b7 PI",
       "harness": "pi",
-      "model": "deepseek/deepseek-v4-flash-0731"
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-flash-0731",
+      "uses": [
+        "chat",
+        "inline"
+      ]
     }
   ]
 }

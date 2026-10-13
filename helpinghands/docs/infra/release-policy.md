@@ -9,8 +9,11 @@ production. Uncommitted files and development branches never deploy.
   `zeyuyang8/helpinghands`.
 - `production` is what Railway runs and must always be deployable. Change it
   only by merging a pull request after CI passes; never push to it directly.
-- Develop on another branch and open a pull request into `production` when it
-  is ready.
+- `devmode` collects what is ready to release next. Develop on another branch
+  and open a pull request into `devmode`; CI runs on pull requests into either
+  branch.
+- Release by opening one pull request from `devmode` into `production`. No
+  other branch goes into `production`.
 - Railway watches only `production`. The Mochi service builds from
   `helpinghands/` and the NanoAgent service from `nanoagent/`; each redeploys
   only when its own directory changes.

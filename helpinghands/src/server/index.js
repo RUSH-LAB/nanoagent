@@ -16,7 +16,8 @@ const {
 } = require('./server-utils');
 
 const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
-const {auth, tenancy, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
+const {auth, tenancy, githubUsers, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
+const {asksForSession, redirectFor} = require('../utils/signIn');
 const {createAiMeter} = require('./ai-metering');
 const {
   createWorkspaceContextResolver, matchWorkspaceApiPath, storageScope,
@@ -37,6 +38,8 @@ const {createGithub} = require('./github');
 // Every assistant call is checked against its workspace's budget and charged to it.
 const aiMeter = createAiMeter(tenancy);
 const {createAgentSync} = require('./fs/agent-sync');
+const {createWorkspaceApps} = require('./workspace-apps');
+const {createRunners} = require('./runner');
 // The per-workspace data layer. See server/store/index.js: the only way a route
 // module is allowed to reach the thirteen features' data, because it is the
 // only way that applies the organization and the owner without being asked to.
@@ -46,6 +49,9 @@ const store = postgresServices?.store ?? require('./store');
 // everything else here: a test substitutes them.
 const documents = postgresServices?.documents ?? require('./documents');
 const preferences = postgresServices?.preferences ?? require('./preferences');
+// Members' own computers, which run their NanoAgent when Settings → AI says so.
+const runners = createRunners({resolveIdentity, memberKeys: postgresServices?.memberKeys ?? null});
+const aiSettings = require('./ai-settings');
 const workspaceSettings = postgresServices?.workspaceSettings ?? require('./workspace-settings');
 const {createObjectStorage} = require('./object-storage');
 const {createLegacyAssetStore} = require('./asset-store');
@@ -156,7 +162,8 @@ function cacheKey(orgId, name) {
 }
 
 // Production is same-origin by default. Development keeps the permissive
-// origin echo because the Docusaurus and API dev servers use different ports.
+// origin echo for clients served from elsewhere; the development site itself
+// is same-origin through its /api proxy (docusaurus.config.js).
 const CORS_ORIGIN = process.env.CORS_ORIGIN
   || (process.env.NODE_ENV === 'production' ? process.env.SITE_URL : '*');
 
@@ -486,6 +493,13 @@ const ctx = {
   chat,
   org,
   ai,
+  // The NanoAgent a member's runs go to: their own computer's, or the hosted one with their own key (server/runner.js).
+  aiFor: runners.aiFor,
+  runners,
+  // The API keys members gave Mochi itself; PostgreSQL only.
+  memberKeys: postgresServices?.memberKeys ?? null,
+  // What a member chose in Settings → AI (ai-settings.js).
+  aiSettings: async userId => aiSettings.stored(userId ? (await preferences.get(userId)).ai : null),
   aiMeter,
   // Sign-up policy, limits, usage, and platform administration; null without PostgreSQL.
   tenancy,
@@ -511,19 +525,24 @@ const ctx = {
   cleanPendingObjects,
   assets,
   assetStore,
+  githubUsers,
   // The workspace file system; PostgreSQL only.
   workspaceFs: postgresServices?.fs ?? null,
   publicFs: postgresServices?.publicFs ?? null,
   crdt: postgresServices?.crdt ?? null,
-  crdtHub: postgresServices?.crdtHub ?? null,
+  fsHub: postgresServices?.fsHub ?? null,
   // The plugin marketplace's uploads; PostgreSQL only.
   market: postgresServices?.market ?? null,
   // Plugin sessions and what their runs cost; PostgreSQL only.
   sessions: postgresServices?.sessions ?? null,
+  // The plugins each workspace added from the marketplace, run from NanoAgent's installs; PostgreSQL only.
+  workspaceApps: postgresServices
+    ? createWorkspaceApps({ai, market: postgresServices.market, plugins: postgresServices.workspacePlugins})
+    : null,
   // Where the marketplace fetches a plugin's source.
   github: createGithub(),
   // Plugin runs work on a copy of the member's agent folder (fs/agent-sync.js).
-  agentSync: postgresServices?.fs ? createAgentSync({ai, fs: postgresServices.fs}) : null,
+  agentSync: postgresServices?.fs ? createAgentSync({fs: postgresServices.fs}) : null,
   compileDocument,
   compileMarkdown,
   parseFrontmatter,
@@ -608,6 +627,13 @@ async function handleRequest(req, res) {
   // one origin, so the session cookie never has to be exposed to JavaScript.
   if (pathname !== '/api' && !pathname.startsWith('/api/') && process.env.NODE_ENV === 'production') {
     const root = path.join(PROJECT_ROOT, 'build');
+    // A page that needs a session is never sent to a visitor without one, who
+    // goes to the sign-in page instead of seeing the page and then losing it.
+    const redirect = asksForSession(req) && redirectFor(req, (await resolveIdentity(req)).ok);
+    if (redirect) {
+      res.writeHead(302, {Location: redirect, 'Cache-Control': 'no-store'});
+      return res.end();
+    }
     // A published document's page carries its title and content as HTML.
     if (await servePublicPage(req, res, {
       root, publicFs: postgresServices?.publicFs, compileMarkdown, parseFrontmatter, resolveWorkspaceSite,
@@ -639,6 +665,12 @@ async function handleRequest(req, res) {
   // concurrent callers. Handlers read `req.auth` and nothing else; a `userId`
   // in a query string or body is now ignored wherever it still appears.
   const resolved = await resolveIdentity(req);
+  // The session's refreshed snapshot goes back with the answer, so the next
+  // request is identified without a query. Public answers may be cached, so
+  // they carry no cookie.
+  if (!isPublicPath(pathname)) {
+    for (const cookie of resolved.cookies) res.appendHeader('Set-Cookie', cookie);
+  }
   if (!resolved.ok && pathname.startsWith('/api/') && !isPublicPath(pathname)) {
     return json(res, resolved.status, {error: resolved.error});
   }
@@ -748,6 +780,9 @@ function failRequest(req, res, error) {
 
 const server = http.createServer((req, res) => {
   handleRequest(req, res).catch(error => failRequest(req, res, error));
+});
+server.on('upgrade', (req, socket, head) => {
+  runners.upgrade(req, socket, head).catch(() => socket.destroy());
 });
 
 // ── Route diagnostics: scan the server source to report handler stats ──
@@ -884,6 +919,7 @@ function shutdown(exitCode = 0) {
       return;
     }
 
+    runners.close();
     const forceTimer = setTimeout(() => server.closeAllConnections?.(), 10_000);
     forceTimer.unref?.();
     server.close(error => {

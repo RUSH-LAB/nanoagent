@@ -1,12 +1,15 @@
 import * as Y from 'yjs';
 import API_BASE, {apiFetch} from '@site/src/utils/api';
 import {browserStore, isOffline} from '@site/src/utils/documentCache';
+import {subscribeWorkspace} from '@site/src/utils/fsEvents';
 
 /**
  * A Markdown file opened for live, mergeable editing (src/server/fs/crdt.js).
  *
- * The Yjs document starts from the server's state and follows its stream of
- * merged updates. Local edits are sent in short batches; the server merges
+ * The Yjs document starts from the server's state and follows its merged
+ * updates on the workspace's push channel (utils/fsEvents.js); a write made
+ * some other way (a plain save, an agent run) is read in when the channel
+ * reports it. Local edits are sent in short batches; the server merges
  * them with everyone else's, so there is nothing to save and nothing to
  * conflict. Without a network the document and its unsent edits are kept in
  * this browser and sent when the server answers again, merging like any other.
@@ -34,7 +37,12 @@ export async function openLiveDocument({scope, workspaceId, path, readOnly, onSt
   let pending = [];
   let timer = null;
   let closed = false;
-  let source = null;
+  // The file's node, the newest revision the document is known to hold, and
+  // the stream it is followed on.
+  let nodeId = null;
+  let rev = 0;
+  let followed = null;
+  const seen = value => { rev = Math.max(rev, value); };
 
   const keep = () => (key
     ? store.set(key, {
@@ -61,6 +69,7 @@ export async function openLiveDocument({scope, workspaceId, path, readOnly, onSt
         return;
       }
       pending = pending.slice(sent);
+      seen((await response.json()).node.rev);
       await keep();
       status(pending.length ? 'saving' : 'saved');
       if (pending.length) schedule();
@@ -83,12 +92,45 @@ export async function openLiveDocument({scope, workspaceId, path, readOnly, onSt
     schedule();
   });
 
+  const channel = subscribeWorkspace(workspaceId, {
+    // A new connection has missed what was merged meanwhile, so the whole
+    // state is read again under it (applying it twice changes nothing), and
+    // edits waiting to be sent go now.
+    ready() {
+      pull().catch(error => console.error(`[workspace] Could not refresh ${path}:`, error));
+      if (pending.length) schedule();
+    },
+    update(event) {
+      if (event.nodeId !== nodeId) return;
+      Y.applyUpdate(doc, fromBase64(event.update), FROM_SERVER);
+      seen(event.rev);
+    },
+    changes({changes}) {
+      if (!changes.some(change => change.nodeId === nodeId && change.op === 'write' && change.rev > rev)) return;
+      pull().catch(error => console.error(`[workspace] Could not read the change to ${path}:`, error));
+    },
+  });
+
+  // With the channel connected, the read follows the file on it first, so no
+  // update falls between the two. The server counts follows, so each stream
+  // is asked once, and close() takes that one back.
   async function pull() {
-    const response = await apiFetch(`${root}/crdt?${query}`);
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || `Could not open ${path} (${response.status})`);
+    const stream = channel.stream();
+    const follow = stream && stream !== followed ? stream : null;
+    if (follow) followed = follow;
+    let response;
+    try {
+      response = await apiFetch(`${root}/crdt?${query}${follow ? `&stream=${encodeURIComponent(follow)}` : ''}`);
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `Could not open ${path} (${response.status})`);
+      }
+    } catch (error) {
+      if (follow && followed === follow) followed = null;
+      throw error;
     }
+    nodeId = response.headers.get('X-Node-Id');
+    seen(Number(response.headers.get('X-Rev')));
     Y.applyUpdate(doc, new Uint8Array(await response.arrayBuffer()), FROM_SERVER);
   }
 
@@ -100,7 +142,10 @@ export async function openLiveDocument({scope, workspaceId, path, readOnly, onSt
     if (kept?.pending) Y.applyUpdate(doc, fromBase64(kept.pending));
     status(pending.length ? 'saving' : 'saved');
   } catch (error) {
-    if (!isOffline(error) || !kept) throw error;
+    if (!isOffline(error) || !kept) {
+      channel.close();
+      throw error;
+    }
     Y.applyUpdate(doc, fromBase64(kept.state), FROM_SERVER);
     if (kept.pending) {
       pending = [fromBase64(kept.pending)];
@@ -111,26 +156,24 @@ export async function openLiveDocument({scope, workspaceId, path, readOnly, onSt
   }
   await keep();
 
-  source = new EventSource(`${root}/crdt/events?${query}`, {withCredentials: true});
-  source.addEventListener('update', event => Y.applyUpdate(doc, fromBase64(event.data), FROM_SERVER));
-  // A reconnected stream has missed what was merged meanwhile, so the whole
-  // state is read again (applying it twice changes nothing), and edits waiting
-  // to be sent go now.
-  let connected = false;
-  source.addEventListener('open', () => {
-    if (connected) pull().catch(error => console.error(`[workspace] Could not refresh ${path}:`, error));
-    connected = true;
-    if (pending.length) schedule();
-  });
-
+  // One undo history per document, so it outlives the editor showing it. Only
+  // edits typed in an editor are tracked (y-codemirror adds its origin), never
+  // what is read in from the server.
+  const text = doc.getText('markdown');
   return {
     doc,
-    text: doc.getText('markdown'),
+    text,
+    undoManager: new Y.UndoManager(text, {trackedOrigins: new Set()}),
     flush: send,
     close() {
       closed = true;
       if (timer) clearTimeout(timer);
-      source?.close();
+      if (followed && followed === channel.stream()) {
+        apiFetch(`${root}/follow?stream=${encodeURIComponent(followed)}&node=${encodeURIComponent(nodeId)}`, {method: 'DELETE'})
+          .then(response => { if (!response.ok) throw new Error(`the server answered ${response.status}`); })
+          .catch(error => console.error(`[workspace] Could not stop following ${path}:`, error));
+      }
+      channel.close();
       doc.destroy();
     },
   };

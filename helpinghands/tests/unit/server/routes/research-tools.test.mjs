@@ -540,12 +540,12 @@ describe('GET /api/search', () => {
     assert.equal(counts.readdir, after, 'the second query reuses the index');
   });
 
-  it('indexes each document with its frequency map, length and raw content only', async () => {
+  it('indexes each document with its title, frequency map, length and raw content only', async () => {
     let indexed;
     const {ctx} = fsCtx(TREE, {cached: async (k, t, fn) => { indexed = await fn(); return indexed; }});
     await invoke(routes, {path: '/api/search', query: {q: 'quantum'}, ctx});
     const [doc] = indexed.docs;
-    assert.deepEqual(Object.keys(doc).sort(), ['_content', 'firstLines', 'length', 'name', 'path', 'tf', 'words']);
+    assert.deepEqual(Object.keys(doc).sort(), ['_content', 'firstLines', 'length', 'name', 'path', 'tf', 'title', 'words']);
     // No duplicate lower-cased copy is kept; the snippet recomputes it on demand.
     assert.equal('_lower' in doc, false);
   });

@@ -158,7 +158,7 @@ marketplace shows before anyone downloads it. It holds exactly two files.
 `highlights` and 2 to 5 `steps`, written for the people who use the plugin
 rather than for developers. `icon.svg` is the app icon, at most 64 KB, and
 it may only draw: no scripts, event handlers, embedded content, or links
-outside itself. `GET /v1/plugins` returns both as each plugin's `product`,
+outside itself. A plugin's catalog entry (`GET /v1/packages`, `GET /v1/installs/<sha256>`) has both as its `product`,
 with the icon as a `data:` URL for an `<img>`. Where the plugin may connect
 and write comes from its manifest's `permissions`, so the page never restates
 them.
@@ -168,7 +168,7 @@ Every plugin also ships its own front end in `ui/`, a static web page:
 5 MB, with nothing built at load time. Mochi shows it in a sandboxed iframe,
 and nothing of its own around it: choosing the app opens this page, so how
 the app introduces itself and starts is the page's to design.
-NanoAgent serves it at `GET /v1/plugins/<id>/ui/<uiVersion>/<path>`, where
+NanoAgent serves an installed plugin's at `GET /v1/installs/<sha256>/ui/<uiVersion>/<path>`, where
 `uiVersion` is the catalog's digest of `ui/` and the files are cached forever, under a
 Content-Security-Policy with `connect-src 'none'`, so the page can't reach the
 network and talks to NanoAgent only through the host's `postMessage` bridge,
@@ -176,20 +176,20 @@ protocol `nanoagent.ui/v1`. The bridge's methods are `describe`, `runTask`,
 `prompt`, `cancel`, and `workspace.list` / `read` / `write`
 ([docs/plans/plugin-ui.md](docs/plans/plugin-ui.md)).
 
-`runTask` uses `POST /v1/workspaces/<ws>/plugins/<id>/tasks/<task>/runs`,
+`runTask` uses `POST /v1/workspaces/<ws>/installs/<sha256>/tasks/<task>/runs`,
 which runs a task the verified way (reference, tools or agent, then
 `verify_task`) in that workspace and streams `task.*` events. It shares its
 runner, `nanoagent.plugin.tasks.run_task`, with `nanoagent plugin run` and
 `agent`.
 
-`ui/` is split into a shared UI kit and the plugin's own page.
-`ui/index.html` and `ui/kit/` are the kit: the template's bytes in every
-plugin (the loader refuses any other), changed only in the template. `ui/app.js` and `ui/app.css` are the plugin's, next to any other
-static files it adds. `nanoagent plugin new` starts every plugin with the
-kit and a default page, a full-page chat with the plugin's agent, which
-never shows its tools. Each plugin then designs its page around what people
+`ui/` is the plugin's own page: `ui/app.js` and `ui/app.css`, next to any
+other static files it adds. NanoAgent serves it in its own frame,
+`src/nanoagent/plugin/page/` (`index.html` and the shared UI kit `kit/`), so
+every plugin gets the kit of the NanoAgent serving it. `nanoagent plugin new`
+starts every plugin with a default page, a full-page chat with the plugin's
+agent that draws the tool results it has renderers for. Each plugin then designs its page around what people
 come to do: `app.js` passes `mountApp` a layout, `({plugin, workspace}) =>
-Element`, built from `ui/kit/components.js`. The kit has an app shell with
+Element`, built from `./kit/components.js`. The kit has an app shell with
 the chat in a drawer (`appShell`, `chatDrawer`), inputs (`dateInput`,
 `segmented`, `chipToggles`, `chipRow`, `chipsInput`, `numberStepper`, and
 `fileDrop`, which writes the user's file to the workspace for the task), a
@@ -204,16 +204,37 @@ run with plain-language steps, Stop and its outcome (`taskRun`,
 Each declared plugin tool is also available as a regular NanoAgent `Tool`
 through `nanoagent.plugin.plugin_tools(manifest, workspace, names)`.
 
-The web service publishes the plugin directories listed under `plugins` in its
-`WebConfig`. Mochi Lab shows them as apps:
+The web service runs only plugins it installed, each from a package (below)
+and known by the package's sha256 (`nanoagent.plugin.install`). Mochi Lab
+installs the plugins each workspace added from its marketplace, and shows them
+as apps:
 
-- `GET /v1/plugins` returns each manifest with its README and tool schemas
-  inlined.
-- `POST /v1/plugins/{id}/tasks/{task}` runs a single-tool task. The body is the
-  tool input, and the reply is the verified output.
-- `POST /v1/workspaces/{workspace}/plugins/{id}/runs` runs a prompt on an agent
-  that has the plugin's tools. The body is a run request and the reply is a run
-  stream.
+- `PUT /v1/installs/{sha256}` installs the package in the body, whose sha256
+  it must be: it is checked against every plugin rule, opened under the
+  `installs` folder in `WebConfig`, and its environment built with
+  `uv sync --frozen`. The reply is the plugin's catalog entry with its
+  `uiVersion`, or 422 with every broken rule. Installing it again returns it.
+- `GET /v1/installs/{sha256}` returns that entry, or 404 for a package not
+  installed. Installs last as long as the process, so a caller installs again
+  after a restart.
+- `POST /v1/workspaces/{workspace}/installs/{sha256}/runs` runs a prompt on an
+  agent that has the plugin's tools. The body is a run request and the reply is
+  a run stream.
+
+Every process a plugin brings (its `run.sh`, MCP server, verifier, and the
+`uv sync` that installs it) runs in the sandbox `WebConfig.sandbox` names
+(`nanoagent.plugin.sandbox`). `bwrap` gives it new namespaces, an
+empty environment, the system and the plugin's own folder read-only, and only
+the run's workspace to write. Its only network is an HTTPS proxy
+(`nanoagent.plugin.egress`) that reaches the hosts the plugin declares in
+`permissions.network.hosts`, and only public addresses; installing also
+reaches the package index and GitHub. A sandboxed plugin gets no environment
+variables, so one that declares any is refused. The server proves the sandbox
+holds before it serves anything, and refuses to start if it does not.
+`sandbox: none` runs plugins as plain processes. Railway runs `none` for now,
+because its containers refuse bwrap the namespaces it needs, so add only the
+plugins you trust; what to build instead is in
+[docs/plans/plugin-sandbox.md](docs/plans/plugin-sandbox.md).
 
 The workspace is a scratch folder for one run, named by the caller, under the
 `workspaces` root in `WebConfig`. The caller fills it before the run, reads it
@@ -236,7 +257,7 @@ where people download plugins and share their own. `nanoagent plugin pack
 under a single `<id>/` folder, without what its `.gitignore` ignores, packed
 the same way every time (`nanoagent.plugin.package`). To use a downloaded one,
 unpack it with `tar xzf` and run it like any plugin folder. The web service
-serves packages but never runs them:
+serves packages, and runs one only once it is installed (above):
 
 - `GET /v1/packages` lists the plugin directories under `packages` in its
   `WebConfig` (on Railway, every built-in plugin) with their catalog entries.

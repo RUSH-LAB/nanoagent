@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Mochi Lab",
+  "version": "0.0.0",
+  "identifier": "lab.mochi.desktop",
+  "build": {
+    "frontendDist": "../splash",
+    "beforeBuildCommand": "node scripts/stage.mjs"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": ["binaries/node", "binaries/uv"],
+    "resources": {
+      "resources/runner/": "runner/",
+      "resources/nanoagent/": "nanoagent/",
+      "resources/config.yaml": "config.yaml",
+      "resources/stamp": "stamp"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "entitlements": "Entitlements.plist"
+    }
+  }
+}

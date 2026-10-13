@@ -17,18 +17,15 @@ function tagMetadata(tags, workspaceSlug, collectionPath) {
   }));
 }
 
-function authorMetadata(authors, authorsMap) {
-  return (authors || []).map(key => {
-    const author = authorsMap?.[key];
-    return author ? {
-      key,
-      name: author.name,
-      title: author.title,
-      url: author.url,
-      imageURL: author.imageUrl,
-      socials: author.socials,
-    } : {key, name: key};
-  });
+// The server resolves a post's GitHub usernames to accounts (routes/content.js).
+function authorMetadata(authors) {
+  return (authors || []).map(author => (author.name ? {
+    key: author.login,
+    name: author.name,
+    title: author.bio,
+    url: `https://github.com/${encodeURIComponent(author.login)}`,
+    imageURL: author.image,
+  } : {key: author.login, name: `Unknown author: no Mochi account has the GitHub username ${author.login}`}));
 }
 
 function contentFor({document, tree, workspaceSlug, collectionPath, previous, next, showReadingTime, authors}) {
@@ -43,7 +40,7 @@ function contentFor({document, tree, workspaceSlug, collectionPath, previous, ne
       description: frontmatter.description || document.description || '',
       ...(showReadingTime ? {readingTime: document.readingTime} : {}),
       hasTruncateMarker: Boolean(document.hasTruncateMarker),
-      authors: authorMetadata(frontmatter.authors, authors),
+      authors: authorMetadata(authors),
       tags: tagMetadata(frontmatter.tags, workspaceSlug, collectionPath),
       unlisted: false,
       frontMatter: {
@@ -69,7 +66,7 @@ function contentFor({document, tree, workspaceSlug, collectionPath, previous, ne
 
 export function createRuntimeBlogContent({
   document, tree, toc = [], workspaceId, workspaceSlug, collectionPath,
-  previous = null, next = null, showReadingTime = false, authors = {}, onEdit = null,
+  previous = null, next = null, showReadingTime = false, authors = [], onEdit = null,
 }) {
   const content = contentFor({document, tree, workspaceSlug, collectionPath, previous, next, showReadingTime, authors});
   function RuntimeBlogContent() {
@@ -91,7 +88,7 @@ export function createRuntimeBlogContent({
 
 export default function RuntimeBlogPost({
   document, tree, workspaceId, workspaceSlug, collectionPath,
-  isBlogPostPage = false, previous = null, next = null, showReadingTime = false, authors = {}, onEdit = null,
+  isBlogPostPage = false, previous = null, next = null, showReadingTime = false, authors = [], onEdit = null,
 }) {
   const Content = createRuntimeBlogContent({
     document, tree, workspaceId, workspaceSlug, collectionPath,

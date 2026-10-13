@@ -424,15 +424,16 @@ function buildPluginApi({name, dir, requires = [], commands = [], ctx, req}) {
       // Charged to the workspace and member like any other assistant call. A
       // spent budget answers in ai.complete's own {error, status} shape.
       complete: async request => {
+        const ai = await ctx.aiFor(requestScope?.userId);
         try {
-          await ctx.aiMeter.assertAllowed(requestScope);
+          await ctx.aiMeter.assertAllowed(requestScope, ai);
         } catch (error) {
           const refusal = budgetRefusal(error);
           if (refusal) return {error: refusal.body.error, status: refusal.status};
           throw error;
         }
-        const result = await ctx.ai.complete(request);
-        await ctx.aiMeter.record(requestScope, 'plugin', result, {ran: Boolean(result.text)});
+        const result = await ai.complete(request);
+        await ctx.aiMeter.record(requestScope, 'plugin', result, {ran: Boolean(result.text), local: ai.local});
         return result;
       },
       describe: () => ctx.ai.describe(),

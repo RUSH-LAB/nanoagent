@@ -3,9 +3,8 @@
 const MAX_NAVIGATION_ITEMS = 24;
 const MAX_COLLECTIONS = 32;
 const MAX_BLOG_GROUPS = 100;
-const MAX_AUTHORS = 100;
 const MAX_PLUGINS = 64;
-const HOME_LAYOUTS = new Set(['title', 'library', 'document']);
+const HOME_LAYOUTS = new Set(['library', 'document']);
 const LEGACY_PLUGIN_FLAGS = Object.freeze({
   bibliography: 'citations',
   'lean-proofs': 'leanProofs',
@@ -30,15 +29,6 @@ function contentPath(value, name) {
     throw new TypeError(`${name} must be a workspace-relative path`);
   }
   return path.replace(/^\.\//, '');
-}
-
-function httpUrl(value, name) {
-  const candidate = text(value, name, {max: 1000});
-  if (!candidate) return null;
-  let parsed;
-  try { parsed = new URL(candidate); } catch { throw new TypeError(`${name} must be an HTTP URL`); }
-  if (!['http:', 'https:'].includes(parsed.protocol)) throw new TypeError(`${name} must be an HTTP URL`);
-  return candidate;
 }
 
 function validateNavigation(value) {
@@ -119,38 +109,11 @@ function validatePlugins(value, rendering = {}) {
   return plugins;
 }
 
-function validateSocials(value, name) {
-  if (value == null) return {};
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${name} must be an object`);
-  return Object.fromEntries(Object.entries(value).map(([platform, url]) => [
-    text(platform, `${name} platform`, {required: true, max: 40}),
-    httpUrl(url, `${name}.${platform}`),
-  ]));
-}
-
-function validateAuthors(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('authors must be an object');
-  const entries = Object.entries(value);
-  if (entries.length > MAX_AUTHORS) throw new TypeError(`authors may contain at most ${MAX_AUTHORS} entries`);
-  return Object.fromEntries(entries.map(([key, author]) => {
-    const authorKey = text(key, 'author key', {required: true, max: 100});
-    if (!author || typeof author !== 'object' || Array.isArray(author)) throw new TypeError(`authors.${authorKey} must be an object`);
-    return [authorKey, {
-      name: text(author.name, `authors.${authorKey}.name`, {required: true, max: 120}),
-      title: text(author.title, `authors.${authorKey}.title`, {max: 200}),
-      url: httpUrl(author.url, `authors.${authorKey}.url`),
-      imageUrl: httpUrl(author.imageUrl ?? author.image_url, `authors.${authorKey}.imageUrl`),
-      socials: validateSocials(author.socials, `authors.${authorKey}.socials`),
-    }];
-  }));
-}
-
 function validateAuthoring(value) {
-  if (value == null) return {quickNotesPath: null, defaultAuthor: null};
+  if (value == null) return {quickNotesPath: null};
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('authoring must be an object');
   return {
     quickNotesPath: value.quickNotesPath ? contentPath(value.quickNotesPath, 'authoring.quickNotesPath') : null,
-    defaultAuthor: text(value.defaultAuthor, 'authoring.defaultAuthor', {max: 100}),
   };
 }
 
@@ -161,7 +124,7 @@ function validateWorkspaceSite(value = {}) {
   const rendering = value.rendering ?? {};
   if (!rendering || typeof rendering !== 'object' || Array.isArray(rendering)) throw new TypeError('rendering must be an object');
   if (site.homeLayout != null && !HOME_LAYOUTS.has(site.homeLayout)) {
-    throw new TypeError('site.homeLayout must be title, library, or document');
+    throw new TypeError('site.homeLayout must be library or document');
   }
   const validated = {
     schemaVersion: 2,
@@ -174,7 +137,6 @@ function validateWorkspaceSite(value = {}) {
     },
     navigation: value.navigation == null ? [] : validateNavigation(value.navigation),
     collections: value.collections == null ? [] : validateCollections(value.collections),
-    authors: value.authors == null ? {} : validateAuthors(value.authors),
     authoring: validateAuthoring(value.authoring),
     plugins: validatePlugins(value.plugins, rendering),
     rendering: {
@@ -210,7 +172,6 @@ module.exports = {
   MAX_NAVIGATION_ITEMS,
   MAX_COLLECTIONS,
   MAX_BLOG_GROUPS,
-  MAX_AUTHORS,
   MAX_PLUGINS,
   validateWorkspaceSite,
   resolveWorkspaceSite,

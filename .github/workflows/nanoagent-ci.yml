@@ -2,12 +2,12 @@ name: NanoAgent CI
 
 on:
   pull_request:
-    branches: [production]
+    branches: [production, devmode]
     paths:
       - '.github/workflows/nanoagent-ci.yml'
       - 'nanoagent/**'
   push:
-    branches: [production]
+    branches: [production, devmode]
     paths:
       - '.github/workflows/nanoagent-ci.yml'
       - 'nanoagent/**'
@@ -51,6 +51,12 @@ jobs:
           uv pip install -e ".[dev,web]"
       - name: Lint
         run: uv run ruff check .
+      # The plugin sandbox (nanoagent.plugin.sandbox) is bubblewrap, in unprivileged user
+      # namespaces, which Ubuntu's AppArmor refuses by default.
+      - name: Sandbox
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Test
         run: uv run pytest -q
       - name: TypeScript client

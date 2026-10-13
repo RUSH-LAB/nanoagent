@@ -1,58 +1,49 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { idFromLink } from '@site/src/utils/invite';
-import { createWorkspace } from '@site/src/utils/workspaces';
+import { apiRequest } from '@site/src/utils/api';
 import {clientPlatform} from '@site/src/platform/client';
 import styles from './authScreen.module.css';
 
 /**
  * What a signed-in account with no workspace sees.
  *
- * Everything in the product that is not a published page belongs to an
- * organization: channels, direct messages, the people directory, invitations.
- * An account in none of them could sign in perfectly well and then find that
- * every one of those answered 409, which reads as a broken site rather than an
- * empty one. So the gate stops here instead, and the two ways out are the two
- * things on this screen.
+ * Everything in the product that is not a published page belongs to a
+ * workspace: channels, direct messages, people, invitations. An account in
+ * none of them could sign in perfectly well and then find that every one of
+ * those answered 409, which reads as a broken site rather than an empty one.
+ * So the gate stops here instead, and the way in is an invitation: creating a
+ * workspace is not offered yet. The invitations sent to the account's own
+ * address are listed to join in one click, for somebody who signed in without
+ * following their link; any other link can still be pasted.
  *
  * Rendered in the same place, and from the same stylesheet, as AuthScreen: it is
  * the second half of one arrival, and a different-looking page between signing
  * up and using the site would read as having landed somewhere else.
- *
- * The short name is a placeholder rather than a filled-in value on purpose. An
- * untouched field sends nothing, and the server derives the slug from the
- * workspace name and numbers it if that is taken. Typing one makes it a choice,
- * and a choice that is taken is refused rather than quietly altered.
  */
-
-/** The server's slugify, for the placeholder only. The server decides. */
-function previewSlug(name) {
-  return String(name ?? '')
-    .normalize('NFKD')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+/, '')
-    .slice(0, 40)
-    .replace(/-+$/, '');
-}
-
-export default function OnboardingScreen({ user, onSignOut }) {
-  const [name, setName] = useState('');
-  const [slug, setSlug] = useState('');
+export default function OnboardingScreen({ onSignOut }) {
   const [invite, setInvite] = useState('');
   const [error, setError] = useState(null);
-  const [busy, setBusy] = useState(false);
+  // null until asked: the pending invitations sent to this account's address.
+  const [invitations, setInvitations] = useState(null);
+  const [listError, setListError] = useState(null);
+  const [joining, setJoining] = useState(null);
 
-  async function create(event) {
-    event.preventDefault();
-    setError(null);
-    setBusy(true);
+  useEffect(() => {
+    apiRequest('/api/users/me/invitations', undefined, {failureLabel: 'Could not load your invitations'})
+      .then(data => setInvitations(data.invitations))
+      .catch(err => { setInvitations([]); setListError(err.message); });
+  }, []);
+
+  async function join(id) {
+    setJoining(id);
+    setListError(null);
     try {
-      // Reloads on success, from within src/utils/workspaces: the session's
-      // active workspace has just changed and every page's data depends on it.
-      await createWorkspace({ name, slug: slug.trim() });
+      await apiRequest(`/api/invite/${encodeURIComponent(id)}/accept`, {method: 'POST'}, {failureLabel: 'Could not join'});
+      // The gate reads the workspaces again and lets the account in.
+      clientPlatform.location.reload();
     } catch (err) {
-      setError(err.message);
-      setBusy(false);
+      setListError(err.message);
+      setJoining(null);
     }
   }
 
@@ -68,73 +59,64 @@ export default function OnboardingScreen({ user, onSignOut }) {
     clientPlatform.location.assign(`/join?i=${encodeURIComponent(id)}`);
   }
 
-  const label = user?.username || user?.name || user?.email || 'you';
-
   return (
     <div className={styles.page}>
       <div className={styles.card}>
         <img src="/img/mochi.jpg" alt="" className={styles.logo} />
-        <h1 className={styles.title}>Create a workspace</h1>
-        <p className={styles.tagline}>
-          Signed in as {label}. A workspace is where your channels, people, and
-          invitations live.
-        </p>
+        <h1 className={styles.title}>Join a workspace</h1>
+        {invitations && (
+          <>
+            <p className={styles.tagline}>
+              {invitations.length
+                ? 'You have been invited. Join to get started.'
+                : 'You are not in a workspace yet. Ask its owner for an invitation link.'}
+            </p>
 
-        <form className={styles.stack} onSubmit={create}>
-          <label className={styles.field}>
-            <span>Workspace name</span>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Acme Research Group"
-              minLength={2}
-              maxLength={60}
-              autoFocus
-              required
-            />
-          </label>
+            {listError && <p className={styles.error} role="alert">{listError}</p>}
 
-          <label className={styles.field}>
-            <span>Short name <em>(optional)</em></span>
-            <input
-              type="text"
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              placeholder={previewSlug(name) || 'acme-research-group'}
-              maxLength={40}
-              autoComplete="off"
-            />
-          </label>
+            {invitations.length > 0 && (
+              <>
+                <ul className={styles.invites}>
+                  {invitations.map(invitation => (
+                    <li key={invitation.id} className={styles.invite}>
+                      <span className={styles.inviteText}>
+                        <strong>{invitation.organization}</strong>
+                        <span>Invited by {invitation.invitedBy} as {invitation.role}</span>
+                      </span>
+                      <button
+                        type="button"
+                        className={styles.joinButton}
+                        onClick={() => join(invitation.id)}
+                        disabled={joining !== null}
+                      >
+                        {joining === invitation.id ? 'Joining…' : 'Join'}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <div className={styles.divider}><span>or open another invitation</span></div>
+              </>
+            )}
 
-          <p className={styles.hint}>
-            Lowercase letters, digits, and dashes. Left empty, it follows the name.
-          </p>
-
-          {error && <p className={styles.error} role="alert">{error}</p>}
-
-          <button type="submit" className={styles.submit} disabled={busy || name.trim().length < 2}>
-            {busy ? 'Creating...' : 'Create workspace'}
-          </button>
-        </form>
-
-        <div className={styles.divider}><span>or</span></div>
-
-        <form className={styles.stack} onSubmit={openInvitation}>
-          <label className={styles.field}>
-            <span>Join with an invitation</span>
-            <input
-              type="text"
-              value={invite}
-              onChange={(e) => { setInvite(e.target.value); setError(null); }}
-              placeholder="Paste the link you were sent"
-              autoComplete="off"
-            />
-          </label>
-          <button type="submit" className={styles.rootButton} disabled={!invite.trim()}>
-            Open invitation
-          </button>
-        </form>
+            <form className={styles.stack} onSubmit={openInvitation}>
+              <label className={styles.field}>
+                <span>Invitation link</span>
+                <input
+                  type="text"
+                  value={invite}
+                  onChange={(e) => { setInvite(e.target.value); setError(null); }}
+                  placeholder="Paste the link you were sent"
+                  autoComplete="off"
+                  autoFocus={invitations.length === 0}
+                />
+              </label>
+              {error && <p className={styles.error} role="alert">{error}</p>}
+              <button type="submit" className={styles.submit} disabled={!invite.trim()}>
+                Open invitation
+              </button>
+            </form>
+          </>
+        )}
 
         <button type="button" className={styles.switch} onClick={onSignOut}>
           Sign out

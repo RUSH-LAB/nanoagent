@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Mochi Lab</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 15px -apple-system, system-ui, sans-serif; color: #333; background: #fafafa; }
+    main { width: min(720px, 90vw); padding: 24px; }
+    h1 { text-align: center; }
+    #message { text-align: center; }
+    pre { white-space: pre-wrap; max-height: 50vh; overflow: auto; background: #fff1f0; color: #a8071a; padding: 12px; border-radius: 6px; font-size: 12px; }
+    .actions { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
+    .button, button { padding: 6px 12px; border: 1px solid #bbb; border-radius: 6px; background: #fff; color: #333; font: inherit; text-decoration: none; cursor: pointer; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Mochi Lab</h1>
+    <p id="message">Starting…</p>
+    <pre id="error" hidden></pre>
+    <div class="actions" id="failed-actions" hidden>
+      <button id="retry">Retry</button>
+      <a class="button" href="keys.html">API keys</a>
+    </div>
+  </main>
+  <script>
+    // Follows the supervisor (src-tauri/src/supervisor.rs) through its `status` command.
+    const invoke = (command, args) => window.__TAURI_INTERNALS__.invoke(command, args);
+    const $ = id => document.getElementById(id);
+    function render({phase, message}) {
+      $('message').textContent = phase === 'failed' ? 'Mochi Lab stopped.' : message;
+      $('error').hidden = phase !== 'failed';
+      $('error').textContent = phase === 'failed' ? message : '';
+      $('failed-actions').hidden = phase !== 'failed';
+    }
+
+    async function poll() {
+      render(await invoke('status'));
+      setTimeout(poll, 300);
+    }
+
+    $('retry').addEventListener('click', () => invoke('retry'));
+    poll();
+  </script>
+</body>
+</html>

@@ -40,6 +40,21 @@ export function idFromLink(text) {
 }
 
 /**
+ * Who an invite box names, as the body of the request that invites them. An
+ * email address has an '@' between two parts; anything else is taken as a
+ * GitHub username, which may be written with its leading '@'.
+ */
+export function inviteeOf(text) {
+  const value = String(text ?? '').trim();
+  return /^[^@\s]+@[^@\s]+$/.test(value) ? {email: value} : {githubLogin: value};
+}
+
+/** Who an invitation is for, as a person reads it. */
+export function inviteeLabel(invitation) {
+  return invitation.email ?? `@${invitation.githubLogin}`;
+}
+
+/**
  * Copy the link, reporting whether it worked. A browser can refuse clipboard
  * access, and a caller that assumed otherwise would tell somebody they had a
  * link they do not have.

@@ -5,16 +5,17 @@ import {createBridgeHost} from './host';
 import styles from './styles.module.css';
 
 /**
- * A plugin's own page, from its ui/ folder, in a sandboxed frame: scripts and
- * forms, but no same-origin access, so the page has an opaque origin and none
- * of Mochi's session, cookies or network. It reaches NanoAgent only through
+ * A plugin's own page, from its ui/ folder, in a sandboxed frame: scripts,
+ * forms and links that open in a new tab, but no same-origin access, so the
+ * page has an opaque origin and none of Mochi's session, cookies or network. It reaches NanoAgent only through
  * the `nanoagent.ui/v1` bridge this component hosts (./host.js).
  */
 export default function PluginFrame({app, workspace}) {
   const frame = useRef(null);
   const host = useRef(null);
   const {colorMode} = useColorMode();
-  const src = `${API_BASE}/api/apps/${encodeURIComponent(app.id)}/ui/${encodeURIComponent(app.uiVersion)}/index.html`;
+  // Addressed by the install it runs from, so a new version is a new page.
+  const src = `${API_BASE}/api/apps/${app.sha256}/ui/${encodeURIComponent(app.uiVersion)}/index.html`;
   const [page, setPage] = useState({src: null, error: null});
 
   // A frame shows whatever comes back, an error included, and cannot tell this
@@ -68,7 +69,7 @@ export default function PluginFrame({app, workspace}) {
         ref={frame}
         className={styles.frame}
         title={app.name}
-        sandbox="allow-scripts allow-forms"
+        sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
         src={src}
         hidden={!checked}
         onLoad={() => host.current?.setTheme(colorMode)}

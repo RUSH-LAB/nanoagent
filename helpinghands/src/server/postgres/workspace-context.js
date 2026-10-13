@@ -1,4 +1,5 @@
-const {withRequestContext} = require('./client');
+const {escapeLiteral} = require('pg');
+const {queryInContext, withRequestContext} = require('./client');
 const {normalizeWorkspaceRole} = require('../workspace-context');
 
 function createPostgresWorkspaceContextResolver({pool}) {
@@ -16,13 +17,13 @@ function createPostgresWorkspaceContextResolver({pool}) {
       : await withRequestContext(pool, {userId, workspaceId: null}, async client =>
         (await client.query('select id from list_user_workspaces($1) where slug = $2', [userId, value])).rows[0]?.id);
     if (!workspaceId) return null;
-    return withRequestContext(pool, {userId, workspaceId}, async client => fromRow((await client.query(
+    // Every scoped request asks this first, so it is one round trip.
+    return fromRow((await queryInContext(pool, {userId, workspaceId},
       `select w.id as "workspaceId", w.slug as "workspaceSlug", m.id as "membershipId",
               m.user_id as "userId", m.role
          from workspace w join workspace_member m on m.workspace_id = w.id
-        where w.id = $1 and w.status = 'active' and m.user_id = $2 limit 1`,
-      [workspaceId, userId],
-    )).rows[0]));
+        where w.id = ${escapeLiteral(workspaceId)} and w.status = 'active' and m.user_id = ${escapeLiteral(userId)} limit 1`,
+    ))[0]);
   }
 
   return Object.freeze({

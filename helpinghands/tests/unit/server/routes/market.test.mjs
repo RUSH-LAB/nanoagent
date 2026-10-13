@@ -33,7 +33,8 @@ describe('the plugin marketplace', () => {
       return {value: {package: entryFor(id, version, size ? Number(size) : 7), data: archive.toString('base64')}};
     },
   };
-  const as = userId => ({userId, orgId: null});
+  // Everyone here signed in with GitHub, as the same login, but carol-no-github.
+  const as = userId => ({userId, orgId: null, account: {id: userId, githubLogin: userId === 'carol-no-github' ? null : userId}});
   const call = (userId, method, path, url) => invoke(routes, {
     ctx, method, path, auth: userId ? as(userId) : null, ...(url === undefined ? {} : {body: {url}}),
   });
@@ -41,6 +42,7 @@ describe('the plugin marketplace', () => {
   before(async () => {
     const database = await migratedDatabase();
     db = database.db;
+    await db.exec("update app_user set github_login = id");
     ctx = makeCtx({ai, github, market: createPostgresMarket({pool: database.pool})});
   });
   after(() => db?.close());
@@ -55,7 +57,7 @@ describe('the plugin marketplace', () => {
   it('publishes a GitHub plugin NanoAgent accepts, for everyone to download', async () => {
     const published = await call('alice', 'POST', '/api/market', 'notes@1.0.0');
     assert.equal(published.status, 201);
-    assert.deepEqual(published.payload.plugin.owner, {id: 'alice', name: 'Alice'});
+    assert.deepEqual(published.payload.plugin.owner, {id: 'alice', name: 'Alice', github: 'alice'});
     assert.deepEqual(published.payload.plugin.repository, REPOSITORY);
     const listed = await call('bob', 'GET', '/api/market');
     assert.deepEqual(listed.payload.plugins.map(plugin => [plugin.id, plugin.source, plugin.mine]), [['bibtex-check', 'nanoagent', false], ['notes', 'upload', false]]);
@@ -63,6 +65,12 @@ describe('the plugin marketplace', () => {
     assert.equal(written.status, 200);
     assert.equal(written.headers['Content-Disposition'], 'attachment; filename="notes-1.0.0.tar.gz"');
     assert.equal(written.body.toString(), 'notes@1.0.0');
+  });
+
+  it('publishes only for an account signed in with GitHub, its author', async () => {
+    const refused = await call('carol-no-github', 'POST', '/api/market', 'nameless@1.0.0');
+    assert.equal(refused.status, 403);
+    assert.match(refused.payload.error, /Sign in with GitHub/);
   });
 
   it('downloads NanoAgent\'s own plugins from NanoAgent', async () => {

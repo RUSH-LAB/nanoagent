@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 from nanoagent.core.agent import Agent, ChatModel
+from nanoagent.runtime.config import AgentConfig
 from nanoagent.extensions import get_hooks
 from nanoagent.harness.nanoagent import NanoAgentRunner
 from nanoagent.harness.registry import RunnerProfile
@@ -29,9 +31,22 @@ def plugin_prompt(manifest: PluginManifest) -> str:
 
 
 def plugin_profile(
-    cfg: WebConfig, model: ChatModel, manifest: PluginManifest, workspace: Path
+    cfg: WebConfig,
+    model: ChatModel,
+    manifest: PluginManifest,
+    workspace: Path,
+    *,
+    model_name: str | None = None,
+    agent: AgentConfig | None = None,
+    environ: Mapping[str, str] | None = None,
 ) -> RunnerProfile:
-    """A one-run profile: NanoAgent's loop with ``manifest``'s tools writing into ``workspace``."""
+    """A one-run profile: NanoAgent's loop with ``manifest``'s tools writing into ``workspace``.
+
+    ``model_name`` names ``model`` when it is not the configured one, ``agent`` holds the run's
+    limits when it set its own, and ``environ`` is what the plugin's variables are set from (see
+    :func:`~nanoagent.plugin.runtime.plugin_env`).
+    """
+    limits = agent or cfg.agent
 
     def factory(instructions: str | None) -> tuple[Agent, str]:
         suffix = plugin_prompt(manifest)
@@ -43,13 +58,13 @@ def plugin_profile(
         )
         agent = Agent(
             model,
-            [*tools, *plugin_tools(manifest, workspace, session=None)],
+            [*tools, *plugin_tools(manifest, workspace, session=None, environ=environ)],
             system_prompt=prompt,
-            max_steps=cfg.agent.max_steps,
-            cost_limit=cfg.agent.cost_limit,
-            token_limit=cfg.agent.token_limit,
-            context_window=cfg.agent.context_window,
-            hooks=get_hooks(cfg.agent.hooks),
+            max_steps=limits.max_steps,
+            cost_limit=limits.cost_limit,
+            token_limit=limits.token_limit,
+            context_window=limits.context_window,
+            hooks=get_hooks(limits.hooks),
         )
         return agent, prompt
 
@@ -57,6 +72,6 @@ def plugin_profile(
         id=f"plugin-{manifest.id}",
         label=f"{manifest.name} · NanoAgent",
         harness=NanoAgentRunner.name,
-        model=cfg.model.model,
+        model=model_name or cfg.model.model,
         runner=NanoAgentRunner(cfg, agent_factory=factory),
     )

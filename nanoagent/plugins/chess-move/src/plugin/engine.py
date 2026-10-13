@@ -2,26 +2,36 @@
 
 from __future__ import annotations
 
+import math
 import subprocess
 from collections.abc import Sequence
 from typing import Self
 
-from msa import LOCALDB
-from msa.score import wp_from_cp, wp_from_mate
+from chess_move_stockfish import BINARY
 
 from plugin.uci import parse_fen, parse_perft, parse_score
 
-# Where msa's web app finds the Stockfish its sandbox.sh builds (msa.web.Games).
-BINARY = LOCALDB / "stockfish" / "bin" / "stockfish"
 HASH_MB = 16
+# Centipawns to the side to move's win probability: the logistic lichess fits to its games.
+CP_SCALE = 0.00368208
+CP_CLAMP = 4000.0
+# A forced mate is a win, short of certain.
+MATE_WIN = 0.999
+
+
+def wp_from_cp(cp: float) -> float:
+    return 1.0 / (1.0 + math.exp(-CP_SCALE * max(-CP_CLAMP, min(CP_CLAMP, cp))))
+
+
+def wp_from_mate(moves: int) -> float:
+    """A `score mate N` for the side to move: positive N mates, negative N gets mated."""
+    return MATE_WIN if moves > 0 else 1.0 - MATE_WIN
 
 
 class Stockfish:
     """One Stockfish process. Every search starts from `ucinewgame`, so none depends on the last."""
 
     def __init__(self) -> None:
-        if not BINARY.is_file():
-            raise RuntimeError(f"no Stockfish at {BINARY}: build it with mind-sports-arena's sandbox.sh")
         self.proc = subprocess.Popen(
             [str(BINARY)],
             cwd=BINARY.parent,
@@ -76,7 +86,7 @@ class Stockfish:
         return parse_perft(self._read_until("Nodes searched:"))
 
     def win_prob(self, fen: str, moves: Sequence[str], nodes: int) -> float:
-        """The side to move's win probability after ``moves``, msa's mapping of a ``nodes`` search."""
+        """The side to move's win probability after ``moves``, from the score of a ``nodes`` search."""
         self._send("ucinewgame")
         self._ready()
         self._position(fen, moves)

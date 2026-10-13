@@ -40,8 +40,11 @@ const db = postgres.enabled ? null : require('./db').db;
 const {DATA_DIR} = require('./paths');
 const {sendMail} = require('./mail');
 const {
-  organizationOptions, workspaceAccessControl, workspaceRoles, postgresCoreSchema, postgresDeviceCodeSchema, authSessionOptions,
+  organizationOptions, workspaceAccessControl, workspaceRoles, githubUserFields, githubProfileFields,
+  postgresCoreSchema, postgresDeviceCodeSchema, authSessionOptions,
 } = require('./workspace-auth');
+const {createGithubUsers} = require('./github-users');
+const {createPostgresGithubUsers} = require('./postgres/github-users');
 const {createWorkspaceProvisioning} = require('./workspace-provisioning');
 
 const PORT = process.env.EDITOR_PORT || process.env.PORT || 3001;
@@ -52,12 +55,24 @@ if (!(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET)) {
   throw new Error('Mochi requires GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET: GitHub is the only way to sign in.');
 }
 const SITE_URL = (process.env.SITE_URL || 'http://localhost:3000').replace(/\/$/, '');
-// The one client allowed to ask for a device code (cli/mochi.mjs).
-const CLI_CLIENT_ID = 'mochi-cli';
+// The clients allowed to ask for a device code: the sync client (cli/mochi.mjs)
+// and Mochi Lab's relay (runner/relay.mjs).
+const DEVICE_CLIENT_IDS = new Set(['mochi-cli', 'mochi-desktop']);
 
 // Sign-up policy, workspace and member limits, suspension, and the rate-limit
 // store shared by every server process (postgres/tenancy.js).
 const tenancy = postgres.enabled ? createPostgresTenancy({pool: postgres.pool}) : null;
+
+// Accounts by GitHub username, which blog posts name their authors by.
+const githubUsers = postgres.enabled ? createPostgresGithubUsers({pool: postgres.pool}) : createGithubUsers({db});
+
+/**
+ * Before a user row takes a GitHub username, take it from whichever account
+ * held it: GitHub gave a renamed account's old name to whoever signs in with it now.
+ */
+async function claimGithubLogin(user) {
+  if (user.githubLogin) await githubUsers.release(user.githubLogin);
+}
 
 // Channels are files when the workspace file system serves content; required
 // when first needed, because the services module requires this one.
@@ -127,6 +142,7 @@ function resolveSecret() {
     return generated;
   }
 }
+const AUTH_SECRET = resolveSecret();
 
 /**
  * The organization a new session starts in: the caller's oldest membership, or
@@ -181,7 +197,10 @@ const auth = betterAuth({
   // Better Auth recognizes pg.Pool directly and builds its own Kysely adapter.
   // Passing an already-created Kysely instance is not a supported input shape.
   database: postgres.enabled ? postgres.pool : db,
-  ...(postgres.enabled ? postgresCoreSchema : {}),
+  ...(postgres.enabled ? postgresCoreSchema : {user: {additionalFields: githubUserFields}}),
+  // An account is what GitHub says it is: every sign-in copies the name,
+  // picture, username and bio, so nothing may edit them in between.
+  disabledPaths: ['/update-user'],
   ...(tenancy ? {
     user: {
       ...postgresCoreSchema.user,
@@ -214,27 +233,31 @@ const auth = betterAuth({
   } : {}),
   // Behind Cloudflare and Railway the socket address is the proxy's. Cloudflare
   // sets cf-connecting-ip; Railway sets x-real-ip for its own domain.
-  advanced: {ipAddress: {ipAddressHeaders: ['cf-connecting-ip', 'x-real-ip']}},
-  secret: resolveSecret(),
+  // A session and its user come in one query when the cookie cache misses.
+  advanced: {ipAddress: {ipAddressHeaders: ['cf-connecting-ip', 'x-real-ip']}, database: {joins: true}},
+  secret: AUTH_SECRET,
   baseURL: process.env.BETTER_AUTH_URL || process.env.SITE_URL || `http://localhost:${PORT}`,
   basePath: '/api/auth',
   // Verify the signed, HttpOnly session snapshot locally for ordinary API
   // requests instead of querying Neon just to identify the same browser on
-  // every click. Workspace membership is deliberately not cached here: the
+  // every click; resolveIdentity hands back the refreshed snapshot. Workspace membership is deliberately not cached here: the
   // dispatcher still checks it for every scoped request, so removing a member
   // takes effect immediately. The short lifetime bounds session revocation.
   session: authSessionOptions({postgresEnabled: postgres.enabled}),
-  // The Docusaurus dev server and the production site are separate origins from
-  // this API, so both have to be named or Better Auth rejects their requests.
+  // Browsers reach this API through the site's origin: the development site
+  // proxies /api here (docusaurus.config.js), so that origin has to be named
+  // or Better Auth rejects its requests.
   trustedOrigins: [
-    'http://localhost:3000',
-    'http://localhost:3001',
+    `http://localhost:${process.env.SITE_PORT || 3000}`,
     ...(process.env.SITE_URL ? [process.env.SITE_URL] : []),
   ],
   socialProviders: {
-    // Every sign-in copies the GitHub account's name, picture and primary
-    // email onto the user, so what Mochi shows is what GitHub says now.
-    github: {clientId: GITHUB_CLIENT_ID, clientSecret: GITHUB_CLIENT_SECRET, overrideUserInfoOnSignIn: true},
+    // Every sign-in copies the GitHub account's name, picture, primary email,
+    // username and bio onto the user, so what Mochi shows is what GitHub says now.
+    github: {
+      clientId: GITHUB_CLIENT_ID, clientSecret: GITHUB_CLIENT_SECRET, overrideUserInfoOnSignIn: true,
+      mapProfileToUser: githubProfileFields,
+    },
   },
   // Every session opens in an organization when the account has one. Written
   // as the session row is created rather than patched afterwards, so there is
@@ -252,10 +275,15 @@ const auth = betterAuth({
           if (!user.emailVerified) {
             throw new APIError('FORBIDDEN', {message: 'Verify your primary email address on GitHub, then sign in again.', code: 'email-unverified'});
           }
-          if (!tenancy || !context?.request) return;
-          const decision = await tenancy.signupDecision(user.email);
-          if (!decision.allowed) throw new APIError('FORBIDDEN', {message: decision.message, code: 'signup-closed'});
+          if (tenancy && context?.request) {
+            const decision = await tenancy.signupDecision(user.email, user.githubLogin);
+            if (!decision.allowed) throw new APIError('FORBIDDEN', {message: decision.message, code: 'signup-closed'});
+          }
+          await claimGithubLogin(user);
         },
+      },
+      update: {
+        before: claimGithubLogin,
       },
     },
     session: {
@@ -279,12 +307,14 @@ const auth = betterAuth({
     bearer(),
     deviceAuthorization({
       verificationUri: `${SITE_URL}/device`,
-      validateClient: clientId => clientId === CLI_CLIENT_ID,
+      validateClient: clientId => DEVICE_CLIENT_IDS.has(clientId),
       ...(postgres.enabled ? {schema: postgresDeviceCodeSchema} : {}),
     }),
-    // Better Auth is the sole organization/member/invitation lifecycle engine
-    // in both SQLite and PostgreSQL. The PostgreSQL option aliases its logical
-    // models onto Mochi's workspace-named control-plane tables.
+    // Better Auth is the organization and member lifecycle engine, and the
+    // email invitation one, in both SQLite and PostgreSQL; invitations to a
+    // GitHub account are org.js's own, accepted through Better Auth's
+    // addMember. The PostgreSQL option aliases its logical models onto Mochi's
+    // workspace-named control-plane tables.
     organization(organizationOptions({
       postgresEnabled: postgres.enabled,
       isProduction: IS_PRODUCTION,
@@ -354,22 +384,27 @@ function isSafeId(id) {
 /**
  * Resolve the caller. Never throws and never returns a partial identity:
  * either `{ok: true, identity}` with a verified user, or `{ok: false, status,
- * error}` describing the rejection to send back verbatim.
+ * error}` describing the rejection to send back verbatim. Either way `cookies`
+ * are the Set-Cookie values Better Auth wrote for the response: the session's
+ * refreshed snapshot, so the next request needs no query, or its removal.
  */
 async function resolveIdentity(req) {
   let session;
+  let cookies;
   try {
-    session = await auth.api.getSession({headers: fromNodeHeaders(req.headers)});
+    const result = await auth.api.getSession({headers: fromNodeHeaders(req.headers), returnHeaders: true});
+    session = result.response;
+    cookies = result.headers.getSetCookie();
   } catch {
-    return {ok: false, status: 401, error: 'Invalid or expired session'};
+    return {ok: false, status: 401, error: 'Invalid or expired session', cookies: []};
   }
   if (!session?.user?.id) {
-    return {ok: false, status: 401, error: 'Not signed in'};
+    return {ok: false, status: 401, error: 'Not signed in', cookies};
   }
 
   const userId = session.user.id;
   if (!isSafeId(userId)) {
-    return {ok: false, status: 401, error: 'Invalid session subject'};
+    return {ok: false, status: 401, error: 'Invalid session subject', cookies};
   }
 
   // The session's choice if it has made one, and otherwise the account's first
@@ -380,10 +415,19 @@ async function resolveIdentity(req) {
   const orgId = session.session?.activeOrganizationId ?? await firstOrganizationOf(userId);
   return {
     ok: true,
+    cookies,
     identity: Object.freeze({
       userId,
       orgId,
       sessionId: session.session?.id ?? null,
+      // Who the session is, as the browser's gate shows it (GET /api/workspaces).
+      account: Object.freeze({
+        id: userId,
+        name: session.user.name,
+        email: session.user.email,
+        image: session.user.image ?? null,
+        githubLogin: session.user.githubLogin ?? null,
+      }),
     }),
   };
 }
@@ -391,6 +435,7 @@ async function resolveIdentity(req) {
 module.exports = {
   auth,
   tenancy,
+  githubUsers,
   workspaceProvisioning,
   resolveIdentity,
   productionAuthError,
@@ -400,4 +445,6 @@ module.exports = {
   PUBLIC_PATTERNS,
   workspaceAccessControl,
   workspaceRoles,
+  // Also what member-keys.js derives its encryption key from.
+  AUTH_SECRET,
 };

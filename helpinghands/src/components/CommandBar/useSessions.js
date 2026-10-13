@@ -72,6 +72,15 @@ export function normalizeChatTitle(title) {
   return String(title ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
 }
 
+/** The model a chat chose with /model: its key, and what runs send. */
+function cleanModelChoice(value) {
+  if (!value || typeof value !== 'object') return null;
+  if (typeof value.key !== 'string' || !value.key || !value.choice || typeof value.choice !== 'object') return null;
+  const {provider, model} = value.choice;
+  return typeof provider === 'string' && provider && typeof model === 'string' && model
+    ? {key: value.key, choice: {provider, model}} : null;
+}
+
 function cleanChat(chat) {
   if (!chat || typeof chat.id !== 'string' || !chat.id || typeof chat.agentId !== 'string' || !chat.agentId) {
     return null;
@@ -84,7 +93,8 @@ function cleanChat(chat) {
   return {
     id: chat.id,
     agentId: chat.agentId,
-    ...(typeof chat.profileId === 'string' && chat.profileId ? {profileId: chat.profileId} : {}),
+    // A profileId chats once carried came from their agent, not from /model, so it is dropped.
+    ...(cleanModelChoice(chat.modelChoice) ? {modelChoice: cleanModelChoice(chat.modelChoice)} : {}),
     title: String(chat.title || titleFromEntries(entries)).slice(0, 60),
     entries,
     createdAt: String(chat.createdAt || ''),
@@ -384,7 +394,6 @@ export default function useSessions(workspaceKey = 'unscoped') {
     const chat = {
       id: `chat-${Date.now().toString(36)}-${nextChatId.current.toString(36)}`,
       agentId: agent.id,
-      ...(typeof agent.profileId === 'string' && agent.profileId ? {profileId: agent.profileId} : {}),
       title: 'New chat',
       entries: [],
       createdAt: now,
@@ -396,11 +405,12 @@ export default function useSessions(workspaceKey = 'unscoped') {
     return chat;
   }, [setTarget]);
 
-  const setChatProfile = useCallback((chatId, profileId) => {
-    if (typeof profileId !== 'string' || !profileId) return false;
+  const setChatModel = useCallback((chatId, value) => {
+    const modelChoice = cleanModelChoice(value);
+    if (!modelChoice) return false;
     setChats(previous => previous.map(chat => {
       if (chat.id !== chatId) return chat;
-      return {...chat, profileId, updatedAt: new Date().toISOString()};
+      return {...chat, modelChoice, updatedAt: new Date().toISOString()};
     }));
     return true;
   }, []);
@@ -460,7 +470,7 @@ export default function useSessions(workspaceKey = 'unscoped') {
     clear,
     setTarget,
     createChat,
-    setChatProfile,
+    setChatModel,
     renameChat,
     deleteChat,
     removeChatsForAgent,

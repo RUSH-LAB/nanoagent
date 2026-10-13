@@ -1,0 +1,155 @@
+/* Settings → AI (_Ai.js, _ApiKeys.js), and the model picker _ModelPicker.js. */
+
+/* ── The OpenRouter key on the member's computer (_ApiKeys.js) ──── */
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ifm-color-danger-dark);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.linkButton:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.linkButton:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* How the saved key begins and ends, as the computer reports it. */
+.keyHint {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.82rem;
+}
+
+.keyInput {
+  width: 16rem;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.82rem;
+}
+
+/* The model every run is on: its name, as the computer's catalog has it. */
+.model {
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.88rem;
+}
+
+/* ── The model picker ───────────────────────────────────────────── */
+
+.picker {
+  position: relative;
+  display: inline-flex;
+}
+
+.pickerButton {
+  display: grid;
+  justify-items: end;
+  max-width: 18rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 8px;
+  background: none;
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  text-align: right;
+  cursor: pointer;
+}
+
+.pickerButton:hover:not(:disabled) {
+  border-color: var(--ifm-color-emphasis-500);
+}
+
+.pickerButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pickerValue {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pickerProvider {
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.74rem;
+}
+
+.pickerMissing {
+  color: var(--ifm-color-warning-darkest);
+}
+
+.pickerMenu {
+  right: 0;
+  width: min(24rem, 86vw);
+  gap: 4px;
+}
+
+.search {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 6px;
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  font-size: 0.84rem;
+}
+
+.pickerList {
+  display: flex;
+  flex-direction: column;
+  max-height: 20rem;
+  overflow-y: auto;
+}
+
+.pickerGroup {
+  padding: 0.5rem 0.6rem 0.2rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Two classes, to outrank the shared item's padding and nowrap. */
+.pickerList .pickerItem {
+  position: relative;
+  display: grid;
+  gap: 0.1rem;
+  padding-left: 1.6rem;
+  white-space: normal;
+}
+
+.pickerItem[aria-selected='true']::before {
+  content: '✓';
+  position: absolute;
+  top: 0.4rem;
+  left: 0.55rem;
+  color: var(--ifm-color-primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.pickerName {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.pickerNote {
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.75rem;
+}
+
+.pickerMore {
+  padding: 0.5rem 0.6rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.78rem;
+}

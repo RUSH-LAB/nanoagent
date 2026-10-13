@@ -7,7 +7,7 @@ import {createRequire} from 'node:module';
 
 const require = createRequire(import.meta.url);
 const {
-  createPool, migrate, withRequestContext, checksum, quoteIdentifier,
+  createPool, migrate, withRequestContext, queryInContext, checksum, quoteIdentifier,
   grantRuntimeAccess, assertRuntimeRoleIsNotOwner,
 } = require('../../../src/server/postgres/client.js');
 
@@ -80,6 +80,17 @@ describe('PostgreSQL runtime boundary', () => {
     );
     assert.equal(fake.calls.at(-1).sql, 'rollback');
     assert.equal(fake.released, 1);
+  });
+
+  it('reads as a user in one round trip, with no transaction to commit', async () => {
+    const fake = fakePool(async () => [{rows: []}, {rows: [{id: 1}]}]);
+    assert.deepEqual(await queryInContext(fake.pool, {userId: 'u1', workspaceId: 'w1'}, 'select 1 as id'), [{id: 1}]);
+    assert.deepEqual(fake.calls.map(call => call.sql.replace(/\s+/g, ' ')), [
+      "select set_config('app.user_id', 'u1', true), set_config('app.workspace_id', 'w1', true); select 1 as id",
+    ]);
+    assert.equal(fake.calls[0].params, undefined);
+    assert.equal(fake.released, 1);
+    await assert.rejects(() => queryInContext(fake.pool, {workspaceId: 'w1'}, 'select 1'), /verified user context/);
   });
 
   it('applies pending migrations once and records their checksum', async () => {

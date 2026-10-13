@@ -5,34 +5,162 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "input": {"type": "string", "minLength": 1, "maxLength": 100000},
-    "profile": {"type": "string", "minLength": 1, "maxLength": 100},
-    "instructions": {"type": "string", "maxLength": 20000},
+    "input": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100000
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "instructions": {
+      "type": "string",
+      "maxLength": 20000
+    },
     "messages": {
       "type": "array",
       "maxItems": 200,
-      "items": {"$ref": "#/$defs/Message"}
+      "items": {
+        "$ref": "#/$defs/Message"
+      }
     },
-    "metadata": {"type": "object", "additionalProperties": true}
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "model": {
+      "$ref": "#/$defs/Model"
+    },
+    "settings": {
+      "$ref": "#/$defs/Settings"
+    },
+    "keys": {
+      "description": "The run's own provider API keys, by environment variable name: its only credentials. NanoAgent checks them itself, so no error quotes a value.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^(?:[A-Z][A-Z0-9_]*_API_KEY|HF_TOKEN)$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^\\S+$"
+      }
+    }
   },
-  "required": ["input"],
+  "required": [
+    "input"
+  ],
   "$defs": {
     "Message": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "role": {"enum": ["user", "assistant", "tool"]},
-        "content": {"type": "string", "maxLength": 100000},
-        "tool_call_id": {"type": "string", "minLength": 1}
+        "role": {
+          "enum": [
+            "user",
+            "assistant",
+            "tool"
+          ]
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 100000
+        },
+        "tool_call_id": {
+          "type": "string",
+          "minLength": 1
+        }
       },
-      "required": ["role", "content"],
+      "required": [
+        "role",
+        "content"
+      ],
       "allOf": [
         {
-          "if": {"properties": {"role": {"const": "tool"}}, "required": ["role"]},
-          "then": {"required": ["tool_call_id"]},
-          "else": {"not": {"required": ["tool_call_id"]}}
+          "if": {
+            "properties": {
+              "role": {
+                "const": "tool"
+              }
+            },
+            "required": [
+              "role"
+            ]
+          },
+          "then": {
+            "required": [
+              "tool_call_id"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "tool_call_id"
+              ]
+            }
+          }
         }
       ]
+    },
+    "Model": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "provider",
+        "model"
+      ]
+    },
+    "Settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "thinking_level": {
+          "enum": [
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_steps": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cost_limit": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "token_limit": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
     }
   }
 }

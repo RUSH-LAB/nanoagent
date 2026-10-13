@@ -108,7 +108,9 @@
 }
 
 /* The composer follows the same column geometry as the conversation above it:
-   the rail gets window controls, and every pane gets its own input. */
+   the rail gets window controls, and every pane gets its own input. Minimised,
+   the rail's column holds the open button and the "talk to" picker, whose own
+   buttons are not the column's, hence `> button` below. */
 .composerDock {
   display: flex;
   flex-shrink: 0;
@@ -128,7 +130,7 @@
   background: color-mix(in srgb, var(--ifm-background-surface-color) 92%, var(--ifm-color-emphasis-100));
 }
 
-.windowControls button {
+.windowControls > button {
   display: grid;
   place-items: center;
   width: 32px;
@@ -141,14 +143,14 @@
   cursor: pointer;
 }
 
-.windowControls button:hover:not(:disabled) {
+.windowControls > button:hover:not(:disabled) {
   border-color: var(--ifm-color-emphasis-300);
   background: var(--ifm-color-emphasis-100);
   color: var(--ifm-color-primary);
 }
 
-.windowControls button:disabled { opacity: 0.35; cursor: default; }
-.windowControls button:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: -2px; }
+.windowControls > button:disabled { opacity: 0.35; cursor: default; }
+.windowControls > button:focus-visible { outline: 2px solid var(--ifm-color-primary); outline-offset: -2px; }
 
 .composerPanes {
   display: flex;

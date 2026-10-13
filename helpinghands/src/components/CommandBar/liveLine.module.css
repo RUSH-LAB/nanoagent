@@ -1,0 +1,146 @@
+/**
+ * The minimised bar's live slot (LiveLine.js). It sits in the prompt row,
+ * between the field and the send button, and never makes the row taller: one
+ * line, cut with an ellipsis. It takes at most a little under half the row, so
+ * the field beside it always has room to type into.
+ */
+
+.live {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  max-width: 46%;
+}
+
+.body {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  height: 32px;
+  padding: 0 0.7rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 999px;
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  font-size: var(--cli-label);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.body:hover {
+  border-color: var(--ifm-color-emphasis-300);
+  background: var(--ifm-color-emphasis-200);
+}
+
+.body:focus-visible,
+.action:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+}
+
+.who {
+  flex-shrink: 0;
+  max-width: 14ch;
+  overflow: hidden;
+  color: var(--ifm-color-primary);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.streaming .text {
+  color: var(--ifm-color-emphasis-700);
+}
+
+.error {
+  border-color: color-mix(in srgb, var(--ifm-color-danger) 45%, transparent);
+}
+
+.error .who,
+.error .text {
+  color: var(--ifm-color-danger);
+}
+
+.more {
+  flex-shrink: 0;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--ifm-color-primary);
+  color: var(--ifm-color-white);
+  font-size: 0.75em;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+/* An answer being written breathes, so the line says "working" without words. */
+.pulse {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ifm-color-primary);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse { animation: none; }
+}
+
+.action {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--ifm-color-emphasis-600);
+  cursor: pointer;
+}
+
+.action:hover {
+  border-color: var(--ifm-color-emphasis-300);
+  color: var(--ifm-color-primary);
+}
+
+.others {
+  display: flex;
+  flex-shrink: 0;
+  gap: 3px;
+  padding: 0 0.3rem;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ifm-color-primary);
+  opacity: 0.6;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}

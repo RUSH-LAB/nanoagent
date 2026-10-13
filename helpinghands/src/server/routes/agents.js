@@ -1,20 +1,20 @@
 'use strict';
 
-const fallbackProfiles = require('../../ai-profiles.json');
-
+// A workspace agent is a name and instructions; the model each member's chat with it
+// runs on is theirs to choose (Settings → AI, ai-settings.js).
 const AGENT_RE = /^\/api\/agents\/([^/]+)$/;
 const COLORS = new Set(['violet', 'blue', 'emerald', 'amber', 'rose', 'slate']);
-const DEFAULT_PROFILE = fallbackProfiles.defaultProfile;
 const DEFAULT_AGENT_ID = 'mochi';
-const DEFAULTS_VERSION = 5;
+const DEFAULTS_VERSION = 6;
+// What agents once carried to choose their model.
+const MODEL_FIELDS = ['provider', 'model', 'profileId'];
 
-function defaultAgent(catalog = fallbackProfiles, now = new Date().toISOString()) {
+function defaultAgent(now = new Date().toISOString()) {
   return {
     id: DEFAULT_AGENT_ID,
     name: 'Mochi',
     description: '',
     instructions: '',
-    profileId: catalog.defaultProfile,
     tools: [],
     color: 'violet',
     builtin: true,
@@ -25,7 +25,7 @@ function defaultAgent(catalog = fallbackProfiles, now = new Date().toISOString()
   };
 }
 
-async function ensureDefaultAgent(agents, scope, catalog) {
+async function ensureDefaultAgent(agents, scope) {
   const values = await agents.values(scope);
   const normalized = await Promise.all(values.map(async agent => {
     const oldDefaultDescription = agent.id === DEFAULT_AGENT_ID
@@ -34,47 +34,32 @@ async function ensureDefaultAgent(agents, scope, catalog) {
     const oldMochiDefaults = agent.id === DEFAULT_AGENT_ID
       && agent.builtin
       && (agent.defaultsVersion ?? 0) < DEFAULTS_VERSION;
-    const configuredProfile = typeof agent.profileId === 'string'
-      && catalog.profiles.some(profile => profile.id === agent.profileId);
-    if (!Object.hasOwn(agent, 'provider')
-      && !Object.hasOwn(agent, 'model')
-      && configuredProfile
+    if (!MODEL_FIELDS.some(field => Object.hasOwn(agent, field))
       && typeof agent.instructions === 'string'
       && !oldDefaultDescription
       && !oldMochiDefaults) return agent;
-    const {provider: _legacyProvider, model: legacyModel, ...withoutLegacy} = agent;
-    const migratedProfile = configuredProfile
-      ? agent.profileId
-      : (catalog.profiles.find(profile => profile.model === legacyModel)?.id
-        ?? catalog.defaultProfile);
-    const updated = {
-      ...withoutLegacy,
+    const updated = Object.fromEntries(Object.entries({
+      ...agent,
       ...(oldDefaultDescription ? {description: ''} : {}),
       instructions: typeof agent.instructions === 'string' ? agent.instructions : '',
-      profileId: migratedProfile,
       ...(oldMochiDefaults ? {defaultsVersion: DEFAULTS_VERSION} : {}),
-    };
+    }).filter(([key]) => !MODEL_FIELDS.includes(key)));
     await agents.put(scope, updated.id, updated);
     return updated;
   }));
   if (normalized.some(agent => agent.id === DEFAULT_AGENT_ID)) return normalized;
-  const agent = defaultAgent(catalog);
+  const agent = defaultAgent();
   await agents.put(scope, agent.id, agent);
   return [...normalized, agent];
 }
 
-function cleanAgent(body, sanitizeText, catalog, current = {}) {
+function cleanAgent(body, sanitizeText, current = {}) {
   const source = body && typeof body === 'object' ? body : {};
   if (typeof source.name === 'string' && source.name.length > 60) return {error: 'Agent name must be 60 characters or fewer'};
   if (typeof source.description === 'string' && source.description.length > 180) return {error: 'Description must be 180 characters or fewer'};
   if (typeof source.instructions === 'string' && source.instructions.length > 10000) return {error: 'Instructions must be 10000 characters or fewer'};
-  if (source.provider !== undefined || source.model !== undefined) {
-    return {error: 'Harness and model selection use a NanoAgent profileId'};
-  }
-  const profileIds = new Set(catalog.profiles.map(profile => profile.id));
-  if (source.profileId !== undefined
-    && (typeof source.profileId !== 'string' || !profileIds.has(source.profileId))) {
-    return {error: 'Unsupported NanoAgent profile'};
+  if (MODEL_FIELDS.some(field => source[field] !== undefined)) {
+    return {error: 'An agent chooses no model: each member chooses theirs in Settings → AI'};
   }
   const name = typeof source.name === 'string' ? sanitizeText(source.name).trim() : current.name;
   const description = typeof source.description === 'string'
@@ -83,22 +68,20 @@ function cleanAgent(body, sanitizeText, catalog, current = {}) {
   const instructions = typeof source.instructions === 'string'
     ? sanitizeText(source.instructions).trim()
     : (current.instructions ?? '');
-  const profileId = source.profileId ?? current.profileId ?? catalog.defaultProfile;
   const color = COLORS.has(source.color) ? source.color : (current.color || 'violet');
 
   if (!name) return {error: 'Agent name is required'};
-  const {provider: _legacyProvider, model: _legacyModel, ...withoutLegacy} = current;
-  return {agent: {...withoutLegacy, name, description, instructions, profileId, tools: current.tools ?? [], color}};
+  const kept = Object.fromEntries(Object.entries(current).filter(([key]) => !MODEL_FIELDS.includes(key)));
+  return {agent: {...kept, name, description, instructions, tools: current.tools ?? [], color}};
 }
 
 module.exports = async function agent_routes(req, res, _url, pathname, ctx) {
   const match = AGENT_RE.exec(pathname);
   if (pathname !== '/api/agents' && !match) return;
-  const {json, readBody, rateLimit, sanitizeText, collection, scopeFor, requireWorkspacePermission, crypto, ai} = ctx;
+  const {json, readBody, rateLimit, sanitizeText, collection, scopeFor, requireWorkspacePermission, crypto} = ctx;
   const agents = collection('agents');
   const scope = scopeFor(req);
-  const catalog = await ai.profiles();
-  const existing = await ensureDefaultAgent(agents, scope, catalog);
+  const existing = await ensureDefaultAgent(agents, scope);
 
   if (req.method === 'GET' && pathname === '/api/agents') {
     return json(res, 200, {agents: existing.sort((a, b) => a.name.localeCompare(b.name))});
@@ -110,7 +93,7 @@ module.exports = async function agent_routes(req, res, _url, pathname, ctx) {
       return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
     }
     try {
-      const parsed = cleanAgent(await readBody(req), sanitizeText, catalog);
+      const parsed = cleanAgent(await readBody(req), sanitizeText);
       if (parsed.error) return json(res, 400, {error: parsed.error});
       const now = new Date().toISOString();
       const agent = {
@@ -136,7 +119,7 @@ module.exports = async function agent_routes(req, res, _url, pathname, ctx) {
 
   if (req.method === 'PATCH') {
     try {
-      const parsed = cleanAgent(await readBody(req), sanitizeText, catalog, current);
+      const parsed = cleanAgent(await readBody(req), sanitizeText, current);
       if (parsed.error) return json(res, 400, {error: parsed.error});
       const agent = {...parsed.agent, id: current.id, updatedAt: new Date().toISOString()};
       await agents.put(scope, agent.id, agent);
@@ -157,4 +140,3 @@ module.exports = async function agent_routes(req, res, _url, pathname, ctx) {
 module.exports.AGENT_RE = AGENT_RE;
 module.exports.cleanAgent = cleanAgent;
 module.exports.defaultAgent = defaultAgent;
-module.exports.DEFAULT_PROFILE = DEFAULT_PROFILE;

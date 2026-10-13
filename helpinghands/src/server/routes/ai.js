@@ -1,6 +1,7 @@
 'use strict';
 const fallbackProfiles = require('../../ai-profiles.json');
 const {budgetRefusal} = require('../ai-metering');
+const aiSettings = require('../ai-settings');
 // Route module organized from server/index.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
@@ -8,7 +9,8 @@ const {budgetRefusal} = require('../ai-metering');
 // The assistant. Core, not a plugin: the CLI at the foot of every page talks to
 // it, and a site whose assistant could be uninstalled would be a site whose
 // front door sometimes answers 404. Which model replies, and whether over HTTP
-// through the private NanoAgent service, is server/ai.js's business.
+// through the private NanoAgent service, is server/ai.js's business; every run
+// goes to the NanoAgent on the member's own computer, server/runner.js's.
 //
 // It lived in the references route module, next to the bibliography, for no
 // reason anybody would defend; the split that gave the bibliography its own
@@ -26,7 +28,6 @@ const DEFAULT_SYSTEM_PROMPT =
   + 'preamble.';
 
 const VALID_TYPES = ['continue', 'improve', 'explain', 'summarize', 'inline'];
-const INLINE_HARNESS = 'pi';
 const SYSTEM_PROMPTS = {
   continue: 'You are a writing assistant. Continue the text naturally, matching the style and tone. Output only the continuation, no preamble.',
   improve: 'You are an editing assistant. Improve the text for clarity, flow, and correctness while preserving the original meaning and tone. Output only the improved text, no preamble.',
@@ -71,10 +72,13 @@ function corsHeaders(req, corsOrigin) {
  * time one of them changed. Throws on a body that is not an object, which is
  * the generic-500 arm both handlers already catch.
  *
+ * `run` is what the member's AI settings send for this use (ai-settings.js
+ * forRun): the model, NanoAgent settings, and their own instructions.
+ *
  * Returns `{error}` for a rejection, otherwise `{request}` ready for ai.
  */
-function composeRequest(body, sanitizeText, agent = null, catalog = null) {
-  const {prompt, context, messages, type, agentId, profileId: requestedProfileId, appId, sessionId} = body;
+function composeRequest(body, sanitizeText, agent = null, catalog = null, run = {}) {
+  const {prompt, context, messages, type, agentId, profileId, model: chatModel, appId, sessionId} = body;
   if (!prompt || typeof prompt !== 'string') return {error: 'Missing or invalid prompt'};
   if (prompt.length > 50000) return {error: 'Prompt must be 50000 characters or fewer'};
   if (context !== undefined && typeof context !== 'string') return {error: 'context must be a string'};
@@ -104,65 +108,63 @@ function composeRequest(body, sanitizeText, agent = null, catalog = null) {
     if (typeof appId !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(appId) || appId.length > 100) {
       return {error: 'appId must be a NanoAgent plugin id'};
     }
-    if (type !== undefined || agentId !== undefined || requestedProfileId !== undefined) {
-      return {error: 'appId cannot be combined with type, agentId or profileId'};
+    if (type !== undefined || agentId !== undefined || profileId !== undefined || chatModel !== undefined) {
+      return {error: 'appId cannot be combined with type, agentId, profileId or model'};
     }
     // Every prompt to an app belongs to one of the caller's sessions with it.
     if (typeof sessionId !== 'string' || !/^[0-9a-f-]{36}$/.test(sessionId)) {
       return {error: 'sessionId must name a session with the app'};
     }
     if (context) history.push({role: 'user', content: `Context:\n${sanitizeText(context)}`});
-    return {request: {input: sanitizeText(prompt), messages: history, app: appId}, session: sessionId};
+    return {request: {input: sanitizeText(prompt), messages: history, app: appId, ...run}, session: sessionId};
   }
-  if (requestedProfileId !== undefined
-    && (typeof requestedProfileId !== 'string' || !requestedProfileId || requestedProfileId.length > 100)) {
+  if (profileId !== undefined && (typeof profileId !== 'string' || !profileId || profileId.length > 100)) {
     return {error: 'profileId must be a non-empty string of 100 characters or fewer'};
   }
-  const profiles = catalog?.profiles ?? [];
-  let profileId = requestedProfileId || agent?.profileId;
-  if (!profileId && agent?.model) {
-    profileId = profiles.find(profile => profile.model === agent.model)?.id;
-    if (!profileId) return {error: 'The selected agent has an unsupported legacy model'};
+  if (chatModel !== undefined && (!chatModel || typeof chatModel !== 'object'
+    || typeof chatModel.provider !== 'string' || !chatModel.provider || chatModel.provider.length > 100
+    || typeof chatModel.model !== 'string' || !chatModel.model || chatModel.model.length > 200)) {
+    return {error: 'model must be {"provider": "<id>", "model": "<id>"}'};
   }
-  profileId ||= catalog?.defaultProfile;
-  if (!profiles.some(profile => profile.id === profileId)) {
-    // A durable browser chat may still carry a profile removed from the
-    // server-owned catalog. When the request names a stored workspace agent,
-    // safely fall back to the live default; requests without an agent must
-    // still prove that their selected profile is allowed.
-    if (!agent || !profiles.some(profile => profile.id === catalog?.defaultProfile)) {
-      return {error: 'The selected agent has an unsupported profile'};
-    }
-    profileId = catalog.defaultProfile;
+  // The model this chat chose (/model), else the member's for this use, else
+  // NanoAgent's default. A workspace agent chooses none: it brings instructions.
+  const choice = chatModel ? {model: {provider: chatModel.provider, model: chatModel.model}}
+    : profileId ? {profile: profileId}
+      : {profile: run.profile, model: run.model};
+  if (choice.profile && !(catalog?.profiles ?? []).some(profile => profile.id === choice.profile)) {
+    return {error: 'The selected model is no longer offered. Choose another with /model or in Settings → AI.'};
   }
   if (context) history.push({role: 'user', content: `Context:\n${sanitizeText(context)}`});
 
   const agentPrompt = agent?.instructions?.trim()
     ? `${DEFAULT_SYSTEM_PROMPT}\n\nYou are the workspace agent ${sanitizeText(agent.name || 'Assistant')}. Follow these workspace-provided instructions:\n${sanitizeText(agent.instructions)}`
     : null;
+  const base = (type && SYSTEM_PROMPTS[type]) || agentPrompt || DEFAULT_SYSTEM_PROMPT;
 
   return {
     request: {
       input: sanitizeText(prompt),
       messages: history,
-      instructions: (type && SYSTEM_PROMPTS[type]) || agentPrompt || DEFAULT_SYSTEM_PROMPT,
-      profile: profileId,
+      instructions: run.instructions ? `${base}\n\nThe member's own instructions:\n${run.instructions}` : base,
+      ...(choice.profile ? {profile: choice.profile} : {}),
+      ...(choice.model ? {model: choice.model} : {}),
+      ...(run.settings ? {settings: run.settings} : {}),
     },
   };
 }
 
-/** Resolve an agent inside the verified workspace; never trust its browser copy. */
-async function composeStoredRequest(req, ctx, overrides = {}, preferredHarness = null) {
+/**
+ * Resolve an agent inside the verified workspace; never trust its browser copy.
+ * The run is for `use` (chat or inline), on the NanoAgent `ai`, with the member's `settings`.
+ */
+async function composeStoredRequest(req, ctx, overrides = {}, use = 'chat', ai = ctx.ai, settings = aiSettings.stored(null)) {
   const supplied = await ctx.readBody(req);
-  const catalog = typeof ctx.ai.profiles === 'function'
-    ? await ctx.ai.profiles()
+  const catalog = typeof ai.profiles === 'function'
+    ? await ai.profiles()
     : fallbackProfiles;
-  const preferredProfile = preferredHarness
-    ? catalog.profiles?.find(profile => profile.harness === preferredHarness && profile.available !== false)?.id
-    : null;
-  const body = supplied && typeof supplied === 'object'
-    ? {...supplied, ...overrides, ...(preferredProfile ? {profileId: preferredProfile} : {})}
-    : supplied;
+  const body = supplied && typeof supplied === 'object' ? {...supplied, ...overrides} : supplied;
+  // An app's prompt runs on the member's Apps model.
+  const runUse = body?.appId !== undefined ? 'apps' : use;
   let agent = null;
   if (body?.agentId !== undefined) {
     if (typeof body.agentId !== 'string' || !body.agentId || body.agentId.length > 100) {
@@ -171,7 +173,9 @@ async function composeStoredRequest(req, ctx, overrides = {}, preferredHarness =
     agent = await ctx.collection('agents').get(ctx.scopeFor(req), body.agentId);
     if (!agent) return {error: 'Agent not found', status: 404};
   }
-  const composed = composeRequest(body, ctx.sanitizeText, agent, catalog);
+  const composed = composeRequest(
+    body, ctx.sanitizeText, agent, catalog, aiSettings.forRun(settings, runUse),
+  );
   if (composed.error) return composed;
   // The browser may choose only a profile id from NanoAgent's discovered
   // allowlist. Commands, credentials, tools, and execution policy stay private.
@@ -214,16 +218,18 @@ function completionPayload(result) {
  * One buffered completion, checked against the budget first and charged after.
  * Shared by the inline and the writing-assistant endpoints.
  */
-async function meteredCompletion(req, res, ctx, kind, overrides, preferredHarness) {
-  const {json, ai, aiMeter} = ctx;
+async function meteredCompletion(req, res, ctx, kind, overrides, use) {
+  const {json, aiMeter} = ctx;
   try {
-    await aiMeter.assertAllowed(req.context);
-    const {error, request, status} = await composeStoredRequest(req, ctx, overrides, preferredHarness);
+    const ai = await ctx.aiFor(req.auth?.userId);
+    await aiMeter.assertAllowed(req.context, ai);
+    const settings = await ctx.aiSettings(req.auth?.userId);
+    const {error, request, status} = await composeStoredRequest(req, ctx, overrides, use, ai, settings);
     if (error) return json(res, status || 400, {error});
     // Which model answers is server/ai.js's business. This one composes the
     // message and reports whatever comes back.
     const result = await ai.complete(request);
-    await aiMeter.record(req.context, kind, result, {ran: Boolean(result.text)});
+    await aiMeter.record(req.context, kind, result, {ran: Boolean(result.text), local: ai.local});
     if (result.error) return json(res, result.status || 502, {error: result.error});
     return json(res, 200, completionPayload(result));
   } catch (error) {
@@ -234,20 +240,20 @@ async function meteredCompletion(req, res, ctx, kind, overrides, preferredHarnes
 }
 
 module.exports = async function ai_routes(req, res, url, pathname, ctx) {
-  const {json, rateLimit, ai, aiMeter, CORS_ORIGIN} = ctx;
+  const {json, rateLimit, aiMeter, CORS_ORIGIN} = ctx;
 
   // A separate budget keeps editor pauses from consuming the CLI chat limit.
   // The type is forced server-side so this endpoint can never become a second
   // unrestricted assistant surface.
   if (req.method === 'POST' && pathname === '/api/ai/inline-complete') {
     if (!await rateLimit(`ai-inline:${req.caller}`, 30)) return json(res, 429, {error: 'Too many inline completions. Try again in a minute.'});
-    return meteredCompletion(req, res, ctx, 'inline', {type: 'inline'}, INLINE_HARNESS);
+    return meteredCompletion(req, res, ctx, 'inline', {type: 'inline'}, 'inline');
   }
 
   // ── AI writing assistant (v2 – /api/ai/complete) ──
   if (req.method === 'POST' && pathname === '/api/ai/complete') {
     if (!await rateLimit(`ai-complete:${req.caller}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
-    return meteredCompletion(req, res, ctx, 'complete', {}, null);
+    return meteredCompletion(req, res, ctx, 'complete', {}, 'chat');
   }
 
   // ── The same answer, written as it is composed ──
@@ -264,13 +270,17 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     });
 
     let composed;
+    let ai;
     try {
-      await aiMeter.assertAllowed(req.context);
+      ai = await ctx.aiFor(req.auth?.userId);
+      await aiMeter.assertAllowed(req.context, ai);
       composed = await composeStoredRequest(
         req,
         ctx,
         inlineStream ? {type: 'inline'} : {},
-        inlineStream ? INLINE_HARNESS : null,
+        inlineStream ? 'inline' : 'chat',
+        ai,
+        await ctx.aiSettings(req.auth?.userId),
       );
     } catch (error) {
       const refusal = budgetRefusal(error);
@@ -282,13 +292,17 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     // An app's agent acts through the app's tools, which is editing, not reading.
     if (composed.request.app) {
       ctx.requireWorkspacePermission(req.context, 'content:edit');
-      if (!ctx.agentSync || !ctx.sessions) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
+      if (!ctx.agentSync || !ctx.sessions || !ctx.workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
       try {
         await ctx.sessions.assertOwned(req.context, composed.request.app, composed.session);
       } catch (error) {
         if (error.name === 'SessionError') return json(res, error.status, {error: error.message});
         throw error;
       }
+      // The app runs as the workspace added it: NanoAgent's install of its package.
+      const opened = await ctx.workspaceApps.open(req.context, composed.request.app, ai);
+      if (opened.error) return json(res, opened.status, {error: opened.error});
+      composed.request.install = opened.value.sha256;
     }
 
     res.writeHead(200, {
@@ -321,6 +335,8 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     // without NanoAgent's price (postgres/tenancy.js charges its cap instead).
     let ran = false;
     let result = null;
+    // An app run's tool calls, kept with the session's turn so its page draws them again.
+    const tools = [];
     try {
       const answer = workspace => ai.stream({
         ...composed.request,
@@ -335,18 +351,24 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
         // changing text streaming or inventing a second transport later.
         onEvent: event => {
           if (event.type === 'step.completed') ran = true;
+          if (composed.request.app && (event.type === 'tool.completed' || event.type === 'tool.failed')) {
+            tools.push({
+              name: event.call.name, arguments: event.call.arguments, output: event.call.output,
+              isError: event.type === 'tool.failed',
+            });
+          }
           if (event.type !== 'output_text.delta') sendEvent(res, 'agent', event);
         },
       });
       // An app's agent works on a copy of the member's agent folder, and what
       // it writes there is kept in the workspace file system (fs/agent-sync.js).
       result = composed.request.app
-        ? await ctx.agentSync.run(req.context, answer)
+        ? await ctx.agentSync.run(req.context, ai, answer)
         : await answer();
       // The session keeps the conversation, so a page resumed later continues it.
       if (!result.error && composed.request.app) {
         await ctx.sessions.addTurn(req.context, composed.request.app, composed.session, {
-          prompt: composed.request.input, answer: result.text,
+          prompt: composed.request.input, answer: result.text, tools,
         });
       }
       if (result.error) sendEvent(res, 'error', {error: result.error, status: result.status || 502});
@@ -365,7 +387,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     } finally {
       try {
         await aiMeter.record(req.context, kind, result, {
-          ran, pluginId: composed.request.app ?? null, sessionId: composed.session ?? null,
+          ran, local: ai.local, pluginId: composed.request.app ?? null, sessionId: composed.session ?? null,
         });
       } catch (error) {
         console.error('[ai] Could not record assistant usage:', error.message);
@@ -385,13 +407,111 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
 
   // ── Which private agent runtime is answering ──
   if (req.method === 'GET' && pathname === '/api/ai/status') {
-    return json(res, 200, ai.describe());
+    return json(res, 200, (await ctx.aiFor(req.auth?.userId)).describe());
   }
 
   if (req.method === 'GET' && pathname === '/api/ai/profiles') {
-    return json(res, 200, await ai.profiles());
+    return json(res, 200, await (await ctx.aiFor(req.auth?.userId)).profiles());
+  }
+
+  // ── The member's AI settings (Settings → AI, ai-settings.js) ──
+  if (req.method === 'GET' && pathname === '/api/ai/settings') {
+    return json(res, 200, {settings: await ctx.aiSettings(req.auth?.userId), model: aiSettings.MODEL});
+  }
+  if (req.method === 'PUT' && pathname === '/api/ai/settings') {
+    if (!await rateLimit(`ai-settings:${req.caller}`, 30)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    let body;
+    try {
+      body = await ctx.readBody(req);
+    } catch {
+      return json(res, 400, {error: 'Request body must be JSON, within the size limit'});
+    }
+    const normalized = aiSettings.normalize(body?.settings, ctx.sanitizeText);
+    if (normalized.error) return json(res, 400, {error: normalized.error});
+    await ctx.preferences.merge(req.auth.userId, {ai: normalized.value});
+    return json(res, 200, {settings: normalized.value});
+  }
+
+  // ── The models a member may choose: every one their own computer's keys reach ──
+  if (req.method === 'GET' && pathname === '/api/ai/models') {
+    const computer = ctx.runners.status(req.auth?.userId);
+    const gateway = ctx.runners.computer(req.auth?.userId);
+    if (!gateway) return json(res, 200, {connected: false, device: null, providers: [], models: [], defaults: {}, limits: null});
+    const [listing, catalog] = await Promise.all([gateway.models(), gateway.profiles()]);
+    if (listing.error) return json(res, listing.status, {error: listing.error});
+    return json(res, 200, {connected: true, device: computer.device, ...localModels(listing.value, catalog)});
+  }
+
+  // ── Whether the member's own computer is connected to run their AI ──
+  if (req.method === 'GET' && pathname === '/api/runner/status') {
+    return json(res, 200, ctx.runners.status(req.auth?.userId));
+  }
+
+  // ── The API keys a member gives Mochi itself, for runs while no computer is connected ──
+  if ((req.method === 'GET' || req.method === 'PUT') && pathname === '/api/ai/keys') {
+    if (!ctx.memberKeys) return json(res, 503, {error: 'Keeping API keys needs PostgreSQL'});
+    if (req.method === 'GET') return json(res, 200, {keys: await ctx.memberKeys.list(req.auth.userId)});
+    if (!await rateLimit(`ai-keys:${req.caller}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    let body;
+    try {
+      body = await ctx.readBody(req);
+    } catch {
+      return json(res, 400, {error: 'Request body must be JSON, within the size limit'});
+    }
+    const saved = await ctx.memberKeys.save(req.auth.userId, body?.changes);
+    if (saved.error) return json(res, 400, {error: saved.error});
+    return json(res, 200, {keys: saved.value});
+  }
+
+  // ── The API keys on the member's computer: passed on to it, never kept or shown here ──
+  if (req.method === 'PUT' && pathname === '/api/runner/keys') {
+    if (!await rateLimit(`runner-keys:${req.caller}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
+    let body;
+    try {
+      body = await ctx.readBody(req);
+    } catch {
+      return json(res, 400, {error: 'Request body must be JSON, within the size limit'});
+    }
+    const saved = await ctx.runners.saveKeys(req.auth.userId, body?.changes);
+    if (saved.error) return json(res, saved.status, {error: saved.error});
+    return json(res, 200, saved.value);
   }
 };
+
+/** The member's computer's catalog as models to choose, each available once Mochi Lab holds its provider's key. */
+function localModels(listing, catalog) {
+  const providers = new Map(listing.providers.map(provider => [provider.id, provider]));
+  const models = listing.models.map(model => {
+    const provider = providers.get(model.provider);
+    return {
+      key: `${model.provider}/${model.id}`,
+      choice: {provider: model.provider, model: model.id},
+      label: model.name,
+      provider: model.provider,
+      providerName: provider?.name ?? model.provider,
+      model: model.id,
+      uses: model.apps ? ['chat', 'inline', 'apps'] : ['chat', 'inline'],
+      available: Boolean(provider?.keySet),
+      unavailableReason: provider?.keySet ? null : `Needs your ${provider?.name ?? model.provider} key: add it under API keys`,
+      price: model.cost,
+      contextWindow: model.contextWindow,
+      reasoning: model.reasoning,
+    };
+  });
+  // NanoAgent's own choices, where a use has none of the member's.
+  const keyOf = profile => (profile?.provider ? `${profile.provider}/${profile.model}` : null);
+  const byDefault = catalog.profiles.find(profile => profile.id === catalog.defaultProfile);
+  return {
+    providers: listing.providers,
+    models,
+    defaults: {
+      chat: keyOf(byDefault),
+      inline: keyOf(byDefault),
+      apps: keyOf(catalog.profiles.find(profile => profile.uses.includes('apps'))),
+    },
+    limits: listing.limits,
+  };
+}
 
 module.exports.DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT;
 module.exports.composeRequest = composeRequest;

@@ -2,13 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import NavbarLogo from '@theme/Navbar/Logo';
-import useBaseUrl from '@docusaurus/useBaseUrl';
-import { useThemeConfig } from '@docusaurus/theme-common';
 import { useLocation } from '@docusaurus/router';
 import { useClickOutside } from '@site/src/hooks/useClickOutside';
-import { getCachedWorkspaces, loadWorkspaces, switchWorkspace, workspaceSlugFromPath } from '@site/src/utils/workspaces';
+import { switchWorkspace, workspaceSlugFromPath } from '@site/src/utils/workspaces';
+import { useAccount } from '@site/src/utils/account';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
-import API_BASE from '@site/src/utils/api';
 import styles from './styles.module.css';
 
 /**
@@ -21,12 +19,10 @@ import styles from './styles.module.css';
  * every channel, person, and invitation on the page refers to, so that is the
  * more useful of the two to have on screen.
  *
- * Falls back to the ordinary logo, unchanged, in every case where there is no
- * workspace to name: authentication off, signed out, the API unreachable, and
- * the static build. That fallback is also what makes hydration safe. The navbar
- * is part of every prerendered page, so the first client render has to match the
- * HTML exactly or React reports a mismatch; rendering the stock logo until the
- * request answers is the same markup the build produced.
+ * Falls back to the ordinary brand (the site's name) when there is no
+ * workspace to name: signed out, or a URL naming a workspace you are not in.
+ * The workspaces are the auth gate's answer (utils/account.js), known before
+ * the navbar is drawn.
  */
 
 /** Marks the workspace you are in, in the list of the ones you could be in. */
@@ -46,19 +42,14 @@ function Check() {
 }
 
 export default function WorkspaceSwitcher() {
-  const { navbar } = useThemeConfig();
   const location = useLocation();
   const workspaceSite = useWorkspaceSite();
 
-  const cached = getCachedWorkspaces();
-  const [workspaces, setWorkspaces] = useState(cached?.memberships ?? null);
-  const [activeId, setActiveId] = useState(cached?.activeId ?? null);
+  const { workspaces, defaultWorkspaceId: activeId } = useAccount();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const wrapper = useRef(null);
-  // Unconditional, because it is a hook: the early return below is beneath it.
-  const platformLogoUrl = useBaseUrl(navbar.logo?.src ?? '');
 
   useClickOutside(wrapper, () => setOpen(false), open);
 
@@ -71,39 +62,21 @@ export default function WorkspaceSwitcher() {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [open]);
 
-  useEffect(() => {
-    let cancelled = false;
-    loadWorkspaces()
-      .then(({ memberships, activeId: active }) => {
-        if (cancelled) return;
-        setWorkspaces(memberships ?? []);
-        setActiveId(active ?? null);
-      })
-      .catch(() => { /* the brand stays the brand */ });
-    return () => { cancelled = true; };
-  }, []);
-
   const routeSlug = workspaceSlugFromPath(location.pathname);
   // A workspace URL is authoritative. Never replace an unknown or still
   // loading URL workspace with the session's default workspace: doing so
   // briefly displays one organization's identity inside another tab.
   const active = routeSlug
-    ? workspaces?.find((workspace) => workspace.slug === routeSlug)
-    : workspaces?.find((workspace) => workspace.id === activeId);
+    ? workspaces.find((workspace) => workspace.slug === routeSlug)
+    : workspaces.find((workspace) => workspace.id === activeId);
 
   // Nothing to name yet, or nothing to name at all. The stock logo, untouched.
   if (!active) return <NavbarLogo />;
 
-  const logoAssetId = workspaceSite.slug === routeSlug
-    ? workspaceSite.site?.site?.logoAssetId
-    : null;
-  const logoUrl = logoAssetId
-    ? `${API_BASE}/api/workspaces/${encodeURIComponent(active.id)}/assets?id=${encodeURIComponent(logoAssetId)}`
-    : platformLogoUrl;
   const displayName = workspaceSite.slug === routeSlug
     ? workspaceSite.site?.site?.title || active.name
     : active.name;
-  const homeHref = `/w/${encodeURIComponent(active.slug)}/documents`;
+  const homeHref = `/w/${encodeURIComponent(active.slug)}`;
 
   async function choose(workspace) {
     if (workspace.slug === active?.slug) {
@@ -135,11 +108,6 @@ export default function WorkspaceSwitcher() {
         title={`${displayName} home`}
         aria-label={`Open ${displayName} home`}
       >
-        {navbar.logo && (
-          <div className="navbar__logo">
-            <img src={logoUrl} alt="" className={styles.logo} />
-          </div>
-        )}
         <span className={styles.identity}>
           <b className={clsx('navbar__title', 'text--truncate', styles.name)}>{displayName}</b>
         </span>
@@ -173,29 +141,26 @@ export default function WorkspaceSwitcher() {
               <span className={styles.workspaceMark} aria-hidden="true">
                 {workspace.name.trim().charAt(0).toUpperCase() || 'W'}
               </span>
-              <span className={styles.label}>
-                <span className={styles.optionName}>{workspace.name}</span>
-                <span className={styles.meta}>
-                  {workspace.role}, {workspace.memberCount}{' '}
-                  {workspace.memberCount === 1 ? 'person' : 'people'}
-                </span>
-              </span>
+              <span className={styles.optionName}>{workspace.name}</span>
               <span className={styles.slot}>{workspace.id === active.id && <Check />}</span>
             </button>
           ))}
 
           {error && <p className={styles.error} role="alert">{error}</p>}
 
-          <div className={styles.footer}>
-            {/* Creating and leaving both live on the settings page, which has
-                room to explain them. This is the switcher, not the manager. */}
-            <Link className={styles.manage} to={`/w/${active.slug}/people`} onClick={() => setOpen(false)}>
-              People
-            </Link>
-            <Link className={styles.manage} to={`/w/${active.slug}/settings`} onClick={() => setOpen(false)}>
-              Workspace settings <span aria-hidden="true">→</span>
-            </Link>
-          </div>
+          <Link
+            to="/new-workspace"
+            role="menuitem"
+            className={clsx(styles.option, styles.create)}
+            onClick={() => setOpen(false)}
+          >
+            <span className={styles.createMark} aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="14" height="14">
+                <path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </span>
+            <span className={styles.optionName}>New Workspace</span>
+          </Link>
         </div>
       )}
     </div>

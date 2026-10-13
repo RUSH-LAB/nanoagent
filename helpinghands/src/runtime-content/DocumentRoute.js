@@ -1,7 +1,6 @@
 import React, {Suspense, lazy, useCallback, useEffect, useState} from 'react';
 import clsx from 'clsx';
 import {useLocation} from '@docusaurus/router';
-import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Link from '@docusaurus/Link';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import Layout from '@theme/Layout';
@@ -14,7 +13,8 @@ import useWorkspaceSubscriptions, {
   isGroupSubscribed, orderByPreference,
 } from '@site/src/hooks/useWorkspaceSubscriptions';
 import API_BASE, {apiFetch, apiJson, invalidateApiJson} from '@site/src/utils/api';
-import {loadWorkspaces, navigateClient} from '@site/src/utils/workspaces';
+import {navigateClient} from '@site/src/utils/workspaces';
+import {useAccount} from '@site/src/utils/account';
 import {
   DOCUMENT_SYNC_EVENT, documentCache, isOffline, startDocumentSync,
 } from '@site/src/utils/documentCache';
@@ -30,65 +30,6 @@ import RuntimeDocItem from './RuntimeDocItem';
 import styles from './documentRoute.module.css';
 
 const DocumentEditor = lazy(() => import('./DocumentEditor'));
-
-const HOME_TOOLS = Object.freeze([
-  {
-    id: 'bibliography',
-    title: 'Bibliography',
-    description: 'Collect papers, organize sources, and manage citations.',
-    path: 'bibliography',
-    keywords: ['bib', 'bibliography', 'citation', 'citations', 'paper', 'papers', 'reference', 'references'],
-  },
-]);
-
-function ToolSearch({workspaceSlug}) {
-  const [query, setQuery] = useState('');
-  const workspaceRoot = `/w/${encodeURIComponent(workspaceSlug)}`;
-  const normalized = query.trim().toLowerCase();
-  const matches = normalized
-    ? HOME_TOOLS.filter(tool => tool.keywords.some(keyword => keyword.includes(normalized)))
-    : [];
-
-  const openFirst = (event) => {
-    event.preventDefault();
-    if (matches[0]) navigateClient(`${workspaceRoot}/${matches[0].path}`);
-  };
-
-  return (
-    <section className={styles.toolSearch} aria-label="Find a tool">
-      <form className={styles.toolSearchBar} role="search" onSubmit={openFirst}>
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <circle cx="11" cy="11" r="7" />
-          <path d="m16.5 16.5 4 4" />
-        </svg>
-        <input
-          type="search"
-          value={query}
-          onChange={event => setQuery(event.target.value)}
-          placeholder="Search tools"
-          aria-label="Search workspace tools"
-          autoComplete="off"
-          autoFocus
-        />
-      </form>
-
-      {normalized && (
-        <div className={styles.toolResults} aria-live="polite">
-          {matches.map(tool => (
-            <Link key={tool.id} className={styles.toolResult} to={`${workspaceRoot}/${tool.path}`}>
-              <span>
-                <strong>{tool.title}</strong>
-                <small>{tool.description}</small>
-              </span>
-              <span aria-hidden="true">→</span>
-            </Link>
-          ))}
-          {matches.length === 0 && <p>No tools match “{query.trim()}”.</p>}
-        </div>
-      )}
-    </section>
-  );
-}
 
 /**
  * A page, fetched and rendered when somebody asks for it.
@@ -401,7 +342,7 @@ function DocumentBody({
   categoryRequested,
   subcategoryRequested,
 }) {
-  const {siteConfig} = useDocusaurusContext();
+  const {account, userId, workspaces} = useAccount();
   const [state, setState] = useState({status: LOADING});
   const [editing, setEditing] = useState(false);
   // A visitor has no member preferences to read.
@@ -424,14 +365,10 @@ function DocumentBody({
         // A signed-out visitor reads what the workspace publishes, through the
         // public API, without this browser's cache of member documents.
         let workspace;
-        let userId = null;
         let publicSite = null;
-        try {
-          const account = await loadWorkspaces();
-          userId = account.userId;
-          workspace = account.workspaces.find(item => item.slug === workspaceSlug);
-        } catch (err) {
-          if (err.status !== 401) throw err;
+        if (userId) {
+          workspace = workspaces.find(item => item.slug === workspaceSlug);
+        } else {
           const published = await apiJson(`${API_BASE}/api/public/${encodeURIComponent(workspaceSlug)}`, {
             cacheMs: WORKSPACE_CONTENT_CACHE_MS,
           });
@@ -463,20 +400,18 @@ function DocumentBody({
           }
         }
         const site = siteResult.ok ? siteResult.data.site : null;
-        const homeLayout = workspaceHomeLayout(site, workspaceSlug);
+        const homeLayout = workspaceHomeLayout(site);
         const homeDocument = !documentPath && homeLayout === 'document'
           ? site?.site?.homeDocument
           : null;
         const requestedPath = documentPath || homeDocument || '';
         const plan = workspaceContentPlan(site, requestedPath);
-        const needsTree = Boolean(documentPath || homeLayout !== 'title');
         const views = {
           document: plan.path && !plan.isCollection ? `?path=${encodeURIComponent(plan.path)}` : null,
-          tree: needsTree ? `/tree${plan.treeQuery}` : null,
+          tree: `/tree${plan.treeQuery}`,
         };
         const notRequested = {
           document: {ok: false, status: 404, data: {}},
-          tree: {ok: true, status: 200, data: {documents: []}},
         };
 
         const show = (documentResult, treeResult) => {
@@ -491,10 +426,6 @@ function DocumentBody({
             routePath: documentPath,
             site,
           };
-          if (!documentPath && homeLayout === 'title') {
-            setState({status: READY, documents: listed, homeLayout, ...readyBase});
-            return;
-          }
           if (!documentPath && homeLayout === 'document') {
             if (!homeDocument) {
               setState({status: BROKEN, message: 'Choose a home document in workspace settings.'});
@@ -510,6 +441,7 @@ function DocumentBody({
               document: documentResult.data.document,
               markdown: documentResult.data.markdown,
               frontmatter: documentResult.data.frontmatter || {},
+              authors: documentResult.data.authors,
               documents: listed,
               homeLayout,
               ...readyBase,
@@ -527,6 +459,7 @@ function DocumentBody({
               document: documentResult.data.document,
               markdown: documentResult.data.markdown,
               frontmatter: documentResult.data.frontmatter || {},
+              authors: documentResult.data.authors,
               documents: listed,
               ...readyBase,
             });
@@ -564,7 +497,7 @@ function DocumentBody({
 
         // This browser's copy renders at once; the server's answer below
         // replaces it. A copy holding an edit not yet uploaded stays in view.
-        const cached = cache && (views.document || views.tree)
+        const cached = cache
           ? await Promise.all(['document', 'tree'].map(kind => views[kind]
             ? cache.read(scope, views[kind])
             : notRequested[kind])).catch(error => {
@@ -582,9 +515,7 @@ function DocumentBody({
             views.document
               ? apiJson(`${apiRoot}/documents${views.document}`, {cacheMs: WORKSPACE_CONTENT_CACHE_MS})
               : notRequested.document,
-            views.tree
-              ? apiJson(`${apiRoot}/documents${views.tree}`, {cacheMs: WORKSPACE_CONTENT_CACHE_MS})
-              : notRequested.tree,
+            apiJson(`${apiRoot}/documents${views.tree}`, {cacheMs: WORKSPACE_CONTENT_CACHE_MS}),
           ]);
         } catch (err) {
           // Offline: keep showing this browser's copy.
@@ -605,7 +536,7 @@ function DocumentBody({
     return () => {
       cancelled = true;
     };
-  }, [workspaceSlug, documentPath, editRequested]);
+  }, [workspaceSlug, documentPath, editRequested, userId, workspaces]);
 
   // Keep this browser's copy of the workspace current while the page is open,
   // and show what the background sync did with edits saved offline.
@@ -630,6 +561,7 @@ function DocumentBody({
             tree: detail.data.tree,
             markdown: detail.data.markdown,
             frontmatter: detail.data.frontmatter || {},
+            authors: detail.data.authors,
             document: detail.data.document,
           };
         }
@@ -659,6 +591,7 @@ function DocumentBody({
       tree: saved.tree,
       markdown: saved.markdown,
       frontmatter: saved.frontmatter ?? current.frontmatter,
+      authors: saved.authors ?? current.authors,
       document: {...current.document, ...saved.document},
       documents: (current.documents || []).map(item => item.path === saved.document.path
         ? {...item, title: saved.document.title, updatedAt: saved.document.updatedAt}
@@ -676,11 +609,17 @@ function DocumentBody({
         ? adjacent.document.path.slice(0, adjacent.document.path.lastIndexOf('/'))
         : collection?.pathPrefix;
       const targetCollection = adjacent ? {...collection, pathPrefix: directory} : collection;
+      // A post's author is whoever starts it, by GitHub username.
+      let author = null;
+      if (targetCollection?.type === 'blog') {
+        author = account?.githubLogin;
+        if (!author) throw new Error('Sign in with GitHub again so Mochi knows your GitHub username.');
+      }
       const draft = newDocumentDraft({
         collection: targetCollection,
         title,
         existingPaths: (state.documents || []).map(item => item.path),
-        defaultAuthor: state.site?.authoring?.defaultAuthor,
+        author,
         group,
         sidebarPosition: adjacent && collection?.type !== 'blog'
           ? adjacentDocumentPosition(state.documents || [], adjacent.document.path, adjacent.direction)
@@ -698,7 +637,7 @@ function DocumentBody({
     } catch (error) {
       window.alert(error.message);
     }
-  }, [state.documents, state.site, state.workspaceId, state.workspaceRole, workspaceSlug]);
+  }, [account, state.documents, state.site, state.workspaceId, state.workspaceRole, workspaceSlug]);
 
   const deleteDocument = useCallback(async (document, collection) => {
     if (!state.workspaceId || state.workspaceRole !== 'owner') return;
@@ -722,6 +661,7 @@ function DocumentBody({
         markdown: undefined,
         tree: undefined,
         frontmatter: {},
+        authors: undefined,
       }));
       const destination = collection?.pathPrefix
         ? `/w/${encodeURIComponent(workspaceSlug)}/documents/${collection.pathPrefix}`
@@ -769,30 +709,14 @@ function DocumentBody({
   const canEdit = state.workspaceRole === 'owner' || state.workspaceRole === 'editor';
   const canDelete = state.workspaceRole === 'owner';
 
-  if (state.emptyWorkspace || (!renderedPath && (state.homeLayout === 'title' || (!state.document && state.documents.length === 0)))) {
-    const workspaceTitle = state.site?.site?.title || state.workspaceName;
-    return (
-      <Layout title={workspaceTitle}>
-        <main className={styles.workspaceHome}>
-          <header className={styles.workspaceWelcome}>
-            <h1>{siteConfig.title}</h1>
-            {workspaceTitle !== siteConfig.title && <p>{workspaceTitle}</p>}
-          </header>
-          <ToolSearch workspaceSlug={state.workspaceSlug} />
-        </main>
-      </Layout>
-    );
-  }
-
-  if ((!renderedPath && !state.document) || state.directory) {
+  if ((!renderedPath && !state.document) || state.directory || state.emptyWorkspace) {
     const directoryCollection = state.directory ? collectionFor(state.site, state.directory) : null;
     const isBlogCollection = directoryCollection?.type === 'blog';
     const visibleDocuments = !state.directory && state.site?.collections?.length
       ? state.documents.filter(document => state.site.collections.some(collection =>
           document.path.startsWith(`${collection.pathPrefix}/`)))
       : state.documents;
-    const workspaceTitle = state.site?.site?.title || state.workspaceName;
-    const heading = directoryCollection?.title || (state.directory ? labelForDirectory(state.directory) : workspaceTitle);
+    const heading = directoryCollection?.title || (state.directory ? labelForDirectory(state.directory) : 'Documents');
     const itemType = isBlogCollection ? 'post' : 'page';
     const description = state.directory
       ? directoryCollection?.description || `${visibleDocuments.length} ${visibleDocuments.length === 1 ? itemType : `${itemType}s`} in this collection`
@@ -986,7 +910,7 @@ function DocumentBody({
       workspaceSlug,
       collectionPath: collection.pathPrefix,
       showReadingTime: collection.showReadingTime,
-      authors: state.site?.authors,
+      authors: state.authors,
       previous,
       next,
       onEdit: canEdit ? () => setEditing(true) : null,

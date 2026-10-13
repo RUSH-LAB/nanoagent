@@ -70,3 +70,14 @@ changes. Deleted files go to the workspace trash.
 The folder's settings are in `.mochi/config.yaml` and the last synced state is
 in `.mochi/state.json`. Deleting `state.json` would make every file look new,
 so leave the `.mochi` folder alone.
+
+## Publishing a plugin
+
+Push a plugin in the NanoAgent plugin format to a public GitHub repository,
+then publish it to the marketplace. Run the same command again to update it.
+
+```bash
+mochi publish https://mochi-lab.org https://github.com/you/your-plugin
+```
+
+For a plugin in a subfolder, give the folder's URL: `…/tree/<branch>/<folder>`.

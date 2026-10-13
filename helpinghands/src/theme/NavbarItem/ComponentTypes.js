@@ -15,12 +15,12 @@ import DocSidebarNavbarItem from '@theme/NavbarItem/DocSidebarNavbarItem';
 import DocsVersionNavbarItem from '@theme/NavbarItem/DocsVersionNavbarItem';
 import DocsVersionDropdownNavbarItem from '@theme/NavbarItem/DocsVersionDropdownNavbarItem';
 import UserButton from '@site/src/components/UserButton';
-import LazySearchNavbarItem from '@site/src/components/LazySearchNavbarItem';
+import SearchTrigger from '@site/src/components/SearchTrigger';
 
 export default {
   default: DefaultNavbarItem,
   localeDropdown: LocaleDropdownNavbarItem,
-  search: LazySearchNavbarItem,
+  search: SearchTrigger,
   dropdown: DropdownNavbarItem,
   html: HtmlNavbarItem,
   doc: DocNavbarItem,

@@ -14,7 +14,7 @@ import NavbarItem, {type Props as NavbarItemConfig} from '@theme/NavbarItem';
 import NavbarColorModeToggle from '@theme/Navbar/ColorModeToggle';
 import NavbarMobileSidebarToggle from '@theme/Navbar/MobileSidebar/Toggle';
 import WorkspaceSwitcher from '@site/src/components/WorkspaceSwitcher';
-import LazySearchNavbarItem from '@site/src/components/LazySearchNavbarItem';
+import SearchTrigger from '@site/src/components/SearchTrigger';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import useWorkspaceSubscriptions, {
   isBookSubscribed, orderByPreference,
@@ -203,7 +203,7 @@ export default function NavbarContent(): ReactNode {
         <>
           <NavbarItems items={rightItems} />
           <NavbarColorModeToggle className={styles.colorModeToggle} />
-          {!searchBarItem && <LazySearchNavbarItem />}
+          {!searchBarItem && <SearchTrigger />}
         </>
       }
     />

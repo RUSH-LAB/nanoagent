@@ -8,6 +8,7 @@ import useWorkspaceSubscriptions, {
 } from '@site/src/hooks/useWorkspaceSubscriptions';
 import {saveWorkspaceCollections} from '@site/src/utils/workspaceSiteEditor';
 import {clientPlatform} from '@site/src/platform/client';
+import SidebarTree from '@site/src/components/SidebarTree';
 import styles from './styles.module.css';
 
 function GroupIcon() {
@@ -147,84 +148,25 @@ function GroupSwitcher({navigation}) {
 }
 
 function CategoryTree({navigation}) {
-  const [collapsed, setCollapsed] = useState(() => new Set(
-    navigation.categories
-      .filter(category => category.title !== navigation.activeCategory)
-      .map(category => category.title),
-  ));
-
-  useEffect(() => {
-    setCollapsed(new Set(
-      navigation.categories
-        .filter(category => category.title !== navigation.activeCategory)
-        .map(category => category.title),
-    ));
-  }, [navigation.activeCategory, navigation.categories]);
-
-  const toggle = title => {
-    setCollapsed(current => {
-      const next = new Set(current);
-      if (next.has(title)) next.delete(title);
-      else next.add(title);
-      return next;
-    });
-  };
-
-  return (
-    <nav className={clsx('menu thin-scrollbar', styles.menu)} aria-label="Blog categories">
-      <ul className="menu__list">
-        {navigation.categories.map(category => {
-          const hasChildren = category.subcategories.length > 0;
-          const isCollapsed = collapsed.has(category.title);
-          const categoryActive = category.isAll
-            ? !navigation.activeCategory
-            : category.title === navigation.activeCategory;
-          return (
-            <li key={category.title} className={clsx('menu__list-item', isCollapsed && 'menu__list-item--collapsed')}>
-              <div className={clsx('menu__list-item-collapsible', categoryActive && 'menu__list-item-collapsible--active')}>
-                <Link
-                  className={clsx('menu__link', styles.categoryLink, categoryActive && 'menu__link--active')}
-                  to={category.permalink}
-                >
-                  <TaxonomyIcon all={category.isAll} />
-                  <span className={styles.taxonomyTitle}>{category.title}</span>
-                  <span className={styles.itemCount}>{category.count}</span>
-                </Link>
-                {hasChildren && (
-                  <button
-                    className="clean-btn menu__caret"
-                    type="button"
-                    aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${category.title}`}
-                    aria-expanded={!isCollapsed}
-                    onClick={() => toggle(category.title)}
-                  />
-                )}
-              </div>
-              {hasChildren && !isCollapsed && (
-                <ul className={clsx('menu__list', styles.subcategoryList)}>
-                  {category.subcategories.map(subcategory => (
-                    <li className="menu__list-item" key={subcategory.title}>
-                      <Link
-                        className={clsx(
-                          'menu__link',
-                          styles.subcategoryLink,
-                          categoryActive && subcategory.title === navigation.activeSubcategory && 'menu__link--active',
-                        )}
-                        to={subcategory.permalink}
-                      >
-                        <span className={styles.taxonomyTitle}>{subcategory.title}</span>
-                        <span className={styles.itemCount}>{subcategory.count}</span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
-  );
+  const items = navigation.categories.map(category => {
+    const active = category.isAll ? !navigation.activeCategory : category.title === navigation.activeCategory;
+    return {
+      key: category.title,
+      label: category.title,
+      to: category.permalink,
+      icon: <TaxonomyIcon all={category.isAll} />,
+      count: category.count,
+      active,
+      children: category.subcategories.map(subcategory => ({
+        key: subcategory.title,
+        label: subcategory.title,
+        to: subcategory.permalink,
+        count: subcategory.count,
+        active: active && subcategory.title === navigation.activeSubcategory,
+      })),
+    };
+  });
+  return <SidebarTree label="Blog categories" items={items} collapseInactive />;
 }
 
 export default function BlogGroupSidebar({navigation, collapsed, onCollapse}) {

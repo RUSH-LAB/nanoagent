@@ -49,6 +49,19 @@ describe('file system API', () => {
     assert.ok(stale.payload.currentRev > 1);
   });
 
+  it('lists a file\'s revisions newest first and serves each one\'s text', async () => {
+    await call({method: 'PUT', path: '/api/fs/file', query: {path: 'notes/h.txt', baseRev: 0}, body: 'one', requestContext: bob});
+    const second = await call({method: 'PUT', path: '/api/fs/file', query: {path: 'notes/h.txt'}, body: 'two', requestContext: bob});
+    const history = await call({path: '/api/fs/history', query: {path: 'notes/h.txt'}, requestContext: vic});
+    assert.equal(history.status, 200);
+    assert.equal(history.payload.revisions.length, 2);
+    assert.equal(history.payload.revisions[0].seq, second.payload.node.rev);
+    const first = await call({path: '/api/fs/revision', query: {path: 'notes/h.txt', seq: history.payload.revisions[1].seq}, requestContext: vic});
+    assert.equal(first.written.body.toString(), 'one');
+    const missing = await call({path: '/api/fs/revision', query: {path: 'notes/h.txt', seq: 0}, requestContext: vic});
+    assert.equal(missing.status, 404);
+  });
+
   it('refuses writes from a viewer and deletes from an editor', async () => {
     const write = await call({method: 'PUT', path: '/api/fs/file', query: {path: 'notes/v.md'}, body: 'v', requestContext: vic});
     assert.equal(write.status, 403);

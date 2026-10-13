@@ -8,6 +8,9 @@
  * the caller abandoned after text arrived, or a task run that failed or was
  * stopped, is charged at NanoAgent's per-run cap instead, so neither is a way
  * around the budget.
+ *
+ * A call to the member's own computer (server/runner.js) is theirs to pay for:
+ * it is never refused, and is recorded at no cost.
  */
 
 // agent.cost_limit in nanoagent/deploy/railway/nanoagent.yaml.
@@ -17,26 +20,27 @@ const UNPRICED_RUN_USD = 0.10;
 function createAiMeter(tenancy) {
   return Object.freeze({
     /** Throws a TenancyError (status 429) when the budget is spent. */
-    async assertAllowed(context) {
-      if (tenancy) await tenancy.assertAiAllowed(context);
+    async assertAllowed(context, {local = false} = {}) {
+      if (tenancy && !local) await tenancy.assertAiAllowed(context);
     },
 
     /**
      * Record one call. `result` is what ai.js returned, or null when the call
      * threw; `ran` says whether it got far enough to cost anything. A plugin's
-     * call names the plugin, its session, and for a task run the task.
+     * call names the plugin, its session, and for a task run the task; `local`
+     * says it ran on the member's own computer.
      */
-    async record(context, kind, result, {ran, pluginId = null, sessionId = null, task = null}) {
+    async record(context, kind, result, {ran, local = false, pluginId = null, sessionId = null, task = null}) {
       if (!tenancy) return;
       const priced = result?.cost != null;
       if (!priced && !ran) return;
       await tenancy.recordAiUsage(context, {
         kind,
         model: result?.model ?? null,
-        cost: priced ? result.cost : UNPRICED_RUN_USD,
+        cost: local ? 0 : priced ? result.cost : UNPRICED_RUN_USD,
         usage: result?.usage ?? null,
         metrics: result?.metrics ?? null,
-        estimated: !priced,
+        estimated: !local && !priced,
         pluginId,
         sessionId,
         task,

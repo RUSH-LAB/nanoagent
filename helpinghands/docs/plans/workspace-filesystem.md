@@ -58,6 +58,8 @@ for everyone:
 - `PUT access {path, access}`
 - `GET history?path=`, `POST restore {path, seq}`
 - `GET changes?since=<seq>`: the change feed every sync client follows
+- `GET events`: the workspace's push channel, batched changes and live Markdown
+  updates as server-sent events; a client catches up from `changes` on reconnect
 
 ## Sync
 

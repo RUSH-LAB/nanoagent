@@ -2,39 +2,27 @@ import React, {useEffect, useState} from 'react';
 import {clientPlatform} from '@site/src/platform/client';
 import styles from './agentEditor.module.css';
 
-const emptyAgent = defaultProfile => ({
+const emptyAgent = () => ({
   name: '',
   description: '',
   instructions: '',
-  profileId: defaultProfile,
   color: 'violet',
 });
 
 const COLORS = ['violet', 'blue', 'emerald', 'amber', 'rose', 'slate'];
-const harnessLabel = harness => ({native: 'NanoAgent', hermes: 'Hermes Agent', pi: 'PI'}[harness] ?? harness);
 
-export default function AgentEditor({agent, profileCatalog, onSave, onDelete, onClose}) {
-  const profiles = profileCatalog?.profiles ?? [];
-  const defaultProfile = profileCatalog?.defaultProfile ?? '';
-  const [draft, setDraft] = useState(() => emptyAgent(defaultProfile));
+/** A workspace agent: a name and instructions. Each member's chats with it run on their own model (Settings → AI). */
+export default function AgentEditor({agent, onSave, onDelete, onClose}) {
+  const [draft, setDraft] = useState(emptyAgent);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    setDraft(agent ? {...agent} : emptyAgent(defaultProfile));
+    setDraft(agent ? {...agent} : emptyAgent());
     setError(null);
-  }, [agent, defaultProfile]);
+  }, [agent]);
 
   const update = (key, value) => setDraft(current => ({...current, [key]: value}));
-  const selectedProfile = profiles.find(profile => profile.id === draft.profileId);
-  const harnesses = [...new Set(profiles.map(profile => profile.harness))];
-  const selectedHarness = selectedProfile?.harness ?? harnesses[0] ?? '';
-  const harnessProfiles = profiles.filter(profile => profile.harness === selectedHarness);
-
-  const selectHarness = (harness) => {
-    const choices = profiles.filter(profile => profile.harness === harness);
-    update('profileId', (choices.find(profile => profile.available) ?? choices[0])?.id ?? '');
-  };
 
   const submit = async (event) => {
     event.preventDefault();
@@ -103,41 +91,6 @@ export default function AgentEditor({agent, profileCatalog, onSave, onDelete, on
             />
           </label>
 
-          <div className={styles.runtimeFields}>
-            <label className={styles.label}>
-              Agent harness
-              <select
-                className={styles.input}
-                value={selectedHarness}
-                onChange={event => selectHarness(event.target.value)}
-              >
-                {harnesses.map(harness => (
-                  <option key={harness} value={harness}>{harnessLabel(harness)}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className={styles.label}>
-              Model
-              <select
-                className={styles.input}
-                value={draft.profileId}
-                onChange={event => update('profileId', event.target.value)}
-              >
-                {harnessProfiles.map(profile => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.model}{profile.available ? '' : ' (unavailable)'}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          {selectedProfile && !selectedProfile.available && (
-            <p className={styles.warning} role="status">
-              {selectedProfile.unavailableReason || 'This NanoAgent profile is currently unavailable.'}
-            </p>
-          )}
-
           <fieldset className={styles.colors}>
             <legend>Color</legend>
             <div className={styles.swatches}>
@@ -164,7 +117,9 @@ export default function AgentEditor({agent, profileCatalog, onSave, onDelete, on
               maxLength={10000}
               rows={8}
             />
-            <span className={styles.help}>Optional. Leave blank to use Mochi's default assistant instructions.</span>
+            <span className={styles.help}>
+              Optional. Leave blank to use Mochi's default assistant instructions. Which model answers is each member's own choice, in Settings → AI.
+            </span>
           </label>
 
           {error && <p className={styles.error} role="alert">{error}</p>}
@@ -173,7 +128,7 @@ export default function AgentEditor({agent, profileCatalog, onSave, onDelete, on
             {agent && !agent.builtin && <button type="button" className={styles.delete} onClick={remove} disabled={busy}>Delete</button>}
             <span className={styles.footerSpacer} />
             <button type="button" className={styles.secondary} onClick={onClose} disabled={busy}>Cancel</button>
-            <button type="submit" className={styles.primary} disabled={busy || !selectedProfile}>
+            <button type="submit" className={styles.primary} disabled={busy}>
               {busy ? 'Saving…' : (agent ? 'Save changes' : 'Create agent')}
             </button>
           </footer>

@@ -12,8 +12,61 @@ test("PI runner validates server-owned options", async () => {
     systemPrompt: "You are a helpful assistant.",
     awsRegion: undefined,
     awsProfile: undefined,
+    temperature: undefined,
+    maxTokens: undefined,
+    runKeys: undefined,
   });
   assert.throws(() => parseOptions({provider: "openrouter"}), /model.*required/);
+  assert.throws(() => parseOptions({provider: "openrouter", model: "m", run_keys: []}), /run_keys/);
+});
+
+test("A run with keys reaches its provider with them alone", async () => {
+  const {runKeysAuth} = await import("../dist/index.js");
+  process.env.NANOAGENT_TEST_RUN_KEY = "sk-run";
+  process.env.NANOAGENT_TEST_HOST_KEY = "sk-host";
+  const auth = runKeysAuth(["NANOAGENT_TEST_RUN_KEY"]);
+  assert.equal(await auth.env("NANOAGENT_TEST_RUN_KEY"), "sk-run");
+  assert.equal(await auth.env("NANOAGENT_TEST_HOST_KEY"), undefined);
+  assert.equal(await auth.fileExists("~/.aws/credentials"), false);
+});
+
+test("A run with keys does not reach a provider through the host's ambient credentials", () => {
+  const child = spawnSync(process.execPath, ["dist/index.js"], {
+    encoding: "utf8",
+    env: {PATH: process.env.PATH, AWS_ACCESS_KEY_ID: "host", AWS_SECRET_ACCESS_KEY: "host", OPENROUTER_API_KEY: "sk-run"},
+    input: `${JSON.stringify({
+      protocol: "nanoagent.runner.v1",
+      request: {input: "hello", messages: []},
+      options: {provider: "amazon-bedrock", model: "amazon.nova-lite-v1:0", aws_region: "us-west-2", run_keys: ["OPENROUTER_API_KEY"]},
+    })}\n`,
+  });
+  assert.equal(child.status, 0, child.stderr);
+  const event = JSON.parse(child.stdout.trim());
+  assert.equal(event.type, "error");
+  assert.match(event.error, /No Amazon Bedrock API key is set/);
+});
+
+test("PI runner takes a run's temperature and output limit", async () => {
+  const {parseOptions} = await import("../dist/index.js");
+  const options = parseOptions({provider: "openrouter", model: "m", temperature: 0.4, max_tokens: 512});
+  assert.equal(options.temperature, 0.4);
+  assert.equal(options.maxTokens, 512);
+  assert.throws(() => parseOptions({provider: "openrouter", model: "m", temperature: 3}), /temperature/);
+  assert.throws(() => parseOptions({provider: "openrouter", model: "m", max_tokens: 0}), /max_tokens/);
+});
+
+test("PI catalog lists providers with their credentials, and models with their prices", () => {
+  const child = spawnSync(process.execPath, ["dist/models.js"], {
+    encoding: "utf8",
+    env: {PATH: process.env.PATH, OPENROUTER_API_KEY: "sk-test"},
+  });
+  assert.equal(child.status, 0, child.stderr);
+  const {providers, models} = JSON.parse(child.stdout);
+  assert.equal(providers.find((provider) => provider.id === "openrouter").keySet, true);
+  assert.equal(providers.find((provider) => provider.id === "anthropic").keySet, false);
+  const model = models.find((entry) => entry.provider === "openrouter");
+  assert.equal(typeof model.contextWindow, "number");
+  assert.equal(typeof model.cost.input, "number");
 });
 
 test("PI usage maps to NanoAgent fields", async () => {

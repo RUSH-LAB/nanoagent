@@ -1,0 +1,169 @@
+/* ── Search results: shared by the dialog and the search page ──── */
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.groupLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.groupCount {
+  border-radius: 999px;
+  background: var(--ifm-color-emphasis-200);
+  padding: 0 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  color: var(--ifm-font-color-base);
+  text-decoration: none;
+}
+
+.row:hover,
+.rowActive {
+  background: var(--ifm-color-emphasis-100);
+  text-decoration: none;
+}
+
+.rowHead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.rowTitle {
+  overflow: hidden;
+  color: var(--ifm-font-color-base);
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowActive .rowTitle,
+.row:hover .rowTitle {
+  color: var(--ifm-color-primary);
+}
+
+.rowBadge {
+  flex-shrink: 0;
+  border-radius: 0.3rem;
+  background: var(--ifm-color-emphasis-200);
+  padding: 0 0.3rem;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.7rem;
+}
+
+.rowMeta {
+  overflow: hidden;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowSnippet {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.mark {
+  border-radius: 0.2rem;
+  background: var(--ifm-color-warning-contrast-background);
+  padding: 0 0.1rem;
+  color: inherit;
+}
+
+/* ── variant="page": a search engine's results page ───────────── */
+.page {
+  gap: 2rem;
+}
+
+.page .group {
+  gap: 1.5rem;
+}
+
+.page .rows {
+  gap: 1.6rem;
+}
+
+.page .row {
+  gap: 0.2rem;
+  border-radius: 0;
+  padding: 0;
+}
+
+.page .row:hover,
+.page .rowActive {
+  background: none;
+}
+
+/* Where it lives comes first, small and quiet, as a breadcrumb. */
+.page .rowMeta {
+  order: -1;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.8rem;
+}
+
+.page .rowTitle {
+  color: var(--ifm-link-color);
+  font-size: 1.2rem;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.page .row:hover .rowTitle {
+  color: var(--ifm-link-color);
+  text-decoration: underline;
+}
+
+.page .rowSnippet {
+  color: var(--ifm-color-emphasis-800);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.page .mark {
+  background: none;
+  padding: 0;
+  font-weight: 700;
+}

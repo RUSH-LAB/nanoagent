@@ -22,7 +22,7 @@ describe('AI chat identity', () => {
       activeId: 1,
       sessions: [{id: 1, target: {chatId: 'one', agentId: 'mochi'}, entries: []}],
       chats: [
-        {id: 'one', agentId: 'mochi', profileId: 'pi-fast', title: 'First', entries: [
+        {id: 'one', agentId: 'mochi', profileId: 'pi-fast', modelChoice: {key: 'a/b', choice: {provider: 'a', model: 'b'}}, title: 'First', entries: [
           {id: 1, kind: 'input', text: 'one'},
           {id: 2, kind: 'input', text: '/model fast', command: true},
           {id: 3, kind: 'output', text: 'answer', telemetry: {
@@ -36,7 +36,9 @@ describe('AI chat identity', () => {
     }));
     assert.equal(restored.chats.length, 2);
     assert.equal(restored.sessions[0].target.chatId, 'one');
-    assert.equal(restored.chats[0].profileId, 'pi-fast');
+    // The model a chat chose with /model is kept; the profile it once copied from its agent is not.
+    assert.deepEqual(restored.chats[0].modelChoice, {key: 'a/b', choice: {provider: 'a', model: 'b'}});
+    assert.equal('profileId' in restored.chats[0], false);
     assert.equal(restored.chats[0].entries[1].command, true);
     assert.deepEqual(restored.chats[0].entries[2].telemetry, {
       cost: 0.01,

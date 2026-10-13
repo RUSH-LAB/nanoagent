@@ -2,10 +2,7 @@ import React from 'react';
 import Layout from '@theme/Layout';
 import { usePluginData } from '@docusaurus/useGlobalData';
 
-const API_BASE = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-  ? ''
-  : 'http://localhost:3001';
-const pluginFetch = (path, init = {}) => fetch(`${API_BASE}${path}`, {...init, credentials: 'include'});
+const pluginFetch = (path, init = {}) => fetch(path, {...init, credentials: 'include'});
 
 /**
  * __TITLE__: the page the command opens.

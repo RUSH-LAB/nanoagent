@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import functools
 import re
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -46,7 +45,6 @@ MANIFEST = """_ > nanoagent.plugin.manifest.ManifestConfig:
 id: echo
 name: Echo
 version: 1.0.0
-group: Testing
 status: ready
 runtime > nanoagent.plugin.manifest.RuntimeConfig:
   type: mcp_stdio
@@ -115,7 +113,6 @@ def _uv_lock() -> str:
 def write_plugin(root: Path) -> Path:
     from nanoagent.plugin.manifest import TEMPLATE
 
-    shutil.copytree(TEMPLATE / "ui" / "kit", root / "ui" / "kit")
     for name, content in {
         "README.md": README,
         "LICENSE": (TEMPLATE / "LICENSE").read_text().replace("{{year}}", "2026").replace("{{name}}", "Echo"),
@@ -126,7 +123,7 @@ def write_plugin(root: Path) -> Path:
         "run.sh": (TEMPLATE / "run.sh").read_text(),
         "src/echo.py": "",
         "tests/test_verifier.py": "",
-        "ui/index.html": (TEMPLATE / "ui" / "index.html").read_text(),
+        "ui/app.js": (TEMPLATE / "ui" / "app.js").read_text(),
         "product/product.yaml": PRODUCT,
         "product/icon.svg": ICON,
         "verifier/__init__.py": (
@@ -586,22 +583,37 @@ def test_ui_is_a_static_web_page(tmp_path: Path) -> None:
     from nanoagent.plugin import PluginError
 
     write_plugin(tmp_path)
-    (tmp_path / "ui" / "index.html").unlink()
-    (tmp_path / "ui" / "app.js").write_text("", encoding="utf-8")
+    (tmp_path / "ui" / "app.js").unlink()
     (tmp_path / "ui" / "server.py").write_text("", encoding="utf-8")
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
     assert error.value.violations == [
-        "missing ui/index.html",
+        "missing ui/app.js",
         "unexpected ui/server.py: ui/ holds only static web files",
     ]
+
+
+def test_serves_the_plugin_page_in_nanoagents_own_kit(tmp_path: Path) -> None:
+    from nanoagent.plugin.manifest import PAGE
+    from nanoagent.web.app import _ui_file
+
+    write_plugin(tmp_path)
+    # COMPAT(plugin-kit): an older package's own index.html and kit/ are accepted, never served.
+    (tmp_path / "ui" / "index.html").write_text("old", encoding="utf-8")
+    (tmp_path / "ui" / "kit").mkdir()
+    (tmp_path / "ui" / "kit" / "dom.js").write_text("old", encoding="utf-8")
+    (tmp_path / "ui" / "kit" / "server.py").write_text("", encoding="utf-8")
+    manifest = load_manifest(tmp_path)
+    assert _ui_file(manifest, "") == PAGE / "index.html"
+    assert _ui_file(manifest, "kit/dom.js") == PAGE / "kit" / "dom.js"
+    assert _ui_file(manifest, "kit/server.py") is None
+    assert _ui_file(manifest, "app.js") == (tmp_path / "ui" / "app.js").resolve()
+    assert _ui_file(manifest, "../nanoagent.yaml") is None
 
 
 @pytest.mark.parametrize(
     ("path", "edit", "problem"),
     [
-        ("ui/kit/dom.js", lambda text: text + "// mine\n", "ui/kit/dom.js is not the template's"),
-        ("ui/kit/extra.js", lambda text: "", "unexpected ui/kit/extra.js: ui/kit/ holds only the template's kit"),
         ("LICENSE", lambda text: text.replace("The Echo authors", "Someone"), "LICENSE must be the template's MIT license"),
         (".gitignore", lambda text: text.replace("*.pyc\n", ""), ".gitignore must ignore *.pyc"),
         ("run.sh", lambda text: "exit 0\n", "run.sh must begin with the template's checks"),

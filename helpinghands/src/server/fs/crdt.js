@@ -15,6 +15,7 @@
  */
 const Y = require('yjs');
 const {FsError, cleanPath, isMarkdown} = require('./store');
+const {changedRange} = require('./textDiff');
 
 const TEXT = 'markdown';
 // Above Yjs's random 32-bit client ids, so the server's never collide with an editor's.
@@ -23,16 +24,11 @@ const asBuffer = value => (Buffer.isBuffer(value) ? value : Buffer.from(value));
 
 /** Edit `text` into `target` by replacing only the part between their common prefix and suffix. */
 function replaceText(text, target) {
-  const current = text.toString();
-  if (current === target) return;
-  let start = 0;
-  while (start < current.length && start < target.length && current[start] === target[start]) start += 1;
-  let end = 0;
-  while (end < current.length - start && end < target.length - start
-    && current[current.length - 1 - end] === target[target.length - 1 - end]) end += 1;
+  const range = changedRange(text.toString(), target);
+  if (!range) return;
   text.doc.transact(() => {
-    if (current.length - start - end > 0) text.delete(start, current.length - start - end);
-    if (target.length - start - end > 0) text.insert(start, target.slice(start, target.length - end));
+    if (range.to > range.from) text.delete(range.from, range.to - range.from);
+    if (range.insert) text.insert(range.from, range.insert);
   });
 }
 
@@ -105,30 +101,4 @@ function createCrdt({fs}) {
   });
 }
 
-/**
- * Editors listening for a file's changes, by node id, as server-sent event
- * streams. One process holds them; a deployment with several would relay
- * through PostgreSQL LISTEN/NOTIFY instead.
- */
-function createCrdtHub() {
-  const listeners = new Map();
-  return Object.freeze({
-    listen(nodeId, send) {
-      if (!listeners.has(nodeId)) listeners.set(nodeId, new Set());
-      listeners.get(nodeId).add(send);
-      return () => {
-        listeners.get(nodeId)?.delete(send);
-        if (!listeners.get(nodeId)?.size) listeners.delete(nodeId);
-      };
-    },
-    has: nodeId => Boolean(listeners.get(nodeId)?.size),
-    /** Send `update` to every editor of the node, its sender included: applying one twice changes nothing. */
-    broadcast(nodeId, update) {
-      if (!update || update.length <= 2) return;
-      const encoded = Buffer.from(update).toString('base64');
-      for (const send of listeners.get(nodeId) ?? []) send(encoded);
-    },
-  });
-}
-
-module.exports = {TEXT, createCrdt, createCrdtHub, replaceText};
+module.exports = {TEXT, createCrdt, replaceText};

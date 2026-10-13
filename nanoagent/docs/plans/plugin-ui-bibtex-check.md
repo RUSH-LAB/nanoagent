@@ -338,8 +338,8 @@ Markdown), `ui/samples.js` (the two fixtures as strings).
 
 ## 9. As built (changes the kit or the real data forced)
 
-- Files: `ui/app.js` (the page), `ui/app.css`, `ui/bib.js`, `ui/samples.js`; `ui/index.html` and
-  `ui/kit/` are the shared kit (not `style.css`/`components.js` at the top level).
+- Files: `ui/app.js` (the page), `ui/app.css`, `ui/bib.js`, `ui/samples.js`; the shared kit is
+  NanoAgent's (`index.html`, `kit/`) (not `style.css`/`components.js` at the top level).
 - File cards are the kit's `fileDrop`: "Drop a file here or choose one", "Paste text instead", and
   the workspace menu (shown only when the workspace has other `.bib` files). A chosen file shows
   "Replace" rather than an (x). Numbers "1"/"2" and the one-line description are page additions.

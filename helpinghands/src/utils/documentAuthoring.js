@@ -60,7 +60,7 @@ export function adjacentDocumentPosition(documents, currentPath, direction) {
 
 /** Build a useful first draft inside a configured docs or blog collection. */
 export function newDocumentDraft({
-  collection, title, existingPaths = [], defaultAuthor = null, group = null,
+  collection, title, existingPaths = [], author = null, group = null,
   sidebarPosition = null, now = new Date(),
 }) {
   const clean = cleanTitle(title);
@@ -77,7 +77,7 @@ export function newDocumentDraft({
         `slug: ${slug}`,
         `title: ${quotedTitle}`,
         `date: ${now.toISOString().slice(0, 10)}`,
-        ...(defaultAuthor ? [`authors: [${JSON.stringify(defaultAuthor)}]`] : []),
+        ...(author ? [`authors: [${JSON.stringify(author)}]`] : []),
         ...(group ? [`group: ${JSON.stringify(cleanTitle(group))}`] : []),
         '---',
         '',

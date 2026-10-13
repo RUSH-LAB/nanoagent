@@ -4,7 +4,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.22 /uv /uvx /bin/
 
 # uv fetches git-sourced dependencies (slimconfig) with the git executable.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates \
+    && apt-get install -y --no-install-recommends git ca-certificates bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -28,7 +28,7 @@ RUN cd js/pi-runner \
     && npm prune --omit=dev
 
 COPY deploy ./deploy
-# Offered for download as packages (deploy/railway/nanoagent.yaml), never run in this image.
+# NanoAgent's own plugins as packages (deploy/railway/nanoagent.yaml); each runs once installed.
 COPY plugins ./plugins
 
 ENV PATH="/app/.venv/bin:${PATH}"

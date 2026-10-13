@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -8,6 +9,8 @@ import pytest
 from starlette.testclient import TestClient
 
 from nanoagent.core.agent import Reply, ToolCall
+from nanoagent.plugin import install
+from nanoagent.plugin.package import pack
 from nanoagent.runtime.config import load_config_args
 from nanoagent.web.app import create_app
 from nanoagent.web.config import WebConfig
@@ -15,6 +18,7 @@ from test_plugin import README, SERVER, write_plugin
 
 ROOT = Path(__file__).resolve().parents[1]
 TOKEN = "plugin-test-secret"
+SHA = "0" * 64
 class ScriptedModel:
     """Calls the echo tool once, then answers with what it returned."""
 
@@ -41,69 +45,121 @@ def workspaces(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return tmp_path_factory.mktemp("workspaces")
 
 
-@pytest.fixture
-def client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
-) -> TestClient:
-    manifest = write_plugin(tmp_path)
-    manifest.write_text(
-        manifest.read_text().replace("[echo-server]", f"[{sys.executable}, src/server.py]")
-    )
-    (tmp_path / "src" / "server.py").write_text(SERVER, encoding="utf-8")
+def _app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path) -> TestClient:
     monkeypatch.chdir(ROOT)
     monkeypatch.setenv("NANOAGENT_API_TOKEN", TOKEN)
+    # The echo plugin runs on this Python, so it has nothing to sync.
+    monkeypatch.setattr(install, "SYNC", ("true",))
     config = load_config_args(
         WebConfig,
         [
             "web_cfg=deploy/railway/nanoagent.yaml",
-            f"plugins=[{tmp_path}]",
             "packages=[]",
             f"workspaces={workspaces}",
+            f"installs={tmp_path / 'installs'}",
+            "host=127.0.0.1",
+            "sandbox=none",
         ],
     )
-    return TestClient(create_app(config, plugin_model=model), headers={"Authorization": f"Bearer {TOKEN}"})
+    client = TestClient(create_app(config, plugin_model=model), headers={"Authorization": f"Bearer {TOKEN}"})
+    client.config = config
+    return client
 
 
-def test_lists_plugins_with_readme_and_schemas(client: TestClient) -> None:
-    [plugin] = client.get("/v1/plugins").json()["plugins"]
-    assert plugin["id"] == "echo"
+def _echo(root: Path) -> bytes:
+    """The echo plugin, run on this Python, packed."""
+    manifest = write_plugin(root)
+    manifest.write_text(manifest.read_text().replace("[echo-server]", f"[{sys.executable}, src/server.py]"))
+    (root / "src" / "server.py").write_text(SERVER, encoding="utf-8")
+    return pack(root)
+
+
+@pytest.fixture
+def client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
+) -> TestClient:
+    client = _app(tmp_path, monkeypatch, model, workspaces)
+    data = _echo(tmp_path / "echo")
+    client.sha = hashlib.sha256(data).hexdigest()
+    installed = client.put(f"/v1/installs/{client.sha}", content=data)
+    assert installed.status_code == 200, installed.text
+    return client
+
+
+def test_installs_a_package_by_its_sha256(client: TestClient) -> None:
+    plugin = client.get(f"/v1/installs/{client.sha}").json()["plugin"]
+    assert plugin["id"] == "echo" and plugin["sha256"] == client.sha
     assert plugin["readme"] == README
     assert plugin["tools"][0]["inputSchema"]["required"] == ["value"]
-    assert plugin["tasks"][0]["tools"] == ["echo"]
+    assert plugin["tasks"][0]["inputSchema"]["required"] == ["value"]
+    assert len(plugin["uiVersion"]) == 16
+    assert client.get(f"/v1/installs/{SHA}").status_code == 404
 
 
-def test_plugin_routes_require_the_token(client: TestClient) -> None:
+def test_refuses_a_package_that_is_not_its_sha256(client: TestClient, tmp_path: Path) -> None:
+    data = pack(tmp_path / "echo")
+    response = client.put(f"/v1/installs/{SHA}", content=data)
+    assert response.status_code == 422 and "sha256" in response.json()["error"]
+    assert client.put("/v1/installs/not-a-sha", content=data).status_code == 422
+    refused = client.put(f"/v1/installs/{hashlib.sha256(b'x').hexdigest()}", content=b"x")
+    assert refused.status_code == 422 and "gzip" in refused.json()["error"]
+
+
+def test_refuses_a_failed_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
+) -> None:
+    client = _app(tmp_path, monkeypatch, model, workspaces)
+    monkeypatch.setattr(install, "SYNC", ("false",))
+    data = _echo(tmp_path / "echo")
+    sha = hashlib.sha256(data).hexdigest()
+    response = client.put(f"/v1/installs/{sha}", content=data)
+    assert response.status_code == 502 and "uv sync failed" in response.json()["error"]
+    assert client.get(f"/v1/installs/{sha}").status_code == 404
+    assert not (tmp_path / "installs" / sha).exists()
+
+
+def test_serves_its_own_packages_by_id_to_mochi_on_production(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
+) -> None:
+    """COMPAT(mochi-installs): remove with the routes by plugin id."""
+    _echo(tmp_path / "echo")
+    monkeypatch.chdir(ROOT)
+    monkeypatch.setenv("NANOAGENT_API_TOKEN", TOKEN)
+    monkeypatch.setattr(install, "SYNC", ("true",))
+    config = load_config_args(
+        WebConfig,
+        [
+            "web_cfg=deploy/railway/nanoagent.yaml",
+            f"packages=[{tmp_path / 'echo'}]",
+            f"workspaces={workspaces}",
+            f"installs={tmp_path / 'installs'}",
+            "host=127.0.0.1",
+            "sandbox=none",
+        ],
+    )
+    client = TestClient(create_app(config, plugin_model=model), headers={"Authorization": f"Bearer {TOKEN}"})
+    [plugin] = client.get("/v1/plugins").json()["plugins"]
+    assert plugin["id"] == "echo" and len(plugin["uiVersion"]) == 16
+    assert client.get(f"/v1/plugins/echo/ui/{plugin['uiVersion']}/index.html").status_code == 200
+    events = _events(client.post("/v1/workspaces/alice/plugins/echo/tasks/echo/runs", json={"arguments": {"value": "hi"}}))
+    assert events[-2]["type"] == "task.verdict" and events[-2]["valid"] is True
+    assert client.post("/v1/workspaces/alice/plugins/missing/runs", json={"input": "x"}).status_code == 404
+
+
+def test_install_routes_require_the_token(client: TestClient) -> None:
     client.headers.pop("Authorization")
-    assert client.get("/v1/plugins").status_code == 401
-    assert client.post("/v1/plugins/echo/tasks/echo", json={"value": "x"}).status_code == 401
+    assert client.get(f"/v1/installs/{client.sha}").status_code == 401
+    assert client.put(f"/v1/installs/{client.sha}", content=b"").status_code == 401
 
 
-def test_runs_a_verified_plugin_task(client: TestClient) -> None:
-    response = client.post("/v1/plugins/echo/tasks/echo", json={"value": "hello"})
-    assert response.status_code == 200
-    assert response.json() == {
-        "plugin": "echo",
-        "task": "echo",
-        "tool": "echo",
-        "output": {"value": "hello"},
-    }
-
-
-def test_rejects_unknown_plugins_and_invalid_input(client: TestClient) -> None:
-    assert client.post("/v1/plugins/missing/tasks/echo", json={}).status_code == 404
-    assert client.post("/v1/plugins/echo/tasks/missing", json={}).status_code == 404
-    response = client.post("/v1/plugins/echo/tasks/echo", json={"value": 42})
-    assert response.status_code == 400
-    assert "invalid input" in response.json()["error"]
-
-
-RUNS = "/v1/workspaces/alice/plugins/echo/runs"
+def runs(client: TestClient, workspace: str = "alice") -> str:
+    return f"/v1/workspaces/{workspace}/installs/{client.sha}"
 
 
 def test_runs_a_prompt_in_the_callers_workspace(
     client: TestClient, model: ScriptedModel, workspaces: Path
 ) -> None:
-    with client.stream("POST", RUNS, json={"input": "echo hi"}) as response:
+    with client.stream("POST", f"{runs(client)}/runs", json={"input": "echo hi"}) as response:
         assert response.status_code == 200
         events = [
             json.loads(line[len("data: ") :])
@@ -128,11 +184,21 @@ def test_runs_a_prompt_in_the_callers_workspace(
     }
 
 
-def test_plugin_runs_reject_profile_selection(client: TestClient) -> None:
-    response = client.post(RUNS, json={"input": "x", "profile": "pi-deepseek"})
-    assert response.status_code == 400
-    assert client.post("/v1/workspaces/alice/plugins/missing/runs", json={"input": "x"}).status_code == 404
-    assert client.post("/v1/workspaces/../plugins/echo/runs", json={"input": "x"}).status_code == 404
+def test_plugin_runs_choose_an_apps_profile_within_the_limits(client: TestClient) -> None:
+    refused = client.post(f"{runs(client)}/runs", json={"input": "x", "profile": "pi-deepseek"})
+    assert refused.status_code == 400 and "cannot run apps" in refused.json()["error"]
+    chosen = client.post(f"{runs(client)}/runs", json={"input": "x", "profile": "app-deepseek", "settings": {"max_steps": 3}})
+    assert chosen.status_code == 200
+    assert _events(chosen)[-1]["model"] == "deepseek/deepseek-v4-flash-0731"
+    over = client.post(f"{runs(client)}/runs", json={"input": "x", "settings": {"max_steps": 99}})
+    assert over.status_code == 400 and "at most 6" in over.json()["error"]
+    thinking = client.post(f"{runs(client)}/runs", json={"input": "x", "settings": {"thinking_level": "high"}})
+    assert thinking.status_code == 400 and "thinking_level" in thinking.json()["error"]
+    # Mochi's NanoAgent runs only its profiles: a run cannot name a model of its own.
+    named = client.post(f"{runs(client)}/runs", json={"input": "x", "model": {"provider": "openrouter", "model": "x/y"}})
+    assert named.status_code == 400 and "configured profiles" in named.json()["error"]
+    assert client.post(f"/v1/workspaces/alice/installs/{SHA}/runs", json={"input": "x"}).status_code == 404
+    assert client.post(f"/v1/workspaces/../installs/{client.sha}/runs", json={"input": "x"}).status_code == 404
 
 
 def test_workspace_files_stay_inside_their_workspace(client: TestClient, workspaces: Path) -> None:
@@ -148,30 +214,19 @@ def test_workspace_files_stay_inside_their_workspace(client: TestClient, workspa
     assert client.get("/v1/workspaces/bad.id/files").status_code == 400
 
 
-def test_refuses_to_run_a_plugin_in_development(tmp_path: Path, workspaces: Path) -> None:
-    manifest = write_plugin(tmp_path)
+def test_refuses_to_run_a_plugin_in_development(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
+) -> None:
+    client = _app(tmp_path, monkeypatch, model, workspaces)
+    manifest = write_plugin(tmp_path / "echo")
     manifest.write_text(manifest.read_text().replace("status: ready", "status: in-development"))
-    # Unfinished: a plugin being built need not pass the rules a ready one must.
-    (tmp_path / "contract.py").unlink()
-    config = load_config_args(
-        WebConfig,
-        [
-            "web_cfg=deploy/railway/nanoagent.yaml",
-            f"plugins=[{tmp_path}]",
-            "packages=[]",
-            f"workspaces={workspaces}",
-            "api_token=null",
-            "host=127.0.0.1",
-        ],
-    )
-    client = TestClient(create_app(config, plugin_model=ScriptedModel()))
-    [listed] = client.get("/v1/plugins").json()["plugins"]
-    assert listed["status"] == "in-development"
-    assert "tools" not in listed
-    response = client.post(RUNS, json={"input": "echo hi"})
+    data = pack(tmp_path / "echo")
+    client.sha = hashlib.sha256(data).hexdigest()
+    assert client.put(f"/v1/installs/{client.sha}", content=data).json()["plugin"]["status"] == "in-development"
+    response = client.post(f"{runs(client)}/runs", json={"input": "echo hi"})
     assert response.status_code == 409
     assert response.json() == {"error": "Echo is under maintenance"}
-    assert client.post("/v1/plugins/echo/tasks/echo", json={"value": "hi"}).status_code == 409
+    assert client.post(f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}}).status_code == 409
 
 
 def test_saves_workspace_files_then_removes_the_workspace(client: TestClient, workspaces: Path) -> None:
@@ -226,8 +281,8 @@ def _events(response) -> list[dict]:
 def test_serves_the_plugin_front_end_confined_to_the_bridge(client: TestClient) -> None:
     from nanoagent.web.app import UI_POLICY
 
-    [plugin] = client.get("/v1/plugins").json()["plugins"]
-    ui = f"/v1/plugins/echo/ui/{plugin['uiVersion']}"
+    plugin = client.get(f"/v1/installs/{client.sha}").json()["plugin"]
+    ui = f"/v1/installs/{client.sha}/ui/{plugin['uiVersion']}"
     page = client.get(f"{ui}/index.html")
     assert page.status_code == 200
     assert page.headers["content-type"].startswith("text/html")
@@ -236,25 +291,15 @@ def test_serves_the_plugin_front_end_confined_to_the_bridge(client: TestClient) 
     assert "connect-src 'none'" in UI_POLICY
     assert client.get(f"{ui}/../nanoagent.yaml").status_code == 404
     assert client.get(f"{ui}/missing.js").status_code == 404
-    assert client.get("/v1/plugins/echo/ui/0000000000000000/index.html").status_code == 404
-    assert client.get(f"/v1/plugins/missing/ui/{plugin['uiVersion']}/index.html").status_code == 404
-    # COMPAT(mochi-unversioned-ui): the path without the version, which is never cached for good.
-    legacy = client.get("/v1/plugins/echo/ui/index.html")
-    assert legacy.status_code == 200 and legacy.content == page.content
-    assert legacy.headers["content-security-policy"] == UI_POLICY
-    assert "cache-control" not in legacy.headers
-    assert client.get("/v1/plugins/echo/ui/../nanoagent.yaml").status_code == 404
+    assert client.get(f"/v1/installs/{client.sha}/ui/0000000000000000/index.html").status_code == 404
+    assert client.get(f"/v1/installs/{client.sha}/ui/index.html").status_code == 404
+    assert client.get(f"/v1/installs/{SHA}/ui/{plugin['uiVersion']}/index.html").status_code == 404
     client.headers.pop("Authorization")
     assert client.get(f"{ui}/index.html").status_code == 401
 
 
-def test_lists_each_tasks_input_schema(client: TestClient) -> None:
-    [plugin] = client.get("/v1/plugins").json()["plugins"]
-    assert plugin["tasks"][0]["inputSchema"]["required"] == ["value"]
-
-
 def test_runs_a_tool_task_the_verified_way(client: TestClient, workspaces: Path) -> None:
-    response = client.post("/v1/workspaces/alice/plugins/echo/tasks/echo/runs", json={"arguments": {"value": "hi"}})
+    response = client.post(f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}})
     assert response.status_code == 200
     events = _events(response)
     assert [event["type"] for event in events] == ["task.started", "task.result", "task.verdict", "task.done"]
@@ -282,11 +327,20 @@ def test_a_reference_tool_sees_the_workspace_files(tmp_path: Path) -> None:
     assert (scratch / "inputs" / "raw.bib").read_text() == "@misc{a}"
 
 
+def test_task_runs_choose_their_settings_within_the_limits(client: TestClient) -> None:
+    tasks = f"{runs(client)}/tasks/echo/runs"
+    chosen = client.post(tasks, json={"arguments": {"value": "hi"}, "profile": "app-deepseek", "settings": {"max_steps": 2}})
+    assert chosen.status_code == 200 and _events(chosen)[-1]["metrics"]["duration_s"] > 0
+    over = client.post(tasks, json={"arguments": {"value": "hi"}, "settings": {"cost_limit": 5}})
+    assert over.status_code == 400 and "at most 0.1" in over.json()["error"]
+    assert client.post(tasks, json={"arguments": {"value": "hi"}, "extra": 1}).status_code == 400
+
+
 def test_task_runs_report_bad_requests_and_failures(client: TestClient) -> None:
-    runs = "/v1/workspaces/alice/plugins/echo/tasks"
-    assert client.post(f"{runs}/missing/runs", json={"arguments": {}}).status_code == 404
-    assert client.post(f"{runs}/echo/runs", json={"value": "hi"}).status_code == 400
-    events = _events(client.post(f"{runs}/echo/runs", json={"arguments": {"value": 42}}))
+    tasks = f"{runs(client)}/tasks"
+    assert client.post(f"{tasks}/missing/runs", json={"arguments": {}}).status_code == 404
+    assert client.post(f"{tasks}/echo/runs", json={"value": "hi"}).status_code == 400
+    events = _events(client.post(f"{tasks}/echo/runs", json={"arguments": {"value": 42}}))
     # The input is checked before the task starts.
     assert [event["type"] for event in events] == ["task.error", "task.done"]
     assert "metrics" not in events[-1]
@@ -296,7 +350,9 @@ def test_task_runs_report_bad_requests_and_failures(client: TestClient) -> None:
 def test_runs_an_agent_task_with_only_its_tools(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
 ) -> None:
-    manifest = write_plugin(tmp_path)
+    client = _app(tmp_path, monkeypatch, model, workspaces)
+    root = tmp_path / "echo"
+    manifest = write_plugin(root)
     manifest.write_text(
         manifest.read_text().replace("[echo-server]", f"[{sys.executable}, src/server.py]")
         + """  echo-agent:
@@ -307,23 +363,17 @@ def test_runs_an_agent_task_with_only_its_tools(
     instructions: Echo the value with the echo tool.
 """
     )
-    contract = tmp_path / "contract.py"
+    contract = root / "contract.py"
     contract.write_text(
         contract.read_text()
         .replace('class Task(Enum):\n    ECHO = "echo"\n', 'class Task(Enum):\n    ECHO = "echo"\n    ECHO_AGENT = "echo-agent"\n')
         .replace("TASKS = {Task.ECHO: EchoInput}", "TASKS = {Task.ECHO: EchoInput, Task.ECHO_AGENT: EchoInput}")
     )
-    (tmp_path / "src" / "server.py").write_text(SERVER, encoding="utf-8")
-    monkeypatch.chdir(ROOT)
-    monkeypatch.setenv("NANOAGENT_API_TOKEN", TOKEN)
-    config = load_config_args(
-        WebConfig,
-        ["web_cfg=deploy/railway/nanoagent.yaml", f"plugins=[{tmp_path}]", "packages=[]", f"workspaces={workspaces}"],
-    )
-    client = TestClient(create_app(config, plugin_model=model), headers={"Authorization": f"Bearer {TOKEN}"})
-    events = _events(
-        client.post("/v1/workspaces/alice/plugins/echo/tasks/echo-agent/runs", json={"arguments": {"value": "hi"}})
-    )
+    (root / "src" / "server.py").write_text(SERVER, encoding="utf-8")
+    data = pack(root)
+    client.sha = hashlib.sha256(data).hexdigest()
+    assert client.put(f"/v1/installs/{client.sha}", content=data).status_code == 200
+    events = _events(client.post(f"{runs(client)}/tasks/echo-agent/runs", json={"arguments": {"value": "hi"}}))
     assert [event["type"] for event in events] == [
         "task.started",
         "task.tool",
@@ -335,7 +385,36 @@ def test_runs_an_agent_task_with_only_its_tools(
     assert events[3]["valid"] is True
     # Task runs stream the model, so time to first token is measured.
     metrics = events[4]["metrics"]
-    assert metrics["model"] == config.model.model
+    assert metrics["model"] == client.config.model.model
     assert metrics["ttft_s"] is not None and metrics["ttft_s"] <= metrics["duration_s"]
     assert metrics["generation_s"] >= 0
     assert "Echo the value with the echo tool." in model.prompts[-1]
+
+
+def test_plugin_and_task_runs_with_keys_build_their_own_model_with_them(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nanoagent.runtime.model import Model
+
+    built = []
+
+    class KeyedModel(ScriptedModel):
+        async def aclose(self) -> None:
+            pass
+
+    def from_config(cfg):
+        built.append(cfg)
+        return KeyedModel()
+
+    monkeypatch.setattr(Model, "from_config", staticmethod(from_config))
+    keys = {"OPENROUTER_API_KEY": "sk-run"}
+    run = client.post(f"{runs(client)}/runs", json={"input": "echo hi", "keys": keys})
+    assert _events(run)[-1]["type"] == "done" and "sk-run" not in run.text
+    task = client.post(f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}, "keys": keys})
+    assert _events(task)[-1]["type"] == "task.done" and "sk-run" not in task.text
+    # Each run its own model, never the server's shared one, reaching OpenRouter with the run's key.
+    assert [cfg.api_key for cfg in built] == ["sk-run", "sk-run"]
+    # A model the run's keys cannot reach is refused, never run on the server's key.
+    missing = client.post(f"{runs(client)}/runs", json={"input": "x", "keys": {"ANTHROPIC_API_KEY": "sk-ant"}})
+    assert missing.status_code == 400 and "OPENROUTER_API_KEY" in missing.json()["error"]
+    assert client.post(f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}, "keys": {}}).status_code == 400

@@ -8,6 +8,7 @@ import {themes as prismThemes} from 'prism-react-renderer';
 const { loadBuildPlugins, writeClientComponentRegistry } = require('./plugins/loader');
 const runtimeContentPlugin = require('./src/runtime-content');
 const {platformConfig} = require('./src/platform');
+const {asksForSession, redirectFor} = require('./src/utils/signIn');
 
 // This file describes one deployable application, not one workspace. A
 // workspace's title, logo, homepage, navigation, and collections are loaded
@@ -16,6 +17,26 @@ const {platformConfig} = require('./src/platform');
 const {name: platformName, tagline: platformTagline} = platformConfig();
 
 writeClientComponentRegistry();
+
+const apiOrigin = `http://localhost:${process.env.EDITOR_PORT || 3001}`;
+
+/** The development server's half of the sign-in gate; see the api-proxy plugin below. */
+async function signInGate(req, res, next) {
+  if (!asksForSession(req)) return next();
+  let session;
+  try {
+    const answer = await fetch(`${apiOrigin}/api/auth/get-session`, {headers: {cookie: req.headers.cookie || ''}});
+    if (!answer.ok) throw new Error(`get-session returned ${answer.status}`);
+    session = await answer.json();
+  } catch (err) {
+    res.writeHead(502, {'Content-Type': 'text/plain; charset=utf-8'});
+    return res.end(`Could not reach the API server at ${apiOrigin} to check the session: ${err.message}`);
+  }
+  const redirect = redirectFor(req, Boolean(session?.user));
+  if (!redirect) return next();
+  res.writeHead(302, {Location: redirect, 'Cache-Control': 'no-store'});
+  res.end();
+}
 
 // ── Main config ────────────────────────────────────────────────────────────
 /** @type {import('@docusaurus/types').Config} */
@@ -90,6 +111,31 @@ const config = {
     // removable without taking workspace navigation with it.
     [runtimeContentPlugin, {routeBasePath: 'w'}],
 
+    // The development site serves the API from its own origin, as the
+    // production server does, by passing /api to the API server
+    // (scripts/dev/start-local.mjs). Compression is off so event streams
+    // reach the browser as they are written. A page that needs a session is
+    // gated here as the production server gates it (src/utils/signIn.js), by
+    // asking the API server whether the request's cookie is signed in.
+    () => ({
+      name: 'api-proxy',
+      configureWebpack: () => ({
+        devServer: {
+          compress: false,
+          // `ws`: Mochi Lab's relay connects to /api/runner as a WebSocket (src/server/runner.js).
+          proxy: [{context: ['/api'], target: apiOrigin, ws: true}],
+          // Docusaurus has its own setupMiddlewares, and the two are composed by
+          // concatenating what each returns, so this one returns nothing and
+          // mounts the gate on the app directly, ahead of everything the
+          // development server mounts once the list is assembled.
+          setupMiddlewares: (middlewares, devServer) => {
+            devServer.app.use(signInGate);
+            return [];
+          },
+        },
+      }),
+    }),
+
     // Every plugin's build half, in alphabetical order, configured by its own
     // plugin.json rather than from here.
     ...loadBuildPlugins(),
@@ -101,9 +147,11 @@ const config = {
     {tagName: 'link', attributes: {rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: 'anonymous'}},
   ],
 
+  // Inter for the interface; Instrument Serif for a workspace's name on its
+  // home page (runtime-content/workspaceHome.module.css).
   stylesheets: [
     {
-      href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
+      href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif&display=swap',
       type: 'text/css',
     },
   ],
@@ -120,11 +168,9 @@ const config = {
         },
       },
       navbar: {
+        // No logo: the corner names the workspace you are in (WorkspaceSwitcher),
+        // and a picture beside it read as either the workspace or the app.
         title: platformName,
-        logo: {
-          alt: `${platformName} logo`,
-          src: 'img/mochi.jpg',
-        },
         items: [
           // Content navigation belongs to the workspace and is supplied by
           // workspace_settings after the URL workspace has been verified.

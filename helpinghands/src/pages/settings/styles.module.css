@@ -1,94 +1,30 @@
 /* Page */
 
-.pageHeader {
-  margin-bottom: 2rem;
-}
-
-.heading {
-  margin: 0 0 0.3rem;
-  font-size: clamp(1.8rem, 3.5vw, 2.3rem);
-  letter-spacing: -0.03em;
-}
-
-.pageHeader p {
-  margin: 0;
-  color: var(--ifm-color-emphasis-600);
-}
-
 .placeholder {
   padding: 3rem;
   text-align: center;
   color: var(--ifm-color-emphasis-500);
 }
 
-.settingsLayout {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 2.5rem;
-  align-items: start;
-}
-
-/* Sidebar: one entry per pane, grouped by whose settings they are. */
-
-.settingsNav {
-  position: sticky;
-  top: calc(var(--ifm-navbar-height) + 1.5rem);
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-
-.navGroup {
-  overflow: hidden;
-  margin: 1.1rem 0 0.35rem;
-  padding: 0 0.75rem;
-  color: var(--ifm-color-emphasis-500);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.navGroup:first-child {
-  margin-top: 0;
-}
-
-.navDivider {
-  margin: 0.75rem 0.75rem 0.5rem;
-  border-top: 1px solid var(--ifm-color-emphasis-200);
-}
-
-.settingsNav a {
-  padding: 0.45rem 0.75rem;
-  border-radius: 8px;
-  color: var(--ifm-color-emphasis-800);
-  font-size: 0.88rem;
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.settingsNav a:hover,
-.settingsNav a:focus-visible {
-  background: var(--ifm-color-emphasis-100);
-  color: var(--ifm-font-color-base);
-  text-decoration: none;
-}
-
-.settingsNav a.navActive {
-  background: color-mix(in srgb, var(--ifm-color-primary) 10%, transparent);
-  color: var(--ifm-color-primary);
-  font-weight: 650;
-}
-
 /* Pane */
 
 .settingsContent {
   display: grid;
+  width: 100%;
   min-width: 0;
-  max-width: 760px;
+  gap: 4rem;
+}
+
+/* The page's two groups, mirroring the sidebar: your own settings, then the
+   workspace's. */
+.settingsGroup {
+  display: grid;
   gap: 3rem;
+}
+
+.settingsGroupHeading {
+  margin: 0 0 -1.5rem;
+  font-size: var(--ifm-h2-font-size);
 }
 
 .pane {
@@ -99,39 +35,46 @@
 
 .paneHeading {
   display: flex;
-  align-items: flex-end;
+  align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--ifm-color-emphasis-200);
 }
 
-.paneHeading h2 {
-  margin: 0 0 0.2rem;
-  font-size: 1.3rem;
-  letter-spacing: -0.015em;
-}
-
-.paneHeading p {
+.paneHeading h3 {
   margin: 0;
-  color: var(--ifm-color-emphasis-600);
-  font-size: 0.88rem;
+  font-size: var(--ifm-h3-font-size);
 }
 
-/* A group is one card of rows; a row is a label on the left and its control
-   on the right. */
+/* A group is one card of rows, with an optional head holding its title and a
+   control; a row is a label on the left and its control on the right. Every
+   card on the page is one of these. Not overflow: hidden, so the menus inside
+   a card can hang out of it; its last child rounds its own corners instead. */
 
 .group {
-  overflow: hidden;
   border: 1px solid var(--ifm-color-emphasis-200);
   border-radius: 12px;
   background: var(--ifm-background-surface-color);
 }
 
+.group > :last-child {
+  border-bottom-left-radius: 11px;
+  border-bottom-right-radius: 11px;
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 3.25rem;
+  padding: 0.6rem 1.1rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+}
+
 .groupTitle {
   margin: 0;
-  padding: 0.85rem 1.1rem 0.5rem;
   font-size: 0.95rem;
+  font-weight: 650;
 }
 
 .row {
@@ -145,7 +88,7 @@
 }
 
 .group > .row:first-child,
-.groupTitle + .row {
+.groupHead + .row {
   border-top: 0;
 }
 
@@ -218,14 +161,6 @@
   background: var(--ifm-color-emphasis-0);
 }
 
-.groupNote {
-  margin: 0;
-  padding: 0.75rem 1.1rem;
-  border-top: 1px solid var(--ifm-color-emphasis-200);
-  color: var(--ifm-color-emphasis-600);
-  font-size: 0.78rem;
-}
-
 .empty {
   margin: 0;
   padding: 0.25rem 1.1rem 1rem;
@@ -233,128 +168,8 @@
   font-size: 0.85rem;
 }
 
-.dangerZone {
+.leave {
   border-color: color-mix(in srgb, var(--ifm-color-danger) 35%, var(--ifm-color-emphasis-200));
-}
-
-/* Navigation choices: a checkbox row whose order buttons show on hover. */
-
-.optionRow {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0 0.6rem 0 1.1rem;
-  border-top: 1px solid var(--ifm-color-emphasis-200);
-}
-
-.groupTitle + .optionRow {
-  border-top: 0;
-}
-
-.optionRow:hover {
-  background: var(--ifm-color-emphasis-100);
-}
-
-.option {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  align-items: center;
-  gap: 0.7rem;
-  min-height: 2.75rem;
-  margin: 0;
-  font-size: 0.88rem;
-  cursor: pointer;
-}
-
-.option input {
-  width: 1rem;
-  height: 1rem;
-  margin: 0;
-  accent-color: var(--ifm-color-primary);
-}
-
-.orderButtons {
-  display: inline-flex;
-  flex: none;
-  gap: 0.15rem;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.optionRow:hover .orderButtons,
-.orderButtons:focus-within {
-  opacity: 1;
-}
-
-.orderButtons button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--ifm-color-emphasis-600);
-  font: 600 0.9rem/1 var(--ifm-font-family-base);
-  cursor: pointer;
-}
-
-.orderButtons button:hover:not(:disabled) {
-  background: var(--ifm-color-emphasis-200);
-  color: var(--ifm-font-color-base);
-}
-
-.orderButtons button:disabled {
-  cursor: default;
-  opacity: 0.25;
-}
-
-/* Usage */
-
-.meters {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem 1.75rem;
-  padding: 0.4rem 1.1rem 1rem;
-}
-
-.meterLabel {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.35rem;
-  font-size: 0.82rem;
-}
-
-.meterLabel span:last-child {
-  color: var(--ifm-color-emphasis-600);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.meterTrack {
-  height: 6px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--ifm-color-emphasis-200);
-}
-
-.meterFill,
-.meterFull {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-}
-
-.meterFill {
-  background: var(--ifm-color-primary);
-}
-
-.meterFull {
-  background: var(--ifm-color-danger);
 }
 
 /* Controls */
@@ -449,26 +264,6 @@
   to { background-position: -100% 0; }
 }
 
-@media (max-width: 996px) {
-  .settingsLayout {
-    grid-template-columns: 1fr;
-    gap: 1.5rem;
-  }
-
-  .settingsNav {
-    position: static;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.25rem;
-  }
-
-  .navGroup,
-  .navDivider {
-    display: none;
-  }
-}
-
 @media (max-width: 700px) {
   .row {
     align-items: stretch;
@@ -487,9 +282,5 @@
   .input {
     width: auto;
     flex: 1;
-  }
-
-  .meters {
-    grid-template-columns: 1fr;
   }
 }

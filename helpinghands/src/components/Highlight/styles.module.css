@@ -1,0 +1,6 @@
+.mark {
+  padding: 0;
+  background: none;
+  color: var(--ifm-color-primary);
+  font-weight: 600;
+}

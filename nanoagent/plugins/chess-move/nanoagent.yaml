@@ -2,7 +2,6 @@ _ > nanoagent.plugin.manifest.ManifestConfig:
 id: chess-move
 name: Chess Move
 version: 0.1.0
-group: Games
 status: ready
 
 runtime > nanoagent.plugin.manifest.RuntimeConfig:

@@ -32,6 +32,11 @@ path as production. Run `npm run db:postgres:setup` once before using it.
 Open [http://localhost:3000](http://localhost:3000). By default, the supervisor
 uses the adjacent `../nanoagent` checkout. Set `NANOAGENT_PROJECT_DIR` to use a
 checkout elsewhere, or `NANOAGENT_URL` to use an already-running agent service.
+With the local NanoAgent, the checkout is also your Mochi Lab: every AI run goes
+to a member's own computer, so `npm start` prints a sign-in link once; open it,
+signed in as the account you test with, and approve the code. Your runs then use
+the local NanoAgent, and Settings → AI can set its API key (until `npm start`
+stops; `.env`'s keys are where it starts).
 The installer never overwrites an existing checkout or local environment file.
 Set `NANOAGENT_REPOSITORY` and `NANOAGENT_REF` before running it to reproduce
 against a fork or a specific branch/tag.

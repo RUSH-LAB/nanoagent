@@ -7,10 +7,10 @@ const offered = target => VERBS
   .map(command => command.name);
 
 describe('agent runtime command visibility', () => {
-  it('offers both commands in an open AI chat', () => {
+  it('offers /model in an open AI chat', () => {
     assert.deepEqual(
       offered({chatId: 'chat-1', agentId: 'mochi'}),
-      ['harness', 'model'],
+      ['model'],
     );
   });
 

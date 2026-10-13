@@ -14,7 +14,8 @@
  * NanoAgent packs the plugin folder in it as a `nanoagent plugin pack` archive,
  * checking every plugin rule without running it. Publishing again takes the
  * ref's newest commit. Nothing here runs a plugin either: whoever downloads one
- * runs it on their own machine.
+ * runs it on their own machine. A plugin's author is the GitHub account of
+ * whoever published it, so publishing takes an account signed in with GitHub.
  */
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ROUTE = /^\/api\/market(?:\/([^/]+)(\/package)?)?$/;
@@ -49,6 +50,7 @@ module.exports = async function market(req, res, url, pathname, ctx) {
   }
 
   if (req.method === 'POST' && id === undefined) {
+    if (!req.auth.account?.githubLogin) return json(res, 403, {error: 'Sign in with GitHub to publish: a plugin is listed by its publisher\'s GitHub account'});
     if (!await rateLimit(`market-upload:${userId}`, 10)) return json(res, 429, {error: 'Too many uploads. Try again in a minute.'});
     let body;
     try {

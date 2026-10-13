@@ -13,12 +13,15 @@ const fallbackProfiles = require('../ai-profiles.json');
 
 const DEFAULT_URL = 'http://127.0.0.1:8787';
 const DEFAULT_TIMEOUT_MS = 190_000;
+// NanoAgent's own bound on building a plugin's environment (nanoagent.plugin.install), and then some.
+const INSTALL_TIMEOUT_MS = 620_000;
 const DEFAULT_MAX_STREAM_BYTES = 2 * 1024 * 1024;
 const DEFAULT_PROFILE_CACHE_MS = 30_000;
 const DEFAULT_PROFILE_TIMEOUT_MS = 5_000;
 const CANCELLED = 'The AI request was cancelled.';
 const TIMED_OUT = 'The AI request timed out. Please try again.';
 const UNAVAILABLE = 'Could not reach NanoAgent.';
+const RUNNER_OFFLINE = 'Add your OpenRouter key in Settings → AI to run your AI, or open Mochi Lab on your computer.';
 const DEFAULT_PROFILE = fallbackProfiles.defaultProfile;
 const DEFAULT_MODEL = fallbackProfiles.profiles.find(profile => profile.id === DEFAULT_PROFILE).model;
 
@@ -104,6 +107,8 @@ function nanoRequest(request) {
     ...(request.instructions || request.system ? {instructions: request.instructions || request.system} : {}),
     ...(request.metadata ? {metadata: request.metadata} : {}),
     ...(request.profile ? {profile: request.profile} : {}),
+    ...(request.model ? {model: request.model} : {}),
+    ...(request.settings ? {settings: request.settings} : {}),
   };
 }
 
@@ -116,7 +121,8 @@ function normalizeProfileCatalog(value) {
       || typeof profile.id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,99}$/.test(profile.id)
       || typeof profile.label !== 'string' || !profile.label
       || typeof profile.harness !== 'string' || !profile.harness
-      || typeof profile.model !== 'string' || !profile.model) {
+      || typeof profile.model !== 'string' || !profile.model
+      || !Array.isArray(profile.uses) || profile.uses.some(use => typeof use !== 'string')) {
       throw new Error('NanoAgent returned an invalid profile catalog.');
     }
     const capabilities = profile.capabilities && typeof profile.capabilities === 'object'
@@ -127,7 +133,16 @@ function normalizeProfileCatalog(value) {
       id: profile.id,
       label: profile.label,
       harness: profile.harness,
+      provider: typeof profile.provider === 'string' ? profile.provider : null,
+      providerName: typeof profile.providerName === 'string' ? profile.providerName : null,
       model: profile.model,
+      // What it is for (chat, inline, apps), and what is known of it.
+      uses: profile.uses,
+      price: profile.price && typeof profile.price === 'object'
+        ? {input: metricNumber(profile.price.input), output: metricNumber(profile.price.output)}
+        : null,
+      contextWindow: metricNumber(profile.contextWindow),
+      reasoning: typeof profile.reasoning === 'boolean' ? profile.reasoning : null,
       available: profile.available !== false,
       unavailableReason: typeof profile.unavailableReason === 'string' ? profile.unavailableReason : null,
       capabilities,
@@ -137,7 +152,14 @@ function normalizeProfileCatalog(value) {
   if (profiles.length === 0 || ids.size !== profiles.length || !ids.has(value.defaultProfile)) {
     throw new Error('NanoAgent returned an invalid profile catalog.');
   }
-  return {defaultProfile: value.defaultProfile, profiles};
+  const limits = value.limits && typeof value.limits === 'object' ? {
+    max_steps: metricNumber(value.limits.max_steps),
+    cost_limit: metricNumber(value.limits.cost_limit),
+    token_limit: metricNumber(value.limits.token_limit),
+    max_tokens: metricNumber(value.limits.max_tokens),
+    capped: value.limits.capped !== false,
+  } : null;
+  return {defaultProfile: value.defaultProfile, profiles, limits};
 }
 
 function unavailableFallback(reason) {
@@ -145,10 +167,14 @@ function unavailableFallback(reason) {
     defaultProfile: fallbackProfiles.defaultProfile,
     profiles: fallbackProfiles.profiles.map(profile => ({
       ...profile,
+      price: null,
+      contextWindow: null,
+      reasoning: null,
       available: false,
       unavailableReason: reason,
       capabilities: {},
     })),
+    limits: null,
   };
 }
 
@@ -234,7 +260,7 @@ function publicMetrics(value) {
 
 /**
  * A run event as the browser may see it. A tool call's arguments and output stay
- * private, except on an app run (`app`): that app's own page shows them to the
+ * private, except on an app run (`install`): that app's own page shows them to the
  * person who ran it, on the files of their own workspace.
  */
 function publicEvent(event, {app = false} = {}) {
@@ -271,8 +297,17 @@ function publicEvent(event, {app = false} = {}) {
   return null;
 }
 
-function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fetch(...args)} = {}) {
+/**
+ * `endpoint` replaces NANOAGENT_URL: `{url}` for a NanoAgent reached some other
+ * way (a member's own computer, through `fetchImpl`), `{error}` for one that is
+ * not there. `keys` are a member's own provider API keys, sent with every run
+ * so the hosted NanoAgent runs it with them alone. `local` marks a gateway
+ * whose runs the member pays for: their own NanoAgent's, or one with `keys`.
+ */
+function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fetch(...args), endpoint: fixed = null, local = false, keys = null} = {}) {
+  const endpointOf = () => fixed ?? endpointFrom(env);
   const timeoutMs = positiveNumber(env.NANOAGENT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
+  const installTimeoutMs = INSTALL_TIMEOUT_MS;
   const maxStreamBytes = positiveNumber(env.NANOAGENT_MAX_STREAM_BYTES, DEFAULT_MAX_STREAM_BYTES);
   const profileCacheMs = positiveNumber(env.NANOAGENT_PROFILE_CACHE_MS, DEFAULT_PROFILE_CACHE_MS);
   const profileTimeoutMs = positiveNumber(
@@ -283,7 +318,7 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
   let profilePromise = null;
 
   async function profiles({refresh = false} = {}) {
-    const endpoint = endpointFrom(env);
+    const endpoint = endpointOf();
     if (endpoint.error) return unavailableFallback(endpoint.error);
     const now = Date.now();
     if (!refresh && profileCache && profileCache.expiresAt > now) return profileCache.value;
@@ -316,7 +351,7 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
   }
 
   async function stream(request = {}) {
-    const endpoint = endpointFrom(env);
+    const endpoint = endpointOf();
     if (endpoint.error) return {error: endpoint.error, status: 503};
     if (request.signal?.aborted) return {error: CANCELLED, status: 499};
 
@@ -331,10 +366,10 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
 
     let reader;
     try {
-      // An app prompt runs on that plugin's agent, inside the caller's workspace;
-      // anything else on a configured profile.
-      const path = request.app
-        ? `/v1/workspaces/${encodeURIComponent(request.workspace)}/plugins/${encodeURIComponent(request.app)}/runs`
+      // An app prompt runs on the agent of the plugin installed as `install`, inside
+      // the caller's workspace; anything else on a configured profile.
+      const path = request.install
+        ? `/v1/workspaces/${encodeURIComponent(request.workspace)}/installs/${encodeURIComponent(request.install)}/runs`
         : '/v1/runs';
       const response = await fetchImpl(`${endpoint.url}${path}`, {
         method: 'POST',
@@ -343,7 +378,7 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
           Accept: 'text/event-stream',
           ...(env.NANOAGENT_API_TOKEN ? {Authorization: `Bearer ${env.NANOAGENT_API_TOKEN}`} : {}),
         },
-        body: JSON.stringify(nanoRequest(request)),
+        body: JSON.stringify({...nanoRequest(request), ...(keys ? {keys} : {})}),
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -369,7 +404,7 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
           return;
         }
         if (event.type === 'done' || event.type === 'error') terminal = event;
-        const normalized = publicEvent(event, {app: Boolean(request.app)});
+        const normalized = publicEvent(event, {app: Boolean(request.install)});
         if (normalized) request.onEvent?.(normalized);
       });
 
@@ -422,7 +457,7 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
    * JSON, or its bytes when asked for), otherwise `{error, status}` to relay.
    */
   async function nanoFetch(path, {method = 'GET', body, contentType, bytes = false, waitMs = profileTimeoutMs} = {}) {
-    const endpoint = endpointFrom(env);
+    const endpoint = endpointOf();
     if (endpoint.error) return {error: endpoint.error, status: 503};
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), waitMs);
@@ -462,11 +497,11 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
    * stream as it arrives, otherwise `{error, status}`. Aborting `signal` closes
    * the stream, which cancels the run.
    */
-  async function taskRun({workspace, app, task, args, signal}) {
-    const endpoint = endpointFrom(env);
+  async function taskRun({workspace, install, task, args, choice = {}, signal}) {
+    const endpoint = endpointOf();
     if (endpoint.error) return {error: endpoint.error, status: 503};
     try {
-      const path = inWorkspace(workspace, `/plugins/${encodeURIComponent(app)}/tasks/${encodeURIComponent(task)}/runs`);
+      const path = inWorkspace(workspace, `/installs/${encodeURIComponent(install)}/tasks/${encodeURIComponent(task)}/runs`);
       const response = await fetchImpl(`${endpoint.url}${path}`, {
         method: 'POST',
         headers: {
@@ -474,7 +509,13 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
           Accept: 'text/event-stream',
           ...(env.NANOAGENT_API_TOKEN ? {Authorization: `Bearer ${env.NANOAGENT_API_TOKEN}`} : {}),
         },
-        body: JSON.stringify({arguments: args}),
+        body: JSON.stringify({
+          arguments: args,
+          ...(choice.profile ? {profile: choice.profile} : {}),
+          ...(choice.model ? {model: choice.model} : {}),
+          ...(choice.settings ? {settings: choice.settings} : {}),
+          ...(keys ? {keys} : {}),
+        }),
         signal,
       });
       if (!response.ok) {
@@ -495,8 +536,17 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     complete: request => stream({...request, onDelta: undefined}),
     stream,
     profiles,
-    plugins: () => nanoFetch('/v1/plugins'),
-    pluginUiFile: (app, version, path) => nanoFetch(`/v1/plugins/${encodeURIComponent(app)}/ui/${encodeURIComponent(version)}/${encodedPath(path)}`, {bytes: true}),
+    // Every model a run may name, on a member's own computer (NanoAgent's run_models).
+    models: () => nanoFetch('/v1/models', {waitMs: timeoutMs}),
+    // Plugins run from installs, each the package with that sha256; NanoAgent
+    // installs one when it is sent, and has none after it restarts.
+    install: sha256 => nanoFetch(`/v1/installs/${encodeURIComponent(sha256)}`),
+    installPackage: (sha256, data) => nanoFetch(`/v1/installs/${encodeURIComponent(sha256)}`, {
+      method: 'PUT', body: data, contentType: 'application/gzip', waitMs: installTimeoutMs,
+    }),
+    installUiFile: (sha256, version, path) => nanoFetch(
+      `/v1/installs/${encodeURIComponent(sha256)}/ui/${encodeURIComponent(version)}/${encodedPath(path)}`, {bytes: true},
+    ),
     taskRun,
     // The marketplace: NanoAgent's own plugin packages, and the package it packs
     // and checks from the plugin at `path` in a repository archive.
@@ -513,10 +563,11 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     ),
     deleteWorkspace: workspace => nanoFetch(inWorkspace(workspace, ''), {method: 'DELETE'}),
     describe() {
-      const endpoint = endpointFrom(env);
+      const endpoint = endpointOf();
       if (endpoint.error) return {available: false, reason: endpoint.error};
       return {available: true, provider: 'nanoagent', profile: DEFAULT_PROFILE, model: DEFAULT_MODEL};
     },
+    local,
   });
 }
 
@@ -532,6 +583,7 @@ module.exports = {
   DEFAULT_MODEL,
   CANCELLED,
   TIMED_OUT,
+  RUNNER_OFFLINE,
   createSseParser,
   endpointFrom,
   nanoRequest,
@@ -542,8 +594,10 @@ module.exports = {
   complete: gateway.complete,
   stream: gateway.stream,
   profiles: gateway.profiles,
-  plugins: gateway.plugins,
-  pluginUiFile: gateway.pluginUiFile,
+  models: gateway.models,
+  install: gateway.install,
+  installPackage: gateway.installPackage,
+  installUiFile: gateway.installUiFile,
   taskRun: gateway.taskRun,
   packages: gateway.packages,
   packageFile: gateway.packageFile,
@@ -553,4 +607,5 @@ module.exports = {
   saveWorkspaceFile: gateway.saveWorkspaceFile,
   deleteWorkspace: gateway.deleteWorkspace,
   describe: gateway.describe,
+  local: gateway.local,
 };

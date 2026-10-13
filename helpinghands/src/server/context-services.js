@@ -103,6 +103,9 @@ function contextualOrg(adapter) {
     createWorkspace(identity, input) {
       return adapter.createWorkspace({...input, actorId: userContext(identity).userId});
     },
+    pendingInvitationsFor(identity) {
+      return adapter.pendingInvitationsFor(userContext(identity).userId);
+    },
     acceptInvitation(identity, input) {
       return adapter.acceptInvitation({...input, actorId: userContext(identity).userId});
     },
@@ -121,6 +124,10 @@ function contextualOrg(adapter) {
     invite(context, input) {
       const verified = workspaceContext(context);
       return adapter.invite({...input, orgId: verified.workspaceId, actorId: verified.userId});
+    },
+    inviteGithub(context, input) {
+      const verified = workspaceContext(context);
+      return adapter.inviteGithub({...input, orgId: verified.workspaceId, actorId: verified.userId});
     },
     cancelInvitation(context, input) {
       const verified = workspaceContext(context);

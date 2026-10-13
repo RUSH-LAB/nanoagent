@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   environmentFor,
+  keyHint,
+  keyList,
   nanoagentPluginsFrom,
   nanoagentProjectFrom,
   nanoagentWebArgs,
@@ -68,14 +70,25 @@ describe('local process supervisor configuration', () => {
     assert.equal(ready.profile.id, 'pi-test');
   });
 
-  it('publishes each plugin package to the local NanoAgent', () => {
+  it('offers each plugin package to the local NanoAgent, which runs what it installs unsandboxed', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-plugins-'));
     for (const name of ['b-app', 'a-app', 'not-a-plugin']) fs.mkdirSync(path.join(dir, name));
     fs.writeFileSync(path.join(dir, 'a-app', 'nanoagent.yaml'), '');
     fs.writeFileSync(path.join(dir, 'b-app', 'nanoagent.yaml'), '');
     const env = {NANOAGENT_PLUGINS_DIR: dir};
     assert.deepEqual(nanoagentPluginsFrom(env), [path.join(dir, 'a-app'), path.join(dir, 'b-app')]);
-    assert.ok(nanoagentWebArgs(env).includes(`plugins=${JSON.stringify(nanoagentPluginsFrom(env))}`));
+    const args = nanoagentWebArgs(env);
+    assert.ok(args.includes(`packages=${JSON.stringify(nanoagentPluginsFrom(env))}`));
+    assert.ok(args.includes('sandbox=none') && args.some(arg => arg.startsWith('installs=')));
+    assert.ok(args.includes('run_models=true'));
+  });
+
+  it('tells Mochi which keys this checkout lends by hint, never by value', () => {
+    assert.equal(keyHint('sk-or-v1-0123456789abcdef'), 'sk-or-…cdef');
+    assert.equal(keyHint('short'), '…');
+    const keys = keyList(new Map([['OPENROUTER_API_KEY', 'sk-or-v1-0123456789abcdef']]));
+    assert.deepEqual(keys[0], {env: 'OPENROUTER_API_KEY', label: 'OpenRouter', set: true, hint: 'sk-or-…cdef'});
+    assert.ok(keys.slice(1).every(key => key.set === false && key.hint === null));
   });
 
   it('rejects a plugins directory that does not exist', () => {

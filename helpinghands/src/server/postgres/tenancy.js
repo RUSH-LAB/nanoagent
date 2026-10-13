@@ -166,18 +166,19 @@ function createPostgresTenancy({pool}) {
     });
   }
 
-  /** Whether an address may create an account under the current policy. */
-  async function signupDecision(email) {
+  /** Whether a GitHub account, by its address and username, may create an account under the current policy. */
+  async function signupDecision(email, githubLogin) {
     const current = await policy();
     if (current.signupMode === 'open' || allowlisted(current.signupAllowlist, email)) return {allowed: true};
-    if (current.signupMode === 'invite'
-      && (await pool.query('select signup_invitation_exists($1) as invited', [email])).rows[0].invited) {
+    if (current.signupMode === 'invite' && (await pool.query(
+      'select signup_invitation_exists($1) or signup_github_invitation_exists($2) as invited', [email, githubLogin],
+    )).rows[0].invited) {
       return {allowed: true};
     }
     return {
       allowed: false,
       message: current.signupMode === 'invite'
-        ? 'Sign-up is by invitation. Ask a workspace owner to invite this address, then follow the link in the email.'
+        ? 'Sign-up is by invitation. Ask a workspace owner to invite this address or GitHub account, then follow the link they send.'
         : 'Sign-up is limited to approved addresses. Ask an administrator to add yours.',
     };
   }
@@ -210,6 +211,8 @@ function createPostgresTenancy({pool}) {
       asUser(context.userId, context.workspaceId, async client => (await client.query(
         `select (select count(*)::int from workspace_member where workspace_id = $1) as members,
                 (select count(*)::int from workspace_invitation
+                  where workspace_id = $1 and status = 'pending' and expires_at > now())
+                + (select count(*)::int from workspace_github_invitation
                   where workspace_id = $1 and status = 'pending' and expires_at > now()) as pending`,
         [context.workspaceId],
       )).rows[0]),
@@ -339,7 +342,7 @@ function createPostgresTenancy({pool}) {
       const spendByUser = new Map((await client.query('select * from platform_user_ai_spend()')).rows
         .map(row => [row.user_id, Number(row.ai_30d_usd)]));
       const rows = (await client.query(
-        `select u.id, u.email, u.display_name as name, u.email_verified as "emailVerified",
+        `select u.id, u.email, u.display_name as name, u.image, u.email_verified as "emailVerified",
                 u.created_at as "createdAt", u.banned_at as "bannedAt", u.ban_reason as "banReason",
                 u.max_workspaces as "maxWorkspaces", p.user_id is not null as admin,
                 (select count(*)::int from auth_session s where s.user_id = u.id and s.expires_at > now()) as sessions,

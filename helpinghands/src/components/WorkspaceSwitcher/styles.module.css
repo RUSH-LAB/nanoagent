@@ -59,13 +59,6 @@
   background: var(--ifm-color-emphasis-200);
 }
 
-.logo {
-  height: 2rem;
-  width: 2rem;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
 .name {
   display: block;
   max-width: 11rem;
@@ -163,13 +156,8 @@
   display: block;
 }
 
-.label {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
 .optionName {
+  min-width: 0;
   font-size: 0.9rem;
   font-weight: 600;
   overflow: hidden;
@@ -181,36 +169,10 @@
   color: var(--ifm-color-primary);
 }
 
-.meta {
-  font-size: 0.75rem;
-  color: var(--ifm-color-emphasis-600);
-}
-
 .error {
   margin: 0.3rem 0.5rem 0;
   font-size: 0.78rem;
   color: #991b1b;
-}
-
-.footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-top: 0.4rem;
-  padding: 0.5rem 0.5rem 0.2rem;
-  border-top: 1px solid var(--ifm-color-emphasis-200);
-}
-
-.manage {
-  color: var(--ifm-color-emphasis-700);
-  font-size: 0.8rem;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.manage:hover {
-  color: var(--ifm-color-primary);
-  text-decoration: none;
 }
 
 /* Phones: the navbar is already tight, so the workspace name gives way to the
@@ -219,4 +181,49 @@
   .identity {
     display: none;
   }
+}
+
+/* The way to make another workspace: a row like the workspaces above it,
+   after a rule, quieter than they are since it is rarely wanted. */
+.create {
+  position: relative;
+  margin-top: 0.5rem;
+  color: var(--ifm-color-emphasis-700);
+  text-decoration: none;
+}
+
+.create::before {
+  content: '';
+  position: absolute;
+  top: -0.3rem;
+  right: 0.25rem;
+  left: 0.25rem;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.create:hover {
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-font-color-base);
+  text-decoration: none;
+}
+
+.create .optionName {
+  font-weight: 500;
+}
+
+.createMark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1.5px dashed var(--ifm-color-emphasis-400);
+  border-radius: 9px;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.create:hover .createMark {
+  border-color: var(--ifm-color-emphasis-600);
+  color: var(--ifm-font-color-base);
 }

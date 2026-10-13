@@ -1,12 +1,8 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import Avatar from '@site/src/components/Avatar';
 import styles from './channelMembers.module.css';
 
 const labelOf = person => person.username || person.name || person.email || 'Someone';
-
-function initials(person) {
-  const words = labelOf(person).trim().split(/\s+/).filter(Boolean);
-  return words.slice(0, 2).map(word => word[0]).join('').toUpperCase() || '?';
-}
 
 export default function ChannelMembers({channel, people, youId, chat, onClose}) {
   const [details, setDetails] = useState(null);
@@ -75,7 +71,7 @@ export default function ChannelMembers({channel, people, youId, chat, onClose}) 
               const canRemove = isMember && !isYou && details?.canAdminister;
               return (
                 <li key={person.id} className={styles.person}>
-                  <span className={styles.avatar}>{initials(person)}</span>
+                  <Avatar user={person} size={34} />
                   <span className={styles.identity}>
                     <span className={styles.name}>{labelOf(person)} {isYou && <small>(you)</small>}</span>
                     <span className={styles.meta}>{person.email || person.role || 'Workspace member'}</span>

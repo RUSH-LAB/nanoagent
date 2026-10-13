@@ -46,11 +46,11 @@ describe('runtime document authoring', () => {
     assert.equal(adjacentDocumentPosition(documents, 'books/guide/1-first.md', 'after'), 1.5);
   });
 
-  it('creates blog frontmatter with the configured default author', () => {
+  it('creates blog frontmatter with its author\'s GitHub username', () => {
     const draft = newDocumentDraft({
       collection: {type: 'blog', pathPrefix: 'posts/blog'},
       title: 'A New Idea',
-      defaultAuthor: 'ada',
+      author: 'ada',
       group: 'Research',
       now: new Date('2026-09-10T12:00:00Z'),
     });

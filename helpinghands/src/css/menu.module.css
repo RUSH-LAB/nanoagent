@@ -1,0 +1,52 @@
+/**
+ * The panel of a small anchored menu and the items in it, shared by the row
+ * menus and the role picker. Each places it: left or right of its trigger, and
+ * how wide.
+ */
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 10px;
+  background: var(--ifm-background-surface-color, var(--ifm-background-color));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme='dark'] .menu {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* Hangs upward when the trigger is near the bottom of the window, where the
+   docked CLI would otherwise cover it. */
+.above {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.item {
+  padding: 0.4rem 0.6rem;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--ifm-font-color-base);
+  font-size: 0.82rem;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.item:hover:not(:disabled),
+.item:focus-visible {
+  background: var(--ifm-color-emphasis-100);
+  outline: none;
+}
+
+.item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

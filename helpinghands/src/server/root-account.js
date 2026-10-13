@@ -11,18 +11,8 @@
  * login can be renamed and then claimed by someone else; the id cannot.
  */
 const {createOAuthAccountIssuer} = require('better-auth/db');
-
-const TIMEOUT_MS = 30000;
-
-/** GitHub's public profile of `login`. Throws when GitHub does not answer with one. */
-async function githubProfile(login, fetchImpl) {
-  const response = await fetchImpl(`https://api.github.com/users/${encodeURIComponent(login)}`, {
-    headers: {Accept: 'application/vnd.github+json', 'User-Agent': 'mochi-root-account'},
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`GitHub has no user ${login} (HTTP ${response.status})`);
-  return response.json();
-}
+const {githubProfileFields} = require('./workspace-auth');
+const {githubProfile} = require('./github-users');
 
 /**
  * The root user's id, creating the user and its GitHub account when this
@@ -32,18 +22,26 @@ async function githubProfile(login, fetchImpl) {
 async function ensureRootAccount(auth, {login = process.env.ROOT_GITHUB_LOGIN?.trim(), fetchImpl = fetch} = {}) {
   if (!login) throw new Error('Mochi requires ROOT_GITHUB_LOGIN, the GitHub account that administers the platform.');
   const profile = await githubProfile(login, fetchImpl);
+  if (!profile) throw new Error(`GitHub has no user ${login}`);
   const {internalAdapter} = await auth.$context;
   const key = {issuer: createOAuthAccountIssuer('github'), accountId: String(profile.id)};
 
   const owner = await internalAdapter.findAccountOwnerByKey(key);
   if (owner?.kind === 'orphaned') throw new Error(`The GitHub account of ${login} references a missing user`);
-  if (owner) return {userId: owner.user.id, login: profile.login, created: false};
+  if (owner) {
+    // Root's GitHub username and bio, current from this start until its next sign-in.
+    await internalAdapter.updateUser(owner.user.id, githubProfileFields(profile));
+    return {userId: owner.user.id, login: profile.login, created: false};
+  }
 
   const email = (profile.email || `${profile.id}+${profile.login}@users.noreply.github.com`).toLowerCase();
   const existing = (await internalAdapter.findUserByEmail(email))?.user;
   if (existing && !existing.emailVerified) throw new Error(`An unverified account already uses ${email}, root's GitHub email`);
   const user = existing
-    ?? await internalAdapter.createUser({name: profile.name || profile.login, email, emailVerified: true, image: profile.avatar_url});
+    ? await internalAdapter.updateUser(existing.id, githubProfileFields(profile))
+    : await internalAdapter.createUser({
+      name: profile.name || profile.login, email, emailVerified: true, image: profile.avatar_url, ...githubProfileFields(profile),
+    });
   await internalAdapter.createAccount({userId: user.id, providerId: 'github', ...key});
   return {userId: user.id, login: profile.login, created: true};
 }

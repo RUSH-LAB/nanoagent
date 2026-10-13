@@ -19,7 +19,7 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
   // compiler rather than the real ones.
   const {
     json, readBody, rateLimit, scopeFor, documents, compileDocument, compileMarkdown, parseFrontmatter, splitBlogPost, cached, invalidateCache, cacheKey,
-    requireWorkspacePermission, workspaceSettings,
+    requireWorkspacePermission, workspaceSettings, githubUsers,
   } = ctx;
 
   // New clients use /api/workspaces/:id/documents. The dispatcher has already
@@ -51,6 +51,16 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
     if (req.context && requireWorkspacePermission) {
       requireWorkspacePermission(req.context, permission);
     }
+  };
+
+  // A post's authors are GitHub usernames; the byline is each account's GitHub
+  // profile. A username no account has comes back with only itself.
+  const authorsOf = async ({authors = []}) => {
+    const accounts = await githubUsers.byLogins(authors);
+    return authors.map(login => {
+      const account = accounts.get(login.toLowerCase());
+      return account ? {login: account.login, name: account.name, image: account.image, bio: account.bio} : {login};
+    });
   };
 
   const descriptionOf = markdown => {
@@ -228,6 +238,7 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
       },
       markdown: document.markdown,
       frontmatter,
+      authors: await authorsOf(frontmatter),
       tree,
     });
   }
@@ -301,11 +312,13 @@ module.exports = async function content_routes(req, res, url, pathname, ctx) {
       const saved = await documents.save(scope, path, markdown, {expectedUpdatedAt: baseUpdatedAt});
       if (!saved) return json(res, 404, {error: 'Document not found'});
       clearContentCaches();
+      const frontmatter = parseFrontmatter(markdown);
       return json(res, 200, {
         success: true,
         document: {path: saved.path, title: saved.title, updatedAt: saved.updatedAt},
         version: saved.version,
-        frontmatter: parseFrontmatter(markdown),
+        frontmatter,
+        authors: await authorsOf(frontmatter),
         tree,
       });
     } catch (err) {

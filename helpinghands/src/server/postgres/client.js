@@ -67,6 +67,12 @@ async function migrate(pool, {directory = MIGRATIONS_DIR} = {}) {
   }
 }
 
+/** The statement that sets the identity a transaction's row-level security policies read. */
+function setContext(context) {
+  return `select set_config('app.user_id', ${escapeLiteral(String(context.userId))}, true),
+      set_config('app.workspace_id', ${escapeLiteral(String(context.workspaceId ?? ''))}, true)`;
+}
+
 async function withRequestContext(pool, context, operation) {
   if (!context?.userId) throw new Error('A verified user context is required');
   const client = await pool.connect();
@@ -74,14 +80,29 @@ async function withRequestContext(pool, context, operation) {
     // One round trip for the transaction and the identity its policies read. A
     // query without parameters goes over PostgreSQL's simple protocol, which
     // takes several statements, so the values are quoted literals.
-    await client.query(`begin; select set_config('app.user_id', ${escapeLiteral(String(context.userId))}, true),
-      set_config('app.workspace_id', ${escapeLiteral(String(context.workspaceId ?? ''))}, true)`);
+    await client.query(`begin; ${setContext(context)}`);
     const result = await operation(client);
     await client.query('commit');
     return result;
   } catch (error) {
     try { await client.query('rollback'); } catch {}
     throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * One read as `context`, in one round trip: the identity and `sql` go as one
+ * simple query, which PostgreSQL runs as one implicit transaction, so the
+ * identity holds for `sql` and no further. `sql` takes no parameters; quote
+ * its values with escapeLiteral. Its rows.
+ */
+async function queryInContext(pool, context, sql) {
+  if (!context?.userId) throw new Error('A verified user context is required');
+  const client = await pool.connect();
+  try {
+    return (await client.query(`${setContext(context)}; ${sql}`)).at(-1).rows;
   } finally {
     client.release();
   }
@@ -119,6 +140,6 @@ async function assertRuntimeRoleIsNotOwner(runtimePool) {
 }
 
 module.exports = {
-  MIGRATIONS_DIR, createPool, migrate, withRequestContext, checksum, migrationFiles,
+  MIGRATIONS_DIR, createPool, migrate, withRequestContext, queryInContext, checksum, migrationFiles,
   quoteIdentifier, grantRuntimeAccess, assertRuntimeRoleIsNotOwner,
 };

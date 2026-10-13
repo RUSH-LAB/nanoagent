@@ -19,10 +19,11 @@ function createPostgresMarket({pool}) {
     size: row.size,
     source: 'upload',
     repository: row.repository,
-    owner: {id: row.owner_id, name: row.owner_name},
+    // Its author is its publisher's GitHub account.
+    owner: {id: row.owner_id, name: row.owner_name, github: row.owner_github},
     updatedAt: row.updated_at,
   });
-  const COLUMNS = 'm.entry, m.repository, m.sha256, m.size, m.owner_id, u.display_name as owner_name, m.updated_at';
+  const COLUMNS = 'm.entry, m.repository, m.sha256, m.size, m.owner_id, u.display_name as owner_name, u.github_login as owner_github, m.updated_at';
   const FROM = 'from market_plugin m join app_user u on u.id = m.owner_id';
 
   return Object.freeze({

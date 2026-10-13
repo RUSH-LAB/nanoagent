@@ -10,8 +10,12 @@
  * Two clocks rather than one. A conversation moves while you watch it, so it is
  * re-read every few seconds; the directory of channels and people changes far
  * more slowly and is re-read a quarter as often. Polling only covers channels
- * that are open in a pane, so an idle window with the CLI minimised makes one
- * request every twelve seconds and no more.
+ * that are open in a pane, and only while the window is open, because reading
+ * a channel marks it read. The directory keeps its clock while the window is
+ * minimised, because its unread counts are how the minimised line learns that
+ * somebody said something; a channel whose count grows has its newest message
+ * fetched, without marking it read, so the line can say what it was
+ * (`notices`).
  *
  * Polling a transcript has two hazards, and both are answered here rather than
  * in the components. The first is churn: a poll that stored a fresh array every
@@ -269,7 +273,7 @@ function uniqueMatch(rows, tiers) {
 
 /**
  * @param openChannelIds channels currently shown in a pane; only these are polled
- * @param paused         true while the window is minimised, which stops both clocks
+ * @param paused         true while the window is minimised, which stops the conversation clock
  */
 export default function useChat({openChannelIds, paused}) {
   const [directory, setDirectory] = useState({status: 'loading', channels: [], people: [], members: [], you: null, error: null});
@@ -473,19 +477,43 @@ export default function useChat({openChannelIds, paused}) {
 
   /* ── The two clocks ───────────────────────────────────────────── */
 
-  // Read once whenever the window opens, then on the slow clock. A minimised
-  // CLI shows no rail and so asks for nothing, and a visitor with no session
-  // is told once rather than every twelve seconds: nothing will change for them
-  // until they sign in, and opening the window asks again.
+  // Read once on mount, then on the slow clock, minimised or not. A visitor
+  // with no session is told once rather than every twelve seconds: nothing will
+  // change for them until they sign in.
   const signedOut = directory.status === 'signed-out';
 
   useEffect(() => {
-    if (paused) return undefined;
     refreshDirectory();
     if (signedOut) return undefined;
     const timer = setInterval(() => { if (!document.hidden) refreshDirectory(); }, DIRECTORY_MS);
     return () => clearInterval(timer);
-  }, [paused, signedOut, refreshDirectory]);
+  }, [signedOut, refreshDirectory]);
+
+  // The newest message of every channel with something unread, fetched when its
+  // unread count changes. A GET does not mark the channel read; only a channel
+  // open in a pane is marked, by loadMessages.
+  const [newest, setNewest] = useState({});
+  const unreadRef = useRef({});
+  useEffect(() => {
+    for (const channel of directory.channels) {
+      const unread = channel.unread ?? 0;
+      if (unread > 0 && unreadRef.current[channel.id] !== unread) {
+        call(`/api/chat/channels/${channel.id}/messages?limit=1`)
+          .then(page => {
+            const message = page.messages.at(-1);
+            if (!message) return;
+            setNewest(prev => ({...prev, [channel.id]: {
+              seq: sequenceOf(message),
+              author: message.username || message.name || 'someone',
+              body: message.body,
+              createdAt: message.createdAt,
+            }}));
+          })
+          .catch(err => console.error(`[chat] Could not read the newest message of ${channel.id}:`, err));
+      }
+      unreadRef.current[channel.id] = unread;
+    }
+  }, [directory.channels]);
 
   // Joined rather than passed as an array so that re-rendering with the same
   // channels open does not tear down and restart the interval.
@@ -588,12 +616,13 @@ export default function useChat({openChannelIds, paused}) {
   }, [refreshDirectory]);
 
   /**
-   * Invite an address into the organization. Returns the invitation, whose id
-   * is what the link is built from; the rail is too narrow to show that link,
-   * so its caller copies it rather than printing it.
+   * Invite an address or a GitHub account into the organization: `invitee` is
+   * `{email}` or `{githubLogin}`. Returns the invitation, whose id is what the
+   * link is built from; the rail is too narrow to show that link, so its caller
+   * copies it rather than printing it.
    */
-  const invite = useCallback(async (email) => {
-    const {invitation} = await post('/api/invitations', {email});
+  const invite = useCallback(async (invitee) => {
+    const {invitation} = await post('/api/invitations', invitee);
     refreshDirectory();
     return invitation;
   }, [refreshDirectory]);
@@ -750,6 +779,15 @@ export default function useChat({openChannelIds, paused}) {
     [conversations],
   );
 
+  /** The channels with something unread and the newest thing said in each, newest first. */
+  const notices = useMemo(
+    () => directory.channels
+      .filter(channel => (channel.unread ?? 0) > 0 && newest[channel.id] && newest[channel.id].body !== null)
+      .map(channel => ({channel, unread: channel.unread, ...newest[channel.id]}))
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
+    [directory.channels, newest],
+  );
+
   /** Everything unread everywhere, which is what the tab title counts. */
   const unreadTotal = useMemo(
     () => directory.channels.reduce((total, c) => total + (c.unread ?? 0), 0),
@@ -765,6 +803,7 @@ export default function useChat({openChannelIds, paused}) {
     /** The caller's standing in the organization, which decides what the rail offers. */
     you: directory.you,
     unreadTotal,
+    notices,
     conversation,
     loadOlder,
     refresh: refreshDirectory,

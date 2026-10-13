@@ -21,7 +21,7 @@ import {clientPlatform} from '@site/src/platform/client';
 const HEIGHT_KEY = 'mochi-cli-height';
 const RAIL_KEY = 'mochi-cli-rail';
 const DEFAULT_HEIGHT = 500;
-const MIN_HEIGHT = 140;
+const MIN_HEIGHT = 240;
 
 /* The chrome around the two parts that are measured: the strip's 1px top border
    and, only while it is open, the 10px drag handle (shell.module.css .bar and
@@ -41,10 +41,14 @@ const HANDLE_PX = 10;
 const STEP_PX = 16;
 const COARSE_STEP_PX = 64;
 
-const maxHeight = () => Math.round(window.innerHeight * 0.8);
+/** The navbar's height, which the window may grow up to but never over; nothing on a page without one. */
+const navbarHeight = () => document.querySelector('.navbar')?.offsetHeight ?? 0;
 
-/** Never taller than most of the viewport, never shorter than one usable pane. */
-const clampHeight = (h) => Math.min(Math.max(h, MIN_HEIGHT), maxHeight());
+/** The tallest the body may be: the viewport, less the navbar, the prompt `row` and the chrome around the body. */
+const maxHeight = (row) => window.innerHeight - navbarHeight() - row.offsetHeight - BORDER_PX - HANDLE_PX;
+
+/** Never taller than reaches the navbar, never shorter than one usable pane. */
+const clampHeight = (h, row) => Math.min(Math.max(h, MIN_HEIGHT), maxHeight(row));
 
 export default function useGeometry() {
   const [collapsed, setCollapsedState] = useState(true);
@@ -52,12 +56,12 @@ export default function useGeometry() {
   const [dragging, setDragging] = useState(false);
   const [railOpen, setRailOpenState] = useState(true);
   // The handle is a separator that reports its range, and the top of that range
-  // is a share of the viewport. It is held in state rather than measured while
-  // rendering because nothing else in this hook reads `window` during a render,
-  // and because the resize listener below can leave the height untouched (a
-  // clamp to the same number is a bail-out), which would strand a computed
-  // maximum at its old value.
-  const [maxH, setMaxH] = useState(() => (typeof window === 'undefined' ? DEFAULT_HEIGHT : maxHeight()));
+  // is measured from the viewport, the navbar and the prompt row. It is held in
+  // state rather than measured while rendering because nothing else in this
+  // hook reads the document during a render, and because the resize listener
+  // below can leave the height untouched (a clamp to the same number is a
+  // bail-out), which would strand a computed maximum at its old value.
+  const [maxH, setMaxH] = useState(DEFAULT_HEIGHT);
 
   const rowRef = useRef(null);
   // The live height, read by the resize listener and by the drag handlers,
@@ -98,7 +102,8 @@ export default function useGeometry() {
     // found rather than behind a control nobody knows about.
     setRailOpenState(clientPlatform.storage.getItem(RAIL_KEY) !== '0');
     const saved = Number.parseInt(clientPlatform.storage.getItem(HEIGHT_KEY), 10);
-    if (Number.isFinite(saved)) startHeight = clampHeight(saved);
+    if (Number.isFinite(saved)) startHeight = clampHeight(saved, rowRef.current);
+    setMaxH(maxHeight(rowRef.current));
     heightRef.current = startHeight;
     setHeight(startHeight);
     publishFootprint(true, startHeight);
@@ -130,8 +135,8 @@ export default function useGeometry() {
   // Shrinking the window must not leave the pane taller than the viewport.
   useEffect(() => {
     const onResize = () => {
-      setMaxH(maxHeight());
-      const h = clampHeight(heightRef.current);
+      setMaxH(maxHeight(rowRef.current));
+      const h = clampHeight(heightRef.current, rowRef.current);
       heightRef.current = h;
       setHeight(h);
       publishFootprint(collapsed, h);
@@ -174,8 +179,7 @@ export default function useGeometry() {
     if (!draggingRef.current) return;
     // The window is anchored to the bottom, so its height is whatever sits
     // between the pointer and the top of the prompt row.
-    const row = rowRef.current?.offsetHeight ?? 0;
-    const h = clampHeight(window.innerHeight - e.clientY - row);
+    const h = clampHeight(window.innerHeight - e.clientY - rowRef.current.offsetHeight, rowRef.current);
     heightRef.current = h;
     setHeight(h);
   }, []);
@@ -215,7 +219,7 @@ export default function useGeometry() {
         next = MIN_HEIGHT;
         break;
       case 'End':
-        next = maxHeight();
+        next = maxHeight(rowRef.current);
         break;
       default:
         return;
@@ -224,7 +228,7 @@ export default function useGeometry() {
     // window's edge, so the page would slide out from under the control being
     // held.
     e.preventDefault();
-    commitHeight(clampHeight(next));
+    commitHeight(clampHeight(next, rowRef.current));
   }, [commitHeight]);
 
   return {

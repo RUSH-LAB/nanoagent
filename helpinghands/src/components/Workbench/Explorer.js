@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import clsx from 'clsx';
-import {basename, dirname, visibleRows, within} from './tree';
+import {basename, dirname, entryProblem, visibleRows, within} from './tree';
 import styles from './styles.module.css';
 
 /**
@@ -39,10 +39,18 @@ function Chevron({open}) {
   );
 }
 
-function NameInput({initial, depth, folder, onCommit, onCancel}) {
+/**
+ * The inline input for a new or renamed entry. It checks the name as it is
+ * typed and blocks Enter while it is invalid; it stays open, with what was
+ * typed, until the workbench's `status` reports the server's answer.
+ */
+function NameInput({initial, depth, folder, status, validate, onCommit, onCancel, onRetype}) {
   const [value, setValue] = useState(initial);
   const input = useRef(null);
   const settled = useRef(false);
+  const name = value.trim();
+  const problem = name && name !== initial ? validate(name) : null;
+  const error = problem ?? status.error ?? null;
 
   useEffect(() => {
     const element = input.current;
@@ -52,31 +60,46 @@ function NameInput({initial, depth, folder, onCommit, onCancel}) {
     element.setSelectionRange(0, dot > 0 ? dot : initial.length);
   }, [initial]);
 
+  // A failed commit hands the input back for another try.
+  useEffect(() => {
+    if (!status.error) return;
+    settled.current = false;
+    input.current.focus();
+  }, [status]);
+
   const finish = commit => {
-    if (settled.current) return;
+    if (settled.current || (commit && problem)) return;
     settled.current = true;
-    if (commit && value.trim() && value !== initial) onCommit(value.trim());
+    if (commit && name && name !== initial) onCommit(name);
     else onCancel();
   };
 
   return (
-    <div className={styles.row} style={{paddingLeft: `${0.5 + depth * 0.9}rem`}}>
-      {folder ? <Chevron open={false} /> : <span className={styles.chevronSpace} />}
-      {folder ? <span className={styles.folderIcon} aria-hidden="true" /> : <FileIcon name={value} />}
-      <input
-        ref={input}
-        className={styles.nameInput}
-        value={value}
-        onChange={event => setValue(event.target.value)}
-        onKeyDown={event => {
-          event.stopPropagation();
-          if (event.key === 'Enter') finish(true);
-          if (event.key === 'Escape') finish(false);
-        }}
-        onBlur={() => finish(true)}
-        aria-label={folder ? 'Folder name' : 'File name'}
-      />
-    </div>
+    <>
+      <div className={clsx(styles.row, status === 'pending' && styles.rowPending)} style={{paddingLeft: `${0.5 + depth * 0.9}rem`}}>
+        {folder ? <Chevron open={false} /> : <span className={styles.chevronSpace} />}
+        {folder ? <span className={styles.folderIcon} aria-hidden="true" /> : <FileIcon name={value} />}
+        <input
+          ref={input}
+          className={clsx(styles.nameInput, error && styles.nameInputInvalid)}
+          value={value}
+          readOnly={status === 'pending'}
+          onChange={event => {
+            setValue(event.target.value);
+            if (status.error) onRetype();
+          }}
+          onKeyDown={event => {
+            event.stopPropagation();
+            if (event.key === 'Enter') finish(true);
+            if (event.key === 'Escape') finish(false);
+          }}
+          onBlur={() => finish(!error)}
+          aria-label={folder ? 'Folder name' : 'File name'}
+          aria-invalid={Boolean(error)}
+        />
+      </div>
+      {error && <p className={styles.nameError} style={{paddingLeft: `${0.5 + depth * 0.9}rem`}} role="alert">{error}</p>}
+    </>
   );
 }
 
@@ -129,7 +152,7 @@ function LocalStatus({held}) {
 
 export default function Explorer({
   tree, expanded, selected, activePath, dirtyPaths, held = new Map(), editing, readOnly,
-  onToggle, onSelect, onOpen, onCommitEdit, onCancelEdit, onContextMenu, onMove, onRename, onDelete,
+  onToggle, onSelect, onOpen, onCommitEdit, onCancelEdit, onRetypeEdit, onContextMenu, onMove, onRename, onDelete,
 }) {
   const [dropTarget, setDropTarget] = useState(null);
   const rows = visibleRows(tree, expanded);
@@ -179,8 +202,11 @@ export default function Explorer({
       initial=""
       depth={depth}
       folder={editing.mode === 'folder'}
+      status={editing.status}
+      validate={name => entryProblem(tree, editing.parent, name)}
       onCommit={onCommitEdit}
       onCancel={onCancelEdit}
+      onRetype={onRetypeEdit}
     />
   );
 
@@ -200,7 +226,17 @@ export default function Explorer({
         const open = folder && expanded.has(node.path);
         if (editing?.mode === 'rename' && editing.node.path === node.path) {
           return (
-            <NameInput key={node.path} initial={node.name} depth={depth} folder={folder} onCommit={onCommitEdit} onCancel={onCancelEdit} />
+            <NameInput
+              key={node.path}
+              initial={node.name}
+              depth={depth}
+              folder={folder}
+              status={editing.status}
+              validate={name => entryProblem(tree, dirname(node.path), name, node.path)}
+              onCommit={onCommitEdit}
+              onCancel={onCancelEdit}
+              onRetype={onRetypeEdit}
+            />
           );
         }
         return (

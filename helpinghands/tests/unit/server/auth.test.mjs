@@ -181,7 +181,7 @@ describe('resolveIdentity', () => {
 
   it('rejects a request with no token', async () => {
     assert.deepEqual(await enabled.resolveIdentity(req({})), {
-      ok: false, status: 401, error: 'Not signed in',
+      ok: false, status: 401, error: 'Not signed in', cookies: [],
     });
   });
 
@@ -205,6 +205,20 @@ describe('resolveIdentity', () => {
     const after = await enabled.resolveIdentity(req({cookie}));
     assert.equal(after.ok, false, 'the same token stops working once signed out');
     assert.equal(after.status, 401);
+  });
+
+  // The snapshot is what spares the next request its query, and also why a
+  // session revoked elsewhere holds until the snapshot's minute is up.
+  it('hands back the session snapshot, which identifies the caller without the session row', async () => {
+    const {cookie, id} = await githubAccount(enabled.auth, 'dave');
+    const first = await enabled.resolveIdentity(req({cookie}));
+    const snapshot = first.cookies.find(value => value.startsWith('better-auth.session_data='));
+    assert.ok(snapshot, 'the session snapshot is set');
+    const cached = `${cookie}; ${snapshot.split(';')[0]}`;
+
+    await enabled.auth.api.signOut({headers: {cookie}});
+    assert.equal((await enabled.resolveIdentity(req({cookie}))).ok, false, 'the session itself is gone');
+    assert.equal((await enabled.resolveIdentity(req({cookie: cached}))).identity.userId, id, 'the snapshot still names its user');
   });
 
   it('does not expose username sign-in', () => {

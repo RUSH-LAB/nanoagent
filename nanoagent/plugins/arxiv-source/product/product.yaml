@@ -6,6 +6,6 @@ highlights:
   - "A daily digest of the people you follow"
   - "Every saved paper is checked against arXiv"
 steps:
-  - "Describe the papers you want, or pick a date to digest"
+  - "Ask for the papers you want, or a digest of the people you follow"
   - "It searches arXiv and saves each matching source"
-  - "Read the results and the digest in your workspace"
+  - "Read the papers and the digest right in the chat"

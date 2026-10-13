@@ -17,6 +17,7 @@ const {
   organizationOptions, postgresCoreSchema, postgresDeviceCodeSchema, authSessionOptions,
 } = require('../../../src/server/workspace-auth.js');
 const {createWorkspaceProvisioning} = require('../../../src/server/workspace-provisioning.js');
+const {createPostgresGithubUsers} = require('../../../src/server/postgres/github-users.js');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('Better Auth on the PostgreSQL workspace schema', () => {
@@ -44,6 +45,7 @@ describe('Better Auth on the PostgreSQL workspace schema', () => {
       session: authSessionOptions({postgresEnabled: true}),
       secret: 'postgres-better-auth-test-secret'.padEnd(48, 'x'),
       baseURL: 'http://localhost:3001',
+      advanced: {database: {joins: true}},
       socialProviders: {github: {clientId: 'test-client', clientSecret: 'test-secret'}},
       plugins: [
         organization(organizationOptions({
@@ -66,6 +68,13 @@ describe('Better Auth on the PostgreSQL workspace schema', () => {
     await kysely?.destroy();
   });
 
+  it('finds a session and its user in the aliased tables with joins on', async () => {
+    const eve = await githubAccount(auth, 'Eve', 'eve@postgres.invalid');
+    const session = await auth.api.getSession({headers: {cookie: eve.cookie}, query: {disableCookieCache: true}});
+    assert.equal(session.user.id, eve.id);
+    assert.equal(session.session.userId, eve.id);
+  });
+
   it('keeps GitHub accounts and device codes in the aliased tables', async () => {
     const dev = await githubAccount(auth, 'Dev', 'dev@postgres.invalid');
     assert.equal((await pg.query(
@@ -77,6 +86,23 @@ describe('Better Auth on the PostgreSQL workspace schema', () => {
     assert.deepEqual((await pg.query(
       'select user_id, status, client_id from auth_device_code where device_code = $1', [code.device_code],
     )).rows, [{user_id: dev.id, status: 'approved', client_id: 'mochi-cli'}]);
+  });
+
+  it('keeps GitHub usernames in app_user and finds accounts by them', async () => {
+    const {internalAdapter} = await auth.$context;
+    const user = await internalAdapter.createUser({
+      name: 'Octo', email: 'octo@postgres.invalid', emailVerified: true, githubLogin: 'Octocat', githubBio: 'Cat',
+    });
+    const githubUsers = createPostgresGithubUsers({pool: {query: pgQuery(pg)}});
+    assert.equal(await githubUsers.loginOf(user.id), 'Octocat');
+    assert.deepEqual([...(await githubUsers.byLogins(['octocat', 'nobody'])).entries()], [
+      ['octocat', {login: 'Octocat', name: 'Octo', image: null, bio: 'Cat'}],
+    ]);
+    await assert.rejects(internalAdapter.createUser({
+      name: 'Other', email: 'other@postgres.invalid', emailVerified: true, githubLogin: 'OCTOCAT',
+    }), 'one account per GitHub username');
+    await githubUsers.release('octocat');
+    assert.equal(await githubUsers.loginOf(user.id), null);
   });
 
   it('creates organizations and owner memberships in the aliased tables', async () => {

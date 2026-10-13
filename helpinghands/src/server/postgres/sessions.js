@@ -119,12 +119,12 @@ function createPostgresSessions({pool}) {
       });
     },
 
-    /** Add a finished turn to the conversation, keeping the latest. */
-    async addTurn(context, pluginId, id, {prompt, answer}) {
+    /** Add a finished turn to the conversation, its tool calls whole, keeping the latest. */
+    async addTurn(context, pluginId, id, {prompt, answer, tools}) {
       await run(context, async client => {
         await owned(client, pluginId, id);
         const {chat} = (await client.query('select chat from plugin_session where id = $1 for update', [id])).rows[0];
-        const turns = [...chat, {prompt: prompt.slice(0, TURN_MAX), answer: answer.slice(0, TURN_MAX)}].slice(-CHAT_TURNS);
+        const turns = [...chat, {prompt: prompt.slice(0, TURN_MAX), answer: answer.slice(0, TURN_MAX), tools}].slice(-CHAT_TURNS);
         // An untitled session is named for its first question.
         await client.query(
           `update plugin_session set chat = $2::jsonb, updated_at = now(),

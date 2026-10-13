@@ -9,13 +9,13 @@ import own from './styles.module.css';
 export {pluginNavigation} from './navigation';
 
 /**
- * The Plugins sidebar, shaped like a blog's: the group switcher (All,
- * or one group), the only place a group is chosen, then the plugins in view. Plugins declare their
- * group in their NanoAgent manifest; where the reader is lives in the URL
- * (?group=, ?app=), so every entry is a plain link.
+ * The Plugins sidebar, shaped like a blog's: the tag switcher (All, or one
+ * tag), the only place a tag is chosen, then the plugins in view. The tags are
+ * the ones the workspace gave its plugins; where the reader is lives in the URL
+ * (?tag=, ?app=), so every entry is a plain link.
  */
 
-function GroupIcon() {
+function TagIcon() {
   return (
     <svg className={styles.groupIcon} viewBox="0 0 20 20" aria-hidden="true">
       <rect x="3" y="3" width="5.5" height="5.5" rx="1.2" />
@@ -26,7 +26,7 @@ function GroupIcon() {
   );
 }
 
-function GroupSwitcher({navigation}) {
+function TagSwitcher({navigation}) {
   const [open, setOpen] = useState(false);
   const wrapper = useRef(null);
   useClickOutside(wrapper, () => setOpen(false), open);
@@ -49,26 +49,26 @@ function GroupSwitcher({navigation}) {
         aria-expanded={open}
         onClick={() => setOpen(value => !value)}
       >
-        <GroupIcon />
-        <span className={styles.groupTitle}>{navigation.allGroups ? 'All' : navigation.activeGroup ?? navigation.unknownGroup}</span>
+        <TagIcon />
+        <span className={styles.groupTitle}>{navigation.allTags ? 'All' : navigation.activeTag ?? navigation.unknownTag}</span>
         <svg className={styles.chevron} viewBox="0 0 16 16" aria-hidden="true">
           <path d="m4 6 4 4 4-4" />
         </svg>
       </button>
       {open && (
-        <div className={styles.groupMenu} role="listbox" aria-label="Choose plugin group">
-          {navigation.groups.map(group => {
-            const selected = group.all ? navigation.allGroups : group.title === navigation.activeGroup;
+        <div className={styles.groupMenu} role="listbox" aria-label="Choose plugin tag">
+          {navigation.tags.map(tag => {
+            const selected = tag.all ? navigation.allTags : tag.title === navigation.activeTag;
             return (
-              <div key={group.title} className={styles.groupOptionRow}>
+              <div key={tag.title} className={styles.groupOptionRow}>
                 <Link
                   className={clsx(styles.groupOption, selected && styles.groupOptionSelected)}
                   role="option"
                   aria-selected={selected}
-                  to={group.permalink}
+                  to={tag.permalink}
                   onClick={() => setOpen(false)}
                 >
-                  <span>{group.title}</span>
+                  <span>{tag.title}</span>
                   {selected && <span className={styles.checkmark} aria-hidden="true">✓</span>}
                 </Link>
               </div>
@@ -119,7 +119,7 @@ export default function PluginSidebar({navigation, marketplaceHref, collapsed, o
   return (
     <div className={clsx(styles.sidebar, collapsed && styles.sidebarHidden)}>
       <div className={styles.sidebarControls}>
-        <GroupSwitcher navigation={navigation} />
+        <TagSwitcher navigation={navigation} />
         <button
           className={styles.collapseButton}
           type="button"

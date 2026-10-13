@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
 import {Agent, type AgentEvent, type ThinkingLevel} from "@earendil-works/pi-agent-core";
-import type {AssistantMessage, Usage} from "@earendil-works/pi-ai";
+import type {AssistantMessage, AuthContext, Usage} from "@earendil-works/pi-ai";
 import {builtinModels} from "@earendil-works/pi-ai/providers/all";
+import {realpathSync} from "node:fs";
+import {fileURLToPath} from "node:url";
 
 interface RunnerRequest {
   input: string;
@@ -26,6 +28,10 @@ export interface PiOptions {
   systemPrompt: string;
   awsRegion?: string;
   awsProfile?: string;
+  temperature?: number;
+  maxTokens?: number;
+  // The names of the keys a run brought: its only credentials.
+  runKeys?: string[];
 }
 
 const THINKING_LEVELS = new Set<ThinkingLevel>([
@@ -40,6 +46,9 @@ export function parseOptions(value: Record<string, unknown> = {}): PiOptions {
   const systemPrompt = value.system_prompt ?? "You are a helpful assistant.";
   const awsRegion = value.aws_region;
   const awsProfile = value.aws_profile;
+  const temperature = value.temperature;
+  const maxTokens = value.max_tokens;
+  const runKeys = value.run_keys;
   if (typeof provider !== "string" || !provider) throw new Error("PI option 'provider' is required");
   if (typeof model !== "string" || !model) throw new Error("PI option 'model' is required");
   if (apiKeyEnv !== undefined && (typeof apiKeyEnv !== "string" || !apiKeyEnv)) {
@@ -55,6 +64,15 @@ export function parseOptions(value: Record<string, unknown> = {}): PiOptions {
   if (awsProfile !== undefined && (typeof awsProfile !== "string" || !awsProfile)) {
     throw new Error("PI option 'aws_profile' must be a non-empty string");
   }
+  if (temperature !== undefined && (typeof temperature !== "number" || temperature < 0 || temperature > 2)) {
+    throw new Error("PI option 'temperature' must be a number from 0 to 2");
+  }
+  if (maxTokens !== undefined && (!Number.isInteger(maxTokens) || (maxTokens as number) < 1)) {
+    throw new Error("PI option 'max_tokens' must be a positive integer");
+  }
+  if (runKeys !== undefined && (!Array.isArray(runKeys) || !runKeys.length || runKeys.some((name) => typeof name !== "string" || !name))) {
+    throw new Error("PI option 'run_keys' must be a non-empty list of key names");
+  }
   return {
     provider,
     model,
@@ -63,6 +81,22 @@ export function parseOptions(value: Record<string, unknown> = {}): PiOptions {
     systemPrompt,
     awsRegion: awsRegion as string | undefined,
     awsProfile: awsProfile as string | undefined,
+    temperature: temperature as number | undefined,
+    maxTokens: maxTokens as number | undefined,
+    runKeys: runKeys as string[] | undefined,
+  };
+}
+
+/** Credentials from the run's own keys alone: no other variable, file, profile or stored login. */
+export function runKeysAuth(names: string[]): AuthContext {
+  return {
+    async env(name) {
+      const value = names.includes(name) ? process.env[name] : undefined;
+      return value?.trim() ? value : undefined;
+    },
+    async fileExists() {
+      return false;
+    },
   };
 }
 
@@ -134,16 +168,29 @@ async function main(): Promise<void> {
     const options = parseOptions(envelope.options);
     if (options.awsRegion) process.env.AWS_REGION = options.awsRegion;
     if (options.awsProfile) process.env.AWS_PROFILE = options.awsProfile;
-    const models = builtinModels();
+    const models = builtinModels(options.runKeys ? {authContext: runKeysAuth(options.runKeys)} : undefined);
     const model = models.getModel(options.provider, options.model);
     if (!model) throw new Error(`PI model not found: ${options.provider}/${options.model}`);
+    // pi-ai's own error for a provider with no key says only that it is "not configured".
+    const keyed = options.apiKeyEnv
+      ? Boolean(process.env[options.apiKeyEnv])
+      : (await models.getAvailable()).some((available) => available.provider === model.provider);
+    if (!keyed) {
+      const provider = models.getProviders().find((entry) => entry.id === model.provider)?.name ?? model.provider;
+      throw new Error(`No ${provider} API key is set${options.apiKeyEnv ? ` (${options.apiKeyEnv})` : ""}: add one to run ${model.name}`);
+    }
     const instructions = envelope.request.instructions?.trim();
     const systemPrompt = instructions
       ? `${options.systemPrompt.trim()}\n\nApplication instructions:\n${instructions}`
       : options.systemPrompt;
     agent = new Agent({
       initialState: {systemPrompt, model, thinkingLevel: options.thinkingLevel, tools: []},
-      streamFn: models.streamSimple.bind(models),
+      // The run's sampling settings go with every model call.
+      streamFn: (callModel, context, streamOptions) => models.streamSimple(callModel, context, {
+        ...streamOptions,
+        ...(options.temperature === undefined ? {} : {temperature: options.temperature}),
+        ...(options.maxTokens === undefined ? {} : {maxTokens: options.maxTokens}),
+      }),
       getApiKey: options.apiKeyEnv ? () => process.env[options.apiKeyEnv!] : undefined,
     });
     process.once("SIGTERM", () => agent?.abort());
@@ -187,4 +234,9 @@ async function main(): Promise<void> {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await main();
+/** Whether this module is the program node was asked to run (as a URL its path is escaped). */
+export function isMain(url: string): boolean {
+  return Boolean(process.argv[1]) && realpathSync(fileURLToPath(url)) === realpathSync(process.argv[1]);
+}
+
+if (isMain(import.meta.url)) await main();

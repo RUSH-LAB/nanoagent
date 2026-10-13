@@ -2,15 +2,19 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useHistory, useLocation} from '@docusaurus/router';
 import {toast} from '@site/src/components/Toast/toast';
 import API_BASE, {apiJson} from '@site/src/utils/api';
-import {isOffline} from '@site/src/utils/documentCache';
+import {browserStore, isOffline} from '@site/src/utils/documentCache';
+import {followWorkspaceChanges} from '@site/src/utils/fsEvents';
 import {FS_SYNC_EVENT, fsReplica, startFsSync} from '@site/src/utils/fsReplica';
-import {loadWorkspaces, navigateClient} from '@site/src/utils/workspaces';
+import {navigateClient} from '@site/src/utils/workspaces';
+import {useAccount} from '@site/src/utils/account';
 import * as api from './api';
 import Editor from './Editor';
 import {openLiveDocument} from './liveDocument';
 import {appFor} from './apps';
 import Explorer, {ContextMenu} from './Explorer';
-import {basename, buildTree, dirname, invalidName, join, movedPath, within} from './tree';
+import QuickOpen from './QuickOpen';
+import {basename, buildTree, comparePath, dirname, join, movedPath, tabChanges, within} from './tree';
+import {editorViews} from './viewState';
 import styles from './styles.module.css';
 
 /**
@@ -21,13 +25,19 @@ import styles from './styles.module.css';
  * every explorer action through ./api. The open file is kept in ?path=.
  *
  * A save names the revision the tab was read at, so an edit made elsewhere in
- * the meantime is reported rather than overwritten. Who can see a file or
- * folder (the workspace, only you, or anyone) is set from its context menu.
+ * the meantime is merged rather than overwritten. Open tabs follow what the
+ * workspace's push channel reports was done elsewhere: renames, deletes, and
+ * writes, which a tab without unsaved edits reads in. Who can see a file or
+ * folder (the workspace, only you, or anyone) is set from its context menu,
+ * which also compares a text file with an earlier revision and restores it.
  *
  * This browser keeps a replica (utils/fsReplica.js): the tree, and the text
  * files opened or kept on this computer. Without a network the explorer shows
  * the replica, kept files open, and saves wait to upload; each row says
  * whether its file is in the cloud only, on this computer, kept, or waiting.
+ * It also keeps where each tab's editor was left (viewState.js): switching
+ * tabs keeps the selection, scroll and undo history, and reopening a file
+ * after a reload keeps the selection and scroll.
  */
 
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
@@ -35,6 +45,10 @@ const MARKDOWN = /\.mdx?$/i;
 const PDF = /\.pdf$/i;
 // Past this a file is downloaded rather than loaded into the editor.
 const EDIT_LIMIT = 2 * 1024 * 1024;
+// How many recently opened files quick open remembers per workspace.
+const RECENT_LIMIT = 20;
+
+const unsaved = tab => tab.kind === 'text' && tab.text !== tab.saved;
 
 function kindOf(file) {
   if (IMAGE.test(file.path)) return 'image';
@@ -47,6 +61,7 @@ export default function Workbench({workspace}) {
   const history = useHistory();
   const readOnly = workspace.role === 'viewer';
   const expandedKey = `mochi:workbench-expanded:${workspace.id}`;
+  const recentKey = `mochi:workbench-recent:${workspace.id}`;
 
   const [listing, setListing] = useState(null);
   const [loadError, setLoadError] = useState(null);
@@ -57,18 +72,23 @@ export default function Workbench({workspace}) {
   const [editing, setEditing] = useState(null);
   const [menu, setMenu] = useState(null);
   const [trash, setTrash] = useState(null);
-  const [scope, setScope] = useState(null);
+  // Who this replica belongs to: the account the gate knows, in this workspace.
+  const {userId} = useAccount();
+  const scope = useMemo(() => (userId ? {userId, workspaceId: workspace.id} : null), [userId, workspace.id]);
   const [held, setHeld] = useState(() => new Map());
   const [offline, setOffline] = useState(false);
   const [plugins, setPlugins] = useState([]);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [recent, setRecent] = useState(() => JSON.parse(localStorage.getItem(recentKey) ?? '[]'));
   const tabsRef = useRef(tabs);
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
   tabsRef.current = tabs;
+  const views = useMemo(() => editorViews(browserStore(), () => scopeRef.current), []);
 
   const tree = useMemo(() => (listing ? buildTree(listing.files, listing.folders) : null), [listing]);
   const dirtyPaths = useMemo(
-    () => new Set(tabs.filter(tab => tab.kind === 'text' && tab.text !== tab.saved).map(tab => tab.path)),
+    () => new Set(tabs.filter(unsaved).map(tab => tab.path)),
     [tabs],
   );
 
@@ -85,16 +105,6 @@ export default function Workbench({workspace}) {
       setListing(data);
       setLoadError(null);
       setOffline(false);
-      // A tab with no unsaved edits follows a newer revision saved elsewhere.
-      for (const tab of tabsRef.current) {
-        const file = data.files.find(item => item.path === tab.path);
-        if (tab.kind !== 'text' || !file || tab.text !== tab.saved || tab.rev === undefined || file.rev === tab.rev) continue;
-        api.readFile(tab.path).then(result => {
-          if (result.binary) return;
-          updateTab(tab.path, {text: result.text, saved: result.text, rev: result.rev});
-          if (scopeRef.current) replica.remember(scopeRef.current, tab.path, result);
-        }).catch(error => console.error(`[workspace] Could not refresh ${tab.path}:`, error));
-      }
       refreshHeld();
       return data;
     } catch (error) {
@@ -113,16 +123,24 @@ export default function Workbench({workspace}) {
   }, [refreshHeld]);
 
   useEffect(() => { sessionStorage.setItem(expandedKey, JSON.stringify([...expanded])); }, [expandedKey, expanded]);
+  useEffect(() => { localStorage.setItem(recentKey, JSON.stringify(recent)); }, [recentKey, recent]);
 
-  // ⌘S saves the open file wherever focus is, rather than saving the web page.
+  // ⌘S saves the open file wherever focus is, rather than saving the web page;
+  // ⌘P opens quick open rather than printing it.
   useEffect(() => {
-    const saveShortcut = event => {
-      if (event.key.toLowerCase() !== 's' || !(event.metaKey || event.ctrlKey)) return;
-      event.preventDefault();
-      if (activePath) save(activePath);
+    const shortcut = event => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === 's') {
+        event.preventDefault();
+        if (activePath) save(activePath);
+      } else if (key === 'p' && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        setQuickOpen(current => !current);
+      }
     };
-    window.addEventListener('keydown', saveShortcut);
-    return () => window.removeEventListener('keydown', saveShortcut);
+    window.addEventListener('keydown', shortcut);
+    return () => window.removeEventListener('keydown', shortcut);
   });
 
   // Unsaved text is lost with the tab, so leaving the page asks first.
@@ -145,25 +163,29 @@ export default function Workbench({workspace}) {
   // Markdown opens live once this browser knows whose replica it is.
   const openLive = useCallback(file => {
     setTabs(current => [...current, {path: file.path, kind: 'live', loading: true}]);
-    openLiveDocument({
-      scope: scopeRef.current, workspaceId: workspace.id, path: file.path, readOnly,
-      onStatus: liveStatus => updateTab(file.path, {liveStatus}),
-    })
-      .then(live => {
+    Promise.all([
+      openLiveDocument({
+        scope: scopeRef.current, workspaceId: workspace.id, path: file.path, readOnly,
+        onStatus: liveStatus => updateTab(file.path, {liveStatus}),
+      }),
+      views.load(file.path),
+    ])
+      .then(([live]) => {
         // A tab closed while it opened takes its document with it.
         if (!tabsRef.current.some(tab => tab.path === file.path)) {
           live.close();
           return;
         }
-        updateTab(file.path, {live, loading: false});
+        updateTab(file.path, {live, opened: live.text.toString(), loading: false});
       })
       .catch(error => updateTab(file.path, {loading: false, error: isOffline(error)
         ? `${basename(file.path)} is not kept on this computer, and the server cannot be reached.`
         : error.message}));
-  }, [readOnly, workspace.id]);
+  }, [readOnly, workspace.id, views]);
 
   const open = useCallback(file => {
     setActivePath(file.path);
+    setRecent(current => [file.path, ...current.filter(path => path !== file.path)].slice(0, RECENT_LIMIT));
     if (tabsRef.current.some(tab => tab.path === file.path)) return;
     if (MARKDOWN.test(file.path) && scopeRef.current) {
       openLive(file);
@@ -175,7 +197,7 @@ export default function Workbench({workspace}) {
     (async () => {
       const replica = fsReplica();
       const current = scopeRef.current;
-      const kept = current ? await replica.read(current, file.path) : null;
+      const [kept] = await Promise.all([current ? replica.read(current, file.path) : null, views.load(file.path)]);
       // This browser's copy is current when it holds the listed revision or an unsent edit.
       if (kept && (kept.pending || kept.rev === file.rev)) {
         updateTab(file.path, {text: kept.text, saved: kept.text, loading: false, rev: kept.rev});
@@ -200,7 +222,7 @@ export default function Workbench({workspace}) {
           : error.message});
       }
     })();
-  }, [openLive, refreshHeld]);
+  }, [openLive, refreshHeld, views]);
 
   // The installed plugins, for which app opens which file.
   useEffect(() => {
@@ -216,15 +238,7 @@ export default function Workbench({workspace}) {
   // Leaving the page closes every live document and its stream.
   useEffect(() => () => { for (const tab of tabsRef.current) tab.live?.close(); }, []);
 
-  // Who this replica belongs to, then keep it in step with the server.
-  useEffect(() => {
-    let cancelled = false;
-    loadWorkspaces().then(({userId}) => {
-      if (!cancelled && userId) setScope({userId, workspaceId: workspace.id});
-    }).catch(error => console.error('[workspace] This browser cannot keep files without an account:', error));
-    return () => { cancelled = true; };
-  }, [workspace.id]);
-
+  // Keep the replica in step with the server.
   useEffect(() => {
     if (!scope) return undefined;
     const onSync = ({detail}) => {
@@ -233,9 +247,13 @@ export default function Workbench({workspace}) {
         updateTab(detail.path, {rev: detail.rev});
         toast.success(`Uploaded your offline edit to ${basename(detail.path)}.`);
       } else if (detail.conflictedCopy) {
-        toast.warning(`${detail.path} changed while you were offline, so your edit was saved as ${detail.conflictedCopy}.`, {duration: 0});
+        toast.warning(`${detail.path} changed while you were offline, so your edit was saved as ${detail.conflictedCopy}.`, {
+          duration: 0, actionLabel: 'Compare', action: () => compareCopy(detail.path, detail.conflictedCopy),
+        });
       } else if (detail.error) {
         toast.error(`Your offline edit to ${detail.path} could not be uploaded: ${detail.error}`, {duration: 0});
+      } else if (detail.disconnected) {
+        toast.error('The server stopped sending this workspace\'s changes. Reload the page to follow them again.', {duration: 0});
       }
       load();
     };
@@ -298,7 +316,7 @@ export default function Workbench({workspace}) {
     updateTab(path, {saving: true});
     api.saveFile(path, text, {baseRev: tab.rev})
       .then(entry => {
-        updateTab(path, {saving: false, saved: text, rev: entry.rev});
+        updateTab(path, {saving: false, saved: text, rev: entry.rev, conflict: false});
         if (scopeRef.current) fsReplica().remember(scopeRef.current, path, {text, rev: entry.rev});
         load();
       })
@@ -311,39 +329,183 @@ export default function Workbench({workspace}) {
           toast.info(`You are offline. ${basename(path)} is saved on this computer and will upload when you reconnect.`);
           return;
         }
-        toast.error(error.code === 'stale-revision'
-          ? `${basename(path)} was changed elsewhere. Copy your edits, close the tab, and open it again.`
-          : error.message);
+        if (error.code !== 'stale-revision') {
+          toast.error(error.message);
+          return;
+        }
+        // Saved elsewhere since it was read: the tab now compares the user's
+        // text with that save, to merge change by change and save over it.
+        try {
+          const fresh = await api.readFile(path);
+          if (fresh.binary) throw new Error(`${path} is no longer text`);
+          setTabs(current => current.map(item => (item.path === path
+            ? {...item, saved: fresh.text, rev: fresh.rev, conflict: item.text !== fresh.text, changedElsewhere: false}
+            : item)));
+        } catch (readError) {
+          toast.error(`${basename(path)} was changed elsewhere, and that change could not be read: ${readError.message}`);
+        }
       });
   };
 
-  const close = path => {
+  const readText = async path => {
+    const result = await api.readFile(path);
+    if (result.binary) throw new Error(`${path} is not text, so it cannot be compared`);
+    return result;
+  };
+
+  // A compare tab at `path` (tree.js comparePath), whose texts `read` resolves.
+  const compare = (path, title, read) => {
+    setActivePath(path);
+    if (tabsRef.current.some(tab => tab.path === path)) return;
+    setTabs(current => [...current, {path, kind: 'diff', title, loading: true}]);
+    read()
+      .then(texts => updateTab(path, {...texts, loading: false}))
+      .catch(error => updateTab(path, {loading: false, error: error.message}));
+  };
+
+  // The file now against its revision `seq`, the `number`th of its content.
+  const compareRevision = (file, seq, number) => compare(comparePath(file, seq), `${basename(file)} ↔ revision ${number}`, async () => {
+    const [original, current] = await Promise.all([api.readRevision(file, seq), readText(file)]);
+    return {original, text: current.text, rev: current.rev, restorable: true};
+  });
+
+  // A conflicted copy against the file it was made from, which kept the path.
+  const compareCopy = (file, copy) => compare(comparePath(copy, 'original'), `${basename(copy)} ↔ ${basename(file)}`, async () => {
+    const [theirs, yours] = await Promise.all([readText(file), readText(copy)]);
+    return {original: theirs.text, text: yours.text};
+  });
+
+  // The revisions to compare with, as a menu where the context menu was.
+  const chooseRevision = async (node, position) => {
+    let revisions;
+    try {
+      revisions = await api.history(node.path);
+    } catch (error) {
+      toast.error(error.message);
+      return;
+    }
+    // The newest revision is the file as it is now.
+    if (revisions.length < 2) {
+      toast.info(`${node.path} has no earlier revisions.`);
+      return;
+    }
+    setMenu({...position, items: revisions.slice(1).map((revision, index) => {
+      const number = revisions.length - 1 - index;
+      return {label: `Revision ${number}, ${new Date(revision.at).toLocaleString()}`, run: () => compareRevision(node.path, revision.seq, number)};
+    })});
+  };
+
+  // The compared revision is written back over the file as it was when compared.
+  const restoreRevision = path => {
     const tab = tabsRef.current.find(item => item.path === path);
-    if (tab?.kind === 'text' && tab.text !== tab.saved && !window.confirm(`Discard unsaved changes to ${basename(path)}?`)) return;
+    const file = dirname(path);
+    run(() => api.saveFile(file, tab.original, {baseRev: tab.rev}), () => {
+      close(path);
+      toast.success(`Restored ${file} to that revision`);
+    });
+  };
+
+  // `discard` closes a tab with unsaved edits without asking.
+  const close = (path, {discard = false} = {}) => {
+    const tab = tabsRef.current.find(item => item.path === path);
+    if (!discard && tab && unsaved(tab) && !window.confirm(`Discard unsaved changes to ${basename(path)}?`)) return;
     const index = tabsRef.current.findIndex(item => item.path === path);
     const remaining = tabsRef.current.filter(item => item.path !== path);
     tab?.live?.close();
+    views.close(path);
     setTabs(remaining);
     if (activePath === path) setActivePath(remaining[Math.min(index, remaining.length - 1)]?.path ?? null);
   };
 
-  // A rename or move carries open tabs, the selection and open folders along.
-  const followMove = (from, to) => {
+  // Renames and moves, `[from, to]` in order, carry open tabs, the selection, open folders and recent files along.
+  const followMoves = moves => {
+    const moved = path => moves.reduce((current, [from, to]) => movedPath(current, from, to), path);
     // A live document is bound to its path, so a moved one is opened again there.
-    const reopen = tabsRef.current.filter(tab => tab.kind === 'live' && within(tab.path, from));
+    const reopen = tabsRef.current.filter(tab => tab.kind === 'live' && moved(tab.path) !== tab.path);
     for (const tab of reopen) tab.live?.close();
+    views.move(moved).catch(error => console.error('[workspace] Could not move where the renamed tabs were left:', error));
     setTabs(current => current
       .filter(tab => !reopen.includes(tab))
-      .map(tab => ({...tab, path: movedPath(tab.path, from, to)})));
-    for (const tab of reopen) openLive({path: movedPath(tab.path, from, to)});
-    setActivePath(current => current && movedPath(current, from, to));
-    setSelected(current => current && {...current, path: movedPath(current.path, from, to)});
-    setExpanded(current => new Set([...current].map(path => movedPath(path, from, to))));
+      .map(tab => ({...tab, path: moved(tab.path)})));
+    for (const tab of reopen) openLive({path: moved(tab.path)});
+    setActivePath(current => current && moved(current));
+    setSelected(current => current && {...current, path: moved(current.path)});
+    setExpanded(current => new Set([...current].map(moved)));
+    setRecent(current => current.map(moved));
+    return moved;
+  };
+
+  // Changes made elsewhere, in feed order. Open tabs follow renames. A deleted
+  // tab closes, unless it has unsaved edits, which it then offers to save as a
+  // new file. A write is read into a tab without unsaved edits, and marks one
+  // with them as changed elsewhere. Live tabs read in writes themselves
+  // (liveDocument.js).
+  const followElsewhere = changes => {
+    const {moves, deleted, written} = tabChanges(changes);
+    const moved = moves.length ? followMoves(moves) : path => path;
+    const opened = tabsRef.current.map(tab => ({tab, path: moved(tab.path)}));
+    const closing = [];
+    for (const {tab, path} of opened) {
+      if (![...deleted].some(gone => within(path, gone))) continue;
+      if (unsaved(tab)) {
+        updateTab(path, {deleted: true});
+        continue;
+      }
+      closing.push(path);
+      views.close(path);
+      // A moved live tab was closed and is opening again; it closes itself once it finds its tab gone.
+      if (path === tab.path) tab.live?.close();
+    }
+    if (closing.length) {
+      const remaining = opened.map(({path}) => path).filter(path => !closing.includes(path));
+      setTabs(current => current.filter(tab => !closing.includes(tab.path)));
+      setActivePath(current => (current && closing.includes(current) ? remaining.at(-1) ?? null : current));
+    }
+    for (const {tab, path} of opened) {
+      const rev = written.get(path);
+      if (rev === undefined || tab.kind !== 'text' || tab.loading || tab.saving || !(rev > tab.rev)) continue;
+      if (unsaved(tab)) {
+        updateTab(path, {changedElsewhere: true, deleted: false});
+        continue;
+      }
+      api.readFile(path).then(result => {
+        if (result.binary) return;
+        // Edits typed while it was read keep the tab, which is then marked instead.
+        setTabs(current => current.map(item => {
+          if (item.path !== path || !(result.rev > item.rev)) return item;
+          return unsaved(item)
+            ? {...item, changedElsewhere: true, deleted: false}
+            : {...item, text: result.text, saved: result.text, rev: result.rev, changedElsewhere: false};
+        }));
+        if (scopeRef.current) fsReplica().remember(scopeRef.current, path, result);
+      }).catch(error => toast.error(`Could not read the change to ${path}: ${error.message}`));
+    }
+  };
+  const followRef = useRef(followElsewhere);
+  followRef.current = followElsewhere;
+
+  useEffect(() => followWorkspaceChanges(workspace.id, {
+    changes: list => followRef.current(list),
+    missed: api.changesBetween,
+    failed: error => toast.error(`Could not read what changed in the workspace while it was disconnected, so open tabs may be out of date: ${error.message}`, {duration: 0}),
+  }), [workspace.id]);
+
+  // A tab with unsaved edits whose file was deleted elsewhere saves them as the file again.
+  const saveAsNew = path => {
+    const tab = tabsRef.current.find(item => item.path === path);
+    const text = tab.text;
+    api.saveFile(path, text, {create: true})
+      .then(entry => {
+        updateTab(path, {saved: text, rev: entry.rev, deleted: false, changedElsewhere: false});
+        if (scopeRef.current) fsReplica().remember(scopeRef.current, path, {text, rev: entry.rev});
+        load();
+      })
+      .catch(error => toast.error(error.message));
   };
 
   const move = (from, folder) => {
     const to = join(folder, basename(from));
-    run(() => api.moveEntry(from, to), () => { followMove(from, to); expandTo(folder); });
+    run(() => api.moveEntry(from, to), () => { followMoves([[from, to]]); expandTo(folder); });
   };
 
   const remove = node => {
@@ -353,7 +515,11 @@ export default function Workbench({workspace}) {
     if (!window.confirm(`Delete ${folder ? `the folder ${node.path} and everything in it` : node.path}?${warning}`)) return;
     run(() => (folder ? api.deleteFolder(node.path) : api.deleteFile(node.path)), () => {
       const remaining = tabsRef.current.filter(tab => !within(tab.path, node.path));
-      for (const tab of tabsRef.current) if (within(tab.path, node.path)) tab.live?.close();
+      for (const tab of tabsRef.current) {
+        if (!within(tab.path, node.path)) continue;
+        tab.live?.close();
+        views.close(tab.path);
+      }
       setTabs(remaining);
       setActivePath(current => (current && within(current, node.path) ? remaining.at(-1)?.path ?? null : current));
       setSelected(null);
@@ -365,27 +531,29 @@ export default function Workbench({workspace}) {
 
   const startCreate = (mode, parent = targetFolder()) => {
     expandTo(parent);
-    setEditing({mode, parent});
+    setEditing({mode, parent, status: 'naming'});
   };
 
-  const commitEdit = name => {
+  // The input stays open, pending, until the server answers; a failure keeps
+  // what was typed and shows why. An answer for an edit since replaced is dropped.
+  const commitEdit = async name => {
     const edit = editing;
-    setEditing(null);
-    const problem = invalidName(name);
-    if (problem) {
-      toast.error(problem);
+    const pending = {...edit, status: 'pending'};
+    setEditing(pending);
+    const path = join(edit.mode === 'rename' ? dirname(edit.node.path) : edit.parent, name);
+    let result;
+    try {
+      if (edit.mode === 'rename') result = await api.moveEntry(edit.node.path, path);
+      else if (edit.mode === 'folder') result = await api.makeFolder(path);
+      else result = await api.saveFile(path, '', {create: true});
+    } catch (error) {
+      setEditing(current => (current === pending ? {...edit, status: {error: error.message}} : current));
       return;
     }
-    if (edit.mode === 'rename') {
-      const to = join(dirname(edit.node.path), name);
-      run(() => api.moveEntry(edit.node.path, to), () => followMove(edit.node.path, to));
-    } else if (edit.mode === 'folder') {
-      const path = join(edit.parent, name);
-      run(() => api.makeFolder(path), () => { setExpanded(current => new Set(current).add(path)); setSelected({type: 'folder', path}); });
-    } else {
-      const path = join(edit.parent, name);
-      run(() => api.saveFile(path, '', {create: true}), entry => { setSelected({type: 'file', ...entry}); open(entry); });
-    }
+    setEditing(current => (current === pending ? null : current));
+    if (edit.mode === 'rename') run(() => result, () => { followMoves([[edit.node.path, path]]); expandTo(dirname(path)); });
+    else if (edit.mode === 'folder') run(() => result, () => { expandTo(path); setSelected({type: 'folder', path}); });
+    else run(() => result, entry => { expandTo(dirname(path)); setSelected({type: 'file', ...entry}); open(entry); });
   };
 
   const toggle = path => setExpanded(current => {
@@ -438,6 +606,7 @@ export default function Workbench({workspace}) {
   // folder, or the empty explorer), separated as VS Code separates them.
   const showMenu = (event, node) => {
     event.preventDefault();
+    const position = {x: event.clientX, y: event.clientY};
     const file = node?.type === 'file';
     const groups = [
       file ? [
@@ -448,6 +617,7 @@ export default function Workbench({workspace}) {
           label: held.get(node.path)?.pinned ? '✓ Kept on this computer' : 'Keep on this computer',
           run: () => togglePinned(node),
         }] : []),
+        ...(kindOf(node) === 'text' ? [{label: 'Compare with Revision…', run: () => chooseRevision(node, position)}] : []),
       ] : [],
       !readOnly && !file ? [
         {label: 'New File…', run: () => startCreate('file', node?.path ?? '')},
@@ -462,13 +632,13 @@ export default function Workbench({workspace}) {
         node.accessExplicit ? [{label: 'Visible to: same as its folder', run: () => share(node, null)}] : [],
       ) : [],
       node && !readOnly ? [
-        {label: 'Rename…', shortcut: 'F2', run: () => setEditing({mode: 'rename', node})},
+        {label: 'Rename…', shortcut: 'F2', run: () => setEditing({mode: 'rename', node, status: 'naming'})},
         {label: 'Delete', shortcut: '⌫', danger: true, run: () => remove(node)},
       ] : [],
       !node ? [{label: 'Show Trash', run: openTrash}] : [],
     ].filter(group => group.length);
     const items = groups.flatMap((group, index) => (index ? ['separator', ...group] : group));
-    setMenu({x: event.clientX, y: event.clientY, items});
+    setMenu({...position, items});
   };
   const closeMenu = useCallback(() => setMenu(null), []);
 
@@ -516,9 +686,10 @@ export default function Workbench({workspace}) {
             onOpen={open}
             onCommitEdit={commitEdit}
             onCancelEdit={() => setEditing(null)}
+            onRetypeEdit={() => setEditing(current => ({...current, status: 'naming'}))}
             onContextMenu={showMenu}
             onMove={move}
-            onRename={node => setEditing({mode: 'rename', node})}
+            onRename={node => setEditing({mode: 'rename', node, status: 'naming'})}
             onDelete={remove}
           />
         )}
@@ -547,12 +718,31 @@ export default function Workbench({workspace}) {
           readOnly={readOnly}
           fileUrl={(path, options) => api.fileUrl(workspace.id, path, options)}
           appLink={appLink}
+          viewOf={views.get}
           onActivate={setActivePath}
           onClose={close}
+          onSave={save}
+          onSaveAsNew={saveAsNew}
+          onRestore={restoreRevision}
+          onDiscard={path => close(path, {discard: true})}
           onChange={(path, text) => updateTab(path, {text})}
+          onView={views.set}
         />
       </section>
       {menu && <ContextMenu menu={menu} onClose={closeMenu} />}
+      {quickOpen && listing && (
+        <QuickOpen
+          files={listing.files}
+          recent={recent}
+          onPick={file => {
+            setQuickOpen(false);
+            expandTo(dirname(file.path));
+            setSelected(file);
+            open(file);
+          }}
+          onClose={() => setQuickOpen(false)}
+        />
+      )}
     </div>
   );
 }

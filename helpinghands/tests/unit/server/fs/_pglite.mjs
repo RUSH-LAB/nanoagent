@@ -16,10 +16,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 /**
  * `client.query` as pg answers it, over a PGlite database: a query without
  * parameters is a simple query, which may hold several statements and answers
- * with the last one's result.
+ * with each one's result, or the one result of a single statement.
  */
-export const pgQuery = db => (sql, params) => (params === undefined ? db.exec(sql).then(results => results.at(-1)) : db.query(sql, params))
-  .then(result => ({...result, rowCount: result.affectedRows ?? result.rows.length}));
+const pgResult = result => ({...result, rowCount: result.affectedRows ?? result.rows.length});
+export const pgQuery = db => (sql, params) => (params === undefined
+  ? db.exec(sql).then(results => (results.length === 1 ? pgResult(results[0]) : results.map(pgResult)))
+  : db.query(sql, params).then(pgResult));
 
 export async function migratedDatabase() {
   const db = new PGlite();

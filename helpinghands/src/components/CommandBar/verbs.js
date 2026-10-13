@@ -1,109 +1,38 @@
-/** The only slash commands in an agent chat: select its harness and model. */
+/**
+ * The only slash command in an agent chat: show or switch the chat's model.
+ *
+ * A chat runs on the model it chose here, else the member's Chat model in
+ * Settings → AI, else NanoAgent's default, all on the member's computer
+ * (`ctx.ai`: its models from /api/ai/models, and the settings).
+ */
 
-const HARNESS_LABELS = Object.freeze({
-  native: 'NanoAgent',
-  hermes: 'Hermes Agent',
-  pi: 'PI',
-});
-
-function harnessLabel(harness) {
-  return HARNESS_LABELS[harness] ?? harness;
+function chatModels(ctx) {
+  return (ctx.ai?.models ?? []).filter(model => model.uses.includes('chat'));
 }
 
-function profilesFor(ctx) {
-  return Array.isArray(ctx.profileCatalog?.profiles) ? ctx.profileCatalog.profiles : [];
+/** The key of the model this chat runs on. */
+function currentKey(ctx) {
+  const {settings, defaults} = ctx.ai ?? {};
+  const own = ctx.chatItem?.modelChoice;
+  if (own) return own.key;
+  const mine = settings?.chat;
+  if (mine) return `${mine.provider}/${mine.model}`;
+  return defaults?.chat ?? null;
 }
 
-function currentProfile(ctx) {
-  const profileId = ctx.chatItem?.profileId
-    || ctx.agent?.profileId
-    || ctx.profileCatalog?.defaultProfile;
-  return profilesFor(ctx).find(profile => profile.id === profileId) ?? null;
-}
-
-function inAgentChat(ctx, verb) {
+function inAgentChat(ctx) {
   if (ctx.session?.target?.chatId && ctx.session?.target?.agentId && ctx.chatItem) return true;
-  ctx.fail(`/${verb} needs an open agent chat`);
+  ctx.fail('/model needs an open agent chat');
   return false;
 }
 
-function unavailableMessage(profile) {
-  return `unavailable${profile?.unavailableReason ? `: ${profile.unavailableReason}` : ''}`;
-}
-
-function modelChoices(profiles) {
-  return profiles.map(profile => (
-    `${profile.model}${profile.available === false ? ' (unavailable)' : ''}`
-  )).join(', ') || 'none';
-}
+const describe = model => `${model.label} (${model.providerName ?? model.provider ?? 'NanoAgent'})`;
 
 const inOpenAgentChat = ctx => Boolean(
   ctx.session?.target?.chatId && ctx.session?.target?.agentId,
 );
 
 export const VERBS = [
-  {
-    id: 'verb-harness',
-    name: 'harness',
-    category: 'Agent',
-    icon: 'star',
-    title: 'Agent harness',
-    description: 'Show or switch this chat’s harness',
-    usage: '[nanoagent|hermes|pi]',
-    when: inOpenAgentChat,
-    options(ctx) {
-      const profiles = profilesFor(ctx);
-      const current = currentProfile(ctx);
-      return [...new Set(profiles.map(profile => profile.harness))].map(harness => {
-        const candidates = profiles.filter(profile => profile.harness === harness);
-        const available = candidates.some(profile => profile.available !== false);
-        return {
-          id: `harness-${harness}`,
-          value: harness === 'native' ? 'nanoagent' : harness,
-          name: harnessLabel(harness),
-          description: [...new Set(candidates.map(profile => profile.model))].join(', '),
-          category: current?.harness === harness ? 'Current' : (available ? 'Harness' : 'Unavailable'),
-          current: current?.harness === harness,
-          available,
-        };
-      }).sort((a, b) => Number(b.current) - Number(a.current));
-    },
-    run(ctx, argLine) {
-      if (!inAgentChat(ctx, 'harness')) return;
-      const profiles = profilesFor(ctx);
-      const current = currentProfile(ctx);
-      const harnesses = [...new Set(profiles.map(profile => profile.harness))];
-      const wanted = String(argLine ?? '').trim().toLowerCase();
-
-      if (!wanted) {
-        ctx.note([
-          `harness: ${current ? harnessLabel(current.harness) : 'unknown'}`,
-          `choices: ${harnesses.map(harnessLabel).join(', ') || 'none'}`,
-        ].join('\n'));
-        return;
-      }
-
-      const harness = wanted === 'nanoagent'
-        ? 'native'
-        : (wanted === 'hermes agent' ? 'hermes' : wanted);
-      if (!harnesses.includes(harness)) {
-        ctx.fail(`/harness: choose one of ${harnesses.map(harnessLabel).join(', ') || 'the configured harnesses'}`);
-        return;
-      }
-
-      const choices = profiles.filter(profile => profile.harness === harness);
-      const next = choices.find(profile => (
-        profile.model === current?.model && profile.available !== false
-      )) || choices.find(profile => profile.available !== false);
-      if (!next) {
-        ctx.fail(`/harness ${wanted}: ${unavailableMessage(choices[0])}`);
-        return;
-      }
-
-      ctx.sessions.setChatProfile(ctx.chatItem.id, next.id);
-      ctx.note(`harness: ${harnessLabel(next.harness)} · model: ${next.model}`);
-    },
-  },
   {
     id: 'verb-model',
     name: 'model',
@@ -114,65 +43,48 @@ export const VERBS = [
     usage: '[model]',
     when: inOpenAgentChat,
     options(ctx) {
-      const current = currentProfile(ctx);
-      if (!current) return [];
-      return profilesFor(ctx)
-        .filter(profile => profile.harness === current.harness)
-        .map(profile => ({
-          id: `model-${profile.id}`,
-          // Prefer the human model name in the terminal. Fall back to the
-          // profile id only when two profiles in this harness share it.
-          value: profilesFor(ctx).filter(candidate => (
-            candidate.harness === current.harness && candidate.model === profile.model
-          )).length === 1 ? profile.model : profile.id,
-          name: profile.model,
-          description: profile.label,
-          category: profile.id === current.id
-            ? 'Current'
-            : (profile.available === false ? 'Unavailable' : 'Model'),
-          current: profile.id === current.id,
-          available: profile.available !== false,
+      const current = currentKey(ctx);
+      return chatModels(ctx)
+        .filter(model => model.available || model.key === current)
+        .map(model => ({
+          id: `model-${model.key}`,
+          value: model.key,
+          name: model.label,
+          description: model.providerName ?? model.provider ?? '',
+          category: model.key === current ? 'Current' : 'Model',
+          current: model.key === current,
+          available: model.available,
         }))
         .sort((a, b) => Number(b.current) - Number(a.current));
     },
     run(ctx, argLine) {
-      if (!inAgentChat(ctx, 'model')) return;
-      const current = currentProfile(ctx);
-      if (!current) {
-        ctx.fail('/model: this chat’s profile is no longer configured');
-        return;
-      }
-
-      const choices = profilesFor(ctx).filter(profile => profile.harness === current.harness);
+      if (!inAgentChat(ctx)) return;
+      const models = chatModels(ctx);
+      const current = models.find(model => model.key === currentKey(ctx));
       const wanted = String(argLine ?? '').trim().toLowerCase();
       if (!wanted) {
         ctx.note([
-          `model: ${current.model}`,
-          `harness: ${harnessLabel(current.harness)}`,
-          `choices: ${modelChoices(choices)}`,
+          `model: ${current ? describe(current) : 'NanoAgent’s default'}`,
+          'switch with /model <name>; choose your default in Settings → AI',
         ].join('\n'));
         return;
       }
-
-      const matches = choices.filter(profile => (
-        profile.id.toLowerCase() === wanted
-        || profile.model.toLowerCase() === wanted
-        || profile.label.toLowerCase() === wanted
+      const matches = models.filter(model => (
+        model.key.toLowerCase() === wanted
+        || model.model.toLowerCase() === wanted
+        || model.label.toLowerCase() === wanted
       ));
       if (matches.length !== 1) {
-        const reason = matches.length ? 'more than one profile matches' : 'choose one of';
-        ctx.fail(`/model: ${reason} ${modelChoices(choices)}`);
+        ctx.fail(`/model: ${matches.length ? 'more than one model matches' : 'no model matches'} ${String(argLine).trim()}`);
         return;
       }
-
       const [next] = matches;
-      if (next.available === false) {
-        ctx.fail(`/model ${String(argLine).trim()}: ${unavailableMessage(next)}`);
+      if (!next.available) {
+        ctx.fail(`/model ${String(argLine).trim()}: unavailable${next.unavailableReason ? `: ${next.unavailableReason}` : ''}`);
         return;
       }
-
-      ctx.sessions.setChatProfile(ctx.chatItem.id, next.id);
-      ctx.note(`model: ${next.model} · harness: ${harnessLabel(next.harness)}`);
+      ctx.sessions.setChatModel(ctx.chatItem.id, {key: next.key, choice: next.choice});
+      ctx.note(`model: ${describe(next)}`);
     },
   },
 ];

@@ -326,6 +326,18 @@ describe('inviting', () => {
     assert.equal(org.listAudit(orgId)[0].action, 'member.invite-cancel');
   });
 
+  it('lists the pending invitations sent to an account\'s own address, and only those', async () => {
+    const {invitation} = await org.invite({headers: headersFor('ada'), orgId, actorId: who.ada.id, email: 'DEV@test.invalid', role: 'editor'});
+    await org.invite({headers: headersFor('ada'), orgId, actorId: who.ada.id, email: invited});
+    assert.deepEqual(org.pendingInvitationsFor(who.dev.id), [
+      {id: invitation.id, role: 'editor', organization: 'Team', invitedBy: 'ada'},
+    ]);
+    assert.deepEqual(org.pendingInvitationsFor(who.bea.id), []);
+
+    await org.cancelInvitation({headers: headersFor('ada'), orgId, actorId: who.ada.id, invitationId: invitation.id});
+    assert.deepEqual(org.pendingInvitationsFor(who.dev.id), [], 'a withdrawn invitation is not offered');
+  });
+
   it('will not withdraw an invitation belonging to another organization', async () => {
     const {invitation} = await org.invite({headers: headersFor('ada'), orgId, actorId: who.ada.id, email: invited});
     const result = await org.cancelInvitation({
@@ -365,6 +377,90 @@ describe('inviting', () => {
 
   it('answers nothing for an id that was never issued', () => {
     assert.equal(org.invitationForLink('no-such-invitation'), null);
+  });
+});
+
+// An invitation to a GitHub account names it by username, and GitHub says
+// which account id that is; accepting is checked against that id, whatever the
+// account's address.
+describe('inviting a GitHub account', () => {
+  /** GitHub's answer for `login`: the user with GitHub account id `id`, or a 404. */
+  const githubAnswering = users => async url => {
+    const login = decodeURIComponent(new URL(url).pathname.split('/').pop()).toLowerCase();
+    const user = users[login];
+    return user ? Response.json(user) : new Response('', {status: 404});
+  };
+  let hal;
+
+  before(async () => {
+    hal = await githubAccount(auth, 'hal', 'hal-private@test.invalid');
+    who.hal = hal;
+  });
+  beforeEach(() => { db.exec('DELETE FROM "githubInvitation"'); });
+
+  const githubIdOf = userId => db.prepare(`SELECT accountId FROM account WHERE userId = ? AND providerId = 'github'`).get(userId).accountId;
+  const inviteHal = (extra = {}) => org.inviteGithub({
+    headers: headersFor('ada'), orgId, actorId: who.ada.id, githubLogin: '@Hal',
+    fetchImpl: githubAnswering({hal: {id: Number(githubIdOf(hal.id)), login: 'Hal'}}), ...extra,
+  });
+
+  it('invites by username, listed and audited with it', async () => {
+    const {invitation} = await inviteHal({role: 'editor'});
+    assert.deepEqual([invitation.githubLogin, invitation.email, invitation.role, invitation.organization], ['Hal', null, 'editor', 'Team']);
+    const [pending] = org.listInvitations(orgId);
+    assert.deepEqual([pending.id, pending.githubLogin, pending.email, pending.invitedBy], [invitation.id, 'Hal', null, 'ada']);
+    assert.deepEqual([org.listAudit(orgId)[0].action, org.listAudit(orgId)[0].targetLabel], ['member.invite', '@Hal']);
+  });
+
+  it('refreshes the standing invitation when the same account is invited again', async () => {
+    const first = (await inviteHal()).invitation;
+    const second = (await inviteHal({role: 'editor'})).invitation;
+    assert.equal(second.id, first.id);
+    assert.deepEqual(org.listInvitations(orgId).map(i => i.role), ['editor']);
+  });
+
+  it('refuses a username GitHub does not have, one that cannot be a username, and a viewer', async () => {
+    assert.equal((await inviteHal({githubLogin: 'nobody'})).error, 'github-user-not-found');
+    assert.equal((await inviteHal({githubLogin: 'not a login'})).error, 'invalid-github-login');
+    assert.equal((await inviteHal({headers: headersFor('cal'), actorId: who.cal.id})).error, 'forbidden');
+    assert.deepEqual(org.listInvitations(orgId), []);
+  });
+
+  it('refuses an account already in the workspace', async () => {
+    const result = await org.inviteGithub({
+      headers: headersFor('ada'), orgId, actorId: who.ada.id, githubLogin: 'bea',
+      fetchImpl: githubAnswering({bea: {id: Number(githubIdOf(who.bea.id)), login: 'bea'}}),
+    });
+    assert.equal(result.error, 'already-member');
+  });
+
+  it('is offered to, and accepted only by, the GitHub account it names', async () => {
+    const {invitation} = await inviteHal();
+    assert.deepEqual(org.pendingInvitationsFor(hal.id).map(i => i.id), [invitation.id]);
+    assert.deepEqual(org.pendingInvitationsFor(who.cal.id), []);
+
+    const refused = await org.acceptInvitation({headers: headersFor('cal'), actorId: who.cal.id, invitationId: invitation.id});
+    assert.deepEqual(refused, {error: 'not-recipient', githubLogin: 'Hal'});
+
+    const accepted = await org.acceptInvitation({headers: headersFor('hal'), actorId: hal.id, invitationId: invitation.id});
+    assert.equal(accepted.organizationId, orgId);
+    assert.equal(org.listMembers(orgId, who.ada.id).find(m => m.username === 'hal')?.role, 'viewer');
+    assert.equal(org.invitationForLink(invitation.id).status, 'accepted');
+    assert.equal(org.listAudit(orgId)[0].action, 'member.join');
+    assert.deepEqual(
+      await org.acceptInvitation({headers: headersFor('hal'), actorId: hal.id, invitationId: invitation.id}),
+      {error: 'not-found'}, 'an accepted invitation is spent',
+    );
+
+    db.prepare('DELETE FROM member WHERE organizationId = ? AND userId = ?').run(orgId, hal.id);
+  });
+
+  it('is withdrawn by an owner and then offered to nobody', async () => {
+    const {invitation} = await inviteHal();
+    const result = await org.cancelInvitation({headers: headersFor('ada'), orgId, actorId: who.ada.id, invitationId: invitation.id});
+    assert.equal(result.cancelled, '@Hal');
+    assert.deepEqual(org.listInvitations(orgId), []);
+    assert.deepEqual(org.pendingInvitationsFor(hal.id), []);
   });
 });
 

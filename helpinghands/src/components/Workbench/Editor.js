@@ -1,11 +1,16 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import clsx from 'clsx';
 import CodeMirror from '@uiw/react-codemirror';
+import {historyField} from '@codemirror/commands';
+import {getOriginalDoc, originalDocChangeEffect, unifiedMergeView} from '@codemirror/merge';
+import {ChangeSet, Transaction} from '@codemirror/state';
 import {keymap} from '@codemirror/view';
 import {yCollab, yUndoManagerKeymap} from 'y-codemirror.next';
 import {useColorMode} from '@docusaurus/theme-common';
-import {languageFor} from './languages';
-import {basename} from './tree';
+import {changedRange} from '@site/src/server/fs/textDiff';
+import {languageExtensions, languageFor} from './languages';
+import {basename, dirname} from './tree';
+import {liveSelection, relativeSelection, textStateJSON} from './viewState';
 import styles from './styles.module.css';
 
 /**
@@ -13,48 +18,148 @@ import styles from './styles.module.css';
  * Markdown opens live (liveDocument.js): the editor is bound to the file's
  * shared document, edits merge with everyone else's as they are typed, and
  * there is nothing to save. Other text opens in CodeMirror and is saved on ⌘S;
- * images and PDFs open as previews; anything else can only be downloaded. The
- * workbench owns every tab's state.
+ * images and PDFs open as previews; anything else can only be downloaded. Text
+ * editors mark the lines changed since the file was saved (a live one, since it
+ * opened); a save that finds the file changed elsewhere turns its editor into a
+ * merge of the user's text with the saved one, and a compare tab shows a file
+ * against an earlier revision or a conflicted copy against its file. The
+ * workbench owns every tab's state, including where its editor was left
+ * (viewState.js): an editor starts from its tab's record and reports every
+ * change of selection, text and scroll to it.
  */
 
-/** A Markdown file bound to its shared document. */
-function LiveEditor({tab, readOnly, language, colorMode, onCursor}) {
+/** Scroll a new editor to where it was left, and report where it is scrolled to. */
+function followScroll(editor, saved, onView) {
+  const top = saved?.scrollTop;
+  if (top) editor.requestMeasure({read: () => null, write: () => { editor.scrollDOM.scrollTop = top; }});
+  editor.scrollDOM.addEventListener('scroll', () => onView({scrollTop: editor.scrollDOM.scrollTop}));
+}
+
+const reportCursor = (update, onCursor) => {
+  const head = update.state.selection.main.head;
+  const line = update.state.doc.lineAt(head);
+  onCursor({line: line.number, column: head - line.from + 1});
+};
+
+/**
+ * A Markdown file bound to its shared document. Its undo history is the
+ * document's, so it outlives the editor.
+ */
+function LiveEditor({tab, saved, readOnly, language, colorMode, onCursor, onView}) {
   // The editor starts from the document's text; from then on the binding keeps
   // the two in step. The wrapper copies `value` into the editor only when the
   // prop changes, so it is the same string for the editor's whole life.
   const [initial] = useState(() => tab.live.text.toString());
+  const [selection] = useState(() => liveSelection(tab.live.text, saved));
   const extensions = useMemo(() => [
-    ...language.extensions,
-    yCollab(tab.live.text, null),
+    ...languageExtensions(language),
+    yCollab(tab.live.text, null, {undoManager: tab.live.undoManager}),
     keymap.of(yUndoManagerKeymap),
-  ], [language, tab.live]);
+    unifiedMergeView({original: tab.opened, mergeControls: false, gutter: true}),
+  ], [language, tab.live, tab.opened]);
   return (
     <CodeMirror
       className={styles.codemirror}
       value={initial}
+      selection={selection}
       height="100%"
       theme={colorMode === 'dark' ? 'dark' : 'light'}
       extensions={extensions}
       editable={!readOnly}
+      onCreateEditor={editor => followScroll(editor, saved, onView)}
       onUpdate={update => {
         if (!update.selectionSet && !update.docChanged) return;
-        const head = update.state.selection.main.head;
-        const line = update.state.doc.lineAt(head);
-        onCursor({line: line.number, column: head - line.from + 1});
+        reportCursor(update, onCursor);
+        onView(relativeSelection(tab.live.text, update.state.selection.main));
       }}
       basicSetup={{highlightActiveLine: true, foldGutter: true, history: false}}
     />
   );
 }
 
-function TabContent({tab, readOnly, fileUrl, onChange, onCursor}) {
+/**
+ * A text file, compared with its saved text. Text the workbench reads in from
+ * elsewhere, including while its tab was hidden, is applied as the one span
+ * that differs, outside the undo history, so the cursor and scroll stay where
+ * they were; so is a new saved text to the text it is compared with. As in
+ * LiveEditor, `value` is only the starting text. In a conflict the saved text
+ * is the one saved elsewhere, and each change offers to keep the user's
+ * (Accept) or take the saved one (Reject).
+ */
+function TextEditor({tab, saved, readOnly, language, colorMode, onChange, onCursor, onView}) {
+  const [initial] = useState(() => textStateJSON(saved, tab.text));
+  const [original] = useState(tab.saved);
+  const extensions = useMemo(
+    () => [...languageExtensions(language), unifiedMergeView({original, mergeControls: Boolean(tab.conflict), gutter: true})],
+    // The editor is opened again when a conflict starts or ends (TabContent's key).
+    [language, original],
+  );
+  const view = useRef(null);
+  useEffect(() => {
+    const range = view.current && changedRange(view.current.state.doc.toString(), tab.text);
+    if (!range) return;
+    view.current.dispatch({changes: range, annotations: [Transaction.remote.of(true), Transaction.addToHistory.of(false)]});
+  }, [tab.text]);
+  useEffect(() => {
+    const current = view.current && getOriginalDoc(view.current.state);
+    const range = current && changedRange(current.toString(), tab.saved);
+    if (!range) return;
+    view.current.dispatch({effects: originalDocChangeEffect(view.current.state, ChangeSet.of(range, current.length))});
+  }, [tab.saved]);
+  return (
+    <CodeMirror
+      className={styles.codemirror}
+      value={initial.doc}
+      initialState={{json: initial, fields: {history: historyField}}}
+      height="100%"
+      theme={colorMode === 'dark' ? 'dark' : 'light'}
+      extensions={extensions}
+      editable={!readOnly}
+      onCreateEditor={editor => {
+        view.current = editor;
+        followScroll(editor, saved, onView);
+      }}
+      onChange={onChange}
+      onUpdate={update => {
+        if (!update.selectionSet && !update.docChanged) return;
+        reportCursor(update, onCursor);
+        onView({state: update.state});
+      }}
+      basicSetup={{highlightActiveLine: true, foldGutter: true}}
+    />
+  );
+}
+
+/** A compare tab: its text, read only, with the text it is compared with above each change; unchanged stretches fold away. */
+function CompareEditor({tab, language, colorMode}) {
+  const extensions = useMemo(() => [
+    ...languageExtensions(language),
+    unifiedMergeView({original: tab.original, mergeControls: false, gutter: true, collapseUnchanged: {margin: 3}}),
+  ], [language, tab.original]);
+  return (
+    <CodeMirror
+      className={styles.codemirror}
+      value={tab.text}
+      height="100%"
+      theme={colorMode === 'dark' ? 'dark' : 'light'}
+      extensions={extensions}
+      editable={false}
+      basicSetup={{highlightActiveLine: false, foldGutter: false}}
+    />
+  );
+}
+
+function TabContent({tab, saved, readOnly, fileUrl, onChange, onCursor, onView}) {
   const {colorMode} = useColorMode();
-  const language = useMemo(() => languageFor(tab.path), [tab.path]);
+  // A compare tab lies below the file it shows (tree.js comparePath).
+  const file = tab.kind === 'diff' ? dirname(tab.path) : tab.path;
+  const language = useMemo(() => languageFor(file), [file]);
 
   if (tab.loading) return <p className={styles.placeholder}>Opening…</p>;
   if (tab.error) return <p className={styles.placeholder}>{tab.error}</p>;
+  if (tab.kind === 'diff') return <CompareEditor tab={tab} language={language} colorMode={colorMode} />;
   if (tab.kind === 'live') {
-    return <LiveEditor tab={tab} readOnly={readOnly} language={language} colorMode={colorMode} onCursor={onCursor} />;
+    return <LiveEditor tab={tab} saved={saved} readOnly={readOnly} language={language} colorMode={colorMode} onCursor={onCursor} onView={onView} />;
   }
   if (tab.kind === 'image') return <div className={styles.media}><img src={fileUrl(tab.path)} alt={tab.path} /></div>;
   if (tab.kind === 'pdf') return <iframe className={styles.pdf} src={fileUrl(tab.path)} title={tab.path} />;
@@ -66,24 +171,7 @@ function TabContent({tab, readOnly, fileUrl, onChange, onCursor}) {
       </div>
     );
   }
-  return (
-    <CodeMirror
-      className={styles.codemirror}
-      value={tab.text}
-      height="100%"
-      theme={colorMode === 'dark' ? 'dark' : 'light'}
-      extensions={language.extensions}
-      editable={!readOnly}
-      onChange={onChange}
-      onUpdate={update => {
-        if (!update.selectionSet && !update.docChanged) return;
-        const head = update.state.selection.main.head;
-        const line = update.state.doc.lineAt(head);
-        onCursor({line: line.number, column: head - line.from + 1});
-      }}
-      basicSetup={{highlightActiveLine: true, foldGutter: true}}
-    />
-  );
+  return <TextEditor tab={tab} saved={saved} readOnly={readOnly} language={language} colorMode={colorMode} onChange={onChange} onCursor={onCursor} onView={onView} />;
 }
 
 function liveLabel(status) {
@@ -94,7 +182,10 @@ function liveLabel(status) {
   return 'All changes saved';
 }
 
-export default function Editor({tabs, activePath, readOnly, fileUrl, appLink = () => null, onActivate, onClose, onChange}) {
+export default function Editor({
+  tabs, activePath, readOnly, fileUrl, appLink = () => null, viewOf, onActivate, onClose, onChange, onView, onSave, onSaveAsNew, onDiscard,
+  onRestore,
+}) {
   const [cursor, setCursor] = useState(null);
   const tab = tabs.find(item => item.path === activePath);
   useEffect(() => setCursor(null), [activePath]);
@@ -129,7 +220,10 @@ export default function Editor({tabs, activePath, readOnly, fileUrl, appLink = (
             onClick={() => onActivate(item.path)}
             onAuxClick={event => { if (event.button === 1) onClose(item.path); }}
           >
-            <span className={styles.tabName}>{basename(item.path)}</span>
+            <span className={styles.tabName}>{item.title ?? basename(item.path)}</span>
+            {(item.changedElsewhere || item.deleted) && (
+              <span className={styles.tabElsewhere}>{item.deleted ? 'Deleted elsewhere' : 'Changed elsewhere'}</span>
+            )}
             <button
               type="button"
               className={clsx(styles.tabClose, dirty(item) && styles.tabDirty)}
@@ -140,19 +234,40 @@ export default function Editor({tabs, activePath, readOnly, fileUrl, appLink = (
         ))}
       </div>
       <div className={styles.breadcrumbs}>
-        {tab.path.split('/').join(' › ')}
+        {tab.kind === 'diff' ? tab.title : tab.path.split('/').join(' › ')}
         {appLink(tab.path) && (
           <a className={styles.appLink} href={appLink(tab.path).href}>Open in {appLink(tab.path).title}</a>
         )}
       </div>
+      {tab.deleted && (
+        <div className={styles.elsewhereBar} role="alert">
+          <span>Deleted elsewhere. Your unsaved edits are only in this tab.</span>
+          <button type="button" className="button button--primary button--sm" onClick={() => onSaveAsNew(tab.path)}>Save as new</button>
+          <button type="button" className="button button--secondary button--sm" onClick={() => onDiscard(tab.path)}>Discard</button>
+        </div>
+      )}
+      {tab.conflict && (
+        <div className={styles.elsewhereBar} role="alert">
+          <span>Changed elsewhere while you edited it. Above each of your changes, in red, is the saved text: Accept keeps yours, Reject takes the saved one.</span>
+          <button type="button" className="button button--primary button--sm" onClick={() => onSave(tab.path)}>Save merged</button>
+        </div>
+      )}
+      {tab.kind === 'diff' && tab.restorable && !readOnly && (
+        <div className={clsx(styles.elsewhereBar, styles.compareBar)}>
+          <span>Red lines are this revision&apos;s, green lines the file&apos;s now.</span>
+          <button type="button" className="button button--secondary button--sm" onClick={() => onRestore(tab.path)}>Restore this version</button>
+        </div>
+      )}
       <div className={styles.editorBody}>
         <TabContent
-          key={tab.path}
+          key={`${tab.path}${tab.conflict ? ':conflict' : ''}`}
           tab={tab}
+          saved={viewOf(tab.path)}
           readOnly={readOnly}
           fileUrl={fileUrl}
           onChange={text => onChange(tab.path, text)}
           onCursor={setCursor}
+          onView={patch => onView(tab.path, patch)}
         />
       </div>
       <div className={styles.statusBar}>

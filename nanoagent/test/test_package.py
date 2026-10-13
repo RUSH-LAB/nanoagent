@@ -56,7 +56,7 @@ def test_packs_a_plugin_the_same_way_every_time_without_what_git_ignores(plugin:
     data = pack(plugin)
     assert data == pack(plugin)
     names = set(_files(data))
-    assert "echo/nanoagent.yaml" in names and "echo/ui/kit/dom.js" in names
+    assert "echo/nanoagent.yaml" in names and "echo/ui/app.js" in names
     assert not [name for name in names if "__pycache__" in name or ".venv" in name]
 
 
@@ -149,7 +149,7 @@ def test_refuses_a_link_in_the_plugins_source() -> None:
 def test_a_manifest_cannot_read_the_hosts_environment(plugin: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HOST_SECRET", "hunter2")
     files = _files(pack(plugin))
-    files["echo/nanoagent.yaml"] = files["echo/nanoagent.yaml"].replace(b"group: Testing", b"group: ${oc.env:HOST_SECRET}")
+    files["echo/nanoagent.yaml"] = files["echo/nanoagent.yaml"].replace(b"name: Echo", b"name: ${oc.env:HOST_SECRET}")
     with pytest.raises(PackageError) as error:
         inspect_package(_tar(files))
     assert "HOST_SECRET" in str(error.value) and "hunter2" not in str(error.value)
@@ -161,7 +161,14 @@ def client(plugin: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Tes
     monkeypatch.setenv("NANOAGENT_API_TOKEN", TOKEN)
     config = load_config_args(
         WebConfig,
-        ["web_cfg=deploy/railway/nanoagent.yaml", f"packages=[{plugin}]", f"workspaces={tmp_path / 'workspaces'}"],
+        [
+            "web_cfg=deploy/railway/nanoagent.yaml",
+            f"packages=[{plugin}]",
+            f"workspaces={tmp_path / 'workspaces'}",
+            f"installs={tmp_path / 'installs'}",
+            "host=127.0.0.1",
+            "sandbox=none",
+        ],
     )
     return TestClient(create_app(config), headers={"Authorization": f"Bearer {TOKEN}"})
 
@@ -194,7 +201,16 @@ def test_packs_a_plugin_from_a_source_archive(client: TestClient, plugin: Path, 
 def test_production_offers_every_built_in_plugin(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.chdir(ROOT)
     monkeypatch.setenv("NANOAGENT_API_TOKEN", TOKEN)
-    config = load_config_args(WebConfig, ["web_cfg=deploy/railway/nanoagent.yaml", f"workspaces={tmp_path}"])
+    config = load_config_args(
+        WebConfig,
+        [
+            "web_cfg=deploy/railway/nanoagent.yaml",
+            f"workspaces={tmp_path}",
+            f"installs={tmp_path / 'installs'}",
+            "host=127.0.0.1",
+            "sandbox=none",
+        ],
+    )
     packages = TestClient(create_app(config), headers={"Authorization": f"Bearer {TOKEN}"}).get("/v1/packages").json()
     built_in = sorted(path.name for path in (ROOT / "plugins").iterdir() if path.is_dir())
     assert sorted(entry["id"] for entry in packages["packages"]) == built_in

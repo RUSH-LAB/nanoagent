@@ -1,24 +1,19 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Layout from '@theme/Layout';
 import BrowserOnly from '@docusaurus/BrowserOnly';
-import Link from '@docusaurus/Link';
 import {useLocation} from '@docusaurus/router';
 import Avatar from '@site/src/components/Avatar';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import {clientPlatform} from '@site/src/platform/client';
-import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
-import useWorkspaceSubscriptions, {
-  isBookSubscribed, isGroupSubscribed, orderByPreference,
-} from '@site/src/hooks/useWorkspaceSubscriptions';
-import pageStyles from '@site/src/css/page.module.css';
-import API_BASE, {apiJson} from '@site/src/utils/api';
-import {WORKSPACE_CONTENT_CACHE_MS} from '@site/src/utils/workspaceContent';
-import {
-  loadWorkspaces, workspaceSlugFromPath,
-} from '@site/src/utils/workspaces';
-import {PaneHeading, Skeleton} from './_parts';
-import WorkspaceControls from './_WorkspaceControls';
-import DangerZone from './_DangerZone';
+import {workspaceSlugFromPath} from '@site/src/utils/workspaces';
+import {useAccount} from '@site/src/utils/account';
+import {PaneHeading} from './_parts';
+import TwoColumnLayout from '@site/src/components/TwoColumnLayout';
+import Ai from './_Ai';
+import Leave from './_Leave';
+import People from './_People';
+import Plugins from './_Plugins';
+import SettingsSidebar from './_Sidebar';
 import styles from './styles.module.css';
 
 /** GitHub's mark (Octicons mark-github). */
@@ -31,160 +26,13 @@ function GitHubMark() {
 }
 
 function SettingsApp() {
-  const { authClient, signOutAndForget } = require('@site/src/utils/authClient');
+  const { signOutAndForget } = require('@site/src/utils/authClient');
   const location = useLocation();
   const workspaceSlug = workspaceSlugFromPath(location.pathname);
 
-  // undefined is loading, null is no session.
-  const [session, setSession] = useState(undefined);
-  // undefined until the request answers, then the list, or null if it failed.
-  // Three states rather than two, so a slow load does not read as a failed one.
-  const [workspaces, setWorkspaces] = useState(undefined);
-  const [activeId, setActiveId] = useState(null);
-  const [subscriptionGroups, setSubscriptionGroups] = useState({});
-  const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
-  const [subscriptionsSaving, setSubscriptionsSaving] = useState(false);
-  const [subscriptionsStatus, setSubscriptionsStatus] = useState(null);
-  const activeWorkspace = Array.isArray(workspaces)
-    ? workspaces.find(workspace => workspace.id === activeId)
-    : null;
-  const {workspace: routeWorkspace, site} = useWorkspaceSite();
-  const preferenceWorkspace = routeWorkspace?.id === activeId ? routeWorkspace : activeWorkspace;
-  const {
-    subscriptions, loading: preferencesLoading, error: preferencesError, saveSubscriptions,
-  } = useWorkspaceSubscriptions(preferenceWorkspace);
-  const books = (site?.collections ?? []).filter(collection => collection.type === 'docs');
-  const blogs = (site?.collections ?? []).filter(collection => collection.type === 'blog');
-  const orderedBooks = orderByPreference(books, subscriptions?.bookOrder, book => book.key);
-
-  useEffect(() => {
-    let cancelled = false;
-    // getSession rather than the useSession hook: the hook silently never
-    // issued its request, which is what left the auth gate showing the sign-in
-    // form to people who were signed in.
-    authClient.getSession()
-      .then((r) => { if (!cancelled) setSession(r?.data ?? null); })
-      .catch(() => { if (!cancelled) setSession(null); });
-
-    loadWorkspaces()
-      .then((d) => {
-        if (cancelled) return;
-        const memberships = d.workspaces || d.memberships || [];
-        setWorkspaces(memberships);
-        setActiveId(memberships.find(workspace => workspace.slug === workspaceSlug)?.id
-          ?? d.defaultWorkspaceId ?? d.activeId ?? null);
-      })
-      .catch(() => { if (!cancelled) setWorkspaces(null); });
-
-    return () => { cancelled = true; };
-  }, [authClient, workspaceSlug]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!preferenceWorkspace?.id || !site) {
-      setSubscriptionGroups({});
-      return () => { cancelled = true; };
-    }
-    const blogCollections = site.collections.filter(collection => collection.type === 'blog');
-    setSubscriptionsLoading(blogCollections.length > 0);
-    Promise.all(blogCollections.map(async collection => {
-      const configured = (collection.groups ?? []).map(group => group.title);
-      const result = await apiJson(
-        `${API_BASE}/api/workspaces/${encodeURIComponent(preferenceWorkspace.id)}/documents/tree?prefix=${encodeURIComponent(collection.pathPrefix)}&include=metadata`,
-        {cacheMs: WORKSPACE_CONTENT_CACHE_MS},
-      );
-      const derived = result.ok
-        ? (result.data.documents ?? [])
-          .map(document => document.frontmatter?.group?.trim() || 'Ungrouped')
-        : [];
-      const seen = new Set();
-      const titles = [...configured, ...derived.sort((a, b) => a.localeCompare(b))]
-        .filter(title => {
-          const identity = title.toLocaleLowerCase();
-          if (seen.has(identity)) return false;
-          seen.add(identity);
-          return true;
-        });
-      return [collection.key, titles];
-    }))
-      .then(entries => {
-        if (!cancelled) setSubscriptionGroups(Object.fromEntries(entries));
-      })
-      .catch(error => {
-        if (!cancelled) setSubscriptionsStatus({type: 'error', message: error.message});
-      })
-      .finally(() => {
-        if (!cancelled) setSubscriptionsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [preferenceWorkspace?.id, site]);
-
-  const saveSubscriptionChoice = useCallback(async next => {
-    setSubscriptionsSaving(true);
-    setSubscriptionsStatus(null);
-    try {
-      await saveSubscriptions(next);
-      setSubscriptionsStatus({type: 'success', message: 'Saved'});
-    } catch (error) {
-      setSubscriptionsStatus({type: 'error', message: error.message});
-    } finally {
-      setSubscriptionsSaving(false);
-    }
-  }, [saveSubscriptions]);
-
-  const toggleBookSubscription = key => {
-    const selected = orderedBooks
-      .filter(book => isBookSubscribed(subscriptions, book.key))
-      .map(book => book.key);
-    const nextBooks = selected.includes(key)
-      ? selected.filter(item => item !== key)
-      : [...selected, key];
-    void saveSubscriptionChoice({...subscriptions, books: nextBooks});
-  };
-
-  const toggleGroupSubscription = (collectionKey, title) => {
-    const available = orderByPreference(
-      subscriptionGroups[collectionKey] ?? [],
-      subscriptions?.groupOrder?.[collectionKey],
-    );
-    const selected = available.filter(group => isGroupSubscribed(subscriptions, collectionKey, group));
-    const nextGroups = selected.includes(title)
-      ? selected.filter(group => group !== title)
-      : [...selected, title];
-    void saveSubscriptionChoice({
-      ...subscriptions,
-      groups: {...subscriptions?.groups, [collectionKey]: nextGroups},
-    });
-  };
-
-  const moveItem = (items, sourceIndex, direction) => {
-    const targetIndex = sourceIndex + direction;
-    if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= items.length) return null;
-    const next = [...items];
-    const [moved] = next.splice(sourceIndex, 1);
-    next.splice(targetIndex, 0, moved);
-    return next;
-  };
-
-  const reorderBooks = (index, direction) => {
-    const nextOrder = moveItem(orderedBooks.map(book => book.key), index, direction);
-    if (nextOrder) void saveSubscriptionChoice({...subscriptions, bookOrder: nextOrder});
-  };
-
-  const reorderGroups = (collectionKey, index, direction) => {
-    const orderedGroups = orderByPreference(
-      subscriptionGroups[collectionKey] ?? [],
-      subscriptions?.groupOrder?.[collectionKey],
-    );
-    const nextOrder = moveItem(orderedGroups, index, direction);
-    if (!nextOrder) return;
-    void saveSubscriptionChoice({
-      ...subscriptions,
-      groupOrder: {...subscriptions?.groupOrder, [collectionKey]: nextOrder},
-    });
-  };
-
-  const user = session?.user;
+  const {account: user, workspaces, defaultWorkspaceId} = useAccount();
+  const activeId = workspaces.find(workspace => workspace.slug === workspaceSlug)?.id ?? defaultWorkspaceId;
+  const activeWorkspace = workspaces.find(workspace => workspace.id === activeId) ?? null;
   const [signingOut, setSigningOut] = useState(false);
   const signOut = async () => {
     setSigningOut(true);
@@ -194,14 +42,20 @@ function SettingsApp() {
       clientPlatform.location.assign('/');
     }
   };
-  const panes = [
-    {id: 'account', group: 'account', label: 'Account'},
-    {id: 'navigation', group: 'account', label: 'Navigation'},
-    ...(activeWorkspace ? [{id: 'workspace', group: 'workspace', label: 'General'}] : []),
-    ...(activeWorkspace ? [{id: 'danger', group: 'danger', label: 'Danger zone'}] : []),
+  const groups = [
+    {id: 'user', label: 'User', panes: [
+      {id: 'account', label: 'Account'},
+      {id: 'ai', label: 'AI'},
+      ...(activeWorkspace ? [{id: 'membership', label: 'Membership'}] : []),
+    ]},
+    ...(activeWorkspace ? [{id: 'workspace', label: 'Workspace', panes: [
+      {id: 'people', label: 'People'},
+      {id: 'plugins', label: 'Plugins'},
+    ]}] : []),
   ];
-  const [visible, setVisible] = useState(panes[0].id);
-  const paneIds = panes.map(item => item.id).join(' ');
+  const paneIds = groups.flatMap(group => group.panes.map(pane => pane.id)).join(' ');
+  const [visible, setVisible] = useState('account');
+  const activePane = paneIds.split(' ').includes(visible) ? visible : 'account';
   // Highlights the section nearest the top of the viewport as the page scrolls.
   useEffect(() => {
     const sections = paneIds.split(' ').map(id => document.getElementById(id)).filter(Boolean);
@@ -213,63 +67,27 @@ function SettingsApp() {
     sections.forEach(section => observer.observe(section));
     return () => observer.disconnect();
   }, [paneIds]);
-  const navItem = item => (
-    <a
-      key={item.id}
-      href={`#${item.id}`}
-      className={item.id === visible ? styles.navActive : undefined}
-      aria-current={item.id === visible ? 'location' : undefined}
-    >{item.label}</a>
-  );
-  const subscriptionsFeedback = (preferencesError || subscriptionsStatus) && (
-    <span
-      className={subscriptionsStatus?.type === 'success' && !preferencesError ? styles.saved : styles.error}
-      role={subscriptionsStatus?.type === 'error' || preferencesError ? 'alert' : 'status'}
-    >{preferencesError || subscriptionsStatus.message}</span>
-  );
-  const orderButtons = (title, index, count, move) => (
-    <span className={styles.orderButtons}>
-      <button
-        type="button"
-        disabled={subscriptionsSaving || index === 0}
-        aria-label={`Move ${title} up`}
-        title="Move up"
-        onClick={() => move(index, -1)}
-      >↑</button>
-      <button
-        type="button"
-        disabled={subscriptionsSaving || index === count - 1}
-        aria-label={`Move ${title} down`}
-        title="Move down"
-        onClick={() => move(index, 1)}
-      >↓</button>
-    </span>
-  );
 
   return (
-    <div className={`${pageStyles.pageContainer} ${pageStyles.wide}`}>
-      <header className={styles.pageHeader}>
-        <h1 className={styles.heading}>Settings</h1>
-        <p>Manage your account and workspace access.</p>
-      </header>
-
-      <div className={styles.settingsLayout}>
-        <nav className={styles.settingsNav} aria-label="Settings sections">
-          <span className={styles.navGroup}>Account</span>
-          {panes.filter(item => item.group === 'account').map(navItem)}
-          <span className={styles.navGroup}>{activeWorkspace ? `Workspace · ${activeWorkspace.name}` : 'Workspace'}</span>
-          {panes.filter(item => item.group === 'workspace').map(navItem)}
-          <span className={styles.navDivider} />
-          {panes.filter(item => item.group === 'danger').map(navItem)}
-          {activeWorkspace && (
-            <Link to={`/w/${encodeURIComponent(activeWorkspace.slug)}/people`}>Members ↗</Link>
-          )}
-        </nav>
-
-        <div className={styles.settingsContent}>
+    <TwoColumnLayout
+      sidebarKey="settings"
+      showSidebarOnMobile
+      evenGutters
+      renderSidebar={({collapsed, onCollapse}) => (
+        <SettingsSidebar
+          groups={groups}
+          activePane={activePane}
+          collapsed={collapsed}
+          onCollapse={onCollapse}
+        />
+      )}
+    >
+      <div className={styles.settingsContent}>
+        <div className={styles.settingsGroup}>
+          <h2 className={styles.settingsGroupHeading}>User</h2>
           <section id="account" className={styles.pane}>
-            <PaneHeading title="Account" description="Your name and picture come from GitHub each time you sign in." />
-            {session === undefined ? <Skeleton rows={1} /> : user ? (
+            <PaneHeading title="Account" />
+            {user ? (
               <section className={styles.group}>
                 <div className={styles.identity}>
                   <Avatar user={user} size={48} />
@@ -277,7 +95,7 @@ function SettingsApp() {
                     <strong>{user.name}</strong>
                     <span><GitHubMark /> Signed in with GitHub</span>
                   </div>
-                  <button type="button" className="button button--secondary button--sm" disabled={signingOut} onClick={signOut}>
+                  <button type="button" className={styles.secondaryButton} disabled={signingOut} onClick={signOut}>
                     {signingOut ? 'Signing out…' : 'Sign out'}
                   </button>
                 </div>
@@ -285,85 +103,31 @@ function SettingsApp() {
             ) : null}
           </section>
 
-          <section id="navigation" className={styles.pane}>
-            <PaneHeading
-              title="Navigation"
-              description="Choose which books and blog groups appear in your navigation, and in what order."
-              aside={subscriptionsFeedback}
-            />
-            {!preferenceWorkspace || !site || preferencesLoading || subscriptionsLoading ? <Skeleton rows={4} /> : (
-              <>
-                <section className={styles.group}>
-                  <h2 className={styles.groupTitle}>Books</h2>
-                  {books.length ? orderedBooks.map((book, index) => (
-                    <div className={styles.optionRow} key={book.key}>
-                      <label className={styles.option}>
-                        <input
-                          type="checkbox"
-                          checked={isBookSubscribed(subscriptions, book.key)}
-                          disabled={subscriptionsSaving}
-                          onChange={() => toggleBookSubscription(book.key)}
-                        />
-                        <span>{book.title}</span>
-                      </label>
-                      {orderButtons(book.title, index, orderedBooks.length, reorderBooks)}
-                    </div>
-                  )) : <p className={styles.empty}>No books yet.</p>}
-                </section>
-                {blogs.length ? blogs.map(collection => {
-                  const orderedGroups = orderByPreference(
-                    subscriptionGroups[collection.key] ?? [],
-                    subscriptions?.groupOrder?.[collection.key],
-                  );
-                  return (
-                    <section className={styles.group} key={collection.key}>
-                      <h2 className={styles.groupTitle}>{blogs.length > 1 ? collection.title : 'Blog groups'}</h2>
-                      {orderedGroups.length ? orderedGroups.map((title, index) => (
-                        <div className={styles.optionRow} key={title}>
-                          <label className={styles.option}>
-                            <input
-                              type="checkbox"
-                              checked={isGroupSubscribed(subscriptions, collection.key, title)}
-                              disabled={subscriptionsSaving}
-                              onChange={() => toggleGroupSubscription(collection.key, title)}
-                            />
-                            <span>{title}</span>
-                          </label>
-                          {orderButtons(title, index, orderedGroups.length,
-                            (from, direction) => reorderGroups(collection.key, from, direction))}
-                        </div>
-                      )) : <p className={styles.empty}>No groups yet.</p>}
-                    </section>
-                  );
-                }) : (
-                  <section className={styles.group}>
-                    <h2 className={styles.groupTitle}>Blog groups</h2>
-                    <p className={styles.empty}>No blog groups yet.</p>
-                  </section>
-                )}
-              </>
-            )}
+          <section id="ai" className={styles.pane}>
+            <Ai />
           </section>
 
           {activeWorkspace && (
-            <section id="workspace" className={styles.pane}>
-              <PaneHeading
-                title={activeWorkspace.name}
-                description={`You are ${/^[aeiou]/i.test(activeWorkspace.role) ? 'an' : 'a'} ${activeWorkspace.role} of this workspace.`}
-              />
-              <WorkspaceControls key={activeWorkspace.id} workspace={activeWorkspace} />
-            </section>
-          )}
-
-          {activeWorkspace && (
-            <section id="danger" className={styles.pane}>
-              <PaneHeading title="Danger zone" description="Leaving this workspace." />
-              <DangerZone key={activeWorkspace.id} workspace={activeWorkspace} />
+            <section id="membership" className={styles.pane}>
+              <PaneHeading title="Membership" />
+              <Leave key={activeWorkspace.id} workspace={activeWorkspace} />
             </section>
           )}
         </div>
+
+        {activeWorkspace && (
+          <div className={styles.settingsGroup}>
+            <h2 className={styles.settingsGroupHeading}>Workspace</h2>
+            <section id="people" className={styles.pane}>
+              <People key={activeWorkspace.id} workspace={activeWorkspace} />
+            </section>
+            <section id="plugins" className={styles.pane}>
+              <Plugins key={activeWorkspace.id} workspace={activeWorkspace} />
+            </section>
+          </div>
+        )}
       </div>
-    </div>
+    </TwoColumnLayout>
   );
 }
 
@@ -371,11 +135,9 @@ export default function SettingsPage() {
   return (
     <Layout title="Settings" description="Your account and workspace access">
       <ErrorBoundary>
-        <main>
-          <BrowserOnly fallback={<div className={styles.placeholder}>Loading...</div>}>
-            {() => <SettingsApp />}
-          </BrowserOnly>
-        </main>
+        <BrowserOnly fallback={<div className={styles.placeholder}>Loading...</div>}>
+          {() => <SettingsApp />}
+        </BrowserOnly>
       </ErrorBoundary>
     </Layout>
   );

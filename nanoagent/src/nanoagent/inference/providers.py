@@ -22,6 +22,10 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 #: Read when ``provider: openrouter`` and ``api_key`` is null.
 OPENROUTER_API_KEY_ENV = "OPENROUTER_API_KEY"
 
+class MissingKeyError(ValueError):
+    """A provider's API key is not set, so its models cannot run here."""
+
+
 #: Every name :func:`build_provider` accepts, in the order an error message lists them.
 PROVIDERS: tuple[str, ...] = ("sglang", "openrouter", "bedrock")
 
@@ -52,9 +56,8 @@ def _chat_config(config: LeanInferConfig) -> LeanInferConfig:
     if config.provider == "openrouter":
         api_key = config.api_key or os.environ.get(OPENROUTER_API_KEY_ENV)
         if not api_key:
-            raise ValueError(
-                "provider='openrouter' requires config.api_key or the "
-                f"{OPENROUTER_API_KEY_ENV} environment variable"
+            raise MissingKeyError(
+                f"No OpenRouter API key is set ({OPENROUTER_API_KEY_ENV}): add one to run {config.model}"
             )
         return replace(
             config,

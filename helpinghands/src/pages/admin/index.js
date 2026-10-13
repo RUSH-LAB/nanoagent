@@ -92,7 +92,7 @@ function AdminDashboard() {
           <h1>Tenants and accounts</h1>
           <p>Sign-up, limits, accounts, and workspaces across the whole platform.</p>
         </div>
-        <Link className={styles.workspaceLink} to="/people">Open organization members <span aria-hidden="true">→</span></Link>
+        <Link className={styles.workspaceLink} to="/settings#people">Open organization members <span aria-hidden="true">→</span></Link>
       </header>
 
       {error && <div className={`${styles.notice} ${styles.noticeError}`} role="alert">{error}</div>}

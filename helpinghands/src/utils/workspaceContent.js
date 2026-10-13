@@ -6,14 +6,13 @@ import {loadWorkspaces} from './workspaces.js';
 // so this avoids repeated Neon round trips without making saved content stale.
 export const WORKSPACE_CONTENT_CACHE_MS = 10 * 60_000;
 
-// This development workspace predates configurable home pages. Give only it
-// the requested title-only presentation; every other workspace retains the
-// library until its owner chooses another layout.
-const TITLE_ONLY_WORKSPACES = new Set(['mochi']);
-
-export function workspaceHomeLayout(site, workspaceSlug) {
-  return site?.site?.homeLayout
-    || (TITLE_ONLY_WORKSPACES.has(workspaceSlug) ? 'title' : 'library');
+/**
+ * What a workspace's documents page opens on: the list of its documents, or
+ * the one page its owner chose. The workspace's own home is its overview
+ * (runtime-content/WorkspaceHomeRoute.js), so neither of these has to be it.
+ */
+export function workspaceHomeLayout(site) {
+  return site?.site?.homeLayout || 'library';
 }
 
 function normalizeDocumentPath(value) {

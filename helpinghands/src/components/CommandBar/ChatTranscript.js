@@ -363,10 +363,8 @@ export default function ChatTranscript({
           <div className={shared.banner}>This is the beginning of {label}</div>
         )}
 
-        {messages.length === 0 && !error && (
-          <div className={shared.banner}>
-            {loading ? 'loading…' : `${label} is empty — say something`}
-          </div>
+        {messages.length === 0 && !error && loading && (
+          <div className={shared.banner}>loading…</div>
         )}
 
         {rows}

@@ -21,10 +21,26 @@ const workspaceRoles = Object.freeze({
   viewer: workspaceAccessControl.newRole({organization: [], member: [], invitation: []}),
 });
 
+// A user's GitHub username and bio, copied from GitHub at every sign-in
+// (auth.js). Blog posts name their authors by GitHub username.
+const githubUserFields = Object.freeze({
+  githubLogin: {type: 'string', required: false},
+  githubBio: {type: 'string', required: false},
+});
+
+/** The user fields a GitHub profile sets. */
+function githubProfileFields(profile) {
+  return {githubLogin: profile.login, githubBio: profile.bio?.trim() || null};
+}
+
 const postgresCoreSchema = Object.freeze({
   user: {
     modelName: 'app_user',
     fields: {name: 'display_name', emailVerified: 'email_verified', createdAt: 'created_at', updatedAt: 'updated_at'},
+    additionalFields: {
+      githubLogin: {...githubUserFields.githubLogin, fieldName: 'github_login'},
+      githubBio: {...githubUserFields.githubBio, fieldName: 'github_bio'},
+    },
   },
   session: {
     modelName: 'auth_session',
@@ -127,6 +143,8 @@ function organizationOptions({postgresEnabled = false, isProduction = false, sen
 module.exports = {
   workspaceAccessControl,
   workspaceRoles,
+  githubUserFields,
+  githubProfileFields,
   postgresCoreSchema,
   postgresDeviceCodeSchema,
   authSessionOptions,

@@ -37,8 +37,8 @@ allowed_tools: []
 default_profile: pi-deepseek
 profiles:
   - deploy/railway/profiles/pi-deepseek.yaml
-plugins: []
-# NanoAgent's own plugins, listed in Mochi's marketplace for download; none run here.
+  - deploy/railway/profiles/app-deepseek.yaml
+# NanoAgent's own plugins, in Mochi's marketplace; like an upload, one runs once Mochi installs it.
 packages:
   - plugins/arxiv-source
   - plugins/bibtex-check
@@ -47,6 +47,11 @@ packages:
   - plugins/nasdaq-drawdown
 # Scratch space, one folder per run; Mochi keeps the files.
 workspaces: /tmp/nanoagent-workspaces
+# Installed packages, one folder per sha256; Mochi installs again after a restart.
+installs: /tmp/nanoagent-installs
+# Plugins run as plain processes for now: Railway's containers refuse bwrap the namespaces it
+# needs. Anyone may publish a plugin, so this must become a sandbox (docs/plans/plugin-sandbox.md).
+sandbox: none
 
 host: 0.0.0.0
 port: ${oc.env:PORT,8787}
@@ -58,3 +63,5 @@ max_file_bytes: 10485760
 max_output_chars: 50000
 heartbeat_seconds: 10.0
 include_reasoning: false
+# Runs choose among the profiles above, within the limits above (Mochi Lab sets true).
+run_models: false

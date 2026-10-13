@@ -15,7 +15,11 @@
  */
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
-import {loadRoute, makeCtx, invoke, TEST_IDENTITY} from '../../_harness.mjs';
+import {createRequire} from 'node:module';
+import {loadRoute, makeCtx, invoke, migratedDatabase, TEST_IDENTITY} from '../../_harness.mjs';
+
+const require = createRequire(import.meta.url);
+const {createGithubUsers} = require('../../../../src/server/github-users.js');
 
 const routes = loadRoute('content');
 const asUser = userId => ({...TEST_IDENTITY, userId});
@@ -199,6 +203,19 @@ describe('GET /api/content', () => {
     assert.match(rendered, /katex/, 'KaTeX produced inert markup');
     assert.match(rendered, /Theorem/, 'the allowlisted component remains data');
     assert.equal('code' in r.payload, false, 'the response carries no executable JavaScript');
+  });
+
+  it('names a post\'s authors by their accounts\' GitHub profiles', async () => {
+    const db = migratedDatabase();
+    db.prepare(`INSERT INTO "user" (id, name, email, emailVerified, image, createdAt, updatedAt, "githubLogin", "githubBio")
+      VALUES ('ada', 'Ada Lovelace', 'ada@test.invalid', 1, 'https://avatars.test/ada.png', 0, 0, 'AdaL', 'Mathematician')`).run();
+    const ctx = makeCtx({githubUsers: createGithubUsers({db})});
+    ctx.documents.create(ctx.scopeFor({auth: ada}), {path: 'posts/a.md', markdown: '---\nauthors: [adal, ghost]\n---\nbody'});
+    const r = await at(ctx, 'posts/a.md');
+    assert.deepEqual(r.payload.authors, [
+      {login: 'AdaL', name: 'Ada Lovelace', image: 'https://avatars.test/ada.png', bio: 'Mathematician'},
+      {login: 'ghost'},
+    ]);
   });
 
   it('returns the markdown too, which is what the editor wants', async () => {

@@ -1,0 +1,14 @@
+_ > nanoagent.runtime.config.HarnessProfileConfig:
+
+# Apps' model: NanoAgent's own loop, which operates a plugin's tools, at the model's configured
+# prices (nanoagent.yaml).
+label: DeepSeek V4 Flash · NanoAgent
+model: deepseek/deepseek-v4-flash-0731
+
+harness > nanoagent.runtime.config.HarnessConfig:
+  type: nanoagent
+  command: null
+  cwd: null
+  options: []
+
+model_overrides > nanoagent.runtime.config.ModelPart:

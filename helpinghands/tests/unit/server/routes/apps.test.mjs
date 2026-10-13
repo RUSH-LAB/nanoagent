@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {loadRoute, makeCtx, invoke, fakeSessions, SESSION} from '../../_harness.mjs';
 
+const aiSettings = createRequire(import.meta.url)('../../../../src/server/ai-settings.js');
 const routes = loadRoute('apps');
 const context = {workspaceId: 'test-org', userId: 'test-user', membershipId: 'member-1', role: 'owner'};
-const APP = {id: 'echo', name: 'Echo', version: '1.0.0', tasks: [], tools: [], readme: '# Echo\n'};
+const SHA = 'a'.repeat(64);
+const APP = {id: 'echo', name: 'Echo', version: '1.0.0', tasks: [], tools: [], readme: '# Echo\n', sha256: SHA, source: 'nanoagent'};
 
 /** The workspace file system, as one map of path to bytes, recording what it was asked. */
 function fakeFs(files = {}) {
@@ -28,28 +30,98 @@ function fakeFs(files = {}) {
   };
 }
 
+/** The workspace's apps (workspace-apps.js), one added, `echo`, which opens installed as SHA. */
+function fakeApps(overrides = {}) {
+  const calls = [];
+  return {
+    calls,
+    list: async () => ({value: [APP]}),
+    add: async (context, id) => { calls.push(['add', id]); return {value: APP}; },
+    tag: async (context, id, tags) => { calls.push(['tag', id, tags]); return id === 'echo'; },
+    remove: async (context, id) => { calls.push(['remove', id]); return id === 'echo'; },
+    open: async (context, id) => {
+      calls.push(['open', id]);
+      return {value: {...APP, id, uiVersion: '0123456789abcdef'}};
+    },
+    ...overrides,
+  };
+}
+
 function ctxWith(ai, fs = fakeFs()) {
   const ctx = makeCtx();
   ctx.ai = {...ctx.ai, ...ai};
   ctx.workspaceFs = fs;
-  ctx.agentSync = {run: (_scope, operation) => operation('run-folder')};
+  ctx.agentSync = {run: (_scope, _ai, operation) => operation('run-folder')};
   ctx.sessions = fakeSessions();
+  ctx.workspaceApps = fakeApps();
   return ctx;
 }
 
 describe('NanoAgent apps', () => {
-  it('lists the apps NanoAgent publishes', async () => {
-    const ctx = ctxWith({plugins: async () => ({value: {plugins: [APP]}})});
-    const listed = await invoke(routes, {method: 'GET', path: '/api/apps', ctx, requestContext: context});
+  it('lists the plugins the workspace added', async () => {
+    const listed = await invoke(routes, {method: 'GET', path: '/api/apps', ctx: ctxWith({}), requestContext: context});
     assert.equal(listed.status, 200);
     assert.deepEqual(listed.payload, {apps: [APP]});
   });
 
-  it('relays an unreachable NanoAgent instead of an empty catalog', async () => {
-    const ctx = ctxWith({plugins: async () => ({error: 'Could not reach NanoAgent.', status: 502})});
+  it('relays an unreachable NanoAgent instead of an empty list', async () => {
+    const ctx = ctxWith({});
+    ctx.workspaceApps.list = async () => ({error: 'Could not reach NanoAgent.', status: 502});
     const listed = await invoke(routes, {method: 'GET', path: '/api/apps', ctx, requestContext: context});
     assert.equal(listed.status, 502);
     assert.equal(listed.payload.error, 'Could not reach NanoAgent.');
+  });
+
+  it('opens an added app installed, for any member', async () => {
+    const ctx = ctxWith({});
+    const opened = await invoke(routes, {method: 'GET', path: '/api/apps/echo', ctx, requestContext: {...context, role: 'viewer'}});
+    assert.equal(opened.status, 200);
+    assert.equal(opened.payload.app.sha256, SHA);
+    assert.deepEqual(ctx.workspaceApps.calls, [['open', 'echo']]);
+    ctx.workspaceApps.open = async () => ({error: 'This workspace has no plugin named nope', status: 404});
+    assert.equal((await invoke(routes, {method: 'GET', path: '/api/apps/nope', ctx, requestContext: context})).status, 404);
+    assert.equal((await invoke(routes, {method: 'GET', path: '/api/apps/Not%20an%20id', ctx, requestContext: context})).status, 404);
+  });
+
+  it('lets only an owner add and remove a plugin', async () => {
+    const ctx = ctxWith({});
+    const added = await invoke(routes, {method: 'PUT', path: '/api/apps/echo', ctx, requestContext: context});
+    assert.equal(added.status, 200);
+    assert.deepEqual(added.payload, {app: APP});
+    const removed = await invoke(routes, {method: 'DELETE', path: '/api/apps/echo', ctx, requestContext: context});
+    assert.deepEqual(removed.payload, {removed: 'echo'});
+    assert.equal((await invoke(routes, {method: 'DELETE', path: '/api/apps/other', ctx, requestContext: context})).status, 404);
+    for (const role of ['editor', 'viewer']) {
+      for (const method of ['PUT', 'DELETE']) {
+        await assert.rejects(
+          invoke(routes, {method, path: '/api/apps/echo', ctx, requestContext: {...context, role}}),
+          error => error?.status === 403,
+        );
+      }
+    }
+    assert.deepEqual(ctx.workspaceApps.calls, [['add', 'echo'], ['remove', 'echo'], ['remove', 'other']]);
+  });
+
+  it('lets only an owner tag a plugin, with a short list of short names', async () => {
+    const ctx = ctxWith({});
+    const tag = (body, role = 'owner', id = 'echo') => invoke(routes, {method: 'PATCH', path: `/api/apps/${id}`, body, ctx, requestContext: {...context, role}});
+    const tagged = await tag({tags: [' Writing ', 'Daily', 'Writing']});
+    assert.equal(tagged.status, 200);
+    assert.deepEqual(tagged.payload, {tags: ['Writing', 'Daily']});
+    assert.equal((await tag({tags: []})).status, 200);
+    for (const body of [{}, {tags: 'Writing'}, {tags: ['']}, {tags: ['x'.repeat(41)]}, {tags: Array.from({length: 11}, (_, i) => `t${i}`)}]) {
+      assert.equal((await tag(body)).status, 400);
+    }
+    assert.equal((await tag({tags: ['x']}, 'owner', 'other')).status, 404);
+    await assert.rejects(tag({tags: ['x']}, 'editor'), error => error?.status === 403);
+    assert.deepEqual(ctx.workspaceApps.calls, [['tag', 'echo', ['Writing', 'Daily']], ['tag', 'echo', []], ['tag', 'other', ['x']]]);
+  });
+
+  it('relays a plugin the marketplace does not have', async () => {
+    const ctx = ctxWith({});
+    ctx.workspaceApps.add = async () => ({error: 'No plugin named nope in the marketplace', status: 404});
+    const added = await invoke(routes, {method: 'PUT', path: '/api/apps/nope', ctx, requestContext: context});
+    assert.equal(added.status, 404);
   });
 
   it('lists only the caller\'s own agent folder', async () => {
@@ -141,34 +213,35 @@ describe('an app\'s own page', () => {
 
   it('serves a ui/ file to anyone, with NanoAgent\'s content type and Content-Security-Policy', async () => {
     const asked = [];
-    const ctx = ctxWith({pluginUiFile: async (...args) => { asked.push(args); return page('<!doctype html>'); }});
-    const served = await invoke(routes, {method: 'GET', path: '/api/apps/chess-move/ui/0123456789abcdef/js/app%20main.js', ctx, auth: null});
-    assert.deepEqual(asked, [['chess-move', '0123456789abcdef', 'js/app main.js']]);
+    const ctx = ctxWith({installUiFile: async (...args) => { asked.push(args); return page('<!doctype html>'); }});
+    const served = await invoke(routes, {method: 'GET', path: `/api/apps/${SHA}/ui/0123456789abcdef/js/app%20main.js`, ctx, auth: null});
+    assert.deepEqual(asked, [[SHA, '0123456789abcdef', 'js/app main.js']]);
     assert.equal(served.written.status, 200);
     assert.equal(served.written.headers['Content-Type'], 'text/html; charset=utf-8');
     assert.equal(served.written.headers['Content-Security-Policy'], CSP);
     assert.equal(served.written.headers['Cache-Control'], CACHE);
     assert.equal(served.written.headers['Access-Control-Allow-Origin'], '*');
     assert.equal(served.written.body.toString(), '<!doctype html>');
-    assert.equal(isPublicPath('/api/apps/chess-move/ui/0123456789abcdef/index.html'), true);
-    assert.equal(isGlobalApiPath('/api/apps/chess-move/ui/0123456789abcdef/index.html'), true);
+    assert.equal(isPublicPath(`/api/apps/${SHA}/ui/0123456789abcdef/index.html`), true);
+    assert.equal(isGlobalApiPath(`/api/apps/${SHA}/ui/0123456789abcdef/index.html`), true);
     assert.equal(isPublicPath('/api/apps/chess-move/tasks/move/runs'), false);
     assert.equal(isGlobalApiPath('/api/apps/chess-move/tasks/move/runs'), false);
   });
 
   it('refuses any path that could leave ui/', async () => {
-    const ctx = ctxWith({pluginUiFile: async () => assert.fail('must not ask NanoAgent')});
+    const ctx = ctxWith({installUiFile: async () => assert.fail('must not ask NanoAgent')});
     for (const path of [
-      '/api/apps/chess-move/ui/0123456789abcdef/../nanoagent.yaml',
-      '/api/apps/chess-move/ui/0123456789abcdef/%2e%2e/nanoagent.yaml',
-      '/api/apps/chess-move/ui/0123456789abcdef/a/%2E%2E/%2E%2E/x',
-      '/api/apps/chess-move/ui/0123456789abcdef/..%2Fnanoagent.yaml',
-      '/api/apps/chess-move/ui/0123456789abcdef/a%5C..%5Cx',
-      '/api/apps/chess-move/ui/0123456789abcdef/a//b',
-      '/api/apps/chess-move/ui/0123456789abcdef/./index.html',
-      '/api/apps/chess-move/ui/0123456789abcdef/%zz',
-      '/api/apps/Chess/ui/0123456789abcdef/index.html',
-      '/api/apps/chess-move/ui/latest/index.html',
+      `/api/apps/${SHA}/ui/0123456789abcdef/../nanoagent.yaml`,
+      `/api/apps/${SHA}/ui/0123456789abcdef/%2e%2e/nanoagent.yaml`,
+      `/api/apps/${SHA}/ui/0123456789abcdef/a/%2E%2E/%2E%2E/x`,
+      `/api/apps/${SHA}/ui/0123456789abcdef/..%2Fnanoagent.yaml`,
+      `/api/apps/${SHA}/ui/0123456789abcdef/a%5C..%5Cx`,
+      `/api/apps/${SHA}/ui/0123456789abcdef/a//b`,
+      `/api/apps/${SHA}/ui/0123456789abcdef/./index.html`,
+      `/api/apps/${SHA}/ui/0123456789abcdef/%zz`,
+      '/api/apps/chess-move/ui/0123456789abcdef/index.html',
+      `/api/apps/${'A'.repeat(64)}/ui/0123456789abcdef/index.html`,
+      `/api/apps/${SHA}/ui/latest/index.html`,
     ]) {
       const result = await invoke(routes, {method: 'GET', path, ctx, auth: null});
       assert.equal(result.status, 404, path);
@@ -177,19 +250,19 @@ describe('an app\'s own page', () => {
 
   it('relays a missing file and refuses one sent without its policy or caching', async () => {
     const missing = await invoke(routes, {
-      method: 'GET', path: '/api/apps/chess-move/ui/0123456789abcdef/nope.js', auth: null,
-      ctx: ctxWith({pluginUiFile: async () => ({error: 'not found', status: 404})}),
+      method: 'GET', path: `/api/apps/${SHA}/ui/0123456789abcdef/nope.js`, auth: null,
+      ctx: ctxWith({installUiFile: async () => ({error: 'not found', status: 404})}),
     });
     assert.equal(missing.status, 404);
     const unguarded = await invoke(routes, {
-      method: 'GET', path: '/api/apps/chess-move/ui/0123456789abcdef/index.html', auth: null,
-      ctx: ctxWith({pluginUiFile: async () => page('<script>', {'content-type': 'text/html'})}),
+      method: 'GET', path: `/api/apps/${SHA}/ui/0123456789abcdef/index.html`, auth: null,
+      ctx: ctxWith({installUiFile: async () => page('<script>', {'content-type': 'text/html'})}),
     });
     assert.equal(unguarded.status, 502);
     assert.equal(unguarded.written, null);
     const uncached = await invoke(routes, {
-      method: 'GET', path: '/api/apps/chess-move/ui/0123456789abcdef/index.html', auth: null,
-      ctx: ctxWith({pluginUiFile: async () => page('<script>', {'content-type': 'text/html', 'content-security-policy': CSP})}),
+      method: 'GET', path: `/api/apps/${SHA}/ui/0123456789abcdef/index.html`, auth: null,
+      ctx: ctxWith({installUiFile: async () => page('<script>', {'content-type': 'text/html', 'content-security-policy': CSP})}),
     });
     assert.equal(uncached.status, 502);
   });
@@ -213,12 +286,16 @@ describe('an app\'s task runs', () => {
       `${JSON.stringify({type: 'task.done', runId: 'r', metrics}).slice(20)}\n\n`,
     ];
     const ctx = ctxWith({taskRun: async request => { asked.push(request); return {value: stream(events)}; }});
+    ctx.settings = aiSettings.normalize({behaviour: {maxSteps: 3, thinking: 'high'}, instructions: 'x'}).value;
     const result = await invoke(routes, {
       method: 'POST', path: PATH, body: {arguments: {people: ['Ada']}, sessionId: SESSION}, ctx, requestContext: context,
     });
     assert.equal(asked.length, 1);
+    // The one model and the member's settings; a task takes no instructions or thinking.
+    assert.deepEqual(asked[0].choice, {model: {provider: 'openrouter', model: 'deepseek/deepseek-v4-flash-0731'}, settings: {max_steps: 3}});
     assert.equal(asked[0].workspace, 'run-folder');
-    assert.equal(asked[0].app, 'arxiv-source');
+    assert.equal(asked[0].install, SHA);
+    assert.deepEqual(ctx.workspaceApps.calls, [['open', 'arxiv-source']]);
     assert.equal(asked[0].task, 'daily-digest');
     assert.deepEqual(asked[0].args, {people: ['Ada']});
     assert.equal(result.written.status, 200);
@@ -228,7 +305,7 @@ describe('an app\'s task runs', () => {
     // Charged what task.done says it cost, against the session.
     assert.deepEqual(ctx.calls.aiUsage.map(({context: _, ...call}) => call), [{
       kind: 'task', result: {cost: 0.012, model: 'm', usage: metrics.usage, metrics},
-      ran: true, pluginId: 'arxiv-source', sessionId: SESSION, task: 'daily-digest',
+      ran: true, local: false, pluginId: 'arxiv-source', sessionId: SESSION, task: 'daily-digest',
     }]);
   });
 

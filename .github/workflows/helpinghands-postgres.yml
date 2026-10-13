@@ -2,7 +2,7 @@ name: Helping Hands PostgreSQL acceptance
 
 on:
   pull_request:
-    branches: [production]
+    branches: [production, devmode]
     paths:
       - '.github/workflows/helpinghands-postgres.yml'
       - 'helpinghands/package-lock.json'
@@ -12,7 +12,7 @@ on:
       - 'helpinghands/tests/unit/server/postgres-*.test.mjs'
       - 'helpinghands/tests/integration/postgres/**'
   push:
-    branches: [production]
+    branches: [production, devmode]
     paths:
       - '.github/workflows/helpinghands-postgres.yml'
       - 'helpinghands/package-lock.json'

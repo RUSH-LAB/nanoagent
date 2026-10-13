@@ -16,21 +16,16 @@ async function call(path, init) {
 
 export default function useAgents() {
   const [agents, setAgents] = useState([]);
-  const [profileCatalog, setProfileCatalog] = useState({defaultProfile: '', profiles: []});
+  // The models on the member's computer (/api/ai/models) and their settings (/model reads them).
+  const [ai, setAi] = useState({models: [], defaults: {}, settings: null});
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState(null);
 
   const load = useCallback(async () => {
     try {
-      const [data, catalog] = await Promise.all([
-        call('/api/agents'),
-        call('/api/ai/profiles'),
-      ]);
+      const [data, {settings}, listing] = await Promise.all([call('/api/agents'), call('/api/ai/settings'), call('/api/ai/models')]);
       setAgents(Array.isArray(data.agents) ? data.agents : []);
-      setProfileCatalog({
-        defaultProfile: typeof catalog.defaultProfile === 'string' ? catalog.defaultProfile : '',
-        profiles: Array.isArray(catalog.profiles) ? catalog.profiles : [],
-      });
+      setAi({models: listing.models, defaults: listing.defaults, settings});
       setStatus('ready');
       setError(null);
     } catch (err) {
@@ -51,7 +46,6 @@ export default function useAgents() {
         name: draft.name,
         description: draft.description,
         instructions: draft.instructions,
-        profileId: draft.profileId,
         color: draft.color,
       }),
     });
@@ -69,5 +63,5 @@ export default function useAgents() {
     setAgents(current => current.filter(agent => agent.id !== id));
   }, []);
 
-  return {agents, profileCatalog, status, error, reload: load, save, remove};
+  return {agents, ai, status, error, reload: load, save, remove};
 }

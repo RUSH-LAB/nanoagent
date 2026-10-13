@@ -28,6 +28,7 @@ const {fromNodeHeaders} = require('better-auth/node');
 const {db} = require('./db');
 const {auth} = require('./auth');
 const audit = require('./audit');
+const {githubProfile, githubLoginOf} = require('./github-users');
 
 /** Workspace roles, most privileged first. */
 const ROLES = Object.freeze(['owner', 'editor', 'viewer']);
@@ -85,7 +86,7 @@ function listMembers(orgId, viewerId) {
   return db
     .prepare(
       `SELECT m.id AS memberId, m.role, m.createdAt AS joinedAt,
-              u.id, COALESCE(u.name, u.email) AS username, u.name, u.email,
+              u.id, COALESCE(u.name, u.email) AS username, u.name, u.email, u.image,
               (SELECT c.id FROM channel c
                  JOIN channel_member mine ON mine.channelId = c.id AND mine.userId = ?
                  JOIN channel_member theirs ON theirs.channelId = c.id
@@ -308,26 +309,40 @@ function deleteWorkspace(context) {
 
 /* ── Invitations ──────────────────────────────────────────────────── */
 
+// An invitation goes to an email address (Better Auth's `invitation`) or to a
+// GitHub account (`githubInvitation`, migrations/0018_github_invitation.sql).
+// Either kind carries `email` or `githubLogin` and null for the other, and the
+// functions below answer for both, so a caller holding an invitation id need
+// not know which kind it is.
+
+/** How long a GitHub invitation stands, as Better Auth's default for its own. */
+const GITHUB_INVITATION_MS = 48 * 3600 * 1000;
+
 /** The invitations still outstanding, with who sent each and whether it has run out. */
 function listInvitations(orgId) {
   const at = Date.now();
   return db
     .prepare(
-      `SELECT i.id, i.email, i.role, i.status, i.expiresAt, i.inviterId,
-              u.name AS inviterUsername, u.name AS inviterName
+      `SELECT i.id, i.email, NULL AS githubLogin, i.role, i.expiresAt, u.name AS invitedBy
          FROM invitation i
          LEFT JOIN "user" u ON u.id = i.inviterId
         WHERE i.organizationId = ? AND i.status = 'pending'
-        ORDER BY i.expiresAt DESC`,
+       UNION ALL
+       SELECT g.id, NULL, g.githubLogin, g.role, g.expiresAt, u.name
+         FROM "githubInvitation" g
+         LEFT JOIN "user" u ON u.id = g.inviterId
+        WHERE g.organizationId = ? AND g.status = 'pending'`,
     )
-    .all(orgId)
+    .all(orgId, orgId)
+    .sort((a, b) => new Date(b.expiresAt) - new Date(a.expiresAt))
     .map(row => ({
       id: row.id,
       email: row.email,
+      githubLogin: row.githubLogin,
       role: row.role,
       expiresAt: row.expiresAt,
       expired: new Date(row.expiresAt).getTime() < at,
-      invitedBy: row.inviterUsername || row.inviterName || 'someone',
+      invitedBy: row.invitedBy || 'someone',
     }));
 }
 
@@ -335,33 +350,74 @@ function listInvitations(orgId) {
  * One invitation, by the id in its link.
  *
  * The route serving this to a signed-out visitor picks from it: which workspace
- * the link is for, who sent it, and which address it was sent to, because
- * accepting requires an account with that address and they would otherwise have
- * to guess. Everything else, the organization id included, stays here.
+ * the link is for, who sent it, and which address or GitHub account it was sent
+ * to, because accepting requires that account and they would otherwise have to
+ * guess. Everything else, the organization id included, stays here.
  */
 function invitationForLink(invitationId) {
   const row = db
     .prepare(
-      `SELECT i.id, i.email, i.role, i.status, i.expiresAt, i.organizationId,
-              o.name AS organizationName,
-              u.name AS inviterUsername, u.name AS inviterName
+      `SELECT i.id, i.email, NULL AS githubId, NULL AS githubLogin, i.role, i.status, i.expiresAt,
+              i.organizationId, o.name AS organizationName, u.name AS invitedBy
          FROM invitation i
          JOIN organization o ON o.id = i.organizationId
          LEFT JOIN "user" u ON u.id = i.inviterId
-        WHERE i.id = ?`,
+        WHERE i.id = ?
+       UNION ALL
+       SELECT g.id, NULL, g.githubId, g.githubLogin, g.role, g.status, g.expiresAt,
+              g.organizationId, o.name, u.name
+         FROM "githubInvitation" g
+         JOIN organization o ON o.id = g.organizationId
+         LEFT JOIN "user" u ON u.id = g.inviterId
+        WHERE g.id = ?`,
     )
-    .get(invitationId);
+    .get(invitationId, invitationId);
   if (!row) return null;
   return {
     id: row.id,
     email: row.email,
+    githubId: row.githubId,
+    githubLogin: row.githubLogin,
     role: row.role,
     status: row.status,
     expired: new Date(row.expiresAt).getTime() < Date.now(),
     organization: row.organizationName,
-    invitedBy: row.inviterUsername || row.inviterName || 'someone',
+    invitedBy: row.invitedBy || 'someone',
     organizationId: row.organizationId,
   };
+}
+
+/** The GitHub account id an account signs in with, or null. */
+function githubIdOf(userId) {
+  return db.prepare(`SELECT accountId FROM account WHERE userId = ? AND providerId = 'github'`).get(userId)?.accountId ?? null;
+}
+
+/**
+ * The pending, unexpired invitations sent to the caller's own address or GitHub
+ * account, so an account that signed in without following its link can still
+ * find them.
+ */
+function pendingInvitationsFor(userId) {
+  return db
+    .prepare(
+      `SELECT i.id, i.role, i.expiresAt, i.createdAt, o.name AS organization, u.name AS invitedBy
+         FROM "user" me
+         JOIN invitation i ON lower(i.email) = lower(me.email)
+         JOIN organization o ON o.id = i.organizationId
+         LEFT JOIN "user" u ON u.id = i.inviterId
+        WHERE me.id = ? AND i.status = 'pending'
+       UNION ALL
+       SELECT g.id, g.role, g.expiresAt, g.createdAt, o.name, u.name
+         FROM account a
+         JOIN "githubInvitation" g ON g.githubId = a.accountId
+         JOIN organization o ON o.id = g.organizationId
+         LEFT JOIN "user" u ON u.id = g.inviterId
+        WHERE a.userId = ? AND a.providerId = 'github' AND g.status = 'pending'`,
+    )
+    .all(userId, userId)
+    .filter(row => new Date(row.expiresAt).getTime() >= Date.now())
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+    .map(({id, role, organization, invitedBy}) => ({id, role, organization, invitedBy: invitedBy || 'someone'}));
 }
 
 /**
@@ -388,35 +444,103 @@ async function invite({headers, orgId, actorId, email, role = 'viewer'}) {
   return {invitation: invitationForLink(invitation.id)};
 }
 
+/** Whether the caller's session may `action` invitations in the organization, as Better Auth's roles say. */
+async function mayInvite(headers, orgId, action) {
+  const {success} = await auth.api.hasPermission({
+    body: {organizationId: orgId, permissions: {invitation: [action]}},
+    headers: fromNodeHeaders(headers),
+  });
+  return success;
+}
+
+/**
+ * Invite a GitHub account into the organization, by its username.
+ *
+ * GitHub names the account's id, which is what accepting checks. Inviting the
+ * same account again refreshes its invitation, as `resend` does for an address.
+ */
+async function inviteGithub({headers, orgId, actorId, githubLogin, role = 'viewer', fetchImpl}) {
+  if (!ROLES.includes(role)) return {error: 'invalid-role'};
+  const login = githubLoginOf(githubLogin);
+  if (!login) return {error: 'invalid-github-login'};
+  if (!await mayInvite(headers, orgId, 'create')) return {error: 'forbidden'};
+  const profile = await githubProfile(login, fetchImpl);
+  if (!profile) return {error: 'github-user-not-found'};
+  const githubId = String(profile.id);
+  const member = db.prepare(
+    `SELECT 1 FROM member m JOIN account a ON a.userId = m.userId AND a.providerId = 'github'
+      WHERE m.organizationId = ? AND a.accountId = ?`,
+  ).get(orgId, githubId);
+  if (member) return {error: 'already-member'};
+
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + GITHUB_INVITATION_MS).toISOString();
+  const pending = db.prepare(
+    `SELECT id FROM "githubInvitation" WHERE organizationId = ? AND githubId = ? AND status = 'pending'`,
+  ).get(orgId, githubId);
+  const id = pending?.id ?? crypto.randomUUID();
+  if (pending) {
+    db.prepare(`UPDATE "githubInvitation" SET githubLogin = ?, role = ?, expiresAt = ?, inviterId = ? WHERE id = ?`)
+      .run(profile.login, role, expiresAt, actorId, id);
+  } else {
+    db.prepare(
+      `INSERT INTO "githubInvitation" (id, organizationId, githubId, githubLogin, role, status, expiresAt, createdAt, inviterId)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+    ).run(id, orgId, githubId, profile.login, role, expiresAt, now.toISOString(), actorId);
+  }
+
+  audit.record({orgId, action: 'member.invite', actorId, targetLabel: `@${profile.login}`, detail: {role}});
+  return {invitation: invitationForLink(id)};
+}
+
+/** Who an invitation is for, as the audit names them. */
+const inviteeLabel = invitation => invitation.email ?? `@${invitation.githubLogin}`;
+
 /** Withdraw an invitation that has not been accepted. */
 async function cancelInvitation({headers, orgId, actorId, invitationId}) {
   const before = invitationForLink(invitationId);
   if (!before || before.organizationId !== orgId) return {error: 'not-found'};
 
-  await auth.api.cancelInvitation({
-    body: {invitationId},
-    headers: fromNodeHeaders(headers),
-  });
-  audit.record({orgId, action: 'member.invite-cancel', actorId, targetLabel: before.email});
-  return {cancelled: before.email};
+  if (before.githubId) {
+    if (!await mayInvite(headers, orgId, 'cancel')) return {error: 'forbidden'};
+    db.prepare(`UPDATE "githubInvitation" SET status = 'canceled' WHERE id = ?`).run(invitationId);
+  } else {
+    await auth.api.cancelInvitation({
+      body: {invitationId},
+      headers: fromNodeHeaders(headers),
+    });
+  }
+  audit.record({orgId, action: 'member.invite-cancel', actorId, targetLabel: inviteeLabel(before)});
+  return {cancelled: inviteeLabel(before)};
 }
 
 /**
  * Accept an invitation as the caller.
  *
- * Better Auth checks that the session's address is the invited one, that the
- * invitation is still pending, and that it has not expired, then creates the
- * membership and makes the organization the session's active one. All this adds
- * is the record that somebody joined.
+ * For an address, Better Auth checks that the session's address is the invited
+ * one, that the invitation is still pending, and that it has not expired, then
+ * creates the membership and makes the organization the session's active one.
+ * For a GitHub account those checks are made here, against the GitHub account
+ * the caller signs in with, and Better Auth then adds the member and switches
+ * the session the same way. Either way this records that somebody joined.
  */
 async function acceptInvitation({headers, actorId, invitationId}) {
   const before = invitationForLink(invitationId);
   if (!before) return {error: 'not-found'};
 
-  const result = await auth.api.acceptInvitation({
-    body: {invitationId},
-    headers: fromNodeHeaders(headers),
-  });
+  let member;
+  if (before.githubId) {
+    if (before.status !== 'pending' || before.expired) return {error: 'not-found'};
+    if (githubIdOf(actorId) !== before.githubId) return {error: 'not-recipient', githubLogin: before.githubLogin};
+    member = await auth.api.addMember({body: {userId: actorId, organizationId: before.organizationId, role: before.role}});
+    db.prepare(`UPDATE "githubInvitation" SET status = 'accepted' WHERE id = ?`).run(invitationId);
+    await auth.api.setActiveOrganization({body: {organizationId: before.organizationId}, headers: fromNodeHeaders(headers)});
+  } else {
+    member = (await auth.api.acceptInvitation({
+      body: {invitationId},
+      headers: fromNodeHeaders(headers),
+    }))?.member;
+  }
   audit.record({
     orgId: before.organizationId,
     action: 'member.join',
@@ -425,7 +549,7 @@ async function acceptInvitation({headers, actorId, invitationId}) {
     targetLabel: labelFor(db.prepare('SELECT name, email FROM "user" WHERE id = ?').get(actorId)),
     detail: {invitedBy: before.invitedBy, role: before.role},
   });
-  return {member: result?.member ?? null, organizationId: before.organizationId};
+  return {member: member ?? null, organizationId: before.organizationId};
 }
 
 /* ── Writes, delegated ────────────────────────────────────────────── */
@@ -504,6 +628,6 @@ module.exports = {
   slugify, slugTaken, availableSlug, slugForOrg, allOrganizations,
   listMemberships, createWorkspace, archiveWorkspace, deleteWorkspace,
   getOrganization, listMembers, findMember,
-  listInvitations, invitationForLink, invite, cancelInvitation, acceptInvitation,
+  listInvitations, invitationForLink, pendingInvitationsFor, invite, inviteGithub, cancelInvitation, acceptInvitation,
   setMemberRole, removeMember,
 };

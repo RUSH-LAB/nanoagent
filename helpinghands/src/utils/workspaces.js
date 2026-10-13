@@ -9,7 +9,7 @@
  * Workspace selection is navigation, not session mutation. The URL is the
  * authority, which lets two tabs stay in different workspaces.
  */
-import API_BASE, { apiFetch, apiJson, invalidateApiJson } from './api.js';
+import API_BASE, { apiJson, invalidateApiJson } from './api.js';
 import {clientPlatform} from '../platform/client.js';
 import {documentCache, isOffline} from './documentCache.js';
 
@@ -23,21 +23,9 @@ let workspaceValue = null;
 
 export const WORKSPACE_PAGE_ROOTS = new Set([
   'analytics', 'bibliography', 'channels', 'compare', 'content-search', 'documents', 'files', 'flashcards',
-  'glossary', 'graph', 'marketplace', 'mindmap', 'people', 'reading-lists',
+  'glossary', 'graph', 'marketplace', 'mindmap', 'reading-lists',
   'recommendations', 'settings', 'stats', 'tasks', 'timeline', 'whiteboard',
 ]);
-
-async function call(path, init) {
-  const res = await apiFetch(`${API_BASE}${path}`, init);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const error = new Error(data.error || `Request failed (${res.status})`);
-    error.status = res.status;
-    error.code = data.code ?? null;
-    throw error;
-  }
-  return data;
-}
 
 export function workspaceSlugFromPath(pathname) {
   const match = /^\/w\/([^/]+)(?:\/|$)/.exec(String(pathname ?? ''));
@@ -133,7 +121,7 @@ export function navigateClient(pathname, {replace = false} = {}) {
   window.dispatchEvent(event);
 }
 
-/** Navigate to a workspace, preserving tools but opening content at its home. */
+/** Navigate to a workspace's home page. */
 export async function switchWorkspace(workspace) {
   let target = workspace;
   if (typeof workspace === 'string') {
@@ -141,27 +129,5 @@ export async function switchWorkspace(workspace) {
     target = workspaces.find(item => item.id === workspace || item.slug === workspace);
   }
   if (!target?.slug) throw new Error('Workspace not found');
-
-  const current = clientPlatform.location.pathname();
-  const inWorkspace = /^\/w\/[^/]+(\/.*)?$/.exec(current);
-  const suffix = inWorkspace?.[1] || '/documents';
-  const destination = suffix.startsWith('/documents/') ? '/documents' : suffix;
-  navigateClient(`/w/${encodeURIComponent(target.slug)}${destination}`);
-}
-
-/**
- * Create a workspace, which also makes it the active one, then reload.
- *
- * An omitted `slug` is the ordinary case: the server derives one from the name
- * and numbers it if that is taken. Sending one makes it a choice, and a choice
- * that is taken is refused rather than altered.
- */
-export async function createWorkspace({ name, slug }) {
-  const {workspace} = await call('/api/workspaces', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(slug ? { name, slug } : { name }),
-  });
-  invalidateWorkspaceCache();
-  clientPlatform.location.assign(`/w/${encodeURIComponent(workspace.slug)}/documents`);
+  navigateClient(`/w/${encodeURIComponent(target.slug)}`);
 }

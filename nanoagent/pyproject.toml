@@ -125,7 +125,7 @@ include = ["nanoagent*"]
 # default toolset an installed `mgen` cannot find. See nanoagent.extensions.resolve_config.
 # Package data belongs to the top-level package alongside ``py.typed``.
 [tool.setuptools.package-data]
-nanoagent = ["py.typed", "configs/*.yaml", "configs/tools/*.yaml", "web/schema/*.json", "plugin/template/**/*"]
+nanoagent = ["py.typed", "configs/*.yaml", "configs/tools/*.yaml", "web/schema/*.json", "plugin/template/**/*", "plugin/page/**/*"]
 
 [tool.ruff]
 line-length = 150

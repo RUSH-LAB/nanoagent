@@ -158,7 +158,7 @@ export default function DocumentEditor({
       setPreviewTree(data.tree);
       clientPlatform.storage.removeItem(storageKey);
       setMessage({kind: 'success', text: `Saved version ${data.version}.`});
-      onSaved({document: nextDocument, markdown: draft, tree: data.tree, frontmatter: data.frontmatter || {}});
+      onSaved({document: nextDocument, markdown: draft, tree: data.tree, frontmatter: data.frontmatter || {}, authors: data.authors});
     } catch (error) {
       if (!isOffline(error)) {
         setMessage({kind: error.code === 'document-conflict' ? 'conflict' : 'error', text: error.message});
@@ -221,7 +221,10 @@ export default function DocumentEditor({
       setPreviewTree(data.tree);
       clientPlatform.storage.removeItem(storageKey);
       setMessage({kind: 'notice', text: 'Loaded the latest saved version.'});
-      onSaved({document: {...document, ...data.document}, markdown: data.markdown, tree: data.tree, frontmatter: data.frontmatter || {}});
+      onSaved({
+        document: {...document, ...data.document}, markdown: data.markdown, tree: data.tree,
+        frontmatter: data.frontmatter || {}, authors: data.authors,
+      });
     } catch (error) {
       setMessage({kind: 'error', text: error.message});
     } finally {
