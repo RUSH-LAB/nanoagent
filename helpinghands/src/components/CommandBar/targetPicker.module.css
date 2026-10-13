@@ -1,0 +1,205 @@
+/**
+ * The minimised line's "talk to" picker (TargetPicker.js): a kind button and a
+ * which-one button side by side, filling the rail's column. Each list opens
+ * above its button, over the page.
+ */
+
+.picker {
+  display: flex;
+  flex: 1;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+/* With the rail hidden: a pair of chips in the prompt row rather than a column. */
+.compact {
+  flex: 0 0 auto;
+}
+
+.dropUp {
+  position: relative;
+  min-width: 0;
+}
+
+.kind {
+  flex: 0 0 auto;
+}
+
+.which {
+  flex: 1;
+}
+
+.compact .which {
+  flex: 0 0 auto;
+  width: 9.5rem;
+}
+
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 0.55rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 10px;
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  font-size: var(--cli-label);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.trigger:hover {
+  border-color: var(--ifm-color-emphasis-300);
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.placeholder {
+  color: var(--ifm-color-emphasis-600);
+  font-weight: 500;
+}
+
+.kindIcon {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-color-emphasis-700);
+}
+
+.caret {
+  flex-shrink: 0;
+  color: var(--ifm-color-emphasis-500);
+}
+
+.menu {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  width: max(100%, 18rem);
+  max-height: min(26rem, 60vh);
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 12px;
+  background: var(--ifm-background-surface-color, var(--ifm-background-color));
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+  animation: menuIn 0.12s ease;
+}
+
+/* Three kinds need no more room than their names. */
+.kind .menu {
+  width: 11rem;
+}
+
+[data-theme='dark'] .menu {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+@keyframes menuIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu { animation: none; }
+}
+
+.filter {
+  margin: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 8px;
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  font-size: var(--cli-label);
+}
+
+.filter:focus {
+  border-color: var(--ifm-color-primary);
+  outline: none;
+}
+
+.list {
+  overflow-y: auto;
+  padding: 0 0.35rem 0.4rem;
+}
+
+.group {
+  padding: 0.5rem 0.45rem 0.25rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: var(--cli-micro);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 38px;
+  padding: 0.3rem 0.45rem;
+  border-radius: 8px;
+  color: var(--ifm-color-emphasis-800);
+  font-size: var(--cli-label);
+  cursor: pointer;
+}
+
+.rowActive {
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-font-color-base);
+}
+
+.rowCurrent {
+  color: var(--ifm-color-primary);
+  font-weight: 600;
+}
+
+.rowLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unread {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--ifm-color-primary);
+  color: #fff;
+  font-size: var(--cli-micro);
+  font-weight: 700;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.empty {
+  margin: 0;
+  padding: 0.6rem 0.5rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: var(--cli-label);
+}

@@ -36,6 +36,12 @@
   font-family: var(--ifm-font-family-base);
 }
 
+/* Minimised, the bar is this row and nothing else, and it stays one line: a
+   long draft scrolls inside the field instead of lifting the bar. */
+.rowCollapsed {
+  --cli-input-rows-max: 1;
+}
+
 /* ── Window chrome ──────────────────────────────────────────────── */
 
 /* Minimise, the rail toggle and split. Quiet by default so the prompt stays the

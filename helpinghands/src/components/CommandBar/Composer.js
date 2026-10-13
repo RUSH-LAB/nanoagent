@@ -25,6 +25,12 @@ import styles from './composer.module.css';
  * with '/' is the slash menu's, so mention completion stands down there, and
  * neither of them takes a key while it is closed.
  *
+ * Minimised, the row is the whole bar and stays one line: focusing it, typing
+ * and sending all happen without opening the window, which only its open
+ * button does. The field scrolls rather than grows there, `lead` is who the
+ * line talks to when the window's rail is hidden (TargetPicker.js), and `live`
+ * is what the line shows beside it (LiveLine.js).
+ *
  * The row also carries the window's chrome, because minimise, the rail toggle
  * and split have to stay reachable when the body is collapsed and the row is
  * all that is left. It deliberately does not carry a stop button. A row shared
@@ -148,6 +154,8 @@ export default function Composer({
   completionId = null,
   onActivate = noop,
   showChrome = true,
+  lead = null,
+  live = null,
 }) {
   const [caret, setCaret] = useState(0);
   const [selected, setSelected] = useState(0);
@@ -335,7 +343,7 @@ export default function Composer({
   const expanded = Boolean(menuOpen || listOpen);
   const controls = menuOpen ? mentionsId : (listOpen ? LISTBOX_ID : undefined);
   return (
-    <div className={styles.row} ref={rowRef} aria-busy={busy}>
+    <div className={`${styles.row} ${collapsed ? styles.rowCollapsed : ''}`} ref={rowRef} aria-busy={busy}>
       {showChrome && <><button
         type="button"
         className={styles.chrome}
@@ -377,6 +385,8 @@ export default function Composer({
         </svg>
       </button></>}
 
+      {lead}
+
       <label className={styles.field} htmlFor={inputId}>
         <span className={styles.prompt} aria-hidden="true">
           {sessionNumber !== null && <span className={styles.promptSession}>{sessionNumber}</span>}
@@ -398,11 +408,7 @@ export default function Composer({
             }}
             onSelect={readCaret}
             onKeyDown={handleKeyDown}
-            onFocus={() => {
-              onActivate();
-              if (collapsed) onCollapsedChange(false);
-            }}
-            onClick={() => collapsed && onCollapsedChange(false)}
+            onFocus={onActivate}
             autoComplete="off"
             spellCheck={false}
             aria-label="Command bar"
@@ -451,6 +457,8 @@ export default function Composer({
           )}
         </span>
       </label>
+
+      {live}
 
       <button
         type="button"

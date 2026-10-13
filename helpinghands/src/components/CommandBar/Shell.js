@@ -11,11 +11,14 @@ import ChannelMembers from './ChannelMembers';
 import ChatSidebar, {channelLabel, ConversationIcon} from './ChatSidebar';
 import ChatTranscript from './ChatTranscript';
 import Completions, {optionId} from './Completions';
+import LiveLine from './LiveLine';
 import Composer from './Composer';
+import TargetPicker from './TargetPicker';
 import Markdown from './Markdown';
 import PersonEditor from './PersonEditor';
 import SelectionCapture from './SelectionCapture';
 import {parseCommand, resolveCommand, runCommand} from './commandRuntime';
+import {liveItem, newestEntryId} from './liveItem';
 import {formatSharedSelection, isSelectionContextShortcut, selectionContextFrom, sourceLocationFromRange} from './selectionContext';
 import useAssistant from './useAssistant';
 import useAgents from './useAgents';
@@ -34,10 +37,12 @@ import styles from './shell.module.css';
  * The CLI docked to the bottom of every page.
  *
  * A real window: open at its remembered height from page load, resizable by
- * dragging its top edge, minimisable to the single prompt line. It can be split
- * into up to four sessions side by side, each with its own transcript and its
- * own in-flight request and composer, so one can be waiting on a reply while
- * you type into another.
+ * dragging its top edge, minimisable to the single prompt line. Minimised it
+ * stays one line, typed into and sent from in place, which says what is going
+ * on (liveItem.js) and who it talks to (TargetPicker.js); only its open button
+ * makes it a window again. It can be split into up to four sessions side by
+ * side, each with its own transcript and its own in-flight request and
+ * composer, so one can be waiting on a reply while you type into another.
  *
  * A pane is pointed at something, chosen in the rail on the left: the assistant,
  * a channel, or a direct message. That target is per pane, not per window, so a
@@ -284,15 +289,11 @@ export default function Shell({workspaceKey = 'unscoped'}) {
 
   /* ── The window ───────────────────────────────────────────────── */
 
+  // Either way the line keeps the caret: the minimised row and the window's
+  // composer are different elements, so it is handed to whichever is drawn.
   const setCollapsed = useCallback((next) => {
     geometry.setCollapsed(next);
-    if (next) {
-      // Drop focus: leaving it on the input means the next click raises no focus
-      // event, and the window could not be restored by clicking the prompt.
-      inputRefFor(active.id).current?.blur();
-    } else {
-      requestAnimationFrame(() => inputRefFor(active.id).current?.focus());
-    }
+    requestAnimationFrame(() => inputRefFor(active.id).current?.focus());
   }, [geometry.setCollapsed, active.id, inputRefFor]);
 
   const split = useCallback(() => {
@@ -318,22 +319,24 @@ export default function Shell({workspaceKey = 'unscoped'}) {
 
       event.preventDefault();
       setDraftFor(active.id, current => formatSharedSelection(current, context));
-      if (geometry.collapsed) setCollapsed(false);
       requestAnimationFrame(() => inputRefFor(active.id).current?.focus());
     };
 
     window.addEventListener('keydown', attachSelection);
     return () => window.removeEventListener('keydown', attachSelection);
-  }, [active.id, geometry.collapsed, inputRefFor, setCollapsed, setDraftFor]);
+  }, [active.id, inputRefFor, setDraftFor]);
 
   /* ── Targets ──────────────────────────────────────────────────── */
 
-  /** Point the focused pane at a human conversation or an existing AI chat. */
+  /**
+   * Point the focused pane at a human conversation or an existing AI chat. It
+   * leaves the window as it is: the minimised line's picker retargets in place,
+   * and anything that means to show the conversation opens the window itself.
+   */
   const retarget = useCallback((target) => {
     sessions.setTarget(active.id, target);
-    if (geometry.collapsed) setCollapsed(false);
-    else inputRefFor(active.id).current?.focus();
-  }, [active.id, sessions.setTarget, geometry.collapsed, setCollapsed, inputRefFor]);
+    requestAnimationFrame(() => inputRefFor(active.id).current?.focus());
+  }, [active.id, sessions.setTarget, inputRefFor]);
 
   const selectChannel = useCallback(
     (channelId, label) => {
@@ -351,10 +354,22 @@ export default function Shell({workspaceKey = 'unscoped'}) {
   useEffect(() => onOpenConversation(async ({channelId, userId, label}) => {
     try {
       selectChannel(channelId ?? await chat.openDm(userId), label);
+      setCollapsed(false);
     } catch {
       // The directory reports its own failures; the CLI simply does not move.
     }
-  }), [chat, selectChannel]);
+  }), [chat, selectChannel, setCollapsed]);
+
+  /** A person's direct message, made the first time it is asked for; yours is the one with yourself. */
+  const selectPerson = useCallback(async (person) => {
+    try {
+      const dm = chat.channels.find(channel => channel.kind === 'dm'
+        && (person.you ? channel.selfDm : channel.id === person.dmChannelId));
+      selectChannel(dm?.id ?? await chat.openDm(person.id), person.username || person.name || 'Someone');
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }, [chat, selectChannel]);
 
   /**
    * The name of what a pane is pointed at. Read from the directory rather than
@@ -397,7 +412,6 @@ export default function Shell({workspaceKey = 'unscoped'}) {
     const alreadyOpen = sessions.sessions.find(session => session.target?.chatId === chatToOpen.id);
     if (alreadyOpen) {
       sessions.focus(alreadyOpen.id);
-      if (geometry.collapsed) setCollapsed(false);
       requestAnimationFrame(() => inputRefFor(alreadyOpen.id).current?.focus());
       return;
     }
@@ -407,9 +421,8 @@ export default function Shell({workspaceKey = 'unscoped'}) {
       label: chatToOpen.title,
     });
     sessions.focus(sessionId);
-    if (geometry.collapsed) setCollapsed(false);
-    else requestAnimationFrame(() => inputRefFor(sessionId).current?.focus());
-  }, [active.id, sessions.sessions, sessions.focus, sessions.setTarget, geometry.collapsed, setCollapsed, inputRefFor]);
+    requestAnimationFrame(() => inputRefFor(sessionId).current?.focus());
+  }, [active.id, sessions.sessions, sessions.focus, sessions.setTarget, inputRefFor]);
 
   const selectAgent = useCallback((agent) => {
     const recentChat = sessions.chats.find(chatItem => chatItem.agentId === agent.id);
@@ -427,9 +440,8 @@ export default function Shell({workspaceKey = 'unscoped'}) {
       return;
     }
     sessions.createChat(sessionId, selectedAgent);
-    if (geometry.collapsed) setCollapsed(false);
     requestAnimationFrame(() => inputRefFor(sessionId).current?.focus());
-  }, [active, agentStore.agents, sessions.sessions, sessions.createChat, geometry.collapsed, setCollapsed, inputRefFor, agentOf]);
+  }, [active, agentStore.agents, sessions.sessions, sessions.createChat, inputRefFor, agentOf]);
 
   // The rail's chat icon behaves like the one beside a person: return to the
   // conversation when one exists, and create the first one only when needed.
@@ -597,6 +609,74 @@ export default function Shell({workspaceKey = 'unscoped'}) {
     if (completion.isCommand) setDraft('');
     else if (!geometry.collapsed) setCollapsed(true);
   }, [completion.isCommand, geometry.collapsed, setCollapsed]);
+
+  /* ── The minimised line ───────────────────────────────────────── */
+
+  // How far each pane has been read: the newest entry it held while the window
+  // was open. Anything newer arrived while it was shut and is the line's to
+  // show. A pane seen for the first time starts read, so a restored transcript
+  // is not announced on page load.
+  const [seen, setSeen] = useState({});
+  useEffect(() => {
+    setSeen((previous) => {
+      const next = {...previous};
+      for (const session of sessions.sessions) {
+        if (!geometry.collapsed || next[session.id] === undefined) next[session.id] = newestEntryId(session);
+      }
+      return sessions.sessions.every(session => next[session.id] === previous[session.id]) ? previous : next;
+    });
+  }, [sessions.sessions, geometry.collapsed]);
+
+  // Messages put away from the line, by channel, up to the sequence put away.
+  // A newer message in the same channel comes back.
+  const [dismissed, setDismissed] = useState({});
+  const notices = useMemo(
+    () => chat.notices.filter(notice => !(dismissed[notice.channel.id] >= notice.seq)),
+    [chat.notices, dismissed],
+  );
+
+  const live = geometry.collapsed
+    ? liveItem({session: active, label: labelOf(active), seenUpTo: seen[active.id] ?? newestEntryId(active), notices})
+    : null;
+  const othersBusy = geometry.collapsed
+    ? sessions.sessions.filter(session => session.id !== active.id && session.busy).length
+    : 0;
+
+  // A message opens its conversation; anything else opens the window on the
+  // pane it came from.
+  const openLive = useCallback((item) => {
+    if (item.kind === 'message') selectChannel(item.channel.id, channelLabel(item.channel));
+    setCollapsed(false);
+  }, [selectChannel, setCollapsed]);
+
+  const dismissLive = useCallback((item) => {
+    if (item.kind === 'message') setDismissed(current => ({...current, [item.channel.id]: item.seq}));
+    else if (active.sendError) sessions.patch(active.id, {sendError: null});
+    else setSeen(current => ({...current, [active.id]: newestEntryId(active)}));
+  }, [active, sessions.patch]);
+
+  const activeChannel = channelOf(active);
+  const pickerFor = (compact) => (
+    <TargetPicker
+      compact={compact}
+      current={{
+        agent: agentOf(active),
+        channel: activeChannel,
+        person: activeChannel?.kind === 'dm'
+          ? (chat.members ?? []).find(member => member.id === activeChannel.peerId) ?? null
+          : null,
+        label: labelOf(active),
+      }}
+      agents={agentStore.agents}
+      channels={chat.channels}
+      // Everyone in the workspace, you included, as the rail lists them.
+      people={chat.members ?? []}
+      // The line can only talk to an agent in a chat, so picking one opens its chat, or starts it.
+      onPickAgent={openOrStartAgentChat}
+      onPickChannel={channel => selectChannel(channel.id, channelLabel(channel))}
+      onPickPerson={selectPerson}
+    />
+  );
 
   /* ── Layout ───────────────────────────────────────────────────── */
 
@@ -789,38 +869,64 @@ export default function Shell({workspaceKey = 'unscoped'}) {
       )}
 
       {geometry.collapsed ? (
-        <Composer
-          inputRef={inputRefFor(active.id)}
-          inputId={`command-bar-input-${active.id}`}
-          instanceId={active.id}
-          rowRef={geometry.rowRef}
-          value={draft}
-          onChange={setDraft}
-          placeholder={placeholderFor(active)}
-          ghost={completion.ghost}
-          isCommand={completion.isCommand}
-          collapsed
-          onCollapsedChange={setCollapsed}
-          railOpen={geometry.railOpen}
-          onRailOpenChange={geometry.setRailOpen}
-          onSplit={split}
-          splitDisabled={sessions.sessions.length >= sessions.MAX_SESSIONS}
-          maxSessions={sessions.MAX_SESSIONS}
-          sessionNumber={sessions.sessions.length > 1 ? sessions.sessions.findIndex((session) => session.id === active.id) + 1 : null}
-          targetLabel={activeLabel}
-          onSubmit={() => submit(active)}
-          onClear={() => sessions.clear(active.id)}
-          onTab={onTab}
-          onVertical={onVertical}
-          onEscape={onEscape}
-          people={chat.people}
-          channels={chat.channels}
-          busy={Boolean(active.busy || active.sending)}
-          canSend={Boolean(active.target?.channelId || (activeAgent && active.target?.chatId))}
-          onCancel={active.busy ? () => assistant.cancel(active.id) : null}
-          onFocusPane={sessions.focusIndex}
-          listOpen={false}
-        />
+        // The open window's columns, so the field is the same width either way:
+        // the rail's column holds the open button and who the line talks to.
+        <div className={styles.composerDock} ref={geometry.rowRef}>
+          {geometry.railOpen && (
+            <div className={styles.windowControls}>
+              <button type="button" onClick={() => setCollapsed(false)} aria-label="Open the command bar" title="Open">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 15 12 9 18 15" /></svg>
+              </button>
+              {pickerFor(false)}
+            </div>
+          )}
+          <div className={styles.composerPanes}>
+            <div className={styles.composerCell}>
+              <Composer
+                inputRef={inputRefFor(active.id)}
+                inputId={`command-bar-input-${active.id}`}
+                instanceId={active.id}
+                value={draft}
+                onChange={setDraft}
+                placeholder={placeholderFor(active)}
+                ghost={completion.ghost}
+                isCommand={completion.isCommand}
+                collapsed
+                onCollapsedChange={setCollapsed}
+                railOpen={geometry.railOpen}
+                onRailOpenChange={geometry.setRailOpen}
+                onSplit={split}
+                splitDisabled={sessions.sessions.length >= sessions.MAX_SESSIONS}
+                maxSessions={sessions.MAX_SESSIONS}
+                sessionNumber={sessions.sessions.length > 1 ? sessions.sessions.findIndex((session) => session.id === active.id) + 1 : null}
+                targetLabel={activeLabel}
+                onSubmit={() => submit(active)}
+                onClear={() => sessions.clear(active.id)}
+                onTab={onTab}
+                onVertical={onVertical}
+                onEscape={onEscape}
+                people={chat.people}
+                channels={chat.channels}
+                busy={Boolean(active.busy || active.sending)}
+                canSend={Boolean(active.target?.channelId || (activeAgent && active.target?.chatId))}
+                onCancel={active.busy ? () => assistant.cancel(active.id) : null}
+                onFocusPane={sessions.focusIndex}
+                listOpen={false}
+                showChrome={!geometry.railOpen}
+                lead={geometry.railOpen ? null : pickerFor(true)}
+                live={(
+                  <LiveLine
+                    item={live}
+                    othersBusy={othersBusy}
+                    onOpen={openLive}
+                    onDismiss={dismissLive}
+                    onStop={() => assistant.cancel(active.id)}
+                  />
+                )}
+              />
+            </div>
+          </div>
+        </div>
       ) : (
         <div className={styles.composerDock} ref={geometry.rowRef}>
           {geometry.railOpen && (
