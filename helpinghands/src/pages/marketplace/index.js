@@ -25,9 +25,9 @@ import styles from './styles.module.css';
 
 const kilobytes = size => `${Math.max(1, Math.round(size / 1024))} KB`;
 const githubAccount = login => ({name: `@${login}`, href: `https://github.com/${login}`});
-// NanoAgent's own plugins are Zeyu Yang's; a published one is its publisher's GitHub account.
+// A plugin is by a GitHub account: NanoAgent's own are its author's, @zeyuyang8; a published one is its publisher's.
 const authorOf = plugin => (plugin.source === 'nanoagent'
-  ? {name: 'Zeyu Yang', href: 'https://github.com/zeyuyang8', official: true}
+  ? {...githubAccount('zeyuyang8'), official: true}
   : githubAccount(plugin.owner.github));
 
 /** The URL to publish `repository` from again: its ref, at its folder. */
