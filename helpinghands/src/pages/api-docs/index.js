@@ -388,7 +388,7 @@ const CATEGORIES = [
         response: '{ "settings": { ... } }',
       },
       {
-        method: 'GET', path: '/api/ai/models', description: 'The models you may choose: every model on your computer, available once Mochi Lab holds its provider\'s key.',
+        method: 'GET', path: '/api/ai/models', description: 'The models you may choose: every model on your computer, available once Mochi Lab holds its provider\'s key; with no computer connected, Mochi\'s own models, available once Mochi keeps your OpenRouter key.',
         response: '{ "connected": true, "device": "laptop", "models": [{ "key": "anthropic/claude-sonnet-4-5", "choice": { "provider": "anthropic", "model": "claude-sonnet-4-5" }, "label": "Claude Sonnet 4.5", "uses": ["chat", "inline"], "available": false, "unavailableReason": "Needs your Anthropic key: add it under API keys" }], "defaults": { "chat": "openrouter/deepseek/deepseek-v4-flash-0731" }, "limits": { "capped": false } }',
       },
       {
@@ -410,7 +410,7 @@ const CATEGORIES = [
         response: '(file bytes)',
       },
       {
-        method: 'PUT', path: '/api/agent-files/content', description: 'Save a file in your agent folder, making its folders. With create=1 it refuses to replace an existing file (409). Owners and editors only.',
+        method: 'PUT', path: '/api/agent-files/content', description: 'Save a file in your agent folder, making its folders. With create=1 it refuses to replace an existing file (409). Any member, viewers included: the folder is theirs.',
         request: '?path=notes/idea.md[&create=1]\n\n(raw file contents)',
         response: '{ "path": "notes/idea.md", "size": 120 }',
       },

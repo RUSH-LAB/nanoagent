@@ -38,15 +38,14 @@ export default function Ai() {
     return () => clearInterval(timer);
   }, [checkComputer]);
 
-  // The computer's catalog, for the model's name and price; again when Mochi Lab connects or leaves.
+  // The catalog the member's runs go to, for the model's name and price; again when Mochi Lab
+  // connects or leaves, and when a key is saved.
   const connected = Boolean(computer?.connected);
-  useEffect(() => {
-    let cancelled = false;
-    apiRequest('/api/ai/models')
-      .then(value => { if (!cancelled) setListing(value); })
-      .catch(() => { if (!cancelled) setListing(null); });
-    return () => { cancelled = true; };
-  }, [connected]);
+  const loadListing = useCallback(() => apiRequest('/api/ai/models')
+    .then(setListing)
+    .catch(() => setListing(null)), []);
+  useEffect(() => { loadListing(); }, [connected, loadListing]);
+  const onSaved = useCallback(() => Promise.all([checkComputer(), loadListing()]), [checkComputer, loadListing]);
 
   const heading = <PaneHeading title="AI" aside={error && <span className={styles.error} role="alert">{error}</span>} />;
   if (!model) {
@@ -62,14 +61,14 @@ export default function Ai() {
     <>
       {heading}
       <section className={styles.group}>
-        <ApiKeys computer={computer} onSaved={checkComputer} />
+        <ApiKeys computer={computer} onSaved={onSaved} />
         <div className={styles.row}>
           <div className={styles.rowLabel}>
             <strong>Model</strong>
             <span>
               {known?.price
                 ? `${dollars(known.price.input)} in · ${dollars(known.price.output)} out per million tokens`
-                : 'Its price shows once Mochi Lab is connected.'}
+                : 'Its price shows once your OpenRouter key is saved.'}
             </span>
           </div>
           <span className={ai.model}>{known?.label ?? model.model}</span>

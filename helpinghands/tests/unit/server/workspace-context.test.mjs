@@ -68,6 +68,7 @@ describe('workspace request context', () => {
     const viewer = fixture().byId('ada', 'w-b');
     assert.equal(can(viewer, 'content:read'), true);
     assert.equal(can(viewer, 'content:edit'), false);
+    assert.equal(can(viewer, 'apps:use'), true);
     assert.throws(
       () => requirePermission(viewer, 'content:edit'),
       error => error.status === 403 && error.code === 'workspace-permission-denied',

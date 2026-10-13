@@ -367,17 +367,12 @@ describe('POST /api/ai/stream', () => {
     assert.equal(r.payload.error, 'This workspace has no plugin named echo');
   });
 
-  it('refuses an app prompt without the workspace file system', async () => {
-    const r = await ask({body: {prompt: 'p', appId: 'echo', sessionId: SESSION}, requestContext: WORKSPACE});
-    assert.equal(r.status, 409);
-    assert.equal(r.payload.code, 'fs-disabled');
-  });
-
-  it('does not let a viewer run an app', async () => {
-    await assert.rejects(
-      ask({body: {prompt: 'p', appId: 'echo', sessionId: SESSION}, requestContext: {...WORKSPACE, role: 'viewer'}}),
-      error => error?.status === 403,
-    );
+  it('refuses an app prompt without the workspace file system, to a viewer as to an editor', async () => {
+    for (const role of ['editor', 'viewer']) {
+      const r = await ask({body: {prompt: 'p', appId: 'echo', sessionId: SESSION}, requestContext: {...WORKSPACE, role}});
+      assert.equal(r.status, 409);
+      assert.equal(r.payload.code, 'fs-disabled');
+    }
   });
 
   it('frames the deltas, then the whole answer, then ends the response', async () => {
@@ -607,10 +602,12 @@ describe('/api/ai/settings and /api/ai/models', () => {
 
   it('lists the member\'s computer\'s models, each available once Mochi Lab holds its key', async () => {
     const ctx = makeCtx();
-    assert.deepEqual(
-      (await invoke(routes, {path: '/api/ai/models', ctx, auth: {userId: 'u1'}})).payload,
-      {connected: false, device: null, providers: [], models: [], defaults: {}, limits: null},
-    );
+    const hosted = (await invoke(routes, {path: '/api/ai/models', ctx, auth: {userId: 'u1'}})).payload;
+    assert.equal(hosted.connected, false);
+    assert.deepEqual(hosted.defaults, {chat: 'openrouter/test-model', inline: 'openrouter/test-model', apps: 'openrouter/test-model'});
+    assert.deepEqual(hosted.models.map(model => [model.key, model.uses, model.price]), [
+      ['openrouter/test-model', ['chat', 'apps', 'inline'], {input: 1, output: 2}],
+    ]);
     ctx.runners = {
       status: () => ({connected: true, device: 'laptop', keys: [{env: 'OPENROUTER_API_KEY', label: 'OpenRouter', set: true}]}),
       computer: () => ({
