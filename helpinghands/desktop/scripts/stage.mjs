@@ -4,7 +4,7 @@
  * (TAURI_ENV_TARGET_TRIPLE, which Tauri sets for beforeBuildCommand):
  *
  *   src-tauri/resources/runner/     the relay that lends this computer's NanoAgent to Mochi
- *   src-tauri/resources/nanoagent/  NanoAgent's sources, uv.lock, plugins, and the built PI runner
+ *   src-tauri/resources/nanoagent/  NanoAgent's sources, a uv.lock resolved here, plugins, and the built PI runner
  *   src-tauri/resources/config.yaml this folder's config.yaml
  *   src-tauri/resources/stamp       names this staging; the app installs each stamp once
  *   src-tauri/binaries/{node,uv}-<target>   the runtimes, downloaded and checksum-verified
@@ -121,11 +121,14 @@ async function trimNodeModules(out, entries) {
   fs.renameSync(kept, full);
 }
 
-async function stageNanoAgent() {
+async function stageNanoAgent(uv) {
   const out = path.join(resources, 'nanoagent');
-  for (const entry of ['pyproject.toml', 'uv.lock', 'README.md', 'LICENSE', 'src', 'deploy', 'plugins']) {
+  for (const entry of ['pyproject.toml', 'README.md', 'LICENSE', 'src', 'deploy', 'plugins']) {
     copy(path.join(nanoagentRoot, entry), path.join(out, entry));
   }
+  // NanoAgent is a library and keeps no lock; the app pins the versions resolved for this build,
+  // which it installs with `uv sync --locked` on first launch.
+  run(uv, ['lock'], {cwd: out});
   // Built as the Dockerfile builds it, with dev dependencies; trimmed to what it loads.
   const runner = path.join(out, 'js', 'pi-runner');
   for (const entry of ['package.json', 'package-lock.json', 'tsconfig.json', 'src']) {
@@ -148,7 +151,7 @@ async function main() {
   await stageNode(target, platform);
   await stageUv(target, platform);
   stageRunner();
-  await stageNanoAgent();
+  await stageNanoAgent(path.join(binaries, `uv-${target}${platform.exe}`));
   fs.copyFileSync(path.join(desktop, 'config.yaml'), path.join(resources, 'config.yaml'));
   const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {cwd: mochiRoot, encoding: 'utf8'}).trim();
   fs.writeFileSync(path.join(resources, 'stamp'), `${new Date().toISOString().replace(/[:.]/g, '-')}-${commit}\n`);
