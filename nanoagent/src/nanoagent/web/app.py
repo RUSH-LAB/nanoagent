@@ -49,6 +49,12 @@ def _sse(event: dict[str, Any]) -> bytes:
     ).encode()
 
 
+# COMPAT(mochi-groups): Mochi on production files each plugin under the group its manifest named.
+# Manifests name none now (a workspace tags its plugins), so every catalog entry says one. Remove
+# once the Mochi that tags plugins per workspace is released.
+COMPAT_GROUP = {"group": "Plugins"}
+
+
 # How a host serves a plugin's front end: its own files only, and no network of its own, so the
 # page reaches NanoAgent only through the host's `nanoagent.ui/v1` bridge. Who may frame the page
 # is the host's to decide (its site and its API may be different origins), so there is no
@@ -125,7 +131,12 @@ def create_app(
             raise ValueError(f"duplicate package id {manifest.id!r} in {path!r}")
         data = pack(manifest.root)
         packages[manifest.id] = (
-            {**catalog_entry(manifest), "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)},
+            {
+                **catalog_entry(manifest),
+                **COMPAT_GROUP,
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "size": len(data),
+            },
             data,
         )
         package_manifests[manifest.id] = (manifest, ui_version(manifest))
@@ -436,7 +447,7 @@ def create_app(
                 {"error": f"the plugin is refused: {'; '.join(error.violations)}", "violations": error.violations},
                 status_code=422,
             )
-        return JSONResponse({"package": entry, "data": base64.b64encode(data).decode("ascii")})
+        return JSONResponse({"package": {**entry, **COMPAT_GROUP}, "data": base64.b64encode(data).decode("ascii")})
 
     async def plugin_ui(request: Request) -> Any:
         """A file of an installed plugin's front end, under the policy that confines it to the bridge."""

@@ -2,7 +2,6 @@ _ > nanoagent.plugin.manifest.ManifestConfig:
 id: {{id}}
 name: {{name}}
 version: 0.1.0
-group: General
 status: in-development
 
 runtime > nanoagent.plugin.manifest.RuntimeConfig:

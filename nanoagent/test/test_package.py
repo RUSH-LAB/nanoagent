@@ -149,7 +149,7 @@ def test_refuses_a_link_in_the_plugins_source() -> None:
 def test_a_manifest_cannot_read_the_hosts_environment(plugin: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HOST_SECRET", "hunter2")
     files = _files(pack(plugin))
-    files["echo/nanoagent.yaml"] = files["echo/nanoagent.yaml"].replace(b"group: Testing", b"group: ${oc.env:HOST_SECRET}")
+    files["echo/nanoagent.yaml"] = files["echo/nanoagent.yaml"].replace(b"name: Echo", b"name: ${oc.env:HOST_SECRET}")
     with pytest.raises(PackageError) as error:
         inspect_package(_tar(files))
     assert "HOST_SECRET" in str(error.value) and "hunter2" not in str(error.value)

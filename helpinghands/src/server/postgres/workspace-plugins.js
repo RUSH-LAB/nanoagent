@@ -2,25 +2,26 @@
 const {withRequestContext} = require('./client');
 
 /**
- * The plugins each workspace added from the marketplace (migration 0019): what
- * its members see on the Plugins page. Row-level security lets every member
+ * The plugins each workspace added from the marketplace (migrations 0019,
+ * 0020), and the tags it files them under: what its members see on the Plugins page. Row-level security lets every member
  * read the list and only an owner change it.
  */
 function createPostgresWorkspacePlugins({pool}) {
   const run = (context, operation) => withRequestContext(pool, context, operation);
-  const added = row => ({id: row.plugin_id, source: row.source, addedAt: row.added_at});
+  const added = row => ({id: row.plugin_id, source: row.source, tags: row.tags, addedAt: row.added_at});
+  const COLUMNS = 'plugin_id, source, tags, added_at';
 
   return Object.freeze({
     /** The workspace's plugins, in the order they were added. */
     async list(context) {
       return run(context, async client => (await client.query(
-        'select plugin_id, source, added_at from workspace_plugin order by added_at, plugin_id',
+        `select ${COLUMNS} from workspace_plugin order by added_at, plugin_id`,
       )).rows.map(added));
     },
     async get(context, id) {
       return run(context, async client => {
         const row = (await client.query(
-          'select plugin_id, source, added_at from workspace_plugin where plugin_id = $1', [id],
+          `select ${COLUMNS} from workspace_plugin where plugin_id = $1`, [id],
         )).rows[0];
         return row ? added(row) : null;
       });
@@ -34,9 +35,15 @@ function createPostgresWorkspacePlugins({pool}) {
           [context.workspaceId, id, source, context.userId],
         );
         return added((await client.query(
-          'select plugin_id, source, added_at from workspace_plugin where plugin_id = $1', [id],
+          `select ${COLUMNS} from workspace_plugin where plugin_id = $1`, [id],
         )).rows[0]);
       });
+    },
+    /** Replace the plugin's tags: whether the workspace has it. */
+    async tag(context, id, tags) {
+      return run(context, async client => (await client.query(
+        'update workspace_plugin set tags = $2 where plugin_id = $1', [id, tags],
+      )).rowCount > 0);
     },
     /** Whether the workspace had the plugin. */
     async remove(context, id) {

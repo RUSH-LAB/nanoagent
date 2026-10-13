@@ -38,18 +38,19 @@ function createWorkspaceApps({ai, market, plugins}) {
     catalog,
 
     /**
-     * The workspace's apps, each its marketplace entry and `source`; one that left
-     * the marketplace is listed as `unavailable`, for an owner to remove.
+     * The workspace's apps, each its marketplace entry, `source` and the
+     * workspace's `tags` for it; one that left the marketplace is listed as
+     * `unavailable`, for an owner to remove.
      */
     async list(context) {
       const offered = await catalog(context.userId);
       if (offered.error) return offered;
       return {
-        value: (await plugins.list(context)).map(({id, source}) => {
+        value: (await plugins.list(context)).map(({id, source, tags}) => {
           const found = offered.value.get(id);
           return found && found.source === source
-            ? {...found.entry, source}
-            : {id, name: id, group: 'Unavailable', status: 'unavailable', source};
+            ? {...found.entry, source, tags}
+            : {id, name: id, status: 'unavailable', source, tags};
         }),
       };
     },
@@ -60,9 +61,12 @@ function createWorkspaceApps({ai, market, plugins}) {
       if (offered.error) return offered;
       const found = offered.value.get(id);
       if (!found) return {error: `No plugin named ${id} in the marketplace`, status: 404};
-      await plugins.add(context, id, found.source);
-      return {value: {...found.entry, source: found.source}};
+      const {tags} = await plugins.add(context, id, found.source);
+      return {value: {...found.entry, source: found.source, tags}};
     },
+
+    /** Replace the tags the workspace files its plugin `id` under: whether it has one. */
+    tag: (context, id, tags) => plugins.tag(context, id, tags),
 
     /** Remove the workspace's plugin `id`: whether it had one. */
     remove: (context, id) => plugins.remove(context, id),

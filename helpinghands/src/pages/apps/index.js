@@ -97,8 +97,8 @@ function AppsColumns() {
         {workspace?.role === 'owner' ? ' to add some.' : '; an owner can add them.'}
       </p>
     );
-  } else if (apps && navigation.unknownGroup) {
-    content = <div className={styles.error}>No plugin group named {navigation.unknownGroup}.</div>;
+  } else if (apps && navigation.unknownTag) {
+    content = <div className={styles.error}>No plugin tagged {navigation.unknownTag}.</div>;
   } else if (apps && navigation.requestedApp && !navigation.app) {
     content = <div className={styles.error}>No app named {navigation.requestedApp}.</div>;
   } else if (apps) {

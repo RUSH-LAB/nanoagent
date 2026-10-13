@@ -2,7 +2,6 @@ _ > nanoagent.plugin.manifest.ManifestConfig:
 id: nasdaq-drawdown
 name: Nasdaq-100 Weekly Drawdown
 version: 0.1.0
-group: Finance
 status: ready
 
 runtime > nanoagent.plugin.manifest.RuntimeConfig:

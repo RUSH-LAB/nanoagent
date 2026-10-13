@@ -46,7 +46,6 @@ MANIFEST = """_ > nanoagent.plugin.manifest.ManifestConfig:
 id: echo
 name: Echo
 version: 1.0.0
-group: Testing
 status: ready
 runtime > nanoagent.plugin.manifest.RuntimeConfig:
   type: mcp_stdio

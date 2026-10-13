@@ -2,7 +2,6 @@ _ > nanoagent.plugin.manifest.ManifestConfig:
 id: bibtex-check
 name: BibTeX Hallucination Check
 version: 0.1.0
-group: Research
 status: ready
 
 runtime > nanoagent.plugin.manifest.RuntimeConfig:

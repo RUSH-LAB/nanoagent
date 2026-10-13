@@ -17,13 +17,17 @@ import styles from './styles.module.css';
  * it on the Plugins page, where NanoAgent runs it in a sandbox: it reaches only
  * the hosts it declares and writes only to the member's agent folder. A tile
  * opens the plugin's product page in place of the gallery; `?plugin=` names
- * it, so it can be linked. A published plugin is checked against the plugin
+ * it, so it can be linked. A plugin names no tags: a workspace tags the ones it
+ * added (Settings → Plugins). A published plugin is checked against the plugin
  * rules but not reviewed, so the page says so.
  */
 
 const kilobytes = size => `${Math.max(1, Math.round(size / 1024))} KB`;
-const NANOAGENT = 'nanoagent';
-const authorOf = plugin => (plugin.source === 'nanoagent' ? {id: NANOAGENT, name: 'NanoAgent'} : plugin.owner);
+const githubAccount = login => ({name: `@${login}`, href: `https://github.com/${login}`});
+// NanoAgent's own plugins are Zeyu Yang's; a published one is its publisher's GitHub account.
+const authorOf = plugin => (plugin.source === 'nanoagent'
+  ? {name: 'Zeyu Yang', href: 'https://github.com/zeyuyang8', official: true}
+  : githubAccount(plugin.owner.github));
 
 /** The URL to publish `repository` from again: its ref, at its folder. */
 function publishUrl({owner, repo, ref, path}) {
@@ -64,10 +68,9 @@ function Tile({plugin, added, onOpen}) {
         </h2>
         <p className={styles.author}>
           by {author.name}
-          {author.id === NANOAGENT && <span className={styles.official}>Official</span>}
+          {author.official && <span className={styles.official}>Official</span>}
         </p>
         <p className={styles.tagline}>{plugin.product.tagline}</p>
-        <p className={styles.meta}>{plugin.group} · v{plugin.version} · {kilobytes(plugin.size)}</p>
       </div>
     </button>
   );
@@ -89,11 +92,9 @@ function Publish({onPublished}) {
     <section className={styles.publish}>
       <h2>Publish your plugin from GitHub</h2>
       <p>
-        Build a plugin in the NanoAgent plugin format (<code>nanoagent plugin new &lt;folder&gt;</code> starts one,
-        and <code>nanoagent plugin inspect &lt;folder&gt;</code> checks it), push it to a public GitHub repository, and
-        paste its URL. For a plugin in a subfolder, use the folder's URL: <code>…/tree/&lt;branch&gt;/&lt;folder&gt;</code>.
-        NanoAgent checks it against every plugin rule, and the listing is pinned to the commit it was published from.
-        Publish again to update it.
+        Paste the URL of a NanoAgent plugin in a public GitHub repository (<code>nanoagent plugin new</code> starts
+        one), or of its folder: <code>…/tree/&lt;branch&gt;/&lt;folder&gt;</code>. It is listed under your GitHub
+        account. Publish again to update it.
       </p>
       <form className={styles.publishForm} onSubmit={submit}>
         <input
@@ -124,11 +125,11 @@ function WorkspaceAction({plugin, added, workspace, slug, busy, act, onAdded}) {
   if (added) {
     return (
       <>
-        <Link className="button button--primary button--lg" to={appsHref}>Open in {workspace.name}</Link>
+        <Link className="button button--primary" to={appsHref}>Open in {workspace.name}</Link>
         {owner && (
           <button
             type="button"
-            className="button button--outline button--danger button--lg"
+            className="button button--outline button--danger"
             disabled={busy}
             onClick={() => {
               if (!window.confirm(`Remove ${plugin.name} from ${workspace.name}? Its members can no longer use it.`)) return;
@@ -145,7 +146,7 @@ function WorkspaceAction({plugin, added, workspace, slug, busy, act, onAdded}) {
   return (
     <button
       type="button"
-      className="button button--primary button--lg"
+      className="button button--primary"
       disabled={busy}
       onClick={() => act(() => send(`/api/apps/${plugin.id}`, {method: 'PUT'}), () => onAdded(true))}
     >
@@ -182,45 +183,40 @@ function Detail({plugin, added, workspace, slug, onBack, onChanged, onAdded}) {
         act={act}
         onAdded={onAdded}
       />
-      <a className="button button--outline button--primary button--lg" href={`${API_BASE}/api/market/${plugin.id}/package`} download>
-        Download ({kilobytes(plugin.size)})
-      </a>
-      {plugin.repository && (
-        <a className="button button--outline button--primary button--lg" href={commitUrl(plugin.repository)} target="_blank" rel="noreferrer">
-          Source on GitHub
-        </a>
-      )}
       {plugin.mine && plugin.repository && (
-        <button type="button" className="button button--outline button--primary button--lg" disabled={state.busy} onClick={update}>
+        <button type="button" className="button button--outline button--secondary" disabled={state.busy} onClick={update}>
           {state.busy ? 'Checking…' : 'Update from GitHub'}
         </button>
       )}
       {plugin.mine && (
-        <button type="button" className="button button--outline button--danger button--lg" disabled={state.busy} onClick={remove}>
-          Remove
+        <button type="button" className="button button--outline button--danger" disabled={state.busy} onClick={remove}>
+          Remove from marketplace
         </button>
       )}
+    </>
+  );
+  const meta = (
+    <>
+      v{plugin.version}
+      {plugin.repository && (
+        <> · <a href={commitUrl(plugin.repository)} target="_blank" rel="noreferrer">Source</a></>
+      )}
+      {' · '}
+      <a href={`${API_BASE}/api/market/${plugin.id}/package`} download>Download ({kilobytes(plugin.size)})</a>
+      {!author.official && ' · Not reviewed: read its source before you add it.'}
     </>
   );
 
   return (
     <section className={styles.detail}>
-      <nav className={styles.crumbs}>
-        <button type="button" className={styles.link} onClick={onBack}>← Marketplace</button>
-        <span>
-          by {author.name}
-          {plugin.repository && (
-            <> · {plugin.repository.owner}/{plugin.repository.repo} at <code>{plugin.repository.commit.slice(0, 7)}</code></>
-          )}
-        </span>
-      </nav>
+      <button type="button" className={styles.back} onClick={onBack}>← Marketplace</button>
       {state.error && <div className={styles.error}>{state.error}</div>}
-      <AppProduct app={plugin} actions={actions} />
-      <p className={styles.notice}>
-        Added to a workspace, it runs in a sandbox: it reaches only the hosts it lists and writes only to each
-        member's agent folder. Or download it and run it with <code>nanoagent plugin</code> on your own machine.
-        {author.id !== NANOAGENT && ' Published plugins are checked against the plugin rules but not reviewed, so read its code before you add it.'}
-      </p>
+      <AppProduct
+        app={plugin}
+        byline={<>by <a href={author.href} target="_blank" rel="noreferrer">{author.name}</a></>}
+        actions={actions}
+        meta={meta}
+      />
     </section>
   );
 }
@@ -236,7 +232,6 @@ function Marketplace() {
   const openId = params.get('plugin');
   const [state, setState] = React.useState({plugins: null, error: null});
   const [query, setQuery] = React.useState('');
-  const [group, setGroup] = React.useState(null);
   const [publishing, setPublishing] = React.useState(false);
 
   const load = React.useCallback(async () => {
@@ -277,11 +272,10 @@ function Marketplace() {
   };
 
   const plugins = state.plugins ?? [];
-  const groups = [...new Set(plugins.map(plugin => plugin.group))].sort();
   const needle = query.trim().toLowerCase();
-  const shown = plugins.filter(plugin => (!group || plugin.group === group)
-    && (!needle || [plugin.name, plugin.product.tagline, plugin.product.summary, authorOf(plugin).name]
-      .some(text => text.toLowerCase().includes(needle))));
+  const shown = plugins.filter(plugin => !needle
+    || [plugin.name, plugin.product.tagline, plugin.product.summary, authorOf(plugin).name]
+      .some(text => text.toLowerCase().includes(needle)));
   const open = plugins.find(plugin => plugin.id === openId);
 
   if (open) {
@@ -306,14 +300,7 @@ function Marketplace() {
   return (
     <main className={styles.page}>
       <header className={styles.header}>
-        <div>
-          <h1>Marketplace</h1>
-          <p>
-            {workspace
-              ? `Plugins for ${workspace.name}: add one, and everyone in the workspace can use it on the Plugins page.`
-              : 'Plugins for NanoAgent: add one to a workspace, or publish your own from GitHub.'}
-          </p>
-        </div>
+        <h1>Marketplace</h1>
         <button type="button" className="button button--primary" onClick={() => setPublishing(value => !value)}>
           {publishing ? 'Cancel' : '+ Publish a plugin'}
         </button>
@@ -336,19 +323,6 @@ function Marketplace() {
           onChange={event => setQuery(event.target.value)}
         />
       </div>
-      <div className={styles.chips} role="group" aria-label="Plugin group">
-        {[null, ...groups].map(name => (
-          <button
-            key={name ?? 'all'}
-            type="button"
-            className={`${styles.chip} ${group === name ? styles.chipActive : ''}`}
-            onClick={() => setGroup(name)}
-          >
-            {name ?? 'All'}
-          </button>
-        ))}
-      </div>
-
       {state.error && <div className={styles.error}>{state.error}</div>}
       {state.plugins && !shown.length && <p className={styles.empty}>No plugins match.</p>}
       <div className={styles.grid}>

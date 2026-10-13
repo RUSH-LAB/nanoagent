@@ -3,40 +3,40 @@ import assert from 'node:assert/strict';
 import {pluginNavigation} from '../../../../src/components/PluginSidebar/navigation.js';
 
 const apps = [
-  {id: 'bibtex-check', name: 'Bibtex Check', group: 'Research', status: 'in-development'},
-  {id: 'arxiv-source', name: 'arXiv', group: 'Research', status: 'ready'},
-  {id: 'meal-suggestion', name: 'Meal Suggestion', group: 'Life', status: 'ready'},
+  {id: 'bibtex-check', name: 'Bibtex Check', tags: ['Research', 'Writing'], status: 'in-development'},
+  {id: 'arxiv-source', name: 'arXiv', tags: ['Research'], status: 'ready'},
+  {id: 'meal-suggestion', name: 'Meal Suggestion', tags: ['Life'], status: 'ready'},
+  {id: 'chess-move', name: 'Chess Move', tags: [], status: 'ready'},
 ];
 const base = '/w/lab/apps';
 
 describe('plugin navigation', () => {
-  it('shows every plugin by default, all groups together', () => {
+  it('shows every plugin by default, tagged or not', () => {
     const nav = pluginNavigation(apps, '', base);
-    assert.equal(nav.allGroups, true);
-    assert.deepEqual(nav.groups.map(group => [group.title, group.permalink]), [
-      ['All', base], ['Life', `${base}?group=Life`], ['Research', `${base}?group=Research`],
+    assert.equal(nav.allTags, true);
+    assert.deepEqual(nav.tags.map(tag => [tag.title, tag.permalink]), [
+      ['All', base], ['Life', `${base}?tag=Life`], ['Research', `${base}?tag=Research`], ['Writing', `${base}?tag=Writing`],
     ]);
-    assert.deepEqual(nav.links.map(link => link.id), ['arxiv-source', 'bibtex-check', 'meal-suggestion']);
+    assert.deepEqual(nav.links.map(link => link.id), ['arxiv-source', 'bibtex-check', 'chess-move', 'meal-suggestion']);
     assert.equal(nav.links[0].permalink, `${base}?app=arxiv-source`);
   });
 
-  it('opens a group on its first ready plugin, like a book on its landing page', () => {
+  it('opens a tag on its first ready plugin, like a book on its landing page', () => {
     assert.equal(pluginNavigation(apps, '', base).app.id, 'arxiv-source');
-    assert.equal(pluginNavigation(apps, '?group=Life', base).app.id, 'meal-suggestion');
-    const notReady = [{id: 'chess-move', name: 'Chess Move', group: 'Games', status: 'in-development'}];
-    assert.equal(pluginNavigation(notReady, '?group=Games', base).app.id, 'chess-move');
+    assert.equal(pluginNavigation(apps, '?tag=Life', base).app.id, 'meal-suggestion');
+    assert.equal(pluginNavigation(apps, '?tag=Writing', base).app.id, 'bibtex-check');
   });
 
-  it('lists only the chosen group\'s plugins, and keeps the group when one opens', () => {
-    const nav = pluginNavigation(apps, '?group=Research&app=arxiv-source', base);
+  it('lists every plugin with the chosen tag, and keeps the tag when one opens', () => {
+    const nav = pluginNavigation(apps, '?tag=Research&app=arxiv-source', base);
     assert.deepEqual(nav.links.map(link => [link.id, link.maintenance]), [['arxiv-source', false], ['bibtex-check', true]]);
     assert.equal(nav.app.id, 'arxiv-source');
-    assert.equal(nav.links[1].permalink, `${base}?group=Research&app=bibtex-check`);
+    assert.equal(nav.links[1].permalink, `${base}?tag=Research&app=bibtex-check`);
   });
 
-  it('reports a group that does not exist, and an app outside the chosen group', () => {
-    assert.equal(pluginNavigation(apps, '?group=Nope', base).unknownGroup, 'Nope');
-    const nav = pluginNavigation(apps, '?group=Life&app=arxiv-source', base);
+  it('reports a tag that does not exist, and an app without the chosen tag', () => {
+    assert.equal(pluginNavigation(apps, '?tag=Nope', base).unknownTag, 'Nope');
+    const nav = pluginNavigation(apps, '?tag=Life&app=arxiv-source', base);
     assert.equal(nav.app, null);
     assert.equal(nav.requestedApp, 'arxiv-source');
   });
@@ -45,6 +45,6 @@ describe('plugin navigation', () => {
     const nav = pluginNavigation([], '', base);
     assert.deepEqual(nav.links, []);
     assert.equal(nav.app, null);
-    assert.deepEqual(nav.groups.map(group => group.title), ['All']);
+    assert.deepEqual(nav.tags.map(tag => tag.title), ['All']);
   });
 });

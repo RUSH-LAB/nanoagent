@@ -80,6 +80,16 @@ describe('a workspace\'s apps', () => {
     assert.equal((await apps.open(as('bob'), 'notes')).value.version, '1.1.0');
   });
 
+  it('lists the tags an owner gives a plugin, to every member', async () => {
+    assert.deepEqual((await apps.list(as('vic'))).value.map(app => app.tags), [[], []]);
+    assert.equal(await apps.tag(as('alice'), 'notes', ['Writing', 'Daily']), true);
+    assert.deepEqual((await apps.list(as('vic'))).value.map(app => [app.id, app.tags]), [['bibtex-check', []], ['notes', ['Writing', 'Daily']]]);
+    assert.equal(await apps.tag(as('alice'), 'missing', ['x']), false);
+    // Row-level security shows an editor no row to change.
+    assert.equal(await apps.tag(as('bob'), 'notes', ['Mine']), false);
+    assert.deepEqual((await apps.list(as('bob'))).value[1].tags, ['Writing', 'Daily']);
+  });
+
   it('loses an upload its uploader removes, and an owner removes the rest', async () => {
     await market.remove('alice', 'notes');
     assert.deepEqual((await apps.list(as('bob'))).value.map(app => app.id), ['bibtex-check']);

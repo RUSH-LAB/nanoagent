@@ -6,7 +6,7 @@ const {budgetRefusal} = require('../ai-metering');
 const {createSseParser} = require('../ai');
 
 // Apps: the marketplace plugins a workspace added (workspace-apps.js), which an
-// owner adds and removes at /api/apps/{id}, and the caller's own agent folder,
+// owner adds, tags and removes at /api/apps/{id}, and the caller's own agent folder,
 // `home/<user>/agent/` in the workspace file system, where those apps leave
 // their files and the app pages list, read and save them.
 // Opening an app (GET /api/apps/{id}) has NanoAgent install its package, by
@@ -243,12 +243,24 @@ async function sessionRoute(req, res, ctx, app, id) {
   return json(res, 405, {error: 'Method not allowed'});
 }
 
+const MAX_TAGS = 10;
+const MAX_TAG_LENGTH = 40;
+
+/** `body.tags` trimmed and without repeats, or null for anything but a short list of short names. */
+function tagsOf(body) {
+  if (!Array.isArray(body?.tags) || body.tags.length > MAX_TAGS) return null;
+  const tags = body.tags.map(tag => (typeof tag === 'string' ? tag.trim() : ''));
+  if (tags.some(tag => !tag || tag.length > MAX_TAG_LENGTH)) return null;
+  return [...new Set(tags)];
+}
+
 /**
  * One of the workspace's apps: GET opens it, installed and ready to run; PUT
- * adds the marketplace plugin of that id and DELETE removes it, an owner's to do.
+ * adds the marketplace plugin of that id, PATCH replaces the tags the
+ * workspace files it under, and DELETE removes it, each an owner's to do.
  */
 async function appRoute(req, res, ctx, id) {
-  const {json, requireWorkspacePermission, workspaceApps} = ctx;
+  const {json, readBody, requireWorkspacePermission, workspaceApps} = ctx;
   if (!PLUGIN_ID.test(id)) return json(res, 404, {error: `No plugin named ${id}`});
   if (!workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
   if (req.method === 'GET') {
@@ -260,6 +272,21 @@ async function appRoute(req, res, ctx, id) {
     requireWorkspacePermission(req.context, 'workspace:manage');
     const added = await workspaceApps.add(req.context, id);
     return added.error ? json(res, added.status, {error: added.error}) : json(res, 200, {app: added.value});
+  }
+  if (req.method === 'PATCH') {
+    requireWorkspacePermission(req.context, 'workspace:manage');
+    let body;
+    try {
+      body = await readBody(req);
+    } catch {
+      body = null;
+    }
+    const tags = tagsOf(body);
+    if (!tags) {
+      return json(res, 400, {error: `Request body must be {"tags": [...]}: at most ${MAX_TAGS} names, each 1 to ${MAX_TAG_LENGTH} characters`});
+    }
+    if (!await workspaceApps.tag(req.context, id, tags)) return json(res, 404, {error: `This workspace has no plugin named ${id}`});
+    return json(res, 200, {tags});
   }
   if (req.method === 'DELETE') {
     requireWorkspacePermission(req.context, 'workspace:manage');

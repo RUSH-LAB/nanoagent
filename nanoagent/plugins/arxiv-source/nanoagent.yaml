@@ -2,7 +2,6 @@ _ > nanoagent.plugin.manifest.ManifestConfig:
 id: arxiv-source
 name: arXiv Search and Source Downloader
 version: 0.3.0
-group: Research
 status: ready
 
 runtime > nanoagent.plugin.manifest.RuntimeConfig:

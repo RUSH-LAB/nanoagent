@@ -131,8 +131,6 @@ class ListingConfig(Config):
     id: str = MISSING
     name: str = MISSING
     version: str = MISSING
-    # The shelf a catalog files the plugin under, such as "Research".
-    group: str = MISSING
     status: Status = MISSING
 
 
@@ -253,7 +251,6 @@ class PluginManifest:
     id: str
     name: str
     version: str
-    group: str
     status: str
     runtime: str
     command: tuple[str, ...]
@@ -282,7 +279,6 @@ class PluginManifest:
             "id": self.id,
             "name": self.name,
             "version": self.version,
-            "group": self.group,
             "status": self.status,
             "runtime": {"type": self.runtime, "command": list(self.command)},
             "env": list(self.env),
@@ -519,7 +515,7 @@ def _env_names(path: Path) -> tuple[tuple[str, ...], list[str]]:
 def _listing_violations(config: ListingConfig) -> list[str]:
     violations = [] if PLUGIN_ID.fullmatch(config.id) else [f"{MANIFEST} id {config.id!r} is not a plugin id"]
     return violations + [
-        f"{MANIFEST} {name} is blank" for name in ("name", "version", "group") if not getattr(config, name).strip()
+        f"{MANIFEST} {name} is blank" for name in ("name", "version") if not getattr(config, name).strip()
     ]
 
 
@@ -655,7 +651,6 @@ def load_manifest(source: str | Path) -> PluginManifest:
         id=config.id,
         name=config.name.strip(),
         version=config.version.strip(),
-        group=config.group.strip(),
         status=config.status.value,
         runtime=config.runtime.type.value,
         command=tuple(config.runtime.command),
@@ -678,7 +673,6 @@ class PluginListing:
     id: str
     name: str
     version: str
-    group: str
     status: str
 
     def public(self) -> dict[str, Any]:
@@ -688,7 +682,6 @@ class PluginListing:
             "id": self.id,
             "name": self.name,
             "version": self.version,
-            "group": self.group,
             "status": self.status,
             "readme": readme.read_text(encoding="utf-8") if readme.is_file() else "",
         }
@@ -720,6 +713,5 @@ def load_listing(source: str | Path) -> PluginManifest | PluginListing:
         id=listing.id,
         name=listing.name.strip(),
         version=listing.version.strip(),
-        group=listing.group.strip(),
         status=listing.status.value,
     )

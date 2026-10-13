@@ -36,6 +36,7 @@ function fakeApps(overrides = {}) {
     calls,
     list: async () => ({value: [APP]}),
     add: async (context, id) => { calls.push(['add', id]); return {value: APP}; },
+    tag: async (context, id, tags) => { calls.push(['tag', id, tags]); return id === 'echo'; },
     remove: async (context, id) => { calls.push(['remove', id]); return id === 'echo'; },
     open: async (context, id) => {
       calls.push(['open', id]);
@@ -98,6 +99,21 @@ describe('NanoAgent apps', () => {
       }
     }
     assert.deepEqual(ctx.workspaceApps.calls, [['add', 'echo'], ['remove', 'echo'], ['remove', 'other']]);
+  });
+
+  it('lets only an owner tag a plugin, with a short list of short names', async () => {
+    const ctx = ctxWith({});
+    const tag = (body, role = 'owner', id = 'echo') => invoke(routes, {method: 'PATCH', path: `/api/apps/${id}`, body, ctx, requestContext: {...context, role}});
+    const tagged = await tag({tags: [' Writing ', 'Daily', 'Writing']});
+    assert.equal(tagged.status, 200);
+    assert.deepEqual(tagged.payload, {tags: ['Writing', 'Daily']});
+    assert.equal((await tag({tags: []})).status, 200);
+    for (const body of [{}, {tags: 'Writing'}, {tags: ['']}, {tags: ['x'.repeat(41)]}, {tags: Array.from({length: 11}, (_, i) => `t${i}`)}]) {
+      assert.equal((await tag(body)).status, 400);
+    }
+    assert.equal((await tag({tags: ['x']}, 'owner', 'other')).status, 404);
+    await assert.rejects(tag({tags: ['x']}, 'editor'), error => error?.status === 403);
+    assert.deepEqual(ctx.workspaceApps.calls, [['tag', 'echo', ['Writing', 'Daily']], ['tag', 'echo', []], ['tag', 'other', ['x']]]);
   });
 
   it('relays a plugin the marketplace does not have', async () => {
