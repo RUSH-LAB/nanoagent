@@ -34,7 +34,9 @@ the chat as a chip, and its result card on the right:
 the output drawn from its JSON Schema (an object as labelled fields, a list of objects as a
 table, a list of strings as a list, text, numbers, yes/no), with the verdict as a badge.
 
-`ui/` holds `renderers.js` and `renderers.css`, and the static files they import.
+`ui/` holds `renderers.js` and `renderers.css`, and the static files they import. A renderer
+draws only its output (its scripts name no page, host or network global), in a shadow root of its
+own, the only place `renderers.css` applies.
 `renderers.js`'s default export maps output class names to `(value, {task, verdict, send}) =>
 Element`, for an output the generic view draws poorly (a board, a paper list); `{}` when
 there are none. NanoAgent refuses a plugin whose `ui/` holds `app.js` or `app.css`, and the kit

@@ -218,7 +218,13 @@ unless:
   each `(value, {task, verdict, send}) => Element` (`{}` in the template);
 - every script imports only by a literal `./` or `../` path, of the kit's
   modules (`./kit/components.js`) or the plugin's own files in `ui/`: no URLs,
-  no package names, no computed `import()`.
+  no package names, no computed `import()`;
+- no script names `document`, `window`, `parent`, `fetch` or another page,
+  host or network global (`UI_GLOBALS`): a renderer draws only its output.
+
+The kit draws each renderer's output in a shadow root of its own, the only
+place `renderers.css` applies, so a plugin's styles never reach the page's
+layout.
 
 Renderers build from `./kit/components.js` (`h`, `card`, `dataTable`,
 `banner`, `statusPill`, `disclosure`, `meter`, `markdown`, `schemaView`, the

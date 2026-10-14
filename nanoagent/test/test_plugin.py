@@ -1073,6 +1073,28 @@ def test_ui_scripts_import_only_what_nanoagent_serves(tmp_path: Path) -> None:
     ]
 
 
+def test_ui_scripts_draw_only_their_output(tmp_path: Path) -> None:
+    from nanoagent.plugin import PluginError
+
+    write_plugin(tmp_path)
+    (tmp_path / "ui" / "renderers.js").write_text(
+        "// Draws the document's window, from a comment: allowed.\n"
+        'import { h } from "./kit/components.js";\n'
+        "const style = document.createElement(`style`);\n"
+        "const note = `the window ${window.innerWidth}`;\n"
+        'parent.postMessage({ top: "document" }, "*");\n'
+        "export default { EchoOutput: (value) => h(\"p\", { text: value.location }) };\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(PluginError) as error:
+        load_manifest(tmp_path)
+    assert error.value.violations == [
+        "ui/renderers.js uses document: a renderer draws only its output, with the kit's modules",
+        "ui/renderers.js uses window: a renderer draws only its output, with the kit's modules",
+        "ui/renderers.js uses parent: a renderer draws only its output, with the kit's modules",
+    ]
+
+
 def test_serves_the_plugin_page_in_nanoagents_own_kit(tmp_path: Path) -> None:
     from nanoagent.plugin.manifest import PAGE
     from nanoagent.web.app import _ui_file

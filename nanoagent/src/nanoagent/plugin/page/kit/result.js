@@ -103,8 +103,20 @@ export function resultCard(task, { output, verdict }, renderer, send) {
     { class: "card result-card" },
     h("header", { class: "result-head" }, h("h3", { text: task.description }), badge),
     verdict.valid ? null : h("p", { class: "error-text", text: verdict.message }),
-    renderer ? renderer(output, { task, verdict, send }) : schemaView(output, task.outputSchema),
+    renderer ? scoped(renderer(output, { task, verdict, send })) : schemaView(output, task.outputSchema),
   );
+}
+
+/**
+ * `node`, a renderer's output, in a shadow root of its own with the kit's styles and the plugin's
+ * renderers.css: the plugin's styles reach only its renderers' output, never the page around it.
+ * @param {Node} node
+ * @returns {HTMLElement}
+ */
+function scoped(node) {
+  const host = h("div", { class: "renderer" });
+  host.attachShadow({ mode: "open" }).append(h("link", { rel: "stylesheet", href: "kit/kit.css" }), h("link", { rel: "stylesheet", href: "renderers.css" }), node);
+  return host;
 }
 
 /**

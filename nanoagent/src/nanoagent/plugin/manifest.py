@@ -37,7 +37,10 @@ raises :class:`PluginError` listing every broken rule at once:
    sandboxed frame that talks to NanoAgent only through the ``nanoagent.ui/v1`` bridge
    (docs/plans/ai-native-plugins.md). ``renderers.js`` has a default export, the renderers by
    output class name. Every script imports only by a literal path relative to itself: the kit's
-   modules and the plugin's own files in ``ui/``.
+   modules and the plugin's own files in ``ui/``. A renderer draws only its output, with the kit's
+   modules: the scripts name none of :data:`UI_GLOBALS`, the page, its host or the network, and
+   the kit draws each output in a shadow root of its own, the only place ``renderers.css``
+   applies, so the plugin's styles reach nothing around it.
 9. ``product/`` is the plugin's product page, what a catalog shows people before they open it,
    and holds exactly :data:`PRODUCT_FILES`. ``product.yaml`` fills :class:`ProductConfig`
    (``_ > nanoagent.plugin.manifest.ProductConfig:``): a tagline, a summary, 2 to 4 highlights
@@ -128,6 +131,13 @@ UI_SCRIPTS = frozenset({".js", ".mjs"})
 UI_DEFAULT_EXPORT = re.compile(r"^\s*export\s+default\b|\bas\s+default\b", re.MULTILINE)
 UI_IMPORT = re.compile(r"""\b(?:import|export)\s*(?:[\w$*{}\s,]*?\s*from\s*)?(["'])(.*?)\1""")
 UI_DYNAMIC_IMPORT = re.compile(r"""\bimport\s*\((?:\s*(["'])(.*?)\1\s*\))?""")
+# What a renderer's scripts never name (rule 8): the page, its host and the network.
+UI_GLOBALS = (
+    "document", "window", "globalThis", "self", "parent", "top", "opener", "frames", "location", "history",
+    "navigator", "postMessage", "eval", "Function", "fetch", "XMLHttpRequest", "WebSocket", "EventSource",
+    "localStorage", "sessionStorage", "indexedDB",
+)
+UI_GLOBAL = re.compile(r"(?<![\w$.])(" + "|".join(UI_GLOBALS) + r")(?![\w$])(?!\s*:(?!:))")
 # What git, uv, Python and the test tools create in a checkout: allowed anywhere, never checked.
 TOOL_ARTIFACTS = frozenset(
     {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".DS_Store"}
@@ -477,8 +487,60 @@ def _ui_violations(ui: Path) -> list[str]:
     served = {path.relative_to(ui).as_posix() for path in files}
     for path in files:
         if path.suffix.lower() in UI_SCRIPTS and not is_page_path(path.relative_to(ui).as_posix()):
-            violations += _import_violations(path.relative_to(ui), path.read_text(encoding="utf-8"), served)
+            text = path.read_text(encoding="utf-8")
+            violations += _import_violations(path.relative_to(ui), text, served)
+            violations += [
+                f"ui/{path.relative_to(ui).as_posix()} uses {name}: a renderer draws only its output, with the kit's modules"
+                for name in dict.fromkeys(match.group(1) for match in UI_GLOBAL.finditer(_js_code(text)))
+            ]
     return violations
+
+
+def _js_code(text: str) -> str:
+    """``text``, a script, with its comments and the text of its strings blanked: what it runs."""
+    out: list[str] = []
+    depths: list[int] = []  # the brace depth of each template literal's open ${...}
+    i, n = 0, len(text)
+
+    def skip_template(i: int) -> int:
+        """From inside a template literal to its end, or into its next ${...}."""
+        while i < n:
+            if text[i] == "\\":
+                i += 2
+            elif text[i] == "`":
+                return i + 1
+            elif text.startswith("${", i):
+                depths.append(0)
+                return i + 2
+            else:
+                i += 1
+        return n
+
+    while i < n:
+        char = text[i]
+        if text.startswith("//", i):
+            i = text.find("\n", i) if "\n" in text[i:] else n
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+        elif char in "'\"":
+            i += 1
+            while i < n and text[i] != char and text[i] != "\n":
+                i += 2 if text[i] == "\\" else 1
+            i += 1
+        elif char == "`":
+            i = skip_template(i + 1)
+        elif char == "}" and depths and depths[-1] == 0:
+            depths.pop()
+            i = skip_template(i + 1)
+        else:
+            if depths and char in "{}":
+                depths[-1] += 1 if char == "{" else -1
+            out.append(char)
+            i += 1
+            continue
+        out.append(" ")
+    return "".join(out)
 
 
 def _import_violations(script: Path, text: str, served: set[str]) -> list[str]:

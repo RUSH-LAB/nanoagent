@@ -13,6 +13,11 @@ only says how to draw its outputs.
 - `ui/renderers.js` has a default export, the renderers by output class name.
 - Every script imports only by a literal `./` or `../` path, of the kit's modules or the plugin's
   own files in `ui/`: no URLs, no package names, no computed `import()`.
+- A renderer draws only its output, with the kit's modules: no script names `document`, `window`,
+  `parent`, `fetch` or the other page, host and network globals in `UI_GLOBALS` (comments and
+  strings aside). The kit draws each renderer's output in a shadow root of its own, with
+  `kit.css` and `renderers.css`, the only place `renderers.css` applies: the plugin's styles
+  reach nothing around its output, so the page's layout is the same for every plugin.
 - `ui/` holds only static web files: `.html .js .mjs .css .svg .png .jpg .jpeg .gif .webp .ico
   .woff .woff2 .json .md`, at most 5 MB in total. Nothing is built at load time; a plugin that
   uses a bundler commits the built files.
@@ -97,7 +102,7 @@ plugin's renderers:
 
 ```
 src/nanoagent/plugin/page/   NanoAgent's, served to every plugin
-  index.html     loads kit/kit.css, then renderers.css, then kit/boot.js as a module
+  index.html     loads kit/kit.css, preloads renderers.css, loads kit/boot.js as a module
   kit/
     boot.js        mounts the page with renderers.js's default export
     components.js  the one import a renderer needs (re-exports what renderers use)
