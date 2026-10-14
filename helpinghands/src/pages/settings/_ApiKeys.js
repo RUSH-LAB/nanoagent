@@ -97,35 +97,36 @@ export default function ApiKeys({computer, onSaved}) {
           <input id="ai-openrouter-key" className={`${styles.input} ${ai.keyInput}`} placeholder="Paste your key" disabled />
         )}
       </div>
-      {credit && !editing && (
-        <div className={ai.credit}>
-          <Spend label="You" {...credit.you} />
-          <Spend label="Total" {...credit.total} />
-        </div>
-      )}
+      {credit && !editing && <Spend {...credit} />}
     </form>
   );
 }
 
 const money = value => `$${value.toFixed(2)}`;
 
-/** One spend: a bar against its limit, or the amount alone without one. */
-function Spend({label, used, total}) {
-  if (total == null) return <span>{`${label}: ${money(used)} used`}</span>;
-  const spent = Math.min(used, total);
+/**
+ * What the key's spend is: the cap's bar, what everyone has spent filling it and the member's
+ * own part of that marked in it; the amounts alone for a key without a cap.
+ */
+function Spend({you, total: {used, cap}}) {
+  const line = `You: ${money(you)} · Total: ${money(used)}${cap == null ? '' : ` of ${money(cap)}`} used`;
+  if (cap == null) return <div className={ai.credit}>{line}</div>;
+  const share = value => `${cap > 0 ? (Math.min(value, cap) / cap) * 100 : 100}%`;
   return (
-    <>
+    <div className={ai.credit}>
       <div
         className={ai.creditBar}
         role="meter"
-        aria-label={`${label}: OpenRouter credit used`}
+        aria-label="OpenRouter spend against the cap"
         aria-valuemin={0}
-        aria-valuemax={total}
-        aria-valuenow={spent}
+        aria-valuemax={cap}
+        aria-valuenow={Math.min(used, cap)}
       >
-        <div className={ai.creditUsed} style={{width: total > 0 ? `${(spent / total) * 100}%` : '100%'}} />
+        <div className={ai.creditUsed} style={{width: share(used)}}>
+          <div className={ai.creditYours} style={{width: used > 0 ? `${(Math.min(you, used) / used) * 100}%` : '0%'}} />
+        </div>
       </div>
-      <span>{`${label}: ${money(spent)} of ${money(total)} used`}</span>
-    </>
+      <span>{line}</span>
+    </div>
   );
 }

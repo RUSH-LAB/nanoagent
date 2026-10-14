@@ -24,9 +24,9 @@ page is on the member's own computer, through Mochi Lab
 - An OpenRouter management key, `OPENROUTER_MANAGEMENT_KEY`: a member's Mochi
   Lab that connects without an OpenRouter key is given one of its own on this
   account, in the OpenRouter workspace `mochi` that Mochi makes, with a
-  lifetime budget of $10 for every member together and $5 for each
-  (`src/server/openrouter-keys.js`); OpenRouter stops a key at whichever is
-  spent first. Mochi keeps only each key's hash; a member who saves their own
+  lifetime budget of $10 for every member together
+  (`src/server/openrouter-keys.js`); OpenRouter stops every key in it once
+  that is spent. Mochi keeps none of the keys; a member who saves their own
   key is given none. Without it, members add their own.
 
 The current deployment target is Railway. It builds the committed `Dockerfile`,

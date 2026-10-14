@@ -3,103 +3,93 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 
 const require = createRequire(import.meta.url);
-const {createOpenRouterKeys, CREDIT, TOTAL} = require('../../../src/server/openrouter-keys.js');
+const {createOpenRouterKeys, TOTAL} = require('../../../src/server/openrouter-keys.js');
 
-/** OpenRouter's /keys and /workspaces, in memory: each key's limit and usage by hash, and the budgets. */
-function fakeOpenRouter({workspace = false} = {}) {
+/** OpenRouter's /keys and /workspaces, in memory: each key by hash, and the budgets set. */
+function fakeOpenRouter({workspace = false, pageSize = 2} = {}) {
   const keys = new Map();
   const calls = [];
   const budgets = {};
   let next = 0;
   let made = workspace;
   const fetchImpl = async (url, init) => {
-    const full = new URL(url).pathname.replace('/api/v1', '');
+    const {pathname, searchParams} = new URL(url);
+    const path = pathname.replace('/api/v1', '');
+    calls.push(`${init.method} ${path}`);
     assert.equal(init.headers.Authorization, 'Bearer mgmt');
     const answer = body => new Response(JSON.stringify(body), {status: 200});
-    if (full.startsWith('/workspaces')) {
-      calls.push(`${init.method} ${full}`);
-      if (init.method === 'GET') return made ? answer({data: {id: 'ws1'}}) : new Response('{"error":"not found"}', {status: 404});
-      if (init.method === 'POST') {
-        assert.deepEqual(JSON.parse(init.body), {name: 'Mochi', slug: 'mochi'});
-        made = true;
-        return answer({data: {id: 'ws1'}});
-      }
-      budgets[full] = JSON.parse(init.body);
+    if (path === '/workspaces/mochi') return made ? answer({data: {id: 'ws1'}}) : new Response('{"error":"not found"}', {status: 404});
+    if (path === '/workspaces') {
+      assert.deepEqual(JSON.parse(init.body), {name: 'Mochi', slug: 'mochi'});
+      made = true;
+      return answer({data: {id: 'ws1'}});
+    }
+    if (path.startsWith('/workspaces/')) {
+      budgets[path] = JSON.parse(init.body);
       return answer({data: {}});
     }
-    const path = full.replace('/keys', '');
-    calls.push(`${init.method} ${path || '/'}`);
-    if (init.method === 'POST') {
-      const {limit, workspace_id: workspaceId} = JSON.parse(init.body);
-      assert.equal(workspaceId, 'ws1');
-      const hash = `h${next += 1}`;
-      keys.set(hash, {limit, usage: 0});
-      return answer({data: {hash, limit}, key: `sk-or-v1-0000000000${hash}`});
+    if (path === '/keys' && init.method === 'GET') {
+      assert.equal(searchParams.get('workspace_id'), 'ws1');
+      assert.equal(searchParams.get('include_disabled'), 'true');
+      const offset = Number(searchParams.get('offset'));
+      return answer({data: [...keys.values()].slice(offset, offset + pageSize)});
     }
-    const key = keys.get(path.slice(1));
-    if (!key) return new Response('{"error":"not found"}', {status: 404});
-    if (init.method === 'GET') return answer({data: {limit_remaining: key.limit - key.usage}});
-    keys.delete(path.slice(1));
-    return answer({deleted: true});
+    if (path === '/keys') {
+      const body = JSON.parse(init.body);
+      assert.equal(body.workspace_id, 'ws1');
+      const hash = `h${next += 1}`;
+      keys.set(hash, {hash, name: body.name, usage: 0, disabled: false});
+      return answer({data: {hash}, key: `sk-or-${hash}`});
+    }
+    Object.assign(keys.get(path.replace('/keys/', '')), JSON.parse(init.body));
+    return answer({data: {}});
   };
   return {keys, calls, budgets, fetchImpl};
 }
 
-function fakeGrants() {
-  const rows = new Map();
-  return {rows, hash: async userId => rows.get(userId) ?? null, put: async (userId, hash) => { rows.set(userId, hash); }};
-}
-
 describe('the OpenRouter key Mochi gives a member (server/openrouter-keys.js)', () => {
-  it('makes a member their first key with all of their credit, keeping only its hash', async () => {
-    const openrouter = fakeOpenRouter();
-    const grants = fakeGrants();
-    const keys = createOpenRouterKeys({managementKey: 'mgmt', grants, fetchImpl: openrouter.fetchImpl});
-    assert.equal(await keys.give('u1'), 'sk-or-v1-0000000000h1');
-    assert.deepEqual(openrouter.keys.get('h1'), {limit: CREDIT, usage: 0});
-    assert.equal(grants.rows.get('u1'), 'h1');
-  });
-
   it('makes Mochi\'s workspace once, with every member\'s budget together, and finds it after', async () => {
     const openrouter = fakeOpenRouter();
-    const keys = createOpenRouterKeys({managementKey: 'mgmt', grants: fakeGrants(), fetchImpl: openrouter.fetchImpl});
-    await keys.give('u1');
+    const keys = createOpenRouterKeys({managementKey: 'mgmt', fetchImpl: openrouter.fetchImpl});
+    assert.equal(await keys.give('u1'), 'sk-or-h1');
     await keys.give('u2');
     assert.deepEqual(openrouter.budgets, {'/workspaces/ws1/budgets/lifetime': {limit_usd: TOTAL}});
     assert.deepEqual(openrouter.calls.filter(call => call.includes('workspaces')), [
       'GET /workspaces/mochi', 'POST /workspaces', 'PUT /workspaces/ws1/budgets/lifetime',
     ]);
     const found = fakeOpenRouter({workspace: true});
-    const again = createOpenRouterKeys({managementKey: 'mgmt', grants: fakeGrants(), fetchImpl: found.fetchImpl});
+    const again = createOpenRouterKeys({managementKey: 'mgmt', fetchImpl: found.fetchImpl});
     assert.equal(await again.workspaceId(), 'ws1');
     assert.deepEqual(found.calls, ['GET /workspaces/mochi', 'PUT /workspaces/ws1/budgets/lifetime']);
   });
 
-  it('replaces a member\'s key with one holding what it had left, and none once it is spent', async () => {
+  it('gives a member a new key, disabling their others, and counts what they spent on all of them', async () => {
     const openrouter = fakeOpenRouter();
-    const grants = fakeGrants();
-    const keys = createOpenRouterKeys({managementKey: 'mgmt', grants, fetchImpl: openrouter.fetchImpl});
+    const keys = createOpenRouterKeys({managementKey: 'mgmt', fetchImpl: openrouter.fetchImpl});
     await keys.give('u1');
-    openrouter.keys.get('h1').usage = 3.5;
-    assert.equal(await keys.give('u1'), 'sk-or-v1-0000000000h2');
-    assert.deepEqual([...openrouter.keys], [['h2', {limit: 1.5, usage: 0}]]);
-    assert.equal(grants.rows.get('u1'), 'h2');
-    openrouter.keys.get('h2').usage = 1.5;
-    assert.equal(await keys.give('u1'), null);
-    assert.deepEqual(openrouter.calls.filter(call => !call.includes('workspaces')), ['POST /', 'GET /h1', 'POST /', 'DELETE /h1', 'GET /h2']);
+    await keys.give('u2');
+    openrouter.keys.get('h1').usage = 1.5;
+    openrouter.keys.get('h2').usage = 4;
+    assert.equal(await keys.give('u1'), 'sk-or-h3');
+    openrouter.keys.get('h3').usage = 0.25;
+    assert.deepEqual([...openrouter.keys.values()].map(key => [key.hash, key.name, key.disabled]), [
+      ['h1', 'Mochi u1', true], ['h2', 'Mochi u2', false], ['h3', 'Mochi u1', false],
+    ]);
+    assert.equal(await keys.spent('u1'), 1.75);
+    assert.equal(await keys.spent('u2'), 4);
+    assert.equal(await keys.spent('u3'), 0);
   });
 
-  it('makes one key at a time for a member, so two computers at once share one credit', async () => {
+  it('makes one key at a time for a member, so two computers at once leave one enabled', async () => {
     const openrouter = fakeOpenRouter();
-    const keys = createOpenRouterKeys({managementKey: 'mgmt', grants: fakeGrants(), fetchImpl: openrouter.fetchImpl});
+    const keys = createOpenRouterKeys({managementKey: 'mgmt', fetchImpl: openrouter.fetchImpl});
     await Promise.all([keys.give('u1'), keys.give('u1')]);
-    assert.deepEqual([...openrouter.keys.keys()], ['h2']);
-    assert.equal(openrouter.keys.get('h2').limit, CREDIT);
+    assert.deepEqual([...openrouter.keys.values()].filter(key => !key.disabled).map(key => key.hash), ['h2']);
   });
 
   it('fails clearly when OpenRouter refuses', async () => {
     const keys = createOpenRouterKeys({
-      managementKey: 'mgmt', grants: fakeGrants(), fetchImpl: async () => new Response('{"error":"bad key"}', {status: 401}),
+      managementKey: 'mgmt', fetchImpl: async () => new Response('{"error":"bad key"}', {status: 401}),
     });
     await assert.rejects(keys.give('u1'), /OpenRouter GET \/workspaces\/mochi failed \(401\)/);
   });

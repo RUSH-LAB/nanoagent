@@ -43,7 +43,7 @@ const {createAgentSync} = require('./fs/agent-sync');
 const {createWorkspaceApps} = require('./workspace-apps');
 const {createAppRuns} = require('./app-runs');
 const {createRunners} = require('./runner');
-const {createOpenRouterKeys, CREDIT, TOTAL} = require('./openrouter-keys');
+const {createOpenRouterKeys, TOTAL} = require('./openrouter-keys');
 // The per-workspace data layer. See server/store/index.js: the only way a route
 // module is allowed to reach the thirteen features' data, because it is the
 // only way that applies the organization and the owner without being asked to.
@@ -53,9 +53,9 @@ const store = postgresServices?.store ?? require('./store');
 // everything else here: a test substitutes them.
 const documents = postgresServices?.documents ?? require('./documents');
 const preferences = postgresServices?.preferences ?? require('./preferences');
-// The OpenRouter key Mochi gives each member's computer, on its own account; PostgreSQL only.
-const openrouterKeys = postgresServices && process.env.OPENROUTER_MANAGEMENT_KEY?.trim()
-  ? createOpenRouterKeys({managementKey: process.env.OPENROUTER_MANAGEMENT_KEY.trim(), grants: postgresServices.openrouterGrants})
+// The OpenRouter key Mochi gives each member's computer, on its own account.
+const openrouterKeys = process.env.OPENROUTER_MANAGEMENT_KEY?.trim()
+  ? createOpenRouterKeys({managementKey: process.env.OPENROUTER_MANAGEMENT_KEY.trim()})
   : null;
 // Members' own computers, which run every NanoAgent call of theirs.
 const runners = createRunners({resolveIdentity, openrouterKeys});
@@ -901,8 +901,8 @@ postgresDatabase.ready.then(() => ensureRootUser(auth)).then(root => server.list
   const catalog = ai.describe();
   console.log(catalog.available ? '  Plugin catalog: NanoAgent' : `  Plugin catalog: unavailable. ${catalog.reason}`);
   console.log(openrouterKeys
-    ? `  OpenRouter keys: each member's computer is given one, $${CREDIT} each and $${TOTAL} for everyone`
-    : '  OpenRouter keys: none given (needs OPENROUTER_MANAGEMENT_KEY and PostgreSQL)');
+    ? `  OpenRouter keys: each member's computer is given one, $${TOTAL} for every member together`
+    : '  OpenRouter keys: none given (needs OPENROUTER_MANAGEMENT_KEY)');
 
   cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));
   console.log(`  Root: GitHub ${root.login} (owner)${root.created ? ', account created' : ''}`);

@@ -58,7 +58,13 @@
 
 .creditUsed {
   height: 100%;
-  background: var(--ifm-color-primary);
+  background: color-mix(in srgb, var(--ifm-color-primary) 35%, transparent);
+}
+
+/* The member's own part of what everyone has spent. */
+.creditYours {
+  height: 100%;
+  background: var(--ifm-color-primary-dark);
 }
 
 /* The model every run is on, one row for each thing the computer's catalog knows of it. */

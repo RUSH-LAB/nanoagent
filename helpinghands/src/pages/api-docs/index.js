@@ -396,8 +396,8 @@ const CATEGORIES = [
         response: '{ "connected": true, "device": "laptop", "keys": [{ "env": "OPENROUTER_API_KEY", "label": "OpenRouter", "set": true }] }',
       },
       {
-        method: 'GET', path: '/api/runner/credit', description: 'What the OpenRouter key in Mochi Lab has spent, in dollars, as OpenRouter says: `you`, your spend against your $5 (of all Mochi gave you when it is Mochi\'s key, else the key\'s own); `total`, every member\'s together against the workspace\'s lifetime budget, or the key\'s own spend against its limit (null for none). Null while Mochi Lab holds no OpenRouter key.',
-        response: '{ "credit": { "you": { "used": 1.25, "total": 5 }, "total": { "used": 6, "total": 10 } } }',
+        method: 'GET', path: '/api/runner/credit', description: 'What the OpenRouter key in Mochi Lab has spent, in dollars, as OpenRouter says: `you`, what you have spent (on every key Mochi gave you, when it is Mochi\'s key); `total`, what everyone has spent against the cap, the workspace\'s lifetime budget, or the key\'s own spend against its limit (null for none). Null while Mochi Lab holds no OpenRouter key.',
+        response: '{ "credit": { "you": 1.25, "total": { "used": 6, "cap": 10 } } }',
       },
       {
         method: 'PUT', path: '/api/runner/keys', description: 'Set (a key) or remove (null) API keys in Mochi Lab. Mochi passes them on and keeps nothing; your runs use them at once.',

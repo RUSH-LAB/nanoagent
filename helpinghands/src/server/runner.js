@@ -198,7 +198,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
     const slot = entry.keys.find(key => key.env === openrouterKeys?.ENV);
     if (!slot || slot.set) return;
     openrouterKeys.give(userId)
-      .then(key => key && !entry.closed && api.saveKeys(userId, {[slot.env]: key}))
+      .then(key => !entry.closed && api.saveKeys(userId, {[slot.env]: key}))
       .then(result => { if (result?.error) throw new Error(result.error); })
       .catch(error => console.error(`[runner] Could not give ${userId} an OpenRouter key:`, error.message));
   }
