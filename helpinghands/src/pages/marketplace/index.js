@@ -16,7 +16,7 @@ import styles from './styles.module.css';
  * own plugins and the ones people publish from GitHub. A workspace's owner adds
  * a plugin to the workspace (server/routes/apps.js), and then every member uses
  * it on the Plugins page, where NanoAgent runs it in a sandbox: it reaches only
- * the hosts it declares and writes only to the member's agent folder. A tile
+ * the hosts it declares and writes only to the member's folder for it. A tile
  * opens the plugin's product page in place of the gallery; `?plugin=` names
  * it, so it can be linked. A plugin names no tags: a workspace tags the ones it
  * added (Settings → Plugins). A published plugin is checked against the plugin

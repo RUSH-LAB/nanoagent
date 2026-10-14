@@ -1,5 +1,6 @@
 /**
- * Two-way sync between a workspace file system and a local folder.
+ * Two-way sync between a workspace file system and a local folder: the mochi
+ * CLI's (cli/mochi.mjs) and Mochi Lab's (files.mjs).
  *
  * Every cycle compares three views of each path: the file on disk, the file in
  * the workspace, and what both looked like after the last successful sync (the
@@ -231,4 +232,72 @@ export async function syncOnce({root, api, state, saveState, rejected = new Map(
     log(`${relative} is online only`);
   }
   return operations;
+}
+
+/** A client for one server. Errors carry the HTTP status, or 0 when the server is unreachable. */
+export function connect(server, token) {
+  return async function request(method, route, {body, headers = {}, raw = false} = {}) {
+    let response;
+    try {
+      response = await fetch(`${server}${route}`, {
+        method,
+        headers: {
+          // Node's fetch sends Fetch Metadata headers, which make Better Auth
+          // require an origin. The server's own origin is a trusted one.
+          Origin: server,
+          ...(token ? {Authorization: `Bearer ${token}`} : {}),
+          ...(body === undefined ? {} : {'Content-Type': Buffer.isBuffer(body) ? 'application/octet-stream' : 'application/json'}),
+          ...headers,
+        },
+        body: body === undefined ? undefined : Buffer.isBuffer(body) ? body : JSON.stringify(body),
+      });
+    } catch (error) {
+      throw Object.assign(new Error(`Cannot reach ${server}: ${error.cause?.message ?? error.message}`), {status: 0});
+    }
+    if (response.status === 304) return {response, data: null};
+    if (raw && response.ok) return {response, data: Buffer.from(await response.arrayBuffer())};
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw Object.assign(new Error(data.error || data.message || `${method} ${route} failed with ${response.status}`),
+        {status: response.status});
+    }
+    return {response, data};
+  };
+}
+
+/**
+ * The file system API `syncOnce` expects, over one workspace's /fs endpoints: the
+ * whole workspace, or only what is under the folder `prefix`, by paths relative to it.
+ */
+export function filesApi(request, workspaceId, {prefix = ''} = {}) {
+  const base = `/api/workspaces/${encodeURIComponent(workspaceId)}/fs`;
+  const full = filePath => (prefix ? `${prefix}/${filePath}` : filePath);
+  const query = filePath => `path=${encodeURIComponent(full(filePath))}`;
+  const relative = node => ({...node, path: prefix ? node.path.slice(prefix.length + 1) : node.path});
+  const tree = prefix ? `${base}/tree?prefix=${encodeURIComponent(prefix)}` : `${base}/tree`;
+  let etag = null;
+  let files = null;
+  return {
+    async list() {
+      const {response, data} = await request('GET', tree, {headers: etag ? {'If-None-Match': etag} : {}});
+      if (data) {
+        etag = response.headers.get('etag');
+        files = data.nodes.filter(node => node.kind === 'file').map(node => relative({path: node.path, id: node.id, rev: node.rev}));
+      }
+      return files;
+    },
+    async get(filePath) {
+      const {response, data} = await request('GET', `${base}/file?${query(filePath)}`, {raw: true});
+      return {body: data, id: response.headers.get('x-node-id'), rev: Number(response.headers.get('x-rev'))};
+    },
+    async put(filePath, body, baseRev) {
+      return relative((await request('PUT', `${base}/file?${query(filePath)}&baseRev=${baseRev}`, {body})).data.node);
+    },
+    async remove(filePath, baseRev) {
+      await request('DELETE', `${base}/node?${query(filePath)}&baseRev=${baseRev}`);
+    },
+    async move(from, to, baseRev) {
+      return relative((await request('POST', `${base}/move`, {body: {from: full(from), to: full(to), baseRev}})).data.node);
+    },
+  };
 }

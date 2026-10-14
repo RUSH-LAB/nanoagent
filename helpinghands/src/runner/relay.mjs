@@ -11,6 +11,7 @@
  *   RUNNER_CREDENTIALS    where the member's session token is kept (mode 0600)
  *   RUNNER_DEVICE         what Settings → AI calls this computer
  *   RUNNER_KEYS           which API keys Mochi Lab holds: [{env, label, set}], as JSON
+ *   RUNNER_FILES          the folder kept in sync with the member's own files (files.mjs)
  * and reads what happens as JSON lines on stdout:
  *   {"event": "sign-in", "url", "code"}   open url in a browser and approve code
  *   {"event": "connected"}                runs may come
@@ -25,6 +26,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
+import {syncFiles} from './files.mjs';
 
 const {PATH, HOLD_MS, allowed, pickHeaders} = createRequire(import.meta.url)('./protocol.js');
 
@@ -121,9 +123,9 @@ function drop(held, id) {
  * but the held ones, which `held` keeps from one connection to the next.
  * `keys` is which API keys this computer holds, `saveKeys(changes)` applies new
  * ones, and `onKeys(listener)` hears which are set whenever that changes, to
- * tell Mochi again.
+ * tell Mochi again. `onRelease` hears that Mochi has kept what a held request did.
  */
-export function connect({site, nanoagent, nanoagentToken, token, device, keys = [], saveKeys, onKeys, held = new Map(), onEvent = say}) {
+export function connect({site, nanoagent, nanoagentToken, token, device, keys = [], saveKeys, onKeys, onRelease, held = new Map(), onEvent = say}) {
   return new Promise(resolve => {
     const url = new URL(PATH, site);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -157,8 +159,10 @@ export function connect({site, nanoagent, nanoagentToken, token, device, keys = 
         clearTimeout(run.timer);
         run.send = send;
         for (const message of run.frames.slice(frame.from)) send(message);
-      } else if (frame.type === 'release') drop(held, frame.id);
-      else if (frame.type === 'keys') {
+      } else if (frame.type === 'release') {
+        drop(held, frame.id);
+        onRelease?.();
+      } else if (frame.type === 'keys') {
         saveKeys(frame.changes).then(
           () => send({type: 'saved', id: frame.id}),
           error => send({type: 'error', id: frame.id, message: error.message}),
@@ -196,12 +200,12 @@ async function readToken(file) {
   }
 }
 
-/** Whether Mochi still knows `token`: true, false, or null when Mochi cannot be reached. */
+/** The member Mochi knows `token` as: their id, false when it knows it no more, or null when Mochi cannot be reached. */
 async function signedIn(site, token) {
   try {
     const response = await fetch(`${site}/api/auth/get-session`, {headers: {Authorization: `Bearer ${token}`}});
     if (!response.ok) return null;
-    return Boolean((await response.json())?.user);
+    return (await response.json())?.user?.id ?? false;
   } catch {
     return null;
   }
@@ -239,6 +243,7 @@ function supervisorKeys() {
 async function main(env) {
   const site = new URL(env.MOCHI_SITE_URL).origin;
   const credentials = env.RUNNER_CREDENTIALS;
+  if (!env.RUNNER_FILES) throw new Error('RUNNER_FILES names no folder for the member\'s files');
   const options = {
     site,
     nanoagent: env.NANOAGENT_URL.replace(/\/$/, ''),
@@ -253,7 +258,8 @@ async function main(env) {
   options.onKeys(list => { keys = list; });
   let token = await readToken(credentials);
   for (let attempt = 0; ; attempt += 1) {
-    if (token && await signedIn(site, token) === false) {
+    let userId = token && await signedIn(site, token);
+    if (userId === false) {
       await fs.rm(credentials, {force: true});
       token = null;
     }
@@ -261,9 +267,16 @@ async function main(env) {
       token = await signIn(site);
       await fs.mkdir(path.dirname(credentials), {recursive: true, mode: 0o700});
       await fs.writeFile(credentials, `${JSON.stringify({site, token})}\n`, {mode: 0o600});
+      userId = await signedIn(site, token);
     }
+    // The member's files sync while Mochi can be reached, and again as soon as a run's are kept.
+    const files = userId ? syncFiles({
+      site, token, userId, root: env.RUNNER_FILES,
+      log: message => console.error(`${new Date().toISOString()} files: ${message}`),
+    }) : null;
     const opened = Date.now();
-    const {code, reason} = await connect({...options, keys, token});
+    const {code, reason} = await connect({...options, keys, token, onRelease: () => files?.sync()});
+    files?.stop();
     say({event: 'disconnected', reason: String(reason || code)});
     // Another computer took this member's runs; this one stops.
     if (code === REPLACED) return;

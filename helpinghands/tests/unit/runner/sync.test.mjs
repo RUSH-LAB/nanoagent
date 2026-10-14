@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {syncOnce} from '../../../cli/sync.mjs';
+import {syncOnce} from '../../../src/runner/sync.mjs';
 
 /** An in-memory workspace file system with the server's revision check. */
 function fakeServer(initial = {}) {

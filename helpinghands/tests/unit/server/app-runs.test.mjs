@@ -41,7 +41,7 @@ function restarted(rows = [{id: 'run-1', folder: 'folder-1', sent: {'a.md': {rev
   };
   const runs = createAppRuns({
     sessions,
-    agentSync: {prepare: async () => assert.fail('a run taken up again has its folder'), finish: async (_scope, _ai, folder) => finished.push(folder)},
+    agentSync: {prepare: async () => assert.fail('a run taken up again has its folder'), finish: async (_scope, _ai, pluginId, folder) => finished.push({pluginId, ...folder})},
     runners: {aiFor: async () => ai, release: (userId, id) => released.push([userId, id])},
     aiMeter: ctx.aiMeter,
   });
@@ -60,7 +60,7 @@ describe('plugin runs a restarted Mochi finds', () => {
       {run: {id: 'run-1', resume: true}, workspace: 'folder-1', install: 'a'.repeat(64), app: 'echo'},
     ]);
     assert.deepEqual(events, ['delta', 'done', 'end']);
-    assert.deepEqual(finished, [{workspace: 'folder-1', sent: {'a.md': {rev: 1, contentHash: 'x'}}}]);
+    assert.deepEqual(finished, [{pluginId: 'echo', workspace: 'folder-1', sent: {'a.md': {rev: 1, contentHash: 'x'}}}]);
     assert.deepEqual(sessions.turns.map(({prompt, answer, error}) => ({prompt, answer, error})), [{prompt: 'save it', answer: 'Saved it.', error: null}]);
     assert.equal(sessions.rows.size, 0);
     assert.deepEqual(released, [['test-user', 'run-1']]);

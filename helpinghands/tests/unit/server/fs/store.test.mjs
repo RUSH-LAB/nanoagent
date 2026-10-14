@@ -120,6 +120,13 @@ describe('workspace file system', () => {
     assert.ok(await fs.stat(vic, 'team/notes.md'));
   });
 
+  it('makes a member\'s home private to them however its first file lands', async () => {
+    await fs.write(vic, 'home/vic/notes/a.md', '# Mine\n');
+    const home = await fs.stat(vic, 'home/vic');
+    assert.deepEqual([home.access, home.ownerId], ['private', 'vic']);
+    assert.equal(await fs.stat(bob, 'home/vic/notes/a.md'), null);
+  });
+
   it('lets a viewer read but not write', async () => {
     assert.ok(await fs.read(vic, 'notes/a.md'));
     await assert.rejects(() => fs.write(vic, 'notes/b.md', 'nope'));

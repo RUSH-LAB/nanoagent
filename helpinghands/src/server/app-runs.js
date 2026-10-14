@@ -86,7 +86,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
     try {
       const ai = await runners.aiFor(row.userId);
       if (!folder) {
-        folder = await agentSync.prepare(context, ai);
+        folder = await agentSync.prepare(context, ai, row.pluginId);
         await sessions.setRunFolder(context, row.id, folder);
       }
       result = await ai.stream({
@@ -115,7 +115,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
     let unsaved = null;
     if (folder) {
       try {
-        await agentSync.finish(context, await runners.aiFor(row.userId), folder);
+        await agentSync.finish(context, await runners.aiFor(row.userId), row.pluginId, folder);
       } catch (error) {
         unsaved = `What the run did could not be written back to your agent folder: ${error.message}`;
       }
@@ -143,7 +143,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
     let error = reason;
     if (row.folder) {
       try {
-        await agentSync.finish(context, await runners.aiFor(row.userId), {workspace: row.folder, sent: row.sent});
+        await agentSync.finish(context, await runners.aiFor(row.userId), row.pluginId, {workspace: row.folder, sent: row.sent});
       } catch (problem) {
         error = `${reason} What it did could not be written back to your agent folder: ${problem.message}`;
       }

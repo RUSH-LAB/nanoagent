@@ -185,6 +185,8 @@ function lendNanoAgent(env, apiPort) {
       NANOAGENT_URL: nanoagent,
       RUNNER_CREDENTIALS: path.join(root, 'var', 'runner-credentials.json'),
       RUNNER_KEYS: JSON.stringify(keyList(values)),
+      // Not Mochi Lab's ~/rushlab: this checkout's Mochi is another site, with other files.
+      RUNNER_FILES: path.join(root, 'var', 'rushlab'),
     },
     stdio: ['pipe', 'pipe', 'inherit'],
   });

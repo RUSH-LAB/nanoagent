@@ -20,7 +20,7 @@ import {watch} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import yaml from 'js-yaml';
-import {STATE_DIR, abortsCycle, syncOnce} from './sync.mjs';
+import {STATE_DIR, abortsCycle, connect, filesApi, syncOnce} from '../src/runner/sync.mjs';
 
 const CREDENTIALS = path.join(os.homedir(), '.config', 'mochi', 'credentials.json');
 const POLL_MS = 30_000;
@@ -56,68 +56,6 @@ async function tokenFor(server) {
   const token = (await readCredentials())[server]?.token;
   if (!token) fail(`Not signed in to ${server}. Run: mochi login ${server}`);
   return token;
-}
-
-/** A client for one server. Errors carry the HTTP status, or 0 when the server is unreachable. */
-function connect(server, token) {
-  return async function request(method, route, {body, headers = {}, raw = false} = {}) {
-    let response;
-    try {
-      response = await fetch(`${server}${route}`, {
-        method,
-        headers: {
-          // Node's fetch sends Fetch Metadata headers, which make Better Auth
-          // require an origin. The server's own origin is a trusted one.
-          Origin: server,
-          ...(token ? {Authorization: `Bearer ${token}`} : {}),
-          ...(body === undefined ? {} : {'Content-Type': Buffer.isBuffer(body) ? 'application/octet-stream' : 'application/json'}),
-          ...headers,
-        },
-        body: body === undefined ? undefined : Buffer.isBuffer(body) ? body : JSON.stringify(body),
-      });
-    } catch (error) {
-      throw Object.assign(new Error(`Cannot reach ${server}: ${error.cause?.message ?? error.message}`), {status: 0});
-    }
-    if (response.status === 304) return {response, data: null};
-    if (raw && response.ok) return {response, data: Buffer.from(await response.arrayBuffer())};
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw Object.assign(new Error(data.error || data.message || `${method} ${route} failed with ${response.status}`),
-        {status: response.status});
-    }
-    return {response, data};
-  };
-}
-
-/** The file system API `syncOnce` expects, over one workspace's /fs endpoints. */
-function filesApi(request, workspaceId) {
-  const base = `/api/workspaces/${encodeURIComponent(workspaceId)}/fs`;
-  const query = filePath => `path=${encodeURIComponent(filePath)}`;
-  let etag = null;
-  let files = null;
-  return {
-    async list() {
-      const {response, data} = await request('GET', `${base}/tree`, {headers: etag ? {'If-None-Match': etag} : {}});
-      if (data) {
-        etag = response.headers.get('etag');
-        files = data.nodes.filter(node => node.kind === 'file').map(node => ({path: node.path, id: node.id, rev: node.rev}));
-      }
-      return files;
-    },
-    async get(filePath) {
-      const {response, data} = await request('GET', `${base}/file?${query(filePath)}`, {raw: true});
-      return {body: data, id: response.headers.get('x-node-id'), rev: Number(response.headers.get('x-rev'))};
-    },
-    async put(filePath, body, baseRev) {
-      return (await request('PUT', `${base}/file?${query(filePath)}&baseRev=${baseRev}`, {body})).data.node;
-    },
-    async remove(filePath, baseRev) {
-      await request('DELETE', `${base}/node?${query(filePath)}&baseRev=${baseRev}`);
-    },
-    async move(from, to, baseRev) {
-      return (await request('POST', `${base}/move`, {body: {from, to, baseRev}})).data.node;
-    },
-  };
 }
 
 const CLIENT_ID = 'mochi-cli';

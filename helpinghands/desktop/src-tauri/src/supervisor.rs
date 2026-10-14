@@ -63,6 +63,7 @@ pub struct Config {
     pub site_url: String,
     pub nanoagent_port: u16,
     pub python_version: String,
+    pub files_folder: String,
 }
 
 /// One provider's key, as the keys page shows it: never its value, only its `hint`.
@@ -91,6 +92,8 @@ pub struct Supervisor {
     pub config: Config,
     resources: PathBuf,
     data: PathBuf,
+    /// The member's own files, kept in sync by the relay (src/runner/files.mjs): `files_folder` in their home.
+    files: PathBuf,
     /// The folder holding the bundled node and uv: beside this executable.
     bin: PathBuf,
     splash: Mutex<Option<Url>>,
@@ -111,11 +114,13 @@ impl Supervisor {
     pub fn new(app: &AppHandle) -> Result<Self, String> {
         let resources = app.path().resource_dir().map_err(|error| error.to_string())?;
         let data = app.path().app_data_dir().map_err(|error| error.to_string())?;
+        let home = app.path().home_dir().map_err(|error| error.to_string())?;
         let exe = std::env::current_exe().map_err(|error| error.to_string())?;
         let config_file = resources.join("config.yaml");
         let text = fs::read_to_string(&config_file).map_err(|error| format!("{}: {error}", config_file.display()))?;
         let config: Config = serde_yaml::from_str(&text).map_err(|error| format!("{}: {error}", config_file.display()))?;
         Ok(Self {
+            files: home.join(&config.files_folder),
             config,
             resources,
             data,
@@ -400,6 +405,7 @@ impl Supervisor {
         relay_env.insert("NANOAGENT_API_TOKEN".into(), token);
         relay_env.insert("RUNNER_CREDENTIALS".into(), self.data.join("runner-credentials.json").display().to_string());
         relay_env.insert("RUNNER_KEYS".into(), serde_json::to_string(&self.keys()).unwrap());
+        relay_env.insert("RUNNER_FILES".into(), self.files.display().to_string());
         let relay = app_dir.join("runner");
         let log = logs.join("relay.log");
         let (stdin, stdout) = self

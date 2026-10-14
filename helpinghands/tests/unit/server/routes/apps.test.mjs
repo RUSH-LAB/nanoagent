@@ -159,16 +159,23 @@ describe('NanoAgent apps', () => {
   });
 
   it('lists only the caller\'s own agent folder', async () => {
-    const fs = fakeFs({'home/test-user/agent/attention/ms.tex': '\\section{}', 'home/other/agent/x.md': 'not yours'});
-    const listed = await invoke(routes, {method: 'GET', path: '/api/agent-files', ctx: ctxWith({}, fs), requestContext: context});
+    const fs = fakeFs({'home/test-user/agent/echo/attention/ms.tex': '\\section{}', 'home/other/agent/echo/x.md': 'not yours'});
+    const listed = await invoke(routes, {method: 'GET', path: '/api/agent-files', query: '?plugin=echo', ctx: ctxWith({}, fs), requestContext: context});
     assert.equal(listed.status, 200);
     assert.deepEqual(listed.payload, {files: [{path: 'attention/ms.tex', size: 10}]});
   });
 
+  it('refuses agent files without a plugin to name the folder', async () => {
+    for (const query of ['', '?plugin=../x', '?plugin=Echo']) {
+      const result = await invoke(routes, {method: 'GET', path: '/api/agent-files', query, ctx: ctxWith({}, fakeFs()), requestContext: context});
+      assert.equal(result.status, 400);
+    }
+  });
+
   it('serves text as plain text and never as HTML', async () => {
-    const fs = fakeFs({'home/test-user/agent/attention/ms.tex': '\\section{Intro}', 'home/test-user/agent/page.html': '<script>x</script>'});
+    const fs = fakeFs({'home/test-user/agent/echo/attention/ms.tex': '\\section{Intro}', 'home/test-user/agent/echo/page.html': '<script>x</script>'});
     for (const path of ['attention/ms.tex', 'page.html']) {
-      const served = await invoke(routes, {method: 'GET', path: '/api/agent-files/content', query: `?path=${path}`, ctx: ctxWith({}, fs), requestContext: context});
+      const served = await invoke(routes, {method: 'GET', path: '/api/agent-files/content', query: `?plugin=echo&path=${path}`, ctx: ctxWith({}, fs), requestContext: context});
       assert.equal(served.res.written.status, 200);
       assert.equal(served.res.written.headers['Content-Type'], 'text/plain; charset=utf-8');
       assert.equal(served.res.written.headers['X-Content-Type-Options'], 'nosniff');
@@ -176,15 +183,15 @@ describe('NanoAgent apps', () => {
   });
 
   it('sends a viewable file as an attachment when asked to download it', async () => {
-    const fs = fakeFs({'home/test-user/agent/notes/a.txt': 'text'});
+    const fs = fakeFs({'home/test-user/agent/echo/notes/a.txt': 'text'});
     const served = await invoke(routes, {
-      method: 'GET', path: '/api/agent-files/content', query: '?path=notes/a.txt&download=1', ctx: ctxWith({}, fs), requestContext: context,
+      method: 'GET', path: '/api/agent-files/content', query: '?plugin=echo&path=notes/a.txt&download=1', ctx: ctxWith({}, fs), requestContext: context,
     });
     assert.equal(served.res.written.headers['Content-Disposition'], 'attachment; filename="a.txt"');
   });
 
   it('reports a missing file', async () => {
-    const result = await invoke(routes, {method: 'GET', path: '/api/agent-files/content', query: '?path=nope.md', ctx: ctxWith({}), requestContext: context});
+    const result = await invoke(routes, {method: 'GET', path: '/api/agent-files/content', query: '?plugin=echo&path=nope.md', ctx: ctxWith({}), requestContext: context});
     assert.equal(result.status, 404);
   });
 
@@ -193,25 +200,25 @@ describe('NanoAgent apps', () => {
     const ctx = ctxWith({}, fs);
     ctx.readRawBody = async () => Buffer.from('hello');
     const created = await invoke(routes, {
-      method: 'PUT', path: '/api/agent-files/content', query: '?path=notes/a.md&create=1', ctx, requestContext: context,
+      method: 'PUT', path: '/api/agent-files/content', query: '?plugin=echo&path=notes/a.md&create=1', ctx, requestContext: context,
     });
     assert.equal(created.status, 200);
     assert.deepEqual(created.payload, {path: 'notes/a.md', size: 5});
-    await invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?path=notes/a.md', ctx, requestContext: context});
+    await invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?plugin=echo&path=notes/a.md', ctx, requestContext: context});
     assert.deepEqual(fs.writes, [
-      ['home/test-user/agent/notes/a.md', 'hello', {baseRev: 0}],
-      ['home/test-user/agent/notes/a.md', 'hello', {}],
+      ['home/test-user/agent/echo/notes/a.md', 'hello', {baseRev: 0}],
+      ['home/test-user/agent/echo/notes/a.md', 'hello', {}],
     ]);
   });
 
   it('lets a viewer change their own agent folder', async () => {
-    const result = await invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?path=a.txt', ctx: ctxWith({}, fakeFs()), requestContext: {...context, role: 'viewer'}});
+    const result = await invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?plugin=echo&path=a.txt', ctx: ctxWith({}, fakeFs()), requestContext: {...context, role: 'viewer'}});
     assert.equal(result.status, 200);
   });
 
   it('refuses agent files without the workspace file system', async () => {
     const ctx = ctxWith({}, null);
-    const result = await invoke(routes, {method: 'GET', path: '/api/agent-files', ctx, requestContext: context});
+    const result = await invoke(routes, {method: 'GET', path: '/api/agent-files', query: '?plugin=echo', ctx, requestContext: context});
     assert.equal(result.status, 409);
     assert.equal(result.payload.code, 'fs-disabled');
   });

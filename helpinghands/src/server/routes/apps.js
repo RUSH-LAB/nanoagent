@@ -1,13 +1,13 @@
 'use strict';
 const {APPS_NEED_FS, followRun, openEventStream} = require('./ai');
-const {agentFolder, prepareHome} = require('../fs/agent-sync');
+const {agentFolder} = require('../fs/agent-sync');
 const {FsError} = require('../fs/store');
 const {RUNNER_OFFLINE} = require('../ai');
 
 // Apps: the marketplace plugins a workspace added (workspace-apps.js), which an
-// owner adds, tags and removes at /api/apps/{id}, and the caller's own agent folder,
-// `home/<user>/agent/` in the workspace file system, where those apps leave
-// their files.
+// owner adds, tags and removes at /api/apps/{id}, and the caller's own folder
+// for each app, `home/<user>/agent/<app>/` in the workspace file system, where
+// that app leaves its files (/api/agent-files?plugin=<app>).
 // Opening an app (GET /api/apps/{id}) has the NanoAgent on the member's own
 // computer install its package, by sha256; its own page (its ui/ folder) comes
 // from that computer too, at /api/apps/{sha256}/ui/{page}/{uiVersion}/ (`page`
@@ -245,7 +245,9 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
   const fs = ctx.workspaceFs;
   if (!fs) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
   const scope = req.context;
-  const folder = agentFolder(scope);
+  const plugin = url.searchParams.get('plugin');
+  if (!plugin || !PLUGIN_ID.test(plugin)) return json(res, 400, {error: 'plugin is required'});
+  const folder = agentFolder(scope, plugin);
   if (req.method === 'GET' && pathname === '/api/agent-files') {
     requireWorkspacePermission(scope, 'content:read');
     const files = (await fs.list(scope, {prefix: folder})).filter(node => node.kind === 'file');
@@ -265,7 +267,6 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
       } catch {
         return json(res, 413, {error: 'File is too large'});
       }
-      await prepareHome(fs, scope);
       const create = url.searchParams.get('create') === '1';
       const node = await fs.write(scope, `${folder}/${path}`, body, create ? {baseRev: 0} : {});
       return json(res, 200, {path, size: node.size});

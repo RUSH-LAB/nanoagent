@@ -23,11 +23,18 @@ export const pgQuery = db => (sql, params) => (params === undefined
   ? db.exec(sql).then(results => (results.length === 1 ? pgResult(results[0]) : results.map(pgResult)))
   : db.query(sql, params).then(pgResult));
 
-export async function migratedDatabase() {
+const migrationsDir = path.join(root, 'src/server/postgres/migrations');
+
+/** Apply the migration `name` to `db`, as the tables' owner. */
+export async function applyMigration(db, name) {
+  await db.exec(await readFile(path.join(migrationsDir, name), 'utf8'));
+}
+
+/** The database with every migration applied, or only those named before `until`. */
+export async function migratedDatabase({until} = {}) {
   const db = new PGlite();
-  const migrationsDir = path.join(root, 'src/server/postgres/migrations');
-  for (const name of (await readdir(migrationsDir)).filter(file => file.endsWith('.sql')).sort()) {
-    await db.exec(await readFile(path.join(migrationsDir, name), 'utf8'));
+  for (const name of (await readdir(migrationsDir)).filter(file => file.endsWith('.sql') && (!until || file < until)).sort()) {
+    await applyMigration(db, name);
   }
   await db.exec(`
     create role mochi_runtime;

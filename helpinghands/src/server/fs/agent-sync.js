@@ -4,7 +4,8 @@
  * A plugin run as a client of the workspace file system.
  *
  * NanoAgent runs a plugin in a scratch folder made for that one run: before it,
- * the folder is filled from the member's `home/<user>/agent/` folder; after it,
+ * the folder is filled from the member's folder for that plugin,
+ * `home/<user>/agent/<plugin>/`, and from nothing else; after it,
  * what the run created, changed, or deleted is written back there, as that
  * member, and the folder is removed. The file system is where the files live;
  * NanoAgent keeps nothing between runs.
@@ -17,7 +18,7 @@ const crypto = require('crypto');
 const {FsError} = require('./store');
 
 const sha256 = body => crypto.createHash('sha256').update(body).digest('hex');
-const agentFolder = scope => `home/${scope.userId}/agent`;
+const agentFolder = (scope, pluginId) => `home/${scope.userId}/agent/${pluginId}`;
 const collided = error => error instanceof FsError && error.status === 409;
 
 function unwrap(result, doing) {
@@ -33,20 +34,10 @@ function conflictPath(path, workspace) {
   return `${path.slice(0, split)} (agent run ${workspace.slice(0, 8)})${path.slice(split)}`;
 }
 
-/** A member's home is private to them before the first file lands in it. */
-async function prepareHome(fs, scope) {
-  const home = `home/${scope.userId}`;
-  await fs.transaction(scope, async tree => {
-    if (await tree.nodeAt(home)) return;
-    await tree.mkdir(home);
-    await tree.setAccess(home, 'private');
-  });
-}
-
 function createAgentSync({fs}) {
-  /** Copy the member's agent folder into the run's folder: what was sent, by path, with its revision. */
-  async function push(scope, ai, workspace) {
-    const folder = agentFolder(scope);
+  /** Copy the member's folder for `pluginId` into the run's folder: what was sent, by path, with its revision. */
+  async function push(scope, ai, pluginId, workspace) {
+    const folder = agentFolder(scope, pluginId);
     const sent = new Map();
     for (const file of await fs.readMany(scope, {prefix: folder})) {
       const relative = file.path.slice(folder.length + 1);
@@ -66,9 +57,9 @@ function createAgentSync({fs}) {
     }
   }
 
-  /** Write what the run changed in its folder back into the member's agent folder. */
-  async function pull(scope, ai, workspace, sent) {
-    const folder = agentFolder(scope);
+  /** Write what the run changed in its folder back into the member's folder for `pluginId`. */
+  async function pull(scope, ai, pluginId, workspace, sent) {
+    const folder = agentFolder(scope, pluginId);
     const listing = unwrap(await ai.workspaceFiles(workspace), 'list its workspace');
     if (listing.truncated) {
       throw new Error(`NanoAgent listed only part of the run's folder (${listing.files.length} files); nothing was written back`);
@@ -94,27 +85,27 @@ function createAgentSync({fs}) {
 
   return Object.freeze({
     /**
-     * A folder for one run on the NanoAgent `ai`, filled from the member's agent
-     * folder: `{workspace, sent}`, where `sent` (the revisions copied, by path)
-     * is JSON, so a run may end in another process (app-runs.js).
+     * A folder for one run of `pluginId` on the NanoAgent `ai`, filled from the
+     * member's folder for it: `{workspace, sent}`, where `sent` (the revisions
+     * copied, by path) is JSON, so a run may end in another process (app-runs.js).
      */
-    async prepare(scope, ai) {
-      await prepareHome(fs, scope);
+    async prepare(scope, ai, pluginId) {
       const workspace = crypto.randomBytes(16).toString('hex');
       try {
-        return {workspace, sent: Object.fromEntries(await push(scope, ai, workspace))};
+        return {workspace, sent: Object.fromEntries(await push(scope, ai, pluginId, workspace))};
       } catch (error) {
         unwrap(await ai.deleteWorkspace(workspace), 'remove its workspace');
         throw error;
       }
     },
     /**
-     * Write what the run did in `folder` back into the member's agent folder,
-     * answered, failed or cancelled part way, and remove it either way.
+     * Write what the run of `pluginId` did in `folder` back into the member's
+     * folder for it, answered, failed or cancelled part way, and remove it
+     * either way.
      */
-    async finish(scope, ai, {workspace, sent}) {
+    async finish(scope, ai, pluginId, {workspace, sent}) {
       try {
-        await pull(scope, ai, workspace, new Map(Object.entries(sent)));
+        await pull(scope, ai, pluginId, workspace, new Map(Object.entries(sent)));
       } finally {
         unwrap(await ai.deleteWorkspace(workspace), 'remove its workspace');
       }
@@ -122,4 +113,4 @@ function createAgentSync({fs}) {
   });
 }
 
-module.exports = {agentFolder, conflictPath, createAgentSync, prepareHome};
+module.exports = {agentFolder, conflictPath, createAgentSync};

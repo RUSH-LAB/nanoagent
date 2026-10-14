@@ -405,17 +405,18 @@ const CATEGORIES = [
         response: '{ "saved": true }',
       },
       {
-        method: 'GET', path: '/api/agent-files', description: 'List the files in your private agent folder (home/<you>/agent in the workspace file system): what the apps you ran saved for you, and what you made. Manage it like any other folder through /api/fs.',
+        method: 'GET', path: '/api/agent-files', description: 'List the files in your private folder for the app plugin (home/<you>/agent/<plugin> in the workspace file system): what its runs saved for you, and what you made for them. Only that app\'s runs see it. Manage it like any other folder through /api/fs.',
+        request: '?plugin=arxiv-source',
         response: '{ "files": [{ "path": "attention/ms.tex", "size": 1234 }] }',
       },
       {
-        method: 'GET', path: '/api/agent-files/content', description: 'Open one file from your agent folder. Images and PDFs are shown as themselves, other text as plain text, anything else is downloaded.',
-        request: '?path=attention/ms.tex',
+        method: 'GET', path: '/api/agent-files/content', description: 'Open one file from your folder for the app plugin. Images and PDFs are shown as themselves, other text as plain text, anything else is downloaded.',
+        request: '?plugin=arxiv-source&path=attention/ms.tex',
         response: '(file bytes)',
       },
       {
-        method: 'PUT', path: '/api/agent-files/content', description: 'Save a file in your agent folder, making its folders. With create=1 it refuses to replace an existing file (409). Any member, viewers included: the folder is theirs.',
-        request: '?path=notes/idea.md[&create=1]\n\n(raw file contents)',
+        method: 'PUT', path: '/api/agent-files/content', description: 'Save a file in your folder for the app plugin, making its folders. With create=1 it refuses to replace an existing file (409). Any member, viewers included: the folder is theirs.',
+        request: '?plugin=arxiv-source&path=notes/idea.md[&create=1]\n\n(raw file contents)',
         response: '{ "path": "notes/idea.md", "size": 120 }',
       },
       {
