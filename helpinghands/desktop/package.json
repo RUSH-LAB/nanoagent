@@ -4,7 +4,8 @@
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
-    "build": "tauri build"
+    "build": "tauri build",
+    "bundle:lab": "node scripts/bundle-lab.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

@@ -105,6 +105,72 @@ reason and the log tail, with Retry and API keys. A second Mochi Lab signing in 
 same member is one such exit. Quitting sends SIGTERM to the relay, then NanoAgent, and SIGKILL
 after 10 s. Links that open a new window open in the system browser.
 
+## Without the window (one-line install)
+
+A member who uses Mochi in the browser can run Mochi Lab with no window at all. While their computer
+is not connected, Settings → AI shows **Run AI on your Mac**: one command to paste in Terminal, which
+installs Mochi Lab to run in the background and then opens a sign-in page. The server's half is
+`src/server/routes/lab.js`:
+
+- `GET /api/lab/install` (signed in) answers `{command}`:
+  `curl -fsSL '<SITE_URL>/api/lab/install.sh?token=<t>' | sh`. The token is the member's for an hour,
+  `<user id, base64url>.<expiry, unix seconds>.<HMAC-SHA256, base64url>`, signed with a key derived
+  from `BETTER_AUTH_SECRET` (`src/server/lab-tokens.js`). Mochi keeps nothing of it.
+- `GET /api/lab/install.sh?token=<t>` answers `src/runner/install.sh`, read at each request, with
+  `__MOCHI_SITE__` and `__MOCHI_TOKEN__` replaced by the site and the token. A bad or expired token
+  answers 401 with a script that says so and exits 1.
+- `GET /api/lab/bundles/<target>?token=<t>`, or with a session, streams the target's bundle, a gzip
+  tarball, with `X-Lab-Stamp`, `X-Lab-Sha256` and `Content-Length`; 404 while there is none.
+- `PUT /api/lab/bundles/<target>`, with `Authorization: Bearer <LAB_UPLOAD_TOKEN>` and
+  `X-Lab-Stamp`, is how a release uploads one: the raw tarball, 200 MB at most. It answers
+  `{target, stamp, sha256, size}`. Without `LAB_UPLOAD_TOKEN` set, it answers 503.
+
+The targets are `aarch64-apple-darwin` and `x86_64-apple-darwin`. Each keeps only its newest bundle,
+in PostgreSQL (migration 0034, `src/server/postgres/lab.js`) as rows of 4 MiB, so neither an upload
+nor a download holds a whole bundle in memory. An upload replaces the previous one in a single
+transaction. Any signed-in member may read the bundles; row-level security lets only the upload path
+write them. A download that an upload overtakes is cut off rather than finished with the new
+bundle's bytes.
+
+### This computer's half
+
+`npm run bundle:lab` here (`scripts/bundle-lab.mjs`, with `TAURI_ENV_TARGET_TRIPLE` set) stages as
+the app's build does (`scripts/stage.mjs`) and writes `dist/mochi-lab-<target>.tar.gz`. It builds
+only on a Mac of the target's architecture, because Nuitka compiles NanoAgent for the machine it
+runs on. CI builds both targets on their own runners on every push to production
+(`.github/workflows/helpinghands-desktop.yml`, job `lab`) and uploads each with the `PUT` above,
+retrying for 15 minutes while the site deploys. The tarball's one folder:
+
+```text
+mochi-lab/
+├── stamp           names this bundle (stage.mjs's)
+├── config.json     config.yaml, as JSON
+├── bin/node, bin/uv
+├── runner/         src/runner/: lab.mjs, the relay and what it loads
+└── nanoagent/      NanoAgent compiled, its uv.lock, the PI runner's bundle, its config
+```
+
+`src/runner/install.sh` checks the download against `X-Lab-Sha256`, unpacks it into
+`~/Library/Application Support/lab.mochi.lab/app/<stamp>/`, points `app/current` at it, and removes
+older versions. It then writes `~/Library/LaunchAgents/lab.mochi.lab.plist`, which runs
+`app/current/mochi-lab/bin/node app/current/mochi-lab/runner/lab.mjs` at every login, and loads it
+with `launchctl bootstrap gui/<uid>`. Running the command again installs the newest bundle.
+
+`src/runner/lab.mjs` does what the app's supervisor does, without the window. It refuses any
+platform but macOS, and starts with `uv sync`, then NanoAgent with the seatbelt sandbox, a fresh
+token and the keys, then the relay. Each service gets the same environment as under the app, and its
+data folder is `lab.mochi.lab`: `settings.env`, `runner-credentials.json`, `logs/` and NanoAgent's
+folders. Its own log is `logs/lab.log`. When the relay needs signing in, it opens the device page in
+the browser and logs its address. Once connected after that, it opens the site, at Settings → AI
+while there is no key. Keys come only from Settings → AI, through the relay; there is no keys page.
+When either service exits, it stops the other, the relay first, and exits 1, and launchd starts it
+again after 30 s. A relay replaced by another computer signing in as the same member exits cleanly,
+and so does lab.mjs: launchd restarts only a failure (`KeepAlive.SuccessfulExit`), so two computers
+do not take the runs back and forth. SIGTERM, from `launchctl bootout`, stops both and exits 0.
+
+To uninstall: `launchctl bootout gui/$(id -u)/lab.mochi.lab`, then
+`rm -rf ~/Library/LaunchAgents/lab.mochi.lab.plist ~/Library/Application\ Support/lab.mochi.lab`.
+
 ## Known gaps
 
 - **Signing out** of the site in the window does not disconnect the relay. Its session is its

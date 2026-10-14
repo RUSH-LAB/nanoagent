@@ -67,6 +67,22 @@
   background: var(--ifm-color-primary-dark);
 }
 
+/* ── Installing Mochi Lab while it is not connected (_Ai.js) ────── */
+
+/* The row wraps, to take the command under it. */
+.installRow {
+  flex-wrap: wrap;
+}
+
+/* The command: the row's whole width, under it. */
+.installCommand {
+  flex-basis: 100%;
+  margin-bottom: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+
 /* The model every run is on, one row for each thing the computer's catalog knows of it. */
 /* Two classes, to outrank the shared row's height and the label's weight. */
 .fact.fact {

@@ -45,3 +45,48 @@ jobs:
           name: mochi-lab-${{ matrix.target }}
           path: helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
           if-no-files-found: error
+
+  # Mochi Lab without its window (desktop/PLAN.md): the bundle install.sh downloads, one per Mac
+  # architecture, each built on its own runner, and uploaded to the Mochi this push deploys. The
+  # site may still be deploying the commit that serves the upload, so it is tried for 15 minutes.
+  lab:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: helpinghands/desktop/package-lock.json
+      - run: npm ci
+        working-directory: helpinghands/desktop
+      - run: npm run bundle:lab
+        working-directory: helpinghands/desktop
+        env:
+          TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
+      - name: Upload to Mochi
+        working-directory: helpinghands/desktop
+        env:
+          LAB_UPLOAD_TOKEN: ${{ secrets.LAB_UPLOAD_TOKEN }}
+        run: |
+          bundle=dist/mochi-lab-${{ matrix.target }}.tar.gz
+          stamp=$(tar -xOzf "$bundle" mochi-lab/stamp)
+          deadline=$(( $(date +%s) + 900 ))
+          until curl -fsS -X PUT --data-binary @"$bundle" \
+              -H "Authorization: Bearer $LAB_UPLOAD_TOKEN" -H "X-Lab-Stamp: $stamp" \
+              https://rush-lab.org/api/lab/bundles/${{ matrix.target }}; do
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "Mochi did not take the bundle within 15 minutes" >&2
+              exit 1
+            fi
+            sleep 30
+          done

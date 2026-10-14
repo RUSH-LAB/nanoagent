@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {apiRequest} from '@site/src/utils/api';
+import {clientPlatform} from '@site/src/platform/client';
 import {PaneHeading, Skeleton} from './_parts';
 import ApiKeys from './_ApiKeys';
 import styles from './styles.module.css';
@@ -7,6 +8,8 @@ import ai from './ai.module.css';
 
 // How often the pane asks whether Mochi Lab is connected.
 const STATUS_MS = 5_000;
+// How often the install command is asked for again: its download token lasts an hour.
+const INSTALL_MS = 30 * 60_000;
 
 // "$0.05", "$0.10", "$0.125": a price to the cent, or the tenth of a cent it has.
 const dollars = value => `$${value.toFixed(3).replace(/0$/, '')}`;
@@ -21,6 +24,44 @@ function Fact({label, children}) {
       <span className={styles.rowLabel}>{label}</span>
       <span className={styles.rowValue}>{children}</span>
     </div>
+  );
+}
+
+/**
+ * While Mochi Lab is not connected: the line that installs it on the member's
+ * Mac, to paste in Terminal (server/routes/lab.js).
+ */
+function InstallLab() {
+  const [command, setCommand] = useState(null);
+  const [note, setNote] = useState(null);
+  useEffect(() => {
+    const load = () => apiRequest('/api/lab/install')
+      .then(value => setCommand(value.command))
+      .catch(err => setNote({error: err.message}));
+    load();
+    const timer = setInterval(load, INSTALL_MS);
+    return () => clearInterval(timer);
+  }, []);
+  const copy = () => clientPlatform.clipboard.writeText(command)
+    .then(() => setNote({text: 'Copied. Paste it in Terminal.'}))
+    .catch(err => setNote({error: err.message}));
+  return (
+    <section className={styles.group}>
+      <div className={styles.groupHead}>
+        <h4 className={styles.groupTitle}>Run AI on your Mac</h4>
+      </div>
+      <div className={`${styles.row} ${ai.installRow}`}>
+        <div className={styles.rowLabel}>
+          <strong>Paste this in Terminal</strong>
+          {note?.error ? <span className={styles.error} role="alert">{note.error}</span>
+            : <span role="status">{note?.text ?? 'It installs Mochi Lab to run in the background, then opens a sign-in page.'}</span>}
+        </div>
+        <div className={styles.rowControl}>
+          <button type="button" className={styles.secondaryButton} disabled={!command} onClick={copy}>Copy</button>
+        </div>
+        <code className={ai.installCommand}>{command ?? '…'}</code>
+      </div>
+    </section>
   );
 }
 
@@ -74,6 +115,7 @@ export default function Ai() {
   return (
     <>
       {heading}
+      {computer && !connected && <InstallLab />}
       <section className={styles.group}>
         <ApiKeys computer={computer} onSaved={onSaved} />
       </section>

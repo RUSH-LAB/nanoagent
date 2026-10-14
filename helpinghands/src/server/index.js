@@ -16,7 +16,7 @@ const {
 } = require('./server-utils');
 
 const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
-const {auth, tenancy, githubUsers, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
+const {auth, AUTH_SECRET, SITE_URL, tenancy, githubUsers, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
 const {asksForSession, redirectFor} = require('../utils/signIn');
 const {createAiMeter} = require('./ai-metering');
 const {
@@ -551,6 +551,15 @@ const ctx = {
   fsHub: postgresServices?.fsHub ?? null,
   // The plugin marketplace's uploads; PostgreSQL only.
   market: postgresServices?.market ?? null,
+  // Mochi Lab's one-line install (routes/lab.js): its bundles, PostgreSQL only; the
+  // secret its download tokens are signed with; and the token its uploads carry.
+  lab: {
+    bundles: postgresServices?.labBundles ?? null,
+    secret: AUTH_SECRET,
+    siteUrl: SITE_URL,
+    uploadToken: process.env.LAB_UPLOAD_TOKEN || null,
+    installScript: path.join(__dirname, '../runner/install.sh'),
+  },
   // What members submit to their workspace; PostgreSQL only.
   submissions: postgresServices?.submissions ?? null,
   // Plugin sessions and what their runs cost; PostgreSQL only.
@@ -604,6 +613,7 @@ const routeModules = [
   require('./routes/ai'),
   require('./routes/apps'),
   require('./routes/market'),
+  require('./routes/lab'),
   require('./routes/submissions'),
   // Plugin endpoints run after the core ones. A plugin extends the site; it
   // does not get to shadow the routes the site is made of. Each is wrapped so

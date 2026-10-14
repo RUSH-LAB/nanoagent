@@ -5,6 +5,7 @@ const {createPostgresWorkspaceContextResolver} = require('./workspace-context');
 const {createPostgresOrg} = require('./org');
 const {createPostgresRoles} = require('./roles');
 const {createPostgresMarket} = require('./market');
+const {createPostgresLab} = require('./lab');
 const {createPostgresSessions} = require('./sessions');
 const {createPostgresWorkspacePlugins} = require('./workspace-plugins');
 const {createPostgresSubmissions} = require('./submissions');
@@ -52,6 +53,7 @@ module.exports = Object.freeze({
   fsChat,
   roles: createPostgresRoles({pool: database.pool}),
   market: createPostgresMarket({pool: database.pool}),
+  labBundles: createPostgresLab({pool: database.pool}),
   sessions: createPostgresSessions({pool: database.pool}),
   workspacePlugins: createPostgresWorkspacePlugins({pool: database.pool}),
   submissions: createPostgresSubmissions({pool: database.pool}),

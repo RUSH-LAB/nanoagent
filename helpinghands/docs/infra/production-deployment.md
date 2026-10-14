@@ -28,6 +28,10 @@ page is on the member's own computer, through Mochi Lab
   (`src/server/openrouter-keys.js`); OpenRouter stops every key in it once
   that is spent. Mochi keeps none of the keys; a member who saves their own
   key is given none. Without it, members add their own.
+- An upload token, `LAB_UPLOAD_TOKEN`: a long random string the release job
+  sends as `Authorization: Bearer` to `PUT /api/lab/bundles/<target>`, the
+  Mochi Lab bundles the one-line install downloads (`src/server/routes/lab.js`).
+  Without it, uploads answer 503.
 
 The current deployment target is Railway. It builds the committed `Dockerfile`,
 injects `PORT`, checks `/api/health`, and terminates TLS at the public domain.
