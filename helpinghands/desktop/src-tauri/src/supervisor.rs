@@ -354,6 +354,7 @@ impl Supervisor {
         let plugins = serde_json::to_string(&plugin_folders(&nanoagent.join("plugins"))?).unwrap();
         let workspaces = self.data.join("agent-workspaces");
         let installs = self.data.join("nanoagent-installs");
+        let uv_cache = self.data.join("nanoagent-uv-cache");
         let python = nanoagent.join(".venv").join(if cfg!(windows) { "Scripts/python.exe" } else { "bin/python" });
         let nanoagent_args = vec![
             "-m".to_string(), "nanoagent".into(), "web".into(),
@@ -367,6 +368,7 @@ impl Supervisor {
             format!("packages={plugins}"),
             format!("workspaces={}", serde_json::to_string(&workspaces.display().to_string()).unwrap()),
             format!("installs={}", serde_json::to_string(&installs.display().to_string()).unwrap()),
+            format!("uv_cache={}", serde_json::to_string(&uv_cache.display().to_string()).unwrap()),
         ];
         // The keys are all NanoAgent is given of the settings.
         let mut nanoagent_env = system.clone();

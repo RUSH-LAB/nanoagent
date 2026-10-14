@@ -87,6 +87,7 @@ export function nanoagentWebArgs(env = process.env) {
     `packages=${JSON.stringify(nanoagentPluginsFrom(env))}`,
     `workspaces=${JSON.stringify(path.join(root, 'var', 'agent-workspaces'))}`,
     `installs=${JSON.stringify(path.join(root, 'var', 'nanoagent-installs'))}`,
+    `uv_cache=${JSON.stringify(path.join(root, 'var', 'nanoagent-uv-cache'))}`,
   ];
 }
 

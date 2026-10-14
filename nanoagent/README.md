@@ -215,8 +215,8 @@ as apps:
   `uv sync --frozen`. The reply is the plugin's catalog entry with its
   `uiVersion`, or 422 with every broken rule. Installing it again returns it.
 - `GET /v1/installs/{sha256}` returns that entry, or 404 for a package not
-  installed. Installs last as long as the process, so a caller installs again
-  after a restart.
+  installed. A finished install is kept on disk, so the caller that installs
+  again after a restart gets it without a sync.
 - `POST /v1/workspaces/{workspace}/installs/{sha256}/runs` runs a prompt on an
   agent that has the plugin's tools. The body is a run request and the reply is
   a run stream.

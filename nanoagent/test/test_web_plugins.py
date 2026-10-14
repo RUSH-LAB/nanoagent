@@ -57,6 +57,7 @@ def _app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, 
             "packages=[]",
             f"workspaces={workspaces}",
             f"installs={tmp_path / 'installs'}",
+            f"uv_cache={tmp_path / 'uv-cache'}",
             "host=127.0.0.1",
             "sandbox=none",
         ],
@@ -118,6 +119,55 @@ def test_refuses_a_failed_install(
     assert not (tmp_path / "installs" / sha).exists()
 
 
+def test_keeps_a_finished_install_for_the_next_process(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
+) -> None:
+    restarted = _app(tmp_path, monkeypatch, model, workspaces)
+    monkeypatch.setattr(install, "SYNC", ("false",))
+    data = pack(tmp_path / "echo")
+    assert restarted.put(f"/v1/installs/{client.sha}", content=data).status_code == 200
+    # An install built on another Python is built again.
+    (tmp_path / "installs" / client.sha / install.INSTALLED).write_text("another python\n", encoding="utf-8")
+    again = _app(tmp_path, monkeypatch, model, workspaces)
+    monkeypatch.setattr(install, "SYNC", ("false",))
+    response = again.put(f"/v1/installs/{client.sha}", content=data)
+    assert response.status_code == 502 and "uv sync failed" in response.json()["error"]
+
+
+def test_builds_only_what_has_no_wheel_for_this_python(tmp_path: Path) -> None:
+    lock = tmp_path / "uv.lock"
+    wheel = "https://files.pythonhosted.org/packages/ab/cd/{}-1.0-py3-none-any.whl"
+    lock.write_text(
+        f"""
+version = 1
+[[package]]
+name = "wheeled"
+source = {{ registry = "https://pypi.org/simple" }}
+wheels = [{{ url = "{wheel.format('wheeled')}" }}]
+
+[[package]]
+name = "sdist-only"
+source = {{ registry = "https://pypi.org/simple" }}
+sdist = {{ url = "https://files.pythonhosted.org/packages/ab/cd/sdist_only-1.0.tar.gz" }}
+
+[[package]]
+name = "other-platform"
+source = {{ registry = "https://pypi.org/simple" }}
+wheels = [{{ url = "https://files.pythonhosted.org/packages/ab/cd/other_platform-1.0-cp312-cp312-win_arm64.whl" }}]
+
+[[package]]
+name = "from-git"
+source = {{ git = "https://github.com/example/from-git#abc" }}
+
+[[package]]
+name = "the-plugin"
+source = {{ editable = "." }}
+""",
+        encoding="utf-8",
+    )
+    assert install.built_here(lock) == ["sdist-only", "other-platform", "from-git", "the-plugin"]
+
+
 def test_serves_its_own_packages_by_id_to_mochi_on_production(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
 ) -> None:
@@ -133,6 +183,7 @@ def test_serves_its_own_packages_by_id_to_mochi_on_production(
             f"packages=[{tmp_path / 'echo'}]",
             f"workspaces={workspaces}",
             f"installs={tmp_path / 'installs'}",
+            f"uv_cache={tmp_path / 'uv-cache'}",
             "host=127.0.0.1",
             "sandbox=none",
         ],

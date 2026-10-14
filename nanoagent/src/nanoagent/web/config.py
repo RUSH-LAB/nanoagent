@@ -30,6 +30,8 @@ class WebConfig(AgentDefinitionConfig):
     packages: list[str] = MISSING
     # Where packages are installed to run (see nanoagent.plugin.install), one folder per sha256.
     installs: str = MISSING
+    # The uv cache every install shares, for the wheels its plugins' environments are built from.
+    uv_cache: str = MISSING
     # What every plugin process runs in (see nanoagent.plugin.sandbox): `bwrap`, `seatbelt` on
     # macOS, or `none`, which confines nothing.
     sandbox: str = MISSING

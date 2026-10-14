@@ -134,7 +134,7 @@ def create_app(
     run_host = host or RunHost(cfg)
     # Every plugin runs from an install, in the sandbox, which must hold before anything is served.
     sandbox.configure(cfg.sandbox)
-    installs = Installs(cfg.installs)
+    installs = Installs(cfg.installs, cfg.uv_cache)
     sandbox.check(installs.root)
     # Packages offered for download, packed once; one runs only once a caller installs it.
     packages: dict[str, tuple[dict[str, Any], bytes]] = {}

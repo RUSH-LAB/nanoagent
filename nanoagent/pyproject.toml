@@ -51,6 +51,8 @@ dependencies = [
     "rich",
     # The `browse` trajectory viewer, and nothing else.
     "textual",
+    # Which wheels in a plugin's uv.lock this Python can install (nanoagent.plugin.install).
+    "packaging",
 ]
 authors = [
     {name = "Zeyu Yang"},

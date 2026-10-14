@@ -80,6 +80,7 @@ def _client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, run_models: bool
             "packages=[]",
             f"workspaces={tmp_path / 'workspaces'}",
             f"installs={tmp_path / 'installs'}",
+            f"uv_cache={tmp_path / 'uv-cache'}",
             "host=127.0.0.1",
             "api_token=null",
             "sandbox=none",

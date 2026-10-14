@@ -47,8 +47,10 @@ packages:
   - plugins/nasdaq-drawdown
 # Scratch space, one folder per run; Mochi keeps the files.
 workspaces: /tmp/nanoagent-workspaces
-# Installed packages, one folder per sha256; Mochi installs again after a restart.
-installs: /tmp/nanoagent-installs
+# On the service's volume, so a restart keeps them: installed packages, one folder per sha256
+# (Mochi installs again after a restart and gets the kept one), and the uv cache they share.
+installs: /data/nanoagent-installs
+uv_cache: /data/nanoagent-uv-cache
 # Plugins run as plain processes for now: Railway's containers refuse bwrap the namespaces it
 # needs. Anyone may publish a plugin, so this must become a sandbox (docs/plans/plugin-sandbox.md).
 sandbox: none
