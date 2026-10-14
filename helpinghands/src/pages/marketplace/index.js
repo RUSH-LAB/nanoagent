@@ -229,7 +229,7 @@ function Detail({plugin, added, workspace, slug, onBack, onChanged, onAdded}) {
 function Marketplace() {
   const location = useLocation();
   const history = useHistory();
-  const {slug, workspace} = useWorkspaceSite();
+  const {slug, workspace, site} = useWorkspaceSite();
   const workspaceId = workspace?.id ?? null;
   // The ids of the plugins the workspace added, or null outside one.
   const [added, setAdded] = React.useState(null);
@@ -307,9 +307,17 @@ function Marketplace() {
     <main className={styles.page}>
       <header className={styles.header}>
         <h1>Marketplace</h1>
-        <button type="button" className="button button--primary" onClick={() => setPublishing(value => !value)}>
-          {publishing ? 'Cancel' : '+ Publish a plugin'}
-        </button>
+        {/* A workspace that takes submissions publishes through its Submit page,
+            which records what the submitter agrees to (pages/submit). */}
+        {site?.submissions ? (
+          <Link className="button button--primary" to={`/w/${encodeURIComponent(slug)}/submit`}>
+            Submit your artifact
+          </Link>
+        ) : (
+          <button type="button" className="button button--primary" onClick={() => setPublishing(value => !value)}>
+            {publishing ? 'Cancel' : '+ Publish a plugin'}
+          </button>
+        )}
       </header>
       {publishing && (
         <Publish onPublished={async plugin => {

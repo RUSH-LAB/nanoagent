@@ -1,19 +1,21 @@
 'use strict';
+const {isDeepStrictEqual} = require('util');
 const {resolveWorkspaceSite} = require('../workspace-site');
 const {publishFromGithub} = require('../market-publish');
 
 /**
  * What members submit to their workspace, for a workspace whose settings ask for
- * submissions (site.submissions.statement):
+ * submissions (site.submissions: the terms its home shows, and the statement):
  *
  *   GET  /api/workspaces/{id}/submissions   every submission for an owner, a member's own otherwise
- *   POST /api/workspaces/{id}/submissions   submit {url, statement}: the plugin folder `url`
- *                                           names in a public GitHub repository, agreeing to `statement`
+ *   POST /api/workspaces/{id}/submissions   submit {url, agreement}: the plugin folder `url`
+ *                                           names in a public GitHub repository, agreeing to
+ *                                           `agreement`, the workspace's {notice, statement}
  *
  * Submitting publishes the plugin to the marketplace as the member's
  * (market-publish.js), then records which version, package and commit they
- * submitted and the statement they agreed to, which must be the workspace's as
- * it reads now. PostgreSQL only (postgres/submissions.js).
+ * submitted and the terms and statement they agreed to, which must be the
+ * workspace's as they read now. PostgreSQL only (postgres/submissions.js).
  */
 module.exports = async function submissions_routes(req, res, _url, _pathname, ctx) {
   if (!req.context || req.workspacePath !== '/submissions') return;
@@ -32,14 +34,14 @@ module.exports = async function submissions_routes(req, res, _url, _pathname, ct
     try {
       body = await readBody(req);
     } catch {
-      return json(res, 400, {error: 'The request body must be JSON: {"url": "https://github.com/<owner>/<repo>", "statement": "…"}'});
+      return json(res, 400, {error: 'The request body must be JSON: {"url": "https://github.com/<owner>/<repo>", "agreement": {"notice": […], "statement": "…"}}'});
     }
-    if (body?.statement !== asked.statement) {
-      return json(res, 409, {error: 'The statement to agree to has changed. Reload the page and read it again.'});
+    if (!isDeepStrictEqual(body?.agreement, asked)) {
+      return json(res, 409, {error: 'What you agree to has changed. Reload the page and read it again.'});
     }
     const published = await publishFromGithub({ai, github, market}, req.context.userId, body?.url);
     if (published.error) return json(res, published.status, {error: published.error});
-    return json(res, 201, {submission: await submissions.add(req.context, published.plugin, asked.statement)});
+    return json(res, 201, {submission: await submissions.add(req.context, published.plugin, asked)});
   }
 
   return json(res, 405, {error: 'Method not allowed'});

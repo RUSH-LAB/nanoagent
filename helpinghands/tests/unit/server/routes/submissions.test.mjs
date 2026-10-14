@@ -9,7 +9,10 @@ const {createPostgresMarket} = require('../../../../src/server/postgres/market.j
 const {createPostgresSubmissions} = require('../../../../src/server/postgres/submissions.js');
 const routes = require('../../../../src/server/routes/submissions.js');
 
-const STATEMENT = 'I voluntarily agree that my original contribution to Lab may be open-sourced under the MIT License.';
+const AGREEMENT = {
+  notice: [{title: 'License', text: 'By submitting, you grant the lab a license to publish your submission.'}],
+  statement: 'I voluntarily agree that my original contribution to Lab may be open-sourced under the MIT License.',
+};
 
 describe('workspace submissions', () => {
   let db;
@@ -24,7 +27,7 @@ describe('workspace submissions', () => {
       ? {error: 'the plugin is refused: missing LICENSE', status: 422}
       : {value: {package: {id: archive.toString(), name: archive.toString(), version: '1.0.0', sha256: `sha-${archive}`, size: 7}, data: archive.toString('base64')}}),
   };
-  let asked = {submissions: {statement: STATEMENT}};
+  let asked = {submissions: AGREEMENT};
   const workspaceSettings = {get: async () => asked};
   // alice owns `lab`, bob edits it, vic views it; carol owns `other`.
   const roles = {alice: 'owner', bob: 'editor', vic: 'viewer', carol: 'owner'};
@@ -47,28 +50,28 @@ describe('workspace submissions', () => {
   });
   after(() => db?.close());
 
-  it('publishes the plugin and records the statement its submitter agreed to', async () => {
-    const submitted = await call('vic', 'POST', {url: 'vic-agent', statement: STATEMENT});
+  it('publishes the plugin and records the terms and statement its submitter agreed to', async () => {
+    const submitted = await call('vic', 'POST', {url: 'vic-agent', agreement: AGREEMENT});
     assert.equal(submitted.status, 201);
     const {submission} = submitted.payload;
     assert.deepEqual(submission.plugin, {id: 'vic-agent', version: '1.0.0', sha256: 'sha-vic-agent', repository: repositoryOf('vic-agent')});
-    assert.equal(submission.statement, STATEMENT);
+    assert.deepEqual(submission.agreement, AGREEMENT);
     assert.deepEqual(submission.submitter, {id: 'vic', name: 'Vic', github: 'vic'});
     const listed = (await ctx.market.list('alice')).map(plugin => plugin.id);
     assert.deepEqual(listed, ['vic-agent']);
   });
 
-  it('refuses a statement other than the workspace\'s, and a plugin NanoAgent refuses', async () => {
-    const changed = await call('bob', 'POST', {url: 'bob-agent', statement: 'I agree to something else'});
+  it('refuses an agreement other than the workspace\'s, and a plugin NanoAgent refuses', async () => {
+    const changed = await call('bob', 'POST', {url: 'bob-agent', agreement: {...AGREEMENT, notice: []}});
     assert.equal(changed.status, 409);
     assert.match(changed.payload.error, /has changed/);
-    const broken = await call('bob', 'POST', {url: 'broken', statement: STATEMENT});
+    const broken = await call('bob', 'POST', {url: 'broken', agreement: AGREEMENT});
     assert.deepEqual([broken.status, broken.payload.error], [422, 'the plugin is refused: missing LICENSE']);
     assert.deepEqual((await call('bob', 'GET')).payload.submissions, []);
   });
 
   it('shows an owner every submission and any other member their own', async () => {
-    await call('bob', 'POST', {url: 'bob-agent', statement: STATEMENT});
+    await call('bob', 'POST', {url: 'bob-agent', agreement: AGREEMENT});
     const ids = async (userId, workspaceId) => (await call(userId, 'GET', undefined, workspaceId)).payload.submissions
       .map(submission => submission.plugin.id).sort();
     assert.deepEqual(await ids('alice'), ['bob-agent', 'vic-agent']);
@@ -92,10 +95,10 @@ describe('workspace submissions', () => {
   it('takes nothing in a workspace that asks for no submissions', async () => {
     asked = {};
     try {
-      const refused = await call('bob', 'POST', {url: 'later-agent', statement: STATEMENT});
+      const refused = await call('bob', 'POST', {url: 'later-agent', agreement: AGREEMENT});
       assert.deepEqual([refused.status, refused.payload.error], [409, 'This workspace takes no submissions']);
     } finally {
-      asked = {submissions: {statement: STATEMENT}};
+      asked = {submissions: AGREEMENT};
     }
   });
 });

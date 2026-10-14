@@ -22,14 +22,16 @@
 .page > h1:first-child {
   margin: 0 0 2.5rem;
   text-align: center;
-  /* Not Georgia: its figures are old-style, so a name like COMP 580 would not
-     sit on one line if Instrument Serif failed to load. */
-  font-family: 'Instrument Serif', 'Times New Roman', serif;
+  /* A serif of ordinary width whose slash stands on the baseline, with lining
+     figures, so a name like COMP 480/580 sits on one line. Not Georgia as the
+     fallback: its figures are old-style whatever the CSS asks. */
+  font-family: 'Playfair Display', 'Times New Roman', serif;
   font-variant-numeric: lining-nums;
-  font-size: clamp(3.4rem, 8vw, 5.75rem) !important;
+  font-feature-settings: 'lnum' 1;
+  font-size: clamp(3rem, 7vw, 4.75rem) !important;
   font-weight: 400;
-  line-height: 1;
-  letter-spacing: -0.01em;
+  line-height: 1.05;
+  letter-spacing: -0.015em;
   color: #0f172a !important;
 }
 
@@ -44,15 +46,7 @@
   color: var(--ifm-color-emphasis-600);
 }
 
-/* A workspace that takes submissions: its Submit link, and what a submitter agrees to. */
+/* A workspace that takes submissions: its Submit link. */
 .submissions {
   text-align: center;
-}
-
-.submissions p {
-  margin: 1.75rem auto 0;
-  max-width: 34rem;
-  font-size: 0.9rem;
-  line-height: 1.6;
-  color: var(--ifm-color-emphasis-700);
 }

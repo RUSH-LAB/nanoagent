@@ -16,8 +16,8 @@ import styles from './workspaceHome.module.css';
  *
  * An owner who chose one page as the workspace's home (site.homeLayout
  * 'document') is sent to that page instead. A workspace that takes
- * submissions (site.submissions) links to its Submit page under the name, with
- * the statement a submitter agrees to.
+ * submissions (site.submissions) links to its Submit page under the name,
+ * which shows what a submitter agrees to.
  */
 function WorkspaceHome() {
   const {slug, workspace, site, loading, error} = useWorkspaceSite();
@@ -39,7 +39,6 @@ function WorkspaceHome() {
           <Link className="button button--primary button--lg" to={`/w/${encodeURIComponent(slug)}/submit`}>
             Submit your artifact
           </Link>
-          <p>{site.submissions.statement}</p>
         </div>
       )}
     </article>

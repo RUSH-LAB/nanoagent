@@ -147,11 +147,11 @@ const config = {
     {tagName: 'link', attributes: {rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: 'anonymous'}},
   ],
 
-  // Inter for the interface; Instrument Serif for a workspace's name on its
-  // home page (runtime-content/workspaceHome.module.css).
+  // Inter for the interface; Playfair Display for a workspace's name on its home page
+  // (runtime-content/workspaceHome.module.css).
   stylesheets: [
     {
-      href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif&display=swap',
+      href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@400&display=swap',
       type: 'text/css',
     },
   ],

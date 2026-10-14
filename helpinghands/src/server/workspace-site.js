@@ -4,6 +4,7 @@ const MAX_NAVIGATION_ITEMS = 24;
 const MAX_COLLECTIONS = 32;
 const MAX_BLOG_GROUPS = 100;
 const MAX_PLUGINS = 64;
+const MAX_SUBMISSION_NOTICES = 8;
 const HOME_LAYOUTS = new Set(['library', 'document']);
 const LEGACY_PLUGIN_FLAGS = Object.freeze({
   bibliography: 'citations',
@@ -117,12 +118,25 @@ function validateAuthoring(value) {
   };
 }
 
-// What a member agrees to when they submit to the workspace (routes/submissions.js);
-// a workspace without it takes no submissions.
+// What a member agrees to when they submit to the workspace (routes/submissions.js):
+// the terms its home shows (notice), each a title and its text, and the statement
+// they tick. A workspace without a statement takes no submissions.
 function validateSubmissions(value) {
   if (value == null) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('submissions must be an object');
-  return {statement: text(value.statement, 'submissions.statement', {required: true, max: 2000})};
+  const notice = value.notice ?? [];
+  if (!Array.isArray(notice)) throw new TypeError('submissions.notice must be an array');
+  if (notice.length > MAX_SUBMISSION_NOTICES) throw new TypeError(`submissions.notice may contain at most ${MAX_SUBMISSION_NOTICES} items`);
+  return {
+    notice: notice.map((item, index) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) throw new TypeError(`submissions.notice[${index}] must be an object`);
+      return {
+        title: text(item.title, `submissions.notice[${index}].title`, {required: true, max: 60}),
+        text: text(item.text, `submissions.notice[${index}].text`, {required: true, max: 2000}),
+      };
+    }),
+    statement: text(value.statement, 'submissions.statement', {required: true, max: 2000}),
+  };
 }
 
 function validateWorkspaceSite(value = {}) {

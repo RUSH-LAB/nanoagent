@@ -8,8 +8,8 @@ import styles from './styles.module.css';
 
 /**
  * Submitting to a workspace (server/routes/submissions.js), for a workspace
- * whose settings ask for submissions: a plugin's public GitHub URL, and the
- * workspace's statement, which the member agrees to by submitting. The plugin is
+ * whose settings ask for submissions: the workspace's terms, a plugin's public
+ * GitHub URL, and the statement, which the member ticks to submit. The plugin is
  * published to the marketplace as theirs, and the submission records what they
  * submitted and agreed to. Below the form, an owner sees every submission and
  * any other member their own.
@@ -24,6 +24,15 @@ async function send(init) {
   }
   const data = await response.json().catch(() => ({}));
   return response.ok ? {data} : {error: data.error || `The request failed (${response.status})`};
+}
+
+const EMAIL = /([\w.+-]+@[\w-]+(?:\.[\w-]+)+)/;
+
+/** `text` with each email address in it a mailto: link. */
+function withEmailLinks(text) {
+  return text.split(EMAIL).map((part, index) => (index % 2
+    ? <a key={index} href={`mailto:${part}`}>{part}</a>
+    : part));
 }
 
 const commitUrl = ({owner, repo, commit, path}) => `https://github.com/${owner}/${repo}/tree/${commit}${path ? `/${path}` : ''}`;
@@ -50,28 +59,28 @@ function Submissions({submissions, owner}) {
 
 function Submit() {
   const {workspace, site, loading, error: siteError} = useWorkspaceSite();
-  const statement = site?.submissions?.statement ?? null;
+  const agreement = site?.submissions ?? null;
   const [url, setUrl] = React.useState('');
   const [agreed, setAgreed] = React.useState(false);
   const [state, setState] = React.useState({busy: false, error: null, done: null});
   const [submissions, setSubmissions] = React.useState([]);
 
   React.useEffect(() => {
-    if (!workspace?.id || !statement) return;
+    if (!workspace?.id || !agreement) return;
     send().then(result => {
       if (result.data) setSubmissions(result.data.submissions);
     });
-  }, [workspace?.id, statement]);
+  }, [workspace?.id, agreement]);
 
   if (siteError) return <p className={styles.error}>{siteError}</p>;
   if (loading || !site) return null;
-  if (!statement) return <p className={styles.note}>This workspace takes no submissions.</p>;
+  if (!agreement) return <p className={styles.note}>This workspace takes no submissions.</p>;
 
   const submit = async event => {
     event.preventDefault();
     setState({busy: true, error: null, done: null});
     const result = await send({
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({url, statement}),
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({url, agreement}),
     });
     if (result.error) return setState({busy: false, error: result.error, done: null});
     setUrl('');
@@ -83,6 +92,9 @@ function Submit() {
   return (
     <>
       <form className={styles.form} onSubmit={submit}>
+        {agreement.notice.map(item => (
+          <p key={item.title} className={styles.notice}><strong>{item.title}.</strong> {withEmailLinks(item.text)}</p>
+        ))}
         <label className={styles.field}>
           <span>Your plugin's public GitHub URL</span>
           <input
@@ -96,7 +108,7 @@ function Submit() {
         </label>
         <label className={styles.agree}>
           <input type="checkbox" required checked={agreed} onChange={event => setAgreed(event.target.checked)} disabled={state.busy} />
-          <span>{statement}</span>
+          <span>{withEmailLinks(agreement.statement)}</span>
         </label>
         <button type="submit" className="button button--primary" disabled={state.busy || !agreed}>
           {state.busy ? 'Checking…' : 'Submit'}
