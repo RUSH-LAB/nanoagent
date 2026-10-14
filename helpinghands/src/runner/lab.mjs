@@ -144,10 +144,15 @@ export function writeKeys(file, changes) {
   fs.writeFileSync(file, contents, {mode: 0o600});
 }
 
-/** What every service sees: the system basics, and the bundled runtimes first on PATH. */
-export function systemEnv(env, bin) {
+/**
+ * What every service sees: the system basics, the bundled runtimes first on PATH, and the folder uv
+ * installs Python into, the data folder's python/. NanoAgent's plugin sandbox lets plugins, and its
+ * own helpers there, read that folder whole (nanoagent.plugin.sandbox), so every link uv makes in it
+ * resolves inside the sandbox too.
+ */
+export function systemEnv(env, bin, data) {
   const system = Object.fromEntries(SYSTEM_ENV.filter(name => env[name] !== undefined).map(name => [name, env[name]]));
-  return {...system, PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`};
+  return {...system, PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`, UV_PYTHON_INSTALL_DIR: path.join(data, 'python')};
 }
 
 /** How NanoAgent starts, in the bundle's `nanoagent` folder, with this data folder, `keys` and its bearer `token`. */
@@ -435,7 +440,7 @@ async function main() {
     const settings = readSettings(settingsFile);
     await stopLeftovers();
     if (await listening(port)) throw new Error(`Port ${port} already in use. Quit whatever is using it (the Mochi Lab app?); launchd tries again.`);
-    const system = systemEnv(process.env, bin);
+    const system = systemEnv(process.env, bin, data);
 
     log('Preparing NanoAgent\'s Python environment (the first start downloads Python)…');
     // Only NanoAgent's dependencies, as the bundled uv.lock pins them: NanoAgent itself is the

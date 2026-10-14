@@ -72,6 +72,9 @@ async function main() {
     }
     console.log(`RUSH Lab ${stamp} installed and started NanoAgent.`);
   } catch (error) {
+    // What NanoAgent's Python is, through its links: what a sandbox has to let it reach.
+    const python = path.join(data, 'app', 'current', 'mochi-lab', 'nanoagent', '.venv', 'bin', 'python');
+    spawnSync('sh', ['-c', `ls -l "${python}"; readlink -f "${python}"; "${python}" -c 'import sys; print(sys.prefix, sys.base_prefix, sys._base_executable)'`], {stdio: 'inherit'});
     for (const name of ['lab.log', 'uv-sync.log', 'nanoagent.log', 'relay.log']) {
       const file = path.join(data, 'logs', name);
       if (fs.existsSync(file)) console.error(`--- ${name}\n${fs.readFileSync(file, 'utf8').slice(-6000)}`);
