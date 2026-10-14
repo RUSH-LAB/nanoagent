@@ -144,7 +144,6 @@ const WHATS_NEW = [
 const QUICK_LINKS = [
   { label: 'Settings', to: '/settings', desc: 'Manage your account and workspace presentation' },
   { label: 'API Reference', to: '/api-docs', desc: 'Application API documentation' },
-  { label: 'Platform', to: '/settings#limits', desc: 'Platform administration, for administrators' },
 ];
 
 function FeatureCard({ title, items }) {

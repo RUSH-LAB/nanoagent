@@ -63,11 +63,6 @@ export const icons = {
       <line x1="6" y1="20" x2="6" y2="14" />
     </svg>
   ),
-  shield: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    </svg>
-  ),
   graph: (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="18" cy="5" r="3" />
@@ -201,7 +196,6 @@ export const PAGE_COMMANDS = [
   {id: 'home', name: 'home', category: 'Meta', icon: icons.navigate, title: 'Home', description: 'Back to the front page', href: '/'},
   {id: 'about', name: 'about', category: 'Meta', icon: icons.info, title: 'About', description: 'What this site is', href: '/about'},
   {id: 'api', name: 'api', category: 'Meta', icon: icons.pages, title: 'API Docs', description: 'Server endpoint reference', href: '/api-docs'},
-  {id: 'admin', name: 'admin', category: 'Meta', icon: icons.shield, title: 'Platform', description: 'Platform administration, in Settings', href: '/settings#limits'},
 ];
 
 /**
