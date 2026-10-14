@@ -52,7 +52,7 @@ revoke execute on function platform_workspace_overview() from public;
 
 -- Mochi signs in only with GitHub (server/auth.js), so an account with no
 -- GitHub sign-in is one no one can sign in to, a test's or one from before, and
--- it is deleted with everything that cascades from it. One that owns a
+-- it is deleted with its chat messages and everything that cascades from it. One that owns a
 -- workspace or administers the platform is not, and stops the migration: hand
 -- those on first.
 do $$
@@ -68,5 +68,9 @@ begin
     raise exception 'Accounts without GitHub own a workspace or administer the platform: %', blocked;
   end if;
 end $$;
+delete from message m
+ using app_user u
+ where m.user_id = u.id
+   and not exists (select 1 from auth_account a where a.user_id = u.id and a.provider_id = 'github');
 delete from app_user u
  where not exists (select 1 from auth_account a where a.user_id = u.id and a.provider_id = 'github');
