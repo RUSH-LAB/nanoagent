@@ -11,8 +11,10 @@
   \item \textbf{Rules in code, judgment in the model.} If a value follows
     from rules, a tool computes it. The model decides only what needs
     judgment.
-  \item \textbf{Every result is verified} by plain, sandboxed,
-    deterministic Python, never an LLM judge.
+  \item \textbf{Every result is verified by code. LLM as judge is
+    banned.} The verifier is plain, sandboxed, deterministic Python that
+    decides every case. A task whose correctness code cannot check does not
+    belong in a plugin.
   \item \textbf{Natural language only at the end,} to explain the typed
     result to the person.
 \end{enumerate}
