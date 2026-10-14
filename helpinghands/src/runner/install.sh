@@ -30,7 +30,7 @@ WORK=$(mktemp -d) || fail "could not make a temporary folder."
 trap 'rm -rf "$WORK"' EXIT
 
 echo "Downloading Mochi Lab for $TARGET from $SITE..."
-curl -fSL -D "$WORK/headers" -o "$WORK/bundle.tar.gz" "$SITE/api/lab/bundles/$TARGET?token=$TOKEN" \
+curl -fSL --progress-bar -D "$WORK/headers" -o "$WORK/bundle.tar.gz" "$SITE/api/lab/bundles/$TARGET?token=$TOKEN" \
   || fail "the download from $SITE failed."
 # The last response's headers: a redirect's come first.
 header() {

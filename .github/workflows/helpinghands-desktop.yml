@@ -78,6 +78,10 @@ jobs:
         env:
           LAB_UPLOAD_TOKEN: ${{ secrets.LAB_UPLOAD_TOKEN }}
         run: |
+          if [ -z "$LAB_UPLOAD_TOKEN" ]; then
+            echo "The LAB_UPLOAD_TOKEN secret is not set" >&2
+            exit 1
+          fi
           bundle=dist/mochi-lab-${{ matrix.target }}.tar.gz
           stamp=$(tar -xOzf "$bundle" mochi-lab/stamp)
           deadline=$(( $(date +%s) + 900 ))

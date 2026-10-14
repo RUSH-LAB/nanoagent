@@ -36,7 +36,10 @@ function InstallLab() {
   const [note, setNote] = useState(null);
   useEffect(() => {
     const load = () => apiRequest('/api/lab/install')
-      .then(value => setCommand(value.command))
+      .then(value => {
+        setCommand(value.command);
+        setNote(current => (current?.error ? null : current));
+      })
       .catch(err => setNote({error: err.message}));
     load();
     const timer = setInterval(load, INSTALL_MS);

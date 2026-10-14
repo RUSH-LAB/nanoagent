@@ -85,12 +85,13 @@ export function keyHint(value) {
   return `${chars.slice(0, 6).join('')}…${chars.slice(-4).join('')}`;
 }
 
-/** The settings in `file`, or none when there is none yet or it cannot be read as settings. */
+/** The settings in `file`, or none while there is no file yet; a file that is not settings throws. */
 function readSettings(file) {
+  if (!fs.existsSync(file)) return {};
   try {
     return parseEnv(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return {};
+  } catch (error) {
+    throw new Error(`${file}: ${error.message}`);
   }
 }
 
@@ -410,14 +411,7 @@ async function main() {
   async function start() {
     log(`Mochi Lab ${fs.readFileSync(path.join(root, 'stamp'), 'utf8').trim()}, serving ${site}`);
     fs.mkdirSync(logs, {recursive: true});
-    let settings = {};
-    if (fs.existsSync(settingsFile)) {
-      try {
-        settings = parseEnv(fs.readFileSync(settingsFile, 'utf8'));
-      } catch (error) {
-        throw new Error(`${settingsFile}: ${error.message}`);
-      }
-    }
+    const settings = readSettings(settingsFile);
     await stopLeftovers();
     if (await listening(port)) throw new Error(`Port ${port} already in use. Quit whatever is using it (the Mochi Lab app?); launchd tries again.`);
     const system = systemEnv(process.env, bin);
