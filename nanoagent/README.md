@@ -125,11 +125,8 @@ in `verifier/` are imported relatively. NanoAgent enforces determinism
 ### The reference plugin and starting a new one
 
 NanoAgent ships no plugin. Each lives in its own repository and is published to
-Mochi's marketplace from it:
-[arxiv-source](https://github.com/zeyuyang8/mochi-arxiv-source),
-[bibtex-check](https://github.com/zeyuyang8/mochi-bibtex-check),
-[meal-suggestion](https://github.com/zeyuyang8/mochi-meal-suggestion) and
-[nasdaq-drawdown](https://github.com/zeyuyang8/mochi-nasdaq-drawdown).
+Mochi's marketplace from it, as
+[arxiv-source](https://github.com/zeyuyang8/arxiv-source) is.
 arxiv-source is the reference every plugin follows. It searches arXiv, then
 fetches and saves papers' LaTeX source. It has an MCP server with a `TOOLS`
 table, one module per tool in `src/plugin/`, a schema pair per tool, and one
