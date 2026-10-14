@@ -42,7 +42,6 @@ profiles:
 packages:
   - plugins/arxiv-source
   - plugins/bibtex-check
-  - plugins/chess-move
   - plugins/meal-suggestion
   - plugins/nasdaq-drawdown
 # Scratch space, one folder per run; Mochi keeps the files.

@@ -32,7 +32,7 @@ table, a list of strings as a list, text, numbers, yes/no), with the verdict as 
 
 `ui/` holds `renderers.js` and `renderers.css`, and the static files they import.
 `renderers.js`'s default export maps output class names to `(value, {task, verdict, send}) =>
-Element`, for an output the generic view draws poorly (a chess board, a paper list); `{}` when
+Element`, for an output the generic view draws poorly (a board, a paper list); `{}` when
 there are none. NanoAgent refuses a plugin whose `ui/` holds `app.js` or `app.css`, and the kit
 refuses a renderer named for a class no task outputs.
 
