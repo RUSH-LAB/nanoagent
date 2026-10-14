@@ -219,7 +219,7 @@ Then walk this list by hand:
 2. The person signs in at https://rush-lab.org and opens their workspace, for
    COMP 480/580 https://rush-lab.org/w/comp-480-580.
 3. They open Mochi Lab on their computer and approve its request to connect.
-   If Mochi Lab has no OpenRouter key, RUSH Lab gives it one with $5 of
+   If Mochi Lab has no OpenRouter key, RUSH Lab gives it one with $10 of
    credit. They can save their own key and choose the model under
    **Settings → AI**.
 4. In the workspace's **Marketplace**, they select **Submit your artifact**.
