@@ -33,13 +33,13 @@
   flex-direction: column;
 }
 
+/* The RUSH Lab runner reaches its square's edges, so it is shown whole. */
 .logo {
-  width: 72px;
-  height: 72px;
+  width: 96px;
+  height: 96px;
   align-self: center;
-  border-radius: 50%;
-  margin-bottom: 1.25rem;
-  box-shadow: 0 0 0 6px #f1f4fa;
+  object-fit: contain;
+  margin-bottom: 1rem;
 }
 
 /* custom.css colors and sizes every heading with !important, so the title
@@ -263,7 +263,7 @@
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
 }
 
-:global([data-theme='dark']) .logo { box-shadow: 0 0 0 6px #1e293b; }
+:global([data-theme='dark']) .logo { border-radius: 12px; }
 :global([data-theme='dark']) .title { color: #f1f5f9 !important; }
 :global([data-theme='dark']) .tagline { color: #94a3b8; }
 :global([data-theme='dark']) .githubButton { background: #f6f8fa; color: #1f2328; }
