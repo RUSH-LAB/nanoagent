@@ -27,7 +27,7 @@ def test_refuses_a_destination_outside_the_workspace() -> None:
 
 def test_refuses_a_missing_or_changed_note(tmp_path: Path) -> None:
     given = build_output(NOTE, NoteInput)
-    made = build_output({"path": str(tmp_path / "notes" / "first.txt"), "bytes": 7}, NoteOutput)
+    made = build_output({"path": "notes/first.txt", "bytes": 7}, NoteOutput)
     assert verifier.verify_task("write-note", given, made, None, str(tmp_path))["valid"] is False
     (tmp_path / "notes").mkdir()
     (tmp_path / "notes" / "first.txt").write_text("changed")

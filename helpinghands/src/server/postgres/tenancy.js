@@ -2,7 +2,7 @@
 /**
  * The platform's tenancy rules: who may sign up, how many workspaces an account
  * may own, what each workspace may store and spend on the assistant, which
- * accounts are suspended, and the administration of all of it.
+ * accounts are suspended, and the record of workspaces their owners removed.
  *
  * Storage limits are also enforced by triggers (0011_tenancy.sql),
  * so a write path that never calls this module still cannot exceed them; the
@@ -12,24 +12,6 @@ const {withRequestContext} = require('./client');
 
 const SIGNUP_MODES = Object.freeze(['open', 'invite', 'allowlist']);
 const AI_KINDS = Object.freeze(['chat', 'inline', 'complete', 'app', 'task', 'plugin']);
-const AUDIT_LIMIT = 200;
-
-// What each policy and workspace-limit field accepts. USD amounts are capped so
-// a typo cannot lift a budget to something no one meant.
-const LIMIT_FIELDS = Object.freeze({
-  storageBytes: {column: 'storage_bytes', min: 0, max: 1024 ** 4, integer: true},
-  aiDailyUsd: {column: 'ai_daily_usd', min: 0, max: 10_000},
-  aiMonthlyUsd: {column: 'ai_monthly_usd', min: 0, max: 100_000},
-  memberAiDailyUsd: {column: 'member_ai_daily_usd', min: 0, max: 10_000},
-});
-const POLICY_FIELDS = Object.freeze({
-  maxWorkspacesPerUser: {column: 'max_workspaces_per_user', min: 0, max: 1_000, integer: true},
-  workspaceStorageBytes: {column: 'workspace_storage_bytes', min: 0, max: 1024 ** 4, integer: true},
-  workspaceAiDailyUsd: {column: 'workspace_ai_daily_usd', min: 0, max: 10_000},
-  workspaceAiMonthlyUsd: {column: 'workspace_ai_monthly_usd', min: 0, max: 100_000},
-  memberAiDailyUsd: {column: 'member_ai_daily_usd', min: 0, max: 10_000},
-});
-
 class TenancyError extends Error {
   constructor(status, code, message, extra = {}) {
     super(message);
@@ -41,28 +23,6 @@ class TenancyError extends Error {
 }
 
 const usd = value => `$${Number(value).toFixed(2)}`;
-
-function validNumber(spec, value, name) {
-  const number = Number(value);
-  if (value === '' || value === null || typeof value === 'boolean' || !Number.isFinite(number)
-    || number < spec.min || number > spec.max || (spec.integer && !Number.isInteger(number))) {
-    throw new TenancyError(400, 'invalid-limit', `${name} must be ${spec.integer ? 'a whole number' : 'a number'} from ${spec.min} to ${spec.max}`);
-  }
-  return number;
-}
-
-/** Lowercased addresses and @domains, deduplicated; anything else is refused. */
-function normalizeAllowlist(entries) {
-  if (!Array.isArray(entries)) throw new TenancyError(400, 'invalid-allowlist', 'signupAllowlist must be a list');
-  const clean = [...new Set(entries.map(entry => String(entry ?? '').trim().toLowerCase()).filter(Boolean))];
-  for (const entry of clean) {
-    if (!/^(?:[^\s@]+)?@[a-z0-9.-]+\.[a-z]{2,}$/.test(entry)) {
-      throw new TenancyError(400, 'invalid-allowlist', `"${entry}" is not an email address or @domain`);
-    }
-  }
-  if (clean.length > 1000) throw new TenancyError(400, 'invalid-allowlist', 'The allowlist holds at most 1000 entries');
-  return clean;
-}
 
 function allowlisted(allowlist, email) {
   const address = String(email ?? '').trim().toLowerCase();
@@ -109,60 +69,12 @@ function createPostgresTenancy({pool}) {
     );
   }
 
-  async function requireAdmin(client, actorId) {
-    const admin = (await client.query('select 1 from platform_admin where user_id = $1', [actorId])).rowCount > 0;
-    if (!admin) throw new TenancyError(403, 'not-platform-admin', 'Only platform administrators can do that');
-  }
-
   // ── Policy ──
 
   async function policy() {
     return policyFromRow((await pool.query('select * from platform_policy')).rows[0]);
   }
 
-  async function updatePolicy(actorId, patch) {
-    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
-      throw new TenancyError(400, 'invalid-policy', 'Send the policy fields to change');
-    }
-    const sets = [];
-    const values = [];
-    const changed = {};
-    if (patch.signupMode !== undefined) {
-      if (!SIGNUP_MODES.includes(patch.signupMode)) {
-        throw new TenancyError(400, 'invalid-signup-mode', `signupMode must be one of ${SIGNUP_MODES.join(', ')}`);
-      }
-      values.push(patch.signupMode);
-      sets.push(`signup_mode = $${values.length}`);
-      changed.signupMode = patch.signupMode;
-    }
-    if (patch.signupAllowlist !== undefined) {
-      const allowlist = normalizeAllowlist(patch.signupAllowlist);
-      values.push(allowlist);
-      sets.push(`signup_allowlist = $${values.length}`);
-      changed.signupAllowlist = allowlist;
-    }
-    for (const [field, spec] of Object.entries(POLICY_FIELDS)) {
-      if (patch[field] === undefined) continue;
-      values.push(validNumber(spec, patch[field], field));
-      sets.push(`${spec.column} = $${values.length}`);
-      changed[field] = values.at(-1);
-    }
-    for (const field of Object.keys(patch)) {
-      if (!['signupMode', 'signupAllowlist', ...Object.keys(POLICY_FIELDS)].includes(field)) {
-        throw new TenancyError(400, 'invalid-policy', `Unknown policy field: ${field}`);
-      }
-    }
-    if (!sets.length) return policy();
-    return asUser(actorId, null, async client => {
-      await requireAdmin(client, actorId);
-      values.push(actorId);
-      await client.query(`update platform_policy set ${sets.join(', ')}, updated_at = now(), updated_by = $${values.length}`, values);
-      await audit(client, {actorId, action: 'policy.update', targetType: 'policy', detail: changed});
-      return policyFromRow((await client.query('select * from platform_policy')).rows[0]);
-    });
-  }
-
-  /** Whether a GitHub account, by its address and username, may create an account under the current policy. */
   async function signupDecision(email, githubLogin) {
     const current = await policy();
     if (current.signupMode === 'open' || allowlisted(current.signupAllowlist, email)) return {allowed: true};
@@ -311,163 +223,8 @@ function createPostgresTenancy({pool}) {
     return queued;
   }
 
-  // ── Platform administration ──
+  // ── Platform audit ──
 
-  async function listUsers(actorId) {
-    return asUser(actorId, null, async client => {
-      await requireAdmin(client, actorId);
-      const spendByUser = new Map((await client.query('select * from platform_user_ai_spend()')).rows
-        .map(row => [row.user_id, Number(row.ai_30d_usd)]));
-      const rows = (await client.query(
-        `select u.id, u.email, u.display_name as name, u.image, u.email_verified as "emailVerified",
-                u.created_at as "createdAt", u.banned_at as "bannedAt", u.ban_reason as "banReason",
-                u.max_workspaces as "maxWorkspaces", p.user_id is not null as admin,
-                (select count(*)::int from auth_session s where s.user_id = u.id and s.expires_at > now()) as sessions,
-                (select max(s.updated_at) from auth_session s where s.user_id = u.id) as "lastSeenAt"
-           from app_user u left join platform_admin p on p.user_id = u.id
-          order by u.created_at desc, u.id`,
-      )).rows;
-      return rows.map(row => ({...row, ai30dUsd: spendByUser.get(row.id) ?? 0}));
-    });
-  }
-
-  async function targetUser(client, userId) {
-    const row = (await client.query('select id, coalesce(display_name, email) as label from app_user where id = $1', [userId])).rows[0];
-    if (!row) throw new TenancyError(404, 'user-not-found', 'No such account');
-    return row;
-  }
-
-  async function banUser(actorId, userId, reason) {
-    if (actorId === userId) throw new TenancyError(409, 'cannot-ban-self', 'You cannot suspend your own account');
-    const clean = String(reason ?? '').trim().slice(0, 500) || null;
-    return asUser(actorId, null, async client => {
-      await requireAdmin(client, actorId);
-      const target = await targetUser(client, userId);
-      if ((await client.query('select 1 from platform_admin where user_id = $1', [userId])).rowCount) {
-        throw new TenancyError(409, 'cannot-ban-admin', 'Remove administrator access before suspending this account');
-      }
-      await client.query('update app_user set banned_at = now(), ban_reason = $2 where id = $1', [userId, clean]);
-      const revoked = (await client.query('delete from auth_session where user_id = $1', [userId])).rowCount;
-      await audit(client, {actorId, action: 'user.ban', targetType: 'user', targetId: userId, targetLabel: target.label, detail: {reason: clean}});
-      return {revokedSessions: revoked};
-    });
-  }
-
-  async function unbanUser(actorId, userId) {
-    return asUser(actorId, null, async client => {
-      await requireAdmin(client, actorId);
-      const target = await targetUser(client, userId);
-      await client.query('update app_user set banned_at = null, ban_reason = null where id = $1', [userId]);
-      await audit(client, {actorId, action: 'user.unban', targetType: 'user', targetId: userId, targetLabel: target.label});
-    });
-  }
-
-  async function revokeSessions(actorId, userId) {
-    return asUser(actorId, null, async client => {
-      await requireAdmin(client, actorId);
-      const target = await targetUser(client, userId);
-      const revoked = (await client.query('delete from auth_session where user_id = $1', [userId])).rowCount;
-      await audit(client, {actorId, action: 'user.sessions-revoke', targetType: 'user', targetId: userId, targetLabel: target.label, detail: {revoked}});
-      return {revokedSessions: revoked};
-    });
-  }
-
-  async function setUserWorkspaceLimit(actorId, userId, maxWorkspaces) {
-    const value = maxWorkspaces === null ? null : validNumber(POLICY_FIELDS.maxWorkspacesPerUser, maxWorkspaces, 'maxWorkspaces');
-    return asUser(actorId, null, async client => {
-      await requireAdmin(client, actorId);
-      const target = await targetUser(client, userId);
-      await client.query('update app_user set max_workspaces = $2 where id = $1', [userId, value]);
-      await audit(client, {actorId, action: 'user.workspace-limit', targetType: 'user', targetId: userId, targetLabel: target.label, detail: {maxWorkspaces: value}});
-    });
-  }
-
-  async function deleteUser(actorId, userId) {
-    if (actorId === userId) throw new TenancyError(409, 'cannot-delete-self', 'Delete your own account from Settings');
-    const label = await asUser(actorId, null, async client => {
-      await requireAdmin(client, actorId);
-      if ((await client.query('select 1 from platform_admin where user_id = $1', [userId])).rowCount) {
-        throw new TenancyError(409, 'cannot-delete-admin', 'Remove administrator access before deleting this account');
-      }
-      return (await targetUser(client, userId)).label;
-    });
-    const queued = await prepareAccountDeletion(actorId, userId);
-    await asUser(actorId, null, async client => {
-      await client.query('delete from app_user where id = $1', [userId]);
-      await audit(client, {actorId, action: 'user.delete', targetType: 'user', targetId: userId, targetLabel: label});
-    });
-    return {queuedObjects: queued};
-  }
-
-  async function listWorkspaces(actorId) {
-    return asUser(actorId, null, async client => (await client.query('select * from platform_workspace_overview()')).rows
-      .map(row => ({
-        id: row.id, name: row.name, slug: row.slug, status: row.status, createdAt: row.created_at,
-        owner: row.owner_id ? {id: row.owner_id, email: row.owner_email} : null,
-        members: row.member_count,
-        storageBytes: Number(row.storage_used),
-        aiMonthUsd: Number(row.ai_month_usd),
-        limits: limitsFromRow(row),
-        overridden: row.overridden,
-      })));
-  }
-
-  async function workspaceLabel(client, workspaceId) {
-    const row = (await client.query(
-      'select name from platform_workspace_overview() where id = $1', [workspaceId],
-    )).rows[0];
-    if (!row) throw new TenancyError(404, 'workspace-not-found', 'No such workspace');
-    return row.name;
-  }
-
-  /** Override a workspace's limits; null for a field (or for the whole patch) restores the default. */
-  async function setWorkspaceLimits(actorId, workspaceId, patch) {
-    const values = {};
-    if (patch !== null) {
-      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
-        throw new TenancyError(400, 'invalid-limit', 'Send the limits to change, or null to restore the defaults');
-      }
-      for (const [field, value] of Object.entries(patch)) {
-        const spec = LIMIT_FIELDS[field];
-        if (!spec) throw new TenancyError(400, 'invalid-limit', `Unknown limit: ${field}`);
-        values[spec.column] = value === null ? null : validNumber(spec, value, field);
-      }
-    }
-    return asUser(actorId, null, async client => {
-      await requireAdmin(client, actorId);
-      const label = await workspaceLabel(client, workspaceId);
-      if (patch === null) {
-        await client.query('delete from workspace_limits where workspace_id = $1', [workspaceId]);
-      } else {
-        const columns = Object.keys(values);
-        await client.query(
-          `insert into workspace_limits(workspace_id, ${columns.join(', ')}, updated_at, updated_by)
-           values ($1, ${columns.map((_, index) => `$${index + 2}`).join(', ')}, now(), $${columns.length + 2})
-           on conflict (workspace_id) do update set
-             ${columns.map(column => `${column} = excluded.${column}`).join(', ')}${columns.length ? ',' : ''}
-             updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
-          [workspaceId, ...Object.values(values), actorId],
-        );
-      }
-      await audit(client, {actorId, action: 'workspace.limits', targetType: 'workspace', targetId: workspaceId, targetLabel: label, detail: patch === null ? {reset: true} : patch});
-      return limitsFor(workspaceId);
-    });
-  }
-
-  async function setWorkspaceStatus(actorId, workspaceId, status) {
-    if (!['active', 'archived'].includes(status)) throw new TenancyError(400, 'invalid-status', 'status must be active or archived');
-    return asUser(actorId, null, async client => {
-      await requireAdmin(client, actorId);
-      const label = await workspaceLabel(client, workspaceId);
-      const changed = (await client.query('select platform_set_workspace_status($1, $2) as changed', [workspaceId, status])).rows[0].changed;
-      if (changed) {
-        await audit(client, {actorId, action: status === 'archived' ? 'workspace.archive' : 'workspace.restore', targetType: 'workspace', targetId: workspaceId, targetLabel: label});
-      }
-      return {changed};
-    });
-  }
-
-  /** A workspace owner archiving or deleting their own workspace, kept beyond its own audit log. */
   async function recordWorkspaceRemoval(actorId, workspace, mode) {
     await asUser(actorId, null, client => audit(client, {
       actorId, action: mode === 'delete' ? 'workspace.delete' : 'workspace.archive',
@@ -475,21 +232,6 @@ function createPostgresTenancy({pool}) {
     }));
   }
 
-  async function listAudit(actorId, limit = AUDIT_LIMIT) {
-    const capped = Math.min(Math.max(Number(limit) || AUDIT_LIMIT, 1), AUDIT_LIMIT);
-    return asUser(actorId, null, async client => {
-      await requireAdmin(client, actorId);
-      return (await client.query(
-        `select id, at, actor_id as "actorId", actor_label as "actorLabel", action, target_type as "targetType",
-                target_id as "targetId", target_label as "targetLabel", detail
-           from platform_audit order by at desc, id desc limit $1`, [capped],
-      )).rows;
-    });
-  }
-
-  // ── Rate limits shared by every process ──
-
-  /** Better Auth's rate-limit storage contract, also used by the API's own limits. */
   async function consume(key, {window, max}) {
     const row = (await pool.query(
       `insert into rate_limit_bucket as b (key, window_start, count) values ($1, now(), 1)
@@ -508,17 +250,14 @@ function createPostgresTenancy({pool}) {
   }
 
   return Object.freeze({
-    policy, updatePolicy, signupDecision,
+    policy, signupDecision,
     workspaceAllowance, workspaceLimitReached, limitsFor,
     assertAiAllowed, recordAiUsage, usage,
-    suspension, prepareAccountDeletion,
-    listUsers, banUser, unbanUser, revokeSessions, setUserWorkspaceLimit, deleteUser,
-    listWorkspaces, setWorkspaceLimits, setWorkspaceStatus, recordWorkspaceRemoval, listAudit,
+    suspension, prepareAccountDeletion, recordWorkspaceRemoval,
     consume, sweepRateLimits,
   });
 }
 
 module.exports = {
-  createPostgresTenancy, TenancyError, SIGNUP_MODES, AI_KINDS, LIMIT_FIELDS, POLICY_FIELDS,
-  normalizeAllowlist, allowlisted,
+  createPostgresTenancy, TenancyError, SIGNUP_MODES, AI_KINDS, allowlisted,
 };

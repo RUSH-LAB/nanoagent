@@ -45,7 +45,6 @@ function isGlobalApiPath(pathname) {
   return GLOBAL_API_PATHS.has(value)
     || value.startsWith('/api/auth/')
     || value.startsWith('/api/public/')
-    || value.startsWith('/api/admin/')
     || /^\/api\/invite\/[^/]+(?:\/accept)?$/.test(value)
     || /^\/api\/apps\/[^/]+\/ui\/.+$/.test(value)
     || /^\/api\/market(?:\/[^/]+(?:\/package)?)?$/.test(value)

@@ -599,7 +599,7 @@ const routeModules = [
   require('./routes/stats'),
   require('./routes/chat'),
   require('./routes/org'),
-  require('./routes/admin'),
+  require('./routes/signup-policy'),
   require('./routes/agents'),
   require('./routes/ai'),
   require('./routes/apps'),

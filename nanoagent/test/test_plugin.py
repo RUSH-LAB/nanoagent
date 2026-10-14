@@ -994,6 +994,17 @@ async def test_a_session_keeps_one_plugin_process_for_every_call(tmp_path: Path,
         await session.call("echo", {"value": "c"})
 
 
+async def test_a_tool_output_may_not_name_the_runs_workspace(tmp_path: Path) -> None:
+    from nanoagent.plugin import PluginSession
+
+    manifest = load_manifest(_echo_plugin(tmp_path))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    async with PluginSession(manifest, workspace, timeout=60) as session:
+        with pytest.raises(RuntimeError, match="names the run's workspace folder"):
+            await session.call("echo", {"value": f"{workspace.resolve()}/papers/attention"})
+
+
 async def test_plugin_tool_images_reach_the_model_as_images() -> None:
     from nanoagent.core.tool import Tool, ToolText
 

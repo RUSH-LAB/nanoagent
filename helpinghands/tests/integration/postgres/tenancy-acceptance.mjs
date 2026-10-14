@@ -215,7 +215,7 @@ try {
   check('the invited GitHub account joins', (await request(`/api/workspaces/${w2.id}`, {cookie: gus.cookie})).status === 200);
   await json(await request(`/api/workspaces/${w2.id}/leave`, {method: 'POST', cookie: gus.cookie}), 200);
 
-  await json(await request(`/api/admin/workspaces/${w1.id}/limits`, {method: 'PUT', cookie: alice.cookie, body: {limits: {aiMonthlyUsd: 20}}}), 200);
+  await migrationPool.query('insert into workspace_limits(workspace_id, ai_monthly_usd) values ($1, 20)', [w1.id]);
 
   // ── Assistant budget ──
   await asMember(alice.id, w1.id,
@@ -228,7 +228,7 @@ try {
     usage.ai.today === 1.25 && usage.limits.aiMonthlyUsd === 20 && usage.members === 2);
 
   // ── Storage ──
-  await json(await request(`/api/admin/workspaces/${w2.id}/limits`, {method: 'PUT', cookie: alice.cookie, body: {limits: {storageBytes: 16}}}), 200);
+  await migrationPool.query('insert into workspace_limits(workspace_id, storage_bytes) values ($1, 16)', [w2.id]);
   const blob = Buffer.alloc(32, 1);
   await assert.rejects(
     asMember(alice.id, w2.id,
@@ -250,31 +250,13 @@ try {
   );
   check('the database refuses bytes past the storage limit', true);
 
-  // ── Platform administration ──
-  check('a member who is not an administrator cannot read the account list',
-    (await request('/api/admin/users', {cookie: bob.cookie})).status === 403);
-  const users = (await json(await request('/api/admin/users', {cookie: alice.cookie}), 200)).users;
-  check('administrators see every account with its spend', users.some(user => user.id === alice.id && user.ai30dUsd === 1.25));
-  const workspaces = (await json(await request('/api/admin/workspaces', {cookie: alice.cookie}), 200)).workspaces;
-  const listed = workspaces.find(workspace => workspace.id === w1.id);
-  check('administrators see every workspace with its members, spend, and limits',
-    listed?.members === 2 && listed.aiMonthUsd === 1.25 && listed.limits.aiMonthlyUsd === 20 && listed.overridden);
-
-  await json(await request(`/api/admin/users/${bob.id}/ban`, {method: 'POST', cookie: alice.cookie, body: {reason: 'acceptance test'}}), 200);
+  // ── Suspension ──
+  await migrationPool.query("update app_user set banned_at = now(), ban_reason = 'acceptance test' where id = $1", [bob.id]);
   const banned = await signInWithGithub(request, github.bob.login);
   check('a suspended account cannot sign in', banned.error === 'account-suspended');
-  await json(await request(`/api/admin/users/${bob.id}/ban`, {method: 'DELETE', cookie: alice.cookie}), 200);
+  await migrationPool.query('update app_user set banned_at = null, ban_reason = null where id = $1', [bob.id]);
   bob.cookie = (await signIn('bob')).cookie;
   check('lifting a suspension restores sign-in', true);
-
-  const policy = (await json(await request('/api/admin/policy', {method: 'PUT', cookie: alice.cookie, body: {memberAiDailyUsd: 0.75}}), 200)).policy;
-  check('administrators change the default limits', policy.memberAiDailyUsd === 0.75);
-  await json(await request('/api/admin/policy', {method: 'PUT', cookie: alice.cookie, body: {signupMode: 'closed'}}), 400);
-
-  const actions = (await json(await request('/api/admin/audit', {cookie: alice.cookie}), 200)).events
-    .filter(event => event.actorId === alice.id).map(event => event.action);
-  check('administrator actions are recorded',
-    ['workspace.limits', 'user.ban', 'user.unban', 'policy.update'].every(action => actions.includes(action)));
 
   // ── Leaving ──
   await json(await request(`/api/workspaces/${w1.id}/leave`, {method: 'POST', cookie: dave.cookie}), 200);
@@ -290,11 +272,9 @@ try {
   await json(await request(`/api/invite/${bobInvite.id}/accept`, {method: 'POST', cookie: bob.cookie}), 200);
   check('a member joins a workspace that is out of storage', true);
   await migrationPool.query('delete from platform_admin where user_id = $1', [alice.id]);
-  await migrationPool.query('insert into platform_admin(user_id) values ($1)', [dave.id]);
   const shared = await json(await request('/api/auth/delete-user', {method: 'POST', cookie: alice.cookie, body: {}}), 409);
   check('an account cannot be deleted while it is the only owner of a workspace others use', /Tenancy Two/.test(shared.message));
-  await json(await request(`/api/admin/users/${bob.id}`, {method: 'DELETE', cookie: dave.cookie}), 200);
-  check('an administrator deletes an account', !(await migrationPool.query('select 1 from app_user where id = $1', [bob.id])).rowCount);
+  await json(await request(`/api/workspaces/${w2.id}/leave`, {method: 'POST', cookie: bob.cookie}), 200);
   await json(await request('/api/auth/delete-user', {method: 'POST', cookie: alice.cookie, body: {}}), 200);
   const left = (await migrationPool.query('select id from workspace where id = any($1::text[])', [[w1.id, w2.id]])).rows;
   check('deleting an account deletes the workspaces it used alone',

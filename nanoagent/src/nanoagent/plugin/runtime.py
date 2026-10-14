@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import AsyncExitStack
 from functools import partial
 from pathlib import Path
@@ -184,10 +184,33 @@ class PluginSession:
             build_output(response, definition.output_type)
         except ValueError as error:
             raise RuntimeError(f"invalid output from {tool}: {error}") from error
+        if _names_workspace(response, self.workspace):
+            raise RuntimeError(
+                f"invalid output from {tool}: it names the run's workspace folder, which is gone once the run"
+                " ends; name what is in it by a path relative to it"
+            )
         output_check = verify_output(manifest, tool, arguments, response, self.workspace)
         if not output_check.valid:
             raise RuntimeError(f"plugin output verification failed: {output_check.message}")
         return response
+
+
+def _strings(value: Any) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+
+
+def _names_workspace(output: Any, workspace: Path) -> bool:
+    """Whether ``output`` holds the path of ``workspace``: the run's own folder, which is no
+    place its caller can find once the run ends."""
+    roots = {str(workspace), str(workspace.resolve())}
+    return any(root in text for text in _strings(output) for root in roots)
 
 
 def _response(manifest: PluginManifest, tool: str, result: Any) -> Any:
