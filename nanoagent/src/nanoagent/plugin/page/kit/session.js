@@ -23,13 +23,14 @@ export function currentSession() {
  * Make `opened` (what `session.resume` answered) the page's session, or with no `opened`, a
  * new one, which the host starts when the page first chats in it.
  * @param {object|null} [opened]
- * @returns {{id: string|null, chat: Array<{prompt: string, answer: string, tools: Array<{name: string, arguments: object, output: unknown, isError: boolean}>}>}}
- *   `id` is null until a new session starts.
+ * @returns {{id: string|null, chat: Array<{prompt: string, answer: string, tools: Array<{name: string, arguments: object, output: unknown, isError: boolean}>}>, running: {prompt: string}|null}}
+ *   `id` is null until a new session starts; `running` is the message it is still answering.
  */
 export function enterSession(opened = null) {
   const session = {
     id: opened?.id ?? null,
     chat: opened?.chat ?? [],
+    running: opened?.running ?? null,
   };
   let starting = null;
   start = opened
@@ -175,6 +176,7 @@ export function dashboard({ onOpen }) {
 
   function row(session) {
     const meta = [when(session.updatedAt), plural(session.runs, "run"), formatCost(session.cost)];
+    if (session.running) meta.unshift("Answering…");
     if (session.ttftS != null) meta.push(`first token ${formatSeconds(session.ttftS)}`);
     const open = h(
       "button",

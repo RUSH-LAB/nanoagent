@@ -214,6 +214,103 @@ function completionPayload(result) {
   };
 }
 
+/** Start answering `res` as a server-sent event stream. */
+function openEventStream(req, res, corsOrigin) {
+  res.writeHead(200, {
+    ...corsHeaders(req, corsOrigin),
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    // Nginx buffers a proxied response by default, which would hold the whole
+    // answer back and deliver it at once, defeating the point of the endpoint.
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders?.();
+}
+
+/**
+ * Write an app's run (app-runs.js) to `res`, every event so far and then each as
+ * it comes, until the run ends or the reader goes; a reader going leaves the run going.
+ */
+async function followRun(res, run) {
+  const heartbeat = setInterval(() => {
+    if (writable(res)) res.write(': ping\n\n');
+  }, HEARTBEAT_MS);
+  let leave;
+  const left = new Promise(resolve => { leave = resolve; });
+  res.on('close', leave);
+  const stop = run.follow((event, data) => sendEvent(res, event, data), leave);
+  try {
+    await left;
+  } finally {
+    stop();
+    res.off('close', leave);
+    clearInterval(heartbeat);
+    res.end();
+  }
+}
+
+/**
+ * Run `composed` on the NanoAgent `ai`, passing its events to `send` until it
+ * answers or fails, and charge it. An app's run works on a copy of the member's
+ * agent folder, and its session keeps the turn it answered.
+ */
+async function answerRun(req, ctx, ai, kind, composed, send, signal) {
+  // Whether the run got far enough to cost anything, for a run that ends
+  // without NanoAgent's price (postgres/tenancy.js charges its cap instead).
+  let ran = false;
+  let result = null;
+  // An app run's tool calls, kept with the session's turn so its page draws them again.
+  const tools = [];
+  try {
+    const answer = workspace => ai.stream({
+      ...composed.request,
+      ...(workspace ? {workspace} : {}),
+      signal,
+      onDelta: (text) => {
+        ran = true;
+        send('delta', {text});
+      },
+      // The current client ignores these structured lifecycle events. They
+      // establish the wire contract for future tool progress without
+      // changing text streaming or inventing a second transport later.
+      onEvent: event => {
+        if (event.type === 'step.completed') ran = true;
+        if (composed.request.app && (event.type === 'tool.completed' || event.type === 'tool.failed')) {
+          tools.push({
+            name: event.call.name, arguments: event.call.arguments, output: event.call.output,
+            isError: event.type === 'tool.failed',
+          });
+        }
+        if (event.type !== 'output_text.delta') send('agent', event);
+      },
+    });
+    // An app's agent works on a copy of the member's agent folder, and what
+    // it writes there is kept in the workspace file system (fs/agent-sync.js).
+    result = composed.request.app
+      ? await ctx.agentSync.run(req.context, ai, answer)
+      : await answer();
+    // The session keeps the conversation, so a page resumed later continues it.
+    if (!result.error && composed.request.app) {
+      await ctx.sessions.addTurn(req.context, composed.request.app, composed.session, {
+        prompt: composed.request.input, answer: result.text, tools,
+      });
+    }
+    if (result.error) send('error', {error: result.error, status: result.status || 502});
+    else send('done', completionPayload(result));
+  } catch {
+    send('error', {error: 'AI request failed. Please try again later.', status: 500});
+  } finally {
+    try {
+      await ctx.aiMeter.record(req.context, kind, result, {
+        ran, local: ai.local, pluginId: composed.request.app ?? null, sessionId: composed.session ?? null,
+      });
+    } catch (error) {
+      console.error('[ai] Could not record assistant usage:', error.message);
+    }
+  }
+}
+
 /**
  * One buffered completion, checked against the budget first and charged after.
  * Shared by the inline and the writing-assistant endpoints.
@@ -305,16 +402,20 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
       composed.request.install = opened.value.sha256;
     }
 
-    res.writeHead(200, {
-      ...corsHeaders(req, CORS_ORIGIN),
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      // Nginx buffers a proxied response by default, which would hold the whole
-      // answer back and deliver it at once, defeating the point of the endpoint.
-      'X-Accel-Buffering': 'no',
-    });
-    res.flushHeaders?.();
+    // An app's run is the session's and goes on without this connection, which
+    // only follows it (app-runs.js), so a session answers one message at a time.
+    if (composed.request.app) {
+      let run;
+      try {
+        run = ctx.appRuns.start(composed.session, composed.request.input, run => answerRun(req, ctx, ai, kind, composed, run.send, run.signal));
+      } catch (error) {
+        if (error.name === 'AppRunError') return json(res, error.status, {error: error.message});
+        throw error;
+      }
+      openEventStream(req, res, CORS_ORIGIN);
+      return followRun(res, run);
+    }
+    openEventStream(req, res, CORS_ORIGIN);
 
     // A reader who closes the tab should not leave a NanoAgent run active.
     //
@@ -326,72 +427,12 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     const controller = new AbortController();
     const onClose = () => controller.abort();
     res.on('close', onClose);
-
     const heartbeat = setInterval(() => {
       if (writable(res)) res.write(': ping\n\n');
     }, HEARTBEAT_MS);
-
-    // Whether the run got far enough to cost anything, for a run that ends
-    // without NanoAgent's price (postgres/tenancy.js charges its cap instead).
-    let ran = false;
-    let result = null;
-    // An app run's tool calls, kept with the session's turn so its page draws them again.
-    const tools = [];
     try {
-      const answer = workspace => ai.stream({
-        ...composed.request,
-        ...(workspace ? {workspace} : {}),
-        signal: controller.signal,
-        onDelta: (text) => {
-          ran = true;
-          sendEvent(res, 'delta', {text});
-        },
-        // The current client ignores these structured lifecycle events. They
-        // establish the wire contract for future tool progress without
-        // changing text streaming or inventing a second transport later.
-        onEvent: event => {
-          if (event.type === 'step.completed') ran = true;
-          if (composed.request.app && (event.type === 'tool.completed' || event.type === 'tool.failed')) {
-            tools.push({
-              name: event.call.name, arguments: event.call.arguments, output: event.call.output,
-              isError: event.type === 'tool.failed',
-            });
-          }
-          if (event.type !== 'output_text.delta') sendEvent(res, 'agent', event);
-        },
-      });
-      // An app's agent works on a copy of the member's agent folder, and what
-      // it writes there is kept in the workspace file system (fs/agent-sync.js).
-      result = composed.request.app
-        ? await ctx.agentSync.run(req.context, ai, answer)
-        : await answer();
-      // The session keeps the conversation, so a page resumed later continues it.
-      if (!result.error && composed.request.app) {
-        await ctx.sessions.addTurn(req.context, composed.request.app, composed.session, {
-          prompt: composed.request.input, answer: result.text, tools,
-        });
-      }
-      if (result.error) sendEvent(res, 'error', {error: result.error, status: result.status || 502});
-      else sendEvent(res, 'done', {
-        text: result.text,
-        ...(result.usage ? {usage: result.usage} : {}),
-        ...(result.cost != null ? {cost: result.cost} : {}),
-        ...(result.metrics ? {metrics: result.metrics} : {}),
-        ...(result.model ? {model: result.model} : {}),
-        ...(result.harness ? {harness: result.harness} : {}),
-        ...(result.profile ? {profile: result.profile} : {}),
-        ...(result.stopReason ? {stopReason: result.stopReason} : {}),
-      });
-    } catch {
-      sendEvent(res, 'error', {error: 'AI request failed. Please try again later.', status: 500});
+      await answerRun(req, ctx, ai, kind, composed, (event, data) => sendEvent(res, event, data), controller.signal);
     } finally {
-      try {
-        await aiMeter.record(req.context, kind, result, {
-          ran, local: ai.local, pluginId: composed.request.app ?? null, sessionId: composed.session ?? null,
-        });
-      } catch (error) {
-        console.error('[ai] Could not record assistant usage:', error.message);
-      }
       clearInterval(heartbeat);
       // Dropped before the response is ended, because ending it emits the same
       // 'close' and an abort then would be aimed at nothing.
@@ -501,3 +542,5 @@ module.exports.DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT;
 module.exports.composeRequest = composeRequest;
 module.exports.composeStoredRequest = composeStoredRequest;
 module.exports.APPS_NEED_FS = APPS_NEED_FS;
+module.exports.openEventStream = openEventStream;
+module.exports.followRun = followRun;

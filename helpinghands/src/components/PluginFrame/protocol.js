@@ -34,6 +34,7 @@ const PARAMS = {
   'prompt': ({text}) => (typeof text === 'string' && text.trim() && text.length <= PROMPT_LIMIT
     ? null
     : `prompt needs text of 1 to ${PROMPT_LIMIT} characters`),
+  'follow': () => null,
   'cancel': ({runId}) => (typeof runId === 'string' && runId ? null : 'cancel needs a runId'),
   'sessions.list': () => null,
   'session.get': ({id}) => (SESSION_ID.test(id ?? '') ? null : 'session.get needs a session id'),

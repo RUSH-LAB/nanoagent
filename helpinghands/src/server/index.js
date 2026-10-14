@@ -41,6 +41,7 @@ const {createGithub} = require('./github');
 const aiMeter = createAiMeter(tenancy);
 const {createAgentSync} = require('./fs/agent-sync');
 const {createWorkspaceApps} = require('./workspace-apps');
+const {createAppRuns} = require('./app-runs');
 const {createRunners} = require('./runner');
 // The per-workspace data layer. See server/store/index.js: the only way a route
 // module is allowed to reach the thirteen features' data, because it is the
@@ -537,6 +538,8 @@ const ctx = {
   submissions: postgresServices?.submissions ?? null,
   // Plugin sessions and what their runs cost; PostgreSQL only.
   sessions: postgresServices?.sessions ?? null,
+  // The plugin runs going on, each its session's until it ends.
+  appRuns: createAppRuns(),
   // The plugins each workspace added from the marketplace, run from NanoAgent's installs; PostgreSQL only.
   workspaceApps: postgresServices
     ? createWorkspaceApps({ai, market: postgresServices.market, plugins: postgresServices.workspacePlugins})

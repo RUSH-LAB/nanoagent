@@ -14,10 +14,13 @@ import {
  *
  * Every run belongs to the current plugin session, which the page starts or
  * resumes (`session.start`, `session.resume`): Mochi charges the run to it, and
- * keeps the session's conversation, which a resumed session continues.
+ * keeps the session's conversation, which a resumed session continues. A run
+ * is Mochi's, not the page's: the page closing or leaving only stops following
+ * it, and a session resumed while it still answers a message follows its run
+ * (`follow`) to its end. Only `cancel` stops one.
  */
 export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request}) {
-  const runs = new Map();
+  const runs = new Map(); // runId -> {controller, session}
   // Each session's conversation, by id: a run left going in one session keeps its turn there.
   const turns = new Map();
   let session = null;
@@ -32,25 +35,21 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     return new Error(data.error || `${label} (${response.status})`);
   }
 
-  async function startRun(path, body, label) {
+  /** Open the event stream of a run of session `id` at `path`. */
+  async function startRun(id, path, init, label) {
     const controller = new AbortController();
-    const response = await request(path, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+    const response = await request(path, {...init, signal: controller.signal});
     if (!response.ok || !(response.headers.get('content-type') ?? '').includes(SSE_CONTENT_TYPE)) {
       throw await failed(response, label);
     }
     runCount += 1;
     const runId = `run-${runCount}`;
-    runs.set(runId, controller);
+    runs.set(runId, {controller, session: id});
     return {runId, response, controller};
   }
 
   /** Read a run's events into `onEvent`; the reason it stopped early, or null when it finished. */
-  async function follow({runId, response, controller}, onEvent, closedEarly) {
+  async function readRun({runId, response, controller}, onEvent, closedEarly) {
     let finished = false;
     try {
       await readEvents(response, parsed => {
@@ -76,43 +75,62 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     return (await response.json()).session;
   }
 
+  // The message each session was answering when it was last opened, by id.
+  const answering = new Map();
+
   /** Make `opened` the current session, continuing its conversation. */
   function enter(opened) {
     session = opened.id;
     turns.set(opened.id, opened.chat.map(({prompt, answer}) => ({prompt, answer})));
+    answering.set(opened.id, opened.running?.prompt ?? null);
     return {result: {session: opened}};
   }
 
   async function prompt({text}) {
     const id = current();
-    const run = await startRun(
-      '/api/ai/stream',
-      {prompt: text, messages: promptHistory(turns.get(id)), appId: plugin.id, sessionId: id},
-      'Could not send the prompt',
-    );
-    const after = async () => {
-      let answer = null;
-      const stopped = await follow(run, parsed => {
-        const mapped = chatEvent(parsed);
-        if (!mapped) return false;
-        post(runEvent(mapped.event, run.runId, mapped.data));
-        if (mapped.event === 'chat.answer') answer = mapped.data.text;
-        return Boolean(mapped.final);
-      }, 'The connection closed before the app finished');
-      if (stopped) post(runEvent('chat.error', run.runId, {message: stopped}));
-      if (answer !== null) turns.get(id).push({prompt: text, answer});
-      post(runEvent('chat.done', run.runId, {}));
-    };
-    return {result: {runId: run.runId}, after};
+    const run = await startRun(id, '/api/ai/stream', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({prompt: text, messages: promptHistory(turns.get(id)), appId: plugin.id, sessionId: id}),
+    }, 'Could not send the prompt');
+    return {result: {runId: run.runId}, after: () => relay(run, id, text)};
+  }
+
+  /** Follow the run the current session was answering when it was opened. */
+  async function follow() {
+    const id = current();
+    const text = answering.get(id);
+    if (text === null) throw new Error('This session is not answering a message');
+    const run = await startRun(id, `${sessionsPath}/${id}/run`, {}, 'Could not follow the session\'s answer');
+    answering.set(id, null);
+    return {result: {runId: run.runId, prompt: text}, after: () => relay(run, id, text)};
+  }
+
+  /** Post a run's events to the frame, and keep its turn when it is answered. */
+  async function relay(run, id, text) {
+    let answer = null;
+    const stopped = await readRun(run, parsed => {
+      const mapped = chatEvent(parsed);
+      if (!mapped) return false;
+      post(runEvent(mapped.event, run.runId, mapped.data));
+      if (mapped.event === 'chat.answer') answer = mapped.data.text;
+      return Boolean(mapped.final);
+    }, 'The connection closed before the app finished. The session keeps its answer when it does: open the session again to see it.');
+    if (stopped) post(runEvent('chat.error', run.runId, {message: stopped}));
+    if (answer !== null) turns.get(id).push({prompt: text, answer});
+    post(runEvent('chat.done', run.runId, {}));
   }
 
   const methods = {
     'describe': async () => ({result: {plugin, workspace: {id: workspaceId}, theme: currentTheme}}),
     prompt,
+    follow,
     'cancel': async ({runId}) => {
-      const controller = runs.get(runId);
-      if (!controller) throw new Error(`No run ${runId} is in progress`);
-      controller.abort();
+      const run = runs.get(runId);
+      if (!run) throw new Error(`No run ${runId} is in progress`);
+      const response = await request(`${sessionsPath}/${run.session}/run`, {method: 'DELETE'});
+      if (!response.ok) throw await failed(response, 'Could not cancel the run');
+      run.controller.abort();
       return {result: {}};
     },
     'sessions.list': async () => {
@@ -159,9 +177,9 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
       currentTheme = theme;
       post(themeEvent(theme));
     },
-    /** Stop every run still going; the frame is going away. */
+    /** Stop following every run; the frame is going away, and the runs go on. */
     close() {
-      for (const controller of runs.values()) controller.abort();
+      for (const run of runs.values()) run.controller.abort();
     },
   };
 }

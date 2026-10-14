@@ -11,7 +11,8 @@ import { currentSession, metricsLine } from "./session.js";
  * whether it passed its check, and picking the chip draws its result with `show`, beside the
  * chat; the latest result is drawn as it arrives. A task that failed says why. The host keeps the
  * conversation with the session, task results included, so a resumed session shows it again,
- * its latest result drawn, and continues it. Each answer says what it cost and how long it took.
+ * its latest result drawn, and continues it; a message it is still answering shows being
+ * answered, to its end, the page having been closed or not. Each answer says what it cost and how long it took.
  * @param {object} options
  * @param {Node} options.intro What the empty log shows.
  * @param {string} options.placeholder The message box's placeholder.
@@ -71,8 +72,13 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
   async function submit(typed) {
     const text = (typed ?? input.value).trim();
     if (!text || sendButton.disabled) return;
-    clearIntro();
     if (typed === undefined) input.value = "";
+    await answer(text, (onEvent) => startRun("prompt", { text }, onEvent));
+  }
+
+  /** Show `text` as the person's message and the agent's reply to it, which `start(onEvent)` streams. */
+  async function answer(text, start) {
+    clearIntro();
     log.append(h("div", { class: "message user" }, h("p", { text })));
     const reply = h("div", { class: "message agent" }, h("p", { class: "typing", "aria-label": "The agent is replying" }, h("span"), h("span"), h("span")));
     const results = h("div", { class: "tool-results" });
@@ -94,7 +100,7 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
       if (!started) reply.remove();
     };
     try {
-      runId = await startRun("prompt", { text }, (name, data) => {
+      runId = await start((name, data) => {
         switch (name) {
           case "chat.delta":
             streamed += data.text ?? "";
@@ -143,6 +149,10 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
       log.append(h("p", { class: "error-text", role: "alert", text: `Stop failed: ${problem.message}` }));
     }
   });
+
+  // A session opened while it still answers a message follows that answer to its end.
+  const running = currentSession()?.running;
+  if (running) answer(running.prompt, (onEvent) => startRun("follow", {}, onEvent));
 
   return {
     busy: () => sendButton.disabled,

@@ -72,10 +72,11 @@ export function on(event, handler) {
 }
 
 /**
- * Start a streamed run (`prompt`) and call `onEvent(name, data)` for each of its events,
+ * Start a streamed run (`prompt`, or `follow` for the message a resumed session is still
+ * answering) and call `onEvent(name, data)` for each of its events,
  * through its `*.done` event. Events the host sends before its reply are kept and delivered once
  * the reply names the run.
- * @param {"prompt"} method
+ * @param {"prompt"|"follow"} method
  * @param {object} params
  * @param {(name: string, data: object) => void} onEvent
  * @returns {Promise<string>} The runId.

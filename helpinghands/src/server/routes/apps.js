@@ -1,5 +1,5 @@
 'use strict';
-const {APPS_NEED_FS} = require('./ai');
+const {APPS_NEED_FS, followRun, openEventStream} = require('./ai');
 const {agentFolder, prepareHome} = require('../fs/agent-sync');
 const {FsError} = require('../fs/store');
 const {RUNNER_OFFLINE} = require('../ai');
@@ -37,7 +37,7 @@ const APP_ROUTE = /^\/api\/apps\/([^/]+)$/;
 const UI_ROUTE = /^\/api\/apps\/([^/]+)\/ui\/([^/]+)\/([^/]+)\/(.+)$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const UI_VERSION = /^[0-9a-f]{16}$/;
-const SESSIONS_ROUTE = /^\/api\/apps\/([^/]+)\/sessions(?:\/([^/]+))?$/;
+const SESSIONS_ROUTE = /^\/api\/apps\/([^/]+)\/sessions(?:\/([^/]+)(\/run)?)?$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
@@ -96,24 +96,43 @@ async function serveUiFile(res, json, runners, sha256, page, version, raw) {
 /**
  * The caller's sessions with one app (postgres/sessions.js): list and start
  * them, read one back with every call it made, and archive or restore one
- * (PATCH `{archived}`).
+ * (PATCH `{archived}`). A session still answering a message says so, `running`
+ * (its message, `{prompt}`, when read back), and its run is followed at `/run`,
+ * every event so far and then each as it comes, and cancelled by DELETE there.
  */
-async function sessionRoute(req, res, ctx, app, id) {
+async function sessionRoute(req, res, ctx, app, id, run) {
   const {json, requireWorkspacePermission} = ctx;
   if (!PLUGIN_ID.test(app) || (id !== null && !UUID.test(id))) return json(res, 404, {error: 'Not found'});
   if (!ctx.sessions) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
   try {
+    if (run) {
+      requireWorkspacePermission(req.context, 'apps:use');
+      await ctx.sessions.assertOwned(req.context, app, id);
+      const going = ctx.appRuns.get(id);
+      if (!going) return json(res, 404, {error: 'This session is not answering a message any more. Open it again to see its answer.'});
+      if (req.method === 'GET') {
+        openEventStream(req, res, ctx.CORS_ORIGIN);
+        return await followRun(res, going);
+      }
+      if (req.method === 'DELETE') {
+        going.cancel();
+        return json(res, 200, {cancelled: id});
+      }
+      return json(res, 405, {error: 'Method not allowed'});
+    }
     if (id === null && req.method === 'GET') {
       requireWorkspacePermission(req.context, 'content:read');
-      return json(res, 200, {sessions: await ctx.sessions.list(req.context, app)});
+      const sessions = await ctx.sessions.list(req.context, app);
+      return json(res, 200, {sessions: sessions.map(session => ({...session, running: Boolean(ctx.appRuns.get(session.id))}))});
     }
     if (id === null && req.method === 'POST') {
       requireWorkspacePermission(req.context, 'apps:use');
-      return json(res, 200, {session: await ctx.sessions.create(req.context, app)});
+      return json(res, 200, {session: {...await ctx.sessions.create(req.context, app), running: null}});
     }
     if (id !== null && req.method === 'GET') {
       requireWorkspacePermission(req.context, 'content:read');
-      return json(res, 200, {session: await ctx.sessions.get(req.context, app, id)});
+      const going = ctx.appRuns.get(id);
+      return json(res, 200, {session: {...await ctx.sessions.get(req.context, app, id), running: going ? {prompt: going.prompt} : null}});
     }
     if (id !== null && req.method === 'PATCH') {
       requireWorkspacePermission(req.context, 'apps:use');
@@ -190,7 +209,7 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
   const ui = UI_ROUTE.exec(pathname);
   if (ui && req.method === 'GET') return serveUiFile(res, json, ctx.runners, ui[1], ui[2], ui[3], ui[4]);
   const sessions = SESSIONS_ROUTE.exec(pathname);
-  if (sessions) return sessionRoute(req, res, ctx, sessions[1], sessions[2] ?? null);
+  if (sessions) return sessionRoute(req, res, ctx, sessions[1], sessions[2] ?? null, Boolean(sessions[3]));
   const app = APP_ROUTE.exec(pathname);
   if (app) return appRoute(req, res, ctx, app[1]);
   if (!ROUTES.has(pathname)) return;

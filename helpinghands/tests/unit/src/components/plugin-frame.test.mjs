@@ -75,6 +75,7 @@ describe('nanoagent.ui/v1 requests', () => {
     const valid = [
       ['describe', {}],
       ['prompt', {text: 'hi'}],
+      ['follow', {}],
       ['cancel', {runId: 'run-1'}],
       ['session.archive', {id: SESSION, archived: true}],
     ];
@@ -150,21 +151,23 @@ describe('the bridge host', () => {
     truncated.send('p1', 'prompt', {text: 'Save 1706.03762'});
     await until(() => messages(truncated.posted).some(message => message.event === 'chat.done'));
     assert.deepEqual(eventsOf(truncated.posted, 'run-1').slice(1), [
-      ['chat.error', {message: 'The connection closed before the app finished'}],
+      ['chat.error', {message: 'The connection closed before the app finished. The session keeps its answer when it does: open the session again to see it.'}],
       ['chat.done', {}],
     ]);
 
-    const hanging = await hostWith((_path, init) => new Response(new ReadableStream({
+    const hanging = await hostWith((_path, init) => (init.method === 'DELETE' ? Response.json({cancelled: SESSION}) : new Response(new ReadableStream({
       start(controller) {
         init.signal.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')), {once: true});
       },
-    }), {headers: {'Content-Type': 'text/event-stream'}}));
+    }), {headers: {'Content-Type': 'text/event-stream'}})));
     hanging.send('p1', 'prompt', {text: 'Save 1706.03762'});
     await until(() => hanging.posted.length);
     hanging.send('c1', 'cancel', {runId: 'run-1'});
     await until(() => messages(hanging.posted).some(message => message.event === 'chat.done'));
     assert.deepEqual(messages(hanging.posted).find(message => message.id === 'c1'), {protocol: PROTOCOL, id: 'c1', result: {}});
     assert.deepEqual(eventsOf(hanging.posted, 'run-1'), [['chat.error', {message: 'Cancelled'}], ['chat.done', {}]]);
+    // Mochi stops the run; the page's connection only follows it.
+    assert.deepEqual(hanging.calls.slice(1).map(({path, init}) => [path, init.method]), [[`${SESSIONS}/${SESSION}/run`, 'DELETE']]);
     hanging.send('c2', 'cancel', {runId: 'run-1'});
     await until(() => messages(hanging.posted).some(message => message.id === 'c2'));
     assert.deepEqual(messages(hanging.posted).at(-1).error, {message: 'No run run-1 is in progress'});
@@ -194,6 +197,29 @@ describe('the bridge host', () => {
       appId: 'arxiv-source',
       sessionId: SESSION,
     });
+  });
+
+  it('follows the message a resumed session is still answering, and keeps its turn', async () => {
+    const opened = {...sessionWith([{prompt: 'Hi', answer: 'Hello'}]), running: {prompt: 'Save 1706.03762'}};
+    const {posted, calls, send} = await hostWith(path => (path === `${SESSIONS}/${SESSION}`
+      ? Response.json({session: opened})
+      : eventStream(sse('delta', {text: 'Saved'}) + sse('done', {text: 'Saved it.'}))));
+    send('r', 'session.resume', {id: SESSION});
+    await until(() => posted.length);
+    send('f', 'follow');
+    await until(() => messages(posted).some(message => message.event === 'chat.done'));
+    assert.deepEqual(messages(posted).find(message => message.id === 'f').result, {runId: 'run-1', prompt: 'Save 1706.03762'});
+    assert.deepEqual(eventsOf(posted, 'run-1').map(([event]) => event), ['chat.delta', 'chat.answer', 'chat.done']);
+    assert.deepEqual(calls[1].path, `${SESSIONS}/${SESSION}/run`);
+    send('f2', 'follow');
+    await until(() => messages(posted).some(message => message.id === 'f2'));
+    assert.deepEqual(messages(posted).at(-1).error, {message: 'This session is not answering a message'});
+    send('p', 'prompt', {text: 'Why?'});
+    await until(() => calls.length === 3);
+    assert.deepEqual(JSON.parse(calls[2].init.body).messages, [
+      {role: 'user', content: 'Hi'}, {role: 'assistant', content: 'Hello'},
+      {role: 'user', content: 'Save 1706.03762'}, {role: 'assistant', content: 'Saved it.'},
+    ]);
   });
 
   it('continues a resumed session\'s conversation', async () => {

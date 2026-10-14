@@ -346,6 +346,36 @@ describe('POST /api/ai/stream', () => {
     assert.equal(ctx.calls.aiUsage[0].sessionId, SESSION);
   });
 
+  it('keeps an app run going after its caller leaves, answering one message at a time per session', async () => {
+    const ctx = makeCtx();
+    ctx.agentSync = {run: (_scope, _ai, operation) => operation('run-folder')};
+    ctx.sessions = fakeSessions();
+    ctx.workspaceApps = workspaceApps;
+    let connection;
+    let finish;
+    let aborted = false;
+    ctx.ai.stream = ({signal, onDelta}) => new Promise(resolve => {
+      signal.addEventListener('abort', () => { aborted = true; });
+      onDelta('half an ');
+      finish = () => resolve({text: 'half an answer'});
+      connection.destroyed = true;
+      connection.emit('close');
+    });
+    const body = {prompt: 'save 1706.03762', appId: 'arxiv-source', sessionId: SESSION};
+    const left = await ask({body, ctx, requestContext: WORKSPACE, onRequest: (_req, res) => { connection = res; }});
+    assert.equal(left.res.writableEnded, true);
+    const run = ctx.appRuns.get(SESSION);
+    assert.equal(run.prompt, 'save 1706.03762');
+    const again = await ask({body, ctx, requestContext: WORKSPACE});
+    assert.equal(again.status, 409);
+    assert.equal(again.payload.error, 'This session is still answering a message');
+    finish();
+    await run.ended;
+    assert.equal(aborted, false);
+    assert.deepEqual(ctx.sessions.turns.map(turn => turn.answer), ['half an answer']);
+    assert.equal(ctx.appRuns.get(SESSION), null);
+  });
+
   it('runs an app prompt only in one of the caller\'s sessions with it', async () => {
     const ctx = makeCtx();
     ctx.agentSync = {run: () => assert.fail('must not run')};

@@ -33,6 +33,7 @@ export const utils = require('../../src/server/server-utils.js');
 /** Builds the narrow object a plugin's handler is handed. */
 const {buildPluginApi} = require('../../src/server/plugin-api.js');
 const aiSettings = require('../../src/server/ai-settings.js');
+const {createAppRuns} = require('../../src/server/app-runs.js');
 const workspaceContext = require('../../src/server/workspace-context.js');
 
 /**
@@ -502,6 +503,8 @@ export function makeCtx(overrides = {}) {
     tenancy: null,
     // So do plugin sessions (postgres/sessions.js); a suite that needs them uses fakeSessions.
     sessions: null,
+    // The plugin runs going on (app-runs.js), each its session's until it ends.
+    appRuns: createAppRuns(),
     ai: {
       complete: async (request) => {
         calls.ai.push(request);

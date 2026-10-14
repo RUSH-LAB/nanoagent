@@ -50,6 +50,9 @@ Every plugin:
   task's result beside it.
 - The Dashboard archives a session: it moves to an Archived view, where it can be opened or
   restored, and comes back when it is chatted in again (the bridge's `session.archive`).
+- A run outlives its page: a session left, reloaded or closed mid-answer goes on answering, its
+  Dashboard row says "Answering…", and opened again it shows the message being answered to its
+  end (the bridge's `follow`, and `running` on a resumed session).
 - The kit keeps only what renderers use: `card`, `banner`, `meter`, `pretty`, `formatSize` and
   `kit/workspace.js` (`listFiles`, `readFile`, `readText`, `readJSON`) are gone, and so are the
   bridge's `runTask`, `session.save` and `workspace.*` and the task-run endpoint

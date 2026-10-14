@@ -339,6 +339,37 @@ describe('an app\'s sessions', () => {
     assert.equal(bad.status, 400);
   });
 
+  it('says which session is answering a message, which its page follows to the end or cancels', async () => {
+    const ctx = ctxWith({});
+    let finish;
+    let cancelled = false;
+    const run = ctx.appRuns.start(SESSION, 'save 1706.03762', going => new Promise(resolve => {
+      going.send('delta', {text: 'Sav'});
+      going.signal.addEventListener('abort', () => { cancelled = true; resolve(); });
+      finish = () => { going.send('done', {text: 'Saved.'}); resolve(); };
+    }));
+    await Promise.resolve();
+    const listed = await invoke(routes, {method: 'GET', path: PATH, ctx, requestContext: context});
+    assert.deepEqual(listed.payload.sessions.map(session => session.running), [true]);
+    const read = await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}`, ctx, requestContext: context});
+    assert.deepEqual(read.payload.session.running, {prompt: 'save 1706.03762'});
+    const following = invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}/run`, ctx, requestContext: context});
+    await new Promise(resolve => setImmediate(resolve));
+    finish();
+    const followed = await following;
+    assert.equal(followed.res.written.headers['Content-Type'], 'text/event-stream');
+    assert.deepEqual(followed.res.writes, ['event: delta\ndata: {"text":"Sav"}\n\n', 'event: done\ndata: {"text":"Saved."}\n\n']);
+    await run.ended;
+    const gone = await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}/run`, ctx, requestContext: context});
+    assert.equal(gone.status, 404);
+    assert.equal((await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}`, ctx, requestContext: context})).payload.session.running, null);
+
+    ctx.appRuns.start(SESSION, 'again', going => new Promise(resolve => going.signal.addEventListener('abort', () => { cancelled = true; resolve(); })));
+    const stopped = await invoke(routes, {method: 'DELETE', path: `${PATH}/${SESSION}/run`, ctx, requestContext: context});
+    assert.equal(stopped.status, 200);
+    assert.equal(cancelled, true);
+  });
+
   it('lets a viewer read and start their own sessions', async () => {
     const ctx = ctxWith({});
     const viewer = {...context, role: 'viewer'};
