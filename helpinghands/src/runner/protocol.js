@@ -37,6 +37,7 @@ const SEGMENT = '[^/?]+';
 const ROUTES = [
   ['GET', '/v1/profiles'],
   ['GET', '/v1/models'],
+  ['GET', '/v1/keys/openrouter/usage'],
   ['POST', '/v1/runs'],
   ['GET', `/v1/installs/${SEGMENT}`],
   ['PUT', `/v1/installs/${SEGMENT}`],

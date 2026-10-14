@@ -457,16 +457,15 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     return json(res, 200, ctx.runners.status(req.auth?.userId));
   }
 
-  // ── What the member has spent of the credit on the OpenRouter key Mochi gave them ──
+  // ── What the OpenRouter key on the member's computer has spent, as OpenRouter says ──
   if (req.method === 'GET' && pathname === '/api/runner/credit') {
-    const keys = ctx.openrouterKeys;
-    const held = keys && ctx.runners.status(req.auth?.userId).keys.find(key => key.env === keys.ENV && key.set);
-    if (!held) return json(res, 200, {credit: null});
-    try {
-      return json(res, 200, {credit: await keys.credit(req.auth.userId, held.hint)});
-    } catch (error) {
-      return json(res, 502, {error: error.message});
-    }
+    const gateway = ctx.runners.computer(req.auth?.userId);
+    if (!gateway) return json(res, 200, {credit: null});
+    const usage = await gateway.openrouterUsage();
+    // 404: the computer holds no OpenRouter key.
+    if (usage.status === 404) return json(res, 200, {credit: null});
+    if (usage.error) return json(res, usage.status, {error: usage.error});
+    return json(res, 200, {credit: {used: usage.value.usage, total: usage.value.limit}});
   }
 
   // ── The API keys on the member's computer: passed on to it, never kept or shown here ──

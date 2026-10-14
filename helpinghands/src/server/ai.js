@@ -516,6 +516,8 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     profiles,
     // Every model a run may name, on a member's own computer (NanoAgent's run_models).
     models: () => nanoFetch('/v1/models', {waitMs: timeoutMs}),
+    // What the computer's OpenRouter key has spent, and may: {usage, limit} in dollars, as OpenRouter says.
+    openrouterUsage: () => nanoFetch('/v1/keys/openrouter/usage', {waitMs: timeoutMs}),
     // Plugins run from installs, each the package with that sha256; NanoAgent
     // installs one when it is sent, and has none after it restarts.
     install: sha256 => nanoFetch(`/v1/installs/${encodeURIComponent(sha256)}`),
@@ -573,6 +575,7 @@ module.exports = {
   stream: gateway.stream,
   profiles: gateway.profiles,
   models: gateway.models,
+  openrouterUsage: gateway.openrouterUsage,
   install: gateway.install,
   installPackage: gateway.installPackage,
   installUiFile: gateway.installUiFile,

@@ -676,22 +676,19 @@ describe('/api/ai/settings and /api/ai/models', () => {
     assert.match(r.models[1].unavailableReason, /Needs your Anthropic key/);
   });
 
-  it('tells what the member has spent of Mochi\'s credit, by the key their computer holds', async () => {
+  it('tells what the OpenRouter key on the member\'s computer has spent, as OpenRouter says', async () => {
     const ctx = makeCtx();
     const get = () => invoke(routes, {path: '/api/runner/credit', ctx, auth: {userId: 'u1'}});
-    ctx.runners = {status: () => ({connected: true, keys: [{env: 'OPENROUTER_API_KEY', set: true, hint: 'sk-or-…abcd'}]})};
+    const computer = usage => { ctx.runners = {computer: () => ({openrouterUsage: async () => usage})}; };
+    ctx.runners = {computer: () => null};
     assert.deepEqual((await get()).payload, {credit: null});
-    const asked = [];
-    ctx.openrouterKeys = {ENV: 'OPENROUTER_API_KEY', credit: async (userId, hint) => {
-      asked.push([userId, hint]);
-      return {used: 1.25, total: 5};
-    }};
+    computer({value: {usage: 1.25, limit: 5}});
     assert.deepEqual((await get()).payload, {credit: {used: 1.25, total: 5}});
-    assert.deepEqual(asked, [['u1', 'sk-or-…abcd']]);
-    ctx.runners = {status: () => ({connected: false, keys: []})};
+    computer({value: {usage: 3, limit: null}});
+    assert.deepEqual((await get()).payload, {credit: {used: 3, total: null}});
+    computer({error: 'no OpenRouter key is set', status: 404});
     assert.deepEqual((await get()).payload, {credit: null});
-    ctx.runners = {status: () => ({connected: true, keys: [{env: 'OPENROUTER_API_KEY', set: true, hint: 'x'}]})};
-    ctx.openrouterKeys.credit = async () => { throw new Error('OpenRouter GET /keys/h1 failed (500)'); };
+    computer({error: 'OpenRouter answered 401', status: 502});
     assert.equal((await get()).status, 502);
   });
 

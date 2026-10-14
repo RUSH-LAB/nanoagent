@@ -514,8 +514,6 @@ const ctx = {
   // The NanoAgent a member's runs go to: their own computer's (server/runner.js).
   aiFor: runners.aiFor,
   runners,
-  // The OpenRouter keys Mochi gives members' computers, or null (openrouter-keys.js).
-  openrouterKeys,
   // What a member chose in Settings → AI (ai-settings.js).
   aiSettings: async userId => aiSettings.stored(userId ? (await preferences.get(userId)).ai : null),
   aiMeter,

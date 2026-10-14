@@ -38,7 +38,7 @@
   flex-wrap: wrap;
 }
 
-/* What is spent of the credit on the key Mochi gave the member: the row's whole width, under it. */
+/* What the key has spent: the row's whole width, under it. */
 .credit {
   flex-basis: 100%;
   display: flex;

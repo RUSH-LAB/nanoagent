@@ -10,6 +10,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from nanoagent.runtime.config import load_config_args
+from nanoagent.web import app as web_app
 from nanoagent.web.app import create_app
 from nanoagent.web.config import WebConfig
 
@@ -152,6 +153,23 @@ def test_keys_set_while_running_reach_the_next_catalog_and_run(tmp_path: Path, m
     for changes in ({"PATH": "/tmp"}, {"NANOAGENT_API_TOKEN": "x"}, {"OPENAI_API_KEY": "two words"}, {}):
         assert client.put("/v1/keys", json={"changes": changes}).status_code == 400
 
+
+
+def test_says_what_its_openrouter_key_has_spent_as_openrouter_says(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(tmp_path, monkeypatch, run_models=True)
+    asked = []
+    monkeypatch.setattr(web_app, "openrouter_key_usage", lambda key: asked.append(key) or {"usage": 1.25, "limit": 5})
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    assert client.get("/v1/keys/openrouter/usage").status_code == 404
+    client.put("/v1/keys", json={"changes": {"OPENROUTER_API_KEY": "sk-or-1"}})
+    assert client.get("/v1/keys/openrouter/usage").json() == {"usage": 1.25, "limit": 5}
+    assert asked == ["sk-or-1"]
+
+    def refused(key: str) -> dict:
+        raise RuntimeError("OpenRouter answered 401")
+
+    monkeypatch.setattr(web_app, "openrouter_key_usage", refused)
+    assert client.get("/v1/keys/openrouter/usage").status_code == 502
 
 
 def test_a_model_whose_key_is_not_set_says_which_key_it_needs(monkeypatch: pytest.MonkeyPatch) -> None:

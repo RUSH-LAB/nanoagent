@@ -13,6 +13,8 @@ import re
 import secrets
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -62,6 +64,20 @@ def _sse(event: dict[str, Any]) -> bytes:
 COMPAT_GROUP = {"group": "Plugins"}
 # The credentials PUT /v1/keys may set: a provider's API key, as PI and the loop read it.
 KEY_NAME = re.compile(r"[A-Z][A-Z0-9_]*_API_KEY|HF_TOKEN")
+# Where OpenRouter says what the key a request carries has spent, and what it may.
+OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
+
+
+def openrouter_key_usage(key: str) -> dict[str, Any]:
+    """What OpenRouter says the key has spent and may spend, in dollars: ``{usage, limit}``,
+    ``limit`` None for a key without one."""
+    request = urllib.request.Request(OPENROUTER_KEY_URL, headers={"Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            data = json.load(response)["data"]
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f"OpenRouter answered {error.code}: {error.read()[:300].decode(errors='replace')}") from error
+    return {"usage": data["usage"], "limit": data["limit"]}
 
 
 # How a host serves a plugin's front end: its own files only, and no network of its own, so the
@@ -306,6 +322,18 @@ def create_app(
             owned_model = None
         retired.extend(run_host.registry.forget_models())
         return JSONResponse({"keys": sorted(changes)})
+
+    async def key_usage(request: Request) -> JSONResponse:
+        """What the OpenRouter key this process holds has spent, as OpenRouter says."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        key = os.environ.get("OPENROUTER_API_KEY")
+        if not key:
+            return JSONResponse({"error": "no OpenRouter key is set"}, status_code=404)
+        try:
+            return JSONResponse(await asyncio.to_thread(openrouter_key_usage, key))
+        except Exception as error:  # noqa: BLE001
+            return JSONResponse({"error": f"OpenRouter's key usage failed: {error}"}, status_code=502)
 
     async def start_run(request: Request) -> JSONResponse | StreamingResponse:
         if not authorized(request):
@@ -619,6 +647,7 @@ def create_app(
             Route("/v1/profiles", profiles, methods=["GET"]),
             Route("/v1/models", models, methods=["GET"]),
             Route("/v1/keys", set_keys, methods=["PUT"]),
+            Route("/v1/keys/openrouter/usage", key_usage, methods=["GET"]),
             Route("/v1/runs", start_run, methods=["POST"]),
             Route("/v1/runs/{run_id}", cancel_run, methods=["DELETE"]),
             Route("/v1/plugins", list_plugins, methods=["GET"]),

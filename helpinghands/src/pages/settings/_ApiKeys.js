@@ -18,7 +18,7 @@ export default function ApiKeys({computer, onSaved}) {
   const [value, setValue] = useState('');
   const [replacing, setReplacing] = useState(false);
   const [state, setState] = useState(null);
-  // What is spent of Mochi's credit while the key on the computer is the one Mochi gave it.
+  // What the key on the computer has spent, as OpenRouter says; asked again when the key changes.
   const [credit, setCredit] = useState(null);
   const hint = saved ? key.hint : null;
   useEffect(() => {
@@ -104,22 +104,23 @@ export default function ApiKeys({computer, onSaved}) {
 
 const money = value => `$${value.toFixed(2)}`;
 
-/** A bar of what the member has spent of the credit on the key Mochi gave them. */
+/** What the key has spent: a bar against its limit, or the amount alone for a key without one. */
 function Credit({used, total}) {
+  if (total == null) return <div className={ai.credit}>{`${money(used)} used on this key.`}</div>;
   const spent = Math.min(used, total);
   return (
     <div className={ai.credit}>
       <div
         className={ai.creditBar}
         role="meter"
-        aria-label="Mochi's OpenRouter credit used"
+        aria-label="OpenRouter key credit used"
         aria-valuemin={0}
         aria-valuemax={total}
         aria-valuenow={spent}
       >
-        <div className={ai.creditUsed} style={{width: `${(spent / total) * 100}%`}} />
+        <div className={ai.creditUsed} style={{width: total > 0 ? `${(spent / total) * 100}%` : '100%'}} />
       </div>
-      <span>{`Mochi's key: ${money(spent)} of ${money(total)} used. Replace it with your own key for more.`}</span>
+      <span>{`${money(spent)} of ${money(total)} used on this key.`}</span>
     </div>
   );
 }

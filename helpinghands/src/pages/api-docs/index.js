@@ -396,7 +396,7 @@ const CATEGORIES = [
         response: '{ "connected": true, "device": "laptop", "keys": [{ "env": "OPENROUTER_API_KEY", "label": "OpenRouter", "set": true }] }',
       },
       {
-        method: 'GET', path: '/api/runner/credit', description: 'While Mochi Lab holds the OpenRouter key Mochi gave you, what you have spent of its credit, in dollars; else null.',
+        method: 'GET', path: '/api/runner/credit', description: 'What the OpenRouter key in Mochi Lab has spent, and its limit (null for none), in dollars, as OpenRouter says; null while Mochi Lab holds no OpenRouter key.',
         response: '{ "credit": { "used": 1.25, "total": 5 } }',
       },
       {
