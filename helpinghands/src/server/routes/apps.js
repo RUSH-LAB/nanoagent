@@ -73,7 +73,7 @@ async function serveUiFile(res, json, runners, sha256, page, version, raw) {
   const path = uiFilePath(raw);
   if (!SHA256.test(sha256) || !UUID.test(page) || !UI_VERSION.test(version) || !path) return json(res, 404, {error: 'Not found'});
   const computer = runners.byPage(page);
-  if (!computer) return json(res, 503, {error: 'The Mochi Lab that opened this plugin is not connected any more. Open the plugin again.'});
+  if (!computer) return json(res, 503, {error: 'The RUSH Lab that opened this plugin is not connected any more. Open the plugin again.'});
   const result = await computer.installUiFile(sha256, version, path);
   if (result.error) return json(res, result.status, {error: result.error});
   const type = result.headers.get('content-type');

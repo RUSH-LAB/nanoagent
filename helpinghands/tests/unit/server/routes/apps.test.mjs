@@ -131,7 +131,7 @@ describe('NanoAgent apps', () => {
     for (const [method, path] of [['GET', '/api/apps/echo'], ['POST', '/api/app-installs']]) {
       const result = await invoke(routes, {method, path, ctx, requestContext: context});
       assert.equal(result.status, 503, path);
-      assert.match(result.payload.error, /Mochi Lab on your computer is not connected/);
+      assert.match(result.payload.error, /RUSH Lab on your computer is not connected/);
     }
     assert.deepEqual(ctx.workspaceApps.calls, []);
   });

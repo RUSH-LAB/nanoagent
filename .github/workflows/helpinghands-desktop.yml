@@ -47,8 +47,10 @@ jobs:
           if-no-files-found: error
 
   # Mochi Lab without its window (desktop/PLAN.md): the bundle install.sh downloads, one per Mac
-  # architecture, each built on its own runner, and uploaded to the Mochi this push deploys. The
-  # site may still be deploying the commit that serves the upload, so it is tried for 15 minutes.
+  # architecture and one for Linux (which Windows runs in WSL2), each built on its own runner. The
+  # Linux one is installed and started first, as a member does. A push to production uploads them
+  # to the Mochi it deploys, which may still be deploying the commit that serves the upload, so it
+  # is tried for 15 minutes; a run by hand only builds and checks.
   lab:
     strategy:
       fail-fast: false
@@ -58,6 +60,9 @@ jobs:
             target: aarch64-apple-darwin
           - os: macos-15-intel
             target: x86_64-apple-darwin
+          # The oldest supported Ubuntu: what is built here runs where glibc is as new or newer.
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -73,7 +78,21 @@ jobs:
         working-directory: helpinghands/desktop
         env:
           TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
+      - name: Install and start it, as a member does
+        if: runner.os == 'Linux'
+        working-directory: helpinghands/desktop
+        env:
+          TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
+        # Plugins run in bubblewrap; Mochi Lab runs as a systemd user service, which needs the
+        # runner's user manager.
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo loginctl enable-linger "$USER"
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          for i in $(seq 1 30); do systemctl --user show-environment >/dev/null 2>&1 && break; sleep 1; done
+          node scripts/check-lab-install.mjs
       - name: Upload to Mochi
+        if: github.event_name == 'push'
         working-directory: helpinghands/desktop
         env:
           LAB_UPLOAD_TOKEN: ${{ secrets.LAB_UPLOAD_TOKEN }}

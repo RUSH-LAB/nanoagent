@@ -53,7 +53,7 @@ test('gives the services only the system basics, the bundled runtimes first on P
 test('starts NanoAgent compiled, sandboxed, with its keys and token', () => {
   const data = '/Users/m/Library/Application Support/lab.mochi.lab';
   const command = nanoagentCommand({
-    nanoagent: '/app/nanoagent', data, port: 47311, system: {HOME: '/Users/m', PATH: '/app/bin'},
+    nanoagent: '/app/nanoagent', data, port: 47311, sandbox: 'seatbelt', system: {HOME: '/Users/m', PATH: '/app/bin'},
     keys: {OPENROUTER_API_KEY: 'k'}, token: 't',
   });
   assert.equal(command.program, '/app/nanoagent/.venv/bin/python');

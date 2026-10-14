@@ -208,7 +208,7 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
   it('fails a run in flight when the computer drops off', async () => {
     const {closed} = await dialIn();
     const running = (await runners.aiFor('u1')).stream({input: 'hang', onDelta: dropComputers});
-    assert.deepEqual(await running, {error: 'Mochi Lab disconnected', status: 503});
+    assert.deepEqual(await running, {error: 'RUSH Lab disconnected', status: 503});
     await closed;
     assert.equal(runners.status('u1').connected, false);
   });
@@ -294,7 +294,7 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     await until(() => deltas.length);
     // Another Mochi Lab signs in: Mochi replaces the first, whose close it hears after the new hello.
     relays.push(connect({site, nanoagent: nanoUrl, token: 'member-token', device: 'desktop', held: new Map(), onEvent: () => {}}));
-    assert.deepEqual(await running, {error: 'Mochi Lab stopped while answering', status: 503});
+    assert.deepEqual(await running, {error: 'RUSH Lab stopped while answering', status: 503});
     nano.finishers[0]();
   });
 
@@ -303,7 +303,7 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     const running = (await runners.aiFor('u1')).stream({input: 'slow', run: {id: 'run-1'}, onDelta: dropComputers});
     await closed;
     await dialIn('member-token', {held: new Map()});
-    assert.deepEqual(await running, {error: 'Mochi Lab stopped while answering', status: 503});
+    assert.deepEqual(await running, {error: 'RUSH Lab stopped while answering', status: 503});
     nano.finishers[0]();
   });
 

@@ -20,8 +20,12 @@ import YAML from 'yaml';
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const resources = path.join(desktop, 'src-tauri', 'resources');
 const binaries = path.join(desktop, 'src-tauri', 'binaries');
-// The one-line install is for macOS; Nuitka compiles for the architecture it runs on.
-const TARGETS = {'aarch64-apple-darwin': 'arm64', 'x86_64-apple-darwin': 'x64'};
+// Each target's platform and architecture: Nuitka compiles for the computer it runs on.
+const TARGETS = {
+  'aarch64-apple-darwin': ['darwin', 'arm64'],
+  'x86_64-apple-darwin': ['darwin', 'x64'],
+  'x86_64-unknown-linux-gnu': ['linux', 'x64'],
+};
 
 function run(command, args, options = {}) {
   console.log(`$ ${command} ${args.join(' ')}`);
@@ -31,8 +35,9 @@ function run(command, args, options = {}) {
 function main() {
   const target = process.env.TAURI_ENV_TARGET_TRIPLE;
   if (!TARGETS[target]) throw new Error(`TAURI_ENV_TARGET_TRIPLE is ${JSON.stringify(target)}; targets: ${Object.keys(TARGETS).join(', ')}`);
-  if (process.platform !== 'darwin' || process.arch !== TARGETS[target]) {
-    throw new Error(`${target} builds on a ${TARGETS[target]} Mac, which compiles its NanoAgent; this is ${process.platform} ${process.arch}`);
+  const [platform, arch] = TARGETS[target];
+  if (process.platform !== platform || process.arch !== arch) {
+    throw new Error(`${target} builds on ${platform} ${arch}, which compiles its NanoAgent; this is ${process.platform} ${process.arch}`);
   }
   run(process.execPath, [path.join(desktop, 'scripts', 'stage.mjs')]);
   const out = path.join(desktop, '.cache', 'lab');

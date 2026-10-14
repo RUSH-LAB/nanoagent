@@ -19,8 +19,10 @@
  * exits, the other is stopped and this exits with an error, for launchd to start it again; a relay
  * that another computer replaced exits cleanly, and so does this. SIGTERM stops both, cleanly.
  *
- * Its data folder is ~/Library/Application Support/lab.mochi.lab/: settings.env,
- * runner-credentials.json, logs/, and NanoAgent's folders. Node's own modules are all it loads.
+ * It runs on macOS, where plugins run in seatbelt, and on Linux, Windows's WSL2 included, where
+ * they run in bwrap (PLATFORMS). Its data folder (settings.env, runner-credentials.json, logs/, and
+ * NanoAgent's folders) is ~/Library/Application Support/lab.mochi.lab/ on macOS and
+ * ~/.local/share/lab.mochi.lab/ on Linux, as install.sh makes it. Node's own modules are all it loads.
  */
 import {spawn} from 'node:child_process';
 import crypto from 'node:crypto';
@@ -56,6 +58,19 @@ export const PROVIDER_KEYS = [
 // What the services see of this process's environment; everything else comes from settings.
 const SYSTEM_ENV = ['HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'TMPDIR'];
 const isProviderKey = name => PROVIDER_KEYS.some(([env]) => env === name);
+/**
+ * Where it runs: the sandbox NanoAgent confines plugins in (nanoagent.plugin.sandbox), its data
+ * folder under the home folder, and how a page opens in the member's browser. Under WSL2 that is
+ * Windows's, through its interop; the page is in the log, and install.sh prints it, either way.
+ */
+export const PLATFORMS = {
+  darwin: {sandbox: 'seatbelt', data: ['Library', 'Application Support', 'lab.mochi.lab'], open: () => ['open']},
+  linux: {
+    sandbox: 'bwrap',
+    data: ['.local', 'share', 'lab.mochi.lab'],
+    open: () => (/microsoft/i.test(fs.readFileSync('/proc/sys/kernel/osrelease', 'utf8')) ? ['/mnt/c/Windows/explorer.exe'] : ['xdg-open']),
+  },
+};
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const log = message => console.log(`${new Date().toISOString()} ${message}`);
 
@@ -136,7 +151,7 @@ export function systemEnv(env, bin) {
 }
 
 /** How NanoAgent starts, in the bundle's `nanoagent` folder, with this data folder, `keys` and its bearer `token`. */
-export function nanoagentCommand({nanoagent, data, port, system, keys, token}) {
+export function nanoagentCommand({nanoagent, data, port, sandbox, system, keys, token}) {
   const python = path.join(nanoagent, '.venv', 'bin', 'python');
   return {
     program: python,
@@ -147,7 +162,7 @@ export function nanoagentCommand({nanoagent, data, port, system, keys, token}) {
       'host=127.0.0.1',
       `port=${port}`,
       // Mochi's marketplace is anyone's, and this is the member's own computer: every plugin runs confined.
-      'sandbox=seatbelt',
+      `sandbox=${sandbox}`,
       // The member's runs choose any model their keys reach, and settings of their own.
       'run_models=true',
       `workspaces=${JSON.stringify(path.join(data, 'agent-workspaces'))}`,
@@ -233,14 +248,20 @@ async function nanoagentReady(port, token) {
 const describeExit = ({code, signal}) => (signal ? `signal: ${signal}` : `exit status: ${code}`);
 
 async function main() {
-  if (process.platform !== 'darwin') {
-    throw new Error(`Mochi Lab without its window runs on macOS only, where plugins run in its sandbox; this is ${process.platform}.`);
+  const platform = PLATFORMS[process.platform];
+  if (!platform) {
+    throw new Error(`Mochi Lab runs on macOS and Linux (Windows through WSL2), where plugins run in a sandbox; this is ${process.platform}.`);
   }
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const config = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8'));
   const bin = path.join(root, 'bin');
   const nanoagent = path.join(root, 'nanoagent');
-  const data = path.join(os.homedir(), 'Library', 'Application Support', 'lab.mochi.lab');
+  const data = path.join(os.homedir(), ...platform.data);
+  /** Open `page` in the member's browser; when that cannot be done, the log has the page. */
+  const openPage = page => {
+    const [program, ...args] = platform.open();
+    spawn(program, [...args, page], {stdio: 'ignore'}).on('error', error => log(`could not open ${page}: ${error.message}`));
+  };
   const files = path.join(os.homedir(), config.files_folder);
   const settingsFile = path.join(data, 'settings.env');
   // The services this has running: one `pid<TAB>program` line each.
@@ -380,7 +401,7 @@ async function main() {
         // The device page says it is Mochi Lab asking (src/pages/device).
         const page = `${event.url}&client=desktop`;
         log(`Sign in to Mochi, then approve this computer (code ${event.code}): ${page}`);
-        spawn('open', [page], {stdio: 'ignore'}).on('error', error => log(`could not open the sign-in page: ${error.message}`));
+        openPage(page);
       } else if (event.event === 'connected') {
         log(`Connected to ${site}`);
         if (!signingIn) return;
@@ -388,7 +409,7 @@ async function main() {
         // The device page says Mochi opens next; with no key yet, straight to where one is added.
         const keyless = !keyStatus(readSettings(settingsFile)).some(key => key.set);
         const page = keyless ? `${site.replace(/\/$/, '')}/settings#ai` : site;
-        spawn('open', [page], {stdio: 'ignore'}).on('error', error => log(`could not open ${page}: ${error.message}`));
+        openPage(page);
       } else if (event.event === 'disconnected') {
         log(`Disconnected from ${site}: ${event.reason}`);
       } else if (event.event === 'keys') {
@@ -438,7 +459,7 @@ async function main() {
     log('Starting NanoAgent…');
     // Only the relay and this process hold it, so nothing else on this computer can run NanoAgent.
     const token = crypto.randomBytes(32).toString('hex');
-    const command = nanoagentCommand({nanoagent, data, port, system, keys: providerKeys(settings), token});
+    const command = nanoagentCommand({nanoagent, data, port, sandbox: platform.sandbox, system, keys: providerKeys(settings), token});
     startService('NanoAgent', command.program, command.args, {cwd: nanoagent, env: command.env, logFile: path.join(logs, 'nanoagent.log')});
     await waitUntil('NanoAgent', NANOAGENT_TIMEOUT_MS, () => nanoagentReady(port, token));
     nanoagentToken = token;

@@ -49,7 +49,7 @@ function isGlobalApiPath(pathname) {
     || /^\/api\/apps\/[^/]+\/ui\/.+$/.test(value)
     || /^\/api\/market(?:\/[^/]+(?:\/package)?)?$/.test(value)
     // Mochi Lab's one-line install and its bundles (routes/lab.js).
-    || /^\/api\/lab\/(?:install|install\.sh|bundles\/[^/]+)$/.test(value)
+    || /^\/api\/lab\/(?:install|install\.sh|session|bundles\/[^/]+)$/.test(value)
     || /^\/api\/users\/[^/]+\/role$/.test(value);
 }
 

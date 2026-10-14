@@ -29,7 +29,7 @@ function Fact({label, children}) {
 
 /**
  * While Mochi Lab is not connected: the line that installs it on the member's
- * Mac, to paste in Terminal (server/routes/lab.js).
+ * computer, to paste in a terminal (server/routes/lab.js).
  */
 function InstallLab() {
   const [command, setCommand] = useState(null);
@@ -46,18 +46,18 @@ function InstallLab() {
     return () => clearInterval(timer);
   }, []);
   const copy = () => clientPlatform.clipboard.writeText(command)
-    .then(() => setNote({text: 'Copied. Paste it in Terminal.'}))
+    .then(() => setNote({text: 'Copied. Paste it in a terminal.'}))
     .catch(err => setNote({error: err.message}));
   return (
     <section className={styles.group}>
       <div className={styles.groupHead}>
-        <h4 className={styles.groupTitle}>Run AI on your Mac</h4>
+        <h4 className={styles.groupTitle}>Run AI on your computer</h4>
       </div>
       <div className={`${styles.row} ${ai.installRow}`}>
         <div className={styles.rowLabel}>
-          <strong>Paste this in Terminal</strong>
+          <strong>Paste this in a terminal</strong>
           {note?.error ? <span className={styles.error} role="alert">{note.error}</span>
-            : <span role="status">{note?.text ?? 'It installs Mochi Lab to run in the background, then opens a sign-in page.'}</span>}
+            : <span role="status">{note?.text ?? 'It installs RUSH Lab on this computer, to run in the background, connected to your account. macOS and Linux; on Windows, in WSL. The command is yours: keep it to yourself.'}</span>}
         </div>
         <div className={styles.rowControl}>
           <button type="button" className={styles.secondaryButton} disabled={!command} onClick={copy}>Copy</button>

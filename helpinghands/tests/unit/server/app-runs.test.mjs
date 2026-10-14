@@ -72,7 +72,7 @@ describe('plugin runs a restarted Mochi finds', () => {
     const events = [];
     runs.subscribe(SESSION, (event, data) => events.push([event, data.error]), () => events.push('end'));
     await runs.adopt('test-user', []);
-    const reason = 'Mochi Lab stopped while answering, so this message was not answered. Send it again.';
+    const reason = 'RUSH Lab stopped while answering, so this message was not answered. Send it again.';
     assert.deepEqual(events, [['error', reason], 'end']);
     assert.deepEqual(asked, []);
     assert.equal(finished.length, 1);
@@ -95,13 +95,13 @@ describe('plugin runs a restarted Mochi finds', () => {
     t.mock.timers.tick(HOLD_MS);
     await runs.settle(CONTEXT);
     assert.equal(sessions.rows.size, 0);
-    assert.match(sessions.turns[0].error, /Mochi Lab was not back within 10 minutes/);
+    assert.match(sessions.turns[0].error, /RUSH Lab was not back within 10 minutes/);
   });
 
   it('stops a run nobody has taken up yet', async () => {
     const {runs, sessions} = restarted();
     assert.equal(await runs.cancel(CONTEXT, SESSION), true);
-    assert.equal(sessions.turns[0].error, 'Stopped before Mochi Lab was back.');
+    assert.equal(sessions.turns[0].error, 'Stopped before RUSH Lab was back.');
     assert.equal(await runs.cancel(CONTEXT, SESSION), false);
   });
 });

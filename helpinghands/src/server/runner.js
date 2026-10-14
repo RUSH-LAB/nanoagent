@@ -61,7 +61,7 @@ function socketFetch(entry) {
   return (url, init = {}) => new Promise((resolve, reject) => {
     const signal = init.signal;
     if (signal?.aborted) return reject(signal.reason);
-    if (entry.closed) return reject(gone('Mochi Lab disconnected'));
+    if (entry.closed) return reject(gone('RUSH Lab disconnected'));
     const id = init.run?.id ?? crypto.randomUUID();
     let stream;
     let answered = false;
@@ -133,7 +133,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
     // `runs`: the held requests the computer said it has, once it has said hello.
     const entry = {socket, page: crypto.randomUUID(), device: null, keys: [], pending: new Map(), closed: false, runs: null};
     entry.gateway = createNanoAgentGateway({endpoint: {url: 'http://runner'}, fetchImpl: socketFetch(entry), local: true});
-    connected.get(userId)?.socket.close(REPLACED, 'Another Mochi Lab signed in as this account');
+    connected.get(userId)?.socket.close(REPLACED, 'Another RUSH Lab signed in as this account');
     connected.set(userId, entry);
     pages.set(entry.page, entry);
     const ping = setInterval(() => socket.ping(), PING_MS);
@@ -170,11 +170,11 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
       entry.closed = true;
       for (const [id, call] of entry.pending) {
         if (!call.hold) {
-          call.fail(gone('Mochi Lab disconnected'));
+          call.fail(gone('RUSH Lab disconnected'));
           continue;
         }
         entry.pending.delete(id);
-        const timer = setTimeout(() => call.fail(gone(`Mochi Lab disconnected, and was not back within ${HOLD_MS / 60_000} minutes`)), HOLD_MS);
+        const timer = setTimeout(() => call.fail(gone(`RUSH Lab disconnected, and was not back within ${HOLD_MS / 60_000} minutes`)), HOLD_MS);
         // Waiting keeps no process up: one shutting down lets its calls go.
         timer.unref();
         // A call that ends while its computer is away (it is cancelled) is not waited for any more.
@@ -217,7 +217,7 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
       if (owner !== userId) continue;
       call.leftAway();
       if (!entry.runs.has(id)) {
-        call.fail(gone('Mochi Lab stopped while answering'));
+        call.fail(gone('RUSH Lab stopped while answering'));
         continue;
       }
       call.entry = entry;
@@ -273,12 +273,12 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
      */
     async saveKeys(userId, changes) {
       const entry = connected.get(userId);
-      if (!entry) return {error: 'Mochi Lab is not connected', status: 409};
+      if (!entry) return {error: 'RUSH Lab is not connected', status: 409};
       const names = new Set(entry.keys.map(key => key.env));
       const pairs = changes && typeof changes === 'object' && !Array.isArray(changes) ? Object.entries(changes) : [];
       if (!pairs.length) return {error: 'changes must name at least one key', status: 400};
       for (const [name, value] of pairs) {
-        if (!names.has(name)) return {error: `${name} is not a key Mochi Lab holds`, status: 400};
+        if (!names.has(name)) return {error: `${name} is not a key RUSH Lab holds`, status: 400};
         if (value !== null && (typeof value !== 'string' || !value.trim() || value.length > KEY_LENGTH)) {
           return {error: `${name} must be a key, or null to remove it`, status: 400};
         }

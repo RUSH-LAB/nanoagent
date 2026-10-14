@@ -559,6 +559,13 @@ const ctx = {
     siteUrl: SITE_URL,
     uploadToken: process.env.LAB_UPLOAD_TOKEN || null,
     installScript: path.join(__dirname, '../runner/install.sh'),
+    // A Better Auth session for the member, as the device grant makes one (its token); null when
+    // there is no such member any more.
+    createSession: async userId => {
+      const {internalAdapter} = await auth.$context;
+      if (!await internalAdapter.findUserById(userId)) return null;
+      return (await internalAdapter.createSession(userId)).token;
+    },
   },
   // What members submit to their workspace; PostgreSQL only.
   submissions: postgresServices?.submissions ?? null,

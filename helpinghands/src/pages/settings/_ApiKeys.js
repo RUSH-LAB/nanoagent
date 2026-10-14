@@ -48,7 +48,7 @@ export default function ApiKeys({computer, onSaved}) {
   const busy = state?.saving;
   const editing = connected && (!saved || replacing);
   // Under the row's name: what is happening to the key; nothing once it is saved.
-  const note = !connected ? 'Open Mochi Lab on your computer to add it.'
+  const note = !connected ? 'Install RUSH Lab on your computer to add it.'
     : state?.error ? <span className={styles.error} role="alert">{state.error}</span>
       : busy ? 'Saving…'
         : saved ? null

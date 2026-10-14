@@ -5,8 +5,8 @@ const {HOLD_MS} = require('../runner/protocol');
 const {completionPayload} = require('./ai');
 
 // Why a run ended without its answer, when nothing else said so.
-const LOST = 'Mochi Lab stopped while answering, so this message was not answered. Send it again.';
-const NOT_BACK = `Mochi Lab was not back within ${HOLD_MS / 60_000} minutes, so this message was not answered. Send it again.`;
+const LOST = 'RUSH Lab stopped while answering, so this message was not answered. Send it again.';
+const NOT_BACK = `RUSH Lab was not back within ${HOLD_MS / 60_000} minutes, so this message was not answered. Send it again.`;
 const FAILED = 'AI request failed. Please try again later.';
 
 /**
@@ -128,7 +128,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
     } catch (problem) {
       // The computer keeps the run until it is let go, so the next Mochi to hear of it ends it.
       console.error('[apps] Could not keep a run\'s turn:', problem.message);
-      return run.send('error', {error: 'Mochi could not keep this answer. It is kept when Mochi Lab next connects.', status: 500});
+      return run.send('error', {error: 'Mochi could not keep this answer. It is kept when RUSH Lab next connects.', status: 500});
     }
     // Charged once, by whichever ended it.
     if (ended) await charge(context, row, result, ran);
@@ -228,7 +228,7 @@ function createAppRuns({sessions, agentSync, runners, aiMeter}) {
       }
       const row = (await sessions.runs(context)).find(one => one.sessionId === sessionId);
       if (!row) return false;
-      await interrupt(row, 'Stopped before Mochi Lab was back.');
+      await interrupt(row, 'Stopped before RUSH Lab was back.');
       return true;
     },
   });

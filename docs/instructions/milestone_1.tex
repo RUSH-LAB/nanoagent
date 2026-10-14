@@ -108,12 +108,16 @@ at \url{https://rush-lab.org} with the invited GitHub account.
 
 \medskip
 \noindent
-The agent and your plugin run on your own Mac, in Mochi Lab, which runs in the
-background; you keep using RUSH Lab in your browser. To install Mochi Lab, open
+The agent and your plugin run on your own computer, in RUSH Lab's background
+service; you keep using RUSH Lab in your browser. To install it, open
 \textbf{Settings $\rightarrow$ AI}, copy the command shown there, and paste it
-in Terminal. It asks you to approve your computer in the browser once. Mochi Lab
-runs on macOS only (Apple silicon or Intel); if you do not have a Mac, contact
-the course staff. If Mochi Lab has no OpenRouter API key, RUSH Lab gives it one;
+in a terminal. It connects your computer to your account by itself. It runs on
+macOS (Apple silicon or Intel) and on Linux (x86-64), where it also needs
+\texttt{bubblewrap} (\texttt{sudo apt install bubblewrap} on Ubuntu). On
+Windows, install WSL with \texttt{wsl --install} in PowerShell, open Ubuntu,
+install \texttt{bubblewrap} there, and paste the command in Ubuntu; keep that
+window open while you use RUSH Lab. The command is yours alone: do not share it.
+If it has no OpenRouter API key, RUSH Lab gives it one;
 you can instead save your own key from
 \href{https://openrouter.ai/settings/keys}{OpenRouter} under the same pane.
 RUSH Lab sets the model.

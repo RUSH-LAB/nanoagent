@@ -55,12 +55,13 @@ describe('Mochi Lab\'s one-line install', () => {
     fs.writeFileSync(script, '#!/bin/sh\nSITE="__MOCHI_SITE__"\nTOKEN="__MOCHI_TOKEN__"\necho "$SITE $TOKEN __MOCHI_SITE__"\n');
     ctx = makeCtx({lab: {
       bundles: createPostgresLab({pool: database.pool}), secret: SECRET, siteUrl: SITE, uploadToken: UPLOAD, installScript: script,
+      createSession: async userId => (userId === 'gone' ? null : `session-for-${userId}`),
     }});
   });
   after(() => db?.close());
 
   it('belongs to no workspace', () => {
-    for (const pathname of ['/api/lab/install', '/api/lab/install.sh', `/api/lab/bundles/${ARM}`]) assert.equal(isGlobalApiPath(pathname), true, pathname);
+    for (const pathname of ['/api/lab/install', '/api/lab/install.sh', '/api/lab/session', `/api/lab/bundles/${ARM}`]) assert.equal(isGlobalApiPath(pathname), true, pathname);
     assert.equal(isGlobalApiPath('/api/lab/bundles'), false);
   });
 
@@ -88,6 +89,18 @@ describe('Mochi Lab\'s one-line install', () => {
     assert.equal(verifyDownloadToken(SECRET, token), 'alice');
   });
 
+  it('gives the install link\'s member a session for the relay, and no one else', async () => {
+    const {written} = await call({method: 'POST', path: '/api/lab/session', query: {token: signDownloadToken(SECRET, 'alice')}});
+    assert.equal(written.status, 200);
+    assert.equal(written.headers['Content-Type'], 'text/plain; charset=utf-8');
+    assert.equal(written.body, 'session-for-alice');
+    const expired = signDownloadToken(SECRET, 'alice', Date.now() - TOKEN_MS - 1000);
+    for (const query of [{}, {token: 'forged'}, {token: expired}, {token: signDownloadToken(SECRET, 'gone')}]) {
+      assert.equal((await call({method: 'POST', path: '/api/lab/session', query})).status, 401);
+    }
+    assert.equal((await call({path: '/api/lab/session', query: {token: signDownloadToken(SECRET, 'alice')}})).status, 405);
+  });
+
   it('serves the install script with the site and the token in it', async () => {
     const token = signDownloadToken(SECRET, 'alice');
     const {written} = await call({path: '/api/lab/install.sh', query: {token}});
@@ -102,7 +115,7 @@ describe('Mochi Lab\'s one-line install', () => {
       const {written} = await call({path: '/api/lab/install.sh', query});
       assert.equal(written.status, 200);
       assert.equal(written.headers['Content-Type'], 'text/x-shellscript; charset=utf-8');
-      assert.match(written.body, /^echo 'Mochi Lab: this install link is invalid or has expired\.[^']*' >&2\nexit 1\n$/);
+      assert.match(written.body, /^echo 'RUSH Lab: this install link is invalid or has expired\.[^']*' >&2\nexit 1\n$/);
     }
   });
 
@@ -152,6 +165,14 @@ describe('Mochi Lab\'s one-line install', () => {
     const {written, sent} = await call({path: `/api/lab/bundles/${ARM}`, auth: as('bob')});
     assert.equal(written.headers['X-Lab-Stamp'], 'stamp-2');
     assert.ok(sent.equals(newer));
+  });
+
+  it('keeps a bundle for Linux, which WSL2 runs too', async () => {
+    const linux = 'x86_64-unknown-linux-gnu';
+    assert.equal((await upload(linux, Buffer.from('linux bundle'), 'stamp-1')).status, 200);
+    const {written} = await call({path: `/api/lab/bundles/${linux}`, auth: as('bob')});
+    assert.equal(written.status, 200);
+    assert.equal(written.headers['X-Lab-Stamp'], 'stamp-1');
   });
 
   it('answers 404 for a target with no bundle, and 401 without a member', async () => {

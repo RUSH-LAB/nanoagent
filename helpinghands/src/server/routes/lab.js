@@ -9,6 +9,8 @@
  *                                      Authorization: Bearer LAB_UPLOAD_TOKEN
  *   GET /api/lab/install               signed in: {command}, the line the member pastes in a terminal
  *   GET /api/lab/install.sh?token=     the install script that line runs (src/runner/install.sh)
+ *   POST /api/lab/session?token=       a session for the member, as text: the script keeps it for
+ *                                      the relay, so this computer connects with no sign-in page
  *   GET /api/lab/bundles/{target}      the target's newest bundle, by ?token= or a session,
  *                                      with X-Lab-Stamp and X-Lab-Sha256
  *
@@ -17,7 +19,8 @@
  * signed with the session secret, so curl needs no session; the script gets
  * the site and the token in place of `__MOCHI_SITE__` and `__MOCHI_TOKEN__`,
  * to download the bundle with and then open the sign-in page Mochi Lab's
- * relay asks for. Targets are aarch64-apple-darwin and x86_64-apple-darwin.
+ * relay asks for. Targets are aarch64-apple-darwin, x86_64-apple-darwin and
+ * x86_64-unknown-linux-gnu (Linux, and Windows through WSL2).
  * Each keeps its newest bundle only, in PostgreSQL (postgres/lab.js), sent on
  * a chunk at a time. Without LAB_UPLOAD_TOKEN set, uploads answer 503.
  */
@@ -25,10 +28,10 @@ const crypto = require('crypto');
 const fs = require('fs/promises');
 const {signDownloadToken, verifyDownloadToken} = require('../lab-tokens');
 
-const TARGETS = new Set(['aarch64-apple-darwin', 'x86_64-apple-darwin']);
+const TARGETS = new Set(['aarch64-apple-darwin', 'x86_64-apple-darwin', 'x86_64-unknown-linux-gnu']);
 const MAX_BUNDLE_BYTES = 200 * 1024 * 1024;
 const STAMP = /^[A-Za-z0-9._-]{1,128}$/;
-const ROUTE = /^\/api\/lab\/(?:(install)|(install\.sh)|bundles\/([^/]+))$/;
+const ROUTE = /^\/api\/lab\/(?:(install)|(install\.sh)|(session)|bundles\/([^/]+))$/;
 
 /** Whether `header` is `Bearer <token>`, compared in constant time. */
 function bearerIs(header, token) {
@@ -42,7 +45,7 @@ function bearerIs(header, token) {
  */
 function refuseScript(res, message) {
   res.writeHead(200, {'Content-Type': 'text/x-shellscript; charset=utf-8', 'Cache-Control': 'no-store'});
-  res.end(`echo 'Mochi Lab: ${message}' >&2\nexit 1\n`);
+  res.end(`echo 'RUSH Lab: ${message}' >&2\nexit 1\n`);
 }
 
 /** Write `bundle` to `res` a chunk at a time, waiting while the caller is slow; stop if they go. */
@@ -78,12 +81,12 @@ async function sendBundle(res, bundles, userId, bundle) {
 module.exports = async function lab(req, res, url, pathname, ctx) {
   const match = ROUTE.exec(pathname);
   if (!match) return;
-  const {json, lab: {bundles, secret, siteUrl, uploadToken, installScript}} = ctx;
-  const [, install, script, target] = match;
+  const {json, lab: {bundles, secret, siteUrl, uploadToken, installScript, createSession}} = ctx;
+  const [, install, script, session, target] = match;
 
   if (install) {
     if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
-    if (!req.auth?.userId) return json(res, 401, {error: 'Sign in to install Mochi Lab'});
+    if (!req.auth?.userId) return json(res, 401, {error: 'Sign in to install RUSH Lab'});
     const token = signDownloadToken(secret, req.auth.userId);
     return json(res, 200, {command: `curl -fsSL '${siteUrl}/api/lab/install.sh?token=${token}' | sh`});
   }
@@ -100,10 +103,22 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
     return res.end(body);
   }
 
+  if (session) {
+    if (req.method !== 'POST') return json(res, 405, {error: 'Method not allowed'});
+    const userId = verifyDownloadToken(secret, url.searchParams.get('token'));
+    if (!userId) return json(res, 401, {error: 'This install link is invalid or has expired'});
+    // The same session the device grant gives once a member approves a computer: the install
+    // command was theirs, shown to them signed in, so it stands for that approval.
+    const token = await createSession(userId);
+    if (!token) return json(res, 401, {error: 'This install link\'s member is gone'});
+    res.writeHead(200, {'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store'});
+    return res.end(token);
+  }
+
   if (req.method === 'PUT') {
-    if (!uploadToken) return json(res, 503, {error: 'Uploading Mochi Lab bundles is not configured: set LAB_UPLOAD_TOKEN'});
+    if (!uploadToken) return json(res, 503, {error: 'Uploading RUSH Lab bundles is not configured: set LAB_UPLOAD_TOKEN'});
     if (!bearerIs(req.headers.authorization, uploadToken)) return json(res, 401, {error: 'Uploading a bundle takes Authorization: Bearer LAB_UPLOAD_TOKEN'});
-    if (!bundles) return json(res, 503, {error: 'Mochi Lab bundles need PostgreSQL (DATABASE_URL)'});
+    if (!bundles) return json(res, 503, {error: 'RUSH Lab bundles need PostgreSQL (DATABASE_URL)'});
     if (!TARGETS.has(target)) return json(res, 400, {error: `The target is one of ${[...TARGETS].join(', ')}`});
     const stamp = req.headers['x-lab-stamp'];
     if (!STAMP.test(stamp ?? '')) return json(res, 400, {error: 'Name the bundle in X-Lab-Stamp: letters, digits, ".", "_" and "-"'});
@@ -121,10 +136,10 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
   if (req.method === 'GET') {
     const token = url.searchParams.get('token');
     const userId = token === null ? req.auth?.userId : verifyDownloadToken(secret, token);
-    if (!userId) return json(res, 401, {error: token === null ? 'Sign in to download Mochi Lab' : 'This download link is invalid or has expired'});
-    if (!bundles) return json(res, 503, {error: 'Mochi Lab bundles need PostgreSQL (DATABASE_URL)'});
+    if (!userId) return json(res, 401, {error: token === null ? 'Sign in to download RUSH Lab' : 'This download link is invalid or has expired'});
+    if (!bundles) return json(res, 503, {error: 'RUSH Lab bundles need PostgreSQL (DATABASE_URL)'});
     const bundle = TARGETS.has(target) ? await bundles.bundle(userId, target) : null;
-    if (!bundle) return json(res, 404, {error: `No Mochi Lab bundle for ${target}`});
+    if (!bundle) return json(res, 404, {error: `No RUSH Lab bundle for ${target}`});
     return sendBundle(res, bundles, userId, bundle);
   }
 

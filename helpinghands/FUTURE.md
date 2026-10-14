@@ -61,9 +61,10 @@ To decide:
 - Linux sandboxes plugins with `bwrap`, so it is closer, but nobody has tested a bundle on a
   member's machine.
 - Neither bundle is signed.
-- The one-line install (`src/runner/install.sh`, `desktop/PLAN.md`) is for macOS only. Windows
-  needs a plugin sandbox before it can be supported there too: lab.mjs, like the app, refuses to
-  run plugins unconfined.
+- The one-line install (`src/runner/install.sh`, `desktop/PLAN.md`) runs on macOS and on x86-64
+  Linux, and on Windows only inside WSL2, as Linux. Windows itself needs a plugin sandbox first:
+  lab.mjs, like the app, refuses to run plugins unconfined. Linux on ARM (and WSL2 on ARM Windows)
+  needs its own bundle, built on an ARM runner.
 
 ## The Mochi Lab desktop app
 

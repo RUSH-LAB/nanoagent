@@ -57,12 +57,12 @@ function Device() {
 
   return (
     <div className={pageStyles.pageContainer}>
-      <h1 className={dir.title}>{desktop ? 'Connect Mochi Lab' : 'Command-line sign-in'}</h1>
+      <h1 className={dir.title}>{desktop ? 'Connect this computer to RUSH Lab' : 'Command-line sign-in'}</h1>
       {status === 'pending' && (
         <>
           <p className={dir.note}>
             {desktop
-              ? <>Mochi Lab on this computer is asking to run your AI here, as you, with your own OpenRouter key. Approve to connect it.</>
+              ? <>RUSH Lab on this computer is asking to run your AI here, as you, with your own OpenRouter key. Approve to connect it.</>
               : <>A <code>mochi</code> command-line client is asking to sign in as you with the code{' '}
                 <strong>{userCode}</strong>. Approve only if that code is the one in your terminal.</>}
           </p>
@@ -73,8 +73,8 @@ function Device() {
           </div>
         </>
       )}
-      {status === 'approved' && <p className={dir.note}>{desktop ? 'Approved. Opening Mochi…' : 'Approved. Return to your terminal.'}</p>}
-      {status === 'denied' && <p className={dir.note}>{desktop ? 'Denied. Mochi Lab was not connected.' : 'Denied. The command-line client was not signed in.'}</p>}
+      {status === 'approved' && <p className={dir.note}>{desktop ? 'Approved. Opening RUSH Lab…' : 'Approved. Return to your terminal.'}</p>}
+      {status === 'denied' && <p className={dir.note}>{desktop ? 'Denied. This computer was not connected.' : 'Denied. The command-line client was not signed in.'}</p>}
       {status === 'gone' && <p className={dir.note}>{message}</p>}
     </div>
   );
