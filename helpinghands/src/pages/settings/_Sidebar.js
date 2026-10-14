@@ -99,7 +99,7 @@ function DoubleChevron() {
   );
 }
 
-/** User and Workspace as collapsible categories; both start open, since they are one page. */
+/** User, Workspace and, for administrators, Platform as collapsible categories; all start open, since they are one page. */
 function GroupTree({groups, activePane}) {
   const items = groups.map(group => ({
     key: group.id,

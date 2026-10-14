@@ -201,7 +201,7 @@ export const PAGE_COMMANDS = [
   {id: 'home', name: 'home', category: 'Meta', icon: icons.navigate, title: 'Home', description: 'Back to the front page', href: '/'},
   {id: 'about', name: 'about', category: 'Meta', icon: icons.info, title: 'About', description: 'What this site is', href: '/about'},
   {id: 'api', name: 'api', category: 'Meta', icon: icons.pages, title: 'API Docs', description: 'Server endpoint reference', href: '/api-docs'},
-  {id: 'admin', name: 'admin', category: 'Meta', icon: icons.shield, title: 'Admin', description: 'Administration panel', href: '/admin'},
+  {id: 'admin', name: 'admin', category: 'Meta', icon: icons.shield, title: 'Platform', description: 'Platform administration, in Settings', href: '/settings#server'},
 ];
 
 /**

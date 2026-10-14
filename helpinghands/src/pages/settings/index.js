@@ -7,11 +7,13 @@ import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import {clientPlatform} from '@site/src/platform/client';
 import {workspaceSlugFromPath} from '@site/src/utils/workspaces';
 import {useAccount} from '@site/src/utils/account';
+import API_BASE, {apiFetch} from '@site/src/utils/api';
 import {PaneHeading} from './_parts';
 import TwoColumnLayout from '@site/src/components/TwoColumnLayout';
 import Ai from './_Ai';
 import Leave from './_Leave';
 import People from './_People';
+import Platform, {PLATFORM_PANES} from './_Platform';
 import Plugins from './_Plugins';
 import SettingsSidebar from './_Sidebar';
 import styles from './styles.module.css';
@@ -34,6 +36,14 @@ function SettingsApp() {
   const activeId = workspaces.find(workspace => workspace.slug === workspaceSlug)?.id ?? defaultWorkspaceId;
   const activeWorkspace = workspaces.find(workspace => workspace.id === activeId) ?? null;
   const [signingOut, setSigningOut] = useState(false);
+  // Platform administrators also get the Platform group; the server checks every request of it again.
+  const [platformAdmin, setPlatformAdmin] = useState(null);
+  useEffect(() => {
+    apiFetch(`${API_BASE}/api/users/me`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(me => setPlatformAdmin(me?.role === 'admin' ? me.userId : null))
+      .catch(() => setPlatformAdmin(null));
+  }, []);
   const signOut = async () => {
     setSigningOut(true);
     try {
@@ -52,6 +62,7 @@ function SettingsApp() {
       {id: 'people', label: 'People'},
       {id: 'plugins', label: 'Plugins'},
     ]}] : []),
+    ...(platformAdmin ? [{id: 'platform', label: 'Platform', panes: PLATFORM_PANES}] : []),
   ];
   const paneIds = groups.flatMap(group => group.panes.map(pane => pane.id)).join(' ');
   const [visible, setVisible] = useState('account');
@@ -124,6 +135,13 @@ function SettingsApp() {
             <section id="plugins" className={styles.pane}>
               <Plugins key={activeWorkspace.id} workspace={activeWorkspace} />
             </section>
+          </div>
+        )}
+
+        {platformAdmin && (
+          <div className={styles.settingsGroup}>
+            <h2 className={styles.settingsGroupHeading}>Platform</h2>
+            <Platform myUserId={platformAdmin} />
           </div>
         )}
       </div>
