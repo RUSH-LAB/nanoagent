@@ -4,6 +4,13 @@ https://www.alphaxiv.org
 
 A collaborative workspace for knowledge, documents, communication, and AI agents.
 
+Every member's AI runs on their own computer, in Mochi Lab (the desktop app,
+`desktop/`), whether they use the site in a browser or in the app. Its NanoAgent
+calls OpenRouter with the key kept there, and installs, serves the pages of, and
+runs every plugin. Mochi's servers keep no model key and run no model or plugin:
+they only list the marketplace and hold its plugin packages. While a member's
+Mochi Lab is not connected, their AI and plugins are refused, never run elsewhere.
+
 Install the required runtimes, dependencies, adjacent NanoAgent checkout, and
 sanitized local environment file:
 
