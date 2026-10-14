@@ -1,0 +1,32 @@
+\section{Building your own plugin}
+
+Install Git, Python 3.12 or later and \texttt{uv}, then start from the
+starter, replacing \texttt{my-task} with your plugin's name:
+
+\begin{center}
+\texttt{git clone \starter.git my-task \&\& cd my-task}
+\end{center}
+
+\begin{enumerate}
+  \item \textbf{Rename it} in \texttt{nanoagent.yaml}, the README's title,
+    \texttt{LICENSE} and \texttt{pyproject.toml} together.
+  \item \textbf{Declare the types} in \texttt{contract.py}. Use Enums and
+    \texttt{bool}s for anything that is a choice.
+  \item \textbf{Write the tools} in \texttt{src/plugin/}, one module per
+    tool, and register each in \texttt{\_\_main\_\_.py}. Put every
+    rule-based computation in a tool.
+  \item \textbf{Describe the tools and tasks} in \texttt{nanoagent.yaml},
+    and grant only the permissions the plugin needs.
+  \item \textbf{Write the verifier} and its tests. Test correct, incorrect,
+    missing, malformed and boundary results, not only the correct one.
+  \item \textbf{Finish the front end}: renderers only where the default
+    drawing falls short, plus \texttt{product.yaml} and \texttt{icon.svg}.
+  \item \textbf{Test it} with \texttt{uv sync --extra dev} and
+    \texttt{uv run pytest}, and keep \texttt{uv.lock} current. Keep reports
+    and run outputs outside the plugin folder.
+\end{enumerate}
+
+The \code{README.md}{starter's README} says how to add a tool or a task,
+and \href{\arxiv}{arXiv Source} shows each piece at full size. The
+manifest's \texttt{nanoagent} field, such as \texttt{\textasciitilde=0.5.0},
+is the range of NanoAgent versions the plugin runs on.

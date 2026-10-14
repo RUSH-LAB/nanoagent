@@ -1,0 +1,35 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=0.9in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+
+\setlist{itemsep=0.15em, topsep=0.3em}
+\setlength{\emergencystretch}{3em}
+
+% Every link to code goes to a public example plugin.
+\newcommand{\starter}{https://github.com/zeyuyang8/mochi-hello-world}
+\newcommand{\arxiv}{https://github.com/zeyuyang8/mochi-arxiv-source}
+\newcommand{\code}[2]{\href{\starter/blob/main/#1}{\texttt{#2}}}
+\newcommand{\arxivcode}[2]{\href{\arxiv/blob/main/#1}{\texttt{#2}}}
+
+\title{NanoAgent Plugins: Fundamentals and How to Build One}
+\author{}
+\date{NanoAgent 0.5.0}
+
+\begin{document}
+
+\maketitle
+
+\input{sections/1_overview}
+\input{sections/2_fundamentals}
+\input{sections/3_anatomy}
+\input{sections/4_runners}
+\input{sections/5_building}
+\input{sections/6_publishing}
+
+\end{document}

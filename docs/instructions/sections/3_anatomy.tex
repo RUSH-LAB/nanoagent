@@ -1,0 +1,46 @@
+\section{Anatomy}
+
+A plugin folder holds exactly these files, and nothing else at its top
+level. The \href{\starter}{Hello World starter} has the smallest working
+example of each, and the \href{\arxiv}{arXiv Source} plugin a full one, with
+network access, five tasks and a verifier module per tool.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+File & What it holds \\
+\midrule
+\code{contract.py}{contract.py} & Declarations only: \texttt{Tool} and
+  \texttt{Task} Enums, slimconfig \texttt{Output} classes, and the
+  \texttt{TOOLS} and \texttt{TASKS} tables pairing each with its input and
+  output classes. Field descriptions become the JSON Schema everyone
+  sees. \\
+\code{nanoagent.yaml}{nanoagent.yaml} & The manifest: id, version, the
+  \texttt{nanoagent} version range, the MCP runtime, permissions (hosts it
+  may reach, where it may write), and the tools and tasks tables. Each task
+  has a \texttt{runner}, \texttt{tools}, \texttt{reference} and
+  \texttt{instructions}. \\
+\code{src/plugin}{src/} & The tools and the MCP server. A tool takes its
+  input class, returns its output class, and raises on failure. It writes
+  only to its workspace. \\
+\code{verifier}{verifier/} & \texttt{verify\_input} and
+  \texttt{verify\_output} run on every tool call, and \texttt{verify\_task}
+  runs once on the task's output. Each returns \texttt{valid},
+  \texttt{score} (0 to 1), \texttt{message} and \texttt{details}. Standard
+  library only, sandboxed, and run twice: the verdicts must match. \\
+\code{tests}{tests/} & The plugin's tests, including
+  \texttt{test\_verifier.py}. \\
+\code{ui}{ui/} & \texttt{renderers.js} and \texttt{renderers.css}. Outputs
+  are drawn from their JSON Schema unless a renderer draws their class. \\
+\code{product}{product/} & \texttt{product.yaml} (tagline, summary,
+  highlights, steps) and \texttt{icon.svg}, the catalog page. \\
+\code{run.sh}{run.sh}, \code{.env}{.env} & \texttt{run.sh} exits 0 when
+  this machine can run the plugin. \texttt{.env} lists variable names,
+  never values. \\
+\code{README.md}{README.md}, \texttt{LICENSE}, \texttt{pyproject.toml},
+  \texttt{uv.lock}, \texttt{.gitignore} & The template's standard files.
+  The README has the sections Tools, Layout, and Develop and run. \\
+\bottomrule
+\end{tabularx}
+\end{center}

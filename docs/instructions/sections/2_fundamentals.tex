@@ -1,0 +1,21 @@
+\section{The fundamentals}
+
+\begin{enumerate}
+  \item \textbf{Typed in, typed out.} Every tool and task has an input class
+    and an output class. They are the only shapes that cross the plugin's
+    boundary, and every value is built into its class on the way in and out.
+  \item \textbf{Decisions are typed questions.} The model chooses: the next
+    tool, and for each field an allowed value or an existing value of the
+    same type. It does not invent values. Any model that answers typed
+    questions can be used, and the contract does not depend on which.
+  \item \textbf{Rules in code, judgment in the model.} If a value follows
+    from rules, a tool computes it. The model decides only what needs
+    judgment.
+  \item \textbf{Every result is verified} by plain, sandboxed,
+    deterministic Python, never an LLM judge.
+  \item \textbf{Natural language only at the end,} to explain the typed
+    result to the person.
+\end{enumerate}
+
+How questions are batched, what background the model sees and whether it is
+cached are harness settings. They change without touching any contract.
