@@ -75,7 +75,7 @@ Methods:
 | `cancel` | `{runId}` | `{}` | — |
 | `sessions.list` | `{}` | `{sessions: [summary]}`, each `{id, pluginId, title, createdAt, updatedAt, runs, cost, ttftS}` | — |
 | `session.get` | `{id}` | `{session}`: the summary with `state`, `chat` and `calls` (every run, with its cost and timings) | — |
-| `session.start` | `{}` | `{session}`, a new one with `state: null` and `chat: []`; it becomes the current session | — |
+| `session.start` | `{}` | `{session}`, a new one with `state: null` and `chat: []`; it becomes the current session. The kit sends it on a new session's first `runTask`, `prompt` or `session.save` | — |
 | `session.resume` | `{id}` | `{session}`; it becomes the current session, and `prompt` continues its conversation | — |
 | `session.save` | `{state, title?}` | `{}`: keeps the current session's state (any JSON, at most 256 KB) and title (at most 200 characters) | — |
 | `workspace.list` | `{}` | `{files: [{path, size}]}` | — |
@@ -114,14 +114,18 @@ goes stale. `uiVersion` digests both halves, so a new kit is a new URL.
 
 The kit's frame (`mountApp`, `kit/shell.js`) has two tabs, and the plugin designs only one:
 
-- **Dashboard**, where the app opens: the kit's own, the same for every plugin. It lists the
-  member's sessions with this plugin in this workspace (Mochi keeps them in PostgreSQL), with
-  their runs, cost and time to first token, and each session's runs; it starts a new session
-  or resumes one. With no sessions yet it shows the plugin's `product.yaml` summary and steps.
-  `ui/` changes nothing here.
-- **Session**: the plugin's page. Starting or resuming a session calls `app.js`'s default
-  export as `layout({plugin, workspace, session})` and shows what it returns. `session` holds
-  `id`, `title`, `state` (what the page last saved, `null` in a new session) and `chat` (the
+- **Dashboard**, where the app opens: the kit's own, the same for every plugin, and `ui/`
+  changes nothing here. It lists the member's sessions with this plugin in this workspace
+  (Mochi keeps them in PostgreSQL), newest first, each with when it was last used, its runs,
+  cost and time to first token; clicking one resumes it, and its Runs button shows each run.
+  "New session" opens a new one.
+- **Session**: the plugin's page, always one click away: the tab shows the open session or,
+  with none open, a new one. Someone with no sessions yet starts here, in a new session.
+  Opening a session calls `app.js`'s default export as `layout({plugin, workspace, session})`
+  and shows what it returns. A new session is the page's alone until it first runs a task,
+  chats or saves: only then does the kit ask the host to start it (`session.start`, sent from
+  `request` in `kit/bridge.js`), so opening an app and leaving it keeps nothing. `session` holds
+  `id` (`null` until a new session starts), `title`, `state` (what the page last saved, `null` in a new session) and `chat` (the
   conversation so far), and `session.save(state, {title})` keeps the state, and a title,
   which the tab shows too. A page restores itself from `session.state`, so a person who
   leaves comes back to where they were.

@@ -179,12 +179,13 @@ Every plugin also ships its own front end in `ui/`, a static web page:
 5 MB, with nothing built at load time. Mochi shows it in a sandboxed iframe,
 in the kit's frame of two tabs. **Dashboard**, where the app opens, is the
 kit's own and the same for every plugin: the member's sessions with the
-plugin, what each ran and cost, and buttons to start or resume one (with none
-yet, it shows `product.yaml`'s summary and steps). **Session** is the plugin's
-page: starting or resuming a session shows `app.js`'s layout, given the
-session, whose `state` the page saved last time (`session.save(state,
-{title})`), so a person comes back to where they left off. A task or chat
-always runs in a session.
+plugin, newest first, with what each ran and cost, to resume one or start a
+new one. **Session** is the plugin's page: the open session or, with none
+open, a new one; someone with no sessions yet starts there. It shows
+`app.js`'s layout, given the session, whose `state` the page saved last time
+(`session.save(state, {title})`), so a person comes back to where they left
+off. A task or chat always runs in a session, and a new session is only kept
+once the page first runs, chats or saves in it.
 NanoAgent serves an installed plugin's at `GET /v1/installs/<sha256>/ui/<uiVersion>/<path>`, where
 `uiVersion` is the catalog's digest of `ui/` and the files are cached forever, under a
 Content-Security-Policy with `connect-src 'none'`, so the page can't reach the

@@ -525,27 +525,32 @@ html[data-theme="dark"] .segment input:checked + .segment-text { background: var
 .page { display: grid; gap: 18px; align-content: start; max-width: var(--page-max); padding: 20px var(--page-inset) 40px; }
 
 /* The frame's tabs (kit/shell.js), over every plugin's page, and the Dashboard (kit/session.js). */
-.kit-tabs { display: flex; gap: 4px; height: var(--kit-tabs-height); box-sizing: border-box; padding: var(--page-inset) var(--page-inset) 10px; }
-:root { --kit-tabs-height: calc(var(--page-inset) + 42px); } /* the inset above, a 32px tab, 10px below */
+:root { --kit-tabs-height: 44px; }
+.kit-tabs { display: flex; gap: 22px; height: var(--kit-tabs-height); box-sizing: border-box; padding: 0 var(--page-inset); border-bottom: 1px solid var(--border); }
 .kit-session > .chat-page { height: calc(100vh - var(--kit-tabs-height)); }
-.kit-tab { appearance: none; border: 1px solid transparent; background: transparent; color: var(--muted); font: inherit; font-size: 13.5px; font-weight: 600; padding: 6px 12px; border-radius: var(--radius-pill); cursor: pointer; max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.kit-tab:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
-.kit-tab[aria-selected="true"] { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-soft); }
-.kit-tab:disabled { opacity: .5; cursor: default; }
-.kit-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.dashboard { display: grid; gap: 18px; }
-/* A status line or list with nothing in it yet takes no row, so it adds no gap. */
+.kit-tab { appearance: none; display: inline-flex; align-items: center; gap: 5px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 560; padding: 0 1px; cursor: pointer; max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kit-tab:hover { color: var(--text); }
+.kit-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.kit-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.dashboard { display: grid; gap: 12px; max-width: 880px; }
+/* A status line with nothing in it yet takes no row, so it adds no gap. */
 .dashboard > :empty { display: none; }
-.dashboard-head, .session-details-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.stats { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-.stat { display: grid; gap: 2px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
-.stat-label { color: var(--muted); font-size: 12.5px; }
-.stat-value { font-size: 20px; font-weight: 650; }
-.session-details { display: grid; gap: 12px; }
-.dashboard-empty { border-style: dashed; }
-.dashboard-empty .empty-state { padding: 32px 16px 12px; }
-.dashboard-empty .how-it-works { width: 100%; max-width: 760px; margin-top: 14px; }
-.row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.dashboard-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.dashboard-titles { display: grid; gap: 2px; min-width: 0; }
+.dashboard-titles h2 { font-size: 15px; }
+.dashboard-summary { margin: 0; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.dashboard-summary:empty { display: none; }
+.session-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); overflow: hidden; }
+.session-row + .session-row { border-top: 1px solid var(--border); }
+.session-line { display: flex; align-items: center; gap: 8px; padding-right: 8px; }
+.session-line:hover { background: var(--surface-2); }
+.session-open { appearance: none; flex: 1; min-width: 0; display: grid; gap: 1px; padding: 9px 14px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.session-open:disabled { opacity: .6; cursor: progress; }
+.session-open:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.session-title { font-size: 13.5px; font-weight: 520; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session-meta { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session-runs { padding: 2px 14px 12px; }
+.session-empty { padding: 14px; color: var(--muted); font-size: 13px; }
 .run-metrics, .message-metrics { margin: 0; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 
 .columns { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr) var(--aside-width); align-items: start; }

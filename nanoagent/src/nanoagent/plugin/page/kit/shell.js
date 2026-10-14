@@ -80,42 +80,41 @@ function withTimeout(promise, ms, message) {
 }
 
 /**
- * The tabs over every plugin's page: its Dashboard, and the session open in it.
- * @returns {{element: HTMLElement, show: (tab: "dashboard"|"session") => void, setSession: (title: string) => void, onShow: (tab: string) => void}}
+ * The tabs over every plugin's page: its Dashboard, and its Session, the session open in it or,
+ * with none open, a new one.
+ * @returns {{element: HTMLElement, select: (tab: "dashboard"|"session") => void, setSession: (title: string) => void, onPick: (tab: string) => void}}
  */
 function frameTabs() {
   const tabs = {};
   const bar = h("nav", { class: "kit-tabs", role: "tablist", "aria-label": "Plugin" });
-  for (const [id, label] of [["dashboard", "Dashboard"], ["session", "Session"]]) {
-    tabs[id] = h("button", { type: "button", class: "kit-tab", role: "tab", "aria-selected": "false", text: label, onclick: () => frame.show(id) });
+  for (const id of ["dashboard", "session"]) {
+    tabs[id] = h("button", { type: "button", class: "kit-tab", role: "tab", "aria-selected": "false", onclick: () => frame.onPick(id) });
     bar.append(tabs[id]);
   }
-  tabs.session.disabled = true;
+  tabs.dashboard.textContent = "Dashboard";
   const frame = {
     element: bar,
-    onShow: () => {},
-    show(tab) {
+    onPick: () => {},
+    select(tab) {
       for (const [id, button] of Object.entries(tabs)) button.setAttribute("aria-selected", String(id === tab));
-      frame.onShow(tab);
     },
+    /** The open session's title on its tab, or "Session" for one with none (or none open). */
     setSession(title) {
-      tabs.session.disabled = false;
-      tabs.session.textContent = title ? `Session: ${title}` : "Session";
+      tabs.session.textContent = title || "Session";
     },
   };
+  frame.setSession("");
   return frame;
 }
 
 /**
  * Connect to the host and show the page: asks the host to `describe` the plugin, applies its
- * theme (and follows `host.theme`), then shows the Dashboard, where people start a session or
- * resume one. Opening one shows `layout({plugin, workspace, session})` under the Session tab;
- * the page saves what it should come back to with `session.save(state)` and finds it again in
- * `session.state`. A page opened outside a host, or a host that doesn't answer within 10 s,
- * gets a plain message instead.
+ * theme (and follows `host.theme`), then shows the Dashboard, where people resume a session or
+ * start a new one; someone with no sessions yet starts in a new one. A session shows
+ * `layout({plugin, workspace, session})` under the Session tab; the page saves what it should
+ * come back to with `session.save(state)` and finds it again in `session.state`. A page opened
+ * outside a host, or a host that doesn't answer within 10 s, gets a plain message instead.
  * @param {(context: {plugin: object, workspace: {id: string}, session: ReturnType<typeof enterSession>}) => Node|Promise<Node>} layout
- *   The page, app.js's default export. It may be async (e.g. to read workspace files first).
- * @returns {Promise<void>}
  */
 export async function mountApp(layout) {
   const root = document.getElementById("app");
@@ -141,17 +140,27 @@ export async function mountApp(layout) {
   }
 
   const tabs = frameTabs();
-  const board = dashboard({ plugin: described.plugin, onOpen: (opened) => openSession(opened) });
+  const board = dashboard({ onOpen: (opened) => openSession(opened) });
   const home = appShell({ plugin: described.plugin, chat: false }, board.element);
   const page = h("div", { class: "kit-session", hidden: true });
-  tabs.onShow = (tab) => {
+  let open = false;
+  function show(tab) {
+    tabs.select(tab);
     home.element.hidden = tab !== "dashboard";
     page.hidden = tab !== "session";
+  }
+  tabs.onPick = (tab) => {
+    if (tab === "session" && !open) {
+      openSession(null);
+      return;
+    }
+    show(tab);
     if (tab === "dashboard") board.refresh();
   };
 
   async function openSession(opened) {
     const session = enterSession(opened);
+    open = true;
     const save = session.save;
     // A title the page gives its session shows on the tab too.
     session.save = (state, options) => {
@@ -160,7 +169,7 @@ export async function mountApp(layout) {
     };
     tabs.setSession(session.title);
     page.replaceChildren(h("div", { class: "loading", role: "status" }, h("span", { class: "run-spinner", "aria-hidden": "true" }), "Opening…"));
-    tabs.show("session");
+    show("session");
     try {
       page.replaceChildren(await layout({ plugin: described.plugin, workspace: described.workspace, session }));
     } catch (problem) {
@@ -170,5 +179,6 @@ export async function mountApp(layout) {
   }
 
   root.replaceChildren(tabs.element, home.element, page);
-  tabs.show("dashboard");
+  if ((await board.refresh()) === 0) openSession(null);
+  else show("dashboard");
 }
