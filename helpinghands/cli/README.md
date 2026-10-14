@@ -14,8 +14,8 @@ npm link
 Then sign in, clone a workspace into a new folder, and keep it in sync:
 
 ```bash
-mochi login https://mochi-lab.org
-mochi clone https://mochi-lab.org my-workspace ~/Mochi/my-workspace
+mochi login https://rush-lab.org
+mochi clone https://rush-lab.org my-workspace ~/Mochi/my-workspace
 mochi sync ~/Mochi/my-workspace
 ```
 
@@ -39,7 +39,7 @@ The workspace's drive lives in the cloud and is shared with its members; the
 local folder is a cache of it. Choose what is kept locally:
 
 ```bash
-mochi clone https://mochi-lab.org my-workspace ~/Mochi/my-workspace papers notes
+mochi clone https://rush-lab.org my-workspace ~/Mochi/my-workspace papers notes
 mochi online-only ~/Mochi/my-workspace papers/2024
 mochi download ~/Mochi/my-workspace papers/2024
 ```
@@ -77,7 +77,7 @@ Push a plugin in the NanoAgent plugin format to a public GitHub repository,
 then publish it to the marketplace. Run the same command again to update it.
 
 ```bash
-mochi publish https://mochi-lab.org https://github.com/you/your-plugin
+mochi publish https://rush-lab.org https://github.com/you/your-plugin
 ```
 
 For a plugin in a subfolder, give the folder's URL: `…/tree/<branch>/<folder>`.

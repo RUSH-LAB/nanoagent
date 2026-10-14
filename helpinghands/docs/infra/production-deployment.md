@@ -36,7 +36,7 @@ The probe writes one random object below an existing workspace, verifies its
 bytes and metadata, deletes it, and confirms deletion. It never reads or
 modifies a business asset.
 
-For invitation email, verify `mochi-lab.org` in Resend, configure
+For invitation email, verify `rush-lab.org` in Resend, configure
 `RESEND_API_KEY`, `MAIL_FROM`, and `MAIL_TEST_TO`, then send one deployment
 probe:
 
@@ -70,7 +70,7 @@ the database, authentication, and email configuration described above to the
 service variables; do not upload `.env`. `DATABASE_URL` and
 `DATABASE_MIGRATION_URL` point at the Neon `production` branch
 ([neon-postgres-setup.md](neon-postgres-setup.md)). GitHub sign-in uses its own
-OAuth App, with the callback `https://mochi-lab.org/api/auth/callback/github`.
+OAuth App, with the callback `https://rush-lab.org/api/auth/callback/github`.
 
 Create a second, private service from the same repository and branch, with
 root directory `nanoagent` and watch path `/nanoagent/**`. Run
@@ -85,7 +85,7 @@ model-provider credential: it runs nothing. On Mochi, set
 `NANOAGENT_API_TOKEN`. Do not expose a public domain for NanoAgent.
 
 Generate a Railway domain for the first deployment. Once it is healthy, attach
-`mochi-lab.org` or an application subdomain, update `SITE_URL` and
+`rush-lab.org` or an application subdomain, update `SITE_URL` and
 `CORS_ORIGIN` to that exact HTTPS origin, and redeploy.
 
 ## Rollback

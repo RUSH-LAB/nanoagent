@@ -3,7 +3,7 @@
 
 # The Mochi this app serves: its window shows the site, and its relay (src/runner/relay.mjs)
 # lends this computer's NanoAgent to the signed-in member's runs there.
-site_url: https://mochi-lab.org
+site_url: https://rush-lab.org
 # NanoAgent's loopback port. Away from npm start's 8787, so the app and a development checkout
 # run side by side.
 nanoagent_port: 47311

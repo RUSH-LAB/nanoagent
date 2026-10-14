@@ -32,7 +32,7 @@ The Neon project `curly-rice-08210507` has one branch per environment:
 
 | Branch | Used by |
 | --- | --- |
-| `production` | Railway's Mochi service (mochi-lab.org) |
+| `production` | Railway's Mochi service (rush-lab.org) |
 | `development` | Local development: `npm start` and `npm run test:postgres` |
 
 `.neon` names the project and the `development` branch, so Neon commands run

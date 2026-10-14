@@ -32,7 +32,7 @@ function fail(message) {
 }
 
 function serverUrl(value) {
-  if (!value) fail('Name the server, for example https://mochi-lab.org');
+  if (!value) fail('Name the server, for example https://rush-lab.org');
   const url = new URL(value);
   return url.origin;
 }
