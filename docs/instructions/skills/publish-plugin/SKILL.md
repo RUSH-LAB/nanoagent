@@ -1,6 +1,6 @@
 ---
 name: publish-plugin
-description: Build a NanoAgent plugin from the Hello World starter and publish it on RUSH Lab. Use when someone wants to make, finish, check, or publish ("submit") a NanoAgent plugin, or when RUSH Lab refuses a plugin they submitted.
+description: Build a NanoAgent plugin from the reference plugin, zeyuyang8/arxiv-source, and publish it on RUSH Lab. Use when someone wants to make, finish, check, or publish ("submit") a NanoAgent plugin, or when RUSH Lab refuses a plugin they submitted.
 ---
 
 # Build and publish a NanoAgent plugin
@@ -10,16 +10,10 @@ tasks built from those tools, a deterministic verifier, and a product page.
 RUSH Lab lists published plugins. Each member's Mochi Lab desktop app runs
 them on that member's own computer.
 
-The full guide is the course's "NanoAgent Plugins" PDF. The two reference
-plugins are:
-
-- https://github.com/zeyuyang8/mochi-hello-world, the smallest plugin that
-  passes. Start from this one.
-- https://github.com/zeyuyang8/arxiv-source, a full plugin with network
-  access, five tasks and one verifier module per tool.
-
-When unsure how a piece should look, read the matching file in one of them.
-Do not guess.
+The reference plugin is https://github.com/zeyuyang8/arxiv-source, a full
+plugin with network access, five tasks and one verifier module per tool.
+Start from it. When unsure how a piece should look, read the matching file
+in it. Do not guess.
 
 ## Ground rules
 
@@ -56,17 +50,23 @@ Before writing code, settle these with the person:
 
 If any check needs a judgment that code cannot make, redesign the task now.
 
-## 2. Start from the starter
+## 2. Start from the reference plugin
 
 Prerequisites are Git, Python 3.12 or later, and `uv`. Replace `<id>` with
 the plugin's id. It must be kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and not
 already taken on the RUSH Lab marketplace, so pick a distinctive one.
 
 ```bash
-git clone https://github.com/zeyuyang8/mochi-hello-world.git <id>
+git clone https://github.com/zeyuyang8/arxiv-source.git <id>
 cd <id>
 rm -rf .git && git init
+uv sync --extra dev
+uv run pytest
 ```
+
+Its tests pass before you change anything. Then replace its tools, tasks,
+verifier, tests and product page with the person's own, keeping the package
+structure.
 
 Rename the plugin in all of these places together:
 
@@ -92,7 +92,7 @@ The contract holds declarations only:
 
 Use Enums and `bool`s for anything that is a choice. Do not put
 `from __future__ import annotations`, functions, logic, or imports outside
-the starter's in this file.
+the reference plugin's in this file.
 
 ## 4. Write the tools: `src/plugin/`
 
@@ -136,7 +136,7 @@ no other field.
   the task's output.
 
 Each function returns `{valid, score (0 to 1), message, details}`. Use
-`result()` from the starter's `verifier/checks.py`. Each check tests what a
+`result()` from the reference plugin's `verifier/checks.py`. Each check tests what a
 value means, never its shape, because the shape is already checked. Put one
 module per tool, and import sibling modules relatively
 (`from .checks import result`).
@@ -162,7 +162,7 @@ sandbox does, with `build_output(plain_output(...), Class)`.
 - `ui/renderers.js` and `ui/renderers.css`. Outputs are drawn from their
   JSON Schema unless the default export of `renderers.js` draws them. That
   export is an object literal keyed only by task output class names. To use
-  the schema drawing, keep the starter's files as they are. In a renderer:
+  the schema drawing, make `renderers.js` hold only `export default {};` and empty `renderers.css`. In a renderer:
   - Import only by literal relative paths, to the kit or to your own
     `ui/` files.
   - Never name `document`, `window`, `fetch`, `globalThis` or other page,
@@ -181,9 +181,9 @@ sandbox does, with `build_output(plain_output(...), Class)`.
   every task under `## Tools`.
 - `.env` lists the environment variable names the plugin needs, one per
   line, and never their values.
-- `run.sh` keeps the starter's checks first. Add any checks of your own
+- `run.sh` keeps the reference plugin's checks first. Add any checks of your own
   after them.
-- `.gitignore` keeps every entry the starter has.
+- `.gitignore` keeps every entry the reference plugin has.
 
 When everything above is done, set `status: ready`.
 
@@ -247,7 +247,7 @@ Lab, and emails it to the course staff instead.
 | `<id> is one of NanoAgent's own plugins` | Choose a new id. |
 | `Your uploads may hold N MB in all` | Remove one of your other published plugins, or shrink this one. |
 | `uv.lock is out of date with pyproject.toml` | Run `uv lock` and commit the result. |
-| A broken README, LICENSE, `.gitignore` or `run.sh` rule | Restore the starter's version of that part, then add yours after it. |
+| A broken README, LICENSE, `.gitignore` or `run.sh` rule | Restore the reference plugin's version of that part, then add yours after it. |
 | A `decide` field that cannot be filled | Make the field an Enum or bool, or make sure an earlier tool output or the task input holds a value of exactly its type. |
 | A verifier import or call that is not allowed | Replace it with a pure standard-library equivalent, or move the work into a tool. |
 | A `ready` product page that still has placeholder text | Rewrite the tagline, summary, highlights and steps for this plugin. |
