@@ -61,3 +61,19 @@ To decide:
 - Linux sandboxes plugins with `bwrap`, so it is closer, but nobody has tested a bundle on a
   member's machine.
 - Neither bundle is signed.
+
+## Releasing Mochi Lab
+
+Mochi Lab is not released yet. `.github/workflows/helpinghands-desktop.yml` builds it on every
+push to production, or by hand, and keeps the dmg only as a workflow artifact of the private
+repository, which members cannot download. NanoAgent ships in it compiled, not as source
+(`desktop/PLAN.md`), so the bundle can be published.
+
+To decide:
+
+- Where members download it: GitHub Releases in a public repository that holds only the
+  bundles, or a link Mochi serves to signed-in members.
+- Auto-update: `tauri-plugin-updater` needs a public `latest.json` beside the bundles.
+- Signing: the app is ad-hoc signed, so a downloaded copy opens only after right-click → Open.
+- First check before release: open the app against the production Mochi it serves, sign in,
+  see the relay connect, and run a plugin. Only its parts were tested before, not the app.
