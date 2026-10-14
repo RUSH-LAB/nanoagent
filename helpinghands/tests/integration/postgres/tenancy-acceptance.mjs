@@ -222,7 +222,7 @@ try {
     "insert into ai_usage(workspace_id, user_id, kind, cost_usd) values ($1, $2, 'chat', 1.25)", [w1.id, alice.id]);
   // Every run is on the member's own computer, never on the workspace's budget.
   const offline = await json(await request(`/api/workspaces/${w1.id}/ai/complete`, {method: 'POST', cookie: alice.cookie, body: {prompt: 'hello'}}), 503);
-  check('a member without Mochi Lab connected is told to open it', /Mochi Lab on your computer is not connected/.test(offline.error));
+  check('a member without RUSH Lab connected is told to install or start it', /RUSH Lab on your computer is not connected/.test(offline.error));
   const usage = (await json(await request(`/api/workspaces/${w1.id}/usage`, {cookie: dave.cookie}), 200)).usage;
   check('members see what their workspace has used against its limits',
     usage.ai.today === 1.25 && usage.limits.aiMonthlyUsd === 20 && usage.members === 2);
