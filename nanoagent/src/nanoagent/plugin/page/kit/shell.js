@@ -82,28 +82,22 @@ function withTimeout(promise, ms, message) {
 /**
  * The tabs over every plugin's page: its Dashboard, and its Session, the session open in it or,
  * with none open, a new one.
- * @returns {{element: HTMLElement, select: (tab: "dashboard"|"session") => void, setSession: (title: string) => void, onPick: (tab: string) => void}}
+ * @returns {{element: HTMLElement, select: (tab: "dashboard"|"session") => void, onPick: (tab: string) => void}}
  */
 function frameTabs() {
   const tabs = {};
   const bar = h("nav", { class: "kit-tabs", role: "tablist", "aria-label": "Plugin" });
-  for (const id of ["dashboard", "session"]) {
-    tabs[id] = h("button", { type: "button", class: "kit-tab", role: "tab", "aria-selected": "false", onclick: () => frame.onPick(id) });
+  for (const [id, label] of [["dashboard", "Dashboard"], ["session", "Session"]]) {
+    tabs[id] = h("button", { type: "button", class: "kit-tab", role: "tab", "aria-selected": "false", text: label, onclick: () => frame.onPick(id) });
     bar.append(tabs[id]);
   }
-  tabs.dashboard.textContent = "Dashboard";
   const frame = {
     element: bar,
     onPick: () => {},
     select(tab) {
       for (const [id, button] of Object.entries(tabs)) button.setAttribute("aria-selected", String(id === tab));
     },
-    /** The open session's title on its tab, or "Session" for one with none (or none open). */
-    setSession(title) {
-      tabs.session.textContent = title || "Session";
-    },
   };
-  frame.setSession("");
   return frame;
 }
 
@@ -161,13 +155,6 @@ export async function mountApp(layout) {
   async function openSession(opened) {
     const session = enterSession(opened);
     open = true;
-    const save = session.save;
-    // A title the page gives its session shows on the tab too.
-    session.save = (state, options) => {
-      if (options?.title !== undefined) tabs.setSession(options.title);
-      return save(state, options);
-    };
-    tabs.setSession(session.title);
     page.replaceChildren(h("div", { class: "loading", role: "status" }, h("span", { class: "run-spinner", "aria-hidden": "true" }), "Opening…"));
     show("session");
     try {

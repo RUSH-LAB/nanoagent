@@ -127,7 +127,7 @@ The kit's frame (`mountApp`, `kit/shell.js`) has two tabs, and the plugin design
   `request` in `kit/bridge.js`), so opening an app and leaving it keeps nothing. `session` holds
   `id` (`null` until a new session starts), `title`, `state` (what the page last saved, `null` in a new session) and `chat` (the
   conversation so far), and `session.save(state, {title})` keeps the state, and a title,
-  which the tab shows too. A page restores itself from `session.state`, so a person who
+  which names the session on the Dashboard. A page restores itself from `session.state`, so a person who
   leaves comes back to where they were.
 
 The template's `app.js` exports `chatLayout`: the whole page is a chat over `prompt`, with the
