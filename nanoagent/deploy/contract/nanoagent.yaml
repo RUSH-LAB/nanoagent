@@ -41,6 +41,7 @@ packages:
 workspaces: MISSING
 # Beside the workspaces, so a checker that names only those runs any version of this file.
 installs: ${workspaces}-installs
+uv_cache: ${workspaces}-uv-cache
 sandbox: none
 
 host: 127.0.0.1
