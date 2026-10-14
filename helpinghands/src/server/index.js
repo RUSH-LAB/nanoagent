@@ -43,7 +43,7 @@ const {createAgentSync} = require('./fs/agent-sync');
 const {createWorkspaceApps} = require('./workspace-apps');
 const {createAppRuns} = require('./app-runs');
 const {createRunners} = require('./runner');
-const {createOpenRouterKeys, CREDIT} = require('./openrouter-keys');
+const {createOpenRouterKeys, CREDIT, TOTAL} = require('./openrouter-keys');
 // The per-workspace data layer. See server/store/index.js: the only way a route
 // module is allowed to reach the thirteen features' data, because it is the
 // only way that applies the organization and the owner without being asked to.
@@ -514,6 +514,8 @@ const ctx = {
   // The NanoAgent a member's runs go to: their own computer's (server/runner.js).
   aiFor: runners.aiFor,
   runners,
+  // The OpenRouter keys Mochi gives members' computers, or null (openrouter-keys.js).
+  openrouterKeys,
   // What a member chose in Settings → AI (ai-settings.js).
   aiSettings: async userId => aiSettings.stored(userId ? (await preferences.get(userId)).ai : null),
   aiMeter,
@@ -899,7 +901,7 @@ postgresDatabase.ready.then(() => ensureRootUser(auth)).then(root => server.list
   const catalog = ai.describe();
   console.log(catalog.available ? '  Plugin catalog: NanoAgent' : `  Plugin catalog: unavailable. ${catalog.reason}`);
   console.log(openrouterKeys
-    ? `  OpenRouter keys: each member's computer is given one, $${CREDIT} of credit`
+    ? `  OpenRouter keys: each member's computer is given one, $${CREDIT} each and $${TOTAL} for everyone`
     : '  OpenRouter keys: none given (needs OPENROUTER_MANAGEMENT_KEY and PostgreSQL)');
 
   cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));

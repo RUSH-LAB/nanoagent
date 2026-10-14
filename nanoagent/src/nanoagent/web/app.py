@@ -69,15 +69,26 @@ OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
 
 
 def openrouter_key_usage(key: str) -> dict[str, Any]:
-    """What OpenRouter says the key has spent and may spend, in dollars: ``{usage, limit}``,
-    ``limit`` None for a key without one."""
+    """What OpenRouter says the key has spent and may spend, in dollars: its ``usage``, ``limit``
+    and ``limit_remaining`` (None for a key without a limit), the ``workspace_id`` it spends in,
+    and that workspace's lifetime budget, ``workspace_budget`` ``{spend, limit}`` or None."""
     request = urllib.request.Request(OPENROUTER_KEY_URL, headers={"Authorization": f"Bearer {key}"})
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
             data = json.load(response)["data"]
     except urllib.error.HTTPError as error:
         raise RuntimeError(f"OpenRouter answered {error.code}: {error.read()[:300].decode(errors='replace')}") from error
-    return {"usage": data["usage"], "limit": data["limit"]}
+    workspace = next(
+        (budget for budget in data.get("budgets", []) if budget["scope"] == "workspace" and budget["reset_interval"] is None),
+        None,
+    )
+    return {
+        "usage": data["usage"],
+        "limit": data["limit"],
+        "limit_remaining": data["limit_remaining"],
+        "workspace_id": data.get("workspace_id"),
+        "workspace_budget": workspace and {"spend": workspace["spend_usd"], "limit": workspace["limit_usd"]},
+    }
 
 
 # How a host serves a plugin's front end: its own files only, and no network of its own, so the

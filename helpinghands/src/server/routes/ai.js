@@ -3,6 +3,7 @@ const fallbackProfiles = require('../../ai-profiles.json');
 const {budgetRefusal} = require('../ai-metering');
 const {completionPayload} = require('../ai');
 const aiSettings = require('../ai-settings');
+const {CREDIT} = require('../openrouter-keys');
 // Route module organized from server/index.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
 // dispatcher in server/index.js detects a sent response via res.writableEnded.
@@ -458,6 +459,8 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
   }
 
   // ── What the OpenRouter key on the member's computer has spent, as OpenRouter says ──
+  // `you`: the member's spend, of all Mochi gave them when the key is Mochi's (its workspace),
+  // else the key's own; `everyone`: its workspace's lifetime budget, every key in it together.
   if (req.method === 'GET' && pathname === '/api/runner/credit') {
     const gateway = ctx.runners.computer(req.auth?.userId);
     if (!gateway) return json(res, 200, {credit: null});
@@ -465,7 +468,18 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     // 404: the computer holds no OpenRouter key.
     if (usage.status === 404) return json(res, 200, {credit: null});
     if (usage.error) return json(res, usage.status, {error: usage.error});
-    return json(res, 200, {credit: {used: usage.value.usage, total: usage.value.limit}});
+    const key = usage.value;
+    let mochis;
+    try {
+      mochis = Boolean(ctx.openrouterKeys) && key.workspace_id === await ctx.openrouterKeys.workspaceId();
+    } catch (error) {
+      return json(res, 502, {error: error.message});
+    }
+    const budget = key.workspace_budget;
+    return json(res, 200, {credit: {
+      you: mochis ? {used: CREDIT - key.limit_remaining, total: CREDIT} : {used: key.usage, total: key.limit},
+      everyone: budget ? {used: budget.spend, total: budget.limit} : null,
+    }});
   }
 
   // ── The API keys on the member's computer: passed on to it, never kept or shown here ──

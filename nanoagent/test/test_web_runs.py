@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import sys
 from pathlib import Path
@@ -170,6 +171,35 @@ def test_says_what_its_openrouter_key_has_spent_as_openrouter_says(tmp_path: Pat
 
     monkeypatch.setattr(web_app, "openrouter_key_usage", refused)
     assert client.get("/v1/keys/openrouter/usage").status_code == 502
+
+
+def test_reads_a_keys_spend_and_its_workspaces_lifetime_budget_from_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
+    budgets = [
+        {"scope": "workspace", "reset_interval": "monthly", "spend_usd": 1, "limit_usd": 3},
+        {"scope": "workspace", "reset_interval": None, "spend_usd": 6, "limit_usd": 10},
+        {"scope": "key_limit", "reset_interval": None, "spend_usd": 0.5, "limit_usd": 2},
+    ]
+    answer = {"data": {"usage": 0.5, "limit": 2, "limit_remaining": 1.5, "workspace_id": "ws1", "budgets": budgets}}
+    seen = []
+
+    class Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            self.close()
+
+    def urlopen(request, timeout: float):
+        seen.append(request.get_header("Authorization"))
+        return Response(json.dumps(answer).encode())
+
+    monkeypatch.setattr(web_app.urllib.request, "urlopen", urlopen)
+    assert web_app.openrouter_key_usage("sk-or-1") == {
+        "usage": 0.5, "limit": 2, "limit_remaining": 1.5, "workspace_id": "ws1", "workspace_budget": {"spend": 6, "limit": 10},
+    }
+    assert seen == ["Bearer sk-or-1"]
+    answer["data"]["budgets"] = budgets[2:]
+    assert web_app.openrouter_key_usage("sk-or-1")["workspace_budget"] is None
 
 
 def test_a_model_whose_key_is_not_set_says_which_key_it_needs(monkeypatch: pytest.MonkeyPatch) -> None:

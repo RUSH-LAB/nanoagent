@@ -682,10 +682,16 @@ describe('/api/ai/settings and /api/ai/models', () => {
     const computer = usage => { ctx.runners = {computer: () => ({openrouterUsage: async () => usage})}; };
     ctx.runners = {computer: () => null};
     assert.deepEqual((await get()).payload, {credit: null});
-    computer({value: {usage: 1.25, limit: 5}});
-    assert.deepEqual((await get()).payload, {credit: {used: 1.25, total: 5}});
-    computer({value: {usage: 3, limit: null}});
-    assert.deepEqual((await get()).payload, {credit: {used: 3, total: null}});
+    // The member's own key: what it has spent, of its own limit or none.
+    const own = {usage: 0.75, limit: 10, limit_remaining: 9.25, workspace_id: 'theirs', workspace_budget: null};
+    computer({value: own});
+    assert.deepEqual((await get()).payload, {credit: {you: {used: 0.75, total: 10}, everyone: null}});
+    computer({value: {...own, limit: null, limit_remaining: null}});
+    assert.deepEqual((await get()).payload.credit.you, {used: 0.75, total: null});
+    // Mochi's: the member's spend of all Mochi gave them, beside everyone's of the workspace budget.
+    ctx.openrouterKeys = {workspaceId: async () => 'ws1'};
+    computer({value: {usage: 0.5, limit: 2, limit_remaining: 1.5, workspace_id: 'ws1', workspace_budget: {spend: 6, limit: 10}}});
+    assert.deepEqual((await get()).payload, {credit: {you: {used: 3.5, total: 5}, everyone: {used: 6, total: 10}}});
     computer({error: 'no OpenRouter key is set', status: 404});
     assert.deepEqual((await get()).payload, {credit: null});
     computer({error: 'OpenRouter answered 401', status: 502});

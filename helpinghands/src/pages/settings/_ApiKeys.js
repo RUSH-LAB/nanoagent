@@ -97,30 +97,35 @@ export default function ApiKeys({computer, onSaved}) {
           <input id="ai-openrouter-key" className={`${styles.input} ${ai.keyInput}`} placeholder="Paste your key" disabled />
         )}
       </div>
-      {credit && !editing && <Credit {...credit} />}
+      {credit && !editing && (
+        <div className={ai.credit}>
+          <Spend label={credit.everyone ? 'You' : 'This key'} {...credit.you} />
+          {credit.everyone && <Spend label="Everyone" {...credit.everyone} />}
+        </div>
+      )}
     </form>
   );
 }
 
 const money = value => `$${value.toFixed(2)}`;
 
-/** What the key has spent: a bar against its limit, or the amount alone for a key without one. */
-function Credit({used, total}) {
-  if (total == null) return <div className={ai.credit}>{`${money(used)} used on this key.`}</div>;
+/** One spend: a bar against its limit, or the amount alone without one. */
+function Spend({label, used, total}) {
+  if (total == null) return <span>{`${label}: ${money(used)} used`}</span>;
   const spent = Math.min(used, total);
   return (
-    <div className={ai.credit}>
+    <>
       <div
         className={ai.creditBar}
         role="meter"
-        aria-label="OpenRouter key credit used"
+        aria-label={`${label}: OpenRouter credit used`}
         aria-valuemin={0}
         aria-valuemax={total}
         aria-valuenow={spent}
       >
         <div className={ai.creditUsed} style={{width: total > 0 ? `${(spent / total) * 100}%` : '100%'}} />
       </div>
-      <span>{`${money(spent)} of ${money(total)} used on this key.`}</span>
-    </div>
+      <span>{`${label}: ${money(spent)} of ${money(total)} used`}</span>
+    </>
   );
 }
