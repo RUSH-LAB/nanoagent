@@ -16,7 +16,7 @@ from contract import (
     Nutrient,
     SolveInput,
     SolveOutput,
-    Suggestion,
+    SuggestionOutput,
 )
 from plugin.meals import NUTRIENTS, check_likes, liked, load_recipes, matches, per_serving, rounded, score
 
@@ -130,7 +130,7 @@ def _dishes(servings: dict[str, int], found: dict[str, CookbookRecipe], given: S
     ]
 
 
-def solve(given: SolveInput) -> SolveOutput:
+def solve_meal(given: SolveInput) -> SolveOutput:
     """The meal with the highest preference score (see optimize), and the lowest score a meal meeting
     every constraint can have, so a meal's score can be put on that range."""
     _check_bounds(given.constraints)
@@ -161,7 +161,7 @@ def solve_day(given: DayInput) -> DayOutput:
     every = [dish for meal in dishes.values() for dish in meal]
     return DayOutput(
         meals={
-            meal: Suggestion(dishes=meal_dishes, totals=rounded(_totals(meal_dishes, nutrition)))
+            meal: SuggestionOutput(dishes=meal_dishes, totals=rounded(_totals(meal_dishes, nutrition)))
             for meal, meal_dishes in dishes.items()
         },
         totals=rounded(_totals(every, nutrition)),

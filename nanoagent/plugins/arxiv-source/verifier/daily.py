@@ -1,4 +1,4 @@
-"""list_daily_papers (the daily-digest reference) and the daily-digest task's outcome check."""
+"""list_daily_papers (the write-daily-digest reference) and the write-daily-digest task's outcome check."""
 
 import re
 from pathlib import Path
@@ -60,7 +60,7 @@ def _entry_problems(entry, record, folder):
 
 
 def verify_task(arguments, output, reference, workspace):
-    """Approve the digest (a contract Digest) only when every paper the pinned arXiv listing shows
+    """Approve the digest (a contract DigestOutput) only when every paper the pinned arXiv listing shows
     for the monitored people on the date is an exact entry and has its source saved under docs/raw/."""
     date = arguments.date
     if output.date != date:

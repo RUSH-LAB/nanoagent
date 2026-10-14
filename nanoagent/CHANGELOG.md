@@ -6,7 +6,8 @@ names the releases it runs on; a new minor version is one a plugin made for the 
 ## 0.5.0
 
 A task may declare `runner: decide`: a model only decides, and NanoAgent calls the task's tools
-and builds its output. A plugin declares `nanoagent: ~=0.5.0`, and needs nothing else.
+and builds its output. A plugin declares `nanoagent: ~=0.5.0`, and follows the stricter rules
+listed under "Every plugin" below.
 
 - A decide task fills every tool argument and every output field by choice or by copy: an Enum
   or bool field is chosen, and any other field is copied from a value of exactly its type in the
@@ -24,6 +25,25 @@ and builds its output. A plugin declares `nanoagent: ~=0.5.0`, and needs nothing
   requests, each answered by one `answer` call.
 - `nanoagent plugin agent` runs a model on OpenRouter too: its config is a
   `PluginOpenRouterAgentConfig`, whose `llm` is a `nanoagent.llm.openrouter.OpenRouterConfig`.
+
+Every plugin:
+
+- `runtime.command` is `[uv, run, --frozen, python, -m, plugin]`; `nanoagent` is one minor
+  version, `~=X.Y.0`; `version` is a PEP 440 version, the same as `pyproject.toml`'s.
+- Tools are named in snake_case and tasks in kebab-case; every input class's name ends in
+  `Input` and every output class's in `Output`.
+- `pyproject.toml` keeps the template's `requires-python`, dependencies and `slimconfig` source,
+  and bounds every other dependency both ways (`>=X,<Y`).
+- `.env` lines are a `NAME` alone, with no `=`; `ui/` holds no `.html`.
+- `README.md`'s `## Tools` names every task as well as every tool, and a `ready` plugin's
+  `product.yaml` holds none of the template's placeholder text.
+- `renderers.js`'s default export is an object literal keyed only by task output classes,
+  checked when the plugin loads. Its scripts name no page, host or network global
+  (`UI_GLOBALS`) and reach for none of `UI_PROPERTIES` (`.ownerDocument`, `.parentNode`,
+  `.host`, ...): the kit draws each renderer's output in a closed shadow root of its own, the
+  only place `renderers.css` applies.
+- The Session page has two columns: the chat, with a chip for each task call, and the picked
+  task's result beside it.
 
 ## 0.4.0
 

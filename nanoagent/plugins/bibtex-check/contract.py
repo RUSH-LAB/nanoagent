@@ -34,12 +34,12 @@ class Field(Enum):
 
 @dataclass
 class Record(Output):
-    entry_type: str
-    title: str
-    authors: list[str]
-    year: str
+    entry_type: Annotated[str, "The entry type, e.g. article or inproceedings"]
+    title: Annotated[str, "The title, normalized"]
+    authors: Annotated[list[str], "The authors' names, normalized, in order"]
+    year: Annotated[str, "The year, normalized"]
     venue: Annotated[str | None, "The journal or booktitle, or null"]
-    doi: str | None
+    doi: Annotated[str | None, "The DOI, or null"]
 
 
 @dataclass
@@ -57,8 +57,8 @@ class ParseInput(Output):
 
 @dataclass
 class ParseOutput(Output):
-    reference: list[Entry]
-    raw: list[Entry]
+    reference: Annotated[list[Entry], "The reference text's entries, in order"]
+    raw: Annotated[list[Entry], "The raw text's entries, in order"]
 
 
 @dataclass
@@ -68,7 +68,7 @@ class ReadInput(Output):
 
 @dataclass
 class ReadOutput(Output):
-    entries: list[Entry]
+    entries: Annotated[list[Entry], "The text's entries, in order"]
 
 
 @dataclass

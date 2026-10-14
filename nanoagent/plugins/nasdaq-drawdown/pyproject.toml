@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nanoagent-nasdaq-drawdown"
-version = "0.1.0"
+version = "0.3.0"
 description = "The Nasdaq-100 constituents that fell at least 5% over a week, from Nasdaq's API"
 requires-python = ">=3.12"
 dependencies = ["mcp>=1.27,<2", "slimconfig"]

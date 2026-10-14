@@ -8,16 +8,16 @@ from slimconfig import Output
 
 
 class Tool(Enum):
-    SOLVE = "solve"
+    SOLVE_MEAL = "solve_meal"
     LIST_RECIPES = "list_recipes"
-    NUTRITION = "nutrition"
+    GET_NUTRITION = "get_nutrition"
     SOLVE_DAY = "solve_day"
 
 
 class Task(Enum):
+    RECOMMEND_MEAL = "recommend-meal"
     SUGGEST_MEAL = "suggest-meal"
     PLAN_DAY = "plan-day"
-    RECOMMEND_MEAL = "recommend-meal"
 
 
 class Meal(Enum):
@@ -151,7 +151,7 @@ class SolveOutput(Output):
 
 
 @dataclass
-class Suggestion(Output):
+class SuggestionOutput(Output):
     dishes: Annotated[list[Dish], "The meal's dishes, each recipe once"]
     totals: Annotated[Nutrition, "The meal's totals: servings x per serving, summed over its dishes"]
 
@@ -200,26 +200,26 @@ class DayInput(Output):
 
 @dataclass
 class DayOutput(Output):
-    meals: Annotated[dict[Meal, Suggestion], "Each meal of the day the eater likes best"]
+    meals: Annotated[dict[Meal, SuggestionOutput], "Each meal of the day the eater likes best"]
     totals: Annotated[Nutrition, "The day's totals"]
     score: Annotated[float, "The day's preference score, its meals' summed: the most any day can have"]
     lowest_score: Annotated[float, "The least preference score any day that meets every constraint can have"]
 
 
 @dataclass
-class DayPlan(Output):
-    meals: Annotated[dict[Meal, Suggestion], "Each meal of the day and its dishes, each recipe once per meal"]
+class DayPlanOutput(Output):
+    meals: Annotated[dict[Meal, SuggestionOutput], "Each meal of the day and its dishes, each recipe once per meal"]
     totals: Annotated[Nutrition, "The day's totals, its meals' summed"]
 
 
 TOOLS = {
-    Tool.SOLVE: (SolveInput, SolveOutput),
+    Tool.SOLVE_MEAL: (SolveInput, SolveOutput),
     Tool.LIST_RECIPES: (RecipesInput, RecipesOutput),
-    Tool.NUTRITION: (NutritionInput, NutritionOutput),
+    Tool.GET_NUTRITION: (NutritionInput, NutritionOutput),
     Tool.SOLVE_DAY: (DayInput, DayOutput),
 }
 TASKS = {
-    Task.SUGGEST_MEAL: (SolveInput, Suggestion),
-    Task.PLAN_DAY: (DayInput, DayPlan),
     Task.RECOMMEND_MEAL: (SolveInput, SolveOutput),
+    Task.SUGGEST_MEAL: (SolveInput, SuggestionOutput),
+    Task.PLAN_DAY: (DayInput, DayPlanOutput),
 }

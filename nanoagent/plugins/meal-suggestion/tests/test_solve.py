@@ -3,34 +3,12 @@ from __future__ import annotations
 import itertools
 
 import pytest
-from slimconfig import build_output, plain_output
+from conftest import DINNER, LIKES, solved
+from slimconfig import build_output
 
 from contract import Dish, SolveInput
 from plugin.meals import NUTRIENTS, load_recipes, matches, per_serving, score
-from plugin.solve import solve
-
-LIKES = [
-    {"name": "cheese", "words": ["cheese"], "ignore": [], "weight": 2},
-    {"name": "beans", "words": ["bean", "chickpea"], "ignore": [], "weight": 1},
-    {"name": "spinach", "words": ["spinach"], "ignore": [], "weight": -1},
-]
-# A solve input as JSON, the way a task's arguments arrive.
-DINNER = {
-    "meal": "dinner",
-    "constraints": {
-        "protein": {"min": 30, "max": None},
-        "kcal": {"min": None, "max": 1000},
-        "fiber": {"min": 10, "max": None},
-    },
-    "restrictions": {"require": [], "exclude": ["Meat", "Poultry"]},
-    "likes": LIKES,
-    "max_servings": 2,
-}
-
-
-def solved(arguments: dict = DINNER) -> dict:
-    """solve's output for ``arguments``, as JSON."""
-    return plain_output(solve(build_output(arguments, SolveInput)))
+from plugin.solve import solve_meal
 
 
 def exhaustive(arguments: dict) -> tuple[float, float]:
@@ -53,7 +31,7 @@ def exhaustive(arguments: dict) -> tuple[float, float]:
 def test_pins_the_best_liked_dinner_and_the_worst() -> None:
     # Cheese (2) and beans (1) are the most a dinner within the limits can have: the enchilada stack
     # with a bean dish. Several such dinners tie; any is the best.
-    found = solve(build_output(DINNER, SolveInput))
+    found = solve_meal(build_output(DINNER, SolveInput))
     assert (found.score, found.lowest_score) == (3.0, 1.0)
     assert "Cheese Enchilada Stack" in [dish.recipe for dish in found.dishes]
     assert all(isinstance(dish, Dish) and 1 <= dish.servings <= 2 for dish in found.dishes)

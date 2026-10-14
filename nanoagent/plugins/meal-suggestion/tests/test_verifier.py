@@ -1,34 +1,16 @@
 from __future__ import annotations
 
 import pytest
+from conftest import DINNER, dish, solved, suggestion
 from slimconfig import build_output, plain_output
-from test_solve import DINNER, solved
 
 import plugin.meals
 import verifier
 import verifier.meals
-from contract import TASKS, TOOLS, SolveInput, SolveOutput, Suggestion, Task, Tool
-from plugin.meals import list_recipes, load_recipes, nutrition
+from contract import TASKS, TOOLS, SolveInput, SolveOutput, SuggestionOutput, Task, Tool
+from plugin.meals import get_nutrition, list_recipes, load_recipes
 
 WORKSPACE = "."
-
-
-def dish(recipe: str, servings: int = 1, liked: list[str] = ()) -> dict:
-    url = load_recipes()[recipe].url
-    return {"recipe": recipe, "url": url, "servings": servings, "liked": list(liked)}
-
-
-def suggestion(dishes: list[dict]) -> dict:
-    """A suggestion of ``dishes`` with their true totals."""
-    recipes = load_recipes()
-    totals = {
-        nutrient: round(
-            sum(d["servings"] * plugin.meals.per_serving(recipes[d["recipe"]])[nutrient] for d in dishes), 3
-        )
-        for nutrient in plugin.meals.NUTRIENTS
-    }
-    return {"dishes": dishes, "totals": totals}
-
 
 OPTIMUM = [
     dish("Baja Black Beans, Corn and Rice", liked=["beans"]),
@@ -50,7 +32,7 @@ def suggest(output: dict, arguments: dict = DINNER, reference: dict | None = Non
     return verifier.verify_task(
         "suggest-meal",
         build_output(arguments, SolveInput),
-        build_output(output, Suggestion),
+        build_output(output, SuggestionOutput),
         build_output(reference or solved(arguments), SolveOutput),
         WORKSPACE,
     )
@@ -141,24 +123,26 @@ def test_checks_the_recommendation() -> None:
         "recommend-meal", build_output(DINNER, SolveInput), build_output(recommended, SolveOutput), None, WORKSPACE
     )
     assert verdict["valid"] is True and verdict["score"] == 1.0
-    assert TASKS[Task.RECOMMEND_MEAL] == TOOLS[Tool.SOLVE]
+    assert TASKS[Task.RECOMMEND_MEAL] == TOOLS[Tool.SOLVE_MEAL]
 
 
 def test_checks_the_solver_output_and_input() -> None:
     reference = solved()
-    assert verify_output("solve", DINNER, reference)["valid"] is True
-    assert verify_output("solve", DINNER, reference | {"score": 4.0})["valid"] is False
+    assert verify_output("solve_meal", DINNER, reference)["valid"] is True
+    assert verify_output("solve_meal", DINNER, reference | {"score": 4.0})["valid"] is False
     infeasible = suggestion([dish("Chickpeas With Spinach (Greek)", 1, ["beans", "spinach"])]) | {
         "score": 0.0,
         "lowest_score": 0.0,
     }
-    assert verify_output("solve", DINNER, infeasible)["message"] == "the meal breaks a constraint or the restrictions"
-    assert verify_output("solve", DINNER, reference | {"lowest_score": 3.5})["valid"] is False
-    assert verify_input("solve", DINNER | {"constraints": {"kcal": {"min": 900, "max": 800}}})["valid"] is False
-    assert verify_input("solve", DINNER | {"constraints": {"kcal": {"min": None, "max": None}}})["valid"] is False
-    assert verify_input("solve", DINNER | {"max_servings": 11})["valid"] is False
+    assert (
+        verify_output("solve_meal", DINNER, infeasible)["message"] == "the meal breaks a constraint or the restrictions"
+    )
+    assert verify_output("solve_meal", DINNER, reference | {"lowest_score": 3.5})["valid"] is False
+    assert verify_input("solve_meal", DINNER | {"constraints": {"kcal": {"min": 900, "max": 800}}})["valid"] is False
+    assert verify_input("solve_meal", DINNER | {"constraints": {"kcal": {"min": None, "max": None}}})["valid"] is False
+    assert verify_input("solve_meal", DINNER | {"max_servings": 11})["valid"] is False
     likes = [{"name": "x", "words": [], "ignore": [], "weight": 1}]
-    assert verify_input("solve", DINNER | {"likes": likes})["valid"] is False
+    assert verify_input("solve_meal", DINNER | {"likes": likes})["valid"] is False
 
 
 def test_checks_the_agent_tools_outputs() -> None:
@@ -168,7 +152,7 @@ def test_checks_the_agent_tools_outputs() -> None:
             {"meal": "dinner", "restrictions": DINNER["restrictions"], "likes": DINNER["likes"]},
             list_recipes,
         ),
-        ("nutrition", {"recipe": "Chickpea Curry (Garbanzos)"}, nutrition),
+        ("get_nutrition", {"recipe": "Chickpea Curry (Garbanzos)"}, get_nutrition),
     ]
     outputs = {}
     for tool, value, function in calls:
@@ -181,6 +165,6 @@ def test_checks_the_agent_tools_outputs() -> None:
         changed = {"recipes": [first | tampered, *listed["recipes"][1:]]}
         assert verify_output("list_recipes", calls[0][1], changed)["valid"] is False
     assert verify_output("list_recipes", calls[0][1], {"recipes": listed["recipes"][:-1]})["valid"] is False
-    soup = outputs["nutrition"]
+    soup = outputs["get_nutrition"]
     soup["per_serving"]["protein"] += 1
-    assert verify_output("nutrition", calls[1][1], soup)["valid"] is False
+    assert verify_output("get_nutrition", calls[1][1], soup)["valid"] is False

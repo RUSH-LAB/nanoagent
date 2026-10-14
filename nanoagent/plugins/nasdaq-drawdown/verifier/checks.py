@@ -17,10 +17,8 @@ def result(valid, message, *, score=None, **details):
 
 def tickers_problem(tickers, *, most=None):
     """What is wrong with a list of ticker symbols (a tool's input, or the task output's fallers), or None."""
-    if not isinstance(tickers, list) or not all(
-        isinstance(ticker, str) and TICKER.fullmatch(ticker) for ticker in tickers
-    ):
-        return "tickers must be a list of ticker symbols"
+    if not all(TICKER.fullmatch(ticker) for ticker in tickers):
+        return "tickers must be ticker symbols"
     if len(set(tickers)) != len(tickers):
         return "tickers must be distinct"
     if most is not None and not 1 <= len(tickers) <= most:

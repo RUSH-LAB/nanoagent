@@ -108,14 +108,14 @@ export function resultCard(task, { output, verdict }, renderer, send) {
 }
 
 /**
- * `node`, a renderer's output, in a shadow root of its own with the kit's styles and the plugin's
+ * `node`, a renderer's output, in a closed shadow root of its own with the kit's styles and the plugin's
  * renderers.css: the plugin's styles reach only its renderers' output, never the page around it.
  * @param {Node} node
  * @returns {HTMLElement}
  */
 function scoped(node) {
   const host = h("div", { class: "renderer" });
-  host.attachShadow({ mode: "open" }).append(h("link", { rel: "stylesheet", href: "kit/kit.css" }), h("link", { rel: "stylesheet", href: "renderers.css" }), node);
+  host.attachShadow({ mode: "closed" }).append(h("link", { rel: "stylesheet", href: "kit/kit.css" }), h("link", { rel: "stylesheet", href: "renderers.css" }), node);
   return host;
 }
 

@@ -3,12 +3,11 @@ from __future__ import annotations
 import itertools
 
 import pytest
+from conftest import LIKES, dish, suggestion
 from slimconfig import build_output, plain_output
-from test_solve import LIKES
-from test_verifier import dish, suggestion
 
 import verifier
-from contract import DayInput, DayOutput, DayPlan
+from contract import DayInput, DayOutput, DayPlanOutput
 from plugin.meals import NUTRIENTS, load_recipes, matches, per_serving, score
 from plugin.solve import solve_day
 
@@ -115,7 +114,11 @@ def check_task(meals: dict) -> dict:
         "totals": suggestion(every)["totals"],
     }
     return verifier.verify_task(
-        "plan-day", build_output(DAY, DayInput), build_output(plan, DayPlan), build_output(planned(), DayOutput), "."
+        "plan-day",
+        build_output(DAY, DayInput),
+        build_output(plan, DayPlanOutput),
+        build_output(planned(), DayOutput),
+        ".",
     )
 
 

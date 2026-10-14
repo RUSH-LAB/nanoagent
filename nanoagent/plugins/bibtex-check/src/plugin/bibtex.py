@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 import bibtexparser
 from bibtexparser import model
@@ -41,7 +40,7 @@ def parse_text(text: str, name: str) -> list[Entry]:
     return entries
 
 
-def parse_bibtex(given: ParseInput, workspace: Path) -> ParseOutput:
+def parse_bibtex(given: ParseInput) -> ParseOutput:
     """Both texts' entries in the registered schema: the check-bibtex task's ground truth. Every
     reference entry must parse; a raw entry that does not is kept, with no record."""
     references = parse_text(given.reference, "the reference BibTeX")
@@ -51,6 +50,6 @@ def parse_bibtex(given: ParseInput, workspace: Path) -> ParseOutput:
     return ParseOutput(reference=references, raw=parse_text(given.raw, "the raw BibTeX"))
 
 
-def read_bibtex(given: ReadInput, workspace: Path) -> ReadOutput:
+def read_bibtex(given: ReadInput) -> ReadOutput:
     """One text's entries in the registered schema."""
     return ReadOutput(entries=parse_text(given.bibtex, "the BibTeX"))

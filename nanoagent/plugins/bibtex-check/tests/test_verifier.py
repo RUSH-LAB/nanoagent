@@ -48,8 +48,8 @@ EXPECTED = [
 
 
 @pytest.fixture
-def reference(tmp_path: Path) -> dict:
-    return plain_output(parse_bibtex(build_output(ARGUMENTS, TOOLS[Tool.PARSE_BIBTEX][0]), tmp_path))
+def reference() -> dict:
+    return plain_output(parse_bibtex(build_output(ARGUMENTS, TOOLS[Tool.PARSE_BIBTEX][0])))
 
 
 # The verifier gets contract instances, as NanoAgent's sandbox builds them from JSON.
@@ -117,7 +117,7 @@ def test_scores_the_right_verdicts(tmp_path: Path, reference: dict) -> None:
 def test_checks_the_tools_outputs(tmp_path: Path, reference: dict) -> None:
     assert verify_output("parse_bibtex", ARGUMENTS, reference, tmp_path)["valid"] is True
     read = {"bibtex": ARGUMENTS["raw"]}
-    output = plain_output(read_bibtex(build_output(read, TOOLS[Tool.READ_BIBTEX][0]), tmp_path))
+    output = plain_output(read_bibtex(build_output(read, TOOLS[Tool.READ_BIBTEX][0])))
     assert verify_output("read_bibtex", read, output, tmp_path)["valid"] is True
     unnormalized = json.loads(json.dumps(reference))
     unnormalized["raw"][0]["record"]["title"] = "{Attention} Is All You Need"

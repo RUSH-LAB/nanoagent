@@ -1,6 +1,6 @@
-// How Meal Suggestion's page draws its meals: each dish as a recipe card, its Food.com link, its
-// servings and the likes (or dislikes) it matches, over the meal's totals.
-
+// How this plugin's page draws its tasks' outputs: each meal's dishes as recipe cards, with their
+// Food.com links, servings and the likes (or dislikes) they match, over the meal's totals, and a
+// day as its meals over the day's totals.
 import { h, plural, statusPill } from "./kit/components.js";
 
 // contract.Nutrition's fields, as the totals line names them.
@@ -41,8 +41,8 @@ const meal = (value) => h("div", { class: "stack" }, dishes(value), totalsLine("
 export default {
   SolveOutput: (value) =>
     h("div", { class: "stack" }, meal(value), h("p", { class: "muted small-text", text: `Preference score ${value.score}, the best within your targets (the least-liked meal scores ${value.lowest_score})` })),
-  Suggestion: meal,
-  DayPlan: (value) =>
+  SuggestionOutput: meal,
+  DayPlanOutput: (value) =>
     h(
       "div",
       { class: "stack" },

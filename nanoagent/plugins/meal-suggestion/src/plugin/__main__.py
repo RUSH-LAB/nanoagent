@@ -11,15 +11,15 @@ from mcp.server.stdio import stdio_server
 from slimconfig import build_output, output_schema, plain_output
 
 from contract import TOOLS, Tool
-from plugin import list_recipes, nutrition, solve, solve_day
+from plugin import get_nutrition, list_recipes, solve_day, solve_meal
 
 server = Server("meal-suggestion")
 # Each tool's implementation: its input -> its output, as contract.TOOLS types them. Every tool reads
 # the plugin's own recipes and writes nothing.
 IMPLEMENTATIONS = {
-    Tool.SOLVE: solve,
+    Tool.SOLVE_MEAL: solve_meal,
     Tool.LIST_RECIPES: list_recipes,
-    Tool.NUTRITION: nutrition,
+    Tool.GET_NUTRITION: get_nutrition,
     Tool.SOLVE_DAY: solve_day,
 }
 

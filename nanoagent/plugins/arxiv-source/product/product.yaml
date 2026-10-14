@@ -9,4 +9,3 @@ steps:
   - "Tell it in your own words which papers you want: a topic, a title, an author or an arXiv ID"
   - "It searches arXiv and shows the papers, with a button to save any one's source"
   - "Ask it to save a paper's LaTeX source, or a digest of a day's new papers by the people you follow"
-  - "Every result is checked against arXiv before you see it"

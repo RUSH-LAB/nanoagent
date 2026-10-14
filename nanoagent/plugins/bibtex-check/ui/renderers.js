@@ -1,5 +1,5 @@
-// How this plugin's page draws check-bibtex's verdicts: a count per label, then a table of the
-// entries with each one's label, its closest reference and what to fix.
+// How this plugin's page draws its tasks' outputs: check-bibtex's CheckOutput as a count per label,
+// then a table of the entries with each one's label, its closest reference and what to fix.
 import { dataTable, h, plural, statusPill } from "./kit/components.js";
 
 const LABELS = {

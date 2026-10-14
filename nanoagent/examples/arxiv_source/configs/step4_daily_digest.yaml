@@ -1,8 +1,8 @@
 _ > nanoagent.cli.plugin.PluginAgentConfig:
 
-# The built-in arXiv source plugin's daily-digest task, worked by an agent.
+# The built-in arXiv source plugin's write-daily-digest task, worked by an agent.
 plugin: plugins/arxiv-source
-task: daily-digest
+task: write-daily-digest
 # The task's input, a contract.DailyInput as JSON.
 arguments: examples/arxiv_source/configs/step4_daily_digest_arguments.json
 inputs: []

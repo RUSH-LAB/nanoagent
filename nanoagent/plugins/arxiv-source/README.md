@@ -15,6 +15,16 @@ environment, input and output checks and lifecycle.
 | `list_daily_papers` | For each person, the papers first submitted on a date (`au:"<name>" AND submittedDate:[…]`); the daily digest's pinned reference | `src/plugin/daily.py` |
 | `save_raw_paper` | Saves one paper's source under `docs/raw/{first_author_name}-{paper_short_name}-{arxiv_id}-{date}` | `src/plugin/daily.py` |
 
+### Tasks
+
+| Task | Does | Runner |
+|---|---|---|
+| `search-papers` | Searches arXiv for papers | `tool`, with `search_papers` |
+| `save-paper-source` | Saves a paper's LaTeX source by its arXiv ID | `tool`, with `download_source` |
+| `save-search-results` | Saves the LaTeX source of a search's best matches | `tool`, with `save_search_results` |
+| `find-and-save-paper` | Finds a described paper and saves its LaTeX source | `agent`, with `search_papers` and `download_source` |
+| `write-daily-digest` | Writes a digest of people's new papers on a date | `agent`, with `search_papers` and `save_raw_paper`; reference `list_daily_papers` |
+
 Queries use arXiv's search syntax, e.g. `ti:"attention is all you need"` or
 `au:vaswani AND cat:cs.CL`. People use the plugin by chatting: the chat agent
 turns a request into one of its tasks. `search-papers`, `save-paper-source`
@@ -26,7 +36,7 @@ itself; it submits the paper with its saved folder and files, and
 
 ### Daily digest
 
-`daily-digest` takes a list of people and a date. Before the agent starts,
+`write-daily-digest` takes a list of people and a date. Before the agent starts,
 NanoAgent runs `list_daily_papers` and pins the result, the ground truth, as
 `reference.json`. The agent then gets `search_papers` and `save_raw_paper`. It
 finds each person's papers first submitted (v1) on that UTC date, saves each
@@ -62,6 +72,7 @@ It has the standard plugin layout, which NanoAgent requires:
 ├── src/plugin/      # the MCP server (__main__.py, its IMPLEMENTATIONS table) and the tools
 ├── tests/
 ├── ui/              # how the page draws the outputs: renderers.js (papers as cards) and renderers.css
+├── product/         # the product page a catalog shows: product.yaml and icon.svg
 └── verifier/        # deterministic verifier package, one module per tool, and find.py for find-and-save-paper
 ```
 

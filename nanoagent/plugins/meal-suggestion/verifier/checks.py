@@ -1,4 +1,4 @@
-"""Checks shared by the tool verifiers. Pure functions of their arguments and the files on disk."""
+"""Checks shared by the tool verifiers. Pure functions of their arguments."""
 
 
 def result(valid, message, *, score=None, **details):

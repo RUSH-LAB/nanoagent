@@ -5,7 +5,6 @@ from __future__ import annotations
 import time
 import urllib.request
 from datetime import UTC, datetime
-from pathlib import Path
 
 from contract import (
     Close,
@@ -23,7 +22,7 @@ from plugin.nasdaq import PAUSE, close_on, closes, constituents, past_day, week
 MAX_TICKERS = 25
 
 
-def list_constituents(given: WeekInput, workspace: Path, *, opener=urllib.request.urlopen) -> ConstituentsOutput:
+def list_constituents(given: WeekInput, *, opener=urllib.request.urlopen) -> ConstituentsOutput:
     """The week ending ``as_of`` (its first session and every session), and the constituents
     Nasdaq lists now."""
     sessions = week(given.as_of, opener=opener)
@@ -37,9 +36,7 @@ def list_constituents(given: WeekInput, workspace: Path, *, opener=urllib.reques
     )
 
 
-def get_closes(
-    given: ClosesInput, workspace: Path, *, opener=urllib.request.urlopen, pause: float = PAUSE
-) -> ClosesOutput:
+def get_closes(given: ClosesInput, *, opener=urllib.request.urlopen, pause: float = PAUSE) -> ClosesOutput:
     """Each ticker's close on the session ``date``."""
     tickers = given.tickers
     if not tickers or len(set(tickers)) != len(tickers) or len(tickers) > MAX_TICKERS:
@@ -53,7 +50,7 @@ def get_closes(
     return ClosesOutput(date=given.date, closes=found)
 
 
-def pin_week(given: WeekInput, workspace: Path, *, opener=urllib.request.urlopen, pause: float = PAUSE) -> PinOutput:
+def pin_week(given: WeekInput, *, opener=urllib.request.urlopen, pause: float = PAUSE) -> PinOutput:
     """Every constituent Nasdaq lists now, with its close on ``as_of`` and 5 sessions earlier."""
     as_of = given.as_of
     sessions = week(as_of, opener=opener)

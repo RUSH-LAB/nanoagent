@@ -6,7 +6,7 @@ and every JSON Schema (for MCP, the agent and the web) is :func:`slimconfig.outp
 its classes. It declares:
 
     class Tool(Enum):            # every tool, by name: the keys of nanoagent.yaml's `tools`
-        SOLVE = "solve"
+        SOLVE_MEAL = "solve_meal"
 
     class Task(Enum):            # every task, by id: the keys of nanoagent.yaml's `tasks`
         SUGGEST_MEAL = "suggest-meal"
@@ -15,7 +15,7 @@ its classes. It declares:
     class SolveInput(Output):    # slimconfig Output classes; Annotated[T, "text"] describes a field
         meal: Annotated[Meal, "The meal to suggest"]
 
-    TOOLS = {Tool.SOLVE: (SolveInput, SolveOutput)}           # each tool's input and output class
+    TOOLS = {Tool.SOLVE_MEAL: (SolveInput, SolveOutput)}      # each tool's input and output class
     TASKS = {Task.SUGGEST_MEAL: (SolveInput, SolveOutput)}    # each task's input and output class
 
 It is run inside the host, so it may hold only declarations (see :func:`contract_problems`):

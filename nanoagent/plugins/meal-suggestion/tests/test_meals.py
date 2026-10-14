@@ -4,12 +4,12 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import DINNER
 from slimconfig import build_output
-from test_solve import DINNER
 
 import plugin.meals
 from contract import Like, Meal, NutritionInput, RecipesInput, Restrictions
-from plugin.meals import liked, list_recipes, load_recipes, nutrition
+from plugin.meals import get_nutrition, liked, list_recipes, load_recipes
 
 MEATLESS = Restrictions(require=[], exclude=["Meat", "Poultry"])
 CHEESE = Like(name="cheese", words=["cheese"], ignore=[], weight=2)
@@ -60,11 +60,11 @@ def test_scores_a_recipe_by_the_likes_its_ingredients_and_tags_match() -> None:
 
 
 def test_gives_one_servings_nutrition_as_food_com_gives_it() -> None:
-    curry = nutrition(NutritionInput(recipe="Chickpea Curry (Garbanzos)"))
+    curry = get_nutrition(NutritionInput(recipe="Chickpea Curry (Garbanzos)"))
     assert (curry.per_serving.kcal, curry.per_serving.protein, curry.per_serving.sodium) == (437.6, 13.0, 1267.0)
     assert curry.ingredients[:3] == ["chickpeas", "onion", "fresh ginger"]
     with pytest.raises(ValueError, match="no recipe named"):
-        nutrition(NutritionInput(recipe="pizza"))
+        get_nutrition(NutritionInput(recipe="pizza"))
 
 
 def test_loads_every_recipe() -> None:

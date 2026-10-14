@@ -1,4 +1,4 @@
-"""solve_day (the plan-day reference) and the plan-day task's outcome check."""
+"""solve_day (the plan-day reference) and the plan-day task's output check."""
 
 from .checks import result
 from .meals import (
@@ -30,7 +30,7 @@ def verify_input(value):
 
 
 def day_problems(day, recipes, arguments):
-    """What is wrong with ``day`` (a contract DayPlan or DayOutput) for the task's arguments (a contract
+    """What is wrong with ``day`` (a contract DayPlanOutput or DayOutput) for the task's arguments (a contract
     DayInput): its meals, their dishes, each meal's totals and the day's."""
     if sorted(meal.value for meal in day.meals) != sorted(meal.value for meal in arguments.meals):
         return [f"the day's meals must be exactly {', '.join(meal.value for meal in arguments.meals)}"]

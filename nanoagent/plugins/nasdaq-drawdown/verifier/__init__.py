@@ -6,7 +6,7 @@ from . import closes, constituents, pin
 
 TOOLS = {Tool.PIN_WEEK: pin, Tool.LIST_CONSTITUENTS: constituents, Tool.GET_CLOSES: closes}
 # task -> its output's check, verify_task(arguments, output, reference, workspace)
-TASKS = {Task.NASDAQ_DOWN_5: pin.verify_task}
+TASKS = {Task.LIST_WEEKLY_FALLERS: pin.verify_task}
 
 
 def verify_input(tool, value):

@@ -108,7 +108,7 @@ def list_recipes(given: RecipesInput) -> RecipesOutput:
     )
 
 
-def nutrition(given: NutritionInput) -> NutritionOutput:
+def get_nutrition(given: NutritionInput) -> NutritionOutput:
     """One serving of the recipe: its ingredients and its nutrition."""
     found = load_recipes()
     if given.recipe not in found:

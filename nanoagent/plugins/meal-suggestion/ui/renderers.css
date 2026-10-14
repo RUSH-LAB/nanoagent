@@ -1,4 +1,4 @@
-/* Meal Suggestion's recipe cards (renderers.js), over the kit's styles. */
+/* Styles for this plugin's renderers (renderers.js), over the kit's (kit/kit.css): the recipe cards. */
 
 .ms-dishes { display: grid; gap: 12px; margin: 0; padding-left: 20px; }
 .ms-dish-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }

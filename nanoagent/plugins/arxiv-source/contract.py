@@ -20,7 +20,7 @@ class Task(Enum):
     SAVE_PAPER_SOURCE = "save-paper-source"
     SAVE_SEARCH_RESULTS = "save-search-results"
     FIND_AND_SAVE_PAPER = "find-and-save-paper"
-    DAILY_DIGEST = "daily-digest"
+    WRITE_DAILY_DIGEST = "write-daily-digest"
 
 
 QUERY = (
@@ -31,44 +31,51 @@ DESTINATION = "A new folder relative to the plugin workspace, e.g. papers/attent
 DATE = "A UTC date, YYYY-MM-DD"
 VERSIONED_ID = "The arXiv identifier with its version"
 NEW_ID = "An arXiv id of the form YYMM.NNNNN"
+TITLE = "The title, as arXiv lists it"
+AUTHORS = "The authors' names, as arXiv lists them, in order"
+PUBLISHED = "When the first version was submitted, an ISO 8601 UTC timestamp"
+ABS_URL = "The paper's arXiv abstract page"
+SOURCE_URL = "The arXiv e-print URL the source archive came from"
+FOLDER = "The folder the source was unpacked in, inside the plugin workspace"
+FILES = "The unpacked files, relative to the folder"
 
 
 @dataclass
 class Paper(Output):
     arxiv_id: Annotated[str, VERSIONED_ID]
-    title: str
-    authors: list[str]
-    summary: str
-    published: str
-    abs_url: str
+    title: Annotated[str, TITLE]
+    authors: Annotated[list[str], AUTHORS]
+    summary: Annotated[str, "The abstract, as arXiv lists it"]
+    published: Annotated[str, PUBLISHED]
+    abs_url: Annotated[str, ABS_URL]
 
 
 @dataclass
-class SavedPaper(Output):
+class SavedPaperOutput(Output):
     arxiv_id: Annotated[str, VERSIONED_ID]
-    title: str
-    authors: list[str]
-    summary: str
-    published: str
-    abs_url: str
-    source_url: str
-    folder: str
-    files: list[str]
+    title: Annotated[str, TITLE]
+    authors: Annotated[list[str], AUTHORS]
+    summary: Annotated[str, "The abstract, as arXiv lists it"]
+    published: Annotated[str, PUBLISHED]
+    abs_url: Annotated[str, ABS_URL]
+    source_url: Annotated[str, SOURCE_URL]
+    folder: Annotated[str, FOLDER]
+    files: Annotated[list[str], FILES]
 
 
 @dataclass
 class DailyPaper(Output):
     arxiv_id: Annotated[str, NEW_ID]
-    title: str
-    authors: list[str]
-    published: str
-    abs_url: str
+    title: Annotated[str, TITLE]
+    authors: Annotated[list[str], AUTHORS]
+    published: Annotated[str, PUBLISHED]
+    abs_url: Annotated[str, ABS_URL]
 
 
 @dataclass
 class Person(Output):
-    name: str
-    papers: list[DailyPaper]
+    name: Annotated[str, "The person's full name, as given"]
+    papers: Annotated[list[DailyPaper], "The papers by the person first submitted on the date"]
 
 
 @dataclass
@@ -89,9 +96,9 @@ class SearchInput(Output):
 
 @dataclass
 class SearchOutput(Output):
-    query: str
-    source_url: str
-    papers: list[Paper]
+    query: Annotated[str, "The search_query, as given"]
+    source_url: Annotated[str, "The arXiv API request the papers came from"]
+    papers: Annotated[list[Paper], "The matching papers, best match first"]
 
 
 @dataclass
@@ -102,10 +109,10 @@ class DownloadInput(Output):
 
 @dataclass
 class DownloadOutput(Output):
-    arxiv_id: str
-    source_url: str
-    folder: str
-    files: list[str]
+    arxiv_id: Annotated[str, "The arXiv identifier, as given without surrounding spaces"]
+    source_url: Annotated[str, SOURCE_URL]
+    folder: Annotated[str, FOLDER]
+    files: Annotated[list[str], FILES]
 
 
 @dataclass
@@ -119,9 +126,9 @@ class SaveInput(Output):
 
 @dataclass
 class SaveOutput(Output):
-    query: str
-    folder: str
-    papers: list[SavedPaper]
+    query: Annotated[str, "The search_query, as given"]
+    folder: Annotated[str, "The destination folder, inside the plugin workspace"]
+    papers: Annotated[list[SavedPaperOutput], "Each saved paper, best match first, its source in <folder>/<arxiv id>"]
 
 
 @dataclass
@@ -138,8 +145,8 @@ class DailyInput(Output):
 
 @dataclass
 class DailyOutput(Output):
-    date: str
-    people: list[Person]
+    date: Annotated[str, DATE]
+    people: Annotated[list[Person], "Each monitored person, in the order given, with their papers"]
 
 
 @dataclass
@@ -150,15 +157,19 @@ class RawInput(Output):
 
 @dataclass
 class RawOutput(Output):
-    arxiv_id: str
-    title: str
-    authors: list[str]
-    folder: str
-    files: list[str]
+    arxiv_id: Annotated[str, NEW_ID]
+    title: Annotated[str, TITLE]
+    authors: Annotated[list[str], AUTHORS]
+    folder: Annotated[
+        str,
+        "The folder the source was unpacked in: docs/raw/{first_author_name}-{paper_short_name}-{arxiv_id}-{date}"
+        " inside the plugin workspace",
+    ]
+    files: Annotated[list[str], FILES]
 
 
 @dataclass
-class Digest(Output):
+class DigestOutput(Output):
     date: Annotated[str, DATE]
     entries: Annotated[list[Entry], "One per paper, a paper by several of the people once"]
 
@@ -174,6 +185,6 @@ TASKS = {
     Task.SEARCH_PAPERS: (SearchInput, SearchOutput),
     Task.SAVE_PAPER_SOURCE: (DownloadInput, DownloadOutput),
     Task.SAVE_SEARCH_RESULTS: (SaveInput, SaveOutput),
-    Task.FIND_AND_SAVE_PAPER: (FindInput, SavedPaper),
-    Task.DAILY_DIGEST: (DailyInput, Digest),
+    Task.FIND_AND_SAVE_PAPER: (FindInput, SavedPaperOutput),
+    Task.WRITE_DAILY_DIGEST: (DailyInput, DigestOutput),
 }

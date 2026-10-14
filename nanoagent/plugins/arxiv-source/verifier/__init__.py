@@ -24,7 +24,7 @@ TASKS = {
     Task.SAVE_PAPER_SOURCE: _tool_output(download),
     Task.SAVE_SEARCH_RESULTS: _tool_output(save),
     Task.FIND_AND_SAVE_PAPER: find.verify_task,
-    Task.DAILY_DIGEST: daily.verify_task,
+    Task.WRITE_DAILY_DIGEST: daily.verify_task,
 }
 
 

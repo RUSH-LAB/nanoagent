@@ -10,12 +10,15 @@ only says how to draw its outputs.
 
 - `ui/` joins `REQUIRED_FOLDERS`. `ui/renderers.js` and `ui/renderers.css` must exist, and
   `ui/index.html`, `ui/kit/`, `ui/app.js` and `ui/app.css` must not: the page is NanoAgent's.
-- `ui/renderers.js` has a default export, the renderers by output class name.
+- `ui/renderers.js`'s default export is an object literal of renderers, keyed only by the output
+  classes of the plugin's tasks, checked when the plugin loads.
 - Every script imports only by a literal `./` or `../` path, of the kit's modules or the plugin's
   own files in `ui/`: no URLs, no package names, no computed `import()`.
 - A renderer draws only its output, with the kit's modules: no script names `document`, `window`,
   `parent`, `fetch` or the other page, host and network globals in `UI_GLOBALS` (comments and
-  strings aside). The kit draws each renderer's output in a shadow root of its own, with
+  strings aside), and none reaches for `.ownerDocument`, `.parentNode`, `.host` or the other ways
+  out of its output in `UI_PROPERTIES`. The kit draws each renderer's output in a closed shadow
+  root of its own, with
   `kit.css` and `renderers.css`, the only place `renderers.css` applies: the plugin's styles
   reach nothing around its output, so the page's layout is the same for every plugin.
 - `ui/` holds only static web files: `.html .js .mjs .css .svg .png .jpg .jpeg .gif .webp .ico

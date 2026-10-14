@@ -1,4 +1,4 @@
-"""solve (the recommend-meal tool and the suggest-meal reference) and the meal tasks' outcome checks."""
+"""solve_meal (the recommend-meal tool and the suggest-meal reference) and the meal tasks' output checks."""
 
 from .checks import result
 from .meals import (
@@ -36,7 +36,7 @@ def totals_problems(dishes, given, recipes, constraints):
 
 
 def meal_problems(plan, meal, recipes, constraints, given):
-    """What is wrong with ``plan`` (a contract Suggestion or SolveOutput) as ``meal`` within
+    """What is wrong with ``plan`` (a contract SuggestionOutput or SolveOutput) as ``meal`` within
     ``constraints``, for the task's input ``given``: its dishes, then its totals."""
     return dish_problems(plan.dishes, recipes, meal, given) or totals_problems(
         plan.dishes, plan.totals, recipes, constraints
@@ -85,5 +85,5 @@ def verify_task(arguments, output, reference, workspace):
 
 
 def verify_recommendation(arguments, output, reference, workspace):
-    """The recommended meal is the solver's: valid when it checks as solve's output (see verify_output)."""
+    """The recommended meal is the solver's: valid when it checks as solve_meal's output (see verify_output)."""
     return verify_output(arguments, output, workspace)

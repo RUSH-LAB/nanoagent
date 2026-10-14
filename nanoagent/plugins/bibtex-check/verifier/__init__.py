@@ -5,7 +5,7 @@ from contract import Task, Tool
 from . import parse, read
 
 TOOLS = {Tool.PARSE_BIBTEX: parse, Tool.READ_BIBTEX: read}
-# task -> its output check, verify_task(arguments, output, reference, workspace)
+# task -> its output's check, verify_task(arguments, output, reference, workspace)
 TASKS = {Task.CHECK_BIBTEX: parse.verify_task}
 
 

@@ -2,7 +2,7 @@
 
 A `nanoagent.plugin/v1` plugin, created by `nanoagent plugin new` with the
 structure of NanoAgent's reference plugin, `plugins/arxiv-source`. Its task,
-`nasdaq-down-5`, asks an agent which Nasdaq-100 constituents fell by at least
+`list-weekly-fallers`, asks an agent which Nasdaq-100 constituents fell by at least
 5% over the week ending on a date; its output is those constituents, each with
 its change. People use it by chatting: they name the week, and the page shows
 the fallers as a table, with the verifier's verdict.
@@ -11,9 +11,15 @@ the fallers as a table, with the verifier's verdict.
 
 | Tool | Does | Code |
 |---|---|---|
-| `pin_week` | Every constituent's close on `as_of` and 5 sessions earlier; the task's pinned reference | `src/plugin/week.py` |
-| `list_constituents` | The constituents Nasdaq lists now, and the week ending `as_of`: its first session (`start`) and every session | `src/plugin/week.py` |
-| `get_closes` | Up to 25 tickers' closes on one trading session; a day a ticker did not trade fails | `src/plugin/week.py` |
+| `pin_week` | Pins every constituent's close on `as_of` and 5 sessions earlier; the task's pinned reference | `src/plugin/week.py` |
+| `list_constituents` | Lists the constituents Nasdaq lists now, and the week ending `as_of`: its first session (`start`) and every session | `src/plugin/week.py` |
+| `get_closes` | Gets up to 25 tickers' closes on one trading session; a day a ticker did not trade fails |
+
+### Tasks
+
+| Task | Does | Runner |
+|---|---|---|
+| `list-weekly-fallers` | Lists the constituents that fell at least 5% over the week ending `as_of`, each with its change | `agent`, with `list_constituents` and `get_closes`; reference `pin_week` | `src/plugin/week.py` |
 
 All data comes from Nasdaq's public API, `api.nasdaq.com`
 (`src/plugin/nasdaq.py`): the constituent list
@@ -78,6 +84,7 @@ and non-constituent tickers and those given another change.
 ├── src/plugin/      # the MCP server (__main__.py, its TOOLS table), the Nasdaq client and the tools
 ├── tests/
 ├── ui/              # how the page draws the outputs: renderers.js and renderers.css (none here)
+├── product/         # the product page a catalog shows: product.yaml and icon.svg
 └── verifier/        # deterministic verifier package, one module per tool
 ```
 
@@ -97,6 +104,6 @@ uv run pytest
 From the NanoAgent repository root:
 
 ```bash
-.venv/bin/nanoagent plugin inspect plugins/nasdaq-drawdown
-bash examples/nasdaq_drawdown/runs/step1_nasdaq_down_5.sh   # agent: the week ending 2026-10-02
+uv run nanoagent plugin inspect plugins/nasdaq-drawdown
+bash examples/nasdaq_drawdown/runs/step1_list_weekly_fallers.sh   # agent: the week ending 2026-10-02
 ```

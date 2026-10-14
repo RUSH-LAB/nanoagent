@@ -9,7 +9,7 @@ from slimconfig import build_output, plain_output
 import plugin.naming
 import verifier
 import verifier.naming
-from contract import TASKS, TOOLS, DailyOutput, DownloadInput, SavedPaper, SearchInput, Task, Tool
+from contract import TASKS, TOOLS, DailyOutput, DownloadInput, SavedPaperOutput, SearchInput, Task, Tool
 from plugin import download_source, search_papers
 
 DATE = "2026-09-09"
@@ -39,7 +39,7 @@ def verify_task(task: str, arguments: dict, output: dict, workspace: Path, refer
 
 def verify_digest(entries: list[dict], workspace: Path, *, date: str = DATE) -> dict:
     reference = build_output(REFERENCE, DailyOutput)
-    return verify_task("daily-digest", ARGUMENTS, {"date": date, "entries": entries}, workspace, reference)
+    return verify_task("write-daily-digest", ARGUMENTS, {"date": date, "entries": entries}, workspace, reference)
 
 
 def entry(workspace: Path, **changes):
@@ -113,7 +113,9 @@ def found_and_saved(workspace: Path) -> dict:
         DownloadInput(arxiv_id="1706.03762v7", destination="attention"), workspace, opener=FakeArxiv()
     )
     return plain_output(
-        SavedPaper(**plain_output(found.papers[0]), source_url=saved.source_url, folder=saved.folder, files=saved.files)
+        SavedPaperOutput(
+            **plain_output(found.papers[0]), source_url=saved.source_url, folder=saved.folder, files=saved.files
+        )
     )
 
 

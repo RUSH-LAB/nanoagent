@@ -31,7 +31,7 @@ run.sh           # exits 0 when this environment can run the plugin
 src/             # the plugin's code, organized as it likes
 tests/           # the plugin's tests, including test_verifier.py
 verifier/        # deterministic verifier package, .py files only
-ui/              # the front end: a static web page, ui/app.js and ui/app.css
+ui/              # how the page draws task outputs: renderers.js and renderers.css
 product/         # the product page: product.yaml and icon.svg
 ```
 
@@ -41,23 +41,30 @@ checkout: `.git`, `.venv`, `__pycache__`, `.pytest_cache`, `.ruff_cache`, `.mypy
 
 The rules a plugin must follow are listed in one place, the docstring of
 `nanoagent.plugin.manifest`. These are the layout above, a `.env` holding
-names only, a `contract.py` of declarations only, a `nanoagent.yaml` that
-fills `ManifestConfig` under slimconfig's rules (tables keyed by the
-contract's `Tool` and `Task`), a deterministic verifier, a `ui/` and a
+names only, a `contract.py` of declarations only (snake_case tools,
+kebab-case tasks, classes named `...Input` and `...Output`), a
+`nanoagent.yaml` that fills `ManifestConfig` under slimconfig's rules (tables
+keyed by the contract's `Tool` and `Task`, the standard `runtime.command`
+`[uv, run, --frozen, python, -m, plugin]`, a PEP 440 `version`), a
+deterministic verifier, a `ui/` and a
 `product/` (below), no extra files, and standard files that are the
 template's (`nanoagent/plugin/template/`, what `nanoagent plugin new`
 writes): its `LICENSE` naming the plugin, its `.gitignore` entries, its
 `run.sh` checks first (a plugin adds its own after them), a `README.md`
 opening with `# <name>` with the sections Tools, Layout and Develop and run
-and every tool named under Tools, and a `pyproject.toml` naming the project
-`nanoagent-<id>`. NanoAgent refuses to load a plugin that breaks any rule, and `PluginError` lists every
+and every tool and task named under Tools, and a `pyproject.toml` naming the
+project `nanoagent-<id>` at the manifest's version, with the template's
+`requires-python`, dependencies and `slimconfig` source and every other
+dependency bounded both ways. A `ready` plugin's `product.yaml` is its own,
+not the template's placeholder. NanoAgent refuses to load a plugin that breaks any rule, and `PluginError` lists every
 violation at once (`nanoagent plugin inspect <path>` prints them). The web
 host refuses to start with such a plugin. Every tool call checks the rules
 again, so a plugin edited after it loaded is refused too.
 
 Every plugin names the NanoAgent versions it runs on: `nanoagent` in
-`nanoagent.yaml` is a PEP 440 range, and NanoAgent refuses a plugin whose
-range does not hold its own version (`nanoagent.__version__`).
+`nanoagent.yaml` is one NanoAgent minor version, `~=X.Y.0`, and NanoAgent
+refuses a plugin whose range does not hold its own version
+(`nanoagent.__version__`).
 `nanoagent plugin new` writes `~=<this version>`, such as `~=0.3.0`
 (0.3.0 up to, not including, 0.4). NanoAgent raises its minor version
 whenever a plugin made for the last one could break: the plugin rules, the
@@ -214,17 +221,20 @@ unless:
 
 - `ui/renderers.js` and `ui/renderers.css` exist, and `ui/` holds no
   `index.html`, `kit/`, `app.js` or `app.css`;
-- `renderers.js` has a default export, its renderers by output class name,
-  each `(value, {task, verdict, send}) => Element` (`{}` in the template);
+- `renderers.js`'s default export is an object literal of renderers keyed by
+  the output classes of the plugin's tasks, each
+  `(value, {task, verdict, send}) => Element` (`{}` in the template);
 - every script imports only by a literal `./` or `../` path, of the kit's
   modules (`./kit/components.js`) or the plugin's own files in `ui/`: no URLs,
   no package names, no computed `import()`;
 - no script names `document`, `window`, `parent`, `fetch` or another page,
-  host or network global (`UI_GLOBALS`): a renderer draws only its output.
+  host or network global (`UI_GLOBALS`), or reaches for `.ownerDocument`,
+  `.parentNode`, `.host` or another way out of its output (`UI_PROPERTIES`).
 
-The kit draws each renderer's output in a shadow root of its own, the only
-place `renderers.css` applies, so a plugin's styles never reach the page's
-layout.
+The kit draws each renderer's output in a closed shadow root of its own, the
+only place `renderers.css` applies, so a plugin's scripts and styles never
+reach the page's layout; the page's Content-Security-Policy refuses them the
+network.
 
 Renderers build from `./kit/components.js` (`h`, `card`, `dataTable`,
 `banner`, `statusPill`, `disclosure`, `meter`, `markdown`, `schemaView`, the

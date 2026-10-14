@@ -1,4 +1,4 @@
-"""pin_week (the nasdaq-down-5 reference) and the nasdaq-down-5 task's outcome check."""
+"""pin_week (the list-weekly-fallers reference) and the list-weekly-fallers task's outcome check."""
 
 from decimal import Decimal
 

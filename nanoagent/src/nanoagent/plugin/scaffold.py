@@ -2,7 +2,7 @@
 
 The template (``nanoagent/plugin/template/``) is the layout of ``plugins/arxiv-source`` with one
 small tool. Its files are copied with ``{{id}}``, ``{{name}}``, ``{{year}}`` and ``{{nanoagent}}`` (this
-NanoAgent's version) filled in;
+NanoAgent's minor version, ``X.Y.0``) filled in;
 ``dot.<name>`` files become ``.<name>`` (dotfiles stay out of the package's ignore rules).
 ``uv lock`` then writes the lock, and the result must load under every plugin rule.
 """
@@ -31,7 +31,7 @@ def create_plugin(folder: Path) -> PluginManifest:
         "{{id}}": plugin_id,
         "{{name}}": plugin_id.replace("-", " ").title(),
         "{{year}}": str(date.today().year),
-        "{{nanoagent}}": __version__,
+        "{{nanoagent}}": ".".join(__version__.split(".")[:2]) + ".0",
     }
     for source in sorted(TEMPLATE.rglob("*")):
         relative = source.relative_to(TEMPLATE)

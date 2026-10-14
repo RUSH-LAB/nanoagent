@@ -338,7 +338,7 @@ wheels = [
 
 [[package]]
 name = "nanoagent-meal-suggestion"
-version = "0.2.1"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "mcp" },
@@ -356,10 +356,10 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "mcp", specifier = ">=1.27,<2" },
-    { name = "numpy" },
+    { name = "numpy", specifier = ">=2.5,<3" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
-    { name = "scipy", specifier = ">=1.15" },
+    { name = "scipy", specifier = ">=1.18,<2" },
     { name = "slimconfig", git = "https://github.com/zeyuyang8/slimconfig?branch=master" },
 ]
 provides-extras = ["dev"]

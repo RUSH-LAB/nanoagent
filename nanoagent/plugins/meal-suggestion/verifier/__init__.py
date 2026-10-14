@@ -5,16 +5,16 @@ from contract import Task, Tool
 from . import day, nutrition, recipes, solve
 
 TOOLS = {
-    Tool.SOLVE: solve,
+    Tool.SOLVE_MEAL: solve,
     Tool.LIST_RECIPES: recipes,
-    Tool.NUTRITION: nutrition,
+    Tool.GET_NUTRITION: nutrition,
     Tool.SOLVE_DAY: day,
 }
-# task -> its outcome check, verify_task(arguments, output, reference, workspace)
+# task -> its output's check, verify_task(arguments, output, reference, workspace)
 TASKS = {
+    Task.RECOMMEND_MEAL: solve.verify_recommendation,
     Task.SUGGEST_MEAL: solve.verify_task,
     Task.PLAN_DAY: day.verify_task,
-    Task.RECOMMEND_MEAL: solve.verify_recommendation,
 }
 
 

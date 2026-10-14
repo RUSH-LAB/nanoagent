@@ -5,7 +5,7 @@ import urllib.request
 from dataclasses import asdict
 from pathlib import Path
 
-from contract import DownloadInput, SavedPaper, SaveInput, SaveOutput, SearchInput
+from contract import DownloadInput, SavedPaperOutput, SaveInput, SaveOutput, SearchInput
 from plugin.download import download_source, resolve_destination
 from plugin.search import search_papers
 
@@ -36,5 +36,7 @@ def save_search_results(
         destination = str(Path(given.destination) / paper_folder(paper.arxiv_id))
         given_paper = DownloadInput(arxiv_id=paper.arxiv_id, destination=destination)
         saved = download_source(given_paper, workspace, opener=opener)
-        papers.append(SavedPaper(**asdict(paper), source_url=saved.source_url, folder=saved.folder, files=saved.files))
+        papers.append(
+            SavedPaperOutput(**asdict(paper), source_url=saved.source_url, folder=saved.folder, files=saved.files)
+        )
     return SaveOutput(query=found.query, folder=str(folder), papers=papers)

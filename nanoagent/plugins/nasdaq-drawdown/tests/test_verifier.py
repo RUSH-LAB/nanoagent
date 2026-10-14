@@ -47,7 +47,7 @@ CHANGES = {"ALNY": -14.16, "KDP": -5.0, "GILD": -4.1, "AAPL": 2.1, "NVDA": -9.0}
 def verdict(tmp_path: Path, tickers, *, arguments=ARGUMENTS, reference=REFERENCE, changes=CHANGES) -> dict:
     output = {"fallers": [{"ticker": ticker, "change_percent": changes.get(ticker, 0.0)} for ticker in tickers]}
     return verifier.verify_task(
-        "nasdaq-down-5",
+        "list-weekly-fallers",
         build_output(arguments, WeekInput),
         build_output(output, DrawdownOutput),
         build_output(reference, PinOutput),
@@ -90,7 +90,7 @@ def test_refuses_any_other_answer_and_scores_its_f1(
     ("tickers", "arguments", "message"),
     [
         (["ALNY", "ALNY", "KDP"], ARGUMENTS, "tickers must be distinct"),
-        (["alny"], ARGUMENTS, "tickers must be a list of ticker symbols"),
+        (["alny"], ARGUMENTS, "tickers must be ticker symbols"),
         (["ALNY", "KDP"], {"as_of": "2026-10-01"}, "the pinned week ends on another day"),
     ],
 )

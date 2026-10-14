@@ -1,11 +1,11 @@
 _ > nanoagent.cli.plugin.PluginAgentConfig:
 
-# The Nasdaq drawdown plugin's nasdaq-down-5 task, worked by an agent: the Nasdaq-100
+# The Nasdaq drawdown plugin's list-weekly-fallers task, worked by an agent: the Nasdaq-100
 # constituents that fell at least 5% over the 5 sessions ending Friday 2026-10-02.
 plugin: plugins/nasdaq-drawdown
-task: nasdaq-down-5
+task: list-weekly-fallers
 # The task's input, a contract.WeekInput as JSON.
-arguments: examples/nasdaq_drawdown/configs/step1_nasdaq_down_5_arguments.json
+arguments: examples/nasdaq_drawdown/configs/step1_list_weekly_fallers_arguments.json
 inputs: []
 # Seconds per tool call: the reference, pin_week, fetches every constituent's closes (~5 minutes).
 timeout: 900.0

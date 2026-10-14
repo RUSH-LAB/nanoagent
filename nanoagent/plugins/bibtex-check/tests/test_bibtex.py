@@ -18,8 +18,8 @@ def test_normalize_drops_braces_and_collapses_whitespace_only() -> None:
     assert normalize("Deep learning") != normalize("Deep Learning")
 
 
-def test_parses_both_texts_into_the_schema(tmp_path: Path) -> None:
-    parsed = parse_bibtex(ParseInput(reference=REFERENCE, raw=RAW), tmp_path)
+def test_parses_both_texts_into_the_schema() -> None:
+    parsed = parse_bibtex(ParseInput(reference=REFERENCE, raw=RAW))
     assert len(parsed.reference) == 6
     assert [entry.key for entry in parsed.raw][:3] == ["transformer", "resnet", "nature_dl"]
     assert parsed.raw[0].record == parsed.reference[0].record == Record(
@@ -35,8 +35,8 @@ def test_parses_both_texts_into_the_schema(tmp_path: Path) -> None:
     )
 
 
-def test_records_an_unparseable_entry_with_its_key(tmp_path: Path) -> None:
-    [broken] = [entry for entry in read_bibtex(ReadInput(bibtex=RAW), tmp_path).entries if entry.record is None]
+def test_records_an_unparseable_entry_with_its_key() -> None:
+    [broken] = [entry for entry in read_bibtex(ReadInput(bibtex=RAW)).entries if entry.record is None]
     assert broken.key == "kingma_broken"
     assert broken.error.startswith("unparseable: ")
 
@@ -59,12 +59,12 @@ def test_a_record_without_venue_or_doi_has_them_null() -> None:
     assert record == Record(entry_type="misc", title="T", authors=["A", "B"], year="2020", venue=None, doi=None)
 
 
-def test_refuses_a_reference_that_does_not_parse(tmp_path: Path) -> None:
+def test_refuses_a_reference_that_does_not_parse() -> None:
     with pytest.raises(ValueError, match="kingma_broken"):
-        parse_bibtex(ParseInput(reference=RAW, raw=RAW), tmp_path)
+        parse_bibtex(ParseInput(reference=RAW, raw=RAW))
 
 
-def test_refuses_a_key_used_twice(tmp_path: Path) -> None:
+def test_refuses_a_key_used_twice() -> None:
     twice = "@misc{a, title={T}, author={A}, year={1}}\n@misc{a, title={U}, author={B}, year={2}}\n"
     with pytest.raises(ValueError, match="keys twice: a"):
-        read_bibtex(ReadInput(bibtex=twice), tmp_path)
+        read_bibtex(ReadInput(bibtex=twice))

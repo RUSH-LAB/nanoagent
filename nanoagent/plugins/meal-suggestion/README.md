@@ -16,10 +16,18 @@ task's verdict.
 
 | Tool | Does | Code |
 |---|---|---|
-| `solve` | Finds the best-liked meal of whole servings, and the least-liked one, by mixed-integer linear programming (HiGHS, through `scipy.optimize.milp`); the recommend-meal task, and the suggest-meal task's pinned reference | `src/plugin/solve.py` |
+| `solve_meal` | Finds the best-liked meal of whole servings, and the least-liked one, by mixed-integer linear programming (HiGHS, through `scipy.optimize.milp`); the recommend-meal task, and the suggest-meal task's pinned reference | `src/plugin/solve.py` |
 | `list_recipes` | Lists the recipes for a meal that meet the restrictions, each with its Food.com link, tags, nutrition per serving, the likes it matches and its preference score | `src/plugin/meals.py` |
-| `nutrition` | Gives a recipe's ingredients and one serving's nutrition | `src/plugin/meals.py` |
+| `get_nutrition` | Gives a recipe's ingredients and one serving's nutrition | `src/plugin/meals.py` |
 | `solve_day` | Finds the best-liked day of meals, and the least-liked one, each meal within its own bounds and the day within the day's; the plan-day task's pinned reference | `src/plugin/solve.py` |
+
+### Tasks
+
+| Task | Does | Runner |
+|---|---|---|
+| `recommend-meal` | Recommends the best-liked meal within the nutrition targets, solved exactly | `tool`, with `solve_meal` |
+| `suggest-meal` | Has an agent suggest a meal within the nutrition targets, scored against `solve_meal`'s best | `agent`, with `list_recipes` and `get_nutrition` |
+| `plan-day` | Has an agent plan a day of meals within the nutrition targets, scored against `solve_day`'s best | `agent`, with `list_recipes` and `get_nutrition` |
 
 ### The recipes
 
@@ -76,10 +84,10 @@ scores, each dish counted once however many servings it has.
 `max` or both for any nutrient), `restrictions` (tags every dish must have and
 tags none may have, a hard filter), `likes` and `max_servings`, the most whole
 servings of any one recipe; the chat fills them from what the person says.
-`recommend-meal` runs `solve` alone, no agent: the exact recommendation in a
+`recommend-meal` runs `solve_meal` alone, no agent: the exact recommendation in a
 few seconds, each dish with its recipe, Food.com link, servings and the likes
 it matches, the meal's totals, its preference score and the lowest score any
-meal within the constraints can have. `solve` is the linear program: for each eligible
+meal within the constraints can have. `solve_meal` is the linear program: for each eligible
 recipe, whole servings `x` from 0 to `max_servings` and whether it is a dish,
 `y` (0 or 1, tied to `x` by `x <= max_servings * y` and `x >= y`); the
 constraints bound the servings' nutrient totals, and at least one serving is
@@ -89,9 +97,9 @@ recomputes a recommendation's totals, likes and score from the recipes; it is
 valid when it is a meal of the allowed recipes meeting every constraint.
 
 `suggest-meal` has an agent choose instead. Before the agent starts, NanoAgent
-runs `solve` and pins its output; infeasible input fails the run. The agent
-gets `list_recipes` and `nutrition` and finishes by submitting the meal, a
-`contract.Suggestion`: each dish's recipe, link, servings and likes, and the
+runs `solve_meal` and pins its output; infeasible input fails the run. The agent
+gets `list_recipes` and `get_nutrition` and finishes by submitting the meal, a
+`contract.SuggestionOutput`: each dish's recipe, link, servings and likes, and the
 meal's totals. `verifier/solve.py` judges the suggestion against the recipes:
 it is valid when it holds at least one dish, every dish is a recipe for the
 meal that meets the restrictions, listed once, with 1 to `max_servings`
@@ -114,13 +122,13 @@ each meal's bounds on its own servings, the day's on all of them, and at least
 one serving per meal. A recipe may be in more than one meal, a dish each time.
 It maximizes the day's preference score, its dishes' scores summed, and solves
 again for the least. The agent gets `list_recipes` (one call per meal) and
-`nutrition` and submits the day, a `contract.DayPlan`: each meal's dishes and
+`get_nutrition` and submits the day, a `contract.DayPlanOutput`: each meal's dishes and
 totals, and the day's totals. `verifier/day.py` recomputes every meal's totals
 and the day's from the recipes; the verdict is valid when the plan holds
 exactly the day's meals, every dish checks as for a meal, the totals it gives
 are its dishes' and every bound is met, and the score is where the day's
 preference score falls between the pinned lowest and best, as for a meal.
-`suggest-meal`'s `solve` is this program with one meal and no day bounds.
+`suggest-meal`'s `solve_meal` is this program with one meal and no day bounds.
 
 ## Layout
 
@@ -135,9 +143,10 @@ preference score falls between the pinned lowest and best, as for a meal.
 ├── .gitignore
 ├── .env             # environment variable NAMEs this plugin needs (none here)
 ├── run.sh           # exits 0 when this environment can run the plugin
-├── src/plugin/      # the MCP server (__main__.py, its TOOLS table), the tools and recipes.json
+├── src/plugin/      # the MCP server (__main__.py, its IMPLEMENTATIONS), the tools and recipes.json
 ├── tests/           # tests, and the sample recipes file in fixtures/
 ├── ui/              # renderers.js (and renderers.css): the meals as recipe cards in the chat
+├── product/         # the product page a catalog shows: product.yaml and icon.svg
 └── verifier/        # deterministic verifier package, one module per tool
 ```
 
@@ -154,12 +163,12 @@ for each task's output, the meal or the day it holds.
 ```bash
 uv sync --extra dev
 uv run pytest
+uv run --project <nanoagent checkout> nanoagent plugin inspect .
 ```
 
-Run it from the NanoAgent repository root:
+Its examples run from the NanoAgent checkout:
 
 ```bash
-uv run nanoagent plugin inspect plugins/meal-suggestion
 bash examples/meal_suggestion/runs/step1_build_foodcom_recipes.sh  # Food.com recipes (needs the examples extra), for src/plugin/recipes.json
 bash examples/meal_suggestion/runs/step2_suggest_meal.sh           # agent: a meatless dinner for a dairy lover
 bash examples/meal_suggestion/runs/step3_plan_day.sh               # agent: a day of meals for the same eater

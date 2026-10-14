@@ -9,7 +9,7 @@ VERSION = re.compile(r"v\d+$")
 
 
 def verify_task(arguments, output, reference, workspace):
-    """``output``: a contract SavedPaper, its source unpacked in the requested destination."""
+    """``output``: a contract SavedPaperOutput, its source unpacked in the requested destination."""
     paper = output.arxiv_id
     if not ARXIV_ID.fullmatch(paper) or not output.title:
         return result(False, f"{paper!r} is not an arXiv id, or the paper has no title")

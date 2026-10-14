@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from typing import Any
 
 import anyio
@@ -16,9 +14,8 @@ from contract import TOOLS, Tool
 from plugin import parse_bibtex, read_bibtex
 
 server = Server("bibtex-check")
-# NanoAgent names the one folder this plugin may write to; these tools take text and write nothing.
-WORKSPACE_ENV = "NANOAGENT_WORKSPACE"
-# Each tool's implementation: (its input, the workspace) -> its output, as contract.TOOLS types them.
+# Each tool's implementation: its input -> its output, as contract.TOOLS types them. Every tool reads
+# only the BibTeX text it is given and writes nothing.
 IMPLEMENTATIONS = {
     Tool.PARSE_BIBTEX: parse_bibtex,
     Tool.READ_BIBTEX: read_bibtex,
@@ -38,15 +35,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     # A failure raises; the MCP server returns it as an error result.
     tool = Tool(name)
     given, made = TOOLS[tool]
-    output = IMPLEMENTATIONS[tool](build_output(arguments, given), Path(os.environ[WORKSPACE_ENV]))
+    output = IMPLEMENTATIONS[tool](build_output(arguments, given))
     if not isinstance(output, made):
         raise TypeError(f"{name} returned {type(output).__name__}, not {made.__name__}")
     return plain_output(output)
 
 
 def main() -> None:
-    if WORKSPACE_ENV not in os.environ:
-        raise SystemExit(f"{WORKSPACE_ENV} is not set: NanoAgent passes the plugin's workspace folder")
     if set(IMPLEMENTATIONS) != set(Tool):
         raise SystemExit("IMPLEMENTATIONS must implement every contract.Tool")
 
