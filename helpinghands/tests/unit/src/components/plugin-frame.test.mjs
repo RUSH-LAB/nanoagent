@@ -76,6 +76,7 @@ describe('nanoagent.ui/v1 requests', () => {
       ['describe', {}],
       ['prompt', {text: 'hi'}],
       ['cancel', {runId: 'run-1'}],
+      ['session.archive', {id: SESSION, archived: true}],
     ];
     for (const [method, params] of valid) assert.equal(invalidRequest({method, params}), null, method);
     const invalid = [
@@ -91,6 +92,8 @@ describe('nanoagent.ui/v1 requests', () => {
       ['session.get', {id: 'not-an-id'}],
       ['session.resume', {}],
       ['session.save', {state: {}}],
+      ['session.archive', {id: SESSION}],
+      ['session.archive', {id: 'not-an-id', archived: true}],
     ];
     for (const [method, params] of invalid) assert.equal(typeof invalidRequest({method, params}), 'string', method);
   });
@@ -220,6 +223,16 @@ describe('the bridge host', () => {
     assert.deepEqual(byId, {l: {sessions: [{id: SESSION}]}, g: {session: sessionWith()}, n: {session: sessionWith()}});
     assert.deepEqual(calls.map(({path, init}) => [path, init?.method ?? 'GET']), [
       [SESSIONS, 'GET'], [`${SESSIONS}/${SESSION}`, 'GET'], [SESSIONS, 'POST'],
+    ]);
+  });
+
+  it('archives and restores a session through its route', async () => {
+    const {posted, calls, send} = await hostWith(() => Response.json({session: {id: SESSION, archivedAt: null}}));
+    send('a', 'session.archive', {id: SESSION, archived: true});
+    send('r', 'session.archive', {id: SESSION, archived: false});
+    await until(() => posted.length === 2);
+    assert.deepEqual(calls.map(({path, init}) => [path, init.method, JSON.parse(init.body)]), [
+      [`${SESSIONS}/${SESSION}`, 'PATCH', {archived: true}], [`${SESSIONS}/${SESSION}`, 'PATCH', {archived: false}],
     ]);
   });
 

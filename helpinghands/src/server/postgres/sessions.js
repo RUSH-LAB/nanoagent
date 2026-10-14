@@ -18,7 +18,9 @@ class SessionError extends Error {
 /**
  * Plugin sessions (migration 0015): one member's sittings with one plugin's
  * page, each with the conversation so far, and the calls they made, from
- * ai_usage, with what each cost and how long it took.
+ * ai_usage, with what each cost and how long it took. A session the member
+ * archived (migration 0025) is listed as archived until they restore it or
+ * chat in it again.
  * Row-level security keeps every session to its own member and workspace.
  */
 function createPostgresSessions({pool}) {
@@ -29,11 +31,12 @@ function createPostgresSessions({pool}) {
     title: row.title,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    archivedAt: row.archived_at,
     runs: row.runs,
     cost: Number(row.cost),
     ttftS: row.ttft_s == null ? null : Number(row.ttft_s),
   });
-  const SUMMARY = `s.id, s.plugin_id, s.title, s.created_at, s.updated_at,
+  const SUMMARY = `s.id, s.plugin_id, s.title, s.created_at, s.updated_at, s.archived_at,
     count(u.id)::int as runs, coalesce(sum(u.cost_usd), 0) as cost, avg(u.ttft_s) as ttft_s
     from plugin_session s left join ai_usage u on u.session_id = s.id`;
 
@@ -93,12 +96,24 @@ function createPostgresSessions({pool}) {
       });
     },
 
+    /** Archive the caller's session `id` with `pluginId`, or with `archived` false restore it. */
+    async archive(context, pluginId, id, archived) {
+      return run(context, async client => {
+        await owned(client, pluginId, id);
+        await client.query(
+          `update plugin_session set archived_at = case when $2 then coalesce(archived_at, now()) end where id = $1`,
+          [id, archived],
+        );
+        return session(await owned(client, pluginId, id));
+      });
+    },
+
     /** Throws unless `id` is the caller's session with `pluginId`. */
     async assertOwned(context, pluginId, id) {
       await run(context, client => owned(client, pluginId, id));
     },
 
-    /** Add a finished turn to the conversation, its tool calls whole, keeping the latest. */
+    /** Add a finished turn to the conversation, its tool calls whole, keeping the latest; an archived session is restored. */
     async addTurn(context, pluginId, id, {prompt, answer, tools}) {
       await run(context, async client => {
         await owned(client, pluginId, id);
@@ -106,7 +121,7 @@ function createPostgresSessions({pool}) {
         const turns = [...chat, {prompt: prompt.slice(0, TURN_MAX), answer: answer.slice(0, TURN_MAX), tools}].slice(-CHAT_TURNS);
         // An untitled session is named for its first question.
         await client.query(
-          `update plugin_session set chat = $2::jsonb, updated_at = now(),
+          `update plugin_session set chat = $2::jsonb, updated_at = now(), archived_at = null,
              title = case when title = '' then $3 else title end where id = $1`,
           [id, JSON.stringify(turns), prompt.split('\n')[0].slice(0, 80)],
         );

@@ -123,6 +123,15 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     }),
     'session.start': async () => enter(await readSession(sessionsPath, {method: 'POST'}, 'Could not start a session')),
     'session.resume': async ({id}) => enter(await readSession(`${sessionsPath}/${id}`, undefined, 'Could not open the session')),
+    'session.archive': async ({id, archived}) => ({
+      result: {
+        session: await readSession(`${sessionsPath}/${id}`, {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({archived}),
+        }, archived ? 'Could not archive the session' : 'Could not restore the session'),
+      },
+    }),
   };
 
   return {

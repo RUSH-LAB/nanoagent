@@ -116,7 +116,9 @@ function callsTable(calls) {
 
 /**
  * The dashboard: the person's sessions with this plugin, newest first, and what they cost in
- * all; from here they start a new session or resume one, and open a session's runs.
+ * all; from here they start a new session or resume one, open a session's runs, and archive a
+ * session. Archived sessions leave the list for its Archived view, where they can be opened or
+ * restored; chatting in one again restores it.
  * @param {object} options
  * @param {(session: object|null) => void} options.onOpen With what `session.resume` answered,
  *   or null for a new session.
@@ -126,7 +128,25 @@ export function dashboard({ onOpen }) {
   const stats = h("dl", { class: "session-stats" });
   const status = h("p", { class: "error-text", role: "alert" });
   const list = h("ul", { class: "session-list" });
+  const heading = h("h2", { text: "Sessions" });
   const newButton = h("button", { type: "button", class: "button small", onclick: () => onOpen(null) }, icon("plus", { size: 16 }), "New session");
+  const viewButton = h("button", { type: "button", class: "button small ghost", hidden: true });
+  let archivedView = false;
+  viewButton.addEventListener("click", () => {
+    archivedView = !archivedView;
+    refresh();
+  });
+
+  async function archive(session, button) {
+    button.disabled = true;
+    try {
+      await request("session.archive", { id: session.id, archived: !session.archivedAt });
+      await refresh();
+    } catch (problem) {
+      status.textContent = problem.message;
+      button.disabled = false;
+    }
+  }
 
   async function resume(session, button) {
     button.disabled = true;
@@ -168,18 +188,27 @@ export function dashboard({ onOpen }) {
       ? h("button", { type: "button", class: "button small ghost", "aria-expanded": "false", text: "Runs" })
       : null;
     runs?.addEventListener("click", () => toggleRuns(session, runs, panel));
-    return h("li", { class: "session-row" }, h("div", { class: "session-line" }, open, runs), panel);
+    const label = session.archivedAt ? "Restore" : "Archive";
+    const archiving = h("button", { type: "button", class: "button small ghost", text: label, title: `${label} ${titled(session)}` });
+    archiving.addEventListener("click", () => archive(session, archiving));
+    return h("li", { class: "session-row" }, h("div", { class: "session-line" }, open, runs, archiving), panel);
   }
 
   async function refresh() {
     status.textContent = "";
-    let sessions;
+    let all;
     try {
-      ({ sessions } = await request("sessions.list"));
+      ({ sessions: all } = await request("sessions.list"));
     } catch (problem) {
       status.textContent = problem.message;
       return;
     }
+    const archived = all.filter((one) => one.archivedAt);
+    if (!archived.length) archivedView = false;
+    const sessions = archivedView ? archived : all.filter((one) => !one.archivedAt);
+    heading.textContent = archivedView ? "Archived sessions" : "Sessions";
+    viewButton.hidden = !archived.length;
+    viewButton.textContent = archivedView ? "Back to sessions" : `Archived (${archived.length})`;
     const runs = sessions.reduce((sum, one) => sum + one.runs, 0);
     const timed = sessions.filter((one) => one.ttftS != null);
     const timedRuns = timed.reduce((sum, one) => sum + one.runs, 0);
@@ -189,19 +218,19 @@ export function dashboard({ onOpen }) {
       ["Cost", formatCost(sessions.reduce((sum, one) => sum + one.cost, 0))],
       ["First token, average", timedRuns ? formatSeconds(timed.reduce((sum, one) => sum + one.ttftS * one.runs, 0) / timedRuns) : "—"],
     ];
-    stats.replaceChildren(...(sessions.length ? figures.map(([label, value]) => h("div", { class: "session-stat" }, h("dt", { text: label }), h("dd", { text: value }))) : []));
+    stats.replaceChildren(...(sessions.length && !archivedView ? figures.map(([label, value]) => h("div", { class: "session-stat" }, h("dt", { text: label }), h("dd", { text: value }))) : []));
     const newest = [...sessions].sort((x, y) => new Date(y.updatedAt) - new Date(x.updatedAt));
     list.replaceChildren(
       ...(newest.length
         ? newest.map(row)
-        : [h("li", { class: "session-empty", text: "No sessions yet. Start one with New session." })]),
+        : [h("li", { class: "session-empty", text: archived.length ? "Every session is archived. Start a new one with New session." : "No sessions yet. Start one with New session." })]),
     );
   }
 
   const element = h(
     "section",
     { class: "dashboard" },
-    h("header", { class: "dashboard-head" }, h("h2", { text: "Sessions" }), newButton),
+    h("header", { class: "dashboard-head" }, heading, h("div", { class: "dashboard-actions" }, viewButton, newButton)),
     status,
     stats,
     list,

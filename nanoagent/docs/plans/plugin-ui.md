@@ -72,10 +72,11 @@ Methods:
 | `describe` | `{}` | `{plugin, workspace: {id}, theme: "light"\|"dark"}` (`plugin`: the catalog entry, tasks with `inputSchema`) | — |
 | `prompt` | `{text}` | `{runId}` | `chat.delta {text}`, `chat.tool {name, arguments, output, isError}`, `chat.answer {text}`, `chat.error {message}`, `chat.done` |
 | `cancel` | `{runId}` | `{}` | — |
-| `sessions.list` | `{}` | `{sessions: [summary]}`, each `{id, pluginId, title, createdAt, updatedAt, runs, cost, ttftS}` | — |
+| `sessions.list` | `{}` | `{sessions: [summary]}`, each `{id, pluginId, title, createdAt, updatedAt, archivedAt, runs, cost, ttftS}`, archived ones too | — |
 | `session.get` | `{id}` | `{session}`: the summary with `chat` and `calls` (every run, with its cost and timings) | — |
 | `session.start` | `{}` | `{session}`, a new one with `chat: []`; it becomes the current session. The kit sends it on a new session's first `prompt` | — |
 | `session.resume` | `{id}` | `{session}`; it becomes the current session, and `prompt` continues its conversation | — |
+| `session.archive` | `{id, archived}` | `{session}` (its summary); an archived session leaves the Dashboard's list for its Archived view until it is restored (`archived: false`) or chatted in again | — |
 
 `prompt` is today's chat: a free-form message to the plugin's agent; the session keeps the
 conversation (its last 12 turns). `prompt` runs in the current session, and the host refuses it

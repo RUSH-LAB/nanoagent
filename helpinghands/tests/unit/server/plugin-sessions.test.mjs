@@ -65,4 +65,19 @@ describe('plugin sessions over PostgreSQL', () => {
     assert.equal(listed.cost, 0.112);
     assert.equal(listed.ttftS, 1.5);
   });
+
+  it('archives a session until it is restored or chatted in again', async () => {
+    const started = await sessions.create(as('alice'), 'nasdaq-drawdown');
+    assert.equal(started.archivedAt, null);
+    const archived = await sessions.archive(as('alice'), 'nasdaq-drawdown', started.id, true);
+    assert.ok(archived.archivedAt);
+    // Archiving again keeps when it was first archived.
+    assert.deepEqual((await sessions.archive(as('alice'), 'nasdaq-drawdown', started.id, true)).archivedAt, archived.archivedAt);
+    assert.deepEqual((await sessions.list(as('alice'), 'nasdaq-drawdown')).map(one => one.archivedAt), [archived.archivedAt]);
+    assert.equal((await sessions.archive(as('alice'), 'nasdaq-drawdown', started.id, false)).archivedAt, null);
+    await sessions.archive(as('alice'), 'nasdaq-drawdown', started.id, true);
+    await sessions.addTurn(as('alice'), 'nasdaq-drawdown', started.id, {prompt: 'again', answer: 'ok', tools: []});
+    assert.equal((await sessions.get(as('alice'), 'nasdaq-drawdown', started.id)).archivedAt, null);
+    await assert.rejects(sessions.archive(as('bob'), 'nasdaq-drawdown', started.id, true), error => error.status === 404);
+  });
 });

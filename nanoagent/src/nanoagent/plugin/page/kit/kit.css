@@ -308,6 +308,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .dashboard > :empty { display: none; }
 .dashboard-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .dashboard-head h2 { font-size: 15px; }
+.dashboard-actions { display: flex; align-items: center; gap: 6px; }
 .session-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
 .session-stat { display: grid; gap: 2px; min-width: 0; padding: 10px 14px; }
 .session-stat + .session-stat { border-left: 1px solid var(--border); }

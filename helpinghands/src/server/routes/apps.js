@@ -95,7 +95,8 @@ async function serveUiFile(res, json, runners, sha256, page, version, raw) {
 
 /**
  * The caller's sessions with one app (postgres/sessions.js): list and start
- * them, and read one back with every call it made.
+ * them, read one back with every call it made, and archive or restore one
+ * (PATCH `{archived}`).
  */
 async function sessionRoute(req, res, ctx, app, id) {
   const {json, requireWorkspacePermission} = ctx;
@@ -113,6 +114,12 @@ async function sessionRoute(req, res, ctx, app, id) {
     if (id !== null && req.method === 'GET') {
       requireWorkspacePermission(req.context, 'content:read');
       return json(res, 200, {session: await ctx.sessions.get(req.context, app, id)});
+    }
+    if (id !== null && req.method === 'PATCH') {
+      requireWorkspacePermission(req.context, 'apps:use');
+      const body = await ctx.readBody(req).catch(() => null);
+      if (typeof body?.archived !== 'boolean') return json(res, 400, {error: 'Request body must be {"archived": true} or {"archived": false}'});
+      return json(res, 200, {session: await ctx.sessions.archive(req.context, app, id, body.archived)});
     }
   } catch (error) {
     if (error.name === 'SessionError') return json(res, error.status, {error: error.message});

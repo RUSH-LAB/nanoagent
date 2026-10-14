@@ -898,7 +898,7 @@ export const SESSION = '00000000-0000-4000-8000-000000000001';
 /**
  * Plugin sessions (postgres/sessions.js) held in memory: `SESSION` of every
  * plugin id in `plugins` exists; anything else is a SessionError 404. Every
- * session created and turn added is recorded.
+ * session created, turn added and archive or restore is recorded.
  */
 export function fakeSessions(plugins = ['echo', 'arxiv-source']) {
   const {SessionError} = require('../../src/server/postgres/sessions.js');
@@ -922,6 +922,12 @@ export function fakeSessions(plugins = ['echo', 'arxiv-source']) {
     async addTurn(context, pluginId, id, turn) {
       await sessions.assertOwned(context, pluginId, id);
       sessions.turns.push({pluginId, id, ...turn});
+    },
+    archived: [],
+    async archive(context, pluginId, id, archived) {
+      await sessions.assertOwned(context, pluginId, id);
+      sessions.archived.push({pluginId, id, archived});
+      return {id, pluginId, title: '', archivedAt: archived ? '2026-10-14T00:00:00.000Z' : null, runs: 0, cost: 0, ttftS: null};
     },
   };
   return sessions;

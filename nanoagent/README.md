@@ -207,7 +207,7 @@ NanoAgent serves an installed plugin's page at `GET /v1/installs/<sha256>/ui/<ui
 Content-Security-Policy with `connect-src 'none'`, so the page can't reach the
 network and talks to NanoAgent only through the host's `postMessage` bridge,
 protocol `nanoagent.ui/v1`. The bridge's methods are `describe`, `prompt`,
-`cancel`, `sessions.list`, and `session.get` / `start` / `resume`
+`cancel`, `sessions.list`, and `session.get` / `start` / `resume` / `archive`
 ([docs/plans/plugin-ui.md](docs/plans/plugin-ui.md)).
 
 A plugin's `ui/` says how to draw its outputs, and nothing else: an output is

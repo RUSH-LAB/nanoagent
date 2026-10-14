@@ -39,6 +39,9 @@ const PARAMS = {
   'session.get': ({id}) => (SESSION_ID.test(id ?? '') ? null : 'session.get needs a session id'),
   'session.start': () => null,
   'session.resume': ({id}) => (SESSION_ID.test(id ?? '') ? null : 'session.resume needs a session id'),
+  'session.archive': ({id, archived}) => (SESSION_ID.test(id ?? '') && typeof archived === 'boolean'
+    ? null
+    : 'session.archive needs a session id and archived, true or false'),
 };
 
 export const METHODS = Object.keys(PARAMS);

@@ -327,6 +327,18 @@ describe('an app\'s sessions', () => {
     assert.equal((await invoke(routes, {method: 'GET', path: `${PATH}/not-an-id`, ctx, requestContext: context})).status, 404);
   });
 
+  it('archives and restores one of the caller\'s sessions', async () => {
+    const ctx = ctxWith({});
+    const archived = await invoke(routes, {method: 'PATCH', path: `${PATH}/${SESSION}`, body: {archived: true}, ctx, requestContext: context});
+    assert.equal(archived.status, 200);
+    assert.ok(archived.payload.session.archivedAt);
+    const restored = await invoke(routes, {method: 'PATCH', path: `${PATH}/${SESSION}`, body: {archived: false}, ctx, requestContext: context});
+    assert.equal(restored.payload.session.archivedAt, null);
+    assert.deepEqual(ctx.sessions.archived.map(one => one.archived), [true, false]);
+    const bad = await invoke(routes, {method: 'PATCH', path: `${PATH}/${SESSION}`, body: {archived: 'yes'}, ctx, requestContext: context});
+    assert.equal(bad.status, 400);
+  });
+
   it('lets a viewer read and start their own sessions', async () => {
     const ctx = ctxWith({});
     const viewer = {...context, role: 'viewer'};
