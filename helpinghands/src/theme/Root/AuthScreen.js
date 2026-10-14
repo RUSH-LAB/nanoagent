@@ -51,8 +51,7 @@ export default function AuthScreen({ unreachable = null }) {
     <div className={styles.page}>
       <div className={styles.card}>
         <img src="/img/rush-lab.png" alt="" className={styles.logo} />
-        <h1 className={styles.title}>Sign in to {siteConfig.title}</h1>
-        <p className={styles.tagline}>{siteConfig.tagline}</p>
+        <h1 className={`${styles.title} ${styles.signInTitle}`}>Sign in to {siteConfig.title}</h1>
 
         {unreachable && !error && (
           <p className={styles.error} role="alert">
@@ -73,7 +72,7 @@ export default function AuthScreen({ unreachable = null }) {
             <LockIcon />
             <span>
               {policy.signupMode === 'invite' ? (
-                <><strong>Invitation only.</strong> New here? Use the GitHub account that was invited, or one whose primary email was.</>
+                <><strong>Invitation only</strong> with GitHub.</>
               ) : (
                 <><strong>Approved addresses only.</strong> New here? Use a GitHub account whose primary email was approved.</>
               )}

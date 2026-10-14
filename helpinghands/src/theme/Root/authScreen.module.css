@@ -53,6 +53,11 @@
   color: #0f172a !important;
 }
 
+/* Sign-in has no tagline below its title, so the title holds the gap. */
+.signInTitle {
+  margin-bottom: 1.75rem;
+}
+
 .tagline {
   margin: 0.4rem 0 1.75rem;
   text-align: center;
