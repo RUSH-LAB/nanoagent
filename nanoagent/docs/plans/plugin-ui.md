@@ -133,9 +133,14 @@ The kit's frame (`mountApp`, `kit/shell.js`) has two tabs, the same for every pl
 
 A person says what they need. The plugin's agent has one tool per task (named by the task's id,
 taking its input, described by its description), runs the task the verified way, and answers in
-a sentence or two. Each task it ran shows above the answer as a result card
-(`resultCard`, `kit/result.js`): the task's description, its verdict as a badge ("Checked", or
-"Check failed" with the verifier's message), and its output. A task that failed says why.
+a sentence or two. The Session page has two columns: the chat on the left, and on the right
+the result of one task call (`resultsPane`, `kit/result.js`). Each task the agent ran shows above
+its answer as a chip, named for the task and marked with whether it passed its check; picking a
+chip shows its result card on the right, and the latest result shows there as it arrives and
+when a session is resumed. A frame narrower than 760 px stacks the result over the chat. The
+result card (`resultCard`) holds the task's description, its verdict as a badge ("Checked", or
+"Check failed" with the verifier's message), and its output. A task that failed says why, in the
+chat.
 
 The output is drawn by the plugin's renderer for its output class, when `renderers.js` has one,
 and otherwise from the task's `outputSchema` (`schemaView`): an object as labelled fields (the

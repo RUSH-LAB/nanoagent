@@ -4,8 +4,8 @@
 
 import { hasHost, on, request } from "./bridge.js";
 import { chatPanel } from "./chat.js";
-import { applyTheme, h, icon } from "./dom.js";
-import { resultCard } from "./result.js";
+import { applyTheme, h, humanize, icon } from "./dom.js";
+import { resultCard, resultsPane } from "./result.js";
 import { dashboard, enterSession } from "./session.js";
 
 /** The plugin's header (its icon, name and tagline) over `children`. */
@@ -24,13 +24,18 @@ function homePage(plugin, ...children) {
 }
 
 /**
- * A session: a chat with the plugin's agent. Each of the agent's tools is one of the plugin's
- * tasks, and each task it runs shows as a result card: its output, drawn by the plugin's renderer
- * for its output class or from its JSON Schema, and its verdict.
+ * A session: a chat with the plugin's agent on the left, and on the right the result of the task
+ * picked in it. Each of the agent's tools is one of the plugin's tasks, and each task it runs shows
+ * as a result card: its output, drawn by the plugin's renderer for its output class or from its
+ * JSON Schema, and its verdict.
  */
 function sessionPage(plugin, renderers) {
-  const render = Object.fromEntries(
-    plugin.tasks.map((task) => [task.id, (result, { send }) => resultCard(task, result, renderers[task.output], send)]),
+  const results = resultsPane();
+  const tasks = Object.fromEntries(
+    plugin.tasks.map((task) => [
+      task.id,
+      { label: humanize(task.id), title: task.description, draw: (result, { send }) => resultCard(task, result, renderers[task.output], send) },
+    ]),
   );
   const intro = h(
     "div",
@@ -39,7 +44,7 @@ function sessionPage(plugin, renderers) {
     h("h1", { text: plugin.name }),
     h("p", { class: "muted", text: plugin.product.summary }),
   );
-  return h("div", { class: "chat-page" }, chatPanel({ intro, placeholder: `Tell ${plugin.name} what you need`, render }).element);
+  return h("div", { class: "chat-page" }, chatPanel({ intro, placeholder: `Tell ${plugin.name} what you need`, tasks, show: results.show }).element, results.element);
 }
 
 /** Why `renderers` (ui/renderers.js's default export) does not fit `plugin`, or null. */

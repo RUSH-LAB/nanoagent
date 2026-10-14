@@ -26,7 +26,8 @@ The model cost of an agent task's own agent counts in the chat's cost.
 
 ## 3. One page, drawn from the output's type
 
-The kit's chat is every plugin's Session page. A task call in the chat shows as a result card:
+The kit's chat is every plugin's Session page, with the results beside it: a task call shows in
+the chat as a chip, and its result card on the right:
 the output drawn from its JSON Schema (an object as labelled fields, a list of objects as a
 table, a list of strings as a list, text, numbers, yes/no), with the verdict as a badge.
 

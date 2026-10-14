@@ -1,25 +1,27 @@
 // Chat with the plugin's agent over `prompt`: every plugin's Session page (kit/shell.js).
 
 import { request, startRun } from "./bridge.js";
-import { h } from "./dom.js";
+import { h, icon } from "./dom.js";
 import { markdown } from "./markdown.js";
 import { currentSession, metricsLine } from "./session.js";
 
 /**
  * A conversation with the plugin's agent. Answers are shown as Markdown. Each of the agent's
- * tools is one of the plugin's tasks, and each task it ran shows its result above the answer, as
- * `render` draws it; a task that failed says why. The host keeps the conversation with the
- * session, task results included, so a resumed session shows it again and continues it. Each
- * answer says what it cost and how long it took.
+ * tools is one of the plugin's tasks; each task it ran shows as a chip above the answer, with
+ * whether it passed its check, and picking the chip draws its result with `show`, beside the
+ * chat; the latest result is drawn as it arrives. A task that failed says why. The host keeps the
+ * conversation with the session, task results included, so a resumed session shows it again,
+ * its latest result drawn, and continues it. Each answer says what it cost and how long it took.
  * @param {object} options
  * @param {Node} options.intro What the empty log shows.
  * @param {string} options.placeholder The message box's placeholder.
- * @param {Record<string, (result: {output: unknown, verdict: object}, call: {send: (text: string) => void}) => Node>} options.render
- *   One renderer per task id: it draws what the task returned. `send` sends a message as if the
- *   person typed it, e.g. from a card's button.
+ * @param {Record<string, {label: string, title: string, draw: (result: {output: unknown, verdict: object}, call: {send: (text: string) => void}) => Node}>} options.tasks
+ *   One entry per task id: its chip's `label` and `title`, and `draw`, which draws what the task
+ *   returned. `send` sends a message as if the person typed it, e.g. from a card's button.
+ * @param {(node: Node) => void} options.show Draws a task's result beside the chat.
  * @returns {{element: HTMLElement}}
  */
-export function chatPanel({ intro, placeholder, render }) {
+export function chatPanel({ intro, placeholder, tasks, show }) {
   const log = h("div", { class: "chat-log", role: "log", "aria-live": "polite" }, intro);
   const input = h("textarea", { class: "input", rows: 2, placeholder, "aria-label": placeholder });
   const sendButton = h("button", { type: "button", class: "button primary", text: "Send" });
@@ -27,11 +29,30 @@ export function chatPanel({ intro, placeholder, render }) {
   let runId = null;
   let fresh = true;
 
-  /** A task call's result as its renderer draws it, or why the task failed. */
+  let picked = null;
+  /** Marks `chip` picked and draws its task's result beside the chat. */
+  const pick = (chip) => {
+    picked?.setAttribute("aria-pressed", "false");
+    picked = chip;
+    chip.setAttribute("aria-pressed", "true");
+    chip.draw();
+  };
+  /** A task call as a chip that draws its result, or why the task failed. */
   const toolResult = ({ name, output, isError }) => {
-    if (!render[name]) return h("p", { class: "error-text", text: `The agent called ${name}, which is not one of the plugin's tasks.` });
-    if (isError) return h("p", { class: "error-text", text: `${name} failed: ${output}` });
-    return h("div", { class: "tool-result" }, render[name](JSON.parse(output), { send: (text) => submit(text) }));
+    const task = tasks[name];
+    if (!task) return h("p", { class: "error-text", text: `The agent called ${name}, which is not one of the plugin's tasks.` });
+    if (isError) return h("p", { class: "error-text", text: `${task.label} failed: ${output}` });
+    const result = JSON.parse(output);
+    const valid = result.verdict.valid;
+    const chip = h(
+      "button",
+      { type: "button", class: valid ? "result-chip" : "result-chip bad", "aria-pressed": "false", title: task.title },
+      icon(valid ? "check" : "error", { size: 14, label: valid ? "Checked" : "Check failed" }),
+      h("span", { text: task.label }),
+    );
+    chip.draw = () => show(task.draw(result, { send: (text) => submit(text) }));
+    chip.addEventListener("click", () => pick(chip));
+    return chip;
   };
   const clearIntro = () => {
     if (fresh) log.replaceChildren();
@@ -39,8 +60,10 @@ export function chatPanel({ intro, placeholder, render }) {
   };
   for (const { prompt, answer, tools = [] } of currentSession()?.chat ?? []) {
     clearIntro();
-    log.append(h("div", { class: "message user" }, h("p", { text: prompt })), h("div", { class: "turn" }, tools.map(toolResult), h("div", { class: "message agent" }, markdown(answer))));
+    log.append(h("div", { class: "message user" }, h("p", { text: prompt })), h("div", { class: "turn" }, h("div", { class: "tool-results" }, tools.map(toolResult)), h("div", { class: "message agent" }, markdown(answer))));
   }
+  const chips = log.querySelectorAll(".result-chip");
+  if (chips.length) pick(chips[chips.length - 1]);
 
   const scroll = () => {
     log.scrollTop = log.scrollHeight;
@@ -77,9 +100,12 @@ export function chatPanel({ intro, placeholder, render }) {
             streamed += data.text ?? "";
             write(streamed);
             break;
-          case "chat.tool":
-            results.append(toolResult(data));
+          case "chat.tool": {
+            const shown = toolResult(data);
+            results.append(shown);
+            if (shown.matches(".result-chip")) pick(shown);
             break;
+          }
           case "chat.answer":
             write(data.text ?? "");
             if (data.metrics) reply.append(h("p", { class: "message-metrics", text: metricsLine(data.metrics) }));

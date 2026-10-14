@@ -1,5 +1,5 @@
-// A task's result in the chat: its typed output, drawn from its JSON Schema or by the plugin's
-// renderer for its output class, under the task's name and its verdict.
+// A task's result, beside the chat: its typed output, drawn from its JSON Schema or by the
+// plugin's renderer for its output class, under the task's name and its verdict.
 
 import { dataTable, statusPill } from "./display.js";
 import { h, humanize } from "./dom.js";
@@ -88,7 +88,7 @@ function listView(items, schema) {
 }
 
 /**
- * One task call in the chat: the task's name, its verdict, and its output.
+ * One task call's result: the task's name, its verdict, and its output.
  * @param {object} task The catalog's task: `description`, `output` (the class name), `outputSchema`.
  * @param {{output: unknown, verdict: {valid: boolean, message: string}}} result What the task call returned.
  * @param {((value: unknown, context: object) => Node) | undefined} renderer The plugin's renderer for `task.output`.
@@ -105,4 +105,20 @@ export function resultCard(task, { output, verdict }, renderer, send) {
     verdict.valid ? null : h("p", { class: "error-text", text: verdict.message }),
     renderer ? renderer(output, { task, verdict, send }) : schemaView(output, task.outputSchema),
   );
+}
+
+/**
+ * The column beside the chat that draws one task's result at a time.
+ * @returns {{element: HTMLElement, show: (node: Node) => void}}
+ */
+export function resultsPane() {
+  const empty = h("div", { class: "results-empty" }, h("p", { text: "Results show here" }), h("p", { class: "muted", text: "Each task the agent runs shows its result here." }));
+  const element = h("section", { class: "results-pane", "aria-label": "Result", "aria-live": "polite" }, empty);
+  return {
+    element,
+    show(node) {
+      element.replaceChildren(node);
+      element.scrollTop = 0;
+    },
+  };
 }

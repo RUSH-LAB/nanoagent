@@ -180,8 +180,9 @@ them.
 Every plugin's page is NanoAgent's: a chat with the plugin's agent. A person
 says what they need; the agent, whose only tools are the plugin's tasks (one
 per task, named by its id and taking its input), runs the task that does it
-the verified way, and answers in a sentence or two. Each task it ran shows as a
-result card: the task's output, with its verdict as a badge. Mochi shows the
+the verified way, and answers in a sentence or two. Each task it ran shows in
+the chat as a chip, and its result card (the task's output, with its verdict as
+a badge) beside the chat, on the right. Mochi shows the
 page in a sandboxed iframe, in the kit's frame of two tabs. **Dashboard**,
 where the app always opens, lists the member's sessions with the plugin,
 newest first, with what each ran and cost, to resume one or start a new one.
