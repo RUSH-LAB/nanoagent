@@ -114,13 +114,13 @@ goes stale. `uiVersion` digests both halves, so a new kit is a new URL.
 
 The kit's frame (`mountApp`, `kit/shell.js`) has two tabs, and the plugin designs only one:
 
-- **Dashboard**, where the app opens: the kit's own, the same for every plugin, and `ui/`
+- **Dashboard**, where the app always opens: the kit's own, the same for every plugin, and `ui/`
   changes nothing here. It lists the member's sessions with this plugin in this workspace
   (Mochi keeps them in PostgreSQL), newest first, each with when it was last used, its runs,
   cost and time to first token; clicking one resumes it, and its Runs button shows each run.
   "New session" opens a new one.
 - **Session**: the plugin's page, always one click away: the tab shows the open session or,
-  with none open, a new one. Someone with no sessions yet starts here, in a new session.
+  with none open, a new one.
   Opening a session calls `app.js`'s default export as `layout({plugin, workspace, session})`
   and shows what it returns. A new session is the page's alone until it first runs a task,
   chats or saves: only then does the kit ask the host to start it (`session.start`, sent from

@@ -177,11 +177,11 @@ them.
 Every plugin also ships its own front end in `ui/`, a static web page:
 `ui/app.js`, `ui/app.css` and the JS, CSS, images and fonts they load, at most
 5 MB, with nothing built at load time. Mochi shows it in a sandboxed iframe,
-in the kit's frame of two tabs. **Dashboard**, where the app opens, is the
+in the kit's frame of two tabs. **Dashboard**, where the app always opens, is the
 kit's own and the same for every plugin: the member's sessions with the
 plugin, newest first, with what each ran and cost, to resume one or start a
 new one. **Session** is the plugin's page: the open session or, with none
-open, a new one; someone with no sessions yet starts there. It shows
+open, a new one. It shows
 `app.js`'s layout, given the session, whose `state` the page saved last time
 (`session.save(state, {title})`), so a person comes back to where they left
 off. A task or chat always runs in a session, and a new session is only kept

@@ -132,8 +132,7 @@ function callsTable(calls) {
  * @param {object} options
  * @param {(session: object|null) => void} options.onOpen With what `session.resume` answered,
  *   or null for a new session.
- * @returns {{element: HTMLElement, refresh: () => Promise<number|null>}} `refresh` lists the
- *   sessions again and resolves with how many there are, or null when the host could not say.
+ * @returns {{element: HTMLElement, refresh: () => Promise<void>}} `refresh` lists the sessions again.
  */
 export function dashboard({ onOpen }) {
   const stats = h("dl", { class: "session-stats" });
@@ -191,7 +190,7 @@ export function dashboard({ onOpen }) {
       ({ sessions } = await request("sessions.list"));
     } catch (problem) {
       status.textContent = problem.message;
-      return null;
+      return;
     }
     const runs = sessions.reduce((sum, one) => sum + one.runs, 0);
     const timed = sessions.filter((one) => one.ttftS != null);
@@ -207,9 +206,8 @@ export function dashboard({ onOpen }) {
     list.replaceChildren(
       ...(newest.length
         ? newest.map(row)
-        : [h("li", { class: "session-empty", text: "No sessions yet. A new session is kept once you run something in it." })]),
+        : [h("li", { class: "session-empty", text: "No sessions yet. Start one with New session." })]),
     );
-    return sessions.length;
   }
 
   const element = h(

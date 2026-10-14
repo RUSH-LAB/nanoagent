@@ -110,7 +110,7 @@ function frameTabs() {
 /**
  * Connect to the host and show the page: asks the host to `describe` the plugin, applies its
  * theme (and follows `host.theme`), then shows the Dashboard, where people resume a session or
- * start a new one; someone with no sessions yet starts in a new one. A session shows
+ * start a new one. A session shows
  * `layout({plugin, workspace, session})` under the Session tab; the page saves what it should
  * come back to with `session.save(state)` and finds it again in `session.state`. A page opened
  * outside a host, or a host that doesn't answer within 10 s, gets a plain message instead.
@@ -179,6 +179,6 @@ export async function mountApp(layout) {
   }
 
   root.replaceChildren(tabs.element, home.element, page);
-  if ((await board.refresh()) === 0) openSession(null);
-  else show("dashboard");
+  show("dashboard");
+  board.refresh();
 }
