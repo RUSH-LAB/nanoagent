@@ -102,6 +102,20 @@ describe('NanoAgent apps', () => {
     assert.deepEqual(ctx.workspaceApps.calls, [['add', 'echo'], ['remove', 'echo'], ['remove', 'other']]);
   });
 
+  it('prepares the workspace\'s apps on the hosted NanoAgent and the member\'s computer, answering at once', async () => {
+    const ctx = ctxWith({});
+    const computer = {name: 'computer'};
+    const prepared = [];
+    ctx.workspaceApps.prepare = async (_context, on) => { prepared.push(on); return {value: []}; };
+    const post = () => invoke(routes, {method: 'POST', path: '/api/app-installs', ctx, requestContext: {...context, role: 'viewer'}});
+    const answer = await post();
+    assert.equal(answer.status, 202);
+    assert.deepEqual(prepared, [ctx.ai]);
+    ctx.runners.computer = userId => (userId === context.userId ? computer : null);
+    await post();
+    assert.deepEqual(prepared, [ctx.ai, ctx.ai, computer]);
+  });
+
   it('lets only an owner tag a plugin, with a short list of short names', async () => {
     const ctx = ctxWith({});
     const tag = (body, role = 'owner', id = 'echo') => invoke(routes, {method: 'PATCH', path: `/api/apps/${id}`, body, ctx, requestContext: {...context, role}});

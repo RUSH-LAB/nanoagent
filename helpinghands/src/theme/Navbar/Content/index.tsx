@@ -16,6 +16,7 @@ import NavbarMobileSidebarToggle from '@theme/Navbar/MobileSidebar/Toggle';
 import WorkspaceSwitcher from '@site/src/components/WorkspaceSwitcher';
 import SearchTrigger from '@site/src/components/SearchTrigger';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
+import {prepareWorkspaceApps} from '@site/src/hooks/useWorkspaceApps';
 import useWorkspaceSubscriptions, {
   isBookSubscribed, orderByPreference,
 } from '@site/src/hooks/useWorkspaceSubscriptions';
@@ -154,6 +155,9 @@ export default function NavbarContent(): ReactNode {
   const [leftItems, rightItems] = splitNavbarItems(scopedItems);
 
   const searchBarItem = items.find((item) => item.type === 'search');
+
+  // Entering a workspace starts installing its plugins, before any is opened.
+  useEffect(() => prepareWorkspaceApps(workspace?.id), [workspace?.id]);
 
   useEffect(() => {
     if (!workspaceSlug || !workspaceSite) return undefined;

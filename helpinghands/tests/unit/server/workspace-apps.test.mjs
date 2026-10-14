@@ -73,6 +73,21 @@ describe('a workspace\'s apps', () => {
     assert.deepEqual(await apps.open(as('carol', 'other'), 'notes'), {error: 'This workspace has no plugin named notes', status: 404});
   });
 
+  it('prepares every app of the workspace on a NanoAgent, ahead of its first open', async () => {
+    const computer = new Map();
+    const on = {
+      install: async sha256 => (computer.has(sha256) ? {value: {plugin: computer.get(sha256)}} : {error: 'not installed', status: 404}),
+      installPackage: async sha256 => {
+        computer.set(sha256, {sha256});
+        return {value: {plugin: {sha256}}};
+      },
+    };
+    assert.deepEqual(await apps.prepare(as('bob'), on), {value: [{id: 'bibtex-check'}, {id: 'notes'}]});
+    assert.deepEqual([...computer.keys()], [BUILT_IN.sha256, UPLOAD.sha256]);
+    assert.equal((await apps.open(as('bob'), 'notes', on)).value.sha256, UPLOAD.sha256);
+    assert.deepEqual(await apps.prepare(as('carol', 'other'), on), {value: []});
+  });
+
   it('runs an upload\'s latest version', async () => {
     const next = {...UPLOAD, version: '1.1.0', sha256: 'e'.repeat(64)};
     await market.publish('alice', next, Buffer.from('upload package 1.1'), REPOSITORY);

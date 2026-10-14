@@ -423,6 +423,10 @@ const CATEGORIES = [
         response: '<!doctype html>...',
       },
       {
+        method: 'POST', path: '/api/app-installs', description: 'Install every ready app the workspace added, on the hosted NanoAgent and on your computer while it is connected, so opening one does not wait. Answers at once; the installs continue in the background. Mochi calls it when you enter a workspace and after you add a plugin.',
+        response: '{ "preparing": true }',
+      },
+      {
         method: 'POST', path: '/api/apps/:id/tasks/:task/runs', description: 'Run one task of an app in your agent workspace, streaming NanoAgent\'s task events as server-sent events; closing the stream cancels the run. Owners and editors only.',
         request: '{ "arguments": { "arxiv_id": "1706.03762" } }',
         response: 'event: task.started\ndata: {"type":"task.started","runId":"...","task":"save-paper-source"}\n\nevent: task.verdict\ndata: {"type":"task.verdict","runId":"...","valid":true,"score":1,"message":"...","details":{}}\n\nevent: task.done\ndata: {"type":"task.done","runId":"..."}',

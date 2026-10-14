@@ -32,7 +32,7 @@ function contentTypeFor(path, body) {
   return text ? {type: 'text/plain; charset=utf-8', inline: true} : {type: 'application/octet-stream', inline: false};
 }
 
-const ROUTES = new Set(['/api/apps', '/api/agent-files', '/api/agent-files/content']);
+const ROUTES = new Set(['/api/apps', '/api/app-installs', '/api/agent-files', '/api/agent-files/content']);
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const APP_ROUTE = /^\/api\/apps\/([^/]+)$/;
 const UI_ROUTE = /^\/api\/apps\/([^/]+)\/ui\/([^/]+)\/(.+)$/;
@@ -326,6 +326,27 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
     const result = await ctx.workspaceApps.list(req.context);
     if (result.error) return json(res, result.status, {error: result.error});
     return json(res, 200, {apps: result.value});
+  }
+
+  // Entering a workspace installs its apps ahead of the first open: on the
+  // hosted NanoAgent, which serves their pages, and on the member's computer
+  // while it is connected, where their runs go. Answered at once; an install
+  // that fails is logged, and opening that app reports it.
+  if (req.method === 'POST' && pathname === '/api/app-installs') {
+    requireWorkspacePermission(req.context, 'content:read');
+    if (!ctx.workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
+    const computer = ctx.runners.computer(req.context.userId);
+    for (const on of computer ? [ai, computer] : [ai]) {
+      ctx.workspaceApps.prepare(req.context, on).then(
+        result => {
+          for (const failed of result.error ? [result] : result.value.filter(app => app.error)) {
+            console.error(`[apps] preparing ${failed.id ?? 'the workspace\'s apps'} failed: ${failed.error}`);
+          }
+        },
+        error => console.error('[apps] preparing the workspace\'s apps failed:', error),
+      );
+    }
+    return json(res, 202, {preparing: true});
   }
 
   const fs = ctx.workspaceFs;

@@ -6,7 +6,7 @@ import Layout from '@theme/Layout';
 import AppProduct from '@site/src/components/AppProduct';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
-import {forgetWorkspaceApps, workspaceAppsUrl} from '@site/src/hooks/useWorkspaceApps';
+import {forgetWorkspaceApps, prepareWorkspaceApps, workspaceAppsUrl} from '@site/src/hooks/useWorkspaceApps';
 import {useClickOutside} from '@site/src/hooks/useClickOutside';
 import API_BASE, {apiFetch, apiJson} from '@site/src/utils/api';
 import styles from './styles.module.css';
@@ -258,6 +258,7 @@ function Marketplace() {
   }, [workspaceId]);
   const markAdded = (id, isAdded) => {
     forgetWorkspaceApps(workspaceId);
+    if (isAdded) prepareWorkspaceApps(workspaceId, {again: true});
     setAdded(current => {
       const next = new Set(current);
       if (isAdded) next.add(id);
