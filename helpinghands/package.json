@@ -1,7 +1,7 @@
 {
   "name": "mochi-lab",
   "version": "0.0.0",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "private": true,
   "bin": {
     "mochi": "./cli/mochi.mjs"

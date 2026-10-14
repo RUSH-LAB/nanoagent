@@ -8,7 +8,7 @@ name = "nanoagent"
 dynamic = ["version"]
 description = "A minimal, clean-room agent loop with structured tool calling — and the batch/REPL/CLI drivers around it"
 readme = "README.md"
-license = "MIT"
+license = "LicenseRef-Proprietary"
 license-files = ["LICENSE"]
 # 3.12+: the package is written against the 3.12 typing syntax (`X | None` at runtime under
 # `from __future__ import annotations`, `type` aliases, PEP 695-era generics).
