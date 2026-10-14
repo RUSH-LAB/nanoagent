@@ -32,6 +32,8 @@ class WebConfig(AgentDefinitionConfig):
     installs: str = MISSING
     # The uv cache every install shares, for the wheels its plugins' environments are built from.
     uv_cache: str = MISSING
+    # An install no caller installed for this many days is removed when the service starts.
+    installs_unused_days: int = MISSING
     # What every plugin process runs in (see nanoagent.plugin.sandbox): `bwrap`, `seatbelt` on
     # macOS, or `none`, which confines nothing.
     sandbox: str = MISSING

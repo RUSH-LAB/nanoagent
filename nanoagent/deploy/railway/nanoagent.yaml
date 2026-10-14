@@ -51,6 +51,7 @@ workspaces: /tmp/nanoagent-workspaces
 # (Mochi installs again after a restart and gets the kept one), and the uv cache they share.
 installs: /data/nanoagent-installs
 uv_cache: /data/nanoagent-uv-cache
+installs_unused_days: 30
 # Plugins run as plain processes for now: Railway's containers refuse bwrap the namespaces it
 # needs. Anyone may publish a plugin, so this must become a sandbox (docs/plans/plugin-sandbox.md).
 sandbox: none

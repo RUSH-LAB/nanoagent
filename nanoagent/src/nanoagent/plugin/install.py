@@ -18,19 +18,23 @@ A host runs only what it installed here. :meth:`Installs.install` takes a packag
 
 A sha256 names one package's exact bytes, so an install never changes. A finished install is kept
 on disk for the Python it was built on: when the process starts again, its caller installs again
-and gets the kept one without a sync.
+and gets the kept one without a sync. Starting removes the installs no caller can get back as they
+are, and those no caller installed for a while, which installing again builds again.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
 import subprocess
 import sys
 import threading
+import time
 import tomllib
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -53,10 +57,10 @@ INSTALL_HOSTS = (
     "codeload.github.com",
     "media.githubusercontent.com",
 )
-SYNC = ("uv", "sync", "--frozen", "--no-dev")
-SYNC_TIMEOUT = 600.0
 # The Python every plugin's environment is built on: NanoAgent's own, which every sandbox can read.
 PYTHON = Path(sys.base_prefix) / "bin" / "python3"
+SYNC = ("uv", "sync", "--frozen", "--no-dev", "--python", str(PYTHON))
+SYNC_TIMEOUT = 600.0
 # Written into an install's folder once it finishes; a kept install whose marker differs is redone.
 INSTALLED = "installed"
 INTERPRETER = f"{PYTHON}\n{sys.version}\n"
@@ -83,30 +87,43 @@ class Installed:
     entry: dict[str, Any]
 
 
+def _finished(folder: Path) -> bool:
+    """Whether ``folder`` holds an install that finished, on this Python."""
+    marker = folder / INSTALLED
+    return marker.is_file() and marker.read_text(encoding="utf-8") == INTERPRETER
+
+
 def built_here(lock: Path) -> list[str]:
     """The packages of the ``uv.lock`` at ``lock`` that have no wheel from a package index this
     Python can install: they are built, so only in the second sync."""
     tags = set(sys_tags())
-    names = []
-    for package in tomllib.loads(lock.read_text(encoding="utf-8")).get("package", []):
-        try:
-            wheels = [parse_wheel_filename(unquote(wheel["url"].rsplit("/", 1)[-1]))[3] for wheel in package.get("wheels", [])]
-        except InvalidWheelFilename as error:
-            raise InstallError(f"uv.lock: {error}") from None
-        if "registry" not in package["source"] or not any(tags & set(wheel) for wheel in wheels):
-            names.append(package["name"])
-    return names
+
+    def installable(package: dict[str, Any]) -> bool:
+        files = (unquote(wheel["url"].rsplit("/", 1)[-1]) for wheel in package.get("wheels", []))
+        return "registry" in package["source"] and any(tags & parse_wheel_filename(file)[3] for file in files)
+
+    try:
+        packages = tomllib.loads(lock.read_text(encoding="utf-8")).get("package", [])
+        return [package["name"] for package in packages if not installable(package)]
+    except InvalidWheelFilename as error:
+        raise InstallError(f"uv.lock: {error}") from None
 
 
 class Installs:
     """The plugins installed under ``root``, sharing the uv cache ``cache``: folders of this
-    process's own."""
+    process's own. An install no caller installed for ``unused_days`` is removed on starting."""
 
-    def __init__(self, root: str | Path, cache: str | Path) -> None:
+    def __init__(self, root: str | Path, cache: str | Path, unused_days: int) -> None:
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.cache = Path(cache).resolve()
         self.cache.mkdir(parents=True, exist_ok=True)
+        # Each install's marker is touched whenever it is installed, so its age is how long it went unused.
+        cutoff = time.time() - unused_days * 86_400
+        for folder in self.root.iterdir():
+            if not (_finished(folder) and (folder / INSTALLED).stat().st_mtime >= cutoff):
+                shutil.rmtree(folder)
+        subprocess.run(["uv", "cache", "prune", "--quiet"], env={**os.environ, "UV_CACHE_DIR": str(self.cache)}, check=True)
         self._installed: dict[str, Installed] = {}
         # One lock per sha256, so a package installs once however many ask at the same time.
         self._locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)
@@ -123,13 +140,13 @@ class Installs:
             raise PackageError(["the package's sha256 is not the one it was sent as"])
         with self._guard:
             lock = self._locks[sha256]
+        folder = self.root / sha256
         with lock:
             if sha256 in self._installed:
+                (folder / INSTALLED).touch()
                 return self._installed[sha256]
             entry = inspect_package(data)
-            folder = self.root / sha256
-            marker = folder / INSTALLED
-            kept = marker.is_file() and marker.read_text(encoding="utf-8") == INTERPRETER
+            kept = _finished(folder)
             if not kept:
                 # Left by an install that did not finish, or built on another Python.
                 shutil.rmtree(folder, ignore_errors=True)
@@ -142,13 +159,14 @@ class Installs:
                 if manifest.env and sandbox.current() != "none":
                     raise PackageError([f"the plugin needs {', '.join(manifest.env)}; a sandboxed host passes no variables"])
                 if not kept:
-                    if (plugin / ".venv").is_symlink() or (plugin / ".venv").exists():
+                    if os.path.lexists(plugin / ".venv"):
                         raise PackageError(["the package carries a .venv; an install builds its own"])
                     self._sync(plugin)
-                    marker.write_text(INTERPRETER, encoding="utf-8")
+                    (folder / INSTALLED).write_text(INTERPRETER, encoding="utf-8")
             except BaseException:
                 shutil.rmtree(folder, ignore_errors=True)
                 raise
+            (folder / INSTALLED).touch()
             installed = Installed(manifest, {**entry, "uiVersion": ui_version(manifest)})
             self._installed[sha256] = installed
             return installed
@@ -156,10 +174,10 @@ class Installs:
     def _sync(self, plugin: Path) -> None:
         shared = {"UV_CACHE_DIR": str(self.cache), "UV_LINK_MODE": "copy"}
         skipped = [arg for name in built_here(plugin / "uv.lock") for arg in ("--no-install-package", name)]
-        self._run([*SYNC, "--python", str(PYTHON), "--no-build", *skipped], plugin, shared, [plugin, self.cache])
-        self._run([*SYNC, "--python", str(PYTHON)], plugin, {}, [plugin])
+        self._run([*SYNC, "--no-build", *skipped], plugin, shared, [plugin, self.cache])
+        self._run(SYNC, plugin, {}, [plugin])
 
-    def _run(self, sync: list[str], plugin: Path, env: dict[str, str], writable: list[Path]) -> None:
+    def _run(self, sync: Sequence[str], plugin: Path, env: dict[str, str], writable: list[Path]) -> None:
         with sandbox.launch(sync, root=plugin, env=env, writable=writable, hosts=INSTALL_HOSTS) as (argv, launch_env):
             completed = subprocess.run(
                 argv, cwd=plugin, env=launch_env, capture_output=True, text=True, timeout=SYNC_TIMEOUT, check=False

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -132,6 +134,18 @@ def test_keeps_a_finished_install_for_the_next_process(
     monkeypatch.setattr(install, "SYNC", ("false",))
     response = again.put(f"/v1/installs/{client.sha}", content=data)
     assert response.status_code == 502 and "uv sync failed" in response.json()["error"]
+
+
+def test_starting_removes_the_installs_no_caller_gets_back(tmp_path: Path) -> None:
+    root = tmp_path / "installs"
+    for name, marker in [("used", install.INTERPRETER), ("unused", install.INTERPRETER), ("unfinished", None), ("other-python", "another python\n")]:
+        (root / name).mkdir(parents=True)
+        if marker is not None:
+            (root / name / install.INSTALLED).write_text(marker, encoding="utf-8")
+    month_ago = time.time() - 31 * 86_400
+    os.utime(root / "unused" / install.INSTALLED, (month_ago, month_ago))
+    install.Installs(root, tmp_path / "uv-cache", 30)
+    assert [folder.name for folder in root.iterdir()] == ["used"]
 
 
 def test_builds_only_what_has_no_wheel_for_this_python(tmp_path: Path) -> None:
