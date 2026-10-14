@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-cd "$(git rev-parse --show-toplevel)"
+cd "$(git rev-parse --show-toplevel)/nanoagent"
 .venv/bin/nanoagent plugin agent \
     config=examples/meal_suggestion/configs/step2_suggest_meal.yaml \
     home=examples/meal_suggestion/outputs/step2_suggest_meal \

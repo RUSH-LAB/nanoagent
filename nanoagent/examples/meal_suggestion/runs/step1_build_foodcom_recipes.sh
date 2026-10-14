@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-cd "$(git rev-parse --show-toplevel)"
+cd "$(git rev-parse --show-toplevel)/nanoagent"
 .venv/bin/python \
     examples/meal_suggestion/step1_build_foodcom_recipes.py \
     config=examples/meal_suggestion/configs/step1_build_foodcom_recipes.yaml \
