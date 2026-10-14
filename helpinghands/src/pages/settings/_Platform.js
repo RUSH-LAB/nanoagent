@@ -11,8 +11,7 @@ import styles from './platform.module.css';
 
 /**
  * The Platform group of Settings, for platform administrators only
- * (src/server/routes/admin.js): the server's health, sign-up and the limits
- * every workspace gets, every account, every workspace, and the log of what
+ * (src/server/routes/admin.js): sign-up and the limits every workspace gets, every account, every workspace, and the log of what
  * administrators did. The server refuses anyone else, whatever this renders.
  */
 
@@ -20,7 +19,6 @@ const MB = 1024 * 1024;
 const usd = value => `$${Number(value).toFixed(2)}`;
 const megabytes = value => `${(Number(value) / MB).toFixed(Number(value) < 10 * MB ? 1 : 0)} MB`;
 const when = value => (value ? new Date(value).toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'}) : '—');
-const uptime = seconds => `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 
 function put(path, body) {
   return apiRequest(path, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
@@ -60,32 +58,6 @@ function useLoaded(load) {
   return [data, reload];
 }
 
-function Health() {
-  const [health, reload] = useLoaded(useCallback(() => apiRequest('/api/health'), []));
-  const ok = health?.status === 'ok';
-  return (
-    <>
-      <PaneHeading title="Server" aside={<button type="button" className={card.secondaryButton} onClick={() => reload().catch(() => {})}>Refresh</button>} />
-      {!health ? <Skeleton rows={3} /> : (
-        <section className={card.group}>
-          <div className={card.row}>
-            <p className={card.rowLabel}><strong>Status</strong></p>
-            <span className={`${card.rowValue} ${ok ? card.saved : card.error}`}>{ok ? 'Healthy' : health.error ?? 'Unavailable'}</span>
-          </div>
-          <div className={card.row}>
-            <p className={card.rowLabel}><strong>Up for</strong></p>
-            <span className={card.rowValue}>{health.uptime != null ? uptime(health.uptime) : '—'}</span>
-          </div>
-          <div className={card.row}>
-            <p className={card.rowLabel}><strong>Memory</strong></p>
-            <span className={card.rowValue}>{health.memory != null ? megabytes(health.memory) : '—'}</span>
-          </div>
-        </section>
-      )}
-    </>
-  );
-}
-
 const SIGNUP_LABELS = {
   invite: 'Invitation only, and the allowlist',
   allowlist: 'The allowlist only',
@@ -94,7 +66,6 @@ const SIGNUP_LABELS = {
 
 // The policy's numbers: field, label, what it limits, step, and how it is shown (MB for bytes).
 const POLICY_NUMBERS = [
-  ['workspaceMaxMembers', 'Members per workspace', 'Invitations past it are refused.', 1],
   ['workspaceStorageMb', 'Storage per workspace', 'In MB, for every file in it.', 1],
   ['maxWorkspacesPerUser', 'Workspaces per account', 'How many one account may own.', 1],
   ['workspaceAiDailyUsd', 'Assistant per workspace, a day', 'In dollars, for runs on Mochi.', 0.01],
@@ -123,7 +94,6 @@ function Limits() {
       signupAllowlist: draft.signupAllowlist.split(/[\s,]+/).filter(Boolean),
       maxWorkspacesPerUser: Number(draft.maxWorkspacesPerUser),
       workspaceStorageBytes: Math.round(Number(draft.workspaceStorageMb) * MB),
-      workspaceMaxMembers: Number(draft.workspaceMaxMembers),
       workspaceAiDailyUsd: Number(draft.workspaceAiDailyUsd),
       workspaceAiMonthlyUsd: Number(draft.workspaceAiMonthlyUsd),
       memberAiDailyUsd: Number(draft.memberAiDailyUsd),
@@ -245,7 +215,6 @@ function Accounts({myUserId}) {
 }
 
 const LIMIT_FIELDS = [
-  ['maxMembers', 'Members', 1],
   ['storageMb', 'Storage (MB)', 1],
   ['aiDailyUsd', 'Assistant a day ($)', 0.01],
   ['aiMonthlyUsd', 'Assistant a month ($)', 0.01],
@@ -338,7 +307,7 @@ function Workspaces() {
                     </span>
                     <span className={dir.detail}>{workspace.slug} · {workspace.owner?.email ?? 'no owner'}</span>
                   </span>
-                  <Usage used={workspace.members} limit={workspace.limits.maxMembers} />
+                  <span className={people.when}>{workspace.members}</span>
                   <Usage used={workspace.storageBytes} limit={workspace.limits.storageBytes} format={megabytes} />
                   <Usage used={workspace.aiMonthUsd} limit={workspace.limits.aiMonthlyUsd} format={usd} />
                   <span className={people.rowActions}>
@@ -406,7 +375,6 @@ function Log() {
 
 /** The sections of the Platform group, by the ids the sidebar links to. */
 export const PLATFORM_PANES = [
-  {id: 'server', label: 'Server'},
   {id: 'limits', label: 'Sign-up and limits'},
   {id: 'accounts', label: 'Accounts'},
   {id: 'workspaces', label: 'Workspaces'},
@@ -416,7 +384,6 @@ export const PLATFORM_PANES = [
 export default function Platform({myUserId}) {
   return (
     <>
-      <section id="server" className={card.pane}><Health /></section>
       <section id="limits" className={card.pane}><Limits /></section>
       <section id="accounts" className={card.pane}><Accounts myUserId={myUserId} /></section>
       <section id="workspaces" className={card.pane}><Workspaces /></section>

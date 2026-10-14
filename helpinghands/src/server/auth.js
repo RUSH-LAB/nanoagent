@@ -59,7 +59,7 @@ const SITE_URL = (process.env.SITE_URL || 'http://localhost:3000').replace(/\/$/
 // and Mochi Lab's relay (runner/relay.mjs).
 const DEVICE_CLIENT_IDS = new Set(['mochi-cli', 'mochi-desktop']);
 
-// Sign-up policy, workspace and member limits, suspension, and the rate-limit
+// Sign-up policy, workspace limits, suspension, and the rate-limit
 // store shared by every server process (postgres/tenancy.js).
 const tenancy = postgres.enabled ? createPostgresTenancy({pool: postgres.pool}) : null;
 

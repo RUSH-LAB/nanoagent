@@ -4,7 +4,7 @@
  * may own, what each workspace may store and spend on the assistant, which
  * accounts are suspended, and the administration of all of it.
  *
- * Storage and member limits are also enforced by triggers (0011_tenancy.sql),
+ * Storage limits are also enforced by triggers (0011_tenancy.sql),
  * so a write path that never calls this module still cannot exceed them; the
  * checks here exist to refuse early with a message a person can act on.
  */
@@ -18,7 +18,6 @@ const AUDIT_LIMIT = 200;
 // a typo cannot lift a budget to something no one meant.
 const LIMIT_FIELDS = Object.freeze({
   storageBytes: {column: 'storage_bytes', min: 0, max: 1024 ** 4, integer: true},
-  maxMembers: {column: 'max_members', min: 1, max: 10_000, integer: true},
   aiDailyUsd: {column: 'ai_daily_usd', min: 0, max: 10_000},
   aiMonthlyUsd: {column: 'ai_monthly_usd', min: 0, max: 100_000},
   memberAiDailyUsd: {column: 'member_ai_daily_usd', min: 0, max: 10_000},
@@ -26,7 +25,6 @@ const LIMIT_FIELDS = Object.freeze({
 const POLICY_FIELDS = Object.freeze({
   maxWorkspacesPerUser: {column: 'max_workspaces_per_user', min: 0, max: 1_000, integer: true},
   workspaceStorageBytes: {column: 'workspace_storage_bytes', min: 0, max: 1024 ** 4, integer: true},
-  workspaceMaxMembers: {column: 'workspace_max_members', min: 1, max: 10_000, integer: true},
   workspaceAiDailyUsd: {column: 'workspace_ai_daily_usd', min: 0, max: 10_000},
   workspaceAiMonthlyUsd: {column: 'workspace_ai_monthly_usd', min: 0, max: 100_000},
   memberAiDailyUsd: {column: 'member_ai_daily_usd', min: 0, max: 10_000},
@@ -78,7 +76,6 @@ function policyFromRow(row) {
     signupAllowlist: row.signup_allowlist,
     maxWorkspacesPerUser: row.max_workspaces_per_user,
     workspaceStorageBytes: Number(row.workspace_storage_bytes),
-    workspaceMaxMembers: row.workspace_max_members,
     workspaceAiDailyUsd: Number(row.workspace_ai_daily_usd),
     workspaceAiMonthlyUsd: Number(row.workspace_ai_monthly_usd),
     memberAiDailyUsd: Number(row.member_ai_daily_usd),
@@ -89,7 +86,6 @@ function policyFromRow(row) {
 function limitsFromRow(row) {
   return {
     storageBytes: Number(row.storage_bytes),
-    maxMembers: row.max_members,
     aiDailyUsd: Number(row.ai_daily_usd),
     aiMonthlyUsd: Number(row.ai_monthly_usd),
     memberAiDailyUsd: Number(row.member_ai_daily_usd),
@@ -202,25 +198,6 @@ function createPostgresTenancy({pool}) {
 
   async function limitsFor(workspaceId) {
     return limitsFromRow((await pool.query('select * from workspace_effective_limits($1)', [workspaceId])).rows[0]);
-  }
-
-  /** Members plus pending invitations, against the member limit, before inviting. */
-  async function inviteAllowance(context) {
-    const [limits, counts] = await Promise.all([
-      limitsFor(context.workspaceId),
-      asUser(context.userId, context.workspaceId, async client => (await client.query(
-        `select (select count(*)::int from workspace_member where workspace_id = $1) as members,
-                (select count(*)::int from workspace_invitation
-                  where workspace_id = $1 and status = 'pending' and expires_at > now())
-                + (select count(*)::int from workspace_github_invitation
-                  where workspace_id = $1 and status = 'pending' and expires_at > now()) as pending`,
-        [context.workspaceId],
-      )).rows[0]),
-    ]);
-    if (counts.members + counts.pending >= limits.maxMembers) {
-      throw new TenancyError(409, 'member-limit-reached',
-        `This workspace is limited to ${limits.maxMembers} members, counting pending invitations. Withdraw an invitation or remove a member first.`);
-    }
   }
 
   // ── Assistant spending ──
@@ -532,7 +509,7 @@ function createPostgresTenancy({pool}) {
 
   return Object.freeze({
     policy, updatePolicy, signupDecision,
-    workspaceAllowance, workspaceLimitReached, limitsFor, inviteAllowance,
+    workspaceAllowance, workspaceLimitReached, limitsFor,
     assertAiAllowed, recordAiUsage, usage,
     suspension, prepareAccountDeletion,
     listUsers, banUser, unbanUser, revokeSessions, setUserWorkspaceLimit, deleteUser,

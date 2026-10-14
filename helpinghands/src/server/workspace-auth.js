@@ -122,13 +122,14 @@ function organizationOptions({postgresEnabled = false, isProduction = false, sen
     roles: workspaceRoles,
     creatorRole: 'owner',
     cancelPendingInvitationsOnReInvite: true,
+    // A workspace takes any number of members; Better Auth caps one at 100 unless told otherwise.
+    membershipLimit: Number.MAX_SAFE_INTEGER,
     ...(tenancy ? {
       // Workspaces are created through POST /api/workspaces, which validates
       // the name and slug; Better Auth's own endpoint is closed to browsers.
       // Server calls (no session, an explicit userId) still pass.
       allowUserToCreateOrganization: false,
       organizationLimit: user => tenancy.workspaceLimitReached(user.id),
-      membershipLimit: async (_user, workspace) => (await tenancy.limitsFor(workspace.id)).maxMembers,
     } : {}),
     // Mochi's hard-delete endpoint first writes asset keys to the durable
     // deletion outbox. Bypassing it through Better Auth would orphan blobs.

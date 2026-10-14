@@ -146,7 +146,7 @@ try {
   savedPolicy = (await migrationPool.query('select * from platform_policy')).rows[0];
   await migrationPool.query(
     `update platform_policy set signup_mode = 'invite', signup_allowlist = '{}', max_workspaces_per_user = 2,
-       workspace_max_members = 20, workspace_storage_bytes = 524288000,
+       workspace_storage_bytes = 524288000,
        workspace_ai_daily_usd = 1, workspace_ai_monthly_usd = 10, member_ai_daily_usd = 0.5`,
   );
 
@@ -215,15 +215,7 @@ try {
   check('the invited GitHub account joins', (await request(`/api/workspaces/${w2.id}`, {cookie: gus.cookie})).status === 200);
   await json(await request(`/api/workspaces/${w2.id}/leave`, {method: 'POST', cookie: gus.cookie}), 200);
 
-  await json(await request(`/api/admin/workspaces/${w1.id}/limits`, {method: 'PUT', cookie: alice.cookie, body: {limits: {maxMembers: 2}}}), 200);
-  const overLimit = await json(await request(`/api/workspaces/${w1.id}/invitations`, {method: 'POST', cookie: alice.cookie, body: {email: address('bob'), role: 'viewer'}}), 409);
-  check('an invitation past the member limit is refused', overLimit.code === 'member-limit-reached');
-  await assert.rejects(
-    asMember(alice.id, w1.id, "insert into workspace_member(id, workspace_id, user_id, role) values ($1, $2, $3, 'viewer')",
-      [crypto.randomUUID(), w1.id, bob.id]),
-    /member-limit-reached/,
-  );
-  check('the database refuses a membership past the limit on any path', true);
+  await json(await request(`/api/admin/workspaces/${w1.id}/limits`, {method: 'PUT', cookie: alice.cookie, body: {limits: {aiMonthlyUsd: 20}}}), 200);
 
   // ── Assistant budget ──
   await asMember(alice.id, w1.id,
@@ -233,7 +225,7 @@ try {
   check('a member without Mochi Lab connected is told to open it', /Mochi Lab on your computer is not connected/.test(offline.error));
   const usage = (await json(await request(`/api/workspaces/${w1.id}/usage`, {cookie: dave.cookie}), 200)).usage;
   check('members see what their workspace has used against its limits',
-    usage.ai.today === 1.25 && usage.limits.maxMembers === 2 && usage.members === 2);
+    usage.ai.today === 1.25 && usage.limits.aiMonthlyUsd === 20 && usage.members === 2);
 
   // ── Storage ──
   await json(await request(`/api/admin/workspaces/${w2.id}/limits`, {method: 'PUT', cookie: alice.cookie, body: {limits: {storageBytes: 16}}}), 200);
@@ -266,7 +258,7 @@ try {
   const workspaces = (await json(await request('/api/admin/workspaces', {cookie: alice.cookie}), 200)).workspaces;
   const listed = workspaces.find(workspace => workspace.id === w1.id);
   check('administrators see every workspace with its members, spend, and limits',
-    listed?.members === 2 && listed.aiMonthUsd === 1.25 && listed.limits.maxMembers === 2 && listed.overridden);
+    listed?.members === 2 && listed.aiMonthUsd === 1.25 && listed.limits.aiMonthlyUsd === 20 && listed.overridden);
 
   await json(await request(`/api/admin/users/${bob.id}/ban`, {method: 'POST', cookie: alice.cookie, body: {reason: 'acceptance test'}}), 200);
   const banned = await signInWithGithub(request, github.bob.login);
@@ -332,10 +324,10 @@ try {
   if (savedPolicy) {
     await migrationPool.query(
       `update platform_policy set signup_mode = $1, signup_allowlist = $2, max_workspaces_per_user = $3,
-         workspace_storage_bytes = $4, workspace_max_members = $5, workspace_ai_daily_usd = $6,
-         workspace_ai_monthly_usd = $7, member_ai_daily_usd = $8, updated_by = $9, updated_at = $10`,
+         workspace_storage_bytes = $4, workspace_ai_daily_usd = $5,
+         workspace_ai_monthly_usd = $6, member_ai_daily_usd = $7, updated_by = $8, updated_at = $9`,
       [savedPolicy.signup_mode, savedPolicy.signup_allowlist, savedPolicy.max_workspaces_per_user,
-        savedPolicy.workspace_storage_bytes, savedPolicy.workspace_max_members, savedPolicy.workspace_ai_daily_usd,
+        savedPolicy.workspace_storage_bytes, savedPolicy.workspace_ai_daily_usd,
         savedPolicy.workspace_ai_monthly_usd, savedPolicy.member_ai_daily_usd, savedPolicy.updated_by, savedPolicy.updated_at],
     ).catch(() => {});
   }

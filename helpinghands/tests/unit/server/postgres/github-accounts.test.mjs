@@ -2,7 +2,7 @@ import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {applyMigration, migratedDatabase} from '../fs/_pglite.mjs';
 
-const MIGRATION = '0033_github_accounts_and_members.sql';
+const MIGRATION = '0033_github_accounts_no_member_limit.sql';
 
 /** The database before MIGRATION, its own test users given GitHub sign-ins, and `sql` run as its owner. */
 async function before(sql) {
@@ -17,25 +17,24 @@ async function before(sql) {
   return db;
 }
 
-describe('accounts without GitHub, and members per workspace', () => {
-  it('deletes the accounts no one can sign in to, and lets a workspace take 50 members', async () => {
+describe('accounts without GitHub, and no member limit', () => {
+  it('deletes the accounts no one can sign in to, and drops the member limit', async () => {
     const db = await before(`insert into workspace_member(id, workspace_id, user_id, role) values ('m-ada', 'lab', 'ada', 'viewer');`);
     try {
       await applyMigration(db, MIGRATION);
       const users = (await db.query('select id from app_user order by id')).rows.map(row => row.id);
       assert.deepEqual(users, ['alice', 'bob', 'carol', 'vic']);
       assert.equal((await db.query("select count(*)::int as n from workspace_member where user_id = 'ada'")).rows[0].n, 0);
-      assert.equal((await db.query('select workspace_max_members as n from platform_policy')).rows[0].n, 50);
-    } finally {
-      await db.close();
-    }
-  });
-
-  it('keeps a higher member limit an administrator set', async () => {
-    const db = await before('update platform_policy set workspace_max_members = 200;');
-    try {
-      await applyMigration(db, MIGRATION);
-      assert.equal((await db.query('select workspace_max_members as n from platform_policy')).rows[0].n, 200);
+      const columns = (await db.query(
+        "select column_name from information_schema.columns where column_name in ('workspace_max_members', 'max_members')")).rows;
+      assert.deepEqual(columns, []);
+      // 23 members, past the old default of 20: the trigger that held it is gone.
+      await db.exec(`
+        insert into app_user(id, email, display_name, email_verified, created_at, updated_at)
+          select 'u' || n, 'u' || n || '@example.invalid', 'u' || n, true, now(), now() from generate_series(1, 20) n;
+        insert into workspace_member(id, workspace_id, user_id, role) select 'mu' || n, 'lab', 'u' || n, 'viewer' from generate_series(1, 20) n;
+      `);
+      assert.equal((await db.query("select count(*)::int as n from workspace_member where workspace_id = 'lab'")).rows[0].n, 23);
     } finally {
       await db.close();
     }
@@ -44,7 +43,7 @@ describe('accounts without GitHub, and members per workspace', () => {
   it('stops, deleting nothing, at an account without GitHub that owns a workspace', async () => {
     const db = await before(`insert into workspace_member(id, workspace_id, user_id, role) values ('m-ada', 'other', 'ada', 'owner');`);
     try {
-      // One query of several statements is one transaction: the limit is not raised either.
+      // One query of several statements is one transaction: the member limit stays too.
       await assert.rejects(applyMigration(db, MIGRATION), /ada@test\.invalid/);
       assert.equal((await db.query('select workspace_max_members as n from platform_policy')).rows[0].n, 20);
       assert.equal((await db.query("select count(*)::int as n from app_user where id = 'ada'")).rows[0].n, 1);
