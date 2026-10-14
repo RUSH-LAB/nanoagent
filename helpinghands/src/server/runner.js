@@ -16,7 +16,7 @@
  */
 const crypto = require('crypto');
 const {WebSocketServer} = require('ws');
-const {PATH, pickHeaders} = require('../runner/protocol');
+const {PATH, HOLD_MS, pickHeaders} = require('../runner/protocol');
 const {createNanoAgentGateway, RUNNER_OFFLINE} = require('./ai');
 
 // A plugin package travels in one frame.
@@ -48,13 +48,21 @@ function keyList(value) {
     }));
 }
 
-/** `fetch`, made by the computer behind `entry`'s socket. */
+/** An error of the member's computer's connection, which a run reports as it is. */
+const gone = message => Object.assign(new Error(message), {code: 'runner'});
+
+/**
+ * `fetch`, made by the computer behind `entry`'s socket. With `init.run`
+ * (`{id, resume}`), the request is a held one (runner/protocol.js) by that id,
+ * started, or with `resume` taken up again from its first frame; a held call
+ * outlives the socket, and follows the computer to its next one (`call.entry`).
+ */
 function socketFetch(entry) {
   return (url, init = {}) => new Promise((resolve, reject) => {
     const signal = init.signal;
     if (signal?.aborted) return reject(signal.reason);
-    if (entry.closed) return reject(new Error('Mochi Lab disconnected'));
-    const id = crypto.randomUUID();
+    if (entry.closed) return reject(gone('Mochi Lab disconnected'));
+    const id = init.run?.id ?? crypto.randomUUID();
     let stream;
     let answered = false;
     const body = new ReadableStream({
@@ -63,16 +71,21 @@ function socketFetch(entry) {
     });
     const onAbort = () => fail(signal.reason, {type: 'abort', id});
     function finish(frame) {
-      entry.pending.delete(id);
+      call.entry.pending.delete(id);
+      call.leftAway?.();
       signal?.removeEventListener('abort', onAbort);
-      if (frame && !entry.closed) entry.socket.send(JSON.stringify(frame));
+      if (frame && !call.entry.closed) call.entry.socket.send(JSON.stringify(frame));
     }
     function fail(error, frame) {
       finish(frame);
       if (!answered) reject(error);
       else try { stream.error(error); } catch { /* already closed */ }
     }
-    entry.pending.set(id, {
+    const call = {
+      entry,
+      hold: Boolean(init.run),
+      // How many of its frames came, for a held call to resume after.
+      frames: 0,
       head(status, headers) {
         answered = true;
         resolve(new Response(NULL_BODY.has(status) ? null : body, {status, headers}));
@@ -83,8 +96,13 @@ function socketFetch(entry) {
         stream.close();
       },
       fail,
-    });
+    };
+    entry.pending.set(id, call);
     signal?.addEventListener('abort', onAbort, {once: true});
+    if (init.run?.resume) {
+      entry.socket.send(JSON.stringify({type: 'resume', id, from: 0}));
+      return;
+    }
     const {pathname, search} = new URL(url);
     entry.socket.send(JSON.stringify({
       type: 'request',
@@ -93,6 +111,7 @@ function socketFetch(entry) {
       path: pathname + search,
       headers: pickHeaders(init.headers),
       ...(init.body === undefined ? {} : {body: Buffer.from(init.body).toString('base64')}),
+      ...(init.run ? {hold: true} : {}),
     }));
   });
 }
@@ -100,6 +119,9 @@ function socketFetch(entry) {
 function createRunners({resolveIdentity}) {
   const connected = new Map();
   const pages = new Map();
+  // Held calls whose computer went away, by id: {userId, call, timer}, until it is back.
+  const away = new Map();
+  let onRuns = () => {};
   const offline = createNanoAgentGateway({endpoint: {error: RUNNER_OFFLINE}, local: true});
   const sockets = new WebSocketServer({noServer: true, maxPayload: MAX_PAYLOAD});
 
@@ -120,10 +142,11 @@ function createRunners({resolveIdentity}) {
       if (frame?.type === 'hello') {
         entry.device = typeof frame.device === 'string' ? frame.device.slice(0, 100) : null;
         entry.keys = keyList(frame.keys);
-        return;
+        return heldRuns(userId, entry, Array.isArray(frame.runs) ? frame.runs.filter(id => typeof id === 'string') : []);
       }
       const call = entry.pending.get(frame?.id);
       if (!call) return;
+      call.frames += 1;
       if (frame.type === 'head') call.head(frame.status, frame.headers);
       else if (frame.type === 'chunk') call.chunk(frame.data);
       else if (frame.type === 'end') call.end();
@@ -133,11 +156,49 @@ function createRunners({resolveIdentity}) {
     socket.on('close', () => {
       clearInterval(ping);
       entry.closed = true;
-      for (const call of entry.pending.values()) call.fail(new Error('Mochi Lab disconnected'));
+      for (const [id, call] of entry.pending) {
+        if (!call.hold) {
+          call.fail(gone('Mochi Lab disconnected'));
+          continue;
+        }
+        entry.pending.delete(id);
+        const timer = setTimeout(() => call.fail(gone(`Mochi Lab disconnected, and was not back within ${HOLD_MS / 60_000} minutes`)), HOLD_MS);
+        // Waiting keeps no process up: one shutting down lets its calls go.
+        timer.unref();
+        // A call that ends while its computer is away (it is cancelled) is not waited for any more.
+        call.leftAway = () => {
+          clearTimeout(timer);
+          away.delete(id);
+          call.leftAway = null;
+        };
+        away.set(id, {userId, call});
+      }
       if (connected.get(userId) === entry) connected.delete(userId);
       pages.delete(entry.page);
     });
     socket.on('error', () => socket.terminate());
+  }
+
+  /**
+   * The held requests the member's computer says it has (`hello`): each held
+   * call of this process whose computer went away goes on from the frames it
+   * had, or fails when the computer does not have it any more; the rest go to
+   * `onRuns`, held requests this process has no call for (it started since).
+   */
+  function heldRuns(userId, entry, runs) {
+    const listed = new Set(runs);
+    for (const [id, {userId: owner, call}] of away) {
+      if (owner !== userId) continue;
+      call.leftAway();
+      if (!listed.has(id)) {
+        call.fail(gone('Mochi Lab stopped while answering'));
+        continue;
+      }
+      call.entry = entry;
+      entry.pending.set(id, call);
+      entry.socket.send(JSON.stringify({type: 'resume', id, from: call.frames}));
+    }
+    onRuns(userId, runs.filter(id => !entry.pending.has(id)));
   }
 
   return Object.freeze({
@@ -209,6 +270,20 @@ function createRunners({resolveIdentity}) {
         entry.pending.delete(id);
       }
       return {value: {saved: true}};
+    },
+
+    /**
+     * Hear, from each computer that says hello, which held requests it has that
+     * this process has no call for: `listener(userId, ids)`.
+     */
+    onRuns(listener) {
+      onRuns = listener;
+    },
+
+    /** Tell the member's computer Mochi has kept what the held request `id` did, if it is connected. */
+    release(userId, id) {
+      const entry = connected.get(userId);
+      if (entry && !entry.closed) entry.socket.send(JSON.stringify({type: 'release', id}));
     },
 
     /** The NanoAgent the member's runs go to: their computer's, refusing every call while it is not connected. */

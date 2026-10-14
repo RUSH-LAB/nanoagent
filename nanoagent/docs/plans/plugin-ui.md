@@ -80,12 +80,16 @@ Methods:
 | `session.archive` | `{id, archived}` | `{session}` (its summary); an archived session leaves the Dashboard's list for its Archived view until it is restored (`archived: false`) or chatted in again | — |
 
 `prompt` is today's chat: a free-form message to the plugin's agent; the session keeps the
-conversation (its last 12 turns). `prompt` runs in the current session, and the host refuses it
-until a session is started or resumed. A run is the host's, not the page's: a page closed,
-reloaded or left mid-answer leaves it going, the session keeps its turn when it is answered, and
-a page that resumes the session meanwhile shows the message being answered and `follow`s it to
-its end. Only `cancel` stops a run, and a session answers one message at a time. The host also sends `{protocol, event: "host.theme", data:
-{theme}}` when the site's theme changes.
+conversation (its last 12 turns, each `{prompt, answer, tools, error}`). `prompt` runs in the
+current session, and the host refuses it until a session is started or resumed. A run is the
+host's, not the page's: a page closed, reloaded or left mid-answer leaves it going, and a page
+that resumes the session meanwhile shows the message being answered and `follow`s it to its end.
+Mochi restarting does not stop it either, nor Mochi Lab's connection dropping for less than ten
+minutes: Mochi Lab holds the run and hands it to the Mochi it reconnects to. Every message ends
+as a turn: answered, or with `error` saying why not (it failed, was stopped, or Mochi Lab quit or
+was away longer), which the agent's conversation leaves out. Only `cancel` stops a run, and a
+session answers one message at a time. The host also sends `{protocol, event: "host.theme",
+data: {theme}}` when the site's theme changes.
 
 ## 5. The UI kit and the page
 

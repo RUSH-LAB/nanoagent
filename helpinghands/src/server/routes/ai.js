@@ -1,6 +1,7 @@
 'use strict';
 const fallbackProfiles = require('../../ai-profiles.json');
 const {budgetRefusal} = require('../ai-metering');
+const {completionPayload} = require('../ai');
 const aiSettings = require('../ai-settings');
 // Route module organized from server/index.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
@@ -201,18 +202,6 @@ function sendEvent(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-function completionPayload(result) {
-  return {
-    text: result.text,
-    ...(result.usage ? {usage: result.usage} : {}),
-    ...(result.cost != null ? {cost: result.cost} : {}),
-    ...(result.metrics ? {metrics: result.metrics} : {}),
-    ...(result.model ? {model: result.model} : {}),
-    ...(result.harness ? {harness: result.harness} : {}),
-    ...(result.profile ? {profile: result.profile} : {}),
-    ...(result.stopReason ? {stopReason: result.stopReason} : {}),
-  };
-}
 
 /** Start answering `res` as a server-sent event stream. */
 function openEventStream(req, res, corsOrigin) {
@@ -229,17 +218,18 @@ function openEventStream(req, res, corsOrigin) {
 }
 
 /**
- * Write an app's run (app-runs.js) to `res`, every event so far and then each as
- * it comes, until the run ends or the reader goes; a reader going leaves the run going.
+ * Write an app's run (app-runs.js) to `res` as `subscribe(onEvent, onEnd)`
+ * passes its events, until it ends or the reader goes; a reader going leaves
+ * the run going.
  */
-async function followRun(res, run) {
+async function followRun(res, subscribe) {
   const heartbeat = setInterval(() => {
     if (writable(res)) res.write(': ping\n\n');
   }, HEARTBEAT_MS);
   let leave;
   const left = new Promise(resolve => { leave = resolve; });
   res.on('close', leave);
-  const stop = run.follow((event, data) => sendEvent(res, event, data), leave);
+  const stop = subscribe((event, data) => sendEvent(res, event, data), leave);
   try {
     await left;
   } finally {
@@ -251,21 +241,17 @@ async function followRun(res, run) {
 }
 
 /**
- * Run `composed` on the NanoAgent `ai`, passing its events to `send` until it
- * answers or fails, and charge it. An app's run works on a copy of the member's
- * agent folder, and its session keeps the turn it answered.
+ * Run the chat `composed` on the NanoAgent `ai`, passing its events to `send`
+ * until it answers or fails, and charge it.
  */
 async function answerRun(req, ctx, ai, kind, composed, send, signal) {
   // Whether the run got far enough to cost anything, for a run that ends
   // without NanoAgent's price (postgres/tenancy.js charges its cap instead).
   let ran = false;
   let result = null;
-  // An app run's tool calls, kept with the session's turn so its page draws them again.
-  const tools = [];
   try {
-    const answer = workspace => ai.stream({
+    result = await ai.stream({
       ...composed.request,
-      ...(workspace ? {workspace} : {}),
       signal,
       onDelta: (text) => {
         ran = true;
@@ -276,35 +262,16 @@ async function answerRun(req, ctx, ai, kind, composed, send, signal) {
       // changing text streaming or inventing a second transport later.
       onEvent: event => {
         if (event.type === 'step.completed') ran = true;
-        if (composed.request.app && (event.type === 'tool.completed' || event.type === 'tool.failed')) {
-          tools.push({
-            name: event.call.name, arguments: event.call.arguments, output: event.call.output,
-            isError: event.type === 'tool.failed',
-          });
-        }
         if (event.type !== 'output_text.delta') send('agent', event);
       },
     });
-    // An app's agent works on a copy of the member's agent folder, and what
-    // it writes there is kept in the workspace file system (fs/agent-sync.js).
-    result = composed.request.app
-      ? await ctx.agentSync.run(req.context, ai, answer)
-      : await answer();
-    // The session keeps the conversation, so a page resumed later continues it.
-    if (!result.error && composed.request.app) {
-      await ctx.sessions.addTurn(req.context, composed.request.app, composed.session, {
-        prompt: composed.request.input, answer: result.text, tools,
-      });
-    }
     if (result.error) send('error', {error: result.error, status: result.status || 502});
     else send('done', completionPayload(result));
   } catch {
     send('error', {error: 'AI request failed. Please try again later.', status: 500});
   } finally {
     try {
-      await ctx.aiMeter.record(req.context, kind, result, {
-        ran, local: ai.local, pluginId: composed.request.app ?? null, sessionId: composed.session ?? null,
-      });
+      await ctx.aiMeter.record(req.context, kind, result, {ran, local: ai.local});
     } catch (error) {
       console.error('[ai] Could not record assistant usage:', error.message);
     }
@@ -389,7 +356,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     // An app's agent acts through the app's tools, on the member's own files.
     if (composed.request.app) {
       ctx.requireWorkspacePermission(req.context, 'apps:use');
-      if (!ctx.agentSync || !ctx.sessions || !ctx.workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
+      if (!ctx.appRuns || !ctx.sessions || !ctx.workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
       try {
         await ctx.sessions.assertOwned(req.context, composed.request.app, composed.session);
       } catch (error) {
@@ -407,13 +374,15 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     if (composed.request.app) {
       let run;
       try {
-        run = ctx.appRuns.start(composed.session, composed.request.input, run => answerRun(req, ctx, ai, kind, composed, run.send, run.signal));
+        run = await ctx.appRuns.start(req.context, {
+          pluginId: composed.request.app, sessionId: composed.session, prompt: composed.request.input, request: composed.request,
+        });
       } catch (error) {
-        if (error.name === 'AppRunError') return json(res, error.status, {error: error.message});
+        if (error.name === 'SessionError') return json(res, error.status, {error: error.message});
         throw error;
       }
       openEventStream(req, res, CORS_ORIGIN);
-      return followRun(res, run);
+      return followRun(res, (onEvent, onEnd) => run.follow(onEvent, onEnd));
     }
     openEventStream(req, res, CORS_ORIGIN);
 

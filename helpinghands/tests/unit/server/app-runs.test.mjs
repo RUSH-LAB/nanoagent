@@ -1,0 +1,107 @@
+/**
+ * server/app-runs.js: a plugin run outlives its page and this process. These
+ * are the runs a Mochi started since finds in PostgreSQL: taken up again where
+ * the member's computer still holds them, and otherwise recorded as
+ * interrupted, never left to vanish. The computer's side is runner.test.mjs.
+ */
+import {describe, it} from 'node:test';
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {makeCtx, fakeSessions, SESSION} from '../_harness.mjs';
+
+const require = createRequire(import.meta.url);
+const {createAppRuns} = require('../../../src/server/app-runs.js');
+const {HOLD_MS} = require('../../../src/runner/protocol.js');
+
+const CONTEXT = {userId: 'test-user', workspaceId: 'lab'};
+const until = async test => {
+  for (let i = 0; i < 200 && !test(); i += 1) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.ok(test(), 'timed out');
+};
+
+/** Runs as a Mochi started since sees them: `rows` already in PostgreSQL, none of them this process's. */
+function restarted(rows = [{id: 'run-1', folder: 'folder-1', sent: {'a.md': {rev: 1, contentHash: 'x'}}}]) {
+  const ctx = makeCtx();
+  const sessions = fakeSessions();
+  for (const row of rows) {
+    sessions.rows.set(row.id, {
+      workspaceId: 'lab', userId: 'test-user', sessionId: SESSION, pluginId: 'echo', prompt: 'save it',
+      install: 'a'.repeat(64), ran: true, ...row,
+    });
+  }
+  const finished = [];
+  const released = [];
+  const asked = [];
+  const ai = {
+    stream: async request => {
+      asked.push(request);
+      request.onDelta('Saved');
+      return {text: 'Saved it.'};
+    },
+  };
+  const runs = createAppRuns({
+    sessions,
+    agentSync: {prepare: async () => assert.fail('a run taken up again has its folder'), finish: async (_scope, _ai, folder) => finished.push(folder)},
+    runners: {aiFor: async () => ai, release: (userId, id) => released.push([userId, id])},
+    aiMeter: ctx.aiMeter,
+  });
+  return {runs, sessions, finished, released, asked, usage: ctx.calls.aiUsage};
+}
+
+describe('plugin runs a restarted Mochi finds', () => {
+  it('takes up a run the member\'s computer still holds, from its first frame, and ends it', async () => {
+    const {runs, sessions, finished, released, asked, usage} = restarted();
+    const events = [];
+    // A page opened before the computer was back follows the run once it is taken up.
+    runs.subscribe(SESSION, event => events.push(event), () => events.push('end'));
+    await runs.adopt('test-user', ['run-1']);
+    await until(() => events.includes('end'));
+    assert.deepEqual(asked.map(({run, workspace, install, app}) => ({run, workspace, install, app})), [
+      {run: {id: 'run-1', resume: true}, workspace: 'folder-1', install: 'a'.repeat(64), app: 'echo'},
+    ]);
+    assert.deepEqual(events, ['delta', 'done', 'end']);
+    assert.deepEqual(finished, [{workspace: 'folder-1', sent: {'a.md': {rev: 1, contentHash: 'x'}}}]);
+    assert.deepEqual(sessions.turns.map(({prompt, answer, error}) => ({prompt, answer, error})), [{prompt: 'save it', answer: 'Saved it.', error: null}]);
+    assert.equal(sessions.rows.size, 0);
+    assert.deepEqual(released, [['test-user', 'run-1']]);
+    assert.equal(usage[0].sessionId, SESSION);
+  });
+
+  it('records as interrupted a run the computer does not hold any more, writing back what it did', async () => {
+    const {runs, sessions, finished, asked, usage} = restarted();
+    const events = [];
+    runs.subscribe(SESSION, (event, data) => events.push([event, data.error]), () => events.push('end'));
+    await runs.adopt('test-user', []);
+    const reason = 'Mochi Lab stopped while answering, so this message was not answered. Send it again.';
+    assert.deepEqual(events, [['error', reason], 'end']);
+    assert.deepEqual(asked, []);
+    assert.equal(finished.length, 1);
+    assert.deepEqual(sessions.turns.map(({answer, error}) => ({answer, error})), [{answer: '', error: reason}]);
+    // It got far enough to cost something.
+    assert.equal(usage[0].ran, true);
+  });
+
+  it('lets go of a run the computer holds that Mochi has no record of', async () => {
+    const {runs, released} = restarted([]);
+    await runs.adopt('test-user', ['run-9']);
+    assert.deepEqual(released, [['test-user', 'run-9']]);
+  });
+
+  it('records a run as interrupted once its computer has had HOLD_MS to come back', async (t) => {
+    t.mock.timers.enable({apis: ['Date']});
+    const {runs, sessions} = restarted();
+    await runs.settle(CONTEXT);
+    assert.equal(sessions.rows.size, 1, 'the computer may still come back');
+    t.mock.timers.tick(HOLD_MS);
+    await runs.settle(CONTEXT);
+    assert.equal(sessions.rows.size, 0);
+    assert.match(sessions.turns[0].error, /Mochi Lab was not back within 10 minutes/);
+  });
+
+  it('stops a run nobody has taken up yet', async () => {
+    const {runs, sessions} = restarted();
+    assert.equal(await runs.cancel(CONTEXT, SESSION), true);
+    assert.equal(sessions.turns[0].error, 'Stopped before Mochi Lab was back.');
+    assert.equal(await runs.cancel(CONTEXT, SESSION), false);
+  });
+});

@@ -490,6 +490,16 @@ function recordPerfMetric(endpoint, ms) {
 let requestCounter = 0;
 
 // ── Shared context handed to every route module in server/routes/ ──
+// Plugin runs work on a copy of the member's agent folder (fs/agent-sync.js), and
+// outlive their pages and this process (app-runs.js): each computer that says
+// hello hands over the runs it holds that no call here has.
+const appRuns = postgresServices?.fs
+  ? createAppRuns({sessions: postgresServices.sessions, agentSync: createAgentSync({fs: postgresServices.fs}), runners, aiMeter})
+  : null;
+if (appRuns) {
+  runners.onRuns((userId, ids) => appRuns.adopt(userId, ids).catch(error => console.error('[apps] Could not take up runs:', error.message)));
+}
+
 const ctx = {
   appendAccessLog, json, readBody, readRawBody, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
   roles,
@@ -538,16 +548,14 @@ const ctx = {
   submissions: postgresServices?.submissions ?? null,
   // Plugin sessions and what their runs cost; PostgreSQL only.
   sessions: postgresServices?.sessions ?? null,
-  // The plugin runs going on, each its session's until it ends.
-  appRuns: createAppRuns(),
   // The plugins each workspace added from the marketplace, run from NanoAgent's installs; PostgreSQL only.
   workspaceApps: postgresServices
     ? createWorkspaceApps({ai, market: postgresServices.market, plugins: postgresServices.workspacePlugins})
     : null,
   // Where the marketplace fetches a plugin's source.
   github: createGithub(),
-  // Plugin runs work on a copy of the member's agent folder (fs/agent-sync.js).
-  agentSync: postgresServices?.fs ? createAgentSync({fs: postgresServices.fs}) : null,
+  // The plugin runs going on, each its session's until its turn is in it; PostgreSQL only.
+  appRuns,
   compileDocument,
   compileMarkdown,
   parseFrontmatter,

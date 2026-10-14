@@ -26,7 +26,7 @@ import readline from 'node:readline';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 
-const {PATH, allowed, pickHeaders} = createRequire(import.meta.url)('./protocol.js');
+const {PATH, HOLD_MS, allowed, pickHeaders} = createRequire(import.meta.url)('./protocol.js');
 
 const CLIENT_ID = 'mochi-desktop';
 const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
@@ -68,14 +68,27 @@ async function signIn(site) {
   }
 }
 
-/** Make one request Mochi sent against NanoAgent, streaming its response down `socket`. */
-async function relay(frame, {socket, nanoagent, nanoagentToken, running}) {
-  const send = message => socket.readyState === WebSocket.OPEN && socket.send(JSON.stringify(message));
+/**
+ * Make one request Mochi sent against NanoAgent, streaming its response with `send`. A held
+ * one keeps every frame it sends, in `held`, and sends each to whichever connection it is
+ * attached to, none while Mochi is away.
+ */
+async function relay(frame, {send: direct, nanoagent, nanoagentToken, running, held}) {
   if (!allowed(frame.method, frame.path)) {
-    return send({type: 'error', id: frame.id, message: `${frame.method} ${frame.path} is not for this computer`});
+    return direct({type: 'error', id: frame.id, message: `${frame.method} ${frame.path} is not for this computer`});
   }
   const controller = new AbortController();
-  running.set(frame.id, controller);
+  let send = direct;
+  if (frame.hold === true) {
+    const run = {controller, frames: [], send: direct, timer: null};
+    held.set(frame.id, run);
+    send = message => {
+      run.frames.push(message);
+      run.send?.(message);
+    };
+  } else {
+    running.set(frame.id, controller);
+  }
   try {
     const response = await fetch(`${nanoagent}${frame.path}`, {
       method: frame.method,
@@ -93,14 +106,24 @@ async function relay(frame, {socket, nanoagent, nanoagentToken, running}) {
   }
 }
 
+/** Stop the held request `id`, and forget it. */
+function drop(held, id) {
+  const run = held.get(id);
+  if (!run) return;
+  clearTimeout(run.timer);
+  run.controller.abort();
+  held.delete(id);
+}
+
 /**
  * One connection to Mochi, open until it closes: resolves with its close code.
- * Requests run side by side; Mochi's `abort` stops one, and a closed socket all.
+ * Requests run side by side; Mochi's `abort` stops one, and a closed socket all
+ * but the held ones, which `held` keeps from one connection to the next.
  * `keys` is which API keys this computer holds, `saveKeys(changes)` applies new
  * ones, and `onKeys(listener)` hears which are set whenever that changes, to
  * tell Mochi again.
  */
-export function connect({site, nanoagent, nanoagentToken, token, device, keys = [], saveKeys, onKeys, onEvent = say}) {
+export function connect({site, nanoagent, nanoagentToken, token, device, keys = [], saveKeys, onKeys, held = new Map(), onEvent = say}) {
   return new Promise(resolve => {
     const url = new URL(PATH, site);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -108,12 +131,13 @@ export function connect({site, nanoagent, nanoagentToken, token, device, keys = 
     const running = new Map();
     const send = message => socket.readyState === WebSocket.OPEN && socket.send(JSON.stringify(message));
     let current = keys;
+    const hello = () => send({type: 'hello', device, keys: current, runs: [...held.keys()]});
     const unlisten = onKeys?.(list => {
       current = list;
-      send({type: 'hello', device, keys: current});
+      hello();
     });
     socket.onopen = () => {
-      send({type: 'hello', device, keys: current});
+      hello();
       onEvent({event: 'connected'});
     };
     socket.onmessage = ({data}) => {
@@ -123,8 +147,17 @@ export function connect({site, nanoagent, nanoagentToken, token, device, keys = 
       } catch {
         return;
       }
-      if (frame.type === 'request') relay(frame, {socket, nanoagent, nanoagentToken, running});
-      else if (frame.type === 'abort') running.get(frame.id)?.abort();
+      if (frame.type === 'request') relay(frame, {send, nanoagent, nanoagentToken, running, held});
+      else if (frame.type === 'abort') {
+        running.get(frame.id)?.abort();
+        drop(held, frame.id);
+      } else if (frame.type === 'resume') {
+        const run = held.get(frame.id);
+        if (!run) return send({type: 'error', id: frame.id, message: 'Mochi Lab is not running that any more'});
+        clearTimeout(run.timer);
+        run.send = send;
+        for (const message of run.frames.slice(frame.from)) send(message);
+      } else if (frame.type === 'release') drop(held, frame.id);
       else if (frame.type === 'keys') {
         saveKeys(frame.changes).then(
           () => send({type: 'saved', id: frame.id}),
@@ -138,6 +171,13 @@ export function connect({site, nanoagent, nanoagentToken, token, device, keys = 
       ended = true;
       unlisten?.();
       for (const controller of running.values()) controller.abort();
+      // A held request goes on without Mochi, for a while.
+      for (const [id, run] of held) {
+        if (run.send !== send) continue;
+        run.send = null;
+        run.timer = setTimeout(() => drop(held, id), HOLD_MS);
+        run.timer.unref();
+      }
       resolve(result);
     };
     socket.onclose = ({code, reason}) => end({code, reason});
@@ -205,6 +245,8 @@ async function main(env) {
     nanoagentToken: env.NANOAGENT_API_TOKEN,
     device: env.RUNNER_DEVICE || os.hostname(),
     ...supervisorKeys(),
+    // The held requests, which outlive each connection.
+    held: new Map(),
   };
   // Which keys are set, for each connection's hello, kept as the supervisor says it changes.
   let keys = JSON.parse(env.RUNNER_KEYS);

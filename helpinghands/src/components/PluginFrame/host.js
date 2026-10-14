@@ -81,7 +81,8 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
   /** Make `opened` the current session, continuing its conversation. */
   function enter(opened) {
     session = opened.id;
-    turns.set(opened.id, opened.chat.map(({prompt, answer}) => ({prompt, answer})));
+    // A turn the session did not answer (`error`) is no part of the conversation the agent continues.
+    turns.set(opened.id, opened.chat.filter(turn => !turn.error).map(({prompt, answer}) => ({prompt, answer})));
     answering.set(opened.id, opened.running?.prompt ?? null);
     return {result: {session: opened}};
   }

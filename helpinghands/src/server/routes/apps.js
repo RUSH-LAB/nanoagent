@@ -103,36 +103,37 @@ async function serveUiFile(res, json, runners, sha256, page, version, raw) {
 async function sessionRoute(req, res, ctx, app, id, run) {
   const {json, requireWorkspacePermission} = ctx;
   if (!PLUGIN_ID.test(app) || (id !== null && !UUID.test(id))) return json(res, 404, {error: 'Not found'});
-  if (!ctx.sessions) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
+  if (!ctx.sessions || !ctx.appRuns) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
   try {
     if (run) {
       requireWorkspacePermission(req.context, 'apps:use');
-      await ctx.sessions.assertOwned(req.context, app, id);
-      const going = ctx.appRuns.get(id);
-      if (!going) return json(res, 404, {error: 'This session is not answering a message any more. Open it again to see its answer.'});
+      await ctx.appRuns.settle(req.context);
+      if (!(await ctx.sessions.get(req.context, app, id)).running) {
+        return json(res, 404, {error: 'This session is not answering a message any more. Open it again to see its answer.'});
+      }
       if (req.method === 'GET') {
         openEventStream(req, res, ctx.CORS_ORIGIN);
-        return await followRun(res, going);
+        return await followRun(res, (onEvent, onEnd) => ctx.appRuns.subscribe(id, onEvent, onEnd));
       }
       if (req.method === 'DELETE') {
-        going.cancel();
+        await ctx.appRuns.cancel(req.context, id);
         return json(res, 200, {cancelled: id});
       }
       return json(res, 405, {error: 'Method not allowed'});
     }
     if (id === null && req.method === 'GET') {
       requireWorkspacePermission(req.context, 'content:read');
-      const sessions = await ctx.sessions.list(req.context, app);
-      return json(res, 200, {sessions: sessions.map(session => ({...session, running: Boolean(ctx.appRuns.get(session.id))}))});
+      await ctx.appRuns.settle(req.context);
+      return json(res, 200, {sessions: await ctx.sessions.list(req.context, app)});
     }
     if (id === null && req.method === 'POST') {
       requireWorkspacePermission(req.context, 'apps:use');
-      return json(res, 200, {session: {...await ctx.sessions.create(req.context, app), running: null}});
+      return json(res, 200, {session: await ctx.sessions.create(req.context, app)});
     }
     if (id !== null && req.method === 'GET') {
       requireWorkspacePermission(req.context, 'content:read');
-      const going = ctx.appRuns.get(id);
-      return json(res, 200, {session: {...await ctx.sessions.get(req.context, app, id), running: going ? {prompt: going.prompt} : null}});
+      await ctx.appRuns.settle(req.context);
+      return json(res, 200, {session: await ctx.sessions.get(req.context, app, id)});
     }
     if (id !== null && req.method === 'PATCH') {
       requireWorkspacePermission(req.context, 'apps:use');

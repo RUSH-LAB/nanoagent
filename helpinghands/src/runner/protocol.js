@@ -6,20 +6,29 @@
  * requests down it; the relay makes each against the NanoAgent on that
  * computer and streams the response back. Settings → AI also sets the
  * computer's API keys down it: Mochi Lab keeps them, and says only which are
- * set, never their values. JSON text frames, bodies base64:
+ * set, never their values. A request Mochi asks to `hold` (a plugin run) is
+ * not the connection's: the relay keeps it going when the connection drops,
+ * with every frame it sent, for HOLD_MS, and lists it in its next `hello`, so
+ * Mochi, the same process or one started since, `resume`s it from the frames
+ * it has, and `release`s it once it has kept what the run did. JSON text
+ * frames, bodies base64:
  *
- *   computer → Mochi   {type: 'hello', device, keys: [{env, label, set}]}   again when keys change
+ *   computer → Mochi   {type: 'hello', device, keys: [{env, label, set}], runs: [id]}   again when keys change
  *                      {type: 'head', id, status, headers}
  *                      {type: 'chunk', id, data}
  *                      {type: 'end', id}
  *                      {type: 'saved', id}          NanoAgent runs with the keys from now on
  *                      {type: 'error', id, message}
- *   Mochi → computer   {type: 'request', id, method, path, headers, body?}
+ *   Mochi → computer   {type: 'request', id, method, path, headers, body?, hold?}
+ *                      {type: 'resume', id, from}   the held request's frames from the `from`th on
+ *                      {type: 'release', id}        Mochi has kept what the held request did
  *                      {type: 'abort', id}
  *                      {type: 'keys', id, changes}  {ENV_NAME: key, or null to remove it}
  */
 
 const PATH = '/api/runner';
+// How long a held request goes on without Mochi before the relay stops it.
+const HOLD_MS = 10 * 60_000;
 
 // What Mochi may ask the computer's NanoAgent: runs, installs and their pages,
 // and the run folders' files (server/ai.js). Only the marketplace's packages
@@ -54,4 +63,4 @@ function pickHeaders(headers) {
   return Object.fromEntries(HEADERS.filter(name => all.has(name)).map(name => [name, all.get(name)]));
 }
 
-module.exports = {PATH, allowed, pickHeaders};
+module.exports = {PATH, HOLD_MS, allowed, pickHeaders};

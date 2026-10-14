@@ -503,8 +503,7 @@ export function makeCtx(overrides = {}) {
     tenancy: null,
     // So do plugin sessions (postgres/sessions.js); a suite that needs them uses fakeSessions.
     sessions: null,
-    // The plugin runs going on (app-runs.js), each its session's until it ends.
-    appRuns: createAppRuns(),
+    // So do plugin runs (app-runs.js); a suite that needs them uses appRunsFor.
     ai: {
       complete: async (request) => {
         calls.ai.push(request);
@@ -905,26 +904,47 @@ export const SESSION = '00000000-0000-4000-8000-000000000001';
  */
 export function fakeSessions(plugins = ['echo', 'arxiv-source']) {
   const {SessionError} = require('../../src/server/postgres/sessions.js');
+  const summary = (id, pluginId) => ({id, pluginId, title: '', runs: 0, cost: 0, ttftS: null, running: [...sessions.rows.values()].some(row => row.sessionId === id)});
   const sessions = {
+    // The turns runs ended with, and the runs going on, by id.
     turns: [],
+    rows: new Map(),
     created: [],
     async assertOwned(_context, pluginId, id) {
       if (id !== SESSION || !plugins.includes(pluginId)) throw new SessionError(404, `No session ${id} for ${pluginId}`);
     },
     async list(_context, pluginId) {
-      return plugins.includes(pluginId) ? [{id: SESSION, pluginId, title: '', runs: 0, cost: 0, ttftS: null}] : [];
+      return plugins.includes(pluginId) ? [summary(SESSION, pluginId)] : [];
     },
     async create(_context, pluginId) {
       sessions.created.push(pluginId);
-      return {id: SESSION, pluginId, title: '', runs: 0, cost: 0, ttftS: null, chat: []};
+      return {...summary(SESSION, pluginId), chat: [], running: null};
     },
     async get(context, pluginId, id) {
       await sessions.assertOwned(context, pluginId, id);
-      return {id, pluginId, title: '', runs: 0, cost: 0, ttftS: null, chat: [], calls: []};
+      const going = [...sessions.rows.values()].find(row => row.sessionId === id);
+      return {...summary(id, pluginId), chat: [], running: going ? {prompt: going.prompt} : null, calls: []};
     },
-    async addTurn(context, pluginId, id, turn) {
-      await sessions.assertOwned(context, pluginId, id);
-      sessions.turns.push({pluginId, id, ...turn});
+    async startRun(context, pluginId, sessionId, {id, prompt, install}) {
+      await sessions.assertOwned(context, pluginId, sessionId);
+      if ([...sessions.rows.values()].some(row => row.sessionId === sessionId)) throw new SessionError(409, 'This session is still answering a message');
+      sessions.rows.set(id, {id, workspaceId: context.workspaceId, userId: context.userId, sessionId, pluginId, prompt, install, folder: null, sent: null, ran: false});
+    },
+    async setRunFolder(_context, id, {folder, sent}) {
+      Object.assign(sessions.rows.get(id), {folder, sent});
+    },
+    async markRunRan(_context, id) {
+      sessions.rows.get(id).ran = true;
+    },
+    async runs(context) {
+      return [...sessions.rows.values()].filter(row => row.userId === context.userId).map(row => ({...row}));
+    },
+    async endRun(_context, runId, turn) {
+      const row = sessions.rows.get(runId);
+      if (!row) return false;
+      sessions.rows.delete(runId);
+      sessions.turns.push({pluginId: row.pluginId, id: row.sessionId, ...turn});
+      return true;
     },
     archived: [],
     async archive(context, pluginId, id, archived) {
@@ -934,4 +954,21 @@ export function fakeSessions(plugins = ['echo', 'arxiv-source']) {
     },
   };
   return sessions;
+}
+
+/**
+ * Plugin runs (app-runs.js) over `ctx.sessions`, on `ctx.ai` as the member's
+ * computer, writing back through `agentSync` (by default a folder `run-folder`
+ * nothing is copied into); which runs the computer was told to let go is in
+ * `released`.
+ */
+export function appRunsFor(ctx, {agentSync = {prepare: async () => ({workspace: 'run-folder', sent: {}}), finish: async () => {}}} = {}) {
+  const released = [];
+  const runs = createAppRuns({
+    sessions: ctx.sessions,
+    agentSync,
+    runners: {aiFor: async () => ctx.ai, release: (userId, id) => released.push([userId, id])},
+    aiMeter: ctx.aiMeter,
+  });
+  return Object.assign(Object.create(runs), {released});
 }

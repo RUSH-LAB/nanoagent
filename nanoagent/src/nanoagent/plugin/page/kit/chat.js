@@ -59,9 +59,13 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
     if (fresh) log.replaceChildren();
     fresh = false;
   };
-  for (const { prompt, answer, tools = [] } of currentSession()?.chat ?? []) {
+  for (const { prompt, answer, tools = [], error } of currentSession()?.chat ?? []) {
     clearIntro();
-    log.append(h("div", { class: "message user" }, h("p", { text: prompt })), h("div", { class: "turn" }, h("div", { class: "tool-results" }, tools.map(toolResult)), h("div", { class: "message agent" }, markdown(answer))));
+    const turn = h("div", { class: "turn" }, h("div", { class: "tool-results" }, tools.map(toolResult)));
+    if (answer) turn.append(h("div", { class: "message agent" }, markdown(answer)));
+    // A message the session did not answer (it failed, was stopped or interrupted) says why.
+    if (error) turn.append(h("p", { class: "error-text", text: error }));
+    log.append(h("div", { class: "message user" }, h("p", { text: prompt })), turn);
   }
   const chips = log.querySelectorAll(".result-chip");
   if (chips.length) pick(chips[chips.length - 1]);

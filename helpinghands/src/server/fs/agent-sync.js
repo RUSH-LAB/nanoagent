@@ -94,20 +94,27 @@ function createAgentSync({fs}) {
 
   return Object.freeze({
     /**
-     * Prepare a folder for one run on the NanoAgent `ai`, run
-     * `operation(workspace)` (the task) in it, and write the results back, even
-     * when the run fails or is cancelled part way. The folder is removed either way.
+     * A folder for one run on the NanoAgent `ai`, filled from the member's agent
+     * folder: `{workspace, sent}`, where `sent` (the revisions copied, by path)
+     * is JSON, so a run may end in another process (app-runs.js).
      */
-    async run(scope, ai, operation) {
+    async prepare(scope, ai) {
       await prepareHome(fs, scope);
       const workspace = crypto.randomBytes(16).toString('hex');
       try {
-        const sent = await push(scope, ai, workspace);
-        try {
-          return await operation(workspace);
-        } finally {
-          await pull(scope, ai, workspace, sent);
-        }
+        return {workspace, sent: Object.fromEntries(await push(scope, ai, workspace))};
+      } catch (error) {
+        unwrap(await ai.deleteWorkspace(workspace), 'remove its workspace');
+        throw error;
+      }
+    },
+    /**
+     * Write what the run did in `folder` back into the member's agent folder,
+     * answered, failed or cancelled part way, and remove it either way.
+     */
+    async finish(scope, ai, {workspace, sent}) {
+      try {
+        await pull(scope, ai, workspace, new Map(Object.entries(sent)));
       } finally {
         unwrap(await ai.deleteWorkspace(workspace), 'remove its workspace');
       }

@@ -7,6 +7,8 @@ import {connect} from '../../../src/runner/relay.mjs';
 const require = createRequire(import.meta.url);
 const {createRunners} = require('../../../src/server/runner.js');
 const {RUNNER_OFFLINE} = require('../../../src/server/ai.js');
+const {createAppRuns} = require('../../../src/server/app-runs.js');
+const {fakeSessions, SESSION} = await import('../_harness.mjs');
 
 const listen = server => new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}`)));
 const until = async test => {
@@ -17,16 +19,22 @@ const until = async test => {
 /** A NanoAgent on "the member's computer": records what it was asked, answers a run as SSE. */
 function fakeNanoAgent() {
   const seen = [];
+  // Each 'slow' run ends when its finisher is called.
+  const finishers = [];
   const server = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const call = {method: req.method, url: req.url, authorization: req.headers.authorization, body: Buffer.concat(chunks), closed: false};
     seen.push(call);
     res.on('close', () => { call.closed = true; });
-    if (req.url === '/v1/runs') {
+    if (req.url === '/v1/runs' || /^\/v1\/workspaces\/[^/]+\/installs\/[^/]+\/runs$/.test(req.url)) {
       res.writeHead(200, {'Content-Type': 'text/event-stream'});
       res.write('data: {"type":"delta","kind":"content","text":"hello "}\n\n');
       if (JSON.parse(call.body).input === 'hang') return;
+      if (JSON.parse(call.body).input === 'slow') {
+        finishers.push(() => res.end('data: {"type":"delta","kind":"content","text":"world"}\n\ndata: {"type":"done","answer":"hello world"}\n\n'));
+        return;
+      }
       res.end('data: {"type":"delta","kind":"content","text":"world"}\n\ndata: {"type":"done","answer":"hello world","cost":0.01}\n\n');
       return;
     }
@@ -40,7 +48,7 @@ function fakeNanoAgent() {
     }
     res.writeHead(404, {'Content-Type': 'application/json'}).end('{"error":"not here"}');
   });
-  return {server, seen};
+  return {server, seen, finishers};
 }
 
 describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => {
@@ -164,9 +172,92 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
   it('fails a run in flight when the computer drops off', async () => {
     const {closed} = await dialIn();
     const running = (await runners.aiFor('u1')).stream({input: 'hang', onDelta: dropComputers});
-    assert.equal((await running).status, 502);
+    assert.deepEqual(await running, {error: 'Mochi Lab disconnected', status: 503});
     await closed;
     assert.equal(runners.status('u1').connected, false);
+  });
+
+  it('keeps a held run going while its computer reconnects, every delta once', async () => {
+    const held = new Map();
+    const {closed} = await dialIn('member-token', {held});
+    const deltas = [];
+    const running = (await runners.aiFor('u1')).stream({input: 'slow', run: {id: 'run-1'}, onDelta: text => deltas.push(text)});
+    await until(() => deltas.length === 1);
+    dropComputers();
+    await closed;
+    await until(() => !runners.status('u1').connected);
+    await dialIn('member-token', {held});
+    // NanoAgent's run went on all along.
+    assert.equal(nano.seen[0].closed, false);
+    nano.finishers[0]();
+    assert.equal((await running).text, 'hello world');
+    assert.deepEqual(deltas, ['hello ', 'world']);
+    // Released once Mochi kept it.
+    runners.release('u1', 'run-1');
+    await until(() => !held.has('run-1'));
+  });
+
+  it('hands a held run its computer still has to a server started since, from its first frame', async () => {
+    const held = new Map();
+    const {closed} = await dialIn('member-token', {held});
+    const gone = new AbortController();
+    const before = (await runners.aiFor('u1')).stream({input: 'slow', run: {id: 'run-1'}, signal: gone.signal});
+    await until(() => held.get('run-1')?.frames.length === 2);
+    // The server restarts: its runners go, and new ones take the next connection.
+    runners.close();
+    await closed;
+    const heard = [];
+    runners = createRunners({resolveIdentity: async () => ({ok: true, identity: {userId: 'u1'}})});
+    runners.onRuns((userId, ids) => heard.push([userId, ids]));
+    await dialIn('member-token', {held});
+    assert.deepEqual(heard, [['u1', ['run-1']]]);
+    const deltas = [];
+    const resumed = (await runners.aiFor('u1')).stream({run: {id: 'run-1', resume: true}, onDelta: text => deltas.push(text)});
+    nano.finishers[0]();
+    assert.equal((await resumed).text, 'hello world');
+    assert.deepEqual(deltas, ['hello ', 'world']);
+    assert.equal(nano.seen.length, 1);
+    // The old process's call, which a real restart takes with it.
+    gone.abort();
+    await before;
+  });
+
+  it('finishes a plugin run in the Mochi started since, keeping its turn, from the computer that held it', async () => {
+    const held = new Map();
+    const sessions = fakeSessions();
+    const agentSync = {prepare: async () => ({workspace: 'folder-1', sent: {}}), finish: async () => {}};
+    const aiMeter = {record: async () => {}};
+    const appRunsOn = on => {
+      const runs = createAppRuns({sessions, agentSync, runners: on, aiMeter});
+      on.onRuns((userId, ids) => runs.adopt(userId, ids));
+      return runs;
+    };
+    const {closed} = await dialIn('member-token', {held});
+    const first = appRunsOn(runners);
+    await first.start({userId: 'u1', workspaceId: 'lab'}, {pluginId: 'echo', sessionId: SESSION, prompt: 'slow', request: {input: 'slow', install: 'a'.repeat(64)}});
+    await until(() => [...held.values()][0]?.frames.length === 2);
+    runners.close();
+    await closed;
+    runners = createRunners({resolveIdentity: async () => ({ok: true, identity: {userId: 'u1'}})});
+    appRunsOn(runners);
+    await dialIn('member-token', {held});
+    nano.finishers[0]();
+    await until(() => sessions.turns.length);
+    assert.deepEqual(sessions.turns.map(({prompt, answer, error}) => ({prompt, answer, error})), [{prompt: 'slow', answer: 'hello world', error: null}]);
+    assert.equal(sessions.rows.size, 0);
+    await until(() => held.size === 0);
+    assert.equal(nano.seen.filter(call => call.method === 'POST').length, 1);
+    // The old process's run, which a real restart takes with it.
+    await first.cancel({userId: 'u1', workspaceId: 'lab'}, SESSION);
+  });
+
+  it('fails a held run when its computer comes back without it', async () => {
+    const {closed} = await dialIn('member-token', {held: new Map()});
+    const running = (await runners.aiFor('u1')).stream({input: 'slow', run: {id: 'run-1'}, onDelta: dropComputers});
+    await closed;
+    await dialIn('member-token', {held: new Map()});
+    assert.deepEqual(await running, {error: 'Mochi Lab stopped while answering', status: 503});
+    nano.finishers[0]();
   });
 
   it('lets the computer reach only what runs need: never the marketplace', async () => {

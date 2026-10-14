@@ -1,7 +1,7 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {loadRoute, makeCtx, invoke, fakeSessions, SESSION} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, fakeSessions, appRunsFor, SESSION} from '../../_harness.mjs';
 
 const routes = loadRoute('apps');
 const context = {workspaceId: 'test-org', userId: 'test-user', membershipId: 'member-1', role: 'owner'};
@@ -60,6 +60,7 @@ function ctxWith(ai, fs = fakeFs()) {
   };
   ctx.workspaceFs = fs;
   ctx.sessions = fakeSessions();
+  ctx.appRuns = appRunsFor(ctx);
   ctx.workspaceApps = fakeApps();
   return ctx;
 }
@@ -343,31 +344,34 @@ describe('an app\'s sessions', () => {
     const ctx = ctxWith({});
     let finish;
     let cancelled = false;
-    const run = ctx.appRuns.start(SESSION, 'save 1706.03762', going => new Promise(resolve => {
-      going.send('delta', {text: 'Sav'});
-      going.signal.addEventListener('abort', () => { cancelled = true; resolve(); });
-      finish = () => { going.send('done', {text: 'Saved.'}); resolve(); };
-    }));
-    await Promise.resolve();
+    ctx.ai.stream = ({onDelta, signal}) => new Promise(resolve => {
+      onDelta('Sav');
+      signal.addEventListener('abort', () => { cancelled = true; resolve({error: 'The AI request was cancelled.', status: 499}); });
+      finish = () => resolve({text: 'Saved.'});
+    });
+    await ctx.appRuns.start(context, {pluginId: 'echo', sessionId: SESSION, prompt: 'save 1706.03762', request: {install: SHA}});
     const listed = await invoke(routes, {method: 'GET', path: PATH, ctx, requestContext: context});
     assert.deepEqual(listed.payload.sessions.map(session => session.running), [true]);
     const read = await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}`, ctx, requestContext: context});
     assert.deepEqual(read.payload.session.running, {prompt: 'save 1706.03762'});
+    await new Promise(resolve => setImmediate(resolve));
     const following = invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}/run`, ctx, requestContext: context});
     await new Promise(resolve => setImmediate(resolve));
     finish();
     const followed = await following;
     assert.equal(followed.res.written.headers['Content-Type'], 'text/event-stream');
-    assert.deepEqual(followed.res.writes, ['event: delta\ndata: {"text":"Sav"}\n\n', 'event: done\ndata: {"text":"Saved."}\n\n']);
-    await run.ended;
+    assert.deepEqual(followed.res.writes.map(write => write.split('\n')[0]), ['event: delta', 'event: done']);
     const gone = await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}/run`, ctx, requestContext: context});
     assert.equal(gone.status, 404);
     assert.equal((await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}`, ctx, requestContext: context})).payload.session.running, null);
 
-    ctx.appRuns.start(SESSION, 'again', going => new Promise(resolve => going.signal.addEventListener('abort', () => { cancelled = true; resolve(); })));
+    await ctx.appRuns.start(context, {pluginId: 'echo', sessionId: SESSION, prompt: 'again', request: {install: SHA}});
+    await new Promise(resolve => setImmediate(resolve));
     const stopped = await invoke(routes, {method: 'DELETE', path: `${PATH}/${SESSION}/run`, ctx, requestContext: context});
     assert.equal(stopped.status, 200);
     assert.equal(cancelled, true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(ctx.sessions.turns.map(({prompt, error}) => [prompt, error]), [['save 1706.03762', null], ['again', 'The AI request was cancelled.']]);
   });
 
   it('lets a viewer read and start their own sessions', async () => {

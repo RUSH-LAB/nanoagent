@@ -297,6 +297,20 @@ function publicEvent(event, {app = false} = {}) {
   return null;
 }
 
+/** What the browser is told of a finished run. */
+function completionPayload(result) {
+  return {
+    text: result.text,
+    ...(result.usage ? {usage: result.usage} : {}),
+    ...(result.cost != null ? {cost: result.cost} : {}),
+    ...(result.metrics ? {metrics: result.metrics} : {}),
+    ...(result.model ? {model: result.model} : {}),
+    ...(result.harness ? {harness: result.harness} : {}),
+    ...(result.profile ? {profile: result.profile} : {}),
+    ...(result.stopReason ? {stopReason: result.stopReason} : {}),
+  };
+}
+
 /**
  * `endpoint` replaces NANOAGENT_URL: `{url}` for a NanoAgent reached some other
  * way (a member's own computer, through `fetchImpl`), `{error}` for one that is
@@ -378,6 +392,8 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
         },
         body: JSON.stringify(nanoRequest(request)),
         signal: controller.signal,
+        // A plugin run held by the member's computer across its connections (server/runner.js).
+        ...(request.run ? {run: request.run} : {}),
       });
       if (!response.ok) {
         return {error: await responseError(response), status: response.status === 429 ? 503 : 502};
@@ -442,6 +458,8 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
         if (timedOut) return {error: TIMED_OUT, status: 504};
       }
       if (error?.code === 'invalid_event') return {error: error.message, status: 502};
+      // The member's computer went away (server/runner.js), which says how.
+      if (error?.code === 'runner') return {error: error.message, status: 503};
       return {error: UNAVAILABLE, status: 502};
     } finally {
       clearTimeout(timer);
@@ -543,6 +561,7 @@ module.exports = {
   CANCELLED,
   TIMED_OUT,
   RUNNER_OFFLINE,
+  completionPayload,
   createSseParser,
   endpointFrom,
   nanoRequest,

@@ -223,7 +223,10 @@ describe('the bridge host', () => {
   });
 
   it('continues a resumed session\'s conversation', async () => {
-    const {calls, send} = await hostWith(() => eventStream(sse('done', {text: 'ok'})), {chat: [{prompt: 'Hi', answer: 'Hello'}]});
+    const {calls, send} = await hostWith(() => eventStream(sse('done', {text: 'ok'})), {chat: [
+      {prompt: 'Hi', answer: 'Hello', error: null},
+      {prompt: 'Save it', answer: '', error: 'Mochi Lab stopped while answering'},
+    ]});
     send('p1', 'prompt', {text: 'Again'});
     await until(() => calls.length);
     assert.deepEqual(JSON.parse(calls[0].init.body).messages, [{role: 'user', content: 'Hi'}, {role: 'assistant', content: 'Hello'}]);
