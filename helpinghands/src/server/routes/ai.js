@@ -459,8 +459,9 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
   }
 
   // ── What the OpenRouter key on the member's computer has spent, as OpenRouter says ──
-  // `you`: the member's spend, of all Mochi gave them when the key is Mochi's (its workspace),
-  // else the key's own; `everyone`: its workspace's lifetime budget, every key in it together.
+  // `you`: the member's spend against their CREDIT, of all Mochi gave them when the key is
+  // Mochi's (its workspace), else the key's own; `total`: every member's together, its
+  // workspace's lifetime budget, or the key's own spend against its limit for a key without one.
   if (req.method === 'GET' && pathname === '/api/runner/credit') {
     const gateway = ctx.runners.computer(req.auth?.userId);
     if (!gateway) return json(res, 200, {credit: null});
@@ -477,8 +478,8 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     }
     const budget = key.workspace_budget;
     return json(res, 200, {credit: {
-      you: mochis ? {used: CREDIT - key.limit_remaining, total: CREDIT} : {used: key.usage, total: key.limit},
-      everyone: budget ? {used: budget.spend, total: budget.limit} : null,
+      you: {used: mochis ? CREDIT - key.limit_remaining : key.usage, total: CREDIT},
+      total: budget ? {used: budget.spend, total: budget.limit} : {used: key.usage, total: key.limit},
     }});
   }
 

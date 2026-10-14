@@ -99,8 +99,8 @@ export default function ApiKeys({computer, onSaved}) {
       </div>
       {credit && !editing && (
         <div className={ai.credit}>
-          <Spend label={credit.everyone ? 'You' : 'This key'} {...credit.you} />
-          {credit.everyone && <Spend label="Everyone" {...credit.everyone} />}
+          <Spend label="You" {...credit.you} />
+          <Spend label="Total" {...credit.total} />
         </div>
       )}
     </form>
