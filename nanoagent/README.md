@@ -177,14 +177,21 @@ them.
 Every plugin also ships its own front end in `ui/`, a static web page:
 `ui/app.js`, `ui/app.css` and the JS, CSS, images and fonts they load, at most
 5 MB, with nothing built at load time. Mochi shows it in a sandboxed iframe,
-and nothing of its own around it: choosing the app opens this page, so how
-the app introduces itself and starts is the page's to design.
+in the kit's frame of two tabs. **Dashboard**, where the app opens, is the
+kit's own and the same for every plugin: the member's sessions with the
+plugin, what each ran and cost, and buttons to start or resume one (with none
+yet, it shows `product.yaml`'s summary and steps). **Session** is the plugin's
+page: starting or resuming a session shows `app.js`'s layout, given the
+session, whose `state` the page saved last time (`session.save(state,
+{title})`), so a person comes back to where they left off. A task or chat
+always runs in a session.
 NanoAgent serves an installed plugin's at `GET /v1/installs/<sha256>/ui/<uiVersion>/<path>`, where
 `uiVersion` is the catalog's digest of `ui/` and the files are cached forever, under a
 Content-Security-Policy with `connect-src 'none'`, so the page can't reach the
 network and talks to NanoAgent only through the host's `postMessage` bridge,
 protocol `nanoagent.ui/v1`. The bridge's methods are `describe`, `runTask`,
-`prompt`, `cancel`, and `workspace.list` / `read` / `write`
+`prompt`, `cancel`, `sessions.list`, `session.get` / `start` / `resume` /
+`save`, and `workspace.list` / `read` / `write`
 ([docs/plans/plugin-ui.md](docs/plans/plugin-ui.md)).
 
 `runTask` uses `POST /v1/workspaces/<ws>/installs/<sha256>/tasks/<task>/runs`,
@@ -200,8 +207,8 @@ every plugin gets the kit of the NanoAgent serving it, and `ui/` holds
 neither. NanoAgent refuses a page unless:
 
 - `ui/app.js` and `ui/app.css` exist;
-- `app.js` has a default export, the page's layout, `({plugin, workspace}) =>
-  Element`;
+- `app.js` has a default export, the page's layout, `({plugin, workspace,
+  session}) => Element`;
 - every script imports only by a literal `./` or `../` path, of the kit's
   modules (`./kit/components.js`) or the plugin's own files in `ui/`: no URLs,
   no package names, no computed `import()`.

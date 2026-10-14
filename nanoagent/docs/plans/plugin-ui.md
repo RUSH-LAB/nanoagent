@@ -73,12 +73,18 @@ Methods:
 | `runTask` | `{task, arguments}` | `{runId}` | the `task.*` events of section 2 |
 | `prompt` | `{text}` | `{runId}` | `chat.delta {text}`, `chat.tool {name, arguments, output, isError}`, `chat.answer {text}`, `chat.error {message}`, `chat.done` |
 | `cancel` | `{runId}` | `{}` | — |
+| `sessions.list` | `{}` | `{sessions: [summary]}`, each `{id, pluginId, title, createdAt, updatedAt, runs, cost, ttftS}` | — |
+| `session.get` | `{id}` | `{session}`: the summary with `state`, `chat` and `calls` (every run, with its cost and timings) | — |
+| `session.start` | `{}` | `{session}`, a new one with `state: null` and `chat: []`; it becomes the current session | — |
+| `session.resume` | `{id}` | `{session}`; it becomes the current session, and `prompt` continues its conversation | — |
+| `session.save` | `{state, title?}` | `{}`: keeps the current session's state (any JSON, at most 256 KB) and title (at most 200 characters) | — |
 | `workspace.list` | `{}` | `{files: [{path, size}]}` | — |
 | `workspace.read` | `{path}` | `{text}` for UTF-8 text, otherwise `{base64}` | — |
 | `workspace.write` | `{path, text}` or `{path, base64}` | `{}` | — |
 
-`prompt` is today's chat: a free-form message to the plugin's agent; the host keeps the
-conversation for the page's lifetime. The host also sends `{protocol, event: "host.theme", data:
+`prompt` is today's chat: a free-form message to the plugin's agent; the session keeps the
+conversation (its last 12 turns). `runTask` and `prompt` run in the current session, and the host
+refuses them until a session is started or resumed. The host also sends `{protocol, event: "host.theme", data:
 {theme}}` when the site's theme changes.
 
 ## 5. The UI kit and a plugin's page
@@ -103,6 +109,22 @@ plugins/<id>/ui/             the plugin's
 A plugin ships only its own files; every plugin gets the kit of the NanoAgent that serves it,
 so a kit change reaches every plugin when NanoAgent is deployed, and a plugin's package never
 goes stale. `uiVersion` digests both halves, so a new kit is a new URL.
+
+### Dashboard and Session
+
+The kit's frame (`mountApp`, `kit/shell.js`) has two tabs, and the plugin designs only one:
+
+- **Dashboard**, where the app opens: the kit's own, the same for every plugin. It lists the
+  member's sessions with this plugin in this workspace (Mochi keeps them in PostgreSQL), with
+  their runs, cost and time to first token, and each session's runs; it starts a new session
+  or resumes one. With no sessions yet it shows the plugin's `product.yaml` summary and steps.
+  `ui/` changes nothing here.
+- **Session**: the plugin's page. Starting or resuming a session calls `app.js`'s default
+  export as `layout({plugin, workspace, session})` and shows what it returns. `session` holds
+  `id`, `title`, `state` (what the page last saved, `null` in a new session) and `chat` (the
+  conversation so far), and `session.save(state, {title})` keeps the state, and a title,
+  which the tab shows too. A page restores itself from `session.state`, so a person who
+  leaves comes back to where they were.
 
 The template's `app.js` exports `chatLayout`: the whole page is a chat over `prompt`, with the
 plugin's icon, name and tagline until the first message; the agent's tool calls are not shown.
