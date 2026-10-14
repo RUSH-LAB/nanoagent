@@ -18,7 +18,8 @@ import {
  */
 export function createBridgeHost({frameWindow, plugin, workspaceId, theme, request}) {
   const runs = new Map();
-  let turns = [];
+  // Each session's conversation, by id: a run left going in one session keeps its turn there.
+  const turns = new Map();
   let session = null;
   const sessionsPath = `/api/apps/${encodeURIComponent(plugin.id)}/sessions`;
   let currentTheme = theme;
@@ -78,14 +79,15 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
   /** Make `opened` the current session, continuing its conversation. */
   function enter(opened) {
     session = opened.id;
-    turns = opened.chat.map(({prompt, answer}) => ({prompt, answer}));
+    turns.set(opened.id, opened.chat.map(({prompt, answer}) => ({prompt, answer})));
     return {result: {session: opened}};
   }
 
   async function prompt({text}) {
+    const id = current();
     const run = await startRun(
       '/api/ai/stream',
-      {prompt: text, messages: promptHistory(turns), appId: plugin.id, sessionId: current()},
+      {prompt: text, messages: promptHistory(turns.get(id)), appId: plugin.id, sessionId: id},
       'Could not send the prompt',
     );
     const after = async () => {
@@ -98,7 +100,7 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
         return Boolean(mapped.final);
       }, 'The connection closed before the app finished');
       if (stopped) post(runEvent('chat.error', run.runId, {message: stopped}));
-      if (answer !== null) turns.push({prompt: text, answer});
+      if (answer !== null) turns.get(id).push({prompt: text, answer});
       post(runEvent('chat.done', run.runId, {}));
     };
     return {result: {runId: run.runId}, after};

@@ -203,6 +203,27 @@ describe('the bridge host', () => {
     assert.deepEqual(JSON.parse(calls[0].init.body).messages, [{role: 'user', content: 'Hi'}, {role: 'assistant', content: 'Hello'}]);
   });
 
+  it('keeps a run\'s turn in its own session when another is opened before it finishes', async () => {
+    const OTHER = '00000000-0000-4000-8000-000000000002';
+    let finish;
+    const {posted, calls, send} = await hostWith((path, init = {}) => {
+      if (path === `${SESSIONS}/${OTHER}`) return Response.json({session: {...sessionWith(), id: OTHER}});
+      if (path === `${SESSIONS}/${SESSION}`) return Response.json({session: sessionWith()});
+      if (finish) return eventStream(sse('done', {text: 'ok'}));
+      return new Response(new ReadableStream({start(controller) { finish = () => { controller.enqueue(new TextEncoder().encode(sse('done', {text: 'Saved it.'}))); controller.close(); }; }}), {headers: {'Content-Type': 'text/event-stream'}});
+    });
+    send('p1', 'prompt', {text: 'Save 1706.03762'});
+    await until(() => finish);
+    send('o', 'session.resume', {id: OTHER});
+    await until(() => messages(posted).some(message => message.id === 'o'));
+    finish();
+    await until(() => messages(posted).some(message => message.event === 'chat.done'));
+    send('p2', 'prompt', {text: 'Hi'});
+    await until(() => calls.filter(call => call.path === '/api/ai/stream').length === 2);
+    const other = JSON.parse(calls.at(-1).init.body);
+    assert.deepEqual([other.sessionId, other.messages], [OTHER, []]);
+  });
+
   it('runs nothing before a session is started or resumed', async () => {
     const {posted, send} = await hostWith(() => assert.fail('must not reach the API'), {started: false});
     send('p1', 'prompt', {text: 'Hi'});

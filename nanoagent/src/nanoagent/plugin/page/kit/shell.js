@@ -28,6 +28,7 @@ function homePage(plugin, ...children) {
  * picked in it. Each of the agent's tools is one of the plugin's tasks, and each task it runs shows
  * as a result card: its output, drawn by the plugin's renderer for its output class or from its
  * JSON Schema, and its verdict.
+ * @returns {{element: HTMLElement, busy: () => boolean}} `busy` is true while its chat is being answered.
  */
 function sessionPage(plugin, renderers) {
   const results = resultsPane();
@@ -44,7 +45,8 @@ function sessionPage(plugin, renderers) {
     h("h1", { text: plugin.name }),
     h("p", { class: "muted", text: plugin.product.summary }),
   );
-  return h("div", { class: "chat-page" }, chatPanel({ intro, placeholder: `Tell ${plugin.name} what you need`, tasks, show: results.show }).element, results.element);
+  const chat = chatPanel({ intro, placeholder: `Tell ${plugin.name} what you need`, tasks, show: results.show });
+  return { element: h("div", { class: "chat-page" }, chat.element, results.element), busy: chat.busy };
 }
 
 /** Why `renderers` (ui/renderers.js's default export) does not fit `plugin`, or null. */
@@ -146,10 +148,26 @@ export async function mountApp(renderers) {
     if (tab === "dashboard") board.refresh();
   };
 
+  // The session pages in the frame: the one shown, and any other still answering a message. The
+  // host keeps a turn only once it is answered, so a session left mid-answer and opened again
+  // shows its page, still answering, not what the host kept.
+  const pages = new Set();
   function openSession(opened) {
-    enterSession(opened);
+    const session = enterSession(opened);
+    let shown = opened && [...pages].find((one) => one.session.id === opened.id);
+    for (const one of pages) {
+      if (one !== shown && !one.busy()) {
+        one.element.remove();
+        pages.delete(one);
+      }
+    }
+    if (!shown) {
+      shown = { session, ...sessionPage(plugin, renderers) };
+      pages.add(shown);
+      page.append(shown.element);
+    }
+    for (const one of pages) one.element.hidden = one !== shown;
     open = true;
-    page.replaceChildren(sessionPage(plugin, renderers));
     show("session");
   }
 

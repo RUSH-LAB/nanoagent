@@ -19,7 +19,7 @@ import { currentSession, metricsLine } from "./session.js";
  *   One entry per task id: its chip's `label` and `title`, and `draw`, which draws what the task
  *   returned. `send` sends a message as if the person typed it, e.g. from a card's button.
  * @param {(node: Node) => void} options.show Draws a task's result beside the chat.
- * @returns {{element: HTMLElement}}
+ * @returns {{element: HTMLElement, busy: () => boolean}} `busy` is true while a message is being answered.
  */
 export function chatPanel({ intro, placeholder, tasks, show }) {
   const log = h("div", { class: "chat-log", role: "log", "aria-live": "polite" }, intro);
@@ -145,6 +145,7 @@ export function chatPanel({ intro, placeholder, tasks, show }) {
   });
 
   return {
+    busy: () => sendButton.disabled,
     element: h("section", { class: "chat", "aria-label": "Chat" }, log, h("div", { class: "chat-input" }, input, h("div", { class: "chat-buttons" }, stop, sendButton))),
   };
 }
