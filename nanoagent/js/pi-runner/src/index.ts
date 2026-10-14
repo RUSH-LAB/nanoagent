@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import {Agent, type AgentEvent, type ThinkingLevel} from "@earendil-works/pi-agent-core";
-import type {AssistantMessage, Usage} from "@earendil-works/pi-ai";
+import type {Api, AssistantMessage, Model, Usage} from "@earendil-works/pi-ai";
+import {setBedrockProviderModule} from "@earendil-works/pi-ai/api/bedrock-converse-stream.lazy";
+import {bedrockProviderModule} from "@earendil-works/pi-ai/bedrock-provider";
 import {builtinModels} from "@earendil-works/pi-ai/providers/all";
 import {realpathSync} from "node:fs";
 import {fileURLToPath} from "node:url";
@@ -31,6 +33,10 @@ export interface PiOptions {
   temperature?: number;
   maxTokens?: number;
 }
+
+// The runner ships as one bundle (build.mjs), so Bedrock's implementation is bundled rather than
+// imported at run time from a file of pi-ai's that is not there.
+setBedrockProviderModule(bedrockProviderModule);
 
 const THINKING_LEVELS = new Set<ThinkingLevel>([
   "off", "minimal", "low", "medium", "high", "xhigh", "max",
@@ -212,6 +218,33 @@ async function main(): Promise<void> {
   } catch (error) {
     write({type: "error", code: "pi_error", error: error instanceof Error ? error.message : String(error)});
   }
+}
+
+/**
+ * The models PI can run, as models.js prints them: every provider (with whether this environment
+ * holds its credentials) and every model with its context, output limit, reasoning support and
+ * price per million tokens. NanoAgent serves it as GET /v1/models.
+ */
+export async function catalog(): Promise<Record<string, unknown>> {
+  const models = builtinModels();
+  const available = new Set((await models.getAvailable()).map((model) => model.provider));
+  const entry = (model: Model<Api>) => ({
+    provider: model.provider,
+    id: model.id,
+    name: model.name,
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
+    reasoning: model.reasoning,
+    cost: {input: model.cost.input, output: model.cost.output},
+  });
+  return {
+    providers: models.getProviders().map((provider) => ({
+      id: provider.id,
+      name: provider.name,
+      keySet: available.has(provider.id),
+    })),
+    models: models.getModels().map(entry),
+  };
 }
 
 /** Whether this module is the program node was asked to run (as a URL its path is escaped). */

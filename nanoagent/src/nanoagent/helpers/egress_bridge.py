@@ -1,15 +1,13 @@
-"""Run inside a sandbox: ``python -I _egress_bridge.py <socket> <port> -- <command...>``.
+"""Run inside a bwrap sandbox: ``nanoagent helper egress-bridge <socket> <port> -- <command...>``.
 
 Listens on ``127.0.0.1:<port>``, the sandbox's only network, and passes each connection to the
 Unix socket the egress proxy serves outside (``nanoagent.plugin.egress``); then runs the command
-with this process's standard streams and exits with its status. Standard library only: it runs
-with no NanoAgent installed in the sandbox.
+with this process's standard streams and exits with its status. Standard library only.
 """
 
 import select
 import socket
 import subprocess
-import sys
 import threading
 
 
@@ -46,14 +44,10 @@ def _serve(listener, path):
 def main(argv):
     path, port, separator, command = argv[0], int(argv[1]), argv[2], argv[3:]
     if separator != "--" or not command:
-        raise SystemExit("usage: _egress_bridge.py <socket> <port> -- <command...>")
+        raise SystemExit("usage: nanoagent helper egress-bridge <socket> <port> -- <command...>")
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(("127.0.0.1", port))
     listener.listen()
     threading.Thread(target=_serve, args=(listener, path), daemon=True).start()
     return subprocess.call(command)
-
-
-if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))

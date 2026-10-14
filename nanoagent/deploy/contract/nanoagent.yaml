@@ -44,6 +44,8 @@ workspaces: MISSING
 installs: ${workspaces}-installs
 uv_cache: ${workspaces}-uv-cache
 installs_unused_days: 30
+# The Python plugins run on: the one NanoAgent runs on here.
+plugin_python: python
 sandbox: none
 
 host: 127.0.0.1

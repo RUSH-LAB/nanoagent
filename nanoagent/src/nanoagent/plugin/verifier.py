@@ -17,8 +17,8 @@ checked against its type: a verifier checks what a value means, never its shape.
 
 Determinism is enforced twice. :func:`check_verifier` reads every module before anything runs:
 each may import only :data:`ALLOWED_IMPORTS`, ``contract`` and its own package, and may not reach builtins that
-load or run code, private attributes, or file-writing methods. Each call then runs in a fresh interpreter (see
-``_verifier_sandbox.py``) with networking and process launching disabled and new imports
+load or run code, private attributes, or file-writing methods. Each call then runs in a fresh process (the ``verifier`` helper,
+:mod:`nanoagent.helpers.verifier`) with networking and process launching disabled and new imports
 blocked, and the function is called twice: two different verdicts fail the run.
 """
 
@@ -27,11 +27,11 @@ from __future__ import annotations
 import ast
 import json
 import subprocess
-import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from nanoagent import helpers
 from nanoagent.plugin import sandbox
 
 if TYPE_CHECKING:
@@ -105,7 +105,6 @@ FORBIDDEN_ATTRIBUTES = frozenset(
 # The two functions and their positional parameters.
 SIGNATURES = {"verify_input": 2, "verify_output": 4, "verify_task": 5}
 TIMEOUT = 60.0
-_SANDBOX = Path(__file__).with_name("_verifier_sandbox.py")
 
 
 @dataclass(frozen=True)
@@ -252,9 +251,8 @@ def _call(
         "classes": classes,
         "modules": sorted(ALLOWED_IMPORTS),
     }
-    # -B: no __pycache__ written into the plugin.
     readable = [] if workspace is None else [workspace]
-    with sandbox.launch([sys.executable, "-I", "-B", str(_SANDBOX)], root=root, env={}, readable=readable) as (argv, env):
+    with sandbox.launch(helpers.command("verifier"), root=root, env={}, readable=readable) as (argv, env):
         completed = subprocess.run(
             argv,
             input=json.dumps(request),

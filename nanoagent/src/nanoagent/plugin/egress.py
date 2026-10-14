@@ -1,7 +1,7 @@
 """The only way out of a sandboxed plugin: an HTTPS proxy that reaches the hosts it declared.
 
 A sandbox (``nanoagent.plugin.sandbox``) has no network of its own. Its processes reach
-``127.0.0.1:<PROXY_PORT>``, where ``_egress_bridge.py`` passes each connection to the Unix socket
+``127.0.0.1:<PROXY_PORT>``, where the ``egress-bridge`` helper passes each connection to the Unix socket
 :func:`egress` serves out here. That proxy answers ``CONNECT host:443`` for the ``hosts`` it was
 given and nothing else: no other port, no plain HTTP, and no host whose addresses are not all
 public, so a plugin that declares an internal name still cannot reach the private network.

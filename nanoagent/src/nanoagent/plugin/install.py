@@ -9,7 +9,8 @@ A host runs only what it installed here. :meth:`Installs.install` takes a packag
    sandbox, one that asks for environment variables, which a sandbox never passes on;
 3. builds the plugin's environment before any run, which is offline, with ``uv sync`` in the
    sandbox (``nanoagent.plugin.sandbox``), reaching only the package indexes and GitHub (its file
-   host too, for a build that fetches a large file from a repo), on the Python NanoAgent runs on.
+   host too, for a build that fetches a large file from a repo), on the Python plugins run on
+   (nanoagent.plugin.python).
    It syncs twice: first every package of the plugin's ``uv.lock`` with a wheel for this Python,
    from the uv cache every install shares, with ``--no-build`` so nothing of the plugin's runs
    while that cache is writable; then the rest (the plugin itself, its path and git sources, and
@@ -29,7 +30,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import threading
 import time
 import tomllib
@@ -40,12 +40,13 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from packaging.tags import sys_tags
+from packaging.tags import Tag
 from packaging.utils import InvalidWheelFilename, parse_wheel_filename
 
 from nanoagent.plugin import sandbox
 from nanoagent.plugin.manifest import PAGE, PluginManifest, load_manifest, page_files, ui_files
 from nanoagent.plugin.package import PackageError, catalog_entry, inspect_package, unpack
+from nanoagent.plugin.python import PluginPython
 
 SHA256 = re.compile(r"[0-9a-f]{64}")
 # Where `uv sync` fetches a plugin's dependencies: the package index, git sources on GitHub, and the
@@ -57,13 +58,12 @@ INSTALL_HOSTS = (
     "codeload.github.com",
     "media.githubusercontent.com",
 )
-# The Python every plugin's environment is built on: NanoAgent's own, which every sandbox can read.
-PYTHON = Path(sys.base_prefix) / "bin" / "python3"
-SYNC = ("uv", "sync", "--frozen", "--no-dev", "--python", str(PYTHON))
+# Followed by `--python <the Python plugins run on>`.
+SYNC = ("uv", "sync", "--frozen", "--no-dev")
 SYNC_TIMEOUT = 600.0
-# Written into an install's folder once it finishes; a kept install whose marker differs is redone.
+# Written into an install's folder once it finishes, holding its Python's marker; a kept install
+# whose marker differs is redone.
 INSTALLED = "installed"
-INTERPRETER = f"{PYTHON}\n{sys.version}\n"
 
 
 class InstallError(RuntimeError):
@@ -87,16 +87,15 @@ class Installed:
     entry: dict[str, Any]
 
 
-def _finished(folder: Path) -> bool:
-    """Whether ``folder`` holds an install that finished, on this Python."""
+def _finished(folder: Path, python: PluginPython) -> bool:
+    """Whether ``folder`` holds an install that finished, on ``python``."""
     marker = folder / INSTALLED
-    return marker.is_file() and marker.read_text(encoding="utf-8") == INTERPRETER
+    return marker.is_file() and marker.read_text(encoding="utf-8") == python.marker
 
 
-def built_here(lock: Path) -> list[str]:
-    """The packages of the ``uv.lock`` at ``lock`` that have no wheel from a package index this
-    Python can install: they are built, so only in the second sync."""
-    tags = set(sys_tags())
+def built_here(lock: Path, tags: frozenset[Tag]) -> list[str]:
+    """The packages of the ``uv.lock`` at ``lock`` that have no wheel from a package index for
+    ``tags``, a Python's: they are built, so only in the second sync."""
 
     def installable(package: dict[str, Any]) -> bool:
         files = (unquote(wheel["url"].rsplit("/", 1)[-1]) for wheel in package.get("wheels", []))
@@ -110,10 +109,11 @@ def built_here(lock: Path) -> list[str]:
 
 
 class Installs:
-    """The plugins installed under ``root``, sharing the uv cache ``cache``: folders of this
-    process's own. An install no caller installed for ``unused_days`` is removed on starting."""
+    """The plugins installed under ``root`` on ``python``, sharing the uv cache ``cache``: folders
+    of this process's own. An install no caller installed for ``unused_days`` is removed on starting."""
 
-    def __init__(self, root: str | Path, cache: str | Path, unused_days: int) -> None:
+    def __init__(self, root: str | Path, cache: str | Path, unused_days: int, python: PluginPython) -> None:
+        self.python = python
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.cache = Path(cache).resolve()
@@ -121,7 +121,7 @@ class Installs:
         # Each install's marker is touched whenever it is installed, so its age is how long it went unused.
         cutoff = time.time() - unused_days * 86_400
         for folder in self.root.iterdir():
-            if not (_finished(folder) and (folder / INSTALLED).stat().st_mtime >= cutoff):
+            if not (_finished(folder, python) and (folder / INSTALLED).stat().st_mtime >= cutoff):
                 shutil.rmtree(folder)
         subprocess.run(["uv", "cache", "prune", "--quiet"], env={**os.environ, "UV_CACHE_DIR": str(self.cache)}, check=True)
         self._installed: dict[str, Installed] = {}
@@ -146,7 +146,7 @@ class Installs:
                 (folder / INSTALLED).touch()
                 return self._installed[sha256]
             entry = inspect_package(data)
-            kept = _finished(folder)
+            kept = _finished(folder, self.python)
             if not kept:
                 # Left by an install that did not finish, or built on another Python.
                 shutil.rmtree(folder, ignore_errors=True)
@@ -162,7 +162,7 @@ class Installs:
                     if os.path.lexists(plugin / ".venv"):
                         raise PackageError(["the package carries a .venv; an install builds its own"])
                     self._sync(plugin)
-                    (folder / INSTALLED).write_text(INTERPRETER, encoding="utf-8")
+                    (folder / INSTALLED).write_text(self.python.marker, encoding="utf-8")
             except BaseException:
                 shutil.rmtree(folder, ignore_errors=True)
                 raise
@@ -173,9 +173,10 @@ class Installs:
 
     def _sync(self, plugin: Path) -> None:
         shared = {"UV_CACHE_DIR": str(self.cache), "UV_LINK_MODE": "copy"}
-        skipped = [arg for name in built_here(plugin / "uv.lock") for arg in ("--no-install-package", name)]
-        self._run([*SYNC, "--no-build", *skipped], plugin, shared, [plugin, self.cache])
-        self._run(SYNC, plugin, {}, [plugin])
+        sync = [*SYNC, "--python", str(self.python.executable)]
+        skipped = [arg for name in built_here(plugin / "uv.lock", self.python.tags) for arg in ("--no-install-package", name)]
+        self._run([*sync, "--no-build", *skipped], plugin, shared, [plugin, self.cache])
+        self._run(sync, plugin, {}, [plugin])
 
     def _run(self, sync: Sequence[str], plugin: Path, env: dict[str, str], writable: list[Path]) -> None:
         with sandbox.launch(sync, root=plugin, env=env, writable=writable, hosts=INSTALL_HOSTS) as (argv, launch_env):

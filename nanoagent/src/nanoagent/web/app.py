@@ -34,6 +34,7 @@ from nanoagent.plugin.package import (
     pack,
     pack_source,
 )
+from nanoagent.plugin.python import plugin_python
 from nanoagent.runtime.config import AgentConfig, load_config_args
 from nanoagent.web.config import WebConfig
 from nanoagent.web.plugin_agent import PluginModel, plugin_profile
@@ -103,8 +104,9 @@ def create_app(
 
     run_host = host or RunHost(cfg)
     # Every plugin runs from an install, in the sandbox, which must hold before anything is served.
-    sandbox.configure(cfg.sandbox)
-    installs = Installs(cfg.installs, cfg.uv_cache, cfg.installs_unused_days)
+    python = plugin_python(cfg.plugin_python)
+    sandbox.configure(cfg.sandbox, python)
+    installs = Installs(cfg.installs, cfg.uv_cache, cfg.installs_unused_days, python)
     sandbox.check(installs.root)
     # Packages offered for download, packed once; one runs only once a caller installs it.
     packages: dict[str, tuple[dict[str, Any], bytes]] = {}

@@ -2,15 +2,15 @@
 
 Every process a plugin brings (its ``run.sh``, its MCP server, its verifier, the ``uv sync``
 that installs it) starts through :func:`launch`. Which sandbox that is is the host's choice,
-made once with :func:`configure`:
+made once with :func:`configure`, with the Python plugins run on (nanoagent.plugin.python):
 
 - ``none``: the process runs as itself, with the environment it is given. For running your own
   plugins on your own machine.
 - ``bwrap``: the process runs in new namespaces (``bwrap --unshare-all``) with an empty
-  environment but the one it is given. It sees the system's programs and the Python it runs
-  on read-only, the plugin's own folder read-only, and only the folders it is given to write;
-  ``/tmp`` is its own. Its only network is the egress proxy (``nanoagent.plugin.egress``), which
-  reaches the hosts the plugin declared, over HTTPS. :func:`check` proves all of that on this
+  environment but the one it is given. It sees the system's programs, the Python plugins run on
+  and NanoAgent's helpers (nanoagent.helpers) read-only, the plugin's own folder read-only, and
+  only the folders it is given to write; ``/tmp`` is its own. Its only network is the egress proxy
+  (``nanoagent.plugin.egress``), which reaches the hosts the plugin declared, over HTTPS. :func:`check` proves all of that on this
   machine before a host serves anything.
 - ``seatbelt``: the same confinement on macOS, through ``sandbox-exec``. With no network namespace
   to give it, the process may reach only the loopback port its own egress proxy listens on, and
@@ -23,7 +23,6 @@ import os
 import secrets
 import shutil
 import subprocess
-import sys
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -31,11 +30,11 @@ from tempfile import TemporaryDirectory
 
 from mcp.client.stdio import get_default_environment
 
-import nanoagent
+from nanoagent import helpers
 from nanoagent.plugin.egress import PROXY_PORT, egress, egress_port
+from nanoagent.plugin.python import PluginPython
 
 SANDBOXES = ("bwrap", "seatbelt", "none")
-BRIDGE = Path(__file__).with_name("_egress_bridge.py")
 # What every sandbox sees read-only: the system's programs, libraries and certificates.
 SYSTEM = ("/usr", "/bin", "/lib", "/lib64", "/sbin", "/etc/ssl", "/etc/ca-certificates", "/etc/alternatives")
 # What a seatbelt sandbox reads: the system's programs, libraries, certificates and installed software.
@@ -65,23 +64,33 @@ MACOS_SERVICES = (
 CHECK_TIMEOUT = 30.0
 
 _kind = "none"
+_python: PluginPython | None = None
 
 
-def configure(kind: str) -> None:
-    """Choose the sandbox every later :func:`launch` uses."""
-    global _kind
+def configure(kind: str, python: PluginPython | None = None) -> None:
+    """Choose the sandbox every later :func:`launch` uses, and the Python plugins run on, which
+    every sandbox but ``none`` needs."""
+    global _kind, _python
     if kind not in SANDBOXES:
         raise ValueError(f"sandbox must be one of {', '.join(SANDBOXES)}, got {kind!r}")
-    _kind = kind
+    if kind != "none" and python is None:
+        raise ValueError(f"the {kind} sandbox needs the Python plugins run on")
+    _kind, _python = kind, python
 
 
 def current() -> str:
     return _kind
 
 
+def _plugin_python() -> PluginPython:
+    if _python is None:
+        raise RuntimeError("the sandbox has no Python plugins run on: configure() was not given one")
+    return _python
+
+
 def _runtime() -> list[Path]:
-    """What NanoAgent's own Python needs to run inside: its interpreter, its environment, its code."""
-    paths = {Path(sys.base_prefix), Path(sys.prefix), Path(nanoagent.__file__).resolve().parents[1]}
+    """What runs inside: the Python plugins run on, and NanoAgent's helpers."""
+    paths = {_plugin_python().prefix, *helpers.readable()}
     if os.environ.get("UV_PYTHON_INSTALL_DIR"):
         paths.add(Path(os.environ["UV_PYTHON_INSTALL_DIR"]))
     return sorted(paths)
@@ -105,7 +114,7 @@ def _bwrap(
         args += ["--ro-bind", str(path), str(path)]
     for path in writable:
         args += ["--bind", str(path), str(path)]
-    args += ["--ro-bind", str(BRIDGE), "/run/nanoagent/bridge.py", "--bind", str(socket), "/run/nanoagent/egress.sock"]
+    args += ["--bind", str(socket), "/run/nanoagent/egress.sock"]
     proxy = f"http://127.0.0.1:{PROXY_PORT}"
     inside = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
@@ -122,9 +131,8 @@ def _bwrap(
     }
     for name, value in inside.items():
         args += ["--setenv", name, value]
-    python = str(Path(sys.base_prefix) / "bin" / "python3")
-    args += ["--chdir", str(root), "--", python, "-I", "/run/nanoagent/bridge.py", "/run/nanoagent/egress.sock"]
-    return [*args, str(PROXY_PORT), "--", *argv]
+    bridge = helpers.command("egress-bridge", "/run/nanoagent/egress.sock", str(PROXY_PORT), "--")
+    return [*args, "--chdir", str(root), "--", *bridge, *argv]
 
 
 def _quoted(path: Path | str) -> str:
@@ -140,9 +148,9 @@ def _seatbelt(
     home: Path,
     port: int,
 ) -> tuple[list[str], dict[str, str]]:
-    # uv and the Python NanoAgent runs on, which a plugin's environment is built from.
+    # uv and the Python plugins run on, which a plugin's environment is built from.
     tools = [Path(found).resolve().parent for found in [shutil.which("uv")] if found]
-    tools.append(Path(sys.base_prefix) / "bin")
+    tools.append(_plugin_python().executable.parent)
     reads = [*MACOS_SYSTEM, *_runtime(), *tools, root, *readable, *writable, home]
     profile = "\n".join(
         [
@@ -258,7 +266,7 @@ def check(root: Path) -> None:
     canary = secrets.token_hex(16)
     os.environ["NANOAGENT_SANDBOX_CANARY"] = canary
     try:
-        python = str(Path(sys.base_prefix) / "bin" / "python3")
+        python = str(_plugin_python().executable)
         with launch([python, "-I", "-c", _PROBE, canary], root=root, env={}) as (argv, env):
             completed = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=CHECK_TIMEOUT, check=False)
     finally:

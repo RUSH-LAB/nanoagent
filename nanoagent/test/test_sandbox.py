@@ -9,9 +9,12 @@ from pathlib import Path
 
 import pytest
 
+from nanoagent import helpers
 from nanoagent.plugin import egress as egress_module
-from nanoagent.plugin import sandbox
+from nanoagent.plugin import load_manifest, sandbox, verify_input
 from nanoagent.plugin.egress import egress, egress_port
+from nanoagent.plugin.python import plugin_python
+from test_plugin import write_plugin
 
 
 def _ask(path: Path, request: bytes) -> bytes:
@@ -90,7 +93,7 @@ KINDS = [
 
 @pytest.fixture(params=KINDS)
 def confined(request: pytest.FixtureRequest) -> None:
-    sandbox.configure(request.param)
+    sandbox.configure(request.param, plugin_python(sys.executable))
     yield
     sandbox.configure("none")
 
@@ -128,3 +131,25 @@ def test_the_sandbox_reads_only_what_it_is_given(confined: None, tmp_path: Path)
         env,
     ):
         assert subprocess.run(argv, env=env, capture_output=True, check=False).returncode != 0
+
+
+def test_the_verifier_runs_in_the_sandbox(confined: None, tmp_path: Path) -> None:
+    root = write_plugin(tmp_path / "echo").parent
+    assert verify_input(load_manifest(root), "echo", {"value": "yes"}).score == 1
+
+
+def test_bwrap_runs_the_command_behind_the_egress_bridge_helper(tmp_path: Path) -> None:
+    sandbox.configure("bwrap", plugin_python(sys.executable))
+    try:
+        argv = sandbox._bwrap(["run"], tmp_path, {}, [], [], tmp_path / "egress.sock")
+    finally:
+        sandbox.configure("none")
+    bridge = helpers.command("egress-bridge", "/run/nanoagent/egress.sock", str(egress_module.PROXY_PORT), "--")
+    assert argv[argv.index("--chdir") :] == ["--chdir", str(tmp_path), "--", *bridge, "run"]
+    binds = {tuple(argv[index : index + 3]) for index, arg in enumerate(argv) if arg == "--ro-bind"}
+    assert {("--ro-bind", str(path), str(path)) for path in helpers.readable()} <= binds
+
+
+def test_the_egress_bridge_helper_runs_the_command_and_exits_with_its_status(tmp_path: Path) -> None:
+    command = helpers.command("egress-bridge", str(tmp_path / "egress.sock"), "0", "--", sys.executable, "-c", "raise SystemExit(3)")
+    assert subprocess.run(command, check=False).returncode == 3

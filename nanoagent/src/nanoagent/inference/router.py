@@ -33,13 +33,14 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from nanoagent import helpers
 from nanoagent.inference.serve import SGLangServeConfig, SGLangServer
 
 
 def router_command(cfg: SGLangServeConfig) -> list[str]:
     """The ``sglang_router.launch_router`` argv (pure; assertable without launching)."""
     return [
-        sys.executable,
+        helpers.python("the SGLang router"),
         "-m",
         "sglang_router.launch_router",
         "--host",

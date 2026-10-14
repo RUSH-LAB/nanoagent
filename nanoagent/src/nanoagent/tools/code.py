@@ -21,7 +21,8 @@ network and runs as the same user; the only bounds are :attr:`TIMEOUT_SECONDS` (
 killed) and the stdout cap. A real isolation layer (container/jail) is deliberately out of
 scope for this local sandbox.
 
-Decoupling: this module imports only the Python standard library and
+Decoupling: this module imports only the Python standard library, :mod:`nanoagent.helpers` (for
+NanoAgent's own Python, which runs the code, so a compiled NanoAgent cannot build this tool) and
 :class:`nanoagent.core.tool.Tool` — not nanoagent.inference, not the search/scoring/training packages
 that use it, so nanoagent stays standalone and usable with nothing but the stdlib. Any in-sandbox
 capability (e.g. a search helper) enters ONLY through the optional ``preamble`` injection
@@ -33,11 +34,11 @@ from __future__ import annotations
 
 import contextvars
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 from shutil import rmtree
 
+from nanoagent import helpers
 from nanoagent.core.tool import Tool, communicate_or_kill
 
 
@@ -127,6 +128,7 @@ class CodeExec(Tool):
         self._max_output_chars = self.MAX_OUTPUT_CHARS if max_output_chars is None else max_output_chars
         # The optional injection point: source prepended to the model's code. Ships empty.
         self._preamble = preamble
+        self._python = helpers.python("the python tool")
 
     @property
     def _work_dir(self) -> Path | None:
@@ -194,7 +196,7 @@ class CodeExec(Tool):
         # can reap the WHOLE tree (the child plus anything it spawned), not just the direct
         # child — otherwise overrunning grandchildren outlive the cap as orphans.
         proc = subprocess.Popen(
-            [sys.executable, "-c", source],
+            [self._python, "-c", source],
             cwd=self._ensure_work_dir(),
             # errors="replace": a stray non-UTF-8 byte from the sandboxed code (or a child it
             # spawns) becomes U+FFFD instead of raising UnicodeDecodeError out of communicate()

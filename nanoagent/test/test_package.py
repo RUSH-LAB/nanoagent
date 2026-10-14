@@ -5,6 +5,7 @@ import gzip
 import io
 import shutil
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 
@@ -167,6 +168,7 @@ def client(plugin: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Tes
             f"workspaces={tmp_path / 'workspaces'}",
             f"installs={tmp_path / 'installs'}",
             f"uv_cache={tmp_path / 'uv-cache'}",
+            f"plugin_python={sys.executable}",
             "host=127.0.0.1",
             "sandbox=none",
         ],

@@ -1,8 +1,8 @@
-"""Run one plugin verifier function in this fresh interpreter (see nanoagent.plugin.verifier).
+"""Run one plugin verifier function in this fresh process (see nanoagent.plugin.verifier).
 
-It runs as ``python -I -B <this file>``, outside the nanoagent package, and imports only the
-standard library and slimconfig. stdin is ``{"verifier", "contract", "function", "arguments",
-"classes", "modules"}`` (``verifier``: the package folder; ``contract``: the plugin's
+It runs as ``nanoagent helper verifier``, writes no bytecode, and imports only the standard library
+and slimconfig beyond NanoAgent's package itself. stdin is ``{"verifier", "contract", "function",
+"arguments", "classes", "modules"}`` (``verifier``: the package folder; ``contract``: the plugin's
 ``contract.py``; ``classes``: for each argument, the contract class it is built into, or null);
 stdout is the function's JSON result.
 """
@@ -54,7 +54,11 @@ def _json(value):
     raise TypeError(f"a verifier result holds {type(value).__name__}, which is not JSON")
 
 
-def main() -> None:
+def main(argv: list[str]) -> int:
+    if argv:
+        raise SystemExit("usage: nanoagent helper verifier < request.json")
+    # No __pycache__ written into the plugin.
+    sys.dont_write_bytecode = True
     request = json.load(sys.stdin)
     for module in request["modules"]:
         importlib.import_module(module)
@@ -91,7 +95,4 @@ def main() -> None:
     if first_text != json.dumps(second, sort_keys=True, default=_json):
         raise RuntimeError(f"{function_name}() is not deterministic: two calls disagreed")
     sys.stdout.write(first_text)
-
-
-if __name__ == "__main__":
-    main()
+    return 0

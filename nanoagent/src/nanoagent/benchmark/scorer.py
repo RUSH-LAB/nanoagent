@@ -8,11 +8,11 @@ import importlib.util
 from importlib.metadata import PackageNotFoundError, version as package_version
 import json
 import re
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, Sequence
 
+from nanoagent import helpers
 from nanoagent.benchmark.environment import EnvironmentOutcome, EnvironmentSession
 from nanoagent.benchmark.metric import MetricDefinition
 from nanoagent.benchmark.task import BenchmarkTask
@@ -177,7 +177,7 @@ class SWEbenchScorer(RuleBasedScorer):
         self.split = split
         self.timeout = timeout
         self._official_command = evaluator_command is None
-        self.command = tuple(evaluator_command or (sys.executable, "-m", "swebench.harness.run_evaluation"))
+        self.command = tuple(evaluator_command or (helpers.python("the SWE-bench evaluator"), "-m", "swebench.harness.run_evaluation"))
         if not self.command:
             raise ValueError("SWE-bench evaluator command must not be empty")
         self.metrics = (

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from nanoagent.core.agent import Reply, ToolCall
 from nanoagent.inference.types import Answer
 from nanoagent.plugin import install
 from nanoagent.plugin.package import pack
+from nanoagent.plugin.python import plugin_python
 from nanoagent.runtime.config import load_config_args
 from nanoagent.web.app import create_app
 from nanoagent.web.config import WebConfig
@@ -65,6 +67,7 @@ def _app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, 
             f"workspaces={workspaces}",
             f"installs={tmp_path / 'installs'}",
             f"uv_cache={tmp_path / 'uv-cache'}",
+            f"plugin_python={sys.executable}",
             "host=127.0.0.1",
             "sandbox=none",
         ],
@@ -137,13 +140,14 @@ def test_keeps_a_finished_install_for_the_next_process(
 
 def test_starting_removes_the_installs_no_caller_gets_back(tmp_path: Path) -> None:
     root = tmp_path / "installs"
-    for name, marker in [("used", install.INTERPRETER), ("unused", install.INTERPRETER), ("unfinished", None), ("other-python", "another python\n")]:
+    python = plugin_python(sys.executable)
+    for name, marker in [("used", python.marker), ("unused", python.marker), ("unfinished", None), ("other-python", "another python\n")]:
         (root / name).mkdir(parents=True)
         if marker is not None:
             (root / name / install.INSTALLED).write_text(marker, encoding="utf-8")
     month_ago = time.time() - 31 * 86_400
     os.utime(root / "unused" / install.INSTALLED, (month_ago, month_ago))
-    install.Installs(root, tmp_path / "uv-cache", 30)
+    install.Installs(root, tmp_path / "uv-cache", 30, python)
     assert [folder.name for folder in root.iterdir()] == ["used"]
 
 
@@ -178,7 +182,7 @@ source = {{ editable = "." }}
 """,
         encoding="utf-8",
     )
-    assert install.built_here(lock) == ["sdist-only", "other-platform", "from-git", "the-plugin"]
+    assert install.built_here(lock, plugin_python(sys.executable).tags) == ["sdist-only", "other-platform", "from-git", "the-plugin"]
 
 
 def test_serves_its_own_packages_by_id_to_mochi_on_production(
@@ -197,6 +201,7 @@ def test_serves_its_own_packages_by_id_to_mochi_on_production(
             f"workspaces={workspaces}",
             f"installs={tmp_path / 'installs'}",
             f"uv_cache={tmp_path / 'uv-cache'}",
+            f"plugin_python={sys.executable}",
             "host=127.0.0.1",
             "sandbox=none",
         ],

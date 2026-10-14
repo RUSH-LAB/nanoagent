@@ -368,6 +368,8 @@ impl Supervisor {
             format!("workspaces={}", serde_json::to_string(&workspaces.display().to_string()).unwrap()),
             format!("installs={}", serde_json::to_string(&installs.display().to_string()).unwrap()),
             format!("uv_cache={}", serde_json::to_string(&uv_cache.display().to_string()).unwrap()),
+            // Plugins run on the Python NanoAgent runs on; its environment holds no PATH to find `python` on.
+            format!("plugin_python={}", serde_json::to_string(&python.display().to_string()).unwrap()),
         ];
         // The keys are all NanoAgent is given of the settings.
         let mut nanoagent_env = system.clone();
