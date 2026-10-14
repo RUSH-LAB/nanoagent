@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nanoagent-meal-suggestion"
-version = "0.2.0"
+version = "0.2.1"
 description = "Suggest a meal of whole recipe servings that meets nutrition constraints and a food preference"
 requires-python = ">=3.12"
 dependencies = ["mcp>=1.27,<2", "numpy", "scipy>=1.15", "slimconfig"]

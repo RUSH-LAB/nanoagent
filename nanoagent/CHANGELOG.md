@@ -3,6 +3,28 @@
 What each NanoAgent release changes for plugins. A plugin's `nanoagent` range in `nanoagent.yaml`
 names the releases it runs on; a new minor version is one a plugin made for the last may break on.
 
+## 0.5.0
+
+A task may declare `runner: decide`: a model only decides, and NanoAgent calls the task's tools
+and builds its output. A plugin declares `nanoagent: ~=0.5.0`, and needs nothing else.
+
+- A decide task fills every tool argument and every output field by choice or by copy: an Enum
+  or bool field is chosen, and any other field is copied from a value of exactly its type in the
+  task's input or an earlier output of one of the task's tools, never the reference tool's. A
+  list of choices is a choice of several; a list of objects with no ready-made one is built item
+  by item. NanoAgent refuses a decide task with a field it cannot fill that way, so a value a
+  decide task needs that is computed, such as a total, is one a tool returns.
+- Each request asks the model a batch of questions, the answer held to their options by a JSON
+  Schema (Bedrock's forced tool choice, an OpenAI-compatible provider's `response_format`). A
+  slot with only one option is copied with no question.
+- Every batch is a `task.decision {questions, answers, probabilities, forced}` event.
+- A decide run keeps to `max_steps` requests, `cost_limit` and `token_limit`, and refuses
+  `thinking_level`, before its first request.
+- `nanoagent plugin agent` runs decide tasks too; its `messages.json` holds the decider's
+  requests, each answered by one `answer` call.
+- `nanoagent plugin agent` runs a model on OpenRouter too: its config is a
+  `PluginOpenRouterAgentConfig`, whose `llm` is a `nanoagent.llm.openrouter.OpenRouterConfig`.
+
 ## 0.4.0
 
 Plugins are AI native: every plugin's page is NanoAgent's chat, in which the plugin's agent runs

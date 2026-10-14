@@ -1,9 +1,9 @@
 _ > nanoagent.plugin.manifest.ManifestConfig:
 id: bibtex-check
 name: BibTeX Hallucination Check
-version: 0.2.0
+version: 0.3.0
 status: ready
-nanoagent: ~=0.4.0
+nanoagent: ~=0.5.0
 
 runtime > nanoagent.plugin.manifest.RuntimeConfig:
   type: mcp_stdio
@@ -26,13 +26,12 @@ tools > dict[contract.Tool, nanoagent.plugin.manifest.ToolConfig]:
 tasks > dict[contract.Task, nanoagent.plugin.manifest.TaskConfig]:
   check-bibtex:
     description: Check BibTeX entries, e.g. a bibliography an AI model wrote, against trusted references, marking each entry real, fixable, invented or unreadable, with its closest reference and the fields that differ
-    runner: agent
+    runner: decide
     tools: [read_bibtex]
     reference: parse_bibtex
     instructions: |-
-      Call read_bibtex on the reference text and on the raw text. Each entry has its citation key and either its record in the registered schema (entry_type, title, authors, year, venue, doi) or, when it does not parse into the schema, a null record and an error.
+      The verdicts come from both texts' entries as read_bibtex reads them: read the reference text, then the raw text. Each entry has its citation key and either its record in the registered schema (entry_type, title, authors, year, venue, doi) or, when it does not parse into the schema, a null record and an error.
       Two records share a field when its values are equal; authors are shared only as the same names in the same order. Citation keys never count.
       For each raw entry with a record, its closest reference is the reference sharing the most fields; on a tie, one that shares the title or a non-null DOI; then the first in the reference text. It is close when it shares the title, a non-null DOI, or at least four of the six fields.
       Label each raw entry: real when its closest reference shares all six fields; fixable when the closest reference is close but differs in some fields; invented when no reference is close; unreadable when it has no record.
-      Then call submit with one verdict per raw entry, in the raw text's order: its key; its title (null when unreadable); its label; closest, the closest reference's key for a real or fixable entry and null otherwise; differs, the fields that differ from that reference for a fixable entry, in the order entry_type, title, authors, year, venue, doi, and empty otherwise; error, the read_bibtex error for an unreadable entry and null otherwise.
-      Finish with a one-paragraph report naming each fixable entry and what to fix, and each invented or unreadable entry.
+      The output has one verdict per raw entry, in the raw text's order: its key; its title (null when unreadable); its label; closest, the closest reference's key for a real or fixable entry and null otherwise; differs, the fields that differ from that reference for a fixable entry, in the order entry_type, title, authors, year, venue, doi, and empty otherwise; error, the read_bibtex error for an unreadable entry and null otherwise.

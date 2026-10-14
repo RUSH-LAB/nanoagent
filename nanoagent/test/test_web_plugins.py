@@ -11,6 +11,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from nanoagent.core.agent import Reply, ToolCall
+from nanoagent.inference.types import Answer
 from nanoagent.plugin import install
 from nanoagent.plugin.package import pack
 from nanoagent.runtime.config import load_config_args
@@ -405,6 +406,77 @@ def test_task_runs_choose_their_settings_within_the_limits(client: TestClient) -
     over = client.post(tasks, json={"arguments": {"value": "hi"}, "settings": {"cost_limit": 5}})
     assert over.status_code == 400 and "at most 0.1" in over.json()["error"]
     assert client.post(tasks, json={"arguments": {"value": "hi"}, "extra": 1}).status_code == 400
+
+
+def _install_decide_echo(client: TestClient, tmp_path: Path) -> None:
+    """Install the echo plugin with its echo task as a decide task."""
+    root = tmp_path / "echo"
+    _echo(root)
+    manifest = root / "nanoagent.yaml"
+    manifest.write_text(manifest.read_text().replace("runner: tool", "runner: decide"))
+    data = pack(root)
+    client.sha = hashlib.sha256(data).hexdigest()
+    assert client.put(f"/v1/installs/{client.sha}", content=data).status_code == 200
+
+
+class DecideModel:
+    """The chat calls the echo task, whose decider calls echo and then submits; every reply and
+    every answer costs 0.01."""
+
+    async def query(self, messages, tools, on_delta=None, **_):
+        if any(message["role"] == "tool" for message in messages):
+            return Reply(content="I echoed hi.", cost=0.01)
+        return Reply(content=None, tool_calls=[ToolCall("call-1", "echo", '{"value": "hi"}')], cost=0.01)
+
+    async def answer(self, messages, *, name, schema):
+        assert name == "answer" and list(schema["properties"]) == ["next"]
+        return Answer({"next": "echo" if '"calls": []' in messages[-1]["content"] else "submit"}, cost=0.01)
+
+
+def test_runs_a_decide_task_by_its_answers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workspaces: Path) -> None:
+    client = _app(tmp_path, monkeypatch, DecideModel(), workspaces)
+    _install_decide_echo(client, tmp_path)
+    events = _events(client.post(f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}}))
+    assert [event["type"] for event in events] == [
+        "task.started",
+        "task.decision",
+        "task.decision",
+        "task.tool",
+        "task.decision",
+        "task.decision",
+        "task.result",
+        "task.verdict",
+        "task.done",
+    ]
+    assert events[1]["answers"] == {"next": "echo"} and events[2]["forced"] == {"calls[0].arguments.value": "input.value"}
+    assert events[3]["name"] == "echo" and events[3]["arguments"] == {"value": "hi"}
+    assert events[6]["response"] == {"value": "hi"} and events[7]["valid"] is True
+    metrics = events[8]["metrics"]
+    assert metrics["model"] == client.config.model.model and metrics["cost"] == pytest.approx(0.02)
+
+
+def test_a_chat_runs_a_decide_task_and_counts_its_cost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workspaces: Path
+) -> None:
+    client = _app(tmp_path, monkeypatch, DecideModel(), workspaces)
+    _install_decide_echo(client, tmp_path)
+    with client.stream("POST", f"{runs(client)}/runs", json={"input": "echo hi"}) as response:
+        events = [json.loads(line[len("data: ") :]) for line in response.iter_lines() if line.startswith("data: ")]
+    [tool] = [event for event in events if event["type"] == "tool"]
+    assert tool["name"] == "echo" and json.loads(tool["output"])["output"] == {"value": "hi"}
+    # Two chat replies and the decider's two answers.
+    assert events[-1]["metrics"]["cost"] == pytest.approx(0.04)
+
+
+def test_a_decide_task_refuses_thinking_before_it_starts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
+) -> None:
+    client = _app(tmp_path, monkeypatch, model, workspaces)
+    _install_decide_echo(client, tmp_path)
+    refused = client.post(
+        f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}, "settings": {"thinking_level": "high"}}
+    )
+    assert refused.status_code == 400 and refused.json()["error"] == "thinking_level does not apply to NanoAgent-loop runs"
 
 
 def test_task_runs_report_bad_requests_and_failures(client: TestClient) -> None:

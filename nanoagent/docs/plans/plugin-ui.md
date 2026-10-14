@@ -36,9 +36,12 @@ All require the operator bearer token, like every `/v1` route.
   - `runner: tool`: the tool, then `verify_task`.
   - `runner: agent`: the reference tool (pinned), then an agent with the web host's model and only
     the task's tools, then `verify_task`.
+  - `runner: decide`: the reference tool (pinned), then the web host's model choosing each next
+    tool, its arguments and the output's values from their options, then `verify_task`.
   - Events, each `data:` a JSON object with `type` and `runId`:
-    `task.started {task}`, `task.reference {tool}`, `task.tool {name, arguments, output, isError}`,
-    `task.answer {text}`, `task.result {response}` (tool runner), `task.verdict {valid, score,
+    `task.started {task}`, `task.reference {tool}`, `task.decision {questions, answers,
+    probabilities, forced}` (decide runner), `task.tool {name, arguments, output, isError}`,
+    `task.answer {text}` (agent runner), `task.result {response}`, `task.verdict {valid, score,
     message, details}`, `task.error {message}`, and last always `task.done`.
   - Arguments name workspace files by their path in the workspace.
 - `DELETE /v1/runs/{run_id}` (existing) also cancels a task run.

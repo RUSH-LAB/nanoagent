@@ -41,7 +41,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from nanoagent.core.compact import (
     _COMPACT_KEEP_RECENT,
@@ -56,10 +56,14 @@ from nanoagent.core.messages import assistant_message, last_assistant_text
 from nanoagent.core.tool import build_tool_map, Tool
 from nanoagent.profiler import Profiler, RunProfile, StepProfiler
 
+if TYPE_CHECKING:
+    from nanoagent.inference.types import Answer
+
 __all__ = [
     "Agent",
     "AgentResult",
     "ChatModel",
+    "DecisionModel",
     "EventObserver",
     "Reply",
     "RunEventCallbacks",
@@ -159,6 +163,16 @@ class StreamingChatModel(ChatModel, Protocol):
         *,
         on_delta: Callable[[str, str], None] | None = None,
     ) -> Reply: ...
+
+
+class DecisionModel(Protocol):
+    """A model that answers one request with a JSON object held to ``schema``.
+
+    Kept apart from :class:`ChatModel` so the loop's fakes and the REPL's narrator, which only
+    chat, are not asked for it; a ``runner: decide`` task asks for this one.
+    """
+
+    async def answer(self, messages: list[dict[str, Any]], *, name: str, schema: dict[str, Any]) -> Answer: ...
 
 
 class StopReason(StrEnum):

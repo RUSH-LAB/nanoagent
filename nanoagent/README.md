@@ -84,7 +84,12 @@ input and output classes are the contract's `TASKS` entry. A run config's
   means an agent works the task with the task's tools and ends by calling
   `submit`, a tool NanoAgent adds that takes the task's output class: the last
   submission is the task's output, and an agent that never submits fails the
-  task. No plugin tool is named `submit`.
+  task. No plugin tool is named `submit`. `decide` means a model only decides:
+  NanoAgent calls the task's tools and builds its output, every value an Enum
+  or bool the model chose, or one of exactly its type copied from the task's
+  input or an earlier tool output (never the reference tool's). A slot with one
+  option is copied with no question; NanoAgent refuses a decide task with a
+  field it cannot fill that way.
 - **`reference`:** either `null` or a tool outside the task's tools that takes
   the task's input. NanoAgent runs it before the task and pins its output as
   the ground truth. This is how a verifier checks against arXiv without
@@ -141,9 +146,10 @@ Both run commands are slimconfig runs (`config=<run.yaml> home=<run folder>`).
 Their config names the plugin, the task, and the task's `key=value` arguments.
 
 - **`nanoagent plugin run`** (`PluginRunConfig`) runs `tool` tasks.
-- **`nanoagent plugin agent`** (`PluginAgentConfig`) runs `agent` tasks. It adds
-  `llm` (Bedrock) and `harness` (the loop's limits) to the config, and
-  `reference.json` and `messages.json` (ATIF) to the run folder.
+- **`nanoagent plugin agent`** (`PluginAgentConfig`) runs `agent` and `decide`
+  tasks. It adds `llm` (Bedrock, or OpenRouter in a
+  `PluginOpenRouterAgentConfig`) and `harness` (the loop's limits) to the
+  config, and `reference.json` and `messages.json` (ATIF) to the run folder.
 
 Every run folder holds `workspace/`, `result.json` (the task's output) and
 `verdict.json` (the `verify_task` verdict), and the run exits 1 unless the verdict is valid. A plugin may write
@@ -220,7 +226,7 @@ workspace's files) and `kit.css`'s look, in light and dark. The full API is in
 [docs/plans/plugin-ui.md](docs/plans/plugin-ui.md).
 
 `runTask` uses `POST /v1/workspaces/<ws>/installs/<sha256>/tasks/<task>/runs`,
-which runs a task the verified way (reference, tools or agent, then
+which runs a task the verified way (reference, tools, agent or decider, then
 `verify_task`) in that workspace and streams `task.*` events; since 0.4.0 the
 page runs tasks only through the chat and never calls it. Both share their
 runner, `nanoagent.plugin.tasks.run_task`, with `nanoagent plugin run` and

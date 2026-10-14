@@ -19,6 +19,8 @@ drift from the sampler — and it moves two jobs client-side that ``/v1`` used t
     than per-server. Passing ``tools`` raises instead of silently returning an empty
     :attr:`Response.tool_calls`, which would look to an agent loop like a model that never calls
     a tool.
+  * **constrained answers are not implemented here** either, for the same reason:
+    :meth:`SglangNativeBackend.answer` raises rather than parse a schema out of raw text.
   * **streaming is not implemented here** either; ``on_delta`` fires once with the whole answer,
     which is the fallback the :class:`~nanoagent.inference.backend.Backend` protocol allows.
 
@@ -36,7 +38,7 @@ from nanoagent.inference.config import GenerateConfig
 from nanoagent.inference.http import httpx as _httpx
 from nanoagent.inference.thinking import split_thinking
 from nanoagent.inference.tokenizer import Tokenizer, load_tokenizer
-from nanoagent.inference.types import Fidelity, Response, Tokens
+from nanoagent.inference.types import Answer, Fidelity, Response, Tokens
 from nanoagent.profiler import normalize_usage
 
 # Same reasoning as the /v1 transport: keep idle pooled connections alive across a batch, and
@@ -164,6 +166,12 @@ class SglangNativeBackend:
         if on_delta is not None and response.text:  # no SSE here: one delta, at the end
             on_delta("content", response.text)
         return response
+
+    async def answer(self, messages: list[dict[str, Any]], *, name: str, schema: dict[str, Any]) -> Answer:
+        raise NotImplementedError(
+            "the /generate client does not hold a reply to a JSON Schema. Use provider='sglang' "
+            "(the /v1 endpoint) for a constrained answer"
+        )
 
     async def _post(self, payload: dict[str, Any]) -> Any:
         reply = await self._client.post(self._url, json=payload)

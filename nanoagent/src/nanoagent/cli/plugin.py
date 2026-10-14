@@ -4,7 +4,7 @@
     nanoagent plugin inspect <path>
     nanoagent plugin pack <folder> <file.tar.gz>                                   # for a marketplace
     nanoagent plugin run config=<run.yaml> home=<run folder> [-- key=value ...]    # runner: tool
-    nanoagent plugin agent config=<run.yaml> home=<run folder> [-- key=value ...]  # runner: agent
+    nanoagent plugin agent config=<run.yaml> home=<run folder> [-- key=value ...]  # runner: agent or decide
 
 Every run folder holds config.yaml, metadata.json and run.log, ``workspace/`` (the only folder
 the plugin may write to) and ``verdict.json``, the plugin's :func:`verify_task` verdict on the
@@ -13,7 +13,10 @@ finished task; the run exits 1 unless that verdict is valid. The files a config 
 verifier read them as ``inputs/<name>`` and the run folder holds everything it was judged on. Both
 add ``result.json``, the task's output. An agent run adds ``reference.json`` (the task's reference
 tool output, pinned before the agent starts) and ``messages.json`` (the agent's conversation, as
-ATIF); the agent's tools share one plugin process for the whole run.
+ATIF); the agent's tools share one plugin process for the whole run. A decide run writes the same
+files, its ``messages.json`` holding the decider's requests, each answered by one ``answer`` call.
+An agent run's model is on Bedrock (``PluginAgentConfig``) or OpenRouter
+(``PluginOpenRouterAgentConfig``), whichever class its config file names on its ``_ >`` line.
 """
 
 from __future__ import annotations
@@ -28,17 +31,19 @@ from pathlib import Path
 from typing import Any
 
 from omegaconf import MISSING
-from slimconfig import Config, Folder, Layout, Output, Run, load_output, plain_output
+from slimconfig import Config, Folder, Layout, Output, Run, load_output, plain_output, schema_of
 
 from nanoagent import __version__
 from nanoagent.harness.nanoagent import NanoAgentConfig
 from nanoagent.llm.bedrock import BedrockConfig
+from nanoagent.llm.openrouter import OpenRouterConfig
 from nanoagent.core.agent import Agent
 from nanoagent.plugin import PluginError, PluginManifest, load_manifest
+from nanoagent.plugin.dataflow import Decider
 from nanoagent.plugin.manifest import TaskDefinition
 from nanoagent.plugin.package import pack
 from nanoagent.plugin.scaffold import create_plugin
-from nanoagent.plugin.tasks import run_task
+from nanoagent.plugin.tasks import ModelDecider, run_task
 from nanoagent.plugin.verifier import Verification
 from nanoagent.runtime.build import build_agent
 from nanoagent.runtime.config import AgentDefinitionConfig
@@ -69,14 +74,22 @@ class PluginRunConfig(Config):
 @dataclass
 class PluginAgentConfig(Config):
     plugin: str = MISSING
-    # One of the plugin's tasks whose runner is `agent`.
+    # One of the plugin's tasks whose runner is `agent` or `decide`.
     task: str = MISSING
     arguments: str = MISSING
     inputs: list[str] = MISSING
     timeout: float = MISSING
-    # The model, and the agent loop's limits.
+    # The model, and the agent loop's limits (a decide task's decider keeps to max_steps,
+    # cost_limit and token_limit).
     llm: BedrockConfig = field(default_factory=BedrockConfig)
     harness: NanoAgentConfig = field(default_factory=NanoAgentConfig)
+
+
+@dataclass
+class PluginOpenRouterAgentConfig(PluginAgentConfig):
+    # A PluginAgentConfig whose model is on OpenRouter. slimconfig fills a field with one config
+    # class only, so the run's `_ >` line picks the model's provider (see `_agent_run`).
+    llm: OpenRouterConfig = field(default_factory=OpenRouterConfig)  # type: ignore[assignment]
 
 
 @dataclass
@@ -119,12 +132,15 @@ class PluginAgentLayout(Layout):
     workspace: Folder
 
 
-def _task(config: PluginRunConfig | PluginAgentConfig, runner: str) -> tuple[PluginManifest, TaskDefinition]:
+# The command that runs a task, by its runner.
+_COMMANDS = {"tool": "run", "agent": "agent", "decide": "agent"}
+
+
+def _task(config: PluginRunConfig | PluginAgentConfig, runners: set[str]) -> tuple[PluginManifest, TaskDefinition]:
     manifest = load_manifest(Path(config.plugin))
     task = manifest.task(config.task)
-    if task.runner != runner:
-        command = "run" if task.runner == "tool" else "agent"
-        raise ValueError(f"task {task.id!r} has runner {task.runner!r}: run it with `nanoagent plugin {command}`")
+    if task.runner not in runners:
+        raise ValueError(f"task {task.id!r} has runner {task.runner!r}: run it with `nanoagent plugin {_COMMANDS[task.runner]}`")
     return manifest, task
 
 
@@ -157,6 +173,8 @@ def _print_event(kind: str, data: dict[str, Any]) -> None:
         print(f"verdict: {'valid' if data['valid'] else 'INVALID'} ({data['score']:.2f}) {data['message']}")
     elif kind == "task.reference":
         print(f"reference: {data['tool']}")
+    elif kind == "task.decision":
+        print(f"decision: {json.dumps(data['answers'])} forced {json.dumps(data['forced'])}")
 
 
 def _verdict(task: TaskDefinition, verification: Verification) -> PluginVerdict:
@@ -170,7 +188,7 @@ class PluginRun(Run):
     layout: PluginRunLayout
 
     def main(self) -> int:
-        manifest, task = _task(self.config, "tool")
+        manifest, task = _task(self.config, {"tool"})
         outcome = asyncio.run(
             run_task(
                 manifest,
@@ -178,6 +196,7 @@ class PluginRun(Run):
                 _arguments(self.config.arguments, task),
                 Path(self.layout.workspace),
                 make_agent=None,
+                make_decider=None,
                 timeout=self.config.timeout,
                 on_event=_print_event,
                 stage=lambda folder: stage_inputs(self.config.inputs, folder),
@@ -189,13 +208,14 @@ class PluginRun(Run):
 
 
 class PluginAgent(Run):
-    """One `runner: agent` task: its reference pinned, an agent working it, and its verdict."""
+    """One `runner: agent` or `runner: decide` task: its reference pinned, an agent working it or a
+    decider choosing it, and its verdict."""
 
     config: PluginAgentConfig
     layout: PluginAgentLayout
 
     def main(self) -> int:
-        manifest, task = _task(self.config, "agent")
+        manifest, task = _task(self.config, {"agent", "decide"})
 
         def make_agent(system_prompt: str) -> Agent:
             definition = AgentDefinitionConfig(
@@ -207,6 +227,18 @@ class PluginAgent(Run):
             )
             return build_agent(definition)
 
+        def make_decider(system_prompt: str) -> Decider:
+            from nanoagent.runtime.model import Model
+
+            harness = self.config.harness
+            return ModelDecider(
+                Model.from_config(self.config.llm.runtime()),
+                system_prompt,
+                max_steps=harness.max_steps,
+                cost_limit=harness.cost_limit,
+                token_limit=harness.token_limit,
+            )
+
         outcome = asyncio.run(
             run_task(
                 manifest,
@@ -214,6 +246,7 @@ class PluginAgent(Run):
                 _arguments(self.config.arguments, task),
                 Path(self.layout.workspace),
                 make_agent=make_agent,
+                make_decider=make_decider,
                 timeout=self.config.timeout,
                 on_event=_print_event,
                 stage=lambda folder: stage_inputs(self.config.inputs, folder),
@@ -232,6 +265,31 @@ class PluginAgent(Run):
         )
         self.layout.verdict = _verdict(task, outcome.verdict)
         return 0 if self.layout.verdict.valid else 1
+
+
+class PluginOpenRouterAgent(PluginAgent):
+    """A :class:`PluginAgent` whose model is on OpenRouter."""
+
+    config: PluginOpenRouterAgentConfig
+
+
+# The agent run for each config class an agent run's config file may name on its `_ >` line.
+_AGENT_RUNS: dict[type, type[PluginAgent]] = {
+    PluginAgentConfig: PluginAgent,
+    PluginOpenRouterAgentConfig: PluginOpenRouterAgent,
+}
+
+
+def _agent_run(args: list[str]) -> type[PluginAgent]:
+    """The agent run for the config class the first ``config=`` file names on its ``_ >`` line."""
+    configs = [arg.removeprefix("config=") for arg in args[: args.index("--") if "--" in args else None] if arg.startswith("config=")]
+    if not configs:
+        raise ValueError("`nanoagent plugin agent` needs config=<run.yaml>")
+    schema = schema_of(configs[0])
+    if schema not in _AGENT_RUNS:
+        names = " or ".join(cls.__qualname__ for cls in _AGENT_RUNS)
+        raise ValueError(f"{configs[0]} names {schema.__qualname__}; an agent run's config is a {names}")
+    return _AGENT_RUNS[schema]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -264,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
     if argv[:1] in (["run"], ["agent"]):
         # slimconfig's launcher reads `config=` / `home=` / `-- overrides` from sys.argv.
         sys.argv = [f"{Path(sys.argv[0]).name} plugin {argv[0]}", *argv[1:]]
-        (PluginRun if argv[0] == "run" else PluginAgent)().run()
+        (PluginRun if argv[0] == "run" else _agent_run(argv[1:]))().run()
     print(_USAGE)
     return 2
 

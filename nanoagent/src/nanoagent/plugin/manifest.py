@@ -16,10 +16,14 @@ raises :class:`PluginError` listing every broken rule at once:
    NanoAgent's version.
 5. Every task uses only declared tools, and has an input class and an output class. A task's
    ``runner`` is ``tool`` (exactly one tool, called directly with the task's input, so the
-   task's input and output classes are that tool's) or ``agent`` (an agent works the task with
+   task's input and output classes are that tool's), ``agent`` (an agent works the task with
    its tools and ends by calling :data:`SUBMIT` with the task's output, so no tool is named
-   that). A ``reference`` tool, when set, takes the task's input and is not one of the task's
-   tools: NanoAgent runs it before the task and pins its output for :func:`verify_task`.
+   that) or ``decide`` (a model only decides: every tool argument and every output field is
+   chosen from an Enum or bool, or copied or picked from a value of exactly its type in the
+   task's input or an earlier output of one of the task's tools, never the reference tool's;
+   see :mod:`nanoagent.plugin.dataflow`). A ``reference`` tool, when set, takes the task's input
+   and is not one of the task's tools: NanoAgent runs it before the task and pins its output for
+   :func:`verify_task`.
 6. ``verifier/`` is a deterministic verifier package (see :mod:`nanoagent.plugin.verifier`).
 7. Nothing else: the top level holds only the standard layout (and :data:`TOOL_ARTIFACTS`),
    and ``verifier/`` only ``.py`` files. ``src/`` and ``tests/`` are the plugin's own to
@@ -70,6 +74,7 @@ from slimconfig import Config, load_config, merge_specs, output_schema
 
 from nanoagent import __version__
 from nanoagent.plugin.contract import CONTRACT, contract_module, contract_problems, read_contract
+from nanoagent.plugin.dataflow import unfillable
 from nanoagent.plugin.verifier import verifier_problems
 
 SPEC = "nanoagent.plugin/v1"
@@ -137,6 +142,7 @@ class Status(enum.Enum):
 class Runner(enum.Enum):
     TOOL = "tool"
     AGENT = "agent"
+    DECIDE = "decide"
 
 
 class RuntimeType(enum.Enum):
@@ -246,7 +252,7 @@ class ToolDefinition:
 class TaskDefinition:
     id: str
     description: str
-    runner: str  # "tool" or "agent"
+    runner: str  # "tool", "agent" or "decide"
     tools: tuple[str, ...]
     input_class: str
     input: dict[str, Any]
@@ -638,7 +644,8 @@ def _nanoagent_violations(versions: str) -> list[str]:
 
 
 def _usage_violations(config: Any, contract: Any) -> list[str]:
-    """Each task's classes fit how it runs: its one tool's input and output, and its reference's input."""
+    """Each task's classes fit how it runs: its one tool's input and output, every value a decide
+    task needs, and its reference's input."""
     violations: list[str] = []
     for key, task in config.tasks.items():
         given, output = contract.tasks[key.value]
@@ -646,6 +653,14 @@ def _usage_violations(config: Any, contract: Any) -> list[str]:
             violations.append(
                 f"task {key.value!r}: a tool runner has exactly one tool, and takes that tool's input and gives its output"
             )
+        if task.runner is Runner.DECIDE:
+            targets = {f"{tool} input": contract.tools[tool][0] for tool in task.tools} | {"output": output}
+            sources = [given, *(contract.tools[tool][1] for tool in task.tools)]
+            violations += [
+                f"task {key.value!r}: a decide runner fills every field by choice or by copy, but {slot} is no"
+                " Enum or bool and no task input or tool output has a value of its type"
+                for slot in unfillable(targets, sources)
+            ]
         if task.reference is not None and (task.reference in task.tools or contract.tools[task.reference][0] is not given):
             violations.append(
                 f"task {key.value!r}: reference {task.reference!r} must be a declared tool outside the task's tools,"

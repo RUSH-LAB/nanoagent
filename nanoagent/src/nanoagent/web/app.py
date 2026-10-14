@@ -20,7 +20,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from nanoagent.core.agent import ChatModel
 from nanoagent.harness.catalog import catalog_command, find_model, load_catalog
 from nanoagent.harness.choice import NATIVE_PROVIDERS, RunModel
 from nanoagent.harness.registry import loop_model
@@ -40,7 +39,7 @@ from nanoagent.plugin.package import (
 from nanoagent.plugin.tasks import TaskOutcome, run_task
 from nanoagent.runtime.config import AgentConfig, load_config_args
 from nanoagent.web.config import WebConfig
-from nanoagent.web.plugin_agent import plugin_profile, staged_from, task_agent
+from nanoagent.web.plugin_agent import PluginModel, plugin_profile, staged_from, task_agent, task_decider
 from nanoagent.web.runtime import (
     ActiveRun,
     RunChoice,
@@ -104,7 +103,7 @@ def _ui_file(manifest: PluginManifest, path: str) -> Path | None:
 
 
 def create_app(
-    cfg: WebConfig, *, host: RunHost | None = None, plugin_model: ChatModel | None = None
+    cfg: WebConfig, *, host: RunHost | None = None, plugin_model: PluginModel | None = None
 ) -> Any:
     """Build the Starlette application, importing the optional dependency only when used.
 
@@ -148,7 +147,7 @@ def create_app(
     workspaces = Workspaces(cfg.workspaces)
     owned_model: Any = None
 
-    def model_for_plugins() -> ChatModel:
+    def model_for_plugins() -> PluginModel:
         nonlocal owned_model
         if plugin_model is not None:
             return plugin_model
@@ -181,14 +180,14 @@ def create_app(
             raise ValidationError(f"unknown model {model.provider}/{model.model}")
         return entry["cost"]["input"], entry["cost"]["output"]
 
-    async def plugin_model_for(choice: RunChoice) -> tuple[ChatModel, str, AgentConfig, Callable[[], Any] | None]:
+    async def plugin_model_for(choice: RunChoice) -> tuple[PluginModel, str, AgentConfig, Callable[[], Any] | None]:
         """The model, its name, limits, and (for one built for this run) its closer for a plugin run."""
         try:
             return await build_plugin_model(choice)
         except MissingKeyError as error:
             raise ValidationError(str(error)) from None
 
-    async def build_plugin_model(choice: RunChoice) -> tuple[ChatModel, str, AgentConfig, Callable[[], Any] | None]:
+    async def build_plugin_model(choice: RunChoice) -> tuple[PluginModel, str, AgentConfig, Callable[[], Any] | None]:
         if choice.profile is None and choice.model is None and choice.settings is None:
             return model_for_plugins(), cfg.model.model, cfg.agent, None
         config = None
@@ -663,6 +662,7 @@ def create_app(
                         payload["arguments"],
                         folder,
                         make_agent=task_agent(model, agent_cfg),
+                        make_decider=task_decider(model, agent_cfg),
                         timeout=cfg.request_timeout,
                         on_event=emit,
                         stage=staged_from(folder),

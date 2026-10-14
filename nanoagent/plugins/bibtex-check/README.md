@@ -24,11 +24,13 @@ live in `src/plugin/schema.py`, mirrored in `verifier/schema.py`.
 ### Check BibTeX
 
 `check-bibtex` takes the reference and the raw BibTeX as text, as a person
-pastes them into the chat. Before the agent starts, NanoAgent runs
-`parse_bibtex` and pins both texts' records; every reference entry must parse.
-The agent reads both with `read_bibtex` and submits a `CheckOutput`: one
-verdict per raw entry, in order, with its title, label, closest reference and
-the fields that differ from it.
+pastes them into the chat. It is a `runner: decide` task: before it starts,
+NanoAgent runs `parse_bibtex` and pins both texts' records; every reference
+entry must parse. The model then only chooses: which text `read_bibtex` reads
+next, when to submit, each verdict's label and differing fields, and which of
+the entries `read_bibtex` read gives its key, title, closest reference and
+error. NanoAgent calls the tool and builds the `CheckOutput` from those
+choices: one verdict per raw entry, in order.
 
 The closest reference shares the most fields with the entry, then the title or
 a DOI, then comes first; it is close when it shares the title, a DOI or at
@@ -77,5 +79,5 @@ From the NanoAgent repository root:
 
 ```bash
 uv run nanoagent plugin inspect plugins/bibtex-check
-bash examples/bibtex_check/runs/step1_check_bibtex.sh  # agent: check tests/fixtures/raw.bib's text
+bash examples/bibtex_check/runs/step1_check_bibtex.sh  # decide, on OpenRouter: check tests/fixtures/raw.bib's text
 ```

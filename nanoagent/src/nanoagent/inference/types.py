@@ -12,6 +12,9 @@ the model's ``reasoning`` (``<think>`` trace, when the backend separates it), an
 the item failed after the backend exhausted its retries, and — when a tokenizer is
 configured — the :class:`Tokens` behind that text.
 
+An :class:`Answer` is the result of one constrained request: a JSON object the backend held to
+the schema it was given, with the same usage, cost and finish reason as a :class:`Response`.
+
 A :class:`ToolCall` is one model-requested tool invocation, normalized away from any
 provider's wire shape — ``(id, name, arguments)``, so an agent harness's own tool-call type
 maps onto it field-for-field through a thin adapter.
@@ -145,3 +148,13 @@ class Response:
     # for a text provider with no tokenizer named — not an empty list, which would read as "the
     # model emitted nothing".
     tokens: Tokens | None = None
+
+
+@dataclass(slots=True)
+class Answer:
+    """One reply held to a JSON Schema: the decoded object, and what it cost."""
+
+    value: dict[str, Any]
+    usage: dict[str, int] = field(default_factory=dict)
+    cost: float = 0.0
+    finish_reason: str | None = None

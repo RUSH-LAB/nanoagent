@@ -11,8 +11,11 @@ way and returns its typed output, which the page draws. A plugin no longer desig
 - A `runner: agent` task's agent ends by calling `submit`, a tool NanoAgent adds whose input is
   the task's output class: NanoAgent builds the value into the class, and the last `submit`
   is the task's output. A run with no `submit` fails. No plugin tool is named `submit`.
+- A `runner: decide` task (0.5.0) has its model only decide: NanoAgent calls the task's tools and
+  builds the output, every value an Enum or bool the model chose, or one of exactly its type
+  copied from the task's input or an earlier tool output.
 - `verify_task(task, arguments, output, reference, workspace)`: the verifier judges the output.
-- Both runners emit `task.result {response}` with the output; the catalog entry's tasks carry
+- Every runner emits `task.result {response}` with the output; the catalog entry's tasks carry
   `output` (the class name) and `outputSchema`.
 
 ## 2. The chat works through tasks only

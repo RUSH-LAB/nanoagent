@@ -48,7 +48,7 @@ id: echo
 name: Echo
 version: 1.0.0
 status: ready
-nanoagent: ~=0.4.0
+nanoagent: ~=0.5.0
 runtime > nanoagent.plugin.manifest.RuntimeConfig:
   type: mcp_stdio
   command: [echo-server]
@@ -246,11 +246,294 @@ async def test_an_agent_task_without_a_submission_fails(tmp_path: Path) -> None:
             {"value": "hi"},
             tmp_path,
             make_agent=lambda system: Agent(Answers(), [], system_prompt=system),
+            make_decider=None,
             timeout=30,
             on_event=lambda _kind, _data: None,
             stage=lambda _folder: None,
         )
 
+
+def test_a_decide_task_fills_every_field_by_choice_or_by_copy(tmp_path: Path) -> None:
+    from nanoagent.plugin import PluginError
+
+    manifest = write_plugin(tmp_path)
+    manifest.write_text(manifest.read_text().replace("runner: tool", "runner: decide"))
+    contract = tmp_path / "contract.py"
+    contract.write_text(
+        contract.read_text()
+        .replace("@dataclass\nclass EchoOutput", "@dataclass\nclass CountInput(Output):\n    n: int\n\n\n@dataclass\nclass EchoOutput")
+        .replace("TOOLS = {Tool.ECHO: (EchoInput, EchoOutput)}", "TOOLS = {Tool.ECHO: (CountInput, EchoOutput)}")
+    )
+    with pytest.raises(PluginError) as error:
+        load_manifest(tmp_path)
+    assert error.value.violations == [
+        "task 'echo': a decide runner fills every field by choice or by copy, but echo input .n (int) is no Enum or bool"
+        " and no task input or tool output has a value of its type"
+    ]
+
+
+async def test_an_unknown_runner_is_refused(tmp_path: Path) -> None:
+    from nanoagent.plugin.tasks import run_task
+
+    manifest = load_manifest(write_plugin(tmp_path).parent)
+    task = dataclasses.replace(manifest.task("echo"), runner="planner")
+    with pytest.raises(ValueError, match="task 'echo': unknown runner 'planner'"):
+        await run_task(
+            manifest,
+            task,
+            {"value": "hi"},
+            tmp_path,
+            make_agent=None,
+            make_decider=None,
+            timeout=30,
+            on_event=lambda _kind, _data: None,
+            stage=lambda _folder: None,
+        )
+
+
+
+def _decide_echo(tmp_path: Path):
+    plugin = _echo_plugin(tmp_path)
+    path = plugin / "nanoagent.yaml"
+    path.write_text(path.read_text().replace("runner: tool", "runner: decide"))
+    manifest = load_manifest(plugin)
+    return manifest, manifest.task("echo")
+
+
+class _Scripted:
+    """A decider answering each question from ``answer(state, question)``, with no model."""
+
+    def __init__(self, answer) -> None:
+        self.answer = answer
+        self.asked: list[list[str]] = []
+
+    async def decide(self, state, questions):
+        from nanoagent.plugin.dataflow import Answers
+
+        self.asked.append([question.id for question in questions])
+        return Answers({question.id: self.answer(state, question) for question in questions})
+
+    def record(self):
+        return None
+
+
+async def _run_decide(manifest, task, arguments, folder: Path, decider, events=None):
+    from nanoagent.plugin.tasks import run_task
+
+    return await run_task(
+        manifest,
+        task,
+        arguments,
+        folder,
+        make_agent=None,
+        make_decider=lambda _system: decider,
+        timeout=120,
+        on_event=lambda kind, data: events.append((kind, data)) if events is not None else None,
+        stage=lambda _folder: None,
+    )
+
+
+def _resolve(state, path: str):
+    """The value an option names in the decide state."""
+    value = state
+    for name, index in re.findall(r"\.?(\w+)|\[(\d+)\]", path):
+        value = value[name] if name else value[int(index)]
+    return value
+
+
+def _bibtex_check(tmp_path: Path):
+    """A copy of the bibtex-check plugin, so its environment is built in tmp, and its sample input."""
+    import shutil
+
+    from nanoagent.plugin.manifest import TOOL_ARTIFACTS
+
+    plugin = tmp_path / "bibtex-check"
+    shutil.copytree(ROOT / "plugins" / "bibtex-check", plugin, ignore=shutil.ignore_patterns(*TOOL_ARTIFACTS))
+    fixtures = plugin / "tests" / "fixtures"
+    return load_manifest(plugin), {"reference": (fixtures / "reference.bib").read_text(), "raw": (fixtures / "raw.bib").read_text()}
+
+
+async def test_a_decide_task_checks_bibtex_with_no_model(tmp_path: Path) -> None:
+    manifest, arguments = _bibtex_check(tmp_path)
+    # Each raw entry's label, closest reference and differing fields, worked out by hand.
+    verdicts = {
+        "transformer": ("real", "vaswani2017attention", []),
+        "resnet": ("real", "he2016deep", []),
+        "nature_dl": ("real", "lecun2015deep", []),
+        "bert": ("fixable", "devlin2019bert", ["year"]),
+        "adam": ("fixable", "kingma2015adam", ["authors"]),
+        "lstm": ("fixable", "hochreiter1997long", ["title"]),
+        "vaswani_attention": ("fixable", "vaswani2017attention", ["doi"]),
+        "gradient_folding": ("invented", None, []),
+        "kingma_broken": ("unreadable", None, []),
+    }
+    added: list[str] = []
+
+    def copy_of(state, question, value):
+        if value is None:
+            return "null"
+        [option] = [option for option in question.options if option != "null" and _resolve(state, option) == value]
+        return option
+
+    def answer(state, question):
+        calls = state["calls"]
+        if question.id == "next":
+            return "read_bibtex" if len(calls) < 2 else "submit"
+        if question.id == "bibtex":
+            return "input.reference" if not calls else "input.raw"
+        if question.id == "add":
+            if len(added) == len(verdicts):
+                return "done"
+            added.append(list(verdicts)[len(added)])
+            return "add"
+        [entry] = [entry for entry in calls[1]["output"]["entries"] if entry["key"] == added[-1]]
+        label, closest, differs = verdicts[entry["key"]]
+        given = {
+            "key": entry["key"],
+            "title": entry["record"]["title"] if entry["record"] else None,
+            "closest": closest,
+            "error": entry["error"],
+        }
+        if question.id in ("label", "differs"):
+            return label if question.id == "label" else differs
+        return copy_of(state, question, given[question.id])
+
+    events: list = []
+    outcome = await _run_decide(manifest, manifest.task("check-bibtex"), arguments, tmp_path, _Scripted(answer), events)
+    assert outcome.verdict.valid and outcome.verdict.score == 1.0, outcome.verdict.message
+    assert [kind for kind, _ in events if kind != "task.decision"] == [
+        "task.started", "task.reference", "task.tool", "task.tool", "task.result", "task.verdict"
+    ]
+    assert [data["arguments"] for kind, data in events if kind == "task.tool"] == [
+        {"bibtex": arguments["reference"]}, {"bibtex": arguments["raw"]}
+    ]
+
+
+async def test_a_decide_task_only_chooses_or_copies(tmp_path: Path) -> None:
+    import random
+    from enum import Enum
+
+    from nanoagent.plugin.dataflow import values
+
+    manifest, arguments = _bibtex_check(tmp_path)
+    task = manifest.task("check-bibtex")
+    pick = random.Random(0)
+    added: list[str] = []
+
+    # Two reads and three verdicts, every other answer a random option.
+    def answer(state, question):
+        if question.id == "next":
+            return "read_bibtex" if len(state["calls"]) < 2 else "submit"
+        if question.id == "add":
+            added.append("add")
+            return "add" if len(added) <= 3 else "done"
+        if question.kind == "some":
+            return pick.sample(question.options, pick.randrange(len(question.options) + 1))
+        return pick.choice(question.options)
+
+    events: list = []
+    await _run_decide(manifest, task, arguments, tmp_path, _Scripted(answer), events)
+    pool = values(arguments, task.input_type, "input")
+
+    def chosen_or_copied(value, cls, path):
+        for kind, at, leaf in values(value, cls, path):
+            if isinstance(kind, type) and issubclass(kind, Enum):
+                assert leaf in [member.value for member in kind], at
+            elif kind is not bool and not dataclasses.is_dataclass(kind) and getattr(kind, "__origin__", None) is not list:
+                assert leaf in [held for held_kind, _, held in pool if held_kind == kind], at
+
+    calls = [data for kind, data in events if kind == "task.tool"]
+    for index, call in enumerate(calls):
+        tool = manifest.tool(call["name"])
+        chosen_or_copied(call["arguments"], tool.input_type, f"calls[{index}].arguments")
+        pool += values(call["output"], tool.output_type, f"calls[{index}].output")
+    [result] = [data["response"] for kind, data in events if kind == "task.result"]
+    chosen_or_copied(result, task.output_type, "output")
+    assert len(calls) == 2 and len(result["verdicts"]) == 3
+
+
+async def test_a_decide_slot_with_one_option_is_copied_with_no_question(tmp_path: Path) -> None:
+    manifest, task = _decide_echo(tmp_path)
+    decider = _Scripted(lambda state, _question: "echo" if not state["calls"] else "submit")
+    events: list = []
+    outcome = await _run_decide(manifest, task, {"value": "hi"}, tmp_path, decider, events)
+    assert outcome.output == {"value": "hi"} and outcome.verdict.valid and outcome.agent is None
+    assert decider.asked == [["next"], ["next"]]
+    assert [data["forced"] for kind, data in events if kind == "task.decision" and data["forced"]] == [
+        {"calls[0].arguments.value": "input.value"},
+        {"output.value": "input.value"},
+    ]
+
+
+async def test_a_decide_answer_outside_its_options_is_refused(tmp_path: Path) -> None:
+    from nanoagent.plugin.dataflow import DecisionError
+
+    manifest, task = _decide_echo(tmp_path)
+    with pytest.raises(DecisionError, match="next: 'shout' is not one of"):
+        await _run_decide(manifest, task, {"value": "hi"}, tmp_path, _Scripted(lambda _state, _question: "shout"))
+
+
+class _FirstOption:
+    """A decision model that answers every question with its first option."""
+
+    def __init__(self) -> None:
+        self.requests: list[list[dict]] = []
+
+    async def answer(self, messages, *, name, schema):
+        from nanoagent.inference.types import Answer
+
+        assert name == "answer" and [message["role"] for message in messages] == ["system", "user"]
+        self.requests.append(messages)
+        value = {key: spec["enum"][0] for key, spec in schema["properties"].items()}
+        return Answer(value, usage={"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}, cost=0.01)
+
+
+async def test_a_decider_past_max_steps_stops_the_task(tmp_path: Path) -> None:
+    from nanoagent.plugin.tasks import ModelDecider
+
+    manifest, task = _decide_echo(tmp_path)
+    model = _FirstOption()
+    decider = ModelDecider(model, "decide", max_steps=3, cost_limit=None, token_limit=None)
+    with pytest.raises(RuntimeError, match="made its 3 requests"):
+        await _run_decide(manifest, task, {"value": "hi"}, tmp_path, decider)
+    assert len(model.requests) == 3
+
+
+async def test_a_decide_task_without_a_decider_fails(tmp_path: Path) -> None:
+    from nanoagent.plugin.tasks import run_task
+
+    manifest, task = _decide_echo(tmp_path)
+    with pytest.raises(ValueError, match="task 'echo' is a decide task: it needs a decider"):
+        await run_task(
+            manifest,
+            task,
+            {"value": "hi"},
+            tmp_path,
+            make_agent=None,
+            make_decider=None,
+            timeout=30,
+            on_event=lambda _kind, _data: None,
+            stage=lambda _folder: None,
+        )
+
+
+async def test_a_model_deciders_record_holds_its_requests_cost(tmp_path: Path) -> None:
+    from nanoagent.plugin.dataflow import Question
+    from nanoagent.plugin.tasks import ModelDecider
+    from nanoagent.trajectory.atif import to_atif
+
+    decider = ModelDecider(_FirstOption(), "decide", max_steps=5, cost_limit=0.015, token_limit=None)
+    question = Question("next", "one", "What comes next?", ("echo", "submit"))
+    assert (await decider.decide({"calls": []}, [question])).values == {"next": "echo"}
+    await decider.decide({"calls": []}, [question])
+    with pytest.raises(RuntimeError, match="reaching its cost_limit"):
+        await decider.decide({"calls": []}, [question])
+    record = decider.record()
+    assert (record.steps, record.usage["total_tokens"], record.cost) == (2, 24, 0.02)
+    assert record.profile is not None and record.profile.cost == 0.02
+    assert [message["role"] for message in record.messages] == ["system", "user", "assistant", "user", "assistant"]
+    assert record.messages[2]["tool_calls"][0]["function"] == {"name": "answer", "arguments": '{"next": "echo"}'}
+    to_atif(record, session_id="s", harness="nanoagent", harness_version="0", model="fake")
 
 def test_validates_tool_input_before_launch(tmp_path: Path) -> None:
     manifest = load_manifest(write_plugin(tmp_path).parent)
@@ -439,6 +722,84 @@ timeout: 60.0
     assert (run.workspace / "echo.txt").read_text() == "hello"
     assert (run.workspace / "inputs" / "given.txt").read_text() == "a file the task reads"
     assert run.verdict.valid is True
+
+
+_BEDROCK_LLM = """llm > nanoagent.llm.bedrock.BedrockConfig:
+  model: a-model
+  region: us-east-1
+  profile: null
+  max_tokens: null
+  temperature: null
+  max_attempts: 1
+  read_timeout: 60.0
+  input_price: 0.0
+  output_price: 0.0
+"""
+_OPENROUTER_LLM = """llm > nanoagent.llm.openrouter.OpenRouterConfig:
+  model: a-model
+  max_tokens: null
+  temperature: null
+  max_attempts: 1
+  read_timeout: 60.0
+  input_price: 0.0
+  output_price: 0.0
+"""
+
+
+@pytest.mark.parametrize(
+    ("config_class", "llm", "provider"),
+    [("PluginAgentConfig", _BEDROCK_LLM, "bedrock"), ("PluginOpenRouterAgentConfig", _OPENROUTER_LLM, "openrouter")],
+)
+def test_plugin_agent_runs_a_decide_task_on_its_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_class: str, llm: str, provider: str
+) -> None:
+    import sys
+
+    from slimconfig import load_layout
+
+    from nanoagent.cli.plugin import PluginAgentLayout, main
+    from nanoagent.inference.types import Answer
+    from nanoagent.runtime.model import Model
+
+    class Deciding:
+        async def answer(self, messages, *, name, schema):
+            return Answer({"next": "echo" if '"calls": []' in messages[-1]["content"] else "submit"}, cost=0.01)
+
+    built = []
+    monkeypatch.setattr(Model, "from_config", classmethod(lambda _cls, cfg: built.append(cfg) or Deciding()))
+    manifest, _task = _decide_echo(tmp_path)
+    config = tmp_path / "run.yaml"
+    config.write_text(
+        f"""_ > nanoagent.cli.plugin.{config_class}:
+plugin: {manifest.root}
+task: echo
+arguments: {tmp_path / "arguments.json"}
+inputs: []
+timeout: 60.0
+{llm}harness > nanoagent.harness.nanoagent.NanoAgentConfig:
+  max_steps: 5
+  cost_limit: null
+  token_limit: null
+  context_window: null
+  hooks: []
+  skills: null
+  context_files: []
+  events: null
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "arguments.json").write_text('{"value": "hello"}', encoding="utf-8")
+    home = tmp_path / "run"
+    monkeypatch.setattr(sys, "argv", ["nanoagent", "plugin", "agent"])
+    with pytest.raises(SystemExit) as exit_:
+        main(["agent", f"config={config}", f"home={home}"])
+    assert exit_.value.code == 0
+    assert [(cfg.model, cfg.provider, cfg.api_key) for cfg in built] == [("a-model", provider, None)]
+    run = load_layout(home, PluginAgentLayout)
+    assert run.result.output == {"value": "hello"} and run.verdict.valid is True
+    calls = [call["function_name"] for step in run.messages.steps for call in step["tool_calls"] or []]
+    assert calls == ["answer", "answer"]
+    assert "decision: {\"next\": \"echo\"} forced {}" in (home / "run.log").read_text()
 
 
 def test_verifier_package_may_import_its_own_modules(tmp_path: Path) -> None:
@@ -641,10 +1002,10 @@ async def test_plugin_tool_images_reach_the_model_as_images() -> None:
 @pytest.mark.parametrize(
     ("versions", "problem"),
     [
-        ("~=0.3.0", "nanoagent.yaml nanoagent: the plugin runs on NanoAgent ~=0.3.0, not this NanoAgent, 0.4.0"),
-        ('">=0.5"', "nanoagent.yaml nanoagent: the plugin runs on NanoAgent >=0.5, not this NanoAgent, 0.4.0"),
-        ("latest", "nanoagent.yaml nanoagent 'latest' is not a version range, such as ~=0.4.0"),
-        ('""', "nanoagent.yaml nanoagent '' is not a version range, such as ~=0.4.0"),
+        ("~=0.3.0", "nanoagent.yaml nanoagent: the plugin runs on NanoAgent ~=0.3.0, not this NanoAgent, 0.5.0"),
+        ('">=0.6"', "nanoagent.yaml nanoagent: the plugin runs on NanoAgent >=0.6, not this NanoAgent, 0.5.0"),
+        ("latest", "nanoagent.yaml nanoagent 'latest' is not a version range, such as ~=0.5.0"),
+        ('""', "nanoagent.yaml nanoagent '' is not a version range, such as ~=0.5.0"),
     ],
 )
 def test_a_plugin_names_the_nanoagent_versions_it_runs_on(tmp_path: Path, versions: str, problem: str) -> None:
@@ -652,7 +1013,7 @@ def test_a_plugin_names_the_nanoagent_versions_it_runs_on(tmp_path: Path, versio
 
     write_plugin(tmp_path)
     manifest = tmp_path / "nanoagent.yaml"
-    manifest.write_text(manifest.read_text().replace("nanoagent: ~=0.4.0", f"nanoagent: {versions}"))
+    manifest.write_text(manifest.read_text().replace("nanoagent: ~=0.5.0", f"nanoagent: {versions}"))
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
     assert error.value.violations == [problem]

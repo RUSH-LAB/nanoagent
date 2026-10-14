@@ -48,13 +48,15 @@ that changes them (rule 10 of `nanoagent.plugin.manifest`). Renaming the
 plugin means renaming it in `nanoagent.yaml`, this title and `LICENSE` together.
 
 To add a task, add a `Task` member and its `TASKS` input and output classes to
-`contract.py`, and declare it in `nanoagent.yaml` with its `runner` (`tool` or
-`agent`) and a `reference` tool, or `null` if it has none. A `tool` task's
-classes are its tool's; an `agent` task's agent ends by calling `submit` with
-the task's output. Then add the check of its output,
-`verify_task(arguments, output, reference, workspace)`, to `TASKS` in
-`verifier/__init__.py`. People use the plugin by chatting with its agent, which
-runs its tasks and shows each output on the page (see `ui/`).
+`contract.py`, and declare it in `nanoagent.yaml` with its `runner` (`tool`,
+`agent` or `decide`) and a `reference` tool, or `null` if it has none. A `tool`
+task's classes are its tool's; an `agent` task's agent ends by calling `submit`
+with the task's output; a `decide` task's model only chooses, and every tool
+argument and output field is an Enum or bool, or copied from a value of exactly
+its type in the task's input or an earlier tool output. Then add the check of
+its output, `verify_task(arguments, output, reference, workspace)`, to `TASKS`
+in `verifier/__init__.py`. People use the plugin by chatting with its agent,
+which runs its tasks and shows each output on the page (see `ui/`).
 
 ## Develop and run
 

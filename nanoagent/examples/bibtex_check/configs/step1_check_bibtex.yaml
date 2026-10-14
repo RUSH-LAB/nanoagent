@@ -1,6 +1,6 @@
-_ > nanoagent.cli.plugin.PluginAgentConfig:
+_ > nanoagent.cli.plugin.PluginOpenRouterAgentConfig:
 
-# The BibTeX check plugin's check-bibtex task, worked by an agent on the sample files' text.
+# The BibTeX check plugin's check-bibtex task, run as its manifest says (runner: decide) on the sample files' text.
 plugin: plugins/bibtex-check
 task: check-bibtex
 # The task's input, a contract.ParseInput as JSON: tests/fixtures/reference.bib's and raw.bib's text.
@@ -8,16 +8,15 @@ arguments: examples/bibtex_check/configs/step1_check_bibtex_arguments.json
 inputs: []
 timeout: 300.0
 
-llm > nanoagent.llm.bedrock.BedrockConfig:
-  model: us.anthropic.claude-opus-5-5
-  region: us-west-2
-  profile: codex-DO-NOT-DELETE
+llm > nanoagent.llm.openrouter.OpenRouterConfig:
+  model: anthropic/claude-sonnet-5.5
   temperature: null
   max_tokens: 4096
   max_attempts: 5
   read_timeout: 300.0
-  input_price: 0.0
-  output_price: 0.0
+  # OpenRouter's list price per 1M tokens.
+  input_price: 2.0
+  output_price: 10.0
 
 harness > nanoagent.harness.nanoagent.NanoAgentConfig:
   max_steps: 30

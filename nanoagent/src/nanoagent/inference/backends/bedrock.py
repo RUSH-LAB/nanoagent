@@ -3,6 +3,10 @@
 The backend translates NanoAgent's OpenAI-shaped transcript and tool schemas at the transport
 boundary. Bedrock's synchronous boto3 client runs in a worker thread so it does not block the
 agent loop. Botocore owns service retries; NanoAgent's request timeout becomes its read timeout.
+
+A constrained answer is one tool whose input schema is the answer's, which the request forces the
+model to call (``toolChoice``). Bedrock refuses a forced tool choice while extended thinking is
+on, which this backend never turns on.
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ from typing import Any
 
 from nanoagent.inference.backend import token_cost
 from nanoagent.inference.config import LeanInferConfig
-from nanoagent.inference.types import Fidelity, Response, ToolCall
+from nanoagent.inference.types import Answer, Fidelity, Response, ToolCall
 
 
 class BedrockBackend:
@@ -71,6 +75,28 @@ class BedrockBackend:
             if response.text:
                 on_delta("content", response.text)
         return response
+
+    async def answer(self, messages: list[dict[str, Any]], *, name: str, schema: dict[str, Any]) -> Answer:
+        """Force a call of the one tool ``name``, whose input is held to ``schema``, and return that input."""
+        request = self._request(messages, [{"name": name, "parameters": schema}])
+        request["toolConfig"]["toolChoice"] = {"tool": {"name": name}}
+        reply = await asyncio.to_thread(self._client.converse, **request)
+        if reply.get("stopReason") == "max_tokens":
+            raise ValueError(f"the answer to {name!r} was cut off at the token limit")
+        calls = [
+            block["toolUse"]
+            for block in reply["output"]["message"].get("content", [])
+            if "toolUse" in block
+        ]
+        if len(calls) != 1 or calls[0]["name"] != name:
+            raise ValueError(f"Bedrock answered without one call of {name!r} (stop reason {reply.get('stopReason')!r})")
+        usage = _usage(reply)
+        return Answer(
+            value=calls[0]["input"],
+            usage=usage,
+            cost=token_cost(usage, self._input_price, self._output_price),
+            finish_reason=reply.get("stopReason"),
+        )
 
     async def aclose(self) -> None:
         close = getattr(self._client, "close", None)
@@ -140,20 +166,7 @@ class BedrockBackend:
                     reasoning_block.get("text"), str
                 ):
                     reasoning.append(reasoning_block["text"])
-        raw_usage = reply.get("usage", {})
-        prompt = int(raw_usage.get("inputTokens", 0))
-        completion = int(raw_usage.get("outputTokens", 0))
-        usage = {
-            "prompt_tokens": prompt,
-            "completion_tokens": completion,
-            "total_tokens": prompt + completion,
-        }
-        cache_read = int(raw_usage.get("cacheReadInputTokens", 0))
-        cache_write = int(raw_usage.get("cacheWriteInputTokens", 0))
-        if cache_read:
-            usage["cached_tokens"] = cache_read
-        if cache_write:
-            usage["cache_write_tokens"] = cache_write
+        usage = _usage(reply)
         return Response(
             text="".join(text) or None,
             reasoning="".join(reasoning) or None,
@@ -162,6 +175,24 @@ class BedrockBackend:
             cost=token_cost(usage, self._input_price, self._output_price),
             finish_reason=reply.get("stopReason"),
         )
+
+
+def _usage(reply: dict[str, Any]) -> dict[str, int]:
+    raw_usage = reply.get("usage", {})
+    prompt = int(raw_usage.get("inputTokens", 0))
+    completion = int(raw_usage.get("outputTokens", 0))
+    usage = {
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "total_tokens": prompt + completion,
+    }
+    cache_read = int(raw_usage.get("cacheReadInputTokens", 0))
+    cache_write = int(raw_usage.get("cacheWriteInputTokens", 0))
+    if cache_read:
+        usage["cached_tokens"] = cache_read
+    if cache_write:
+        usage["cache_write_tokens"] = cache_write
+    return usage
 
 
 def _message(message: dict[str, Any]) -> dict[str, Any]:

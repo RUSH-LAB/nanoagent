@@ -105,6 +105,47 @@ async def test_bedrock_translates_messages_tools_and_usage() -> None:
     assert response.finish_reason == "tool_use"
 
 
+class FakeAnsweringBedrock:
+    def __init__(self, content: list[dict]) -> None:
+        self.content = content
+        self.request = None
+
+    def converse(self, **request):
+        self.request = request
+        return {
+            "output": {"message": {"role": "assistant", "content": self.content}},
+            "stopReason": "tool_use",
+            "usage": {"inputTokens": 10, "outputTokens": 4},
+        }
+
+
+def _answering(client: FakeAnsweringBedrock) -> BedrockBackend:
+    config = LeanInferConfig(provider="bedrock", model="us.anthropic.example", input_price=2.0, output_price=4.0)
+    return BedrockBackend(config, client=client)
+
+
+@pytest.mark.asyncio
+async def test_bedrock_answers_by_a_forced_call_of_one_tool() -> None:
+    schema = {"type": "object", "properties": {"next": {"type": "string", "enum": ["a", "b"]}}}
+    client = FakeAnsweringBedrock([{"toolUse": {"toolUseId": "t", "name": "decide", "input": {"next": "b"}}}])
+
+    answer = await _answering(client).answer([{"role": "user", "content": "pick"}], name="decide", schema=schema)
+
+    assert client.request["toolConfig"] == {
+        "tools": [{"toolSpec": {"name": "decide", "description": "decide", "inputSchema": {"json": schema}}}],
+        "toolChoice": {"tool": {"name": "decide"}},
+    }
+    assert answer.value == {"next": "b"}
+    assert answer.usage["total_tokens"] == 14 and answer.cost == (10 * 2.0 + 4 * 4.0) / 1_000_000
+
+
+@pytest.mark.asyncio
+async def test_a_bedrock_answer_without_its_tool_call_raises() -> None:
+    client = FakeAnsweringBedrock([{"text": "I pick b"}])
+    with pytest.raises(ValueError, match="without one call of 'decide'"):
+        await _answering(client).answer([{"role": "user", "content": "pick"}], name="decide", schema={"type": "object"})
+
+
 def test_coding_cli_commands_configure_bedrock() -> None:
     claude = claude_command("claude", {"model": "claude-opus", "provider": "bedrock"})
     assert claude[-2:] == ["--model", "claude-opus"]

@@ -14,6 +14,10 @@ both batch plain-text inference and tool-calling agent turns:
   * ``extra_body`` (extra sampling params, e.g. ``{repetition_penalty: 1.05}``) is passed
     through verbatim on the request.
 
+:meth:`ChatBackend.answer` asks for a reply held to a JSON Schema (``response_format`` with
+``strict``). On OpenRouter it also sets ``provider.require_parameters``, so the request is routed
+only to a provider that honours the schema rather than to one that ignores it.
+
 Transient errors retry with backoff (fail-fast on 4xx); the response is normalized into a
 :class:`~nanoagent.inference.types.Response` (text + tool calls + token usage + computed cost). Cost is
 computed from optional per-1M-token prices on the config; they default to 0, so cost stays 0
@@ -28,6 +32,7 @@ empty and the caller just gets the plain answer.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any
 
@@ -38,7 +43,7 @@ from nanoagent.inference.backend import retry_async, token_cost
 from nanoagent.inference.config import LeanInferConfig
 from nanoagent.inference.http import httpx as _httpx
 from nanoagent.inference.thinking import split_thinking
-from nanoagent.inference.types import Fidelity, Response, ToolCall
+from nanoagent.inference.types import Answer, Fidelity, Response, ToolCall
 from nanoagent.profiler import normalize_usage
 
 # 4xx / auth errors won't succeed on retry — fail fast on these.
@@ -125,6 +130,7 @@ class ChatBackend:
         retry_max_delay: float = 60.0,
         request_timeout: float = 600.0,
         max_connections: int = _DEFAULT_MAX_CONNECTIONS,
+        require_parameters: bool = False,
     ) -> None:
         # A null value turns one param OFF, matching how SGLangServeConfig.extra_args treats
         # None. Without this a shared base config's sampling knob cannot be switched off by a
@@ -139,6 +145,9 @@ class ChatBackend:
         self.max_retries = max_retries
         self.retry_base_delay = retry_base_delay
         self.retry_max_delay = retry_max_delay
+        # OpenRouter routes a request to any provider of the model unless told to use only one that
+        # supports every parameter sent; an answer's response_format must not be silently dropped.
+        self.require_parameters = require_parameters
         # The per-call request body minus messages/tools/stream, built once instead of
         # reassembled on every generate() call.
         self._base_kwargs: dict[str, Any] = {"model": model}
@@ -205,6 +214,7 @@ class ChatBackend:
             # Match the pool to the engine's concurrency cap, so the semaphore — not the HTTP
             # pool — is the only limiter and no admitted request waits for a free connection.
             max_connections=max(1, cfg.concurrency),
+            require_parameters=cfg.provider == "openrouter",
         )
 
     async def generate(
@@ -247,6 +257,35 @@ class ChatBackend:
             # connection, so it needs no close.
             await stream.close()
             raise
+
+    async def answer(self, messages: list[dict[str, Any]], *, name: str, schema: dict[str, Any]) -> Answer:
+        """Run one completion held to ``schema`` and return the JSON object it answered."""
+        if any(message.get("images") for message in messages):
+            raise ValueError("this backend cannot show tool images to the model; use provider=bedrock")
+        kwargs: dict[str, Any] = {
+            **self._base_kwargs,
+            "messages": messages,
+            "response_format": {"type": "json_schema", "json_schema": {"name": name, "schema": schema, "strict": True}},
+        }
+        if self.require_parameters:
+            extra_body = kwargs.get("extra_body", {})
+            kwargs["extra_body"] = {
+                **extra_body,
+                "provider": {**extra_body.get("provider", {}), "require_parameters": True},
+            }
+        response = await self._create_with_retry(kwargs)
+        choice = response.choices[0]
+        finish_reason = getattr(choice, "finish_reason", None)
+        if finish_reason == "length":
+            raise ValueError(f"the answer to {name!r} was cut off at the token limit")
+        try:
+            value = json.loads(choice.message.content or "")
+        except json.JSONDecodeError as error:
+            raise ValueError(f"the answer to {name!r} is not JSON: {choice.message.content!r}") from error
+        if not isinstance(value, dict):
+            raise ValueError(f"the answer to {name!r} is not a JSON object: {value!r}")
+        usage = self._usage(response)
+        return Answer(value=value, usage=usage, cost=self._cost(usage), finish_reason=finish_reason)
 
     async def _create_with_retry(self, kwargs: dict[str, Any]) -> Any:
         """One ``chat.completions.create`` call, retried with capped, jittered backoff (fail-fast on 4xx)."""
