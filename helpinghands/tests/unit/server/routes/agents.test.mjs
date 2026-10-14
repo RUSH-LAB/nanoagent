@@ -19,7 +19,7 @@ describe('workspace agents', () => {
       name: agent.name,
       instructions: agent.instructions,
       builtin: agent.builtin,
-    })), [{id: 'mochi', name: 'RUSH', instructions: '', builtin: true}]);
+    })), [{id: 'rush', name: 'RUSH', instructions: '', builtin: true}]);
     assert.equal('profileId' in listed.payload.agents[0], false);
   });
 
@@ -58,7 +58,7 @@ describe('workspace agents', () => {
 
     const migrated = await invoke(routes, {method: 'GET', path: '/api/agents', ctx, requestContext: context});
     assert.equal('profileId' in migrated.payload.agents[0], false);
-    assert.equal((await ctx.collection('agents').get(scope, 'mochi')).profileId, undefined);
+    assert.equal((await ctx.collection('agents').get(scope, 'rush')).profileId, undefined);
   });
 
   it('renames the default agent Mochi to RUSH, keeping a name its workspace chose', async () => {
@@ -70,8 +70,20 @@ describe('workspace agents', () => {
       });
       const listed = await invoke(routes, {method: 'GET', path: '/api/agents', ctx, requestContext: context});
       assert.equal(listed.payload.agents[0].name, renamed);
-      assert.equal((await ctx.collection('agents').get(scope, 'mochi')).name, renamed);
+      assert.equal((await ctx.collection('agents').get(scope, 'rush')).name, renamed);
     }
+  });
+
+  it('moves the default agent from mochi to rush, keeping what its workspace chose', async () => {
+    const ctx = makeCtx();
+    const scope = ctx.scopeFor({context});
+    await ctx.collection('agents').put(scope, 'mochi', {
+      id: 'mochi', name: 'Scout', description: '', instructions: 'Be brief.', builtin: true, defaultsVersion: 7,
+    });
+    const listed = await invoke(routes, {method: 'GET', path: '/api/agents', ctx, requestContext: context});
+    assert.deepEqual(listed.payload.agents.map(agent => [agent.id, agent.name, agent.instructions, agent.defaultsVersion]),
+      [['rush', 'Scout', 'Be brief.', 8]]);
+    assert.equal(await ctx.collection('agents').get(scope, 'mochi'), undefined);
   });
 
   it('creates, lists, edits, and deletes an agent', async () => {
@@ -85,7 +97,7 @@ describe('workspace agents', () => {
 
     const id = created.payload.agent.id;
     const listed = await invoke(routes, {method: 'GET', path: '/api/agents', ctx, requestContext: context});
-    assert.deepEqual(listed.payload.agents.map(agent => agent.id).sort(), [id, 'mochi'].sort());
+    assert.deepEqual(listed.payload.agents.map(agent => agent.id).sort(), [id, 'rush'].sort());
 
     const edited = await invoke(routes, {method: 'PATCH', path: `/api/agents/${id}`, body: {name: 'Evidence scout'}, ctx, requestContext: context});
     assert.equal(edited.payload.agent.name, 'Evidence scout');
@@ -94,7 +106,7 @@ describe('workspace agents', () => {
     const removed = await invoke(routes, {method: 'DELETE', path: `/api/agents/${id}`, ctx, requestContext: context});
     assert.deepEqual(removed.payload, {deleted: true});
     const empty = await invoke(routes, {method: 'GET', path: '/api/agents', ctx, requestContext: context});
-    assert.deepEqual(empty.payload.agents.map(agent => agent.id), ['mochi']);
+    assert.deepEqual(empty.payload.agents.map(agent => agent.id), ['rush']);
   });
 
   it('refuses an agent that chooses a model: each member chooses their own', async () => {
@@ -109,7 +121,7 @@ describe('workspace agents', () => {
   });
 
   it('does not delete the built-in agent', async () => {
-    const r = await invoke(routes, {method: 'DELETE', path: '/api/agents/mochi', ctx: makeCtx(), requestContext: context});
+    const r = await invoke(routes, {method: 'DELETE', path: '/api/agents/rush', ctx: makeCtx(), requestContext: context});
     assert.deepEqual([r.status, r.payload], [400, {error: 'The default agent cannot be deleted'}]);
   });
 
