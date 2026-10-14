@@ -161,6 +161,42 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     assert.equal((await runners.saveKeys('u2', {OPENROUTER_API_KEY: 'sk-1'})).status, 409);
   });
 
+  it('gives a computer without an OpenRouter key Mochi\'s, once a connection, and none to one with its own', async () => {
+    const given = [];
+    runners = createRunners({
+      resolveIdentity: async () => ({ok: true, identity: {userId: 'u1'}}),
+      openrouterKeys: {ENV: 'OPENROUTER_API_KEY', give: async userId => { given.push(userId); return 'sk-or-mochi'; }},
+    });
+    const kept = [];
+    let announce;
+    let set = false;
+    const keys = () => [{env: 'OPENROUTER_API_KEY', label: 'OpenRouter', set}];
+    await dialIn('member-token', {
+      keys: keys(),
+      saveKeys: async changes => {
+        kept.push(changes);
+        set = changes.OPENROUTER_API_KEY !== null;
+        announce(keys());
+      },
+      onKeys: listener => { announce = listener; },
+    });
+    await until(() => runners.status('u1').keys[0]?.set);
+    assert.deepEqual(given, ['u1']);
+    assert.deepEqual(kept, [{OPENROUTER_API_KEY: 'sk-or-mochi'}]);
+    // Removed, it stays removed: the hello that says so is not a new connection.
+    assert.deepEqual(await runners.saveKeys('u1', {OPENROUTER_API_KEY: null}), {value: {saved: true}});
+    await until(() => !runners.status('u1').keys[0].set);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.deepEqual(given, ['u1']);
+
+    dropComputers();
+    await until(() => !runners.status('u1').connected);
+    set = true;
+    await dialIn('member-token', {keys: keys(), saveKeys: async () => {}, onKeys: () => {}});
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.deepEqual(given, ['u1']);
+  });
+
   it('cancels the run on the computer when the caller hangs up', async () => {
     await dialIn();
     const controller = new AbortController();

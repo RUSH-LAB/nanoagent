@@ -116,7 +116,11 @@ function socketFetch(entry) {
   });
 }
 
-function createRunners({resolveIdentity}) {
+/**
+ * `openrouterKeys` (openrouter-keys.js), when Mochi gives members an OpenRouter
+ * key: a computer that connects without one is given one.
+ */
+function createRunners({resolveIdentity, openrouterKeys = null}) {
   const connected = new Map();
   const pages = new Map();
   // Held calls whose computer went away, by id: {userId, call, timer}, until it is back.
@@ -140,8 +144,12 @@ function createRunners({resolveIdentity}) {
         return socket.close(1003, 'Frames are JSON');
       }
       if (frame?.type === 'hello') {
+        // A hello again is the computer saying its keys changed: a key the member removed stays removed.
+        const first = !entry.greeted;
+        entry.greeted = true;
         entry.device = typeof frame.device === 'string' ? frame.device.slice(0, 100) : null;
         entry.keys = keyList(frame.keys);
+        if (first) giveKey(userId, entry);
         return heldRuns(userId, entry, Array.isArray(frame.runs) ? frame.runs.filter(id => typeof id === 'string') : []);
       }
       const call = entry.pending.get(frame?.id);
@@ -179,6 +187,16 @@ function createRunners({resolveIdentity}) {
     socket.on('error', () => socket.terminate());
   }
 
+  /** An OpenRouter key from Mochi, saved on the member's computer when it holds none of its own. */
+  function giveKey(userId, entry) {
+    const slot = entry.keys.find(key => key.env === openrouterKeys?.ENV);
+    if (!slot || slot.set) return;
+    openrouterKeys.give(userId)
+      .then(key => key && !entry.closed && api.saveKeys(userId, {[slot.env]: key}))
+      .then(result => { if (result?.error) throw new Error(result.error); })
+      .catch(error => console.error(`[runner] Could not give ${userId} an OpenRouter key:`, error.message));
+  }
+
   /**
    * The held requests the member's computer says it has (`hello`): each held
    * call of this process whose computer went away goes on from the frames it
@@ -201,7 +219,7 @@ function createRunners({resolveIdentity}) {
     onRuns(userId, runs.filter(id => !entry.pending.has(id)));
   }
 
-  return Object.freeze({
+  const api = Object.freeze({
     /**
      * Take an HTTP upgrade to PATH, signed in by a bearer token only: a page in
      * a browser carries an Origin and the member's cookie, and could otherwise
@@ -299,6 +317,7 @@ function createRunners({resolveIdentity}) {
       for (const entry of connected.values()) entry.socket.close(GOING_AWAY, 'Mochi is restarting');
     },
   });
+  return api;
 }
 
 module.exports = {createRunners, socketFetch, MAX_PAYLOAD};
