@@ -1,0 +1,161 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage[margin=0.8in]{geometry}
+\usepackage{listings}
+\usepackage{enumitem}
+\setlist{itemsep=2pt,topsep=4pt}
+\lstset{basicstyle=\small\ttfamily,breaklines=true,columns=fullflexible,
+  keepspaces=true,showstringspaces=false,aboveskip=4pt,belowskip=4pt}
+
+\title{Project Milestone 1: Verifiable Tasks}
+\author{COMP 480/580, Fall 2026}
+\date{Due: October 31}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+
+AI agents use tools to retrieve information, process data, and create files.
+An agent's claim that it has finished a task, however, does not show that its
+result is correct. To evaluate an agent reliably, we need a precise task
+specification, a reproducible environment, and an executable verifier that
+checks the actual result. In this milestone, you will create an original task,
+its execution environment, and a verifier that checks its outcome. Use the
+public starter below to build and validate your task locally, then publish it
+on \href{https://rush-lab.org}{RUSH Lab}.
+
+\section{Tasks}
+
+\begin{enumerate}
+  \item \textbf{Task:} Define its inputs, tools, outputs, and success
+    conditions. Renaming the starter is not enough.
+  \item \textbf{Environment:} Include the data, dependencies, and reproducible
+    setup instructions.
+  \item \textbf{Verifier:} Check actual results. Test correct, incorrect,
+    missing, malformed, and boundary cases. \textbf{The verifier must not call
+    an LLM.} You may use an LLM to help write it, but the verifier itself is a
+    program that runs without one.
+  \item \textbf{Validation and publication:} Test, run, and publish the task,
+    and provide reproducible evidence.
+\end{enumerate}
+
+\section{Instructions}
+
+\subsection{Set up your plugin}
+
+Install Git, Python 3.12 or later, and \texttt{uv}, then clone the
+\href{https://github.com/zeyuyang8/mochi-hello-world}{public Hello World
+starter}:
+
+\begin{lstlisting}
+git clone https://github.com/zeyuyang8/mochi-hello-world.git my-task
+cd my-task
+uv sync --extra dev
+uv run pytest
+\end{lstlisting}
+
+\noindent
+Replace \texttt{my-task} with a unique name. Following the starter's README,
+adapt the generated manifest, contract, tools, and verifier. Keep the required
+package structure, and keep reports and run outputs outside the plugin folder.
+For a worked example, see the
+\href{https://github.com/zeyuyang8/mochi-arxiv-source}{arXiv Search and Source
+Downloader plugin}. Its README and source show how the task, tools, environment,
+and verifier fit together. Use it as a reference while you develop your own
+original task.
+
+\medskip
+\noindent
+In an agent task, tools expose the inputs and save the agent's answer to a
+workspace file; the agent does the reasoning. An optional \texttt{reference}
+tool computes the answer key before the agent runs, and it must not be one of
+the agent's task tools. The verifier receives this pinned reference. If you
+have no reference tool, set \texttt{reference: null} and explain how
+correctness is established.
+
+\subsection{Implement and validate}
+
+The verifier implements \texttt{verify\_input}, \texttt{verify\_output}, and
+\texttt{verify\_task}. The first two check tool calls; the third checks the
+completed task. Each returns \texttt{valid}, a \texttt{score} in $[0,1]$, a
+\texttt{message}, and \texttt{details}. Follow the starter's signatures and
+typed inputs. The verifier must be deterministic: no LLM calls, network
+access, randomness, subprocesses, or file writes.
+
+\medskip
+\noindent
+Keep the dependencies and \texttt{uv.lock} current, keep the generated
+setup, UI, and product files, and list only variable names in \texttt{.env}.
+Set \texttt{status: ready} in \texttt{nanoagent.yaml}. Then, from your plugin
+folder, run:
+
+\begin{lstlisting}
+uv sync --extra dev
+uv run pytest
+\end{lstlisting}
+
+\noindent
+Fix all errors. Put your verifier tests in \texttt{tests/test\_verifier.py}.
+
+\subsection{Publish and validate on RUSH Lab}
+
+Send your GitHub username to the course staff for an invitation, then sign in
+at \url{https://rush-lab.org} with the invited GitHub account.
+
+\medskip
+\noindent
+The agent and your plugin run on your own Mac, in Mochi Lab, which runs in the
+background; you keep using RUSH Lab in your browser. To install Mochi Lab, open
+\textbf{Settings $\rightarrow$ AI}, copy the command shown there, and paste it
+in Terminal. It asks you to approve your computer in the browser once. Mochi Lab
+runs on macOS only (Apple silicon or Intel); if you do not have a Mac, contact
+the course staff. If Mochi Lab has no OpenRouter API key, RUSH Lab gives it one;
+you can instead save your own key from
+\href{https://openrouter.ai/settings/keys}{OpenRouter} under the same pane.
+RUSH Lab sets the model.
+
+\medskip
+\noindent
+Push the complete, tested plugin to a \textbf{public GitHub repository}. Open
+the \href{https://rush-lab.org/w/comp-480-580/marketplace}{Marketplace},
+select \textbf{Submit your artifact}, paste the repository URL, tick the
+statement, and select \textbf{Submit}. If the plugin is in a subfolder, use
+its \path{/tree/<branch>/<folder>} URL. Fix any reported errors and submit
+again.
+
+\medskip
+\noindent
+\textbf{Passing the publication checks confirms the package format only; it
+does not show that your task or verifier is correct.}
+
+\medskip
+\noindent
+Ask a workspace owner to add your plugin, then open it, ask its chat to run
+your task, and save the task verifier's verdict shown with the result. Have
+another student or a TA reproduce your setup and your correct- and
+incorrect-result checks from the README, and record any issues and fixes.
+
+\section{Questions}
+
+In your report, explain:
+\begin{enumerate}
+  \item why your task is objectively verifiable;
+  \item how your environment is reproducible;
+  \item how the verifier handles incorrect outputs and boundary cases; and
+  \item what limitations remain.
+\end{enumerate}
+
+\section{What to Submit}
+
+Submit the GitHub URL and commit hash; your RUSH Lab plugin
+identifier; the complete source and lockfile; the tests; and a README with
+exact setup and execution instructions. Outside the plugin folder, include the
+inputs, validation logs, verdicts, and the independent reproduction record.
+Also submit a short report answering the questions above. TAs must be able to
+reproduce your results without manual fixes.
+
+\end{document}
