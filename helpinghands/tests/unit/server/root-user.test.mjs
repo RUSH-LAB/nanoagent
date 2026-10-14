@@ -26,14 +26,17 @@ const CHAT_PATH = require.resolve('../../../src/server/chat.js');
 // different DATABASE_FILE gets a consistent set rather than a stale mix.
 const MODULE_PATHS = [ROOT_USER_PATH, AUTH_PATH, DB_PATH, ROLES_PATH, CHAT_PATH];
 
+// The PostgreSQL URLs are cleared for every load: set (from .env), they would put this test's
+// accounts in that database instead of the SQLite file under test.
 const ENV_KEYS = [
   'NODE_ENV', 'DATABASE_FILE', 'BETTER_AUTH_SECRET', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET',
+  'DATABASE_URL', 'DATABASE_MIGRATION_URL',
 ];
 
 /** Load fresh copies of root-user, auth, and db under `env`. */
 function load(env) {
   const saved = Object.fromEntries(ENV_KEYS.map(k => [k, process.env[k]]));
-  for (const [k, v] of Object.entries(env)) {
+  for (const [k, v] of Object.entries({DATABASE_URL: undefined, DATABASE_MIGRATION_URL: undefined, ...env})) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }

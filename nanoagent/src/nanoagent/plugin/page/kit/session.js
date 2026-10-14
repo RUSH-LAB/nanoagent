@@ -1,12 +1,18 @@
 // Sessions: one sitting with the plugin's page, which people leave and come back to. The host
-// keeps each session's saved state, its conversation, and every run it made with what the run
-// cost and how long it took. The page gets its session as `ctx.session`; the dashboard lists them.
+// keeps each session's conversation, and every run it made with what the run cost and how long it
+// took. The chat continues the page's session (`currentSession`); the dashboard lists them.
+// A new session is only the page's until it does something: the host starts it on its first
+// chat message (bridge.js), so a session nobody used leaves nothing behind.
 
-import { request } from "./bridge.js";
-import { formatDuration, h, plural } from "./dom.js";
-import { dataTable, emptyState, howItWorks } from "./display.js";
+import { onSessionRequest, request } from "./bridge.js";
+import { formatDuration, h, icon, plural } from "./dom.js";
+import { dataTable } from "./display.js";
 
 let current = null;
+// Starts the page's session on the host, if it has not started yet.
+let start = async () => {};
+
+onSessionRequest(() => start());
 
 /** The session the page is in, or null on the dashboard before one is opened. */
 export function currentSession() {
@@ -14,32 +20,39 @@ export function currentSession() {
 }
 
 /**
- * Make `opened` (what `session.start` / `session.resume` answered) the page's session.
- * @returns {{id: string, title: string, state: unknown, chat: Array<{prompt: string, answer: string, tools: Array<{name: string, arguments: object, output: unknown, isError: boolean}>}>, save: (state: unknown, options?: {title?: string}) => Promise<void>}}
- *   `state` is what the page last saved (null for a new session). `save` keeps a new state, and
- *   a title when given; saves run one after another, so the last one wins.
+ * Make `opened` (what `session.resume` answered) the page's session, or with no `opened`, a
+ * new one, which the host starts when the page first chats in it.
+ * @param {object|null} [opened]
+ * @returns {{id: string|null, chat: Array<{prompt: string, answer: string, tools: Array<{name: string, arguments: object, output: unknown, isError: boolean}>, error: string|null}>, running: {prompt: string}|null}}
+ *   A turn with an `error` was not answered, which says why; `id` is null until a new session starts; `running` is the message it is still answering.
  */
-export function enterSession(opened) {
-  let queue = Promise.resolve();
-  current = {
-    id: opened.id,
-    title: opened.title,
-    state: opened.state,
-    chat: opened.chat,
-    save(state, { title } = {}) {
-      current.state = state;
-      if (title !== undefined) current.title = title;
-      const saving = queue.then(() => request("session.save", { state, ...(title === undefined ? {} : { title }) }));
-      queue = saving.catch(() => {});
-      return saving;
-    },
+export function enterSession(opened = null) {
+  const session = {
+    id: opened?.id ?? null,
+    chat: opened?.chat ?? [],
+    running: opened?.running ?? null,
   };
-  return current;
+  let starting = null;
+  start = opened
+    ? async () => {}
+    : () =>
+        (starting ??= request("session.start").then(
+          (reply) => {
+            session.id = reply.session.id;
+          },
+          (problem) => {
+            starting = null;
+            throw problem;
+          },
+        ));
+  current = session;
+  return session;
 }
 
-/** "$0.0042", "$0.012", "$1.25": a cost in US dollars, with enough digits to show a small one. */
+/** "$0.00", "$0.0042", "$0.012", "$1.25": a cost in US dollars, with enough digits to show a small one. */
 export function formatCost(usd) {
   if (usd === null || usd === undefined) return "—";
+  if (usd === 0) return "$0.00";
   return `$${usd.toFixed(usd < 0.01 ? 4 : usd < 1 ? 3 : 2)}`;
 }
 
@@ -65,12 +78,12 @@ export function metricsLine(metrics) {
   return parts.join(" · ");
 }
 
-const when = (at) => new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-const titled = (session) => session.title || `Session from ${when(session.createdAt)}`;
-
-function stat(label, value) {
-  return h("div", { class: "stat" }, h("span", { class: "stat-label", text: label }), h("span", { class: "stat-value tabular", text: value }));
-}
+const when = (at) => {
+  const date = new Date(at);
+  const year = date.getFullYear() === new Date().getFullYear() ? undefined : "numeric";
+  return date.toLocaleString(undefined, { year, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+};
+const titled = (session) => session.title || "Untitled session";
 
 /** Every call one session made, with what each cost and how long it took. */
 function callsTable(calls) {
@@ -103,118 +116,126 @@ function callsTable(calls) {
 }
 
 /**
- * The dashboard: the person's sessions with this plugin, what they cost in all, and each
- * session's runs; from here they start a new session or resume one.
+ * The dashboard: the person's sessions with this plugin, newest first, and what they cost in
+ * all; from here they start a new session or resume one, open a session's runs, and archive a
+ * session. Archived sessions leave the list for its Archived view, where they can be opened or
+ * restored; chatting in one again restores it.
  * @param {object} options
- * @param {object} options.plugin The catalog entry from `describe`; with no sessions yet, its product says what a session does.
- * @param {(session: object) => void} options.onOpen With what `session.start` or `session.resume` answered.
- * @returns {{element: HTMLElement, refresh: () => Promise<void>}}
+ * @param {(session: object|null) => void} options.onOpen With what `session.resume` answered,
+ *   or null for a new session.
+ * @returns {{element: HTMLElement, refresh: () => Promise<void>}} `refresh` lists the sessions again.
  */
-export function dashboard({ plugin, onOpen }) {
-  const status = h("p", { class: "muted", role: "status" });
-  const totals = h("div", { class: "stats" });
-  const list = h("div");
-  const details = h("section", { class: "card session-details", hidden: true, "aria-live": "polite" });
-  const newButton = h("button", { type: "button", class: "button primary", text: "New session" });
+export function dashboard({ onOpen }) {
+  const stats = h("dl", { class: "session-stats" });
+  const status = h("p", { class: "error-text", role: "alert" });
+  const list = h("ul", { class: "session-list" });
+  const heading = h("h2", { text: "Sessions" });
+  const newButton = h("button", { type: "button", class: "button small", onclick: () => onOpen(null) }, icon("plus", { size: 16 }), "New session");
+  const viewButton = h("button", { type: "button", class: "button small ghost", hidden: true });
+  let archivedView = false;
+  viewButton.addEventListener("click", () => {
+    archivedView = !archivedView;
+    refresh();
+  });
 
-  const open = async (method, params, button) => {
+  async function archive(session, button) {
     button.disabled = true;
     try {
-      onOpen((await request(method, params)).session);
+      await request("session.archive", { id: session.id, archived: !session.archivedAt });
+      await refresh();
+    } catch (problem) {
+      status.textContent = problem.message;
+      button.disabled = false;
+    }
+  }
+
+  async function resume(session, button) {
+    button.disabled = true;
+    try {
+      onOpen((await request("session.resume", { id: session.id })).session);
     } catch (problem) {
       status.textContent = problem.message;
     } finally {
       button.disabled = false;
     }
-  };
-  newButton.addEventListener("click", () => open("session.start", {}, newButton));
-  const startButton = h("button", { type: "button", class: "button primary", text: "Start your first session" });
-  startButton.addEventListener("click", () => open("session.start", {}, startButton));
-  const empty = h(
-    "section",
-    { class: "card dashboard-empty" },
-    emptyState({ icon: "play", title: "No sessions yet", body: plugin.product.summary, actions: [startButton] }, howItWorks(plugin.product.steps)),
-  );
+  }
 
-  async function showDetails(session) {
-    details.hidden = false;
-    details.replaceChildren(h("h2", { text: titled(session) }), h("p", { class: "muted", text: "Loading its runs…" }));
+  async function toggleRuns(session, button, panel) {
+    const opening = panel.hidden;
+    button.setAttribute("aria-expanded", String(opening));
+    panel.hidden = !opening;
+    if (!opening || panel.childElementCount) return;
+    panel.replaceChildren(h("p", { class: "muted", text: "Loading its runs…" }));
     try {
       const { session: full } = await request("session.get", { id: session.id });
-      details.replaceChildren(
-        h("header", { class: "session-details-head" }, h("h2", { text: titled(full) }), h("span", { class: "muted", text: `${plural(full.runs, "run")} · ${formatCost(full.cost)}` })),
-        callsTable(full.calls).element,
-      );
+      panel.replaceChildren(callsTable(full.calls).element);
     } catch (problem) {
-      details.replaceChildren(h("p", { class: "error-text", role: "alert", text: problem.message }));
+      panel.replaceChildren(h("p", { class: "error-text", role: "alert", text: problem.message }));
     }
+  }
+
+  function row(session) {
+    const meta = [when(session.updatedAt), plural(session.runs, "run"), formatCost(session.cost)];
+    if (session.running) meta.unshift("Answering…");
+    if (session.ttftS != null) meta.push(`first token ${formatSeconds(session.ttftS)}`);
+    const open = h(
+      "button",
+      { type: "button", class: "session-open", title: "Resume this session" },
+      h("span", { class: "session-title", text: titled(session) }),
+      h("span", { class: "session-meta", text: meta.join(" · ") }),
+    );
+    open.addEventListener("click", () => resume(session, open));
+    const panel = h("div", { class: "session-runs", hidden: true });
+    const runs = session.runs
+      ? h("button", { type: "button", class: "button small ghost", "aria-expanded": "false", text: "Runs" })
+      : null;
+    runs?.addEventListener("click", () => toggleRuns(session, runs, panel));
+    const label = session.archivedAt ? "Restore" : "Archive";
+    const archiving = h("button", { type: "button", class: "button small ghost", text: label, title: `${label} ${titled(session)}` });
+    archiving.addEventListener("click", () => archive(session, archiving));
+    return h("li", { class: "session-row" }, h("div", { class: "session-line" }, open, runs, archiving), panel);
   }
 
   async function refresh() {
     status.textContent = "";
-    let sessions;
+    let all;
     try {
-      ({ sessions } = await request("sessions.list"));
+      ({ sessions: all } = await request("sessions.list"));
     } catch (problem) {
       status.textContent = problem.message;
       return;
     }
-    // With no sessions the empty state's own button starts one, so the header's would repeat it.
-    newButton.hidden = !sessions.length;
-    if (!sessions.length) {
-      totals.replaceChildren();
-      list.replaceChildren(empty);
-      details.hidden = true;
-      return;
-    }
+    const archived = all.filter((one) => one.archivedAt);
+    if (!archived.length) archivedView = false;
+    const sessions = archivedView ? archived : all.filter((one) => !one.archivedAt);
+    heading.textContent = archivedView ? "Archived sessions" : "Sessions";
+    viewButton.hidden = !archived.length;
+    viewButton.textContent = archivedView ? "Back to sessions" : `Archived (${archived.length})`;
     const runs = sessions.reduce((sum, one) => sum + one.runs, 0);
     const timed = sessions.filter((one) => one.ttftS != null);
     const timedRuns = timed.reduce((sum, one) => sum + one.runs, 0);
-    totals.replaceChildren(
-      stat("Sessions", String(sessions.length)),
-      stat("Runs", String(runs)),
-      stat("Cost", formatCost(sessions.reduce((sum, one) => sum + one.cost, 0))),
-      stat("Average first token", timedRuns ? formatSeconds(timed.reduce((sum, one) => sum + one.ttftS * one.runs, 0) / timedRuns) : "—"),
-    );
+    const figures = [
+      ["Sessions", String(sessions.length)],
+      ["Runs", String(runs)],
+      ["Cost", formatCost(sessions.reduce((sum, one) => sum + one.cost, 0))],
+      ["First token, average", timedRuns ? formatSeconds(timed.reduce((sum, one) => sum + one.ttftS * one.runs, 0) / timedRuns) : "—"],
+    ];
+    stats.replaceChildren(...(sessions.length && !archivedView ? figures.map(([label, value]) => h("div", { class: "session-stat" }, h("dt", { text: label }), h("dd", { text: value }))) : []));
+    const newest = [...sessions].sort((x, y) => new Date(y.updatedAt) - new Date(x.updatedAt));
     list.replaceChildren(
-      dataTable({
-        caption: "Sessions",
-        sort: { key: "updatedAt", dir: "desc" },
-        rows: sessions,
-        columns: [
-          { key: "title", label: "Session", value: titled, primary: true },
-          { key: "updatedAt", label: "Last used", render: (session) => when(session.updatedAt) },
-          {
-            key: "runs",
-            label: "Runs",
-            numeric: true,
-            render: (session) => h("button", { type: "button", class: "button small ghost tabular", title: "Show this session's runs", text: String(session.runs), onclick: () => showDetails(session) }),
-          },
-          { key: "cost", label: "Cost", numeric: true, render: (session) => formatCost(session.cost) },
-          { key: "ttftS", label: "First token (avg)", numeric: true, render: (session) => formatSeconds(session.ttftS) },
-          {
-            key: "actions",
-            label: "",
-            sortable: false,
-            render: (session) => {
-              const resume = h("button", { type: "button", class: "button small primary", text: "Resume" });
-              resume.addEventListener("click", () => open("session.resume", { id: session.id }, resume));
-              return h("div", { class: "row-actions" }, resume);
-            },
-          },
-        ],
-      }).element,
+      ...(newest.length
+        ? newest.map(row)
+        : [h("li", { class: "session-empty", text: archived.length ? "Every session is archived. Start a new one with New session." : "No sessions yet. Start one with New session." })]),
     );
   }
 
   const element = h(
-    "div",
+    "section",
     { class: "dashboard" },
-    h("header", { class: "dashboard-head" }, h("h2", { text: "Sessions" }), newButton),
+    h("header", { class: "dashboard-head" }, heading, h("div", { class: "dashboard-actions" }, viewButton, newButton)),
     status,
-    totals,
+    stats,
     list,
-    details,
   );
   return { element, refresh };
 }

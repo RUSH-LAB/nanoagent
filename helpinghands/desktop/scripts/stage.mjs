@@ -4,7 +4,7 @@
  * (TAURI_ENV_TARGET_TRIPLE, which Tauri sets for beforeBuildCommand):
  *
  *   src-tauri/resources/runner/     the relay that lends this computer's NanoAgent to Mochi
- *   src-tauri/resources/nanoagent/  NanoAgent's sources, uv.lock, plugins, and the built PI runner
+ *   src-tauri/resources/nanoagent/  NanoAgent compiled by Nuitka (site/), its uv.lock, the PI runner's bundle, and the config the app runs
  *   src-tauri/resources/config.yaml this folder's config.yaml
  *   src-tauri/resources/stamp       names this staging; the app installs each stamp once
  *   src-tauri/binaries/{node,uv}-<target>   the runtimes, downloaded and checksum-verified
@@ -15,7 +15,6 @@ import path from 'node:path';
 import process from 'node:process';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {nodeFileTrace} from '@vercel/nft';
 import YAML from 'yaml';
 
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -40,25 +39,6 @@ function run(command, args, options = {}) {
   console.log(`$ ${command} ${args.join(' ')}`);
   // npm is npm.cmd on Windows, which only a shell runs.
   execFileSync(command, args, {stdio: 'inherit', shell: process.platform === 'win32', ...options});
-}
-
-/**
- * Sign the native code inside the resources (Node addons) for notarization, with the identity
- * Tauri signs the app with. Tauri signs the app and the sidecars itself, not files in resources.
- */
-function signResources(identity) {
-  const native = [];
-  const walk = folder => {
-    for (const entry of fs.readdirSync(folder, {withFileTypes: true})) {
-      const file = path.join(folder, entry.name);
-      if (entry.isDirectory()) walk(file);
-      else if (/\.(node|dylib)$/.test(entry.name)) native.push(file);
-    }
-  };
-  walk(resources);
-  for (const file of native) {
-    run('codesign', ['--force', '--options', 'runtime', '--timestamp', '--sign', identity, file]);
-  }
 }
 
 function copy(from, to) {
@@ -123,36 +103,57 @@ function stageRunner() {
   copy(path.join(mochiRoot, 'src', 'runner'), path.join(resources, 'runner'));
 }
 
-/** Keep only the files of `out`'s node_modules that `entries` load. */
-async function trimNodeModules(out, entries) {
-  const {fileList} = await nodeFileTrace(entries, {base: out});
-  const full = path.join(out, 'node_modules');
-  const kept = path.join(out, 'node_modules.kept');
-  for (const file of fileList) {
-    if (file.split(/[\\/]/)[0] !== 'node_modules') continue;
-    const from = path.join(out, file);
-    if (!fs.statSync(from).isFile()) continue;
-    const to = path.join(kept, path.relative(full, from));
-    fs.mkdirSync(path.dirname(to), {recursive: true});
-    fs.copyFileSync(from, to);
-  }
-  fs.rmSync(full, {recursive: true});
-  fs.renameSync(kept, full);
-}
-
-async function stageNanoAgent() {
+/**
+ * NanoAgent ships compiled, not as source: Nuitka builds its package into one module, for the
+ * Python the app runs it on, in resources/nanoagent/site/ with the files it reads beside it.
+ * Its dependencies are open source and are installed from the uv.lock resolved here, on first
+ * launch. Beside them go the PI runner's two bundled files and the config the supervisor runs, at
+ * the paths that config names them by.
+ */
+async function stageNanoAgent(uv) {
   const out = path.join(resources, 'nanoagent');
-  for (const entry of ['pyproject.toml', 'uv.lock', 'README.md', 'LICENSE', 'src', 'deploy', 'plugins']) {
-    copy(path.join(nanoagentRoot, entry), path.join(out, entry));
+  const build = path.join(cache, 'nuitka');
+  fs.rmSync(build, {recursive: true, force: true});
+  run(uv, [
+    'run', '--no-project', '--managed-python', '--python', config.python_version, '--with-editable', '.[compile]',
+    'python', '-m', 'nuitka', '--mode=package', '--assume-yes-for-downloads', `--output-dir=${build}`, 'src/nanoagent',
+  ], {cwd: nanoagentRoot});
+  const [module] = fs.readdirSync(build).filter(name => name.endsWith('.so'));
+  copy(path.join(build, module), path.join(out, 'site', module));
+  // What the code reads from its package's folder: every file but its .py, and the plugin
+  // template whole, which `nanoagent plugin new` copies.
+  const source = path.join(nanoagentRoot, 'src', 'nanoagent');
+  const template = path.join(source, 'plugin', 'template');
+  fs.cpSync(source, path.join(out, 'site', 'nanoagent'), {
+    recursive: true,
+    filter: from => !SKIP.has(path.basename(from)) && (from.startsWith(template) || !from.endsWith('.py')),
+  });
+  // NanoAgent is a library and keeps no lock; the app pins the versions resolved for this build,
+  // which it installs with `uv sync --frozen` on first launch. Locking reads NanoAgent's version
+  // from its source, so it runs on a copy with the source, and only the lock ships.
+  const locking = path.join(cache, 'nanoagent-lock');
+  fs.rmSync(locking, {recursive: true, force: true});
+  for (const entry of ['pyproject.toml', 'README.md', 'LICENSE', 'src']) {
+    copy(path.join(nanoagentRoot, entry), path.join(locking, entry));
   }
-  // Built as the Dockerfile builds it, with dev dependencies; trimmed to what it loads.
-  const runner = path.join(out, 'js', 'pi-runner');
-  for (const entry of ['package.json', 'package-lock.json', 'tsconfig.json', 'src']) {
+  run(uv, ['lock'], {cwd: locking});
+  for (const entry of ['pyproject.toml', 'uv.lock']) {
+    copy(path.join(locking, entry), path.join(out, entry));
+  }
+  // Built as the Dockerfile builds it, with dev dependencies; only the bundle ships.
+  const runner = path.join(cache, 'pi-runner');
+  fs.rmSync(runner, {recursive: true, force: true});
+  for (const entry of ['package.json', 'package-lock.json', 'tsconfig.json', 'build.mjs', 'src']) {
     copy(path.join(nanoagentRoot, 'js', 'pi-runner', entry), path.join(runner, entry));
   }
   run('npm', ['ci', '--include=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--loglevel=error'], {cwd: runner});
   run('npm', ['run', 'build'], {cwd: runner});
-  await trimNodeModules(runner, [path.join(runner, 'dist', 'index.js')]);
+  for (const file of ['index.js', 'models.js']) {
+    copy(path.join(runner, 'dist', file), path.join(out, 'js', 'pi-runner', 'dist', file));
+  }
+  for (const file of ['deploy/railway/nanoagent.yaml', 'deploy/railway/profiles']) {
+    copy(path.join(nanoagentRoot, file), path.join(out, file));
+  }
 }
 
 async function main() {
@@ -167,12 +168,10 @@ async function main() {
   await stageNode(target, platform);
   await stageUv(target, platform);
   stageRunner();
-  await stageNanoAgent();
+  await stageNanoAgent(path.join(binaries, `uv-${target}${platform.exe}`));
   fs.copyFileSync(path.join(desktop, 'config.yaml'), path.join(resources, 'config.yaml'));
   const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {cwd: mochiRoot, encoding: 'utf8'}).trim();
   fs.writeFileSync(path.join(resources, 'stamp'), `${new Date().toISOString().replace(/[:.]/g, '-')}-${commit}\n`);
-  // Set when this build is signed (see .github/workflows/helpinghands-desktop.yml), as Tauri reads it.
-  if (target.endsWith('apple-darwin') && process.env.APPLE_SIGNING_IDENTITY) signResources(process.env.APPLE_SIGNING_IDENTITY);
 }
 
 main().catch(error => {

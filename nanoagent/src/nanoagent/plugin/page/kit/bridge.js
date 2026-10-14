@@ -28,16 +28,30 @@ function newId() {
   return `${counter.toString(36)}-${random[0].toString(36)}${random[1].toString(36)}`;
 }
 
+// What the host does in the page's session, and what makes sure the host has started it
+// (kit/session.js): a new session starts on its first prompt, not when it opens.
+const IN_SESSION = new Set(["prompt"]);
+let sessionStarted = async () => {};
+
+/**
+ * Have `started` run before every request the host does in the page's session.
+ * @param {() => Promise<void>} started
+ */
+export function onSessionRequest(started) {
+  sessionStarted = started;
+}
+
 /**
  * Send `method` with `params` to the host.
- * @param {string} method e.g. "workspace.list".
+ * @param {string} method e.g. "sessions.list".
  * @param {object} [params]
  * @returns {Promise<any>} The reply's `result`; rejects with its `error.message`.
  */
-export function request(method, params = {}) {
+export async function request(method, params = {}) {
   if (!hasHost()) {
-    return Promise.reject(new Error("No NanoAgent host: this page must be shown inside the host's frame."));
+    throw new Error("No NanoAgent host: this page must be shown inside the host's frame.");
   }
+  if (IN_SESSION.has(method)) await sessionStarted();
   const id = newId();
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject, method });
@@ -58,10 +72,11 @@ export function on(event, handler) {
 }
 
 /**
- * Start a streamed run (`runTask` or `prompt`) and call `onEvent(name, data)` for each of its
- * events, through its `*.done` event. Events the host sends before its reply are kept and
- * delivered once the reply names the run.
- * @param {"runTask"|"prompt"} method
+ * Start a streamed run (`prompt`, or `follow` for the message a resumed session is still
+ * answering) and call `onEvent(name, data)` for each of its events,
+ * through its `*.done` event. Events the host sends before its reply are kept and delivered once
+ * the reply names the run.
+ * @param {"prompt"|"follow"} method
  * @param {object} params
  * @param {(name: string, data: object) => void} onEvent
  * @returns {Promise<string>} The runId.

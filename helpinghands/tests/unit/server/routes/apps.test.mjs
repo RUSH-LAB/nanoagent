@@ -1,12 +1,13 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {loadRoute, makeCtx, invoke, fakeSessions, SESSION} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, fakeSessions, appRunsFor, SESSION} from '../../_harness.mjs';
 
-const aiSettings = createRequire(import.meta.url)('../../../../src/server/ai-settings.js');
 const routes = loadRoute('apps');
 const context = {workspaceId: 'test-org', userId: 'test-user', membershipId: 'member-1', role: 'owner'};
 const SHA = 'a'.repeat(64);
+// The connection of the member's computer that plugin pages are addressed by (server/runner.js).
+const PAGE = '0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d';
 const APP = {id: 'echo', name: 'Echo', version: '1.0.0', tasks: [], tools: [], readme: '# Echo\n', sha256: SHA, source: 'nanoagent'};
 
 /** The workspace file system, as one map of path to bytes, recording what it was asked. */
@@ -47,12 +48,19 @@ function fakeApps(overrides = {}) {
   };
 }
 
+/** A ctx whose member's computer is connected, its NanoAgent `ai`. */
 function ctxWith(ai, fs = fakeFs()) {
   const ctx = makeCtx();
   ctx.ai = {...ctx.ai, ...ai};
+  ctx.runners = {
+    ...ctx.runners,
+    computer: userId => (userId === context.userId ? ctx.ai : null),
+    page: userId => (userId === context.userId ? PAGE : null),
+    byPage: page => (page === PAGE ? ctx.ai : null),
+  };
   ctx.workspaceFs = fs;
-  ctx.agentSync = {run: (_scope, _ai, operation) => operation('run-folder')};
   ctx.sessions = fakeSessions();
+  ctx.appRuns = appRunsFor(ctx);
   ctx.workspaceApps = fakeApps();
   return ctx;
 }
@@ -72,11 +80,16 @@ describe('NanoAgent apps', () => {
     assert.equal(listed.payload.error, 'Could not reach NanoAgent.');
   });
 
-  it('opens an added app installed, for any member', async () => {
+  it('opens an added app installed on the member\'s computer, for any member', async () => {
     const ctx = ctxWith({});
+    const on = [];
+    const open = ctx.workspaceApps.open;
+    ctx.workspaceApps.open = async (context, id, computer) => { on.push(computer); return open(context, id); };
     const opened = await invoke(routes, {method: 'GET', path: '/api/apps/echo', ctx, requestContext: {...context, role: 'viewer'}});
     assert.equal(opened.status, 200);
     assert.equal(opened.payload.app.sha256, SHA);
+    assert.equal(opened.payload.app.computer, PAGE);
+    assert.deepEqual(on, [ctx.ai]);
     assert.deepEqual(ctx.workspaceApps.calls, [['open', 'echo']]);
     ctx.workspaceApps.open = async () => ({error: 'This workspace has no plugin named nope', status: 404});
     assert.equal((await invoke(routes, {method: 'GET', path: '/api/apps/nope', ctx, requestContext: context})).status, 404);
@@ -102,6 +115,27 @@ describe('NanoAgent apps', () => {
     assert.deepEqual(ctx.workspaceApps.calls, [['add', 'echo'], ['remove', 'echo'], ['remove', 'other']]);
   });
 
+  it('prepares the workspace\'s apps on the member\'s computer, answering at once', async () => {
+    const ctx = ctxWith({});
+    const prepared = [];
+    ctx.workspaceApps.prepare = async (_context, on) => { prepared.push(on); return {value: []}; };
+    const answer = await invoke(routes, {method: 'POST', path: '/api/app-installs', ctx, requestContext: {...context, role: 'viewer'}});
+    assert.equal(answer.status, 202);
+    assert.deepEqual(prepared, [ctx.ai]);
+  });
+
+  it('neither opens nor prepares an app while the member\'s computer is not connected', async () => {
+    const ctx = ctxWith({});
+    ctx.runners.computer = () => null;
+    ctx.workspaceApps.prepare = async () => assert.fail('must not install anywhere');
+    for (const [method, path] of [['GET', '/api/apps/echo'], ['POST', '/api/app-installs']]) {
+      const result = await invoke(routes, {method, path, ctx, requestContext: context});
+      assert.equal(result.status, 503, path);
+      assert.match(result.payload.error, /RUSH Lab on your computer is not connected/);
+    }
+    assert.deepEqual(ctx.workspaceApps.calls, []);
+  });
+
   it('lets only an owner tag a plugin, with a short list of short names', async () => {
     const ctx = ctxWith({});
     const tag = (body, role = 'owner', id = 'echo') => invoke(routes, {method: 'PATCH', path: `/api/apps/${id}`, body, ctx, requestContext: {...context, role}});
@@ -125,16 +159,23 @@ describe('NanoAgent apps', () => {
   });
 
   it('lists only the caller\'s own agent folder', async () => {
-    const fs = fakeFs({'home/test-user/agent/attention/ms.tex': '\\section{}', 'home/other/agent/x.md': 'not yours'});
-    const listed = await invoke(routes, {method: 'GET', path: '/api/agent-files', ctx: ctxWith({}, fs), requestContext: context});
+    const fs = fakeFs({'home/test-user/agent/echo/attention/ms.tex': '\\section{}', 'home/other/agent/echo/x.md': 'not yours'});
+    const listed = await invoke(routes, {method: 'GET', path: '/api/agent-files', query: '?plugin=echo', ctx: ctxWith({}, fs), requestContext: context});
     assert.equal(listed.status, 200);
     assert.deepEqual(listed.payload, {files: [{path: 'attention/ms.tex', size: 10}]});
   });
 
+  it('refuses agent files without a plugin to name the folder', async () => {
+    for (const query of ['', '?plugin=../x', '?plugin=Echo']) {
+      const result = await invoke(routes, {method: 'GET', path: '/api/agent-files', query, ctx: ctxWith({}, fakeFs()), requestContext: context});
+      assert.equal(result.status, 400);
+    }
+  });
+
   it('serves text as plain text and never as HTML', async () => {
-    const fs = fakeFs({'home/test-user/agent/attention/ms.tex': '\\section{Intro}', 'home/test-user/agent/page.html': '<script>x</script>'});
+    const fs = fakeFs({'home/test-user/agent/echo/attention/ms.tex': '\\section{Intro}', 'home/test-user/agent/echo/page.html': '<script>x</script>'});
     for (const path of ['attention/ms.tex', 'page.html']) {
-      const served = await invoke(routes, {method: 'GET', path: '/api/agent-files/content', query: `?path=${path}`, ctx: ctxWith({}, fs), requestContext: context});
+      const served = await invoke(routes, {method: 'GET', path: '/api/agent-files/content', query: `?plugin=echo&path=${path}`, ctx: ctxWith({}, fs), requestContext: context});
       assert.equal(served.res.written.status, 200);
       assert.equal(served.res.written.headers['Content-Type'], 'text/plain; charset=utf-8');
       assert.equal(served.res.written.headers['X-Content-Type-Options'], 'nosniff');
@@ -142,15 +183,15 @@ describe('NanoAgent apps', () => {
   });
 
   it('sends a viewable file as an attachment when asked to download it', async () => {
-    const fs = fakeFs({'home/test-user/agent/notes/a.txt': 'text'});
+    const fs = fakeFs({'home/test-user/agent/echo/notes/a.txt': 'text'});
     const served = await invoke(routes, {
-      method: 'GET', path: '/api/agent-files/content', query: '?path=notes/a.txt&download=1', ctx: ctxWith({}, fs), requestContext: context,
+      method: 'GET', path: '/api/agent-files/content', query: '?plugin=echo&path=notes/a.txt&download=1', ctx: ctxWith({}, fs), requestContext: context,
     });
     assert.equal(served.res.written.headers['Content-Disposition'], 'attachment; filename="a.txt"');
   });
 
   it('reports a missing file', async () => {
-    const result = await invoke(routes, {method: 'GET', path: '/api/agent-files/content', query: '?path=nope.md', ctx: ctxWith({}), requestContext: context});
+    const result = await invoke(routes, {method: 'GET', path: '/api/agent-files/content', query: '?plugin=echo&path=nope.md', ctx: ctxWith({}), requestContext: context});
     assert.equal(result.status, 404);
   });
 
@@ -159,25 +200,25 @@ describe('NanoAgent apps', () => {
     const ctx = ctxWith({}, fs);
     ctx.readRawBody = async () => Buffer.from('hello');
     const created = await invoke(routes, {
-      method: 'PUT', path: '/api/agent-files/content', query: '?path=notes/a.md&create=1', ctx, requestContext: context,
+      method: 'PUT', path: '/api/agent-files/content', query: '?plugin=echo&path=notes/a.md&create=1', ctx, requestContext: context,
     });
     assert.equal(created.status, 200);
     assert.deepEqual(created.payload, {path: 'notes/a.md', size: 5});
-    await invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?path=notes/a.md', ctx, requestContext: context});
+    await invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?plugin=echo&path=notes/a.md', ctx, requestContext: context});
     assert.deepEqual(fs.writes, [
-      ['home/test-user/agent/notes/a.md', 'hello', {baseRev: 0}],
-      ['home/test-user/agent/notes/a.md', 'hello', {}],
+      ['home/test-user/agent/echo/notes/a.md', 'hello', {baseRev: 0}],
+      ['home/test-user/agent/echo/notes/a.md', 'hello', {}],
     ]);
   });
 
   it('lets a viewer change their own agent folder', async () => {
-    const result = await invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?path=a.txt', ctx: ctxWith({}, fakeFs()), requestContext: {...context, role: 'viewer'}});
+    const result = await invoke(routes, {method: 'PUT', path: '/api/agent-files/content', query: '?plugin=echo&path=a.txt', ctx: ctxWith({}, fakeFs()), requestContext: {...context, role: 'viewer'}});
     assert.equal(result.status, 200);
   });
 
   it('refuses agent files without the workspace file system', async () => {
     const ctx = ctxWith({}, null);
-    const result = await invoke(routes, {method: 'GET', path: '/api/agent-files', ctx, requestContext: context});
+    const result = await invoke(routes, {method: 'GET', path: '/api/agent-files', query: '?plugin=echo', ctx, requestContext: context});
     assert.equal(result.status, 409);
     assert.equal(result.payload.code, 'fs-disabled');
   });
@@ -210,7 +251,7 @@ describe('an app\'s own page', () => {
   it('serves a ui/ file to anyone, with NanoAgent\'s content type and Content-Security-Policy', async () => {
     const asked = [];
     const ctx = ctxWith({installUiFile: async (...args) => { asked.push(args); return page('<!doctype html>'); }});
-    const served = await invoke(routes, {method: 'GET', path: `/api/apps/${SHA}/ui/0123456789abcdef/js/app%20main.js`, ctx, auth: null});
+    const served = await invoke(routes, {method: 'GET', path: `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/js/app%20main.js`, ctx, auth: null});
     assert.deepEqual(asked, [[SHA, '0123456789abcdef', 'js/app main.js']]);
     assert.equal(served.written.status, 200);
     assert.equal(served.written.headers['Content-Type'], 'text/html; charset=utf-8');
@@ -218,26 +259,27 @@ describe('an app\'s own page', () => {
     assert.equal(served.written.headers['Cache-Control'], CACHE);
     assert.equal(served.written.headers['Access-Control-Allow-Origin'], '*');
     assert.equal(served.written.body.toString(), '<!doctype html>');
-    assert.equal(isPublicPath(`/api/apps/${SHA}/ui/0123456789abcdef/index.html`), true);
-    assert.equal(isGlobalApiPath(`/api/apps/${SHA}/ui/0123456789abcdef/index.html`), true);
-    assert.equal(isPublicPath('/api/apps/chess-move/tasks/move/runs'), false);
-    assert.equal(isGlobalApiPath('/api/apps/chess-move/tasks/move/runs'), false);
+    assert.equal(isPublicPath(`/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/index.html`), true);
+    assert.equal(isGlobalApiPath(`/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/index.html`), true);
+    assert.equal(isPublicPath('/api/apps/arxiv-source/sessions'), false);
+    assert.equal(isGlobalApiPath('/api/apps/arxiv-source/sessions'), false);
   });
 
   it('refuses any path that could leave ui/', async () => {
     const ctx = ctxWith({installUiFile: async () => assert.fail('must not ask NanoAgent')});
     for (const path of [
-      `/api/apps/${SHA}/ui/0123456789abcdef/../nanoagent.yaml`,
-      `/api/apps/${SHA}/ui/0123456789abcdef/%2e%2e/nanoagent.yaml`,
-      `/api/apps/${SHA}/ui/0123456789abcdef/a/%2E%2E/%2E%2E/x`,
-      `/api/apps/${SHA}/ui/0123456789abcdef/..%2Fnanoagent.yaml`,
-      `/api/apps/${SHA}/ui/0123456789abcdef/a%5C..%5Cx`,
-      `/api/apps/${SHA}/ui/0123456789abcdef/a//b`,
-      `/api/apps/${SHA}/ui/0123456789abcdef/./index.html`,
-      `/api/apps/${SHA}/ui/0123456789abcdef/%zz`,
-      '/api/apps/chess-move/ui/0123456789abcdef/index.html',
-      `/api/apps/${'A'.repeat(64)}/ui/0123456789abcdef/index.html`,
-      `/api/apps/${SHA}/ui/latest/index.html`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/../nanoagent.yaml`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/%2e%2e/nanoagent.yaml`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/a/%2E%2E/%2E%2E/x`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/..%2Fnanoagent.yaml`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/a%5C..%5Cx`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/a//b`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/./index.html`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/%zz`,
+      `/api/apps/arxiv-source/ui/${PAGE}/0123456789abcdef/index.html`,
+      `/api/apps/${'A'.repeat(64)}/ui/${PAGE}/0123456789abcdef/index.html`,
+      `/api/apps/${SHA}/ui/${PAGE}/latest/index.html`,
+      `/api/apps/${SHA}/ui/not-a-page/0123456789abcdef/index.html`,
     ]) {
       const result = await invoke(routes, {method: 'GET', path, ctx, auth: null});
       assert.equal(result.status, 404, path);
@@ -246,127 +288,28 @@ describe('an app\'s own page', () => {
 
   it('relays a missing file and refuses one sent without its policy or caching', async () => {
     const missing = await invoke(routes, {
-      method: 'GET', path: `/api/apps/${SHA}/ui/0123456789abcdef/nope.js`, auth: null,
+      method: 'GET', path: `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/nope.js`, auth: null,
       ctx: ctxWith({installUiFile: async () => ({error: 'not found', status: 404})}),
     });
     assert.equal(missing.status, 404);
     const unguarded = await invoke(routes, {
-      method: 'GET', path: `/api/apps/${SHA}/ui/0123456789abcdef/index.html`, auth: null,
+      method: 'GET', path: `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/index.html`, auth: null,
       ctx: ctxWith({installUiFile: async () => page('<script>', {'content-type': 'text/html'})}),
     });
     assert.equal(unguarded.status, 502);
     assert.equal(unguarded.written, null);
     const uncached = await invoke(routes, {
-      method: 'GET', path: `/api/apps/${SHA}/ui/0123456789abcdef/index.html`, auth: null,
+      method: 'GET', path: `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/index.html`, auth: null,
       ctx: ctxWith({installUiFile: async () => page('<script>', {'content-type': 'text/html', 'content-security-policy': CSP})}),
     });
     assert.equal(uncached.status, 502);
   });
-});
 
-describe('an app\'s task runs', () => {
-  const stream = chunks => new ReadableStream({
-    start(controller) {
-      for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk));
-      controller.close();
-    },
-  });
-  const PATH = '/api/apps/arxiv-source/tasks/daily-digest/runs';
-
-  it('runs on a copy of the caller\'s agent folder and passes the event stream through', async () => {
-    const asked = [];
-    const metrics = {model: 'm', cost: 0.012, usage: {prompt_tokens: 10, completion_tokens: 5}, ttft_s: 1.5, generation_s: 3, duration_s: 9};
-    const events = [
-      'event: task.started\ndata: {"type":"task.started","runId":"r","task":"daily-digest"}\n\n', ': heartbeat\n\n',
-      `data: ${JSON.stringify({type: 'task.done', runId: 'r', metrics}).slice(0, 20)}`,
-      `${JSON.stringify({type: 'task.done', runId: 'r', metrics}).slice(20)}\n\n`,
-    ];
-    const ctx = ctxWith({taskRun: async request => { asked.push(request); return {value: stream(events)}; }});
-    ctx.settings = aiSettings.normalize({behaviour: {maxSteps: 3, thinking: 'high'}, instructions: 'x'}).value;
-    const result = await invoke(routes, {
-      method: 'POST', path: PATH, body: {arguments: {people: ['Ada']}, sessionId: SESSION}, ctx, requestContext: context,
-    });
-    assert.equal(asked.length, 1);
-    // The one model and the member's settings; a task takes no instructions or thinking.
-    assert.deepEqual(asked[0].choice, {model: {provider: 'openrouter', model: 'deepseek/deepseek-v4-flash-0731'}, settings: {max_steps: 3}});
-    assert.equal(asked[0].workspace, 'run-folder');
-    assert.equal(asked[0].install, SHA);
-    assert.deepEqual(ctx.workspaceApps.calls, [['open', 'arxiv-source']]);
-    assert.equal(asked[0].task, 'daily-digest');
-    assert.deepEqual(asked[0].args, {people: ['Ada']});
-    assert.equal(result.written.status, 200);
-    assert.equal(result.written.headers['Content-Type'], 'text/event-stream');
-    assert.equal(result.res.writes.join(''), events.join(''));
-    assert.equal(result.res.writableEnded, true);
-    // Charged what task.done says it cost, against the session.
-    assert.deepEqual(ctx.calls.aiUsage.map(({context: _, ...call}) => call), [{
-      kind: 'task', result: {cost: 0.012, model: 'm', usage: metrics.usage, metrics},
-      ran: true, local: false, pluginId: 'arxiv-source', sessionId: SESSION, task: 'daily-digest',
-    }]);
-  });
-
-  it('charges a run that ends without metrics at the cap', async () => {
-    const ctx = ctxWith({taskRun: async () => ({value: stream(['data: {"type":"task.error","message":"cancelled"}\n\n', 'data: {"type":"task.done"}\n\n'])})});
-    await invoke(routes, {method: 'POST', path: PATH, body: {arguments: {}, sessionId: SESSION}, ctx, requestContext: context});
-    assert.equal(ctx.calls.aiUsage.length, 1);
-    assert.equal(ctx.calls.aiUsage[0].result, null);
-    assert.equal(ctx.calls.aiUsage[0].ran, true);
-  });
-
-  it('runs only in one of the caller\'s sessions with the app', async () => {
-    const ctx = ctxWith({taskRun: async () => assert.fail('must not run')});
-    const result = await invoke(routes, {
-      method: 'POST', path: '/api/apps/chess-move/tasks/play-move/runs', body: {arguments: {}, sessionId: SESSION}, ctx, requestContext: context,
-    });
-    assert.equal(result.status, 404);
-    const unnamed = await invoke(routes, {method: 'POST', path: PATH, body: {arguments: {}}, ctx, requestContext: context});
-    assert.equal(unnamed.status, 400);
-  });
-
-  it('is for every member, viewers included, and needs arguments as an object', async () => {
-    const ctx = ctxWith({taskRun: async () => assert.fail('must not run')});
-    for (const body of [{}, {arguments: [], sessionId: SESSION}, {arguments: 'x', sessionId: SESSION}, 'not json']) {
-      for (const role of ['editor', 'viewer']) {
-        const result = await invoke(routes, {method: 'POST', path: PATH, body, ctx, requestContext: {...context, role}});
-        assert.equal(result.status, 400);
-      }
-    }
-  });
-
-  it('refuses to run without the workspace file system', async () => {
-    const ctx = ctxWith({taskRun: async () => assert.fail('must not run')});
-    ctx.agentSync = null;
-    const result = await invoke(routes, {method: 'POST', path: PATH, body: {arguments: {}, sessionId: SESSION}, ctx, requestContext: context});
-    assert.equal(result.status, 409);
-    assert.equal(result.payload.code, 'fs-disabled');
-  });
-
-  it('relays a refusal from NanoAgent before any stream starts', async () => {
-    const ctx = ctxWith({taskRun: async () => ({error: 'arguments.people: required', status: 400})});
-    const result = await invoke(routes, {method: 'POST', path: PATH, body: {arguments: {}, sessionId: SESSION}, ctx, requestContext: context});
-    assert.equal(result.status, 400);
-    assert.equal(result.payload.error, 'arguments.people: required');
-  });
-
-  it('cancels the run when the caller hangs up', async () => {
-    let signal;
-    const ctx = ctxWith({
-      taskRun: async request => {
-        signal = request.signal;
-        return {value: new ReadableStream({
-          start(controller) {
-            request.signal.addEventListener('abort', () => controller.error(new Error('aborted')), {once: true});
-          },
-        })};
-      },
-    });
-    const running = invoke(routes, {
-      method: 'POST', path: PATH, body: {arguments: {}, sessionId: SESSION}, ctx, requestContext: context,
-      onRequest: (_req, res) => setTimeout(() => res.emit('close'), 10),
-    });
-    const result = await running;
-    assert.equal(signal.aborted, true);
-    assert.equal(result.res.writableEnded, true);
+  it('serves a page only from the computer that opened it, while it is connected', async () => {
+    const ctx = ctxWith({installUiFile: async () => assert.fail('must not ask another NanoAgent')});
+    const gone = await invoke(routes, {method: 'GET', path: `/api/apps/${SHA}/ui/${'f'.repeat(8)}-0000-4000-8000-${'0'.repeat(12)}/0123456789abcdef/index.html`, ctx, auth: null});
+    assert.equal(gone.status, 503);
+    assert.match(gone.payload.error, /not connected any more/);
   });
 });
 
@@ -385,18 +328,57 @@ describe('an app\'s sessions', () => {
     assert.deepEqual(read.payload.session.calls, []);
   });
 
-  it('saves what the page keeps, and only in an existing session', async () => {
+  it('refuses to change a session, and any id that is not one', async () => {
     const ctx = ctxWith({});
-    const saved = await invoke(routes, {method: 'PUT', path: `${PATH}/${SESSION}`, body: {state: {fen: 'x'}, title: 'Game'}, ctx, requestContext: context});
-    assert.equal(saved.status, 200);
-    assert.deepEqual(ctx.sessions.saved, [{pluginId: 'echo', id: SESSION, state: {fen: 'x'}, title: 'Game'}]);
-    const missing = await invoke(routes, {
-      method: 'PUT', path: '/api/apps/echo/sessions/00000000-0000-4000-8000-000000000002', body: {state: null}, ctx, requestContext: context,
-    });
-    assert.equal(missing.status, 404);
-    const shapeless = await invoke(routes, {method: 'PUT', path: `${PATH}/${SESSION}`, body: {title: 'x'}, ctx, requestContext: context});
-    assert.equal(shapeless.status, 400);
+    const put = await invoke(routes, {method: 'PUT', path: `${PATH}/${SESSION}`, body: {title: 'x'}, ctx, requestContext: context});
+    assert.equal(put.status, 405);
     assert.equal((await invoke(routes, {method: 'GET', path: `${PATH}/not-an-id`, ctx, requestContext: context})).status, 404);
+  });
+
+  it('archives and restores one of the caller\'s sessions', async () => {
+    const ctx = ctxWith({});
+    const archived = await invoke(routes, {method: 'PATCH', path: `${PATH}/${SESSION}`, body: {archived: true}, ctx, requestContext: context});
+    assert.equal(archived.status, 200);
+    assert.ok(archived.payload.session.archivedAt);
+    const restored = await invoke(routes, {method: 'PATCH', path: `${PATH}/${SESSION}`, body: {archived: false}, ctx, requestContext: context});
+    assert.equal(restored.payload.session.archivedAt, null);
+    assert.deepEqual(ctx.sessions.archived.map(one => one.archived), [true, false]);
+    const bad = await invoke(routes, {method: 'PATCH', path: `${PATH}/${SESSION}`, body: {archived: 'yes'}, ctx, requestContext: context});
+    assert.equal(bad.status, 400);
+  });
+
+  it('says which session is answering a message, which its page follows to the end or cancels', async () => {
+    const ctx = ctxWith({});
+    let finish;
+    let cancelled = false;
+    ctx.ai.stream = ({onDelta, signal}) => new Promise(resolve => {
+      onDelta('Sav');
+      signal.addEventListener('abort', () => { cancelled = true; resolve({error: 'The AI request was cancelled.', status: 499}); });
+      finish = () => resolve({text: 'Saved.'});
+    });
+    await ctx.appRuns.start(context, {pluginId: 'echo', sessionId: SESSION, prompt: 'save 1706.03762', request: {install: SHA}});
+    const listed = await invoke(routes, {method: 'GET', path: PATH, ctx, requestContext: context});
+    assert.deepEqual(listed.payload.sessions.map(session => session.running), [true]);
+    const read = await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}`, ctx, requestContext: context});
+    assert.deepEqual(read.payload.session.running, {prompt: 'save 1706.03762'});
+    await new Promise(resolve => setImmediate(resolve));
+    const following = invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}/run`, ctx, requestContext: context});
+    await new Promise(resolve => setImmediate(resolve));
+    finish();
+    const followed = await following;
+    assert.equal(followed.res.written.headers['Content-Type'], 'text/event-stream');
+    assert.deepEqual(followed.res.writes.map(write => write.split('\n')[0]), ['event: delta', 'event: done']);
+    const gone = await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}/run`, ctx, requestContext: context});
+    assert.equal(gone.status, 404);
+    assert.equal((await invoke(routes, {method: 'GET', path: `${PATH}/${SESSION}`, ctx, requestContext: context})).payload.session.running, null);
+
+    await ctx.appRuns.start(context, {pluginId: 'echo', sessionId: SESSION, prompt: 'again', request: {install: SHA}});
+    await new Promise(resolve => setImmediate(resolve));
+    const stopped = await invoke(routes, {method: 'DELETE', path: `${PATH}/${SESSION}/run`, ctx, requestContext: context});
+    assert.equal(stopped.status, 200);
+    assert.equal(cancelled, true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(ctx.sessions.turns.map(({prompt, error}) => [prompt, error]), [['save 1706.03762', null], ['again', 'The AI request was cancelled.']]);
   });
 
   it('lets a viewer read and start their own sessions', async () => {

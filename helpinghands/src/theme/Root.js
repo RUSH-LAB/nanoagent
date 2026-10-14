@@ -6,6 +6,7 @@ import {clientPlatform} from '@site/src/platform/client';
 import {isOpenPage, signInUrl} from '@site/src/utils/signIn';
 import {AccountProvider} from '@site/src/utils/account';
 
+const SHOW_CHAT = false;
 const CommandBar = lazy(() => import('@site/src/components/CommandBar'));
 const AuthScreen = lazy(() => import('@site/src/theme/Root/AuthScreen'));
 const OnboardingScreen = lazy(() => import('@site/src/theme/Root/OnboardingScreen'));
@@ -162,10 +163,14 @@ function AuthGate({ children }) {
     // stuck to the page. It sits beside the children rather than inside them,
     // so the screens that replace the children never carry it, and it waits
     // for a workspace, because every request it makes needs one.
+    //
+    // Chat is hidden for now (FUTURE.md, "Chat in RUSH Lab"): SHOW_CHAT turns
+    // the CLI back on, and --site-cli-height in src/css/custom.css goes back to
+    // var(--site-cli-row) with it.
     const outside = workspaces === 0 || OUTSIDE_WORKSPACES.includes(pathname.replace(/\/$/, ''));
     return (
       <AccountProvider value={account}>
-        {children}{outside ? null : <IdleCommandBar />}
+        {children}{!SHOW_CHAT || outside ? null : <IdleCommandBar />}
       </AccountProvider>
     );
   }

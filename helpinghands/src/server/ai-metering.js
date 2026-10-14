@@ -5,9 +5,8 @@
  * (postgres/tenancy.js).
  *
  * NanoAgent prices a completed call. A call it did not price, such as a stream
- * the caller abandoned after text arrived, or a task run that failed or was
- * stopped, is charged at NanoAgent's per-run cap instead, so neither is a way
- * around the budget.
+ * the caller abandoned after text arrived, is charged at NanoAgent's per-run
+ * cap instead, so it is no way around the budget.
  *
  * A call to the member's own computer (server/runner.js) is theirs to pay for:
  * it is never refused, and is recorded at no cost.
@@ -27,10 +26,10 @@ function createAiMeter(tenancy) {
     /**
      * Record one call. `result` is what ai.js returned, or null when the call
      * threw; `ran` says whether it got far enough to cost anything. A plugin's
-     * call names the plugin, its session, and for a task run the task; `local`
-     * says it ran on the member's own computer.
+     * call names the plugin and its session; `local` says it ran on the
+     * member's own computer.
      */
-    async record(context, kind, result, {ran, local = false, pluginId = null, sessionId = null, task = null}) {
+    async record(context, kind, result, {ran, local = false, pluginId = null, sessionId = null}) {
       if (!tenancy) return;
       const priced = result?.cost != null;
       if (!priced && !ran) return;
@@ -43,7 +42,6 @@ function createAiMeter(tenancy) {
         estimated: !local && !priced,
         pluginId,
         sessionId,
-        task,
       });
     },
   });

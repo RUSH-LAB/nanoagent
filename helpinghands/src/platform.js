@@ -10,7 +10,7 @@
  */
 function platformConfig(env = process.env) {
   return Object.freeze({
-    name: env.PLATFORM_NAME?.trim() || 'Mochi Lab',
+    name: env.PLATFORM_NAME?.trim() || 'RUSH Lab',
     tagline: env.PLATFORM_TAGLINE?.trim() || 'Collaborative knowledge workspaces',
   });
 }

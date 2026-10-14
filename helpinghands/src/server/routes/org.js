@@ -187,8 +187,6 @@ module.exports = async function org_routes(req, res, url, pathname, ctx) {
       return json(res, 400, {error: 'Invalid request'});
     }
     try {
-      // Members and pending invitations together may not pass the member limit.
-      await tenancy?.inviteAllowance(req.context);
       const result = body.githubLogin !== undefined
         ? await org.inviteGithub(req.context, {headers: req.headers, githubLogin: body.githubLogin, role: body.role})
         : await org.invite(req.context, {headers: req.headers, email: body.email, role: body.role});

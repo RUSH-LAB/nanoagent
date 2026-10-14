@@ -2,31 +2,40 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
 from starlette.testclient import TestClient
 
 from nanoagent.core.agent import Reply, ToolCall
+from nanoagent.inference.types import Answer
 from nanoagent.plugin import install
 from nanoagent.plugin.package import pack
+from nanoagent.plugin.python import plugin_python
 from nanoagent.runtime.config import load_config_args
 from nanoagent.web.app import create_app
 from nanoagent.web.config import WebConfig
-from test_plugin import README, SERVER, write_plugin
+from test_plugin import README, write_plugin
 
 ROOT = Path(__file__).resolve().parents[1]
 TOKEN = "plugin-test-secret"
 SHA = "0" * 64
+
+
 class ScriptedModel:
-    """Calls the echo tool once, then answers with what it returned."""
+    """Calls the echo tool once, submits the echo when it is an agent task's agent, then answers
+    with what the last tool returned."""
 
     def __init__(self) -> None:
         self.prompts: list[str] = []
 
     async def query(self, messages, tools, on_delta=None, **_):
         results = [message["content"] for message in messages if message["role"] == "tool"]
+        if len(results) == 1 and "submit" in {tool["function"]["name"] for tool in tools}:
+            return Reply(content=None, tool_calls=[ToolCall("call-2", "submit", '{"value": "hi"}')])
         if results:
             if on_delta is not None:
                 on_delta("content", "echoed")
@@ -57,6 +66,8 @@ def _app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, 
             "packages=[]",
             f"workspaces={workspaces}",
             f"installs={tmp_path / 'installs'}",
+            f"uv_cache={tmp_path / 'uv-cache'}",
+            f"plugin_python={sys.executable}",
             "host=127.0.0.1",
             "sandbox=none",
         ],
@@ -67,17 +78,13 @@ def _app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, 
 
 
 def _echo(root: Path) -> bytes:
-    """The echo plugin, run on this Python, packed."""
-    manifest = write_plugin(root)
-    manifest.write_text(manifest.read_text().replace("[echo-server]", f"[{sys.executable}, src/server.py]"))
-    (root / "src" / "server.py").write_text(SERVER, encoding="utf-8")
+    """The echo plugin, packed."""
+    write_plugin(root)
     return pack(root)
 
 
 @pytest.fixture
-def client(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
-) -> TestClient:
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path) -> TestClient:
     client = _app(tmp_path, monkeypatch, model, workspaces)
     data = _echo(tmp_path / "echo")
     client.sha = hashlib.sha256(data).hexdigest()
@@ -105,9 +112,7 @@ def test_refuses_a_package_that_is_not_its_sha256(client: TestClient, tmp_path: 
     assert refused.status_code == 422 and "gzip" in refused.json()["error"]
 
 
-def test_refuses_a_failed_install(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
-) -> None:
+def test_refuses_a_failed_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path) -> None:
     client = _app(tmp_path, monkeypatch, model, workspaces)
     monkeypatch.setattr(install, "SYNC", ("false",))
     data = _echo(tmp_path / "echo")
@@ -116,6 +121,68 @@ def test_refuses_a_failed_install(
     assert response.status_code == 502 and "uv sync failed" in response.json()["error"]
     assert client.get(f"/v1/installs/{sha}").status_code == 404
     assert not (tmp_path / "installs" / sha).exists()
+
+
+def test_keeps_a_finished_install_for_the_next_process(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
+) -> None:
+    restarted = _app(tmp_path, monkeypatch, model, workspaces)
+    monkeypatch.setattr(install, "SYNC", ("false",))
+    data = pack(tmp_path / "echo")
+    assert restarted.put(f"/v1/installs/{client.sha}", content=data).status_code == 200
+    # An install built on another Python is built again.
+    (tmp_path / "installs" / client.sha / install.INSTALLED).write_text("another python\n", encoding="utf-8")
+    again = _app(tmp_path, monkeypatch, model, workspaces)
+    monkeypatch.setattr(install, "SYNC", ("false",))
+    response = again.put(f"/v1/installs/{client.sha}", content=data)
+    assert response.status_code == 502 and "uv sync failed" in response.json()["error"]
+
+
+def test_starting_removes_the_installs_no_caller_gets_back(tmp_path: Path) -> None:
+    root = tmp_path / "installs"
+    python = plugin_python(sys.executable)
+    for name, marker in [("used", python.marker), ("unused", python.marker), ("unfinished", None), ("other-python", "another python\n")]:
+        (root / name).mkdir(parents=True)
+        if marker is not None:
+            (root / name / install.INSTALLED).write_text(marker, encoding="utf-8")
+    month_ago = time.time() - 31 * 86_400
+    os.utime(root / "unused" / install.INSTALLED, (month_ago, month_ago))
+    install.Installs(root, tmp_path / "uv-cache", 30, python)
+    assert [folder.name for folder in root.iterdir()] == ["used"]
+
+
+def test_builds_only_what_has_no_wheel_for_this_python(tmp_path: Path) -> None:
+    lock = tmp_path / "uv.lock"
+    wheel = "https://files.pythonhosted.org/packages/ab/cd/{}-1.0-py3-none-any.whl"
+    lock.write_text(
+        f"""
+version = 1
+[[package]]
+name = "wheeled"
+source = {{ registry = "https://pypi.org/simple" }}
+wheels = [{{ url = "{wheel.format("wheeled")}" }}]
+
+[[package]]
+name = "sdist-only"
+source = {{ registry = "https://pypi.org/simple" }}
+sdist = {{ url = "https://files.pythonhosted.org/packages/ab/cd/sdist_only-1.0.tar.gz" }}
+
+[[package]]
+name = "other-platform"
+source = {{ registry = "https://pypi.org/simple" }}
+wheels = [{{ url = "https://files.pythonhosted.org/packages/ab/cd/other_platform-1.0-cp312-cp312-win_arm64.whl" }}]
+
+[[package]]
+name = "from-git"
+source = {{ git = "https://github.com/example/from-git#abc" }}
+
+[[package]]
+name = "the-plugin"
+source = {{ editable = "." }}
+""",
+        encoding="utf-8",
+    )
+    assert install.built_here(lock, plugin_python(sys.executable).tags) == ["sdist-only", "other-platform", "from-git", "the-plugin"]
 
 
 def test_serves_its_own_packages_by_id_to_mochi_on_production(
@@ -133,6 +200,8 @@ def test_serves_its_own_packages_by_id_to_mochi_on_production(
             f"packages=[{tmp_path / 'echo'}]",
             f"workspaces={workspaces}",
             f"installs={tmp_path / 'installs'}",
+            f"uv_cache={tmp_path / 'uv-cache'}",
+            f"plugin_python={sys.executable}",
             "host=127.0.0.1",
             "sandbox=none",
         ],
@@ -141,8 +210,8 @@ def test_serves_its_own_packages_by_id_to_mochi_on_production(
     [plugin] = client.get("/v1/plugins").json()["plugins"]
     assert plugin["id"] == "echo" and len(plugin["uiVersion"]) == 16
     assert client.get(f"/v1/plugins/echo/ui/{plugin['uiVersion']}/index.html").status_code == 200
-    events = _events(client.post("/v1/workspaces/alice/plugins/echo/tasks/echo/runs", json={"arguments": {"value": "hi"}}))
-    assert events[-2]["type"] == "task.verdict" and events[-2]["valid"] is True
+    [tool] = [event for event in _events(client.post("/v1/workspaces/alice/plugins/echo/runs", json={"input": "echo hi"})) if event["type"] == "tool"]
+    assert json.loads(tool["output"])["verdict"]["valid"] is True
     assert client.post("/v1/workspaces/alice/plugins/missing/runs", json={"input": "x"}).status_code == 404
 
 
@@ -156,20 +225,17 @@ def runs(client: TestClient, workspace: str = "alice") -> str:
     return f"/v1/workspaces/{workspace}/installs/{client.sha}"
 
 
-def test_runs_a_prompt_in_the_callers_workspace(
-    client: TestClient, model: ScriptedModel, workspaces: Path
-) -> None:
+def test_runs_a_prompt_in_the_callers_workspace(client: TestClient, model: ScriptedModel, workspaces: Path) -> None:
     with client.stream("POST", f"{runs(client)}/runs", json={"input": "echo hi"}) as response:
         assert response.status_code == 200
-        events = [
-            json.loads(line[len("data: ") :])
-            for line in response.iter_lines()
-            if line.startswith("data: ")
-        ]
+        events = [json.loads(line[len("data: ") :]) for line in response.iter_lines() if line.startswith("data: ")]
     assert [event["type"] for event in events] == ["start", "tool", "step", "delta", "done"]
     assert events[0]["profile"] == "plugin-echo"
     assert events[-1]["metrics"]["ttft_s"] is not None
     assert events[1]["name"] == "echo" and not events[1]["is_error"]
+    # The chat's tool is the echo task: its result is the task's typed output and its verdict.
+    result = json.loads(events[1]["output"])
+    assert result["output"] == {"value": "hi"} and result["verdict"]["valid"] is True
     assert "hi" in events[-1]["answer"]
     assert "You operate the Echo plugin" in model.prompts[0]
     # The file stays until the caller removes the workspace; until then it can be listed and read.
@@ -206,17 +272,13 @@ def test_workspace_files_stay_inside_their_workspace(client: TestClient, workspa
     (workspaces / "alice" / "papers" / "ms.tex").write_text("\\documentclass{article}")
     (workspaces / "secret.txt").write_text("not yours")
     (workspaces / "alice" / "escape").symlink_to(workspaces / "secret.txt")
-    assert [f["path"] for f in client.get("/v1/workspaces/alice/files").json()["files"]] == [
-        "papers/ms.tex"
-    ]
+    assert [f["path"] for f in client.get("/v1/workspaces/alice/files").json()["files"]] == ["papers/ms.tex"]
     assert client.get("/v1/workspaces/alice/files/escape").status_code == 404
     assert client.get("/v1/workspaces/alice/files/papers/../../secret.txt").status_code in {400, 404}
     assert client.get("/v1/workspaces/bad.id/files").status_code == 400
 
 
-def test_refuses_to_run_a_plugin_in_development(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
-) -> None:
+def test_refuses_to_run_a_plugin_in_development(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path) -> None:
     client = _app(tmp_path, monkeypatch, model, workspaces)
     manifest = write_plugin(tmp_path / "echo")
     manifest.write_text(manifest.read_text().replace("status: ready", "status: in-development"))
@@ -226,7 +288,6 @@ def test_refuses_to_run_a_plugin_in_development(
     response = client.post(f"{runs(client)}/runs", json={"input": "echo hi"})
     assert response.status_code == 409
     assert response.json() == {"error": "Echo is under maintenance"}
-    assert client.post(f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}}).status_code == 409
 
 
 def test_saves_workspace_files_then_removes_the_workspace(client: TestClient, workspaces: Path) -> None:
@@ -260,9 +321,7 @@ def test_keeps_the_workspace_edits_mochi_on_production_makes(client: TestClient,
     assert client.post("/v1/workspaces/alice/folders/papers/empty").status_code == 409
     assert client.get(files).json()["folders"] == ["notes", "papers", "papers/empty"]
     move = "/v1/workspaces/alice/move"
-    assert client.post(move, json={"from": "notes/draft.md", "to": "papers/draft.md"}).json() == {
-        "moved": True
-    }
+    assert client.post(move, json={"from": "notes/draft.md", "to": "papers/draft.md"}).json() == {"moved": True}
     assert client.post(move, json={"from": "papers", "to": "papers/empty/inner"}).status_code == 400
     assert client.post(move, json={"from": "papers", "to": "archive"}).status_code == 200
     assert (workspaces / "alice" / "archive" / "draft.md").read_text() == "# Final"
@@ -275,7 +334,7 @@ def test_keeps_the_workspace_edits_mochi_on_production_makes(client: TestClient,
 
 
 def _events(response) -> list[dict]:
-    return [json.loads(line[len("data: "):]) for line in response.text.splitlines() if line.startswith("data: ")]
+    return [json.loads(line[len("data: ") :]) for line in response.text.splitlines() if line.startswith("data: ")]
 
 
 def test_serves_the_plugin_front_end_confined_to_the_bridge(client: TestClient) -> None:
@@ -298,27 +357,13 @@ def test_serves_the_plugin_front_end_confined_to_the_bridge(client: TestClient) 
     assert client.get(f"{ui}/index.html").status_code == 401
 
 
-def test_runs_a_tool_task_the_verified_way(client: TestClient, workspaces: Path) -> None:
-    response = client.post(f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}})
-    assert response.status_code == 200
-    events = _events(response)
-    assert [event["type"] for event in events] == ["task.started", "task.result", "task.verdict", "task.done"]
-    assert events[1]["response"] == {"value": "hi"}
-    assert events[2]["valid"] is True
-    metrics = events[3]["metrics"]
-    assert metrics["model"] is None and metrics["cost"] == 0.0 and metrics["ttft_s"] is None
-    assert metrics["duration_s"] > 0
-    assert len({event["runId"] for event in events}) == 1
-    assert (workspaces / "alice" / "echo.txt").read_text() == "hi"
-
-
 def test_a_reference_tool_sees_the_workspace_files(tmp_path: Path) -> None:
-    from nanoagent.web.app import _staged_from
+    from nanoagent.web.plugin_agent import staged_from
 
     workspace = tmp_path / "workspace"
     (workspace / "inputs").mkdir(parents=True)
     (workspace / "inputs" / "raw.bib").write_text("@misc{a}")
-    stage = _staged_from(workspace)
+    stage = staged_from(workspace)
     stage(workspace)
     assert sorted(path.name for path in workspace.rglob("*")) == ["inputs", "raw.bib"]
     scratch = tmp_path / "scratch"
@@ -327,34 +372,48 @@ def test_a_reference_tool_sees_the_workspace_files(tmp_path: Path) -> None:
     assert (scratch / "inputs" / "raw.bib").read_text() == "@misc{a}"
 
 
-def test_task_runs_choose_their_settings_within_the_limits(client: TestClient) -> None:
-    tasks = f"{runs(client)}/tasks/echo/runs"
-    chosen = client.post(tasks, json={"arguments": {"value": "hi"}, "profile": "app-deepseek", "settings": {"max_steps": 2}})
-    assert chosen.status_code == 200 and _events(chosen)[-1]["metrics"]["duration_s"] > 0
-    over = client.post(tasks, json={"arguments": {"value": "hi"}, "settings": {"cost_limit": 5}})
-    assert over.status_code == 400 and "at most 0.1" in over.json()["error"]
-    assert client.post(tasks, json={"arguments": {"value": "hi"}, "extra": 1}).status_code == 400
+def _install_decide_echo(client: TestClient, tmp_path: Path) -> None:
+    """Install the echo plugin with its echo task as a decide task."""
+    root = tmp_path / "echo"
+    _echo(root)
+    manifest = root / "nanoagent.yaml"
+    manifest.write_text(manifest.read_text().replace("runner: tool", "runner: decide"))
+    data = pack(root)
+    client.sha = hashlib.sha256(data).hexdigest()
+    assert client.put(f"/v1/installs/{client.sha}", content=data).status_code == 200
 
 
-def test_task_runs_report_bad_requests_and_failures(client: TestClient) -> None:
-    tasks = f"{runs(client)}/tasks"
-    assert client.post(f"{tasks}/missing/runs", json={"arguments": {}}).status_code == 404
-    assert client.post(f"{tasks}/echo/runs", json={"value": "hi"}).status_code == 400
-    events = _events(client.post(f"{tasks}/echo/runs", json={"arguments": {"value": 42}}))
-    # The input is checked before the task starts.
-    assert [event["type"] for event in events] == ["task.error", "task.done"]
-    assert "metrics" not in events[-1]
-    assert "42" in next(event for event in events if event["type"] == "task.error")["message"]
+class DecideModel:
+    """The chat calls the echo task, whose decider calls echo and then submits; every reply and
+    every answer costs 0.01."""
+
+    async def query(self, messages, tools, on_delta=None, **_):
+        if any(message["role"] == "tool" for message in messages):
+            return Reply(content="I echoed hi.", cost=0.01)
+        return Reply(content=None, tool_calls=[ToolCall("call-1", "echo", '{"value": "hi"}')], cost=0.01)
+
+    async def answer(self, messages, *, name, schema):
+        assert name == "answer" and list(schema["properties"]) == ["next"]
+        return Answer({"next": "echo" if '"calls": []' in messages[-1]["content"] else "submit"}, cost=0.01)
 
 
-def test_runs_an_agent_task_with_only_its_tools(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
-) -> None:
-    client = _app(tmp_path, monkeypatch, model, workspaces)
+def test_a_chat_runs_a_decide_task_and_counts_its_cost(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workspaces: Path) -> None:
+    client = _app(tmp_path, monkeypatch, DecideModel(), workspaces)
+    _install_decide_echo(client, tmp_path)
+    with client.stream("POST", f"{runs(client)}/runs", json={"input": "echo hi"}) as response:
+        events = [json.loads(line[len("data: ") :]) for line in response.iter_lines() if line.startswith("data: ")]
+    [tool] = [event for event in events if event["type"] == "tool"]
+    assert tool["name"] == "echo" and json.loads(tool["output"])["output"] == {"value": "hi"}
+    # Two chat replies and the decider's two answers.
+    assert events[-1]["metrics"]["cost"] == pytest.approx(0.04)
+
+
+def _install_with_agent_task(client: TestClient, tmp_path: Path) -> None:
+    """Install the echo plugin with a second task, echo-agent, that an agent works."""
     root = tmp_path / "echo"
     manifest = write_plugin(root)
     manifest.write_text(
-        manifest.read_text().replace("[echo-server]", f"[{sys.executable}, src/server.py]")
+        manifest.read_text()
         + """  echo-agent:
     description: Echo with an agent
     runner: agent
@@ -367,54 +426,52 @@ def test_runs_an_agent_task_with_only_its_tools(
     contract.write_text(
         contract.read_text()
         .replace('class Task(Enum):\n    ECHO = "echo"\n', 'class Task(Enum):\n    ECHO = "echo"\n    ECHO_AGENT = "echo-agent"\n')
-        .replace("TASKS = {Task.ECHO: EchoInput}", "TASKS = {Task.ECHO: EchoInput, Task.ECHO_AGENT: EchoInput}")
+        .replace(
+            "TASKS = {Task.ECHO: (EchoInput, EchoOutput)}",
+            "TASKS = {Task.ECHO: (EchoInput, EchoOutput), Task.ECHO_AGENT: (EchoInput, EchoOutput)}",
+        )
     )
-    (root / "src" / "server.py").write_text(SERVER, encoding="utf-8")
+    readme = root / "README.md"
+    readme.write_text(readme.read_text().replace("`echo` repeats its input.", "`echo` repeats its input; `echo-agent` has an agent do it."))
     data = pack(root)
     client.sha = hashlib.sha256(data).hexdigest()
     assert client.put(f"/v1/installs/{client.sha}", content=data).status_code == 200
-    events = _events(client.post(f"{runs(client)}/tasks/echo-agent/runs", json={"arguments": {"value": "hi"}}))
-    assert [event["type"] for event in events] == [
-        "task.started",
-        "task.tool",
-        "task.answer",
-        "task.verdict",
-        "task.done",
-    ]
-    assert events[1]["name"] == "echo" and events[1]["isError"] is False
-    assert events[3]["valid"] is True
-    # Task runs stream the model, so time to first token is measured.
-    metrics = events[4]["metrics"]
-    assert metrics["model"] == client.config.model.model
-    assert metrics["ttft_s"] is not None and metrics["ttft_s"] <= metrics["duration_s"]
-    assert metrics["generation_s"] >= 0
-    assert "Echo the value with the echo tool." in model.prompts[-1]
 
 
-def test_plugin_and_task_runs_with_keys_build_their_own_model_with_them(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from nanoagent.runtime.model import Model
+class TaskModel:
+    """The chat calls the echo-agent task, whose agent echoes, submits and answers; every reply
+    costs 0.01. Keeps the task agent's system prompts and tools."""
 
-    built = []
+    def __init__(self) -> None:
+        self.task_agent: list[tuple[str, set[str]]] = []
 
-    class KeyedModel(ScriptedModel):
-        async def aclose(self) -> None:
-            pass
+    async def query(self, messages, tools, on_delta=None, **_):
+        names = {tool["function"]["name"] for tool in tools}
+        results = [message for message in messages if message["role"] == "tool"]
+        if on_delta is not None:
+            on_delta("content", "x")
+        if "submit" in names:
+            self.task_agent.append((messages[0]["content"], names))
+            if not results:
+                return Reply(content=None, tool_calls=[ToolCall("call-1", "echo", '{"value": "hi"}')], cost=0.01)
+            if len(results) == 1:
+                return Reply(content=None, tool_calls=[ToolCall("call-2", "submit", '{"value": "hi"}')], cost=0.01)
+            return Reply(content="echoed", cost=0.01)
+        if not results:
+            return Reply(content=None, tool_calls=[ToolCall("call-1", "echo-agent", '{"value": "hi"}')], cost=0.01)
+        return Reply(content="I echoed hi.", cost=0.01)
 
-    def from_config(cfg):
-        built.append(cfg)
-        return KeyedModel()
 
-    monkeypatch.setattr(Model, "from_config", staticmethod(from_config))
-    keys = {"OPENROUTER_API_KEY": "sk-run"}
-    run = client.post(f"{runs(client)}/runs", json={"input": "echo hi", "keys": keys})
-    assert _events(run)[-1]["type"] == "done" and "sk-run" not in run.text
-    task = client.post(f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}, "keys": keys})
-    assert _events(task)[-1]["type"] == "task.done" and "sk-run" not in task.text
-    # Each run its own model, never the server's shared one, reaching OpenRouter with the run's key.
-    assert [cfg.api_key for cfg in built] == ["sk-run", "sk-run"]
-    # A model the run's keys cannot reach is refused, never run on the server's key.
-    missing = client.post(f"{runs(client)}/runs", json={"input": "x", "keys": {"ANTHROPIC_API_KEY": "sk-ant"}})
-    assert missing.status_code == 400 and "OPENROUTER_API_KEY" in missing.json()["error"]
-    assert client.post(f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}, "keys": {}}).status_code == 400
+def test_a_chat_runs_an_agent_task_and_counts_its_cost(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workspaces: Path) -> None:
+    model = TaskModel()
+    client = _app(tmp_path, monkeypatch, model, workspaces)
+    _install_with_agent_task(client, tmp_path)
+    with client.stream("POST", f"{runs(client)}/runs", json={"input": "echo hi with the agent"}) as response:
+        events = [json.loads(line[len("data: ") :]) for line in response.iter_lines() if line.startswith("data: ")]
+    [tool] = [event for event in events if event["type"] == "tool"]
+    assert tool["name"] == "echo-agent" and json.loads(tool["output"])["output"] == {"value": "hi"}
+    # Two chat replies and the task agent's three.
+    assert events[-1]["metrics"]["cost"] == pytest.approx(0.05)
+    # The task's agent works with its instructions and only its own tools.
+    prompt, names = model.task_agent[0]
+    assert "Echo the value with the echo tool." in prompt and names == {"echo", "submit"}

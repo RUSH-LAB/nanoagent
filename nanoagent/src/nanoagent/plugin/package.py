@@ -9,7 +9,8 @@ the package into a temporary folder, refusing anything but plain files and folde
 ``<id>/`` folder named by the plugin's id, and at most :data:`PACKAGE_MAX_BYTES` packed and
 :data:`UNPACKED_MAX_BYTES` / :data:`MAX_FILES` unpacked (it is inflated against that limit, so a
 small package cannot unpack to a huge one). It then loads the plugin with
-:func:`load_manifest` in a separate Python process with an empty environment, so a manifest
+:func:`load_manifest` in a separate process (the ``package`` helper, :mod:`nanoagent.helpers`)
+with an empty environment, so a manifest
 that interpolates ``${oc.env:...}`` cannot read the host's secrets.
 
 :func:`pack_source` makes a package from a plugin's source instead: the folder at a path inside a
@@ -25,13 +26,13 @@ import hashlib
 import io
 import json
 import subprocess
-import sys
 import tarfile
 import zlib
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from nanoagent import helpers
 from nanoagent.plugin.manifest import PLUGIN_ID, TOOL_ARTIFACTS, PluginError, PluginManifest, load_manifest
 
 PACKAGE_MAX_BYTES = 10 * 1024 * 1024
@@ -58,6 +59,7 @@ def catalog_entry(manifest: PluginManifest) -> dict[str, Any]:
         tool["outputSchema"] = definition.output
     for task, definition in zip(entry["tasks"], manifest.tasks, strict=True):
         task["inputSchema"] = definition.input
+        task["outputSchema"] = definition.output
     return entry
 
 
@@ -125,9 +127,9 @@ def _unzip(data: bytes) -> bytes:
 
 
 def _isolated(*args: str) -> dict[str, Any]:
-    """:func:`main` on ``args`` in a fresh Python with an empty environment, its JSON answer."""
+    """:func:`main` on ``args`` in a fresh process with an empty environment, its JSON answer."""
     completed = subprocess.run(
-        [sys.executable, "-I", "-m", "nanoagent.plugin.package", *args],
+        helpers.command("package", *args),
         env={},
         capture_output=True,
         text=True,
@@ -210,7 +212,7 @@ def pack_source(data: bytes, path: str) -> tuple[dict[str, Any], bytes]:
 
 
 def main(argv: list[str]) -> int:
-    """``python -I -m nanoagent.plugin.package <folder>``: the folder's catalog entry or violations, as JSON;
+    """``nanoagent helper package <folder>``: the folder's catalog entry or violations, as JSON;
     ``... pack <folder> <file>``: the folder packed into ``file``, or its violations."""
     try:
         if argv[0] == "pack":
@@ -221,7 +223,3 @@ def main(argv: list[str]) -> int:
     except PluginError as error:
         print(json.dumps({"violations": error.violations}))
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))

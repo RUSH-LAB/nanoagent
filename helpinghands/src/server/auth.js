@@ -55,11 +55,11 @@ if (!(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET)) {
   throw new Error('Mochi requires GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET: GitHub is the only way to sign in.');
 }
 const SITE_URL = (process.env.SITE_URL || 'http://localhost:3000').replace(/\/$/, '');
-// The clients allowed to ask for a device code: the sync client (cli/mochi.mjs)
+// The clients allowed to ask for a device code: the sync client (cli/rush.mjs)
 // and Mochi Lab's relay (runner/relay.mjs).
 const DEVICE_CLIENT_IDS = new Set(['mochi-cli', 'mochi-desktop']);
 
-// Sign-up policy, workspace and member limits, suspension, and the rate-limit
+// Sign-up policy, workspace limits, suspension, and the rate-limit
 // store shared by every server process (postgres/tenancy.js).
 const tenancy = postgres.enabled ? createPostgresTenancy({pool: postgres.pool}) : null;
 
@@ -142,6 +142,7 @@ function resolveSecret() {
     return generated;
   }
 }
+// Also signs Mochi Lab's download tokens (lab-tokens.js).
 const AUTH_SECRET = resolveSecret();
 
 /**
@@ -357,8 +358,11 @@ const PUBLIC_PATHS = new Set([
  * A plugin's page files: the page runs in a sandboxed frame with an opaque
  * origin, whose requests carry no cookies, and the files are the plugin's
  * published assets (routes/apps.js).
+ *
+ * Mochi Lab's install script, bundles and session: curl fetches them with a
+ * download token or the upload token in place of a session (routes/lab.js).
  */
-const PUBLIC_PATTERNS = [/^\/api\/invite\/[^/]+$/, /^\/api\/apps\/[^/]+\/ui\/.+$/];
+const PUBLIC_PATTERNS = [/^\/api\/invite\/[^/]+$/, /^\/api\/apps\/[^/]+\/ui\/.+$/, /^\/api\/lab\/(?:install\.sh|session|bundles\/[^/]+)$/];
 
 /** Whether `pathname` may be served without a session. */
 function isPublicPath(pathname) {
@@ -434,6 +438,8 @@ async function resolveIdentity(req) {
 
 module.exports = {
   auth,
+  AUTH_SECRET,
+  SITE_URL,
   tenancy,
   githubUsers,
   workspaceProvisioning,
@@ -445,6 +451,4 @@ module.exports = {
   PUBLIC_PATTERNS,
   workspaceAccessControl,
   workspaceRoles,
-  // Also what member-keys.js derives its encryption key from.
-  AUTH_SECRET,
 };

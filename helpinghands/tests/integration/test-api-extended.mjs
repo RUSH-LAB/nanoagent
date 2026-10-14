@@ -5,7 +5,7 @@ import {createApiClient} from './api-client.mjs';
 // Covers endpoints NOT tested by test-api.mjs
 // Usage:  node tests/integration/test-api-extended.mjs
 // Requires the server running on http://localhost:3001, and a GitHub sign-in
-// saved by `node cli/mochi.mjs login http://localhost:3001`
+// saved by `node cli/rush.mjs login http://localhost:3001`
 // ─────────────────────────────────────────────────────────────
 
 const BASE = process.env.API_URL || 'http://localhost:3001';

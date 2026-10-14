@@ -1,6 +1,7 @@
 import {after, before, describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
+import crypto from 'node:crypto';
 import {migratedDatabase, as} from './fs/_pglite.mjs';
 
 const require = createRequire(import.meta.url);
@@ -20,46 +21,45 @@ describe('plugin sessions over PostgreSQL', () => {
   });
   after(async () => db?.close());
 
-  it('starts a session, saves its state, and keeps the latest turns of its conversation', async () => {
-    const started = await sessions.create(as('alice'), 'chess-move');
+  /** One message answered in the session: its run started and ended with `turn`. */
+  async function answered(context, pluginId, sessionId, turn) {
+    const id = crypto.randomUUID();
+    await sessions.startRun(context, pluginId, sessionId, {id, prompt: turn.prompt, install: 'a'.repeat(64)});
+    return sessions.endRun(context, id, {error: null, ...turn});
+  }
+
+  it('starts a session and keeps the latest turns of its conversation', async () => {
+    const started = await sessions.create(as('alice'), 'arxiv-source');
     assert.equal(started.title, '');
-    await sessions.save(as('alice'), 'chess-move', started.id, {state: {fen: 'start'}});
+    assert.deepEqual(started.chat, []);
     for (let turn = 0; turn < CHAT_TURNS + 2; turn += 1) {
-      await sessions.addTurn(as('alice'), 'chess-move', started.id, {prompt: `move ${turn}\nplease`, answer: `ok ${turn}`, tools: [{name: 'move', arguments: {turn}, output: '{}', isError: false}]});
+      await answered(as('alice'), 'arxiv-source', started.id, {prompt: `paper ${turn}\nplease`, answer: `ok ${turn}`, tools: [{name: 'download_source', arguments: {turn}, output: '{}', isError: false}]});
     }
-    const read = await sessions.get(as('alice'), 'chess-move', started.id);
-    assert.deepEqual(read.state, {fen: 'start'});
+    const read = await sessions.get(as('alice'), 'arxiv-source', started.id);
     assert.equal(read.chat.length, CHAT_TURNS);
     assert.equal(read.chat.at(-1).answer, `ok ${CHAT_TURNS + 1}`);
-    assert.deepEqual(read.chat.at(-1).tools, [{name: 'move', arguments: {turn: CHAT_TURNS + 1}, output: '{}', isError: false}]);
+    assert.deepEqual(read.chat.at(-1).tools, [{name: 'download_source', arguments: {turn: CHAT_TURNS + 1}, output: '{}', isError: false}]);
     // Named for its first question.
-    assert.equal(read.title, 'move 0');
-    await sessions.save(as('alice'), 'chess-move', started.id, {state: null, title: 'Opening'});
-    assert.equal((await sessions.get(as('alice'), 'chess-move', started.id)).title, 'Opening');
+    assert.equal(read.title, 'paper 0');
   });
 
   it('keeps each session to its own member and plugin', async () => {
     const mine = await sessions.create(as('alice'), 'echo');
     await assert.rejects(sessions.get(as('bob'), 'echo', mine.id), error => error.status === 404);
-    await assert.rejects(sessions.assertOwned(as('alice'), 'chess-move', mine.id), error => error.status === 404);
-    await assert.rejects(sessions.save(as('alice', 'other'), 'echo', mine.id, {state: 1}), error => error.status === 404);
+    await assert.rejects(sessions.assertOwned(as('alice'), 'arxiv-source', mine.id), error => error.status === 404);
+    await assert.rejects(answered(as('alice', 'other'), 'echo', mine.id, {prompt: 'p', answer: 'a', tools: []}), error => error.status === 404);
     assert.deepEqual((await sessions.list(as('bob'), 'echo')), []);
-  });
-
-  it('refuses state over the limit', async () => {
-    const started = await sessions.create(as('alice'), 'echo');
-    await assert.rejects(
-      sessions.save(as('alice'), 'echo', started.id, {state: 'x'.repeat(300 * 1024)}),
-      error => error.status === 413,
-    );
   });
 
   it('lists every call a session made, with what it cost and how long it took', async () => {
     const started = await sessions.create(as('alice'), 'bibtex-check');
-    await tenancy.recordAiUsage(as('alice'), {
-      kind: 'task', model: 'm', cost: 0.012, usage: {prompt_tokens: 120, completion_tokens: 30},
-      metrics: {ttft_s: 1.5, generation_s: 4, duration_s: 9}, pluginId: 'bibtex-check', sessionId: started.id, task: 'check-bibtex',
-    });
+    // A single-task run, as Mochi recorded them before NanoAgent 0.4.0.
+    await db.query(
+      `insert into ai_usage(workspace_id, user_id, kind, model, cost_usd, input_tokens, output_tokens, estimated,
+                            plugin_id, session_id, task, ttft_s, generation_s, duration_s)
+       values ('lab', 'alice', 'task', 'm', 0.012, 120, 30, false, 'bibtex-check', $1, 'check-bibtex', 1.5, 4, 9)`,
+      [started.id],
+    );
     await tenancy.recordAiUsage(as('alice'), {
       kind: 'app', model: 'm', cost: 0.1, estimated: true, pluginId: 'bibtex-check', sessionId: started.id,
     });
@@ -72,5 +72,46 @@ describe('plugin sessions over PostgreSQL', () => {
     assert.equal(listed.runs, 2);
     assert.equal(listed.cost, 0.112);
     assert.equal(listed.ttftS, 1.5);
+  });
+
+  it('answers one message at a time, keeping the run until its turn, answered or not, is in the chat', async () => {
+    const started = await sessions.create(as('alice'), 'bibtex-check');
+    await sessions.startRun(as('alice'), 'bibtex-check', started.id, {id: 'run-a', prompt: 'check refs.bib', install: 'b'.repeat(64)});
+    await assert.rejects(
+      sessions.startRun(as('alice'), 'bibtex-check', started.id, {id: 'run-b', prompt: 'again', install: 'b'.repeat(64)}),
+      error => error.status === 409 && error.message === 'This session is still answering a message',
+    );
+    assert.deepEqual((await sessions.get(as('alice'), 'bibtex-check', started.id)).running, {prompt: 'check refs.bib'});
+    assert.equal((await sessions.list(as('alice'), 'bibtex-check'))[0].running, true);
+    await sessions.setRunFolder(as('alice'), 'run-a', {folder: 'f1', sent: {'refs.bib': {rev: 2, contentHash: 'h'}}});
+    await sessions.markRunRan(as('alice'), 'run-a');
+    // Its member reads it from any workspace, as a Mochi started since does; nobody else does.
+    const [run] = await sessions.runs({userId: 'alice', workspaceId: null});
+    assert.deepEqual({...run, startedAt: undefined}, {
+      id: 'run-a', workspaceId: 'lab', userId: 'alice', sessionId: started.id, pluginId: 'bibtex-check', prompt: 'check refs.bib',
+      install: 'b'.repeat(64), folder: 'f1', sent: {'refs.bib': {rev: 2, contentHash: 'h'}}, ran: true, startedAt: undefined,
+    });
+    assert.deepEqual(await sessions.runs({userId: 'bob', workspaceId: null}), []);
+    assert.equal(await sessions.endRun(as('bob'), 'run-a', {prompt: 'x', answer: '', tools: [], error: 'x'}), false);
+    assert.equal(await sessions.endRun(as('alice'), 'run-a', {prompt: 'check refs.bib', answer: '', tools: [], error: 'Mochi Lab stopped while answering'}), true);
+    assert.equal(await sessions.endRun(as('alice'), 'run-a', {prompt: 'check refs.bib', answer: '', tools: [], error: 'twice'}), false);
+    const read = await sessions.get(as('alice'), 'bibtex-check', started.id);
+    assert.equal(read.running, null);
+    assert.deepEqual(read.chat, [{prompt: 'check refs.bib', answer: '', tools: [], error: 'Mochi Lab stopped while answering'}]);
+  });
+
+  it('archives a session until it is restored or chatted in again', async () => {
+    const started = await sessions.create(as('alice'), 'nasdaq-drawdown');
+    assert.equal(started.archivedAt, null);
+    const archived = await sessions.archive(as('alice'), 'nasdaq-drawdown', started.id, true);
+    assert.ok(archived.archivedAt);
+    // Archiving again keeps when it was first archived.
+    assert.deepEqual((await sessions.archive(as('alice'), 'nasdaq-drawdown', started.id, true)).archivedAt, archived.archivedAt);
+    assert.deepEqual((await sessions.list(as('alice'), 'nasdaq-drawdown')).map(one => one.archivedAt), [archived.archivedAt]);
+    assert.equal((await sessions.archive(as('alice'), 'nasdaq-drawdown', started.id, false)).archivedAt, null);
+    await sessions.archive(as('alice'), 'nasdaq-drawdown', started.id, true);
+    await answered(as('alice'), 'nasdaq-drawdown', started.id, {prompt: 'again', answer: 'ok', tools: []});
+    assert.equal((await sessions.get(as('alice'), 'nasdaq-drawdown', started.id)).archivedAt, null);
+    await assert.rejects(sessions.archive(as('bob'), 'nasdaq-drawdown', started.id, true), error => error.status === 404);
   });
 });

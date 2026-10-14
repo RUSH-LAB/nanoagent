@@ -1,7 +1,7 @@
-// The page's entry point, loaded by the kit's index.html: every plugin page runs inside the
-// kit's frame (its Dashboard and Session tabs). app.js exports the page as its default export.
+// The page's entry point, loaded by the kit's index.html: every plugin's page is the kit's frame
+// (its Dashboard and Session tabs), drawing its outputs with the renderers in ui/renderers.js.
 
-import layout from "../app.js";
+import renderers from "../renderers.js";
 import { mountApp } from "./shell.js";
 
-mountApp(layout);
+mountApp(renderers);

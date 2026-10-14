@@ -33,10 +33,71 @@
   font-size: 0.82rem;
 }
 
-/* The model every run is on: its name, as the computer's catalog has it. */
-.model {
+/* The key's row wraps, to take the credit bar under it. */
+.keyRow {
+  flex-wrap: wrap;
+}
+
+/* What the key has spent: the row's whole width, under it. */
+.credit {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-bottom: 0.6rem;
   color: var(--ifm-color-emphasis-700);
-  font-size: 0.88rem;
+  font-size: 0.8rem;
+}
+
+.creditBar {
+  height: 0.4rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ifm-color-emphasis-200);
+}
+
+.creditUsed {
+  height: 100%;
+  background: color-mix(in srgb, var(--ifm-color-primary) 35%, transparent);
+}
+
+/* The member's own part of what everyone has spent. */
+.creditYours {
+  height: 100%;
+  background: var(--ifm-color-primary-dark);
+}
+
+/* ── Installing Mochi Lab while it is not connected (_Ai.js) ────── */
+
+/* The row wraps, to take the command under it. */
+.installRow {
+  flex-wrap: wrap;
+}
+
+/* The command: the row's whole width, under it. */
+.installCommand {
+  flex-basis: 100%;
+  margin-bottom: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+
+/* The model every run is on, one row for each thing the computer's catalog knows of it. */
+/* Two classes, to outrank the shared row's height and the label's weight. */
+.fact.fact {
+  min-height: 0;
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
+}
+
+.fact > :first-child {
+  color: var(--ifm-color-emphasis-700);
+}
+
+.modelId {
+  padding: 0.1rem 0.4rem;
+  font-size: 0.78rem;
 }
 
 /* ── The model picker ───────────────────────────────────────────── */

@@ -12,11 +12,9 @@ export const PROTOCOL = 'nanoagent.ui/v1';
 const PROMPT_LIMIT = 50_000;
 export const HISTORY_LIMIT = 24;
 export const MESSAGE_LIMIT = 10_000;
-const PATH_LIMIT = 1000;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-const isText = (value, limit) => typeof value === 'string' && value.length > 0 && value.length <= limit;
 
 /**
  * The page's request carried by a `message` event, or null for anything the
@@ -33,30 +31,18 @@ export function requestFrom(event, frameWindow) {
 
 const PARAMS = {
   'describe': () => null,
-  'runTask': ({task, arguments: args}) => {
-    if (!isText(task, 100)) return 'runTask needs a task id';
-    return isObject(args) ? null : 'runTask needs arguments as an object';
-  },
   'prompt': ({text}) => (typeof text === 'string' && text.trim() && text.length <= PROMPT_LIMIT
     ? null
     : `prompt needs text of 1 to ${PROMPT_LIMIT} characters`),
+  'follow': () => null,
   'cancel': ({runId}) => (typeof runId === 'string' && runId ? null : 'cancel needs a runId'),
   'sessions.list': () => null,
   'session.get': ({id}) => (SESSION_ID.test(id ?? '') ? null : 'session.get needs a session id'),
   'session.start': () => null,
   'session.resume': ({id}) => (SESSION_ID.test(id ?? '') ? null : 'session.resume needs a session id'),
-  'session.save': ({state, title}) => {
-    if (state === undefined) return 'session.save needs state';
-    return title === undefined || typeof title === 'string' ? null : 'session.save needs title as a string';
-  },
-  'workspace.list': () => null,
-  'workspace.read': ({path}) => (isText(path, PATH_LIMIT) ? null : 'workspace.read needs a path'),
-  'workspace.write': ({path, text, base64}) => {
-    if (!isText(path, PATH_LIMIT)) return 'workspace.write needs a path';
-    return (typeof text === 'string') !== (typeof base64 === 'string')
-      ? null
-      : 'workspace.write needs either text or base64';
-  },
+  'session.archive': ({id, archived}) => (SESSION_ID.test(id ?? '') && typeof archived === 'boolean'
+    ? null
+    : 'session.archive needs a session id and archived, true or false'),
 };
 
 export const METHODS = Object.keys(PARAMS);
@@ -72,17 +58,6 @@ export const reply = (id, result) => ({protocol: PROTOCOL, id, result});
 export const failure = (id, message) => ({protocol: PROTOCOL, id, error: {message}});
 export const runEvent = (event, runId, data) => ({protocol: PROTOCOL, event, runId, data});
 export const themeEvent = theme => ({protocol: PROTOCOL, event: 'host.theme', data: {theme}});
-
-/**
- * A task run's event from NanoAgent (`{type, runId, ...fields}`) as a bridge
- * event `{event, data}`, its fields without the type and NanoAgent's run id,
- * which the host's own run id replaces. Null for anything but `task.*`.
- */
-export function taskEvent(data) {
-  if (!isObject(data) || typeof data.type !== 'string' || !data.type.startsWith('task.')) return null;
-  const {type, runId: _runId, ...fields} = data;
-  return {event: type, data: fields};
-}
 
 /**
  * One event of /api/ai/stream as a bridge event `{event, data, final}`; `final`
@@ -133,20 +108,4 @@ export function promptHistory(turns) {
       {role: 'assistant', content: answer.slice(0, MESSAGE_LIMIT)},
     ])
     .slice(-HISTORY_LIMIT);
-}
-
-export function bytesToBase64(bytes) {
-  let binary = '';
-  for (let start = 0; start < bytes.length; start += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(start, start + 0x8000));
-  }
-  return btoa(binary);
-}
-
-/** The bytes of a base64 string; throws on one that is not base64. */
-export function base64ToBytes(text) {
-  const binary = atob(text);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
 }

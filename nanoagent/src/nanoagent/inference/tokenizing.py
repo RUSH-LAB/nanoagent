@@ -42,7 +42,7 @@ from typing import Any
 
 from nanoagent.inference.backend import Backend
 from nanoagent.inference.tokenizer import Tokenizer
-from nanoagent.inference.types import Fidelity, Response, Tokens
+from nanoagent.inference.types import Answer, Fidelity, Response, Tokens
 
 
 class TokenizingBackend:
@@ -78,6 +78,10 @@ class TokenizingBackend:
             tokenizer=self._tokenizer.name,
         )
         return response
+
+    async def answer(self, messages: list[dict[str, Any]], *, name: str, schema: dict[str, Any]) -> Answer:
+        """Delegate the call. An answer is a decoded object, not text, so it carries no tokens."""
+        return await self._inner.answer(messages, name=name, schema=schema)
 
     async def aclose(self) -> None:
         await self._inner.aclose()

@@ -1,6 +1,6 @@
 # Folder sync
 
-`mochi` keeps a workspace's files in sync with a local folder in both
+`rush` keeps a workspace's files in sync with a local folder in both
 directions, so you can edit them with any editor. The server stays the source
 of truth: every write goes through the workspace file system API, with the same
 permissions and revision checks as the Workspace page.
@@ -14,9 +14,9 @@ npm link
 Then sign in, clone a workspace into a new folder, and keep it in sync:
 
 ```bash
-mochi login https://mochi-lab.org
-mochi clone https://mochi-lab.org my-workspace ~/Mochi/my-workspace
-mochi sync ~/Mochi/my-workspace
+rush login https://rush-lab.org
+rush clone https://rush-lab.org my-workspace ~/Mochi/my-workspace
+rush sync ~/Mochi/my-workspace
 ```
 
 `login` prints a link and a code. Open the link in a browser, sign in with
@@ -39,9 +39,9 @@ The workspace's drive lives in the cloud and is shared with its members; the
 local folder is a cache of it. Choose what is kept locally:
 
 ```bash
-mochi clone https://mochi-lab.org my-workspace ~/Mochi/my-workspace papers notes
-mochi online-only ~/Mochi/my-workspace papers/2024
-mochi download ~/Mochi/my-workspace papers/2024
+rush clone https://rush-lab.org my-workspace ~/Mochi/my-workspace papers notes
+rush online-only ~/Mochi/my-workspace papers/2024
+rush download ~/Mochi/my-workspace papers/2024
 ```
 
 - `clone` with folder names downloads only those top-level folders; every
@@ -53,7 +53,7 @@ mochi download ~/Mochi/my-workspace papers/2024
 - `download` keeps it locally again, and sync downloads it.
 
 Both commands only change `online_only` in `.mochi/config.yaml`; a running
-`mochi sync` applies them on its next cycle, within 30 seconds.
+`rush sync` applies them on its next cycle, within 30 seconds.
 
 ## Conflicts
 
@@ -77,7 +77,7 @@ Push a plugin in the NanoAgent plugin format to a public GitHub repository,
 then publish it to the marketplace. Run the same command again to update it.
 
 ```bash
-mochi publish https://mochi-lab.org https://github.com/you/your-plugin
+rush publish https://rush-lab.org https://github.com/you/your-plugin
 ```
 
 For a plugin in a subfolder, give the folder's URL: `…/tree/<branch>/<folder>`.

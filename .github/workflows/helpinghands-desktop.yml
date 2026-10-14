@@ -1,19 +1,18 @@
 name: Helping Hands desktop app
 
-# Builds the Tauri app (helpinghands/desktop) on each platform it ships for. Run it by hand or
-# by pushing a desktop-v* tag; the bundles are uploaded as workflow artifacts.
+# Builds the Tauri app (helpinghands/desktop) for macOS on Apple silicon, the one platform it
+# ships for now (Windows and Linux: helpinghands/FUTURE.md). Every push to production is a release
+# and builds it, as can a run by hand; the bundle is uploaded as a workflow artifact. NanoAgent is
+# compiled here by Nuitka (scripts/stage.mjs), which cannot cross-compile: each target builds on its
+# own runner.
 #
-# The macOS build is signed and notarized, and refuses to run without these secrets:
-#   APPLE_CERTIFICATE           base64 of the Developer ID Application .p12
-#   APPLE_CERTIFICATE_PASSWORD  its password
-#   APPLE_SIGNING_IDENTITY      e.g. "Developer ID Application: Name (TEAMID)"
-#   APPLE_ID, APPLE_PASSWORD    the Apple ID and an app-specific password, for notarization
-#   APPLE_TEAM_ID
+# The macOS app is ad-hoc signed (signingIdentity "-" in tauri.conf.json), not notarized: on
+# another Mac it opens after right-click -> Open, or Open Anyway in System Settings -> Privacy.
 
 on:
   workflow_dispatch:
   push:
-    tags: ['desktop-v*']
+    branches: [production]
 
 defaults:
   run:
@@ -27,37 +26,16 @@ jobs:
         include:
           - os: macos-14
             target: aarch64-apple-darwin
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
-    env:
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v4
-      - name: Require the signing secrets
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            [[ -n "${!name}" ]] || { echo "::error::secret $name is not set"; exit 1; }
-          done
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: helpinghands/desktop/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install WebKitGTK
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: npm ci
         working-directory: helpinghands/desktop
       - run: npm run build -- --target ${{ matrix.target }}
@@ -65,10 +43,73 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: mochi-lab-${{ matrix.target }}
-          path: |
-            helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-            helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
-            helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
-            helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
-            helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
+          path: helpinghands/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
           if-no-files-found: error
+
+  # Mochi Lab without its window (desktop/PLAN.md): the bundle install.sh downloads, one per Mac
+  # architecture and one for Linux (which Windows runs in WSL2), each built on its own runner. The
+  # Linux one is installed and started first, as a member does. A push to production uploads them
+  # to the Mochi it deploys, which may still be deploying the commit that serves the upload, so it
+  # is tried for 15 minutes; a run by hand only builds and checks.
+  lab:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          # The oldest supported Ubuntu: what is built here runs where glibc is as new or newer.
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: helpinghands/desktop/package-lock.json
+      - run: npm ci
+        working-directory: helpinghands/desktop
+      - run: npm run bundle:lab
+        working-directory: helpinghands/desktop
+        env:
+          TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
+      - name: Install and start it, as a member does
+        if: runner.os == 'Linux'
+        working-directory: helpinghands/desktop
+        env:
+          TAURI_ENV_TARGET_TRIPLE: ${{ matrix.target }}
+        # Plugins run in bubblewrap; Mochi Lab runs as a systemd user service, which needs the
+        # runner's user manager.
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo loginctl enable-linger "$USER"
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          for i in $(seq 1 30); do systemctl --user show-environment >/dev/null 2>&1 && break; sleep 1; done
+          node scripts/check-lab-install.mjs
+      - name: Upload to Mochi
+        if: github.event_name == 'push'
+        working-directory: helpinghands/desktop
+        env:
+          LAB_UPLOAD_TOKEN: ${{ secrets.LAB_UPLOAD_TOKEN }}
+        run: |
+          if [ -z "$LAB_UPLOAD_TOKEN" ]; then
+            echo "The LAB_UPLOAD_TOKEN secret is not set" >&2
+            exit 1
+          fi
+          bundle=dist/mochi-lab-${{ matrix.target }}.tar.gz
+          stamp=$(tar -xOzf "$bundle" mochi-lab/stamp)
+          deadline=$(( $(date +%s) + 900 ))
+          until curl -fsS -X PUT --data-binary @"$bundle" \
+              -H "Authorization: Bearer $LAB_UPLOAD_TOKEN" -H "X-Lab-Stamp: $stamp" \
+              https://rush-lab.org/api/lab/bundles/${{ matrix.target }}; do
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "Mochi did not take the bundle within 15 minutes" >&2
+              exit 1
+            fi
+            sleep 30
+          done

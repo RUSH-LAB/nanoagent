@@ -5,8 +5,6 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   environmentFor,
-  keyHint,
-  keyList,
   nanoagentPluginsFrom,
   nanoagentProjectFrom,
   nanoagentWebArgs,
@@ -80,27 +78,21 @@ describe('local process supervisor configuration', () => {
     const args = nanoagentWebArgs(env);
     assert.ok(args.includes(`packages=${JSON.stringify(nanoagentPluginsFrom(env))}`));
     assert.ok(args.includes('sandbox=none') && args.some(arg => arg.startsWith('installs=')));
-    assert.ok(args.includes('run_models=true'));
   });
 
-  it('tells Mochi which keys this checkout lends by hint, never by value', () => {
-    assert.equal(keyHint('sk-or-v1-0123456789abcdef'), 'sk-or-…cdef');
-    assert.equal(keyHint('short'), '…');
-    const keys = keyList(new Map([['OPENROUTER_API_KEY', 'sk-or-v1-0123456789abcdef']]));
-    assert.deepEqual(keys[0], {env: 'OPENROUTER_API_KEY', label: 'OpenRouter', set: true, hint: 'sk-or-…cdef'});
-    assert.ok(keys.slice(1).every(key => key.set === false && key.hint === null));
-  });
-
-  it('rejects a plugins directory that does not exist', () => {
+  it('rejects a plugins directory that does not exist or holds no plugin', () => {
     assert.throws(() => nanoagentPluginsFrom({NANOAGENT_PLUGINS_DIR: '/path/that/does/not/exist'}), /not found/);
-    assert.throws(() => nanoagentPluginsFrom({NANOAGENT_PROJECT_DIR: '/path/that/does/not/exist'}), /not found/);
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-plugins-'));
+    fs.mkdirSync(path.join(empty, 'not-a-plugin'));
+    assert.throws(() => nanoagentPluginsFrom({NANOAGENT_PLUGINS_DIR: empty}), /holds no plugin/);
   });
 
-  it('defaults to the NanoAgent checkout\'s built-in plugins', () => {
+  it('publishes no package unless NANOAGENT_PLUGINS_DIR names a folder of plugins', () => {
     const project = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-nanoagent-'));
     fs.mkdirSync(path.join(project, 'plugins', 'arxiv-source'), {recursive: true});
     fs.writeFileSync(path.join(project, 'plugins', 'arxiv-source', 'nanoagent.yaml'), '');
-    assert.deepEqual(nanoagentPluginsFrom({NANOAGENT_PROJECT_DIR: project}), [path.join(project, 'plugins', 'arxiv-source')]);
+    assert.deepEqual(nanoagentPluginsFrom({NANOAGENT_PROJECT_DIR: project}), []);
+    assert.ok(nanoagentWebArgs({NANOAGENT_PROJECT_DIR: project}).includes('packages=[]'));
   });
 
   it('names every way node_modules differs from the lockfile', () => {

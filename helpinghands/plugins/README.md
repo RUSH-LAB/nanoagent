@@ -145,7 +145,7 @@ Always there: `respond`, `stream`, `readBody`, `rateLimit`, `caller`, `shared`,
 | `storage` | `storage.read`/`storage.write`, in the plugin-and-workspace corner of `var/` |
 | `records` | workspace-scoped collections namespaced to the plugin |
 | `blobs` | workspace-scoped PostgreSQL asset metadata and object bytes plus bounded raw request bodies |
-| `ai` | `ai.complete` and `ai.describe`, using the site's configured provider |
+| `ai` | async `ai.complete` and `ai.describe`, on the NanoAgent of the member's own computer |
 | `process` | `exec`, restricted to declared `commands` and a cwd inside the plugin |
 
 A capability the manifest did not ask for is simply absent, so reaching for one

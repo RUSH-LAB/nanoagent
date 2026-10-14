@@ -43,7 +43,7 @@ async function signInGate(req, res, next) {
 const config = {
   title: platformName,
   tagline: platformTagline,
-  favicon: 'img/mochi.jpg',
+  favicon: 'img/rush-lab.png',
 
   // Served assets live with the rest of the source rather than at the root.
   staticDirectories: ['src/static'],
@@ -65,8 +65,8 @@ const config = {
   url: process.env.SITE_URL || 'http://localhost:3000',
   baseUrl: '/',
 
-  organizationName: 'zeyuyang8',
-  projectName: 'mochi-lab',
+  organizationName: 'RUSH-LAB',
+  projectName: 'nanoagent',
 
   onBrokenLinks: 'throw',
   onBrokenAnchors: 'ignore',
@@ -147,11 +147,11 @@ const config = {
     {tagName: 'link', attributes: {rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: 'anonymous'}},
   ],
 
-  // Inter for the interface; Instrument Serif for a workspace's name on its
-  // home page (runtime-content/workspaceHome.module.css).
+  // Inter for the interface; Playfair Display for a workspace's name on its home page
+  // (runtime-content/workspaceHome.module.css).
   stylesheets: [
     {
-      href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif&display=swap',
+      href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@400&display=swap',
       type: 'text/css',
     },
   ],
@@ -159,7 +159,7 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
-      image: 'img/mochi.jpg',
+      image: 'img/rush-lab.png',
       docs: {
         sidebar: {
           // Adds the collapse control at the foot of the chapter sidebar, so a

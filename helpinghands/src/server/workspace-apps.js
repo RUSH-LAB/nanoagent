@@ -2,7 +2,8 @@
 
 /**
  * A workspace's apps: the marketplace plugins it added (postgres/workspace-plugins.js),
- * each run from NanoAgent's install of the plugin's current package.
+ * each run from an install of the plugin's current package on the NanoAgent of
+ * the member's own computer. `ai`, Mochi's own NanoAgent, only offers packages.
  *
  * The marketplace offers NanoAgent's own packages and the uploads
  * (postgres/market.js), one id each: an upload may not take one of NanoAgent's.
@@ -34,24 +35,41 @@ function createWorkspaceApps({ai, market, plugins}) {
     return put.error ? put : {value: put.value.plugin};
   }
 
+  /**
+   * The workspace's apps, each its marketplace entry, `source` and the
+   * workspace's `tags` for it; one that left the marketplace is listed as
+   * `unavailable`, for an owner to remove.
+   */
+  async function list(context) {
+    const offered = await catalog(context.userId);
+    if (offered.error) return offered;
+    return {
+      value: (await plugins.list(context)).map(({id, source, tags}) => {
+        const found = offered.value.get(id);
+        return found && found.source === source
+          ? {...found.entry, source, tags}
+          : {id, name: id, status: 'unavailable', source, tags};
+      }),
+    };
+  }
+
   return Object.freeze({
     catalog,
+    list,
 
     /**
-     * The workspace's apps, each its marketplace entry, `source` and the
-     * workspace's `tags` for it; one that left the marketplace is listed as
-     * `unavailable`, for an owner to remove.
+     * Install every ready app of the workspace on the NanoAgent `on`, all at
+     * once, so opening or running one finds it installed: `{value}`, each
+     * app's `{id}` or `{id, error}`, or `{error, status}`.
      */
-    async list(context) {
-      const offered = await catalog(context.userId);
-      if (offered.error) return offered;
+    async prepare(context, on) {
+      const listed = await list(context);
+      if (listed.error) return listed;
       return {
-        value: (await plugins.list(context)).map(({id, source, tags}) => {
-          const found = offered.value.get(id);
-          return found && found.source === source
-            ? {...found.entry, source, tags}
-            : {id, name: id, status: 'unavailable', source, tags};
-        }),
+        value: await Promise.all(listed.value.filter(app => app.status === 'ready').map(async app => {
+          const result = await installed(on, context.userId, app.source, app);
+          return result.error ? {id: app.id, error: result.error} : {id: app.id};
+        })),
       };
     },
 
@@ -73,12 +91,11 @@ function createWorkspaceApps({ai, market, plugins}) {
 
     /**
      * The workspace's app `id`, installed and ready to run on the NanoAgent `on`
-     * (Mochi's, which serves its page, unless a run goes to the member's own
-     * computer): its catalog entry, with the `sha256` its runs and page are
+     * (the member's own computer's): its catalog entry, with the `sha256` its runs and page are
      * addressed by and its `uiVersion`; or `{error, status}`, 404 for a plugin
      * the workspace did not add.
      */
-    async open(context, id, on = ai) {
+    async open(context, id, on) {
       const added = await plugins.get(context, id);
       if (!added) return {error: `This workspace has no plugin named ${id}`, status: 404};
       // An upload's version comes with the workspace's row; NanoAgent's from its own list.

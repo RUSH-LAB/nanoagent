@@ -24,12 +24,19 @@ class WebConfig(AgentDefinitionConfig):
     # `nanoagent.runtime.config.load_registry`). At least one; the default must be among them —
     # both checked where the registry loads, since the files are only read there.
     profiles: list[str] = MISSING
-    # Plugin directories offered for download at /v1/packages (a marketplace's built-in plugins).
+    # Plugin directories offered for download at /v1/packages.
     # Each must follow every rule; ids must be unique, checked where they load. Like any package,
     # one runs here only once a caller installs it.
     packages: list[str] = MISSING
     # Where packages are installed to run (see nanoagent.plugin.install), one folder per sha256.
     installs: str = MISSING
+    # The uv cache every install shares, for the wheels its plugins' environments are built from.
+    uv_cache: str = MISSING
+    # An install no caller installed for this many days is removed when the service starts.
+    installs_unused_days: int = MISSING
+    # The Python every plugin runs on and its environment is built on (see nanoagent.plugin.python):
+    # a CPython interpreter's path, or a command on PATH, always named.
+    plugin_python: str = MISSING
     # What every plugin process runs in (see nanoagent.plugin.sandbox): `bwrap`, `seatbelt` on
     # macOS, or `none`, which confines nothing.
     sandbox: str = MISSING

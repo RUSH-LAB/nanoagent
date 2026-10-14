@@ -30,6 +30,8 @@ def test_railway_config_is_private_authenticated_and_mochi_compatible(
     assert config.port == 9876
     assert config.api_token == "contract-test-secret"
     assert config.sandbox == "none"
+    # NanoAgent ships no plugin: each comes from its own repository through Mochi Lab's marketplace.
+    assert config.packages == []
     # Runs choose among the profiles, within the limits: Mochi pays for them.
     assert config.run_models is False
     assert catalog["limits"] == {"max_steps": 6, "cost_limit": 0.10, "token_limit": 65536, "max_tokens": 2048, "capped": True}

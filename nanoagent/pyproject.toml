@@ -8,7 +8,7 @@ name = "nanoagent"
 dynamic = ["version"]
 description = "A minimal, clean-room agent loop with structured tool calling — and the batch/REPL/CLI drivers around it"
 readme = "README.md"
-license = "MIT"
+license = "LicenseRef-Proprietary"
 license-files = ["LICENSE"]
 # 3.12+: the package is written against the 3.12 typing syntax (`X | None` at runtime under
 # `from __future__ import annotations`, `type` aliases, PEP 695-era generics).
@@ -51,6 +51,8 @@ dependencies = [
     "rich",
     # The `browse` trajectory viewer, and nothing else.
     "textual",
+    # Which wheels in a plugin's uv.lock this Python can install (nanoagent.plugin.install).
+    "packaging",
 ]
 authors = [
     {name = "Zeyu Yang"},
@@ -84,8 +86,9 @@ tokens = ["transformers"]
 # Official dataset loading and Docker-based rule scoring for SWE-bench. Kept optional because
 # ordinary question/answer benchmarks need neither Hugging Face datasets nor Docker bindings.
 swebench = ["swebench>=5,<6"]
-# examples/meal_suggestion's step 1 reads Food.com's recipes, a Parquet file.
-examples = ["pyarrow>=25"]
+# Builds the native NanoAgent that Mochi Lab ships in place of these sources
+# (helpinghands/desktop/scripts/stage.mjs).
+compile = ["nuitka>=4.3,<5"]
 dev = [
     "pytest",
     "pytest-asyncio",
@@ -98,8 +101,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/zeyuyang8/nanoagent"
-Repository = "https://github.com/zeyuyang8/nanoagent"
+Homepage = "https://github.com/RUSH-LAB/nanoagent"
+Repository = "https://github.com/RUSH-LAB/nanoagent"
 
 # So it is `nanoagent chat ...` rather than `python3 -m nanoagent chat ...`. Same entry point
 # either way — __main__.py and this both call cli.main.
@@ -139,5 +142,6 @@ extend-ignore = ["E203"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-# Each plugin under plugins/ is its own uv project and runs its own tests.
 testpaths = ["test"]
+# Each fixture plugin under test/plugins/ is its own uv project and runs its own tests.
+norecursedirs = ["plugins"]

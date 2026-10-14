@@ -36,6 +36,8 @@ describe('AI chat identity', () => {
     }));
     assert.equal(restored.chats.length, 2);
     assert.equal(restored.sessions[0].target.chatId, 'one');
+    // The default agent's id was 'mochi' before it was RUSH.
+    assert.deepEqual([restored.sessions[0].target.agentId, ...restored.chats.map(chat => chat.agentId)], ['rush', 'rush', 'rush']);
     // The model a chat chose with /model is kept; the profile it once copied from its agent is not.
     assert.deepEqual(restored.chats[0].modelChoice, {key: 'a/b', choice: {provider: 'a', model: 'b'}});
     assert.equal('profileId' in restored.chats[0], false);
@@ -70,6 +72,7 @@ describe('legacy session migration', () => {
     }));
     assert.equal(restored.chats.length, 1);
     assert.equal(restored.chats[0].title, 'Explain this');
+    assert.equal(restored.chats[0].agentId, 'rush');
     assert.equal(restored.sessions[0].target.chatId, restored.chats[0].id);
     assert.deepEqual(restored.chats[0].entries.map(entry => entry.targetKey), [
       `chat:${restored.chats[0].id}`,

@@ -75,8 +75,9 @@ recently used evicted.
 - **Binary files** keep last-write-wins with full history, and become a
   conflicted copy only when two edits truly collide.
 - Clients: the browser (IndexedDB), the `mochi` CLI (a local folder caching
-  the drive, minus the paths the user marks online only), a future desktop
-  app, and **agents and plugins**, whose runs mount the folders
+  the drive, minus the paths the user marks online only), Mochi Lab (the
+  member's own home in each workspace, at `~/rushlab/<slug>/`), and **agents
+  and plugins**, whose runs mount the folders
   they may use and sync their changes back attributed to the run. NanoAgent
   keeps nothing of its own.
 
@@ -95,6 +96,13 @@ As of 2026-10-08 apps run only with the file system: each run gets a scratch
 folder in NanoAgent that is removed afterwards, its changes are written back
 against the revisions it started from, and `/api/agent-files` reads and writes
 `home/<user>/agent/` in the file system.
+As of 2026-10-14 each plugin has its own folder, `home/<user>/agent/<plugin>/`,
+and a run is given only that one; what runs left in `home/<user>/agent/` before
+moved to `home/<user>/files/` (migration 0031). A member's home is private to
+them however it is made (fs/store.js). Mochi Lab keeps each of the member's
+homes in sync both ways with `~/rushlab/<workspace slug>/` (src/runner/files.mjs,
+`files_folder` in desktop/config.yaml); the workspace's shared files stay in the
+cloud, so no other member ever writes what a computer syncs.
 Not yet done: large bytes in object storage, relaying live edits between
 several server processes (LISTEN/NOTIFY), and the Book/Blog page editor
 editing live (it saves whole revisions, which the merge folds in).

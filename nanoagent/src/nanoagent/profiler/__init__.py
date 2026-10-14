@@ -203,7 +203,7 @@ class RunProfile:
     @property
     def generation_s(self) -> float:
         """Time spent streaming tokens: each model call's first token to its last, summed."""
-        return sum(call.generation_s or 0.0 for step in self.steps for call in step.model_calls)
+        return sum(call.generation_s or 0.0 for step in self.steps for call in step.model_calls if call.kind != "tool")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -299,6 +299,11 @@ class StepProfiler:
         self._model_calls.append(record)
         return record
 
+    def add_model_call(self, record: ModelCallProfile) -> None:
+        """A model call a tool made itself (kind ``"tool"``): counted in the step's usage and cost,
+        and in neither its model time nor the run's generation time, which its tool time holds."""
+        self._model_calls.append(record)
+
     def start_tool_call(self, call_id: str, name: str) -> tuple[int, _ToolCallTimer]:
         slot = len(self._tool_calls)
         timer = _ToolCallTimer(call_id, name, self._owner._clock(), self._owner._clock)
@@ -332,7 +337,7 @@ class StepProfiler:
         for call in self._model_calls:
             accumulate_usage(usage, call.usage)
             cost += call.cost
-        model_s = sum(call.duration_s for call in self._model_calls)
+        model_s = sum(call.duration_s for call in self._model_calls if call.kind != "tool")
         duration_s = max(0.0, ended - self._started)
         profile = StepProfile(
             step=self.step,

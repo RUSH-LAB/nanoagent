@@ -5,6 +5,7 @@ import gzip
 import io
 import shutil
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 
@@ -56,7 +57,7 @@ def test_packs_a_plugin_the_same_way_every_time_without_what_git_ignores(plugin:
     data = pack(plugin)
     assert data == pack(plugin)
     names = set(_files(data))
-    assert "echo/nanoagent.yaml" in names and "echo/ui/app.js" in names
+    assert "echo/nanoagent.yaml" in names and "echo/ui/renderers.js" in names
     assert not [name for name in names if "__pycache__" in name or ".venv" in name]
 
 
@@ -166,6 +167,8 @@ def client(plugin: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Tes
             f"packages=[{plugin}]",
             f"workspaces={tmp_path / 'workspaces'}",
             f"installs={tmp_path / 'installs'}",
+            f"uv_cache={tmp_path / 'uv-cache'}",
+            f"plugin_python={sys.executable}",
             "host=127.0.0.1",
             "sandbox=none",
         ],
@@ -197,20 +200,3 @@ def test_packs_a_plugin_from_a_source_archive(client: TestClient, plugin: Path, 
     refused = client.post("/v1/packages/source", params={"path": "nowhere"}, content=_source(plugin, tmp_path / "again"))
     assert refused.status_code == 422 and "no plugin folder" in refused.json()["error"]
 
-
-def test_production_offers_every_built_in_plugin(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.chdir(ROOT)
-    monkeypatch.setenv("NANOAGENT_API_TOKEN", TOKEN)
-    config = load_config_args(
-        WebConfig,
-        [
-            "web_cfg=deploy/railway/nanoagent.yaml",
-            f"workspaces={tmp_path}",
-            f"installs={tmp_path / 'installs'}",
-            "host=127.0.0.1",
-            "sandbox=none",
-        ],
-    )
-    packages = TestClient(create_app(config), headers={"Authorization": f"Bearer {TOKEN}"}).get("/v1/packages").json()
-    built_in = sorted(path.name for path in (ROOT / "plugins").iterdir() if path.is_dir())
-    assert sorted(entry["id"] for entry in packages["packages"]) == built_in

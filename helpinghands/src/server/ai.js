@@ -21,7 +21,7 @@ const DEFAULT_PROFILE_TIMEOUT_MS = 5_000;
 const CANCELLED = 'The AI request was cancelled.';
 const TIMED_OUT = 'The AI request timed out. Please try again.';
 const UNAVAILABLE = 'Could not reach NanoAgent.';
-const RUNNER_OFFLINE = 'Add your OpenRouter key in Settings → AI to run your AI, or open Mochi Lab on your computer.';
+const RUNNER_OFFLINE = 'RUSH Lab on your computer is not connected. Install it from Settings → AI, or start it again, to run your AI.';
 const DEFAULT_PROFILE = fallbackProfiles.defaultProfile;
 const DEFAULT_MODEL = fallbackProfiles.profiles.find(profile => profile.id === DEFAULT_PROFILE).model;
 
@@ -297,14 +297,26 @@ function publicEvent(event, {app = false} = {}) {
   return null;
 }
 
+/** What the browser is told of a finished run. */
+function completionPayload(result) {
+  return {
+    text: result.text,
+    ...(result.usage ? {usage: result.usage} : {}),
+    ...(result.cost != null ? {cost: result.cost} : {}),
+    ...(result.metrics ? {metrics: result.metrics} : {}),
+    ...(result.model ? {model: result.model} : {}),
+    ...(result.harness ? {harness: result.harness} : {}),
+    ...(result.profile ? {profile: result.profile} : {}),
+    ...(result.stopReason ? {stopReason: result.stopReason} : {}),
+  };
+}
+
 /**
  * `endpoint` replaces NANOAGENT_URL: `{url}` for a NanoAgent reached some other
  * way (a member's own computer, through `fetchImpl`), `{error}` for one that is
- * not there. `keys` are a member's own provider API keys, sent with every run
- * so the hosted NanoAgent runs it with them alone. `local` marks a gateway
- * whose runs the member pays for: their own NanoAgent's, or one with `keys`.
+ * not there. `local` marks a gateway to the member's own NanoAgent.
  */
-function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fetch(...args), endpoint: fixed = null, local = false, keys = null} = {}) {
+function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fetch(...args), endpoint: fixed = null, local = false} = {}) {
   const endpointOf = () => fixed ?? endpointFrom(env);
   const timeoutMs = positiveNumber(env.NANOAGENT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
   const installTimeoutMs = INSTALL_TIMEOUT_MS;
@@ -378,8 +390,10 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
           Accept: 'text/event-stream',
           ...(env.NANOAGENT_API_TOKEN ? {Authorization: `Bearer ${env.NANOAGENT_API_TOKEN}`} : {}),
         },
-        body: JSON.stringify({...nanoRequest(request), ...(keys ? {keys} : {})}),
+        body: JSON.stringify(nanoRequest(request)),
         signal: controller.signal,
+        // A plugin run held by the member's computer across its connections (server/runner.js).
+        ...(request.run ? {run: request.run} : {}),
       });
       if (!response.ok) {
         return {error: await responseError(response), status: response.status === 429 ? 503 : 502};
@@ -444,6 +458,8 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
         if (timedOut) return {error: TIMED_OUT, status: 504};
       }
       if (error?.code === 'invalid_event') return {error: error.message, status: 502};
+      // The member's computer went away (server/runner.js), which says how.
+      if (error?.code === 'runner') return {error: error.message, status: 503};
       return {error: UNAVAILABLE, status: 502};
     } finally {
       clearTimeout(timer);
@@ -492,44 +508,6 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
   const encodedPath = path => String(path).split('/').map(encodeURIComponent).join('/');
   const inWorkspace = (workspace, rest) => `/v1/workspaces/${encodeURIComponent(workspace)}${rest}`;
 
-  /**
-   * Start one task of a plugin in a workspace: `{value}`, NanoAgent's event
-   * stream as it arrives, otherwise `{error, status}`. Aborting `signal` closes
-   * the stream, which cancels the run.
-   */
-  async function taskRun({workspace, install, task, args, choice = {}, signal}) {
-    const endpoint = endpointOf();
-    if (endpoint.error) return {error: endpoint.error, status: 503};
-    try {
-      const path = inWorkspace(workspace, `/installs/${encodeURIComponent(install)}/tasks/${encodeURIComponent(task)}/runs`);
-      const response = await fetchImpl(`${endpoint.url}${path}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'text/event-stream',
-          ...(env.NANOAGENT_API_TOKEN ? {Authorization: `Bearer ${env.NANOAGENT_API_TOKEN}`} : {}),
-        },
-        body: JSON.stringify({
-          arguments: args,
-          ...(choice.profile ? {profile: choice.profile} : {}),
-          ...(choice.model ? {model: choice.model} : {}),
-          ...(choice.settings ? {settings: choice.settings} : {}),
-          ...(keys ? {keys} : {}),
-        }),
-        signal,
-      });
-      if (!response.ok) {
-        // Arguments that fail the task's schema, or a task or plugin that is not
-        // there or under maintenance, are the caller's to know about.
-        const status = [400, 404, 409].includes(response.status) ? response.status : 502;
-        return {error: await responseError(response), status};
-      }
-      if (!response.body) return {error: 'NanoAgent returned no response stream.', status: 502};
-      return {value: response.body};
-    } catch {
-      return signal?.aborted ? {error: CANCELLED, status: 499} : {error: UNAVAILABLE, status: 502};
-    }
-  }
   const filePath = (workspace, path) => inWorkspace(workspace, `/files/${encodedPath(path)}`);
 
   return Object.freeze({
@@ -538,6 +516,8 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     profiles,
     // Every model a run may name, on a member's own computer (NanoAgent's run_models).
     models: () => nanoFetch('/v1/models', {waitMs: timeoutMs}),
+    // What the computer's OpenRouter key has spent, and may: {usage, limit} in dollars, as OpenRouter says.
+    openrouterUsage: () => nanoFetch('/v1/keys/openrouter/usage', {waitMs: timeoutMs}),
     // Plugins run from installs, each the package with that sha256; NanoAgent
     // installs one when it is sent, and has none after it restarts.
     install: sha256 => nanoFetch(`/v1/installs/${encodeURIComponent(sha256)}`),
@@ -547,7 +527,6 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     installUiFile: (sha256, version, path) => nanoFetch(
       `/v1/installs/${encodeURIComponent(sha256)}/ui/${encodeURIComponent(version)}/${encodedPath(path)}`, {bytes: true},
     ),
-    taskRun,
     // The marketplace: NanoAgent's own plugin packages, and the package it packs
     // and checks from the plugin at `path` in a repository archive.
     packages: () => nanoFetch('/v1/packages'),
@@ -584,6 +563,7 @@ module.exports = {
   CANCELLED,
   TIMED_OUT,
   RUNNER_OFFLINE,
+  completionPayload,
   createSseParser,
   endpointFrom,
   nanoRequest,
@@ -595,10 +575,10 @@ module.exports = {
   stream: gateway.stream,
   profiles: gateway.profiles,
   models: gateway.models,
+  openrouterUsage: gateway.openrouterUsage,
   install: gateway.install,
   installPackage: gateway.installPackage,
   installUiFile: gateway.installUiFile,
-  taskRun: gateway.taskRun,
   packages: gateway.packages,
   packageFile: gateway.packageFile,
   packageSource: gateway.packageSource,

@@ -12,8 +12,8 @@ const chat = require('./chat');
 const {ensureRootAccount} = require('./root-account');
 
 /** The organization root starts in, and the one channel inside it. */
-const ROOT_ORG_NAME = process.env.ROOT_ORG_NAME || 'Mochi Lab';
-const ROOT_ORG_SLUG = process.env.ROOT_ORG_SLUG || 'mochi';
+const ROOT_ORG_NAME = process.env.ROOT_ORG_NAME || 'RUSH Lab';
+const ROOT_ORG_SLUG = process.env.ROOT_ORG_SLUG || 'rush';
 const ROOT_CHANNEL = 'general';
 
 /**

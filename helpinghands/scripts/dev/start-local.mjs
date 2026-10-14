@@ -54,18 +54,21 @@ export function nanoagentProjectFrom(env = process.env) {
 }
 
 /**
- * The plugin packages NanoAgent publishes as apps: each directory with a manifest in the NanoAgent
- * checkout's built-in `plugins/`, or in NANOAGENT_PLUGINS_DIR.
+ * The plugin packages NanoAgent publishes as apps: none, as NanoAgent ships no plugin, unless
+ * NANOAGENT_PLUGINS_DIR names a folder of plugins, each directory in it with a manifest.
  */
 export function nanoagentPluginsFrom(env = process.env) {
-  const pluginsRoot = path.resolve(env.NANOAGENT_PLUGINS_DIR || path.join(nanoagentProjectFrom(env), 'plugins'));
+  if (!env.NANOAGENT_PLUGINS_DIR) return [];
+  const pluginsRoot = path.resolve(env.NANOAGENT_PLUGINS_DIR);
   if (!fs.existsSync(pluginsRoot)) {
-    throw new Error(`NanoAgent plugins directory not found: ${pluginsRoot} (set NANOAGENT_PLUGINS_DIR)`);
+    throw new Error(`NANOAGENT_PLUGINS_DIR not found: ${pluginsRoot}`);
   }
-  return fs.readdirSync(pluginsRoot, {withFileTypes: true})
+  const plugins = fs.readdirSync(pluginsRoot, {withFileTypes: true})
     .filter(entry => entry.isDirectory() && fs.existsSync(path.join(pluginsRoot, entry.name, 'nanoagent.yaml')))
     .map(entry => path.join(pluginsRoot, entry.name))
     .sort();
+  if (!plugins.length) throw new Error(`NANOAGENT_PLUGINS_DIR holds no plugin (a folder with nanoagent.yaml): ${pluginsRoot}`);
+  return plugins;
 }
 
 /**
@@ -83,10 +86,11 @@ export function nanoagentWebArgs(env = process.env) {
     'sandbox=none',
     // It is its developer's Mochi Lab too (lendNanoAgent): runs choose any model its keys reach.
     'run_models=true',
-    // NanoAgent's own plugins, in the marketplace (/marketplace) for workspaces to add.
+    // The plugins in NANOAGENT_PLUGINS_DIR, in the marketplace (/marketplace) for workspaces to add.
     `packages=${JSON.stringify(nanoagentPluginsFrom(env))}`,
     `workspaces=${JSON.stringify(path.join(root, 'var', 'agent-workspaces'))}`,
     `installs=${JSON.stringify(path.join(root, 'var', 'nanoagent-installs'))}`,
+    `uv_cache=${JSON.stringify(path.join(root, 'var', 'nanoagent-uv-cache'))}`,
   ];
 }
 
@@ -181,6 +185,8 @@ function lendNanoAgent(env, apiPort) {
       NANOAGENT_URL: nanoagent,
       RUNNER_CREDENTIALS: path.join(root, 'var', 'runner-credentials.json'),
       RUNNER_KEYS: JSON.stringify(keyList(values)),
+      // Not Mochi Lab's ~/rushlab: this checkout's Mochi is another site, with other files.
+      RUNNER_FILES: path.join(root, 'var', 'rushlab'),
     },
     stdio: ['pipe', 'pipe', 'inherit'],
   });
@@ -274,19 +280,18 @@ export function npmInstallProblems(projectRoot) {
 }
 
 /**
- * Startup stops, before any service runs, when Mochi's node_modules or NanoAgent's .venv differ
- * from their lockfiles, naming the command that brings them up to date. Nothing is installed here.
+ * Before any service runs, Mochi's node_modules and NanoAgent's .venv are installed from their
+ * lockfiles, so a pull or branch switch never leaves them behind. A lockfile that no longer agrees
+ * with its manifest stops startup: npm ci and uv sync --locked refuse it rather than resolve again.
  */
-async function checkDependencies(env, nanoagentRoot) {
+async function syncDependencies(env, nanoagentRoot) {
   const problems = npmInstallProblems(root);
   if (problems.length) {
-    throw new Error(`Mochi's node_modules does not match its lockfile; run npm install:\n  ${problems.join('\n  ')}`);
+    console.log(`Installing Mochi's node_modules from package-lock.json:\n  ${problems.join('\n  ')}`);
+    await run('npm', ['ci'], {cwd: root, env, stdio: 'inherit'});
   }
-  if (!usesLocalNanoAgent(env)) return;
-  try {
-    await run('uv', ['sync', '--locked', '--check', '--inexact', '--extra', 'web'], {cwd: nanoagentRoot, env, stdio: 'inherit'});
-  } catch {
-    throw new Error(`NanoAgent's .venv does not match its uv.lock (above); run uv sync --inexact --extra web in ${nanoagentRoot}`);
+  if (usesLocalNanoAgent(env)) {
+    await run('uv', ['sync', '--locked', '--inexact', '--extra', 'web'], {cwd: nanoagentRoot, env, stdio: 'inherit'});
   }
 }
 
@@ -336,8 +341,6 @@ export async function startLocal(argv = process.argv.slice(2)) {
   if (usesLocalNanoAgent(env) && !env.OPENROUTER_API_KEY?.trim()) {
     throw new Error('Local NanoAgent requires OPENROUTER_API_KEY. Add it to .env, then run npm start again.');
   }
-  await checkDependencies(env, nanoagentRoot);
-  if (usesLocalNanoAgent(env)) await preparePiRunner(env, nanoagentRoot);
   const apiPort = validatedPort(env.EDITOR_PORT, 'EDITOR_PORT');
   const sitePort = validatedPort(env.SITE_PORT || 3000, 'SITE_PORT');
   if (apiPort === sitePort) {
@@ -352,6 +355,9 @@ export async function startLocal(argv = process.argv.slice(2)) {
   if (occupied.length) {
     throw new Error(`Port${occupied.length === 1 ? '' : 's'} ${occupied.join(', ')} already in use; stop the existing local service first`);
   }
+  // After the port check, so a running npm start never has its packages replaced under it.
+  await syncDependencies(env, nanoagentRoot);
+  if (usesLocalNanoAgent(env)) await preparePiRunner(env, nanoagentRoot);
   // Keep every child in the terminal's process group. Ctrl+C then reaches the
   // agent, API, site, and this supervisor together, so npm cannot leave a
   // detached development service behind.

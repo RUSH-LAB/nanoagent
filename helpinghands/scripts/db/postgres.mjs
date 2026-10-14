@@ -63,8 +63,12 @@ function parsePostgresUrl(value, label) {
   return url;
 }
 
-function serializeEnv(values) {
-  return `${Object.entries(values).map(([key, value]) => `${key}=${value}`).join('\n')}\n`;
+/** Single-quote every value, so a shell can `source` the file: URLs hold `&` and `?`. */
+export function serializeEnv(values) {
+  return `${Object.entries(values).map(([key, value]) => {
+    if (String(value).includes("'")) throw new Error(`${key} holds a single quote, which .env cannot quote`);
+    return `${key}='${value}'`;
+  }).join('\n')}\n`;
 }
 
 /** Derive Mochi's restricted pooled runtime URL from one Neon owner URL. */

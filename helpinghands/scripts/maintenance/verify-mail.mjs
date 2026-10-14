@@ -15,7 +15,7 @@ if (!to) {
     to,
     template: 'deployment-test',
     subject: `${platformName} email delivery test`,
-    url: process.env.SITE_URL || 'https://mochi-lab.org',
+    url: process.env.SITE_URL || 'https://rush-lab.org',
     data: {purpose: 'production-readiness'},
   }).then(result => {
     console.log(JSON.stringify({ok: result.delivered, provider: result.provider, to}, null, 2));

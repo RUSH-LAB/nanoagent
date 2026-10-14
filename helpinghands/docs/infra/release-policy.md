@@ -30,8 +30,9 @@ production. Uncommitted files and development branches never deploy.
 - `npm run nanoagent:verify` exercises every call of Mochi's NanoAgent client
   (`createNanoAgentGateway`) against a live NanoAgent and a deterministic fake
   model, and fails when a client method has no check. NanoAgent is started from
-  its own `deploy/contract/nanoagent.yaml`, so any Mochi checkout can run
-  against any NanoAgent checkout (`NANOAGENT_PROJECT_DIR`).
+  its own `deploy/contract/nanoagent.yaml`, whose only package is the plugin the
+  check installs (the check reads its folder and id there), so any Mochi
+  checkout can run against any NanoAgent checkout (`NANOAGENT_PROJECT_DIR`).
 - The Mochi quality workflow runs that check for the pull request's own pair,
   and across versions for whichever side changed: this Mochi against
   production's NanoAgent, and production's Mochi against this NanoAgent. A pull
@@ -56,6 +57,7 @@ independently.
 
 - Local `npm start` starts the adjacent `nanoagent/` checkout.
 - Production Mochi must set `NANOAGENT_URL` and `NANOAGENT_API_TOKEN`.
-- The production NanoAgent stores `OPENROUTER_API_KEY`; Mochi does not.
+- Neither the production NanoAgent nor Mochi stores a model-provider key: each
+  member's Mochi Lab holds its own.
 - NanoAgent has no public domain and is reachable only over Railway's private
   network.

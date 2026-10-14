@@ -23,9 +23,9 @@ class NoteInput(Output):
 
 @dataclass
 class NoteOutput(Output):
-    path: Annotated[str, "The note's file"]
+    path: Annotated[str, "The note's file, relative to the plugin workspace"]
     bytes: Annotated[int, "The note's size in bytes"]
 
 
 TOOLS = {Tool.WRITE_NOTE: (NoteInput, NoteOutput)}
-TASKS = {Task.WRITE_NOTE: NoteInput}
+TASKS = {Task.WRITE_NOTE: (NoteInput, NoteOutput)}

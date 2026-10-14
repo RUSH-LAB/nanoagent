@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-cd "$(git rev-parse --show-toplevel)"
+cd "$(git rev-parse --show-toplevel)/nanoagent"
 .venv/bin/python \
     examples/chat_with_agent/step1_llm_inference_with_tools.py \
     config=examples/chat_with_agent/configs/step1_llm_inference_with_tools.yaml \

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import {fileURLToPath} from 'node:url';
-import {parseEnv} from '../db/postgres.mjs';
+import {parseEnv, serializeEnv} from '../db/postgres.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const destination = path.join(root, '.env');
@@ -32,11 +32,7 @@ if (Object.keys(values).length === 0) {
 }
 
 const temporary = `${destination}.${process.pid}.tmp`;
-fs.writeFileSync(
-  temporary,
-  `${Object.entries(values).map(([key, value]) => `${key}=${value}`).join('\n')}\n`,
-  {mode: 0o600},
-);
+fs.writeFileSync(temporary, serializeEnv(values), {mode: 0o600});
 fs.renameSync(temporary, destination);
 fs.chmodSync(destination, 0o600);
 

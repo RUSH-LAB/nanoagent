@@ -17,6 +17,9 @@ const MAX_STORED_CHARS = 128 * 1024;
 const SESSIONS_KEY = 'mochi-cli-sessions';
 const ENTRY_KINDS = new Set(['input', 'output', 'system', 'error']);
 
+// The default agent's id was 'mochi' before it was named after RUSH Lab.
+const agentIdOf = id => (id === 'mochi' ? 'rush' : id);
+
 const freshSession = id => ({id, entries: [], busy: false, target: null, sendError: null});
 
 function storageKey(workspaceKey) {
@@ -92,7 +95,7 @@ function cleanChat(chat) {
     .slice(-MAX_ENTRIES_PER_CHAT);
   return {
     id: chat.id,
-    agentId: chat.agentId,
+    agentId: agentIdOf(chat.agentId),
     // A profileId chats once carried came from their agent, not from /model, so it is dropped.
     ...(cleanModelChoice(chat.modelChoice) ? {modelChoice: cleanModelChoice(chat.modelChoice)} : {}),
     title: String(chat.title || titleFromEntries(entries)).slice(0, 60),
@@ -107,7 +110,7 @@ function cleanTarget(target, chatIds) {
   if (target?.chatId != null && chatIds.has(String(target.chatId))) {
     return {
       chatId: String(target.chatId),
-      agentId: String(target.agentId ?? ''),
+      agentId: agentIdOf(String(target.agentId ?? '')),
       label: target.label ?? null,
     };
   }
@@ -156,7 +159,7 @@ function migrateLegacy(parsed) {
       const label = agentId === String(session.target?.agentId) ? session.target?.label : null;
       const chat = {
         id,
-        agentId,
+        agentId: agentIdOf(agentId),
         title: titleFromEntries(transcript, label ? `${label} chat` : 'Recovered chat'),
         entries: transcript.map(entry => ({...entry, targetKey: key})).slice(-MAX_ENTRIES_PER_CHAT),
         createdAt: '',

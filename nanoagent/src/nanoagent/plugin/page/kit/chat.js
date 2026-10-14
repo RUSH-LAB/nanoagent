@@ -1,78 +1,88 @@
-// Chat with the plugin's agent over `prompt`: the chat panel, and the drawer that keeps it one
-// click away on a designed page (a side panel on wide screens, a full-screen sheet on narrow ones).
+// Chat with the plugin's agent over `prompt`: every plugin's Session page (kit/shell.js).
 
 import { request, startRun } from "./bridge.js";
-import { h, icon, nextId } from "./dom.js";
+import { h, icon } from "./dom.js";
 import { markdown } from "./markdown.js";
-import { parseToolOutput } from "./run.js";
 import { currentSession, metricsLine } from "./session.js";
 
 /**
- * A conversation with the plugin's agent. Answers are shown as Markdown. A tool call the page has
- * a renderer for shows its result above the answer, as the page draws it; the other calls are the
- * agent's own business and are not shown. The host keeps the conversation with the session, tool
- * results included, so a resumed session shows it again and continues it. Each answer says what
- * it cost and how long it took.
+ * A conversation with the plugin's agent. Answers are shown as Markdown. Each of the agent's
+ * tools is one of the plugin's tasks; each task it ran shows as a chip above the answer, with
+ * whether it passed its check, and picking the chip draws its result with `show`, beside the
+ * chat; the latest result is drawn as it arrives. A task that failed says why. The host keeps the
+ * conversation with the session, task results included, so a resumed session shows it again,
+ * its latest result drawn, and continues it; a message it is still answering shows being
+ * answered, to its end, the page having been closed or not. Each answer says what it cost and how long it took.
  * @param {object} options
- * @param {Node} [options.intro] What the empty log shows.
- * @param {string} [options.placeholder] Default "Message the agent".
- * @param {Array<string|{label: string, text: string}>} [options.suggestions] Chips that put their
- *   text in the box (never send it): people read and edit before pressing Send.
- * @param {(text: string) => string} [options.prepare] Turns what the person typed into what is
- *   sent, e.g. to prefix the page's context ("My current dinner: …"). Their bubble shows what they typed.
- * @param {Record<string, (data: object, call: {arguments: object, send: (text: string) => void}) => Node|null>} [options.render]
- *   One renderer per tool name: it gets the tool's parsed output and draws it (null draws
- *   nothing). `send` sends a message as if the person typed it, e.g. from a card's button.
- * @param {() => void} [options.onTurnDone] After each reply (e.g. refresh workspace files).
- * @returns {{element: HTMLElement, prefill: (text: string) => void, send: (text: string) => void, setSuggestions: (suggestions: Array<string|{label: string, text: string}>) => void, focus: () => void, readonly busy: boolean}}
+ * @param {Node} options.intro What the empty log shows.
+ * @param {string} options.placeholder The message box's placeholder.
+ * @param {Record<string, {label: string, title: string, draw: (result: {output: unknown, verdict: object}, call: {send: (text: string) => void}) => Node}>} options.tasks
+ *   One entry per task id: its chip's `label` and `title`, and `draw`, which draws what the task
+ *   returned. `send` sends a message as if the person typed it, e.g. from a card's button.
+ * @param {(node: Node) => void} options.show Draws a task's result beside the chat.
+ * @returns {{element: HTMLElement, busy: () => boolean}} `busy` is true while a message is being answered.
  */
-export function chatPanel({ intro, placeholder = "Message the agent", suggestions = [], prepare, render = {}, onTurnDone }) {
+export function chatPanel({ intro, placeholder, tasks, show }) {
   const log = h("div", { class: "chat-log", role: "log", "aria-live": "polite" }, intro);
   const input = h("textarea", { class: "input", rows: 2, placeholder, "aria-label": placeholder });
   const sendButton = h("button", { type: "button", class: "button primary", text: "Send" });
   const stop = h("button", { type: "button", class: "button", text: "Stop", hidden: true });
-  const chips = h("div", { class: "chips chat-suggestions", role: "group", "aria-label": "Suggestions" });
   let runId = null;
   let fresh = true;
 
-  /** The tool call's result as the page draws it, or null when it draws none. */
-  const toolResult = ({ name, arguments: args, output, isError }) => {
-    const data = isError || !render[name] ? null : parseToolOutput(output);
-    const drawn = data ? render[name](data, { arguments: args ?? {}, send: (text) => submit(text) }) : null;
-    return drawn ? h("div", { class: "tool-result" }, drawn) : null;
+  let picked = null;
+  /** Marks `chip` picked and draws its task's result beside the chat. */
+  const pick = (chip) => {
+    picked?.setAttribute("aria-pressed", "false");
+    picked = chip;
+    chip.setAttribute("aria-pressed", "true");
+    chip.draw();
+  };
+  /** A task call as a chip that draws its result, or why the task failed. */
+  const toolResult = ({ name, output, isError }) => {
+    const task = tasks[name];
+    if (!task) return h("p", { class: "error-text", text: `The agent called ${name}, which is not one of the plugin's tasks.` });
+    if (isError) return h("p", { class: "error-text", text: `${task.label} failed: ${output}` });
+    const result = JSON.parse(output);
+    const valid = result.verdict.valid;
+    const chip = h(
+      "button",
+      { type: "button", class: valid ? "result-chip" : "result-chip bad", "aria-pressed": "false", title: task.title },
+      icon(valid ? "check" : "error", { size: 14, label: valid ? "Checked" : "Check failed" }),
+      h("span", { text: task.label }),
+    );
+    chip.draw = () => show(task.draw(result, { send: (text) => submit(text) }));
+    chip.addEventListener("click", () => pick(chip));
+    return chip;
   };
   const clearIntro = () => {
     if (fresh) log.replaceChildren();
     fresh = false;
   };
-  for (const { prompt, answer, tools = [] } of currentSession()?.chat ?? []) {
+  for (const { prompt, answer, tools = [], error } of currentSession()?.chat ?? []) {
     clearIntro();
-    log.append(h("div", { class: "message user" }, h("p", { text: prompt })), h("div", { class: "turn" }, tools.map(toolResult), h("div", { class: "message agent" }, markdown(answer))));
+    const turn = h("div", { class: "turn" }, h("div", { class: "tool-results" }, tools.map(toolResult)));
+    if (answer) turn.append(h("div", { class: "message agent" }, markdown(answer)));
+    // A message the session did not answer (it failed, was stopped or interrupted) says why.
+    if (error) turn.append(h("p", { class: "error-text", text: error }));
+    log.append(h("div", { class: "message user" }, h("p", { text: prompt })), turn);
   }
+  const chips = log.querySelectorAll(".result-chip");
+  if (chips.length) pick(chips[chips.length - 1]);
 
   const scroll = () => {
     log.scrollTop = log.scrollHeight;
   };
-  const prefill = (text) => {
-    input.value = text;
-    input.focus();
-    input.setSelectionRange(text.length, text.length);
-  };
-  const setSuggestions = (next) => {
-    chips.replaceChildren(
-      ...next.map((one) => {
-        const { label, text } = typeof one === "string" ? { label: one, text: one } : one;
-        return h("button", { type: "button", class: "chip", text: label, title: text === label ? null : text, onclick: () => prefill(text) });
-      }),
-    );
-    chips.hidden = next.length === 0;
-  };
-
   async function submit(typed) {
     const text = (typed ?? input.value).trim();
     if (!text || sendButton.disabled) return;
-    clearIntro();
     if (typed === undefined) input.value = "";
+    await answer(text, (onEvent) => startRun("prompt", { text }, onEvent));
+  }
+
+  /** Show `text` as the person's message and the agent's reply to it, which `start(onEvent)` streams. */
+  async function answer(text, start) {
+    clearIntro();
     log.append(h("div", { class: "message user" }, h("p", { text })));
     const reply = h("div", { class: "message agent" }, h("p", { class: "typing", "aria-label": "The agent is replying" }, h("span"), h("span"), h("span")));
     const results = h("div", { class: "tool-results" });
@@ -92,18 +102,18 @@ export function chatPanel({ intro, placeholder = "Message the agent", suggestion
       stop.hidden = true;
       stop.disabled = false;
       if (!started) reply.remove();
-      onTurnDone?.();
     };
     try {
-      runId = await startRun("prompt", { text: prepare ? prepare(text) : text }, (name, data) => {
+      runId = await start((name, data) => {
         switch (name) {
           case "chat.delta":
             streamed += data.text ?? "";
             write(streamed);
             break;
           case "chat.tool": {
-            const drawn = toolResult(data);
-            if (drawn) results.append(drawn);
+            const shown = toolResult(data);
+            results.append(shown);
+            if (shown.matches(".result-chip")) pick(shown);
             break;
           }
           case "chat.answer":
@@ -143,85 +153,13 @@ export function chatPanel({ intro, placeholder = "Message the agent", suggestion
       log.append(h("p", { class: "error-text", role: "alert", text: `Stop failed: ${problem.message}` }));
     }
   });
-  setSuggestions(suggestions);
+
+  // A session opened while it still answers a message follows that answer to its end.
+  const running = currentSession()?.running;
+  if (running) answer(running.prompt, (onEvent) => startRun("follow", {}, onEvent));
 
   return {
-    element: h("section", { class: "chat", "aria-label": "Chat" }, log, chips, h("div", { class: "chat-input" }, input, h("div", { class: "chat-buttons" }, stop, sendButton))),
-    prefill,
-    send: (text) => submit(text),
-    setSuggestions,
-    focus: () => input.focus(),
-    get busy() {
-      return sendButton.disabled;
-    },
-  };
-}
-
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-/**
- * The chat in a drawer: a right-hand panel over the page on wide screens, a full-screen sheet on
- * narrow ones. Escape, the close button or the backdrop close it; focus stays inside while it is
- * open and returns to whatever opened it. Closing keeps the conversation.
- * @param {object} options The {@link chatPanel} options, plus:
- * @param {string} [options.title] The drawer's heading, default "Ask the agent".
- * @param {string|Node} [options.note] A line under the heading, e.g. what the chat can't do.
- * @returns {{element: HTMLElement, chat: ReturnType<typeof chatPanel>, open: (options?: {prefill?: string}) => void, close: () => void, readonly isOpen: boolean}}
- */
-export function chatDrawer({ title = "Ask the agent", note, ...chatOptions }) {
-  const chat = chatPanel(chatOptions);
-  const headingId = nextId("drawer");
-  let opener = null;
-  const closeButton = h("button", { type: "button", class: "button ghost icon-only", "aria-label": "Close chat" }, icon("close"));
-  const panel = h(
-    "aside",
-    { class: "drawer-panel", role: "dialog", "aria-modal": "true", "aria-labelledby": headingId },
-    h("header", { class: "drawer-head" }, h("span", { class: "drawer-icon" }, icon("chat")), h("h2", { id: headingId, text: title }), closeButton),
-    note ? h("p", { class: "drawer-note muted" }, note) : null,
-    chat.element,
-  );
-  const element = h("div", { class: "drawer", hidden: true }, h("div", { class: "drawer-backdrop", onclick: () => close() }), panel);
-
-  const close = () => {
-    if (element.hidden) return;
-    element.hidden = true;
-    document.documentElement.classList.remove("drawer-open");
-    opener?.focus?.();
-  };
-  const open = ({ prefill } = {}) => {
-    opener = document.activeElement;
-    element.hidden = false;
-    document.documentElement.classList.add("drawer-open");
-    if (prefill !== undefined) chat.prefill(prefill);
-    else chat.focus();
-  };
-  closeButton.addEventListener("click", close);
-  element.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      close();
-      return;
-    }
-    if (event.key !== "Tab") return;
-    const items = [...panel.querySelectorAll(FOCUSABLE)].filter((item) => item.offsetParent !== null);
-    if (!items.length) return;
-    const first = items[0];
-    const last = items[items.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  });
-  return {
-    element,
-    chat,
-    open,
-    close,
-    get isOpen() {
-      return !element.hidden;
-    },
+    busy: () => sendButton.disabled,
+    element: h("section", { class: "chat", "aria-label": "Chat" }, log, h("div", { class: "chat-input" }, input, h("div", { class: "chat-buttons" }, stop, sendButton))),
   };
 }

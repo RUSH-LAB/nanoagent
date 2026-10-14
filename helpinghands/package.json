@@ -1,9 +1,10 @@
 {
   "name": "mochi-lab",
   "version": "0.0.0",
+  "license": "UNLICENSED",
   "private": true,
   "bin": {
-    "mochi": "./cli/mochi.mjs"
+    "rush": "./cli/rush.mjs"
   },
   "imports": {
     "#plugin-api": "./src/server/plugin-api.js",
@@ -63,6 +64,7 @@
     "better-auth": "^1.7.2",
     "better-sqlite3": "^12.11.1",
     "clsx": "^2.0.0",
+    "gray-matter": "^4.0.3",
     "js-yaml": "^4.1.1",
     "katex": "^0.16.25",
     "kysely": "^0.29.5",

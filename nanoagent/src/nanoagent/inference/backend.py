@@ -24,7 +24,7 @@ import random
 from collections.abc import Awaitable, Callable
 from typing import Any, ClassVar, Protocol
 
-from nanoagent.inference.types import Fidelity, Response
+from nanoagent.inference.types import Answer, Fidelity, Response
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -39,6 +39,10 @@ class Backend(Protocol):
     (:func:`~nanoagent.inference.engine.infer`) calls ``generate(messages)`` unchanged. :meth:`aclose`
     releases transport resources (e.g. an HTTP connection pool); the batch path closes the
     backend it builds when the batch finishes.
+
+    :meth:`answer` asks for one JSON object held to ``schema`` (under the tool or schema ``name``),
+    by whatever constrained decoding the transport has; one that has none raises instead of
+    asking politely and hoping. A reply that is not such an object raises.
 
     :attr:`fidelity` declares, on the CLASS, whether this transport can report the ids the
     sampler actually saw. It is read before an instance exists (by
@@ -58,6 +62,8 @@ class Backend(Protocol):
         tools: list[dict[str, Any]] | None = None,
         on_delta: Callable[[str, str], None] | None = None,
     ) -> Response: ...
+
+    async def answer(self, messages: list[dict[str, Any]], *, name: str, schema: dict[str, Any]) -> Answer: ...
 
     async def aclose(self) -> None: ...
 

@@ -3,7 +3,8 @@
 :class:`Model` is the single public backend (a :class:`~nanoagent.core.agent.ChatModel`): the
 agent loop and interactive session only ever see
 ``Model.query(messages, tools, *, on_delta=None) -> Reply`` and never import a provider SDK.
-It owns no transport of its own — all inference (tool-schema encoding, streaming, retry, the
+:meth:`Model.answer` makes it a :class:`~nanoagent.core.agent.DecisionModel` too: one reply held to
+a JSON Schema. It owns no transport of its own — all inference (tool-schema encoding, streaming, retry, the
 transports themselves) lives in :mod:`nanoagent.inference`, and this module is the ONE place the
 loop side reaches into it. :class:`Model` just:
 
@@ -28,7 +29,7 @@ from typing import Any
 from nanoagent.inference import LeanInferConfig
 from nanoagent.inference.backend import Backend
 from nanoagent.inference.backends import build_backend
-from nanoagent.inference.types import Response
+from nanoagent.inference.types import Answer, Response
 from nanoagent.core.agent import Reply, ToolCall
 from nanoagent.runtime.config import ModelConfig, parse_kv_list
 
@@ -82,6 +83,10 @@ class Model:
             messages, tools=tools, on_delta=on_delta
         )
         return _to_reply(response)
+
+    async def answer(self, messages: list[dict[str, Any]], *, name: str, schema: dict[str, Any]) -> Answer:
+        """Ask the backend for one JSON object held to ``schema``."""
+        return await self._backend.answer(messages, name=name, schema=schema)
 
     async def aclose(self) -> None:
         """Close the transport pool held by a long-lived host."""

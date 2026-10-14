@@ -1,21 +1,20 @@
 'use strict';
-const {APPS_NEED_FS, corsHeaders} = require('./ai');
-const {agentFolder, prepareHome} = require('../fs/agent-sync');
+const {APPS_NEED_FS, followRun, openEventStream} = require('./ai');
+const {agentFolder} = require('../fs/agent-sync');
 const {FsError} = require('../fs/store');
-const {budgetRefusal} = require('../ai-metering');
-const {forRun} = require('../ai-settings');
-const {createSseParser} = require('../ai');
+const {RUNNER_OFFLINE} = require('../ai');
 
 // Apps: the marketplace plugins a workspace added (workspace-apps.js), which an
-// owner adds, tags and removes at /api/apps/{id}, and the caller's own agent folder,
-// `home/<user>/agent/` in the workspace file system, where those apps leave
-// their files and the app pages list, read and save them.
-// Opening an app (GET /api/apps/{id}) has NanoAgent install its package, by
-// sha256; its own page (its ui/ folder) is served from /api/apps/{sha256}/ui/{uiVersion}/ and
-// shown in a sandboxed frame (src/components/PluginFrame), which runs the app's
-// tasks through /api/apps/{id}/tasks/{task}/runs. A prompt for an app goes
-// through /api/ai/stream with an appId and runs on that app's NanoAgent agent
-// inside the same workspace (routes/ai.js).
+// owner adds, tags and removes at /api/apps/{id}, and the caller's own folder
+// for each app, `home/<user>/agent/<app>/` in the workspace file system, where
+// that app leaves its files (/api/agent-files?plugin=<app>).
+// Opening an app (GET /api/apps/{id}) has the NanoAgent on the member's own
+// computer install its package, by sha256; its own page (its ui/ folder) comes
+// from that computer too, at /api/apps/{sha256}/ui/{page}/{uiVersion}/ (`page`
+// names the computer's connection, server/runner.js), and is
+// shown in a sandboxed frame (src/components/PluginFrame). A prompt for an app
+// goes through /api/ai/stream with an appId and runs on that app's NanoAgent
+// agent inside the same workspace (routes/ai.js).
 //
 // The folder is private: its path comes from the caller's own identity, so no
 // request can name anyone else's. Each run works on a copy of it in a scratch
@@ -32,15 +31,14 @@ function contentTypeFor(path, body) {
   return text ? {type: 'text/plain; charset=utf-8', inline: true} : {type: 'application/octet-stream', inline: false};
 }
 
-const ROUTES = new Set(['/api/apps', '/api/agent-files', '/api/agent-files/content']);
+const ROUTES = new Set(['/api/apps', '/api/app-installs', '/api/agent-files', '/api/agent-files/content']);
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const APP_ROUTE = /^\/api\/apps\/([^/]+)$/;
-const UI_ROUTE = /^\/api\/apps\/([^/]+)\/ui\/([^/]+)\/(.+)$/;
+const UI_ROUTE = /^\/api\/apps\/([^/]+)\/ui\/([^/]+)\/([^/]+)\/(.+)$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const UI_VERSION = /^[0-9a-f]{16}$/;
-const TASK_RUN_ROUTE = /^\/api\/apps\/([^/]+)\/tasks\/([^/]+)\/runs$/;
-const SESSIONS_ROUTE = /^\/api\/apps\/([^/]+)\/sessions(?:\/([^/]+))?$/;
-const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const SESSIONS_ROUTE = /^\/api\/apps\/([^/]+)\/sessions(?:\/([^/]+)(\/run)?)?$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * The file a plugin page asks for, as decoded '/'-joined segments, or null for
@@ -65,15 +63,18 @@ function uiFilePath(raw) {
  * A plugin's page and its files. Public, like any published asset: the page
  * runs in a sandboxed frame with an opaque origin, so its own requests carry no
  * session, and module scripts and fonts are fetched with CORS from origin
- * `null`, hence `*`. NanoAgent's Content-Security-Policy, which keeps the page
- * off the network, goes with every file; a file without one is refused. The
- * path names the ui/ folder's version, so NanoAgent lets browsers keep each
- * file forever, and a plugin opened again loads without a request.
+ * `null`, hence `*`. So it comes from the computer the path's `page` names: the
+ * one that opened the plugin. NanoAgent's Content-Security-Policy, which keeps
+ * the page off the network, goes with every file; a file without one is
+ * refused. The path names the ui/ folder's version, so NanoAgent lets browsers
+ * keep each file forever, and a plugin opened again loads without a request.
  */
-async function serveUiFile(res, json, ai, sha256, version, raw) {
+async function serveUiFile(res, json, runners, sha256, page, version, raw) {
   const path = uiFilePath(raw);
-  if (!SHA256.test(sha256) || !UI_VERSION.test(version) || !path) return json(res, 404, {error: 'Not found'});
-  const result = await ai.installUiFile(sha256, version, path);
+  if (!SHA256.test(sha256) || !UUID.test(page) || !UI_VERSION.test(version) || !path) return json(res, 404, {error: 'Not found'});
+  const computer = runners.byPage(page);
+  if (!computer) return json(res, 503, {error: 'The RUSH Lab that opened this plugin is not connected any more. Open the plugin again.'});
+  const result = await computer.installUiFile(sha256, version, path);
   if (result.error) return json(res, result.status, {error: result.error});
   const type = result.headers.get('content-type');
   const policy = result.headers.get('content-security-policy');
@@ -93,129 +94,36 @@ async function serveUiFile(res, json, ai, sha256, version, raw) {
 }
 
 /**
- * One task run on the caller's own agent folder, NanoAgent's `task.*`
- * events passed through as they arrive. A caller who hangs up cancels the run.
- */
-async function streamTaskRun(req, res, ctx, app, task) {
-  const {json, readBody, requireWorkspacePermission, aiMeter, CORS_ORIGIN} = ctx;
-  // A task acts through the app's tools, on the member's own files.
-  requireWorkspacePermission(req.context, 'apps:use');
-  const ai = await ctx.aiFor(req.auth?.userId);
-  try {
-    await aiMeter.assertAllowed(req.context, ai);
-  } catch (error) {
-    const refusal = budgetRefusal(error);
-    if (refusal) return json(res, refusal.status, refusal.body);
-    throw error;
-  }
-  if (!PLUGIN_ID.test(app)) return json(res, 404, {error: `No app named ${app}`});
-  if (!task || task.length > 100) return json(res, 400, {error: 'task must be a task id'});
-  let body;
-  try {
-    body = await readBody(req);
-  } catch {
-    body = null;
-  }
-  const args = body?.arguments;
-  const sessionId = body?.sessionId;
-  if (!args || typeof args !== 'object' || Array.isArray(args) || typeof sessionId !== 'string' || !SESSION_ID.test(sessionId)) {
-    return json(res, 400, {error: 'Request body must be {"arguments": {...}, "sessionId": "<session id>"}'});
-  }
-
-  if (!ctx.agentSync || !ctx.sessions || !ctx.workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
-  try {
-    await ctx.sessions.assertOwned(req.context, app, sessionId);
-  } catch (error) {
-    if (error.name === 'SessionError') return json(res, error.status, {error: error.message});
-    throw error;
-  }
-  const opened = await ctx.workspaceApps.open(req.context, app, ai);
-  if (opened.error) return json(res, opened.status, {error: opened.error});
-  const install = opened.value.sha256;
-  const controller = new AbortController();
-  const onClose = () => controller.abort();
-  // The run itself, which leaves the response open: the stream ends only after
-  // the run's files are written back (below), so a page that reloads its files
-  // on task.done finds them.
-  const runTask = async workspace => {
-    res.on('close', onClose);
-    try {
-      // A task runs on the member's Apps model and settings; it takes no instructions.
-      const {model, settings} = forRun(await ctx.aiSettings(req.auth?.userId), 'apps');
-      const result = await ai.taskRun({workspace, install, task, args, choice: {model, settings}, signal: controller.signal});
-      if (result.error) return json(res, result.status, {error: result.error});
-      // A finished task's task.done says what it cost and how long it took; a
-      // run without it (failed, stopped, or cut off) is charged at the cap.
-      let metrics = null;
-      const events = createSseParser(event => {
-        if (event.type === 'task.done' && event.metrics) metrics = event.metrics;
-      });
-      const decoder = new TextDecoder();
-      res.writeHead(200, {
-        ...corsHeaders(req, CORS_ORIGIN),
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no',
-      });
-      res.flushHeaders?.();
-      // NanoAgent's heartbeats pass through too, keeping the connection inside
-      // the idle limit server/index.js sets.
-      const reader = result.value.getReader();
-      try {
-        for (;;) {
-          const {value, done} = await reader.read();
-          if (done || res.writableEnded || res.destroyed) break;
-          res.write(Buffer.from(value));
-          events.push(decoder.decode(value, {stream: true}));
-        }
-      } catch {
-        // The caller hung up or NanoAgent dropped the stream; either way it ends
-        // here, and the page sees a run that stopped before task.done.
-      } finally {
-        reader.releaseLock();
-        try {
-          await aiMeter.record(req.context, 'task', metrics && {
-            cost: metrics.cost,
-            model: metrics.model,
-            usage: metrics.usage,
-            metrics,
-          }, {ran: true, local: ai.local, pluginId: app, sessionId, task});
-        } catch (error) {
-          console.error('[apps] Could not record task usage:', error.message);
-        }
-      }
-      return undefined;
-    } finally {
-      res.off('close', onClose);
-    }
-  };
-
-  // The run works on a copy of the member's agent folder, and its results are
-  // written back there (fs/agent-sync.js).
-  try {
-    await ctx.agentSync.run(req.context, ai, runTask);
-  } catch (error) {
-    if (!res.headersSent) return json(res, error.status || 502, {error: error.message});
-    console.error('[apps] The run finished but its files could not be written back:', error);
-  }
-  // Ended here, after the stream, because the dispatcher decides a handler
-  // answered by res.writableEnded (see routes/ai.js).
-  if (!res.writableEnded) res.end();
-  return undefined;
-}
-
-/**
  * The caller's sessions with one app (postgres/sessions.js): list and start
- * them, read one back with every call it made, and save what its page keeps.
+ * them, read one back with every call it made, and archive or restore one
+ * (PATCH `{archived}`). A session still answering a message says so, `running`
+ * (its message, `{prompt}`, when read back), and its run is followed at `/run`,
+ * every event so far and then each as it comes, and cancelled by DELETE there.
  */
-async function sessionRoute(req, res, ctx, app, id) {
-  const {json, readBody, requireWorkspacePermission} = ctx;
-  if (!PLUGIN_ID.test(app) || (id !== null && !SESSION_ID.test(id))) return json(res, 404, {error: 'Not found'});
-  if (!ctx.sessions) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
+async function sessionRoute(req, res, ctx, app, id, run) {
+  const {json, requireWorkspacePermission} = ctx;
+  if (!PLUGIN_ID.test(app) || (id !== null && !UUID.test(id))) return json(res, 404, {error: 'Not found'});
+  if (!ctx.sessions || !ctx.appRuns) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
   try {
+    if (run) {
+      requireWorkspacePermission(req.context, 'apps:use');
+      await ctx.appRuns.settle(req.context);
+      if (!(await ctx.sessions.get(req.context, app, id)).running) {
+        return json(res, 404, {error: 'This session is not answering a message any more. Open it again to see its answer.'});
+      }
+      if (req.method === 'GET') {
+        openEventStream(req, res, ctx.CORS_ORIGIN);
+        return await followRun(res, (onEvent, onEnd) => ctx.appRuns.subscribe(id, onEvent, onEnd));
+      }
+      if (req.method === 'DELETE') {
+        await ctx.appRuns.cancel(req.context, id);
+        return json(res, 200, {cancelled: id});
+      }
+      return json(res, 405, {error: 'Method not allowed'});
+    }
     if (id === null && req.method === 'GET') {
       requireWorkspacePermission(req.context, 'content:read');
+      await ctx.appRuns.settle(req.context);
       return json(res, 200, {sessions: await ctx.sessions.list(req.context, app)});
     }
     if (id === null && req.method === 'POST') {
@@ -224,21 +132,14 @@ async function sessionRoute(req, res, ctx, app, id) {
     }
     if (id !== null && req.method === 'GET') {
       requireWorkspacePermission(req.context, 'content:read');
+      await ctx.appRuns.settle(req.context);
       return json(res, 200, {session: await ctx.sessions.get(req.context, app, id)});
     }
-    if (id !== null && req.method === 'PUT') {
+    if (id !== null && req.method === 'PATCH') {
       requireWorkspacePermission(req.context, 'apps:use');
-      let body;
-      try {
-        body = await readBody(req);
-      } catch {
-        return json(res, 400, {error: 'Request body must be JSON, within the size limit'});
-      }
-      if (!body || typeof body !== 'object' || !('state' in body)) {
-        return json(res, 400, {error: 'Request body must be {"state": ..., "title"?: "..."}'});
-      }
-      await ctx.sessions.save(req.context, app, id, {state: body.state, title: body.title});
-      return json(res, 200, {saved: true});
+      const body = await ctx.readBody(req).catch(() => null);
+      if (typeof body?.archived !== 'boolean') return json(res, 400, {error: 'Request body must be {"archived": true} or {"archived": false}'});
+      return json(res, 200, {session: await ctx.sessions.archive(req.context, app, id, body.archived)});
     }
   } catch (error) {
     if (error.name === 'SessionError') return json(res, error.status, {error: error.message});
@@ -259,7 +160,8 @@ function tagsOf(body) {
 }
 
 /**
- * One of the workspace's apps: GET opens it, installed and ready to run; PUT
+ * One of the workspace's apps: GET opens it, installed and ready to run on the
+ * member's own computer, with the `computer` page id its page is served by; PUT
  * adds the marketplace plugin of that id, PATCH replaces the tags the
  * workspace files it under, and DELETE removes it, each an owner's to do.
  */
@@ -269,8 +171,11 @@ async function appRoute(req, res, ctx, id) {
   if (!workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
   if (req.method === 'GET') {
     requireWorkspacePermission(req.context, 'content:read');
-    const opened = await workspaceApps.open(req.context, id);
-    return opened.error ? json(res, opened.status, {error: opened.error}) : json(res, 200, {app: opened.value});
+    const computer = ctx.runners.computer(req.context.userId);
+    if (!computer) return json(res, 503, {error: RUNNER_OFFLINE});
+    const page = ctx.runners.page(req.context.userId);
+    const opened = await workspaceApps.open(req.context, id, computer);
+    return opened.error ? json(res, opened.status, {error: opened.error}) : json(res, 200, {app: {...opened.value, computer: page}});
   }
   if (req.method === 'PUT') {
     requireWorkspacePermission(req.context, 'workspace:manage');
@@ -301,21 +206,11 @@ async function appRoute(req, res, ctx, id) {
 }
 
 module.exports = async function app_routes(req, res, url, pathname, ctx) {
-  const {json, readRawBody, requireWorkspacePermission, ai} = ctx;
+  const {json, readRawBody, requireWorkspacePermission} = ctx;
   const ui = UI_ROUTE.exec(pathname);
-  if (ui && req.method === 'GET') return serveUiFile(res, json, ai, ui[1], ui[2], ui[3]);
-  const taskRun = TASK_RUN_ROUTE.exec(pathname);
-  if (taskRun && req.method === 'POST') {
-    let task;
-    try {
-      task = decodeURIComponent(taskRun[2]);
-    } catch {
-      return json(res, 400, {error: 'task must be a task id'});
-    }
-    return streamTaskRun(req, res, ctx, taskRun[1], task);
-  }
+  if (ui && req.method === 'GET') return serveUiFile(res, json, ctx.runners, ui[1], ui[2], ui[3], ui[4]);
   const sessions = SESSIONS_ROUTE.exec(pathname);
-  if (sessions) return sessionRoute(req, res, ctx, sessions[1], sessions[2] ?? null);
+  if (sessions) return sessionRoute(req, res, ctx, sessions[1], sessions[2] ?? null, Boolean(sessions[3]));
   const app = APP_ROUTE.exec(pathname);
   if (app) return appRoute(req, res, ctx, app[1]);
   if (!ROUTES.has(pathname)) return;
@@ -328,10 +223,31 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
     return json(res, 200, {apps: result.value});
   }
 
+  // Entering a workspace installs its apps ahead of the first open, on the
+  // member's computer, where their pages and runs are. Answered at once; an
+  // install that fails is logged, and opening that app reports it.
+  if (req.method === 'POST' && pathname === '/api/app-installs') {
+    requireWorkspacePermission(req.context, 'content:read');
+    if (!ctx.workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
+    const computer = ctx.runners.computer(req.context.userId);
+    if (!computer) return json(res, 503, {error: RUNNER_OFFLINE});
+    ctx.workspaceApps.prepare(req.context, computer).then(
+      result => {
+        for (const failed of result.error ? [result] : result.value.filter(app => app.error)) {
+          console.error(`[apps] preparing ${failed.id ?? 'the workspace\'s apps'} failed: ${failed.error}`);
+        }
+      },
+      error => console.error('[apps] preparing the workspace\'s apps failed:', error),
+    );
+    return json(res, 202, {preparing: true});
+  }
+
   const fs = ctx.workspaceFs;
   if (!fs) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
   const scope = req.context;
-  const folder = agentFolder(scope);
+  const plugin = url.searchParams.get('plugin');
+  if (!plugin || !PLUGIN_ID.test(plugin)) return json(res, 400, {error: 'plugin is required'});
+  const folder = agentFolder(scope, plugin);
   if (req.method === 'GET' && pathname === '/api/agent-files') {
     requireWorkspacePermission(scope, 'content:read');
     const files = (await fs.list(scope, {prefix: folder})).filter(node => node.kind === 'file');
@@ -351,7 +267,6 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
       } catch {
         return json(res, 413, {error: 'File is too large'});
       }
-      await prepareHome(fs, scope);
       const create = url.searchParams.get('create') === '1';
       const node = await fs.write(scope, `${folder}/${path}`, body, create ? {baseRev: 0} : {});
       return json(res, 200, {path, size: node.size});

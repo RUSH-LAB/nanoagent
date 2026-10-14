@@ -33,7 +33,7 @@ describe('sign-in gate', () => {
 
   it('lets through files and requests that are not navigations', () => {
     assert.equal(asksForSession(page('/assets/js/main.js')), false);
-    assert.equal(asksForSession(page('/img/mochi.jpg')), false);
+    assert.equal(asksForSession(page('/img/rush-lab.png')), false);
     assert.equal(asksForSession(page('/tasks', 'application/json')), false);
     assert.equal(asksForSession({method: 'POST', url: '/tasks', headers: {accept: 'text/html'}}), false);
   });

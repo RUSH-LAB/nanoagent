@@ -38,17 +38,18 @@ default_profile: pi-deepseek
 profiles:
   - deploy/railway/profiles/pi-deepseek.yaml
   - deploy/railway/profiles/app-deepseek.yaml
-# NanoAgent's own plugins, in Mochi's marketplace; like an upload, one runs once Mochi installs it.
-packages:
-  - plugins/arxiv-source
-  - plugins/bibtex-check
-  - plugins/chess-move
-  - plugins/meal-suggestion
-  - plugins/nasdaq-drawdown
+# NanoAgent ships no plugin: each is published to Mochi's marketplace from its own repository, and
+# runs once Mochi installs it.
+packages: []
 # Scratch space, one folder per run; Mochi keeps the files.
 workspaces: /tmp/nanoagent-workspaces
-# Installed packages, one folder per sha256; Mochi installs again after a restart.
-installs: /tmp/nanoagent-installs
+# On the service's volume, so a restart keeps them: installed packages, one folder per sha256
+# (Mochi installs again after a restart and gets the kept one), and the uv cache they share.
+installs: /data/nanoagent-installs
+uv_cache: /data/nanoagent-uv-cache
+installs_unused_days: 30
+# The Python plugins run on: the one NanoAgent runs on here.
+plugin_python: python
 # Plugins run as plain processes for now: Railway's containers refuse bwrap the namespaces it
 # needs. Anyone may publish a plugin, so this must become a sandbox (docs/plans/plugin-sandbox.md).
 sandbox: none

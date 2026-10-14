@@ -36,9 +36,10 @@
      --site-cli-row is the prompt line. --site-cli-height is the whole strip the
      window occupies; CommandBar republishes it on the root element as the
      window opens, collapses and resizes, and the value here is the collapsed
-     fallback used before hydration. */
+     fallback used before hydration. While chat is hidden (src/theme/Root.js,
+     SHOW_CHAT) no CLI mounts, so the strip is 0. */
   --site-cli-row: 2.75rem;
-  --site-cli-height: var(--site-cli-row);
+  --site-cli-height: 0px;
   /* Everything between the navbar and the CLI bar. The one place that knows
      either height, for the pages whose body is a fixed region rather than a
      document. */

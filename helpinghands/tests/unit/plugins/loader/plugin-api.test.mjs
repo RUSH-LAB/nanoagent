@@ -256,7 +256,7 @@ describe('capability gating', () => {
   it('grants the AI provider without exposing the server AI object', async () => {
     const {api} = apiFor(['ai']);
     assert.deepEqual(await api.ai.complete({prompt: 'hello'}), {text: 'hello'});
-    assert.deepEqual(api.ai.describe(), {available: true});
+    assert.deepEqual(await api.ai.describe(), {available: true});
   });
 });
 

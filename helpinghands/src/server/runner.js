@@ -10,10 +10,13 @@
  * them on and keeps nothing, and the computer says only which are set. One
  * computer per member: a second replaces the first. The sockets are
  * this process's, like every other live connection here (fs/events.js).
+ *
+ * Plugin pages come from the computer too. Their frame carries no session, so
+ * a page's address names the computer by `page`, a random id of its connection.
  */
 const crypto = require('crypto');
 const {WebSocketServer} = require('ws');
-const {PATH, pickHeaders} = require('../runner/protocol');
+const {PATH, HOLD_MS, pickHeaders} = require('../runner/protocol');
 const {createNanoAgentGateway, RUNNER_OFFLINE} = require('./ai');
 
 // A plugin package travels in one frame.
@@ -45,13 +48,21 @@ function keyList(value) {
     }));
 }
 
-/** `fetch`, made by the computer behind `entry`'s socket. */
+/** An error of the member's computer's connection, which a run reports as it is. */
+const gone = message => Object.assign(new Error(message), {code: 'runner'});
+
+/**
+ * `fetch`, made by the computer behind `entry`'s socket. With `init.run`
+ * (`{id, resume}`), the request is a held one (runner/protocol.js) by that id,
+ * started, or with `resume` taken up again from its first frame; a held call
+ * outlives the socket, and follows the computer to its next one (`call.entry`).
+ */
 function socketFetch(entry) {
   return (url, init = {}) => new Promise((resolve, reject) => {
     const signal = init.signal;
     if (signal?.aborted) return reject(signal.reason);
-    if (entry.closed) return reject(new Error('Mochi Lab disconnected'));
-    const id = crypto.randomUUID();
+    if (entry.closed) return reject(gone('RUSH Lab disconnected'));
+    const id = init.run?.id ?? crypto.randomUUID();
     let stream;
     let answered = false;
     const body = new ReadableStream({
@@ -60,16 +71,21 @@ function socketFetch(entry) {
     });
     const onAbort = () => fail(signal.reason, {type: 'abort', id});
     function finish(frame) {
-      entry.pending.delete(id);
+      call.entry.pending.delete(id);
+      call.leftAway?.();
       signal?.removeEventListener('abort', onAbort);
-      if (frame && !entry.closed) entry.socket.send(JSON.stringify(frame));
+      if (frame && !call.entry.closed) call.entry.socket.send(JSON.stringify(frame));
     }
     function fail(error, frame) {
       finish(frame);
       if (!answered) reject(error);
       else try { stream.error(error); } catch { /* already closed */ }
     }
-    entry.pending.set(id, {
+    const call = {
+      entry,
+      hold: Boolean(init.run),
+      // How many of its frames came, for a held call to resume after.
+      frames: 0,
       head(status, headers) {
         answered = true;
         resolve(new Response(NULL_BODY.has(status) ? null : body, {status, headers}));
@@ -80,8 +96,13 @@ function socketFetch(entry) {
         stream.close();
       },
       fail,
-    });
+    };
+    entry.pending.set(id, call);
     signal?.addEventListener('abort', onAbort, {once: true});
+    if (init.run?.resume) {
+      entry.socket.send(JSON.stringify({type: 'resume', id, from: 0}));
+      return;
+    }
     const {pathname, search} = new URL(url);
     entry.socket.send(JSON.stringify({
       type: 'request',
@@ -90,25 +111,31 @@ function socketFetch(entry) {
       path: pathname + search,
       headers: pickHeaders(init.headers),
       ...(init.body === undefined ? {} : {body: Buffer.from(init.body).toString('base64')}),
+      ...(init.run ? {hold: true} : {}),
     }));
   });
 }
 
 /**
- * `memberKeys` (postgres/member-keys.js) holds the keys members gave Mochi
- * itself: a member with no computer connected runs on the hosted NanoAgent
- * with them, and with neither, every run is refused.
+ * `openrouterKeys` (openrouter-keys.js), when Mochi gives members an OpenRouter
+ * key: a computer that connects without one is given one.
  */
-function createRunners({resolveIdentity, memberKeys = null, env = process.env}) {
+function createRunners({resolveIdentity, openrouterKeys = null}) {
   const connected = new Map();
+  const pages = new Map();
+  // Held calls whose computer went away, by id: {userId, call, timer}, until it is back.
+  const away = new Map();
+  let onRuns = () => {};
   const offline = createNanoAgentGateway({endpoint: {error: RUNNER_OFFLINE}, local: true});
   const sockets = new WebSocketServer({noServer: true, maxPayload: MAX_PAYLOAD});
 
   function attach(userId, socket) {
-    const entry = {socket, device: null, keys: [], pending: new Map(), closed: false};
+    // `runs`: the held requests the computer said it has, once it has said hello.
+    const entry = {socket, page: crypto.randomUUID(), device: null, keys: [], pending: new Map(), closed: false, runs: null};
     entry.gateway = createNanoAgentGateway({endpoint: {url: 'http://runner'}, fetchImpl: socketFetch(entry), local: true});
-    connected.get(userId)?.socket.close(REPLACED, 'Another Mochi Lab signed in as this account');
+    connected.get(userId)?.socket.close(REPLACED, 'Another RUSH Lab signed in as this account');
     connected.set(userId, entry);
+    pages.set(entry.page, entry);
     const ping = setInterval(() => socket.ping(), PING_MS);
     socket.on('message', raw => {
       let frame;
@@ -118,12 +145,20 @@ function createRunners({resolveIdentity, memberKeys = null, env = process.env}) 
         return socket.close(1003, 'Frames are JSON');
       }
       if (frame?.type === 'hello') {
+        // A hello again is the computer saying its keys changed: a key the member removed stays removed.
+        const first = !entry.greeted;
+        entry.greeted = true;
         entry.device = typeof frame.device === 'string' ? frame.device.slice(0, 100) : null;
         entry.keys = keyList(frame.keys);
-        return;
+        if (first) giveKey(userId, entry);
+        const runs = Array.isArray(frame.runs) ? frame.runs.filter(id => typeof id === 'string') : [];
+        entry.runs = new Set(runs);
+        claimAway(userId);
+        return onRuns(userId, runs.filter(id => !entry.pending.has(id)));
       }
       const call = entry.pending.get(frame?.id);
       if (!call) return;
+      call.frames += 1;
       if (frame.type === 'head') call.head(frame.status, frame.headers);
       else if (frame.type === 'chunk') call.chunk(frame.data);
       else if (frame.type === 'end') call.end();
@@ -133,13 +168,65 @@ function createRunners({resolveIdentity, memberKeys = null, env = process.env}) 
     socket.on('close', () => {
       clearInterval(ping);
       entry.closed = true;
-      for (const call of entry.pending.values()) call.fail(new Error('Mochi Lab disconnected'));
+      for (const [id, call] of entry.pending) {
+        if (!call.hold) {
+          call.fail(gone('RUSH Lab disconnected'));
+          continue;
+        }
+        entry.pending.delete(id);
+        const timer = setTimeout(() => call.fail(gone(`RUSH Lab disconnected, and was not back within ${HOLD_MS / 60_000} minutes`)), HOLD_MS);
+        // Waiting keeps no process up: one shutting down lets its calls go.
+        timer.unref();
+        // A call that ends while its computer is away (it is cancelled) is not waited for any more.
+        call.leftAway = () => {
+          clearTimeout(timer);
+          away.delete(id);
+          call.leftAway = null;
+        };
+        away.set(id, {userId, call});
+      }
       if (connected.get(userId) === entry) connected.delete(userId);
+      pages.delete(entry.page);
+      // The computer may be back already, its hello heard before this socket's close.
+      claimAway(userId);
     });
     socket.on('error', () => socket.terminate());
   }
 
-  return Object.freeze({
+  /** An OpenRouter key from Mochi, saved on the member's computer when it holds none of its own. */
+  function giveKey(userId, entry) {
+    const slot = entry.keys.find(key => key.env === openrouterKeys?.ENV);
+    if (!slot || slot.set) return;
+    openrouterKeys.give(userId)
+      .then(key => !entry.closed && api.saveKeys(userId, {[slot.env]: key}))
+      .then(result => { if (result?.error) throw new Error(result.error); })
+      .catch(error => console.error(`[runner] Could not give ${userId} an OpenRouter key:`, error.message));
+  }
+
+  /**
+   * Hand each held call of the member's whose computer went away to the
+   * computer connected now, once it has said which held requests it has
+   * (`hello`): a call goes on from the frames it had, or fails when the
+   * computer does not have it any more. The held requests this process has no
+   * call for (it started since) go to `onRuns`, from the hello.
+   */
+  function claimAway(userId) {
+    const entry = connected.get(userId);
+    if (!entry || entry.closed || !entry.runs) return;
+    for (const [id, {userId: owner, call}] of away) {
+      if (owner !== userId) continue;
+      call.leftAway();
+      if (!entry.runs.has(id)) {
+        call.fail(gone('RUSH Lab stopped while answering'));
+        continue;
+      }
+      call.entry = entry;
+      entry.pending.set(id, call);
+      entry.socket.send(JSON.stringify({type: 'resume', id, from: call.frames}));
+    }
+  }
+
+  const api = Object.freeze({
     /**
      * Take an HTTP upgrade to PATH, signed in by a bearer token only: a page in
      * a browser carries an Origin and the member's cookie, and could otherwise
@@ -164,6 +251,16 @@ function createRunners({resolveIdentity, memberKeys = null, env = process.env}) 
       return connected.get(userId)?.gateway ?? null;
     },
 
+    /** The `page` id plugin pages address the member's connected computer by, else null. */
+    page(userId) {
+      return connected.get(userId)?.page ?? null;
+    },
+
+    /** The NanoAgent of the computer whose connection has the `page` id, else null. */
+    byPage(page) {
+      return pages.get(page)?.gateway ?? null;
+    },
+
     /** Whether the member's computer is connected, what it calls itself, and which keys it holds. */
     status(userId) {
       const entry = connected.get(userId);
@@ -176,12 +273,12 @@ function createRunners({resolveIdentity, memberKeys = null, env = process.env}) 
      */
     async saveKeys(userId, changes) {
       const entry = connected.get(userId);
-      if (!entry) return {error: 'Mochi Lab is not connected', status: 409};
+      if (!entry) return {error: 'RUSH Lab is not connected', status: 409};
       const names = new Set(entry.keys.map(key => key.env));
       const pairs = changes && typeof changes === 'object' && !Array.isArray(changes) ? Object.entries(changes) : [];
       if (!pairs.length) return {error: 'changes must name at least one key', status: 400};
       for (const [name, value] of pairs) {
-        if (!names.has(name)) return {error: `${name} is not a key Mochi Lab holds`, status: 400};
+        if (!names.has(name)) return {error: `${name} is not a key RUSH Lab holds`, status: 400};
         if (value !== null && (typeof value !== 'string' || !value.trim() || value.length > KEY_LENGTH)) {
           return {error: `${name} must be a key, or null to remove it`, status: 400};
         }
@@ -201,16 +298,22 @@ function createRunners({resolveIdentity, memberKeys = null, env = process.env}) 
     },
 
     /**
-     * The NanoAgent the member's runs go to: their computer's while it is
-     * connected, else the hosted one with the keys they gave Mochi, else one
-     * refusing every call.
+     * Hear, from each computer that says hello, which held requests it has that
+     * this process has no call for: `listener(userId, ids)`.
      */
+    onRuns(listener) {
+      onRuns = listener;
+    },
+
+    /** Tell the member's computer Mochi has kept what the held request `id` did, if it is connected. */
+    release(userId, id) {
+      const entry = connected.get(userId);
+      if (entry && !entry.closed) entry.socket.send(JSON.stringify({type: 'release', id}));
+    },
+
+    /** The NanoAgent the member's runs go to: their computer's, refusing every call while it is not connected. */
     async aiFor(userId) {
-      const computer = connected.get(userId)?.gateway;
-      if (computer) return computer;
-      const keys = userId && memberKeys ? await memberKeys.values(userId) : {};
-      if (!keys.OPENROUTER_API_KEY) return offline;
-      return createNanoAgentGateway({env, keys, local: true});
+      return connected.get(userId)?.gateway ?? offline;
     },
 
     /**
@@ -221,6 +324,7 @@ function createRunners({resolveIdentity, memberKeys = null, env = process.env}) 
       for (const entry of connected.values()) entry.socket.close(GOING_AWAY, 'Mochi is restarting');
     },
   });
+  return api;
 }
 
 module.exports = {createRunners, socketFetch, MAX_PAYLOAD};

@@ -37,18 +37,24 @@ JsonSchema = dict[str, Any]
 
 
 class ToolText(str):
-    """A tool's text result that also carries images for the model.
+    """A tool's text result that also carries images for the model, and the model calls the tool
+    made itself.
 
     A ``str``, so it passes unchanged through every path that handles tool output as text; the
     agent loop reads ``images`` (each ``{"media_type": "image/png", "data": <base64>}``) when it
     builds the tool message, and only a backend that can show images to the model accepts them.
+    ``model_calls`` (:class:`~nanoagent.profiler.ModelCallProfile` records of kind ``"tool"``,
+    e.g. an agent the tool ran) go into the step's profile, so they count in the run's usage and
+    cost.
     """
 
     images: list[dict[str, str]]
+    model_calls: tuple[Any, ...]
 
-    def __new__(cls, text: str, *, images: list[dict[str, str]]) -> ToolText:
+    def __new__(cls, text: str, *, images: list[dict[str, str]] = (), model_calls: tuple[Any, ...] = ()) -> ToolText:
         value = super().__new__(cls, text)
-        value.images = images
+        value.images = list(images)
+        value.model_calls = tuple(model_calls)
         return value
 
 class Tool:

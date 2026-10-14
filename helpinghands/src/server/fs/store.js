@@ -149,7 +149,9 @@ function operations(client, scope, logged = () => {}) {
       return existing;
     }
     const parent = await ensureFolder(parentOf(folderPath));
-    return insertNode({nodePath: folderPath, kind: 'folder', parent});
+    // A member's home is private to them from the moment it is made, however it is made.
+    const access = folderPath === `home/${scope.userId}` ? 'private' : undefined;
+    return insertNode({nodePath: folderPath, kind: 'folder', parent, access});
   }
 
   async function insertNode({nodePath, kind, parent, content = null, contentType = null, meta = {}, access, id}) {

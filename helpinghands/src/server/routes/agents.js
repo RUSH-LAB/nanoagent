@@ -4,15 +4,17 @@
 // runs on is theirs to choose (Settings → AI, ai-settings.js).
 const AGENT_RE = /^\/api\/agents\/([^/]+)$/;
 const COLORS = new Set(['violet', 'blue', 'emerald', 'amber', 'rose', 'slate']);
-const DEFAULT_AGENT_ID = 'mochi';
-const DEFAULTS_VERSION = 6;
+const DEFAULT_AGENT_ID = 'rush';
+// The default agent's id before version 8 named it after RUSH Lab.
+const OLD_DEFAULT_AGENT_ID = 'mochi';
+const DEFAULTS_VERSION = 8;
 // What agents once carried to choose their model.
 const MODEL_FIELDS = ['provider', 'model', 'profileId'];
 
 function defaultAgent(now = new Date().toISOString()) {
   return {
     id: DEFAULT_AGENT_ID,
-    name: 'Mochi',
+    name: 'RUSH',
     description: '',
     instructions: '',
     tools: [],
@@ -26,7 +28,13 @@ function defaultAgent(now = new Date().toISOString()) {
 }
 
 async function ensureDefaultAgent(agents, scope) {
-  const values = await agents.values(scope);
+  const values = await Promise.all((await agents.values(scope)).map(async agent => {
+    if (agent.id !== OLD_DEFAULT_AGENT_ID || !agent.builtin) return agent;
+    const moved = {...agent, id: DEFAULT_AGENT_ID};
+    await agents.put(scope, moved.id, moved);
+    await agents.remove(scope, OLD_DEFAULT_AGENT_ID);
+    return moved;
+  }));
   const normalized = await Promise.all(values.map(async agent => {
     const oldDefaultDescription = agent.id === DEFAULT_AGENT_ID
       && agent.builtin
@@ -43,6 +51,8 @@ async function ensureDefaultAgent(agents, scope) {
       ...(oldDefaultDescription ? {description: ''} : {}),
       instructions: typeof agent.instructions === 'string' ? agent.instructions : '',
       ...(oldMochiDefaults ? {defaultsVersion: DEFAULTS_VERSION} : {}),
+      // Version 7 renamed the default agent Mochi to RUSH; a name its workspace chose stays.
+      ...(oldMochiDefaults && agent.name === 'Mochi' ? {name: 'RUSH'} : {}),
     }).filter(([key]) => !MODEL_FIELDS.includes(key)));
     await agents.put(scope, updated.id, updated);
     return updated;
@@ -131,7 +141,7 @@ module.exports = async function agent_routes(req, res, _url, pathname, ctx) {
   }
 
   if (req.method === 'DELETE') {
-    if (current.builtin) return json(res, 400, {error: 'The default Mochi agent cannot be deleted'});
+    if (current.builtin) return json(res, 400, {error: 'The default agent cannot be deleted'});
     await agents.remove(scope, agentId);
     return json(res, 200, {deleted: true});
   }

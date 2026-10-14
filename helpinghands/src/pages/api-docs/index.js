@@ -388,7 +388,7 @@ const CATEGORIES = [
         response: '{ "settings": { ... } }',
       },
       {
-        method: 'GET', path: '/api/ai/models', description: 'The models you may choose: every model on your computer, available once Mochi Lab holds its provider\'s key; with no computer connected, Mochi\'s own models, available once Mochi keeps your OpenRouter key.',
+        method: 'GET', path: '/api/ai/models', description: 'The models you may choose: every model on your computer, available once Mochi Lab holds its provider\'s key; none while it is not connected.',
         response: '{ "connected": true, "device": "laptop", "models": [{ "key": "anthropic/claude-sonnet-4-5", "choice": { "provider": "anthropic", "model": "claude-sonnet-4-5" }, "label": "Claude Sonnet 4.5", "uses": ["chat", "inline"], "available": false, "unavailableReason": "Needs your Anthropic key: add it under API keys" }], "defaults": { "chat": "openrouter/deepseek/deepseek-v4-flash-0731" }, "limits": { "capped": false } }',
       },
       {
@@ -396,22 +396,27 @@ const CATEGORIES = [
         response: '{ "connected": true, "device": "laptop", "keys": [{ "env": "OPENROUTER_API_KEY", "label": "OpenRouter", "set": true }] }',
       },
       {
+        method: 'GET', path: '/api/runner/credit', description: 'What the OpenRouter key in Mochi Lab has spent, in dollars, as OpenRouter says: `you`, what you have spent (on every key Mochi gave you, when it is Mochi\'s key); `total`, what everyone has spent against the cap, the workspace\'s lifetime budget, or the key\'s own spend against its limit (null for none). Null while Mochi Lab holds no OpenRouter key.',
+        response: '{ "credit": { "you": 1.25, "total": { "used": 6, "cap": 10 } } }',
+      },
+      {
         method: 'PUT', path: '/api/runner/keys', description: 'Set (a key) or remove (null) API keys in Mochi Lab. Mochi passes them on and keeps nothing; your runs use them at once.',
         request: '{ "changes": { "ANTHROPIC_API_KEY": "sk-ant-..." } }',
         response: '{ "saved": true }',
       },
       {
-        method: 'GET', path: '/api/agent-files', description: 'List the files in your private agent folder (home/<you>/agent in the workspace file system): what the apps you ran saved for you, and what you made. Manage it like any other folder through /api/fs.',
+        method: 'GET', path: '/api/agent-files', description: 'List the files in your private folder for the app plugin (home/<you>/agent/<plugin> in the workspace file system): what its runs saved for you, and what you made for them. Only that app\'s runs see it. Manage it like any other folder through /api/fs.',
+        request: '?plugin=arxiv-source',
         response: '{ "files": [{ "path": "attention/ms.tex", "size": 1234 }] }',
       },
       {
-        method: 'GET', path: '/api/agent-files/content', description: 'Open one file from your agent folder. Images and PDFs are shown as themselves, other text as plain text, anything else is downloaded.',
-        request: '?path=attention/ms.tex',
+        method: 'GET', path: '/api/agent-files/content', description: 'Open one file from your folder for the app plugin. Images and PDFs are shown as themselves, other text as plain text, anything else is downloaded.',
+        request: '?plugin=arxiv-source&path=attention/ms.tex',
         response: '(file bytes)',
       },
       {
-        method: 'PUT', path: '/api/agent-files/content', description: 'Save a file in your agent folder, making its folders. With create=1 it refuses to replace an existing file (409). Any member, viewers included: the folder is theirs.',
-        request: '?path=notes/idea.md[&create=1]\n\n(raw file contents)',
+        method: 'PUT', path: '/api/agent-files/content', description: 'Save a file in your folder for the app plugin, making its folders. With create=1 it refuses to replace an existing file (409). Any member, viewers included: the folder is theirs.',
+        request: '?plugin=arxiv-source&path=notes/idea.md[&create=1]\n\n(raw file contents)',
         response: '{ "path": "notes/idea.md", "size": 120 }',
       },
       {
@@ -419,13 +424,12 @@ const CATEGORIES = [
         response: '{ "apps": [{ "id": "arxiv-source", "name": "arXiv Source Downloader", "version": "0.1.0", "permissions": { "network": { "hosts": ["export.arxiv.org"] }, "filesystem": { "write": ["workspace"] } }, "tasks": [{ "id": "save-paper-source", "tools": ["download_source"] }], "tools": [{ "name": "download_source", "inputSchema": {}, "outputSchema": {} }], "readme": "# ..." }] }',
       },
       {
-        method: 'GET', path: '/api/apps/:id/ui/:path', description: 'A file of an app\'s own page (its ui/ folder), with NanoAgent\'s Content-Security-Policy. Public and outside any workspace: the page runs in a sandboxed frame, and its requests carry no session.',
+        method: 'GET', path: '/api/apps/:sha256/ui/:computer/:uiVersion/:path', description: 'A file of an app\'s own page (its ui/ folder), from the computer whose Mochi Lab opened the app (its `computer`), with NanoAgent\'s Content-Security-Policy. Public and outside any workspace: the page runs in a sandboxed frame, and its requests carry no session.',
         response: '<!doctype html>...',
       },
       {
-        method: 'POST', path: '/api/apps/:id/tasks/:task/runs', description: 'Run one task of an app in your agent workspace, streaming NanoAgent\'s task events as server-sent events; closing the stream cancels the run. Owners and editors only.',
-        request: '{ "arguments": { "arxiv_id": "1706.03762" } }',
-        response: 'event: task.started\ndata: {"type":"task.started","runId":"...","task":"save-paper-source"}\n\nevent: task.verdict\ndata: {"type":"task.verdict","runId":"...","valid":true,"score":1,"message":"...","details":{}}\n\nevent: task.done\ndata: {"type":"task.done","runId":"..."}',
+        method: 'POST', path: '/api/app-installs', description: 'Install every ready app the workspace added on your computer, so opening one does not wait; 503 while Mochi Lab is not connected. Answers at once; the installs continue in the background. Mochi calls it when you enter a workspace and after you add a plugin.',
+        response: '{ "preparing": true }',
       },
       {
         method: 'GET', path: '/api/agents', description: 'List the reusable AI agents defined for this workspace.',

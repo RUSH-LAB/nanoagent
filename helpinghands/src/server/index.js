@@ -16,7 +16,7 @@ const {
 } = require('./server-utils');
 
 const {PROJECT_ROOT, dataFile, TRASH_DIR, LOGS_DIR} = require('./paths');
-const {auth, tenancy, githubUsers, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
+const {auth, AUTH_SECRET, SITE_URL, tenancy, githubUsers, resolveIdentity, isPublicPath, productionAuthError} = require('./auth');
 const {asksForSession, redirectFor} = require('../utils/signIn');
 const {createAiMeter} = require('./ai-metering');
 const {
@@ -33,13 +33,17 @@ const {contextualChat, contextualOrg} = require('./context-services');
 const roles = postgresServices?.roles ?? require('./roles');
 const chat = contextualChat(postgresServices?.chat ?? require('./chat'));
 const org = contextualOrg(postgresServices?.org ?? require('./org'));
+// Mochi's own NanoAgent: the marketplace's plugin packages only. Every run, install and
+// plugin page is on the member's own computer (server/runner.js).
 const ai = require('./ai');
 const {createGithub} = require('./github');
 // Every assistant call is checked against its workspace's budget and charged to it.
 const aiMeter = createAiMeter(tenancy);
 const {createAgentSync} = require('./fs/agent-sync');
 const {createWorkspaceApps} = require('./workspace-apps');
+const {createAppRuns} = require('./app-runs');
 const {createRunners} = require('./runner');
+const {createOpenRouterKeys, TOTAL} = require('./openrouter-keys');
 // The per-workspace data layer. See server/store/index.js: the only way a route
 // module is allowed to reach the thirteen features' data, because it is the
 // only way that applies the organization and the owner without being asked to.
@@ -49,8 +53,12 @@ const store = postgresServices?.store ?? require('./store');
 // everything else here: a test substitutes them.
 const documents = postgresServices?.documents ?? require('./documents');
 const preferences = postgresServices?.preferences ?? require('./preferences');
-// Members' own computers, which run their NanoAgent when Settings → AI says so.
-const runners = createRunners({resolveIdentity, memberKeys: postgresServices?.memberKeys ?? null});
+// The OpenRouter key Mochi gives each member's computer, on its own account.
+const openrouterKeys = process.env.OPENROUTER_MANAGEMENT_KEY?.trim()
+  ? createOpenRouterKeys({managementKey: process.env.OPENROUTER_MANAGEMENT_KEY.trim()})
+  : null;
+// Members' own computers, which run every NanoAgent call of theirs.
+const runners = createRunners({resolveIdentity, openrouterKeys});
 const aiSettings = require('./ai-settings');
 const workspaceSettings = postgresServices?.workspaceSettings ?? require('./workspace-settings');
 const {createObjectStorage} = require('./object-storage');
@@ -487,17 +495,27 @@ function recordPerfMetric(endpoint, ms) {
 let requestCounter = 0;
 
 // ── Shared context handed to every route module in server/routes/ ──
+// Plugin runs work on a copy of the member's agent folder (fs/agent-sync.js), and
+// outlive their pages and this process (app-runs.js): each computer that says
+// hello hands over the runs it holds that no call here has.
+const appRuns = postgresServices?.fs
+  ? createAppRuns({sessions: postgresServices.sessions, agentSync: createAgentSync({fs: postgresServices.fs}), runners, aiMeter})
+  : null;
+if (appRuns) {
+  runners.onRuns((userId, ids) => appRuns.adopt(userId, ids).catch(error => console.error('[apps] Could not take up runs:', error.message)));
+}
+
 const ctx = {
   appendAccessLog, json, readBody, readRawBody, cached, invalidateCache, cleanStalePresence, rateLimit, recordPerfMetric, PROJECT_ROOT, PORT, TRASH_DIR, LOGS_DIR, ACCESS_LOG, ACCESS_LOG_MAX_LINES, ACCESS_LOG_KEEP_LINES, CORS_ORIGIN, http, fs, path, crypto, URL, execFileSync, cacheKey, isValidFilePath, isValidDir, resolveContentPath, contentPathToUrl, sanitizeText, ALLOWED_EXTS, IMAGE_EXTS, MAX_BODY_SIZE, MAX_TEXT_LENGTH, cache, MAX_CACHE_ENTRIES, presenceStore, MAX_PRESENCE_FILES, MAX_PRESENCE_USERS_PER_FILE, rateLimits, MAX_RATE_LIMIT_KEYS, perfMetrics, PERF_MAX_ENTRIES, PERF_MAX_ENDPOINTS,
   roles,
   chat,
   org,
   ai,
-  // The NanoAgent a member's runs go to: their own computer's, or the hosted one with their own key (server/runner.js).
+  // The NanoAgent a member's runs go to: their own computer's (server/runner.js).
   aiFor: runners.aiFor,
   runners,
-  // The API keys members gave Mochi itself; PostgreSQL only.
-  memberKeys: postgresServices?.memberKeys ?? null,
+  // The OpenRouter keys Mochi gives members' computers, or null (openrouter-keys.js).
+  openrouterKeys,
   // What a member chose in Settings → AI (ai-settings.js).
   aiSettings: async userId => aiSettings.stored(userId ? (await preferences.get(userId)).ai : null),
   aiMeter,
@@ -533,6 +551,24 @@ const ctx = {
   fsHub: postgresServices?.fsHub ?? null,
   // The plugin marketplace's uploads; PostgreSQL only.
   market: postgresServices?.market ?? null,
+  // Mochi Lab's one-line install (routes/lab.js): its bundles, PostgreSQL only; the
+  // secret its download tokens are signed with; and the token its uploads carry.
+  lab: {
+    bundles: postgresServices?.labBundles ?? null,
+    secret: AUTH_SECRET,
+    siteUrl: SITE_URL,
+    uploadToken: process.env.LAB_UPLOAD_TOKEN || null,
+    installScript: path.join(__dirname, '../runner/install.sh'),
+    // A Better Auth session for the member, as the device grant makes one (its token); null when
+    // there is no such member any more.
+    createSession: async userId => {
+      const {internalAdapter} = await auth.$context;
+      if (!await internalAdapter.findUserById(userId)) return null;
+      return (await internalAdapter.createSession(userId)).token;
+    },
+  },
+  // What members submit to their workspace; PostgreSQL only.
+  submissions: postgresServices?.submissions ?? null,
   // Plugin sessions and what their runs cost; PostgreSQL only.
   sessions: postgresServices?.sessions ?? null,
   // The plugins each workspace added from the marketplace, run from NanoAgent's installs; PostgreSQL only.
@@ -541,8 +577,8 @@ const ctx = {
     : null,
   // Where the marketplace fetches a plugin's source.
   github: createGithub(),
-  // Plugin runs work on a copy of the member's agent folder (fs/agent-sync.js).
-  agentSync: postgresServices?.fs ? createAgentSync({fs: postgresServices.fs}) : null,
+  // The plugin runs going on, each its session's until its turn is in it; PostgreSQL only.
+  appRuns,
   compileDocument,
   compileMarkdown,
   parseFrontmatter,
@@ -579,11 +615,13 @@ const routeModules = [
   require('./routes/stats'),
   require('./routes/chat'),
   require('./routes/org'),
-  require('./routes/admin'),
+  require('./routes/signup-policy'),
   require('./routes/agents'),
   require('./routes/ai'),
   require('./routes/apps'),
   require('./routes/market'),
+  require('./routes/lab'),
+  require('./routes/submissions'),
   // Plugin endpoints run after the core ones. A plugin extends the site; it
   // does not get to shadow the routes the site is made of. Each is wrapped so
   // that what reaches it is the narrow plugin API, never this ctx.
@@ -877,10 +915,11 @@ postgresDatabase.ready.then(() => ensureRootUser(auth)).then(root => server.list
   }
   console.log(`  Debug endpoint: GET /api/debug/routes`);
 
-  const assistant = ai.describe();
-  console.log(assistant.available
-    ? `  Assistant: ${assistant.provider} (${assistant.model})`
-    : `  Assistant: unavailable. ${assistant.reason}`);
+  const catalog = ai.describe();
+  console.log(catalog.available ? '  Plugin catalog: NanoAgent' : `  Plugin catalog: unavailable. ${catalog.reason}`);
+  console.log(openrouterKeys
+    ? `  OpenRouter keys: each member's computer is given one, $${TOTAL} for every member together`
+    : '  OpenRouter keys: none given (needs OPENROUTER_MANAGEMENT_KEY)');
 
   cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));
   console.log(`  Root: GitHub ${root.login} (owner)${root.created ? ', account created' : ''}`);

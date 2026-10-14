@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import yaml from 'js-yaml';
-import {parseEnv, prepareNeonEnvironment} from '../../../scripts/db/postgres.mjs';
+import {parseEnv, prepareNeonEnvironment, serializeEnv} from '../../../scripts/db/postgres.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const read = name => fs.readFileSync(path.join(root, name), 'utf8');
@@ -22,6 +22,14 @@ describe('Neon PostgreSQL tooling', () => {
     assert.match(acceptance, /ROOT_GITHUB_LOGIN/);
     assert.match(acceptance, /\/api\/workspaces/);
     assert.match(acceptance, /assertRuntimeRoleIsNotOwner/);
+  });
+
+  it('writes .env values a shell can source and parseEnv reads back', () => {
+    const values = {DATABASE_URL: 'postgresql://u:p@host/db?sslmode=require&channel_binding=require'};
+    const text = serializeEnv(values);
+    assert.equal(text, "DATABASE_URL='postgresql://u:p@host/db?sslmode=require&channel_binding=require'\n");
+    assert.deepEqual(parseEnv(text), values);
+    assert.throws(() => serializeEnv({KEY: "it's"}), /single quote/);
   });
 
   it('derives direct owner and pooled restricted Neon URLs from one connection string', () => {

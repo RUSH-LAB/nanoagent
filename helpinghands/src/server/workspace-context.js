@@ -34,7 +34,7 @@ const GLOBAL_API_PATHS = new Set([
   '/api/debug/memory', '/api/debug/routes', '/api/signup-policy', '/api/users/me/invitations',
   // Whether the member's own computer is connected to run their AI and its API keys
   // (server/runner.js), and their AI settings with the models to choose from (ai-settings.js).
-  '/api/runner/status', '/api/runner/keys', '/api/ai/keys', '/api/ai/settings', '/api/ai/models',
+  '/api/runner/status', '/api/runner/keys', '/api/ai/settings', '/api/ai/models',
   // Making a workspace, which belongs to no workspace yet.
   '/api/org',
 ]);
@@ -45,10 +45,11 @@ function isGlobalApiPath(pathname) {
   return GLOBAL_API_PATHS.has(value)
     || value.startsWith('/api/auth/')
     || value.startsWith('/api/public/')
-    || value.startsWith('/api/admin/')
     || /^\/api\/invite\/[^/]+(?:\/accept)?$/.test(value)
     || /^\/api\/apps\/[^/]+\/ui\/.+$/.test(value)
     || /^\/api\/market(?:\/[^/]+(?:\/package)?)?$/.test(value)
+    // Mochi Lab's one-line install and its bundles (routes/lab.js).
+    || /^\/api\/lab\/(?:install|install\.sh|session|bundles\/[^/]+)$/.test(value)
     || /^\/api\/users\/[^/]+\/role$/.test(value);
 }
 

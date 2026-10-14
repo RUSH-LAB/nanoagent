@@ -10,7 +10,7 @@ from plugin.note import write_note
 
 def test_writes_the_note_inside_the_workspace(tmp_path: Path) -> None:
     output = write_note(NoteInput(text="hello", destination="notes/first.txt"), tmp_path)
-    assert output == NoteOutput(path=str(tmp_path / "notes" / "first.txt"), bytes=5)
+    assert output == NoteOutput(path="notes/first.txt", bytes=5)
     assert (tmp_path / "notes" / "first.txt").read_text() == "hello"
 
 

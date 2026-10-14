@@ -14,9 +14,12 @@
  * NanoAgent packs the plugin folder in it as a `nanoagent plugin pack` archive,
  * checking every plugin rule without running it. Publishing again takes the
  * ref's newest commit. Nothing here runs a plugin either: whoever downloads one
- * runs it on their own machine. A plugin's author is the GitHub account of
- * whoever published it, so publishing takes an account signed in with GitHub.
+ * runs it on their own machine (market-publish.js). A plugin's author is the
+ * GitHub account of whoever published it, so publishing takes an account signed
+ * in with GitHub.
  */
+const {publishFromGithub} = require('../market-publish');
+
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ROUTE = /^\/api\/market(?:\/([^/]+)(\/package)?)?$/;
 
@@ -58,27 +61,9 @@ module.exports = async function market(req, res, url, pathname, ctx) {
     } catch {
       return json(res, 400, {error: 'The request body must be JSON: {"url": "https://github.com/<owner>/<repo>"}'});
     }
-    const fetched = await github.source(body?.url);
-    if (fetched.error) return json(res, fetched.status, {error: fetched.error});
-    const {repository, archive} = fetched.value;
-    const packed = await ai.packageSource(archive, repository.path);
-    if (packed.error) return json(res, packed.status, {error: packed.error});
-    const entry = packed.value.package;
-    const data = Buffer.from(packed.value.data, 'base64');
-    const builtIn = await ai.packages();
-    if (builtIn.error) return json(res, builtIn.status, {error: builtIn.error});
-    if (builtIn.value.packages.some(other => other.id === entry.id)) {
-      return json(res, 409, {error: `${entry.id} is one of NanoAgent's own plugins`});
-    }
-    try {
-      return json(res, 201, {plugin: await uploads.publish(userId, entry, data, repository)});
-    } catch (error) {
-      if (error.code === 'taken') return json(res, 409, {error: error.message});
-      if (error.code === 'quota') return json(res, 413, {error: error.message});
-      // Row-level security refused it: the id became someone else's meanwhile.
-      if (error.code === '42501') return json(res, 409, {error: `Someone else already publishes a plugin named ${entry.id}`});
-      throw error;
-    }
+    const published = await publishFromGithub({ai, github, market: uploads}, userId, body?.url);
+    if (published.error) return json(res, published.status, {error: published.error});
+    return json(res, 201, {plugin: published.plugin});
   }
 
   if (req.method === 'GET' && download) {

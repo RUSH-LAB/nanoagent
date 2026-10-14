@@ -338,29 +338,6 @@ describe('NanoAgent plugin API', () => {
     assert.deepEqual(seen, [[`http://127.0.0.1:8787/v1/installs/${sha}/ui/0123456789abcdef/js/app%20main.js`, 'Bearer secret']]);
   });
 
-  it('starts a task run in a workspace and hands back its event stream', async () => {
-    const seen = [];
-    const body = {};
-    const gateway = ai.createNanoAgentGateway({
-      env: {NANOAGENT_API_TOKEN: 'secret'},
-      fetchImpl: async (url, init) => {
-        seen.push([url, init.method, init.headers.Authorization, JSON.parse(init.body)]);
-        if (url.includes('/tasks/missing/')) return {ok: false, status: 404, json: async () => ({error: 'task not found'})};
-        if (url.includes('/tasks/broken/')) return {ok: false, status: 500, json: async () => ({error: 'boom'})};
-        return {ok: true, status: 200, body};
-      },
-    });
-    const sha = 'a'.repeat(64);
-    const started = await gateway.taskRun({workspace: 'w1', install: sha, task: 'daily digest', args: {people: ['Ada']}});
-    assert.equal(started.value, body);
-    assert.deepEqual(seen[0], [
-      `http://127.0.0.1:8787/v1/workspaces/w1/installs/${sha}/tasks/daily%20digest/runs`,
-      'POST', 'Bearer secret', {arguments: {people: ['Ada']}},
-    ]);
-    assert.deepEqual(await gateway.taskRun({workspace: 'w1', install: sha, task: 'missing', args: {}}), {error: 'task not found', status: 404});
-    assert.deepEqual(await gateway.taskRun({workspace: 'w1', install: sha, task: 'broken', args: {}}), {error: 'boom', status: 502});
-  });
-
   it('shows an app run\'s tool arguments and output, and no other run\'s', async () => {
     const tool = sse({type: 'tool', runId: 'r', id: 't', name: 'move', arguments: {fen: 'x'}, output: {move: 'e4'}, is_error: false});
     const done = sse({type: 'done', runId: 'r', answer: 'ok'});

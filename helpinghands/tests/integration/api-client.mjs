@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-// Where `mochi login` (cli/mochi.mjs) keeps the session token of each server.
+// Where `rush login` (cli/rush.mjs) keeps the session token of each server.
 const CREDENTIALS = path.join(os.homedir(), '.config', 'mochi', 'credentials.json');
 
 /**
- * Headers that sign a request in as you: the session token `mochi login <server>`
+ * Headers that sign a request in as you: the session token `rush login <server>`
  * saved after its GitHub sign-in, the only way to hold an identity. Throws when
  * there is none.
  */
@@ -18,7 +18,7 @@ export function signedInHeaders(base) {
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
   }
-  if (!token) throw new Error(`Not signed in to ${server}. Run: node cli/mochi.mjs login ${server}`);
+  if (!token) throw new Error(`Not signed in to ${server}. Run: node cli/rush.mjs login ${server}`);
   // Node's fetch sends Fetch Metadata headers, which make Better Auth require an origin.
   return {Origin: server, Authorization: `Bearer ${token}`};
 }

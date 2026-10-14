@@ -22,7 +22,7 @@ htmlcov/
 # Outputs
 outputs/
 
-# Built-in plugins commit their lock and their `.env`, which holds variable names only (the plugin
+# Fixture plugins commit their lock and their `.env`, which holds variable names only (the plugin
 # loader refuses a value).
-!plugins/*/uv.lock
-!plugins/*/.env
+!test/plugins/*/uv.lock
+!test/plugins/*/.env

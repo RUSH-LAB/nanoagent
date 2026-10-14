@@ -6,7 +6,7 @@ import Layout from '@theme/Layout';
 import AppProduct from '@site/src/components/AppProduct';
 import ErrorBoundary from '@site/src/components/ErrorBoundary';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
-import {forgetWorkspaceApps, workspaceAppsUrl} from '@site/src/hooks/useWorkspaceApps';
+import {forgetWorkspaceApps, prepareWorkspaceApps, workspaceAppsUrl} from '@site/src/hooks/useWorkspaceApps';
 import {useClickOutside} from '@site/src/hooks/useClickOutside';
 import API_BASE, {apiFetch, apiJson} from '@site/src/utils/api';
 import styles from './styles.module.css';
@@ -16,7 +16,7 @@ import styles from './styles.module.css';
  * own plugins and the ones people publish from GitHub. A workspace's owner adds
  * a plugin to the workspace (server/routes/apps.js), and then every member uses
  * it on the Plugins page, where NanoAgent runs it in a sandbox: it reaches only
- * the hosts it declares and writes only to the member's agent folder. A tile
+ * the hosts it declares and writes only to the member's folder for it. A tile
  * opens the plugin's product page in place of the gallery; `?plugin=` names
  * it, so it can be linked. A plugin names no tags: a workspace tags the ones it
  * added (Settings → Plugins). A published plugin is checked against the plugin
@@ -229,7 +229,7 @@ function Detail({plugin, added, workspace, slug, onBack, onChanged, onAdded}) {
 function Marketplace() {
   const location = useLocation();
   const history = useHistory();
-  const {slug, workspace} = useWorkspaceSite();
+  const {slug, workspace, site} = useWorkspaceSite();
   const workspaceId = workspace?.id ?? null;
   // The ids of the plugins the workspace added, or null outside one.
   const [added, setAdded] = React.useState(null);
@@ -258,6 +258,7 @@ function Marketplace() {
   }, [workspaceId]);
   const markAdded = (id, isAdded) => {
     forgetWorkspaceApps(workspaceId);
+    if (isAdded) prepareWorkspaceApps(workspaceId, {again: true});
     setAdded(current => {
       const next = new Set(current);
       if (isAdded) next.add(id);
@@ -306,9 +307,17 @@ function Marketplace() {
     <main className={styles.page}>
       <header className={styles.header}>
         <h1>Marketplace</h1>
-        <button type="button" className="button button--primary" onClick={() => setPublishing(value => !value)}>
-          {publishing ? 'Cancel' : '+ Publish a plugin'}
-        </button>
+        {/* A workspace that takes submissions publishes through its Submit page,
+            which records what the submitter agrees to (pages/submit). */}
+        {site?.submissions ? (
+          <Link className="button button--primary" to={`/w/${encodeURIComponent(slug)}/submit`}>
+            Submit your artifact
+          </Link>
+        ) : (
+          <button type="button" className="button button--primary" onClick={() => setPublishing(value => !value)}>
+            {publishing ? 'Cancel' : '+ Publish a plugin'}
+          </button>
+        )}
       </header>
       {publishing && (
         <Publish onPublished={async plugin => {

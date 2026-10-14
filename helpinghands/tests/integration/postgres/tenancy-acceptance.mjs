@@ -146,7 +146,7 @@ try {
   savedPolicy = (await migrationPool.query('select * from platform_policy')).rows[0];
   await migrationPool.query(
     `update platform_policy set signup_mode = 'invite', signup_allowlist = '{}', max_workspaces_per_user = 2,
-       workspace_max_members = 20, workspace_storage_bytes = 524288000,
+       workspace_storage_bytes = 524288000,
        workspace_ai_daily_usd = 1, workspace_ai_monthly_usd = 10, member_ai_daily_usd = 0.5`,
   );
 
@@ -215,28 +215,20 @@ try {
   check('the invited GitHub account joins', (await request(`/api/workspaces/${w2.id}`, {cookie: gus.cookie})).status === 200);
   await json(await request(`/api/workspaces/${w2.id}/leave`, {method: 'POST', cookie: gus.cookie}), 200);
 
-  await json(await request(`/api/admin/workspaces/${w1.id}/limits`, {method: 'PUT', cookie: alice.cookie, body: {limits: {maxMembers: 2}}}), 200);
-  const overLimit = await json(await request(`/api/workspaces/${w1.id}/invitations`, {method: 'POST', cookie: alice.cookie, body: {email: address('bob'), role: 'viewer'}}), 409);
-  check('an invitation past the member limit is refused', overLimit.code === 'member-limit-reached');
-  await assert.rejects(
-    asMember(alice.id, w1.id, "insert into workspace_member(id, workspace_id, user_id, role) values ($1, $2, $3, 'viewer')",
-      [crypto.randomUUID(), w1.id, bob.id]),
-    /member-limit-reached/,
-  );
-  check('the database refuses a membership past the limit on any path', true);
+  await migrationPool.query('insert into workspace_limits(workspace_id, ai_monthly_usd) values ($1, 20)', [w1.id]);
 
   // ── Assistant budget ──
   await asMember(alice.id, w1.id,
     "insert into ai_usage(workspace_id, user_id, kind, cost_usd) values ($1, $2, 'chat', 1.25)", [w1.id, alice.id]);
-  // Every run is on the member's own computer or their own key, never on the workspace's budget.
-  const keyless = await json(await request(`/api/workspaces/${w1.id}/ai/complete`, {method: 'POST', cookie: alice.cookie, body: {prompt: 'hello'}}), 503);
-  check('a member with neither Mochi Lab nor a key of their own is told to add one', /Add your OpenRouter key/.test(keyless.error));
+  // Every run is on the member's own computer, never on the workspace's budget.
+  const offline = await json(await request(`/api/workspaces/${w1.id}/ai/complete`, {method: 'POST', cookie: alice.cookie, body: {prompt: 'hello'}}), 503);
+  check('a member without RUSH Lab connected is told to install or start it', /RUSH Lab on your computer is not connected/.test(offline.error));
   const usage = (await json(await request(`/api/workspaces/${w1.id}/usage`, {cookie: dave.cookie}), 200)).usage;
   check('members see what their workspace has used against its limits',
-    usage.ai.today === 1.25 && usage.limits.maxMembers === 2 && usage.members === 2);
+    usage.ai.today === 1.25 && usage.limits.aiMonthlyUsd === 20 && usage.members === 2);
 
   // ── Storage ──
-  await json(await request(`/api/admin/workspaces/${w2.id}/limits`, {method: 'PUT', cookie: alice.cookie, body: {limits: {storageBytes: 16}}}), 200);
+  await migrationPool.query('insert into workspace_limits(workspace_id, storage_bytes) values ($1, 16)', [w2.id]);
   const blob = Buffer.alloc(32, 1);
   await assert.rejects(
     asMember(alice.id, w2.id,
@@ -258,31 +250,13 @@ try {
   );
   check('the database refuses bytes past the storage limit', true);
 
-  // ── Platform administration ──
-  check('a member who is not an administrator cannot read the account list',
-    (await request('/api/admin/users', {cookie: bob.cookie})).status === 403);
-  const users = (await json(await request('/api/admin/users', {cookie: alice.cookie}), 200)).users;
-  check('administrators see every account with its spend', users.some(user => user.id === alice.id && user.ai30dUsd === 1.25));
-  const workspaces = (await json(await request('/api/admin/workspaces', {cookie: alice.cookie}), 200)).workspaces;
-  const listed = workspaces.find(workspace => workspace.id === w1.id);
-  check('administrators see every workspace with its members, spend, and limits',
-    listed?.members === 2 && listed.aiMonthUsd === 1.25 && listed.limits.maxMembers === 2 && listed.overridden);
-
-  await json(await request(`/api/admin/users/${bob.id}/ban`, {method: 'POST', cookie: alice.cookie, body: {reason: 'acceptance test'}}), 200);
+  // ── Suspension ──
+  await migrationPool.query("update app_user set banned_at = now(), ban_reason = 'acceptance test' where id = $1", [bob.id]);
   const banned = await signInWithGithub(request, github.bob.login);
   check('a suspended account cannot sign in', banned.error === 'account-suspended');
-  await json(await request(`/api/admin/users/${bob.id}/ban`, {method: 'DELETE', cookie: alice.cookie}), 200);
+  await migrationPool.query('update app_user set banned_at = null, ban_reason = null where id = $1', [bob.id]);
   bob.cookie = (await signIn('bob')).cookie;
   check('lifting a suspension restores sign-in', true);
-
-  const policy = (await json(await request('/api/admin/policy', {method: 'PUT', cookie: alice.cookie, body: {memberAiDailyUsd: 0.75}}), 200)).policy;
-  check('administrators change the default limits', policy.memberAiDailyUsd === 0.75);
-  await json(await request('/api/admin/policy', {method: 'PUT', cookie: alice.cookie, body: {signupMode: 'closed'}}), 400);
-
-  const actions = (await json(await request('/api/admin/audit', {cookie: alice.cookie}), 200)).events
-    .filter(event => event.actorId === alice.id).map(event => event.action);
-  check('administrator actions are recorded',
-    ['workspace.limits', 'user.ban', 'user.unban', 'policy.update'].every(action => actions.includes(action)));
 
   // ── Leaving ──
   await json(await request(`/api/workspaces/${w1.id}/leave`, {method: 'POST', cookie: dave.cookie}), 200);
@@ -298,11 +272,9 @@ try {
   await json(await request(`/api/invite/${bobInvite.id}/accept`, {method: 'POST', cookie: bob.cookie}), 200);
   check('a member joins a workspace that is out of storage', true);
   await migrationPool.query('delete from platform_admin where user_id = $1', [alice.id]);
-  await migrationPool.query('insert into platform_admin(user_id) values ($1)', [dave.id]);
   const shared = await json(await request('/api/auth/delete-user', {method: 'POST', cookie: alice.cookie, body: {}}), 409);
   check('an account cannot be deleted while it is the only owner of a workspace others use', /Tenancy Two/.test(shared.message));
-  await json(await request(`/api/admin/users/${bob.id}`, {method: 'DELETE', cookie: dave.cookie}), 200);
-  check('an administrator deletes an account', !(await migrationPool.query('select 1 from app_user where id = $1', [bob.id])).rowCount);
+  await json(await request(`/api/workspaces/${w2.id}/leave`, {method: 'POST', cookie: bob.cookie}), 200);
   await json(await request('/api/auth/delete-user', {method: 'POST', cookie: alice.cookie, body: {}}), 200);
   const left = (await migrationPool.query('select id from workspace where id = any($1::text[])', [[w1.id, w2.id]])).rows;
   check('deleting an account deletes the workspaces it used alone',
@@ -332,10 +304,10 @@ try {
   if (savedPolicy) {
     await migrationPool.query(
       `update platform_policy set signup_mode = $1, signup_allowlist = $2, max_workspaces_per_user = $3,
-         workspace_storage_bytes = $4, workspace_max_members = $5, workspace_ai_daily_usd = $6,
-         workspace_ai_monthly_usd = $7, member_ai_daily_usd = $8, updated_by = $9, updated_at = $10`,
+         workspace_storage_bytes = $4, workspace_ai_daily_usd = $5,
+         workspace_ai_monthly_usd = $6, member_ai_daily_usd = $7, updated_by = $8, updated_at = $9`,
       [savedPolicy.signup_mode, savedPolicy.signup_allowlist, savedPolicy.max_workspaces_per_user,
-        savedPolicy.workspace_storage_bytes, savedPolicy.workspace_max_members, savedPolicy.workspace_ai_daily_usd,
+        savedPolicy.workspace_storage_bytes, savedPolicy.workspace_ai_daily_usd,
         savedPolicy.workspace_ai_monthly_usd, savedPolicy.member_ai_daily_usd, savedPolicy.updated_by, savedPolicy.updated_at],
     ).catch(() => {});
   }

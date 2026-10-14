@@ -1,6 +1,7 @@
 'use strict';
 const fallbackProfiles = require('../../ai-profiles.json');
 const {budgetRefusal} = require('../ai-metering');
+const {completionPayload} = require('../ai');
 const aiSettings = require('../ai-settings');
 // Route module organized from server/index.js. Each handler runs with the shared
 // `ctx` (helpers, data-file paths, in-memory stores). Returns nothing; the
@@ -157,7 +158,7 @@ function composeRequest(body, sanitizeText, agent = null, catalog = null, run = 
  * Resolve an agent inside the verified workspace; never trust its browser copy.
  * The run is for `use` (chat or inline), on the NanoAgent `ai`, with the member's `settings`.
  */
-async function composeStoredRequest(req, ctx, overrides = {}, use = 'chat', ai = ctx.ai, settings = aiSettings.stored(null)) {
+async function composeStoredRequest(req, ctx, overrides, use, ai, settings) {
   const supplied = await ctx.readBody(req);
   const catalog = typeof ai.profiles === 'function'
     ? await ai.profiles()
@@ -201,17 +202,80 @@ function sendEvent(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-function completionPayload(result) {
-  return {
-    text: result.text,
-    ...(result.usage ? {usage: result.usage} : {}),
-    ...(result.cost != null ? {cost: result.cost} : {}),
-    ...(result.metrics ? {metrics: result.metrics} : {}),
-    ...(result.model ? {model: result.model} : {}),
-    ...(result.harness ? {harness: result.harness} : {}),
-    ...(result.profile ? {profile: result.profile} : {}),
-    ...(result.stopReason ? {stopReason: result.stopReason} : {}),
-  };
+
+/** Start answering `res` as a server-sent event stream. */
+function openEventStream(req, res, corsOrigin) {
+  res.writeHead(200, {
+    ...corsHeaders(req, corsOrigin),
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    // Nginx buffers a proxied response by default, which would hold the whole
+    // answer back and deliver it at once, defeating the point of the endpoint.
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders?.();
+}
+
+/**
+ * Write an app's run (app-runs.js) to `res` as `subscribe(onEvent, onEnd)`
+ * passes its events, until it ends or the reader goes; a reader going leaves
+ * the run going.
+ */
+async function followRun(res, subscribe) {
+  const heartbeat = setInterval(() => {
+    if (writable(res)) res.write(': ping\n\n');
+  }, HEARTBEAT_MS);
+  let leave;
+  const left = new Promise(resolve => { leave = resolve; });
+  res.on('close', leave);
+  const stop = subscribe((event, data) => sendEvent(res, event, data), leave);
+  try {
+    await left;
+  } finally {
+    stop();
+    res.off('close', leave);
+    clearInterval(heartbeat);
+    res.end();
+  }
+}
+
+/**
+ * Run the chat `composed` on the NanoAgent `ai`, passing its events to `send`
+ * until it answers or fails, and charge it.
+ */
+async function answerRun(req, ctx, ai, kind, composed, send, signal) {
+  // Whether the run got far enough to cost anything, for a run that ends
+  // without NanoAgent's price (postgres/tenancy.js charges its cap instead).
+  let ran = false;
+  let result = null;
+  try {
+    result = await ai.stream({
+      ...composed.request,
+      signal,
+      onDelta: (text) => {
+        ran = true;
+        send('delta', {text});
+      },
+      // The current client ignores these structured lifecycle events. They
+      // establish the wire contract for future tool progress without
+      // changing text streaming or inventing a second transport later.
+      onEvent: event => {
+        if (event.type === 'step.completed') ran = true;
+        if (event.type !== 'output_text.delta') send('agent', event);
+      },
+    });
+    if (result.error) send('error', {error: result.error, status: result.status || 502});
+    else send('done', completionPayload(result));
+  } catch {
+    send('error', {error: 'AI request failed. Please try again later.', status: 500});
+  } finally {
+    try {
+      await ctx.aiMeter.record(req.context, kind, result, {ran, local: ai.local});
+    } catch (error) {
+      console.error('[ai] Could not record assistant usage:', error.message);
+    }
+  }
 }
 
 /**
@@ -292,7 +356,7 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     // An app's agent acts through the app's tools, on the member's own files.
     if (composed.request.app) {
       ctx.requireWorkspacePermission(req.context, 'apps:use');
-      if (!ctx.agentSync || !ctx.sessions || !ctx.workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
+      if (!ctx.appRuns || !ctx.sessions || !ctx.workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
       try {
         await ctx.sessions.assertOwned(req.context, composed.request.app, composed.session);
       } catch (error) {
@@ -305,16 +369,22 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
       composed.request.install = opened.value.sha256;
     }
 
-    res.writeHead(200, {
-      ...corsHeaders(req, CORS_ORIGIN),
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      // Nginx buffers a proxied response by default, which would hold the whole
-      // answer back and deliver it at once, defeating the point of the endpoint.
-      'X-Accel-Buffering': 'no',
-    });
-    res.flushHeaders?.();
+    // An app's run is the session's and goes on without this connection, which
+    // only follows it (app-runs.js), so a session answers one message at a time.
+    if (composed.request.app) {
+      let run;
+      try {
+        run = await ctx.appRuns.start(req.context, {
+          pluginId: composed.request.app, sessionId: composed.session, prompt: composed.request.input, request: composed.request,
+        });
+      } catch (error) {
+        if (error.name === 'SessionError') return json(res, error.status, {error: error.message});
+        throw error;
+      }
+      openEventStream(req, res, CORS_ORIGIN);
+      return followRun(res, (onEvent, onEnd) => run.follow(onEvent, onEnd));
+    }
+    openEventStream(req, res, CORS_ORIGIN);
 
     // A reader who closes the tab should not leave a NanoAgent run active.
     //
@@ -326,72 +396,12 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     const controller = new AbortController();
     const onClose = () => controller.abort();
     res.on('close', onClose);
-
     const heartbeat = setInterval(() => {
       if (writable(res)) res.write(': ping\n\n');
     }, HEARTBEAT_MS);
-
-    // Whether the run got far enough to cost anything, for a run that ends
-    // without NanoAgent's price (postgres/tenancy.js charges its cap instead).
-    let ran = false;
-    let result = null;
-    // An app run's tool calls, kept with the session's turn so its page draws them again.
-    const tools = [];
     try {
-      const answer = workspace => ai.stream({
-        ...composed.request,
-        ...(workspace ? {workspace} : {}),
-        signal: controller.signal,
-        onDelta: (text) => {
-          ran = true;
-          sendEvent(res, 'delta', {text});
-        },
-        // The current client ignores these structured lifecycle events. They
-        // establish the wire contract for future tool progress without
-        // changing text streaming or inventing a second transport later.
-        onEvent: event => {
-          if (event.type === 'step.completed') ran = true;
-          if (composed.request.app && (event.type === 'tool.completed' || event.type === 'tool.failed')) {
-            tools.push({
-              name: event.call.name, arguments: event.call.arguments, output: event.call.output,
-              isError: event.type === 'tool.failed',
-            });
-          }
-          if (event.type !== 'output_text.delta') sendEvent(res, 'agent', event);
-        },
-      });
-      // An app's agent works on a copy of the member's agent folder, and what
-      // it writes there is kept in the workspace file system (fs/agent-sync.js).
-      result = composed.request.app
-        ? await ctx.agentSync.run(req.context, ai, answer)
-        : await answer();
-      // The session keeps the conversation, so a page resumed later continues it.
-      if (!result.error && composed.request.app) {
-        await ctx.sessions.addTurn(req.context, composed.request.app, composed.session, {
-          prompt: composed.request.input, answer: result.text, tools,
-        });
-      }
-      if (result.error) sendEvent(res, 'error', {error: result.error, status: result.status || 502});
-      else sendEvent(res, 'done', {
-        text: result.text,
-        ...(result.usage ? {usage: result.usage} : {}),
-        ...(result.cost != null ? {cost: result.cost} : {}),
-        ...(result.metrics ? {metrics: result.metrics} : {}),
-        ...(result.model ? {model: result.model} : {}),
-        ...(result.harness ? {harness: result.harness} : {}),
-        ...(result.profile ? {profile: result.profile} : {}),
-        ...(result.stopReason ? {stopReason: result.stopReason} : {}),
-      });
-    } catch {
-      sendEvent(res, 'error', {error: 'AI request failed. Please try again later.', status: 500});
+      await answerRun(req, ctx, ai, kind, composed, (event, data) => sendEvent(res, event, data), controller.signal);
     } finally {
-      try {
-        await aiMeter.record(req.context, kind, result, {
-          ran, local: ai.local, pluginId: composed.request.app ?? null, sessionId: composed.session ?? null,
-        });
-      } catch (error) {
-        console.error('[ai] Could not record assistant usage:', error.message);
-      }
       clearInterval(heartbeat);
       // Dropped before the response is ended, because ending it emits the same
       // 'close' and an abort then would be aimed at nothing.
@@ -432,14 +442,11 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     return json(res, 200, {settings: normalized.value});
   }
 
-  // ── The models a member may choose: every one their own computer's keys reach, else Mochi's own profiles ──
+  // ── The models a member may choose: every one their own computer's keys reach ──
   if (req.method === 'GET' && pathname === '/api/ai/models') {
     const computer = ctx.runners.status(req.auth?.userId);
     const gateway = ctx.runners.computer(req.auth?.userId);
-    if (!gateway) {
-      const catalog = await (await ctx.aiFor(req.auth?.userId)).profiles();
-      return json(res, 200, {connected: false, device: null, ...hostedModels(catalog)});
-    }
+    if (!gateway) return json(res, 200, {connected: false, device: null, providers: [], models: [], defaults: {}, limits: null});
     const [listing, catalog] = await Promise.all([gateway.models(), gateway.profiles()]);
     if (listing.error) return json(res, listing.status, {error: listing.error});
     return json(res, 200, {connected: true, device: computer.device, ...localModels(listing.value, catalog)});
@@ -450,20 +457,31 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     return json(res, 200, ctx.runners.status(req.auth?.userId));
   }
 
-  // ── The API keys a member gives Mochi itself, for runs while no computer is connected ──
-  if ((req.method === 'GET' || req.method === 'PUT') && pathname === '/api/ai/keys') {
-    if (!ctx.memberKeys) return json(res, 503, {error: 'Keeping API keys needs PostgreSQL'});
-    if (req.method === 'GET') return json(res, 200, {keys: await ctx.memberKeys.list(req.auth.userId)});
-    if (!await rateLimit(`ai-keys:${req.caller}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
-    let body;
+  // ── What the OpenRouter key on the member's computer has spent, as OpenRouter says ──
+  // `you`: what the member has spent, on every key Mochi gave them when the key is Mochi's (its
+  // workspace), else on this key; `total`: what everyone has spent against the cap, the
+  // workspace's lifetime budget, or the key's own spend against its own limit, if it has one.
+  if (req.method === 'GET' && pathname === '/api/runner/credit') {
+    const gateway = ctx.runners.computer(req.auth?.userId);
+    if (!gateway) return json(res, 200, {credit: null});
+    const usage = await gateway.openrouterUsage();
+    // 404: the computer holds no OpenRouter key.
+    if (usage.status === 404) return json(res, 200, {credit: null});
+    if (usage.error) return json(res, usage.status, {error: usage.error});
+    const key = usage.value;
+    let you = key.usage;
     try {
-      body = await ctx.readBody(req);
-    } catch {
-      return json(res, 400, {error: 'Request body must be JSON, within the size limit'});
+      if (ctx.openrouterKeys && key.workspace_id === await ctx.openrouterKeys.workspaceId()) {
+        you = await ctx.openrouterKeys.spent(req.auth.userId);
+      }
+    } catch (error) {
+      return json(res, 502, {error: error.message});
     }
-    const saved = await ctx.memberKeys.save(req.auth.userId, body?.changes);
-    if (saved.error) return json(res, 400, {error: saved.error});
-    return json(res, 200, {keys: saved.value});
+    const budget = key.workspace_budget;
+    return json(res, 200, {credit: {
+      you,
+      total: budget ? {used: budget.spend, cap: budget.limit} : {used: key.usage, cap: key.limit},
+    }});
   }
 
   // ── The API keys on the member's computer: passed on to it, never kept or shown here ──
@@ -516,48 +534,9 @@ function localModels(listing, catalog) {
   };
 }
 
-/** Mochi's hosted NanoAgent's profiles as models, for a member with no computer connected: available once Mochi keeps their key. */
-function hostedModels(catalog) {
-  const keyOf = profile => `${profile.provider}/${profile.model}`;
-  const models = new Map();
-  for (const profile of catalog.profiles.filter(entry => entry.provider)) {
-    const key = keyOf(profile);
-    const known = models.get(key);
-    if (known) {
-      known.uses = [...new Set([...known.uses, ...profile.uses])];
-      continue;
-    }
-    models.set(key, {
-      key,
-      choice: {provider: profile.provider, model: profile.model},
-      label: profile.label,
-      provider: profile.provider,
-      providerName: profile.providerName ?? profile.provider,
-      model: profile.model,
-      uses: profile.uses,
-      available: profile.available,
-      unavailableReason: profile.unavailableReason,
-      price: profile.price,
-      contextWindow: profile.contextWindow,
-      reasoning: profile.reasoning,
-    });
-  }
-  const byDefault = catalog.profiles.find(profile => profile.id === catalog.defaultProfile);
-  const forApps = catalog.profiles.find(profile => profile.uses.includes('apps'));
-  return {
-    providers: [],
-    models: [...models.values()],
-    defaults: {
-      chat: byDefault?.provider ? keyOf(byDefault) : null,
-      inline: byDefault?.provider ? keyOf(byDefault) : null,
-      apps: forApps?.provider ? keyOf(forApps) : null,
-    },
-    limits: catalog.limits,
-  };
-}
-
 module.exports.DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT;
 module.exports.composeRequest = composeRequest;
 module.exports.composeStoredRequest = composeStoredRequest;
-module.exports.corsHeaders = corsHeaders;
 module.exports.APPS_NEED_FS = APPS_NEED_FS;
+module.exports.openEventStream = openEventStream;
+module.exports.followRun = followRun;

@@ -22,4 +22,5 @@ def write_note(note: NoteInput, workspace: Path) -> NoteOutput:
     path.parent.mkdir(parents=True, exist_ok=True)
     data = note.text.encode("utf-8")
     path.write_bytes(data)
-    return NoteOutput(path=str(path), bytes=len(data))
+    # Relative to the workspace: the run's own folder, which is gone once the run ends.
+    return NoteOutput(path=path.relative_to(workspace.resolve()).as_posix(), bytes=len(data))

@@ -6,6 +6,8 @@
 
 **Nothing is impossible.** If you say something is not possible, I will challenge that. That means you rely on the current tech stack and do not think about new tech stack. We need to achieve the goal, no matter how big changes we need to make.
 
+**No LLM as judge.** A plugin's verifier is deterministic code and decides every case. Never use a model to verify a result, and never design a task whose correctness code cannot check.
+
 ## Configuration
 
 - All config comes from YAML files and never uses `argparse`.
@@ -51,10 +53,10 @@ Run an example through its run script:
 bash examples/chat_with_agent/runs/step1_llm_inference_with_tools.sh
 ```
 
-Every run script moves to the project root, then runs the step's Python script with `.venv/bin/python`, its config (`config=`), and its output folder (`home=`). Overrides go after `--`; a run script that sweeps a field (e.g. one run per harness) loops over it and gives each run its own folder. The log is always `run.log` in that folder:
+Every run script moves to the NanoAgent project root (`nanoagent/` in the repo), then runs the step's Python script with `.venv/bin/python`, its config (`config=`), and its output folder (`home=`). Overrides go after `--`; a run script that sweeps a field (e.g. one run per harness) loops over it and gives each run its own folder. The log is always `run.log` in that folder:
 
 ```bash
-cd "$(git rev-parse --show-toplevel)"
+cd "$(git rev-parse --show-toplevel)/nanoagent"
 .venv/bin/python \
     examples/chat_with_agent/step1_llm_inference_with_tools.py \
     config=examples/chat_with_agent/configs/step1_llm_inference_with_tools.yaml \

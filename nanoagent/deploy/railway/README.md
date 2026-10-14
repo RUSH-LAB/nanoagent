@@ -1,6 +1,8 @@
 # Railway deployment
 
-This directory is the complete configuration bundle for NanoAgent's private Railway service:
+This directory is the complete configuration bundle for NanoAgent's private Railway service, which
+offers Mochi's marketplace its plugin packages. It runs no model or plugin: every run is on a
+member's own computer, through Mochi Lab.
 
 - `nanoagent.yaml` configures the web host and selects the default profile.
 - `profiles/` contains the server-approved model–harness pairings exposed by that host.
@@ -14,7 +16,6 @@ python -m nanoagent web web_cfg=deploy/railway/nanoagent.yaml
 Required environment variables:
 
 ```dotenv
-OPENROUTER_API_KEY=...
 NANOAGENT_API_TOKEN=...
 ```
 

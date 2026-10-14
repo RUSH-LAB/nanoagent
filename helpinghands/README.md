@@ -4,6 +4,13 @@ https://www.alphaxiv.org
 
 A collaborative workspace for knowledge, documents, communication, and AI agents.
 
+Every member's AI runs on their own computer, in Mochi Lab (the desktop app,
+`desktop/`), whether they use the site in a browser or in the app. Its NanoAgent
+calls OpenRouter with the key kept there, and installs, serves the pages of, and
+runs every plugin. Mochi's servers keep no model key and run no model or plugin:
+they only list the marketplace and hold its plugin packages. While a member's
+Mochi Lab is not connected, their AI and plugins are refused, never run elsewhere.
+
 Install the required runtimes, dependencies, adjacent NanoAgent checkout, and
 sanitized local environment file:
 
@@ -37,15 +44,14 @@ to a member's own computer, so `npm start` prints a sign-in link once; open it,
 signed in as the account you test with, and approve the code. Your runs then use
 the local NanoAgent, and Settings → AI can set its API key (until `npm start`
 stops; `.env`'s keys are where it starts).
-The installer never overwrites an existing checkout or local environment file.
-Set `NANOAGENT_REPOSITORY` and `NANOAGENT_REF` before running it to reproduce
-against a fork or a specific branch/tag.
+The installer never overwrites an existing local environment file.
 
-The local NanoAgent also publishes every plugin package built into the
-NanoAgent checkout, in its `plugins/` directory (such as `plugins/arxiv-source`).
-Mochi shows these as apps at `/apps`, where you can read what each one does and
-run its tasks. Set `NANOAGENT_PLUGINS_DIR` to publish packages from somewhere else.
-A missing plugins directory stops the launch instead of publishing no apps.
+NanoAgent ships no plugin: each is published to the marketplace from its own
+repository. To have the local NanoAgent publish plugin packages too, set
+`NANOAGENT_PLUGINS_DIR` to a folder of plugins (each a folder with a
+`nanoagent.yaml`); Mochi shows them as apps at `/apps`, where you can read what
+each one does and run its tasks. A `NANOAGENT_PLUGINS_DIR` that is missing or
+holds no plugin stops the launch.
 
 All local secrets and connection settings live in the single git-ignored
 `.env` file.

@@ -26,8 +26,9 @@ const DB_PATH = require.resolve('../../../src/server/db.js');
 /** Load a fresh copy of server/auth.js (and its db) under the given environment. */
 function loadAuth(env) {
   const saved = {};
-  for (const k of ['DATABASE_FILE', 'BETTER_AUTH_SECRET', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET']) saved[k] = process.env[k];
-  for (const [k, v] of Object.entries(env)) {
+  for (const k of ['DATABASE_FILE', 'BETTER_AUTH_SECRET', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'DATABASE_URL', 'DATABASE_MIGRATION_URL']) saved[k] = process.env[k];
+  // Cleared unless the test sets them: from .env, they would put its accounts in that database.
+  for (const [k, v] of Object.entries({DATABASE_URL: undefined, DATABASE_MIGRATION_URL: undefined, ...env})) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }

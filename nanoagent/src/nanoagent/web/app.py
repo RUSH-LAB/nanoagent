@@ -9,23 +9,20 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import secrets
-import shutil
 import subprocess
 import sys
-import time
-import uuid
+import urllib.error
+import urllib.request
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from nanoagent.core.agent import ChatModel
-from nanoagent.core.agent import Agent
-from nanoagent.extensions import get_hooks
 from nanoagent.harness.catalog import catalog_command, find_model, load_catalog
-from nanoagent.harness.choice import KEY_NAME, NATIVE_PROVIDERS, RunModel, keyed_environ
-from nanoagent.harness.registry import keyed_model, loop_model
+from nanoagent.harness.choice import NATIVE_PROVIDERS, RunModel
+from nanoagent.harness.registry import loop_model
 from nanoagent.inference.providers import MissingKeyError
 from nanoagent.plugin import PluginManifest, sandbox
 from nanoagent.plugin.install import InstallError, Installed, Installs, ui_version
@@ -39,18 +36,16 @@ from nanoagent.plugin.package import (
     pack,
     pack_source,
 )
-from nanoagent.plugin.tasks import TaskOutcome, run_task
+from nanoagent.plugin.python import plugin_python
 from nanoagent.runtime.config import AgentConfig, load_config_args
 from nanoagent.web.config import WebConfig
-from nanoagent.web.plugin_agent import plugin_profile
+from nanoagent.web.plugin_agent import PluginModel, plugin_profile
 from nanoagent.web.runtime import (
     ActiveRun,
     RunChoice,
     RunHost,
     ValidationError,
     check_choice,
-    choice_of,
-    validate_run_choice,
     validate_run_request,
 )
 from nanoagent.web.workspaces import Workspaces
@@ -67,6 +62,33 @@ def _sse(event: dict[str, Any]) -> bytes:
 # Manifests name none now (a workspace tags its plugins), so every catalog entry says one. Remove
 # once the Mochi that tags plugins per workspace is released.
 COMPAT_GROUP = {"group": "Plugins"}
+# The credentials PUT /v1/keys may set: a provider's API key, as PI and the loop read it.
+KEY_NAME = re.compile(r"[A-Z][A-Z0-9_]*_API_KEY|HF_TOKEN")
+# Where OpenRouter says what the key a request carries has spent, and what it may.
+OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
+
+
+def openrouter_key_usage(key: str) -> dict[str, Any]:
+    """What OpenRouter says the key has spent and may spend, in dollars: its ``usage``, ``limit``
+    and ``limit_remaining`` (None for a key without a limit), the ``workspace_id`` it spends in,
+    and that workspace's lifetime budget, ``workspace_budget`` ``{spend, limit}`` or None."""
+    request = urllib.request.Request(OPENROUTER_KEY_URL, headers={"Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            data = json.load(response)["data"]
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f"OpenRouter answered {error.code}: {error.read()[:300].decode(errors='replace')}") from error
+    workspace = next(
+        (budget for budget in data.get("budgets", []) if budget["scope"] == "workspace" and budget["reset_interval"] is None),
+        None,
+    )
+    return {
+        "usage": data["usage"],
+        "limit": data["limit"],
+        "limit_remaining": data["limit_remaining"],
+        "workspace_id": data.get("workspace_id"),
+        "workspace_budget": workspace and {"spend": workspace["spend_usd"], "limit": workspace["limit_usd"]},
+    }
 
 
 # How a host serves a plugin's front end: its own files only, and no network of its own, so the
@@ -78,30 +100,6 @@ UI_POLICY = (
     "img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; form-action 'none'; "
     "base-uri 'none'"
 )
-
-
-def _staged_from(workspace: Path) -> Callable[[Path], None]:
-    """How a web task stages its inputs: they are already the caller's workspace files, so the
-    workspace needs nothing and the reference tool's scratch folder gets a copy of it."""
-
-    def stage(folder: Path) -> None:
-        if folder != workspace:
-            shutil.copytree(workspace, folder, dirs_exist_ok=True)
-
-    return stage
-
-
-def _task_metrics(outcome: TaskOutcome, duration_s: float, model: str) -> dict[str, Any]:
-    """What a finished task cost and how long it took; a tool task calls no model."""
-    profile = outcome.agent.profile if outcome.agent is not None else None
-    return {
-        "model": model if profile is not None else None,
-        "cost": profile.cost if profile is not None else 0.0,
-        "usage": dict(profile.usage) if profile is not None else {},
-        "ttft_s": profile.ttft_s if profile is not None else None,
-        "generation_s": profile.generation_s if profile is not None else 0.0,
-        "duration_s": duration_s,
-    }
 
 
 def _ui_file(manifest: PluginManifest, path: str) -> Path | None:
@@ -116,7 +114,7 @@ def _ui_file(manifest: PluginManifest, path: str) -> Path | None:
 
 
 def create_app(
-    cfg: WebConfig, *, host: RunHost | None = None, plugin_model: ChatModel | None = None
+    cfg: WebConfig, *, host: RunHost | None = None, plugin_model: PluginModel | None = None
 ) -> Any:
     """Build the Starlette application, importing the optional dependency only when used.
 
@@ -133,8 +131,9 @@ def create_app(
 
     run_host = host or RunHost(cfg)
     # Every plugin runs from an install, in the sandbox, which must hold before anything is served.
-    sandbox.configure(cfg.sandbox)
-    installs = Installs(cfg.installs)
+    python = plugin_python(cfg.plugin_python)
+    sandbox.configure(cfg.sandbox, python)
+    installs = Installs(cfg.installs, cfg.uv_cache, cfg.installs_unused_days, python)
     sandbox.check(installs.root)
     # Packages offered for download, packed once; one runs only once a caller installs it.
     packages: dict[str, tuple[dict[str, Any], bytes]] = {}
@@ -160,7 +159,7 @@ def create_app(
     workspaces = Workspaces(cfg.workspaces)
     owned_model: Any = None
 
-    def model_for_plugins() -> ChatModel:
+    def model_for_plugins() -> PluginModel:
         nonlocal owned_model
         if plugin_model is not None:
             return plugin_model
@@ -193,15 +192,15 @@ def create_app(
             raise ValidationError(f"unknown model {model.provider}/{model.model}")
         return entry["cost"]["input"], entry["cost"]["output"]
 
-    async def plugin_model_for(choice: RunChoice) -> tuple[ChatModel, str, AgentConfig, Callable[[], Any] | None]:
+    async def plugin_model_for(choice: RunChoice) -> tuple[PluginModel, str, AgentConfig, Callable[[], Any] | None]:
         """The model, its name, limits, and (for one built for this run) its closer for a plugin run."""
         try:
             return await build_plugin_model(choice)
         except MissingKeyError as error:
             raise ValidationError(str(error)) from None
 
-    async def build_plugin_model(choice: RunChoice) -> tuple[ChatModel, str, AgentConfig, Callable[[], Any] | None]:
-        if choice.profile is None and choice.model is None and choice.settings is None and choice.keys is None:
+    async def build_plugin_model(choice: RunChoice) -> tuple[PluginModel, str, AgentConfig, Callable[[], Any] | None]:
+        if choice.profile is None and choice.model is None and choice.settings is None:
             return model_for_plugins(), cfg.model.model, cfg.agent, None
         config = None
         if choice.profile is not None:
@@ -216,12 +215,9 @@ def create_app(
             model_cfg, agent_cfg = loop_model(cfg, config, model=choice.model, settings=choice.settings, prices=prices)
         except ValueError as error:
             raise ValidationError(str(error)) from None
-        # A run with keys has a model of its own, reaching its provider with them alone.
-        if choice.keys is not None:
-            model_cfg = keyed_model(model_cfg, choice.keys)
-        elif plugin_model is not None:
+        if plugin_model is not None:
             return plugin_model, model_cfg.model, agent_cfg, None
-        elif model_cfg == cfg.model:
+        if model_cfg == cfg.model:
             return model_for_plugins(), model_cfg.model, agent_cfg, None
         from nanoagent.runtime.model import Model
 
@@ -338,6 +334,18 @@ def create_app(
         retired.extend(run_host.registry.forget_models())
         return JSONResponse({"keys": sorted(changes)})
 
+    async def key_usage(request: Request) -> JSONResponse:
+        """What the OpenRouter key this process holds has spent, as OpenRouter says."""
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        key = os.environ.get("OPENROUTER_API_KEY")
+        if not key:
+            return JSONResponse({"error": "no OpenRouter key is set"}, status_code=404)
+        try:
+            return JSONResponse(await asyncio.to_thread(openrouter_key_usage, key))
+        except Exception as error:  # noqa: BLE001
+            return JSONResponse({"error": f"OpenRouter's key usage failed: {error}"}, status_code=502)
+
     async def start_run(request: Request) -> JSONResponse | StreamingResponse:
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -346,7 +354,7 @@ def create_app(
             return rejected
         try:
             run = validate_run_request(payload)
-            check_choice(cfg, choice_of(run))
+            check_choice(cfg, RunChoice(run.profile, run.model, run.settings))
             prices = await prices_of(run.model) if run.model is not None else None
             active = await run_host.start(run, prices=prices)
         except ValidationError as error:
@@ -378,11 +386,10 @@ def create_app(
             return rejected
         try:
             run = validate_run_request(payload)
-            choice = choice_of(run)
+            choice = RunChoice(run.profile, run.model, run.settings)
             check_choice(cfg, choice)
             model, model_name, agent_cfg, close = await plugin_model_for(choice)
-            environ = None if run.keys is None else keyed_environ(run.keys)
-            profile = plugin_profile(cfg, model, manifest, folder, model_name=model_name, agent=agent_cfg, environ=environ)
+            profile = plugin_profile(cfg, model, manifest, folder, model_name=model_name, agent=agent_cfg)
             active = await run_host.start(run, runner_profile=profile, close=close)
         except ValidationError as error:
             return JSONResponse({"error": str(error)}, status_code=400)
@@ -626,123 +633,11 @@ def create_app(
         }
         return FileResponse(target, media_type=media_type, headers=headers)
 
-    task_runs: dict[str, asyncio.Task[Any]] = {}
-
-    async def start_task_run(request: Request) -> JSONResponse | StreamingResponse:
-        """Run one plugin task the verified way in a caller's workspace, streaming `task.*` events."""
-        if not authorized(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
-        manifest = runnable(request)
-        if isinstance(manifest, JSONResponse):
-            return manifest
-        try:
-            task = manifest.task(request.path_params["task_id"])
-            folder = workspaces.folder(request.path_params["workspace_id"], create=True)
-        except KeyError as error:
-            return JSONResponse({"error": error.args[0]}, status_code=404)
-        except ValueError as error:
-            return JSONResponse({"error": str(error)}, status_code=400)
-        payload, rejected = await read_json(request)
-        if rejected is not None:
-            return rejected
-        if (
-            not isinstance(payload, dict)
-            or not isinstance(payload.get("arguments"), dict)
-            or set(payload) - {"arguments", "profile", "model", "settings", "keys"}
-        ):
-            return JSONResponse(
-                {"error": 'request body must be {"arguments": {...}}, and may choose its "profile", "model", "settings" and "keys"'},
-                status_code=400,
-            )
-        try:
-            choice = validate_run_choice({key: value for key, value in payload.items() if key != "arguments"})
-            check_choice(cfg, choice)
-            model, model_name, agent_cfg, close = await plugin_model_for(choice)
-        except ValidationError as error:
-            return JSONResponse({"error": str(error)}, status_code=400)
-
-        run_id = f"task_{uuid.uuid4().hex}"
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-
-        def emit(kind: str, data: dict[str, Any]) -> None:
-            queue.put_nowait({"type": kind, "runId": run_id, **data})
-
-        def make_agent(system_prompt: str) -> Agent:
-            return Agent(
-                model,
-                [],
-                system_prompt=system_prompt,
-                max_steps=agent_cfg.max_steps,
-                cost_limit=agent_cfg.cost_limit,
-                token_limit=agent_cfg.token_limit,
-                context_window=agent_cfg.context_window,
-                hooks=get_hooks(agent_cfg.hooks),
-            )
-
-        async def work() -> None:
-            # Only a task that finished has metrics; one that failed or was stopped reports none.
-            done: dict[str, Any] = {}
-            started = time.perf_counter()
-            try:
-                async with plugin_slots:
-                    outcome = await run_task(
-                        manifest,
-                        task,
-                        payload["arguments"],
-                        folder,
-                        make_agent=make_agent,
-                        timeout=cfg.request_timeout,
-                        on_event=emit,
-                        stage=_staged_from(folder),
-                        environ=None if choice.keys is None else keyed_environ(choice.keys),
-                    )
-                done["metrics"] = _task_metrics(outcome, time.perf_counter() - started, model_name)
-            except asyncio.CancelledError:
-                emit("task.error", {"message": "cancelled"})
-            except Exception as error:  # noqa: BLE001 - the stream reports every failure
-                emit("task.error", {"message": f"{type(error).__name__}: {error}"})
-            finally:
-                task_runs.pop(run_id, None)
-                if close is not None:
-                    await close()
-                emit("task.done", done)
-
-        task_runs[run_id] = asyncio.create_task(work())
-
-        async def stream() -> AsyncIterator[bytes]:
-            try:
-                while True:
-                    try:
-                        event = await asyncio.wait_for(queue.get(), timeout=cfg.heartbeat_seconds)
-                    except TimeoutError:
-                        yield b": heartbeat\n\n"
-                        continue
-                    yield _sse(event)
-                    if event["type"] == "task.done":
-                        return
-            finally:
-                # A caller that hangs up stops its task.
-                if run_id in task_runs:
-                    task_runs[run_id].cancel()
-
-        return StreamingResponse(
-            stream(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache, no-transform",
-                "X-Accel-Buffering": "no",
-                "X-NanoAgent-API-Version": "v1",
-                "X-NanoAgent-Run-Id": run_id,
-            },
-        )
-
     async def cancel_run(request: Request) -> JSONResponse:
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         run_id = request.path_params["run_id"]
-        if run_id in task_runs:
-            task_runs[run_id].cancel()
-        elif not run_host.cancel(run_id):
+        if not run_host.cancel(run_id):
             return JSONResponse({"error": "run not found"}, status_code=404)
         return JSONResponse({"id": run_id, "cancelled": True}, status_code=202)
 
@@ -763,6 +658,7 @@ def create_app(
             Route("/v1/profiles", profiles, methods=["GET"]),
             Route("/v1/models", models, methods=["GET"]),
             Route("/v1/keys", set_keys, methods=["PUT"]),
+            Route("/v1/keys/openrouter/usage", key_usage, methods=["GET"]),
             Route("/v1/runs", start_run, methods=["POST"]),
             Route("/v1/runs/{run_id}", cancel_run, methods=["DELETE"]),
             Route("/v1/plugins", list_plugins, methods=["GET"]),
@@ -773,22 +669,12 @@ def create_app(
             Route("/v1/installs/{sha256}", install, methods=["GET", "PUT"]),
             Route("/v1/installs/{sha256}/ui/{path:path}", plugin_ui, methods=["GET"]),
             Route(
-                "/v1/workspaces/{workspace_id}/installs/{sha256}/tasks/{task_id}/runs",
-                start_task_run,
-                methods=["POST"],
-            ),
-            Route(
                 "/v1/workspaces/{workspace_id}/installs/{sha256}/runs",
                 start_plugin_run,
                 methods=["POST"],
             ),
             # COMPAT(mochi-installs): the routes by plugin id, above.
             Route("/v1/plugins/{plugin_id}/ui/{path:path}", package_ui, methods=["GET"]),
-            Route(
-                "/v1/workspaces/{workspace_id}/plugins/{plugin_id}/tasks/{task_id}/runs",
-                by_id(start_task_run),
-                methods=["POST"],
-            ),
             Route("/v1/workspaces/{workspace_id}/plugins/{plugin_id}/runs", by_id(start_plugin_run), methods=["POST"]),
             Route("/v1/workspaces/{workspace_id}/files", list_files, methods=["GET"]),
             Route(

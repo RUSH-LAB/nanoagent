@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const postgres = require('./postgres/database');
 const {ensureRootAccount} = require('./root-account');
 
-const ROOT_WORKSPACE = 'mochi';
+const ROOT_WORKSPACE = 'rush';
 
 async function ensureRootUser(auth, options) {
   const {userId, login, created} = await ensureRootAccount(auth, options);

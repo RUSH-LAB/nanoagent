@@ -1,0 +1,104 @@
+/* Laid out like the marketplace (pages/marketplace/styles.module.css): its
+   heading, its inputs, its error box. */
+.page {
+  width: 100%;
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 3rem;
+}
+
+.page h1 {
+  margin: 0 0 1.5rem;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: flex-start;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--ifm-color-emphasis-800);
+}
+
+.notice {
+  margin: 0;
+}
+
+.notice strong {
+  color: var(--ifm-font-color-base);
+  font-weight: 600;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 100%;
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--ifm-font-color-base);
+}
+
+.field input {
+  width: 100%;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 10px;
+  background: var(--ifm-background-surface-color);
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 400;
+}
+
+.agree {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 10px;
+  background: var(--ifm-color-emphasis-100);
+  cursor: pointer;
+}
+
+.agree input {
+  margin-top: 0.35rem;
+  flex-shrink: 0;
+}
+
+.error {
+  width: 100%;
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--ifm-color-danger-light);
+  border-radius: 8px;
+  background: var(--ifm-color-danger-contrast-background);
+  font-size: 0.875rem;
+}
+
+.done {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--ifm-color-success-darkest);
+}
+
+.note {
+  color: var(--ifm-color-emphasis-600);
+}
+
+.list {
+  margin-top: 2.5rem;
+  font-size: 0.95rem;
+}
+
+.list h2 {
+  margin-bottom: 0.75rem;
+  font-size: 1.1rem;
+}
+
+.list ul {
+  padding-left: 1.2rem;
+}

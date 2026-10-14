@@ -12,11 +12,15 @@
 import {describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {loadRoute, makeCtx, invoke, fakeSessions, SESSION} from '../../_harness.mjs';
+import {loadRoute, makeCtx, invoke, fakeSessions, appRunsFor, SESSION} from '../../_harness.mjs';
 
 const aiSettings = createRequire(import.meta.url)('../../../../src/server/ai-settings.js');
 
 const routes = loadRoute('ai');
+const until = async test => {
+  for (let i = 0; i < 200 && !test(); i += 1) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.ok(test(), 'timed out');
+};
 const PROFILE = 'native-test';
 
 // The input the two endpoints refuse. One list, because they share one
@@ -315,11 +319,17 @@ describe('POST /api/ai/stream', () => {
       : {error: `This workspace has no plugin named ${id}`, status: 404}),
   };
 
-  it('sends an app prompt to that app with no profile or site instructions', async () => {
+  /** A ctx with the workspace's one app, sessions, and plugin runs. */
+  const appCtx = () => {
     const ctx = makeCtx();
-    ctx.agentSync = {run: (_scope, _ai, operation) => operation('run-folder')};
     ctx.sessions = fakeSessions();
     ctx.workspaceApps = workspaceApps;
+    ctx.appRuns = appRunsFor(ctx);
+    return ctx;
+  };
+
+  it('sends an app prompt to that app with no profile or site instructions', async () => {
+    const ctx = appCtx();
     const stream = ctx.ai.stream;
     const call = {id: 'c1', name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: '{"folder": "papers/1706.03762"}'};
     ctx.ai.stream = async request => {
@@ -332,6 +342,8 @@ describe('POST /api/ai/stream', () => {
     assert.deepEqual(ctx.calls.ai[0].app, 'arxiv-source');
     assert.equal(ctx.calls.ai[0].install, SHA);
     assert.equal(ctx.calls.ai[0].workspace, 'run-folder');
+    // Held by the member's computer across its connections, by the run's id.
+    assert.equal(ctx.calls.ai[0].run.resume, false);
     assert.equal('profile' in ctx.calls.ai[0], false);
     assert.equal('instructions' in ctx.calls.ai[0], false);
     // The session keeps the turn with its tool calls, and the call is charged to it.
@@ -341,27 +353,58 @@ describe('POST /api/ai/stream', () => {
         {name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: '{"folder": "papers/1706.03762"}', isError: false},
         {name: 'download_source', arguments: {arxiv_id: '1706.03762'}, output: 'arXiv is down', isError: true},
       ],
+      error: null,
     }]);
     assert.equal(ctx.calls.aiUsage[0].pluginId, 'arxiv-source');
     assert.equal(ctx.calls.aiUsage[0].sessionId, SESSION);
+    // Then the computer lets it go.
+    assert.deepEqual(ctx.appRuns.released, [['test-user', ctx.calls.ai[0].run.id]]);
+  });
+
+  it('keeps an app run going after its caller leaves, answering one message at a time per session', async () => {
+    const ctx = appCtx();
+    let connection;
+    let finish;
+    let aborted = false;
+    ctx.ai.stream = ({signal, onDelta}) => new Promise(resolve => {
+      signal.addEventListener('abort', () => { aborted = true; });
+      onDelta('half an ');
+      finish = () => resolve({text: 'half an answer'});
+      connection.destroyed = true;
+      connection.emit('close');
+    });
+    const body = {prompt: 'save 1706.03762', appId: 'arxiv-source', sessionId: SESSION};
+    const left = await ask({body, ctx, requestContext: WORKSPACE, onRequest: (_req, res) => { connection = res; }});
+    assert.equal(left.res.writableEnded, true);
+    assert.deepEqual([...ctx.sessions.rows.values()].map(row => row.prompt), ['save 1706.03762']);
+    const again = await ask({body, ctx, requestContext: WORKSPACE});
+    assert.equal(again.status, 409);
+    assert.equal(again.payload.error, 'This session is still answering a message');
+    finish();
+    await until(() => ctx.sessions.turns.length);
+    assert.equal(aborted, false);
+    assert.deepEqual(ctx.sessions.turns.map(turn => turn.answer), ['half an answer']);
+    assert.equal(ctx.sessions.rows.size, 0);
+  });
+
+  it('keeps a failed app run\'s turn, with why', async () => {
+    const ctx = appCtx();
+    ctx.ai.stream = async () => ({error: 'Mochi Lab disconnected, and was not back within 10 minutes', status: 503});
+    const r = await ask({body: {prompt: 'save 1706.03762', appId: 'arxiv-source', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
+    assert.match(r.res.writes.join(''), /event: error\ndata: \{"error":"Mochi Lab disconnected, and was not back within 10 minutes","status":503\}/);
+    assert.deepEqual(ctx.sessions.turns.map(({answer, error}) => ({answer, error})), [{answer: '', error: 'Mochi Lab disconnected, and was not back within 10 minutes'}]);
   });
 
   it('runs an app prompt only in one of the caller\'s sessions with it', async () => {
-    const ctx = makeCtx();
-    ctx.agentSync = {run: () => assert.fail('must not run')};
-    ctx.sessions = fakeSessions();
-    ctx.workspaceApps = workspaceApps;
+    const ctx = appCtx();
     const unnamed = await ask({body: {prompt: 'p', appId: 'echo'}, ctx, requestContext: WORKSPACE});
     assert.equal(unnamed.status, 400);
-    const foreign = await ask({body: {prompt: 'p', appId: 'chess-move', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
+    const foreign = await ask({body: {prompt: 'p', appId: 'bibtex-check', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
     assert.equal(foreign.status, 404);
   });
 
   it('runs an app prompt only on an app the workspace added', async () => {
-    const ctx = makeCtx();
-    ctx.agentSync = {run: () => assert.fail('must not run')};
-    ctx.sessions = fakeSessions();
-    ctx.workspaceApps = workspaceApps;
+    const ctx = appCtx();
     const r = await ask({body: {prompt: 'p', appId: 'echo', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
     assert.equal(r.status, 404);
     assert.equal(r.payload.error, 'This workspace has no plugin named echo');
@@ -602,12 +645,10 @@ describe('/api/ai/settings and /api/ai/models', () => {
 
   it('lists the member\'s computer\'s models, each available once Mochi Lab holds its key', async () => {
     const ctx = makeCtx();
-    const hosted = (await invoke(routes, {path: '/api/ai/models', ctx, auth: {userId: 'u1'}})).payload;
-    assert.equal(hosted.connected, false);
-    assert.deepEqual(hosted.defaults, {chat: 'openrouter/test-model', inline: 'openrouter/test-model', apps: 'openrouter/test-model'});
-    assert.deepEqual(hosted.models.map(model => [model.key, model.uses, model.price]), [
-      ['openrouter/test-model', ['chat', 'apps', 'inline'], {input: 1, output: 2}],
-    ]);
+    assert.deepEqual(
+      (await invoke(routes, {path: '/api/ai/models', ctx, auth: {userId: 'u1'}})).payload,
+      {connected: false, device: null, providers: [], models: [], defaults: {}, limits: null},
+    );
     ctx.runners = {
       status: () => ({connected: true, device: 'laptop', keys: [{env: 'OPENROUTER_API_KEY', label: 'OpenRouter', set: true}]}),
       computer: () => ({
@@ -633,6 +674,28 @@ describe('/api/ai/settings and /api/ai/models', () => {
       ['anthropic/claude-x', false, false],
     ]);
     assert.match(r.models[1].unavailableReason, /Needs your Anthropic key/);
+  });
+
+  it('tells what the OpenRouter key on the member\'s computer has spent, as OpenRouter says', async () => {
+    const ctx = makeCtx();
+    const get = () => invoke(routes, {path: '/api/runner/credit', ctx, auth: {userId: 'u1'}});
+    const computer = usage => { ctx.runners = {computer: () => ({openrouterUsage: async () => usage})}; };
+    ctx.runners = {computer: () => null};
+    assert.deepEqual((await get()).payload, {credit: null});
+    // The member's own key: what it has spent, against its own limit or none.
+    const own = {usage: 0.75, limit: 10, limit_remaining: 9.25, workspace_id: 'theirs', workspace_budget: null};
+    computer({value: own});
+    assert.deepEqual((await get()).payload, {credit: {you: 0.75, total: {used: 0.75, cap: 10}}});
+    computer({value: {...own, limit: null, limit_remaining: null}});
+    assert.deepEqual((await get()).payload.credit.total, {used: 0.75, cap: null});
+    // Mochi's: what the member spent on every key Mochi gave them, beside everyone's of the cap.
+    ctx.openrouterKeys = {workspaceId: async () => 'ws1', spent: async userId => (userId === 'u1' ? 3.5 : 0)};
+    computer({value: {usage: 0.5, limit: null, limit_remaining: null, workspace_id: 'ws1', workspace_budget: {spend: 6, limit: 10}}});
+    assert.deepEqual((await get()).payload, {credit: {you: 3.5, total: {used: 6, cap: 10}}});
+    computer({error: 'no OpenRouter key is set', status: 404});
+    assert.deepEqual((await get()).payload, {credit: null});
+    computer({error: 'OpenRouter answered 401', status: 502});
+    assert.equal((await get()).status, 502);
   });
 
   it('passes API keys on to the member\'s computer, answering with what it said', async () => {

@@ -31,7 +31,7 @@ run.sh           # exits 0 when this environment can run the plugin
 src/             # the plugin's code, organized as it likes
 tests/           # the plugin's tests, including test_verifier.py
 verifier/        # deterministic verifier package, .py files only
-ui/              # the front end: a static web page, ui/index.html
+ui/              # how the page draws task outputs: renderers.js and renderers.css
 product/         # the product page: product.yaml and icon.svg
 ```
 
@@ -41,19 +41,37 @@ checkout: `.git`, `.venv`, `__pycache__`, `.pytest_cache`, `.ruff_cache`, `.mypy
 
 The rules a plugin must follow are listed in one place, the docstring of
 `nanoagent.plugin.manifest`. These are the layout above, a `.env` holding
-names only, a `contract.py` of declarations only, a `nanoagent.yaml` that
-fills `ManifestConfig` under slimconfig's rules (tables keyed by the
-contract's `Tool` and `Task`), a deterministic verifier, a `ui/` and a
+names only, a `contract.py` of declarations only (snake_case tools,
+kebab-case tasks, classes named `...Input` and `...Output`), a
+`nanoagent.yaml` that fills `ManifestConfig` under slimconfig's rules (tables
+keyed by the contract's `Tool` and `Task`, the standard `runtime.command`
+`[uv, run, --frozen, python, -m, plugin]`, a PEP 440 `version`), a
+deterministic verifier, a `ui/` and a
 `product/` (below), no extra files, and standard files that are the
 template's (`nanoagent/plugin/template/`, what `nanoagent plugin new`
-writes): its `LICENSE` naming the plugin, its `.gitignore` entries, its
+writes): its MIT `LICENSE` naming whoever built it, its `.gitignore` entries, its
 `run.sh` checks first (a plugin adds its own after them), a `README.md`
 opening with `# <name>` with the sections Tools, Layout and Develop and run
-and every tool named under Tools, and a `pyproject.toml` naming the project
-`nanoagent-<id>`. NanoAgent refuses to load a plugin that breaks any rule, and `PluginError` lists every
+and every tool and task named under Tools, and a `pyproject.toml` naming the
+project `nanoagent-<id>` at the manifest's version, with the template's
+`requires-python`, dependencies and `slimconfig` source and every other
+dependency bounded both ways. A `ready` plugin's `product.yaml` is its own,
+not the template's placeholder. NanoAgent refuses to load a plugin that breaks any rule, and `PluginError` lists every
 violation at once (`nanoagent plugin inspect <path>` prints them). The web
 host refuses to start with such a plugin. Every tool call checks the rules
 again, so a plugin edited after it loaded is refused too.
+
+Every plugin names the NanoAgent versions it runs on: `nanoagent` in
+`nanoagent.yaml` is one NanoAgent minor version, `~=X.Y.0`, and NanoAgent
+refuses a plugin whose range does not hold its own version
+(`nanoagent.__version__`).
+`nanoagent plugin new` writes `~=<this version>`, such as `~=0.3.0`
+(0.3.0 up to, not including, 0.4). NanoAgent raises its minor version
+whenever a plugin made for the last one could break: the plugin rules, the
+contract, the verifier, the UI kit or the `nanoagent.ui/v1` bridge. Any other
+release raises the patch version. Each release is a git tag,
+`nanoagent-v<version>`, and [CHANGELOG.md](CHANGELOG.md) says what a plugin
+must change for it.
 
 Before each launch NanoAgent runs `run.sh` with the plugin's environment: `NANOAGENT_WORKSPACE` plus each `.env`
 name taken from NanoAgent's own environment. It refuses to launch unless
@@ -65,11 +83,20 @@ MCP, the agent and the web) is `slimconfig.output_schema` of a contract class.
 A tool that fails raises; NanoAgent sees an MCP error, never an `ok: false`.
 
 Every task in `nanoagent.yaml` declares its `runner` and a `reference`; its
-input class is the contract's `TASKS` entry. A run config's `arguments` is the
-path of a JSON file holding that input:
+input and output classes are the contract's `TASKS` entry. A run config's
+`arguments` is the path of a JSON file holding that input:
 
-- **`runner`:** `tool` means one tool called directly with the task's input.
-  `agent` means an agent works the task with the task's tools.
+- **`runner`:** `tool` means one tool called directly with the task's input;
+  the task's classes are the tool's, and its output is the tool's. `agent`
+  means an agent works the task with the task's tools and ends by calling
+  `submit`, a tool NanoAgent adds that takes the task's output class: the last
+  submission is the task's output, and an agent that never submits fails the
+  task. No plugin tool is named `submit`. `decide` means a model only decides:
+  NanoAgent calls the task's tools and builds its output, every value an Enum
+  or bool the model chose, or one of exactly its type copied from the task's
+  input or an earlier tool output (never the reference tool's). A slot with one
+  option is copied with no question; NanoAgent refuses a decide task with a
+  field it cannot fill that way.
 - **`reference`:** either `null` or a tool outside the task's tools that takes
   the task's input. NanoAgent runs it before the task and pins its output as
   the ground truth. This is how a verifier checks against arXiv without
@@ -81,8 +108,8 @@ three functions:
 - `verify_input(tool, value)` and
   `verify_output(tool, input_value, output_value, workspace)`, run on every
   tool call;
-- `verify_task(task, arguments, reference, workspace)`, run once on the
-  finished task, with the pinned reference.
+- `verify_task(task, arguments, output, reference, workspace)`, run once on
+  the task's output, with the pinned reference.
 
 Each returns `valid`, `score` (0 to 1), `message` and `details`. Other modules
 in `verifier/` are imported relatively. NanoAgent enforces determinism
@@ -97,42 +124,41 @@ in `verifier/` are imported relatively. NanoAgent enforces determinism
 
 ### The reference plugin and starting a new one
 
-`plugins/arxiv-source` is built in and is the reference every plugin follows.
-It searches arXiv, then fetches and saves papers' LaTeX source. It has an MCP
-server with a `TOOLS` table, one module per tool in `src/plugin/`, a schema
-pair per tool, and one verifier module per tool. Start a new plugin with the
-same structure (the folder name is the plugin id):
+NanoAgent ships no plugin. Each lives in its own repository and is published to
+Mochi's marketplace from it, as
+[arxiv-source](https://github.com/zeyuyang8/arxiv-source) is.
+arxiv-source is the reference every plugin follows. It searches arXiv, then
+fetches and saves papers' LaTeX source. It has an MCP server with a `TOOLS`
+table, one module per tool in `src/plugin/`, a schema pair per tool, and one
+verifier module per tool. Start a new plugin with the same structure (the
+folder name is the plugin id):
 
 ```bash
-uv run nanoagent plugin new plugins/my-plugin
+uv run nanoagent plugin new ../my-plugin
 ```
 
 This copies the template (`nanoagent/plugin/template/`) with one working
 `write_note` tool and writes `uv.lock`. The new plugin already passes every
-rule. The plugin's README says how to add a tool. Each plugin under `plugins/`
-is its own uv project with its own tests: `cd plugins/<id> && uv run pytest`.
+rule. The plugin's README says how to add a tool. Each plugin is its own uv
+project with its own tests: `uv run pytest` in its folder.
 
-Inspect a plugin, or run one:
+Inspect a plugin:
 
 ```bash
-uv run nanoagent plugin inspect plugins/arxiv-source
-bash examples/arxiv_source/runs/step1_save_paper_source.sh    # one paper by id
-bash examples/arxiv_source/runs/step2_search_papers.sh        # search only
-bash examples/arxiv_source/runs/step3_save_search_results.sh  # search, fetch, save
-bash examples/arxiv_source/runs/step4_daily_digest.sh         # agent: the daily paper digest
+uv run nanoagent plugin inspect ../my-plugin
 ```
 
-Both run commands are slimconfig runs (`config=<run.yaml> home=<run folder>`).
+Two commands run a plugin's task, both slimconfig runs (`config=<run.yaml> home=<run folder>`).
 Their config names the plugin, the task, and the task's `key=value` arguments.
 
-- **`nanoagent plugin run`** (`PluginRunConfig`) runs `tool` tasks. It adds
-  `result.json` to the run folder.
-- **`nanoagent plugin agent`** (`PluginAgentConfig`) runs `agent` tasks. It adds
-  `llm` (Bedrock) and `harness` (the loop's limits) to the config, and
-  `reference.json` and `messages.json` (ATIF) to the run folder.
+- **`nanoagent plugin run`** (`PluginRunConfig`) runs `tool` tasks.
+- **`nanoagent plugin agent`** (`PluginAgentConfig`) runs `agent` and `decide`
+  tasks. It adds `llm` (Bedrock, or OpenRouter in a
+  `PluginOpenRouterAgentConfig`) and `harness` (the loop's limits) to the
+  config, and `reference.json` and `messages.json` (ATIF) to the run folder.
 
-Every run folder holds `workspace/` and `verdict.json` (the `verify_task`
-verdict), and the run exits 1 unless the verdict is valid. A plugin may write
+Every run folder holds `workspace/`, `result.json` (the task's output) and
+`verdict.json` (the `verify_task` verdict), and the run exits 1 unless the verdict is valid. A plugin may write
 only to its workspace, which NanoAgent passes as `NANOAGENT_WORKSPACE`.
 
 - **Input files.** A config's `inputs:` lists files the task reads. They are
@@ -163,43 +189,59 @@ with the icon as a `data:` URL for an `<img>`. Where the plugin may connect
 and write comes from its manifest's `permissions`, so the page never restates
 them.
 
-Every plugin also ships its own front end in `ui/`, a static web page:
-`ui/index.html` and the HTML, JS, CSS, images and fonts it loads, at most
-5 MB, with nothing built at load time. Mochi shows it in a sandboxed iframe,
-and nothing of its own around it: choosing the app opens this page, so how
-the app introduces itself and starts is the page's to design.
-NanoAgent serves an installed plugin's at `GET /v1/installs/<sha256>/ui/<uiVersion>/<path>`, where
-`uiVersion` is the catalog's digest of `ui/` and the files are cached forever, under a
+Every plugin's page is NanoAgent's: a chat with the plugin's agent. A person
+says what they need; the agent, whose only tools are the plugin's tasks (one
+per task, named by its id and taking its input), runs the task that does it
+the verified way, and answers in a sentence or two. Each task it ran shows in
+the chat as a chip, and its result card (the task's output, with its verdict as
+a badge) beside the chat, on the right. Mochi shows the
+page in a sandboxed iframe, in the kit's frame of two tabs. **Dashboard**,
+where the app always opens, lists the member's sessions with the plugin,
+newest first, with what each ran and cost, to resume one or start a new one.
+**Session** is the chat: the open session or, with none open, a new one, which
+is only kept once it first chats. The host keeps each session's conversation,
+task results included, so a resumed session shows it again.
+NanoAgent serves an installed plugin's page at `GET /v1/installs/<sha256>/ui/<uiVersion>/<path>`, where
+`uiVersion` is the catalog's digest of the page and the files are cached forever, under a
 Content-Security-Policy with `connect-src 'none'`, so the page can't reach the
 network and talks to NanoAgent only through the host's `postMessage` bridge,
-protocol `nanoagent.ui/v1`. The bridge's methods are `describe`, `runTask`,
-`prompt`, `cancel`, and `workspace.list` / `read` / `write`
+protocol `nanoagent.ui/v1`. The bridge's methods are `describe`, `prompt`,
+`cancel`, `sessions.list`, and `session.get` / `start` / `resume` / `archive`
 ([docs/plans/plugin-ui.md](docs/plans/plugin-ui.md)).
 
-`runTask` uses `POST /v1/workspaces/<ws>/installs/<sha256>/tasks/<task>/runs`,
-which runs a task the verified way (reference, tools or agent, then
-`verify_task`) in that workspace and streams `task.*` events. It shares its
-runner, `nanoagent.plugin.tasks.run_task`, with `nanoagent plugin run` and
-`agent`.
-
-`ui/` is the plugin's own page: `ui/app.js` and `ui/app.css`, next to any
-other static files it adds. NanoAgent serves it in its own frame,
+A plugin's `ui/` says how to draw its outputs, and nothing else: an output is
+drawn from its JSON Schema (an object as labelled fields, a list of objects as
+a table, a list as a list, text, links, numbers, yes or no) unless
+`ui/renderers.js` draws its class. NanoAgent serves the page from
 `src/nanoagent/plugin/page/` (`index.html` and the shared UI kit `kit/`), so
-every plugin gets the kit of the NanoAgent serving it. `nanoagent plugin new`
-starts every plugin with a default page, a full-page chat with the plugin's
-agent that draws the tool results it has renderers for. Each plugin then designs its page around what people
-come to do: `app.js` passes `mountApp` a layout, `({plugin, workspace}) =>
-Element`, built from `./kit/components.js`. The kit has an app shell with
-the chat in a drawer (`appShell`, `chatDrawer`), inputs (`dateInput`,
-`segmented`, `chipToggles`, `chipRow`, `chipsInput`, `numberStepper`, and
-`fileDrop`, which writes the user's file to the workspace for the task), a
-run with plain-language steps, Stop and its outcome (`taskRun`,
-`runButton`), the verdict and errors in plain words (`verdictBanner`,
-`errorCard`), results (`card`, `dataTable`, `meter`, `statusPill`,
-`disclosure`, `emptyState`), workspace files and a JSON state file
-(`jsonStore`), and Mochi's look in light and dark down to narrow widths
-(`kit.css`). The full API is in
+every plugin gets the kit of the NanoAgent serving it, and refuses a plugin
+unless:
+
+- `ui/renderers.js` and `ui/renderers.css` exist, and `ui/` holds no
+  `index.html`, `kit/`, `app.js` or `app.css`;
+- `renderers.js`'s default export is an object literal of renderers keyed by
+  the output classes of the plugin's tasks, each
+  `(value, {task, verdict, send}) => Element` (`{}` in the template);
+- every script imports only by a literal `./` or `../` path, of the kit's
+  modules (`./kit/components.js`) or the plugin's own files in `ui/`: no URLs,
+  no package names, no computed `import()`;
+- no script names `document`, `window`, `parent`, `fetch` or another page,
+  host or network global (`UI_GLOBALS`), or reaches for `.ownerDocument`,
+  `.parentNode`, `.host` or another way out of its output (`UI_PROPERTIES`).
+
+The kit draws each renderer's output in a closed shadow root of its own, the
+only place `renderers.css` applies, so a plugin's scripts and styles never
+reach the page's layout; the page's Content-Security-Policy refuses them the
+network.
+
+Renderers build from `./kit/components.js` (`h`, `icon`, `plural`,
+`dataTable`, `statusPill`, `disclosure`, `markdown`, `schemaView`) and
+`kit.css`'s look, in light and dark. The full API is in
 [docs/plans/plugin-ui.md](docs/plans/plugin-ui.md).
+
+The chat's task tools run a task the verified way (reference, tools, agent or
+decider, then `verify_task`) in the caller's workspace with the same runner,
+`nanoagent.plugin.tasks.run_task`, as `nanoagent plugin run` and `agent`.
 
 Each declared plugin tool is also available as a regular NanoAgent `Tool`
 through `nanoagent.plugin.plugin_tools(manifest, workspace, names)`.
@@ -215,8 +257,8 @@ as apps:
   `uv sync --frozen`. The reply is the plugin's catalog entry with its
   `uiVersion`, or 422 with every broken rule. Installing it again returns it.
 - `GET /v1/installs/{sha256}` returns that entry, or 404 for a package not
-  installed. Installs last as long as the process, so a caller installs again
-  after a restart.
+  installed. A finished install is kept on disk, so the caller that installs
+  again after a restart gets it without a sync.
 - `POST /v1/workspaces/{workspace}/installs/{sha256}/runs` runs a prompt on an
   agent that has the plugin's tools. The body is a run request and the reply is
   a run stream.
@@ -260,7 +302,7 @@ unpack it with `tar xzf` and run it like any plugin folder. The web service
 serves packages, and runs one only once it is installed (above):
 
 - `GET /v1/packages` lists the plugin directories under `packages` in its
-  `WebConfig` (on Railway, every built-in plugin) with their catalog entries.
+  `WebConfig` (on Railway, none) with their catalog entries.
 - `GET /v1/packages/{id}` downloads one.
 - `POST /v1/packages/inspect` checks an uploaded package without running any
   of it. The package must unpack to plain files under one folder named by the

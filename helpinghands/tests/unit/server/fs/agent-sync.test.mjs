@@ -1,7 +1,7 @@
 import {after, before, describe, it} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {as, migratedDatabase} from './_pglite.mjs';
+import {applyMigration, as, migratedDatabase} from './_pglite.mjs';
 
 const require = createRequire(import.meta.url);
 const {createPostgresFs} = require('../../../../src/server/fs/store.js');
@@ -26,6 +26,20 @@ function fakeNanoAgent() {
   };
 }
 
+/**
+ * One run, as app-runs.js does one: a folder prepared, kept as JSON (as
+ * PostgreSQL keeps it), `operation(workspace)` in it, and what it did written
+ * back, even when it fails.
+ */
+async function runIn(sync, scope, ai, operation, plugin = 'echo') {
+  const folder = JSON.parse(JSON.stringify(await sync.prepare(scope, ai, plugin)));
+  try {
+    return await operation(folder.workspace);
+  } finally {
+    await sync.finish(scope, ai, plugin, folder);
+  }
+}
+
 describe('plugin runs as file system clients', () => {
   let db;
   let fs;
@@ -43,11 +57,11 @@ describe('plugin runs as file system clients', () => {
     const sync = createAgentSync({fs});
     await fs.mkdir(alice, 'home/alice');
     await fs.setAccess(alice, 'home/alice', 'private');
-    await fs.write(alice, 'home/alice/agent/input.txt', 'question');
-    await fs.write(alice, 'home/alice/agent/stale.txt', 'old');
+    await fs.write(alice, 'home/alice/agent/echo/input.txt', 'question');
+    await fs.write(alice, 'home/alice/agent/echo/stale.txt', 'old');
 
     let used;
-    await sync.run(alice, nano, async workspace => {
+    await runIn(sync, alice, nano, async workspace => {
       used = workspace;
       const folder = nano.of(workspace);
       assert.deepEqual([...folder.keys()].sort(), ['input.txt', 'stale.txt']);
@@ -56,10 +70,10 @@ describe('plugin runs as file system clients', () => {
       folder.delete('stale.txt');
     });
 
-    assert.equal((await fs.read(alice, 'home/alice/agent/answers/out.md')).body.toString(), '# Answer');
-    assert.equal((await fs.read(alice, 'home/alice/agent/input.txt')).body.toString(), 'question, edited');
-    assert.equal(await fs.stat(alice, 'home/alice/agent/stale.txt'), null);
-    assert.equal(await fs.stat(as('bob'), 'home/alice/agent/answers/out.md'), null);
+    assert.equal((await fs.read(alice, 'home/alice/agent/echo/answers/out.md')).body.toString(), '# Answer');
+    assert.equal((await fs.read(alice, 'home/alice/agent/echo/input.txt')).body.toString(), 'question, edited');
+    assert.equal(await fs.stat(alice, 'home/alice/agent/echo/stale.txt'), null);
+    assert.equal(await fs.stat(as('bob'), 'home/alice/agent/echo/answers/out.md'), null);
     assert.deepEqual(nano.removed, [used]);
     assert.equal(nano.folders.size, 0);
   });
@@ -68,59 +82,109 @@ describe('plugin runs as file system clients', () => {
     const nano = fakeNanoAgent();
     const sync = createAgentSync({fs});
     const seen = [];
-    await Promise.all([sync.run(alice, nano, async w => seen.push(w)), sync.run(alice, nano, async w => seen.push(w))]);
+    await Promise.all([runIn(sync, alice, nano, async w => seen.push(w)), runIn(sync, alice, nano, async w => seen.push(w))]);
     assert.equal(new Set(seen).size, 2);
   });
 
   it('keeps the member\'s edits made during the run', async () => {
     const nano = fakeNanoAgent();
     const sync = createAgentSync({fs});
-    await fs.write(alice, 'home/alice/agent/both.md', 'start');
-    await fs.write(alice, 'home/alice/agent/kept.md', 'start');
+    await fs.write(alice, 'home/alice/agent/echo/both.md', 'start');
+    await fs.write(alice, 'home/alice/agent/echo/kept.md', 'start');
     let used;
-    await sync.run(alice, nano, async workspace => {
+    await runIn(sync, alice, nano, async workspace => {
       used = workspace;
       // The member writes while the run goes on.
-      await fs.write(alice, 'home/alice/agent/both.md', 'member');
-      await fs.write(alice, 'home/alice/agent/kept.md', 'member');
-      await fs.write(alice, 'home/alice/agent/added.md', 'member');
+      await fs.write(alice, 'home/alice/agent/echo/both.md', 'member');
+      await fs.write(alice, 'home/alice/agent/echo/kept.md', 'member');
+      await fs.write(alice, 'home/alice/agent/echo/added.md', 'member');
       nano.of(workspace).set('both.md', Buffer.from('agent'));
       nano.of(workspace).delete('kept.md');
     });
-    assert.equal((await fs.read(alice, 'home/alice/agent/both.md')).body.toString(), 'member');
-    assert.equal((await fs.read(alice, `home/alice/agent/both (agent run ${used.slice(0, 8)}).md`)).body.toString(), 'agent');
-    assert.equal((await fs.read(alice, 'home/alice/agent/kept.md')).body.toString(), 'member');
-    assert.equal((await fs.read(alice, 'home/alice/agent/added.md')).body.toString(), 'member');
+    assert.equal((await fs.read(alice, 'home/alice/agent/echo/both.md')).body.toString(), 'member');
+    assert.equal((await fs.read(alice, `home/alice/agent/echo/both (agent run ${used.slice(0, 8)}).md`)).body.toString(), 'agent');
+    assert.equal((await fs.read(alice, 'home/alice/agent/echo/kept.md')).body.toString(), 'member');
+    assert.equal((await fs.read(alice, 'home/alice/agent/echo/added.md')).body.toString(), 'member');
   });
 
   it('writes nothing back from a listing NanoAgent cut short', async () => {
     const nano = fakeNanoAgent();
     nano.truncated = true;
-    await fs.write(alice, 'home/alice/agent/safe.md', 'here');
-    await assert.rejects(() => createAgentSync({fs}).run(alice, nano, async workspace => {
+    await fs.write(alice, 'home/alice/agent/echo/safe.md', 'here');
+    await assert.rejects(() => runIn(createAgentSync({fs}), alice, nano, async workspace => {
       nano.of(workspace).clear();
     }), /only part/);
-    assert.equal((await fs.read(alice, 'home/alice/agent/safe.md')).body.toString(), 'here');
+    assert.equal((await fs.read(alice, 'home/alice/agent/echo/safe.md')).body.toString(), 'here');
     assert.equal(nano.folders.size, 0);
   });
 
   it('writes results back even when the run fails', async () => {
     const nano = fakeNanoAgent();
     const sync = createAgentSync({fs});
-    await assert.rejects(() => sync.run(alice, nano, async workspace => {
+    await assert.rejects(() => runIn(sync, alice, nano, async workspace => {
       nano.of(workspace).set('partial.txt', Buffer.from('half done'));
       throw new Error('cancelled');
     }), /cancelled/);
-    assert.equal((await fs.read(alice, 'home/alice/agent/partial.txt')).body.toString(), 'half done');
+    assert.equal((await fs.read(alice, 'home/alice/agent/echo/partial.txt')).body.toString(), 'half done');
     assert.equal(nano.folders.size, 0);
   });
 
   it('makes a member\'s home private when a run creates it', async () => {
     const bob = as('bob');
     const nano = fakeNanoAgent();
-    await createAgentSync({fs}).run(bob, nano, async workspace => { nano.of(workspace).set('note.md', Buffer.from('mine')); });
+    await runIn(createAgentSync({fs}), bob, nano, async workspace => { nano.of(workspace).set('note.md', Buffer.from('mine')); });
     assert.equal((await fs.stat(bob, 'home/bob')).access, 'private');
-    assert.equal(await fs.stat(alice, 'home/bob/agent/note.md'), null);
+    assert.equal(await fs.stat(alice, 'home/bob/agent/echo/note.md'), null);
+  });
+});
+
+describe('plugin folders', () => {
+  it('gives a run only its own plugin\'s folder', async () => {
+    const {db, pool} = await migratedDatabase();
+    const fs = createPostgresFs({pool});
+    const alice = as('alice');
+    const nano = fakeNanoAgent();
+    const sync = createAgentSync({fs});
+    try {
+      await fs.write(alice, 'home/alice/agent/echo/mine.md', 'echo');
+      await fs.write(alice, 'home/alice/files/kept.md', 'member');
+      let seen;
+      await runIn(sync, alice, nano, async workspace => {
+        seen = [...nano.of(workspace).keys()];
+        nano.of(workspace).set('out.md', Buffer.from('other'));
+      }, 'other');
+      assert.deepEqual(seen, []);
+      assert.equal((await fs.read(alice, 'home/alice/agent/other/out.md')).body.toString(), 'other');
+      assert.equal((await fs.read(alice, 'home/alice/agent/echo/mine.md')).body.toString(), 'echo');
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('moves what runs left before plugin folders to the member\'s files, as logged moves', async () => {
+    const {db, pool} = await migratedDatabase({until: '0031_plugin_folders.sql'});
+    const fs = createPostgresFs({pool});
+    const alice = as('alice');
+    try {
+      await fs.mkdir(alice, 'home/alice');
+      await fs.setAccess(alice, 'home/alice', 'private');
+      await fs.write(alice, 'home/alice/agent/notes/a.md', 'a');
+      await fs.write(alice, 'home/alice/agent-like.md', 'stays');
+      await fs.write(as('bob'), 'home/bob/agent/b.txt', 'b');
+      const before = await fs.stat(alice, 'home/alice/agent/notes/a.md');
+      await applyMigration(db, '0031_plugin_folders.sql');
+      const after = await fs.stat(alice, 'home/alice/files/notes/a.md');
+      assert.equal(after.id, before.id);
+      assert.equal(after.access, 'private');
+      assert.ok(after.rev > before.rev);
+      assert.equal(await fs.stat(alice, 'home/alice/agent'), null);
+      assert.equal((await fs.read(alice, 'home/alice/agent-like.md')).body.toString(), 'stays');
+      assert.equal((await fs.read(as('bob'), 'home/bob/files/b.txt')).body.toString(), 'b');
+      const moved = (await fs.changes(alice, {since: before.rev})).changes.find(change => change.nodeId === before.id);
+      assert.deepEqual([moved.op, moved.fromPath, moved.path, moved.seq], ['move', 'home/alice/agent/notes/a.md', 'home/alice/files/notes/a.md', after.rev]);
+    } finally {
+      await db.close();
+    }
   });
 });
 

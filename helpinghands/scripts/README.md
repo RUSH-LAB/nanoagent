@@ -31,7 +31,7 @@ DATABASE_MIGRATION_URL=postgresql://neondb_owner:...@.../neondb?sslmode=verify-f
 BETTER_AUTH_SECRET=...
 PG_SSL=require
 PG_SSL_REJECT_UNAUTHORIZED=true
-PLATFORM_NAME=Mochi Lab
+PLATFORM_NAME=RUSH Lab
 PLATFORM_TAGLINE=Collaborative knowledge workspaces
 GITHUB_CLIENT_ID=...
 GITHUB_CLIENT_SECRET=...
@@ -69,7 +69,7 @@ needed for the Resend verification command:
 
 ```dotenv
 RESEND_API_KEY=...
-MAIL_FROM=Mochi Lab <no-reply@mochi-lab.org>
+MAIL_FROM=Mochi Lab <no-reply@rush-lab.org>
 MAIL_TEST_TO=...
 ```
 
