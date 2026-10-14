@@ -19,10 +19,9 @@ import styles from './styles.module.css';
  * Choosing an app shows its own front end, the page in its ui/ folder, in a
  * sandboxed frame (PluginFrame), and nothing of ours around it: what the app
  * says about itself and how it starts are its developer's. Through the frame's
- * bridge the page runs the app's tasks and prompts its NanoAgent agent; what
- * the apps save lands in the caller's own workspace (src/pages/workspace).
- * NanoAgent owns the agent's model, instructions and the checks on every tool
- * call.
+ * bridge the page prompts the app's NanoAgent agent; what the apps save lands
+ * in the caller's own workspace (src/pages/workspace). NanoAgent owns the
+ * agent's model, instructions and the checks on every tool call.
  */
 
 /** A plugin still being built: what it is, and that it cannot be used yet. */

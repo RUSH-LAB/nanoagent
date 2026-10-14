@@ -897,13 +897,12 @@ export const SESSION = '00000000-0000-4000-8000-000000000001';
 
 /**
  * Plugin sessions (postgres/sessions.js) held in memory: `SESSION` of every
- * plugin id in `plugins` exists; anything else is a SessionError 404. What was
- * saved and every turn added are recorded.
+ * plugin id in `plugins` exists; anything else is a SessionError 404. Every
+ * session created and turn added is recorded.
  */
 export function fakeSessions(plugins = ['echo', 'arxiv-source']) {
   const {SessionError} = require('../../src/server/postgres/sessions.js');
   const sessions = {
-    saved: [],
     turns: [],
     created: [],
     async assertOwned(_context, pluginId, id) {
@@ -914,15 +913,11 @@ export function fakeSessions(plugins = ['echo', 'arxiv-source']) {
     },
     async create(_context, pluginId) {
       sessions.created.push(pluginId);
-      return {id: SESSION, pluginId, title: '', runs: 0, cost: 0, ttftS: null, state: null, chat: []};
+      return {id: SESSION, pluginId, title: '', runs: 0, cost: 0, ttftS: null, chat: []};
     },
     async get(context, pluginId, id) {
       await sessions.assertOwned(context, pluginId, id);
-      return {id, pluginId, title: '', runs: 0, cost: 0, ttftS: null, state: null, chat: [], calls: []};
-    },
-    async save(context, pluginId, id, saved) {
-      await sessions.assertOwned(context, pluginId, id);
-      sessions.saved.push({pluginId, id, ...saved});
+      return {id, pluginId, title: '', runs: 0, cost: 0, ttftS: null, chat: [], calls: []};
     },
     async addTurn(context, pluginId, id, turn) {
       await sessions.assertOwned(context, pluginId, id);

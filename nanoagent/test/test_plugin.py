@@ -1060,7 +1060,7 @@ def test_ui_scripts_import_only_what_nanoagent_serves(tmp_path: Path) -> None:
 
     write_plugin(tmp_path)
     (tmp_path / "ui" / "renderers.js").write_text(
-        'import { card } from "./kit/components.js";\n'
+        'import { h } from "./kit/components.js";\n'
         'import { helper } from "./lib/helper.js";\n'
         'import { missing } from "./kit/missing.js";\n'
         'import { other } from "./other.js";\n'
@@ -1068,7 +1068,7 @@ def test_ui_scripts_import_only_what_nanoagent_serves(tmp_path: Path) -> None:
         'import remote from "https://example.com/x.js";\n'
         'import up from "../contract.js";\n'
         "const later = await import(name);\n"
-        "export const renderers = { EchoOutput: card };\n",
+        "export const renderers = { EchoOutput: h };\n",
         encoding="utf-8",
     )
     (tmp_path / "ui" / "lib").mkdir()

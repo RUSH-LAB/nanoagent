@@ -29,8 +29,8 @@ function newId() {
 }
 
 // What the host does in the page's session, and what makes sure the host has started it
-// (kit/session.js): a new session starts on the first of these, not when it opens.
-const IN_SESSION = new Set(["runTask", "prompt", "session.save"]);
+// (kit/session.js): a new session starts on its first prompt, not when it opens.
+const IN_SESSION = new Set(["prompt"]);
 let sessionStarted = async () => {};
 
 /**
@@ -43,7 +43,7 @@ export function onSessionRequest(started) {
 
 /**
  * Send `method` with `params` to the host.
- * @param {string} method e.g. "workspace.list".
+ * @param {string} method e.g. "sessions.list".
  * @param {object} [params]
  * @returns {Promise<any>} The reply's `result`; rejects with its `error.message`.
  */
@@ -72,10 +72,10 @@ export function on(event, handler) {
 }
 
 /**
- * Start a streamed run (`runTask` or `prompt`) and call `onEvent(name, data)` for each of its
- * events, through its `*.done` event. Events the host sends before its reply are kept and
- * delivered once the reply names the run.
- * @param {"runTask"|"prompt"} method
+ * Start a streamed run (`prompt`) and call `onEvent(name, data)` for each of its events,
+ * through its `*.done` event. Events the host sends before its reply are kept and delivered once
+ * the reply names the run.
+ * @param {"prompt"} method
  * @param {object} params
  * @param {(name: string, data: object) => void} onEvent
  * @returns {Promise<string>} The runId.

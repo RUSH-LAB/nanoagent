@@ -216,13 +216,6 @@ try {
       const script = ok(await gateway.installUiFile(offered.sha256, installed.uiVersion, 'app.js'));
       assert.deepEqual(script, fs.readFileSync(path.join(pluginRoot, 'ui', 'app.js')));
     },
-    async taskRun() {
-      // Arguments that fail the task's input are refused inside the run, on its event stream.
-      const stream = ok(await gateway.taskRun({workspace, install: offered.sha256, task: installed.tasks[0].id, args: {}}));
-      const events = (await new Response(stream).text()).split('\n')
-        .filter(line => line.startsWith('data: ')).map(line => JSON.parse(line.slice(6)));
-      assert.deepEqual(events.map(event => event.type).slice(-2), ['task.error', 'task.done']);
-    },
     async saveWorkspaceFile() {
       ok(await gateway.saveWorkspaceFile(workspace, 'notes/a.md', Buffer.from('# A'), {create: true}));
       assert.equal((await gateway.saveWorkspaceFile(workspace, 'notes/a.md', Buffer.from('x'), {create: true})).status, 409);

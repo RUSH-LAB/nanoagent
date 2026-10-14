@@ -47,6 +47,7 @@ refuses a renderer named for a class no task outputs.
 1. NanoAgent: the contract, manifest and task runner (output types, `submit`, `verify_task`),
    the chat agent over tasks with the cost carried up, the template, tests.
 2. The kit: the standard chat page, the schema view, renderers; the rule for `ui/`.
-3. The five plugins, each in its own folder: task outputs, verifiers judging them, renderers.
-4. Remove what no page uses any more (the designed-page components, the bridge's `runTask`),
-   the docs, CHANGELOG, and NanoAgent 0.4.0.
+3. The four plugins, each in its own folder: task outputs, verifiers judging them, renderers.
+4. Done: what no page used any more is removed (the designed-page components and styles, the
+   bridge's `runTask`, `session.save` and `workspace.*`, `kit/workspace.js`, and the task-run
+   endpoint), with the docs, CHANGELOG, and NanoAgent 0.4.0.

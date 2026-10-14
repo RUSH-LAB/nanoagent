@@ -206,9 +206,8 @@ NanoAgent serves an installed plugin's page at `GET /v1/installs/<sha256>/ui/<ui
 `uiVersion` is the catalog's digest of the page and the files are cached forever, under a
 Content-Security-Policy with `connect-src 'none'`, so the page can't reach the
 network and talks to NanoAgent only through the host's `postMessage` bridge,
-protocol `nanoagent.ui/v1`. The bridge's methods are `describe`, `runTask`,
-`prompt`, `cancel`, `sessions.list`, `session.get` / `start` / `resume` /
-`save`, and `workspace.list` / `read` / `write`
+protocol `nanoagent.ui/v1`. The bridge's methods are `describe`, `prompt`,
+`cancel`, `sessions.list`, and `session.get` / `start` / `resume`
 ([docs/plans/plugin-ui.md](docs/plans/plugin-ui.md)).
 
 A plugin's `ui/` says how to draw its outputs, and nothing else: an output is
@@ -236,17 +235,14 @@ only place `renderers.css` applies, so a plugin's scripts and styles never
 reach the page's layout; the page's Content-Security-Policy refuses them the
 network.
 
-Renderers build from `./kit/components.js` (`h`, `card`, `dataTable`,
-`banner`, `statusPill`, `disclosure`, `meter`, `markdown`, `schemaView`, the
-workspace's files) and `kit.css`'s look, in light and dark. The full API is in
+Renderers build from `./kit/components.js` (`h`, `icon`, `plural`,
+`dataTable`, `statusPill`, `disclosure`, `markdown`, `schemaView`) and
+`kit.css`'s look, in light and dark. The full API is in
 [docs/plans/plugin-ui.md](docs/plans/plugin-ui.md).
 
-`runTask` uses `POST /v1/workspaces/<ws>/installs/<sha256>/tasks/<task>/runs`,
-which runs a task the verified way (reference, tools, agent or decider, then
-`verify_task`) in that workspace and streams `task.*` events; since 0.4.0 the
-page runs tasks only through the chat and never calls it. Both share their
-runner, `nanoagent.plugin.tasks.run_task`, with `nanoagent plugin run` and
-`agent`.
+The chat's task tools run a task the verified way (reference, tools, agent or
+decider, then `verify_task`) in the caller's workspace with the same runner,
+`nanoagent.plugin.tasks.run_task`, as `nanoagent plugin run` and `agent`.
 
 Each declared plugin tool is also available as a regular NanoAgent `Tool`
 through `nanoagent.plugin.plugin_tools(manifest, workspace, names)`.

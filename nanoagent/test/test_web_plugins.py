@@ -205,8 +205,8 @@ def test_serves_its_own_packages_by_id_to_mochi_on_production(
     [plugin] = client.get("/v1/plugins").json()["plugins"]
     assert plugin["id"] == "echo" and len(plugin["uiVersion"]) == 16
     assert client.get(f"/v1/plugins/echo/ui/{plugin['uiVersion']}/index.html").status_code == 200
-    events = _events(client.post("/v1/workspaces/alice/plugins/echo/tasks/echo/runs", json={"arguments": {"value": "hi"}}))
-    assert events[-2]["type"] == "task.verdict" and events[-2]["valid"] is True
+    [tool] = [event for event in _events(client.post("/v1/workspaces/alice/plugins/echo/runs", json={"input": "echo hi"})) if event["type"] == "tool"]
+    assert json.loads(tool["output"])["verdict"]["valid"] is True
     assert client.post("/v1/workspaces/alice/plugins/missing/runs", json={"input": "x"}).status_code == 404
 
 
@@ -283,7 +283,6 @@ def test_refuses_to_run_a_plugin_in_development(tmp_path: Path, monkeypatch: pyt
     response = client.post(f"{runs(client)}/runs", json={"input": "echo hi"})
     assert response.status_code == 409
     assert response.json() == {"error": "Echo is under maintenance"}
-    assert client.post(f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}}).status_code == 409
 
 
 def test_saves_workspace_files_then_removes_the_workspace(client: TestClient, workspaces: Path) -> None:
@@ -353,20 +352,6 @@ def test_serves_the_plugin_front_end_confined_to_the_bridge(client: TestClient) 
     assert client.get(f"{ui}/index.html").status_code == 401
 
 
-def test_runs_a_tool_task_the_verified_way(client: TestClient, workspaces: Path) -> None:
-    response = client.post(f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}})
-    assert response.status_code == 200
-    events = _events(response)
-    assert [event["type"] for event in events] == ["task.started", "task.result", "task.verdict", "task.done"]
-    assert events[1]["response"] == {"value": "hi"}
-    assert events[2]["valid"] is True
-    metrics = events[3]["metrics"]
-    assert metrics["model"] is None and metrics["cost"] == 0.0 and metrics["ttft_s"] is None
-    assert metrics["duration_s"] > 0
-    assert len({event["runId"] for event in events}) == 1
-    assert (workspaces / "alice" / "echo.txt").read_text() == "hi"
-
-
 def test_a_reference_tool_sees_the_workspace_files(tmp_path: Path) -> None:
     from nanoagent.web.plugin_agent import staged_from
 
@@ -380,15 +365,6 @@ def test_a_reference_tool_sees_the_workspace_files(tmp_path: Path) -> None:
     scratch.mkdir()
     stage(scratch)
     assert (scratch / "inputs" / "raw.bib").read_text() == "@misc{a}"
-
-
-def test_task_runs_choose_their_settings_within_the_limits(client: TestClient) -> None:
-    tasks = f"{runs(client)}/tasks/echo/runs"
-    chosen = client.post(tasks, json={"arguments": {"value": "hi"}, "profile": "app-deepseek", "settings": {"max_steps": 2}})
-    assert chosen.status_code == 200 and _events(chosen)[-1]["metrics"]["duration_s"] > 0
-    over = client.post(tasks, json={"arguments": {"value": "hi"}, "settings": {"cost_limit": 5}})
-    assert over.status_code == 400 and "at most 0.1" in over.json()["error"]
-    assert client.post(tasks, json={"arguments": {"value": "hi"}, "extra": 1}).status_code == 400
 
 
 def _install_decide_echo(client: TestClient, tmp_path: Path) -> None:
@@ -416,28 +392,6 @@ class DecideModel:
         return Answer({"next": "echo" if '"calls": []' in messages[-1]["content"] else "submit"}, cost=0.01)
 
 
-def test_runs_a_decide_task_by_its_answers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workspaces: Path) -> None:
-    client = _app(tmp_path, monkeypatch, DecideModel(), workspaces)
-    _install_decide_echo(client, tmp_path)
-    events = _events(client.post(f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}}))
-    assert [event["type"] for event in events] == [
-        "task.started",
-        "task.decision",
-        "task.decision",
-        "task.tool",
-        "task.decision",
-        "task.decision",
-        "task.result",
-        "task.verdict",
-        "task.done",
-    ]
-    assert events[1]["answers"] == {"next": "echo"} and events[2]["forced"] == {"calls[0].arguments.value": "input.value"}
-    assert events[3]["name"] == "echo" and events[3]["arguments"] == {"value": "hi"}
-    assert events[6]["response"] == {"value": "hi"} and events[7]["valid"] is True
-    metrics = events[8]["metrics"]
-    assert metrics["model"] == client.config.model.model and metrics["cost"] == pytest.approx(0.02)
-
-
 def test_a_chat_runs_a_decide_task_and_counts_its_cost(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workspaces: Path) -> None:
     client = _app(tmp_path, monkeypatch, DecideModel(), workspaces)
     _install_decide_echo(client, tmp_path)
@@ -447,26 +401,6 @@ def test_a_chat_runs_a_decide_task_and_counts_its_cost(tmp_path: Path, monkeypat
     assert tool["name"] == "echo" and json.loads(tool["output"])["output"] == {"value": "hi"}
     # Two chat replies and the decider's two answers.
     assert events[-1]["metrics"]["cost"] == pytest.approx(0.04)
-
-
-def test_a_decide_task_refuses_thinking_before_it_starts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
-) -> None:
-    client = _app(tmp_path, monkeypatch, model, workspaces)
-    _install_decide_echo(client, tmp_path)
-    refused = client.post(f"{runs(client)}/tasks/echo/runs", json={"arguments": {"value": "hi"}, "settings": {"thinking_level": "high"}})
-    assert refused.status_code == 400 and refused.json()["error"] == "thinking_level does not apply to NanoAgent-loop runs"
-
-
-def test_task_runs_report_bad_requests_and_failures(client: TestClient) -> None:
-    tasks = f"{runs(client)}/tasks"
-    assert client.post(f"{tasks}/missing/runs", json={"arguments": {}}).status_code == 404
-    assert client.post(f"{tasks}/echo/runs", json={"value": "hi"}).status_code == 400
-    events = _events(client.post(f"{tasks}/echo/runs", json={"arguments": {"value": 42}}))
-    # The input is checked before the task starts.
-    assert [event["type"] for event in events] == ["task.error", "task.done"]
-    assert "metrics" not in events[-1]
-    assert "42" in next(event for event in events if event["type"] == "task.error")["message"]
 
 
 def _install_with_agent_task(client: TestClient, tmp_path: Path) -> None:
@@ -499,33 +433,12 @@ def _install_with_agent_task(client: TestClient, tmp_path: Path) -> None:
     assert client.put(f"/v1/installs/{client.sha}", content=data).status_code == 200
 
 
-def test_runs_an_agent_task_with_only_its_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path) -> None:
-    client = _app(tmp_path, monkeypatch, model, workspaces)
-    _install_with_agent_task(client, tmp_path)
-    events = _events(client.post(f"{runs(client)}/tasks/echo-agent/runs", json={"arguments": {"value": "hi"}}))
-    assert [event["type"] for event in events] == [
-        "task.started",
-        "task.tool",
-        "task.tool",
-        "task.answer",
-        "task.result",
-        "task.verdict",
-        "task.done",
-    ]
-    assert events[1]["name"] == "echo" and events[1]["isError"] is False
-    assert events[2]["name"] == "submit" and events[4]["response"] == {"value": "hi"}
-    assert events[5]["valid"] is True
-    # Task runs stream the model, so time to first token is measured.
-    metrics = events[6]["metrics"]
-    assert metrics["model"] == client.config.model.model
-    assert metrics["ttft_s"] is not None and metrics["ttft_s"] <= metrics["duration_s"]
-    assert metrics["generation_s"] >= 0
-    assert "Echo the value with the echo tool." in model.prompts[-1]
-
-
 class TaskModel:
     """The chat calls the echo-agent task, whose agent echoes, submits and answers; every reply
-    costs 0.01."""
+    costs 0.01. Keeps the task agent's system prompts and tools."""
+
+    def __init__(self) -> None:
+        self.task_agent: list[tuple[str, set[str]]] = []
 
     async def query(self, messages, tools, on_delta=None, **_):
         names = {tool["function"]["name"] for tool in tools}
@@ -533,6 +446,7 @@ class TaskModel:
         if on_delta is not None:
             on_delta("content", "x")
         if "submit" in names:
+            self.task_agent.append((messages[0]["content"], names))
             if not results:
                 return Reply(content=None, tool_calls=[ToolCall("call-1", "echo", '{"value": "hi"}')], cost=0.01)
             if len(results) == 1:
@@ -544,7 +458,8 @@ class TaskModel:
 
 
 def test_a_chat_runs_an_agent_task_and_counts_its_cost(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workspaces: Path) -> None:
-    client = _app(tmp_path, monkeypatch, TaskModel(), workspaces)
+    model = TaskModel()
+    client = _app(tmp_path, monkeypatch, model, workspaces)
     _install_with_agent_task(client, tmp_path)
     with client.stream("POST", f"{runs(client)}/runs", json={"input": "echo hi with the agent"}) as response:
         events = [json.loads(line[len("data: ") :]) for line in response.iter_lines() if line.startswith("data: ")]
@@ -552,3 +467,6 @@ def test_a_chat_runs_an_agent_task_and_counts_its_cost(tmp_path: Path, monkeypat
     assert tool["name"] == "echo-agent" and json.loads(tool["output"])["output"] == {"value": "hi"}
     # Two chat replies and the task agent's three.
     assert events[-1]["metrics"]["cost"] == pytest.approx(0.05)
+    # The task's agent works with its instructions and only its own tools.
+    prompt, names = model.task_agent[0]
+    assert "Echo the value with the echo tool." in prompt and names == {"echo", "submit"}

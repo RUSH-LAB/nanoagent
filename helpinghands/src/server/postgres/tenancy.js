@@ -259,10 +259,10 @@ function createPostgresTenancy({pool}) {
   /**
    * One call. `usage` is NanoAgent's (prompt_tokens, completion_tokens);
    * `metrics` its timings in seconds (ttft_s, generation_s, duration_s); a
-   * plugin's call also names the plugin, its session and the task it ran.
+   * plugin's call also names the plugin and its session.
    */
   async function recordAiUsage(context, {
-    kind, model = null, cost, usage = null, estimated = false, metrics = null, pluginId = null, sessionId = null, task = null,
+    kind, model = null, cost, usage = null, estimated = false, metrics = null, pluginId = null, sessionId = null,
   }) {
     if (!AI_KINDS.includes(kind)) throw new Error(`Unknown assistant call kind: ${kind}`);
     const amount = Number(cost);
@@ -271,11 +271,11 @@ function createPostgresTenancy({pool}) {
     const seconds = value => (Number.isFinite(value) && value >= 0 ? value : null);
     await asUser(context.userId, context.workspaceId, client => client.query(
       `insert into ai_usage(workspace_id, user_id, kind, model, cost_usd, input_tokens, output_tokens, estimated,
-                            plugin_id, session_id, task, ttft_s, generation_s, duration_s)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+                            plugin_id, session_id, ttft_s, generation_s, duration_s)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [context.workspaceId, context.userId, kind, model, amount,
         count(usage?.prompt_tokens), count(usage?.completion_tokens), estimated,
-        pluginId, sessionId, task,
+        pluginId, sessionId,
         seconds(metrics?.ttft_s), seconds(metrics?.generation_s), seconds(metrics?.duration_s)],
     ));
   }

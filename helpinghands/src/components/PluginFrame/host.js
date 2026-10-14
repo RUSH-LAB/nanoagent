@@ -1,7 +1,6 @@
 import {readEvents, SSE_CONTENT_TYPE} from '../../utils/eventStream.js';
 import {
-  base64ToBytes, bytesToBase64, chatEvent, failure, invalidRequest, promptHistory,
-  reply, requestFrom, runEvent, taskEvent, themeEvent,
+  chatEvent, failure, invalidRequest, promptHistory, reply, requestFrom, runEvent, themeEvent,
 } from './protocol.js';
 
 /**
@@ -83,27 +82,6 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     return {result: {session: opened}};
   }
 
-  async function runTask({task, arguments: args}) {
-    const run = await startRun(
-      `/api/apps/${encodeURIComponent(plugin.id)}/tasks/${encodeURIComponent(task)}/runs`,
-      {arguments: args, sessionId: current()},
-      `Could not run ${task}`,
-    );
-    const after = async () => {
-      const stopped = await follow(run, ({data}) => {
-        const mapped = taskEvent(data);
-        if (!mapped) return false;
-        post(runEvent(mapped.event, run.runId, mapped.data));
-        return mapped.event === 'task.done';
-      }, 'The connection closed before the task finished');
-      if (stopped) {
-        post(runEvent('task.error', run.runId, {message: stopped}));
-        post(runEvent('task.done', run.runId, {}));
-      }
-    };
-    return {result: {runId: run.runId}, after};
-  }
-
   async function prompt({text}) {
     const run = await startRun(
       '/api/ai/stream',
@@ -126,11 +104,8 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     return {result: {runId: run.runId}, after};
   }
 
-  const fileQuery = path => `path=${encodeURIComponent(path)}`;
-
   const methods = {
     'describe': async () => ({result: {plugin, workspace: {id: workspaceId}, theme: currentTheme}}),
-    runTask,
     prompt,
     'cancel': async ({runId}) => {
       const controller = runs.get(runId);
@@ -148,39 +123,6 @@ export function createBridgeHost({frameWindow, plugin, workspaceId, theme, reque
     }),
     'session.start': async () => enter(await readSession(sessionsPath, {method: 'POST'}, 'Could not start a session')),
     'session.resume': async ({id}) => enter(await readSession(`${sessionsPath}/${id}`, undefined, 'Could not open the session')),
-    'session.save': async ({state, title}) => {
-      const response = await request(`${sessionsPath}/${current()}`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({state, ...(title === undefined ? {} : {title})}),
-      });
-      if (!response.ok) throw await failed(response, 'Could not save the session');
-      return {result: {}};
-    },
-    'workspace.list': async () => {
-      const response = await request('/api/agent-files');
-      if (!response.ok) throw await failed(response, 'Could not list the workspace');
-      const {files} = await response.json();
-      return {result: {files: files.map(({path, size}) => ({path, size}))}};
-    },
-    'workspace.read': async ({path}) => {
-      const response = await request(`/api/agent-files/content?${fileQuery(path)}`);
-      if (!response.ok) throw await failed(response, `Could not read ${path}`);
-      // The server sends UTF-8 text as text/plain and anything else as itself.
-      if ((response.headers.get('content-type') ?? '').startsWith('text/plain')) {
-        return {result: {text: await response.text()}};
-      }
-      return {result: {base64: bytesToBase64(new Uint8Array(await response.arrayBuffer()))}};
-    },
-    'workspace.write': async ({path, text, base64}) => {
-      const response = await request(`/api/agent-files/content?${fileQuery(path)}`, {
-        method: 'PUT',
-        headers: {'Content-Type': typeof text === 'string' ? 'text/plain; charset=utf-8' : 'application/octet-stream'},
-        body: typeof text === 'string' ? text : base64ToBytes(base64),
-      });
-      if (!response.ok) throw await failed(response, `Could not write ${path}`);
-      return {result: {}};
-    },
   };
 
   return {

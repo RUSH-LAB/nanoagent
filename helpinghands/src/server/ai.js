@@ -490,43 +490,6 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
   const encodedPath = path => String(path).split('/').map(encodeURIComponent).join('/');
   const inWorkspace = (workspace, rest) => `/v1/workspaces/${encodeURIComponent(workspace)}${rest}`;
 
-  /**
-   * Start one task of a plugin in a workspace: `{value}`, NanoAgent's event
-   * stream as it arrives, otherwise `{error, status}`. Aborting `signal` closes
-   * the stream, which cancels the run.
-   */
-  async function taskRun({workspace, install, task, args, choice = {}, signal}) {
-    const endpoint = endpointOf();
-    if (endpoint.error) return {error: endpoint.error, status: 503};
-    try {
-      const path = inWorkspace(workspace, `/installs/${encodeURIComponent(install)}/tasks/${encodeURIComponent(task)}/runs`);
-      const response = await fetchImpl(`${endpoint.url}${path}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'text/event-stream',
-          ...(env.NANOAGENT_API_TOKEN ? {Authorization: `Bearer ${env.NANOAGENT_API_TOKEN}`} : {}),
-        },
-        body: JSON.stringify({
-          arguments: args,
-          ...(choice.profile ? {profile: choice.profile} : {}),
-          ...(choice.model ? {model: choice.model} : {}),
-          ...(choice.settings ? {settings: choice.settings} : {}),
-        }),
-        signal,
-      });
-      if (!response.ok) {
-        // Arguments that fail the task's schema, or a task or plugin that is not
-        // there or under maintenance, are the caller's to know about.
-        const status = [400, 404, 409].includes(response.status) ? response.status : 502;
-        return {error: await responseError(response), status};
-      }
-      if (!response.body) return {error: 'NanoAgent returned no response stream.', status: 502};
-      return {value: response.body};
-    } catch {
-      return signal?.aborted ? {error: CANCELLED, status: 499} : {error: UNAVAILABLE, status: 502};
-    }
-  }
   const filePath = (workspace, path) => inWorkspace(workspace, `/files/${encodedPath(path)}`);
 
   return Object.freeze({
@@ -544,7 +507,6 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
     installUiFile: (sha256, version, path) => nanoFetch(
       `/v1/installs/${encodeURIComponent(sha256)}/ui/${encodeURIComponent(version)}/${encodedPath(path)}`, {bytes: true},
     ),
-    taskRun,
     // The marketplace: NanoAgent's own plugin packages, and the package it packs
     // and checks from the plugin at `path` in a repository archive.
     packages: () => nanoFetch('/v1/packages'),
@@ -595,7 +557,6 @@ module.exports = {
   install: gateway.install,
   installPackage: gateway.installPackage,
   installUiFile: gateway.installUiFile,
-  taskRun: gateway.taskRun,
   packages: gateway.packages,
   packageFile: gateway.packageFile,
   packageSource: gateway.packageSource,

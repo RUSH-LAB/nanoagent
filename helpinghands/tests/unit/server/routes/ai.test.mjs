@@ -353,7 +353,7 @@ describe('POST /api/ai/stream', () => {
     ctx.workspaceApps = workspaceApps;
     const unnamed = await ask({body: {prompt: 'p', appId: 'echo'}, ctx, requestContext: WORKSPACE});
     assert.equal(unnamed.status, 400);
-    const foreign = await ask({body: {prompt: 'p', appId: 'chess-move', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
+    const foreign = await ask({body: {prompt: 'p', appId: 'bibtex-check', sessionId: SESSION}, ctx, requestContext: WORKSPACE});
     assert.equal(foreign.status, 404);
   });
 

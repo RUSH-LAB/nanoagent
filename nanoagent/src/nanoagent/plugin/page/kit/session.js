@@ -1,8 +1,8 @@
 // Sessions: one sitting with the plugin's page, which people leave and come back to. The host
-// keeps each session's saved state, its conversation, and every run it made with what the run
-// cost and how long it took. The page gets its session as `ctx.session`; the dashboard lists them.
+// keeps each session's conversation, and every run it made with what the run cost and how long it
+// took. The chat continues the page's session (`currentSession`); the dashboard lists them.
 // A new session is only the page's until it does something: the host starts it on its first
-// run, chat message or save (bridge.js), so a session nobody used leaves nothing behind.
+// chat message (bridge.js), so a session nobody used leaves nothing behind.
 
 import { onSessionRequest, request } from "./bridge.js";
 import { formatDuration, h, icon, plural } from "./dom.js";
@@ -21,27 +21,15 @@ export function currentSession() {
 
 /**
  * Make `opened` (what `session.resume` answered) the page's session, or with no `opened`, a
- * new one, which the host starts when the page first runs, chats or saves in it.
+ * new one, which the host starts when the page first chats in it.
  * @param {object|null} [opened]
- * @returns {{id: string|null, title: string, state: unknown, chat: Array<{prompt: string, answer: string, tools: Array<{name: string, arguments: object, output: unknown, isError: boolean}>}>, save: (state: unknown, options?: {title?: string}) => Promise<void>}}
- *   `id` is null until a new session starts. `state` is what the page last saved (null for a
- *   new session). `save` keeps a new state, and a title when given; saves run one after
- *   another, so the last one wins.
+ * @returns {{id: string|null, chat: Array<{prompt: string, answer: string, tools: Array<{name: string, arguments: object, output: unknown, isError: boolean}>}>}}
+ *   `id` is null until a new session starts.
  */
 export function enterSession(opened = null) {
-  let queue = Promise.resolve();
   const session = {
     id: opened?.id ?? null,
-    title: opened?.title ?? "",
-    state: opened?.state ?? null,
     chat: opened?.chat ?? [],
-    save(state, { title } = {}) {
-      session.state = state;
-      if (title !== undefined) session.title = title;
-      const saving = queue.then(() => request("session.save", { state, ...(title === undefined ? {} : { title }) }));
-      queue = saving.catch(() => {});
-      return saving;
-    },
   };
   let starting = null;
   start = opened

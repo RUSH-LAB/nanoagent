@@ -39,20 +39,9 @@ All require the operator bearer token, like every `/v1` route.
   `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'` (no `frame-ancestors`: who may
   frame the page is the host's choice, and its site and API may be different origins).
   A path outside `ui/` is 404.
-- `POST /v1/workspaces/{workspace_id}/installs/{sha256}/tasks/{task_id}/runs`, body
-  `{"arguments": {...}}`: runs one task the verified way, in that workspace, as an SSE stream.
-  - `runner: tool`: the tool, then `verify_task`.
-  - `runner: agent`: the reference tool (pinned), then an agent with the web host's model and only
-    the task's tools, then `verify_task`.
-  - `runner: decide`: the reference tool (pinned), then the web host's model choosing each next
-    tool, its arguments and the output's values from their options, then `verify_task`.
-  - Events, each `data:` a JSON object with `type` and `runId`:
-    `task.started {task}`, `task.reference {tool}`, `task.decision {questions, answers,
-    probabilities, forced}` (decide runner), `task.tool {name, arguments, output, isError}`,
-    `task.answer {text}` (agent runner), `task.result {response}`, `task.verdict {valid, score,
-    message, details}`, `task.error {message}`, and last always `task.done`.
-  - Arguments name workspace files by their path in the workspace.
-- `DELETE /v1/runs/{run_id}` (existing) also cancels a task run.
+- `POST /v1/workspaces/{workspace_id}/installs/{sha256}/runs`, body `{"input": "..."}`: a
+  prompt to the plugin's agent, in that workspace, as an SSE stream; each of the agent's tools is
+  one of the plugin's tasks, run the verified way (`nanoagent.plugin.tasks.run_task`).
 
 ## 3. The Mochi host
 
@@ -64,7 +53,7 @@ All require the operator bearer token, like every `/v1` route.
   header through. It is public (no login): a sandboxed page's subresource requests carry no
   cookies, and the files are the plugin's published assets.
 - A bridge host component answers the page's requests (below) with the signed-in user's
-  workspace, through Mochi's existing server routes (new ones proxy the task-run endpoint).
+  workspace, through Mochi's existing server routes.
   It accepts messages only from that iframe (`event.source === iframe.contentWindow`) and posts
   replies to it with target origin `*` (the page's origin is opaque).
 
@@ -81,21 +70,16 @@ Methods:
 | method | params | result | events |
 |---|---|---|---|
 | `describe` | `{}` | `{plugin, workspace: {id}, theme: "light"\|"dark"}` (`plugin`: the catalog entry, tasks with `inputSchema`) | — |
-| `runTask` | `{task, arguments}` | `{runId}` | the `task.*` events of section 2. Since 0.4.0 the kit's page runs tasks only through the chat and never calls it |
 | `prompt` | `{text}` | `{runId}` | `chat.delta {text}`, `chat.tool {name, arguments, output, isError}`, `chat.answer {text}`, `chat.error {message}`, `chat.done` |
 | `cancel` | `{runId}` | `{}` | — |
 | `sessions.list` | `{}` | `{sessions: [summary]}`, each `{id, pluginId, title, createdAt, updatedAt, runs, cost, ttftS}` | — |
-| `session.get` | `{id}` | `{session}`: the summary with `state`, `chat` and `calls` (every run, with its cost and timings) | — |
-| `session.start` | `{}` | `{session}`, a new one with `state: null` and `chat: []`; it becomes the current session. The kit sends it on a new session's first `runTask`, `prompt` or `session.save` | — |
+| `session.get` | `{id}` | `{session}`: the summary with `chat` and `calls` (every run, with its cost and timings) | — |
+| `session.start` | `{}` | `{session}`, a new one with `chat: []`; it becomes the current session. The kit sends it on a new session's first `prompt` | — |
 | `session.resume` | `{id}` | `{session}`; it becomes the current session, and `prompt` continues its conversation | — |
-| `session.save` | `{state, title?}` | `{}`: keeps the current session's state (any JSON, at most 256 KB) and title (at most 200 characters) | — |
-| `workspace.list` | `{}` | `{files: [{path, size}]}` | — |
-| `workspace.read` | `{path}` | `{text}` for UTF-8 text, otherwise `{base64}` | — |
-| `workspace.write` | `{path, text}` or `{path, base64}` | `{}` | — |
 
 `prompt` is today's chat: a free-form message to the plugin's agent; the session keeps the
-conversation (its last 12 turns). `runTask` and `prompt` run in the current session, and the host
-refuses them until a session is started or resumed. The host also sends `{protocol, event: "host.theme", data:
+conversation (its last 12 turns). `prompt` runs in the current session, and the host refuses it
+until a session is started or resumed. The host also sends `{protocol, event: "host.theme", data:
 {theme}}` when the site's theme changes.
 
 ## 5. The UI kit and the page
@@ -114,7 +98,7 @@ src/nanoagent/plugin/page/   NanoAgent's, served to every plugin
     session.js     sessions and the Dashboard
     chat.js        the chat
     result.js      a task's result: the card, and the view drawn from a JSON Schema
-    dom.js  display.js  markdown.js  workspace.js
+    dom.js  display.js  markdown.js
     kit.css        the look: Mochi's tokens, light and dark, narrow widths
 plugins/<id>/ui/             the plugin's
   renderers.js   its renderers, by output class name (`{}` in the template)
@@ -161,11 +145,11 @@ it is one, a paragraph when it is long), numbers, and yes or no.
 
 ```js
 // ui/renderers.js
-import { card, h } from "./kit/components.js";
+import { h } from "./kit/components.js";
 
 export default {
   NoteOutput: (note, { verdict, send }) =>
-    card({ title: note.path }, h("button", { class: "button small", text: "Read it", onclick: () => send(`Read ${note.path}`) })),
+    h("div", { class: "row" }, h("code", { text: note.path }), h("button", { class: "button small", text: "Read it", onclick: () => send(`Read ${note.path}`) })),
 };
 ```
 
@@ -179,11 +163,10 @@ a renderer named for a class no task outputs.
 
 | From | Exports |
 |---|---|
-| `dom.js` | `h(tag, attrs, ...children)`, `icon(name)` (`ICON_NAMES`), `humanize`, `pretty`, `formatSize`, `formatDuration`, `plural` |
-| `display.js` | `card` (16 px, `size: "large"` 20 px), `statusPill`, `banner` (tones `ok`, `warn`, `bad`, `info`, `neutral`, `TONES`; always an icon and words), `disclosure`, `meter` (a value with an optional target band), `dataTable` (sortable, filterable, "Show all N", one card per row when its container is narrow) |
+| `dom.js` | `h(tag, attrs, ...children)`, `icon(name)` (`ICON_NAMES`), `humanize`, `formatDuration`, `plural` |
+| `display.js` | `statusPill` (tones `ok`, `warn`, `bad`, `info`, `neutral`, `TONES`; always words, optionally the tone's icon), `disclosure`, `dataTable` (sortable, filterable, "Show all N", one card per row when its container is narrow) |
 | `markdown.js` | `markdown(text)`: Markdown as DOM nodes, never HTML |
 | `result.js` | `schemaView(value, schema)`, the generic view, e.g. for part of an output |
-| `workspace.js` | `listFiles({prefix, extensions})`, `readFile`, `readText`, `readJSON`: the workspace's files, e.g. one a task saved |
 
 `kit.css` gives the look and these variables for a renderer's styles: `--bg`, `--surface`,
 `--surface-2`, `--border`, `--border-strong`, `--text`, `--muted`, `--accent` (`#3b5998`, dark
@@ -192,7 +175,7 @@ a renderer named for a class no task outputs.
 `--shadow-lg`, `--radius-sm` (10 px), `--radius` (16 px), `--radius-lg` (20 px),
 `--radius-pill`, `--sans` (Inter, then the system stack), `--mono`; a `tone-<name>` class sets
 `--tone` and `--tone-soft`. Classes a renderer may use directly: `button` (`primary`, `ghost`,
-`small`, `large`, `block`, `icon-only`), `input`, `card`, `pill`, `stack` (a vertical grid),
+`small`), `input`, `card`, `pill`, `stack` (a vertical grid),
 `row` (a wrapping flex row), `muted`, `small-text`, `numeric`, `visually-hidden`. Narrow screens start at 640 px.
 
 Fonts: CSP `font-src 'self'` means a font must ship in `ui/`. The kit names Inter first and

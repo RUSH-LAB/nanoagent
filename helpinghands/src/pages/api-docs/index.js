@@ -427,11 +427,6 @@ const CATEGORIES = [
         response: '{ "preparing": true }',
       },
       {
-        method: 'POST', path: '/api/apps/:id/tasks/:task/runs', description: 'Run one task of an app in your agent workspace, streaming NanoAgent\'s task events as server-sent events; closing the stream cancels the run. Owners and editors only.',
-        request: '{ "arguments": { "arxiv_id": "1706.03762" } }',
-        response: 'event: task.started\ndata: {"type":"task.started","runId":"...","task":"save-paper-source"}\n\nevent: task.verdict\ndata: {"type":"task.verdict","runId":"...","valid":true,"score":1,"message":"...","details":{}}\n\nevent: task.done\ndata: {"type":"task.done","runId":"..."}',
-      },
-      {
         method: 'GET', path: '/api/agents', description: 'List the reusable AI agents defined for this workspace.',
         response: '{ "agents": [{ "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "color": "blue" }] }',
       },

@@ -33,7 +33,6 @@ const ROUTES = [
   ['PUT', `/v1/installs/${SEGMENT}`],
   ['GET', `/v1/installs/${SEGMENT}/ui/${SEGMENT}/[^?]+`],
   ['POST', `/v1/workspaces/${SEGMENT}/installs/${SEGMENT}/runs`],
-  ['POST', `/v1/workspaces/${SEGMENT}/installs/${SEGMENT}/tasks/${SEGMENT}/runs`],
   ['GET', `/v1/workspaces/${SEGMENT}/files`],
   ['GET', `/v1/workspaces/${SEGMENT}/files/[^?]+`],
   ['PUT', `/v1/workspaces/${SEGMENT}/files/[^?]+(?:\\?create=1)?`],

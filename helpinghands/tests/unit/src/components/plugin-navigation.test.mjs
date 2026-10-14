@@ -6,7 +6,7 @@ const apps = [
   {id: 'bibtex-check', name: 'Bibtex Check', tags: ['Research', 'Writing'], status: 'in-development'},
   {id: 'arxiv-source', name: 'arXiv', tags: ['Research'], status: 'ready'},
   {id: 'meal-suggestion', name: 'Meal Suggestion', tags: ['Life'], status: 'ready'},
-  {id: 'chess-move', name: 'Chess Move', tags: [], status: 'ready'},
+  {id: 'nasdaq-drawdown', name: 'Nasdaq Drawdown', tags: [], status: 'ready'},
 ];
 const base = '/w/lab/apps';
 
@@ -17,7 +17,7 @@ describe('plugin navigation', () => {
     assert.deepEqual(nav.tags.map(tag => [tag.title, tag.permalink]), [
       ['All', base], ['Life', `${base}?tag=Life`], ['Research', `${base}?tag=Research`], ['Writing', `${base}?tag=Writing`],
     ]);
-    assert.deepEqual(nav.links.map(link => link.id), ['arxiv-source', 'bibtex-check', 'chess-move', 'meal-suggestion']);
+    assert.deepEqual(nav.links.map(link => link.id), ['arxiv-source', 'bibtex-check', 'meal-suggestion', 'nasdaq-drawdown']);
     assert.equal(nav.links[0].permalink, `${base}?app=arxiv-source`);
   });
 

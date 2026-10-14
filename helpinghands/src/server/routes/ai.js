@@ -500,5 +500,4 @@ function localModels(listing, catalog) {
 module.exports.DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT;
 module.exports.composeRequest = composeRequest;
 module.exports.composeStoredRequest = composeStoredRequest;
-module.exports.corsHeaders = corsHeaders;
 module.exports.APPS_NEED_FS = APPS_NEED_FS;

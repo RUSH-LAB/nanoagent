@@ -99,33 +99,6 @@ export function humanize(name) {
 }
 
 /**
- * Indented JSON for a value; a string that holds JSON is shown parsed, any other string as is.
- * @param {unknown} value
- * @returns {string}
- */
-export function pretty(value) {
-  if (typeof value === "string") {
-    try {
-      return JSON.stringify(JSON.parse(value), null, 2);
-    } catch {
-      return value;
-    }
-  }
-  return JSON.stringify(value, null, 2);
-}
-
-/**
- * A byte count in words: "812 B", "4.2 KB", "1.3 MB".
- * @param {number} bytes
- * @returns {string}
- */
-export function formatSize(bytes) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-/**
  * A duration in words: "8 s", "3 min 12 s", "1 h 4 min".
  * @param {number} seconds
  * @returns {string}
@@ -147,17 +120,6 @@ export function formatDuration(seconds) {
  */
 export function plural(count, one, many = `${one}s`) {
   return `${count} ${count === 1 ? one : many}`;
-}
-
-let uid = 0;
-/**
- * A page-unique id for `for`/`aria-*` links.
- * @param {string} [prefix]
- * @returns {string}
- */
-export function nextId(prefix = "kit") {
-  uid += 1;
-  return `${prefix}-${uid}`;
 }
 
 /**

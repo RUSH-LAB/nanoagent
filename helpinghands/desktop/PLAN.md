@@ -3,7 +3,7 @@
 A native app that lends this computer to its member's AI on the hosted Mochi. Its window shows the
 hosted site. Behind the window it runs NanoAgent with the member's own OpenRouter key, and a relay
 that connects that NanoAgent to Mochi. When the member picks Settings → AI → **My computer** on
-Mochi, their assistant, app and task runs (model calls and plugin code) run here instead of on
+Mochi, their assistant and app runs (model calls and plugin code) run here instead of on
 Mochi's servers. They are not charged to the workspace's AI budget.
 
 ## Use

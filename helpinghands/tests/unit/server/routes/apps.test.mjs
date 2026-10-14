@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {loadRoute, makeCtx, invoke, fakeSessions, SESSION} from '../../_harness.mjs';
 
-const aiSettings = createRequire(import.meta.url)('../../../../src/server/ai-settings.js');
 const routes = loadRoute('apps');
 const context = {workspaceId: 'test-org', userId: 'test-user', membershipId: 'member-1', role: 'owner'};
 const SHA = 'a'.repeat(64);
@@ -60,7 +59,6 @@ function ctxWith(ai, fs = fakeFs()) {
     byPage: page => (page === PAGE ? ctx.ai : null),
   };
   ctx.workspaceFs = fs;
-  ctx.agentSync = {run: (_scope, _ai, operation) => operation('run-folder')};
   ctx.sessions = fakeSessions();
   ctx.workspaceApps = fakeApps();
   return ctx;
@@ -255,8 +253,8 @@ describe('an app\'s own page', () => {
     assert.equal(served.written.body.toString(), '<!doctype html>');
     assert.equal(isPublicPath(`/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/index.html`), true);
     assert.equal(isGlobalApiPath(`/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/index.html`), true);
-    assert.equal(isPublicPath('/api/apps/chess-move/tasks/move/runs'), false);
-    assert.equal(isGlobalApiPath('/api/apps/chess-move/tasks/move/runs'), false);
+    assert.equal(isPublicPath('/api/apps/arxiv-source/sessions'), false);
+    assert.equal(isGlobalApiPath('/api/apps/arxiv-source/sessions'), false);
   });
 
   it('refuses any path that could leave ui/', async () => {
@@ -270,7 +268,7 @@ describe('an app\'s own page', () => {
       `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/a//b`,
       `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/./index.html`,
       `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/%zz`,
-      `/api/apps/chess-move/ui/${PAGE}/0123456789abcdef/index.html`,
+      `/api/apps/arxiv-source/ui/${PAGE}/0123456789abcdef/index.html`,
       `/api/apps/${'A'.repeat(64)}/ui/${PAGE}/0123456789abcdef/index.html`,
       `/api/apps/${SHA}/ui/${PAGE}/latest/index.html`,
       `/api/apps/${SHA}/ui/not-a-page/0123456789abcdef/index.html`,
@@ -307,112 +305,6 @@ describe('an app\'s own page', () => {
   });
 });
 
-describe('an app\'s task runs', () => {
-  const stream = chunks => new ReadableStream({
-    start(controller) {
-      for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk));
-      controller.close();
-    },
-  });
-  const PATH = '/api/apps/arxiv-source/tasks/daily-digest/runs';
-
-  it('runs on a copy of the caller\'s agent folder and passes the event stream through', async () => {
-    const asked = [];
-    const metrics = {model: 'm', cost: 0.012, usage: {prompt_tokens: 10, completion_tokens: 5}, ttft_s: 1.5, generation_s: 3, duration_s: 9};
-    const events = [
-      'event: task.started\ndata: {"type":"task.started","runId":"r","task":"daily-digest"}\n\n', ': heartbeat\n\n',
-      `data: ${JSON.stringify({type: 'task.done', runId: 'r', metrics}).slice(0, 20)}`,
-      `${JSON.stringify({type: 'task.done', runId: 'r', metrics}).slice(20)}\n\n`,
-    ];
-    const ctx = ctxWith({taskRun: async request => { asked.push(request); return {value: stream(events)}; }});
-    ctx.settings = aiSettings.normalize({behaviour: {maxSteps: 3, thinking: 'high'}, instructions: 'x'}).value;
-    const result = await invoke(routes, {
-      method: 'POST', path: PATH, body: {arguments: {people: ['Ada']}, sessionId: SESSION}, ctx, requestContext: context,
-    });
-    assert.equal(asked.length, 1);
-    // The one model and the member's settings; a task takes no instructions or thinking.
-    assert.deepEqual(asked[0].choice, {model: {provider: 'openrouter', model: 'deepseek/deepseek-v4-flash-0731'}, settings: {max_steps: 3}});
-    assert.equal(asked[0].workspace, 'run-folder');
-    assert.equal(asked[0].install, SHA);
-    assert.deepEqual(ctx.workspaceApps.calls, [['open', 'arxiv-source']]);
-    assert.equal(asked[0].task, 'daily-digest');
-    assert.deepEqual(asked[0].args, {people: ['Ada']});
-    assert.equal(result.written.status, 200);
-    assert.equal(result.written.headers['Content-Type'], 'text/event-stream');
-    assert.equal(result.res.writes.join(''), events.join(''));
-    assert.equal(result.res.writableEnded, true);
-    // Charged what task.done says it cost, against the session.
-    assert.deepEqual(ctx.calls.aiUsage.map(({context: _, ...call}) => call), [{
-      kind: 'task', result: {cost: 0.012, model: 'm', usage: metrics.usage, metrics},
-      ran: true, local: false, pluginId: 'arxiv-source', sessionId: SESSION, task: 'daily-digest',
-    }]);
-  });
-
-  it('charges a run that ends without metrics at the cap', async () => {
-    const ctx = ctxWith({taskRun: async () => ({value: stream(['data: {"type":"task.error","message":"cancelled"}\n\n', 'data: {"type":"task.done"}\n\n'])})});
-    await invoke(routes, {method: 'POST', path: PATH, body: {arguments: {}, sessionId: SESSION}, ctx, requestContext: context});
-    assert.equal(ctx.calls.aiUsage.length, 1);
-    assert.equal(ctx.calls.aiUsage[0].result, null);
-    assert.equal(ctx.calls.aiUsage[0].ran, true);
-  });
-
-  it('runs only in one of the caller\'s sessions with the app', async () => {
-    const ctx = ctxWith({taskRun: async () => assert.fail('must not run')});
-    const result = await invoke(routes, {
-      method: 'POST', path: '/api/apps/chess-move/tasks/play-move/runs', body: {arguments: {}, sessionId: SESSION}, ctx, requestContext: context,
-    });
-    assert.equal(result.status, 404);
-    const unnamed = await invoke(routes, {method: 'POST', path: PATH, body: {arguments: {}}, ctx, requestContext: context});
-    assert.equal(unnamed.status, 400);
-  });
-
-  it('is for every member, viewers included, and needs arguments as an object', async () => {
-    const ctx = ctxWith({taskRun: async () => assert.fail('must not run')});
-    for (const body of [{}, {arguments: [], sessionId: SESSION}, {arguments: 'x', sessionId: SESSION}, 'not json']) {
-      for (const role of ['editor', 'viewer']) {
-        const result = await invoke(routes, {method: 'POST', path: PATH, body, ctx, requestContext: {...context, role}});
-        assert.equal(result.status, 400);
-      }
-    }
-  });
-
-  it('refuses to run without the workspace file system', async () => {
-    const ctx = ctxWith({taskRun: async () => assert.fail('must not run')});
-    ctx.agentSync = null;
-    const result = await invoke(routes, {method: 'POST', path: PATH, body: {arguments: {}, sessionId: SESSION}, ctx, requestContext: context});
-    assert.equal(result.status, 409);
-    assert.equal(result.payload.code, 'fs-disabled');
-  });
-
-  it('relays a refusal from NanoAgent before any stream starts', async () => {
-    const ctx = ctxWith({taskRun: async () => ({error: 'arguments.people: required', status: 400})});
-    const result = await invoke(routes, {method: 'POST', path: PATH, body: {arguments: {}, sessionId: SESSION}, ctx, requestContext: context});
-    assert.equal(result.status, 400);
-    assert.equal(result.payload.error, 'arguments.people: required');
-  });
-
-  it('cancels the run when the caller hangs up', async () => {
-    let signal;
-    const ctx = ctxWith({
-      taskRun: async request => {
-        signal = request.signal;
-        return {value: new ReadableStream({
-          start(controller) {
-            request.signal.addEventListener('abort', () => controller.error(new Error('aborted')), {once: true});
-          },
-        })};
-      },
-    });
-    const running = invoke(routes, {
-      method: 'POST', path: PATH, body: {arguments: {}, sessionId: SESSION}, ctx, requestContext: context,
-      onRequest: (_req, res) => setTimeout(() => res.emit('close'), 10),
-    });
-    const result = await running;
-    assert.equal(signal.aborted, true);
-    assert.equal(result.res.writableEnded, true);
-  });
-});
-
 describe('an app\'s sessions', () => {
   const PATH = '/api/apps/echo/sessions';
 
@@ -428,17 +320,10 @@ describe('an app\'s sessions', () => {
     assert.deepEqual(read.payload.session.calls, []);
   });
 
-  it('saves what the page keeps, and only in an existing session', async () => {
+  it('refuses to change a session, and any id that is not one', async () => {
     const ctx = ctxWith({});
-    const saved = await invoke(routes, {method: 'PUT', path: `${PATH}/${SESSION}`, body: {state: {fen: 'x'}, title: 'Game'}, ctx, requestContext: context});
-    assert.equal(saved.status, 200);
-    assert.deepEqual(ctx.sessions.saved, [{pluginId: 'echo', id: SESSION, state: {fen: 'x'}, title: 'Game'}]);
-    const missing = await invoke(routes, {
-      method: 'PUT', path: '/api/apps/echo/sessions/00000000-0000-4000-8000-000000000002', body: {state: null}, ctx, requestContext: context,
-    });
-    assert.equal(missing.status, 404);
-    const shapeless = await invoke(routes, {method: 'PUT', path: `${PATH}/${SESSION}`, body: {title: 'x'}, ctx, requestContext: context});
-    assert.equal(shapeless.status, 400);
+    const put = await invoke(routes, {method: 'PUT', path: `${PATH}/${SESSION}`, body: {title: 'x'}, ctx, requestContext: context});
+    assert.equal(put.status, 405);
     assert.equal((await invoke(routes, {method: 'GET', path: `${PATH}/not-an-id`, ctx, requestContext: context})).status, 404);
   });
 

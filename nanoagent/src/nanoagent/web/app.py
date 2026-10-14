@@ -13,8 +13,6 @@ import re
 import secrets
 import subprocess
 import sys
-import time
-import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -36,17 +34,15 @@ from nanoagent.plugin.package import (
     pack,
     pack_source,
 )
-from nanoagent.plugin.tasks import TaskOutcome, run_task
 from nanoagent.runtime.config import AgentConfig, load_config_args
 from nanoagent.web.config import WebConfig
-from nanoagent.web.plugin_agent import PluginModel, plugin_profile, staged_from, task_agent, task_decider
+from nanoagent.web.plugin_agent import PluginModel, plugin_profile
 from nanoagent.web.runtime import (
     ActiveRun,
     RunChoice,
     RunHost,
     ValidationError,
     check_choice,
-    validate_run_choice,
     validate_run_request,
 )
 from nanoagent.web.workspaces import Workspaces
@@ -76,19 +72,6 @@ UI_POLICY = (
     "img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; form-action 'none'; "
     "base-uri 'none'"
 )
-
-
-def _task_metrics(outcome: TaskOutcome, duration_s: float, model: str) -> dict[str, Any]:
-    """What a finished task cost and how long it took; a tool task calls no model."""
-    profile = outcome.agent.profile if outcome.agent is not None else None
-    return {
-        "model": model if profile is not None else None,
-        "cost": profile.cost if profile is not None else 0.0,
-        "usage": dict(profile.usage) if profile is not None else {},
-        "ttft_s": profile.ttft_s if profile is not None else None,
-        "generation_s": profile.generation_s if profile is not None else 0.0,
-        "duration_s": duration_s,
-    }
 
 
 def _ui_file(manifest: PluginManifest, path: str) -> Path | None:
@@ -609,111 +592,11 @@ def create_app(
         }
         return FileResponse(target, media_type=media_type, headers=headers)
 
-    task_runs: dict[str, asyncio.Task[Any]] = {}
-
-    async def start_task_run(request: Request) -> JSONResponse | StreamingResponse:
-        """Run one plugin task the verified way in a caller's workspace, streaming `task.*` events."""
-        if not authorized(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
-        manifest = runnable(request)
-        if isinstance(manifest, JSONResponse):
-            return manifest
-        try:
-            task = manifest.task(request.path_params["task_id"])
-            folder = workspaces.folder(request.path_params["workspace_id"], create=True)
-        except KeyError as error:
-            return JSONResponse({"error": error.args[0]}, status_code=404)
-        except ValueError as error:
-            return JSONResponse({"error": str(error)}, status_code=400)
-        payload, rejected = await read_json(request)
-        if rejected is not None:
-            return rejected
-        if (
-            not isinstance(payload, dict)
-            or not isinstance(payload.get("arguments"), dict)
-            or set(payload) - {"arguments", "profile", "model", "settings"}
-        ):
-            return JSONResponse(
-                {"error": 'request body must be {"arguments": {...}}, and may choose its "profile", "model" and "settings"'},
-                status_code=400,
-            )
-        try:
-            choice = validate_run_choice({key: value for key, value in payload.items() if key != "arguments"})
-            check_choice(cfg, choice)
-            model, model_name, agent_cfg, close = await plugin_model_for(choice)
-        except ValidationError as error:
-            return JSONResponse({"error": str(error)}, status_code=400)
-
-        run_id = f"task_{uuid.uuid4().hex}"
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-
-        def emit(kind: str, data: dict[str, Any]) -> None:
-            queue.put_nowait({"type": kind, "runId": run_id, **data})
-
-        async def work() -> None:
-            # Only a task that finished has metrics; one that failed or was stopped reports none.
-            done: dict[str, Any] = {}
-            started = time.perf_counter()
-            try:
-                async with plugin_slots:
-                    outcome = await run_task(
-                        manifest,
-                        task,
-                        payload["arguments"],
-                        folder,
-                        make_agent=task_agent(model, agent_cfg),
-                        make_decider=task_decider(model, agent_cfg),
-                        timeout=cfg.request_timeout,
-                        on_event=emit,
-                        stage=staged_from(folder),
-                    )
-                done["metrics"] = _task_metrics(outcome, time.perf_counter() - started, model_name)
-            except asyncio.CancelledError:
-                emit("task.error", {"message": "cancelled"})
-            except Exception as error:  # noqa: BLE001 - the stream reports every failure
-                emit("task.error", {"message": f"{type(error).__name__}: {error}"})
-            finally:
-                task_runs.pop(run_id, None)
-                if close is not None:
-                    await close()
-                emit("task.done", done)
-
-        task_runs[run_id] = asyncio.create_task(work())
-
-        async def stream() -> AsyncIterator[bytes]:
-            try:
-                while True:
-                    try:
-                        event = await asyncio.wait_for(queue.get(), timeout=cfg.heartbeat_seconds)
-                    except TimeoutError:
-                        yield b": heartbeat\n\n"
-                        continue
-                    yield _sse(event)
-                    if event["type"] == "task.done":
-                        return
-            finally:
-                # A caller that hangs up stops its task.
-                if run_id in task_runs:
-                    task_runs[run_id].cancel()
-
-        return StreamingResponse(
-            stream(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache, no-transform",
-                "X-Accel-Buffering": "no",
-                "X-NanoAgent-API-Version": "v1",
-                "X-NanoAgent-Run-Id": run_id,
-            },
-        )
-
     async def cancel_run(request: Request) -> JSONResponse:
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         run_id = request.path_params["run_id"]
-        if run_id in task_runs:
-            task_runs[run_id].cancel()
-        elif not run_host.cancel(run_id):
+        if not run_host.cancel(run_id):
             return JSONResponse({"error": "run not found"}, status_code=404)
         return JSONResponse({"id": run_id, "cancelled": True}, status_code=202)
 
@@ -744,22 +627,12 @@ def create_app(
             Route("/v1/installs/{sha256}", install, methods=["GET", "PUT"]),
             Route("/v1/installs/{sha256}/ui/{path:path}", plugin_ui, methods=["GET"]),
             Route(
-                "/v1/workspaces/{workspace_id}/installs/{sha256}/tasks/{task_id}/runs",
-                start_task_run,
-                methods=["POST"],
-            ),
-            Route(
                 "/v1/workspaces/{workspace_id}/installs/{sha256}/runs",
                 start_plugin_run,
                 methods=["POST"],
             ),
             # COMPAT(mochi-installs): the routes by plugin id, above.
             Route("/v1/plugins/{plugin_id}/ui/{path:path}", package_ui, methods=["GET"]),
-            Route(
-                "/v1/workspaces/{workspace_id}/plugins/{plugin_id}/tasks/{task_id}/runs",
-                by_id(start_task_run),
-                methods=["POST"],
-            ),
             Route("/v1/workspaces/{workspace_id}/plugins/{plugin_id}/runs", by_id(start_plugin_run), methods=["POST"]),
             Route("/v1/workspaces/{workspace_id}/files", list_files, methods=["GET"]),
             Route(

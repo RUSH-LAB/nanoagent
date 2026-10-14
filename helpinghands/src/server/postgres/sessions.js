@@ -2,10 +2,8 @@
 const crypto = require('crypto');
 const {withRequestContext} = require('./client');
 
-// What one session may keep: the page's saved state, and the latest turns of
-// its conversation (as many as a prompt sends NanoAgent, routes/ai.js).
-const STATE_MAX_BYTES = 256 * 1024;
-const TITLE_MAX = 200;
+// What one session may keep: the latest turns of its conversation (as many as
+// a prompt sends NanoAgent, routes/ai.js).
 const CHAT_TURNS = 12;
 const TURN_MAX = 10000;
 
@@ -19,8 +17,8 @@ class SessionError extends Error {
 
 /**
  * Plugin sessions (migration 0015): one member's sittings with one plugin's
- * page, each with what the page saved and the conversation so far, and the
- * calls they made, from ai_usage, with what each cost and how long it took.
+ * page, each with the conversation so far, and the calls they made, from
+ * ai_usage, with what each cost and how long it took.
  * Row-level security keeps every session to its own member and workspace.
  */
 function createPostgresSessions({pool}) {
@@ -62,22 +60,21 @@ function createPostgresSessions({pool}) {
           'insert into plugin_session(id, workspace_id, user_id, plugin_id) values ($1, $2, $3, $4)',
           [id, context.workspaceId, context.userId, pluginId],
         );
-        return {...session(await owned(client, pluginId, id)), state: null, chat: []};
+        return {...session(await owned(client, pluginId, id)), chat: []};
       });
     },
 
-    /** One session with its saved state, its conversation, and every call it made. */
+    /** One session with its conversation and every call it made. */
     async get(context, pluginId, id) {
       return run(context, async client => {
         const summary = session(await owned(client, pluginId, id));
-        const {state, chat} = (await client.query('select state, chat from plugin_session where id = $1', [id])).rows[0];
+        const {chat} = (await client.query('select chat from plugin_session where id = $1', [id])).rows[0];
         const calls = (await client.query(
           `select at, kind, task, model, cost_usd, estimated, input_tokens, output_tokens, ttft_s, generation_s, duration_s
              from ai_usage where session_id = $1 order by at`, [id],
         )).rows;
         return {
           ...summary,
-          state,
           chat,
           calls: calls.map(row => ({
             at: row.at,
@@ -101,24 +98,6 @@ function createPostgresSessions({pool}) {
       await run(context, client => owned(client, pluginId, id));
     },
 
-    /** Keep what the page saved, and its title when it gives one. */
-    async save(context, pluginId, id, {state, title}) {
-      const json = JSON.stringify(state ?? null);
-      if (Buffer.byteLength(json) > STATE_MAX_BYTES) {
-        throw new SessionError(413, `A session's state may hold ${STATE_MAX_BYTES / 1024} KB`);
-      }
-      if (title !== undefined && (typeof title !== 'string' || title.length > TITLE_MAX)) {
-        throw new SessionError(400, `title must be a string of ${TITLE_MAX} characters or fewer`);
-      }
-      await run(context, async client => {
-        await owned(client, pluginId, id);
-        await client.query(
-          'update plugin_session set state = $2::jsonb, title = coalesce($3, title), updated_at = now() where id = $1',
-          [id, json, title ?? null],
-        );
-      });
-    },
-
     /** Add a finished turn to the conversation, its tool calls whole, keeping the latest. */
     async addTurn(context, pluginId, id, {prompt, answer, tools}) {
       await run(context, async client => {
@@ -136,4 +115,4 @@ function createPostgresSessions({pool}) {
   });
 }
 
-module.exports = {createPostgresSessions, SessionError, STATE_MAX_BYTES, CHAT_TURNS};
+module.exports = {createPostgresSessions, SessionError, CHAT_TURNS};
