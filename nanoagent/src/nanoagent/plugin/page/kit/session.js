@@ -136,7 +136,7 @@ function callsTable(calls) {
  *   sessions again and resolves with how many there are, or null when the host could not say.
  */
 export function dashboard({ onOpen }) {
-  const summary = h("p", { class: "dashboard-summary" });
+  const stats = h("dl", { class: "session-stats" });
   const status = h("p", { class: "error-text", role: "alert" });
   const list = h("ul", { class: "session-list" });
   const newButton = h("button", { type: "button", class: "button small", onclick: () => onOpen(null) }, icon("plus", { size: 16 }), "New session");
@@ -196,9 +196,13 @@ export function dashboard({ onOpen }) {
     const runs = sessions.reduce((sum, one) => sum + one.runs, 0);
     const timed = sessions.filter((one) => one.ttftS != null);
     const timedRuns = timed.reduce((sum, one) => sum + one.runs, 0);
-    const parts = [plural(sessions.length, "session"), plural(runs, "run"), formatCost(sessions.reduce((sum, one) => sum + one.cost, 0))];
-    if (timedRuns) parts.push(`first token ${formatSeconds(timed.reduce((sum, one) => sum + one.ttftS * one.runs, 0) / timedRuns)} on average`);
-    summary.textContent = sessions.length ? parts.join(" · ") : "";
+    const figures = [
+      ["Sessions", String(sessions.length)],
+      ["Runs", String(runs)],
+      ["Cost", formatCost(sessions.reduce((sum, one) => sum + one.cost, 0))],
+      ["First token, average", timedRuns ? formatSeconds(timed.reduce((sum, one) => sum + one.ttftS * one.runs, 0) / timedRuns) : "—"],
+    ];
+    stats.replaceChildren(...(sessions.length ? figures.map(([label, value]) => h("div", { class: "session-stat" }, h("dt", { text: label }), h("dd", { text: value }))) : []));
     const newest = [...sessions].sort((x, y) => new Date(y.updatedAt) - new Date(x.updatedAt));
     list.replaceChildren(
       ...(newest.length
@@ -211,8 +215,9 @@ export function dashboard({ onOpen }) {
   const element = h(
     "section",
     { class: "dashboard" },
-    h("header", { class: "dashboard-head" }, h("div", { class: "dashboard-titles" }, h("h2", { text: "Sessions" }), summary), newButton),
+    h("header", { class: "dashboard-head" }, h("h2", { text: "Sessions" }), newButton),
     status,
+    stats,
     list,
   );
   return { element, refresh };

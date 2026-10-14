@@ -535,11 +535,13 @@ html[data-theme="dark"] .segment input:checked + .segment-text { background: var
 .dashboard { display: grid; gap: 12px; max-width: 880px; }
 /* A status line with nothing in it yet takes no row, so it adds no gap. */
 .dashboard > :empty { display: none; }
-.dashboard-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.dashboard-titles { display: grid; gap: 2px; min-width: 0; }
-.dashboard-titles h2 { font-size: 15px; }
-.dashboard-summary { margin: 0; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
-.dashboard-summary:empty { display: none; }
+.dashboard-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.dashboard-head h2 { font-size: 15px; }
+.session-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.session-stat { display: grid; gap: 2px; min-width: 0; padding: 10px 14px; }
+.session-stat + .session-stat { border-left: 1px solid var(--border); }
+.session-stat dt { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session-stat dd { margin: 0; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .session-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); overflow: hidden; }
 .session-row + .session-row { border-top: 1px solid var(--border); }
 .session-line { display: flex; align-items: center; gap: 8px; padding-right: 8px; }
@@ -743,6 +745,9 @@ html[data-theme="dark"] .segment input:checked + .segment-text { background: var
 
 @media (max-width: 640px) {
   body { font-size: 14.5px; }
+  .session-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .session-stat:nth-child(odd) { border-left: 0; }
+  .session-stat:nth-child(n + 3) { border-top: 1px solid var(--border); }
   .app-header-inner { padding: var(--page-inset) var(--page-inset) 10px; gap: 10px; flex-wrap: wrap; }
   .app-icon { width: 34px; height: 34px; border-radius: 10px; }
   .app-tagline { display: none; }
