@@ -14,6 +14,16 @@ const thousands = tokens => (tokens >= 1_000_000 ? `${Number((tokens / 1_000_000
 // OpenRouter names a model "Maker: Name", and the name already says who made it.
 const shortName = label => label.slice(label.indexOf(': ') + 1).trim();
 
+/** One thing known of the model, a row of its own. */
+function Fact({label, children}) {
+  return (
+    <div className={`${styles.row} ${ai.fact}`}>
+      <span className={styles.rowLabel}>{label}</span>
+      <span className={styles.rowValue}>{children}</span>
+    </div>
+  );
+}
+
 /**
  * Settings → AI. Your AI runs on your own computer, in Mochi Lab: its
  * OpenRouter key (_ApiKeys.js), and the one model chat, inline completion and
@@ -66,23 +76,17 @@ export default function Ai() {
       {heading}
       <section className={styles.group}>
         <ApiKeys computer={computer} onSaved={onSaved} />
-        <div className={styles.row}>
-          <div className={styles.rowLabel}>
-            <strong>Model</strong>
-            <span>Chat, inline completion and apps all run on it.</span>
-          </div>
-          <div className={ai.model}>
-            <span className={ai.modelName} title={model.model}>{known ? shortName(known.label) : model.model}</span>
-            {known && (
-              <span className={ai.modelFacts}>
-                {known.contextWindow && <span className={ai.fact}>{`${thousands(known.contextWindow)} context`}</span>}
-                {known.price && <span className={ai.fact}>{`${dollars(known.price.input)} / 1M in`}</span>}
-                {known.price && <span className={ai.fact}>{`${dollars(known.price.output)} / 1M out`}</span>}
-                {known.reasoning && <span className={ai.fact}>Reasoning</span>}
-              </span>
-            )}
-          </div>
+      </section>
+      <section className={styles.group}>
+        <div className={styles.groupHead}>
+          <h4 className={styles.groupTitle}>Model</h4>
         </div>
+        <Fact label="Name">{known ? shortName(known.label) : model.model}</Fact>
+        <Fact label="ID"><code className={ai.modelId}>{model.model}</code></Fact>
+        {known?.contextWindow && <Fact label="Context window">{`${thousands(known.contextWindow)} tokens`}</Fact>}
+        {known?.price && <Fact label="Input">{`${dollars(known.price.input)} per 1M tokens`}</Fact>}
+        {known?.price && <Fact label="Output">{`${dollars(known.price.output)} per 1M tokens`}</Fact>}
+        {known && <Fact label="Reasoning">{known.reasoning ? 'Yes' : 'No'}</Fact>}
       </section>
     </>
   );

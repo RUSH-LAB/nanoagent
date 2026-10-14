@@ -33,40 +33,21 @@
   font-size: 0.82rem;
 }
 
-/* The model every run is on: its name, as the computer's catalog has it, over what it costs
-   and can do, one pill each. */
-.model {
-  display: grid;
-  justify-items: end;
-  gap: 0.35rem;
-  min-width: 0;
+/* The model every run is on, one row for each thing the computer's catalog knows of it. */
+/* Two classes, to outrank the shared row's height and the label's weight. */
+.fact.fact {
+  min-height: 0;
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
 }
 
-.modelName {
-  max-width: 100%;
-  overflow: hidden;
-  font-size: 0.9rem;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.modelFacts {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.3rem;
-}
-
-.fact {
-  padding: 0.1rem 0.5rem;
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 999px;
-  background: var(--ifm-color-emphasis-100);
+.fact > :first-child {
   color: var(--ifm-color-emphasis-700);
-  font-size: 0.74rem;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+}
+
+.modelId {
+  padding: 0.1rem 0.4rem;
+  font-size: 0.78rem;
 }
 
 /* ── The model picker ───────────────────────────────────────────── */
