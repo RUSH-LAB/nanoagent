@@ -3,6 +3,7 @@ id: {{id}}
 name: {{name}}
 version: 0.1.0
 status: in-development
+nanoagent: ~={{nanoagent}}
 
 runtime > nanoagent.plugin.manifest.RuntimeConfig:
   type: mcp_stdio

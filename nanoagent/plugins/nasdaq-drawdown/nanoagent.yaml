@@ -3,6 +3,7 @@ id: nasdaq-drawdown
 name: Nasdaq-100 Weekly Drawdown
 version: 0.1.0
 status: ready
+nanoagent: ~=0.3.0
 
 runtime > nanoagent.plugin.manifest.RuntimeConfig:
   type: mcp_stdio

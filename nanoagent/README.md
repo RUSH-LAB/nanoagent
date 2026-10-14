@@ -55,6 +55,17 @@ violation at once (`nanoagent plugin inspect <path>` prints them). The web
 host refuses to start with such a plugin. Every tool call checks the rules
 again, so a plugin edited after it loaded is refused too.
 
+Every plugin names the NanoAgent versions it runs on: `nanoagent` in
+`nanoagent.yaml` is a PEP 440 range, and NanoAgent refuses a plugin whose
+range does not hold its own version (`nanoagent.__version__`).
+`nanoagent plugin new` writes `~=<this version>`, such as `~=0.3.0`
+(0.3.0 up to, not including, 0.4). NanoAgent raises its minor version
+whenever a plugin made for the last one could break: the plugin rules, the
+contract, the verifier, the UI kit or the `nanoagent.ui/v1` bridge. Any other
+release raises the patch version. Each release is a git tag,
+`nanoagent-v<version>`, and [CHANGELOG.md](CHANGELOG.md) says what a plugin
+must change for it.
+
 Before each launch NanoAgent runs `run.sh` with the plugin's environment: `NANOAGENT_WORKSPACE` plus each `.env`
 name taken from NanoAgent's own environment. It refuses to launch unless
 `run.sh` exits 0. It then starts the declared MCP runtime with that same

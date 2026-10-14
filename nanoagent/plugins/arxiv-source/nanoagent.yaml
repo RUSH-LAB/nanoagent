@@ -3,6 +3,7 @@ id: arxiv-source
 name: arXiv Search and Source Downloader
 version: 0.3.0
 status: ready
+nanoagent: ~=0.3.0
 
 runtime > nanoagent.plugin.manifest.RuntimeConfig:
   type: mcp_stdio

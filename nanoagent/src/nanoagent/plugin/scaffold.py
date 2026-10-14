@@ -1,7 +1,8 @@
 """`nanoagent plugin new`: start a plugin from the template, with the reference plugin's structure.
 
 The template (``nanoagent/plugin/template/``) is the layout of ``plugins/arxiv-source`` with one
-small tool. Its files are copied with ``{{id}}``, ``{{name}}`` and ``{{year}}`` filled in;
+small tool. Its files are copied with ``{{id}}``, ``{{name}}``, ``{{year}}`` and ``{{nanoagent}}`` (this
+NanoAgent's version) filled in;
 ``dot.<name>`` files become ``.<name>`` (dotfiles stay out of the package's ignore rules).
 ``uv lock`` then writes the lock, and the result must load under every plugin rule.
 """
@@ -13,6 +14,7 @@ import subprocess
 from datetime import date
 from pathlib import Path
 
+from nanoagent import __version__
 from nanoagent.plugin.manifest import PLUGIN_ID, TEMPLATE, TOOL_ARTIFACTS, PluginManifest, load_manifest
 
 
@@ -29,6 +31,7 @@ def create_plugin(folder: Path) -> PluginManifest:
         "{{id}}": plugin_id,
         "{{name}}": plugin_id.replace("-", " ").title(),
         "{{year}}": str(date.today().year),
+        "{{nanoagent}}": __version__,
     }
     for source in sorted(TEMPLATE.rglob("*")):
         relative = source.relative_to(TEMPLATE)

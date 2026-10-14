@@ -11,7 +11,9 @@ raises :class:`PluginError` listing every broken rule at once:
    declarations (see :mod:`nanoagent.plugin.contract`).
 4. ``nanoagent.yaml`` fills :class:`ManifestConfig` under slimconfig's rules: it names its class
    (``_ > nanoagent.plugin.manifest.ManifestConfig:``), sets every field and no other, and its
-   ``tools`` and ``tasks`` are tables keyed by the contract's ``Tool`` and ``Task``.
+   ``tools`` and ``tasks`` are tables keyed by the contract's ``Tool`` and ``Task``. Its
+   ``nanoagent`` is the PEP 440 range of NanoAgent versions the plugin runs on, and holds this
+   NanoAgent's version.
 5. Every task uses only declared tools. A task's ``runner`` is ``tool`` (exactly one tool,
    called directly with the task's input, so the task's input class is that tool's) or
    ``agent`` (an agent works the task with its tools). A ``reference`` tool, when set, takes
@@ -60,8 +62,10 @@ from typing import Any
 from xml.etree import ElementTree
 
 from omegaconf import MISSING, OmegaConf
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from slimconfig import Config, load_config, merge_specs, output_schema
 
+from nanoagent import __version__
 from nanoagent.plugin.contract import CONTRACT, contract_module, contract_problems, read_contract
 from nanoagent.plugin.verifier import verifier_problems
 
@@ -204,6 +208,8 @@ class ManifestConfig(ListingConfig):
     """The whole of `nanoagent.yaml`. Each plugin's file fills a subclass that adds its tables,
     ``tools: dict[contract.Tool, ToolConfig]`` and ``tasks: dict[contract.Task, TaskConfig]``."""
 
+    # The NanoAgent versions the plugin runs on, a PEP 440 range such as ``~=0.3.0``.
+    nanoagent: str = MISSING
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     permissions: PermissionsConfig = field(default_factory=PermissionsConfig)
 
@@ -573,7 +579,7 @@ def _manifest_class(contract: Any) -> type:
 
 def _config_violations(config: Any) -> list[str]:
     """The rules a config class cannot state: non-blank text, hostnames, and how tasks use tools."""
-    violations = _listing_violations(config)
+    violations = _listing_violations(config) + _nanoagent_violations(config.nanoagent)
     if not config.runtime.command or not all(part.strip() for part in config.runtime.command):
         violations.append(f"{MANIFEST} runtime.command must be a non-empty list of words")
     violations += [
@@ -598,6 +604,19 @@ def _config_violations(config: Any) -> list[str]:
         if task.reference is not None and task.reference not in names:
             violations.append(f"task {key.value!r}: reference {task.reference!r} is not a declared tool")
     return violations
+
+
+def _nanoagent_violations(versions: str) -> list[str]:
+    """``nanoagent`` is a version range holding this NanoAgent's version (rule 4)."""
+    try:
+        accepted = SpecifierSet(versions) if versions.strip() else None
+    except InvalidSpecifier:
+        accepted = None
+    if accepted is None:
+        return [f"{MANIFEST} nanoagent {versions!r} is not a version range, such as ~={__version__}"]
+    if __version__ not in accepted:
+        return [f"{MANIFEST} nanoagent: the plugin runs on NanoAgent {versions}, not this NanoAgent, {__version__}"]
+    return []
 
 
 def _usage_violations(config: Any, contract: Any) -> list[str]:
