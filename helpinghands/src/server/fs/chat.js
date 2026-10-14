@@ -29,10 +29,11 @@ const channelFolder = id => `chat/${id}`;
 function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix => `${prefix}_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`}) {
   const scopeOf = (workspaceId, userId) => ({workspaceId, userId});
   const run = (workspaceId, userId, operation) => fs.transaction(scopeOf(workspaceId, userId), operation);
-  const read = async (tree, path) => {
-    const node = await tree.nodeAt(path);
-    return node ? JSON.parse((await tree.bodyOf(node.contentHash)).toString('utf8')) : null;
-  };
+  // Every file a request needs is read in one query: each query is a round trip
+  // to the database, and a request's time is mostly the count of them.
+  const readAll = async (tree, paths) => new Map(paths.length === 0 ? [] : (await tree.readMany({paths}))
+    .map(node => [node.path, JSON.parse(node.body.toString('utf8'))]));
+  const read = async (tree, path) => (await readAll(tree, [path])).get(path) ?? null;
   const member = async (tree, workspaceId, userId) => (await tree.query(
     'select 1 from workspace_member where workspace_id = $1 and user_id = $2', [workspaceId, userId],
   )).rows.length > 0;
@@ -42,14 +43,21 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
     [[...new Set(ids)]],
   )).rows.map(row => [row.id, row]));
 
-  /** The channel if this member may see it; channel.json is visible exactly when its folder is. */
-  async function visible(tree, workspaceId, userId, channelId) {
+  /**
+   * The channel if this member may see it, with their membership file, or null
+   * when they have not joined; channel.json is visible exactly when its folder is.
+   */
+  async function access(tree, workspaceId, userId, channelId) {
     if (!/^[\w-]+$/.test(String(channelId)) || !await member(tree, workspaceId, userId)) return null;
-    const channel = await read(tree, `${channelFolder(channelId)}/channel.json`);
+    const channelPath = `${channelFolder(channelId)}/channel.json`;
+    const minePath = `${channelFolder(channelId)}/members/${userId}.json`;
+    const files = await readAll(tree, [channelPath, minePath]);
+    const channel = files.get(channelPath);
     if (!channel) return null;
-    const value = {...channel, organizationId: workspaceId};
-    return channel.kind === 'public' || await joined(tree, channelId, userId) ? value : null;
+    const mine = files.get(minePath) ?? null;
+    return channel.kind === 'public' || mine ? {channel: {...channel, organizationId: workspaceId}, mine} : null;
   }
+  const visible = async (tree, workspaceId, userId, channelId) => (await access(tree, workspaceId, userId, channelId))?.channel ?? null;
 
   /** Message files of a channel, oldest first, from their names alone. */
   async function messageNodes(tree, channelId) {
@@ -94,16 +102,17 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
         if (!await member(tree, workspaceId, userId)) return [];
         const nodes = await tree.list({prefix: 'chat'});
         const ids = nodes.map(node => /^chat\/([\w-]+)\/channel\.json$/.exec(node.path)?.[1]).filter(Boolean);
+        const files = await readAll(tree, ids.flatMap(id => [`${channelFolder(id)}/channel.json`, `${channelFolder(id)}/members/${userId}.json`]));
         const channels = [];
         for (const id of ids) {
-          const channel = await read(tree, `${channelFolder(id)}/channel.json`);
+          const channel = files.get(`${channelFolder(id)}/channel.json`);
           if (!channel || (!includeArchived && channel.archivedAt)) continue;
           const members = nodes
             .filter(node => node.path.startsWith(`${channelFolder(id)}/members/`) && node.kind === 'file')
             .map(node => decodeURIComponent(node.path.split('/').pop().replace(/\.json$/, '')));
           const isMember = members.includes(userId);
           if (channel.kind !== 'public' && !isMember) continue;
-          const mine = isMember ? await read(tree, `${channelFolder(id)}/members/${userId}.json`) : null;
+          const mine = isMember ? files.get(`${channelFolder(id)}/members/${userId}.json`) ?? null : null;
           const lastReadSeq = mine ? Number(mine.lastReadSeq) : null;
           const unread = nodes.filter(node => {
             if (!node.path.startsWith(`${channelFolder(id)}/messages/`)) return false;
@@ -134,8 +143,7 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
     async listMembers(channelId, workspaceId, userId) {
       return run(workspaceId, userId, async tree => {
         const files = (await tree.list({prefix: `${channelFolder(channelId)}/members`})).filter(node => node.kind === 'file');
-        const entries = [];
-        for (const file of files) entries.push(await read(tree, file.path));
+        const entries = [...(await readAll(tree, files.map(file => file.path))).values()];
         const people = await users(tree, entries.map(entry => entry.userId));
         return entries
           .map(entry => ({...people.get(entry.userId), joinedAt: entry.joinedAt}))
@@ -254,8 +262,11 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
 
     async openDm(workspaceId, userId, otherUserId) {
       return run(workspaceId, userId, async tree => {
-        if (!await member(tree, workspaceId, userId)) return {error: 'forbidden'};
-        if (!await member(tree, workspaceId, otherUserId)) return {error: 'not-in-organization'};
+        const members = new Set((await tree.query(
+          'select user_id from workspace_member where workspace_id = $1 and user_id = any($2::text[])', [workspaceId, [userId, otherUserId]],
+        )).rows.map(row => row.user_id));
+        if (!members.has(userId)) return {error: 'forbidden'};
+        if (!members.has(otherUserId)) return {error: 'not-in-organization'};
         const key = dmKeyFor(userId, otherUserId);
         const registry = `chat/.dms/${encodeURIComponent(key)}.json`;
         const known = await read(tree, registry);
@@ -327,9 +338,10 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
         const all = (await messageNodes(tree, channelId)).filter(entry => cursor === null || entry.seq < cursor);
         const page = all.slice(-capped);
         const people = await users(tree, page.map(entry => entry.userId));
+        const files = await readAll(tree, page.map(entry => entry.node.path));
         const messages = [];
         for (const entry of page) {
-          const stored = JSON.parse((await tree.bodyOf(entry.node.contentHash)).toString('utf8'));
+          const stored = files.get(entry.node.path);
           const person = people.get(entry.userId);
           messages.push({
             ...stored, channelId, username: person?.username ?? null, name: person?.name ?? null,
@@ -342,10 +354,10 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
 
     async postMessage(workspaceId, userId, channelId, body) {
       return run(workspaceId, userId, async tree => {
-        const channel = await visible(tree, workspaceId, userId, channelId);
-        if (!channel) return {error: 'not-found'};
-        if (channel.archivedAt) return {error: 'archived'};
-        if (!await joined(tree, channelId, userId)) return {error: 'not-a-member'};
+        const seen = await access(tree, workspaceId, userId, channelId);
+        if (!seen) return {error: 'not-found'};
+        if (seen.channel.archivedAt) return {error: 'archived'};
+        if (!seen.mine) return {error: 'not-a-member'};
         const text = typeof body === 'string' ? body.trim() : '';
         if (!text) return {error: 'empty'};
         if (text.length > MAX_BODY) return {error: 'too-long'};
@@ -356,8 +368,7 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
         const at = now();
         const message = {id, seq, userId, body: text, createdAt: at, editedAt: null, deletedAt: null};
         await tree.write(`${channelFolder(channelId)}/messages/${seqName(seq)}-${encodeURIComponent(userId)}.json`, json(message), {baseRev: 0});
-        const membership = `${channelFolder(channelId)}/members/${userId}.json`;
-        await tree.write(membership, json({...await read(tree, membership), lastReadSeq: seq}));
+        await tree.write(`${channelFolder(channelId)}/members/${userId}.json`, json({...seen.mine, lastReadSeq: seq}));
         const person = (await users(tree, [userId])).get(userId);
         return {message: {...message, channelId, username: person?.username ?? null, name: person?.name ?? null}};
       });
@@ -365,11 +376,13 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
 
     async deleteMessage(workspaceId, userId, messageId) {
       return run(workspaceId, userId, async tree => {
-        const nodes = (await tree.list({prefix: 'chat'})).filter(node => /^chat\/[\w-]+\/messages\/[^/]+\.json$/.test(node.path));
+        const nodes = (await tree.list({prefix: 'chat'})).filter(node => {
+          const match = /^chat\/[\w-]+\/messages\/[^/]+\.json$/.test(node.path) && MESSAGE.exec(node.path.split('/').pop());
+          return match && !match[3];
+        });
+        const files = await readAll(tree, nodes.map(node => node.path));
         for (const node of nodes) {
-          const match = MESSAGE.exec(node.path.split('/').pop());
-          if (!match || match[3]) continue;
-          const stored = JSON.parse((await tree.bodyOf(node.contentHash)).toString('utf8'));
+          const stored = files.get(node.path);
           if (stored.id !== messageId) continue;
           if (stored.userId !== userId) return {error: 'forbidden'};
           const channelId = node.path.split('/')[1];
@@ -420,12 +433,14 @@ function createFsChat({fs, now = () => new Date().toISOString(), newId = prefix 
 
     async markRead(workspaceId, userId, channelId) {
       return run(workspaceId, userId, async tree => {
-        if (!await visible(tree, workspaceId, userId, channelId)) return {error: 'not-found'};
+        const seen = await access(tree, workspaceId, userId, channelId);
+        if (!seen) return {error: 'not-found'};
         const newest = (await messageNodes(tree, channelId)).at(-1)?.seq ?? 0;
-        const membership = `${channelFolder(channelId)}/members/${userId}.json`;
-        const mine = await read(tree, membership);
+        const {mine} = seen;
         if (!mine) return {marked: false, lastReadSeq: newest};
-        if (Number(mine.lastReadSeq) !== newest) await tree.write(membership, json({...mine, lastReadSeq: newest}));
+        if (Number(mine.lastReadSeq) !== newest) {
+          await tree.write(`${channelFolder(channelId)}/members/${userId}.json`, json({...mine, lastReadSeq: newest}));
+        }
         return {marked: true, lastReadSeq: newest};
       });
     },
