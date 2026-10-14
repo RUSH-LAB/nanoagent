@@ -6,6 +6,8 @@
 
 **Nothing is impossible.** If you say something is not possible, I will challenge that. That means you rely on the current tech stack and do not think about new tech stack. We need to achieve the goal, no matter how big changes we need to make.
 
+**No LLM as judge.** A plugin's verifier is deterministic code and decides every case. Never use a model to verify a result, and never design a task whose correctness code cannot check.
+
 ## Configuration
 
 - All config comes from YAML files and never uses `argparse`.
