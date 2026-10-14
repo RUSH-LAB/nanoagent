@@ -73,5 +73,7 @@ which runs its tasks and shows each output on the page (see `ui/`).
 ```bash
 uv sync --extra dev
 uv run pytest
-uv run --project <nanoagent checkout> nanoagent plugin inspect .
 ```
+
+Publishing checks every plugin rule: push the plugin to a public GitHub
+repository and run `mochi publish <server> <github-url>`.

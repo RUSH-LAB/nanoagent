@@ -8,8 +8,8 @@ site_url: https://rush-lab.org
 # run side by side.
 nanoagent_port: 47311
 
-# Bundled runtimes. Node runs the relay and NanoAgent's PI runner; uv installs NanoAgent's Python
-# environment (uv.lock) on first launch and runs its plugins.
+# Bundled runtimes. Node runs the relay and NanoAgent's PI runner; uv installs, on first launch,
+# the Python plugins run on, and runs them. NanoAgent is compiled on that same Python version.
 node_version: 22.23.3
 uv_version: 0.12.22
 python_version: "3.12"

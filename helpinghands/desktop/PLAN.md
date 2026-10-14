@@ -13,7 +13,7 @@ cd helpinghands
 npm run desktop  # build the release app (src-tauri/target/release/bundle/{macos,dmg}/) and open it
 ```
 
-Needs Node 22, Rust, and NanoAgent's checkout beside `helpinghands/`. The app needs nothing
+Needs Node 22, Rust, a C compiler (Xcode's command line tools), and NanoAgent's checkout beside `helpinghands/`. The app needs nothing
 installed where it runs.
 
 On first launch the window shows Mochi's device page (`/device?client=desktop`). The member
@@ -71,20 +71,23 @@ Mochi Lab.app
 ├── MacOS/node, MacOS/uv          bundled runtimes (sidecars)
 └── Resources/
     ├── runner/                   the relay and its protocol (src/runner/)
-    ├── nanoagent/                sources, uv.lock, the PI runner (trimmed)
+    ├── nanoagent/                NanoAgent compiled by Nuitka (bin/), the PI runner's bundle, its config
     ├── config.yaml               the Mochi it serves, NanoAgent's port, runtime versions
     └── stamp                     names this staging
 ```
 
 `scripts/stage.mjs` produces the resources and downloads the runtimes (checksums verified)
 before every `tauri build`.
+NanoAgent ships compiled, not as source: Nuitka builds it (`--mode=standalone`, NanoAgent's `compile`
+extra) on Python 3.12, and the PI runner ships as its two bundled files. Its strings can still be read
+out of the binary, so it holds nothing secret.
 
 At launch the supervisor:
 
 1. Installs this staging once into `Application Support/lab.mochi.desktop/app/<stamp>/`, and
    removes older installations.
-2. Refuses to start if port 47311 is in use, or if this platform has no sandbox; runs `uv sync --locked --extra web --managed-python --python 3.12`. The first launch downloads
-   Python.
+2. Refuses to start if port 47311 is in use, or if this platform has no sandbox; runs `uv python install 3.12`, the Python plugins run on. The first launch downloads
+   it.
 3. Starts NanoAgent on 127.0.0.1:47311 with the sandbox, a fresh token, the keys (none yet, on a first launch), and
    `run_models=true`, so each run may name its own model and settings (Settings → AI). It then
    waits until NanoAgent's default profile is available.

@@ -1,8 +1,10 @@
 name: Helping Hands desktop app
 
 # Builds the Tauri app (helpinghands/desktop) for macOS on Apple silicon, the one platform it
-# ships for now (Windows and Linux: helpinghands/FUTURE.md). Run it by hand or by pushing a
-# desktop-v* tag; the bundle is uploaded as a workflow artifact.
+# ships for now (Windows and Linux: helpinghands/FUTURE.md). Every push to production is a release
+# and builds it, as can a run by hand; the bundle is uploaded as a workflow artifact. NanoAgent is
+# compiled here by Nuitka (scripts/stage.mjs), which cannot cross-compile: each target builds on its
+# own runner.
 #
 # The macOS app is ad-hoc signed (signingIdentity "-" in tauri.conf.json), not notarized: on
 # another Mac it opens after right-click -> Open, or Open Anyway in System Settings -> Privacy.
@@ -10,7 +12,7 @@ name: Helping Hands desktop app
 on:
   workflow_dispatch:
   push:
-    tags: ['desktop-v*']
+    branches: [production]
 
 defaults:
   run:

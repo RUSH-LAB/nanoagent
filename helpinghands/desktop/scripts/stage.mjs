@@ -4,7 +4,7 @@
  * (TAURI_ENV_TARGET_TRIPLE, which Tauri sets for beforeBuildCommand):
  *
  *   src-tauri/resources/runner/     the relay that lends this computer's NanoAgent to Mochi
- *   src-tauri/resources/nanoagent/  NanoAgent's sources, a uv.lock resolved here, and the built PI runner
+ *   src-tauri/resources/nanoagent/  NanoAgent compiled by Nuitka (bin/), the PI runner's bundle, and the config the app runs
  *   src-tauri/resources/config.yaml this folder's config.yaml
  *   src-tauri/resources/stamp       names this staging; the app installs each stamp once
  *   src-tauri/binaries/{node,uv}-<target>   the runtimes, downloaded and checksum-verified
@@ -15,7 +15,6 @@ import path from 'node:path';
 import process from 'node:process';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {nodeFileTrace} from '@vercel/nft';
 import YAML from 'yaml';
 
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -104,39 +103,48 @@ function stageRunner() {
   copy(path.join(mochiRoot, 'src', 'runner'), path.join(resources, 'runner'));
 }
 
-/** Keep only the files of `out`'s node_modules that `entries` load. */
-async function trimNodeModules(out, entries) {
-  const {fileList} = await nodeFileTrace(entries, {base: out});
-  const full = path.join(out, 'node_modules');
-  const kept = path.join(out, 'node_modules.kept');
-  for (const file of fileList) {
-    if (file.split(/[\\/]/)[0] !== 'node_modules') continue;
-    const from = path.join(out, file);
-    if (!fs.statSync(from).isFile()) continue;
-    const to = path.join(kept, path.relative(full, from));
-    fs.mkdirSync(path.dirname(to), {recursive: true});
-    fs.copyFileSync(from, to);
-  }
-  fs.rmSync(full, {recursive: true});
-  fs.renameSync(kept, full);
-}
+// What a plugin's verifier may import (nanoagent.plugin.verifier.ALLOWED_IMPORTS), which it imports
+// by name at run time, so Nuitka sees no import of them: modules, and packages with their submodules.
+const VERIFIER_MODULES = ['__future__', 'dataclasses', 'decimal', 'difflib', 'enum', 'fractions', 'functools', 'hashlib', 'operator', 'pathlib', 'statistics', 'string', 'textwrap', 'typing'];
+const VERIFIER_PACKAGES = ['collections', 'json', 're'];
 
+/**
+ * NanoAgent ships compiled, not as source: Nuitka builds it, with its web extra, on the Python the
+ * app's plugins run on, into resources/nanoagent/bin/. Beside it go the PI runner's two bundled
+ * files and the config the supervisor runs, at the paths that config names them by.
+ */
 async function stageNanoAgent(uv) {
   const out = path.join(resources, 'nanoagent');
-  for (const entry of ['pyproject.toml', 'README.md', 'LICENSE', 'src', 'deploy']) {
-    copy(path.join(nanoagentRoot, entry), path.join(out, entry));
-  }
-  // NanoAgent is a library and keeps no lock; the app pins the versions resolved for this build,
-  // which it installs with `uv sync --locked` on first launch.
-  run(uv, ['lock'], {cwd: out});
-  // Built as the Dockerfile builds it, with dev dependencies; trimmed to what it loads.
-  const runner = path.join(out, 'js', 'pi-runner');
-  for (const entry of ['package.json', 'package-lock.json', 'tsconfig.json', 'src']) {
+  const build = path.join(cache, 'nuitka');
+  fs.rmSync(build, {recursive: true, force: true});
+  run(uv, [
+    'run', '--no-project', '--managed-python', '--python', config.python_version, '--with-editable', '.[web,compile]',
+    'python', '-m', 'nuitka', '--mode=standalone', '--assume-yes-for-downloads', `--output-dir=${build}`,
+    '--include-package=nanoagent', '--include-package-data=nanoagent',
+    // Package data leaves out .py files, and `nanoagent plugin new` copies the template's.
+    '--include-data-dir=src/nanoagent/plugin/template=nanoagent/plugin/template',
+    '--noinclude-data-files=nanoagent/plugin/template/.ruff_cache/**',
+    // Uvicorn picks its loop and protocols by name.
+    '--include-package=uvicorn',
+    ...VERIFIER_MODULES.map(name => `--include-module=${name}`),
+    ...VERIFIER_PACKAGES.map(name => `--include-package=${name}`),
+    'src/nanoagent',
+  ], {cwd: nanoagentRoot});
+  fs.cpSync(path.join(build, 'nanoagent.dist'), path.join(out, 'bin'), {recursive: true, verbatimSymlinks: true});
+  // Built as the Dockerfile builds it, with dev dependencies; only the bundle ships.
+  const runner = path.join(cache, 'pi-runner');
+  fs.rmSync(runner, {recursive: true, force: true});
+  for (const entry of ['package.json', 'package-lock.json', 'tsconfig.json', 'build.mjs', 'src']) {
     copy(path.join(nanoagentRoot, 'js', 'pi-runner', entry), path.join(runner, entry));
   }
   run('npm', ['ci', '--include=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--loglevel=error'], {cwd: runner});
   run('npm', ['run', 'build'], {cwd: runner});
-  await trimNodeModules(runner, [path.join(runner, 'dist', 'index.js')]);
+  for (const file of ['index.js', 'models.js']) {
+    copy(path.join(runner, 'dist', file), path.join(out, 'js', 'pi-runner', 'dist', file));
+  }
+  for (const file of ['deploy/railway/nanoagent.yaml', 'deploy/railway/profiles']) {
+    copy(path.join(nanoagentRoot, file), path.join(out, file));
+  }
 }
 
 async function main() {
