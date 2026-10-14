@@ -190,6 +190,10 @@ async function main() {
         // A NanoAgent that lets runs choose their model is a member's own (run_models); this is not.
         assert.equal((await gateway.models()).status, 404);
       },
+      async openrouterUsage() {
+        // This NanoAgent holds no OpenRouter key: the check uses no provider credential.
+        assert.equal((await gateway.openrouterUsage()).status, 404);
+      },
       async complete() {
         assert.equal((await gateway.complete({input: 'Again.'})).text, 'hello from nanoagent');
       },
