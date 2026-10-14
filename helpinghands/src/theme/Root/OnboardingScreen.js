@@ -62,7 +62,7 @@ export default function OnboardingScreen({ onSignOut }) {
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <img src="/img/mochi.jpg" alt="" className={styles.logo} />
+        <img src="/img/rush-lab.png" alt="" className={styles.logo} />
         <h1 className={styles.title}>Join a workspace</h1>
         {invitations && (
           <>

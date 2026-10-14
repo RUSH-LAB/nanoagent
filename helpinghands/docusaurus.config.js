@@ -43,7 +43,7 @@ async function signInGate(req, res, next) {
 const config = {
   title: platformName,
   tagline: platformTagline,
-  favicon: 'img/mochi.jpg',
+  favicon: 'img/rush-lab.png',
 
   // Served assets live with the rest of the source rather than at the root.
   staticDirectories: ['src/static'],
@@ -159,7 +159,7 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
-      image: 'img/mochi.jpg',
+      image: 'img/rush-lab.png',
       docs: {
         sidebar: {
           // Adds the collapse control at the foot of the chapter sidebar, so a

@@ -8,7 +8,7 @@ const {platformConfig} = require('../../src/platform.js');
 describe('platform deployment identity', () => {
   it('has a neutral product default independent of workspace data', () => {
     assert.deepEqual(platformConfig({}), {
-      name: 'Mochi Lab',
+      name: 'RUSH Lab',
       tagline: 'Collaborative knowledge workspaces',
     });
   });

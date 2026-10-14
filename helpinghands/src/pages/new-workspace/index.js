@@ -44,7 +44,7 @@ function NewWorkspace() {
   return (
     <div className={screen.page}>
       <form className={screen.card} onSubmit={create}>
-        <img src="/img/mochi.jpg" alt="" className={screen.logo} />
+        <img src="/img/rush-lab.png" alt="" className={screen.logo} />
         <h1 className={screen.title}>Create a workspace</h1>
         <p className={screen.tagline}>
           A workspace has its own documents, channels, and people. You will be its owner.

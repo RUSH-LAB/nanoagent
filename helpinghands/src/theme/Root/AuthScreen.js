@@ -50,7 +50,7 @@ export default function AuthScreen({ unreachable = null }) {
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <img src="/img/mochi.jpg" alt="" className={styles.logo} />
+        <img src="/img/rush-lab.png" alt="" className={styles.logo} />
         <h1 className={styles.title}>Sign in to {siteConfig.title}</h1>
         <p className={styles.tagline}>{siteConfig.tagline}</p>
 
