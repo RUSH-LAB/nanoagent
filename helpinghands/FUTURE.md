@@ -43,3 +43,21 @@ To decide:
 - A model call that runs again is charged again.
 - Where the saved state lives, when it is removed, and how long a run may wait for Mochi Lab to
   start again before it is recorded as interrupted.
+
+## Mochi Lab for Windows and Linux
+
+Mochi Lab ships for macOS on Apple silicon only: `.github/workflows/helpinghands-desktop.yml`
+builds just that bundle. The app's own code still knows the other two targets
+(`desktop/scripts/stage.mjs` stages Node for `x86_64-pc-windows-msvc` and
+`x86_64-unknown-linux-gnu`), so building them again means adding their matrix entries back
+(`windows-latest`, and `ubuntu-22.04` with WebKitGTK installed) along with their bundle paths
+(`msi`, `nsis`, `appimage`, `deb`).
+
+To decide:
+
+- Windows has no plugin sandbox yet, so the app refuses to start there, and NanoAgent runs each
+  plugin's `run.sh` with `bash` (`desktop/PLAN.md`). Shipping it needs a sandbox, and a way to
+  run plugins without bash.
+- Linux sandboxes plugins with `bwrap`, so it is closer, but nobody has tested a bundle on a
+  member's machine.
+- Neither bundle is signed.
