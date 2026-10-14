@@ -33,10 +33,15 @@
   font-size: 0.82rem;
 }
 
-/* The model every run is on: its name, as the computer's catalog has it. */
+/* The model every run is on: its name, as the computer's catalog has it, and its price. */
 .model {
   color: var(--ifm-color-emphasis-700);
   font-size: 0.88rem;
+}
+
+.price {
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.8rem;
 }
 
 /* ── The model picker ───────────────────────────────────────────── */

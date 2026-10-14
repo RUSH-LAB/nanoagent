@@ -65,13 +65,15 @@ export default function Ai() {
         <div className={styles.row}>
           <div className={styles.rowLabel}>
             <strong>Model</strong>
-            <span>
-              {known?.price
-                ? `${dollars(known.price.input)} in · ${dollars(known.price.output)} out per million tokens`
-                : 'Its price shows once Mochi Lab is connected.'}
-            </span>
           </div>
-          <span className={ai.model}>{known?.label ?? model.model}</span>
+          <div className={styles.rowControl}>
+            <span className={ai.model}>{known?.label ?? model.model}</span>
+            {known?.price && (
+              <span className={ai.price}>
+                {`${dollars(known.price.input)} in · ${dollars(known.price.output)} out per million tokens`}
+              </span>
+            )}
+          </div>
         </div>
       </section>
     </>

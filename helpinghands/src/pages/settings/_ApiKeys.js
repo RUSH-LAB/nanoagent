@@ -39,11 +39,11 @@ export default function ApiKeys({computer, onSaved}) {
   const connected = Boolean(computer?.connected);
   const busy = state?.saving;
   const editing = connected && (!saved || replacing);
-  // Under the row's name: what is happening to the key, or where it is kept.
+  // Under the row's name: what is happening to the key; nothing once it is saved.
   const note = !connected ? 'Open Mochi Lab on your computer to add it.'
     : state?.error ? <span className={styles.error} role="alert">{state.error}</span>
       : busy ? 'Saving…'
-        : saved ? `Kept on ${computer.device ?? 'your computer'}`
+        : saved ? null
           : 'Your AI runs with it.';
   return (
     <form
@@ -55,7 +55,7 @@ export default function ApiKeys({computer, onSaved}) {
     >
       <label className={styles.rowLabel} htmlFor="ai-openrouter-key">
         <strong>{KEY.label} key</strong>
-        <span role="status">{note}</span>
+        {note && <span role="status">{note}</span>}
       </label>
       <div className={styles.rowControl}>
         {editing ? (
