@@ -26,12 +26,6 @@ export interface RunRequest {
   };
   model?: Model;
   settings?: Settings;
-  /**
-   * The run's own provider API keys, by environment variable name: its only credentials. NanoAgent checks them itself, so no error quotes a value.
-   */
-  keys?: {
-    [k: string]: string;
-  };
 }
 export interface Model {
   provider: string;

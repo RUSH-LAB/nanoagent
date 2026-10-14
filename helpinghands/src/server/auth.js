@@ -142,7 +142,6 @@ function resolveSecret() {
     return generated;
   }
 }
-const AUTH_SECRET = resolveSecret();
 
 /**
  * The organization a new session starts in: the caller's oldest membership, or
@@ -235,7 +234,7 @@ const auth = betterAuth({
   // sets cf-connecting-ip; Railway sets x-real-ip for its own domain.
   // A session and its user come in one query when the cookie cache misses.
   advanced: {ipAddress: {ipAddressHeaders: ['cf-connecting-ip', 'x-real-ip']}, database: {joins: true}},
-  secret: AUTH_SECRET,
+  secret: resolveSecret(),
   baseURL: process.env.BETTER_AUTH_URL || process.env.SITE_URL || `http://localhost:${PORT}`,
   basePath: '/api/auth',
   // Verify the signed, HttpOnly session snapshot locally for ordinary API
@@ -445,6 +444,4 @@ module.exports = {
   PUBLIC_PATTERNS,
   workspaceAccessControl,
   workspaceRoles,
-  // Also what member-keys.js derives its encryption key from.
-  AUTH_SECRET,
 };

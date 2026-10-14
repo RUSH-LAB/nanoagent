@@ -14,8 +14,9 @@ export default function PluginFrame({app, workspace}) {
   const frame = useRef(null);
   const host = useRef(null);
   const {colorMode} = useColorMode();
-  // Addressed by the install it runs from, so a new version is a new page.
-  const src = `${API_BASE}/api/apps/${app.sha256}/ui/${encodeURIComponent(app.uiVersion)}/index.html`;
+  // Addressed by the install it runs from, so a new version is a new page, on
+  // the member's computer that opened it (`app.computer`).
+  const src = `${API_BASE}/api/apps/${app.sha256}/ui/${app.computer}/${encodeURIComponent(app.uiVersion)}/index.html`;
   const [page, setPage] = useState({src: null, error: null});
 
   // A frame shows whatever comes back, an error included, and cannot tell this

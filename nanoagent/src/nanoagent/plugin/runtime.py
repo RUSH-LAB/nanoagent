@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from contextlib import AsyncExitStack
 from functools import partial
 from pathlib import Path
@@ -35,12 +35,10 @@ WORKSPACE_ENV = "NANOAGENT_WORKSPACE"
 PREFLIGHT_TIMEOUT = 60.0
 
 
-def plugin_env(manifest: PluginManifest, workspace: Path, environ: Mapping[str, str] | None = None) -> dict[str, str]:
-    """What the plugin process sees: the variables its `.env` names, set from ``environ`` (this
-    process's environment when None)."""
-    source = os.environ if environ is None else environ
+def plugin_env(manifest: PluginManifest, workspace: Path) -> dict[str, str]:
+    """What the plugin process sees: the variables its `.env` names, set from this environment."""
     return {
-        **{name: source[name] for name in manifest.env if name in source},
+        **{name: os.environ[name] for name in manifest.env if name in os.environ},
         WORKSPACE_ENV: str(workspace.resolve()),
     }
 
@@ -83,13 +81,11 @@ async def call_tool_async(
     *,
     workspace: Path,
     timeout: float = 300,
-    environ: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
-    """:func:`call_tool` for a caller already inside an event loop, such as an agent; ``environ``
-    as in :func:`plugin_env`."""
+    """:func:`call_tool` for a caller already inside an event loop, such as an agent."""
     # Bad input is refused before the plugin is launched.
     _check_input(manifest, tool, arguments)
-    async with PluginSession(manifest, workspace, timeout=timeout, environ=environ) as session:
+    async with PluginSession(manifest, workspace, timeout=timeout) as session:
         return await session.invoke(tool, arguments)
 
 
@@ -106,16 +102,13 @@ def _check_input(manifest: PluginManifest, tool: str, arguments: dict[str, Any])
 class PluginSession:
     """One plugin process for a run: entered once, then :meth:`call` any number of times.
 
-    ``timeout`` bounds the launch and each call separately; ``environ`` is as in :func:`plugin_env`.
+    ``timeout`` bounds the launch and each call separately.
     """
 
-    def __init__(
-        self, manifest: PluginManifest, workspace: Path, *, timeout: float, environ: Mapping[str, str] | None = None
-    ) -> None:
+    def __init__(self, manifest: PluginManifest, workspace: Path, *, timeout: float) -> None:
         self.manifest = manifest
         self.workspace = workspace
         self.timeout = timeout
-        self._environ = environ
         self._stack = AsyncExitStack()
         self._session: ClientSession | None = None
 
@@ -123,7 +116,7 @@ class PluginSession:
         self._check()
         if not self.workspace.is_dir():
             raise ValueError(f"plugin workspace {self.workspace} is not a folder")
-        env = plugin_env(self.manifest, self.workspace, self._environ)
+        env = plugin_env(self.manifest, self.workspace)
         preflight(self.manifest, env)
         # A sandboxed plugin's environment was built when it was installed: its runs neither sync
         # it again nor reach the package index.
@@ -216,22 +209,16 @@ class PluginTool(Tool):
     otherwise through a session of its own per call.
 
     A response's ``images`` (a list of ``{"media_type", "data"}``, data in base64) go to the model
-    as images, not as text. ``environ`` is as in :func:`plugin_env`, for its own sessions.
+    as images, not as text.
     """
 
     def __init__(
-        self,
-        manifest: PluginManifest,
-        name: str,
-        workspace: Path,
-        session: PluginSession | None,
-        environ: Mapping[str, str] | None = None,
+        self, manifest: PluginManifest, name: str, workspace: Path, session: PluginSession | None
     ) -> None:
         definition = manifest.tool(name)
         self._manifest = manifest
         self._workspace = workspace
         self._session = session
-        self._environ = environ
         self.NAME = definition.name
         self.PARAMETERS = definition.input
         self._description = definition.description
@@ -247,7 +234,7 @@ class PluginTool(Tool):
             response = await self._session.call(self.NAME, arguments)
         else:
             response = await call_tool_async(
-                self._manifest, self.NAME, arguments, workspace=self._workspace, environ=self._environ
+                self._manifest, self.NAME, arguments, workspace=self._workspace
             )
         images = response.pop("images", [])
         return ToolText(json.dumps(response), images=images)
@@ -259,8 +246,7 @@ def plugin_tools(
     names: Sequence[str] | None = None,
     *,
     session: PluginSession | None,
-    environ: Mapping[str, str] | None = None,
 ) -> list[Tool]:
     """The plugin's tools as agent tools, or only ``names`` (e.g. one task's tools)."""
     chosen = [manifest.tool(name) for name in names] if names is not None else manifest.tools
-    return [PluginTool(manifest, definition.name, workspace, session, environ) for definition in chosen]
+    return [PluginTool(manifest, definition.name, workspace, session) for definition in chosen]

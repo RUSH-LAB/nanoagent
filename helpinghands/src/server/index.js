@@ -33,6 +33,8 @@ const {contextualChat, contextualOrg} = require('./context-services');
 const roles = postgresServices?.roles ?? require('./roles');
 const chat = contextualChat(postgresServices?.chat ?? require('./chat'));
 const org = contextualOrg(postgresServices?.org ?? require('./org'));
+// Mochi's own NanoAgent: the marketplace's plugin packages only. Every run, install and
+// plugin page is on the member's own computer (server/runner.js).
 const ai = require('./ai');
 const {createGithub} = require('./github');
 // Every assistant call is checked against its workspace's budget and charged to it.
@@ -49,8 +51,8 @@ const store = postgresServices?.store ?? require('./store');
 // everything else here: a test substitutes them.
 const documents = postgresServices?.documents ?? require('./documents');
 const preferences = postgresServices?.preferences ?? require('./preferences');
-// Members' own computers, which run their NanoAgent when Settings → AI says so.
-const runners = createRunners({resolveIdentity, memberKeys: postgresServices?.memberKeys ?? null});
+// Members' own computers, which run every NanoAgent call of theirs.
+const runners = createRunners({resolveIdentity});
 const aiSettings = require('./ai-settings');
 const workspaceSettings = postgresServices?.workspaceSettings ?? require('./workspace-settings');
 const {createObjectStorage} = require('./object-storage');
@@ -493,11 +495,9 @@ const ctx = {
   chat,
   org,
   ai,
-  // The NanoAgent a member's runs go to: their own computer's, or the hosted one with their own key (server/runner.js).
+  // The NanoAgent a member's runs go to: their own computer's (server/runner.js).
   aiFor: runners.aiFor,
   runners,
-  // The API keys members gave Mochi itself; PostgreSQL only.
-  memberKeys: postgresServices?.memberKeys ?? null,
   // What a member chose in Settings → AI (ai-settings.js).
   aiSettings: async userId => aiSettings.stored(userId ? (await preferences.get(userId)).ai : null),
   aiMeter,
@@ -877,10 +877,8 @@ postgresDatabase.ready.then(() => ensureRootUser(auth)).then(root => server.list
   }
   console.log(`  Debug endpoint: GET /api/debug/routes`);
 
-  const assistant = ai.describe();
-  console.log(assistant.available
-    ? `  Assistant: ${assistant.provider} (${assistant.model})`
-    : `  Assistant: unavailable. ${assistant.reason}`);
+  const catalog = ai.describe();
+  console.log(catalog.available ? '  Plugin catalog: NanoAgent' : `  Plugin catalog: unavailable. ${catalog.reason}`);
 
   cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));
   console.log(`  Root: GitHub ${root.login} (owner)${root.created ? ', account created' : ''}`);

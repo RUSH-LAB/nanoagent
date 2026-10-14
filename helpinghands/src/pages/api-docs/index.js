@@ -388,7 +388,7 @@ const CATEGORIES = [
         response: '{ "settings": { ... } }',
       },
       {
-        method: 'GET', path: '/api/ai/models', description: 'The models you may choose: every model on your computer, available once Mochi Lab holds its provider\'s key; with no computer connected, Mochi\'s own models, available once Mochi keeps your OpenRouter key.',
+        method: 'GET', path: '/api/ai/models', description: 'The models you may choose: every model on your computer, available once Mochi Lab holds its provider\'s key; none while it is not connected.',
         response: '{ "connected": true, "device": "laptop", "models": [{ "key": "anthropic/claude-sonnet-4-5", "choice": { "provider": "anthropic", "model": "claude-sonnet-4-5" }, "label": "Claude Sonnet 4.5", "uses": ["chat", "inline"], "available": false, "unavailableReason": "Needs your Anthropic key: add it under API keys" }], "defaults": { "chat": "openrouter/deepseek/deepseek-v4-flash-0731" }, "limits": { "capped": false } }',
       },
       {
@@ -419,11 +419,11 @@ const CATEGORIES = [
         response: '{ "apps": [{ "id": "arxiv-source", "name": "arXiv Source Downloader", "version": "0.1.0", "permissions": { "network": { "hosts": ["export.arxiv.org"] }, "filesystem": { "write": ["workspace"] } }, "tasks": [{ "id": "save-paper-source", "tools": ["download_source"] }], "tools": [{ "name": "download_source", "inputSchema": {}, "outputSchema": {} }], "readme": "# ..." }] }',
       },
       {
-        method: 'GET', path: '/api/apps/:id/ui/:path', description: 'A file of an app\'s own page (its ui/ folder), with NanoAgent\'s Content-Security-Policy. Public and outside any workspace: the page runs in a sandboxed frame, and its requests carry no session.',
+        method: 'GET', path: '/api/apps/:sha256/ui/:computer/:uiVersion/:path', description: 'A file of an app\'s own page (its ui/ folder), from the computer whose Mochi Lab opened the app (its `computer`), with NanoAgent\'s Content-Security-Policy. Public and outside any workspace: the page runs in a sandboxed frame, and its requests carry no session.',
         response: '<!doctype html>...',
       },
       {
-        method: 'POST', path: '/api/app-installs', description: 'Install every ready app the workspace added, on the hosted NanoAgent and on your computer while it is connected, so opening one does not wait. Answers at once; the installs continue in the background. Mochi calls it when you enter a workspace and after you add a plugin.',
+        method: 'POST', path: '/api/app-installs', description: 'Install every ready app the workspace added on your computer, so opening one does not wait; 503 while Mochi Lab is not connected. Answers at once; the installs continue in the background. Mochi calls it when you enter a workspace and after you add a plugin.',
         response: '{ "preparing": true }',
       },
       {

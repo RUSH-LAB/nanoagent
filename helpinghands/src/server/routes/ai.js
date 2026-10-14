@@ -157,7 +157,7 @@ function composeRequest(body, sanitizeText, agent = null, catalog = null, run = 
  * Resolve an agent inside the verified workspace; never trust its browser copy.
  * The run is for `use` (chat or inline), on the NanoAgent `ai`, with the member's `settings`.
  */
-async function composeStoredRequest(req, ctx, overrides = {}, use = 'chat', ai = ctx.ai, settings = aiSettings.stored(null)) {
+async function composeStoredRequest(req, ctx, overrides, use, ai, settings) {
   const supplied = await ctx.readBody(req);
   const catalog = typeof ai.profiles === 'function'
     ? await ai.profiles()
@@ -432,14 +432,11 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
     return json(res, 200, {settings: normalized.value});
   }
 
-  // ── The models a member may choose: every one their own computer's keys reach, else Mochi's own profiles ──
+  // ── The models a member may choose: every one their own computer's keys reach ──
   if (req.method === 'GET' && pathname === '/api/ai/models') {
     const computer = ctx.runners.status(req.auth?.userId);
     const gateway = ctx.runners.computer(req.auth?.userId);
-    if (!gateway) {
-      const catalog = await (await ctx.aiFor(req.auth?.userId)).profiles();
-      return json(res, 200, {connected: false, device: null, ...hostedModels(catalog)});
-    }
+    if (!gateway) return json(res, 200, {connected: false, device: null, providers: [], models: [], defaults: {}, limits: null});
     const [listing, catalog] = await Promise.all([gateway.models(), gateway.profiles()]);
     if (listing.error) return json(res, listing.status, {error: listing.error});
     return json(res, 200, {connected: true, device: computer.device, ...localModels(listing.value, catalog)});
@@ -448,22 +445,6 @@ module.exports = async function ai_routes(req, res, url, pathname, ctx) {
   // ── Whether the member's own computer is connected to run their AI ──
   if (req.method === 'GET' && pathname === '/api/runner/status') {
     return json(res, 200, ctx.runners.status(req.auth?.userId));
-  }
-
-  // ── The API keys a member gives Mochi itself, for runs while no computer is connected ──
-  if ((req.method === 'GET' || req.method === 'PUT') && pathname === '/api/ai/keys') {
-    if (!ctx.memberKeys) return json(res, 503, {error: 'Keeping API keys needs PostgreSQL'});
-    if (req.method === 'GET') return json(res, 200, {keys: await ctx.memberKeys.list(req.auth.userId)});
-    if (!await rateLimit(`ai-keys:${req.caller}`, 10)) return json(res, 429, {error: 'Too many requests. Try again in a minute.'});
-    let body;
-    try {
-      body = await ctx.readBody(req);
-    } catch {
-      return json(res, 400, {error: 'Request body must be JSON, within the size limit'});
-    }
-    const saved = await ctx.memberKeys.save(req.auth.userId, body?.changes);
-    if (saved.error) return json(res, 400, {error: saved.error});
-    return json(res, 200, {keys: saved.value});
   }
 
   // ── The API keys on the member's computer: passed on to it, never kept or shown here ──
@@ -513,46 +494,6 @@ function localModels(listing, catalog) {
       apps: keyOf(catalog.profiles.find(profile => profile.uses.includes('apps'))),
     },
     limits: listing.limits,
-  };
-}
-
-/** Mochi's hosted NanoAgent's profiles as models, for a member with no computer connected: available once Mochi keeps their key. */
-function hostedModels(catalog) {
-  const keyOf = profile => `${profile.provider}/${profile.model}`;
-  const models = new Map();
-  for (const profile of catalog.profiles.filter(entry => entry.provider)) {
-    const key = keyOf(profile);
-    const known = models.get(key);
-    if (known) {
-      known.uses = [...new Set([...known.uses, ...profile.uses])];
-      continue;
-    }
-    models.set(key, {
-      key,
-      choice: {provider: profile.provider, model: profile.model},
-      label: profile.label,
-      provider: profile.provider,
-      providerName: profile.providerName ?? profile.provider,
-      model: profile.model,
-      uses: profile.uses,
-      available: profile.available,
-      unavailableReason: profile.unavailableReason,
-      price: profile.price,
-      contextWindow: profile.contextWindow,
-      reasoning: profile.reasoning,
-    });
-  }
-  const byDefault = catalog.profiles.find(profile => profile.id === catalog.defaultProfile);
-  const forApps = catalog.profiles.find(profile => profile.uses.includes('apps'));
-  return {
-    providers: [],
-    models: [...models.values()],
-    defaults: {
-      chat: byDefault?.provider ? keyOf(byDefault) : null,
-      inline: byDefault?.provider ? keyOf(byDefault) : null,
-      apps: forApps?.provider ? keyOf(forApps) : null,
-    },
-    limits: catalog.limits,
   };
 }
 

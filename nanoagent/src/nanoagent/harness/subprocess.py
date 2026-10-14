@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import shutil
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -29,11 +29,7 @@ _STREAM_LIMIT = 1024 * 1024
 
 
 class SubprocessRunner:
-    """Run one isolated adapter process per request using a line-delimited JSON contract.
-
-    ``env`` is the whole environment of its processes; this process's own, as it is at each run,
-    when None.
-    """
+    """Run one isolated adapter process per request using a line-delimited JSON contract."""
 
     def __init__(
         self,
@@ -44,7 +40,6 @@ class SubprocessRunner:
         options: dict[str, Any] | None = None,
         capabilities: RunnerCapabilities | None = None,
         shutdown_grace: float = 2.0,
-        env: Mapping[str, str] | None = None,
     ) -> None:
         if not command or any(not isinstance(part, str) or not part for part in command):
             raise ValueError("runner command must contain non-empty strings")
@@ -54,7 +49,6 @@ class SubprocessRunner:
         self.options = dict(options or {})
         self.capabilities = capabilities or RunnerCapabilities()
         self.shutdown_grace = shutdown_grace
-        self.env = None if env is None else dict(env)
 
     async def run(self, request: RunnerRequest, emit: ProgressSink) -> RunnerResult:
         try:
@@ -64,7 +58,7 @@ class SubprocessRunner:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.cwd,
-                env=os.environ.copy() if self.env is None else self.env,
+                env=os.environ.copy(),
                 limit=_STREAM_LIMIT,
             )
         except FileNotFoundError as error:

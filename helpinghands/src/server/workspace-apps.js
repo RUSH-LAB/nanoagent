@@ -2,7 +2,8 @@
 
 /**
  * A workspace's apps: the marketplace plugins it added (postgres/workspace-plugins.js),
- * each run from NanoAgent's install of the plugin's current package.
+ * each run from an install of the plugin's current package on the NanoAgent of
+ * the member's own computer. `ai`, Mochi's own NanoAgent, only offers packages.
  *
  * The marketplace offers NanoAgent's own packages and the uploads
  * (postgres/market.js), one id each: an upload may not take one of NanoAgent's.
@@ -61,7 +62,7 @@ function createWorkspaceApps({ai, market, plugins}) {
      * once, so opening or running one finds it installed: `{value}`, each
      * app's `{id}` or `{id, error}`, or `{error, status}`.
      */
-    async prepare(context, on = ai) {
+    async prepare(context, on) {
       const listed = await list(context);
       if (listed.error) return listed;
       return {
@@ -90,12 +91,11 @@ function createWorkspaceApps({ai, market, plugins}) {
 
     /**
      * The workspace's app `id`, installed and ready to run on the NanoAgent `on`
-     * (Mochi's, which serves its page, unless a run goes to the member's own
-     * computer): its catalog entry, with the `sha256` its runs and page are
+     * (the member's own computer's): its catalog entry, with the `sha256` its runs and page are
      * addressed by and its `uiVersion`; or `{error, status}`, 404 for a plugin
      * the workspace did not add.
      */
-    async open(context, id, on = ai) {
+    async open(context, id, on) {
       const added = await plugins.get(context, id);
       if (!added) return {error: `This workspace has no plugin named ${id}`, status: 404};
       // An upload's version comes with the workspace's row; NanoAgent's from its own list.

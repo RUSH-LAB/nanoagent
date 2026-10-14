@@ -68,7 +68,7 @@ export default function Ai() {
             <span>
               {known?.price
                 ? `${dollars(known.price.input)} in · ${dollars(known.price.output)} out per million tokens`
-                : 'Its price shows once your OpenRouter key is saved.'}
+                : 'Its price shows once Mochi Lab is connected.'}
             </span>
           </div>
           <span className={ai.model}>{known?.label ?? model.model}</span>

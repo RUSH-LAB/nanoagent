@@ -34,7 +34,7 @@ const GLOBAL_API_PATHS = new Set([
   '/api/debug/memory', '/api/debug/routes', '/api/signup-policy', '/api/users/me/invitations',
   // Whether the member's own computer is connected to run their AI and its API keys
   // (server/runner.js), and their AI settings with the models to choose from (ai-settings.js).
-  '/api/runner/status', '/api/runner/keys', '/api/ai/keys', '/api/ai/settings', '/api/ai/models',
+  '/api/runner/status', '/api/runner/keys', '/api/ai/settings', '/api/ai/models',
   // Making a workspace, which belongs to no workspace yet.
   '/api/org',
 ]);

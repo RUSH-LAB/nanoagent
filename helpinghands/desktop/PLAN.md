@@ -45,12 +45,14 @@ a bearer token from the device grant, client `mochi-desktop`. Mochi's side is
 - The upgrade is refused if it carries an `Origin` header, or if it is authenticated only by a
   cookie. Otherwise a web page could register itself as a member's computer.
 - Each member has one computer; a new one replaces the old.
-- With Settings → AI set to My computer, the member's NanoAgent calls go down that socket
-  (`aiFor`). While no computer is connected, those runs fail with "Mochi Lab on your computer is
-  not connected". They do not fall back to Mochi's servers.
+- Every NanoAgent call for the member goes down that socket (`aiFor`): runs, plugin installs and
+  plugin pages. While no computer is connected, they fail with "Mochi Lab on your computer is not
+  connected". They do not fall back to Mochi's servers.
+- A plugin page's frame carries no session, so its address names the computer by its
+  connection's random `page` id.
 
-The frames are in `src/runner/protocol.js`. The relay passes on only what runs need: runs,
-installs, and run folders' files. The marketplace catalog and plugin pages stay on Mochi's
+The frames are in `src/runner/protocol.js`. The relay passes on only what these need: runs,
+installs and their pages, and run folders' files. Only the marketplace's packages stay on Mochi's
 NanoAgent.
 
 NanoAgent's token is random for each launch, and only the relay holds it. Plugins run in this

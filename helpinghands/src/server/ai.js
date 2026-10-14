@@ -21,7 +21,7 @@ const DEFAULT_PROFILE_TIMEOUT_MS = 5_000;
 const CANCELLED = 'The AI request was cancelled.';
 const TIMED_OUT = 'The AI request timed out. Please try again.';
 const UNAVAILABLE = 'Could not reach NanoAgent.';
-const RUNNER_OFFLINE = 'Add your OpenRouter key in Settings → AI to run your AI, or open Mochi Lab on your computer.';
+const RUNNER_OFFLINE = 'Mochi Lab on your computer is not connected. Open it to run your AI.';
 const DEFAULT_PROFILE = fallbackProfiles.defaultProfile;
 const DEFAULT_MODEL = fallbackProfiles.profiles.find(profile => profile.id === DEFAULT_PROFILE).model;
 
@@ -300,11 +300,9 @@ function publicEvent(event, {app = false} = {}) {
 /**
  * `endpoint` replaces NANOAGENT_URL: `{url}` for a NanoAgent reached some other
  * way (a member's own computer, through `fetchImpl`), `{error}` for one that is
- * not there. `keys` are a member's own provider API keys, sent with every run
- * so the hosted NanoAgent runs it with them alone. `local` marks a gateway
- * whose runs the member pays for: their own NanoAgent's, or one with `keys`.
+ * not there. `local` marks a gateway to the member's own NanoAgent.
  */
-function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fetch(...args), endpoint: fixed = null, local = false, keys = null} = {}) {
+function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fetch(...args), endpoint: fixed = null, local = false} = {}) {
   const endpointOf = () => fixed ?? endpointFrom(env);
   const timeoutMs = positiveNumber(env.NANOAGENT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
   const installTimeoutMs = INSTALL_TIMEOUT_MS;
@@ -378,7 +376,7 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
           Accept: 'text/event-stream',
           ...(env.NANOAGENT_API_TOKEN ? {Authorization: `Bearer ${env.NANOAGENT_API_TOKEN}`} : {}),
         },
-        body: JSON.stringify({...nanoRequest(request), ...(keys ? {keys} : {})}),
+        body: JSON.stringify(nanoRequest(request)),
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -514,7 +512,6 @@ function createNanoAgentGateway({env = process.env, fetchImpl = (...args) => fet
           ...(choice.profile ? {profile: choice.profile} : {}),
           ...(choice.model ? {model: choice.model} : {}),
           ...(choice.settings ? {settings: choice.settings} : {}),
-          ...(keys ? {keys} : {}),
         }),
         signal,
       });

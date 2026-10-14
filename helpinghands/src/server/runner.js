@@ -10,6 +10,9 @@
  * them on and keeps nothing, and the computer says only which are set. One
  * computer per member: a second replaces the first. The sockets are
  * this process's, like every other live connection here (fs/events.js).
+ *
+ * Plugin pages come from the computer too. Their frame carries no session, so
+ * a page's address names the computer by `page`, a random id of its connection.
  */
 const crypto = require('crypto');
 const {WebSocketServer} = require('ws');
@@ -94,21 +97,18 @@ function socketFetch(entry) {
   });
 }
 
-/**
- * `memberKeys` (postgres/member-keys.js) holds the keys members gave Mochi
- * itself: a member with no computer connected runs on the hosted NanoAgent
- * with them, and with neither, every run is refused.
- */
-function createRunners({resolveIdentity, memberKeys = null, env = process.env}) {
+function createRunners({resolveIdentity}) {
   const connected = new Map();
+  const pages = new Map();
   const offline = createNanoAgentGateway({endpoint: {error: RUNNER_OFFLINE}, local: true});
   const sockets = new WebSocketServer({noServer: true, maxPayload: MAX_PAYLOAD});
 
   function attach(userId, socket) {
-    const entry = {socket, device: null, keys: [], pending: new Map(), closed: false};
+    const entry = {socket, page: crypto.randomUUID(), device: null, keys: [], pending: new Map(), closed: false};
     entry.gateway = createNanoAgentGateway({endpoint: {url: 'http://runner'}, fetchImpl: socketFetch(entry), local: true});
     connected.get(userId)?.socket.close(REPLACED, 'Another Mochi Lab signed in as this account');
     connected.set(userId, entry);
+    pages.set(entry.page, entry);
     const ping = setInterval(() => socket.ping(), PING_MS);
     socket.on('message', raw => {
       let frame;
@@ -135,6 +135,7 @@ function createRunners({resolveIdentity, memberKeys = null, env = process.env}) 
       entry.closed = true;
       for (const call of entry.pending.values()) call.fail(new Error('Mochi Lab disconnected'));
       if (connected.get(userId) === entry) connected.delete(userId);
+      pages.delete(entry.page);
     });
     socket.on('error', () => socket.terminate());
   }
@@ -162,6 +163,16 @@ function createRunners({resolveIdentity, memberKeys = null, env = process.env}) 
     /** The NanoAgent on the member's computer while it is connected, else null. */
     computer(userId) {
       return connected.get(userId)?.gateway ?? null;
+    },
+
+    /** The `page` id plugin pages address the member's connected computer by, else null. */
+    page(userId) {
+      return connected.get(userId)?.page ?? null;
+    },
+
+    /** The NanoAgent of the computer whose connection has the `page` id, else null. */
+    byPage(page) {
+      return pages.get(page)?.gateway ?? null;
     },
 
     /** Whether the member's computer is connected, what it calls itself, and which keys it holds. */
@@ -200,17 +211,9 @@ function createRunners({resolveIdentity, memberKeys = null, env = process.env}) 
       return {value: {saved: true}};
     },
 
-    /**
-     * The NanoAgent the member's runs go to: their computer's while it is
-     * connected, else the hosted one with the keys they gave Mochi, else one
-     * refusing every call.
-     */
+    /** The NanoAgent the member's runs go to: their computer's, refusing every call while it is not connected. */
     async aiFor(userId) {
-      const computer = connected.get(userId)?.gateway;
-      if (computer) return computer;
-      const keys = userId && memberKeys ? await memberKeys.values(userId) : {};
-      if (!keys.OPENROUTER_API_KEY) return offline;
-      return createNanoAgentGateway({env, keys, local: true});
+      return connected.get(userId)?.gateway ?? offline;
     },
 
     /**

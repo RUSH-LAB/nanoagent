@@ -9,6 +9,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -24,8 +25,8 @@ from nanoagent.core.agent import ChatModel
 from nanoagent.core.agent import Agent
 from nanoagent.extensions import get_hooks
 from nanoagent.harness.catalog import catalog_command, find_model, load_catalog
-from nanoagent.harness.choice import KEY_NAME, NATIVE_PROVIDERS, RunModel, keyed_environ
-from nanoagent.harness.registry import keyed_model, loop_model
+from nanoagent.harness.choice import NATIVE_PROVIDERS, RunModel
+from nanoagent.harness.registry import loop_model
 from nanoagent.inference.providers import MissingKeyError
 from nanoagent.plugin import PluginManifest, sandbox
 from nanoagent.plugin.install import InstallError, Installed, Installs, ui_version
@@ -49,7 +50,6 @@ from nanoagent.web.runtime import (
     RunHost,
     ValidationError,
     check_choice,
-    choice_of,
     validate_run_choice,
     validate_run_request,
 )
@@ -67,6 +67,8 @@ def _sse(event: dict[str, Any]) -> bytes:
 # Manifests name none now (a workspace tags its plugins), so every catalog entry says one. Remove
 # once the Mochi that tags plugins per workspace is released.
 COMPAT_GROUP = {"group": "Plugins"}
+# The credentials PUT /v1/keys may set: a provider's API key, as PI and the loop read it.
+KEY_NAME = re.compile(r"[A-Z][A-Z0-9_]*_API_KEY|HF_TOKEN")
 
 
 # How a host serves a plugin's front end: its own files only, and no network of its own, so the
@@ -201,7 +203,7 @@ def create_app(
             raise ValidationError(str(error)) from None
 
     async def build_plugin_model(choice: RunChoice) -> tuple[ChatModel, str, AgentConfig, Callable[[], Any] | None]:
-        if choice.profile is None and choice.model is None and choice.settings is None and choice.keys is None:
+        if choice.profile is None and choice.model is None and choice.settings is None:
             return model_for_plugins(), cfg.model.model, cfg.agent, None
         config = None
         if choice.profile is not None:
@@ -216,12 +218,9 @@ def create_app(
             model_cfg, agent_cfg = loop_model(cfg, config, model=choice.model, settings=choice.settings, prices=prices)
         except ValueError as error:
             raise ValidationError(str(error)) from None
-        # A run with keys has a model of its own, reaching its provider with them alone.
-        if choice.keys is not None:
-            model_cfg = keyed_model(model_cfg, choice.keys)
-        elif plugin_model is not None:
+        if plugin_model is not None:
             return plugin_model, model_cfg.model, agent_cfg, None
-        elif model_cfg == cfg.model:
+        if model_cfg == cfg.model:
             return model_for_plugins(), model_cfg.model, agent_cfg, None
         from nanoagent.runtime.model import Model
 
@@ -346,7 +345,7 @@ def create_app(
             return rejected
         try:
             run = validate_run_request(payload)
-            check_choice(cfg, choice_of(run))
+            check_choice(cfg, RunChoice(run.profile, run.model, run.settings))
             prices = await prices_of(run.model) if run.model is not None else None
             active = await run_host.start(run, prices=prices)
         except ValidationError as error:
@@ -378,11 +377,10 @@ def create_app(
             return rejected
         try:
             run = validate_run_request(payload)
-            choice = choice_of(run)
+            choice = RunChoice(run.profile, run.model, run.settings)
             check_choice(cfg, choice)
             model, model_name, agent_cfg, close = await plugin_model_for(choice)
-            environ = None if run.keys is None else keyed_environ(run.keys)
-            profile = plugin_profile(cfg, model, manifest, folder, model_name=model_name, agent=agent_cfg, environ=environ)
+            profile = plugin_profile(cfg, model, manifest, folder, model_name=model_name, agent=agent_cfg)
             active = await run_host.start(run, runner_profile=profile, close=close)
         except ValidationError as error:
             return JSONResponse({"error": str(error)}, status_code=400)
@@ -648,10 +646,10 @@ def create_app(
         if (
             not isinstance(payload, dict)
             or not isinstance(payload.get("arguments"), dict)
-            or set(payload) - {"arguments", "profile", "model", "settings", "keys"}
+            or set(payload) - {"arguments", "profile", "model", "settings"}
         ):
             return JSONResponse(
-                {"error": 'request body must be {"arguments": {...}}, and may choose its "profile", "model", "settings" and "keys"'},
+                {"error": 'request body must be {"arguments": {...}}, and may choose its "profile", "model" and "settings"'},
                 status_code=400,
             )
         try:
@@ -694,7 +692,6 @@ def create_app(
                         timeout=cfg.request_timeout,
                         on_event=emit,
                         stage=_staged_from(folder),
-                        environ=None if choice.keys is None else keyed_environ(choice.keys),
                     )
                 done["metrics"] = _task_metrics(outcome, time.perf_counter() - started, model_name)
             except asyncio.CancelledError:

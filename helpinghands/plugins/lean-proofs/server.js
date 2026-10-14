@@ -36,7 +36,7 @@ function formalizationPrompt(statement, proof) {
 module.exports = async function leanProofRoutes(req, res, _url, pathname, api) {
   if (req.method === 'GET' && pathname === '/api/lean-proofs/status') {
     if (!localExecutionAllowed(req)) {
-      return api.respond(res, 200, {available: false, reason: 'Local Lean execution is disabled', ai: api.ai.describe()});
+      return api.respond(res, 200, {available: false, reason: 'Local Lean execution is disabled', ai: await api.ai.describe()});
     }
     req.setTimeout?.(30_000);
     const lean = await api.exec('lake', ['env', 'lean', '--version'], {cwd: 'proofs', timeoutMs: 25_000});
@@ -44,7 +44,7 @@ module.exports = async function leanProofRoutes(req, res, _url, pathname, api) {
       available: lean.ok,
       lean: (lean.stdout || lean.stderr).trim(),
       timedOut: lean.timedOut,
-      ai: api.ai.describe(),
+      ai: await api.ai.describe(),
     });
   }
 

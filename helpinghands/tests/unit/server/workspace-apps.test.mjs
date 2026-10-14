@@ -16,12 +16,15 @@ describe('a workspace\'s apps', () => {
   let db;
   let apps;
   let market;
-  // NanoAgent's installs, by sha256, and every package it was sent.
-  const installs = new Map();
-  const sent = [];
+  // Mochi's own NanoAgent, which offers its packages.
   const ai = {
     packages: async () => ({value: {packages: [BUILT_IN]}}),
     packageFile: async id => (id === BUILT_IN.id ? {value: Buffer.from('nanoagent package')} : {error: 'package not found', status: 404}),
+  };
+  // The member's computer's NanoAgent: its installs, by sha256, and every package it was sent.
+  const installs = new Map();
+  const sent = [];
+  const computer = {
     install: async sha256 => (installs.has(sha256)
       ? {value: {plugin: installs.get(sha256)}}
       : {error: 'not installed', status: 404}),
@@ -63,27 +66,27 @@ describe('a workspace\'s apps', () => {
   });
 
   it('opens an app installed, sending its package to NanoAgent once', async () => {
-    const opened = await apps.open(as('bob'), 'notes');
+    const opened = await apps.open(as('bob'), 'notes', computer);
     assert.equal(opened.value.sha256, UPLOAD.sha256);
     assert.equal(opened.value.uiVersion, '0123456789abcdef');
-    await apps.open(as('vic'), 'notes');
-    const builtIn = await apps.open(as('bob'), 'bibtex-check');
+    await apps.open(as('vic'), 'notes', computer);
+    const builtIn = await apps.open(as('bob'), 'bibtex-check', computer);
     assert.equal(builtIn.value.source, 'nanoagent');
     assert.deepEqual(sent, [[UPLOAD.sha256, 'upload package'], [BUILT_IN.sha256, 'nanoagent package']]);
-    assert.deepEqual(await apps.open(as('carol', 'other'), 'notes'), {error: 'This workspace has no plugin named notes', status: 404});
+    assert.deepEqual(await apps.open(as('carol', 'other'), 'notes', computer), {error: 'This workspace has no plugin named notes', status: 404});
   });
 
   it('prepares every app of the workspace on a NanoAgent, ahead of its first open', async () => {
-    const computer = new Map();
+    const prepared = new Map();
     const on = {
-      install: async sha256 => (computer.has(sha256) ? {value: {plugin: computer.get(sha256)}} : {error: 'not installed', status: 404}),
+      install: async sha256 => (prepared.has(sha256) ? {value: {plugin: prepared.get(sha256)}} : {error: 'not installed', status: 404}),
       installPackage: async sha256 => {
-        computer.set(sha256, {sha256});
+        prepared.set(sha256, {sha256});
         return {value: {plugin: {sha256}}};
       },
     };
     assert.deepEqual(await apps.prepare(as('bob'), on), {value: [{id: 'bibtex-check'}, {id: 'notes'}]});
-    assert.deepEqual([...computer.keys()], [BUILT_IN.sha256, UPLOAD.sha256]);
+    assert.deepEqual([...prepared.keys()], [BUILT_IN.sha256, UPLOAD.sha256]);
     assert.equal((await apps.open(as('bob'), 'notes', on)).value.sha256, UPLOAD.sha256);
     assert.deepEqual(await apps.prepare(as('carol', 'other'), on), {value: []});
   });
@@ -92,7 +95,7 @@ describe('a workspace\'s apps', () => {
     const next = {...UPLOAD, version: '1.1.0', sha256: 'e'.repeat(64)};
     await market.publish('alice', next, Buffer.from('upload package 1.1'), REPOSITORY);
     installs.set(next.sha256, {...next, uiVersion: 'fedcba9876543210'});
-    assert.equal((await apps.open(as('bob'), 'notes')).value.version, '1.1.0');
+    assert.equal((await apps.open(as('bob'), 'notes', computer)).value.version, '1.1.0');
   });
 
   it('lists the tags an owner gives a plugin, to every member', async () => {

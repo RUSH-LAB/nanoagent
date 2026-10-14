@@ -436,7 +436,7 @@ function buildPluginApi({name, dir, requires = [], commands = [], ctx, req}) {
         await ctx.aiMeter.record(requestScope, 'plugin', result, {ran: Boolean(result.text), local: ai.local});
         return result;
       },
-      describe: () => ctx.ai.describe(),
+      describe: async () => (await ctx.aiFor(requestScope?.userId)).describe(),
     });
   }
   if (asked.has('process')) {

@@ -21,9 +21,9 @@
 
 const PATH = '/api/runner';
 
-// What Mochi may ask the computer's NanoAgent: runs, installs, and the run
-// folders' files (server/ai.js). The marketplace and plugin pages stay on
-// Mochi's own NanoAgent.
+// What Mochi may ask the computer's NanoAgent: runs, installs and their pages,
+// and the run folders' files (server/ai.js). Only the marketplace's packages
+// stay on Mochi's own NanoAgent.
 const SEGMENT = '[^/?]+';
 const ROUTES = [
   ['GET', '/v1/profiles'],
@@ -31,6 +31,7 @@ const ROUTES = [
   ['POST', '/v1/runs'],
   ['GET', `/v1/installs/${SEGMENT}`],
   ['PUT', `/v1/installs/${SEGMENT}`],
+  ['GET', `/v1/installs/${SEGMENT}/ui/${SEGMENT}/[^?]+`],
   ['POST', `/v1/workspaces/${SEGMENT}/installs/${SEGMENT}/runs`],
   ['POST', `/v1/workspaces/${SEGMENT}/installs/${SEGMENT}/tasks/${SEGMENT}/runs`],
   ['GET', `/v1/workspaces/${SEGMENT}/files`],
@@ -45,8 +46,9 @@ function allowed(method, path) {
     && ROUTES.some(([m, pattern]) => m === method && pattern.test(path));
 }
 
-// The headers that cross, either way; the relay adds NanoAgent's bearer token.
-const HEADERS = ['content-type', 'accept'];
+// The headers that cross, either way, a plugin page's own included; the relay
+// adds NanoAgent's bearer token.
+const HEADERS = ['content-type', 'accept', 'content-security-policy', 'cache-control'];
 
 function pickHeaders(headers) {
   const all = new Headers(headers ?? {});

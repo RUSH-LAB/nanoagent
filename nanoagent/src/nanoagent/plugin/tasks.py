@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -55,14 +55,12 @@ async def run_task(
     timeout: float,
     on_event: TaskEvents,
     stage: Callable[[Path], None],
-    environ: Mapping[str, str] | None = None,
 ) -> TaskOutcome:
     """Run ``task`` in ``workspace`` and judge it.
 
     ``make_agent(system_prompt)`` builds the agent for an agent task (None for a tool task).
     ``stage(folder)`` puts the task's input files into a workspace before anything reads them;
-    it is called for ``workspace`` and for the reference tool's scratch workspace. ``environ`` is
-    what the plugin's variables are set from (see :func:`~nanoagent.plugin.runtime.plugin_env`).
+    it is called for ``workspace`` and for the reference tool's scratch workspace.
     """
     try:
         build_output(arguments, task.input_type)
@@ -72,7 +70,7 @@ async def run_task(
     stage(workspace)
     if task.runner == "tool":
         [tool] = task.tools
-        response = await call_tool_async(manifest, tool, arguments, workspace=workspace, timeout=timeout, environ=environ)
+        response = await call_tool_async(manifest, tool, arguments, workspace=workspace, timeout=timeout)
         on_event("task.result", {"response": response})
         verdict = await _verdict(manifest, task, arguments, None, workspace, on_event)
         return TaskOutcome(reference=None, response=response, agent=None, verdict=verdict)
@@ -85,7 +83,7 @@ async def run_task(
         with tempfile.TemporaryDirectory(prefix=f"nanoagent-{manifest.id}-reference-") as scratch:
             stage(Path(scratch))
             reference = await call_tool_async(
-                manifest, task.reference, arguments, workspace=Path(scratch), timeout=timeout, environ=environ
+                manifest, task.reference, arguments, workspace=Path(scratch), timeout=timeout
             )
 
     system, user = task_prompt(manifest, task, arguments)
@@ -102,7 +100,7 @@ async def run_task(
         reported = len(partial.tool_calls)
 
     # One plugin process for the whole task, so its tools can keep state between calls.
-    async with PluginSession(manifest, workspace, timeout=timeout, environ=environ) as session:
+    async with PluginSession(manifest, workspace, timeout=timeout) as session:
         for tool in plugin_tools(manifest, workspace, task.tools, session=session):
             agent.add_tool(tool)
         # Streamed, though nothing reads the text, so the run's profile measures time to first token.

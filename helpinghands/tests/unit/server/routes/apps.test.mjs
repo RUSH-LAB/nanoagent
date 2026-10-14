@@ -7,6 +7,8 @@ const aiSettings = createRequire(import.meta.url)('../../../../src/server/ai-set
 const routes = loadRoute('apps');
 const context = {workspaceId: 'test-org', userId: 'test-user', membershipId: 'member-1', role: 'owner'};
 const SHA = 'a'.repeat(64);
+// The connection of the member's computer that plugin pages are addressed by (server/runner.js).
+const PAGE = '0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d';
 const APP = {id: 'echo', name: 'Echo', version: '1.0.0', tasks: [], tools: [], readme: '# Echo\n', sha256: SHA, source: 'nanoagent'};
 
 /** The workspace file system, as one map of path to bytes, recording what it was asked. */
@@ -47,9 +49,16 @@ function fakeApps(overrides = {}) {
   };
 }
 
+/** A ctx whose member's computer is connected, its NanoAgent `ai`. */
 function ctxWith(ai, fs = fakeFs()) {
   const ctx = makeCtx();
   ctx.ai = {...ctx.ai, ...ai};
+  ctx.runners = {
+    ...ctx.runners,
+    computer: userId => (userId === context.userId ? ctx.ai : null),
+    page: userId => (userId === context.userId ? PAGE : null),
+    byPage: page => (page === PAGE ? ctx.ai : null),
+  };
   ctx.workspaceFs = fs;
   ctx.agentSync = {run: (_scope, _ai, operation) => operation('run-folder')};
   ctx.sessions = fakeSessions();
@@ -72,11 +81,16 @@ describe('NanoAgent apps', () => {
     assert.equal(listed.payload.error, 'Could not reach NanoAgent.');
   });
 
-  it('opens an added app installed, for any member', async () => {
+  it('opens an added app installed on the member\'s computer, for any member', async () => {
     const ctx = ctxWith({});
+    const on = [];
+    const open = ctx.workspaceApps.open;
+    ctx.workspaceApps.open = async (context, id, computer) => { on.push(computer); return open(context, id); };
     const opened = await invoke(routes, {method: 'GET', path: '/api/apps/echo', ctx, requestContext: {...context, role: 'viewer'}});
     assert.equal(opened.status, 200);
     assert.equal(opened.payload.app.sha256, SHA);
+    assert.equal(opened.payload.app.computer, PAGE);
+    assert.deepEqual(on, [ctx.ai]);
     assert.deepEqual(ctx.workspaceApps.calls, [['open', 'echo']]);
     ctx.workspaceApps.open = async () => ({error: 'This workspace has no plugin named nope', status: 404});
     assert.equal((await invoke(routes, {method: 'GET', path: '/api/apps/nope', ctx, requestContext: context})).status, 404);
@@ -102,18 +116,25 @@ describe('NanoAgent apps', () => {
     assert.deepEqual(ctx.workspaceApps.calls, [['add', 'echo'], ['remove', 'echo'], ['remove', 'other']]);
   });
 
-  it('prepares the workspace\'s apps on the hosted NanoAgent and the member\'s computer, answering at once', async () => {
+  it('prepares the workspace\'s apps on the member\'s computer, answering at once', async () => {
     const ctx = ctxWith({});
-    const computer = {name: 'computer'};
     const prepared = [];
     ctx.workspaceApps.prepare = async (_context, on) => { prepared.push(on); return {value: []}; };
-    const post = () => invoke(routes, {method: 'POST', path: '/api/app-installs', ctx, requestContext: {...context, role: 'viewer'}});
-    const answer = await post();
+    const answer = await invoke(routes, {method: 'POST', path: '/api/app-installs', ctx, requestContext: {...context, role: 'viewer'}});
     assert.equal(answer.status, 202);
     assert.deepEqual(prepared, [ctx.ai]);
-    ctx.runners.computer = userId => (userId === context.userId ? computer : null);
-    await post();
-    assert.deepEqual(prepared, [ctx.ai, ctx.ai, computer]);
+  });
+
+  it('neither opens nor prepares an app while the member\'s computer is not connected', async () => {
+    const ctx = ctxWith({});
+    ctx.runners.computer = () => null;
+    ctx.workspaceApps.prepare = async () => assert.fail('must not install anywhere');
+    for (const [method, path] of [['GET', '/api/apps/echo'], ['POST', '/api/app-installs']]) {
+      const result = await invoke(routes, {method, path, ctx, requestContext: context});
+      assert.equal(result.status, 503, path);
+      assert.match(result.payload.error, /Mochi Lab on your computer is not connected/);
+    }
+    assert.deepEqual(ctx.workspaceApps.calls, []);
   });
 
   it('lets only an owner tag a plugin, with a short list of short names', async () => {
@@ -224,7 +245,7 @@ describe('an app\'s own page', () => {
   it('serves a ui/ file to anyone, with NanoAgent\'s content type and Content-Security-Policy', async () => {
     const asked = [];
     const ctx = ctxWith({installUiFile: async (...args) => { asked.push(args); return page('<!doctype html>'); }});
-    const served = await invoke(routes, {method: 'GET', path: `/api/apps/${SHA}/ui/0123456789abcdef/js/app%20main.js`, ctx, auth: null});
+    const served = await invoke(routes, {method: 'GET', path: `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/js/app%20main.js`, ctx, auth: null});
     assert.deepEqual(asked, [[SHA, '0123456789abcdef', 'js/app main.js']]);
     assert.equal(served.written.status, 200);
     assert.equal(served.written.headers['Content-Type'], 'text/html; charset=utf-8');
@@ -232,8 +253,8 @@ describe('an app\'s own page', () => {
     assert.equal(served.written.headers['Cache-Control'], CACHE);
     assert.equal(served.written.headers['Access-Control-Allow-Origin'], '*');
     assert.equal(served.written.body.toString(), '<!doctype html>');
-    assert.equal(isPublicPath(`/api/apps/${SHA}/ui/0123456789abcdef/index.html`), true);
-    assert.equal(isGlobalApiPath(`/api/apps/${SHA}/ui/0123456789abcdef/index.html`), true);
+    assert.equal(isPublicPath(`/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/index.html`), true);
+    assert.equal(isGlobalApiPath(`/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/index.html`), true);
     assert.equal(isPublicPath('/api/apps/chess-move/tasks/move/runs'), false);
     assert.equal(isGlobalApiPath('/api/apps/chess-move/tasks/move/runs'), false);
   });
@@ -241,17 +262,18 @@ describe('an app\'s own page', () => {
   it('refuses any path that could leave ui/', async () => {
     const ctx = ctxWith({installUiFile: async () => assert.fail('must not ask NanoAgent')});
     for (const path of [
-      `/api/apps/${SHA}/ui/0123456789abcdef/../nanoagent.yaml`,
-      `/api/apps/${SHA}/ui/0123456789abcdef/%2e%2e/nanoagent.yaml`,
-      `/api/apps/${SHA}/ui/0123456789abcdef/a/%2E%2E/%2E%2E/x`,
-      `/api/apps/${SHA}/ui/0123456789abcdef/..%2Fnanoagent.yaml`,
-      `/api/apps/${SHA}/ui/0123456789abcdef/a%5C..%5Cx`,
-      `/api/apps/${SHA}/ui/0123456789abcdef/a//b`,
-      `/api/apps/${SHA}/ui/0123456789abcdef/./index.html`,
-      `/api/apps/${SHA}/ui/0123456789abcdef/%zz`,
-      '/api/apps/chess-move/ui/0123456789abcdef/index.html',
-      `/api/apps/${'A'.repeat(64)}/ui/0123456789abcdef/index.html`,
-      `/api/apps/${SHA}/ui/latest/index.html`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/../nanoagent.yaml`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/%2e%2e/nanoagent.yaml`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/a/%2E%2E/%2E%2E/x`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/..%2Fnanoagent.yaml`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/a%5C..%5Cx`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/a//b`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/./index.html`,
+      `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/%zz`,
+      `/api/apps/chess-move/ui/${PAGE}/0123456789abcdef/index.html`,
+      `/api/apps/${'A'.repeat(64)}/ui/${PAGE}/0123456789abcdef/index.html`,
+      `/api/apps/${SHA}/ui/${PAGE}/latest/index.html`,
+      `/api/apps/${SHA}/ui/not-a-page/0123456789abcdef/index.html`,
     ]) {
       const result = await invoke(routes, {method: 'GET', path, ctx, auth: null});
       assert.equal(result.status, 404, path);
@@ -260,21 +282,28 @@ describe('an app\'s own page', () => {
 
   it('relays a missing file and refuses one sent without its policy or caching', async () => {
     const missing = await invoke(routes, {
-      method: 'GET', path: `/api/apps/${SHA}/ui/0123456789abcdef/nope.js`, auth: null,
+      method: 'GET', path: `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/nope.js`, auth: null,
       ctx: ctxWith({installUiFile: async () => ({error: 'not found', status: 404})}),
     });
     assert.equal(missing.status, 404);
     const unguarded = await invoke(routes, {
-      method: 'GET', path: `/api/apps/${SHA}/ui/0123456789abcdef/index.html`, auth: null,
+      method: 'GET', path: `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/index.html`, auth: null,
       ctx: ctxWith({installUiFile: async () => page('<script>', {'content-type': 'text/html'})}),
     });
     assert.equal(unguarded.status, 502);
     assert.equal(unguarded.written, null);
     const uncached = await invoke(routes, {
-      method: 'GET', path: `/api/apps/${SHA}/ui/0123456789abcdef/index.html`, auth: null,
+      method: 'GET', path: `/api/apps/${SHA}/ui/${PAGE}/0123456789abcdef/index.html`, auth: null,
       ctx: ctxWith({installUiFile: async () => page('<script>', {'content-type': 'text/html', 'content-security-policy': CSP})}),
     });
     assert.equal(uncached.status, 502);
+  });
+
+  it('serves a page only from the computer that opened it, while it is connected', async () => {
+    const ctx = ctxWith({installUiFile: async () => assert.fail('must not ask another NanoAgent')});
+    const gone = await invoke(routes, {method: 'GET', path: `/api/apps/${SHA}/ui/${'f'.repeat(8)}-0000-4000-8000-${'0'.repeat(12)}/0123456789abcdef/index.html`, ctx, auth: null});
+    assert.equal(gone.status, 503);
+    assert.match(gone.payload.error, /not connected any more/);
   });
 });
 

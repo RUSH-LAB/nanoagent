@@ -4,6 +4,9 @@ Mochi's public surface is one Node process serving both the built Docusaurus
 shell and `/api/*`. Keeping one public origin lets Better Auth use HttpOnly,
 Secure, same-site cookies without exposing credentials to browser JavaScript.
 It calls NanoAgent over Railway's private network; NanoAgent is never public.
+That NanoAgent only offers the marketplace's plugin packages: every run, plugin
+install and plugin page is on the member's own computer, through Mochi Lab
+(`src/server/runner.js`), and is refused while it is not connected.
 
 ## Required services
 
@@ -15,8 +18,8 @@ It calls NanoAgent over Railway's private network; NanoAgent is never public.
   platform; every start provisions it.
 - An HTTPS transactional-email webhook for workspace invitations.
 - A container host with HTTPS termination and secret management.
-- A private NanoAgent service with its model-provider key and a shared
-  `NANOAGENT_API_TOKEN`.
+- A private NanoAgent service with a shared `NANOAGENT_API_TOKEN`, and no
+  model-provider key.
 
 The current deployment target is Railway. It builds the committed `Dockerfile`,
 injects `PORT`, checks `/api/health`, and terminates TLS at the public domain.
@@ -75,8 +78,8 @@ root directory `nanoagent` and watch path `/nanoagent/**`. Run
 `NANOAGENT_API_TOKEN` from the environment, and keeps `tools: []` for the first
 release. Install the `nanoagent[hermes]` extra to enable Hermes profiles and
 install/link `@nanoagent/pi-runner` with Node 22.19 or newer to enable PI
-profiles; profiles whose runner is missing remain visible as unavailable. Put
-the model-provider credential only on this service. On Mochi, set
+profiles; profiles whose runner is missing remain visible as unavailable. Give it no
+model-provider credential: it runs nothing. On Mochi, set
 `NANOAGENT_URL` to the private Railway URL and set the same
 `NANOAGENT_API_TOKEN`. Do not expose a public domain for NanoAgent.
 

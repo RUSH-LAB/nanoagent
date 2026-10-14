@@ -30,6 +30,10 @@ function fakeNanoAgent() {
       res.end('data: {"type":"delta","kind":"content","text":"world"}\n\ndata: {"type":"done","answer":"hello world","cost":0.01}\n\n');
       return;
     }
+    if (req.method === 'GET' && /^\/v1\/installs\/[^/]+\/ui\//.test(req.url)) {
+      res.writeHead(200, {'Content-Type': 'text/html', 'Content-Security-Policy': "default-src 'none'", 'Cache-Control': 'immutable'});
+      return res.end('<!doctype html>');
+    }
     if (req.method === 'PUT' && req.url.startsWith('/v1/installs/')) {
       res.writeHead(200, {'Content-Type': 'application/json'});
       return res.end(JSON.stringify({plugin: {id: 'echo', bytes: call.body.length}}));
@@ -102,35 +106,27 @@ describe('a member\'s own computer (server/runner.js, runner/relay.mjs)', () => 
     assert.deepEqual(nano.seen[0].body, data);
   });
 
+  it('serves a plugin page from the computer its connection\'s page id names, with its own policy, until it leaves', async () => {
+    await dialIn();
+    const page = runners.page('u1');
+    assert.match(page, /^[0-9a-f-]{36}$/);
+    const file = await runners.byPage(page).installUiFile('a'.repeat(64), '0123456789abcdef', 'index.html');
+    assert.equal(file.value.toString(), '<!doctype html>');
+    assert.equal(file.headers.get('content-security-policy'), "default-src 'none'");
+    assert.equal(file.headers.get('cache-control'), 'immutable');
+    assert.equal(nano.seen[0].url, `/v1/installs/${'a'.repeat(64)}/ui/0123456789abcdef/index.html`);
+    assert.equal(runners.byPage('another-page'), null);
+    dropComputers();
+    await until(() => !runners.status('u1').connected);
+    assert.equal(runners.byPage(page), null);
+    assert.equal(runners.page('u1'), null);
+  });
+
   it('refuses a run while the member\'s computer is not connected, rather than running it elsewhere', async () => {
     const result = await (await runners.aiFor('u1')).stream({input: 'hi'});
     assert.deepEqual(result, {error: RUNNER_OFFLINE, status: 503});
     assert.deepEqual(await (await runners.aiFor(null)).stream({input: 'hi'}), {error: RUNNER_OFFLINE, status: 503});
     assert.deepEqual(runners.status('u1'), {connected: false, device: null, keys: []});
-  });
-
-  it('runs a member with no computer on the hosted NanoAgent with the key they gave Mochi, off the budget', async () => {
-    const hosted = createRunners({
-      resolveIdentity: async () => ({ok: false}),
-      memberKeys: {values: async userId => (userId === 'u1' ? {OPENROUTER_API_KEY: 'sk-or-member'} : {})},
-      env: {NANOAGENT_URL: nanoUrl, NANOAGENT_API_TOKEN: 'hosted-secret'},
-    });
-    const ai = await hosted.aiFor('u1');
-    assert.equal(ai.local, true);
-    assert.equal((await ai.stream({input: 'hi'})).text, 'hello world');
-    assert.equal(nano.seen[0].authorization, 'Bearer hosted-secret');
-    assert.deepEqual(JSON.parse(nano.seen[0].body).keys, {OPENROUTER_API_KEY: 'sk-or-member'});
-    assert.deepEqual(await (await hosted.aiFor('u2')).stream({input: 'hi'}), {error: RUNNER_OFFLINE, status: 503});
-  });
-
-  it('prefers the member\'s computer to the key they gave Mochi', async () => {
-    runners = createRunners({
-      resolveIdentity: async ({headers}) => (headers.authorization === 'Bearer member-token' ? {ok: true, identity: {userId: 'u1'}} : {ok: false}),
-      memberKeys: {values: async () => { throw new Error('not asked while the computer is connected'); }},
-    });
-    await dialIn();
-    await (await runners.aiFor('u1')).stream({input: 'hi'});
-    assert.equal(JSON.parse(nano.seen[0].body).keys, undefined);
   });
 
   it('sets the computer\'s API keys by the names it listed, and hears which are set now', async () => {

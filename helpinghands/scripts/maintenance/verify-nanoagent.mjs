@@ -165,16 +165,9 @@ try {
         {role: 'user', content: 'This is a prior turn.'},
         {role: 'user', content: 'Say where this answer came from.'},
       ]);
-      // A run that brings its member's own key is taken, and runs with that key alone: this
-      // host's model is reached with its own credentials, so the run is refused, not run on them.
-      const keyed = createNanoAgentGateway({env: {NANOAGENT_URL: url}, keys: {OPENROUTER_API_KEY: 'sk-or-member'}});
-      modelRequest = null;
-      const refused = await keyed.stream({input: 'Run on my key.'});
-      assert.match(refused.error, /own credentials, not a run's keys/);
-      assert.equal(modelRequest, null);
     },
     local() {
-      // Runs on Mochi's own NanoAgent are charged to the workspace.
+      // A gateway to NANOAGENT_URL is not a member's own computer's.
       assert.equal(gateway.local, false);
     },
     async models() {

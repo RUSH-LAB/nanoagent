@@ -5,8 +5,6 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   environmentFor,
-  keyHint,
-  keyList,
   nanoagentPluginsFrom,
   nanoagentProjectFrom,
   nanoagentWebArgs,
@@ -80,15 +78,6 @@ describe('local process supervisor configuration', () => {
     const args = nanoagentWebArgs(env);
     assert.ok(args.includes(`packages=${JSON.stringify(nanoagentPluginsFrom(env))}`));
     assert.ok(args.includes('sandbox=none') && args.some(arg => arg.startsWith('installs=')));
-    assert.ok(args.includes('run_models=true'));
-  });
-
-  it('tells Mochi which keys this checkout lends by hint, never by value', () => {
-    assert.equal(keyHint('sk-or-v1-0123456789abcdef'), 'sk-or-…cdef');
-    assert.equal(keyHint('short'), '…');
-    const keys = keyList(new Map([['OPENROUTER_API_KEY', 'sk-or-v1-0123456789abcdef']]));
-    assert.deepEqual(keys[0], {env: 'OPENROUTER_API_KEY', label: 'OpenRouter', set: true, hint: 'sk-or-…cdef'});
-    assert.ok(keys.slice(1).every(key => key.set === false && key.hint === null));
   });
 
   it('rejects a plugins directory that does not exist', () => {

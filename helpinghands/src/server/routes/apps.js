@@ -4,14 +4,16 @@ const {agentFolder, prepareHome} = require('../fs/agent-sync');
 const {FsError} = require('../fs/store');
 const {budgetRefusal} = require('../ai-metering');
 const {forRun} = require('../ai-settings');
-const {createSseParser} = require('../ai');
+const {createSseParser, RUNNER_OFFLINE} = require('../ai');
 
 // Apps: the marketplace plugins a workspace added (workspace-apps.js), which an
 // owner adds, tags and removes at /api/apps/{id}, and the caller's own agent folder,
 // `home/<user>/agent/` in the workspace file system, where those apps leave
 // their files and the app pages list, read and save them.
-// Opening an app (GET /api/apps/{id}) has NanoAgent install its package, by
-// sha256; its own page (its ui/ folder) is served from /api/apps/{sha256}/ui/{uiVersion}/ and
+// Opening an app (GET /api/apps/{id}) has the NanoAgent on the member's own
+// computer install its package, by sha256; its own page (its ui/ folder) comes
+// from that computer too, at /api/apps/{sha256}/ui/{page}/{uiVersion}/ (`page`
+// names the computer's connection, server/runner.js), and is
 // shown in a sandboxed frame (src/components/PluginFrame), which runs the app's
 // tasks through /api/apps/{id}/tasks/{task}/runs. A prompt for an app goes
 // through /api/ai/stream with an appId and runs on that app's NanoAgent agent
@@ -35,12 +37,12 @@ function contentTypeFor(path, body) {
 const ROUTES = new Set(['/api/apps', '/api/app-installs', '/api/agent-files', '/api/agent-files/content']);
 const PLUGIN_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const APP_ROUTE = /^\/api\/apps\/([^/]+)$/;
-const UI_ROUTE = /^\/api\/apps\/([^/]+)\/ui\/([^/]+)\/(.+)$/;
+const UI_ROUTE = /^\/api\/apps\/([^/]+)\/ui\/([^/]+)\/([^/]+)\/(.+)$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const UI_VERSION = /^[0-9a-f]{16}$/;
 const TASK_RUN_ROUTE = /^\/api\/apps\/([^/]+)\/tasks\/([^/]+)\/runs$/;
 const SESSIONS_ROUTE = /^\/api\/apps\/([^/]+)\/sessions(?:\/([^/]+))?$/;
-const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * The file a plugin page asks for, as decoded '/'-joined segments, or null for
@@ -65,15 +67,18 @@ function uiFilePath(raw) {
  * A plugin's page and its files. Public, like any published asset: the page
  * runs in a sandboxed frame with an opaque origin, so its own requests carry no
  * session, and module scripts and fonts are fetched with CORS from origin
- * `null`, hence `*`. NanoAgent's Content-Security-Policy, which keeps the page
- * off the network, goes with every file; a file without one is refused. The
- * path names the ui/ folder's version, so NanoAgent lets browsers keep each
- * file forever, and a plugin opened again loads without a request.
+ * `null`, hence `*`. So it comes from the computer the path's `page` names: the
+ * one that opened the plugin. NanoAgent's Content-Security-Policy, which keeps
+ * the page off the network, goes with every file; a file without one is
+ * refused. The path names the ui/ folder's version, so NanoAgent lets browsers
+ * keep each file forever, and a plugin opened again loads without a request.
  */
-async function serveUiFile(res, json, ai, sha256, version, raw) {
+async function serveUiFile(res, json, runners, sha256, page, version, raw) {
   const path = uiFilePath(raw);
-  if (!SHA256.test(sha256) || !UI_VERSION.test(version) || !path) return json(res, 404, {error: 'Not found'});
-  const result = await ai.installUiFile(sha256, version, path);
+  if (!SHA256.test(sha256) || !UUID.test(page) || !UI_VERSION.test(version) || !path) return json(res, 404, {error: 'Not found'});
+  const computer = runners.byPage(page);
+  if (!computer) return json(res, 503, {error: 'The Mochi Lab that opened this plugin is not connected any more. Open the plugin again.'});
+  const result = await computer.installUiFile(sha256, version, path);
   if (result.error) return json(res, result.status, {error: result.error});
   const type = result.headers.get('content-type');
   const policy = result.headers.get('content-security-policy');
@@ -118,7 +123,7 @@ async function streamTaskRun(req, res, ctx, app, task) {
   }
   const args = body?.arguments;
   const sessionId = body?.sessionId;
-  if (!args || typeof args !== 'object' || Array.isArray(args) || typeof sessionId !== 'string' || !SESSION_ID.test(sessionId)) {
+  if (!args || typeof args !== 'object' || Array.isArray(args) || typeof sessionId !== 'string' || !UUID.test(sessionId)) {
     return json(res, 400, {error: 'Request body must be {"arguments": {...}, "sessionId": "<session id>"}'});
   }
 
@@ -211,7 +216,7 @@ async function streamTaskRun(req, res, ctx, app, task) {
  */
 async function sessionRoute(req, res, ctx, app, id) {
   const {json, readBody, requireWorkspacePermission} = ctx;
-  if (!PLUGIN_ID.test(app) || (id !== null && !SESSION_ID.test(id))) return json(res, 404, {error: 'Not found'});
+  if (!PLUGIN_ID.test(app) || (id !== null && !UUID.test(id))) return json(res, 404, {error: 'Not found'});
   if (!ctx.sessions) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
   try {
     if (id === null && req.method === 'GET') {
@@ -259,7 +264,8 @@ function tagsOf(body) {
 }
 
 /**
- * One of the workspace's apps: GET opens it, installed and ready to run; PUT
+ * One of the workspace's apps: GET opens it, installed and ready to run on the
+ * member's own computer, with the `computer` page id its page is served by; PUT
  * adds the marketplace plugin of that id, PATCH replaces the tags the
  * workspace files it under, and DELETE removes it, each an owner's to do.
  */
@@ -269,8 +275,11 @@ async function appRoute(req, res, ctx, id) {
   if (!workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
   if (req.method === 'GET') {
     requireWorkspacePermission(req.context, 'content:read');
-    const opened = await workspaceApps.open(req.context, id);
-    return opened.error ? json(res, opened.status, {error: opened.error}) : json(res, 200, {app: opened.value});
+    const computer = ctx.runners.computer(req.context.userId);
+    if (!computer) return json(res, 503, {error: RUNNER_OFFLINE});
+    const page = ctx.runners.page(req.context.userId);
+    const opened = await workspaceApps.open(req.context, id, computer);
+    return opened.error ? json(res, opened.status, {error: opened.error}) : json(res, 200, {app: {...opened.value, computer: page}});
   }
   if (req.method === 'PUT') {
     requireWorkspacePermission(req.context, 'workspace:manage');
@@ -301,9 +310,9 @@ async function appRoute(req, res, ctx, id) {
 }
 
 module.exports = async function app_routes(req, res, url, pathname, ctx) {
-  const {json, readRawBody, requireWorkspacePermission, ai} = ctx;
+  const {json, readRawBody, requireWorkspacePermission} = ctx;
   const ui = UI_ROUTE.exec(pathname);
-  if (ui && req.method === 'GET') return serveUiFile(res, json, ai, ui[1], ui[2], ui[3]);
+  if (ui && req.method === 'GET') return serveUiFile(res, json, ctx.runners, ui[1], ui[2], ui[3], ui[4]);
   const taskRun = TASK_RUN_ROUTE.exec(pathname);
   if (taskRun && req.method === 'POST') {
     let task;
@@ -328,24 +337,22 @@ module.exports = async function app_routes(req, res, url, pathname, ctx) {
     return json(res, 200, {apps: result.value});
   }
 
-  // Entering a workspace installs its apps ahead of the first open: on the
-  // hosted NanoAgent, which serves their pages, and on the member's computer
-  // while it is connected, where their runs go. Answered at once; an install
-  // that fails is logged, and opening that app reports it.
+  // Entering a workspace installs its apps ahead of the first open, on the
+  // member's computer, where their pages and runs are. Answered at once; an
+  // install that fails is logged, and opening that app reports it.
   if (req.method === 'POST' && pathname === '/api/app-installs') {
     requireWorkspacePermission(req.context, 'content:read');
     if (!ctx.workspaceApps) return json(res, 409, {error: APPS_NEED_FS, code: 'fs-disabled'});
     const computer = ctx.runners.computer(req.context.userId);
-    for (const on of computer ? [ai, computer] : [ai]) {
-      ctx.workspaceApps.prepare(req.context, on).then(
-        result => {
-          for (const failed of result.error ? [result] : result.value.filter(app => app.error)) {
-            console.error(`[apps] preparing ${failed.id ?? 'the workspace\'s apps'} failed: ${failed.error}`);
-          }
-        },
-        error => console.error('[apps] preparing the workspace\'s apps failed:', error),
-      );
-    }
+    if (!computer) return json(res, 503, {error: RUNNER_OFFLINE});
+    ctx.workspaceApps.prepare(req.context, computer).then(
+      result => {
+        for (const failed of result.error ? [result] : result.value.filter(app => app.error)) {
+          console.error(`[apps] preparing ${failed.id ?? 'the workspace\'s apps'} failed: ${failed.error}`);
+        }
+      },
+      error => console.error('[apps] preparing the workspace\'s apps failed:', error),
+    );
     return json(res, 202, {preparing: true});
   }
 
