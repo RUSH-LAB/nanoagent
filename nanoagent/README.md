@@ -49,7 +49,7 @@ keyed by the contract's `Tool` and `Task`, the standard `runtime.command`
 deterministic verifier, a `ui/` and a
 `product/` (below), no extra files, and standard files that are the
 template's (`nanoagent/plugin/template/`, what `nanoagent plugin new`
-writes): its `LICENSE` naming the plugin, its `.gitignore` entries, its
+writes): its MIT `LICENSE` naming whoever built it, its `.gitignore` entries, its
 `run.sh` checks first (a plugin adds its own after them), a `README.md`
 opening with `# <name>` with the sections Tools, Layout and Develop and run
 and every tool and task named under Tools, and a `pyproject.toml` naming the

@@ -50,11 +50,11 @@ and the workspace and returning its output; write its `verify_input` /
 `nanoagent.yaml` (`tools`) and this README's Tools table; a task goes in its
 Tasks table.
 
-`LICENSE` stays the template's, `.gitignore`
+`LICENSE` stays the template's MIT license under your name, `.gitignore`
 keeps its entries, `run.sh` keeps its checks first (add the plugin's own after
 them), and this README keeps its title and sections: NanoAgent refuses a plugin
 that changes them (rule 10 of `nanoagent.plugin.manifest`). Renaming the
-plugin means renaming it in `nanoagent.yaml`, this title and `LICENSE` together.
+plugin means renaming it in `nanoagent.yaml` and this title together.
 
 To add a task, add a `Task` member (a kebab-case id) and its `TASKS` input and
 output classes to `contract.py`, and declare it in `nanoagent.yaml` with its `runner` (`tool`,

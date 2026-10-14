@@ -128,7 +128,7 @@ def write_plugin(root: Path) -> Path:
 
     for name, content in {
         "README.md": README,
-        "LICENSE": (TEMPLATE / "LICENSE").read_text().replace("{{year}}", "2026").replace("{{name}}", "Echo"),
+        "LICENSE": (TEMPLATE / "LICENSE").read_text().replace("{{year}}", "2026").replace("{{author}}", "Ada Lovelace"),
         "pyproject.toml": PYPROJECT,
         "uv.lock": _uv_lock(),
         ".gitignore": (TEMPLATE / "dot.gitignore").read_text(),
@@ -952,16 +952,21 @@ def test_every_built_in_plugin_follows_every_rule(plugin: str) -> None:
     assert load_manifest(ROOT / "plugins" / plugin).id == plugin
 
 
-def test_plugin_new_creates_a_plugin_shaped_like_the_reference(tmp_path: Path) -> None:
+def test_plugin_new_creates_a_plugin_shaped_like_the_reference(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from nanoagent.cli.plugin import main
 
+    (tmp_path / "gitconfig").write_text("[user]\n\tname = Ada Lovelace\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
     assert main(["new", str(tmp_path / "my-notes")]) == 0
     manifest = load_manifest(tmp_path / "my-notes")
     assert (manifest.id, manifest.name) == ("my-notes", "My Notes")
     assert _layout(tmp_path / "my-notes") == _layout(ROOT / "plugins" / "arxiv-source")
-    assert "{{" not in (tmp_path / "my-notes" / "LICENSE").read_text()
+    license_text = (tmp_path / "my-notes" / "LICENSE").read_text()
+    assert "{{" not in license_text and "Ada Lovelace" in license_text
     assert main(["new", str(tmp_path / "my-notes")]) == 1
     assert main(["new", str(tmp_path / "Bad_Name")]) == 1
+    (tmp_path / "gitconfig").write_text("")
+    assert main(["new", str(tmp_path / "no-author")]) == 1
 
 
 def _echo_plugin(tmp_path: Path) -> Path:
@@ -1124,7 +1129,8 @@ def test_serves_the_plugin_page_in_nanoagents_own_kit(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("path", "edit", "problem"),
     [
-        ("LICENSE", lambda text: text.replace("The Echo authors", "Someone"), "LICENSE must be the template's MIT license"),
+        ("LICENSE", lambda text: text.replace("Ada Lovelace", ""), "LICENSE must be the template's MIT license"),
+        ("LICENSE", lambda text: text.replace("MIT License", "BSD License"), "LICENSE must be the template's MIT license"),
         (".gitignore", lambda text: text.replace("*.pyc\n", ""), ".gitignore must ignore *.pyc"),
         ("run.sh", lambda text: "exit 0\n", "run.sh must begin with the template's checks"),
         ("README.md", lambda text: text.replace("# Echo", "# Repeat"), "README.md must open with # Echo"),

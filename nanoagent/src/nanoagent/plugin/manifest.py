@@ -56,7 +56,7 @@ raises :class:`PluginError` listing every broken rule at once:
    :data:`ICON_MAX_BYTES` that draws only, with no script, event handler, embedded content or
    link outside itself.
 10. The standard files are the :data:`TEMPLATE`'s, what ``nanoagent plugin new`` writes:
-    ``LICENSE`` is its license with a year and the plugin's ``name``; ``.gitignore`` ignores
+    ``LICENSE`` is its license with a year and the name of whoever holds the copyright; ``.gitignore`` ignores
     every path it ignores; ``run.sh`` begins with its checks, and a plugin adds its own after
     them; ``README.md`` opens with ``# <name>`` and has its sections (:data:`README_SECTIONS`, in
     order), naming every tool and task under ``## Tools``; ``pyproject.toml`` names the project
@@ -676,16 +676,16 @@ def _template_violations(root: Path) -> list[str]:
 
 
 def _named_violations(root: Path, config: Any) -> list[str]:
-    """``LICENSE``, ``README.md`` and ``pyproject.toml`` name the plugin as the template's do (rule 10)."""
+    """``LICENSE``, ``README.md`` and ``pyproject.toml`` are the template's with their names filled in (rule 10)."""
     checks = (("LICENSE", _license_violations), ("README.md", _readme_violations), ("pyproject.toml", _pyproject_violations))
     return [violation for name, check in checks if (root / name).is_file() for violation in check((root / name).read_text(encoding="utf-8"), config)]
 
 
 def _license_violations(text: str, config: Any) -> list[str]:
-    name = config.name.strip()
+    """The template's MIT license, its copyright held by whoever built the plugin."""
     pattern = re.escape((TEMPLATE / "LICENSE").read_text(encoding="utf-8"))
-    pattern = pattern.replace(re.escape("{{year}}"), r"\d{4}").replace(re.escape("{{name}}"), re.escape(name))
-    return [] if re.fullmatch(pattern, text) else [f"LICENSE must be the template's MIT license for The {name} authors"]
+    pattern = pattern.replace(re.escape("{{year}}"), r"\d{4}").replace(re.escape("{{author}}"), r"[^\s{}][^\n{}]*")
+    return [] if re.fullmatch(pattern, text) else ["LICENSE must be the template's MIT license with its holder named"]
 
 
 def _readme_violations(text: str, config: Any) -> list[str]:
