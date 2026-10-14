@@ -65,18 +65,24 @@ To decide:
   needs a plugin sandbox before it can be supported there too: lab.mjs, like the app, refuses to
   run plugins unconfined.
 
-## Releasing Mochi Lab
+## The Mochi Lab desktop app
 
-Mochi Lab is not released yet. `.github/workflows/helpinghands-desktop.yml` builds it on every
-push to production, or by hand, and keeps the dmg only as a workflow artifact of the private
-repository, which members cannot download. NanoAgent ships in it compiled, not as source
-(`desktop/PLAN.md`), so the bundle can be published.
+Members do not need the desktop app (`desktop/src-tauri`): Settings → AI gives them a one-line
+install that runs the same relay and compiled NanoAgent in the background, without a window
+(`src/runner/lab.mjs`, `desktop/PLAN.md`). The app is kept for later, unreleased.
+`.github/workflows/helpinghands-desktop.yml` still builds it on every push to production, or by
+hand, and keeps the dmg only as a workflow artifact of the private repository, which members
+cannot download.
 
-To decide:
+To decide, if it is released:
 
-- Where members download it: GitHub Releases in a public repository that holds only the
-  bundles, or a link Mochi serves to signed-in members.
+- What it adds over the one-line install: a window on the site, the keys page, a menu-bar
+  presence, an installer members double-click.
+- Where members download it: Mochi could serve the dmg as it serves the one-line install's
+  bundles (`lab_bundle`, `routes/lab.js`), or GitHub Releases in a public repository that holds
+  only bundles.
 - Auto-update: `tauri-plugin-updater` needs a public `latest.json` beside the bundles.
 - Signing: the app is ad-hoc signed, so a downloaded copy opens only after right-click → Open.
+- Both use port 47311, so a member runs one or the other.
 - First check before release: open the app against the production Mochi it serves, sign in,
-  see the relay connect, and run a plugin. Only its parts were tested before, not the app.
+  see the relay connect, and run a plugin.
