@@ -78,4 +78,4 @@ uv run pytest
 ```
 
 Publishing checks every plugin rule: push the plugin to a public GitHub
-repository and run `mochi publish <server> <github-url>`.
+repository and run `rush publish <server> <github-url>`.

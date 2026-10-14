@@ -3,7 +3,7 @@
 // Extra endpoint coverage tests for the Mochi Lab editor server
 // Usage:  node tests/integration/test-extras.mjs
 // Requires the server running on http://localhost:3001, and a GitHub sign-in
-// saved by `node cli/mochi.mjs login http://localhost:3001`
+// saved by `node cli/rush.mjs login http://localhost:3001`
 // ─────────────────────────────────────────────────────────────
 
 import {signedInHeaders} from './api-client.mjs';

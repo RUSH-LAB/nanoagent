@@ -48,7 +48,7 @@ async function post(site, route, body) {
   return {status: response.status, data};
 }
 
-/** The device-authorization grant, as cli/mochi.mjs signs in: a session token for the member. */
+/** The device-authorization grant, as cli/rush.mjs signs in: a session token for the member. */
 async function signIn(site) {
   const {status, data: code} = await post(site, '/api/auth/device/code', {client_id: CLIENT_ID});
   if (status !== 200) throw new Error(`Mochi refused a sign-in code (${status}): ${code.error ?? ''}`);

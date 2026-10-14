@@ -55,7 +55,7 @@ if (!(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET)) {
   throw new Error('Mochi requires GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET: GitHub is the only way to sign in.');
 }
 const SITE_URL = (process.env.SITE_URL || 'http://localhost:3000').replace(/\/$/, '');
-// The clients allowed to ask for a device code: the sync client (cli/mochi.mjs)
+// The clients allowed to ask for a device code: the sync client (cli/rush.mjs)
 // and Mochi Lab's relay (runner/relay.mjs).
 const DEVICE_CLIENT_IDS = new Set(['mochi-cli', 'mochi-desktop']);
 

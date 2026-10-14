@@ -1,6 +1,6 @@
 /**
- * Two-way sync between a workspace file system and a local folder: the mochi
- * CLI's (cli/mochi.mjs) and Mochi Lab's (files.mjs).
+ * Two-way sync between a workspace file system and a local folder: the rush
+ * CLI's (cli/rush.mjs) and Mochi Lab's (files.mjs).
  *
  * Every cycle compares three views of each path: the file on disk, the file in
  * the workspace, and what both looked like after the last successful sync (the

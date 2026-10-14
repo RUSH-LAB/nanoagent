@@ -6,7 +6,7 @@ import dir from '@site/src/css/directory.module.css';
 import joinStyles from '../join/styles.module.css';
 
 /**
- * Where `mochi login` sends you, and where Mochi Lab shows you in its window
+ * Where `rush login` sends you, and where Mochi Lab shows you in its window
  * (`client=desktop`, desktop/src-tauri/src/supervisor.rs): approve or deny the
  * client's device code, as the account this browser is signed in to with GitHub.
  *
@@ -26,7 +26,7 @@ function Device() {
   useEffect(() => {
     if (!userCode) {
       setStatus('gone');
-      setMessage('That link is missing its code. Run mochi login again.');
+      setMessage('That link is missing its code. Run rush login again.');
       return;
     }
     authClient.device({query: {user_code: userCode}}).then(({data, error}) => {

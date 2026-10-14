@@ -2,7 +2,7 @@
 
 A `nanoagent.plugin/v1` plugin, created by `nanoagent plugin new` with the
 structure of NanoAgent's reference plugin,
-[arxiv-source](https://github.com/zeyuyang8/mochi-arxiv-source).
+[arxiv-source](https://github.com/zeyuyang8/arxiv-source).
 
 ## Tools
 
@@ -76,4 +76,4 @@ uv run pytest
 ```
 
 Publishing checks every plugin rule: push the plugin to a public GitHub
-repository and run `mochi publish <server> <github-url>`.
+repository and run `rush publish <server> <github-url>`.

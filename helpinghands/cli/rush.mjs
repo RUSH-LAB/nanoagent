@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * Mochi Lab's command-line client: mirror a workspace's files into a local
+ * The rush command-line client: mirror a workspace's files into a local
  * folder and keep the two in sync, the way Dropbox keeps a folder in sync.
  *
- *   mochi login <server>                                sign in and keep a session token
- *   mochi clone <server> <workspace> <dir> [folder...]  download a workspace, or only these top-level folders, into a new folder
- *   mochi sync <dir>                                    keep that folder in sync until stopped
- *   mochi online-only <dir> <path>                      keep a folder or file in the workspace only
- *   mochi download <dir> <path>                         keep it in the local folder again
- *   mochi publish <server> <github-url>                 publish a plugin to the marketplace, or update it
+ *   rush login <server>                                sign in and keep a session token
+ *   rush clone <server> <workspace> <dir> [folder...]  download a workspace, or only these top-level folders, into a new folder
+ *   rush sync <dir>                                    keep that folder in sync until stopped
+ *   rush online-only <dir> <path>                      keep a folder or file in the workspace only
+ *   rush download <dir> <path>                         keep it in the local folder again
+ *   rush publish <server> <github-url>                 publish a plugin to the marketplace, or update it
  *
  * The server stays the source of truth and every write goes through the
  * workspace file system API (/fs), with the same permissions and revision
@@ -54,7 +54,7 @@ async function readCredentials() {
 
 async function tokenFor(server) {
   const token = (await readCredentials())[server]?.token;
-  if (!token) fail(`Not signed in to ${server}. Run: mochi login ${server}`);
+  if (!token) fail(`Not signed in to ${server}. Run: rush login ${server}`);
   return token;
 }
 
@@ -136,7 +136,7 @@ async function openFolder(folder) {
 }
 
 async function clone(server, workspace, folder, only) {
-  if (!workspace || !folder) fail('Usage: mochi clone <server> <workspace> <folder> [top-level folder...]');
+  if (!workspace || !folder) fail('Usage: rush clone <server> <workspace> <folder> [top-level folder...]');
   const request = connect(server, await tokenFor(server));
   const {workspaces} = (await request('GET', '/api/workspaces')).data;
   const found = workspaces.find(candidate => candidate.slug === workspace || candidate.id === workspace);
@@ -157,11 +157,11 @@ async function clone(server, workspace, folder, only) {
   await writeConfig(root, config);
   await writeJson(path.join(root, STATE_DIR, 'state.json'), {files: {}});
   await (await openFolder(root)).sync();
-  console.log(`Cloned ${found.name} into ${root}. Keep it in sync with: mochi sync ${folder}`);
+  console.log(`Cloned ${found.name} into ${root}. Keep it in sync with: rush sync ${folder}`);
 }
 
 async function sync(folder) {
-  if (!folder) fail('Usage: mochi sync <folder>');
+  if (!folder) fail('Usage: rush sync <folder>');
   const synced = await openFolder(folder);
   let running = false;
   let pending = false;
@@ -180,7 +180,7 @@ async function sync(folder) {
           await synced.sync();
         } catch (error) {
           if (!abortsCycle(error)) fail(`Sync stopped: ${error.message}`);
-          if (error.status === 401) fail(`Your session for ${synced.config.server} ended. Run: mochi login ${synced.config.server}`);
+          if (error.status === 401) fail(`Your session for ${synced.config.server} ended. Run: rush login ${synced.config.server}`);
           if (error.status === 429) pausedUntil = Date.now() + RATE_LIMIT_PAUSE_MS;
           console.error(`${new Date().toLocaleTimeString()} sync paused: ${error.message}`);
         }
@@ -210,7 +210,7 @@ function workspacePath(value) {
 
 /** Mark a path online only. The next sync cycle uploads any pending edit under it, then removes the local copy. */
 async function onlineOnly(folder, value) {
-  if (!folder) fail('Usage: mochi online-only <folder> <path>');
+  if (!folder) fail('Usage: rush online-only <folder> <path>');
   const root = path.resolve(folder);
   const target = workspacePath(value);
   const config = await readConfig(root);
@@ -219,12 +219,12 @@ async function onlineOnly(folder, value) {
   if (covering) fail(`${target} is already online only (${covering})`);
   config.online_only = [...paths.filter(entry => !entry.startsWith(`${target}/`)), target].sort();
   await writeConfig(root, config);
-  console.log(`${target} is online only; mochi sync removes its local copy.`);
+  console.log(`${target} is online only; rush sync removes its local copy.`);
 }
 
 /** Keep a path in the local folder again. The next sync cycle downloads it. */
 async function download(folder, value) {
-  if (!folder) fail('Usage: mochi download <folder> <path>');
+  if (!folder) fail('Usage: rush download <folder> <path>');
   const root = path.resolve(folder);
   const target = workspacePath(value);
   const config = await readConfig(root);
@@ -235,12 +235,12 @@ async function download(folder, value) {
   if (kept.length === paths.length) fail(`${target} is not online only`);
   config.online_only = kept;
   await writeConfig(root, config);
-  console.log(`${target} will be downloaded; mochi sync downloads it.`);
+  console.log(`${target} will be downloaded; rush sync downloads it.`);
 }
 
 /** Publish a NanoAgent plugin from a public GitHub repository, as the marketplace page does. */
 async function publish(server, url) {
-  if (!url) fail('Usage: mochi publish <server> <github-url>');
+  if (!url) fail('Usage: rush publish <server> <github-url>');
   const request = connect(server, await tokenFor(server));
   const {plugin} = (await request('POST', '/api/market', {body: {url}})).data;
   console.log(`Published ${plugin.id} ${plugin.version} to ${server}/marketplace`);
@@ -256,7 +256,7 @@ const commands = {
   publish: () => publish(serverUrl(args[0]), args[1]),
 };
 if (!commands[command]) {
-  fail('Usage: mochi login <server> | mochi clone <server> <workspace> <folder> [top-level folder...] | mochi sync <folder>'
-    + ' | mochi online-only <folder> <path> | mochi download <folder> <path> | mochi publish <server> <github-url>');
+  fail('Usage: rush login <server> | rush clone <server> <workspace> <folder> [top-level folder...] | rush sync <folder>'
+    + ' | rush online-only <folder> <path> | rush download <folder> <path> | rush publish <server> <github-url>');
 }
 await commands[command]();
