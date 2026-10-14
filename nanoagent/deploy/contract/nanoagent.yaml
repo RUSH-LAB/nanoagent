@@ -36,8 +36,9 @@ allowed_tools: []
 default_profile: nanoagent-fake
 profiles:
   - deploy/contract/profiles/nanoagent-fake.yaml
+# The fixture plugin NanoAgent's own tests use, offered for the check's package calls.
 packages:
-  - plugins/meal-suggestion
+  - test/plugins/word-check
 workspaces: MISSING
 # Beside the workspaces, so a checker that names only those runs any version of this file.
 installs: ${workspaces}-installs

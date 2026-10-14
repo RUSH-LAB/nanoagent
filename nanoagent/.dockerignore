@@ -7,5 +7,3 @@ js/*/node_modules
 js/*/dist
 tests
 docs
-plugins/*/.venv
-plugins/*/**/__pycache__

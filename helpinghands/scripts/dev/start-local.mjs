@@ -54,18 +54,21 @@ export function nanoagentProjectFrom(env = process.env) {
 }
 
 /**
- * The plugin packages NanoAgent publishes as apps: each directory with a manifest in the NanoAgent
- * checkout's built-in `plugins/`, or in NANOAGENT_PLUGINS_DIR.
+ * The plugin packages NanoAgent publishes as apps: none, as NanoAgent ships no plugin, unless
+ * NANOAGENT_PLUGINS_DIR names a folder of plugins, each directory in it with a manifest.
  */
 export function nanoagentPluginsFrom(env = process.env) {
-  const pluginsRoot = path.resolve(env.NANOAGENT_PLUGINS_DIR || path.join(nanoagentProjectFrom(env), 'plugins'));
+  if (!env.NANOAGENT_PLUGINS_DIR) return [];
+  const pluginsRoot = path.resolve(env.NANOAGENT_PLUGINS_DIR);
   if (!fs.existsSync(pluginsRoot)) {
-    throw new Error(`NanoAgent plugins directory not found: ${pluginsRoot} (set NANOAGENT_PLUGINS_DIR)`);
+    throw new Error(`NANOAGENT_PLUGINS_DIR not found: ${pluginsRoot}`);
   }
-  return fs.readdirSync(pluginsRoot, {withFileTypes: true})
+  const plugins = fs.readdirSync(pluginsRoot, {withFileTypes: true})
     .filter(entry => entry.isDirectory() && fs.existsSync(path.join(pluginsRoot, entry.name, 'nanoagent.yaml')))
     .map(entry => path.join(pluginsRoot, entry.name))
     .sort();
+  if (!plugins.length) throw new Error(`NANOAGENT_PLUGINS_DIR holds no plugin (a folder with nanoagent.yaml): ${pluginsRoot}`);
+  return plugins;
 }
 
 /**
@@ -83,7 +86,7 @@ export function nanoagentWebArgs(env = process.env) {
     'sandbox=none',
     // It is its developer's Mochi Lab too (lendNanoAgent): runs choose any model its keys reach.
     'run_models=true',
-    // NanoAgent's own plugins, in the marketplace (/marketplace) for workspaces to add.
+    // The plugins in NANOAGENT_PLUGINS_DIR, in the marketplace (/marketplace) for workspaces to add.
     `packages=${JSON.stringify(nanoagentPluginsFrom(env))}`,
     `workspaces=${JSON.stringify(path.join(root, 'var', 'agent-workspaces'))}`,
     `installs=${JSON.stringify(path.join(root, 'var', 'nanoagent-installs'))}`,

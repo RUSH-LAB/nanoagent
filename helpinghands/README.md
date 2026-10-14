@@ -46,11 +46,12 @@ the local NanoAgent, and Settings → AI can set its API key (until `npm start`
 stops; `.env`'s keys are where it starts).
 The installer never overwrites an existing local environment file.
 
-The local NanoAgent also publishes every plugin package built into the
-NanoAgent checkout, in its `plugins/` directory (such as `plugins/arxiv-source`).
-Mochi shows these as apps at `/apps`, where you can read what each one does and
-run its tasks. Set `NANOAGENT_PLUGINS_DIR` to publish packages from somewhere else.
-A missing plugins directory stops the launch instead of publishing no apps.
+NanoAgent ships no plugin: each is published to the marketplace from its own
+repository. To have the local NanoAgent publish plugin packages too, set
+`NANOAGENT_PLUGINS_DIR` to a folder of plugins (each a folder with a
+`nanoagent.yaml`); Mochi shows them as apps at `/apps`, where you can read what
+each one does and run its tasks. A `NANOAGENT_PLUGINS_DIR` that is missing or
+holds no plugin stops the launch.
 
 All local secrets and connection settings live in the single git-ignored
 `.env` file.

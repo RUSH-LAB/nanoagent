@@ -101,7 +101,7 @@ src/nanoagent/plugin/page/   NanoAgent's, served to every plugin
     result.js      a task's result: the card, and the view drawn from a JSON Schema
     dom.js  display.js  markdown.js
     kit.css        the look: Mochi's tokens, light and dark, narrow widths
-plugins/<id>/ui/             the plugin's
+<plugin>/ui/                 the plugin's
   renderers.js   its renderers, by output class name (`{}` in the template)
   renderers.css  their styles (a comment in the template)
   ...            any other static files they need (their own .js modules, images, fonts)

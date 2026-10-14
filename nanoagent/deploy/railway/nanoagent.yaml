@@ -38,12 +38,9 @@ default_profile: pi-deepseek
 profiles:
   - deploy/railway/profiles/pi-deepseek.yaml
   - deploy/railway/profiles/app-deepseek.yaml
-# NanoAgent's own plugins, in Mochi's marketplace; like an upload, one runs once Mochi installs it.
-packages:
-  - plugins/arxiv-source
-  - plugins/bibtex-check
-  - plugins/meal-suggestion
-  - plugins/nasdaq-drawdown
+# NanoAgent ships no plugin: each is published to Mochi's marketplace from its own repository, and
+# runs once Mochi installs it.
+packages: []
 # Scratch space, one folder per run; Mochi keeps the files.
 workspaces: /tmp/nanoagent-workspaces
 # On the service's volume, so a restart keeps them: installed packages, one folder per sha256

@@ -4,7 +4,7 @@
  * (TAURI_ENV_TARGET_TRIPLE, which Tauri sets for beforeBuildCommand):
  *
  *   src-tauri/resources/runner/     the relay that lends this computer's NanoAgent to Mochi
- *   src-tauri/resources/nanoagent/  NanoAgent's sources, a uv.lock resolved here, plugins, and the built PI runner
+ *   src-tauri/resources/nanoagent/  NanoAgent's sources, a uv.lock resolved here, and the built PI runner
  *   src-tauri/resources/config.yaml this folder's config.yaml
  *   src-tauri/resources/stamp       names this staging; the app installs each stamp once
  *   src-tauri/binaries/{node,uv}-<target>   the runtimes, downloaded and checksum-verified
@@ -123,7 +123,7 @@ async function trimNodeModules(out, entries) {
 
 async function stageNanoAgent(uv) {
   const out = path.join(resources, 'nanoagent');
-  for (const entry of ['pyproject.toml', 'README.md', 'LICENSE', 'src', 'deploy', 'plugins']) {
+  for (const entry of ['pyproject.toml', 'README.md', 'LICENSE', 'src', 'deploy']) {
     copy(path.join(nanoagentRoot, entry), path.join(out, entry));
   }
   // NanoAgent is a library and keeps no lock; the app pins the versions resolved for this build,

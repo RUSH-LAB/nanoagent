@@ -9,6 +9,10 @@ A task may declare `runner: decide`: a model only decides, and NanoAgent calls t
 and builds its output. A plugin declares `nanoagent: ~=0.5.0`, and follows the stricter rules
 listed under "Every plugin" below.
 
+NanoAgent ships no plugin. arxiv-source, bibtex-check, meal-suggestion and nasdaq-drawdown moved
+out to their own repositories (`github.com/zeyuyang8/mochi-<id>`), and Mochi's marketplace
+publishes them from there; the Railway service offers no package (`packages: []`).
+
 - A decide task fills every tool argument and every output field by choice or by copy: an Enum
   or bool field is chosen, and any other field is copied from a value of exactly its type in the
   task's input or an earlier output of one of the task's tools, never the reference tool's. A

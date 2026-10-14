@@ -86,8 +86,6 @@ tokens = ["transformers"]
 # Official dataset loading and Docker-based rule scoring for SWE-bench. Kept optional because
 # ordinary question/answer benchmarks need neither Hugging Face datasets nor Docker bindings.
 swebench = ["swebench>=5,<6"]
-# examples/meal_suggestion's step 1 reads Food.com's recipes, a Parquet file.
-examples = ["pyarrow>=25"]
 dev = [
     "pytest",
     "pytest-asyncio",
@@ -141,5 +139,6 @@ extend-ignore = ["E203"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-# Each plugin under plugins/ is its own uv project and runs its own tests.
 testpaths = ["test"]
+# Each fixture plugin under test/plugins/ is its own uv project and runs its own tests.
+norecursedirs = ["plugins"]

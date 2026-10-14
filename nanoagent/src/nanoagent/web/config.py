@@ -24,7 +24,7 @@ class WebConfig(AgentDefinitionConfig):
     # `nanoagent.runtime.config.load_registry`). At least one; the default must be among them —
     # both checked where the registry loads, since the files are only read there.
     profiles: list[str] = MISSING
-    # Plugin directories offered for download at /v1/packages (a marketplace's built-in plugins).
+    # Plugin directories offered for download at /v1/packages.
     # Each must follow every rule; ids must be unique, checked where they load. Like any package,
     # one runs here only once a caller installs it.
     packages: list[str] = MISSING

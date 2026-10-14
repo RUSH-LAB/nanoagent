@@ -71,7 +71,7 @@ Mochi Lab.app
 ├── MacOS/node, MacOS/uv          bundled runtimes (sidecars)
 └── Resources/
     ├── runner/                   the relay and its protocol (src/runner/)
-    ├── nanoagent/                sources, uv.lock, plugins, the PI runner (trimmed)
+    ├── nanoagent/                sources, uv.lock, the PI runner (trimmed)
     ├── config.yaml               the Mochi it serves, NanoAgent's port, runtime versions
     └── stamp                     names this staging
 ```

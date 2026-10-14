@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nanoagent-word-check"
+version = "0.1.0"
+description = "Word Check: a NanoAgent plugin"
+requires-python = ">=3.12"
+dependencies = ["mcp>=1.27,<2", "slimconfig"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv.sources]
+slimconfig = { git = "https://github.com/zeyuyang8/slimconfig", branch = "master" }
+
+[tool.ruff]
+line-length = 120
+
+[tool.pytest.ini_options]
+# contract.py and verifier/ live at the plugin root.
+pythonpath = ["."]

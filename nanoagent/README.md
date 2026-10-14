@@ -124,32 +124,34 @@ in `verifier/` are imported relatively. NanoAgent enforces determinism
 
 ### The reference plugin and starting a new one
 
-`plugins/arxiv-source` is built in and is the reference every plugin follows.
-It searches arXiv, then fetches and saves papers' LaTeX source. It has an MCP
-server with a `TOOLS` table, one module per tool in `src/plugin/`, a schema
-pair per tool, and one verifier module per tool. Start a new plugin with the
-same structure (the folder name is the plugin id):
+NanoAgent ships no plugin. Each lives in its own repository and is published to
+Mochi's marketplace from it:
+[arxiv-source](https://github.com/zeyuyang8/mochi-arxiv-source),
+[bibtex-check](https://github.com/zeyuyang8/mochi-bibtex-check),
+[meal-suggestion](https://github.com/zeyuyang8/mochi-meal-suggestion) and
+[nasdaq-drawdown](https://github.com/zeyuyang8/mochi-nasdaq-drawdown).
+arxiv-source is the reference every plugin follows. It searches arXiv, then
+fetches and saves papers' LaTeX source. It has an MCP server with a `TOOLS`
+table, one module per tool in `src/plugin/`, a schema pair per tool, and one
+verifier module per tool. Start a new plugin with the same structure (the
+folder name is the plugin id):
 
 ```bash
-uv run nanoagent plugin new plugins/my-plugin
+uv run nanoagent plugin new ../my-plugin
 ```
 
 This copies the template (`nanoagent/plugin/template/`) with one working
 `write_note` tool and writes `uv.lock`. The new plugin already passes every
-rule. The plugin's README says how to add a tool. Each plugin under `plugins/`
-is its own uv project with its own tests: `cd plugins/<id> && uv run pytest`.
+rule. The plugin's README says how to add a tool. Each plugin is its own uv
+project with its own tests: `uv run pytest` in its folder.
 
-Inspect a plugin, or run one:
+Inspect a plugin:
 
 ```bash
-uv run nanoagent plugin inspect plugins/arxiv-source
-bash examples/arxiv_source/runs/step1_save_paper_source.sh    # one paper by id
-bash examples/arxiv_source/runs/step2_search_papers.sh        # search only
-bash examples/arxiv_source/runs/step3_save_search_results.sh  # search, fetch, save
-bash examples/arxiv_source/runs/step4_daily_digest.sh         # agent: the daily paper digest
+uv run nanoagent plugin inspect ../my-plugin
 ```
 
-Both run commands are slimconfig runs (`config=<run.yaml> home=<run folder>`).
+Two commands run a plugin's task, both slimconfig runs (`config=<run.yaml> home=<run folder>`).
 Their config names the plugin, the task, and the task's `key=value` arguments.
 
 - **`nanoagent plugin run`** (`PluginRunConfig`) runs `tool` tasks.
@@ -303,7 +305,7 @@ unpack it with `tar xzf` and run it like any plugin folder. The web service
 serves packages, and runs one only once it is installed (above):
 
 - `GET /v1/packages` lists the plugin directories under `packages` in its
-  `WebConfig` (on Railway, every built-in plugin) with their catalog entries.
+  `WebConfig` (on Railway, none) with their catalog entries.
 - `GET /v1/packages/{id}` downloads one.
 - `POST /v1/packages/inspect` checks an uploaded package without running any
   of it. The package must unpack to plain files under one folder named by the

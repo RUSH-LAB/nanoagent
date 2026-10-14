@@ -80,16 +80,19 @@ describe('local process supervisor configuration', () => {
     assert.ok(args.includes('sandbox=none') && args.some(arg => arg.startsWith('installs=')));
   });
 
-  it('rejects a plugins directory that does not exist', () => {
+  it('rejects a plugins directory that does not exist or holds no plugin', () => {
     assert.throws(() => nanoagentPluginsFrom({NANOAGENT_PLUGINS_DIR: '/path/that/does/not/exist'}), /not found/);
-    assert.throws(() => nanoagentPluginsFrom({NANOAGENT_PROJECT_DIR: '/path/that/does/not/exist'}), /not found/);
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-plugins-'));
+    fs.mkdirSync(path.join(empty, 'not-a-plugin'));
+    assert.throws(() => nanoagentPluginsFrom({NANOAGENT_PLUGINS_DIR: empty}), /holds no plugin/);
   });
 
-  it('defaults to the NanoAgent checkout\'s built-in plugins', () => {
+  it('publishes no package unless NANOAGENT_PLUGINS_DIR names a folder of plugins', () => {
     const project = fs.mkdtempSync(path.join(os.tmpdir(), 'mochi-nanoagent-'));
     fs.mkdirSync(path.join(project, 'plugins', 'arxiv-source'), {recursive: true});
     fs.writeFileSync(path.join(project, 'plugins', 'arxiv-source', 'nanoagent.yaml'), '');
-    assert.deepEqual(nanoagentPluginsFrom({NANOAGENT_PROJECT_DIR: project}), [path.join(project, 'plugins', 'arxiv-source')]);
+    assert.deepEqual(nanoagentPluginsFrom({NANOAGENT_PROJECT_DIR: project}), []);
+    assert.ok(nanoagentWebArgs({NANOAGENT_PROJECT_DIR: project}).includes('packages=[]'));
   });
 
   it('names every way node_modules differs from the lockfile', () => {

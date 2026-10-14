@@ -1,0 +1,9 @@
+_ > nanoagent.plugin.manifest.ProductConfig:
+tagline: "Check words against the ones you trust"
+summary: "Give it the words you trust and the words to check. It marks every word known, changed, new or unreadable."
+highlights:
+  - "Names the trusted word each one matches"
+  - "Every verdict is checked against your words"
+steps:
+  - "Paste the words you trust and the words to check into the chat"
+  - "Read a verdict for each word"

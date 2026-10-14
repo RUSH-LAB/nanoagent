@@ -1,0 +1,4 @@
+/* Styles for this plugin's renderers (renderers.js), over the kit's (kit/kit.css). They apply
+   only inside each renderer's output, in its own shadow root. Use the kit's variables
+   (var(--accent), var(--surface), var(--radius), ...) so they follow the host's light and dark
+   themes. */

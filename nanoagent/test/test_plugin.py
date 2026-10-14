@@ -359,31 +359,26 @@ def _resolve(state, path: str):
     return value
 
 
-def _bibtex_check(tmp_path: Path):
-    """A copy of the bibtex-check plugin, so its environment is built in tmp, and its sample input."""
+def _word_check(tmp_path: Path):
+    """A copy of the word-check fixture plugin, so its environment is built in tmp, and an input."""
     import shutil
 
     from nanoagent.plugin.manifest import TOOL_ARTIFACTS
 
-    plugin = tmp_path / "bibtex-check"
-    shutil.copytree(ROOT / "plugins" / "bibtex-check", plugin, ignore=shutil.ignore_patterns(*TOOL_ARTIFACTS))
-    fixtures = plugin / "tests" / "fixtures"
-    return load_manifest(plugin), {"reference": (fixtures / "reference.bib").read_text(), "raw": (fixtures / "raw.bib").read_text()}
+    plugin = tmp_path / "word-check"
+    shutil.copytree(PLUGINS / "word-check", plugin, ignore=shutil.ignore_patterns(*TOOL_ARTIFACTS))
+    return load_manifest(plugin), {"reference": "Cat dog bird", "raw": "Cat cat DOG fish b1rd"}
 
 
-async def test_a_decide_task_checks_bibtex_with_no_model(tmp_path: Path) -> None:
-    manifest, arguments = _bibtex_check(tmp_path)
-    # Each raw entry's label, closest reference and differing fields, worked out by hand.
+async def test_a_decide_task_checks_words_with_no_model(tmp_path: Path) -> None:
+    manifest, arguments = _word_check(tmp_path)
+    # Each raw word's label, closest reference word and differing letters' cases, worked out by hand.
     verdicts = {
-        "transformer": ("real", "vaswani2017attention", []),
-        "resnet": ("real", "he2016deep", []),
-        "nature_dl": ("real", "lecun2015deep", []),
-        "bert": ("fixable", "devlin2019bert", ["year"]),
-        "adam": ("fixable", "kingma2015adam", ["authors"]),
-        "lstm": ("fixable", "hochreiter1997long", ["title"]),
-        "vaswani_attention": ("fixable", "vaswani2017attention", ["doi"]),
-        "gradient_folding": ("invented", None, []),
-        "kingma_broken": ("unreadable", None, []),
+        "Cat": ("known", "Cat", None),
+        "cat": ("changed", "Cat", ["first"]),
+        "DOG": ("changed", "dog", ["first", "rest"]),
+        "fish": ("new", None, None),
+        "b1rd": ("unreadable", None, None),
     }
     added: list[str] = []
 
@@ -396,29 +391,29 @@ async def test_a_decide_task_checks_bibtex_with_no_model(tmp_path: Path) -> None
     def answer(state, question):
         calls = state["calls"]
         if question.id == "next":
-            return "read_bibtex" if len(calls) < 2 else "submit"
-        if question.id == "bibtex":
+            return "read_words" if len(calls) < 2 else "submit"
+        if question.id == "text":
             return "input.reference" if not calls else "input.raw"
         if question.id == "add":
             if len(added) == len(verdicts):
                 return "done"
             added.append(list(verdicts)[len(added)])
             return "add"
-        [entry] = [entry for entry in calls[1]["output"]["entries"] if entry["key"] == added[-1]]
-        label, closest, differs = verdicts[entry["key"]]
-        given = {
-            "key": entry["key"],
-            "title": entry["record"]["title"] if entry["record"] else None,
-            "closest": closest,
-            "error": entry["error"],
-        }
-        if question.id in ("label", "differs"):
-            return label if question.id == "label" else differs
-        return copy_of(state, question, given[question.id])
+        [word] = [word for word in calls[1]["output"]["words"] if word["text"] == added[-1]]
+        label, closest, differs = verdicts[word["text"]]
+        if question.id == "label":
+            return label
+        if question.id == "differs":
+            return "null" if differs is None else "build"
+        if question.id == "value":
+            # Named last first: the output keeps the members' declaration order.
+            return differs[::-1]
+        return copy_of(state, question, {"word": word["text"], "closest": closest, "error": word["error"]}[question.id])
 
     events: list = []
-    outcome = await _run_decide(manifest, manifest.task("check-bibtex"), arguments, tmp_path, _Scripted(answer), events)
+    outcome = await _run_decide(manifest, manifest.task("check-words"), arguments, tmp_path, _Scripted(answer), events)
     assert outcome.verdict.valid and outcome.verdict.score == 1.0, outcome.verdict.message
+    assert [verdict["differs"] for verdict in outcome.output["verdicts"]] == [None, ["first"], ["first", "rest"], None, None]
     assert [kind for kind, _ in events if kind != "task.decision"] == [
         "task.started",
         "task.reference",
@@ -427,7 +422,7 @@ async def test_a_decide_task_checks_bibtex_with_no_model(tmp_path: Path) -> None
         "task.result",
         "task.verdict",
     ]
-    assert [data["arguments"] for kind, data in events if kind == "task.tool"] == [{"bibtex": arguments["reference"]}, {"bibtex": arguments["raw"]}]
+    assert [data["arguments"] for kind, data in events if kind == "task.tool"] == [{"text": arguments["reference"]}, {"text": arguments["raw"]}]
 
 
 async def test_a_decide_task_only_chooses_or_copies(tmp_path: Path) -> None:
@@ -436,15 +431,15 @@ async def test_a_decide_task_only_chooses_or_copies(tmp_path: Path) -> None:
 
     from nanoagent.plugin.dataflow import values
 
-    manifest, arguments = _bibtex_check(tmp_path)
-    task = manifest.task("check-bibtex")
+    manifest, arguments = _word_check(tmp_path)
+    task = manifest.task("check-words")
     pick = random.Random(0)
     added: list[str] = []
 
     # Two reads and three verdicts, every other answer a random option.
     def answer(state, question):
         if question.id == "next":
-            return "read_bibtex" if len(state["calls"]) < 2 else "submit"
+            return "read_words" if len(state["calls"]) < 2 else "submit"
         if question.id == "add":
             added.append("add")
             return "add" if len(added) <= 3 else "done"
@@ -938,7 +933,8 @@ def test_allows_tool_artifacts_but_refuses_extra_files(tmp_path: Path) -> None:
     ]
 
 
-ROOT = Path(__file__).resolve().parents[1]
+# NanoAgent's fixture plugins, each one following every plugin rule.
+PLUGINS = Path(__file__).with_name("plugins")
 
 
 def _layout(folder: Path) -> set[str]:
@@ -947,20 +943,21 @@ def _layout(folder: Path) -> set[str]:
     return {path.name for path in folder.iterdir() if path.name not in TOOL_ARTIFACTS}
 
 
-@pytest.mark.parametrize("plugin", sorted(path.name for path in (ROOT / "plugins").iterdir() if path.is_dir()))
-def test_every_built_in_plugin_follows_every_rule(plugin: str) -> None:
-    assert load_manifest(ROOT / "plugins" / plugin).id == plugin
+@pytest.mark.parametrize("plugin", sorted(path.name for path in PLUGINS.iterdir() if path.is_dir()))
+def test_every_fixture_plugin_follows_every_rule(plugin: str) -> None:
+    assert load_manifest(PLUGINS / plugin).id == plugin
 
 
-def test_plugin_new_creates_a_plugin_shaped_like_the_reference(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_plugin_new_creates_a_plugin_with_the_standard_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from nanoagent.cli.plugin import main
+    from nanoagent.plugin.manifest import REQUIRED_FILES, REQUIRED_FOLDERS
 
     (tmp_path / "gitconfig").write_text("[user]\n\tname = Ada Lovelace\n")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
     assert main(["new", str(tmp_path / "my-notes")]) == 0
     manifest = load_manifest(tmp_path / "my-notes")
     assert (manifest.id, manifest.name) == ("my-notes", "My Notes")
-    assert _layout(tmp_path / "my-notes") == _layout(ROOT / "plugins" / "arxiv-source")
+    assert _layout(tmp_path / "my-notes") == {*REQUIRED_FILES, *REQUIRED_FOLDERS}
     license_text = (tmp_path / "my-notes" / "LICENSE").read_text()
     assert "{{" not in license_text and "Ada Lovelace" in license_text
     assert main(["new", str(tmp_path / "my-notes")]) == 1

@@ -3,14 +3,15 @@
 //! The bundle (scripts/stage.mjs) carries NanoAgent, the relay (src/runner/relay.mjs), Node, and
 //! uv. Each staging is installed once into the app's data folder, because NanoAgent writes beside
 //! its code: its .venv and its plugins' environments. Startup runs `uv sync`, starts NanoAgent with
-//! the member's API keys (none yet, on a first launch) and every plugin in this platform's
-//! sandbox, waits for its default profile, and starts the relay. When the relay needs signing in,
-//! the window shows Mochi's device page, where the member signs in to the site and approves this
-//! computer: one sign-in serves the window and the relay. Once the relay is connected the window
-//! opens the site, at Settings → AI while there is no key. The splash (splash/index.html) polls
-//! `status` throughout; every failure shows there. Keys are set on the keys page
-//! (splash/keys.html) or through the relay, from Settings → AI; either way the supervisor keeps
-//! them, hands them to the running NanoAgent (PUT /v1/keys), and tells the relay which are set.
+//! the member's API keys (none yet, on a first launch) and the plugins Mochi installs in this
+//! platform's sandbox, waits for its default profile, and starts the relay. When the relay needs
+//! signing in, the window shows Mochi's device page, where the member signs in to the site and
+//! approves this computer: one sign-in serves the window and the relay. Once the relay is connected
+//! the window opens the site, at Settings → AI while there is no key. The splash
+//! (splash/index.html) polls `status` throughout; every failure shows there. Keys are set on the
+//! keys page (splash/keys.html) or through the relay, from Settings → AI; either way the supervisor
+//! keeps them, hands them to the running NanoAgent (PUT /v1/keys), and tells the relay which are
+//! set.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -351,7 +352,6 @@ impl Supervisor {
         self.set("starting", "Starting NanoAgent…");
         // Only the relay and the supervisor hold it, so nothing else on this computer can run NanoAgent.
         let token = random_token()?;
-        let plugins = serde_json::to_string(&plugin_folders(&nanoagent.join("plugins"))?).unwrap();
         let workspaces = self.data.join("agent-workspaces");
         let installs = self.data.join("nanoagent-installs");
         let uv_cache = self.data.join("nanoagent-uv-cache");
@@ -365,7 +365,6 @@ impl Supervisor {
             format!("sandbox={sandbox}"),
             // The member's runs choose any model their keys reach, and settings of their own.
             "run_models=true".into(),
-            format!("packages={plugins}"),
             format!("workspaces={}", serde_json::to_string(&workspaces.display().to_string()).unwrap()),
             format!("installs={}", serde_json::to_string(&installs.display().to_string()).unwrap()),
             format!("uv_cache={}", serde_json::to_string(&uv_cache.display().to_string()).unwrap()),
@@ -658,19 +657,6 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
-}
-
-/// The plugin packages NanoAgent publishes: each folder with a manifest (as start-local.mjs finds them).
-fn plugin_folders(root: &Path) -> Result<Vec<String>, String> {
-    let mut folders: Vec<String> = fs::read_dir(root)
-        .map_err(|error| format!("{}: {error}", root.display()))?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.join("nanoagent.yaml").is_file())
-        .map(|path| path.display().to_string())
-        .collect();
-    folders.sort();
-    Ok(folders)
 }
 
 /// True when anything accepts a connection on localhost:`port`.

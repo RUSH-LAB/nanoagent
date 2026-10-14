@@ -1,9 +1,0 @@
-_ > nanoagent.cli.plugin.PluginRunConfig:
-
-# The built-in arXiv source plugin.
-plugin: plugins/arxiv-source
-task: search-papers
-# The task's input, a contract.SearchInput as JSON.
-arguments: examples/arxiv_source/configs/step2_search_papers_arguments.json
-inputs: []
-timeout: 300.0

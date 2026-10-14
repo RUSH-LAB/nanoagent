@@ -1,9 +1,9 @@
 """`nanoagent plugin new`: start a plugin from the template, with the reference plugin's structure.
 
-The template (``nanoagent/plugin/template/``) is the layout of ``plugins/arxiv-source`` with one
-small tool. Its files are copied with ``{{id}}``, ``{{name}}``, ``{{year}}``, ``{{author}}`` (git's
-``user.name``: the builder holds the LICENSE's copyright) and ``{{nanoagent}}`` (this NanoAgent's
-minor version, ``X.Y.0``) filled in;
+The template (``nanoagent/plugin/template/``) is the layout of the reference plugin, arxiv-source
+(https://github.com/zeyuyang8/mochi-arxiv-source), with one small tool. Its files are copied with
+``{{id}}``, ``{{name}}``, ``{{year}}``, ``{{author}}`` (git's ``user.name``: the builder holds the
+LICENSE's copyright) and ``{{nanoagent}}`` (this NanoAgent's minor version, ``X.Y.0``) filled in;
 ``dot.<name>`` files become ``.<name>`` (dotfiles stay out of the package's ignore rules).
 ``uv lock`` then writes the lock, and the result must load under every plugin rule.
 """

@@ -1,8 +1,0 @@
-/* Styles for this plugin's renderers (renderers.js), over the kit's (kit/kit.css). They apply
-   only inside each renderer's output, in its own shadow root. */
-.bib-counts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0 0 12px;
-}

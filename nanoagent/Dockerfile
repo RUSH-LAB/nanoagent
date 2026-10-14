@@ -28,8 +28,6 @@ RUN cd js/pi-runner \
     && npm prune --omit=dev
 
 COPY deploy ./deploy
-# NanoAgent's own plugins as packages (deploy/railway/nanoagent.yaml); each runs once installed.
-COPY plugins ./plugins
 
 ENV PATH="/app/.venv/bin:${PATH}"
 ENV PORT=8787

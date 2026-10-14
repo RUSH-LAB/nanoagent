@@ -4,8 +4,9 @@ Mochi's public surface is one Node process serving both the built Docusaurus
 shell and `/api/*`. Keeping one public origin lets Better Auth use HttpOnly,
 Secure, same-site cookies without exposing credentials to browser JavaScript.
 It calls NanoAgent over Railway's private network; NanoAgent is never public.
-That NanoAgent only offers the marketplace's plugin packages: every run, plugin
-install and plugin page is on the member's own computer, through Mochi Lab
+That NanoAgent offers no plugin package of its own and only packs the plugins
+published to the marketplace from GitHub: every run, plugin install and plugin
+page is on the member's own computer, through Mochi Lab
 (`src/server/runner.js`), and is refused while it is not connected.
 
 ## Required services
