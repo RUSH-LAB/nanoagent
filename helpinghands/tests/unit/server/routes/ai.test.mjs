@@ -676,6 +676,25 @@ describe('/api/ai/settings and /api/ai/models', () => {
     assert.match(r.models[1].unavailableReason, /Needs your Anthropic key/);
   });
 
+  it('tells what the member has spent of Mochi\'s credit, by the key their computer holds', async () => {
+    const ctx = makeCtx();
+    const get = () => invoke(routes, {path: '/api/runner/credit', ctx, auth: {userId: 'u1'}});
+    ctx.runners = {status: () => ({connected: true, keys: [{env: 'OPENROUTER_API_KEY', set: true, hint: 'sk-or-…abcd'}]})};
+    assert.deepEqual((await get()).payload, {credit: null});
+    const asked = [];
+    ctx.openrouterKeys = {ENV: 'OPENROUTER_API_KEY', credit: async (userId, hint) => {
+      asked.push([userId, hint]);
+      return {used: 1.25, total: 5};
+    }};
+    assert.deepEqual((await get()).payload, {credit: {used: 1.25, total: 5}});
+    assert.deepEqual(asked, [['u1', 'sk-or-…abcd']]);
+    ctx.runners = {status: () => ({connected: false, keys: []})};
+    assert.deepEqual((await get()).payload, {credit: null});
+    ctx.runners = {status: () => ({connected: true, keys: [{env: 'OPENROUTER_API_KEY', set: true, hint: 'x'}]})};
+    ctx.openrouterKeys.credit = async () => { throw new Error('OpenRouter GET /keys/h1 failed (500)'); };
+    assert.equal((await get()).status, 502);
+  });
+
   it('passes API keys on to the member\'s computer, answering with what it said', async () => {
     const sent = [];
     const ctx = makeCtx();

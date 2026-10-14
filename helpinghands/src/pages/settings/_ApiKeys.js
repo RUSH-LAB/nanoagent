@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {apiRequest} from '@site/src/utils/api';
 import styles from './styles.module.css';
 import ai from './ai.module.css';
@@ -18,6 +18,14 @@ export default function ApiKeys({computer, onSaved}) {
   const [value, setValue] = useState('');
   const [replacing, setReplacing] = useState(false);
   const [state, setState] = useState(null);
+  // What is spent of Mochi's credit while the key on the computer is the one Mochi gave it.
+  const [credit, setCredit] = useState(null);
+  const hint = saved ? key.hint : null;
+  useEffect(() => {
+    setCredit(null);
+    if (!hint) return;
+    apiRequest('/api/runner/credit').then(value => setCredit(value.credit)).catch(() => setCredit(null));
+  }, [hint]);
 
   const save = async changes => {
     setState({saving: true});
@@ -47,7 +55,7 @@ export default function ApiKeys({computer, onSaved}) {
           : 'Your AI runs with it.';
   return (
     <form
-      className={styles.row}
+      className={`${styles.row} ${ai.keyRow}`}
       onSubmit={event => {
         event.preventDefault();
         if (value.trim()) save({[KEY.env]: value.trim()});
@@ -89,6 +97,29 @@ export default function ApiKeys({computer, onSaved}) {
           <input id="ai-openrouter-key" className={`${styles.input} ${ai.keyInput}`} placeholder="Paste your key" disabled />
         )}
       </div>
+      {credit && !editing && <Credit {...credit} />}
     </form>
+  );
+}
+
+const money = value => `$${value.toFixed(2)}`;
+
+/** A bar of what the member has spent of the credit on the key Mochi gave them. */
+function Credit({used, total}) {
+  const spent = Math.min(used, total);
+  return (
+    <div className={ai.credit}>
+      <div
+        className={ai.creditBar}
+        role="meter"
+        aria-label="Mochi's OpenRouter credit used"
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={spent}
+      >
+        <div className={ai.creditUsed} style={{width: `${(spent / total) * 100}%`}} />
+      </div>
+      <span>{`Mochi's key: ${money(spent)} of ${money(total)} used. Replace it with your own key for more.`}</span>
+    </div>
   );
 }

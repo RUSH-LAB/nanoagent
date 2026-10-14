@@ -396,6 +396,10 @@ const CATEGORIES = [
         response: '{ "connected": true, "device": "laptop", "keys": [{ "env": "OPENROUTER_API_KEY", "label": "OpenRouter", "set": true }] }',
       },
       {
+        method: 'GET', path: '/api/runner/credit', description: 'While Mochi Lab holds the OpenRouter key Mochi gave you, what you have spent of its credit, in dollars; else null.',
+        response: '{ "credit": { "used": 1.25, "total": 5 } }',
+      },
+      {
         method: 'PUT', path: '/api/runner/keys', description: 'Set (a key) or remove (null) API keys in Mochi Lab. Mochi passes them on and keeps nothing; your runs use them at once.',
         request: '{ "changes": { "ANTHROPIC_API_KEY": "sk-ant-..." } }',
         response: '{ "saved": true }',

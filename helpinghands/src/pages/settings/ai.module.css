@@ -33,6 +33,34 @@
   font-size: 0.82rem;
 }
 
+/* The key's row wraps, to take the credit bar under it. */
+.keyRow {
+  flex-wrap: wrap;
+}
+
+/* What is spent of the credit on the key Mochi gave the member: the row's whole width, under it. */
+.credit {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-bottom: 0.6rem;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.8rem;
+}
+
+.creditBar {
+  height: 0.4rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ifm-color-emphasis-200);
+}
+
+.creditUsed {
+  height: 100%;
+  background: var(--ifm-color-primary);
+}
+
 /* The model every run is on, one row for each thing the computer's catalog knows of it. */
 /* Two classes, to outrank the shared row's height and the label's weight. */
 .fact.fact {
