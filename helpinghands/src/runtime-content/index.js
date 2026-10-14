@@ -25,7 +25,7 @@ module.exports = function runtimeContentPlugin(_context, options = {}) {
   const workspacePages = [
     'analytics', 'apps', 'channels', 'compare', 'content-search', 'files', 'flashcards',
     'glossary', 'graph', 'marketplace', 'mindmap', 'reading-lists',
-    'recommendations', 'settings', 'stats', 'tasks', 'timeline', 'whiteboard', 'workspace',
+    'recommendations', 'settings', 'stats', 'submit', 'tasks', 'timeline', 'whiteboard', 'workspace',
   ];
 
   return {

@@ -117,6 +117,14 @@ function validateAuthoring(value) {
   };
 }
 
+// What a member agrees to when they submit to the workspace (routes/submissions.js);
+// a workspace without it takes no submissions.
+function validateSubmissions(value) {
+  if (value == null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('submissions must be an object');
+  return {statement: text(value.statement, 'submissions.statement', {required: true, max: 2000})};
+}
+
 function validateWorkspaceSite(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('site configuration must be an object');
   const site = value.site ?? {};
@@ -139,6 +147,7 @@ function validateWorkspaceSite(value = {}) {
     collections: value.collections == null ? [] : validateCollections(value.collections),
     authoring: validateAuthoring(value.authoring),
     plugins: validatePlugins(value.plugins, rendering),
+    submissions: validateSubmissions(value.submissions),
     rendering: {
       math: rendering.math === undefined ? true : Boolean(rendering.math),
     },

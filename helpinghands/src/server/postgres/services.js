@@ -7,6 +7,7 @@ const {createPostgresRoles} = require('./roles');
 const {createPostgresMarket} = require('./market');
 const {createPostgresSessions} = require('./sessions');
 const {createPostgresWorkspacePlugins} = require('./workspace-plugins');
+const {createPostgresSubmissions} = require('./submissions');
 const {createObjectDeletionQueue} = require('../object-deletions');
 const {auth, tenancy, workspaceProvisioning} = require('../auth');
 const {createPostgresFs, createPublicFsReader} = require('../fs/store');
@@ -53,5 +54,6 @@ module.exports = Object.freeze({
   market: createPostgresMarket({pool: database.pool}),
   sessions: createPostgresSessions({pool: database.pool}),
   workspacePlugins: createPostgresWorkspacePlugins({pool: database.pool}),
+  submissions: createPostgresSubmissions({pool: database.pool}),
   objectDeletions: createObjectDeletionQueue({pool: database.pool}),
 });

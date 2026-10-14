@@ -533,6 +533,8 @@ const ctx = {
   fsHub: postgresServices?.fsHub ?? null,
   // The plugin marketplace's uploads; PostgreSQL only.
   market: postgresServices?.market ?? null,
+  // What members submit to their workspace; PostgreSQL only.
+  submissions: postgresServices?.submissions ?? null,
   // Plugin sessions and what their runs cost; PostgreSQL only.
   sessions: postgresServices?.sessions ?? null,
   // The plugins each workspace added from the marketplace, run from NanoAgent's installs; PostgreSQL only.
@@ -584,6 +586,7 @@ const routeModules = [
   require('./routes/ai'),
   require('./routes/apps'),
   require('./routes/market'),
+  require('./routes/submissions'),
   // Plugin endpoints run after the core ones. A plugin extends the site; it
   // does not get to shadow the routes the site is made of. Each is wrapped so
   // that what reaches it is the narrow plugin API, never this ctx.

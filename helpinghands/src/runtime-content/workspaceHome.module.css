@@ -43,3 +43,16 @@
   padding: 4rem var(--site-page-gutter);
   color: var(--ifm-color-emphasis-600);
 }
+
+/* A workspace that takes submissions: its Submit link, and what a submitter agrees to. */
+.submissions {
+  text-align: center;
+}
+
+.submissions p {
+  margin: 1.75rem auto 0;
+  max-width: 34rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--ifm-color-emphasis-700);
+}
