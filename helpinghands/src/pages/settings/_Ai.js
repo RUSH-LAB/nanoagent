@@ -8,7 +8,11 @@ import ai from './ai.module.css';
 // How often the pane asks whether Mochi Lab is connected.
 const STATUS_MS = 5_000;
 
-const dollars = value => `$${Number(value.toFixed(3))}`;
+// "$0.05", "$0.10", "$0.125": a price to the cent, or the tenth of a cent it has.
+const dollars = value => `$${value.toFixed(3).replace(/0$/, '')}`;
+const thousands = tokens => (tokens >= 1_000_000 ? `${Number((tokens / 1_000_000).toFixed(1))}M` : `${Math.round(tokens / 1000)}K`);
+// OpenRouter names a model "Maker: Name", and the name already says who made it.
+const shortName = label => label.slice(label.indexOf(': ') + 1).trim();
 
 /**
  * Settings → AI. Your AI runs on your own computer, in Mochi Lab: its
@@ -65,12 +69,16 @@ export default function Ai() {
         <div className={styles.row}>
           <div className={styles.rowLabel}>
             <strong>Model</strong>
+            <span>Chat, inline completion and apps all run on it.</span>
           </div>
-          <div className={styles.rowControl}>
-            <span className={ai.model}>{known?.label ?? model.model}</span>
-            {known?.price && (
-              <span className={ai.price}>
-                {`${dollars(known.price.input)} in · ${dollars(known.price.output)} out per million tokens`}
+          <div className={ai.model}>
+            <span className={ai.modelName} title={model.model}>{known ? shortName(known.label) : model.model}</span>
+            {known && (
+              <span className={ai.modelFacts}>
+                {known.contextWindow && <span className={ai.fact}>{`${thousands(known.contextWindow)} context`}</span>}
+                {known.price && <span className={ai.fact}>{`${dollars(known.price.input)} / 1M in`}</span>}
+                {known.price && <span className={ai.fact}>{`${dollars(known.price.output)} / 1M out`}</span>}
+                {known.reasoning && <span className={ai.fact}>Reasoning</span>}
               </span>
             )}
           </div>

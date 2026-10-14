@@ -33,15 +33,40 @@
   font-size: 0.82rem;
 }
 
-/* The model every run is on: its name, as the computer's catalog has it, and its price. */
+/* The model every run is on: its name, as the computer's catalog has it, over what it costs
+   and can do, one pill each. */
 .model {
-  color: var(--ifm-color-emphasis-700);
-  font-size: 0.88rem;
+  display: grid;
+  justify-items: end;
+  gap: 0.35rem;
+  min-width: 0;
 }
 
-.price {
-  color: var(--ifm-color-emphasis-600);
-  font-size: 0.8rem;
+.modelName {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelFacts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.3rem;
+}
+
+.fact {
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 999px;
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* ── The model picker ───────────────────────────────────────────── */
