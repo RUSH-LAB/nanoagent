@@ -10,10 +10,10 @@ Every run folder holds config.yaml, metadata.json and run.log, ``workspace/`` (t
 the plugin may write to) and ``verdict.json``, the plugin's :func:`verify_task` verdict on the
 finished task; the run exits 1 unless that verdict is valid. The files a config lists under
 ``inputs`` are copied into ``workspace/inputs/`` first, so tools, the reference tool and the
-verifier read them as ``inputs/<name>`` and the run folder holds everything it was judged on. A tool run adds ``result.json`` (the
-tool's verified response). An agent run adds ``reference.json`` (the task's reference tool output,
-pinned before the agent starts) and ``messages.json`` (the agent's conversation, as ATIF); the
-agent's tools share one plugin process for the whole run.
+verifier read them as ``inputs/<name>`` and the run folder holds everything it was judged on. Both
+add ``result.json``, the task's output. An agent run adds ``reference.json`` (the task's reference
+tool output, pinned before the agent starts) and ``messages.json`` (the agent's conversation, as
+ATIF); the agent's tools share one plugin process for the whole run.
 """
 
 from __future__ import annotations
@@ -83,8 +83,8 @@ class PluginAgentConfig(Config):
 class PluginResult(Output):
     plugin: str
     task: str
-    tool: str
-    response: dict[str, Any]
+    # The task's output, an instance of its output class.
+    output: dict[str, Any]
 
 
 @dataclass
@@ -112,6 +112,7 @@ class PluginRunLayout(Layout):
 
 @dataclass
 class PluginAgentLayout(Layout):
+    result: PluginResult
     reference: PluginReference
     messages: AtifTrajectory
     verdict: PluginVerdict
@@ -182,8 +183,7 @@ class PluginRun(Run):
                 stage=lambda folder: stage_inputs(self.config.inputs, folder),
             )
         )
-        response = outcome.response
-        self.layout.result = PluginResult(plugin=manifest.id, task=task.id, tool=task.tools[0], response=response)
+        self.layout.result = PluginResult(plugin=manifest.id, task=task.id, output=outcome.output)
         self.layout.verdict = _verdict(task, outcome.verdict)
         return 0 if self.layout.verdict.valid else 1
 
@@ -219,6 +219,7 @@ class PluginAgent(Run):
                 stage=lambda folder: stage_inputs(self.config.inputs, folder),
             )
         )
+        self.layout.result = PluginResult(plugin=manifest.id, task=task.id, output=outcome.output)
         self.layout.reference = PluginReference(tool=task.reference, response=outcome.reference)
         self.layout.messages = AtifTrajectory.from_dict(
             to_atif(

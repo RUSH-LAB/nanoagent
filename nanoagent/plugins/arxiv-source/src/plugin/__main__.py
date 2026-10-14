@@ -13,7 +13,7 @@ from mcp.server.stdio import stdio_server
 from slimconfig import build_output, output_schema, plain_output
 
 from contract import TOOLS, Tool
-from plugin import download_source, list_daily_papers, save_raw_paper, save_search_results, search_papers, write_digest
+from plugin import download_source, list_daily_papers, save_raw_paper, save_search_results, search_papers
 
 server = Server("arxiv-source")
 # NanoAgent names the one folder this plugin may write to.
@@ -25,7 +25,6 @@ IMPLEMENTATIONS = {
     Tool.SAVE_SEARCH_RESULTS: save_search_results,
     Tool.LIST_DAILY_PAPERS: list_daily_papers,
     Tool.SAVE_RAW_PAPER: save_raw_paper,
-    Tool.WRITE_DIGEST: write_digest,
 }
 
 

@@ -32,8 +32,8 @@ class FakeEngine:
 class FakeBoard:
     """A live board that draws nothing: it remembers the drags and clicks it was given."""
 
-    def __init__(self, fen: str) -> None:
-        self.fen = fen
+    def __init__(self, fen: str, moves: list[str]) -> None:
+        self.start = AFTER[moves[-1]] if moves else fen
         self.points: list[list[list[float]]] = []
         self.played: list[str] = []
         self.closed = False

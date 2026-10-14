@@ -169,19 +169,3 @@ export function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
 }
 
-/**
- * A plain-text message for screen readers only, announced politely. Pages call it for changes
- * that matter (a step finished, a result arrived), not for every tick.
- * @param {string} text
- */
-export function announce(text) {
-  let region = document.getElementById("kit-announcer");
-  if (!region) {
-    region = h("div", { id: "kit-announcer", class: "visually-hidden", role: "status", "aria-live": "polite" });
-    document.body.append(region);
-  }
-  region.textContent = "";
-  setTimeout(() => {
-    region.textContent = text;
-  }, 30);
-}

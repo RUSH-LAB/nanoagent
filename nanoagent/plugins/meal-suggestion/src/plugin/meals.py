@@ -1,4 +1,4 @@
-"""The recipes file, a contract Cookbook, and the agent's tools."""
+"""The plugin's recipes, a contract Cookbook, and the agent's tools."""
 
 from __future__ import annotations
 
@@ -22,30 +22,18 @@ from contract import (
     RecipesInput,
     RecipesOutput,
     Restrictions,
-    SubmitDayInput,
-    SubmitDayOutput,
-    SubmitInput,
-    SubmitOutput,
 )
 
 NUTRIENTS = tuple(nutrient.value for nutrient in Nutrient)
-# The files submit_meal and submit_day write and the tasks' verifiers read, relative to the workspace.
-SUGGESTION = "meal.json"
-DAY = "day.json"
+# The Food.com recipes examples/meal_suggestion's step 1 builds, copied here; the verifier reads the same file.
+COOKBOOK = Path(__file__).with_name("recipes.json")
 
 
-def load_recipes(workspace: Path, path: str) -> dict[str, CookbookRecipe]:
-    """The recipes of the Cookbook in ``path``, which must stay inside ``workspace``."""
-    relative = Path(path)
-    root = workspace.resolve()
-    file = (root / relative).resolve()
-    if relative.is_absolute() or ".." in relative.parts or not file.is_relative_to(root):
-        raise ValueError(f"{path} must stay inside the plugin workspace")
-    if not file.is_file():
-        raise FileNotFoundError(f"no input file at {path}")
-    recipes = build_output(json.loads(file.read_text(encoding="utf-8")), Cookbook).recipes
+def load_recipes() -> dict[str, CookbookRecipe]:
+    """The recipes of the plugin's Cookbook."""
+    recipes = build_output(json.loads(COOKBOOK.read_text(encoding="utf-8")), Cookbook).recipes
     if not recipes:
-        raise ValueError(f"{path} holds no recipes")
+        raise ValueError(f"{COOKBOOK.name} holds no recipes")
     for name, recipe in recipes.items():
         if not recipe.meals:
             raise ValueError(f"recipe {name!r} must be for one or more meals")
@@ -100,59 +88,30 @@ def rounded(values: dict[str, float]) -> Nutrition:
     return Nutrition(**{key: round(value, 3) for key, value in values.items()})
 
 
-def list_recipes(given: RecipesInput, workspace: Path) -> RecipesOutput:
+def list_recipes(given: RecipesInput) -> RecipesOutput:
     """The recipes for the meal that meet the restrictions, by name, each with its nutrition per
     serving and its preference score."""
     check_likes(given.likes)
-    found = load_recipes(workspace, given.recipes)
     return RecipesOutput(
         recipes=[
             Recipe(
                 name=name,
+                url=recipe.url,
                 tags=recipe.tags,
                 per_serving=recipe.per_serving,
                 liked=liked(recipe, given.likes),
                 score=score(recipe, given.likes),
             )
-            for name, recipe in sorted(found.items())
+            for name, recipe in sorted(load_recipes().items())
             if matches(recipe, given.meal, given.restrictions)
         ]
     )
 
 
-def nutrition(given: NutritionInput, workspace: Path) -> NutritionOutput:
+def nutrition(given: NutritionInput) -> NutritionOutput:
     """One serving of the recipe: its ingredients and its nutrition."""
-    found = load_recipes(workspace, given.recipes)
+    found = load_recipes()
     if given.recipe not in found:
         raise ValueError(f"no recipe named {given.recipe!r}")
     recipe = found[given.recipe]
     return NutritionOutput(recipe=given.recipe, ingredients=recipe.ingredients, per_serving=recipe.per_serving)
-
-
-def submit_meal(given: SubmitInput, workspace: Path) -> SubmitOutput:
-    """Write the suggestion, each dish's recipe and whole servings, to `meal.json`, replacing an
-    earlier one."""
-    names = [dish.recipe for dish in given.dishes]
-    if not given.dishes or len(set(names)) != len(names):
-        raise ValueError("dishes must name at least one recipe, each once")
-    path = workspace.resolve() / SUGGESTION
-    dishes = [{"recipe": dish.recipe, "servings": dish.servings} for dish in given.dishes]
-    path.write_text(json.dumps({"dishes": dishes}, indent=2) + "\n", encoding="utf-8")
-    return SubmitOutput(path=str(path), dishes=len(given.dishes))
-
-
-def submit_day(given: SubmitDayInput, workspace: Path) -> SubmitDayOutput:
-    """Write the day's plan, each meal's dishes, to `day.json`, replacing an earlier one."""
-    if not given.meals:
-        raise ValueError("a day has one or more meals")
-    for meal, dishes in given.meals.items():
-        names = [dish.recipe for dish in dishes]
-        if not dishes or len(set(names)) != len(names):
-            raise ValueError(f"{meal.value} must name at least one recipe, each once")
-    path = workspace.resolve() / DAY
-    meals = {
-        meal.value: [{"recipe": dish.recipe, "servings": dish.servings} for dish in dishes]
-        for meal, dishes in given.meals.items()
-    }
-    path.write_text(json.dumps({"meals": meals}, indent=2) + "\n", encoding="utf-8")
-    return SubmitDayOutput(path=str(path), dishes=sum(len(dishes) for dishes in given.meals.values()))

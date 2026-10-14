@@ -1,10 +1,10 @@
 """The live board's tools: opening it, screenshotting it, and working its mouse."""
 
-from .checks import RECORD, fen_problem, point_problem, record, record_problem, result
+from .checks import RECORD, game_problem, lead_problem, point_problem, record, record_problem, result
 
 
 def verify_open_input(value):
-    problem = fen_problem(value.fen)
+    problem = game_problem(value)
     if problem:
         return result(False, problem)
     return result(True, "input is valid")
@@ -47,20 +47,29 @@ def verify_opened_output(input_value, output_value, workspace):
     shot = verify_shot_output(input_value, output_value, workspace)
     if not shot["valid"]:
         return shot
-    acted = verify_acted_output(input_value, output_value, workspace)
-    if not acted["valid"]:
-        return acted
-    if record(workspace)["fen"] != input_value.fen:
-        return result(False, f"{RECORD} records another starting position")
+    game, problem = recorded(workspace)
+    if problem:
+        return result(False, problem)
+    problem = lead_problem(input_value, game["fen"])
+    if problem:
+        return result(False, f"{RECORD} records another starting position: {problem}")
     return shot
 
 
 def verify_acted_output(input_value, output_value, workspace):
-    """The board's record after an action: every action leaves it well formed."""
-    game = record(workspace)
-    if game is None:
-        return result(False, f"the action recorded no game in {RECORD}")
-    problem = record_problem(game)
+    """The board's record after an action: every action leaves it well formed, and returns what it records."""
+    game, problem = recorded(workspace)
     if problem:
         return result(False, problem)
+    now = game["positions"][-1] if game["moves"] else game["fen"]
+    if output_value.moves != game["moves"] or output_value.position != now:
+        return result(False, f"the action returned another game than {RECORD} records")
     return result(True, f"{RECORD} records {len(game['moves'])} move(s)")
+
+
+def recorded(workspace):
+    """The board's record and what is wrong with it, or None."""
+    game = record(workspace)
+    if game is None:
+        return None, f"the action recorded no game in {RECORD}"
+    return game, record_problem(game)

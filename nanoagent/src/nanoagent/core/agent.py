@@ -602,6 +602,8 @@ class Agent:
                     is_error=row["is_error"],
                     error=row["output"] if row["is_error"] else None,
                 )
+                for record in getattr(row["output"], "model_calls", ()):
+                    profile.add_model_call(record)
             return row, message
 
         results = await asyncio.gather(*(run_one(i, c) for i, c in enumerate(calls)))

@@ -13,7 +13,7 @@ from mcp.server.stdio import stdio_server
 from slimconfig import build_output, output_schema, plain_output
 
 from contract import TOOLS, Tool
-from plugin import get_closes, list_constituents, pin_week, submit_tickers
+from plugin import get_closes, list_constituents, pin_week
 
 server = Server("nasdaq-drawdown")
 # NanoAgent names the one folder this plugin may write to.
@@ -23,7 +23,6 @@ IMPLEMENTATIONS = {
     Tool.PIN_WEEK: pin_week,
     Tool.LIST_CONSTITUENTS: list_constituents,
     Tool.GET_CLOSES: get_closes,
-    Tool.SUBMIT_TICKERS: submit_tickers,
 }
 
 

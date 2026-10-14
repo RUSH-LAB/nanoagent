@@ -17,7 +17,7 @@ def test_approves_a_written_note(tmp_path: Path) -> None:
     made = build_output(plain_output(write_note(given, tmp_path)), NoteOutput)
     assert verifier.verify_input("write_note", given)["valid"] is True
     assert verifier.verify_output("write_note", given, made, str(tmp_path))["valid"] is True
-    assert verifier.verify_task("write-note", given, None, str(tmp_path))["valid"] is True
+    assert verifier.verify_task("write-note", given, made, None, str(tmp_path))["valid"] is True
 
 
 def test_refuses_a_destination_outside_the_workspace() -> None:
@@ -27,9 +27,9 @@ def test_refuses_a_destination_outside_the_workspace() -> None:
 
 def test_refuses_a_missing_or_changed_note(tmp_path: Path) -> None:
     given = build_output(NOTE, NoteInput)
-    assert verifier.verify_task("write-note", given, None, str(tmp_path))["valid"] is False
+    made = build_output({"path": str(tmp_path / "notes" / "first.txt"), "bytes": 7}, NoteOutput)
+    assert verifier.verify_task("write-note", given, made, None, str(tmp_path))["valid"] is False
     (tmp_path / "notes").mkdir()
     (tmp_path / "notes" / "first.txt").write_text("changed")
-    made = build_output({"path": str(tmp_path / "notes" / "first.txt"), "bytes": 7}, NoteOutput)
     assert verifier.verify_output("write_note", given, made, str(tmp_path))["valid"] is False
-    assert verifier.verify_task("write-note", given, None, str(tmp_path))["valid"] is False
+    assert verifier.verify_task("write-note", given, made, None, str(tmp_path))["valid"] is False

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import base64
+import dataclasses
 import functools
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -38,7 +40,7 @@ class EchoOutput(Output):
 
 
 TOOLS = {Tool.ECHO: (EchoInput, EchoOutput)}
-TASKS = {Task.ECHO: EchoInput}
+TASKS = {Task.ECHO: (EchoInput, EchoOutput)}
 """
 
 MANIFEST = """_ > nanoagent.plugin.manifest.ManifestConfig:
@@ -46,7 +48,7 @@ id: echo
 name: Echo
 version: 1.0.0
 status: ready
-nanoagent: ~=0.3.0
+nanoagent: ~=0.4.0
 runtime > nanoagent.plugin.manifest.RuntimeConfig:
   type: mcp_stdio
   command: [echo-server]
@@ -124,8 +126,8 @@ def write_plugin(root: Path) -> Path:
         "run.sh": (TEMPLATE / "run.sh").read_text(),
         "src/echo.py": "",
         "tests/test_verifier.py": "",
-        "ui/app.js": (TEMPLATE / "ui" / "app.js").read_text(),
-        "ui/app.css": (TEMPLATE / "ui" / "app.css").read_text(),
+        "ui/renderers.js": (TEMPLATE / "ui" / "renderers.js").read_text(),
+        "ui/renderers.css": (TEMPLATE / "ui" / "renderers.css").read_text(),
         "product/product.yaml": PRODUCT,
         "product/icon.svg": ICON,
         "verifier/__init__.py": (
@@ -135,7 +137,7 @@ def write_plugin(root: Path) -> Path:
             "    valid = output_value.value == input_value.value\n"
             "    return {'valid': valid, 'score': float(valid), 'message': 'ok' if valid else 'mismatch',"
             " 'details': {}}\n"
-            "def verify_task(task, arguments, reference, workspace):\n"
+            "def verify_task(task, arguments, output, reference, workspace):\n"
             "    return {'valid': True, 'score': 1.0, 'message': 'checked per call', 'details': {}}\n"
         ),
         "contract.py": CONTRACT,
@@ -193,6 +195,61 @@ def test_rejects_unknown_task_tool(tmp_path: Path) -> None:
     path.write_text(path.read_text().replace("tools: [echo]", "tools: [missing]"))
     with pytest.raises(ValueError, match="undeclared tools"):
         load_manifest(path.parent)
+
+
+def test_a_tool_task_gives_its_tools_output(tmp_path: Path) -> None:
+    from nanoagent.plugin import PluginError
+
+    write_plugin(tmp_path)
+    contract = tmp_path / "contract.py"
+    contract.write_text(contract.read_text().replace("TASKS = {Task.ECHO: (EchoInput, EchoOutput)}", "TASKS = {Task.ECHO: (EchoInput, EchoInput)}"))
+    with pytest.raises(PluginError) as error:
+        load_manifest(tmp_path)
+    assert error.value.violations == [
+        "task 'echo': a tool runner has exactly one tool, and takes that tool's input and gives its output"
+    ]
+
+
+def test_no_tool_is_named_submit(tmp_path: Path) -> None:
+    from nanoagent.plugin import PluginError
+
+    manifest = write_plugin(tmp_path)
+    manifest.write_text(manifest.read_text().replace("  echo:\n    description: Echo input\ntasks", "  echo:\n    description: Echo input\n  submit:\n    description: Submit\ntasks"))
+    contract = tmp_path / "contract.py"
+    contract.write_text(
+        contract.read_text()
+        .replace('class Tool(Enum):\n    ECHO = "echo"\n', 'class Tool(Enum):\n    ECHO = "echo"\n    SUBMIT = "submit"\n')
+        .replace("TOOLS = {Tool.ECHO: (EchoInput, EchoOutput)}", "TOOLS = {Tool.ECHO: (EchoInput, EchoOutput), Tool.SUBMIT: (EchoInput, EchoOutput)}")
+    )
+    with pytest.raises(PluginError) as error:
+        load_manifest(tmp_path)
+    assert "nanoagent.yaml names a tool 'submit': NanoAgent gives agent tasks that one" in error.value.violations
+
+
+async def test_an_agent_task_without_a_submission_fails(tmp_path: Path) -> None:
+    from nanoagent.core.agent import Agent, Reply
+    from nanoagent.plugin.tasks import run_task
+
+    class Answers:
+        async def query(self, messages, tools, on_delta=None, **_):
+            return Reply(content="done, I think")
+
+    path = write_plugin(tmp_path)
+    path.write_text(path.read_text().replace("[echo-server]", f"[{sys.executable}, src/server.py]"))
+    (tmp_path / "src" / "server.py").write_text(SERVER, encoding="utf-8")
+    manifest = load_manifest(tmp_path)
+    task = dataclasses.replace(manifest.task("echo"), runner="agent")
+    with pytest.raises(RuntimeError, match="without calling submit"):
+        await run_task(
+            manifest,
+            task,
+            {"value": "hi"},
+            tmp_path,
+            make_agent=lambda system: Agent(Answers(), [], system_prompt=system),
+            timeout=30,
+            on_event=lambda _kind, _data: None,
+            stage=lambda _folder: None,
+        )
 
 
 def test_validates_tool_input_before_launch(tmp_path: Path) -> None:
@@ -291,7 +348,7 @@ def test_fails_a_verifier_whose_two_calls_disagree(tmp_path: Path) -> None:
         "    return {'valid': True, 'score': 1 / len(calls), 'message': 'ok', 'details': {}}\n"
         "def verify_output(tool, input_value, output_value, workspace):\n"
         "    return {'valid': True, 'score': 1.0, 'message': 'ok', 'details': {}}\n"
-        "def verify_task(task, arguments, reference, workspace):\n"
+        "def verify_task(task, arguments, output, reference, workspace):\n"
         "    return {'valid': True, 'score': 1.0, 'message': 'ok', 'details': {}}\n",
         encoding="utf-8",
     )
@@ -378,7 +435,7 @@ timeout: 60.0
         main(["run", f"config={config}", f"home={home}"])
     assert exit_.value.code == 0
     run = load_layout(home, PluginRunLayout)
-    assert run.result.response == {"value": "hello"}
+    assert run.result.output == {"value": "hello"}
     assert (run.workspace / "echo.txt").read_text() == "hello"
     assert (run.workspace / "inputs" / "given.txt").read_text() == "a file the task reads"
     assert run.verdict.valid is True
@@ -584,10 +641,10 @@ async def test_plugin_tool_images_reach_the_model_as_images() -> None:
 @pytest.mark.parametrize(
     ("versions", "problem"),
     [
-        ("~=0.2.0", "nanoagent.yaml nanoagent: the plugin runs on NanoAgent ~=0.2.0, not this NanoAgent, 0.3.0"),
-        ('">=0.4"', "nanoagent.yaml nanoagent: the plugin runs on NanoAgent >=0.4, not this NanoAgent, 0.3.0"),
-        ("latest", "nanoagent.yaml nanoagent 'latest' is not a version range, such as ~=0.3.0"),
-        ('""', "nanoagent.yaml nanoagent '' is not a version range, such as ~=0.3.0"),
+        ("~=0.3.0", "nanoagent.yaml nanoagent: the plugin runs on NanoAgent ~=0.3.0, not this NanoAgent, 0.4.0"),
+        ('">=0.5"', "nanoagent.yaml nanoagent: the plugin runs on NanoAgent >=0.5, not this NanoAgent, 0.4.0"),
+        ("latest", "nanoagent.yaml nanoagent 'latest' is not a version range, such as ~=0.4.0"),
+        ('""', "nanoagent.yaml nanoagent '' is not a version range, such as ~=0.4.0"),
     ],
 )
 def test_a_plugin_names_the_nanoagent_versions_it_runs_on(tmp_path: Path, versions: str, problem: str) -> None:
@@ -595,18 +652,19 @@ def test_a_plugin_names_the_nanoagent_versions_it_runs_on(tmp_path: Path, versio
 
     write_plugin(tmp_path)
     manifest = tmp_path / "nanoagent.yaml"
-    manifest.write_text(manifest.read_text().replace("nanoagent: ~=0.3.0", f"nanoagent: {versions}"))
+    manifest.write_text(manifest.read_text().replace("nanoagent: ~=0.4.0", f"nanoagent: {versions}"))
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
     assert error.value.violations == [problem]
 
 
-def test_ui_is_a_static_web_page(tmp_path: Path) -> None:
+def test_ui_is_the_renderers_of_nanoagents_page(tmp_path: Path) -> None:
     from nanoagent.plugin import PluginError
 
     write_plugin(tmp_path)
-    (tmp_path / "ui" / "app.js").unlink()
-    (tmp_path / "ui" / "app.css").unlink()
+    (tmp_path / "ui" / "renderers.js").unlink()
+    (tmp_path / "ui" / "renderers.css").unlink()
+    (tmp_path / "ui" / "app.js").write_text("export default () => null;", encoding="utf-8")
     (tmp_path / "ui" / "server.py").write_text("", encoding="utf-8")
     (tmp_path / "ui" / "index.html").write_text("old", encoding="utf-8")
     (tmp_path / "ui" / "kit").mkdir()
@@ -614,8 +672,9 @@ def test_ui_is_a_static_web_page(tmp_path: Path) -> None:
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
     assert error.value.violations == [
-        "missing ui/app.js",
-        "missing ui/app.css",
+        "missing ui/renderers.js",
+        "missing ui/renderers.css",
+        "unexpected ui/app.js: NanoAgent's chat is every plugin's page; ui/renderers.js draws its outputs",
         "unexpected ui/index.html: NanoAgent serves the page's index.html and kit/",
         "unexpected ui/kit/dom.js: NanoAgent serves the page's index.html and kit/",
         "unexpected ui/server.py: ui/ holds only static web files",
@@ -626,8 +685,8 @@ def test_ui_scripts_import_only_what_nanoagent_serves(tmp_path: Path) -> None:
     from nanoagent.plugin import PluginError
 
     write_plugin(tmp_path)
-    (tmp_path / "ui" / "app.js").write_text(
-        'import { chatLayout } from "./kit/components.js";\n'
+    (tmp_path / "ui" / "renderers.js").write_text(
+        'import { card } from "./kit/components.js";\n'
         'import { helper } from "./lib/helper.js";\n'
         'import { missing } from "./kit/missing.js";\n'
         'import { other } from "./other.js";\n'
@@ -635,7 +694,7 @@ def test_ui_scripts_import_only_what_nanoagent_serves(tmp_path: Path) -> None:
         'import remote from "https://example.com/x.js";\n'
         'import up from "../contract.js";\n'
         "const later = await import(name);\n"
-        "export const page = chatLayout;\n",
+        "export const renderers = { EchoOutput: card };\n",
         encoding="utf-8",
     )
     (tmp_path / "ui" / "lib").mkdir()
@@ -643,13 +702,13 @@ def test_ui_scripts_import_only_what_nanoagent_serves(tmp_path: Path) -> None:
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
     assert error.value.violations == [
-        "ui/app.js must export the page's layout as its default export",
-        "ui/app.js calls import() with a computed path; import only literal paths",
-        "ui/app.js imports './kit/missing.js', which NanoAgent does not serve",
-        "ui/app.js imports './other.js', which NanoAgent does not serve",
-        "ui/app.js imports 'lit': import only ./ or ../ paths, the kit's or ui/'s own",
-        "ui/app.js imports 'https://example.com/x.js': import only ./ or ../ paths, the kit's or ui/'s own",
-        "ui/app.js imports '../contract.js', outside ui/",
+        "ui/renderers.js must export its renderers, by output class name, as its default export",
+        "ui/renderers.js calls import() with a computed path; import only literal paths",
+        "ui/renderers.js imports './kit/missing.js', which NanoAgent does not serve",
+        "ui/renderers.js imports './other.js', which NanoAgent does not serve",
+        "ui/renderers.js imports 'lit': import only ./ or ../ paths, the kit's or ui/'s own",
+        "ui/renderers.js imports 'https://example.com/x.js': import only ./ or ../ paths, the kit's or ui/'s own",
+        "ui/renderers.js imports '../contract.js', outside ui/",
     ]
 
 
@@ -662,7 +721,7 @@ def test_serves_the_plugin_page_in_nanoagents_own_kit(tmp_path: Path) -> None:
     assert _ui_file(manifest, "") == PAGE / "index.html"
     assert _ui_file(manifest, "kit/dom.js") == PAGE / "kit" / "dom.js"
     assert _ui_file(manifest, "kit/server.py") is None
-    assert _ui_file(manifest, "app.js") == (tmp_path / "ui" / "app.js").resolve()
+    assert _ui_file(manifest, "renderers.js") == (tmp_path / "ui" / "renderers.js").resolve()
     assert _ui_file(manifest, "../nanoagent.yaml") is None
 
 

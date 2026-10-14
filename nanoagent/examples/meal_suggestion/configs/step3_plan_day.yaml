@@ -1,6 +1,6 @@
 _ > nanoagent.cli.plugin.PluginAgentConfig:
 
-# The meal-suggestion plugin's plan-day task, worked by an agent on step 1's Food.com recipes.
+# The meal-suggestion plugin's plan-day task, worked by an agent on the plugin's Food.com recipes.
 plugin: plugins/meal-suggestion
 task: plan-day
 # The task's input, a contract.DayInput as JSON: breakfast, lunch and dinner, each within its own kcal
@@ -9,8 +9,8 @@ task: plan-day
 # or Dessert, one serving of each, for an eater who loves dairy, likes chocolate and dislikes
 # mushrooms. Healthy keeps the lists short (67 recipes over the three meals) so an agent can weigh them.
 arguments: examples/meal_suggestion/configs/step3_plan_day_arguments.json
-inputs:
-  - examples/meal_suggestion/outputs/step1_build_foodcom_recipes/recipes.json
+# The plugin carries its recipes: the task reads no file.
+inputs: []
 timeout: 600.0
 
 llm > nanoagent.llm.bedrock.BedrockConfig:

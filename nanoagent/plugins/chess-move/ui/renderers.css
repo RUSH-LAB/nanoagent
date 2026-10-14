@@ -1,0 +1,52 @@
+/* Chess Move's renderers (renderers.js), over the kit's (kit/kit.css). Every colour comes from the
+   kit's variables, so the board and its arrow follow the host's light and dark themes. */
+
+.played-move { display: grid; gap: 12px; }
+.move-words { font-size: 17px; font-weight: 620; line-height: 1.35; }
+
+.chessboard {
+  /* The two square colours keep about 2:1 contrast with each other, as a printed board does. */
+  --sq-light: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  --sq-dark: color-mix(in srgb, var(--accent) 54%, var(--surface));
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  min-width: 220px;
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  container-type: inline-size;
+}
+html[data-theme="dark"] .chessboard {
+  --sq-light: color-mix(in srgb, var(--accent) 52%, var(--surface));
+  --sq-dark: color-mix(in srgb, var(--accent) 16%, var(--surface));
+}
+.board-grid { display: grid; grid-template-columns: repeat(8, 1fr); width: 100%; height: 100%; }
+.sq { position: relative; aspect-ratio: 1; min-width: 0; background: var(--sq-light); }
+.sq.dark { background: var(--sq-dark); }
+.sq.last::before { content: ""; position: absolute; inset: 0; background: color-mix(in srgb, var(--mark) 55%, transparent); }
+.coord {
+  position: absolute;
+  z-index: 1;
+  font-size: max(9px, 2.3cqw);
+  font-weight: 650;
+  line-height: 1;
+}
+.coord.rank { top: 3px; left: 4px; }
+.coord.file { bottom: 3px; right: 4px; }
+/* One ink for both square colours: dark in the light theme, light in the dark one, each with a halo
+   of its square's colour, so a corner label stays legible where a piece reaches into the corner. */
+.coord { color: color-mix(in srgb, var(--text) 88%, var(--sq-dark)); }
+html[data-theme="dark"] .coord { color: var(--text); }
+.sq.light .coord { text-shadow: 0 0 2px var(--sq-light), 0 0 2px var(--sq-light); }
+.sq.dark .coord { text-shadow: 0 0 2px var(--sq-dark), 0 0 2px var(--sq-dark); }
+/* Black pieces get a light halo in the dark theme, so they read on dark squares. */
+html[data-theme="dark"] .piece.b { filter: drop-shadow(0 0 1.5px rgb(255 255 255 / .55)); }
+.piece { position: absolute; inset: 3%; width: 94%; height: 94%; z-index: 1; }
+
+.board-marks { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; }
+.arrow { filter: drop-shadow(0 0 2px color-mix(in srgb, var(--surface) 85%, transparent)); }
+.arrow line { stroke: var(--accent-strong); }
+.arrow polygon { fill: var(--accent-strong); }

@@ -10,7 +10,6 @@ from slimconfig import Output
 class Tool(Enum):
     PARSE_BIBTEX = "parse_bibtex"
     READ_BIBTEX = "read_bibtex"
-    SUBMIT_VERDICTS = "submit_verdicts"
 
 
 class Task(Enum):
@@ -19,7 +18,18 @@ class Task(Enum):
 
 class Label(Enum):
     REAL = "real"
-    HALLUCINATED = "hallucinated"
+    FIXABLE = "fixable"
+    INVENTED = "invented"
+    UNREADABLE = "unreadable"
+
+
+class Field(Enum):
+    ENTRY_TYPE = "entry_type"
+    TITLE = "title"
+    AUTHORS = "authors"
+    YEAR = "year"
+    VENUE = "venue"
+    DOI = "doi"
 
 
 @dataclass
@@ -41,8 +51,8 @@ class Entry(Output):
 
 @dataclass
 class ParseInput(Output):
-    reference: Annotated[str, "The verified BibTeX file, relative to the workspace"]
-    raw: Annotated[str, "The LLM-generated BibTeX file, relative to the workspace"]
+    reference: Annotated[str, "The trusted BibTeX entries, as text: the bibliography the checked entries must match"]
+    raw: Annotated[str, "The BibTeX entries to check, as text, e.g. a bibliography an AI model wrote"]
 
 
 @dataclass
@@ -53,29 +63,35 @@ class ParseOutput(Output):
 
 @dataclass
 class ReadInput(Output):
-    path: Annotated[str, "A BibTeX file, relative to the workspace"]
+    bibtex: Annotated[str, "BibTeX text: the task's reference or raw input, as given"]
 
 
 @dataclass
 class ReadOutput(Output):
-    path: str
     entries: list[Entry]
 
 
 @dataclass
-class VerdictsInput(Output):
-    verdicts: Annotated[dict[str, Label], "Raw entry citation key -> real or hallucinated, one per raw entry"]
+class Verdict(Output):
+    key: Annotated[str, "The checked entry's citation key"]
+    title: Annotated[str | None, "Its title, or null when it is unreadable"]
+    label: Annotated[
+        Label,
+        "real: equals a reference in every field; fixable: close to a reference but differs in some fields;"
+        " invented: close to no reference; unreadable: does not parse into the schema",
+    ]
+    closest: Annotated[str | None, "The closest reference's citation key for a real or fixable entry, else null"]
+    differs: Annotated[list[Field], "The fields that differ from the closest reference; empty unless fixable"]
+    error: Annotated[str | None, "Why an unreadable entry does not parse, else null"]
 
 
 @dataclass
-class VerdictsOutput(Output):
-    path: str
-    verdicts: int
+class CheckOutput(Output):
+    verdicts: Annotated[list[Verdict], "One verdict per checked entry, in the order of the raw BibTeX"]
 
 
 TOOLS = {
     Tool.PARSE_BIBTEX: (ParseInput, ParseOutput),
     Tool.READ_BIBTEX: (ReadInput, ReadOutput),
-    Tool.SUBMIT_VERDICTS: (VerdictsInput, VerdictsOutput),
 }
-TASKS = {Task.CHECK_BIBTEX: ParseInput}
+TASKS = {Task.CHECK_BIBTEX: (ParseInput, CheckOutput)}

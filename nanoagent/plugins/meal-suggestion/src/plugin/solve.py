@@ -3,23 +3,22 @@ the eater likes best."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 from scipy.optimize import Bounds, LinearConstraint, milp
 
 from contract import (
     Bound,
+    CookbookRecipe,
     DayInput,
     DayOutput,
     Dish,
     Meal,
-    MealPlan,
     Nutrient,
     SolveInput,
     SolveOutput,
+    Suggestion,
 )
-from plugin.meals import NUTRIENTS, check_likes, load_recipes, matches, per_serving, rounded, score
+from plugin.meals import NUTRIENTS, check_likes, liked, load_recipes, matches, per_serving, rounded, score
 
 # scipy.optimize.milp's status for a problem with no feasible point.
 INFEASIBLE = 2
@@ -46,7 +45,7 @@ def optimize(
     scores: dict[str, float],
     max_servings: int,
     what: str,
-) -> tuple[dict[Meal, list[Dish]], float]:
+) -> tuple[dict[Meal, dict[str, int]], float]:
     """The meals the eater likes best, and the least preference score meals meeting every constraint
     can have. ``meals`` gives each meal its eligible recipes and the bounds on its own totals; ``day``
     bounds all the meals' totals summed. Each meal has whole servings, 0 to ``max_servings`` of each
@@ -97,16 +96,16 @@ def optimize(
         return solution
 
     best, worst = solved(-1.0), solved(1.0)
-    plan: dict[Meal, list[Dish]] = {meal: [] for meal in meals}
+    plan: dict[Meal, dict[str, int]] = {meal: {} for meal in meals}
     for (meal, name), servings in zip(cells, best.x[:count], strict=True):
         if round(servings):
-            plan[meal].append(Dish(recipe=name, servings=round(servings)))
+            plan[meal][name] = round(servings)
     return plan, round(worst.fun, 6)
 
 
-def _eligible(given: SolveInput | DayInput, workspace: Path, meals: list[Meal]):
+def _eligible(given: SolveInput | DayInput, meals: list[Meal]):
     check_likes(given.likes)
-    found = load_recipes(workspace, given.recipes)
+    found = load_recipes()
     eligible = {}
     for meal in meals:
         eligible[meal] = sorted(name for name, recipe in found.items() if matches(recipe, meal, given.restrictions))
@@ -115,7 +114,7 @@ def _eligible(given: SolveInput | DayInput, workspace: Path, meals: list[Meal]):
     names = sorted({name for names in eligible.values() for name in names})
     nutrition = {name: per_serving(found[name]) for name in names}
     scores = {name: score(found[name], given.likes) for name in names}
-    return eligible, nutrition, scores
+    return found, eligible, nutrition, scores
 
 
 def _totals(dishes: list[Dish], nutrition: dict[str, dict[str, float]]) -> dict[str, float]:
@@ -124,25 +123,30 @@ def _totals(dishes: list[Dish], nutrition: dict[str, dict[str, float]]) -> dict[
     }
 
 
-def solve(given: SolveInput, workspace: Path) -> SolveOutput:
+def _dishes(servings: dict[str, int], found: dict[str, CookbookRecipe], given: SolveInput | DayInput) -> list[Dish]:
+    return [
+        Dish(recipe=name, url=found[name].url, servings=count, liked=liked(found[name], given.likes))
+        for name, count in servings.items()
+    ]
+
+
+def solve(given: SolveInput) -> SolveOutput:
     """The meal with the highest preference score (see optimize), and the lowest score a meal meeting
     every constraint can have, so a meal's score can be put on that range."""
     _check_bounds(given.constraints)
-    eligible, nutrition, scores = _eligible(given, workspace, [given.meal])
+    found, eligible, nutrition, scores = _eligible(given, [given.meal])
     meals = {given.meal: (eligible[given.meal], given.constraints)}
     plan, worst = optimize(meals, {}, nutrition, scores, given.max_servings, given.meal.value)
-    dishes = plan[given.meal]
+    dishes = _dishes(plan[given.meal], found, given)
     return SolveOutput(
-        plan=dishes,
-        score=round(sum(scores[dish.recipe] for dish in dishes), 6),
-        worst=worst,
+        dishes=dishes,
         totals=rounded(_totals(dishes, nutrition)),
-        recipes={name: rounded(nutrition[name]) for name in eligible[given.meal]},
-        scores=scores,
+        score=round(sum(scores[dish.recipe] for dish in dishes), 6),
+        lowest_score=worst,
     )
 
 
-def solve_day(given: DayInput, workspace: Path) -> DayOutput:
+def solve_day(given: DayInput) -> DayOutput:
     """The day of meals with the highest preference score (see optimize): each meal within its own
     bounds and the day within the day's; and the lowest score such a day can have."""
     if not given.meals:
@@ -150,21 +154,17 @@ def solve_day(given: DayInput, workspace: Path) -> DayOutput:
     _check_bounds(given.day)
     for constraints in given.meals.values():
         _check_bounds(constraints)
-    eligible, nutrition, scores = _eligible(given, workspace, list(given.meals))
+    found, eligible, nutrition, scores = _eligible(given, list(given.meals))
     meals = {meal: (eligible[meal], constraints) for meal, constraints in given.meals.items()}
     plan, worst = optimize(meals, given.day, nutrition, scores, given.max_servings, "day")
+    dishes = {meal: _dishes(servings, found, given) for meal, servings in plan.items()}
+    every = [dish for meal in dishes.values() for dish in meal]
     return DayOutput(
-        plan={
-            meal: MealPlan(
-                dishes=dishes,
-                totals=rounded(_totals(dishes, nutrition)),
-                score=round(sum(scores[dish.recipe] for dish in dishes), 6),
-            )
-            for meal, dishes in plan.items()
+        meals={
+            meal: Suggestion(dishes=meal_dishes, totals=rounded(_totals(meal_dishes, nutrition)))
+            for meal, meal_dishes in dishes.items()
         },
-        score=round(sum(scores[dish.recipe] for dishes in plan.values() for dish in dishes), 6),
-        worst=worst,
-        totals=rounded(_totals([dish for dishes in plan.values() for dish in dishes], nutrition)),
-        recipes={name: rounded(values) for name, values in nutrition.items()},
-        scores=scores,
+        totals=rounded(_totals(every, nutrition)),
+        score=round(sum(scores[dish.recipe] for dish in every), 6),
+        lowest_score=worst,
     )

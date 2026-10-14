@@ -1,11 +1,11 @@
 _ > nanoagent.plugin.manifest.ProductConfig:
 tagline: "See which Nasdaq-100 stocks fell 5% this week"
-summary: "Pick a date and it checks every Nasdaq-100 company over the five trading days ending then, and lists those that fell by 5% or more."
+summary: "Name a date and it checks every Nasdaq-100 company over the five trading days ending then, and lists those that fell by 5% or more."
 highlights:
   - "Covers all of the Nasdaq-100"
   - "Uses closing prices from Nasdaq"
   - "The list is checked against the prices"
 steps:
-  - "Pick the last day of the week"
-  - "It fetches the closing prices for every constituent"
-  - "Get the stocks that fell 5% or more, and by how much"
+  - "Ask which Nasdaq-100 stocks fell 5% or more in the week ending on a day, like last Friday"
+  - "It fetches every company's closing prices for those five trading days"
+  - "See the stocks that fell 5% or more and by how much, checked against the prices"

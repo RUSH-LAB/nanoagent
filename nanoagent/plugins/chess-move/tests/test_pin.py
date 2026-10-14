@@ -9,8 +9,8 @@ from plugin.uci import parse_fen, parse_perft, parse_score
 
 def test_pins_every_legal_move_with_its_position_and_win_probability() -> None:
     engine = FakeEngine()
-    pinned = pin_moves(FEN, engine=engine)
-    assert pinned.fen == FEN and pinned.nodes == NODES and pinned.best == "c3d5"
+    pinned = pin_moves(FEN, [], engine=engine)
+    assert pinned.position == FEN and pinned.nodes == NODES and pinned.best == "c3d5"
     assert [entry.move for entry in pinned.moves] == sorted(AFTER)
     assert {entry.move: round(entry.win_prob, 2) for entry in pinned.moves} == WIN_PROB
     assert {entry.move: entry.position for entry in pinned.moves} == AFTER
@@ -22,14 +22,21 @@ def test_refuses_a_position_stockfish_spells_differently() -> None:
     engine = FakeEngine()
     engine.fen = lambda fen, moves=(): "8/8/8/8/8/8/8/8 w - - 0 1"
     with pytest.raises(ValueError, match="reads the position as"):
-        pin_moves(FEN, engine=engine)
+        pin_moves(FEN, [], engine=engine)
+
+
+def test_pins_the_position_the_games_moves_lead_to() -> None:
+    engine = FakeEngine()
+    assert pin_moves(FEN, ["f1e1"], engine=engine).position == AFTER["f1e1"]
+    with pytest.raises(ValueError, match="'e2e4' is not a legal move"):
+        pin_moves(FEN, ["e2e4"], engine=engine)
 
 
 def test_refuses_a_position_with_no_legal_move() -> None:
     engine = FakeEngine()
     engine.legal = lambda fen: []
     with pytest.raises(ValueError, match="no legal move"):
-        pin_moves(FEN, engine=engine)
+        pin_moves(FEN, [], engine=engine)
 
 
 def test_reads_stockfishs_position_moves_and_score() -> None:

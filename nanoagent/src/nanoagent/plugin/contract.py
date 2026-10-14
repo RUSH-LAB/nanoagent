@@ -15,8 +15,8 @@ its classes. It declares:
     class SolveInput(Output):    # slimconfig Output classes; Annotated[T, "text"] describes a field
         meal: Annotated[Meal, "The meal to suggest"]
 
-    TOOLS = {Tool.SOLVE: (SolveInput, SolveOutput)}   # each tool's input and output class
-    TASKS = {Task.SUGGEST_MEAL: SolveInput}           # each task's input class
+    TOOLS = {Tool.SOLVE: (SolveInput, SolveOutput)}           # each tool's input and output class
+    TASKS = {Task.SUGGEST_MEAL: (SolveInput, SolveOutput)}    # each task's input and output class
 
 It is run inside the host, so it may hold only declarations (see :func:`contract_problems`):
 imports from :data:`CONTRACT_IMPORTS`, classes of annotated fields and constant members, and
@@ -63,7 +63,7 @@ _EXPRESSIONS = (
 @dataclasses.dataclass(frozen=True)
 class Contract:
     tools: dict[str, tuple[type, type]]  # tool name -> (input class, output class)
-    tasks: dict[str, type]  # task id -> input class
+    tasks: dict[str, tuple[type, type]]  # task id -> (input class, output class)
 
 
 def contract_problems(path: Path) -> list[str]:
@@ -157,16 +157,16 @@ def read_contract(module: ModuleType) -> tuple[Contract | None, list[str]]:
             violations.append(f"{CONTRACT} {name} members must have str values")
         else:
             enums[name] = found
-    tools = _table(names, "TOOLS", enums.get("Tool"), violations, pair=True)
-    tasks = _table(names, "TASKS", enums.get("Task"), violations, pair=False)
+    tools = _table(names, "TOOLS", enums.get("Tool"), violations)
+    tasks = _table(names, "TASKS", enums.get("Task"), violations)
     if violations:
         return None, violations
     return Contract(tools, tasks), []
 
 
-def _table(names: dict[str, Any], table: str, keys: type[enum.Enum] | None, violations: list[str], *, pair: bool) -> Any:
+def _table(names: dict[str, Any], table: str, keys: type[enum.Enum] | None, violations: list[str]) -> Any:
     found = names.get(table)
-    shape = "(input class, output class)" if pair else "an input class"
+    shape = "(input class, output class)"
     if keys is None:
         return {}
     if not isinstance(found, dict) or set(found) != set(keys):
@@ -174,11 +174,10 @@ def _table(names: dict[str, Any], table: str, keys: type[enum.Enum] | None, viol
         return {}
     out: dict[str, Any] = {}
     for member, value in found.items():
-        classes = value if pair else (value,)
-        if pair and not (isinstance(value, tuple) and len(value) == 2):
+        if not (isinstance(value, tuple) and len(value) == 2):
             violations.append(f"{CONTRACT} {table}[{member.value!r}] must be {shape}")
             continue
-        for cls in classes:
+        for cls in value:
             problem = _output_problem(cls)
             if problem:
                 violations.append(f"{CONTRACT} {table}[{member.value!r}]: {problem}")

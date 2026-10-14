@@ -22,13 +22,16 @@ ROOT = Path(__file__).resolve().parents[1]
 TOKEN = "plugin-test-secret"
 SHA = "0" * 64
 class ScriptedModel:
-    """Calls the echo tool once, then answers with what it returned."""
+    """Calls the echo tool once, submits the echo when it is an agent task's agent, then answers
+    with what the last tool returned."""
 
     def __init__(self) -> None:
         self.prompts: list[str] = []
 
     async def query(self, messages, tools, on_delta=None, **_):
         results = [message["content"] for message in messages if message["role"] == "tool"]
+        if len(results) == 1 and "submit" in {tool["function"]["name"] for tool in tools}:
+            return Reply(content=None, tool_calls=[ToolCall("call-2", "submit", '{"value": "hi"}')])
         if results:
             if on_delta is not None:
                 on_delta("content", "echoed")
@@ -235,6 +238,9 @@ def test_runs_a_prompt_in_the_callers_workspace(
     assert events[0]["profile"] == "plugin-echo"
     assert events[-1]["metrics"]["ttft_s"] is not None
     assert events[1]["name"] == "echo" and not events[1]["is_error"]
+    # The chat's tool is the echo task: its result is the task's typed output and its verdict.
+    result = json.loads(events[1]["output"])
+    assert result["output"] == {"value": "hi"} and result["verdict"]["valid"] is True
     assert "hi" in events[-1]["answer"]
     assert "You operate the Echo plugin" in model.prompts[0]
     # The file stays until the caller removes the workspace; until then it can be listed and read.
@@ -378,12 +384,12 @@ def test_runs_a_tool_task_the_verified_way(client: TestClient, workspaces: Path)
 
 
 def test_a_reference_tool_sees_the_workspace_files(tmp_path: Path) -> None:
-    from nanoagent.web.app import _staged_from
+    from nanoagent.web.plugin_agent import staged_from
 
     workspace = tmp_path / "workspace"
     (workspace / "inputs").mkdir(parents=True)
     (workspace / "inputs" / "raw.bib").write_text("@misc{a}")
-    stage = _staged_from(workspace)
+    stage = staged_from(workspace)
     stage(workspace)
     assert sorted(path.name for path in workspace.rglob("*")) == ["inputs", "raw.bib"]
     scratch = tmp_path / "scratch"
@@ -412,10 +418,8 @@ def test_task_runs_report_bad_requests_and_failures(client: TestClient) -> None:
     assert "42" in next(event for event in events if event["type"] == "task.error")["message"]
 
 
-def test_runs_an_agent_task_with_only_its_tools(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
-) -> None:
-    client = _app(tmp_path, monkeypatch, model, workspaces)
+def _install_with_agent_task(client: TestClient, tmp_path: Path) -> None:
+    """Install the echo plugin with a second task, echo-agent, that an agent works."""
     root = tmp_path / "echo"
     manifest = write_plugin(root)
     manifest.write_text(
@@ -432,25 +436,71 @@ def test_runs_an_agent_task_with_only_its_tools(
     contract.write_text(
         contract.read_text()
         .replace('class Task(Enum):\n    ECHO = "echo"\n', 'class Task(Enum):\n    ECHO = "echo"\n    ECHO_AGENT = "echo-agent"\n')
-        .replace("TASKS = {Task.ECHO: EchoInput}", "TASKS = {Task.ECHO: EchoInput, Task.ECHO_AGENT: EchoInput}")
+        .replace(
+            "TASKS = {Task.ECHO: (EchoInput, EchoOutput)}",
+            "TASKS = {Task.ECHO: (EchoInput, EchoOutput), Task.ECHO_AGENT: (EchoInput, EchoOutput)}",
+        )
     )
     (root / "src" / "server.py").write_text(SERVER, encoding="utf-8")
     data = pack(root)
     client.sha = hashlib.sha256(data).hexdigest()
     assert client.put(f"/v1/installs/{client.sha}", content=data).status_code == 200
+
+
+def test_runs_an_agent_task_with_only_its_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model: ScriptedModel, workspaces: Path
+) -> None:
+    client = _app(tmp_path, monkeypatch, model, workspaces)
+    _install_with_agent_task(client, tmp_path)
     events = _events(client.post(f"{runs(client)}/tasks/echo-agent/runs", json={"arguments": {"value": "hi"}}))
     assert [event["type"] for event in events] == [
         "task.started",
         "task.tool",
+        "task.tool",
         "task.answer",
+        "task.result",
         "task.verdict",
         "task.done",
     ]
     assert events[1]["name"] == "echo" and events[1]["isError"] is False
-    assert events[3]["valid"] is True
+    assert events[2]["name"] == "submit" and events[4]["response"] == {"value": "hi"}
+    assert events[5]["valid"] is True
     # Task runs stream the model, so time to first token is measured.
-    metrics = events[4]["metrics"]
+    metrics = events[6]["metrics"]
     assert metrics["model"] == client.config.model.model
     assert metrics["ttft_s"] is not None and metrics["ttft_s"] <= metrics["duration_s"]
     assert metrics["generation_s"] >= 0
     assert "Echo the value with the echo tool." in model.prompts[-1]
+
+
+class TaskModel:
+    """The chat calls the echo-agent task, whose agent echoes, submits and answers; every reply
+    costs 0.01."""
+
+    async def query(self, messages, tools, on_delta=None, **_):
+        names = {tool["function"]["name"] for tool in tools}
+        results = [message for message in messages if message["role"] == "tool"]
+        if on_delta is not None:
+            on_delta("content", "x")
+        if "submit" in names:
+            if not results:
+                return Reply(content=None, tool_calls=[ToolCall("call-1", "echo", '{"value": "hi"}')], cost=0.01)
+            if len(results) == 1:
+                return Reply(content=None, tool_calls=[ToolCall("call-2", "submit", '{"value": "hi"}')], cost=0.01)
+            return Reply(content="echoed", cost=0.01)
+        if not results:
+            return Reply(content=None, tool_calls=[ToolCall("call-1", "echo-agent", '{"value": "hi"}')], cost=0.01)
+        return Reply(content="I echoed hi.", cost=0.01)
+
+
+def test_a_chat_runs_an_agent_task_and_counts_its_cost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workspaces: Path
+) -> None:
+    client = _app(tmp_path, monkeypatch, TaskModel(), workspaces)
+    _install_with_agent_task(client, tmp_path)
+    with client.stream("POST", f"{runs(client)}/runs", json={"input": "echo hi with the agent"}) as response:
+        events = [json.loads(line[len("data: ") :]) for line in response.iter_lines() if line.startswith("data: ")]
+    [tool] = [event for event in events if event["type"] == "tool"]
+    assert tool["name"] == "echo-agent" and json.loads(tool["output"])["output"] == {"value": "hi"}
+    # Two chat replies and the task agent's three.
+    assert events[-1]["metrics"]["cost"] == pytest.approx(0.05)

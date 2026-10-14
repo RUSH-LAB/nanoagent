@@ -13,16 +13,15 @@ from mcp.server.stdio import stdio_server
 from slimconfig import build_output, output_schema, plain_output
 
 from contract import TOOLS, Tool
-from plugin import parse_bibtex, read_bibtex, submit_verdicts
+from plugin import parse_bibtex, read_bibtex
 
 server = Server("bibtex-check")
-# NanoAgent names the one folder this plugin may write to; every tool reads its input files there.
+# NanoAgent names the one folder this plugin may write to; these tools take text and write nothing.
 WORKSPACE_ENV = "NANOAGENT_WORKSPACE"
 # Each tool's implementation: (its input, the workspace) -> its output, as contract.TOOLS types them.
 IMPLEMENTATIONS = {
     Tool.PARSE_BIBTEX: parse_bibtex,
     Tool.READ_BIBTEX: read_bibtex,
-    Tool.SUBMIT_VERDICTS: submit_verdicts,
 }
 
 

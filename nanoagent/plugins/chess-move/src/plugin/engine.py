@@ -28,6 +28,14 @@ def wp_from_mate(moves: int) -> float:
     return MATE_WIN if moves > 0 else 1.0 - MATE_WIN
 
 
+def position_after(engine, fen: str, moves: Sequence[str]) -> str:
+    """The position ``moves`` lead to from ``fen``. Stockfish stops reading at an illegal move, so each is checked."""
+    for index, move in enumerate(moves):
+        if move not in engine.legal(engine.fen(fen, moves[:index])):
+            raise ValueError(f"{move!r} is not a legal move after {list(moves[:index])} from the given position")
+    return engine.fen(fen, moves)
+
+
 class Stockfish:
     """One Stockfish process. Every search starts from `ucinewgame`, so none depends on the last."""
 

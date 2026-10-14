@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from typing import Any
 
 import anyio
@@ -13,19 +11,16 @@ from mcp.server.stdio import stdio_server
 from slimconfig import build_output, output_schema, plain_output
 
 from contract import TOOLS, Tool
-from plugin import list_recipes, nutrition, solve, solve_day, submit_day, submit_meal
+from plugin import list_recipes, nutrition, solve, solve_day
 
 server = Server("meal-suggestion")
-# NanoAgent names the one folder this plugin may write to; every tool reads its input files there.
-WORKSPACE_ENV = "NANOAGENT_WORKSPACE"
-# Each tool's implementation: (its input, the workspace) -> its output, as contract.TOOLS types them.
+# Each tool's implementation: its input -> its output, as contract.TOOLS types them. Every tool reads
+# the plugin's own recipes and writes nothing.
 IMPLEMENTATIONS = {
     Tool.SOLVE: solve,
     Tool.LIST_RECIPES: list_recipes,
     Tool.NUTRITION: nutrition,
-    Tool.SUBMIT_MEAL: submit_meal,
     Tool.SOLVE_DAY: solve_day,
-    Tool.SUBMIT_DAY: submit_day,
 }
 
 
@@ -42,15 +37,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     # A failure raises; the MCP server returns it as an error result.
     tool = Tool(name)
     given, made = TOOLS[tool]
-    output = IMPLEMENTATIONS[tool](build_output(arguments, given), Path(os.environ[WORKSPACE_ENV]))
+    output = IMPLEMENTATIONS[tool](build_output(arguments, given))
     if not isinstance(output, made):
         raise TypeError(f"{name} returned {type(output).__name__}, not {made.__name__}")
     return plain_output(output)
 
 
 def main() -> None:
-    if WORKSPACE_ENV not in os.environ:
-        raise SystemExit(f"{WORKSPACE_ENV} is not set: NanoAgent passes the plugin's workspace folder")
     if set(IMPLEMENTATIONS) != set(Tool):
         raise SystemExit("IMPLEMENTATIONS must implement every contract.Tool")
 

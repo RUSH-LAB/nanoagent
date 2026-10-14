@@ -1,23 +1,23 @@
 # Plan: plugin front ends (`ui/`, protocol `nanoagent.ui/v1`)
 
-Every plugin ships its own front end: a static web page in `ui/`. Mochi shows it in a sandboxed
-iframe in place of today's fixed chat box. The page reaches NanoAgent only through a small
-`postMessage` bridge that Mochi hosts, so a plugin has full freedom over its interface and no
-access to Mochi's session, cookies or the network.
+Every plugin's page is NanoAgent's: a chat with the plugin's agent, in which each task the agent
+runs shows its typed output (docs/plans/ai-native-plugins.md). Mochi shows the page in a
+sandboxed iframe. The page reaches NanoAgent only through a small `postMessage` bridge that
+Mochi hosts, so it has no access to Mochi's session, cookies or the network. A plugin's `ui/`
+only says how to draw its outputs.
 
 ## 1. The rule (NanoAgent, `nanoagent.plugin.manifest`)
 
-- `ui/` joins `REQUIRED_FOLDERS`. `ui/app.js` and `ui/app.css` must exist, and `ui/index.html`
-  and `ui/kit/` must not: NanoAgent serves its own.
-- `ui/app.js` has a default export, the page's layout.
+- `ui/` joins `REQUIRED_FOLDERS`. `ui/renderers.js` and `ui/renderers.css` must exist, and
+  `ui/index.html`, `ui/kit/`, `ui/app.js` and `ui/app.css` must not: the page is NanoAgent's.
+- `ui/renderers.js` has a default export, the renderers by output class name.
 - Every script imports only by a literal `./` or `../` path, of the kit's modules or the plugin's
   own files in `ui/`: no URLs, no package names, no computed `import()`.
 - `ui/` holds only static web files: `.html .js .mjs .css .svg .png .jpg .jpeg .gif .webp .ico
   .woff .woff2 .json .md`, at most 5 MB in total. Nothing is built at load time; a plugin that
   uses a bundler commits the built files.
-- `nanoagent plugin new` ships a default page (section 5), so every plugin starts with one.
-  `ui/app.js` and `ui/app.css` are the plugin's own page; NanoAgent serves it with its own
-  `index.html` and shared UI kit `kit/`.
+- `nanoagent plugin new` writes `renderers.js` exporting `{}`: every output is drawn from its
+  JSON Schema until the plugin draws one itself.
 
 ## 2. NanoAgent web endpoints
 
@@ -70,7 +70,7 @@ Methods:
 | method | params | result | events |
 |---|---|---|---|
 | `describe` | `{}` | `{plugin, workspace: {id}, theme: "light"\|"dark"}` (`plugin`: the catalog entry, tasks with `inputSchema`) | — |
-| `runTask` | `{task, arguments}` | `{runId}` | the `task.*` events of section 2 |
+| `runTask` | `{task, arguments}` | `{runId}` | the `task.*` events of section 2. Since 0.4.0 the kit's page runs tasks only through the chat and never calls it |
 | `prompt` | `{text}` | `{runId}` | `chat.delta {text}`, `chat.tool {name, arguments, output, isError}`, `chat.answer {text}`, `chat.error {message}`, `chat.done` |
 | `cancel` | `{runId}` | `{}` | — |
 | `sessions.list` | `{}` | `{sessions: [summary]}`, each `{id, pluginId, title, createdAt, updatedAt, runs, cost, ttftS}` | — |
@@ -87,23 +87,28 @@ conversation (its last 12 turns). `runTask` and `prompt` run in the current sess
 refuses them until a session is started or resumed. The host also sends `{protocol, event: "host.theme", data:
 {theme}}` when the site's theme changes.
 
-## 5. The UI kit and a plugin's page
+## 5. The UI kit and the page
 
-A page is served from one URL folder, `ui/{uiVersion}/`, holding NanoAgent's frame and the
-plugin's own page:
+A page is served from one URL folder, `ui/{uiVersion}/`, holding NanoAgent's page and the
+plugin's renderers:
 
 ```
 src/nanoagent/plugin/page/   NanoAgent's, served to every plugin
-  index.html     loads kit/kit.css, then app.css, then app.js as a module
+  index.html     loads kit/kit.css, then renderers.css, then kit/boot.js as a module
   kit/
-    components.js  the one import a page needs (re-exports every module below)
+    boot.js        mounts the page with renderers.js's default export
+    components.js  the one import a renderer needs (re-exports what renderers use)
     bridge.js      the nanoagent.ui/v1 client
-    dom.js  display.js  inputs.js  run.js  chat.js  markdown.js  workspace.js  forms.js  shell.js
+    shell.js       the frame: Dashboard and Session tabs
+    session.js     sessions and the Dashboard
+    chat.js        the chat
+    result.js      a task's result: the card, and the view drawn from a JSON Schema
+    dom.js  display.js  markdown.js  workspace.js
     kit.css        the look: Mochi's tokens, light and dark, narrow widths
 plugins/<id>/ui/             the plugin's
-  app.js         the plugin's page, its default export
-  app.css        the plugin's own styles (near-empty in the template)
-  ...            any other static files the page needs (its own .js modules, images, fonts)
+  renderers.js   its renderers, by output class name (`{}` in the template)
+  renderers.css  their styles (a comment in the template)
+  ...            any other static files they need (their own .js modules, images, fonts)
 ```
 
 A plugin ships only its own files; every plugin gets the kit of the NanoAgent that serves it,
@@ -112,106 +117,71 @@ goes stale. `uiVersion` digests both halves, so a new kit is a new URL.
 
 ### Dashboard and Session
 
-The kit's frame (`mountApp`, `kit/shell.js`) has two tabs, and the plugin designs only one:
+The kit's frame (`mountApp`, `kit/shell.js`) has two tabs, the same for every plugin:
 
-- **Dashboard**, where the app always opens: the kit's own, the same for every plugin, and `ui/`
-  changes nothing here. It lists the member's sessions with this plugin in this workspace
-  (Mochi keeps them in PostgreSQL), newest first, each with when it was last used, its runs,
-  cost and time to first token; clicking one resumes it, and its Runs button shows each run.
-  "New session" opens a new one.
-- **Session**: the plugin's page, always one click away: the tab shows the open session or,
-  with none open, a new one.
-  Opening a session calls `app.js`'s default export as `layout({plugin, workspace, session})`
-  and shows what it returns. A new session is the page's alone until it first runs a task,
-  chats or saves: only then does the kit ask the host to start it (`session.start`, sent from
-  `request` in `kit/bridge.js`), so opening an app and leaving it keeps nothing. `session` holds
-  `id` (`null` until a new session starts), `title`, `state` (what the page last saved, `null` in a new session) and `chat` (the
-  conversation so far), and `session.save(state, {title})` keeps the state, and a title,
-  which names the session on the Dashboard. A page restores itself from `session.state`, so a person who
-  leaves comes back to where they were.
+- **Dashboard**, where the app always opens. It lists the member's sessions with this plugin in
+  this workspace (Mochi keeps them in PostgreSQL), newest first, each with when it was last
+  used, its runs, cost and time to first token; clicking one resumes it, and its Runs button
+  shows each run. "New session" opens a new one.
+- **Session**: the chat, always one click away: the tab shows the open session or, with none
+  open, a new one. A new session is the page's alone until it first chats: only then does the
+  kit ask the host to start it (`session.start`, sent from `request` in `kit/bridge.js`), so
+  opening an app and leaving it keeps nothing. The host keeps the session's conversation, task
+  results included, so a resumed session shows it again and continues it.
 
-The template's `app.js` exports `chatLayout`: the whole page is a chat over `prompt`, with the
-plugin's icon, name and tagline until the first message; the agent's tool calls are not shown.
+### The chat and its results
 
-### How a plugin designs its page
+A person says what they need. The plugin's agent has one tool per task (named by the task's id,
+taking its input, described by its description), runs the task the verified way, and answers in
+a sentence or two. Each task it ran shows above the answer as a result card
+(`resultCard`, `kit/result.js`): the task's description, its verdict as a badge ("Checked", or
+"Check failed" with the verifier's message), and its output. A task that failed says why.
 
-A page is one of two shapes. A plugin whose use is open-ended keeps the template's chat
-(`chatLayout`). Every other page is designed around what a person comes to do, in an
-`appShell`, and must:
-
-- ask for the task's inputs, in their words, with real controls (a date, a file, a few choices);
-- run the task with one primary button (`runButton`, `taskRun`), its progress as plain steps
-  and a Stop;
-- show the result, with the verifier's verdict in plain words (`verdictBanner`) and errors in
-  plain words (`errorCard`);
-- never show tools, tool names, task ids or JSON to users;
-- work in both themes and down to 320 px wide.
-
-Chat with the plugin's agent may stay available in a drawer from the header ("Ask the agent").
+The output is drawn by the plugin's renderer for its output class, when `renderers.js` has one,
+and otherwise from the task's `outputSchema` (`schemaView`): an object as labelled fields (the
+field names humanized, their descriptions as tooltips), a list of objects as a table of its
+scalar fields with the rest under each row, a list of anything else as a list, text (a link when
+it is one, a paragraph when it is long), numbers, and yes or no.
 
 ```js
-import { appShell, taskRun, runButton, verdictBanner, errorCard } from "./kit/components.js";
+// ui/renderers.js
+import { card, h } from "./kit/components.js";
 
-export default ({ plugin }) => {
-  const shell = appShell({ plugin, chat: { suggestions: ["What can you do?"] } });
-  const result = document.createElement("div");
-  const run = taskRun({
-    task: "my-task",
-    steps: [{ id: "read", label: "Reading your file" }, { id: "check", label: "Checking the answer" }],
-    onEvent: (name, data, run) => { if (name === "task.answer") run.step("check"); },
-    onFinish: (outcome) => result.replaceChildren(outcome.verdict
-      ? verdictBanner(outcome.verdict)
-      : errorCard({ message: outcome.error ?? "The run ended without a check." })),
-  });
-  const go = runButton({ label: "Check my file", run, onClick: () => run.start({ path: "inputs/file.txt" }) });
-  shell.main.append(go.element, run.element, result);
-  return shell.element;
+export default {
+  NoteOutput: (note, { verdict, send }) =>
+    card({ title: note.path }, h("button", { class: "button small", text: "Read it", onclick: () => send(`Read ${note.path}`) })),
 };
 ```
 
-### The kit's API
+A renderer is `(value, {task, verdict, send}) => Element`: `value` is the output, an instance
+of the class as JSON; `send(text)` sends a message as if the person typed it. The kit refuses
+a renderer named for a class no task outputs.
 
-Every export has JSDoc in its module; components return `{element, ...}` with a small API
-(read, set, disable), except pure builders that return an Element.
+### The kit's API for renderers
 
-| Module | Exports |
+`kit/components.js` exports:
+
+| From | Exports |
 |---|---|
-| `bridge.js` | `request(method, params)`, `startRun(method, params, onEvent)` (events through `*.done`, early ones buffered), `on(event, handler)`, `hasHost()`, `PROTOCOL` |
-| `dom.js` | `h(tag, attrs, ...children)`, `icon(name)` (`ICON_NAMES`), `applyTheme`, `announce(text)` (screen readers), `humanize`, `pretty`, `formatSize`, `formatDuration`, `plural`, `nextId` |
-| `shell.js` | `mountApp(layout)` (describe, theme, `host.theme`, a plain message outside a host or when the host is silent; `layout` may be async), `appShell({plugin, nav, actions, chat, width})` (header with icon, name, tagline, chat button; `main` for the page; `drawer`), `chatLayout(context, options)` (the default page: a full-page `chatPanel` with `options`) |
-| `chat.js` | `chatPanel({intro, placeholder, suggestions, prepare, render, onTurnDone})` (answers as Markdown; `render[tool](output, {arguments, send})` draws a tool's result above the answer, and the session keeps it; suggestion chips fill the box, never send; `prepare` adds the page's context), `chatDrawer({title, note, ...})` (right panel on wide screens, full-screen sheet under 640 px, focus trap, Escape, focus returns to the opener) |
-| `markdown.js` | `markdown(text)`: Markdown (paragraphs, headings, lists, quotes, fenced code, inline code, bold, italics, links) as DOM nodes, never HTML |
-| `run.js` | `taskRun({task, title, steps, onEvent, onFinish})`: runs `runTask` with a progress card (forward-only steps with detail lines, progress bars and notes, elapsed time, Stop) and resolves with the outcome `{status: valid\|invalid\|error\|cancelled\|unchecked, verdict, error, answer, result, tools (with parsed outputs), seconds, startFailed}`; `runButton({label, onClick, run, cancelWhileBusy, note, block})` with `setBlocked(reason)`; `verdictBanner(verdict, words)` (plain words, score in words, raw message and details under "Details"); `explainError(message, rules)`, `errorCard({message, rules, title, actions})`, `COMMON_ERRORS` (stopped, maintenance, timeouts, network); `parseToolOutput`; developer views `taskView`, `runControls`, `toolItem`, `verdictView`, `block` |
-| `inputs.js` | `labeled` (label, hint, inline error), `segmented` (one of a few; also filter chips with counts), `chipToggles` (several on/off), `chipRow` (presets, quick picks, examples, saved runs; scrolls sideways), `chipsInput` (a list of short strings), `numberStepper`, `dateInput` (quick-pick chips, checks with a one-click fix), `isoDate({timeZone, days})`, `fileDrop` (drop, choose, paste or pick a workspace file; checked with `inspect`, written to a fixed path with `workspace.write` at once; `restore()` shows a file left by an earlier visit), `workspacePicker`, `copyText`, `copyButton` and `copyField` (say plainly when the sandbox refuses the clipboard) |
-| `display.js` | `card` (16 px, `size: "large"` 20 px), `statusPill`, `banner` (tones `ok`, `warn`, `bad`, `info`, `neutral`; always an icon and words), `disclosure`, `meter` (a value with an optional target band), `dataTable` (sortable, filterable, "Show all N", one card per row when its container is narrow), `emptyState`, `howItWorks(plugin.product.steps)`, `skeleton`, `actionBar` (sticky at the bottom on narrow screens), `columns` (two columns, one under 880 px) |
-| `workspace.js` | `listFiles({prefix, extensions})`, `readFile`, `readText`, `readJSON`, `writeText`, `writeJSON`, `jsonStore({path, version, initial})` (the page's state in one workspace file: the page has an opaque origin and no localStorage; serialized whole-file writes; never overwrites a file it can't read until `reset()`), `filesPanel` |
-| `forms.js` | `schemaForm(inputSchema)`, `stringList` (for developer views) |
+| `dom.js` | `h(tag, attrs, ...children)`, `icon(name)` (`ICON_NAMES`), `humanize`, `pretty`, `formatSize`, `formatDuration`, `plural` |
+| `display.js` | `card` (16 px, `size: "large"` 20 px), `statusPill`, `banner` (tones `ok`, `warn`, `bad`, `info`, `neutral`, `TONES`; always an icon and words), `disclosure`, `meter` (a value with an optional target band), `dataTable` (sortable, filterable, "Show all N", one card per row when its container is narrow) |
+| `markdown.js` | `markdown(text)`: Markdown as DOM nodes, never HTML |
+| `result.js` | `schemaView(value, schema)`, the generic view, e.g. for part of an output |
+| `workspace.js` | `listFiles({prefix, extensions})`, `readFile`, `readText`, `readJSON`: the workspace's files, e.g. one a task saved |
 
-`kit.css` gives the look and these variables for a page's own styles: `--bg`, `--surface`,
+`kit.css` gives the look and these variables for a renderer's styles: `--bg`, `--surface`,
 `--surface-2`, `--border`, `--border-strong`, `--text`, `--muted`, `--accent` (`#3b5998`, dark
 `#8ea6d6`), `--accent-strong`, `--accent-soft`, `--on-accent`, `--ok`, `--warn`, `--bad`,
 `--neutral` and their `-soft` backgrounds, `--up`, `--down`, `--mark`, `--focus`, `--shadow`,
 `--shadow-lg`, `--radius-sm` (10 px), `--radius` (16 px), `--radius-lg` (20 px),
 `--radius-pill`, `--sans` (Inter, then the system stack), `--mono`; a `tone-<name>` class sets
-`--tone` and `--tone-soft`. Classes a page may use directly: `button` (`primary`, `ghost`,
-`small`, `large`, `block`, `icon-only`), `input`, `card`, `pill`, `chip`, `chips`, `stack`
-(a vertical grid), `row` (a wrapping flex row), `muted`, `small-text`, `numeric`,
-`visually-hidden`. Breakpoints: 640 px (narrow: icon-only chat button, sheet drawer, sticky
-action bar, full-width run button) and 880 px (columns stack).
+`--tone` and `--tone-soft`. Classes a renderer may use directly: `button` (`primary`, `ghost`,
+`small`, `large`, `block`, `icon-only`), `input`, `card`, `pill`, `stack` (a vertical grid),
+`row` (a wrapping flex row), `muted`, `small-text`, `numeric`, `visually-hidden`. Narrow screens start at 640 px.
 
 Fonts: CSP `font-src 'self'` means a font must ship in `ui/`. The kit names Inter first and
-falls back to the system stack; it bundles no font file because `nanoagent plugin new` copies the
-template as text. A plugin that wants Inter everywhere adds the `.woff2` files and an
-`@font-face` rule in its own `app.css`.
+falls back to the system stack.
 
-Previewing a page needs a host: a throwaway page outside the repo that frames a copy of `ui/`
-with the same `sandbox`, serves it with CORS (module scripts of an
-opaque-origin frame are fetched in CORS mode) and answers the bridge from recorded fixtures.
-
-## Build
-
-1. NanoAgent: the rule, the endpoints, the shared task runner (also used by `nanoagent plugin
-   run` / `agent`), tests.
-2. In parallel: the Mochi host and bridge (agent), the template UI, the five plugins' UIs and the
-   custom arxiv-source UI (agent).
-3. Integrate and run it in a browser end to end.
+Previewing a page needs a host: a throwaway page outside the repo that frames a copy of the
+page with the same `sandbox`, serves it with CORS (module scripts of an opaque-origin frame are
+fetched in CORS mode) and answers the bridge from recorded fixtures.

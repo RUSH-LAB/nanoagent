@@ -1,9 +1,9 @@
 _ > nanoagent.plugin.manifest.ManifestConfig:
 id: meal-suggestion
 name: Meal Suggestion
-version: 0.1.0
+version: 0.2.0
 status: ready
-nanoagent: ~=0.3.0
+nanoagent: ~=0.4.0
 
 runtime > nanoagent.plugin.manifest.RuntimeConfig:
   type: mcp_stdio
@@ -13,48 +13,42 @@ permissions > nanoagent.plugin.manifest.PermissionsConfig:
   network > nanoagent.plugin.manifest.NetworkConfig:
     hosts: []
   filesystem > nanoagent.plugin.manifest.FilesystemConfig:
-    write: [workspace]
+    write: []
 
 # One entry per contract.Tool; its input and output classes are contract.TOOLS's.
 tools > dict[contract.Tool, nanoagent.plugin.manifest.ToolConfig]:
   solve:
     description: Find the meal of whole servings the eater likes best that meets the constraints and the restrictions, and the least-liked one
   list_recipes:
-    description: List the recipes for a meal that meet the restrictions, each with its nutrition per serving and its preference score
+    description: List the recipes for a meal that meet the restrictions, each with its Food.com link, its nutrition per serving, the likes it matches and its preference score
   nutrition:
     description: Give a recipe's ingredients and one serving's nutrition
-  submit_meal:
-    description: Write the suggested meal, each dish's recipe and servings, to meal.json
   solve_day:
     description: Find the day of meals the eater likes best, each meal within its own bounds and the day within the day's, and the least-liked such day
-  submit_day:
-    description: Write the day's plan, each meal's dishes, to day.json
 
-# One entry per contract.Task; its input class is contract.TASKS's.
+# One entry per contract.Task; its input and output classes are contract.TASKS's.
 tasks > dict[contract.Task, nanoagent.plugin.manifest.TaskConfig]:
   recommend-meal:
-    description: Recommend the recipes for a meal the eater likes best within the nutrition ranges, by linear programming alone
+    description: Recommend the Food.com dishes and servings for one breakfast, lunch or dinner that the person likes best within their nutrition targets and dietary restrictions, solved exactly in seconds; use it whenever someone asks for a meal
     runner: tool
     tools: [solve]
     reference: null
     instructions: Solve the meal's linear program and return the recommended dishes, their servings, the meal's totals and its preference score.
   suggest-meal:
-    description: Suggest the dishes for a meal the eater likes best that together meet the nutrition constraints and the restrictions
+    description: Have an AI agent choose the Food.com dishes for one breakfast, lunch or dinner the person likes best within their nutrition targets and dietary restrictions, and score its choice against the exact best; slower than recommend-meal, so use it only when the person asks for the agent's own suggestion
     runner: agent
-    tools: [list_recipes, nutrition, submit_meal]
+    tools: [list_recipes, nutrition]
     reference: solve
     instructions: |-
-      Call list_recipes with the recipes file, the meal, the restrictions and the likes; only those recipes may be suggested. Each comes with one serving's kcal, mg of cholesterol and sodium, and grams of protein, fat, saturated_fat, carbs, fiber and sugar, and its preference score: the sum of the weights of the likes it matches.
+      Call list_recipes with the meal, the restrictions and the likes; only those recipes may be suggested. Each comes with its url, one serving's kcal, mg of cholesterol and sodium, and grams of protein, fat, saturated_fat, carbs, fiber and sugar, the likes it matches, and its preference score: the sum of the weights of those likes.
       Choose whole servings of the recipes, at most max_servings of each and at least one dish, so that the meal's totals (servings x per serving, summed) meet every constraint, and the meal's preference score (the sum of its dishes' scores, each dish counted once however many servings it has) is as high as it can be: weigh the combinations, not only single dishes.
-      Call submit_meal with the chosen dishes; a later call replaces the earlier suggestion.
-      Finish with a short report of the dishes, the likes they match, and the meal's totals.
+      Submit the dishes, each with its recipe, url, servings and liked as list_recipes gives them, and the meal's totals of every nutrient.
   plan-day:
-    description: Plan a day of meals the eater likes best, each meal within its own nutrition bounds and the whole day within the day's
+    description: Have an AI agent plan a day of Food.com meals the person likes best, each meal within its own nutrition targets and the whole day within the day's, and score the plan against the exact best
     runner: agent
-    tools: [list_recipes, nutrition, submit_day]
+    tools: [list_recipes, nutrition]
     reference: solve_day
     instructions: |-
-      For each meal of the day, call list_recipes with the recipes file, that meal, the restrictions and the likes; only those recipes may be in that meal. Each comes with one serving's kcal, mg of cholesterol and sodium, and grams of protein, fat, saturated_fat, carbs, fiber and sugar, and its preference score: the sum of the weights of the likes it matches.
+      For each meal of the day, call list_recipes with that meal, the restrictions and the likes; only those recipes may be in that meal. Each comes with its url, one serving's kcal, mg of cholesterol and sodium, and grams of protein, fat, saturated_fat, carbs, fiber and sugar, the likes it matches, and its preference score: the sum of the weights of those likes.
       Choose whole servings of each meal's recipes, at most max_servings of each and at least one dish per meal, so that each meal's totals (servings x per serving, summed) meet that meal's bounds, the day's totals (all its meals' summed) meet the day's bounds, and the day's preference score (the sum of all its dishes' scores, each dish counted once however many servings it has) is as high as it can be: weigh the combinations across the meals, not only each meal alone.
-      Call submit_day with every meal's dishes; a later call replaces the earlier plan.
-      Finish with a short report of each meal's dishes, the likes they match, each meal's totals and the day's.
+      Submit every meal of the day with its dishes, each with its recipe, url, servings and liked as list_recipes gives them, and its totals of every nutrient, and the day's totals.

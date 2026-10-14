@@ -1,5 +1,5 @@
-// Things a page shows: cards, banners, pills, disclosures, meters, tables, empty states,
-// skeletons and the page's layout pieces. Every tone is a word as well as a colour.
+// Things a result shows: cards, banners, pills, disclosures, meters and tables. Every tone is a
+// word as well as a colour.
 
 import { h, icon, nextId } from "./dom.js";
 
@@ -244,72 +244,3 @@ export function dataTable({ columns, rows, sort, filterPlaceholder, rowClass, ca
   };
 }
 
-/**
- * A friendly placeholder for "nothing here yet", with what to do next.
- * @param {{title: string, body?: string|Node, actions?: Node[], icon?: string}} options
- * @param {...(Node|string)} children Extra content (e.g. example chips or {@link howItWorks}).
- * @returns {HTMLElement}
- */
-export function emptyState({ title, body, actions = [], icon: name }, ...children) {
-  return h(
-    "div",
-    { class: "empty-state" },
-    name ? h("span", { class: "empty-icon" }, icon(name, { size: 22 })) : null,
-    h("p", { class: "empty-title", text: title }),
-    body ? h("p", { class: "muted" }, body) : null,
-    children,
-    actions.length ? h("div", { class: "empty-actions" }, actions) : null,
-  );
-}
-
-/**
- * Numbered steps, e.g. the plugin's `product.steps` as a "How it works" row.
- * @param {string[]} steps
- * @param {{title?: string}} [options] Default title "How it works"; `title: ""` drops it.
- * @returns {HTMLElement}
- */
-export function howItWorks(steps, { title = "How it works" } = {}) {
-  return h("div", { class: "how-it-works" }, title ? h("h3", { text: title }) : null, h("ol", {}, steps.map((step) => h("li", {}, h("span", { text: step })))));
-}
-
-/**
- * Grey shimmering placeholders standing in for content that is on its way.
- * @param {{lines?: number, block?: boolean}} [options] `lines` text bars (default 3); `block` adds
- *   a tall box first (e.g. a card or chart).
- * @returns {HTMLElement}
- */
-export function skeleton({ lines = 3, block = false } = {}) {
-  return h(
-    "div",
-    { class: "skeleton", "aria-hidden": "true" },
-    block ? h("span", { class: "skeleton-block" }) : null,
-    Array.from({ length: lines }, (_, index) => h("span", { class: "skeleton-line", style: `width: ${[92, 76, 60, 84][index % 4]}%` })),
-  );
-}
-
-/**
- * A bar of actions that sticks to the bottom of the viewport: always (`sticky: "always"`), or
- * only on narrow screens (`"narrow"`, the default), e.g. a page's primary button or "3 selected ·
- * Save 3 sources". It respects the safe-area inset.
- * @param {{sticky?: "narrow"|"always"}} [options]
- * @param {...(Node|string)} children
- * @returns {HTMLElement}
- */
-export function actionBar({ sticky = "narrow" } = {}, ...children) {
-  return h("div", { class: `action-bar sticky-${sticky}` }, children);
-}
-
-/**
- * Two columns side by side on wide screens, one column (main first unless `asideFirst`) under
- * 880 px. `aside` is the narrower column (default 360 px wide).
- * @param {{main: Node, aside: Node, asideWidth?: string, asideFirst?: boolean, asideSide?: "left"|"right"}} options
- * @returns {HTMLElement}
- */
-export function columns({ main, aside, asideWidth = "360px", asideFirst = false, asideSide = "right" }) {
-  return h(
-    "div",
-    { class: `columns aside-${asideSide}${asideFirst ? " aside-first" : ""}`, style: `--aside-width: ${asideWidth}` },
-    h("div", { class: "column-main" }, main),
-    h("div", { class: "column-aside" }, aside),
-  );
-}

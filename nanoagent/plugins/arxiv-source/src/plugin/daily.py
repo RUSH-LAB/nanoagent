@@ -1,22 +1,17 @@
-"""The daily digest: who published what on a date, each paper saved under `docs/raw/`, and the digest."""
+"""The daily digest: who published what on a date, and each paper saved under `docs/raw/`."""
 
 from __future__ import annotations
 
-import json
 import re
 import time
 import urllib.request
 from datetime import date as Date
 from pathlib import Path
 
-from slimconfig import plain_output
-
 from contract import (
     DailyInput,
     DailyOutput,
     DailyPaper,
-    DigestInput,
-    DigestOutput,
     DownloadInput,
     Person,
     RawInput,
@@ -92,19 +87,3 @@ def save_raw_paper(
     return RawOutput(
         arxiv_id=paper_id, title=record.title, authors=record.authors, folder=saved.folder, files=saved.files
     )
-
-
-def write_digest(given: DigestInput, workspace: Path) -> DigestOutput:
-    """Write the digest as `docs/digest-{date}.json` and a readable `docs/digest-{date}.md`, replacing
-    an earlier draft."""
-    Date.fromisoformat(given.date)
-    docs = workspace.resolve() / "docs"
-    docs.mkdir(parents=True, exist_ok=True)
-    path = docs / f"digest-{given.date}.json"
-    path.write_text(json.dumps(plain_output(given), indent=2) + "\n", encoding="utf-8")
-    lines = [f"# arXiv digest, {given.date}", ""]
-    for entry in given.entries:
-        lines += [f"## [{entry.title}]({entry.link})", "", ", ".join(entry.authors), "", entry.summary, ""]
-    markdown = docs / f"digest-{given.date}.md"
-    markdown.write_text("\n".join(lines), encoding="utf-8")
-    return DigestOutput(path=str(path), markdown=str(markdown), entries=len(given.entries))

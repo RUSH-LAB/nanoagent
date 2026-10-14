@@ -11,9 +11,7 @@ class Tool(Enum):
     SOLVE = "solve"
     LIST_RECIPES = "list_recipes"
     NUTRITION = "nutrition"
-    SUBMIT_MEAL = "submit_meal"
     SOLVE_DAY = "solve_day"
-    SUBMIT_DAY = "submit_day"
 
 
 class Task(Enum):
@@ -40,22 +38,37 @@ class Nutrient(Enum):
     SUGAR = "sugar"
 
 
-RECIPES = "The recipes file in the workspace (inputs/recipes.json), a Cookbook: each recipe's meals, tags, servings, nutrition per serving, ingredients and steps"
 RECIPE = "A recipe's name, as list_recipes gives it"
-RESTRICTIONS = "What the meal must and must not be, a hard filter on recipe tags"
-LIKES = "What the eater likes and dislikes, each a weight on the recipes it matches"
+URL = "The recipe's page on Food.com"
+LIKED = "The likes it matches, by name"
+RESTRICTIONS = (
+    "What every dish must and must not be, a hard filter on Food.com's recipe tags, e.g. Vegan, Healthy, Meat, "
+    "Poultry, Pork, Chicken, Cheese, Beans, Dessert, Low Cholesterol, High Protein, Very Low Carbs, Lactose Free, "
+    "Egg Free, Kid Friendly, Easy, < 30 Mins: for a vegetarian meal exclude Meat and Poultry; exclude Dessert unless "
+    "the person asks for sweets"
+)
+LIKES = (
+    "What the eater likes and dislikes, from what the person says: each a weight on the recipes it matches, "
+    "e.g. 'I love cheese and hate mushrooms' is cheese with weight 2 and mushrooms with weight -2; [] for none"
+)
+CONSTRAINTS = (
+    "Bounds on the meal's totals, from the person's targets, e.g. 'at least 30 g of protein and under 800 calories' "
+    'is {"protein": {"min": 30, "max": null}, "kcal": {"min": null, "max": 800}}: kcal, mg of cholesterol and '
+    "sodium, and grams of protein, fat, saturated_fat, carbs, fiber and sugar; only the nutrients the person bounds"
+)
+MAX_SERVINGS = "The most whole servings of any one recipe in a meal, 1 to 10: 2 unless the person says otherwise"
 
 
 @dataclass
 class Bound(Output):
-    min: Annotated[float | None, "The least the meal's total may be, or null for no minimum"]
-    max: Annotated[float | None, "The most the meal's total may be, or null for no maximum"]
+    min: Annotated[float | None, "The least the total may be, or null for no minimum"]
+    max: Annotated[float | None, "The most the total may be, or null for no maximum"]
 
 
 @dataclass
 class Restrictions(Output):
-    require: Annotated[list[str], "Tags every dish must have, e.g. Vegan"]
-    exclude: Annotated[list[str], "Tags no dish may have, e.g. Meat"]
+    require: Annotated[list[str], "Tags every dish must have, e.g. Vegan; [] for none"]
+    exclude: Annotated[list[str], "Tags no dish may have, e.g. Meat; [] for none"]
 
 
 @dataclass
@@ -63,10 +76,13 @@ class Like(Output):
     name: Annotated[str, "What is liked, e.g. dairy"]
     words: Annotated[
         list[str],
-        "Words that mean it, e.g. milk, cheese, yogurt; a recipe matches when one is a word (or its plural) of its ingredients or tags",
+        "Words that mean it, e.g. milk, cheese, yogurt, butter, cream for dairy; a recipe matches when one is a word "
+        "(or its plural) of its ingredients or tags",
     ]
     ignore: Annotated[list[str], "Phrases its words do not count in, e.g. peanut butter for dairy; [] for none"]
-    weight: Annotated[float, "How much it is liked: positive for a like, negative for a dislike"]
+    weight: Annotated[
+        float, "How much it is liked: positive for a like, negative for a dislike, e.g. 2 for loves, 1 for likes"
+    ]
 
 
 @dataclass
@@ -102,44 +118,46 @@ class Cookbook(Output):
 @dataclass
 class Dish(Output):
     recipe: Annotated[str, RECIPE]
+    url: Annotated[str, URL]
     servings: Annotated[int, "Whole servings, at most the task's max_servings"]
+    liked: Annotated[list[str], LIKED]
 
 
 @dataclass
 class Recipe(Output):
     name: str
+    url: Annotated[str, URL]
     tags: list[str]
     per_serving: Nutrition
-    liked: Annotated[list[str], "The likes it matches, by name"]
+    liked: Annotated[list[str], LIKED]
     score: Annotated[float, "Its preference score: the sum of the weights of the likes it matches"]
 
 
 @dataclass
 class SolveInput(Output):
-    recipes: Annotated[str, RECIPES]
-    meal: Annotated[Meal, "The meal to suggest"]
-    constraints: Annotated[
-        dict[Nutrient, Bound],
-        'Bounds on the meal\'s totals, e.g. {"protein": {"min": 50, "max": null}}: kcal, mg of cholesterol and sodium, and grams of protein, fat, saturated_fat, carbs, fiber and sugar',
-    ]
+    meal: Annotated[Meal, "The meal: breakfast, lunch or dinner"]
+    constraints: Annotated[dict[Nutrient, Bound], CONSTRAINTS]
     restrictions: Annotated[Restrictions, RESTRICTIONS]
     likes: Annotated[list[Like], LIKES]
-    max_servings: Annotated[int, "The most whole servings of any one recipe, 1 to 10"]
+    max_servings: Annotated[int, MAX_SERVINGS]
 
 
 @dataclass
 class SolveOutput(Output):
-    plan: list[Dish]
-    score: Annotated[float, "The plan's preference score, the sum of its dishes' scores: the most any meal can have"]
-    worst: Annotated[float, "The least preference score any meal that meets every constraint can have"]
-    totals: Nutrition
-    recipes: Annotated[dict[str, Nutrition], "Each eligible recipe's nutrition per serving"]
-    scores: Annotated[dict[str, float], "Each eligible recipe's preference score"]
+    dishes: Annotated[list[Dish], "The meal the eater likes best"]
+    totals: Annotated[Nutrition, "The meal's totals"]
+    score: Annotated[float, "The meal's preference score, the sum of its dishes' scores: the most any meal can have"]
+    lowest_score: Annotated[float, "The least preference score any meal that meets every constraint can have"]
+
+
+@dataclass
+class Suggestion(Output):
+    dishes: Annotated[list[Dish], "The meal's dishes, each recipe once"]
+    totals: Annotated[Nutrition, "The meal's totals: servings x per serving, summed over its dishes"]
 
 
 @dataclass
 class RecipesInput(Output):
-    recipes: Annotated[str, RECIPES]
     meal: Meal
     restrictions: Annotated[Restrictions, RESTRICTIONS]
     likes: Annotated[list[Like], LIKES]
@@ -152,7 +170,6 @@ class RecipesOutput(Output):
 
 @dataclass
 class NutritionInput(Output):
-    recipes: Annotated[str, RECIPES]
     recipe: Annotated[str, RECIPE]
 
 
@@ -164,65 +181,45 @@ class NutritionOutput(Output):
 
 
 @dataclass
-class SubmitInput(Output):
-    dishes: Annotated[list[Dish], "The suggested meal: each dish's recipe and servings, each recipe once"]
-
-
-@dataclass
-class SubmitOutput(Output):
-    path: str
-    dishes: int
-
-
-@dataclass
 class DayInput(Output):
-    recipes: Annotated[str, RECIPES]
     meals: Annotated[
         dict[Meal, dict[Nutrient, Bound]],
-        'The day\'s meals, each with the bounds on its own totals, e.g. {"breakfast": {"kcal": {"min": 300, "max": 600}}, "dinner": {}}',
+        "The day's meals, each with the bounds on its own totals (as for a meal's constraints), e.g. "
+        '{"breakfast": {"kcal": {"min": 300, "max": 600}}, "lunch": {}, "dinner": {}}: every meal the person wants '
+        "planned, {} for a meal with no bounds of its own",
     ]
-    day: Annotated[dict[Nutrient, Bound], "Bounds on the whole day's totals, its meals' summed"]
+    day: Annotated[
+        dict[Nutrient, Bound],
+        "Bounds on the whole day's totals, its meals' summed, e.g. 'about 2000 calories and at least 90 g of protein "
+        'a day\' is {"kcal": {"min": 1800, "max": 2200}, "protein": {"min": 90, "max": null}}',
+    ]
     restrictions: Annotated[Restrictions, RESTRICTIONS]
     likes: Annotated[list[Like], LIKES]
-    max_servings: Annotated[int, "The most whole servings of any one recipe in a meal, 1 to 10"]
-
-
-@dataclass
-class MealPlan(Output):
-    dishes: list[Dish]
-    totals: Nutrition
-    score: Annotated[float, "The meal's preference score"]
+    max_servings: Annotated[int, MAX_SERVINGS]
 
 
 @dataclass
 class DayOutput(Output):
-    plan: Annotated[dict[Meal, MealPlan], "Each meal of the day the eater likes best"]
-    score: Annotated[float, "The day's preference score, its meals' summed: the most any day can have"]
-    worst: Annotated[float, "The least preference score any day that meets every constraint can have"]
+    meals: Annotated[dict[Meal, Suggestion], "Each meal of the day the eater likes best"]
     totals: Annotated[Nutrition, "The day's totals"]
-    recipes: Annotated[
-        dict[str, Nutrition], "Each recipe eligible for one of the day's meals, its nutrition per serving"
-    ]
-    scores: Annotated[dict[str, float], "Each such recipe's preference score"]
+    score: Annotated[float, "The day's preference score, its meals' summed: the most any day can have"]
+    lowest_score: Annotated[float, "The least preference score any day that meets every constraint can have"]
 
 
 @dataclass
-class SubmitDayInput(Output):
-    meals: Annotated[dict[Meal, list[Dish]], "Each meal of the day and its dishes, each recipe once per meal"]
-
-
-@dataclass
-class SubmitDayOutput(Output):
-    path: str
-    dishes: Annotated[int, "The day's dishes, over all its meals"]
+class DayPlan(Output):
+    meals: Annotated[dict[Meal, Suggestion], "Each meal of the day and its dishes, each recipe once per meal"]
+    totals: Annotated[Nutrition, "The day's totals, its meals' summed"]
 
 
 TOOLS = {
     Tool.SOLVE: (SolveInput, SolveOutput),
     Tool.LIST_RECIPES: (RecipesInput, RecipesOutput),
     Tool.NUTRITION: (NutritionInput, NutritionOutput),
-    Tool.SUBMIT_MEAL: (SubmitInput, SubmitOutput),
     Tool.SOLVE_DAY: (DayInput, DayOutput),
-    Tool.SUBMIT_DAY: (SubmitDayInput, SubmitDayOutput),
 }
-TASKS = {Task.SUGGEST_MEAL: SolveInput, Task.PLAN_DAY: DayInput, Task.RECOMMEND_MEAL: SolveInput}
+TASKS = {
+    Task.SUGGEST_MEAL: (SolveInput, Suggestion),
+    Task.PLAN_DAY: (DayInput, DayPlan),
+    Task.RECOMMEND_MEAL: (SolveInput, SolveOutput),
+}

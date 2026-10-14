@@ -1,6 +1,4 @@
-"""Checks shared by the tool verifiers. Pure functions of their arguments and the files on disk."""
-
-from pathlib import Path
+"""Checks shared by the tool verifiers. Pure functions of their arguments."""
 
 from .schema import record_problem
 
@@ -14,12 +12,9 @@ def result(valid, message, *, score=None, **details):
     }
 
 
-def path_problem(name, path):
-    if not path:
-        return f"{name} must be a non-empty path"
-    relative = Path(path)
-    if relative.is_absolute() or ".." in relative.parts:
-        return f"{name} must stay inside the plugin workspace"
+def text_problem(name, text):
+    if not text.strip():
+        return f"{name} must be non-empty BibTeX text"
     return None
 
 

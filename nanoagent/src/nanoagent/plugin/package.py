@@ -58,6 +58,7 @@ def catalog_entry(manifest: PluginManifest) -> dict[str, Any]:
         tool["outputSchema"] = definition.output
     for task, definition in zip(entry["tasks"], manifest.tasks, strict=True):
         task["inputSchema"] = definition.input
+        task["outputSchema"] = definition.output
     return entry
 
 

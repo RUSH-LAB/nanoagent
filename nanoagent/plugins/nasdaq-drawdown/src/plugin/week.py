@@ -1,8 +1,7 @@
-"""The past week of the Nasdaq-100: its constituents, their closes, the pinned week, and the answer."""
+"""The past week of the Nasdaq-100: its constituents, their closes, and the pinned week."""
 
 from __future__ import annotations
 
-import json
 import time
 import urllib.request
 from datetime import UTC, datetime
@@ -16,15 +15,12 @@ from contract import (
     ConstituentsOutput,
     PinnedConstituent,
     PinOutput,
-    SubmitInput,
-    SubmitOutput,
     WeekInput,
 )
 from plugin.nasdaq import PAUSE, close_on, closes, constituents, past_day, week
 
 # Tickers per get_closes call: each takes one request, so a call stays well inside its timeout.
 MAX_TICKERS = 25
-ANSWER = "tickers.json"
 
 
 def list_constituents(given: WeekInput, workspace: Path, *, opener=urllib.request.urlopen) -> ConstituentsOutput:
@@ -78,12 +74,3 @@ def pin_week(given: WeekInput, workspace: Path, *, opener=urllib.request.urlopen
         pinned_at=datetime.now(UTC).isoformat(timespec="seconds"),
         constituents=pinned,
     )
-
-
-def submit_tickers(given: SubmitInput, workspace: Path) -> SubmitOutput:
-    """Write the answer, the tickers that fell at least 5%, as `tickers.json`, replacing an earlier one."""
-    if len(set(given.tickers)) != len(given.tickers):
-        raise ValueError("tickers must be distinct")
-    path = workspace.resolve() / ANSWER
-    path.write_text(json.dumps({"tickers": given.tickers}, indent=2) + "\n", encoding="utf-8")
-    return SubmitOutput(path=str(path), tickers=len(given.tickers))

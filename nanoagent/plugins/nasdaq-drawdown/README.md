@@ -3,7 +3,9 @@
 A `nanoagent.plugin/v1` plugin, created by `nanoagent plugin new` with the
 structure of NanoAgent's reference plugin, `plugins/arxiv-source`. Its task,
 `nasdaq-down-5`, asks an agent which Nasdaq-100 constituents fell by at least
-5% over the week ending on a date.
+5% over the week ending on a date; its output is those constituents, each with
+its change. People use it by chatting: they name the week, and the page shows
+the fallers as a table, with the verifier's verdict.
 
 ## Tools
 
@@ -12,7 +14,6 @@ structure of NanoAgent's reference plugin, `plugins/arxiv-source`. Its task,
 | `pin_week` | Every constituent's close on `as_of` and 5 sessions earlier; the task's pinned reference | `src/plugin/week.py` |
 | `list_constituents` | The constituents Nasdaq lists now, and the week ending `as_of`: its first session (`start`) and every session | `src/plugin/week.py` |
 | `get_closes` | Up to 25 tickers' closes on one trading session; a day a ticker did not trade fails | `src/plugin/week.py` |
-| `submit_tickers` | Writes the answer to `tickers.json`, replacing an earlier one | `src/plugin/week.py` |
 
 All data comes from Nasdaq's public API, `api.nasdaq.com`
 (`src/plugin/nasdaq.py`): the constituent list
@@ -55,10 +56,11 @@ other date fails. A constituent with no close on either day fails the pin.
 
 `verifier/pin.py` recomputes every change from the pinned closes, in decimal
 arithmetic: a constituent fell by at least 5% when its close on `as_of` is at
-most 95% of its close at `start`. The answer in `tickers.json` must equal that
-set. The score is the answer's F1 against it; the verdict is valid only at an
-exact match. Details report the expected tickers with their changes, and the
-missing, extra and non-constituent tickers.
+most 95% of its close at `start`. The task output's fallers must be exactly
+that set, each with its change within a cent of the pinned one. The score is
+the fallers' F1 against the set; the verdict is valid only at an exact match.
+Details report the expected tickers with their changes, and the missing, extra
+and non-constituent tickers and those given another change.
 
 ## Layout
 
@@ -75,6 +77,7 @@ missing, extra and non-constituent tickers.
 ├── run.sh           # exits 0 when this environment can run the plugin
 ├── src/plugin/      # the MCP server (__main__.py, its TOOLS table), the Nasdaq client and the tools
 ├── tests/
+├── ui/              # how the page draws the outputs: renderers.js and renderers.css (none here)
 └── verifier/        # deterministic verifier package, one module per tool
 ```
 

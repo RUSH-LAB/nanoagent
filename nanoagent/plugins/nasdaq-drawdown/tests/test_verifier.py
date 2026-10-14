@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 from slimconfig import build_output
 
 import verifier
-from contract import TOOLS, PinOutput, Tool, WeekInput
+from contract import TOOLS, DrawdownOutput, PinOutput, Tool, WeekInput
 
 AS_OF = "2026-10-02"
 ARGUMENTS = {"as_of": AS_OF}
@@ -41,11 +40,18 @@ def verify_output(tool: str, value: dict, output: dict, workspace: Path) -> dict
     return verifier.verify_output(tool, build_output(value, given), build_output(output, made), str(workspace))
 
 
-def verdict(tmp_path: Path, tickers, *, arguments=ARGUMENTS, reference=REFERENCE) -> dict:
-    if tickers is not None:
-        (tmp_path / "tickers.json").write_text(json.dumps({"tickers": tickers}))
+# The pinned changes, in percent, of the reference's constituents.
+CHANGES = {"ALNY": -14.16, "KDP": -5.0, "GILD": -4.1, "AAPL": 2.1, "NVDA": -9.0}
+
+
+def verdict(tmp_path: Path, tickers, *, arguments=ARGUMENTS, reference=REFERENCE, changes=CHANGES) -> dict:
+    output = {"fallers": [{"ticker": ticker, "change_percent": changes.get(ticker, 0.0)} for ticker in tickers]}
     return verifier.verify_task(
-        "nasdaq-down-5", build_output(arguments, WeekInput), build_output(reference, PinOutput), str(tmp_path)
+        "nasdaq-down-5",
+        build_output(arguments, WeekInput),
+        build_output(output, DrawdownOutput),
+        build_output(reference, PinOutput),
+        str(tmp_path),
     )
 
 
@@ -83,19 +89,23 @@ def test_refuses_any_other_answer_and_scores_its_f1(
 @pytest.mark.parametrize(
     ("tickers", "arguments", "message"),
     [
-        (None, ARGUMENTS, "no answer at tickers.json"),
         (["ALNY", "ALNY", "KDP"], ARGUMENTS, "tickers must be distinct"),
         (["alny"], ARGUMENTS, "tickers must be a list of ticker symbols"),
         (["ALNY", "KDP"], {"as_of": "2026-10-01"}, "the pinned week ends on another day"),
     ],
 )
-def test_refuses_a_missing_malformed_or_mismatched_answer(
-    tmp_path: Path, tickers, arguments: dict, message: str
-) -> None:
+def test_refuses_a_malformed_or_mismatched_answer(tmp_path: Path, tickers, arguments: dict, message: str) -> None:
     found = verdict(tmp_path, tickers, arguments=arguments)
     assert found["valid"] is False and found["score"] == 0.0
     assert message in found["message"]
     assert found["details"]["expected"] == {"ALNY": -14.16, "KDP": -5.0}
+
+
+def test_refuses_a_faller_with_another_change(tmp_path: Path) -> None:
+    found = verdict(tmp_path, ["ALNY", "KDP"], changes=CHANGES | {"ALNY": -14.18})
+    assert found["valid"] is False and found["score"] == 1.0
+    assert found["details"]["wrong_changes"] == {"ALNY": -14.16}
+    assert verdict(tmp_path, ["ALNY", "KDP"], changes=CHANGES | {"ALNY": -14.17})["valid"] is True
 
 
 def test_checks_tool_inputs_and_outputs(tmp_path: Path) -> None:
@@ -104,13 +114,9 @@ def test_checks_tool_inputs_and_outputs(tmp_path: Path) -> None:
     assert verify_input("get_closes", {"tickers": [], "date": AS_OF})["valid"] is False
     assert verify_input("get_closes", {"tickers": ["AAPL", "AAPL"], "date": AS_OF})["valid"] is False
     assert verify_input("get_closes", {"tickers": ["AAPL"], "date": "10/02/2026"})["valid"] is False
-    assert verify_input("submit_tickers", {"tickers": ["aapl"]})["valid"] is False
     assert verify_input("pin_week", ARGUMENTS)["valid"] is True
     assert verify_input("list_constituents", {"as_of": "Oct 2"})["valid"] is False
     assert verify_output("pin_week", ARGUMENTS, REFERENCE, tmp_path)["valid"] is True
     assert verify_output("pin_week", {"as_of": "2026-10-01"}, REFERENCE, tmp_path)["valid"] is False
     closes = {"date": AS_OF, "closes": [{"ticker": "MSFT", "close": 1.0}]}
     assert verify_output("get_closes", {"tickers": ["AAPL"], "date": AS_OF}, closes, tmp_path)["valid"] is False
-    (tmp_path / "tickers.json").write_text(json.dumps({"tickers": ["AAPL"]}))
-    saved = {"path": str(tmp_path / "tickers.json"), "tickers": 1}
-    assert verify_output("submit_tickers", {"tickers": ["MSFT"]}, saved, tmp_path)["valid"] is False

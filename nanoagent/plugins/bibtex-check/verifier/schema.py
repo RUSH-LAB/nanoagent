@@ -18,11 +18,29 @@ def _fields(record):
     }
 
 
-def match_key(record):
-    """What an exact match compares: every schema field, normalized; the citation key is not one."""
-    return tuple(
-        tuple(None if value is None else normalize(value) for value in values) for values in _fields(record).values()
-    )
+def shared_fields(record, other):
+    """The schema fields two records agree in, normalized: authors as the same names in the same order."""
+    mine, theirs = _fields(record), _fields(other)
+    return [
+        field for field in mine if [None if value is None else normalize(value) for value in mine[field]]
+        == [None if value is None else normalize(value) for value in theirs[field]]
+    ]
+
+
+def closest_reference(record, references):
+    """(the reference entry closest to ``record``, the fields they share), or None when none is close.
+    The closest shares the most fields, then the title or a DOI, then comes first. It is close when it
+    shares the title, a DOI or at least four of the six fields."""
+    best = None
+    for entry in references:
+        shared = shared_fields(record, entry.record)
+        anchored = "title" in shared or (record.doi is not None and "doi" in shared)
+        score = (len(shared), anchored)
+        if best is None or score > best[0]:
+            best = (score, entry, shared)
+    if best is None or not (best[0][1] or best[0][0] >= 4):
+        return None
+    return best[1], best[2]
 
 
 def record_problem(record):

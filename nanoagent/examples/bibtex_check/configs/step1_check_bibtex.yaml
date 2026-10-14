@@ -1,13 +1,11 @@
 _ > nanoagent.cli.plugin.PluginAgentConfig:
 
-# The BibTeX check plugin's check-bibtex task, worked by an agent on the sample files.
+# The BibTeX check plugin's check-bibtex task, worked by an agent on the sample files' text.
 plugin: plugins/bibtex-check
 task: check-bibtex
-# The task's input, a contract.ParseInput as JSON.
+# The task's input, a contract.ParseInput as JSON: tests/fixtures/reference.bib's and raw.bib's text.
 arguments: examples/bibtex_check/configs/step1_check_bibtex_arguments.json
-inputs:
-  - plugins/bibtex-check/tests/fixtures/reference.bib
-  - plugins/bibtex-check/tests/fixtures/raw.bib
+inputs: []
 timeout: 300.0
 
 llm > nanoagent.llm.bedrock.BedrockConfig:

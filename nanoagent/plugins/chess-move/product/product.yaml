@@ -6,6 +6,6 @@ highlights:
   - "Moves pieces by dragging and clicking"
   - "Each move is scored by Stockfish"
 steps:
-  - "Start from any position"
-  - "It reads the board and picks a move"
-  - "It plays the move and Stockfish scores it"
+  - "Paste a position, or tell it the moves of your game so far"
+  - "It plays its move on a real board and shows you the board after it"
+  - "Stockfish checks the move; reply with yours to keep the game going"

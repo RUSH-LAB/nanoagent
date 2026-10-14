@@ -1,5 +1,4 @@
 {
-  "recipes": "inputs/recipes.json",
   "meal": "dinner",
   "constraints": {
     "protein": {"min": 30, "max": null},

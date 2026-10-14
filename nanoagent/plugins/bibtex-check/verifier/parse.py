@@ -1,15 +1,16 @@
-"""parse_bibtex (the check-bibtex reference) and the check-bibtex task's outcome check."""
+"""parse_bibtex (the check-bibtex reference) and the check-bibtex task's output check."""
 
-import json
-from pathlib import Path
+from contract import Field, Label
 
-from .checks import entries_problem, path_problem, result
-from .schema import match_key
-from .verdicts import LABELS, VERDICTS
+from .checks import entries_problem, result, text_problem
+from .schema import closest_reference
+
+# The Verdict fields a verdict is judged on, besides its key.
+FIELDS = ("title", "label", "closest", "differs", "error")
 
 
 def verify_input(value):
-    problem = path_problem("reference", value.reference) or path_problem("raw", value.raw)
+    problem = text_problem("reference", value.reference) or text_problem("raw", value.raw)
     if problem:
         return result(False, problem)
     return result(True, "input is valid")
@@ -27,35 +28,41 @@ def verify_output(input_value, output_value, workspace):
     )
 
 
-def verify_task(arguments, reference, workspace):
-    """Approve the verdicts only when every raw entry has one, and each is right: `real` for an exact
-    match of a pinned reference record, `hallucinated` for no match. An unparseable entry is no match."""
-    path = Path(workspace) / VERDICTS
-    if not path.is_file():
-        return result(False, f"no verdicts at {VERDICTS}", score=0.0)
-    verdicts = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(verdicts, dict):
-        return result(False, f"{VERDICTS} does not map raw entry keys to verdicts", score=0.0)
+def expected_verdict(entry, references):
+    """The right verdict for one raw entry, as (title, label, closest, differs, error)."""
+    if entry.record is None:
+        return None, Label.UNREADABLE, None, [], entry.error
+    closest = closest_reference(entry.record, references)
+    if closest is None:
+        return entry.record.title, Label.INVENTED, None, [], None
+    reference, shared = closest
+    differs = [field for field in Field if field.value not in shared]
+    return entry.record.title, Label.FIXABLE if differs else Label.REAL, reference.key, differs, None
 
-    known = {match_key(entry.record) for entry in reference.reference}
-    expected = {
-        entry.key: "real" if entry.record is not None and match_key(entry.record) in known else "hallucinated"
-        for entry in reference.raw
-    }
+
+def verify_task(arguments, output, reference, workspace):
+    """Approve the verdicts only when every raw entry has exactly one, in order, and each is right in
+    every field, recomputed from the pinned records."""
+    expected = {entry.key: expected_verdict(entry, reference.reference) for entry in reference.raw}
     problems = {}
-    for key, label in expected.items():
-        if key not in verdicts:
+    keys = [verdict.key for verdict in output.verdicts]
+    for verdict in output.verdicts:
+        given = (verdict.title, verdict.label, verdict.closest, verdict.differs, verdict.error)
+        if verdict.key not in expected:
+            problems[verdict.key] = "not a raw entry"
+        elif keys.count(verdict.key) > 1:
+            problems[verdict.key] = "more than one verdict"
+        elif given != expected[verdict.key]:
+            wrong = [name for name, mine, right in zip(FIELDS, given, expected[verdict.key]) if mine != right]
+            problems[verdict.key] = f"wrong {', '.join(wrong)}: the entry is {expected[verdict.key][1].value}"
+    for key in expected:
+        if key not in keys:
             problems[key] = "no verdict"
-        elif verdicts[key] not in LABELS:
-            problems[key] = f"verdict {verdicts[key]!r} is not real or hallucinated"
-        elif verdicts[key] != label:
-            problems[key] = f"verdict {verdicts[key]} is wrong: the entry is {label}"
-    for key in verdicts:
-        if key not in expected:
-            problems[key] = "not a raw entry"
+    if not problems and keys != list(expected):
+        problems["order"] = "the verdicts are not in the order of the raw BibTeX"
 
     correct = [key for key in expected if key not in problems]
     score = len(correct) / len(expected) if expected else float(not problems)
     if problems:
         return result(False, f"{len(problems)} verdict(s) fail the check", score=score, problems=problems)
-    return result(True, f"all {len(expected)} verdict(s) are right", score=score, expected=expected)
+    return result(True, f"all {len(expected)} verdict(s) are right", score=score)

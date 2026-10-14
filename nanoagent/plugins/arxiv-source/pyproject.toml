@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nanoagent-arxiv-source"
-version = "0.3.0"
+version = "0.4.0"
 description = "Download and safely unpack an arXiv source archive"
 requires-python = ">=3.12"
 dependencies = ["mcp>=1.27,<2", "slimconfig"]

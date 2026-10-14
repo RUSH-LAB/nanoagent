@@ -1,6 +1,5 @@
 """list_daily_papers (the daily-digest reference) and the daily-digest task's outcome check."""
 
-import json
 import re
 from pathlib import Path
 
@@ -42,52 +41,54 @@ def _expected(reference):
     return papers
 
 
-def _entry_problems(entry, record, link):
-    """``entry``: a digest entry as the digest file holds it; ``record``: a contract DailyPaper."""
+def _entry_problems(entry, record, folder):
+    """``entry``: a contract Entry; ``record``: a contract DailyPaper; ``folder``: its docs/raw/ folder."""
     problems = []
-    if entry.get("title") != record.title:
+    if entry.title != record.title:
         problems.append("title differs from the arXiv record")
-    if entry.get("authors") != record.authors:
+    if entry.authors != record.authors:
         problems.append("authors differ from the arXiv record")
-    lines = entry.get("summary", "").split("\n") if isinstance(entry.get("summary"), str) else []
+    lines = entry.summary.split("\n")
     if len(lines) != 2 or not all(line.strip() for line in lines):
         problems.append("summary is not exactly two lines")
-    if entry.get("link") != link:
+    link = f"https://arxiv.org/abs/{record.arxiv_id}"
+    if entry.link != link:
         problems.append(f"link is not {link}")
+    if Path(entry.folder) != folder:
+        problems.append(f"folder is not docs/raw/{folder.name}")
     return problems
 
 
-def verify_task(arguments, reference, workspace):
-    """Approve the digest only when every paper the pinned arXiv listing shows for the monitored
-    people on the date is an exact entry and has its source saved under docs/raw/."""
+def verify_task(arguments, output, reference, workspace):
+    """Approve the digest (a contract Digest) only when every paper the pinned arXiv listing shows
+    for the monitored people on the date is an exact entry and has its source saved under docs/raw/."""
     date = arguments.date
+    if output.date != date:
+        return result(False, f"the digest is for {output.date}, not {date}", score=0.0)
     expected = _expected(reference)
-    path = Path(workspace) / "docs" / f"digest-{date}.json"
-    if not path.is_file():
-        return result(False, f"no digest at docs/digest-{date}.json", score=0.0, expected=sorted(expected))
-    entries = json.loads(path.read_text(encoding="utf-8")).get("entries")
-    if not isinstance(entries, list):
-        return result(False, "digest has no entries list", score=0.0)
+    folders = {
+        paper: Path(workspace) / "docs" / "raw" / raw_folder_name(record.title, record.authors, paper, date)
+        for paper, record in expected.items()
+    }
 
     problems = {}
     listed = set()
-    for entry in entries:
-        paper = entry.get("arxiv_id") if isinstance(entry, dict) else None
-        if not isinstance(paper, str) or not NEW_ID.fullmatch(paper):
-            problems.setdefault(str(paper), []).append("id is not of the form YYMM.NNNNN")
+    for entry in output.entries:
+        paper = entry.arxiv_id
+        if not NEW_ID.fullmatch(paper):
+            problems.setdefault(paper, []).append("id is not of the form YYMM.NNNNN")
         elif paper in listed:
             problems.setdefault(paper, []).append("listed twice")
         elif paper not in expected:
             problems.setdefault(paper, []).append(f"not a paper arXiv shows for these people on {date}")
         else:
             listed.add(paper)
-            found = _entry_problems(entry, expected[paper], f"https://arxiv.org/abs/{paper}")
+            found = _entry_problems(entry, expected[paper], folders[paper])
             if found:
                 problems.setdefault(paper, []).extend(found)
-    for paper, record in expected.items():
+    for paper, folder in folders.items():
         if paper not in listed:
             problems.setdefault(paper, []).append("published but missing from the digest")
-        folder = Path(workspace) / "docs" / "raw" / raw_folder_name(record.title, record.authors, paper, date)
         if not folder.is_dir() or not any(child.is_file() for child in folder.rglob("*")):
             problems.setdefault(paper, []).append(f"no saved source in docs/raw/{folder.name}")
 
@@ -95,4 +96,6 @@ def verify_task(arguments, reference, workspace):
     score = len(correct) / len(expected) if expected else float(not problems)
     if problems:
         return result(False, f"{len(problems)} paper(s) fail the digest check", score=score, problems=problems)
-    return result(True, f"all {len(expected)} paper(s) are in the digest and saved", score=score, papers=sorted(expected))
+    return result(
+        True, f"all {len(expected)} paper(s) are in the digest and saved", score=score, papers=sorted(expected)
+    )

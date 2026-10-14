@@ -2,8 +2,9 @@
 
 The board (see `plugin.board.LiveBoard`) is opened by the first `open_board` and kept for the
 whole task: NanoAgent runs one plugin process per task, so every later call works the same page.
-After every action, `board.json` holds what the engine reports: the moves played since the start
-and the position after each one.
+After every action, `board.json` holds what the engine reports: the position the board opened on,
+the moves played since and the position after each one; the action returns the moves and the
+position now.
 """
 
 from __future__ import annotations
@@ -13,24 +14,22 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from contract import Acted, ClickInput, DragInput, Image, MediaType, Position, Screenshot, ScreenshotInput
+from contract import Acted, ClickInput, DragInput, Game, Image, MediaType, Screenshot, ScreenshotInput
 
 RECORD = "board.json"
 
 
 class Play:
-    """The tools, over the board ``open_live(fen)`` opens."""
+    """The tools, over the board ``open_live(fen, moves)`` opens."""
 
-    def __init__(self, open_live: Callable[[str], object]) -> None:
+    def __init__(self, open_live: Callable[[str, list[str]], object]) -> None:
         self._open_live = open_live
         self.live = None
-        self.fen = None
 
-    def open_board(self, given: Position, workspace: Path) -> Screenshot:
+    def open_board(self, given: Game, workspace: Path) -> Screenshot:
         if self.live is not None:
             raise ValueError("the board is already open")
-        self.live = self._open_live(given.fen)
-        self.fen = given.fen
+        self.live = self._open_live(given.fen, given.moves)
         self._record(workspace)
         return self.screenshot(ScreenshotInput(), workspace)
 
@@ -59,6 +58,6 @@ class Play:
 
     def _record(self, workspace: Path) -> Acted:
         moves = self.live.moves()
-        record = {"fen": self.fen, "moves": moves, "positions": self.live.positions(moves)}
+        record = {"fen": self.live.start, "moves": moves, "positions": self.live.positions(moves)}
         (workspace / RECORD).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-        return Acted()
+        return Acted(moves=moves, position=record["positions"][-1] if moves else record["fen"])

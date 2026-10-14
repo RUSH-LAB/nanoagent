@@ -28,4 +28,4 @@ class NoteOutput(Output):
 
 
 TOOLS = {Tool.WRITE_NOTE: (NoteInput, NoteOutput)}
-TASKS = {Task.WRITE_NOTE: NoteInput}
+TASKS = {Task.WRITE_NOTE: (NoteInput, NoteOutput)}

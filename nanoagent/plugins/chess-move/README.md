@@ -1,21 +1,22 @@
 # Chess Move
 
-Play one chess move with the mouse on a live board, scored by Stockfish. Everything it runs is in
+Play one chess move with the mouse on a live board, scored by Stockfish. A person gives a position
+or the game so far in the chat; the page draws the board after the move. Everything it runs is in
 this folder or comes from PyPI and GitHub when it is installed, except Chrome.
 
 ## Tools
 
 | Tool | Does | Code |
 |---|---|---|
-| `pin_moves` | Scores every legal move of a position with Stockfish (fixed nodes, one thread) and pins each one's resulting FEN and win probability for the mover; the `play-move` task's reference | `src/plugin/pin.py` |
-| `open_board` | Opens the board on the given FEN, with the agent playing the side to move, and returns a screenshot of the board drawn from that side | `src/plugin/board.py` |
+| `pin_moves` | Scores every legal move of the position a game (a FEN and the UCI moves since) reached with Stockfish (fixed nodes, one thread) and pins each one's resulting FEN and win probability for the mover; the `play-move` task's reference | `src/plugin/pin.py` |
+| `open_board` | Opens the board on the position the game reached, with the agent playing the side to move, and returns a screenshot of the board drawn from that side | `src/plugin/board.py` |
 | `screenshot` | A fresh screenshot of the live board | `src/plugin/play.py` |
-| `drag` | Press at `from_xy`, drag to `to_xy`, release — pixels in the board screenshot | `src/plugin/play.py` |
-| `click` | Click at `xy`, a point in the board screenshot | `src/plugin/play.py` |
+| `drag` | Press at `from_xy`, drag to `to_xy`, release — pixels in the board screenshot; returns the moves played on the board and its FEN | `src/plugin/play.py` |
+| `click` | Click at `xy`, a point in the board screenshot; returns the moves played on the board and its FEN | `src/plugin/play.py` |
 
 The server, the headless browser and the game live for the whole task: NanoAgent runs one plugin
 process per `nanoagent plugin agent` run. After every mouse action the plugin writes
-`board.json` into the workspace, with the FEN the game started from, every move played since (UCI)
+`board.json` into the workspace, with the FEN the board opened on, every move played since (UCI)
 and the FEN after each one. The board takes a move only from the side to move at the start, and
 only on its turn, so the one move it records is the agent's.
 
@@ -24,14 +25,18 @@ budget per legal move (`NODES`), and both the pin and the live board use the sam
 
 ## The play-move task
 
-`play-move` runs an agent that reads one FEN. `pin_moves(fen)` runs first in a scratch workspace;
-its output is pinned (`reference.json`) and passed to `verify_task`. The agent gets `open_board`,
-`screenshot`, `drag` and `click`.
+`play-move` takes a `Game`: a FEN and the moves played since it, in UCI (`[]` to play from the FEN
+itself), so a person can paste a position or say the moves so far. `pin_moves` runs first in a
+scratch workspace; its output is pinned (`reference.json`) and passed to `verify_task`. The agent
+gets `open_board`, `screenshot`, `drag` and `click`, and submits a `PlayedMove`: the move, the FEN
+after it and the game's moves ending with it. In the chat, the next move of the game is the same
+task with the person's reply added to `moves`.
 
 `verifier/play.py` reads `board.json`, picks the agent's move (`moves[0]`), checks that it is one
 of the pinned legal moves, and that the position recorded after it matches the one `pin_moves`
-pinned. The score is 1 minus the win probability it gave away against the pinned best move. A run
-with no agent move, an illegal one, or more than one agent move fails.
+pinned; then that the output names that move, that position, and the game's moves followed by it.
+The score is 1 minus the win probability it gave away against the pinned best move. A run with no
+agent move, an illegal one, more than one agent move, or an output that is not the game fails.
 
 ## The board
 
@@ -65,6 +70,7 @@ about a minute.
 ├── .gitignore
 ├── .env             # no variables
 ├── run.sh           # checks the browser
+├── ui/              # renderers.js draws a PlayedMove as its board (board.js, chess.js, pieces/); renderers.css
 ├── src/
 │   ├── plugin/      # the MCP server (__main__.py, its IMPLEMENTATIONS table), one module per tool, the board and Chrome
 │   │   └── page/    # the board's page and chessgroundx
@@ -77,8 +83,9 @@ about a minute.
 its output against its own, and NanoAgent and the verifier get the same classes. A failing tool
 raises, and the MCP server returns the error. The screenshot's `images` are what NanoAgent
 forwards to the model as images. `verifier/` imports only the standard library and `contract`;
-it checks what the types cannot (a FEN's and a move's spelling, points of two non-negative
-pixels, a win probability between 0 and 1) and reads `board.json` from the workspace.
+it checks what the types cannot (a FEN's and a move's spelling, the side to move a game's moves
+leave, points of two non-negative pixels, a win probability between 0 and 1) and reads
+`board.json` from the workspace.
 
 ## Develop and run
 

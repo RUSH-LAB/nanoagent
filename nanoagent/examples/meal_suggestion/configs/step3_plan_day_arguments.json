@@ -1,5 +1,4 @@
 {
-  "recipes": "inputs/recipes.json",
   "meals": {
     "breakfast": {
       "kcal": {

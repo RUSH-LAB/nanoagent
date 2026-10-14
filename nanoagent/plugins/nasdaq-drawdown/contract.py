@@ -11,7 +11,6 @@ class Tool(Enum):
     PIN_WEEK = "pin_week"
     LIST_CONSTITUENTS = "list_constituents"
     GET_CLOSES = "get_closes"
-    SUBMIT_TICKERS = "submit_tickers"
 
 
 class Task(Enum):
@@ -25,7 +24,9 @@ LISTED_AT = "When Nasdaq stamped the constituent list (US Eastern)"
 
 @dataclass
 class WeekInput(Output):
-    as_of: Annotated[str, "The week's last trading session, YYYY-MM-DD, a past day"]
+    as_of: Annotated[
+        str, "The week's last trading session, YYYY-MM-DD, a past weekday the market was open, e.g. last Friday"
+    ]
 
 
 @dataclass
@@ -79,22 +80,19 @@ class ClosesOutput(Output):
 
 
 @dataclass
-class SubmitInput(Output):
-    tickers: Annotated[
-        list[Annotated[str, TICKER]], "Every constituent that fell at least 5% over the week; [] for none"
-    ]
+class Faller(Output):
+    ticker: Annotated[str, TICKER]
+    change_percent: Annotated[float, "Its change over the week in percent, to the cent, e.g. -6.25"]
 
 
 @dataclass
-class SubmitOutput(Output):
-    path: str
-    tickers: int
+class DrawdownOutput(Output):
+    fallers: Annotated[list[Faller], "Every constituent that fell at least 5% over the week; [] for none"]
 
 
 TOOLS = {
     Tool.PIN_WEEK: (WeekInput, PinOutput),
     Tool.LIST_CONSTITUENTS: (WeekInput, ConstituentsOutput),
     Tool.GET_CLOSES: (ClosesInput, ClosesOutput),
-    Tool.SUBMIT_TICKERS: (SubmitInput, SubmitOutput),
 }
-TASKS = {Task.NASDAQ_DOWN_5: WeekInput}
+TASKS = {Task.NASDAQ_DOWN_5: (WeekInput, DrawdownOutput)}

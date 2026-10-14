@@ -1,33 +1,23 @@
-"""solve (the suggest-meal reference) and the suggest-meal task's outcome check."""
-
-from pathlib import Path
+"""solve (the recommend-meal tool and the suggest-meal reference) and the meal tasks' outcome checks."""
 
 from .checks import result
 from .meals import (
     MAX_SERVINGS,
     ROUNDING,
-    SUGGESTION,
-    as_dishes,
     bounds_problem,
     constraint_problems,
     dish_problems,
-    eligible,
     likes_problem,
-    load,
     load_recipes,
     meal_score,
     nutrition_problem,
-    path_problem,
-    per_serving,
-    rounded,
-    score,
     share,
     totals,
 )
 
 
 def verify_input(value):
-    problem = path_problem(value.recipes, "recipes") or likes_problem(value.likes) or bounds_problem(value.constraints)
+    problem = likes_problem(value.likes) or bounds_problem(value.constraints)
     if problem:
         return result(False, problem)
     if not 1 <= value.max_servings <= MAX_SERVINGS:
@@ -35,73 +25,65 @@ def verify_input(value):
     return result(True, "input is valid")
 
 
+def totals_problems(dishes, given, recipes, constraints):
+    """What is wrong with the totals of ``dishes`` within ``constraints``, recomputed from the recipes,
+    and with ``given``, the totals a plan gives for them."""
+    found = totals(dishes, recipes)
+    problems = constraint_problems(found, constraints)
+    if nutrition_problem(given, found):
+        problems.append("the totals are not its dishes'")
+    return problems
+
+
+def meal_problems(plan, meal, recipes, constraints, given):
+    """What is wrong with ``plan`` (a contract Suggestion or SolveOutput) as ``meal`` within
+    ``constraints``, for the task's input ``given``: its dishes, then its totals."""
+    return dish_problems(plan.dishes, recipes, meal, given) or totals_problems(
+        plan.dishes, plan.totals, recipes, constraints
+    )
+
+
 def verify_output(input_value, output_value, workspace):
-    """The pinned plan is a feasible meal, its score is its dishes' and no more than the pinned worst
-    is below it, and each recipe's nutrition and score are the file's (that the plan is the best and
-    the worst the least rests on the solver)."""
-    recipes = load_recipes(workspace, input_value.recipes)
-    names = eligible(recipes, input_value.meal, input_value.restrictions)
-    if sorted(output_value.recipes) != names or sorted(output_value.scores) != names:
-        return result(False, "the pinned recipes are not exactly the meal's recipes that meet the restrictions")
-    for name in names:
-        if nutrition_problem(output_value.recipes[name], per_serving(recipes[name])):
-            return result(False, f"the pinned nutrition of {name} differs from the recipes file")
-        if abs(output_value.scores[name] - score(recipes[name], input_value.likes)) > ROUNDING:
-            return result(False, f"the pinned score of {name} is not the sum of its likes' weights")
-    plan = as_dishes(output_value.plan)
-    problems = dish_problems(plan, recipes, input_value.meal, input_value.restrictions, input_value.max_servings)
+    """The recommended meal meets every constraint, its totals and score are its dishes', and the lowest
+    score is no more than its (that it is the best and the lowest the least rests on the solver)."""
+    recipes = load_recipes()
+    problems = meal_problems(output_value, input_value.meal, recipes, input_value.constraints, input_value)
     if problems:
-        return result(False, "the plan is not a meal of the allowed recipes", problems=problems)
-    problems = constraint_problems(totals(plan, recipes), input_value.constraints)
-    if problems:
-        return result(False, "the plan breaks a constraint", problems=problems)
-    if abs(output_value.score - meal_score(plan, recipes, input_value.likes)) > ROUNDING:
-        return result(False, "the pinned score is not the plan's")
-    if output_value.worst > output_value.score + ROUNDING:
-        return result(False, "the pinned worst score is above the best")
-    return result(True, "the plan is a feasible meal", plan=plan)
+        return result(False, "the meal breaks a constraint or the restrictions", problems=problems)
+    if abs(output_value.score - meal_score(output_value.dishes, recipes, input_value.likes)) > ROUNDING:
+        return result(False, "the score is not the meal's")
+    if output_value.lowest_score > output_value.score + ROUNDING:
+        return result(False, "the lowest score is above the best")
+    return result(True, "the meal meets every constraint and the restrictions")
 
 
-def verify_task(arguments, reference, workspace):
-    """Valid when meal.json is a meal of whole servings of the allowed recipes whose totals, recomputed
-    from the recipes file, meet every constraint. The score is where its preference score falls
-    between the pinned worst and best (see meals.share); a feasible meal that is not the best is valid with
-    a score below 1."""
-    path = Path(workspace) / SUGGESTION
-    optimum = {"plan": as_dishes(reference.plan), "score": reference.score, "worst": reference.worst}
-    if not path.is_file():
-        return result(False, f"no suggestion at {SUGGESTION}", score=0.0, optimum=optimum)
-    dishes = load(workspace, SUGGESTION).get("dishes")
-    recipes = load_recipes(workspace, arguments.recipes)
-    problems = dish_problems(dishes, recipes, arguments.meal, arguments.restrictions, arguments.max_servings)
+def verify_task(arguments, output, reference, workspace):
+    """Valid when the suggestion is whole servings of the allowed recipes, each with its recipe's url and
+    the likes it matches, whose totals (recomputed from the recipes, and as it gives them) meet every
+    constraint. The score is where its preference score falls between the pinned lowest and best (see
+    meals.share); a feasible meal that is not the best is valid with a score below 1."""
+    recipes = load_recipes()
+    optimum = {"dishes": reference.dishes, "score": reference.score, "lowest_score": reference.lowest_score}
+    problems = meal_problems(output, arguments.meal, recipes, arguments.constraints, arguments)
     if problems:
         return result(
-            False, "the dishes break the restrictions or the servings", score=0.0, problems=problems, dishes=dishes
+            False, "the meal breaks a constraint or the restrictions", score=0.0, problems=problems, optimum=optimum
         )
-    meal_totals = totals(dishes, recipes)
-    problems = constraint_problems(meal_totals, arguments.constraints)
-    if problems:
-        return result(
-            False,
-            "the meal breaks a constraint",
-            score=0.0,
-            problems=problems,
-            dishes=dishes,
-            totals=rounded(meal_totals),
-        )
-
-    value = meal_score(dishes, recipes, arguments.likes)
-    if value > reference.score + ROUNDING or value < reference.worst - ROUNDING:
+    value = meal_score(output.dishes, recipes, arguments.likes)
+    if value > reference.score + ROUNDING or value < reference.lowest_score - ROUNDING:
         return result(
             False, "the meal's preference score is outside the pinned range: the reference is wrong", score=0.0
         )
     return result(
         True,
         f"the meal meets every constraint and the restrictions; preference score {value:g} against the best "
-        f"{reference.score:g} (worst {reference.worst:g})",
-        score=round(share(value, reference.score, reference.worst), 6),
-        dishes=dishes,
-        totals=rounded(meal_totals),
+        f"{reference.score:g} (lowest {reference.lowest_score:g})",
+        score=round(share(value, reference.score, reference.lowest_score), 6),
         preference=value,
         optimum=optimum,
     )
+
+
+def verify_recommendation(arguments, output, reference, workspace):
+    """The recommended meal is the solver's: valid when it checks as solve's output (see verify_output)."""
+    return verify_output(arguments, output, workspace)

@@ -13,7 +13,7 @@ from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 from slimconfig import build_output, output_schema, plain_output
 
-from contract import TOOLS, PinOutput, Position, Tool
+from contract import TOOLS, Game, PinOutput, Tool
 from plugin import Play, pin_moves
 from plugin.board import LiveBoard
 from plugin.engine import Stockfish
@@ -25,9 +25,9 @@ WORKSPACE_ENV = "NANOAGENT_WORKSPACE"
 PLAY = Play(LiveBoard)
 
 
-def pin_with_stockfish(given: Position, workspace: Path) -> PinOutput:
+def pin_with_stockfish(given: Game, workspace: Path) -> PinOutput:
     with Stockfish() as engine:
-        return pin_moves(given.fen, engine=engine)
+        return pin_moves(given.fen, given.moves, engine=engine)
 
 
 # Each tool's implementation: (its input, the workspace) -> its output, as contract.TOOLS types them.

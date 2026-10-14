@@ -1,6 +1,7 @@
 """The live board: the game, a page that draws it, and a headless Chrome on the page.
 
-The game starts from a FEN with the side to move as the player's seat. Stockfish keeps the rules:
+The game starts from the position a FEN and the moves since lead to, with the side to move as the
+player's seat. Stockfish keeps the rules:
 the page (`page/`, chessgroundx) offers only the moves Stockfish lists, and the server takes only
 those. A move is the player's only while it is their turn, so the first move is the only one the
 board takes. The page is served on loopback by a server of the board's own, and Chrome
@@ -20,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from plugin.chrome import Chrome
-from plugin.engine import Stockfish
+from plugin.engine import Stockfish, position_after
 
 PAGE = Path(__file__).with_name("page")
 SIZE = (680, 680)
@@ -114,13 +115,16 @@ def handler(game: Game) -> type[BaseHTTPRequestHandler]:
 
 
 class LiveBoard:
-    """The board on ``fen``, until :meth:`close`; its scratch files live in a temporary folder."""
+    """The board on the position ``moves`` lead to from ``fen``, until :meth:`close`; its scratch files
+    live in a temporary folder."""
 
-    def __init__(self, fen: str) -> None:
+    def __init__(self, fen: str, moves: list[str]) -> None:
         self._stack = ExitStack()
         try:
             scratch = Path(self._stack.enter_context(tempfile.TemporaryDirectory(prefix="chess-move-")))
-            self.game = Game(fen, self._stack.enter_context(Stockfish()))
+            engine = self._stack.enter_context(Stockfish())
+            self.start = position_after(engine, fen, moves)
+            self.game = Game(self.start, engine)
             server = Server(("127.0.0.1", 0), handler(self.game))
             self._stack.callback(server.server_close)
             threading.Thread(target=server.serve_forever, daemon=True).start()

@@ -5,7 +5,7 @@ plugin: plugins/chess-move
 task: play-move
 # A middle-game Italian: white's knight on c3 forks black's queen on d5, which is sitting on d5
 # after taking the e4 pawn. The clear best is Nxd5, winning the queen.
-# The task's input, a contract.Position as JSON.
+# The task's input, a contract.Game as JSON.
 arguments: examples/chess_move/configs/step1_play_move_arguments.json
 inputs: []
 timeout: 180.0

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nanoagent-chess-move"
-version = "0.1.0"
+version = "0.2.0"
 description = "Play one chess move with the mouse on a live board, scored by Stockfish"
 requires-python = ">=3.12"
 # chess-move-stockfish (src/chess-move-stockfish/) is Stockfish, compiled into its wheel when this plugin is

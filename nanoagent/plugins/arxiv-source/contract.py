@@ -13,7 +13,6 @@ class Tool(Enum):
     SAVE_SEARCH_RESULTS = "save_search_results"
     LIST_DAILY_PAPERS = "list_daily_papers"
     SAVE_RAW_PAPER = "save_raw_paper"
-    WRITE_DIGEST = "write_digest"
 
 
 class Task(Enum):
@@ -24,7 +23,11 @@ class Task(Enum):
     DAILY_DIGEST = "daily-digest"
 
 
-QUERY = 'An arXiv API search_query, e.g. ti:"attention is all you need" or au:vaswani AND cat:cs.CL'
+QUERY = (
+    "An arXiv API search_query built from the request: ti: title, au: author, abs: abstract, cat: category,"
+    ' joined by AND/OR, e.g. ti:"attention is all you need" or au:vaswani AND cat:cs.CL'
+)
+DESTINATION = "A new folder relative to the plugin workspace, e.g. papers/attention"
 DATE = "A UTC date, YYYY-MM-DD"
 VERSIONED_ID = "The arXiv identifier with its version"
 NEW_ID = "An arXiv id of the form YYMM.NNNNN"
@@ -75,6 +78,7 @@ class Entry(Output):
     authors: Annotated[list[str], "Exactly as arXiv lists them, in order"]
     summary: Annotated[str, "Exactly two lines, separated by one newline"]
     link: Annotated[str, "https://arxiv.org/abs/<arxiv_id>"]
+    folder: Annotated[str, "Where save_raw_paper saved its source, exactly as it returned it"]
 
 
 @dataclass
@@ -93,7 +97,7 @@ class SearchOutput(Output):
 @dataclass
 class DownloadInput(Output):
     arxiv_id: Annotated[str, "A modern or legacy arXiv identifier, optionally with a version"]
-    destination: Annotated[str, "A new folder relative to the plugin workspace"]
+    destination: Annotated[str, DESTINATION]
 
 
 @dataclass
@@ -118,6 +122,12 @@ class SaveOutput(Output):
     query: str
     folder: str
     papers: list[SavedPaper]
+
+
+@dataclass
+class FindInput(Output):
+    request: Annotated[str, "The paper in the person's words: its title, topic, authors or year"]
+    destination: Annotated[str, DESTINATION]
 
 
 @dataclass
@@ -148,16 +158,9 @@ class RawOutput(Output):
 
 
 @dataclass
-class DigestInput(Output):
+class Digest(Output):
     date: Annotated[str, DATE]
-    entries: list[Entry]
-
-
-@dataclass
-class DigestOutput(Output):
-    path: str
-    markdown: str
-    entries: int
+    entries: Annotated[list[Entry], "One per paper, a paper by several of the people once"]
 
 
 TOOLS = {
@@ -166,12 +169,11 @@ TOOLS = {
     Tool.SAVE_SEARCH_RESULTS: (SaveInput, SaveOutput),
     Tool.LIST_DAILY_PAPERS: (DailyInput, DailyOutput),
     Tool.SAVE_RAW_PAPER: (RawInput, RawOutput),
-    Tool.WRITE_DIGEST: (DigestInput, DigestOutput),
 }
 TASKS = {
-    Task.SEARCH_PAPERS: SearchInput,
-    Task.SAVE_PAPER_SOURCE: DownloadInput,
-    Task.SAVE_SEARCH_RESULTS: SaveInput,
-    Task.FIND_AND_SAVE_PAPER: SearchInput,
-    Task.DAILY_DIGEST: DailyInput,
+    Task.SEARCH_PAPERS: (SearchInput, SearchOutput),
+    Task.SAVE_PAPER_SOURCE: (DownloadInput, DownloadOutput),
+    Task.SAVE_SEARCH_RESULTS: (SaveInput, SaveOutput),
+    Task.FIND_AND_SAVE_PAPER: (FindInput, SavedPaper),
+    Task.DAILY_DIGEST: (DailyInput, Digest),
 }

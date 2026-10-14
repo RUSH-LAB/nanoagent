@@ -2,8 +2,7 @@
 
 from contract import Task, Tool
 
-from . import daily, digest, download, raw, save, search
-from .checks import result
+from . import daily, download, find, raw, save, search
 
 TOOLS = {
     Tool.DOWNLOAD_SOURCE: download,
@@ -11,21 +10,20 @@ TOOLS = {
     Tool.SAVE_SEARCH_RESULTS: save,
     Tool.LIST_DAILY_PAPERS: daily,
     Tool.SAVE_RAW_PAPER: raw,
-    Tool.WRITE_DIGEST: digest,
 }
 
 
-def _per_call(arguments, reference, workspace):
-    """A task whose outcome is its tool calls' outputs, each already checked by verify_output."""
-    return result(True, "every tool call was verified")
+def _tool_output(module):
+    """A tool task's check: its output judged as its one tool's verify_output judges it."""
+    return lambda arguments, output, reference, workspace: module.verify_output(arguments, output, workspace)
 
 
-# task -> its outcome check, verify_task(arguments, reference, workspace)
+# task -> its output's check, verify_task(arguments, output, reference, workspace)
 TASKS = {
-    Task.SEARCH_PAPERS: _per_call,
-    Task.SAVE_PAPER_SOURCE: _per_call,
-    Task.SAVE_SEARCH_RESULTS: _per_call,
-    Task.FIND_AND_SAVE_PAPER: _per_call,
+    Task.SEARCH_PAPERS: _tool_output(search),
+    Task.SAVE_PAPER_SOURCE: _tool_output(download),
+    Task.SAVE_SEARCH_RESULTS: _tool_output(save),
+    Task.FIND_AND_SAVE_PAPER: find.verify_task,
     Task.DAILY_DIGEST: daily.verify_task,
 }
 
@@ -38,5 +36,5 @@ def verify_output(tool, input_value, output_value, workspace):
     return TOOLS[Tool(tool)].verify_output(input_value, output_value, workspace)
 
 
-def verify_task(task, arguments, reference, workspace):
-    return TASKS[Task(task)](arguments, reference, workspace)
+def verify_task(task, arguments, output, reference, workspace):
+    return TASKS[Task(task)](arguments, output, reference, workspace)

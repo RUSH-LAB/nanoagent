@@ -14,22 +14,25 @@ raises :class:`PluginError` listing every broken rule at once:
    ``tools`` and ``tasks`` are tables keyed by the contract's ``Tool`` and ``Task``. Its
    ``nanoagent`` is the PEP 440 range of NanoAgent versions the plugin runs on, and holds this
    NanoAgent's version.
-5. Every task uses only declared tools. A task's ``runner`` is ``tool`` (exactly one tool,
-   called directly with the task's input, so the task's input class is that tool's) or
-   ``agent`` (an agent works the task with its tools). A ``reference`` tool, when set, takes
-   the task's input and is not one of the task's tools: NanoAgent runs it before the task and
-   pins its output for :func:`verify_task`.
+5. Every task uses only declared tools, and has an input class and an output class. A task's
+   ``runner`` is ``tool`` (exactly one tool, called directly with the task's input, so the
+   task's input and output classes are that tool's) or ``agent`` (an agent works the task with
+   its tools and ends by calling :data:`SUBMIT` with the task's output, so no tool is named
+   that). A ``reference`` tool, when set, takes the task's input and is not one of the task's
+   tools: NanoAgent runs it before the task and pins its output for :func:`verify_task`.
 6. ``verifier/`` is a deterministic verifier package (see :mod:`nanoagent.plugin.verifier`).
 7. Nothing else: the top level holds only the standard layout (and :data:`TOOL_ARTIFACTS`),
    and ``verifier/`` only ``.py`` files. ``src/`` and ``tests/`` are the plugin's own to
    organize.
-8. ``ui/`` is the plugin's own page: ``ui/app.js``, ``ui/app.css`` and the static assets
-   they load, only :data:`UI_SUFFIXES` and at most :data:`UI_MAX_BYTES` in total. NanoAgent
-   serves it in its own frame, :data:`PAGE` (``index.html`` and the shared UI kit ``kit/``), so
-   every plugin gets the kit of the NanoAgent that serves it, and ``ui/`` holds neither. A host
-   shows the page in a sandboxed frame that talks to NanoAgent only through the
-   ``nanoagent.ui/v1`` bridge (docs/plans/plugin-ui.md). ``app.js`` has a default export, the
-   page's layout. Every script imports only by a literal path relative to itself: the kit's
+8. ``ui/`` is how the plugin's page draws its outputs: ``ui/renderers.js``, ``ui/renderers.css``
+   and the static files they load, only :data:`UI_SUFFIXES` and at most :data:`UI_MAX_BYTES` in
+   total. Every plugin's page is NanoAgent's, :data:`PAGE` (``index.html`` and the shared UI kit
+   ``kit/``): a chat with the plugin's agent, in which each task it runs shows its output, drawn
+   by ``renderers.js`` or from the output's JSON Schema. So ``ui/`` holds no ``index.html`` or
+   ``kit/``, and no ``app.js`` or ``app.css``, a page of its own. A host shows the page in a
+   sandboxed frame that talks to NanoAgent only through the ``nanoagent.ui/v1`` bridge
+   (docs/plans/ai-native-plugins.md). ``renderers.js`` has a default export, the renderers by
+   output class name. Every script imports only by a literal path relative to itself: the kit's
    modules and the plugin's own files in ``ui/``.
 9. ``product/`` is the plugin's product page, what a catalog shows people before they open it,
    and holds exactly :data:`PRODUCT_FILES`. ``product.yaml`` fills :class:`ProductConfig`
@@ -74,6 +77,8 @@ PLUGIN_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 HOSTNAME = re.compile(r"^[^/:\s]+$")  # a hostname only: no scheme, port, or path
 MANIFEST = "nanoagent.yaml"
+# The tool NanoAgent gives an agent task's agent, taking the task's output (nanoagent.plugin.tasks).
+SUBMIT = "submit"
 # What `nanoagent plugin new` copies; rule 10 holds every plugin's standard files to it.
 TEMPLATE = Path(__file__).with_name("template")
 # The frame NanoAgent serves every plugin's ui/ in: index.html and the shared UI kit, kit/.
@@ -96,7 +101,7 @@ REQUIRED_FOLDERS = (
     "src",
     "tests",
     "verifier",  # the deterministic verifier package (see nanoagent.plugin.verifier)
-    "ui",  # the plugin's own page, ui/app.js, served in NanoAgent's PAGE
+    "ui",  # how the plugin's page draws its outputs, ui/renderers.js, served in NanoAgent's PAGE
     "product",  # the product page a catalog shows: product.yaml and icon.svg
 )
 PRODUCT = "product/product.yaml"
@@ -109,9 +114,11 @@ UI_SUFFIXES = frozenset(
     {".html", ".js", ".mjs", ".css", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".woff", ".woff2", ".json", ".md"}
 )
 UI_MAX_BYTES = 5 * 1024 * 1024
-UI_FILES = ("app.js", "app.css")
+UI_FILES = ("renderers.js", "renderers.css")
+# A page of a plugin's own, which NanoAgent's page replaced (rule 8).
+UI_PAGE = ("app.js", "app.css")
 UI_SCRIPTS = frozenset({".js", ".mjs"})
-# What rule 8 reads from a page's scripts: its default export and every module it imports
+# What rule 8 reads from ui/'s scripts: renderers.js's default export and every module they import
 # (statically or with import()).
 UI_DEFAULT_EXPORT = re.compile(r"^\s*export\s+default\b|\bas\s+default\b", re.MULTILINE)
 UI_IMPORT = re.compile(r"""\b(?:import|export)\s*(?:[\w$*{}\s,]*?\s*from\s*)?(["'])(.*?)\1""")
@@ -243,9 +250,12 @@ class TaskDefinition:
     tools: tuple[str, ...]
     input_class: str
     input: dict[str, Any]
+    output_class: str
+    output: dict[str, Any]
     reference: str | None  # the tool whose output is pinned as the task's ground truth
     instructions: str
     input_type: type = field(compare=False, repr=False)
+    output_type: type = field(compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -327,6 +337,7 @@ class PluginManifest:
                     "runner": task.runner,
                     "tools": list(task.tools),
                     "input": task.input_class,
+                    "output": task.output_class,
                     "reference": task.reference,
                     "instructions": task.instructions,
                 }
@@ -438,9 +449,14 @@ def ui_files(ui: Path) -> list[Path]:
 
 
 def _ui_violations(ui: Path) -> list[str]:
-    """``ui/`` is a static page in :data:`PAGE`'s frame, and its scripts import only what it serves (rule 8)."""
+    """``ui/`` holds the renderers :data:`PAGE` draws outputs with, and its scripts import only what it serves (rule 8)."""
     files = ui_files(ui)
     violations = [f"missing ui/{name}" for name in UI_FILES if not (ui / name).is_file()]
+    violations += [
+        f"unexpected ui/{name}: NanoAgent's chat is every plugin's page; ui/renderers.js draws its outputs"
+        for name in UI_PAGE
+        if (ui / name).is_file()
+    ]
     for path in files:
         relative = path.relative_to(ui).as_posix()
         if is_page_path(relative):
@@ -450,8 +466,8 @@ def _ui_violations(ui: Path) -> list[str]:
     size = sum(path.stat().st_size for path in files)
     if size > UI_MAX_BYTES:
         violations.append(f"ui/ holds {size} bytes, over the {UI_MAX_BYTES}-byte limit")
-    if (ui / "app.js").is_file() and not UI_DEFAULT_EXPORT.search((ui / "app.js").read_text(encoding="utf-8")):
-        violations.append("ui/app.js must export the page's layout as its default export")
+    if (ui / "renderers.js").is_file() and not UI_DEFAULT_EXPORT.search((ui / "renderers.js").read_text(encoding="utf-8")):
+        violations.append("ui/renderers.js must export its renderers, by output class name, as its default export")
     served = {path.relative_to(ui).as_posix() for path in files}
     for path in files:
         if path.suffix.lower() in UI_SCRIPTS and not is_page_path(path.relative_to(ui).as_posix()):
@@ -593,6 +609,8 @@ def _config_violations(config: Any) -> list[str]:
         if not entry.description.strip()
     ]
     names = {tool.value for tool in config.tools}
+    if SUBMIT in names:
+        violations.append(f"{MANIFEST} names a tool {SUBMIT!r}: NanoAgent gives agent tasks that one")
     for key, task in config.tasks.items():
         where = f"{MANIFEST} tasks.{key.value}"
         violations += [f"{where}.{name} is blank" for name in ("description", "instructions") if not getattr(task, name).strip()]
@@ -620,12 +638,14 @@ def _nanoagent_violations(versions: str) -> list[str]:
 
 
 def _usage_violations(config: Any, contract: Any) -> list[str]:
-    """Each task's input class fits how it runs: its one tool's input, and its reference's."""
+    """Each task's classes fit how it runs: its one tool's input and output, and its reference's input."""
     violations: list[str] = []
     for key, task in config.tasks.items():
-        given = contract.tasks[key.value]
-        if task.runner is Runner.TOOL and (len(task.tools) != 1 or contract.tools[task.tools[0]][0] is not given):
-            violations.append(f"task {key.value!r}: a tool runner has exactly one tool, and takes that tool's input")
+        given, output = contract.tasks[key.value]
+        if task.runner is Runner.TOOL and (len(task.tools) != 1 or contract.tools[task.tools[0]] != (given, output)):
+            violations.append(
+                f"task {key.value!r}: a tool runner has exactly one tool, and takes that tool's input and gives its output"
+            )
         if task.reference is not None and (task.reference in task.tools or contract.tools[task.reference][0] is not given):
             violations.append(
                 f"task {key.value!r}: reference {task.reference!r} must be a declared tool outside the task's tools,"
@@ -690,7 +710,7 @@ def load_manifest(source: str | Path) -> PluginManifest:
         )
     tasks = []
     for key, task in config.tasks.items():
-        input_type = contract.tasks[key.value]
+        input_type, output_type = contract.tasks[key.value]
         tasks.append(
             TaskDefinition(
                 id=key.value,
@@ -699,9 +719,12 @@ def load_manifest(source: str | Path) -> PluginManifest:
                 tools=tuple(task.tools),
                 input_class=input_type.__name__,
                 input=output_schema(input_type),
+                output_class=output_type.__name__,
+                output=output_schema(output_type),
                 reference=task.reference,
                 instructions=task.instructions.strip(),
                 input_type=input_type,
+                output_type=output_type,
             )
         )
     return PluginManifest(

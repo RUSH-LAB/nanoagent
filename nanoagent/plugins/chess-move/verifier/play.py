@@ -1,4 +1,4 @@
-"""The play-move task's outcome: which move the agent played, and what it cost against the best one."""
+"""The play-move task's output: the move the agent played, where it led, and what it cost against the best one."""
 
 from .checks import RECORD, record, record_problem, result
 
@@ -9,13 +9,15 @@ def agent_moves(moves):
     return moves[0::2]
 
 
-def verify_task(arguments, reference, workspace):
-    """Approve exactly one legal move, and score it by the win probability it gave away.
+def verify_task(arguments, output, reference, workspace):
+    """Approve an output that names the one legal move the agent played, and score that move by the win
+    probability it gave away.
 
     The move is read off the recorded game and matched against the pinned legal moves — by its UCI
     spelling and by the position it led to, so a record that disagrees with the engine fails rather
     than scores. No move, a move the position does not have, or a second move of the agent's own
-    all fail; the score is 1 minus the win probability lost against the pinned best move.
+    all fail, and so does an output whose move, position or moves are not the game's. The score is
+    1 minus the win probability lost against the pinned best move.
     """
     game = record(workspace)
     if game is None:
@@ -23,7 +25,7 @@ def verify_task(arguments, reference, workspace):
     problem = record_problem(game)
     if problem:
         return result(False, problem, score=0.0)
-    if game["fen"] != arguments.fen:
+    if game["fen"] != reference.position:
         return result(False, "the game was played from another position", score=0.0, fen=game["fen"])
 
     played = agent_moves(game["moves"])
@@ -37,6 +39,12 @@ def verify_task(arguments, reference, workspace):
         return result(False, f"{move} is not a legal move in this position", score=0.0, legal=sorted(pinned))
     if game["positions"][0] != pinned[move].position:
         return result(False, f"the position recorded after {move} is not the one {move} leads to", score=0.0)
+    if output.move != move:
+        return result(False, f"the output names {output.move}, but the board played {move}", score=0.0)
+    if output.position != pinned[move].position:
+        return result(False, f"the output's position is not the one {move} leads to", score=0.0)
+    if output.moves != [*arguments.moves, move]:
+        return result(False, f"the output's moves are not the game's moves followed by {move}", score=0.0)
 
     best = pinned[reference.best]
     lost = max(0.0, best.win_prob - pinned[move].win_prob)

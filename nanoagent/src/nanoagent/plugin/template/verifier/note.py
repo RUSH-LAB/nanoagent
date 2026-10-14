@@ -19,8 +19,8 @@ def verify_output(input_value, output_value, workspace):
     return result(True, "note is written", bytes=output_value.bytes)
 
 
-def verify_task(arguments, reference, workspace):
+def verify_task(arguments, output, reference, workspace):
     path = Path(workspace) / arguments.destination
-    if not path.is_file() or path.read_text(encoding="utf-8") != arguments.text:
+    if Path(output.path) != path or not path.is_file() or path.read_text(encoding="utf-8") != arguments.text:
         return result(False, "the note is not saved at the destination")
     return result(True, "the note is saved")

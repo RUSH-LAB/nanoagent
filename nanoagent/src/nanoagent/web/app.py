@@ -11,7 +11,6 @@ import mimetypes
 import os
 import re
 import secrets
-import shutil
 import subprocess
 import sys
 import time
@@ -22,8 +21,6 @@ from pathlib import Path
 from typing import Any
 
 from nanoagent.core.agent import ChatModel
-from nanoagent.core.agent import Agent
-from nanoagent.extensions import get_hooks
 from nanoagent.harness.catalog import catalog_command, find_model, load_catalog
 from nanoagent.harness.choice import NATIVE_PROVIDERS, RunModel
 from nanoagent.harness.registry import loop_model
@@ -43,7 +40,7 @@ from nanoagent.plugin.package import (
 from nanoagent.plugin.tasks import TaskOutcome, run_task
 from nanoagent.runtime.config import AgentConfig, load_config_args
 from nanoagent.web.config import WebConfig
-from nanoagent.web.plugin_agent import plugin_profile
+from nanoagent.web.plugin_agent import plugin_profile, staged_from, task_agent
 from nanoagent.web.runtime import (
     ActiveRun,
     RunChoice,
@@ -80,17 +77,6 @@ UI_POLICY = (
     "img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; form-action 'none'; "
     "base-uri 'none'"
 )
-
-
-def _staged_from(workspace: Path) -> Callable[[Path], None]:
-    """How a web task stages its inputs: they are already the caller's workspace files, so the
-    workspace needs nothing and the reference tool's scratch folder gets a copy of it."""
-
-    def stage(folder: Path) -> None:
-        if folder != workspace:
-            shutil.copytree(workspace, folder, dirs_exist_ok=True)
-
-    return stage
 
 
 def _task_metrics(outcome: TaskOutcome, duration_s: float, model: str) -> dict[str, Any]:
@@ -665,18 +651,6 @@ def create_app(
         def emit(kind: str, data: dict[str, Any]) -> None:
             queue.put_nowait({"type": kind, "runId": run_id, **data})
 
-        def make_agent(system_prompt: str) -> Agent:
-            return Agent(
-                model,
-                [],
-                system_prompt=system_prompt,
-                max_steps=agent_cfg.max_steps,
-                cost_limit=agent_cfg.cost_limit,
-                token_limit=agent_cfg.token_limit,
-                context_window=agent_cfg.context_window,
-                hooks=get_hooks(agent_cfg.hooks),
-            )
-
         async def work() -> None:
             # Only a task that finished has metrics; one that failed or was stopped reports none.
             done: dict[str, Any] = {}
@@ -688,10 +662,10 @@ def create_app(
                         task,
                         payload["arguments"],
                         folder,
-                        make_agent=make_agent,
+                        make_agent=task_agent(model, agent_cfg),
                         timeout=cfg.request_timeout,
                         on_event=emit,
-                        stage=_staged_from(folder),
+                        stage=staged_from(folder),
                     )
                 done["metrics"] = _task_metrics(outcome, time.perf_counter() - started, model_name)
             except asyncio.CancelledError:

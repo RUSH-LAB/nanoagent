@@ -24,7 +24,7 @@ structure of NanoAgent's reference plugin, `plugins/arxiv-source`.
 ├── run.sh           # exits 0 when this environment can run the plugin
 ├── src/plugin/      # the MCP server (__main__.py, its IMPLEMENTATIONS) and one module per tool
 ├── tests/
-├── ui/              # the front end: a static web page, ui/app.js and ui/app.css
+├── ui/              # how the page draws the outputs: renderers.js and renderers.css
 └── verifier/        # deterministic verifier package, one module per tool
 ```
 
@@ -47,11 +47,14 @@ them), and this README keeps its title and sections: NanoAgent refuses a plugin
 that changes them (rule 10 of `nanoagent.plugin.manifest`). Renaming the
 plugin means renaming it in `nanoagent.yaml`, this title and `LICENSE` together.
 
-To add a task, add a `Task` member and its `TASKS` input class to
+To add a task, add a `Task` member and its `TASKS` input and output classes to
 `contract.py`, and declare it in `nanoagent.yaml` with its `runner` (`tool` or
-`agent`) and a `reference` tool, or `null` if it has none. Then add its outcome
-check, `verify_task(arguments, reference, workspace)`, to `TASKS` in
-`verifier/__init__.py`.
+`agent`) and a `reference` tool, or `null` if it has none. A `tool` task's
+classes are its tool's; an `agent` task's agent ends by calling `submit` with
+the task's output. Then add the check of its output,
+`verify_task(arguments, output, reference, workspace)`, to `TASKS` in
+`verifier/__init__.py`. People use the plugin by chatting with its agent, which
+runs its tasks and shows each output on the page (see `ui/`).
 
 ## Develop and run
 

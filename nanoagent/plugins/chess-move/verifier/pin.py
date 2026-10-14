@@ -1,18 +1,19 @@
 """pin_moves, the play-move task's reference: every legal move, where it leads and what it is worth."""
 
-from .checks import MOVE, fen_problem, result
+from .checks import MOVE, fen_problem, game_problem, lead_problem, result
 
 
 def verify_input(value):
-    problem = fen_problem(value.fen)
+    problem = game_problem(value)
     if problem:
         return result(False, problem)
     return result(True, "input is valid")
 
 
 def verify_output(input_value, output_value, workspace):
-    if output_value.fen != input_value.fen:
-        return result(False, "the pinned moves are for another position")
+    problem = fen_problem(output_value.position) or lead_problem(input_value, output_value.position)
+    if problem:
+        return result(False, f"the pinned moves are for another position: {problem}")
     moves = output_value.moves
     if not moves:
         return result(False, "a position with no pinned move cannot be played")
@@ -25,7 +26,7 @@ def verify_output(input_value, output_value, workspace):
         problem = fen_problem(entry.position)
         if problem:
             return result(False, f"{entry.move} leads nowhere: {problem}")
-        if entry.position.split()[1] == input_value.fen.split()[1]:
+        if entry.position.split()[1] == output_value.position.split()[1]:
             return result(False, f"{entry.move} leaves the same side to move")
         if not 0.0 <= entry.win_prob <= 1.0:
             return result(False, f"{entry.move}'s win probability is not between 0 and 1")

@@ -14,27 +14,30 @@ environment, input and output checks and lifecycle.
 | `save_search_results` | Searches, then downloads and unpacks every result into `<destination>/<arxiv id>/`, waiting 3 s between arXiv requests | `src/plugin/save.py` |
 | `list_daily_papers` | For each person, the papers first submitted on a date (`au:"<name>" AND submittedDate:[…]`); the daily digest's pinned reference | `src/plugin/daily.py` |
 | `save_raw_paper` | Saves one paper's source under `docs/raw/{first_author_name}-{paper_short_name}-{arxiv_id}-{date}` | `src/plugin/daily.py` |
-| `write_digest` | Writes the digest as `docs/digest-{date}.json` and `.md` | `src/plugin/daily.py` |
 
 Queries use arXiv's search syntax, e.g. `ti:"attention is all you need"` or
-`au:vaswani AND cat:cs.CL`. Tasks: `search-papers`, `save-paper-source` and
-`save-search-results` each run one tool. `find-and-save-paper` gives an agent
-both `search_papers` and `download_source`, so it can pick the right result
-itself.
+`au:vaswani AND cat:cs.CL`. People use the plugin by chatting: the chat agent
+turns a request into one of its tasks. `search-papers`, `save-paper-source`
+and `save-search-results` each run one tool, and their output is that tool's.
+`find-and-save-paper` takes the paper as the person describes it and gives an
+agent `search_papers` and `download_source`, so it can pick the right result
+itself; it submits the paper with its saved folder and files, and
+`verifier/find.py` checks those are the source in the requested destination.
 
 ### Daily digest
 
 `daily-digest` takes a list of people and a date. Before the agent starts,
 NanoAgent runs `list_daily_papers` and pins the result, the ground truth, as
-`reference.json`. The agent then gets `search_papers`, `save_raw_paper` and
-`write_digest`. It finds each person's papers first submitted (v1) on that UTC
-date, saves each one's source, and writes one entry per paper: the id
+`reference.json`. The agent then gets `search_papers` and `save_raw_paper`. It
+finds each person's papers first submitted (v1) on that UTC date, saves each
+one's source, and submits the digest with one entry per paper: the id
 (`YYMM.NNNNN`), the title and authors exactly as arXiv lists them, a two-line
-summary in its own words, and `https://arxiv.org/abs/<id>`.
+summary in its own words, `https://arxiv.org/abs/<id>`, and the folder its
+source is saved in.
 
-`verifier/daily.py` checks the digest against the pinned listing, offline. It
-approves only when every listed paper is an exact entry and has its source in
-`docs/raw/{first_author_name}-{paper_short_name}-{arxiv_id}-{date}`. An entry
+`verifier/daily.py` checks the submitted digest against the pinned listing,
+offline. It approves only when every listed paper is an exact entry and has
+its source in `docs/raw/{first_author_name}-{paper_short_name}-{arxiv_id}-{date}`. An entry
 for a paper not in the listing fails, and so does a paper that was published
 but not saved. The folder name uses the first author's last name and the
 title's first four words, each lowercased ASCII joined by `-`; the rule lives
@@ -58,7 +61,8 @@ It has the standard plugin layout, which NanoAgent requires:
 ├── run.sh           # checks this environment can run the plugin
 ├── src/plugin/      # the MCP server (__main__.py, its IMPLEMENTATIONS table) and the tools
 ├── tests/
-└── verifier/        # deterministic verifier package, one module per tool
+├── ui/              # how the page draws the outputs: renderers.js (papers as cards) and renderers.css
+└── verifier/        # deterministic verifier package, one module per tool, and find.py for find-and-save-paper
 ```
 
 `contract.py` types every value: the server builds each call's input into its
@@ -71,7 +75,8 @@ error result.
 dates, people, queries, result counts, destinations) and outputs. For
 outputs it checks that the papers are well formed and unique and within
 `max_results`, that every folder is the requested one inside the workspace,
-and that its files are exactly the declared ones.
+and that its files are exactly the declared ones. A tool task's output is
+judged as its tool's is.
 
 ## Develop and run
 

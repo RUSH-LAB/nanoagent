@@ -16,7 +16,7 @@ def result(valid, message, *, score=None, **details):
 
 
 def tickers_problem(tickers, *, most=None):
-    """What is wrong with a list of ticker symbols (a tool's input, or the answer file's), or None."""
+    """What is wrong with a list of ticker symbols (a tool's input, or the task output's fallers), or None."""
     if not isinstance(tickers, list) or not all(
         isinstance(ticker, str) and TICKER.fullmatch(ticker) for ticker in tickers
     ):

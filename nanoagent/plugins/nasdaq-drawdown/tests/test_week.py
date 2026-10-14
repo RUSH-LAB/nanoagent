@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -8,9 +7,9 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from fakes import SESSIONS, FakeNasdaq
 
-from contract import Close, ClosesInput, Constituent, PinnedConstituent, SubmitInput, WeekInput
+from contract import Close, ClosesInput, Constituent, PinnedConstituent, WeekInput
 from plugin.nasdaq import MARKET
-from plugin.week import get_closes, list_constituents, pin_week, submit_tickers
+from plugin.week import get_closes, list_constituents, pin_week
 
 AS_OF = "2026-10-02"
 START = "2026-09-25"
@@ -74,10 +73,3 @@ def test_refuses_a_history_too_short_to_hold_the_week(tmp_path: Path) -> None:
 def test_pin_fails_when_a_constituent_has_no_close_at_the_start(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="no close for NEW on 2026-09-25"):
         pin_week(WEEK, tmp_path, opener=FakeNasdaq(PRICES | {"NEW": {AS_OF: 10.0}}), pause=0)
-
-
-def test_submits_the_answer_and_replaces_an_earlier_one(tmp_path: Path) -> None:
-    submit_tickers(SubmitInput(tickers=["AAPL"]), tmp_path)
-    saved = submit_tickers(SubmitInput(tickers=[]), tmp_path)
-    assert saved.path == str(tmp_path / "tickers.json") and saved.tickers == 0
-    assert json.loads((tmp_path / "tickers.json").read_text()) == {"tickers": []}

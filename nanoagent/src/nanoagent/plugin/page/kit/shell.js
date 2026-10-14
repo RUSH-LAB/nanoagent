@@ -1,41 +1,15 @@
 // The page frame: `mountApp` (run by kit/boot.js) connects to the host and shows the tabs every
-// plugin has, its Dashboard and the open session's page; `appShell` is the header (icon, name,
-// tagline, "Ask the agent") over a page with the chat in a drawer; `chatLayout` is the template's
-// default page, a full-page chat.
+// plugin has: its Dashboard, and its Session, a chat with the plugin's agent in which each task
+// the agent runs shows its result, drawn by kit/result.js or the plugin's renderer.
 
 import { hasHost, on, request } from "./bridge.js";
-import { chatDrawer, chatPanel } from "./chat.js";
+import { chatPanel } from "./chat.js";
 import { applyTheme, h, icon } from "./dom.js";
+import { resultCard } from "./result.js";
 import { dashboard, enterSession } from "./session.js";
 
-/**
- * A designed page's frame: a header with the plugin's icon, name and tagline, optional controls
- * (`nav`, `actions`), and an "Ask the agent" button opening the chat drawer; under it, the page's
- * own content in `main`. The chat stays one click away but out of the way.
- *
- * @param {object} options
- * @param {object} options.plugin The catalog entry from `describe` (name, product.icon, product.tagline).
- * @param {Node} [options.nav] Shown in the header after the title, e.g. a `segmented` mode switch.
- * @param {Node[]} [options.actions] Header buttons before the chat button.
- * @param {false|object} [options.chat] `false` for no chat; otherwise {@link chatDrawer} options
- *   plus `buttonLabel` (default "Ask the agent"; on narrow screens the button is icon-only).
- * @param {"normal"|"wide"|"narrow"} [options.width] "normal" and "wide" fill the frame; "narrow" caps the content at 760 px.
- * @param {...Node} children The page's content, put in `main`.
- * @returns {{element: HTMLElement, main: HTMLElement, header: HTMLElement, drawer: ReturnType<typeof chatDrawer>|null}}
- */
-export function appShell({ plugin, nav, actions = [], chat = {}, width = "normal" }, ...children) {
-  const drawer =
-    chat === false
-      ? null
-      : chatDrawer({
-          title: chat.title ?? "Ask the agent",
-          placeholder: chat.placeholder ?? `Message ${plugin.name}`,
-          intro: chat.intro ?? h("div", { class: "chat-intro small" }, h("img", { src: plugin.product.icon, alt: "" }), h("p", { class: "muted", text: `Ask ${plugin.name} anything about what it does.` })),
-          ...chat,
-        });
-  const ask = drawer
-    ? h("button", { type: "button", class: "button ask-button", "aria-label": chat.buttonLabel ?? "Ask the agent", onclick: () => drawer.open() }, icon("chat"), h("span", { class: "button-label", text: chat.buttonLabel ?? "Ask the agent" }))
-    : null;
+/** The plugin's header (its icon, name and tagline) over `children`. */
+function homePage(plugin, ...children) {
   const header = h(
     "header",
     { class: "app-header" },
@@ -44,27 +18,40 @@ export function appShell({ plugin, nav, actions = [], chat = {}, width = "normal
       { class: "app-header-inner" },
       h("img", { class: "app-icon", src: plugin.product.icon, alt: "" }),
       h("div", { class: "app-titles" }, h("h1", { text: plugin.name }), h("p", { class: "app-tagline", text: plugin.product.tagline })),
-      nav ? h("div", { class: "app-nav" }, nav) : null,
-      h("div", { class: "app-actions" }, actions, ask),
     ),
   );
-  const main = h("main", { class: "page" }, children);
-  return { element: h("div", { class: `app width-${width}` }, header, main, drawer?.element), main, header, drawer };
+  return h("div", { class: "app" }, header, h("main", { class: "page" }, children));
 }
 
 /**
- * The template's default layout: the whole page is a chat with the plugin's agent, with its icon,
- * name and tagline until the first message. A plugin draws its tools' results in it with `render`:
- *
- *   export default (context) => chatLayout(context, { render: { search: (data) => resultsCard(data) } });
- *
- * @param {{plugin: object}} context What {@link mountApp} passes a layout.
- * @param {object} [options] {@link chatPanel} options (`render`, `suggestions`, `placeholder`, …).
- * @returns {HTMLElement}
+ * A session: a chat with the plugin's agent. Each of the agent's tools is one of the plugin's
+ * tasks, and each task it runs shows as a result card: its output, drawn by the plugin's renderer
+ * for its output class or from its JSON Schema, and its verdict.
  */
-export function chatLayout({ plugin }, options = {}) {
-  const intro = h("div", { class: "chat-intro" }, h("img", { src: plugin.product.icon, alt: "" }), h("h1", { text: plugin.name }), h("p", { class: "muted", text: plugin.product.tagline }));
-  return h("div", { class: "chat-page" }, chatPanel({ intro, placeholder: `Message ${plugin.name}`, ...options }).element);
+function sessionPage(plugin, renderers) {
+  const render = Object.fromEntries(
+    plugin.tasks.map((task) => [task.id, (result, { send }) => resultCard(task, result, renderers[task.output], send)]),
+  );
+  const intro = h(
+    "div",
+    { class: "chat-intro" },
+    h("img", { src: plugin.product.icon, alt: "" }),
+    h("h1", { text: plugin.name }),
+    h("p", { class: "muted", text: plugin.product.summary }),
+  );
+  return h("div", { class: "chat-page" }, chatPanel({ intro, placeholder: `Tell ${plugin.name} what you need`, render }).element);
+}
+
+/** Why `renderers` (ui/renderers.js's default export) does not fit `plugin`, or null. */
+function renderersProblem(renderers, plugin) {
+  if (!renderers || typeof renderers !== "object" || Array.isArray(renderers)) {
+    return "The plugin's renderers.js must export an object of renderers, one per output class, as its default export.";
+  }
+  const outputs = new Set(plugin.tasks.map((task) => task.output));
+  const unknown = Object.keys(renderers).filter((name) => !outputs.has(name));
+  if (unknown.length) return `The plugin's renderers.js draws ${unknown.join(", ")}, which no task outputs.`;
+  const broken = Object.keys(renderers).filter((name) => typeof renderers[name] !== "function");
+  return broken.length ? `The plugin's renderers.js gives ${broken.join(", ")} a renderer that is not a function.` : null;
 }
 
 function fatal(root, title, message) {
@@ -104,13 +91,13 @@ function frameTabs() {
 /**
  * Connect to the host and show the page: asks the host to `describe` the plugin, applies its
  * theme (and follows `host.theme`), then shows the Dashboard, where people resume a session or
- * start a new one. A session shows
- * `layout({plugin, workspace, session})` under the Session tab; the page saves what it should
- * come back to with `session.save(state)` and finds it again in `session.state`. A page opened
- * outside a host, or a host that doesn't answer within 10 s, gets a plain message instead.
- * @param {(context: {plugin: object, workspace: {id: string}, session: ReturnType<typeof enterSession>}) => Node|Promise<Node>} layout
+ * start a new one. A session is the chat; the host keeps its conversation, so a resumed session
+ * shows it again. A page opened outside a host, or a host that doesn't answer within 10 s, gets a
+ * plain message instead.
+ * @param {Record<string, (value: unknown, context: {task: object, verdict: object, send: (text: string) => void}) => Node>} renderers
+ *   ui/renderers.js's default export: a renderer per output class name.
  */
-export async function mountApp(layout) {
+export async function mountApp(renderers) {
   const root = document.getElementById("app");
   if (!hasHost()) {
     fatal(root, "Open this page from Mochi", "This is a plugin's page. It runs inside the app that hosts the plugin, which connects it to its agent and your files.");
@@ -127,20 +114,22 @@ export async function mountApp(layout) {
     return;
   }
   on("host.theme", (data) => applyTheme(data.theme));
-  document.title = described.plugin.name;
-  if (typeof layout !== "function") {
-    fatal(root, "This page could not start", "The plugin's app.js must export its page as its default export.");
+  const { plugin } = described;
+  document.title = plugin.name;
+  const problem = renderersProblem(renderers, plugin);
+  if (problem) {
+    fatal(root, "This page could not start", problem);
     return;
   }
 
   const tabs = frameTabs();
   const board = dashboard({ onOpen: (opened) => openSession(opened) });
-  const home = appShell({ plugin: described.plugin, chat: false }, board.element);
+  const home = homePage(plugin, board.element);
   const page = h("div", { class: "kit-session", hidden: true });
   let open = false;
   function show(tab) {
     tabs.select(tab);
-    home.element.hidden = tab !== "dashboard";
+    home.hidden = tab !== "dashboard";
     page.hidden = tab !== "session";
   }
   tabs.onPick = (tab) => {
@@ -152,20 +141,14 @@ export async function mountApp(layout) {
     if (tab === "dashboard") board.refresh();
   };
 
-  async function openSession(opened) {
-    const session = enterSession(opened);
+  function openSession(opened) {
+    enterSession(opened);
     open = true;
-    page.replaceChildren(h("div", { class: "loading", role: "status" }, h("span", { class: "run-spinner", "aria-hidden": "true" }), "Opening…"));
+    page.replaceChildren(sessionPage(plugin, renderers));
     show("session");
-    try {
-      page.replaceChildren(await layout({ plugin: described.plugin, workspace: described.workspace, session }));
-    } catch (problem) {
-      fatal(page, "This session could not open", problem.message);
-      throw problem;
-    }
   }
 
-  root.replaceChildren(tabs.element, home.element, page);
+  root.replaceChildren(tabs.element, home, page);
   show("dashboard");
   board.refresh();
 }

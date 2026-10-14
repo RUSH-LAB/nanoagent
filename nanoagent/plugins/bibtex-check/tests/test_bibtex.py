@@ -1,22 +1,16 @@
 from __future__ import annotations
 
-import json
-import shutil
 from pathlib import Path
 
 import pytest
 
-from contract import Label, ParseInput, ReadInput, Record, VerdictsInput, VerdictsOutput
-from plugin.bibtex import parse_bibtex, read_bibtex, submit_verdicts
+from contract import ParseInput, ReadInput, Record
+from plugin.bibtex import parse_bibtex, read_bibtex
 from plugin.schema import normalize, to_record
 
 FIXTURES = Path(__file__).parent / "fixtures"
-
-
-@pytest.fixture
-def workspace(tmp_path: Path) -> Path:
-    shutil.copytree(FIXTURES, tmp_path / "inputs")
-    return tmp_path
+REFERENCE = (FIXTURES / "reference.bib").read_text(encoding="utf-8")
+RAW = (FIXTURES / "raw.bib").read_text(encoding="utf-8")
 
 
 def test_normalize_drops_braces_and_collapses_whitespace_only() -> None:
@@ -24,8 +18,8 @@ def test_normalize_drops_braces_and_collapses_whitespace_only() -> None:
     assert normalize("Deep learning") != normalize("Deep Learning")
 
 
-def test_parses_both_files_into_the_schema(workspace: Path) -> None:
-    parsed = parse_bibtex(ParseInput(reference="inputs/reference.bib", raw="inputs/raw.bib"), workspace)
+def test_parses_both_texts_into_the_schema(tmp_path: Path) -> None:
+    parsed = parse_bibtex(ParseInput(reference=REFERENCE, raw=RAW), tmp_path)
     assert len(parsed.reference) == 6
     assert [entry.key for entry in parsed.raw][:3] == ["transformer", "resnet", "nature_dl"]
     assert parsed.raw[0].record == parsed.reference[0].record == Record(
@@ -41,8 +35,8 @@ def test_parses_both_files_into_the_schema(workspace: Path) -> None:
     )
 
 
-def test_records_an_unparseable_entry_with_its_key(workspace: Path) -> None:
-    [broken] = [entry for entry in read_bibtex(ReadInput(path="inputs/raw.bib"), workspace).entries if entry.record is None]
+def test_records_an_unparseable_entry_with_its_key(tmp_path: Path) -> None:
+    [broken] = [entry for entry in read_bibtex(ReadInput(bibtex=RAW), tmp_path).entries if entry.record is None]
     assert broken.key == "kingma_broken"
     assert broken.error.startswith("unparseable: ")
 
@@ -65,26 +59,12 @@ def test_a_record_without_venue_or_doi_has_them_null() -> None:
     assert record == Record(entry_type="misc", title="T", authors=["A", "B"], year="2020", venue=None, doi=None)
 
 
-def test_refuses_a_reference_that_does_not_parse(workspace: Path) -> None:
+def test_refuses_a_reference_that_does_not_parse(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="kingma_broken"):
-        parse_bibtex(ParseInput(reference="inputs/raw.bib", raw="inputs/raw.bib"), workspace)
+        parse_bibtex(ParseInput(reference=RAW, raw=RAW), tmp_path)
 
 
-def test_refuses_a_key_used_twice(workspace: Path) -> None:
-    (workspace / "twice.bib").write_text("@misc{a, title={T}, author={A}, year={1}}\n@misc{a, title={U}, author={B}, year={2}}\n")
+def test_refuses_a_key_used_twice(tmp_path: Path) -> None:
+    twice = "@misc{a, title={T}, author={A}, year={1}}\n@misc{a, title={U}, author={B}, year={2}}\n"
     with pytest.raises(ValueError, match="keys twice: a"):
-        read_bibtex(ReadInput(path="twice.bib"), workspace)
-
-
-def test_refuses_paths_outside_the_workspace(workspace: Path) -> None:
-    with pytest.raises(ValueError, match="workspace"):
-        read_bibtex(ReadInput(path="../raw.bib"), workspace / "inputs")
-    with pytest.raises(FileNotFoundError):
-        read_bibtex(ReadInput(path="inputs/missing.bib"), workspace)
-
-
-def test_submits_the_verdicts_to_verdicts_json(tmp_path: Path) -> None:
-    submit_verdicts(VerdictsInput(verdicts={"a": Label.HALLUCINATED}), tmp_path)
-    saved = submit_verdicts(VerdictsInput(verdicts={"a": Label.REAL, "b": Label.HALLUCINATED}), tmp_path)
-    assert saved == VerdictsOutput(path=str(tmp_path / "verdicts.json"), verdicts=2)
-    assert json.loads((tmp_path / "verdicts.json").read_text()) == {"a": "real", "b": "hallucinated"}
+        read_bibtex(ReadInput(bibtex=twice), tmp_path)

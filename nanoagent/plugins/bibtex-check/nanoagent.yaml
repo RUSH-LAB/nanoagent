@@ -1,9 +1,9 @@
 _ > nanoagent.plugin.manifest.ManifestConfig:
 id: bibtex-check
 name: BibTeX Hallucination Check
-version: 0.1.0
+version: 0.2.0
 status: ready
-nanoagent: ~=0.3.0
+nanoagent: ~=0.4.0
 
 runtime > nanoagent.plugin.manifest.RuntimeConfig:
   type: mcp_stdio
@@ -18,21 +18,21 @@ permissions > nanoagent.plugin.manifest.PermissionsConfig:
 # One entry per contract.Tool; its input and output classes are contract.TOOLS's.
 tools > dict[contract.Tool, nanoagent.plugin.manifest.ToolConfig]:
   parse_bibtex:
-    description: Parse the reference and raw BibTeX files into the registered schema
+    description: Parse the reference and raw BibTeX texts into the registered schema
   read_bibtex:
-    description: Read a BibTeX file's entries in the registered schema
-  submit_verdicts:
-    description: Write one verdict, real or hallucinated, per raw entry key to verdicts.json
+    description: Read a BibTeX text's entries in the registered schema
 
-# One entry per contract.Task; its input class is contract.TASKS's.
+# One entry per contract.Task; its input and output classes are contract.TASKS's.
 tasks > dict[contract.Task, nanoagent.plugin.manifest.TaskConfig]:
   check-bibtex:
-    description: Decide for each entry of an LLM-generated BibTeX file whether it matches a verified reference entry
+    description: Check BibTeX entries, e.g. a bibliography an AI model wrote, against trusted references, marking each entry real, fixable, invented or unreadable, with its closest reference and the fields that differ
     runner: agent
-    tools: [read_bibtex, submit_verdicts]
+    tools: [read_bibtex]
     reference: parse_bibtex
     instructions: |-
-      Call read_bibtex on the reference file and on the raw file. Each entry has its citation key and either its record in the registered schema (entry_type, title, authors, year, venue, doi) or, when it does not parse into the schema, a null record and an error.
-      A raw entry is real only when its record equals some reference record exactly, in every one of those six fields; the citation keys do not matter. Every other raw entry, including one with a null record, is hallucinated.
-      Then call submit_verdicts once with exactly one verdict, real or hallucinated, for every raw entry key.
-      Finish with a one-paragraph report naming each hallucinated entry and what differs.
+      Call read_bibtex on the reference text and on the raw text. Each entry has its citation key and either its record in the registered schema (entry_type, title, authors, year, venue, doi) or, when it does not parse into the schema, a null record and an error.
+      Two records share a field when its values are equal; authors are shared only as the same names in the same order. Citation keys never count.
+      For each raw entry with a record, its closest reference is the reference sharing the most fields; on a tie, one that shares the title or a non-null DOI; then the first in the reference text. It is close when it shares the title, a non-null DOI, or at least four of the six fields.
+      Label each raw entry: real when its closest reference shares all six fields; fixable when the closest reference is close but differs in some fields; invented when no reference is close; unreadable when it has no record.
+      Then call submit with one verdict per raw entry, in the raw text's order: its key; its title (null when unreadable); its label; closest, the closest reference's key for a real or fixable entry and null otherwise; differs, the fields that differ from that reference for a fixable entry, in the order entry_type, title, authors, year, venue, doi, and empty otherwise; error, the read_bibtex error for an unreadable entry and null otherwise.
+      Finish with a one-paragraph report naming each fixable entry and what to fix, and each invented or unreadable entry.

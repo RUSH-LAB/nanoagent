@@ -1,0 +1,7 @@
+/* Styles for this plugin's renderers (renderers.js), over the kit's (kit/kit.css). */
+.bib-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}

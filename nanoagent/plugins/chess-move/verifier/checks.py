@@ -24,6 +24,28 @@ def fen_problem(fen):
     return None
 
 
+def game_problem(value):
+    """What is wrong with a game's spelling (its FEN and its moves), or None."""
+    problem = fen_problem(value.fen)
+    if problem:
+        return problem
+    for move in value.moves:
+        if not MOVE.fullmatch(move):
+            return f"{move!r} is not a move in UCI"
+    return None
+
+
+def lead_problem(value, position):
+    """What shows ``position`` is not the one the game ``value`` leads to, or None: without an engine,
+    that is the game's own position when it has no moves, and else the side to move its moves leave."""
+    if not value.moves:
+        return None if position == value.fen else "it is another position than the game's"
+    sides = "wb" if value.fen.split()[1] == "w" else "bw"
+    if position.split()[1] != sides[len(value.moves) % 2]:
+        return f"it has the wrong side to move after {len(value.moves)} move(s)"
+    return None
+
+
 def point_problem(name, point):
     if len(point) != 2:
         return f"{name} must be [x, y]"

@@ -76,11 +76,15 @@ MCP, the agent and the web) is `slimconfig.output_schema` of a contract class.
 A tool that fails raises; NanoAgent sees an MCP error, never an `ok: false`.
 
 Every task in `nanoagent.yaml` declares its `runner` and a `reference`; its
-input class is the contract's `TASKS` entry. A run config's `arguments` is the
-path of a JSON file holding that input:
+input and output classes are the contract's `TASKS` entry. A run config's
+`arguments` is the path of a JSON file holding that input:
 
-- **`runner`:** `tool` means one tool called directly with the task's input.
-  `agent` means an agent works the task with the task's tools.
+- **`runner`:** `tool` means one tool called directly with the task's input;
+  the task's classes are the tool's, and its output is the tool's. `agent`
+  means an agent works the task with the task's tools and ends by calling
+  `submit`, a tool NanoAgent adds that takes the task's output class: the last
+  submission is the task's output, and an agent that never submits fails the
+  task. No plugin tool is named `submit`.
 - **`reference`:** either `null` or a tool outside the task's tools that takes
   the task's input. NanoAgent runs it before the task and pins its output as
   the ground truth. This is how a verifier checks against arXiv without
@@ -92,8 +96,8 @@ three functions:
 - `verify_input(tool, value)` and
   `verify_output(tool, input_value, output_value, workspace)`, run on every
   tool call;
-- `verify_task(task, arguments, reference, workspace)`, run once on the
-  finished task, with the pinned reference.
+- `verify_task(task, arguments, output, reference, workspace)`, run once on
+  the task's output, with the pinned reference.
 
 Each returns `valid`, `score` (0 to 1), `message` and `details`. Other modules
 in `verifier/` are imported relatively. NanoAgent enforces determinism
@@ -136,14 +140,13 @@ bash examples/arxiv_source/runs/step4_daily_digest.sh         # agent: the daily
 Both run commands are slimconfig runs (`config=<run.yaml> home=<run folder>`).
 Their config names the plugin, the task, and the task's `key=value` arguments.
 
-- **`nanoagent plugin run`** (`PluginRunConfig`) runs `tool` tasks. It adds
-  `result.json` to the run folder.
+- **`nanoagent plugin run`** (`PluginRunConfig`) runs `tool` tasks.
 - **`nanoagent plugin agent`** (`PluginAgentConfig`) runs `agent` tasks. It adds
   `llm` (Bedrock) and `harness` (the loop's limits) to the config, and
   `reference.json` and `messages.json` (ATIF) to the run folder.
 
-Every run folder holds `workspace/` and `verdict.json` (the `verify_task`
-verdict), and the run exits 1 unless the verdict is valid. A plugin may write
+Every run folder holds `workspace/`, `result.json` (the task's output) and
+`verdict.json` (the `verify_task` verdict), and the run exits 1 unless the verdict is valid. A plugin may write
 only to its workspace, which NanoAgent passes as `NANOAGENT_WORKSPACE`.
 
 - **Input files.** A config's `inputs:` lists files the task reads. They are
@@ -174,20 +177,19 @@ with the icon as a `data:` URL for an `<img>`. Where the plugin may connect
 and write comes from its manifest's `permissions`, so the page never restates
 them.
 
-Every plugin also ships its own front end in `ui/`, a static web page:
-`ui/app.js`, `ui/app.css` and the JS, CSS, images and fonts they load, at most
-5 MB, with nothing built at load time. Mochi shows it in a sandboxed iframe,
-in the kit's frame of two tabs. **Dashboard**, where the app always opens, is the
-kit's own and the same for every plugin: the member's sessions with the
-plugin, newest first, with what each ran and cost, to resume one or start a
-new one. **Session** is the plugin's page: the open session or, with none
-open, a new one. It shows
-`app.js`'s layout, given the session, whose `state` the page saved last time
-(`session.save(state, {title})`), so a person comes back to where they left
-off. A task or chat always runs in a session, and a new session is only kept
-once the page first runs, chats or saves in it.
-NanoAgent serves an installed plugin's at `GET /v1/installs/<sha256>/ui/<uiVersion>/<path>`, where
-`uiVersion` is the catalog's digest of `ui/` and the files are cached forever, under a
+Every plugin's page is NanoAgent's: a chat with the plugin's agent. A person
+says what they need; the agent, whose only tools are the plugin's tasks (one
+per task, named by its id and taking its input), runs the task that does it
+the verified way, and answers in a sentence or two. Each task it ran shows as a
+result card: the task's output, with its verdict as a badge. Mochi shows the
+page in a sandboxed iframe, in the kit's frame of two tabs. **Dashboard**,
+where the app always opens, lists the member's sessions with the plugin,
+newest first, with what each ran and cost, to resume one or start a new one.
+**Session** is the chat: the open session or, with none open, a new one, which
+is only kept once it first chats. The host keeps each session's conversation,
+task results included, so a resumed session shows it again.
+NanoAgent serves an installed plugin's page at `GET /v1/installs/<sha256>/ui/<uiVersion>/<path>`, where
+`uiVersion` is the catalog's digest of the page and the files are cached forever, under a
 Content-Security-Policy with `connect-src 'none'`, so the page can't reach the
 network and talks to NanoAgent only through the host's `postMessage` bridge,
 protocol `nanoagent.ui/v1`. The bridge's methods are `describe`, `runTask`,
@@ -195,43 +197,33 @@ protocol `nanoagent.ui/v1`. The bridge's methods are `describe`, `runTask`,
 `save`, and `workspace.list` / `read` / `write`
 ([docs/plans/plugin-ui.md](docs/plans/plugin-ui.md)).
 
-`runTask` uses `POST /v1/workspaces/<ws>/installs/<sha256>/tasks/<task>/runs`,
-which runs a task the verified way (reference, tools or agent, then
-`verify_task`) in that workspace and streams `task.*` events. It shares its
-runner, `nanoagent.plugin.tasks.run_task`, with `nanoagent plugin run` and
-`agent`.
-
-`ui/` is the plugin's own page: `ui/app.js` and `ui/app.css`, next to any
-other static files it adds. NanoAgent serves it in its own frame,
+A plugin's `ui/` says how to draw its outputs, and nothing else: an output is
+drawn from its JSON Schema (an object as labelled fields, a list of objects as
+a table, a list as a list, text, links, numbers, yes or no) unless
+`ui/renderers.js` draws its class. NanoAgent serves the page from
 `src/nanoagent/plugin/page/` (`index.html` and the shared UI kit `kit/`), so
-every plugin gets the kit of the NanoAgent serving it, and `ui/` holds
-neither. NanoAgent refuses a page unless:
+every plugin gets the kit of the NanoAgent serving it, and refuses a plugin
+unless:
 
-- `ui/app.js` and `ui/app.css` exist;
-- `app.js` has a default export, the page's layout, `({plugin, workspace,
-  session}) => Element`;
+- `ui/renderers.js` and `ui/renderers.css` exist, and `ui/` holds no
+  `index.html`, `kit/`, `app.js` or `app.css`;
+- `renderers.js` has a default export, its renderers by output class name,
+  each `(value, {task, verdict, send}) => Element` (`{}` in the template);
 - every script imports only by a literal `./` or `../` path, of the kit's
   modules (`./kit/components.js`) or the plugin's own files in `ui/`: no URLs,
   no package names, no computed `import()`.
 
-`nanoagent plugin new` starts every plugin with a default page, a full-page
-chat with the plugin's agent that draws the tool results it has renderers
-for. A plugin keeps that page when its use is open-ended. Otherwise it
-designs its page around what people come to do, in an `appShell`: the
-task's inputs as real controls, one primary button that runs the task
-(`runButton`, `taskRun`) with plain-language steps and Stop, the verdict and
-errors in plain words (`verdictBanner`, `errorCard`), no tool names, task ids
-or JSON, and both themes down to 320 px wide. The kit has an app shell with
-the chat in a drawer (`appShell`, `chatDrawer`), inputs (`dateInput`,
-`segmented`, `chipToggles`, `chipRow`, `chipsInput`, `numberStepper`, and
-`fileDrop`, which writes the user's file to the workspace for the task), a
-run with plain-language steps, Stop and its outcome (`taskRun`,
-`runButton`), the verdict and errors in plain words (`verdictBanner`,
-`errorCard`), results (`card`, `dataTable`, `meter`, `statusPill`,
-`disclosure`, `emptyState`), workspace files and a JSON state file
-(`jsonStore`), and Mochi's look in light and dark down to narrow widths
-(`kit.css`). The full API is in
+Renderers build from `./kit/components.js` (`h`, `card`, `dataTable`,
+`banner`, `statusPill`, `disclosure`, `meter`, `markdown`, `schemaView`, the
+workspace's files) and `kit.css`'s look, in light and dark. The full API is in
 [docs/plans/plugin-ui.md](docs/plans/plugin-ui.md).
+
+`runTask` uses `POST /v1/workspaces/<ws>/installs/<sha256>/tasks/<task>/runs`,
+which runs a task the verified way (reference, tools or agent, then
+`verify_task`) in that workspace and streams `task.*` events; since 0.4.0 the
+page runs tasks only through the chat and never calls it. Both share their
+runner, `nanoagent.plugin.tasks.run_task`, with `nanoagent plugin run` and
+`agent`.
 
 Each declared plugin tool is also available as a regular NanoAgent `Tool`
 through `nanoagent.plugin.plugin_tools(manifest, workspace, names)`.

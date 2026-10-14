@@ -1,4 +1,4 @@
-"""The recipes file and each recipe's nutrition, read as `src/plugin/meals.py` reads them."""
+"""The plugin's recipes and each recipe's nutrition, read as `src/plugin/meals.py` reads them."""
 
 import json
 import re
@@ -8,30 +8,17 @@ from pathlib import Path
 from contract import Nutrient
 
 NUTRIENTS = tuple(nutrient.value for nutrient in Nutrient)
-SUGGESTION = "meal.json"
-DAY = "day.json"
+# The recipes the plugin's tools read, in its src/.
+COOKBOOK = Path(__file__).resolve().parent.parent / "src" / "plugin" / "recipes.json"
 MAX_SERVINGS = 10
 # Slack for float sums and for the 3-decimal rounding of tool outputs.
 EPSILON = 1e-6
 ROUNDING = 1e-3
 
 
-def path_problem(path, name):
-    if not path.strip():
-        return f"{name} must be a file path"
-    relative = Path(path)
-    if relative.is_absolute() or ".." in relative.parts:
-        return f"{name} must stay inside the plugin workspace"
-    return None
-
-
-def load(workspace, path):
-    return json.loads((Path(workspace) / path).read_text(encoding="utf-8"))
-
-
-def load_recipes(workspace, path):
-    """The recipes of the Cookbook in ``path``, as JSON."""
-    return load(workspace, path)["recipes"]
+def load_recipes():
+    """The recipes of the plugin's Cookbook, as JSON."""
+    return json.loads(COOKBOOK.read_text(encoding="utf-8"))["recipes"]
 
 
 def per_serving(recipe):
@@ -68,7 +55,7 @@ def score(recipe, likes):
 
 def meal_score(dishes, recipes, likes):
     """A meal's preference score: each dish counts its recipe's score once."""
-    return sum(score(recipes[dish["recipe"]], likes) for dish in dishes)
+    return sum(score(recipes[dish.recipe], likes) for dish in dishes)
 
 
 def likes_problem(likes):
@@ -81,41 +68,39 @@ def likes_problem(likes):
     return None
 
 
-def dish_problems(dishes, recipes, meal, restrictions, max_servings):
-    """What is wrong with the dishes of ``meal`` (``{"recipe", "servings"}`` mappings, as meal.json
-    holds them) for the restrictions and max_servings, beyond its totals."""
-    if not isinstance(dishes, list) or not dishes:
+def dish_problems(dishes, recipes, meal, given):
+    """What is wrong with the dishes (contract Dishes) of ``meal`` for the task's input ``given``
+    (its restrictions, likes and max_servings), beyond their totals."""
+    if not dishes:
         return ["the meal has no dishes"]
-    allowed = eligible(recipes, meal, restrictions)
+    allowed = eligible(recipes, meal, given.restrictions)
     problems = []
     seen = set()
     for dish in dishes:
-        name = dish.get("recipe") if isinstance(dish, dict) else None
-        servings = dish.get("servings") if isinstance(dish, dict) else None
+        name = dish.recipe
         if name not in recipes:
             problems.append(f"{name!r} is not a recipe")
         elif name in seen:
             problems.append(f"{name} is listed twice")
         elif name not in allowed:
             problems.append(f"{name} is not a {meal.value} recipe that meets the restrictions")
-        if isinstance(servings, bool) or not isinstance(servings, int) or not 1 <= servings <= max_servings:
-            problems.append(f"{name}: servings must be a whole number from 1 to {max_servings}")
+        else:
+            if dish.url != recipes[name]["url"]:
+                problems.append(f"{name}: its url is not the recipe's")
+            if dish.liked != liked(recipes[name], given.likes):
+                problems.append(f"{name}: its likes are not the ones its ingredients and tags match")
+        if not 1 <= dish.servings <= given.max_servings:
+            problems.append(f"{name}: servings must be a whole number from 1 to {given.max_servings}")
         seen.add(name)
     return problems
 
 
 def totals(dishes, recipes):
     """The meal's total of each nutrient: servings x per serving, summed over the dishes."""
-    nutrition = {dish["recipe"]: per_serving(recipes[dish["recipe"]]) for dish in dishes}
     return {
-        nutrient: sum(dish["servings"] * nutrition[dish["recipe"]][nutrient] for dish in dishes)
+        nutrient: sum(dish.servings * recipes[dish.recipe]["per_serving"][nutrient] for dish in dishes)
         for nutrient in NUTRIENTS
     }
-
-
-def as_dishes(plan):
-    """Contract Dish instances as meal.json holds dishes."""
-    return [{"recipe": dish.recipe, "servings": dish.servings} for dish in plan]
 
 
 def constraint_problems(meal_totals, constraints):
@@ -134,10 +119,6 @@ def nutrition_problem(given, expected):
     """Whether a contract Nutrition differs from the recomputed one beyond rounding."""
     values = asdict(given)
     return any(abs(values[nutrient] - expected[nutrient]) > ROUNDING for nutrient in NUTRIENTS)
-
-
-def rounded(values):
-    return {key: round(value, 3) for key, value in values.items()}
 
 
 def bounds_problem(constraints):

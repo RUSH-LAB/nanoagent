@@ -6,6 +6,7 @@ highlights:
   - "A daily digest of the people you follow"
   - "Every saved paper is checked against arXiv"
 steps:
-  - "Ask for the papers you want, or a digest of the people you follow"
-  - "It searches arXiv and saves each matching source"
-  - "Read the papers and the digest right in the chat"
+  - "Tell it in your own words which papers you want: a topic, a title, an author or an arXiv ID"
+  - "It searches arXiv and shows the papers, with a button to save any one's source"
+  - "Ask it to save a paper's LaTeX source, or a digest of a day's new papers by the people you follow"
+  - "Every result is checked against arXiv before you see it"
