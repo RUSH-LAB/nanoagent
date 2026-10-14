@@ -1,6 +1,5 @@
 import React, {useEffect, type ReactNode} from 'react';
 import clsx from 'clsx';
-import {useLocation} from '@docusaurus/router';
 import {
   useThemeConfig,
   ErrorCauseBoundary,
@@ -17,11 +16,6 @@ import WorkspaceSwitcher from '@site/src/components/WorkspaceSwitcher';
 import SearchTrigger from '@site/src/components/SearchTrigger';
 import useWorkspaceSite from '@site/src/hooks/useWorkspaceSite';
 import {prepareWorkspaceApps} from '@site/src/hooks/useWorkspaceApps';
-import useWorkspaceSubscriptions, {
-  isBookSubscribed, orderByPreference,
-} from '@site/src/hooks/useWorkspaceSubscriptions';
-import {workspaceDocumentHref} from '@site/src/utils/documentUrls';
-import {prefetchWorkspaceContentHref} from '@site/src/utils/workspaceContent';
 
 import styles from './styles.module.css';
 
@@ -93,33 +87,11 @@ function workspaceItem(workspaceSlug: string): NavbarItemConfig {
 
 export default function NavbarContent(): ReactNode {
   const mobileSidebar = useNavbarMobileSidebar();
-  const location = useLocation();
   const items = useNavbarItems();
   const {slug: workspaceSlug, workspace, site: workspaceSite} = useWorkspaceSite();
-  const {subscriptions} = useWorkspaceSubscriptions(workspace);
   const hasConcreteWorkspace = Boolean(workspaceSlug);
 
   const fixedItems = items.filter(item => item.type === 'search' || item.type === 'custom-userButton');
-  const collections = workspaceSite?.collections ?? [];
-  const marker = '/documents/';
-  const documentPath = location.pathname.includes(marker)
-    ? decodeURIComponent(location.pathname.slice(location.pathname.indexOf(marker) + marker.length))
-    : '';
-  const currentCollection = collections
-    .filter(collection => documentPath === collection.pathPrefix || documentPath.startsWith(`${collection.pathPrefix}/`))
-    .sort((a, b) => b.pathPrefix.length - a.pathPrefix.length)[0];
-  const orderedBooks = orderByPreference(
-    collections.filter(collection => collection.type === 'docs'),
-    subscriptions?.bookOrder,
-    collection => collection.key,
-  );
-  const bookCollection = currentCollection?.type === 'docs'
-    ? currentCollection
-    : orderedBooks.find(collection => isBookSubscribed(subscriptions, collection.key))
-      || orderedBooks[0];
-  const blogCollection = currentCollection?.type === 'blog'
-    ? currentCollection
-    : collections.find(collection => collection.type === 'blog');
   // A workspace's items all come from its site, and appear together once it
   // is known (from this tab's cache, the browser's memory, or one read); none
   // is drawn from the URL alone ahead of the rest.
@@ -127,22 +99,8 @@ export default function NavbarContent(): ReactNode {
     ? items
     : !workspaceSite
       ? []
-      : [
-        bookCollection && {
-          label: 'Book',
-          to: workspaceDocumentHref(bookCollection.landingPath || bookCollection.pathPrefix, workspaceSlug, ''),
-          activeBasePath: workspaceDocumentHref(bookCollection.pathPrefix, workspaceSlug, ''),
-          position: 'left' as const,
-        },
-        blogCollection && {
-          label: 'Blog',
-          to: workspaceDocumentHref(blogCollection.landingPath || blogCollection.pathPrefix, workspaceSlug, ''),
-          activeBasePath: workspaceDocumentHref(blogCollection.pathPrefix, workspaceSlug, ''),
-          position: 'left' as const,
-        },
-        appsItem(workspaceSlug),
-        workspaceItem(workspaceSlug),
-      ].filter((item): item is NavbarItemConfig => Boolean(item));
+      // Book and Blog are hidden for now (FUTURE.md).
+      : [appsItem(workspaceSlug), workspaceItem(workspaceSlug)];
   // Content links in the config are deliberately workspace-neutral so the
   // static build can render them. Once a workspace is present in the URL,
   // keep it in every navbar destination instead of falling back to the user's
@@ -158,38 +116,6 @@ export default function NavbarContent(): ReactNode {
 
   // Entering a workspace starts installing its plugins, before any is opened.
   useEffect(() => prepareWorkspaceApps(workspace?.id), [workspace?.id]);
-
-  useEffect(() => {
-    if (!workspaceSlug || !workspaceSite) return undefined;
-    const hrefs = [bookCollection, blogCollection]
-      .filter(Boolean)
-      .map(collection => workspaceDocumentHref(collection.landingPath || collection.pathPrefix, workspaceSlug, ''));
-    if (hrefs.length === 0) return undefined;
-    let cancelled = false;
-    let idleHandle: number | undefined;
-
-    // The first navigation item is normally the primary collection (Research
-    // in Mochi). Start it immediately when the workspace navbar resolves, then
-    // warm the remaining collections when the browser is idle.
-    prefetchWorkspaceContentHref(hrefs[0], workspaceSite).catch(() => {});
-    const warmRemaining = () => {
-      if (cancelled) return;
-      for (const href of hrefs.slice(1)) {
-        prefetchWorkspaceContentHref(href, workspaceSite).catch(() => {});
-      }
-    };
-    if ('requestIdleCallback' in window) {
-      idleHandle = window.requestIdleCallback(warmRemaining, {timeout: 1_000});
-    } else {
-      idleHandle = window.setTimeout(warmRemaining, 250);
-    }
-    return () => {
-      cancelled = true;
-      if (idleHandle === undefined) return;
-      if ('cancelIdleCallback' in window) window.cancelIdleCallback(idleHandle);
-      else window.clearTimeout(idleHandle);
-    };
-  }, [workspaceSlug, workspaceSite, bookCollection, blogCollection]);
 
   return (
     <NavbarContentLayout

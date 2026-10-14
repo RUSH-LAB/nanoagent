@@ -269,14 +269,16 @@ export function useCommands() {
       const collection = (workspaceSite.collections ?? [])
         .filter(candidate => item.path === candidate.pathPrefix || item.path.startsWith(`${candidate.pathPrefix}/`))
         .sort((a, b) => b.pathPrefix.length - a.pathPrefix.length)[0];
+      // Books and blogs are hidden for now (FUTURE.md).
+      if (collection) continue;
       take({
         id: `workspace-content:${item.path}`,
         name: item.label,
         category: 'Content',
         title: item.label,
-        description: collection?.description || (collection?.type === 'blog' ? 'Blog collection' : 'Document collection'),
+        description: 'Document collection',
         href: workspaceDocumentHref(item.path, workspaceSlug, ''),
-      }, collection?.type === 'blog' ? icons.pages : icons.book);
+      }, icons.book);
     }
 
     for (const instances of Object.values(globalData ?? {})) {
