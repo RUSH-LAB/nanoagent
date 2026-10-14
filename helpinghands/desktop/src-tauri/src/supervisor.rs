@@ -1,8 +1,8 @@
 //! Lends this computer to its member's runs on Mochi: NanoAgent and the relay that dials Mochi.
 //!
 //! The bundle (scripts/stage.mjs) carries NanoAgent, compiled, the relay (src/runner/relay.mjs),
-//! Node, and uv. Each staging is installed once into the app's data folder. Startup installs the
-//! Python plugins run on (`uv python install`), starts NanoAgent with
+//! Node, and uv. Each staging is installed once into the app's data folder, because NanoAgent's
+//! .venv is made beside it. Startup runs `uv sync` for NanoAgent's dependencies, starts NanoAgent with
 //! the member's API keys (none yet, on a first launch) and the plugins Mochi installs in this
 //! platform's sandbox, waits for its default profile, and starts the relay. When the relay needs
 //! signing in, the window shows Mochi's device page, where the member signs in to the site and
@@ -335,11 +335,13 @@ impl Supervisor {
         fs::create_dir_all(&logs).map_err(|error| error.to_string())?;
         let system = self.environment();
 
-        self.set("starting", "Preparing the Python plugins run on (the first launch downloads it)…");
-        let uv = self.bin.join(exe("uv"));
-        let uv_log = logs.join("uv-python.log");
-        let uv_status = Command::new(&uv)
-            .args(["python", "install", &self.config.python_version])
+        self.set("starting", "Preparing NanoAgent's Python environment (the first launch downloads Python)…");
+        let uv_log = logs.join("uv-sync.log");
+        // Only NanoAgent's dependencies, as the bundled uv.lock pins them: NanoAgent itself is the
+        // compiled module in site/, with no source to check the lock against.
+        let uv_status = Command::new(self.bin.join(exe("uv")))
+            .args(["sync", "--frozen", "--no-dev", "--no-install-project", "--extra", "web", "--managed-python", "--python", &self.config.python_version])
+            .current_dir(&nanoagent)
             .env_clear()
             .envs(&system)
             .stdin(Stdio::null())
@@ -348,19 +350,11 @@ impl Supervisor {
             .status()
             .map_err(|error| format!("could not run uv: {error}"))?;
         if !uv_status.success() {
-            return Err(format!("uv python install failed ({uv_status}).\n\n{}", tail(&uv_log)));
+            return Err(format!("uv sync failed ({uv_status}).\n\n{}", tail(&uv_log)));
         }
-        let found = Command::new(&uv)
-            .args(["python", "find", "--managed-python", &self.config.python_version])
-            .env_clear()
-            .envs(&system)
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|error| format!("could not run uv: {error}"))?;
-        if !found.status.success() {
-            return Err(format!("uv python find failed ({}): {}", found.status, String::from_utf8_lossy(&found.stderr).trim()));
-        }
-        let python = String::from_utf8(found.stdout).map_err(|error| format!("uv python find: {error}"))?.trim().to_string();
+        let site_packages = nanoagent.join(".venv/lib").join(format!("python{}", self.config.python_version)).join("site-packages");
+        fs::write(site_packages.join("nanoagent.pth"), format!("{}\n", nanoagent.join("site").display()))
+            .map_err(|error| format!("could not add NanoAgent to its environment: {error}"))?;
         if self.stopping.load(Ordering::SeqCst) {
             return Ok(false);
         }
@@ -371,8 +365,10 @@ impl Supervisor {
         let workspaces = self.data.join("agent-workspaces");
         let installs = self.data.join("nanoagent-installs");
         let uv_cache = self.data.join("nanoagent-uv-cache");
+        let python = nanoagent.join(".venv/bin/python");
         let nanoagent_args = vec![
-            "web".to_string(),
+            // A compiled NanoAgent has no code object for `-m nanoagent` (nanoagent/__main__.py).
+            "-I".to_string(), "-c".into(), "from nanoagent.__main__ import main; raise SystemExit(main())".into(), "web".into(),
             "web_cfg=deploy/railway/nanoagent.yaml".into(),
             "host=127.0.0.1".into(),
             format!("port={nanoagent_port}"),
@@ -383,15 +379,15 @@ impl Supervisor {
             format!("workspaces={}", serde_json::to_string(&workspaces.display().to_string()).unwrap()),
             format!("installs={}", serde_json::to_string(&installs.display().to_string()).unwrap()),
             format!("uv_cache={}", serde_json::to_string(&uv_cache.display().to_string()).unwrap()),
-            // Plugins run on the Python installed above; NanoAgent's environment holds no PATH to find `python` on.
-            format!("plugin_python={}", serde_json::to_string(&python).unwrap()),
+            // Plugins run on the Python NanoAgent runs on; its environment holds no PATH to find `python` on.
+            format!("plugin_python={}", serde_json::to_string(&python.display().to_string()).unwrap()),
         ];
         // The keys are all NanoAgent is given of the settings.
         let mut nanoagent_env = system.clone();
         nanoagent_env.extend(keys);
         nanoagent_env.insert("NANOAGENT_API_TOKEN".into(), token.clone());
         let log = logs.join("nanoagent.log");
-        self.spawn("NanoAgent", Command::new(nanoagent.join("bin").join("nanoagent.bin")).args(&nanoagent_args).current_dir(&nanoagent).env_clear().envs(&nanoagent_env), &log, false)?;
+        self.spawn("NanoAgent", Command::new(&python).args(&nanoagent_args).current_dir(&nanoagent).env_clear().envs(&nanoagent_env), &log, false)?;
         if !self.wait_until("NanoAgent", NANOAGENT_TIMEOUT, || nanoagent_ready(nanoagent_port, &token))? {
             return Ok(false);
         }

@@ -4,7 +4,7 @@
  * (TAURI_ENV_TARGET_TRIPLE, which Tauri sets for beforeBuildCommand):
  *
  *   src-tauri/resources/runner/     the relay that lends this computer's NanoAgent to Mochi
- *   src-tauri/resources/nanoagent/  NanoAgent compiled by Nuitka (bin/), the PI runner's bundle, and the config the app runs
+ *   src-tauri/resources/nanoagent/  NanoAgent compiled by Nuitka (site/), its uv.lock, the PI runner's bundle, and the config the app runs
  *   src-tauri/resources/config.yaml this folder's config.yaml
  *   src-tauri/resources/stamp       names this staging; the app installs each stamp once
  *   src-tauri/binaries/{node,uv}-<target>   the runtimes, downloaded and checksum-verified
@@ -103,34 +103,43 @@ function stageRunner() {
   copy(path.join(mochiRoot, 'src', 'runner'), path.join(resources, 'runner'));
 }
 
-// What a plugin's verifier may import (nanoagent.plugin.verifier.ALLOWED_IMPORTS), which it imports
-// by name at run time, so Nuitka sees no import of them: modules, and packages with their submodules.
-const VERIFIER_MODULES = ['__future__', 'dataclasses', 'decimal', 'difflib', 'enum', 'fractions', 'functools', 'hashlib', 'operator', 'pathlib', 'statistics', 'string', 'textwrap', 'typing'];
-const VERIFIER_PACKAGES = ['collections', 'json', 're'];
-
 /**
- * NanoAgent ships compiled, not as source: Nuitka builds it, with its web extra, on the Python the
- * app's plugins run on, into resources/nanoagent/bin/. Beside it go the PI runner's two bundled
- * files and the config the supervisor runs, at the paths that config names them by.
+ * NanoAgent ships compiled, not as source: Nuitka builds its package into one module, for the
+ * Python the app runs it on, in resources/nanoagent/site/ with the files it reads beside it.
+ * Its dependencies are open source and are installed from the uv.lock resolved here, on first
+ * launch. Beside them go the PI runner's two bundled files and the config the supervisor runs, at
+ * the paths that config names them by.
  */
 async function stageNanoAgent(uv) {
   const out = path.join(resources, 'nanoagent');
   const build = path.join(cache, 'nuitka');
   fs.rmSync(build, {recursive: true, force: true});
   run(uv, [
-    'run', '--no-project', '--managed-python', '--python', config.python_version, '--with-editable', '.[web,compile]',
-    'python', '-m', 'nuitka', '--mode=standalone', '--assume-yes-for-downloads', `--output-dir=${build}`,
-    '--include-package=nanoagent', '--include-package-data=nanoagent',
-    // Package data leaves out .py files, and `nanoagent plugin new` copies the template's.
-    '--include-data-dir=src/nanoagent/plugin/template=nanoagent/plugin/template',
-    '--noinclude-data-files=nanoagent/plugin/template/.ruff_cache/**',
-    // Uvicorn picks its loop and protocols by name.
-    '--include-package=uvicorn',
-    ...VERIFIER_MODULES.map(name => `--include-module=${name}`),
-    ...VERIFIER_PACKAGES.map(name => `--include-package=${name}`),
-    'src/nanoagent',
+    'run', '--no-project', '--managed-python', '--python', config.python_version, '--with-editable', '.[compile]',
+    'python', '-m', 'nuitka', '--mode=package', '--assume-yes-for-downloads', `--output-dir=${build}`, 'src/nanoagent',
   ], {cwd: nanoagentRoot});
-  fs.cpSync(path.join(build, 'nanoagent.dist'), path.join(out, 'bin'), {recursive: true, verbatimSymlinks: true});
+  const [module] = fs.readdirSync(build).filter(name => name.endsWith('.so'));
+  copy(path.join(build, module), path.join(out, 'site', module));
+  // What the code reads from its package's folder: every file but its .py, and the plugin
+  // template whole, which `nanoagent plugin new` copies.
+  const source = path.join(nanoagentRoot, 'src', 'nanoagent');
+  const template = path.join(source, 'plugin', 'template');
+  fs.cpSync(source, path.join(out, 'site', 'nanoagent'), {
+    recursive: true,
+    filter: from => !SKIP.has(path.basename(from)) && (from.startsWith(template) || !from.endsWith('.py')),
+  });
+  // NanoAgent is a library and keeps no lock; the app pins the versions resolved for this build,
+  // which it installs with `uv sync --frozen` on first launch. Locking reads NanoAgent's version
+  // from its source, so it runs on a copy with the source, and only the lock ships.
+  const locking = path.join(cache, 'nanoagent-lock');
+  fs.rmSync(locking, {recursive: true, force: true});
+  for (const entry of ['pyproject.toml', 'README.md', 'LICENSE', 'src']) {
+    copy(path.join(nanoagentRoot, entry), path.join(locking, entry));
+  }
+  run(uv, ['lock'], {cwd: locking});
+  for (const entry of ['pyproject.toml', 'uv.lock']) {
+    copy(path.join(locking, entry), path.join(out, entry));
+  }
   // Built as the Dockerfile builds it, with dev dependencies; only the bundle ships.
   const runner = path.join(cache, 'pi-runner');
   fs.rmSync(runner, {recursive: true, force: true});

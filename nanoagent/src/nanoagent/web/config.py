@@ -35,8 +35,7 @@ class WebConfig(AgentDefinitionConfig):
     # An install no caller installed for this many days is removed when the service starts.
     installs_unused_days: int = MISSING
     # The Python every plugin runs on and its environment is built on (see nanoagent.plugin.python):
-    # a CPython interpreter's path, or a command on PATH. A compiled NanoAgent has no Python of its
-    # own, so this is always named.
+    # a CPython interpreter's path, or a command on PATH, always named.
     plugin_python: str = MISSING
     # What every plugin process runs in (see nanoagent.plugin.sandbox): `bwrap`, `seatbelt` on
     # macOS, or `none`, which confines nothing.

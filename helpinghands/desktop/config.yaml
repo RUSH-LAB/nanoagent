@@ -11,8 +11,8 @@ nanoagent_port: 47311
 # sync both ways with their home there by the relay (src/runner/files.mjs).
 files_folder: rushlab
 
-# Bundled runtimes. Node runs the relay and NanoAgent's PI runner; uv installs, on first launch,
-# the Python plugins run on, and runs them. NanoAgent is compiled on that same Python version.
+# Bundled runtimes. Node runs the relay and NanoAgent's PI runner; uv installs NanoAgent's
+# dependencies (uv.lock) on first launch, on the Python NanoAgent is compiled for, and runs its plugins.
 node_version: 22.23.3
 uv_version: 0.12.22
 python_version: "3.12"

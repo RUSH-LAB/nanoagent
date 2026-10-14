@@ -8,43 +8,15 @@ import pytest
 from packaging.tags import sys_tags
 
 from nanoagent import helpers
-from nanoagent.plugin import load_manifest, sandbox, verify_input
-from nanoagent.plugin.package import inspect_package, pack
+from nanoagent.__main__ import ENTRY
+from nanoagent.plugin import sandbox
 from nanoagent.plugin.python import plugin_python
-from nanoagent.tools.code import CodeExec
-from test_plugin import write_plugin
 
 
-@pytest.fixture
-def compiled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """NanoAgent as a compiled binary would be: one executable that takes NanoAgent's arguments."""
-    binary = tmp_path / "nanoagent.dist" / "nanoagent"
-    binary.parent.mkdir()
-    binary.write_text(f'#!/bin/sh\nexec "{sys.executable}" -I -m nanoagent "$@"\n', encoding="utf-8")
-    binary.chmod(0o755)
-    monkeypatch.setattr(helpers, "COMPILED", True)
-    monkeypatch.setattr(sys, "executable", str(binary))
-    return binary
-
-
-def test_from_source_a_helper_runs_on_this_python() -> None:
-    assert helpers.command("package", "x") == [sys.executable, "-I", "-m", "nanoagent", "helper", "package", "x"]
-    assert helpers.python("this") == sys.executable
+def test_a_helper_runs_on_this_python() -> None:
+    assert helpers.command("package", "x") == [sys.executable, "-I", "-c", ENTRY, "helper", "package", "x"]
     with pytest.raises(ValueError, match="no NanoAgent helper 'nope'"):
         helpers.command("nope")
-
-
-def test_compiled_a_helper_runs_on_the_binary(compiled: Path) -> None:
-    assert helpers.command("verifier") == [str(compiled), "helper", "verifier"]
-    assert helpers.readable() == [compiled.parent.resolve()]
-    with pytest.raises(RuntimeError, match="the python tool needs NanoAgent's own Python"):
-        CodeExec()
-
-
-def test_compiled_inspects_packages_and_verifies_through_the_binary(compiled: Path, tmp_path: Path) -> None:
-    root = write_plugin(tmp_path / "echo").parent
-    assert inspect_package(pack(root))["id"] == "echo"
-    assert verify_input(load_manifest(root), "echo", {"value": "yes"}).score == 1
 
 
 def test_an_unknown_helper_is_refused() -> None:

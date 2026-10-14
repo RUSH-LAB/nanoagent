@@ -1,9 +1,9 @@
 """The Python plugins run on: every plugin's environment is built on it (nanoagent.plugin.install),
 and every sandbox lets plugins read it (nanoagent.plugin.sandbox).
 
-It is the host's choice, ``plugin_python`` in its config, not taken from NanoAgent: a NanoAgent
-compiled by Nuitka has no Python of its own (see nanoagent.helpers). :func:`plugin_python` asks the interpreter it
-is given what it is, and refuses one that does not answer or is not CPython.
+It is the host's choice, ``plugin_python`` in its config, not taken from NanoAgent.
+:func:`plugin_python` asks the interpreter it is given what it is, and refuses one that does not
+answer or is not CPython.
 """
 
 from __future__ import annotations
