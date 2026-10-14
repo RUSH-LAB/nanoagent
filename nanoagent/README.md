@@ -31,7 +31,7 @@ run.sh           # exits 0 when this environment can run the plugin
 src/             # the plugin's code, organized as it likes
 tests/           # the plugin's tests, including test_verifier.py
 verifier/        # deterministic verifier package, .py files only
-ui/              # the front end: a static web page, ui/index.html
+ui/              # the front end: a static web page, ui/app.js and ui/app.css
 product/         # the product page: product.yaml and icon.svg
 ```
 
@@ -164,7 +164,7 @@ and write comes from its manifest's `permissions`, so the page never restates
 them.
 
 Every plugin also ships its own front end in `ui/`, a static web page:
-`ui/index.html` and the HTML, JS, CSS, images and fonts it loads, at most
+`ui/app.js`, `ui/app.css` and the JS, CSS, images and fonts they load, at most
 5 MB, with nothing built at load time. Mochi shows it in a sandboxed iframe,
 and nothing of its own around it: choosing the app opens this page, so how
 the app introduces itself and starts is the page's to design.
@@ -185,11 +185,24 @@ runner, `nanoagent.plugin.tasks.run_task`, with `nanoagent plugin run` and
 `ui/` is the plugin's own page: `ui/app.js` and `ui/app.css`, next to any
 other static files it adds. NanoAgent serves it in its own frame,
 `src/nanoagent/plugin/page/` (`index.html` and the shared UI kit `kit/`), so
-every plugin gets the kit of the NanoAgent serving it. `nanoagent plugin new`
-starts every plugin with a default page, a full-page chat with the plugin's
-agent that draws the tool results it has renderers for. Each plugin then designs its page around what people
-come to do: `app.js` passes `mountApp` a layout, `({plugin, workspace}) =>
-Element`, built from `./kit/components.js`. The kit has an app shell with
+every plugin gets the kit of the NanoAgent serving it, and `ui/` holds
+neither. NanoAgent refuses a page unless:
+
+- `ui/app.js` and `ui/app.css` exist;
+- `app.js` has a default export, the page's layout, `({plugin, workspace}) =>
+  Element`;
+- every script imports only by a literal `./` or `../` path, of the kit's
+  modules (`./kit/components.js`) or the plugin's own files in `ui/`: no URLs,
+  no package names, no computed `import()`.
+
+`nanoagent plugin new` starts every plugin with a default page, a full-page
+chat with the plugin's agent that draws the tool results it has renderers
+for. A plugin keeps that page when its use is open-ended. Otherwise it
+designs its page around what people come to do, in an `appShell`: the
+task's inputs as real controls, one primary button that runs the task
+(`runButton`, `taskRun`) with plain-language steps and Stop, the verdict and
+errors in plain words (`verdictBanner`, `errorCard`), no tool names, task ids
+or JSON, and both themes down to 320 px wide. The kit has an app shell with
 the chat in a drawer (`appShell`, `chatDrawer`), inputs (`dateInput`,
 `segmented`, `chipToggles`, `chipRow`, `chipsInput`, `numberStepper`, and
 `fileDrop`, which writes the user's file to the workspace for the task), a

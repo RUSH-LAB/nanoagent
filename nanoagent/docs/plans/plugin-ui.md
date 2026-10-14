@@ -7,7 +7,11 @@ access to Mochi's session, cookies or the network.
 
 ## 1. The rule (NanoAgent, `nanoagent.plugin.manifest`)
 
-- `ui/` joins `REQUIRED_FOLDERS`. `ui/app.js` must exist.
+- `ui/` joins `REQUIRED_FOLDERS`. `ui/app.js` and `ui/app.css` must exist, and `ui/index.html`
+  and `ui/kit/` must not: NanoAgent serves its own.
+- `ui/app.js` has a default export, the page's layout.
+- Every script imports only by a literal `./` or `../` path, of the kit's modules or the plugin's
+  own files in `ui/`: no URLs, no package names, no computed `import()`.
 - `ui/` holds only static web files: `.html .js .mjs .css .svg .png .jpg .jpeg .gif .webp .ico
   .woff .woff2 .json .md`, at most 5 MB in total. Nothing is built at load time; a plugin that
   uses a bundler commits the built files.
@@ -98,26 +102,31 @@ plugins/<id>/ui/             the plugin's
 
 A plugin ships only its own files; every plugin gets the kit of the NanoAgent that serves it,
 so a kit change reaches every plugin when NanoAgent is deployed, and a plugin's package never
-goes stale. `uiVersion` digests both halves, so a new kit is a new URL. COMPAT(plugin-kit): a
-package made before this still carries its own `ui/index.html` and `ui/kit/`; NanoAgent accepts
-it and never serves them.
+goes stale. `uiVersion` digests both halves, so a new kit is a new URL.
 
-The template's `app.js` is `mountApp()`: the whole page is a chat over `prompt`, with the
+The template's `app.js` exports `chatLayout`: the whole page is a chat over `prompt`, with the
 plugin's icon, name and tagline until the first message; the agent's tool calls are not shown.
 
 ### How a plugin designs its page
 
-Design the page around what a person comes to do, in their words: ask for the task's inputs
-with real controls (a date, a file, a few choices), run it with one primary button, show the
-progress as plain steps, and show the result, with the verifier's verdict in plain words. Never
-show tools, tool names, task ids or JSON to users. Chat with the plugin's agent stays available
-in a drawer from the header ("Ask the agent"). Everything must work in both themes and down to
-320 px wide.
+A page is one of two shapes. A plugin whose use is open-ended keeps the template's chat
+(`chatLayout`). Every other page is designed around what a person comes to do, in an
+`appShell`, and must:
+
+- ask for the task's inputs, in their words, with real controls (a date, a file, a few choices);
+- run the task with one primary button (`runButton`, `taskRun`), its progress as plain steps
+  and a Stop;
+- show the result, with the verifier's verdict in plain words (`verdictBanner`) and errors in
+  plain words (`errorCard`);
+- never show tools, tool names, task ids or JSON to users;
+- work in both themes and down to 320 px wide.
+
+Chat with the plugin's agent may stay available in a drawer from the header ("Ask the agent").
 
 ```js
-import { mountApp, appShell, taskRun, runButton, verdictBanner, errorCard } from "./kit/components.js";
+import { appShell, taskRun, runButton, verdictBanner, errorCard } from "./kit/components.js";
 
-mountApp(({ plugin }) => {
+export default ({ plugin }) => {
   const shell = appShell({ plugin, chat: { suggestions: ["What can you do?"] } });
   const result = document.createElement("div");
   const run = taskRun({
@@ -131,7 +140,7 @@ mountApp(({ plugin }) => {
   const go = runButton({ label: "Check my file", run, onClick: () => run.start({ path: "inputs/file.txt" }) });
   shell.main.append(go.element, run.element, result);
   return shell.element;
-});
+};
 ```
 
 ### The kit's API

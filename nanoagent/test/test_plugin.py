@@ -124,6 +124,7 @@ def write_plugin(root: Path) -> Path:
         "src/echo.py": "",
         "tests/test_verifier.py": "",
         "ui/app.js": (TEMPLATE / "ui" / "app.js").read_text(),
+        "ui/app.css": (TEMPLATE / "ui" / "app.css").read_text(),
         "product/product.yaml": PRODUCT,
         "product/icon.svg": ICON,
         "verifier/__init__.py": (
@@ -584,12 +585,50 @@ def test_ui_is_a_static_web_page(tmp_path: Path) -> None:
 
     write_plugin(tmp_path)
     (tmp_path / "ui" / "app.js").unlink()
+    (tmp_path / "ui" / "app.css").unlink()
     (tmp_path / "ui" / "server.py").write_text("", encoding="utf-8")
+    (tmp_path / "ui" / "index.html").write_text("old", encoding="utf-8")
+    (tmp_path / "ui" / "kit").mkdir()
+    (tmp_path / "ui" / "kit" / "dom.js").write_text("old", encoding="utf-8")
     with pytest.raises(PluginError) as error:
         load_manifest(tmp_path)
     assert error.value.violations == [
         "missing ui/app.js",
+        "missing ui/app.css",
+        "unexpected ui/index.html: NanoAgent serves the page's index.html and kit/",
+        "unexpected ui/kit/dom.js: NanoAgent serves the page's index.html and kit/",
         "unexpected ui/server.py: ui/ holds only static web files",
+    ]
+
+
+def test_ui_scripts_import_only_what_nanoagent_serves(tmp_path: Path) -> None:
+    from nanoagent.plugin import PluginError
+
+    write_plugin(tmp_path)
+    (tmp_path / "ui" / "app.js").write_text(
+        'import { chatLayout } from "./kit/components.js";\n'
+        'import { helper } from "./lib/helper.js";\n'
+        'import { missing } from "./kit/missing.js";\n'
+        'import { other } from "./other.js";\n'
+        'import lit from "lit";\n'
+        'import remote from "https://example.com/x.js";\n'
+        'import up from "../contract.js";\n'
+        "const later = await import(name);\n"
+        "export const page = chatLayout;\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "ui" / "lib").mkdir()
+    (tmp_path / "ui" / "lib" / "helper.js").write_text('export { h } from "../kit/dom.js";\n', encoding="utf-8")
+    with pytest.raises(PluginError) as error:
+        load_manifest(tmp_path)
+    assert error.value.violations == [
+        "ui/app.js must export the page's layout as its default export",
+        "ui/app.js calls import() with a computed path; import only literal paths",
+        "ui/app.js imports './kit/missing.js', which NanoAgent does not serve",
+        "ui/app.js imports './other.js', which NanoAgent does not serve",
+        "ui/app.js imports 'lit': import only ./ or ../ paths, the kit's or ui/'s own",
+        "ui/app.js imports 'https://example.com/x.js': import only ./ or ../ paths, the kit's or ui/'s own",
+        "ui/app.js imports '../contract.js', outside ui/",
     ]
 
 
@@ -598,11 +637,6 @@ def test_serves_the_plugin_page_in_nanoagents_own_kit(tmp_path: Path) -> None:
     from nanoagent.web.app import _ui_file
 
     write_plugin(tmp_path)
-    # COMPAT(plugin-kit): an older package's own index.html and kit/ are accepted, never served.
-    (tmp_path / "ui" / "index.html").write_text("old", encoding="utf-8")
-    (tmp_path / "ui" / "kit").mkdir()
-    (tmp_path / "ui" / "kit" / "dom.js").write_text("old", encoding="utf-8")
-    (tmp_path / "ui" / "kit" / "server.py").write_text("", encoding="utf-8")
     manifest = load_manifest(tmp_path)
     assert _ui_file(manifest, "") == PAGE / "index.html"
     assert _ui_file(manifest, "kit/dom.js") == PAGE / "kit" / "dom.js"

@@ -24,7 +24,7 @@ structure of NanoAgent's reference plugin, `plugins/arxiv-source`.
 ├── run.sh           # exits 0 when this environment can run the plugin
 ├── src/plugin/      # the MCP server (__main__.py, its IMPLEMENTATIONS) and one module per tool
 ├── tests/
-├── ui/              # the front end: a static web page, ui/index.html
+├── ui/              # the front end: a static web page, ui/app.js and ui/app.css
 └── verifier/        # deterministic verifier package, one module per tool
 ```
 

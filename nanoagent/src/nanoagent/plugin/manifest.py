@@ -21,12 +21,14 @@ raises :class:`PluginError` listing every broken rule at once:
 7. Nothing else: the top level holds only the standard layout (and :data:`TOOL_ARTIFACTS`),
    and ``verifier/`` only ``.py`` files. ``src/`` and ``tests/`` are the plugin's own to
    organize.
-8. ``ui/`` is the plugin's own page: ``ui/app.js``, and ``ui/app.css`` and the static assets
-   it loads, only :data:`UI_SUFFIXES` and at most :data:`UI_MAX_BYTES` in total. NanoAgent
+8. ``ui/`` is the plugin's own page: ``ui/app.js``, ``ui/app.css`` and the static assets
+   they load, only :data:`UI_SUFFIXES` and at most :data:`UI_MAX_BYTES` in total. NanoAgent
    serves it in its own frame, :data:`PAGE` (``index.html`` and the shared UI kit ``kit/``), so
-   every plugin gets the kit of the NanoAgent that serves it. A host shows the page in a
-   sandboxed frame that talks to NanoAgent only through the ``nanoagent.ui/v1`` bridge
-   (docs/plans/plugin-ui.md).
+   every plugin gets the kit of the NanoAgent that serves it, and ``ui/`` holds neither. A host
+   shows the page in a sandboxed frame that talks to NanoAgent only through the
+   ``nanoagent.ui/v1`` bridge (docs/plans/plugin-ui.md). ``app.js`` has a default export, the
+   page's layout. Every script imports only by a literal path relative to itself: the kit's
+   modules and the plugin's own files in ``ui/``.
 9. ``product/`` is the plugin's product page, what a catalog shows people before they open it,
    and holds exactly :data:`PRODUCT_FILES`. ``product.yaml`` fills :class:`ProductConfig`
    (``_ > nanoagent.plugin.manifest.ProductConfig:``): a tagline, a summary, 2 to 4 highlights
@@ -49,6 +51,7 @@ from __future__ import annotations
 import base64
 import dataclasses
 import enum
+import posixpath
 import re
 import tomllib
 from dataclasses import dataclass, field
@@ -102,6 +105,13 @@ UI_SUFFIXES = frozenset(
     {".html", ".js", ".mjs", ".css", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".woff", ".woff2", ".json", ".md"}
 )
 UI_MAX_BYTES = 5 * 1024 * 1024
+UI_FILES = ("app.js", "app.css")
+UI_SCRIPTS = frozenset({".js", ".mjs"})
+# What rule 8 reads from a page's scripts: its default export and every module it imports
+# (statically or with import()).
+UI_DEFAULT_EXPORT = re.compile(r"^\s*export\s+default\b|\bas\s+default\b", re.MULTILINE)
+UI_IMPORT = re.compile(r"""\b(?:import|export)\s*(?:[\w$*{}\s,]*?\s*from\s*)?(["'])(.*?)\1""")
+UI_DYNAMIC_IMPORT = re.compile(r"""\bimport\s*\((?:\s*(["'])(.*?)\1\s*\))?""")
 # What git, uv, Python and the test tools create in a checkout: allowed anywhere, never checked.
 TOOL_ARTIFACTS = frozenset(
     {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".DS_Store"}
@@ -417,31 +427,49 @@ def page_files() -> list[Path]:
 
 
 def ui_files(ui: Path) -> list[Path]:
-    """The plugin's own files in ``ui``, without :data:`PAGE`'s paths.
-
-    COMPAT(plugin-kit): a package made before NanoAgent served its kit carries its own
-    ``ui/index.html`` and ``ui/kit/``; they are never read or served.
-    """
-    return [
-        path
-        for path in sorted(ui.rglob("*"))
-        if path.is_file()
-        and not TOOL_ARTIFACTS & set(path.relative_to(ui).parts)
-        and not is_page_path(path.relative_to(ui).as_posix())
-    ]
+    """The plugin's own files in ``ui``."""
+    return [path for path in sorted(ui.rglob("*")) if path.is_file() and not TOOL_ARTIFACTS & set(path.relative_to(ui).parts)]
 
 
 def _ui_violations(ui: Path) -> list[str]:
+    """``ui/`` is a static page in :data:`PAGE`'s frame, and its scripts import only what it serves (rule 8)."""
     files = ui_files(ui)
-    violations = [] if (ui / "app.js").is_file() else ["missing ui/app.js"]
-    violations += [
-        f"unexpected ui/{path.relative_to(ui).as_posix()}: ui/ holds only static web files"
-        for path in files
-        if path.suffix.lower() not in UI_SUFFIXES
-    ]
+    violations = [f"missing ui/{name}" for name in UI_FILES if not (ui / name).is_file()]
+    for path in files:
+        relative = path.relative_to(ui).as_posix()
+        if is_page_path(relative):
+            violations.append(f"unexpected ui/{relative}: NanoAgent serves the page's index.html and kit/")
+        elif path.suffix.lower() not in UI_SUFFIXES:
+            violations.append(f"unexpected ui/{relative}: ui/ holds only static web files")
     size = sum(path.stat().st_size for path in files)
     if size > UI_MAX_BYTES:
         violations.append(f"ui/ holds {size} bytes, over the {UI_MAX_BYTES}-byte limit")
+    if (ui / "app.js").is_file() and not UI_DEFAULT_EXPORT.search((ui / "app.js").read_text(encoding="utf-8")):
+        violations.append("ui/app.js must export the page's layout as its default export")
+    served = {path.relative_to(ui).as_posix() for path in files}
+    for path in files:
+        if path.suffix.lower() in UI_SCRIPTS and not is_page_path(path.relative_to(ui).as_posix()):
+            violations += _import_violations(path.relative_to(ui), path.read_text(encoding="utf-8"), served)
+    return violations
+
+
+def _import_violations(script: Path, text: str, served: set[str]) -> list[str]:
+    """Every module ``script`` imports is a literal path relative to it, the kit's or in ``ui/``."""
+    violations = [
+        f"ui/{script.as_posix()} calls import() with a computed path; import only literal paths"
+        for match in UI_DYNAMIC_IMPORT.finditer(text)
+        if match.group(2) is None
+    ]
+    specifiers = [match.group(2) for match in UI_IMPORT.finditer(text)]
+    specifiers += [match.group(2) for match in UI_DYNAMIC_IMPORT.finditer(text) if match.group(2) is not None]
+    for specifier in specifiers:
+        target = posixpath.normpath(posixpath.join(script.parent.as_posix(), specifier))
+        if not specifier.startswith(("./", "../")):
+            violations.append(f"ui/{script.as_posix()} imports {specifier!r}: import only ./ or ../ paths, the kit's or ui/'s own")
+        elif target.startswith("../") or target == "..":
+            violations.append(f"ui/{script.as_posix()} imports {specifier!r}, outside ui/")
+        elif not ((PAGE / target).is_file() if is_page_path(target) else target in served):
+            violations.append(f"ui/{script.as_posix()} imports {specifier!r}, which NanoAgent does not serve")
     return violations
 
 
