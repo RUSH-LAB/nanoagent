@@ -4,8 +4,7 @@ An agent saying it has finished a task does not show that its result is
 right. Judging an agent takes a precise task, an environment anyone can
 reproduce, and a verifier that checks the actual result. A NanoAgent plugin
 packages all three: typed tools served over MCP, tasks built from them, a
-deterministic verifier, and a front end. Every plugin's page is the same
-NanoAgent chat, whose agent runs the plugin's tasks and shows each result
-with its verdict. NanoAgent loads a plugin only when every rule of the
-\texttt{nanoagent.plugin/v1} contract holds, checks the rules again on every
-tool call, and lists every broken rule at once.
+deterministic verifier, and a front end, NanoAgent's chat, which runs the
+tasks and shows each result with its verdict. NanoAgent loads a plugin only
+when every \texttt{nanoagent.plugin/v1} rule below holds, rechecks them on
+every tool call, and lists every broken rule at once.

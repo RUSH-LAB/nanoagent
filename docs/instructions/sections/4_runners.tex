@@ -11,8 +11,8 @@ A task's \texttt{runner} says who acts:
     Source's \arxivcode{nanoagent.yaml}{find-and-save-paper}.
   \item \texttt{decide}: the model only chooses: the next tool or
     \texttt{submit}, an Enum or \texttt{bool} member, or an existing value
-    of exactly a field's type from the task's input or an earlier tool's
-    output. NanoAgent calls the tools and builds every value. Every answer
+    of exactly a field's type from the task's input or an earlier output of
+    one of its tools, never the reference tool's. NanoAgent calls the tools and builds every value. Every answer
     is checked against its options, and a task with a field that cannot be
     filled this way is refused when the plugin loads.
 \end{itemize}

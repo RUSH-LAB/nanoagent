@@ -5,21 +5,25 @@ level. The \href{\starter}{Hello World starter} has the smallest working
 example of each, and the \href{\arxiv}{arXiv Source} plugin a full one, with
 network access, five tasks and a verifier module per tool.
 
-\begin{center}
-\small
-\begin{tabularx}{\linewidth}{@{}lX@{}}
+{\small
+\begin{longtable}{@{}p{0.2\linewidth}p{0.77\linewidth}@{}}
 \toprule
 File & What it holds \\
 \midrule
+\endhead
 \code{contract.py}{contract.py} & Declarations only: \texttt{Tool} and
   \texttt{Task} Enums, slimconfig \texttt{Output} classes, and the
   \texttt{TOOLS} and \texttt{TASKS} tables pairing each with its input and
-  output classes. Field descriptions become the JSON Schema everyone
-  sees. \\
-\code{nanoagent.yaml}{nanoagent.yaml} & The manifest: id, version, the
-  \texttt{nanoagent} version range, the MCP runtime, permissions (hosts it
-  may reach, where it may write), and the tools and tasks tables. Each task
-  has a \texttt{runner}, \texttt{tools}, \texttt{reference} and
+  output classes. Tools are snake\_case, tasks kebab-case, and class names
+  end in \texttt{Input} or \texttt{Output}. Field descriptions become the
+  JSON Schema everyone sees. \\
+\code{nanoagent.yaml}{nanoagent.yaml} & The manifest: id; \texttt{version}
+  (PEP 440, the same as \texttt{pyproject.toml}'s); \texttt{status},
+  \texttt{ready} or \texttt{in-development} (listed, never run); the one
+  NanoAgent minor version it runs on, \texttt{\textasciitilde=X.Y.0}; the
+  runtime, always \texttt{uv run -{}-frozen python -m plugin}; permissions
+  (hosts it may reach, where it may write); and the tools and tasks tables.
+  Each task has a \texttt{runner}, \texttt{tools}, \texttt{reference} and
   \texttt{instructions}. \\
 \code{src/plugin}{src/} & The tools and the MCP server. A tool takes its
   input class, returns its output class, and raises on failure. It writes
@@ -27,20 +31,30 @@ File & What it holds \\
 \code{verifier}{verifier/} & \texttt{verify\_input} and
   \texttt{verify\_output} run on every tool call, and \texttt{verify\_task}
   runs once on the task's output. Each returns \texttt{valid},
-  \texttt{score} (0 to 1), \texttt{message} and \texttt{details}. Standard
-  library only, sandboxed, and run twice: the verdicts must match. \\
+  \texttt{score} (0 to 1), \texttt{message} and \texttt{details}, and checks
+  what a value means, never its shape. Pure standard-library imports only, no
+  file writes, sandboxed without network, and run twice: the verdicts must
+  match. \\
 \code{tests}{tests/} & The plugin's tests, including
   \texttt{test\_verifier.py}. \\
 \code{ui}{ui/} & \texttt{renderers.js} and \texttt{renderers.css}. Outputs
-  are drawn from their JSON Schema unless a renderer draws their class. \\
-\code{product}{product/} & \texttt{product.yaml} (tagline, summary,
-  highlights, steps) and \texttt{icon.svg}, the catalog page. \\
+  are drawn from their JSON Schema unless \texttt{renderers.js}'s default
+  export, keyed by a task's output class, draws them. Renderers import only
+  relative paths (the kit and the plugin's own \texttt{ui/} files), never
+  touch the page, the window or the network, and their CSS applies only
+  inside the output. \\
+\code{product}{product/} & \texttt{product.yaml} (tagline, summary, 2 to
+  4 highlights, 2 to 5 steps, a \texttt{ready} plugin's all its own) and
+  \texttt{icon.svg} (at most 64\,KB, drawing only), the catalog page. \\
 \code{run.sh}{run.sh}, \code{.env}{.env} & \texttt{run.sh} exits 0 when
   this machine can run the plugin. \texttt{.env} lists variable names,
   never values. \\
-\code{README.md}{README.md}, \texttt{LICENSE}, \texttt{pyproject.toml},
-  \texttt{uv.lock}, \texttt{.gitignore} & The template's standard files.
-  The README has the sections Tools, Layout, and Develop and run. \\
+Standard files & \code{README.md}{README.md}, \texttt{LICENSE},
+  \texttt{pyproject.toml}, \texttt{uv.lock} and \texttt{.gitignore}, the
+  template's. The
+  README has the sections Tools, Layout, and Develop and run, and names every
+  tool and task. \texttt{pyproject.toml} names the project
+  \texttt{nanoagent-<id>}, keeps the template's Python version and
+  dependencies, and bounds every other dependency above and below. \\
 \bottomrule
-\end{tabularx}
-\end{center}
+\end{longtable}}

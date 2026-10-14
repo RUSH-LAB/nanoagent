@@ -9,7 +9,8 @@ starter, replacing \texttt{my-task} with your plugin's name:
 
 \begin{enumerate}
   \item \textbf{Rename it} in \texttt{nanoagent.yaml}, the README's title,
-    \texttt{LICENSE} and \texttt{pyproject.toml} together.
+    \texttt{LICENSE} and \texttt{pyproject.toml} (\texttt{nanoagent-<id>})
+    together, and keep \texttt{status: in-development} until it is done.
   \item \textbf{Declare the types} in \texttt{contract.py}. Use Enums and
     \texttt{bool}s for anything that is a choice.
   \item \textbf{Write the tools} in \texttt{src/plugin/}, one module per
@@ -21,8 +22,9 @@ starter, replacing \texttt{my-task} with your plugin's name:
     decides every case, never a model. Test correct, incorrect, missing,
     malformed and boundary results, not only the correct one.
   \item \textbf{Finish the front end}: renderers only where the default
-    drawing falls short, plus \texttt{product.yaml} and \texttt{icon.svg}.
-  \item \textbf{Test it} with \texttt{uv sync --extra dev} and
+    drawing falls short, plus \texttt{product.yaml} and \texttt{icon.svg}
+    in your own words, then set \texttt{status: ready}.
+  \item \textbf{Test it} with \texttt{uv sync -{}-extra dev} and
     \texttt{uv run pytest}, and keep \texttt{uv.lock} current. Keep reports
     and run outputs outside the plugin folder.
 \end{enumerate}
@@ -30,4 +32,5 @@ starter, replacing \texttt{my-task} with your plugin's name:
 The \code{README.md}{starter's README} says how to add a tool or a task,
 and \href{\arxiv}{arXiv Source} shows each piece at full size. The
 manifest's \texttt{nanoagent} field, such as \texttt{\textasciitilde=0.5.0},
-is the range of NanoAgent versions the plugin runs on.
+is the one NanoAgent minor version the plugin runs on; NanoAgent raises it
+whenever a plugin written for the last one could break.

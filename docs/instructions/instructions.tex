@@ -1,14 +1,14 @@
 \documentclass[11pt]{article}
 
-\usepackage[margin=0.9in]{geometry}
+\usepackage[margin=0.8in]{geometry}
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
 \usepackage{booktabs}
-\usepackage{tabularx}
+\usepackage{longtable}
 \usepackage{enumitem}
 \usepackage[hidelinks]{hyperref}
 
-\setlist{itemsep=0.15em, topsep=0.3em}
+\setlist{itemsep=0pt, topsep=0.2em}
 \setlength{\emergencystretch}{3em}
 
 % Every link to code goes to a public example plugin.
@@ -17,13 +17,9 @@
 \newcommand{\code}[2]{\href{\starter/blob/main/#1}{\texttt{#2}}}
 \newcommand{\arxivcode}[2]{\href{\arxiv/blob/main/#1}{\texttt{#2}}}
 
-\title{NanoAgent Plugins: Fundamentals and How to Build One}
-\author{}
-\date{NanoAgent 0.5.0}
-
 \begin{document}
 
-\maketitle
+{\centering{\Large\bfseries NanoAgent Plugins: Fundamentals and How to Build One\par}\vspace{0.3em}{NanoAgent 0.5.0\par}\vspace{0.6em}}
 
 \input{sections/1_overview}
 \input{sections/2_fundamentals}
