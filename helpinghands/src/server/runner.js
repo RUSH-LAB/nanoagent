@@ -130,7 +130,8 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
   const sockets = new WebSocketServer({noServer: true, maxPayload: MAX_PAYLOAD});
 
   function attach(userId, socket) {
-    const entry = {socket, page: crypto.randomUUID(), device: null, keys: [], pending: new Map(), closed: false};
+    // `runs`: the held requests the computer said it has, once it has said hello.
+    const entry = {socket, page: crypto.randomUUID(), device: null, keys: [], pending: new Map(), closed: false, runs: null};
     entry.gateway = createNanoAgentGateway({endpoint: {url: 'http://runner'}, fetchImpl: socketFetch(entry), local: true});
     connected.get(userId)?.socket.close(REPLACED, 'Another Mochi Lab signed in as this account');
     connected.set(userId, entry);
@@ -150,7 +151,10 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
         entry.device = typeof frame.device === 'string' ? frame.device.slice(0, 100) : null;
         entry.keys = keyList(frame.keys);
         if (first) giveKey(userId, entry);
-        return heldRuns(userId, entry, Array.isArray(frame.runs) ? frame.runs.filter(id => typeof id === 'string') : []);
+        const runs = Array.isArray(frame.runs) ? frame.runs.filter(id => typeof id === 'string') : [];
+        entry.runs = new Set(runs);
+        claimAway(userId);
+        return onRuns(userId, runs.filter(id => !entry.pending.has(id)));
       }
       const call = entry.pending.get(frame?.id);
       if (!call) return;
@@ -183,6 +187,8 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
       }
       if (connected.get(userId) === entry) connected.delete(userId);
       pages.delete(entry.page);
+      // The computer may be back already, its hello heard before this socket's close.
+      claimAway(userId);
     });
     socket.on('error', () => socket.terminate());
   }
@@ -198,17 +204,19 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
   }
 
   /**
-   * The held requests the member's computer says it has (`hello`): each held
-   * call of this process whose computer went away goes on from the frames it
-   * had, or fails when the computer does not have it any more; the rest go to
-   * `onRuns`, held requests this process has no call for (it started since).
+   * Hand each held call of the member's whose computer went away to the
+   * computer connected now, once it has said which held requests it has
+   * (`hello`): a call goes on from the frames it had, or fails when the
+   * computer does not have it any more. The held requests this process has no
+   * call for (it started since) go to `onRuns`, from the hello.
    */
-  function heldRuns(userId, entry, runs) {
-    const listed = new Set(runs);
+  function claimAway(userId) {
+    const entry = connected.get(userId);
+    if (!entry || entry.closed || !entry.runs) return;
     for (const [id, {userId: owner, call}] of away) {
       if (owner !== userId) continue;
       call.leftAway();
-      if (!listed.has(id)) {
+      if (!entry.runs.has(id)) {
         call.fail(gone('Mochi Lab stopped while answering'));
         continue;
       }
@@ -216,7 +224,6 @@ function createRunners({resolveIdentity, openrouterKeys = null}) {
       entry.pending.set(id, call);
       entry.socket.send(JSON.stringify({type: 'resume', id, from: call.frames}));
     }
-    onRuns(userId, runs.filter(id => !entry.pending.has(id)));
   }
 
   const api = Object.freeze({
