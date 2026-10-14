@@ -12,14 +12,14 @@ const body = {
 };
 
 describe('workspace agents', () => {
-  it('creates Mochi with no custom instructions for an empty workspace', async () => {
+  it('creates RUSH with no custom instructions for an empty workspace', async () => {
     const listed = await invoke(routes, {method: 'GET', path: '/api/agents', ctx: makeCtx(), requestContext: context});
     assert.deepEqual(listed.payload.agents.map(agent => ({
       id: agent.id,
       name: agent.name,
       instructions: agent.instructions,
       builtin: agent.builtin,
-    })), [{id: 'mochi', name: 'Mochi', instructions: '', builtin: true}]);
+    })), [{id: 'mochi', name: 'RUSH', instructions: '', builtin: true}]);
     assert.equal('profileId' in listed.payload.agents[0], false);
   });
 
@@ -61,6 +61,19 @@ describe('workspace agents', () => {
     assert.equal((await ctx.collection('agents').get(scope, 'mochi')).profileId, undefined);
   });
 
+  it('renames the default agent Mochi to RUSH, keeping a name its workspace chose', async () => {
+    for (const [stored, renamed] of [['Mochi', 'RUSH'], ['Scout', 'Scout']]) {
+      const ctx = makeCtx();
+      const scope = ctx.scopeFor({context});
+      await ctx.collection('agents').put(scope, 'mochi', {
+        id: 'mochi', name: stored, description: '', instructions: '', builtin: true, defaultsVersion: 6,
+      });
+      const listed = await invoke(routes, {method: 'GET', path: '/api/agents', ctx, requestContext: context});
+      assert.equal(listed.payload.agents[0].name, renamed);
+      assert.equal((await ctx.collection('agents').get(scope, 'mochi')).name, renamed);
+    }
+  });
+
   it('creates, lists, edits, and deletes an agent', async () => {
     const ctx = makeCtx();
     const created = await invoke(routes, {method: 'POST', path: '/api/agents', body, ctx, requestContext: context});
@@ -95,9 +108,9 @@ describe('workspace agents', () => {
     }
   });
 
-  it('does not delete the built-in Mochi agent', async () => {
+  it('does not delete the built-in agent', async () => {
     const r = await invoke(routes, {method: 'DELETE', path: '/api/agents/mochi', ctx: makeCtx(), requestContext: context});
-    assert.deepEqual([r.status, r.payload], [400, {error: 'The default Mochi agent cannot be deleted'}]);
+    assert.deepEqual([r.status, r.payload], [400, {error: 'The default agent cannot be deleted'}]);
   });
 
   it('does not let a viewer change shared agents', async () => {
