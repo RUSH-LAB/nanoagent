@@ -274,19 +274,18 @@ export function npmInstallProblems(projectRoot) {
 }
 
 /**
- * Startup stops, before any service runs, when Mochi's node_modules or NanoAgent's .venv differ
- * from their lockfiles, naming the command that brings them up to date. Nothing is installed here.
+ * Before any service runs, Mochi's node_modules and NanoAgent's .venv are installed from their
+ * lockfiles, so a pull or branch switch never leaves them behind. A lockfile that no longer agrees
+ * with its manifest stops startup: npm ci and uv sync --locked refuse it rather than resolve again.
  */
-async function checkDependencies(env, nanoagentRoot) {
+async function syncDependencies(env, nanoagentRoot) {
   const problems = npmInstallProblems(root);
   if (problems.length) {
-    throw new Error(`Mochi's node_modules does not match its lockfile; run npm install:\n  ${problems.join('\n  ')}`);
+    console.log(`Installing Mochi's node_modules from package-lock.json:\n  ${problems.join('\n  ')}`);
+    await run('npm', ['ci'], {cwd: root, env, stdio: 'inherit'});
   }
-  if (!usesLocalNanoAgent(env)) return;
-  try {
-    await run('uv', ['sync', '--locked', '--check', '--inexact', '--extra', 'web'], {cwd: nanoagentRoot, env, stdio: 'inherit'});
-  } catch {
-    throw new Error(`NanoAgent's .venv does not match its uv.lock (above); run uv sync --inexact --extra web in ${nanoagentRoot}`);
+  if (usesLocalNanoAgent(env)) {
+    await run('uv', ['sync', '--locked', '--inexact', '--extra', 'web'], {cwd: nanoagentRoot, env, stdio: 'inherit'});
   }
 }
 
@@ -336,8 +335,6 @@ export async function startLocal(argv = process.argv.slice(2)) {
   if (usesLocalNanoAgent(env) && !env.OPENROUTER_API_KEY?.trim()) {
     throw new Error('Local NanoAgent requires OPENROUTER_API_KEY. Add it to .env, then run npm start again.');
   }
-  await checkDependencies(env, nanoagentRoot);
-  if (usesLocalNanoAgent(env)) await preparePiRunner(env, nanoagentRoot);
   const apiPort = validatedPort(env.EDITOR_PORT, 'EDITOR_PORT');
   const sitePort = validatedPort(env.SITE_PORT || 3000, 'SITE_PORT');
   if (apiPort === sitePort) {
@@ -352,6 +349,9 @@ export async function startLocal(argv = process.argv.slice(2)) {
   if (occupied.length) {
     throw new Error(`Port${occupied.length === 1 ? '' : 's'} ${occupied.join(', ')} already in use; stop the existing local service first`);
   }
+  // After the port check, so a running npm start never has its packages replaced under it.
+  await syncDependencies(env, nanoagentRoot);
+  if (usesLocalNanoAgent(env)) await preparePiRunner(env, nanoagentRoot);
   // Keep every child in the terminal's process group. Ctrl+C then reaches the
   // agent, API, site, and this supervisor together, so npm cannot leave a
   // detached development service behind.
