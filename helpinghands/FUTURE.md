@@ -87,3 +87,20 @@ To decide, if it is released:
 - Both use port 47311, so a member runs one or the other.
 - First check before release: open the app against the production Mochi it serves, sign in,
   see the relay connect, and run a plugin.
+
+## Chat in RUSH Lab
+
+The chat window docked to the bottom of every page (`src/components/CommandBar`) is hidden for
+now, to keep the site simple while members publish and run plugins. Only its mount is off:
+`SHOW_CHAT` in `src/theme/Root.js` is `false`, and `--site-cli-height` in `src/css/custom.css`
+is `0px` so pages reserve no strip for it. Its code, the chat routes (`src/server/routes/chat.js`)
+and their tables are unchanged. Plugins still run from their own pages (`src/components/PluginFrame`).
+
+We may support chat again later. Bringing it back means setting `SHOW_CHAT` to `true` and
+`--site-cli-height` back to `var(--site-cli-row)`.
+
+To decide:
+
+- What chat is for in RUSH Lab: talking to an agent about a workspace, running plugins from a
+  conversation, or messaging other members in channels.
+- Whether it is on for every workspace or one an owner turns on, as with Book and Blog above.
