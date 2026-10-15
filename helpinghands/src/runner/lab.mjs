@@ -5,7 +5,7 @@
  * with an error:
  *
  *   mochi-lab/stamp          names this bundle
- *   mochi-lab/config.json    desktop/config.yaml: the Mochi it serves, NanoAgent's port, Python's version
+ *   mochi-lab/config.json    desktop/config.yaml: its own site and what it installs as there or beside it, Python's version
  *   mochi-lab/bin/{node,uv}  the runtimes, first on every service's PATH
  *   mochi-lab/runner/        this file, the relay (relay.mjs) and what it loads
  *   mochi-lab/nanoagent/     NanoAgent compiled by Nuitka (site/), its uv.lock, the PI runner's bundle, its config
@@ -20,9 +20,9 @@
  * that another computer replaced exits cleanly, and so does this. SIGTERM stops both, cleanly.
  *
  * It runs on macOS, where plugins run in seatbelt, and on Linux, Windows's WSL2 included, where
- * they run in bwrap (PLATFORMS). Its data folder (settings.env, runner-credentials.json, logs/, and
- * NanoAgent's folders) is ~/Library/Application Support/lab.mochi.lab/ on macOS and
- * ~/.local/share/lab.mochi.lab/ on Linux, as install.sh makes it. Node's own modules are all it loads.
+ * they run in bwrap (PLATFORMS). Its data folder (site, settings.env, runner-credentials.json, logs/,
+ * and NanoAgent's folders) is ~/Library/Application Support/<label>/ on macOS and
+ * ~/.local/share/<label>/ on Linux, as install.sh makes it, the label being the site's (installFor). Node's own modules are all it loads.
  */
 import {spawn} from 'node:child_process';
 import crypto from 'node:crypto';
@@ -59,19 +59,29 @@ export const PROVIDER_KEYS = [
 const SYSTEM_ENV = ['HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'TMPDIR'];
 const isProviderKey = name => PROVIDER_KEYS.some(([env]) => env === name);
 /**
- * Where it runs: the sandbox NanoAgent confines plugins in (nanoagent.plugin.sandbox), its data
- * folder under the home folder, and how a page opens in the member's browser. Under WSL2 that is
+ * Where it runs: the sandbox NanoAgent confines plugins in (nanoagent.plugin.sandbox), and how a
+ * page opens in the member's browser. Under WSL2 that is
  * Windows's, through its interop; the page is in the log, and install.sh prints it, either way.
  */
 export const PLATFORMS = {
-  darwin: {sandbox: 'seatbelt', data: ['Library', 'Application Support', 'lab.mochi.lab'], open: () => ['open']},
+  darwin: {sandbox: 'seatbelt', open: () => ['open']},
   linux: {
     sandbox: 'bwrap',
-    data: ['.local', 'share', 'lab.mochi.lab'],
     open: () => (/microsoft/i.test(fs.readFileSync('/proc/sys/kernel/osrelease', 'utf8')) ? ['/mnt/c/Windows/explorer.exe'] : ['xdg-open']),
   },
 };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * What RUSH Lab is installed as for `site` (config.yaml): its label, NanoAgent's port and the files
+ * folder. The bundle's own site keeps config's; any other runs beside it, under other_site's.
+ */
+export function installFor(config, site) {
+  const own = site === config.site_url;
+  const values = own ? config : config.other_site;
+  return {label: values.label, port: values.nanoagent_port, filesFolder: values.files_folder};
+}
+
 const log = message => console.log(`${new Date().toISOString()} ${message}`);
 
 /** KEY=VALUE lines, as scripts/db/postgres.mjs's parseEnv reads Mochi's .env. */
@@ -261,19 +271,21 @@ async function main() {
   const config = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf8'));
   const bin = path.join(root, 'bin');
   const nanoagent = path.join(root, 'nanoagent');
-  const data = path.join(os.homedir(), ...platform.data);
+  // install.sh unpacks the bundle into <data>/app/<stamp>/, and writes the site it came from in <data>/site.
+  const data = path.resolve(root, '..', '..', '..');
+  const site = fs.readFileSync(path.join(data, 'site'), 'utf8').trim();
+  const {label, port, filesFolder} = installFor(config, site);
+  if (path.basename(data) !== label) throw new Error(`RUSH Lab for ${site} is installed as ${label}, not in ${data}`);
   /** Open `page` in the member's browser; when that cannot be done, the log has the page. */
   const openPage = page => {
     const [program, ...args] = platform.open();
     spawn(program, [...args, page], {stdio: 'ignore'}).on('error', error => log(`could not open ${page}: ${error.message}`));
   };
-  const files = path.join(os.homedir(), config.files_folder);
+  const files = path.join(os.homedir(), filesFolder);
   const settingsFile = path.join(data, 'settings.env');
   // The services this has running: one `pid<TAB>program` line each.
   const pidFile = path.join(data, 'services.pid');
   const logs = path.join(data, 'logs');
-  const port = config.nanoagent_port;
-  const site = config.site_url;
   const services = [];
   let stopping = false;
   let relayStdin = null;
@@ -494,10 +506,16 @@ async function main() {
 }
 
 // As a URL the path is escaped ("Application Support" is Application%20Support), so compare paths;
-// launchd names this through the `current` link, and Node resolves it.
+// launchd names this through the `current` link, and Node resolves it. `lab.mjs label <site>` prints
+// the label install.sh installs it under for that site.
 if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1])) {
-  main().catch(error => {
-    console.error(`${new Date().toISOString()} ${error.message}`);
-    process.exitCode = 1;
-  });
+  if (process.argv[2] === 'label') {
+    const config = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'config.json'), 'utf8'));
+    console.log(installFor(config, process.argv[3]).label);
+  } else {
+    main().catch(error => {
+      console.error(`${new Date().toISOString()} ${error.message}`);
+      process.exitCode = 1;
+    });
+  }
 }

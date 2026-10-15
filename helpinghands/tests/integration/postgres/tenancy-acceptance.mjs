@@ -155,6 +155,8 @@ try {
     env: {
       ...process.env,
       NODE_ENV: 'test',
+      // Never used: no computer here connects without a key of its own.
+      OPENROUTER_MANAGEMENT_KEY: 'acceptance-unused',
       ...fakeGithubEnv(Object.values(github)),
       ROOT_GITHUB_LOGIN: github.root.login,
       NANOAGENT_URL: 'off',

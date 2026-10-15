@@ -2,7 +2,7 @@
  * The only slash command in an agent chat: show or switch the chat's model.
  *
  * A chat runs on the model it chose here, else the member's Chat model in
- * Settings → AI, else NanoAgent's default, all on the member's computer
+ * Settings → Usage, else NanoAgent's default, all on the member's computer
  * (`ctx.ai`: its models from /api/ai/models, and the settings).
  */
 
@@ -65,7 +65,7 @@ export const VERBS = [
       if (!wanted) {
         ctx.note([
           `model: ${current ? describe(current) : 'NanoAgent’s default'}`,
-          'switch with /model <name>; choose your default in Settings → AI',
+          'switch with /model <name>; choose your default in Settings → Usage',
         ].join('\n'));
         return;
       }

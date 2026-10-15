@@ -6,11 +6,13 @@ import PageTracker from '@site/src/components/Analytics/PageTracker';
 import {clientPlatform} from '@site/src/platform/client';
 import {isOpenPage, signInUrl} from '@site/src/utils/signIn';
 import {AccountProvider} from '@site/src/utils/account';
+import {apiRequest} from '@site/src/utils/api';
 
 const SHOW_CHAT = false;
 const CommandBar = lazy(() => import('@site/src/components/CommandBar'));
 const AuthScreen = lazy(() => import('@site/src/theme/Root/AuthScreen'));
 const OnboardingScreen = lazy(() => import('@site/src/theme/Root/OnboardingScreen'));
+const LabScreen = lazy(() => import('@site/src/theme/Root/LabScreen'));
 
 function Deferred({children}) {
   return <Suspense fallback={null}>{children}</Suspense>;
@@ -55,6 +57,14 @@ function IdleCommandBar() {
  * An empty workspace answer sends the user to OnboardingScreen to open an
  * invitation.
  *
+ * Nor is a workspace. Every AI run goes to RUSH Lab on the member's own
+ * computer (server/runner.js), so a member whose computer is not connected is
+ * held at LabScreen, which offers the line that installs it and lets them in
+ * once it connects. It is asked once, beside the workspaces: a computer that
+ * leaves later (asleep, offline) does not throw the member out of the page they
+ * are on, and the runs say it is not connected. The page that approves a
+ * computer (/device) is not held, as it is how one connects.
+ *
  * A visitor without a session never gets here on a page that needs one: the
  * server that sends the page redirects them to the sign-in page first
  * (src/utils/signIn.js).
@@ -91,6 +101,9 @@ function AuthGate({ children }) {
   const [status, setStatus] = useState(CHECKING);
   const [detail, setDetail] = useState(null);
   const [data, setData] = useState(null);
+  // Whether RUSH Lab on the member's computer was connected on arriving, then once it connects.
+  const [lab, setLab] = useState(false);
+  const labConnected = useCallback(() => setLab(true), []);
 
   // Asks the server again and keeps the answer, for a page that changed it.
   const refresh = useCallback(async () => {
@@ -103,11 +116,13 @@ function AuthGate({ children }) {
     let cancelled = false;
     // /api/workspaces is already behind the server's session gate. It answers
     // both "who is signed in?" and "where can they go?", avoiding a second
-    // Better Auth request on every cold application load.
-    loadWorkspaces({fresh: true})
-      .then((workspaceData) => {
+    // Better Auth request on every cold application load. Whether the member's
+    // computer is connected is asked beside it, not after it.
+    Promise.all([loadWorkspaces({fresh: true}), apiRequest('/api/runner/status')])
+      .then(([workspaceData, computer]) => {
         if (cancelled) return;
         setData(workspaceData);
+        setLab(computer.connected);
         setStatus(SIGNED_IN);
       })
       .catch((err) => {
@@ -151,6 +166,18 @@ function AuthGate({ children }) {
       return (
         <Deferred>
           <OnboardingScreen
+            onSignOut={() => import('@site/src/utils/authClient')
+              .then(({signOutAndForget}) => signOutAndForget())
+              .then(() => clientPlatform.location.reload())}
+          />
+        </Deferred>
+      );
+    }
+    if (!lab && !ungated && pathname.replace(/\/$/, '') !== '/device') {
+      return (
+        <Deferred>
+          <LabScreen
+            onConnected={labConnected}
             onSignOut={() => import('@site/src/utils/authClient')
               .then(({signOutAndForget}) => signOutAndForget())
               .then(() => clientPlatform.location.reload())}

@@ -157,13 +157,18 @@ mochi-lab/
 └── nanoagent/      NanoAgent compiled, its uv.lock, the PI runner's bundle, its config
 ```
 
-`src/runner/install.sh` checks the download against `X-Lab-Sha256`, unpacks it into the data
-folder's `app/<stamp>/`, points `app/current` at it, and removes older versions. The data folder is
-`~/Library/Application Support/lab.mochi.lab/` on macOS and `~/.local/share/lab.mochi.lab/` on
-Linux. It then has the service manager run `app/current/mochi-lab/bin/node
-app/current/mochi-lab/runner/lab.mjs` at every login: on macOS, `~/Library/LaunchAgents/lab.mochi.lab.plist`,
-loaded with `launchctl bootstrap gui/<uid>`; on Linux, the systemd user unit
-`~/.config/systemd/user/lab.mochi.lab.service`, enabled and started. On Linux it first checks that
+`src/runner/install.sh` checks the download against `X-Lab-Sha256` and unpacks it. The bundle's
+`lab.mjs label <site>` names what it installs as for the site the command came from (`installFor`,
+from `config.yaml`): `lab.mochi.lab` for its own site, rush-lab.org, with NanoAgent on 47311 and
+files in `~/rushlab`; for any other, such as a checkout's `npm start`, `other_site`'s
+`lab.mochi.lab.dev`, on 47312 with `~/rushlab-dev`, so the two run side by side. Below, `<label>` is
+that name. The script moves the bundle into the data folder's `app/<stamp>/`, points `app/current`
+at it, writes the site in the data folder's `site`, and removes older versions. The data folder is
+`~/Library/Application Support/<label>/` on macOS and `~/.local/share/<label>/` on Linux. It then
+has the service manager run `app/current/mochi-lab/bin/node app/current/mochi-lab/runner/lab.mjs` at
+every login: on macOS, `~/Library/LaunchAgents/<label>.plist`, loaded with `launchctl bootstrap
+gui/<uid>`; on Linux, the systemd user unit `~/.config/systemd/user/<label>.service`, enabled and
+started. On Linux it first checks that
 bubblewrap is installed and can make a sandbox (Ubuntu 23.10 and later restrict the user namespaces
 it needs, through AppArmor; WSL2 does not), and that the member's systemd runs (WSL2 has it with
 `[boot] systemd=true` in `/etc/wsl.conf`, the default for Ubuntu). Before starting it, it exchanges the
@@ -177,8 +182,8 @@ newest bundle and signs the computer in again.
 Linux (`PLATFORMS`), and starts with `uv sync`, then NanoAgent with the platform's sandbox (seatbelt,
 or bwrap), a fresh
 token and the keys, then the relay. Each service gets the same environment as under the app, and its
-data folder is `lab.mochi.lab`: `settings.env`, `runner-credentials.json`, `logs/` and NanoAgent's
-folders. Its own log is `logs/lab.log`. When the relay needs signing in, it opens the device page in
+data folder is the one it is installed in (`<label>`, which it checks against its site): `site`,
+`settings.env`, `runner-credentials.json`, `logs/` and NanoAgent's folders. Its own log is `logs/lab.log`. When the relay needs signing in, it opens the device page in
 the browser and logs its address. Once connected after that, it opens the site, at Settings → AI
 while there is no key. Keys come only from Settings → AI, through the relay; there is no keys page.
 When either service exits, it stops the other, the relay first, and exits 1, and the service manager
@@ -187,9 +192,14 @@ cleanly, and so does lab.mjs: launchd and systemd restart only a failure (`KeepA
 `Restart=on-failure`), so two computers do not take the runs back and forth. SIGTERM stops both and
 exits 0.
 
-The install prints how to uninstall: on macOS `launchctl bootout gui/$(id -u)/lab.mochi.lab`, on
-Linux `systemctl --user disable --now lab.mochi.lab.service`, then removing the plist or unit and the
+The install prints how to uninstall: on macOS `launchctl bootout gui/$(id -u)/<label>`, on
+Linux `systemctl --user disable --now <label>.service`, then removing the plist or unit and the
 data folder.
+
+Locally, `npm start` runs no RUSH Lab of its own: its site's install command installs one as a
+member's does. `npm run lab:bundle` builds this computer's bundle from the checkout
+(`scripts/dev/lab-bundle.mjs`) into the local database, which `npm run db:pull` leaves without
+production's; run it again to try a change to the runner or NanoAgent.
 
 ## Known gaps
 

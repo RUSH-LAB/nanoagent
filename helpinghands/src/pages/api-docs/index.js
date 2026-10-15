@@ -356,7 +356,7 @@ const CATEGORIES = [
     endpoints: [
       {
         method: 'POST', path: '/api/ai/complete', description: 'Generate AI text completions. Supports continue, improve, explain, summarize, and inline modes. Rate-limited to 10/min per IP.',
-        request: '{ "prompt": "The transformer architecture...", "messages": [{ "role": "user", "content": "Earlier question" }, { "role": "assistant", "content": "Earlier answer" }], "type": "continue", "agentId": "researcher" }\n\nValid types: "continue", "improve", "explain", "summarize", "inline". The optional agentId selects a trusted workspace-defined identity. The run uses your Chat model from Settings → AI, on your computer in Mochi Lab; model {"provider", "model"} chooses another for this request.',
+        request: '{ "prompt": "The transformer architecture...", "messages": [{ "role": "user", "content": "Earlier question" }, { "role": "assistant", "content": "Earlier answer" }], "type": "continue", "agentId": "researcher" }\n\nValid types: "continue", "improve", "explain", "summarize", "inline". The optional agentId selects a trusted workspace-defined identity. The run uses your Chat model from Settings → Usage, on your computer in Mochi Lab; model {"provider", "model"} chooses another for this request.',
         response: '{ "text": "...generated continuation..." }',
       },
       {
@@ -392,7 +392,7 @@ const CATEGORIES = [
         response: '{ "connected": true, "device": "laptop", "models": [{ "key": "anthropic/claude-sonnet-4-5", "choice": { "provider": "anthropic", "model": "claude-sonnet-4-5" }, "label": "Claude Sonnet 4.5", "uses": ["chat", "inline"], "available": false, "unavailableReason": "Needs your Anthropic key: add it under API keys" }], "defaults": { "chat": "openrouter/deepseek/deepseek-v4-flash-0731" }, "limits": { "capped": false } }',
       },
       {
-        method: 'GET', path: '/api/runner/status', description: 'Whether Mochi Lab is connected for you, what it calls your computer, and which API keys it holds (never their values).',
+        method: 'GET', path: '/api/runner/status', description: 'Whether Mochi Lab is connected for you and since when, what it calls your computer, and which API keys it holds (never their values).',
         response: '{ "connected": true, "device": "laptop", "keys": [{ "env": "OPENROUTER_API_KEY", "label": "OpenRouter", "set": true }] }',
       },
       {
@@ -436,7 +436,7 @@ const CATEGORIES = [
         response: '{ "agents": [{ "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "color": "blue" }] }',
       },
       {
-        method: 'POST', path: '/api/agents', description: 'Create a workspace agent: a name and instructions. Owners and editors can manage agents. An agent chooses no model; each member\'s chats with it run on their own (Settings → AI).',
+        method: 'POST', path: '/api/agents', description: 'Create a workspace agent: a name and instructions. Owners and editors can manage agents. An agent chooses no model; each member\'s chats with it run on their own (Settings → Usage).',
         request: '{ "name": "Researcher", "description": "Finds evidence", "instructions": "Check claims and cite evidence.", "color": "blue" }',
         response: '{ "agent": { "id": "...", "name": "Researcher", "description": "Finds evidence", "instructions": "...", "color": "blue" } }',
       },

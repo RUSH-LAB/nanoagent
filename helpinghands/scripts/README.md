@@ -36,12 +36,13 @@ ROOT_GITHUB_LOGIN=your-github-login
 ```
 
 GitHub is the only way to sign in, so the server refuses to start unless all
-three GitHub values are set. Create an OAuth App under GitHub Settings →
-Developer settings → OAuth Apps with the homepage
-`http://localhost:3000` and the authorization callback URL
-`http://localhost:3001/api/auth/callback/github`. A GitHub OAuth App takes one
-callback URL, so a deployment uses its own app, with the callback
-`<SITE_URL>/api/auth/callback/github`.
+three GitHub values are set. They are the RUSH Lab OAuth App's (GitHub, RUSH-LAB
+→ Settings → OAuth Apps), whose redirect URIs are each site's
+`<SITE_URL>/api/auth/callback/github`: production's
+`https://rush-lab.org/api/auth/callback/github`, and npm start's
+`http://localhost:3001/api/auth/callback/github`, the API's port. A site whose
+redirect URI the app does not list is refused by GitHub: "The redirect_uri is
+not associated with this application".
 
 `ROOT_GITHUB_LOGIN` names the GitHub account that administers the platform.
 Every start of production's server resolves it to GitHub's numeric account id, creates that account's
@@ -72,11 +73,11 @@ MAIL_TEST_TO=...
 
 ## Running locally
 
-Put the OpenRouter key in the git-ignored `.env` file:
-
-```dotenv
-OPENROUTER_API_KEY=...
-```
+`npm run db:setup` puts production's `OPENROUTER_MANAGEMENT_KEY` in the
+git-ignored `.env`; the server refuses to start without it. Each member's RUSH Lab
+is given its own OpenRouter key from it, in the OpenRouter workspace `mochi-dev`,
+$10 for every local member together: not production's `mochi`, whose keys carry
+the same account ids as the local copy's.
 
 Start the complete local stack with one command:
 

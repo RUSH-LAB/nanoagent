@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {keyHint, keyStatus, nanoagentCommand, parseEnv, providerKeys, relayEnv, systemEnv, writeKeys} from '../../../src/runner/lab.mjs';
+import YAML from 'yaml';
+import {installFor, keyHint, keyStatus, nanoagentCommand, parseEnv, providerKeys, relayEnv, systemEnv, writeKeys} from '../../../src/runner/lab.mjs';
+
+test('installs as its own site\'s RUSH Lab there, and beside it from any other site', () => {
+  const config = YAML.parse(fs.readFileSync(new URL('../../../desktop/config.yaml', import.meta.url), 'utf8'));
+  assert.deepEqual(installFor(config, 'https://rush-lab.org'), {label: 'lab.mochi.lab', port: 47311, filesFolder: 'rushlab'});
+  assert.deepEqual(installFor(config, 'http://localhost:3000'), {label: 'lab.mochi.lab.dev', port: 47312, filesFolder: 'rushlab-dev'});
+});
 
 test('hints at a key without giving it away', () => {
   assert.equal(keyHint('sk-or-v1-0123456789abcdef'), 'sk-or-…cdef');

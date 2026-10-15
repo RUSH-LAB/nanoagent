@@ -17,6 +17,7 @@
     "db:setup": "node scripts/db/postgres.mjs setup",
     "db:pull": "node scripts/db/postgres.mjs pull",
     "db:push": "node scripts/db/postgres.mjs push",
+    "lab:bundle": "node scripts/dev/lab-bundle.mjs",
     "fs:import": "node --env-file-if-exists=.env scripts/db/import-fs.mjs",
     "test:postgres": "node scripts/db/postgres.mjs test",
     "object-storage:verify": "node --env-file-if-exists=.env scripts/maintenance/verify-object-storage.mjs",

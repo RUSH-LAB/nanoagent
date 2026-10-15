@@ -95,7 +95,7 @@ module.exports = async function lab(req, res, url, pathname, ctx) {
     if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
     const token = url.searchParams.get('token');
     if (!verifyDownloadToken(secret, token)) {
-      return refuseScript(res, 'this install link is invalid or has expired. Copy the command again from Settings, AI, on Mochi.');
+      return refuseScript(res, 'this install link is invalid or has expired. Copy the command again from Settings, Connection, on RUSH Lab.');
     }
     const body = (await fs.readFile(installScript, 'utf8'))
       .replaceAll('__MOCHI_SITE__', siteUrl).replaceAll('__MOCHI_TOKEN__', token);

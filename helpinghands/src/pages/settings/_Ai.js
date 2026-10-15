@@ -1,72 +1,18 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {apiRequest} from '@site/src/utils/api';
-import {clientPlatform} from '@site/src/platform/client';
-import {PaneHeading, Skeleton} from './_parts';
+import {Fact, PaneHeading, Skeleton} from './_parts';
 import ApiKeys from './_ApiKeys';
 import styles from './styles.module.css';
 import ai from './ai.module.css';
 
 // How often the pane asks whether Mochi Lab is connected.
 const STATUS_MS = 5_000;
-// How often the install command is asked for again: its download token lasts an hour.
-const INSTALL_MS = 30 * 60_000;
 
 // "$0.05", "$0.10", "$0.125": a price to the cent, or the tenth of a cent it has.
 const dollars = value => `$${value.toFixed(3).replace(/0$/, '')}`;
 const thousands = tokens => (tokens >= 1_000_000 ? `${Number((tokens / 1_000_000).toFixed(1))}M` : `${Math.round(tokens / 1000)}K`);
 // OpenRouter names a model "Maker: Name", and the name already says who made it.
 const shortName = label => label.slice(label.indexOf(': ') + 1).trim();
-
-/** One thing known of the model, a row of its own. */
-function Fact({label, children}) {
-  return (
-    <div className={`${styles.row} ${ai.fact}`}>
-      <span className={styles.rowLabel}>{label}</span>
-      <span className={styles.rowValue}>{children}</span>
-    </div>
-  );
-}
-
-/**
- * While Mochi Lab is not connected: the line that installs it on the member's
- * computer, to paste in a terminal (server/routes/lab.js).
- */
-function InstallLab() {
-  const [command, setCommand] = useState(null);
-  const [note, setNote] = useState(null);
-  useEffect(() => {
-    const load = () => apiRequest('/api/lab/install')
-      .then(value => {
-        setCommand(value.command);
-        setNote(current => (current?.error ? null : current));
-      })
-      .catch(err => setNote({error: err.message}));
-    load();
-    const timer = setInterval(load, INSTALL_MS);
-    return () => clearInterval(timer);
-  }, []);
-  const copy = () => clientPlatform.clipboard.writeText(command)
-    .then(() => setNote({text: 'Copied. Paste it in a terminal.'}))
-    .catch(err => setNote({error: err.message}));
-  return (
-    <section className={styles.group}>
-      <div className={styles.groupHead}>
-        <h4 className={styles.groupTitle}>Run AI on your computer</h4>
-      </div>
-      <div className={`${styles.row} ${ai.installRow}`}>
-        <div className={styles.rowLabel}>
-          <strong>Paste this in a terminal</strong>
-          {note?.error ? <span className={styles.error} role="alert">{note.error}</span>
-            : <span role="status">{note?.text ?? 'It installs RUSH Lab on this computer, to run in the background, connected to your account. macOS and Linux; on Windows, in WSL. The command is yours: keep it to yourself.'}</span>}
-        </div>
-        <div className={styles.rowControl}>
-          <button type="button" className={styles.secondaryButton} disabled={!command} onClick={copy}>Copy</button>
-        </div>
-        <code className={ai.installCommand}>{command ?? '…'}</code>
-      </div>
-    </section>
-  );
-}
 
 /**
  * Settings → AI. Your AI runs on your own computer, in Mochi Lab: its
@@ -105,7 +51,7 @@ export default function Ai() {
   useEffect(() => { loadListing(); }, [connected, loadListing]);
   const onSaved = useCallback(() => Promise.all([checkComputer(), loadListing()]), [checkComputer, loadListing]);
 
-  const heading = <PaneHeading title="AI" aside={error && <span className={styles.error} role="alert">{error}</span>} />;
+  const heading = <PaneHeading title="Usage" aside={error && <span className={styles.error} role="alert">{error}</span>} />;
   if (!model) {
     return (
       <>
@@ -118,7 +64,6 @@ export default function Ai() {
   return (
     <>
       {heading}
-      {computer && !connected && <InstallLab />}
       <section className={styles.group}>
         <ApiKeys computer={computer} onSaved={onSaved} />
       </section>

@@ -53,10 +53,15 @@ const store = postgresServices?.store ?? require('./store');
 // everything else here: a test substitutes them.
 const documents = postgresServices?.documents ?? require('./documents');
 const preferences = postgresServices?.preferences ?? require('./preferences');
-// The OpenRouter key Mochi gives each member's computer, on its own account.
-const openrouterKeys = process.env.OPENROUTER_MANAGEMENT_KEY?.trim()
-  ? createOpenRouterKeys({managementKey: process.env.OPENROUTER_MANAGEMENT_KEY.trim()})
-  : null;
+// The OpenRouter key Mochi gives each member's computer, on its own account: production's in its
+// own OpenRouter workspace, any other site's (npm start's) in another.
+if (!process.env.OPENROUTER_MANAGEMENT_KEY?.trim()) {
+  throw new Error('Mochi requires OPENROUTER_MANAGEMENT_KEY: it gives each member\'s computer its OpenRouter key.');
+}
+const openrouterKeys = createOpenRouterKeys({
+  managementKey: process.env.OPENROUTER_MANAGEMENT_KEY.trim(),
+  production: process.env.NODE_ENV === 'production',
+});
 // Members' own computers, which run every NanoAgent call of theirs.
 const runners = createRunners({resolveIdentity, openrouterKeys});
 const aiSettings = require('./ai-settings');
@@ -917,9 +922,7 @@ postgresDatabase.ready.then(() => ensureRootUser(auth)).then(root => server.list
 
   const catalog = ai.describe();
   console.log(catalog.available ? '  Plugin catalog: NanoAgent' : `  Plugin catalog: unavailable. ${catalog.reason}`);
-  console.log(openrouterKeys
-    ? `  OpenRouter keys: each member's computer is given one, $${TOTAL} for every member together`
-    : '  OpenRouter keys: none given (needs OPENROUTER_MANAGEMENT_KEY)');
+  console.log(`  OpenRouter keys: each member's computer is given one, $${TOTAL} for every member together (${openrouterKeys.workspace})`);
 
   cleanPendingObjects().catch(error => console.error('[objects] Cleanup failed:', error.message));
   console.log(`  Root: GitHub ${root.login} (owner)${root.created ? ', account created' : ''}`);

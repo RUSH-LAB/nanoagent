@@ -42,9 +42,11 @@ export function serializeEnv(values) {
 // The local database's connection comes from local.mjs, never from .env.
 const DATABASE_KEYS = ['DATABASE_URL', 'DATABASE_MIGRATION_URL', 'PG_SSL', 'PG_SSL_REJECT_UNAUTHORIZED', 'PG_DRIVER'];
 
-/** Remove every database key from .env, keeping the file's other values. */
-export function writeLocalEnvironment({envFile = LOCAL_ENV_FILE} = {}) {
-  const output = {...readEnvFile(envFile)};
+/**
+ * Remove every database key from .env and set `values` in it, keeping the file's other values.
+ */
+export function writeLocalEnvironment({envFile = LOCAL_ENV_FILE, values = {}} = {}) {
+  const output = {...readEnvFile(envFile), ...values};
   for (const key of DATABASE_KEYS) delete output[key];
   const temporaryFile = `${envFile}.${process.pid}.tmp`;
   try {
@@ -113,9 +115,13 @@ async function confirmPush(slug, {name, rows}) {
 
 const commands = Object.freeze({
   setup() {
-    writeLocalEnvironment();
+    // The OpenRouter account production gives members' keys from: npm start gives them from it too,
+    // in a workspace of its own (src/server/openrouter-keys.js).
+    const managementKey = railwayVariables().OPENROUTER_MANAGEMENT_KEY;
+    if (!managementKey) throw new Error("Railway's mochi-lab service has no OPENROUTER_MANAGEMENT_KEY");
+    writeLocalEnvironment({values: {OPENROUTER_MANAGEMENT_KEY: managementKey}});
     console.log(createLocal() ? 'Made the local database in var/postgres.' : 'The local database in var/postgres is already there.');
-    console.log('Removed any database connection from .env. Run npm run db:pull to copy production into it.');
+    console.log("Removed any database connection from .env, and set production's OPENROUTER_MANAGEMENT_KEY in it. Run npm run db:pull to copy production into the local database.");
   },
   async pull() {
     const {workspaces} = await pull({ownerUrl: productionOwnerUrl()});

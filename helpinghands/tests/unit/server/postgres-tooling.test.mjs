@@ -44,8 +44,8 @@ describe('PostgreSQL tooling', () => {
       '',
     ].join('\n'));
     try {
-      const written = writeLocalEnvironment({envFile});
-      assert.deepEqual(written, {GITHUB_CLIENT_ID: 'local-app'});
+      const written = writeLocalEnvironment({envFile, values: {OPENROUTER_MANAGEMENT_KEY: 'mgmt'}});
+      assert.deepEqual(written, {GITHUB_CLIENT_ID: 'local-app', OPENROUTER_MANAGEMENT_KEY: 'mgmt'});
       assert.deepEqual(parseEnv(fs.readFileSync(envFile, 'utf8')), written);
       assert.equal(fs.statSync(envFile).mode & 0o777, 0o600);
     } finally {

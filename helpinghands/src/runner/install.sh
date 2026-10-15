@@ -3,13 +3,13 @@
 # and the member's download token filled in (routes/lab.js). It downloads this computer's bundle
 # (desktop/scripts/bundle-lab.mjs), checks it against the sha256 Mochi sends, unpacks it into the
 # data folder's app/<stamp>/, and has the service manager run lab.mjs from it at every login,
+# under the label the bundle gives this site (lab.mjs's installFor: another site's runs beside it),
 # starting it again when it fails (lab.mjs): launchd on macOS, systemd on Linux and in Windows's
 # WSL2. Any failure stops it, with the reason.
 set -eu
 
 SITE='__MOCHI_SITE__'
 TOKEN='__MOCHI_TOKEN__'
-LABEL=lab.mochi.lab
 
 fail() {
   echo "RUSH Lab was not installed on this computer: $*" >&2
@@ -24,8 +24,6 @@ case "$(uname -s)-$(uname -m)" in
   *) fail "it runs on macOS and Linux (on Windows, in WSL2), where plugins run in a sandbox; this is $(uname -s)." ;;
 esac
 if [ "$TARGET" = x86_64-unknown-linux-gnu ]; then
-  DATA="$HOME/.local/share/$LABEL"
-  UNIT="$HOME/.config/systemd/user/$LABEL.service"
   # Plugins run in bubblewrap, in a user namespace of their own (nanoagent.plugin.sandbox).
   command -v bwrap >/dev/null 2>&1 \
     || fail "plugins run in bubblewrap, which is not installed. Install it (on Ubuntu: sudo apt install bubblewrap) and run this again."
@@ -35,12 +33,8 @@ if [ "$TARGET" = x86_64-unknown-linux-gnu ]; then
     || fail "it runs as a systemd user service, and systemd is not running for you. In WSL, add [boot] systemd=true to /etc/wsl.conf, run wsl --shutdown in Windows, and open Ubuntu again."
   sha256() { sha256sum "$1" | cut -d' ' -f1; }
 else
-  DATA="$HOME/Library/Application Support/$LABEL"
-  PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-  SERVICE="gui/$(id -u)/$LABEL"
   sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
 fi
-APPS="$DATA/app"
 
 WORK=$(mktemp -d) || fail "could not make a temporary folder."
 trap 'rm -rf "$WORK"' EXIT
@@ -60,12 +54,23 @@ ACTUAL=$(sha256 "$WORK/bundle.tar.gz")
 [ "$ACTUAL" = "$SHA256" ] || fail "the download's sha256 is $ACTUAL, not the $SHA256 $SITE sent."
 echo "Verified RUSH Lab $STAMP (sha256 $SHA256)."
 
+UNPACKED="$WORK/unpacked"
+mkdir "$UNPACKED"
+tar -xzf "$WORK/bundle.tar.gz" -C "$UNPACKED" || fail "could not unpack the bundle."
+[ "$(cat "$UNPACKED/mochi-lab/stamp" 2>/dev/null)" = "$STAMP" ] || fail "the bundle is not RUSH Lab $STAMP."
+LABEL=$("$UNPACKED/mochi-lab/bin/node" "$UNPACKED/mochi-lab/runner/lab.mjs" label "$SITE") \
+  || fail "the bundle could not say what to install as for $SITE."
+printf '%s' "$LABEL" | grep -Eq '^[A-Za-z0-9.-]+$' || fail "the bundle named no valid label for $SITE."
+if [ "$TARGET" = x86_64-unknown-linux-gnu ]; then
+  DATA="$HOME/.local/share/$LABEL"
+  UNIT="$HOME/.config/systemd/user/$LABEL.service"
+else
+  DATA="$HOME/Library/Application Support/$LABEL"
+  PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+  SERVICE="gui/$(id -u)/$LABEL"
+fi
+APPS="$DATA/app"
 mkdir -p "$APPS" "$DATA/logs" || fail "could not make $DATA."
-PARTIAL="$APPS/.$STAMP.partial"
-rm -rf "$PARTIAL"
-mkdir "$PARTIAL"
-tar -xzf "$WORK/bundle.tar.gz" -C "$PARTIAL" || fail "could not unpack the bundle."
-[ "$(cat "$PARTIAL/mochi-lab/stamp" 2>/dev/null)" = "$STAMP" ] || fail "the bundle is not RUSH Lab $STAMP."
 
 # Stop the one running now, if one is, before its files go.
 if [ "$TARGET" = x86_64-unknown-linux-gnu ]; then
@@ -82,8 +87,10 @@ elif launchctl print "$SERVICE" >/dev/null 2>&1; then
 fi
 
 rm -rf "${APPS:?}/$STAMP"
-mv "$PARTIAL" "$APPS/$STAMP"
+mv "$UNPACKED" "$APPS/$STAMP" || fail "could not move the bundle into $APPS."
 ln -sfn "$STAMP" "$APPS/current"
+# The site this installation serves (lab.mjs reads it).
+printf '%s\n' "$SITE" > "$DATA/site" || fail "could not write $DATA/site."
 for old in "$APPS"/* "$APPS"/.*.partial; do
   [ -e "$old" ] || [ -L "$old" ] || continue
   case "$(basename "$old")" in
