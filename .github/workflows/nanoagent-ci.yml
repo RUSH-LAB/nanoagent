@@ -1,15 +1,10 @@
 name: NanoAgent CI
 
+# Only a pull request runs these: production changes only by merging one, and its checks
+# decide; pushes to devmode are tested with npm test before they are pushed.
 on:
   pull_request:
     branches: [production, devmode]
-    paths:
-      - '.github/workflows/nanoagent-ci.yml'
-      - 'nanoagent/**'
-  # Not on a push to production: production changes only by merging a pull request,
-  # whose checks ran on the same code.
-  push:
-    branches: [devmode]
     paths:
       - '.github/workflows/nanoagent-ci.yml'
       - 'nanoagent/**'
